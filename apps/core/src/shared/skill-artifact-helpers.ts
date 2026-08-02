@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'fs';
 import path from 'path';
 
@@ -5,6 +6,50 @@ export type SkillAssetBytes = {
   path: string;
   content: Uint8Array;
 };
+
+type SkillBundle = {
+  assets: Array<SkillAssetBytes & { contentType?: string }>;
+};
+
+export function normalizeSkillBundle(bundle: SkillBundle): SkillBundle {
+  const assets = bundle.assets.map((asset) => ({
+    path: normalizeSkillArtifactPath(asset.path),
+    contentType: asset.contentType,
+    content: new Uint8Array(asset.content),
+  }));
+  const seenPaths = new Set<string>();
+  for (const asset of assets) {
+    if (seenPaths.has(asset.path)) {
+      throw new Error(
+        `Duplicate skill asset path after normalization: ${asset.path}`,
+      );
+    }
+    seenPaths.add(asset.path);
+  }
+  assets.sort((left, right) => left.path.localeCompare(right.path));
+  if (!assets.some((asset) => asset.path === 'SKILL.md')) {
+    throw new Error('Skill artifact must contain SKILL.md');
+  }
+  return { assets };
+}
+
+export function hashSkillBundle(bundle: SkillBundle): string {
+  const hash = createHash('sha256');
+  const assets = normalizeSkillBundle(bundle).assets;
+  const lengthPrefix = Buffer.allocUnsafe(4);
+  lengthPrefix.writeUInt32BE(assets.length);
+  hash.update(lengthPrefix);
+  for (const asset of assets) {
+    const pathBytes = Buffer.from(asset.path, 'utf-8');
+    lengthPrefix.writeUInt32BE(pathBytes.byteLength);
+    hash.update(lengthPrefix);
+    hash.update(pathBytes);
+    lengthPrefix.writeUInt32BE(asset.content.byteLength);
+    hash.update(lengthPrefix);
+    hash.update(asset.content);
+  }
+  return `sha256:${hash.digest('hex')}`;
+}
 
 export function normalizeSkillAssetPath(value: string): string {
   const normalized = value.replace(/\\/g, '/');
@@ -88,4 +133,12 @@ export function cleanSkillMetadataText(
 ): string | undefined {
   const trimmed = value?.trim();
   return trimmed || undefined;
+}
+
+function normalizeSkillArtifactPath(value: string): string {
+  try {
+    return normalizeSkillAssetPath(value);
+  } catch {
+    throw new Error(`Invalid skill artifact path: ${value}`);
+  }
 }

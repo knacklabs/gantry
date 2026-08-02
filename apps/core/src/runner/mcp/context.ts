@@ -42,6 +42,8 @@ export const BROWSER_REQUESTS_DIR = path.join(IPC_DIR, 'browser-requests');
 export const BROWSER_RESPONSES_DIR = path.join(IPC_DIR, 'browser-responses');
 export const TASK_RESPONSES_DIR = path.join(IPC_DIR, 'task-responses');
 export const IPC_AUTH_TOKEN = process.env.GANTRY_IPC_AUTH_TOKEN || '';
+export const ATTACHMENT_IPC_AUTH_TOKEN =
+  process.env.GANTRY_ATTACHMENT_IPC_AUTH_TOKEN || '';
 export const BROWSER_IPC_AUTH_TOKEN =
   process.env.GANTRY_BROWSER_IPC_AUTH_TOKEN || IPC_AUTH_TOKEN;
 export const MEMORY_IPC_AUTH_TOKEN =
@@ -63,6 +65,10 @@ export const workspaceFolder = process.env.GANTRY_WORKSPACE_KEY!;
 export const appId = process.env.GANTRY_APP_ID?.trim() || undefined;
 export const agentId = process.env.GANTRY_AGENT_ID?.trim() || undefined;
 export const jobId = process.env.GANTRY_JOB_ID?.trim() || undefined;
+export const permissionLane =
+  process.env.GANTRY_PERMISSION_LANE?.trim() === 'interactive'
+    ? 'interactive'
+    : 'autonomous';
 export const jobRunId = process.env.GANTRY_JOB_RUN_ID?.trim() || undefined;
 export const jobRunLeaseToken =
   process.env.GANTRY_JOB_RUN_LEASE_TOKEN?.trim() || undefined;
@@ -80,6 +86,9 @@ export const memoryIpcAllowedActions = normalizeMemoryIpcActions(
 );
 export const browserProfileName =
   process.env.GANTRY_BROWSER_PROFILE_NAME?.trim() || undefined;
+/** Per-turn browser credential; the host maps it to the profile this turn owns. */
+export const browserTurnToken =
+  process.env.GANTRY_BROWSER_TURN_TOKEN?.trim() || undefined;
 // Locked agents never see capability-request/approval machinery: the enabled
 // tool set parses fail-closed and introspection text shows only what is
 // currently provisioned.
@@ -270,6 +279,7 @@ export function capabilityStatusText(): string {
           'Agent access model:',
           '- Use an available action when one fits.',
           '- If the action is missing, request_access target.kind=capability for the reviewed capability id.',
+          '- If an attached MCP source has the action but no reviewed capability covers it, use request_access target.kind=mcp_capability with the server name, exact tools or trailing-star patterns, read/write risk, and a clear display name.',
           '- If an exact Gantry facade or admin tool is missing, request_access target.kind=tool with a durable Gantry tool name such as AgentDelegation or mcp__gantry__request_settings_update.',
           '- If setup is missing, request source setup through the Gantry access flow; setup records inventory, not authority.',
           '- Use request_access target.kind=run_command only as a temporary exact-command fallback when no reviewed capability fits.',
@@ -348,7 +358,9 @@ export function capabilityStatusText(): string {
       : ['- none connected yet']),
     ...(attachedMcpSourceIds.length > 0
       ? [
-          'MCP source rule: ready sources are already attached. Inspect them with mcp_list_tools, fetch one-tool schema/details with mcp_describe_tool when needed, call approved immediate actions through mcp_call_tool, and use async_mcp_call for long-running or parallel work. Do not request the same MCP capability again unless the tool response says access is missing or denied.',
+          lockedAccessPreset
+            ? 'MCP source rule: ready sources are already attached. Inspect them with mcp_list_tools, fetch one-tool schema/details with mcp_describe_tool when needed, call approved immediate actions through mcp_call_tool, and use async_mcp_call for long-running or parallel work.'
+            : 'MCP source rule: ready sources are already attached. Inspect them with mcp_list_tools, fetch one-tool schema/details with mcp_describe_tool when needed, call approved immediate actions through mcp_call_tool, and use async_mcp_call for long-running or parallel work. When an inventoried action lacks reviewed coverage, propose it with request_access target.kind=mcp_capability. Do not request the same MCP capability again once selected.',
         ]
       : []),
     ...(requestableBrowserTools.length > 0

@@ -32,6 +32,7 @@ import {
   memoryReviewerIsControlApprover,
   memoryUserId,
   threadId,
+  browserTurnToken,
 } from './context.js';
 import {
   createSignedIpcRequestEnvelope,
@@ -123,7 +124,7 @@ export async function requestMemoryAction(
       ...(appId ? { appId } : {}),
       ...(agentId ? { agentId } : {}),
       ...(threadId ? { threadId } : {}),
-      ...(memoryUserId ? { userId: memoryUserId } : {}),
+      ...(memoryUserId ? { personId: memoryUserId } : {}),
       ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
       defaultScope: memoryDefaultScope,
       allowedActions: memoryIpcAllowedActions,
@@ -215,6 +216,10 @@ export async function requestBrowserAction(
     requestId,
     action,
     payload,
+    // Present the per-turn credential the host issued at spawn. The host maps
+    // it to the profile THIS turn owns, so it never has to guess which turn is
+    // calling when two provider accounts share a conversation.
+    ...(browserTurnToken ? { browserTurnToken } : {}),
     context: {
       chatJid,
       timeoutMs,

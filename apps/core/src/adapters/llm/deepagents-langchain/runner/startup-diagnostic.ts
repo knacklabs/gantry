@@ -1,4 +1,8 @@
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
+import {
+  isRuntimeEventConversationFkId,
+  isRuntimeEventThreadFkId,
+} from '../../../../domain/events/runtime-event-conversation.js';
 import type { RunnerOutputFrame } from '../../../../runner/runner-frame.js';
 import type { CachePromptControlMode } from './cache-control.js';
 import type { DeepAgentCheckpointTimingSnapshot } from './session-store.js';
@@ -130,8 +134,10 @@ export function buildDeepAgentStartupDiagnosticEvent(input: {
     ...(input.agentInput.agentId ? { agentId: input.agentInput.agentId } : {}),
     ...(input.agentInput.runId ? { runId: input.agentInput.runId } : {}),
     ...(input.agentInput.jobId ? { jobId: input.agentInput.jobId } : {}),
-    conversationId: input.agentInput.chatJid,
-    ...(input.agentInput.threadId
+    ...(isRuntimeEventConversationFkId(input.agentInput.chatJid)
+      ? { conversationId: input.agentInput.chatJid }
+      : {}),
+    ...(isRuntimeEventThreadFkId(input.agentInput.threadId)
       ? { threadId: input.agentInput.threadId }
       : {}),
     eventType: RUNTIME_EVENT_TYPES.RUN_STARTUP_DIAGNOSTIC,
@@ -140,6 +146,10 @@ export function buildDeepAgentStartupDiagnosticEvent(input: {
     payload: {
       provider: 'deepagents',
       diagnostic: 'runner_startup',
+      conversationJid: input.agentInput.chatJid,
+      ...(input.agentInput.threadId
+        ? { threadId: input.agentInput.threadId }
+        : {}),
       modelProvider: input.modelProvider,
       modelId: input.modelId,
       endpointFamily: input.endpointFamily,

@@ -69,6 +69,32 @@ export interface MemoryLifecycleProposal {
   reason: string;
   confidence: number;
   evidenceIds: string[];
+  /**
+   * Task 2: the validated active-vs-incoming pair when this needs_review
+   * proposal is a contradiction. Threaded into proposal_json so Task 3 can
+   * snapshot both sides.
+   */
+  contradiction?: MemoryContradiction;
+  /**
+   * Task 2: raw nomination emitted by the dreaming LLM. The host resolves it
+   * against the supplied active inventory into a {@link MemoryContradiction};
+   * never persisted on its own.
+   */
+  contradictionNomination?: MemoryContradictionNomination;
+}
+
+/**
+ * What the dreaming LLM is allowed to assert about a contradiction: which
+ * active item and staged candidate conflict, the conflict type, and each
+ * side's grounding evidence. The host looks up the authoritative kind/key/value
+ * itself — the model only nominates ids it was given.
+ */
+export interface MemoryContradictionNomination {
+  conflictType: MemoryContradiction['type'];
+  activeItemId: string;
+  incomingCandidateId: string;
+  activeEvidenceIds: string[];
+  incomingEvidenceIds: string[];
 }
 
 export interface MemoryReviewReadableItem {
@@ -107,6 +133,69 @@ export interface MemoryReviewPageSubject {
   agentId: string;
   subjectType: MemorySubjectType;
   subjectId: string;
+}
+
+/**
+ * A detected disagreement between an active memory item and an incoming
+ * candidate, plus the canonical value dreaming proposes to resolve it. Task 2
+ * populates this from the risk-based detector; here it is a type only.
+ */
+export interface MemoryContradiction {
+  type: 'same_key_value_disagreement' | 'llm_claim_conflict';
+  active: {
+    itemId: string;
+    kind: string;
+    key: string;
+    value: string;
+    evidenceIds: string[];
+  };
+  incoming: {
+    candidateId: string;
+    kind: string;
+    key: string;
+    value: string;
+    evidenceIds: string[];
+  };
+  proposedCanonical: {
+    kind: string;
+    key: string;
+    value: string;
+    reason: string;
+    evidenceIds: string[];
+  };
+}
+
+export interface MemoryReviewSnapshotEvidence {
+  id: string;
+  role: 'active' | 'incoming';
+  sourceType: string;
+  sourceId?: string;
+  sourceUri?: string;
+  text: string;
+  capturedAt: string;
+}
+
+/**
+ * Immutable artifact captured when a review request is created. Persisted as
+ * `review_snapshot_json` so display never re-reads mutable rows. Task 3 fills
+ * it; here it is a type only.
+ */
+export interface MemoryReviewSnapshot {
+  schemaVersion: 1;
+  subject: MemoryReviewPageSubject;
+  conflict?: {
+    active: MemoryContradiction['active'];
+    // Optional: single-sided reviews (retire/rewrite/merge/plain needs_review)
+    // capture only the current claim; only true contradictions have an incoming.
+    incoming?: MemoryContradiction['incoming'];
+  };
+  proposedCanonical?: MemoryContradiction['proposedCanonical'];
+  /**
+   * Merge only: every sibling item the merge will retire, captured at creation
+   * (same claim shape as conflict.active) so a reviewer sees what disappears.
+   */
+  retiring?: MemoryContradiction['active'][];
+  evidence: MemoryReviewSnapshotEvidence[];
 }
 
 export interface MemoryReviewPageContext {
@@ -157,6 +246,12 @@ export interface MemoryReviewRecord extends NormalizedMemorySubject {
   itemVersions: Record<string, number>;
   candidateVersions: Record<string, string>;
   validationSummary: string;
+  /** Raw immutable artifact JSON captured at review creation (Task 3). */
+  reviewSnapshotJson?: string | null;
+  /** Parsed form of {@link reviewSnapshotJson} when present and valid. */
+  reviewSnapshot?: MemoryReviewSnapshot | null;
+  /** Origin of the decision, e.g. 'mcp' | 'channel_action' | 'control_api'. */
+  decisionSource?: string | null;
   reviewerId?: string | null;
   decision?: MemoryReviewDecision | null;
   editedValue?: string | null;
@@ -198,6 +293,8 @@ export interface MemoryReviewDecisionInput extends Partial<MemoryBoundaryContext
   editedValue?: string;
   editedReason?: string;
   reviewerId?: string;
+  /** Origin of the decision, e.g. 'mcp' | 'channel_action' | 'control_api'. */
+  decisionSource?: string;
 }
 
 export interface MemoryBoundaryContext {
@@ -205,6 +302,8 @@ export interface MemoryBoundaryContext {
   appId: string;
   /** Agent/runtime owner. For channel agents this is the configured Gantry agent folder/id. */
   agentId: string;
+  /** Public canonical person id for personal memory subjects. */
+  personId?: string;
   /** Human actor identity when known. */
   userId?: string;
   /** Logical Gantry/app group, not a provider-specific Telegram group. */
@@ -244,6 +343,7 @@ export interface MemoryEvidenceRecord extends NormalizedMemorySubject {
   id: string;
   sourceType: MemoryEvidenceSource;
   sourceId?: string | null;
+  sourceUri?: string | null;
   actorId?: string | null;
   text: string;
   metadata: Record<string, unknown>;

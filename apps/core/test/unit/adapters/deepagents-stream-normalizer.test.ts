@@ -258,6 +258,57 @@ describe('normalizeDeepAgentStream', () => {
     });
   });
 
+  it('preserves native OpenAI GPT-5.6 cache writes from streamed raw usage', async () => {
+    const result = await normalizeDeepAgentStream({
+      events: asStream([
+        streamEvent('answer'),
+        {
+          event: 'on_chat_model_stream',
+          data: {
+            chunk: {
+              content: '',
+              usage_metadata: {
+                input_tokens: 1000,
+                output_tokens: 20,
+                input_token_details: { cache_read: 400 },
+              },
+              response_metadata: {
+                usage: {
+                  prompt_tokens: 1000,
+                  completion_tokens: 20,
+                  prompt_tokens_details: {
+                    cached_tokens: 400,
+                    cache_write_tokens: 100,
+                  },
+                },
+              },
+            },
+          },
+        },
+      ]),
+      newSessionId: 'session-oai-5-6',
+      modelId: 'gpt-5.6-terra',
+      modelProfile: { maxInputTokens: 1_050_000 },
+      cacheProvider: 'openai',
+      emit: () => {},
+    });
+
+    expect(result.terminalUsage).toMatchObject({
+      model: 'gpt-5.6-terra',
+      inputTokens: 1000,
+      outputTokens: 20,
+      cacheReadTokens: 400,
+      cacheWriteTokens: 100,
+      totalBillableInputTokens: 600,
+      cacheProvider: 'openai',
+      cacheStatus: 'partial',
+    });
+    expect(result.terminalContextUsage.apiUsage).toMatchObject({
+      cache_read_input_tokens: 400,
+      cache_creation_input_tokens: 100,
+    });
+  });
+
   it('accounts DeepSeek-shaped cache reads off the flat prompt_cache_hit_tokens field', async () => {
     // DeepSeek reports cache reads on a FLAT response_metadata.usage.
     // prompt_cache_hit_tokens field (not nested under prompt_tokens_details),

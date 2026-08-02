@@ -2,10 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { resolveAgentPromptCapabilityCatalog } from '@core/application/agents/agent-prompt-capability-catalog.js';
 import { renderCapabilityGuidancePrompt } from '@core/application/agents/agent-prompt-capability-guidance.js';
-import type {
-  McpServerRepository,
-  SkillCatalogRepository,
-} from '@core/domain/ports/repositories.js';
 import { buildProviderSessionAccessFingerprint } from '@core/runtime/provider-session-access-fingerprint.js';
 import type { SemanticCapabilityDefinition } from '@core/shared/semantic-capabilities.js';
 
@@ -63,35 +59,6 @@ function skill(input: {
   };
 }
 
-function skillBinding(input: {
-  skillId: string;
-  id?: string;
-  appId?: string;
-  agentId?: string;
-  status?: 'active' | 'disabled';
-}) {
-  return {
-    id: input.id ?? `binding:${input.skillId}`,
-    appId: input.appId ?? 'app-one',
-    agentId: input.agentId ?? 'agent-one',
-    skillId: input.skillId,
-    status: input.status ?? 'active',
-    createdAt: NOW,
-    updatedAt: NOW,
-  };
-}
-
-function skillRepository(input: {
-  skills: ReturnType<typeof skill>[];
-  bindings: ReturnType<typeof skillBinding>[];
-}): SkillCatalogRepository {
-  const skills = new Map(input.skills.map((item) => [item.id, item]));
-  return {
-    listAgentSkillBindings: vi.fn(async () => input.bindings),
-    getSkill: vi.fn(async (id: string) => skills.get(id) ?? null),
-  } as unknown as SkillCatalogRepository;
-}
-
 function mcpServer(input: {
   id: string;
   displayName?: string;
@@ -127,38 +94,6 @@ function mcpServer(input: {
   };
 }
 
-function mcpBinding(input: {
-  serverId: string;
-  id?: string;
-  appId?: string;
-  agentId?: string;
-  status?: 'active' | 'disabled';
-}) {
-  return {
-    id: input.id ?? `binding:${input.serverId}`,
-    appId: input.appId ?? 'app-one',
-    agentId: input.agentId ?? 'agent-one',
-    serverId: input.serverId,
-    status: input.status ?? 'active',
-    required: false,
-    permissionPolicyIds: [],
-    allowedToolPatterns: [],
-    createdAt: NOW,
-    updatedAt: NOW,
-  };
-}
-
-function mcpRepository(input: {
-  servers: ReturnType<typeof mcpServer>[];
-  bindings: ReturnType<typeof mcpBinding>[];
-}): McpServerRepository {
-  const servers = new Map(input.servers.map((server) => [server.id, server]));
-  return {
-    listAgentBindings: vi.fn(async () => input.bindings),
-    getServer: vi.fn(async (id: string) => servers.get(id) ?? null),
-  } as unknown as McpServerRepository;
-}
-
 describe('resolveAgentPromptCapabilityCatalog', () => {
   it('projects the reviewed definitions admitted by runtime filtering', async () => {
     const selected = semanticCapability({
@@ -185,49 +120,18 @@ describe('resolveAgentPromptCapabilityCatalog', () => {
     ]);
   });
 
-  it('reuses pre-resolved definitions without repository fanout or write/grant calls', async () => {
-    const listBindings = vi.fn(async () =>
-      Array.from({ length: 93 }, (_, index) => ({
-        toolId: `tool:${index}`,
-        status: 'active',
-      })),
-    );
-    const getDefinition = vi.fn();
-    const saveSkillBinding = vi.fn();
-    const saveMcpBinding = vi.fn();
-    const grantPermission = vi.fn();
-    const input = {
+  it('projects only pre-resolved definitions', async () => {
+    const catalog = await resolveAgentPromptCapabilityCatalog({
       appId: 'app-one',
       agentId: 'agent-one',
       readySemanticCapabilities: Array.from({ length: 93 }, (_, index) =>
         semanticCapability({ capabilityId: `catalog.action.${index}` }),
       ),
-      skillRepository: {
-        listAgentSkillBindings: vi.fn(async () => []),
-        saveAgentSkillBinding: saveSkillBinding,
-      } as unknown as SkillCatalogRepository,
-      mcpServerRepository: {
-        listAgentBindings: vi.fn(async () => []),
-        saveAgentBinding: saveMcpBinding,
-      } as unknown as McpServerRepository,
-      // Legacy definition lookup and authority collaborators are deliberately
-      // present as traps: catalog projection must remain read-only and consume
-      // the already-filtered runtime definitions above.
-      toolRepository: {
-        listAgentToolBindings: listBindings,
-        getTool: getDefinition,
-      },
-      permissionRepository: { saveDecision: grantPermission },
-    };
-
-    const catalog = await resolveAgentPromptCapabilityCatalog(input);
+    });
 
     expect(catalog.readyActions).toHaveLength(93);
-    expect(listBindings).not.toHaveBeenCalled();
-    expect(getDefinition).not.toHaveBeenCalled();
-    expect(saveSkillBinding).not.toHaveBeenCalled();
-    expect(saveMcpBinding).not.toHaveBeenCalled();
-    expect(grantPermission).not.toHaveBeenCalled();
+    expect(catalog.installedSkills).toEqual([]);
+    expect(catalog.connectedMcpSources).toEqual([]);
   });
 
   it('keeps skills as instructions and MCP bindings as inventory without leaking live configuration', async () => {
@@ -243,33 +147,8 @@ describe('resolveAgentPromptCapabilityCatalog', () => {
     const catalog = await resolveAgentPromptCapabilityCatalog({
       appId: 'app-one',
       agentId: 'agent-one',
-      skillRepository: skillRepository({
-        skills: [incident, disabledSkill, foreignSkill],
-        bindings: [
-          skillBinding({ skillId: incident.id }),
-          skillBinding({ skillId: disabledSkill.id }),
-          skillBinding({ skillId: foreignSkill.id }),
-          skillBinding({
-            skillId: incident.id,
-            id: 'binding:disabled-skill',
-            status: 'disabled',
-          }),
-        ],
-      }),
-      mcpServerRepository: mcpRepository({
-        servers: [linear, disabledServer, foreignServer],
-        bindings: [
-          // Empty permission/tool patterns deliberately model inventory-only.
-          mcpBinding({ serverId: linear.id }),
-          mcpBinding({ serverId: disabledServer.id }),
-          mcpBinding({ serverId: foreignServer.id }),
-          mcpBinding({
-            serverId: linear.id,
-            id: 'binding:disabled-mcp',
-            status: 'disabled',
-          }),
-        ],
-      }),
+      installedSkills: [incident, disabledSkill, foreignSkill],
+      connectedMcpSources: [linear, disabledServer, foreignServer],
     });
 
     expect(catalog.readyActions).toEqual([]);
@@ -357,24 +236,18 @@ describe('resolveAgentPromptCapabilityCatalog', () => {
         readySemanticCapabilities: ordered.filter((definition) =>
           selectedIds.includes(definition.capabilityId),
         ),
-        skillRepository: skillRepository({
-          skills: [
-            skill({
-              id: 'skill:incident',
-              contentHash: overrides?.skillHash,
-            }),
-          ],
-          bindings: [skillBinding({ skillId: 'skill:incident' })],
-        }),
-        mcpServerRepository: mcpRepository({
-          servers: [
-            mcpServer({
-              id: 'mcp:linear',
-              updatedAt: overrides?.mcpUpdatedAt,
-            }),
-          ],
-          bindings: [mcpBinding({ serverId: 'mcp:linear' })],
-        }),
+        installedSkills: [
+          skill({
+            id: 'skill:incident',
+            contentHash: overrides?.skillHash,
+          }),
+        ],
+        connectedMcpSources: [
+          mcpServer({
+            id: 'mcp:linear',
+            updatedAt: overrides?.mcpUpdatedAt,
+          }),
+        ],
       });
     };
 

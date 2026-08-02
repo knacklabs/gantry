@@ -16,7 +16,15 @@ const baseInput: AgentInput = {
 
 describe('agent spawn admission', () => {
   const opus = resolveModelSelection('opus');
+  const opus48 = resolveModelSelection('opus-4.8');
+  const opus47 = resolveModelSelection('opus-4.7');
+  const opus46 = resolveModelSelection('opus-4.6');
+  const sonnet = resolveModelSelection('sonnet');
   if (!opus.ok) throw new Error(opus.message);
+  if (!opus48.ok) throw new Error(opus48.message);
+  if (!opus47.ok) throw new Error(opus47.message);
+  if (!opus46.ok) throw new Error(opus46.message);
+  if (!sonnet.ok) throw new Error(sonnet.message);
   it('rejects inline pre-spawn admission with every worker-only capability named', () => {
     const error = validateAgentPreSpawnAdmission({
       agentRuntime: 'inline',
@@ -139,4 +147,131 @@ describe('agent spawn admission', () => {
       }),
     ).toBe('thinking.budget_tokens is not supported by model opus-no-budget.');
   });
+
+  it.each(['xhigh', 'max'] as const)(
+    'rejects Opus 5 effort %s with thinking off before provider invocation',
+    (effort) => {
+      expect(
+        validateAgentPreSpawnAdmission({
+          agentRuntime: 'worker',
+          agentEngine: DEFAULT_AGENT_ENGINE,
+          modelEntry: opus.entry,
+          sandboxProvider: 'direct',
+          securityEnv: {},
+          agentInput: {
+            ...baseInput,
+            effort,
+            configuredThinking: { mode: 'off' },
+          },
+        }),
+      ).toBe(
+        `effort ${effort} is not supported by model opus when thinking is off; supported levels are low, medium, high.`,
+      );
+    },
+  );
+
+  it('allows an authoritative adaptive conversation thinking override over configured off plus max', () => {
+    expect(
+      validateAgentPreSpawnAdmission({
+        agentRuntime: 'worker',
+        agentEngine: DEFAULT_AGENT_ENGINE,
+        modelEntry: opus.entry,
+        sandboxProvider: 'direct',
+        securityEnv: {},
+        agentInput: {
+          ...baseInput,
+          thinking: { mode: 'adaptive', effort: 'high' },
+          effort: 'max',
+          configuredThinking: { mode: 'off' },
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it.each([undefined, 4096] as const)(
+    'rejects an enabled Opus 5 conversation thinking override with budget %s',
+    (budgetTokens) => {
+      expect(
+        validateAgentPreSpawnAdmission({
+          agentRuntime: 'worker',
+          agentEngine: DEFAULT_AGENT_ENGINE,
+          modelEntry: opus.entry,
+          sandboxProvider: 'direct',
+          securityEnv: {},
+          agentInput: {
+            ...baseInput,
+            thinking: { mode: 'enabled', budgetTokens },
+          },
+        }),
+      ).toBe('thinking enabled mode is not supported by model opus.');
+    },
+  );
+
+  it.each([
+    { model: 'opus-4.8', modelEntry: opus48.entry, budgetTokens: undefined },
+    { model: 'opus-4.8', modelEntry: opus48.entry, budgetTokens: 4096 },
+    { model: 'opus-4.7', modelEntry: opus47.entry, budgetTokens: undefined },
+    { model: 'opus-4.7', modelEntry: opus47.entry, budgetTokens: 4096 },
+  ] as const)(
+    'rejects manual enabled thinking for adaptive-only pinned $model with budget $budgetTokens',
+    ({ model, modelEntry, budgetTokens }) => {
+      expect(
+        validateAgentPreSpawnAdmission({
+          agentRuntime: 'worker',
+          agentEngine: DEFAULT_AGENT_ENGINE,
+          modelEntry,
+          sandboxProvider: 'direct',
+          securityEnv: {},
+          agentInput: {
+            ...baseInput,
+            model,
+            thinking: { mode: 'enabled', budgetTokens },
+          },
+        }),
+      ).toBe(`thinking enabled mode is not supported by model ${model}.`);
+    },
+  );
+
+  it.each([
+    { model: 'opus-4.6', modelEntry: opus46.entry },
+    { model: 'sonnet', modelEntry: sonnet.entry },
+  ] as const)(
+    'accepts manual enabled thinking budget admission for $model',
+    ({ model, modelEntry }) => {
+      expect(
+        validateAgentPreSpawnAdmission({
+          agentRuntime: 'worker',
+          agentEngine: DEFAULT_AGENT_ENGINE,
+          modelEntry,
+          sandboxProvider: 'direct',
+          securityEnv: {},
+          agentInput: {
+            ...baseInput,
+            model,
+            thinking: { mode: 'enabled', budgetTokens: 4096 },
+          },
+        }),
+      ).toBeNull();
+    },
+  );
+
+  it.each(['low', 'medium', 'high'] as const)(
+    'accepts Opus 5 effort %s with thinking off before provider invocation',
+    (effort) => {
+      expect(
+        validateAgentPreSpawnAdmission({
+          agentRuntime: 'worker',
+          agentEngine: DEFAULT_AGENT_ENGINE,
+          modelEntry: opus.entry,
+          sandboxProvider: 'direct',
+          securityEnv: {},
+          agentInput: {
+            ...baseInput,
+            effort,
+            configuredThinking: { mode: 'off' },
+          },
+        }),
+      ).toBeNull();
+    },
+  );
 });

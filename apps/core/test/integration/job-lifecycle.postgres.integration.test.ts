@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 
+import { eq } from 'drizzle-orm';
 import {
   afterAll,
   afterEach,
@@ -44,9 +45,14 @@ vi.mock('@core/config/index.js', async (importOriginal) => {
 });
 
 import { _setRuntimeStorageForTest } from '@core/adapters/storage/postgres/runtime-store.js';
+import * as pgSchema from '@core/adapters/storage/postgres/schema/schema.js';
 import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage-service.js';
+import {
+  buildJobListVisibilityMetadata,
+  buildJobVisibilityMetadata,
+} from '@core/application/jobs/job-visibility-metadata.js';
 import type { JobUpsertInput } from '@core/domain/repositories/ops-repo.js';
-import type { ConversationRoute } from '@core/domain/types.js';
+import type { ConversationRoute, JobRun } from '@core/domain/types.js';
 import { PgBossSchedulerEngine } from '@core/infrastructure/pgboss/scheduler-engine.js';
 import { configureRunSlotBackend } from '@core/jobs/concurrency.js';
 import { _resetSchedulerLoopForTests, runJob } from '@core/jobs/scheduler.js';
@@ -100,6 +106,27 @@ function makeJob(id: string, patch: Partial<JobUpsertInput> = {}) {
   } satisfies JobUpsertInput;
 }
 
+function makeRun(
+  jobId: string,
+  runId: string,
+  patch: Partial<JobRun> = {},
+): JobRun {
+  return {
+    run_id: runId,
+    job_id: jobId,
+    execution_provider_id: 'anthropic:claude-agent-sdk',
+    scheduled_for: now,
+    started_at: now,
+    ended_at: now,
+    status: 'completed',
+    result_summary: 'completed',
+    error_summary: null,
+    retry_count: 0,
+    notified_at: null,
+    ...patch,
+  };
+}
+
 function makeConversationRoute(): ConversationRoute {
   return {
     name: 'Job Lifecycle Agent',
@@ -150,6 +177,124 @@ maybeDescribe('job lifecycle (Postgres)', () => {
     await schedulerEngine?.stop();
     schedulerEngine = undefined;
   });
+
+  it('projects one latest non-session run for a 500-job listing in one query', async () => {
+    const jobs = Array.from({ length: 500 }, (_, index) =>
+      makeJob(`job:integration:latest-run:${index}`, {
+        status: 'paused',
+        next_run: null,
+      }),
+    );
+    await Promise.all(jobs.map((job) => runtime.ops.upsertJob(job)));
+
+    const baseRuns = jobs.slice(1).map((job, index) => {
+      const status = (['running', 'completed', 'failed'] as const)[
+        Math.min(index, 2)
+      ];
+      return makeRun(job.id, `run:integration:latest-run:${index + 1}`, {
+        scheduled_for: `2026-07-21T00:${String(index % 60).padStart(2, '0')}:00.000Z`,
+        started_at: `2026-07-21T00:${String(index % 60).padStart(2, '0')}:00.000Z`,
+        ended_at: status === 'running' ? null : now,
+        status,
+        result_summary: status === 'failed' ? null : status,
+        error_summary: status === 'failed' ? 'planned failure' : null,
+      });
+    });
+    await Promise.all(baseRuns.map((run) => runtime.ops.createJobRun(run)));
+
+    const nullStartedJob = jobs[4]!;
+    const nullStartedRun = makeRun(
+      nullStartedJob.id,
+      'run:integration:latest-run:null-started',
+      {
+        scheduled_for: '2026-07-21T01:00:00.000Z',
+        started_at: '2026-07-21T01:00:00.000Z',
+        result_summary: 'newer creation with null start',
+      },
+    );
+    await runtime.ops.createJobRun(nullStartedRun);
+    await runtime.service.db
+      .update(pgSchema.agentRunsPostgres)
+      .set({ startedAt: null })
+      .where(eq(pgSchema.agentRunsPostgres.id, nullStartedRun.run_id));
+
+    const sessionExcludedJob = jobs[5]!;
+    const sessionRun = makeRun(
+      sessionExcludedJob.id,
+      'run:integration:latest-run:session',
+      {
+        scheduled_for: '2026-07-21T02:00:00.000Z',
+        started_at: '2026-07-21T02:00:00.000Z',
+        result_summary: 'session run must be excluded',
+      },
+    );
+    await runtime.ops.createJobRun(sessionRun);
+    const jobOwner = await runtime.service.db
+      .select({
+        appId: pgSchema.agentRunsPostgres.appId,
+        agentId: pgSchema.agentRunsPostgres.agentId,
+      })
+      .from(pgSchema.agentRunsPostgres)
+      .where(eq(pgSchema.agentRunsPostgres.id, sessionRun.run_id))
+      .limit(1);
+    await runtime.repositories.agentSessions.saveAgentSession({
+      id: 'agent-session:latest-run-projection' as never,
+      appId: jobOwner[0]!.appId as never,
+      agentId: jobOwner[0]!.agentId as never,
+      status: 'active',
+      createdAt: now as never,
+      updatedAt: now as never,
+    });
+    await runtime.service.db
+      .update(pgSchema.agentRunsPostgres)
+      .set({ sessionId: 'agent-session:latest-run-projection' })
+      .where(eq(pgSchema.agentRunsPostgres.id, sessionRun.run_id));
+
+    const equivalenceJobs = jobs.slice(0, 6);
+    const perJobMetadata = new Map(
+      await Promise.all(
+        equivalenceJobs.map(async (job) => [
+          job.id,
+          await buildJobVisibilityMetadata({
+            job: (await runtime.ops.getJobById(job.id))!,
+            ops: runtime.ops,
+          }),
+        ]),
+      ),
+    );
+    const querySpy = vi.spyOn(runtime.service.pool, 'query');
+    querySpy.mockClear();
+
+    const listMetadata = await buildJobListVisibilityMetadata({
+      jobs: await runtime.ops.listJobs({
+        limit: 500,
+      }),
+      ops: runtime.ops,
+    });
+
+    expect(querySpy).toHaveBeenCalledTimes(2);
+    expect(
+      querySpy.mock.calls.filter(([query]) =>
+        String(
+          typeof query === 'string' ? query : (query as { text?: string }).text,
+        ).includes('distinct on'),
+      ),
+    ).toHaveLength(1);
+    querySpy.mockRestore();
+    for (const job of equivalenceJobs) {
+      expect(listMetadata.get(job.id)).toMatchObject({
+        health: perJobMetadata.get(job.id)!.health,
+        staleness: perJobMetadata.get(job.id)!.staleness,
+        recentRunErrors: perJobMetadata.get(job.id)!.recentRunErrors,
+      });
+    }
+    expect(listMetadata.get(nullStartedJob.id)?.health.latestRunId).toBe(
+      baseRuns[3]!.run_id,
+    );
+    expect(listMetadata.get(sessionExcludedJob.id)?.health.latestRunId).toBe(
+      baseRuns[4]!.run_id,
+    );
+  }, 60_000);
 
   it('exhausts retries into dead-letter with terminal runtime evidence', async () => {
     const harness = createRuntimeFlowHarness({

@@ -1,4 +1,8 @@
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
+import {
+  isRuntimeEventConversationFkId,
+  isRuntimeEventThreadFkId,
+} from '../../../../domain/events/runtime-event-conversation.js';
 import type {
   AgentRunnerInput,
   AgentRunnerRuntimeEventOutput,
@@ -26,8 +30,10 @@ export function runnerStartupTimingRuntimeEvent(input: {
     ...(input.agentInput.agentId ? { agentId: input.agentInput.agentId } : {}),
     ...(input.agentInput.runId ? { runId: input.agentInput.runId } : {}),
     ...(input.agentInput.jobId ? { jobId: input.agentInput.jobId } : {}),
-    conversationId: input.agentInput.chatJid,
-    ...(input.agentInput.threadId
+    ...(isRuntimeEventConversationFkId(input.agentInput.chatJid)
+      ? { conversationId: input.agentInput.chatJid }
+      : {}),
+    ...(isRuntimeEventThreadFkId(input.agentInput.threadId)
       ? { threadId: input.agentInput.threadId }
       : {}),
     eventType: RUNTIME_EVENT_TYPES.RUN_STARTUP_DIAGNOSTIC,
@@ -36,6 +42,10 @@ export function runnerStartupTimingRuntimeEvent(input: {
     payload: {
       provider: 'anthropic_sdk',
       diagnostic: 'runner_startup_timing',
+      conversationJid: input.agentInput.chatJid,
+      ...(input.agentInput.threadId
+        ? { threadId: input.agentInput.threadId }
+        : {}),
       persistSdkSession: input.persistSdkSession,
       resumedSession: input.resumedSession,
       sdkQueryPreparedMs: input.sdkQueryPreparedMs,

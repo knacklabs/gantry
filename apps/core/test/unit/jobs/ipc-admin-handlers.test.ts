@@ -4,6 +4,9 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { buildReviewedMcpCapabilityCandidate } from '@core/application/mcp/mcp-capability-candidate.js';
+import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
+
 const runtimeHomes: string[] = [];
 
 async function loadAdminHandlers(runtimeHome: string) {
@@ -21,6 +24,9 @@ async function loadAdminHandlers(runtimeHome: string) {
     return { ...actual, syncRuntimeSettingsFromProjection };
   });
   vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+    tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+      release: vi.fn(async () => {}),
+    })),
     getRuntimeRepositories: vi.fn(() => ({})),
     getRuntimeStorage: vi.fn(() => ({
       repositories: { pendingAccessRequests },
@@ -93,6 +99,100 @@ function depsWithAdminTools(
       }),
     }),
     ...extra,
+  };
+}
+
+function mcpCapabilityReviewDeps(
+  decide: (request: any) => Promise<any> = async () => ({
+    approved: false,
+    mode: 'cancel',
+    reason: 'not approved',
+  }),
+) {
+  const now = '2026-07-21T00:00:00.000Z';
+  const server = {
+    id: 'mcp:e2e-sum',
+    appId: 'app:test',
+    name: 'e2e-sum',
+    status: 'active',
+    createdSource: 'admin',
+    riskClass: 'low',
+    transport: 'http',
+    config: { transport: 'http', url: 'http://127.0.0.1:3000/mcp' },
+    allowedToolPatterns: ['get-sum', 'echo'],
+    autoApproveToolPatterns: [],
+    credentialRefs: [],
+    networkHosts: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  const binding = {
+    id: 'agent-mcp-binding:agent:main_agent:mcp:e2e-sum',
+    appId: 'app:test',
+    agentId: 'agent:main_agent',
+    serverId: server.id,
+    status: 'active',
+    required: false,
+    permissionPolicyIds: [],
+    allowedToolPatterns: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  const toolRepository = {
+    getTool: vi.fn(async () => null),
+    listTools: vi.fn(async () => []),
+    listAgentToolBindings: vi.fn(async () => []),
+    saveTool: vi.fn(async () => undefined),
+    saveAgentToolBinding: vi.fn(async () => undefined),
+    disableAgentToolBinding: vi.fn(async () => null),
+  };
+  const mcpServerRepository = {
+    withMcpCapabilityApprovalLock: vi.fn(
+      async ({ operation }: { operation: () => Promise<unknown> }) =>
+        operation(),
+    ),
+    getServer: vi.fn(async (id: string) => (id === server.id ? server : null)),
+    getServerByName: vi.fn(async ({ name }: { name: string }) =>
+      name === server.name ? server : null,
+    ),
+    listAgentBindings: vi.fn(async () => [binding]),
+    listMaterializedServersForAgent: vi.fn(async () => [
+      { definition: server, binding },
+    ]),
+    saveAgentBinding: vi.fn(async () => undefined),
+    disableAgentBinding: vi.fn(async () => null),
+    appendAuditEvent: vi.fn(async () => undefined),
+  };
+  const requestPermissionApproval = vi.fn(decide);
+  const sendMessage = vi.fn(async () => undefined);
+  const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
+  return {
+    deps: depsWithAdminTools([], {
+      requestPermissionApproval,
+      sendMessage,
+      getToolRepository: () => toolRepository,
+      getMcpServerRepository: () => mcpServerRepository,
+      mirrorAgentToolRulesToSettings,
+    }),
+    requestPermissionApproval,
+    sendMessage,
+    toolRepository,
+    mcpServerRepository,
+    mirrorAgentToolRulesToSettings,
+  };
+}
+
+function mcpCapabilityProposal(tools: string[], displayName = 'E2E sum read') {
+  return {
+    permissionKind: 'tool',
+    capabilityRequestSource: 'request_access',
+    capabilityProposalKind: 'mcp_capability',
+    mcpServerName: 'e2e-sum',
+    mcpToolPatterns: tools,
+    risk: 'read',
+    capabilityDisplayName: displayName,
+    temporaryOnly: false,
+    reason: 'Add numbers through the reviewed MCP source.',
   };
 }
 
@@ -467,6 +567,524 @@ describe('admin IPC handlers', () => {
         decisionOptions: ['allow_once', 'allow_persistent_rule', 'cancel'],
       }),
     );
+  });
+
+  it('reviews an in-scope MCP capability proposal without persisting the agent request', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const ipcBaseDir = path.join(runtimeHome, 'ipc');
+    const {
+      deps,
+      requestPermissionApproval,
+      sendMessage,
+      toolRepository,
+      mcpServerRepository,
+      mirrorAgentToolRulesToSettings,
+    } = mcpCapabilityReviewDeps();
+
+    await adminTaskHandlers.request_permission({
+      data: taskData(
+        'mcp-capability-review',
+        {
+          type: 'request_permission',
+          chatJid: 'sl:C123',
+          providerAccountId: 'slack_secondary',
+          runHandle: 'run-mcp-cancel',
+          payload: mcpCapabilityProposal(['get-sum']),
+        },
+        '171234.567',
+      ) as never,
+      sourceAgentFolder: 'main_agent',
+      ipcBaseDir,
+      deps: deps as never,
+      conversationBindings: {
+        'sl:C123::provider_account:slack_secondary': {
+          jid: 'sl:C123',
+          name: 'Review channel',
+          folder: 'main_agent',
+          isRegistered: true,
+          providerAccountId: 'slack_secondary',
+        },
+      },
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(readResponse(runtimeHome, 'mcp-capability-review')).toMatchObject({
+      ok: true,
+      code: 'capability_request_recorded',
+    });
+    await vi.waitFor(() =>
+      expect(requestPermissionApproval).toHaveBeenCalledTimes(1),
+    );
+    const request = requestPermissionApproval.mock.calls[0]?.[0] as any;
+    const definitions = Object.values(
+      request.semanticCapabilityDefinitions ?? {},
+    ) as any[];
+    expect(request).toMatchObject({
+      decisionPolicy: 'same_channel',
+      threadId: '171234.567',
+      providerAccountId: 'slack_secondary',
+      decisionOptions: ['allow_once', 'allow_persistent_rule', 'cancel'],
+      interaction: {
+        details: expect.arrayContaining([
+          { label: 'Server', value: 'e2e-sum' },
+          { label: 'Patterns', value: 'get-sum' },
+          { label: 'Resolved tools', value: 'get-sum' },
+          { label: 'Risk', value: 'read' },
+        ]),
+        files: [
+          expect.objectContaining({
+            path: 'mcp-capability-scope.txt',
+            preview: expect.stringContaining(
+              'Resolved exact tools:\n- get-sum',
+            ),
+            truncated: false,
+          }),
+        ],
+      },
+      toolInput: {
+        mcpServerName: 'e2e-sum',
+        mcpToolPatterns: ['get-sum'],
+        mcpResolvedTools: ['get-sum'],
+        risk: 'read',
+        capabilityDisplayName: 'E2E sum read',
+      },
+    });
+    expect(definitions).toHaveLength(1);
+    expect(definitions[0]).toMatchObject({
+      displayName: 'E2E sum read',
+      risk: 'read',
+      credentialSource: 'none',
+      implementationBindings: [
+        {
+          kind: 'mcp_pattern',
+          mcpServer: 'e2e-sum',
+          mcpToolPatterns: ['get-sum'],
+        },
+      ],
+    });
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    expect(sendMessage).toHaveBeenCalledWith('sl:C123', expect.any(String), {
+      threadId: '171234.567',
+      providerAccountId: 'slack_secondary',
+    });
+    expect(toolRepository.saveTool).not.toHaveBeenCalled();
+    expect(toolRepository.saveAgentToolBinding).not.toHaveBeenCalled();
+    expect(mcpServerRepository.saveAgentBinding).not.toHaveBeenCalled();
+    expect(mirrorAgentToolRulesToSettings).not.toHaveBeenCalled();
+    expect(
+      fs.existsSync(
+        path.join(
+          ipcBaseDir,
+          'main_agent',
+          'live-tool-rules',
+          'run-mcp-cancel.json',
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it('rejects an MCP capability review for a provider account outside the originating route', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const { deps, requestPermissionApproval } = mcpCapabilityReviewDeps();
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('mcp-capability-wrong-provider', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        providerAccountId: 'slack_secondary',
+        payload: mcpCapabilityProposal(['get-sum']),
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: deps as never,
+      conversationBindings: {
+        'sl:C123::provider_account:slack_primary': {
+          jid: 'sl:C123',
+          name: 'Review channel',
+          folder: 'main_agent',
+          isRegistered: true,
+          providerAccountId: 'slack_primary',
+        },
+      },
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(
+      readResponse(runtimeHome, 'mcp-capability-wrong-provider'),
+    ).toMatchObject({
+      ok: false,
+      code: 'forbidden',
+      error:
+        'Permission requests must use the authenticated provider account for the originating chat.',
+    });
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('rejects an MCP capability proposal outside source scope before prompting', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const {
+      deps,
+      requestPermissionApproval,
+      toolRepository,
+      mcpServerRepository,
+      mirrorAgentToolRulesToSettings,
+    } = mcpCapabilityReviewDeps();
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('mcp-capability-outside-scope', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        payload: mcpCapabilityProposal(['search_delete']),
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: deps as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(
+      readResponse(runtimeHome, 'mcp-capability-outside-scope'),
+    ).toMatchObject({
+      ok: false,
+      code: 'invalid_request',
+      error: expect.stringContaining(
+        'search_delete is not within the reviewed tools for e2e-sum',
+      ),
+    });
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(toolRepository.saveTool).not.toHaveBeenCalled();
+    expect(toolRepository.saveAgentToolBinding).not.toHaveBeenCalled();
+    expect(mcpServerRepository.saveAgentBinding).not.toHaveBeenCalled();
+    expect(mirrorAgentToolRulesToSettings).not.toHaveBeenCalled();
+  });
+
+  it('reuses the host-owned definition when the same MCP authority is proposed with a different label', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const review = mcpCapabilityReviewDeps();
+    const existingCandidate = await buildReviewedMcpCapabilityCandidate({
+      mcpServers: review.mcpServerRepository as never,
+      appId: 'app:test' as never,
+      agentId: 'agent:main_agent' as never,
+      serverName: 'e2e-sum',
+      tools: ['get-sum'],
+      risk: 'read',
+      displayName: 'Existing reviewed sum access',
+    });
+    const existingDefinition = existingCandidate.definition;
+    review.toolRepository.listTools.mockResolvedValue([
+      {
+        name: `capability:${existingDefinition.capabilityId}`,
+        status: 'active',
+        selectable: true,
+        inputSchema: semanticCapabilityInputSchema(existingDefinition),
+      },
+    ]);
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('mcp-capability-existing-definition', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        payload: mcpCapabilityProposal(
+          ['get-sum'],
+          'Agent supplied replacement label',
+        ),
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: review.deps as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    await vi.waitFor(() =>
+      expect(review.requestPermissionApproval).toHaveBeenCalledTimes(1),
+    );
+    const request = review.requestPermissionApproval.mock.calls[0]?.[0];
+    expect(request).toMatchObject({
+      displayName: 'MCP capability: Existing reviewed sum access',
+      toolInput: {
+        capabilityDisplayName: 'Existing reviewed sum access',
+      },
+      semanticCapabilityDefinitions: {
+        [existingDefinition.capabilityId]: existingDefinition,
+      },
+    });
+  });
+
+  it('revalidates an existing MCP proposal capability before prompting', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const review = mcpCapabilityReviewDeps();
+    const existing = await buildReviewedMcpCapabilityCandidate({
+      mcpServers: review.mcpServerRepository as never,
+      appId: 'app:test' as never,
+      agentId: 'agent:main_agent' as never,
+      serverName: 'e2e-sum',
+      tools: ['get-sum'],
+      risk: 'read',
+      displayName: 'Existing reviewed sum access',
+    });
+    review.toolRepository.listTools.mockResolvedValue([
+      {
+        name: `capability:${existing.definition.capabilityId}`,
+        status: 'active',
+        selectable: true,
+        inputSchema: semanticCapabilityInputSchema(existing.definition),
+      },
+    ]);
+    review.mcpServerRepository.listAgentBindings.mockResolvedValue([]);
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('stale-existing-mcp-capability', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        payload: {
+          permissionKind: 'tool',
+          capabilityRequestSource: 'request_access',
+          capabilityId: existing.definition.capabilityId,
+          capabilityDisplayName: existing.definition.displayName,
+          temporaryOnly: false,
+          reason: 'Use the existing reviewed MCP capability.',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: review.deps as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(
+      readResponse(runtimeHome, 'stale-existing-mcp-capability'),
+    ).toMatchObject({
+      ok: false,
+      code: 'invalid_request',
+      error: expect.stringContaining(
+        'MCP source e2e-sum is not active for this agent',
+      ),
+    });
+    expect(review.requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('rejects an MCP capability proposal outside the active agent binding scope', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const review = mcpCapabilityReviewDeps();
+    review.mcpServerRepository.listAgentBindings.mockResolvedValue([
+      {
+        id: 'agent-mcp-binding:agent:main_agent:mcp:e2e-sum',
+        appId: 'app:test',
+        agentId: 'agent:main_agent',
+        serverId: 'mcp:e2e-sum',
+        status: 'active',
+        required: false,
+        permissionPolicyIds: [],
+        allowedToolPatterns: ['get-sum'],
+        createdAt: '2026-07-21T00:00:00.000Z',
+        updatedAt: '2026-07-21T00:00:00.000Z',
+      },
+    ]);
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('mcp-capability-outside-agent-scope', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        payload: mcpCapabilityProposal(['echo']),
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: review.deps as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(
+      readResponse(runtimeHome, 'mcp-capability-outside-agent-scope'),
+    ).toMatchObject({
+      ok: false,
+      code: 'invalid_request',
+      error: expect.stringContaining(
+        'echo is not within the reviewed tools for e2e-sum',
+      ),
+    });
+    expect(review.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(review.toolRepository.saveTool).not.toHaveBeenCalled();
+    expect(review.toolRepository.saveAgentToolBinding).not.toHaveBeenCalled();
+    expect(review.mcpServerRepository.saveAgentBinding).not.toHaveBeenCalled();
+    expect(review.mirrorAgentToolRulesToSettings).not.toHaveBeenCalled();
+  });
+
+  it('does not mint durable or live MCP authority for allow_once', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const ipcBaseDir = path.join(runtimeHome, 'ipc');
+    const review = mcpCapabilityReviewDeps(async (request) => {
+      const [capabilityId] = Object.keys(
+        request.semanticCapabilityDefinitions ?? {},
+      );
+      return {
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'U_APPROVER',
+        decisionClassification: 'user_temporary',
+        updatedPermissions: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            destination: 'session',
+            rules: [{ toolName: `capability:${capabilityId}` }],
+          },
+        ],
+      };
+    });
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('mcp-capability-allow-once', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        runHandle: 'run-mcp-once',
+        payload: mcpCapabilityProposal(['get-sum'], 'E2E sum once'),
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      ipcBaseDir,
+      deps: review.deps as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(
+      readResponse(runtimeHome, 'mcp-capability-allow-once'),
+    ).toMatchObject({
+      ok: true,
+      code: 'capability_request_recorded',
+    });
+    await vi.waitFor(() => expect(review.sendMessage).toHaveBeenCalledTimes(1));
+    expect(review.sendMessage.mock.calls[0]?.[1]).toContain(
+      'No MCP access was granted',
+    );
+    expect(review.toolRepository.saveTool).not.toHaveBeenCalled();
+    expect(review.toolRepository.saveAgentToolBinding).not.toHaveBeenCalled();
+    expect(review.mcpServerRepository.saveAgentBinding).not.toHaveBeenCalled();
+    expect(review.mirrorAgentToolRulesToSettings).not.toHaveBeenCalled();
+    expect(
+      fs.existsSync(
+        path.join(
+          ipcBaseDir,
+          'main_agent',
+          'live-tool-rules',
+          'run-mcp-once.json',
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it('does not mint live MCP authority when allow_once targets an existing proposal capability', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const ipcBaseDir = path.join(runtimeHome, 'ipc');
+    const review = mcpCapabilityReviewDeps(async (request) => ({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'U_APPROVER',
+      decisionClassification: 'user_temporary',
+      updatedPermissions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          destination: 'session',
+          rules: [
+            {
+              toolName: `capability:${request.toolInput.capabilityId}`,
+            },
+          ],
+        },
+      ],
+    }));
+    const existing = await buildReviewedMcpCapabilityCandidate({
+      mcpServers: review.mcpServerRepository as never,
+      appId: 'app:test' as never,
+      agentId: 'agent:main_agent' as never,
+      serverName: 'e2e-sum',
+      tools: ['get-sum'],
+      risk: 'read',
+      displayName: 'Existing sum access',
+    });
+    review.toolRepository.listTools.mockResolvedValue([
+      {
+        name: `capability:${existing.definition.capabilityId}`,
+        status: 'active',
+        selectable: true,
+        inputSchema: semanticCapabilityInputSchema(existing.definition),
+      },
+    ]);
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('existing-mcp-capability-allow-once', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        runHandle: 'run-existing-mcp-once',
+        payload: {
+          permissionKind: 'tool',
+          capabilityRequestSource: 'request_access',
+          capabilityId: existing.definition.capabilityId,
+          capabilityDisplayName: existing.definition.displayName,
+          temporaryOnly: false,
+          reason: 'Use the existing reviewed MCP capability.',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      ipcBaseDir,
+      deps: review.deps as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    await vi.waitFor(() => expect(review.sendMessage).toHaveBeenCalledTimes(1));
+    expect(review.sendMessage.mock.calls[0]?.[1]).toContain(
+      'No MCP access was granted',
+    );
+    expect(
+      fs.existsSync(
+        path.join(
+          ipcBaseDir,
+          'main_agent',
+          'live-tool-rules',
+          'run-existing-mcp-once.json',
+        ),
+      ),
+    ).toBe(false);
   });
 
   it('requires same-channel approval and syncs settings after register_agent', async () => {

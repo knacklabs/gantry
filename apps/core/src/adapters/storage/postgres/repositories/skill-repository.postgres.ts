@@ -1,6 +1,9 @@
-import { and, asc, desc, eq, inArray, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 
-import type { SkillCatalogRepository } from '../../../../domain/ports/repositories.js';
+import type {
+  AgentSkillAccessSnapshot,
+  SkillCatalogRepository,
+} from '../../../../domain/ports/repositories.js';
 import type {
   AgentSkillBinding,
   SkillCatalogItem,
@@ -22,6 +25,43 @@ function parseJsonArray<T = string>(value: unknown): T[] {
     if (!(err instanceof SyntaxError)) throw err;
     return [];
   }
+}
+
+function jsonArray(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) return value as Array<Record<string, unknown>>;
+  if (typeof value !== 'string') return [];
+  const parsed = JSON.parse(value);
+  return Array.isArray(parsed)
+    ? (parsed as Array<Record<string, unknown>>)
+    : [];
+}
+
+function fromDbJson(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const row = value as Record<string, unknown>;
+  return {
+    id: row.id,
+    appId: row.app_id,
+    agentId: row.agent_id,
+    skillId: row.skill_id,
+    configVersionId: row.config_version_id,
+    name: row.name,
+    description: row.description,
+    source: row.source,
+    status: row.status,
+    promptRefsJson: row.prompt_refs_json,
+    toolIdsJson: row.tool_refs_json,
+    workflowRefsJson: row.workflow_refs_json,
+    requiredEnvVarsJson: row.required_env_vars_json,
+    actionPermissionsJson: row.action_permissions_json,
+    storageType: row.storage_type,
+    storageRef: row.storage_ref,
+    contentHash: row.content_hash,
+    sizeBytes: row.size_bytes,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
@@ -157,6 +197,54 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
     agentId: AgentSkillBinding['agentId'];
   }): Promise<AgentSkillBinding[]> {
     return this.listAgentSkillBindingRows(input);
+  }
+
+  async listAgentSkillAccessSnapshot(input: {
+    appId: AgentSkillBinding['appId'];
+    agentId: AgentSkillBinding['agentId'];
+  }): Promise<AgentSkillAccessSnapshot> {
+    const result = await this.db.execute<{
+      active_bindings: unknown;
+      enabled_definitions: unknown;
+    }>(sql`
+      SELECT
+        (
+          SELECT COALESCE(jsonb_agg(jsonb_build_object(
+            'binding', to_jsonb(b),
+            'definition', CASE WHEN s.id IS NULL THEN NULL ELSE to_jsonb(s) END
+          ) ORDER BY b.created_at), '[]'::jsonb)
+          FROM agent_skill_bindings b
+          LEFT JOIN skill_catalog s
+            ON s.id = b.skill_id
+           AND s.app_id = ${input.appId}
+          WHERE b.app_id = ${input.appId}
+            AND b.agent_id = ${input.agentId}
+            AND b.status = 'active'
+        ) AS active_bindings,
+        (
+          SELECT COALESCE(jsonb_agg(to_jsonb(s) ORDER BY s.name), '[]'::jsonb)
+          FROM agent_skill_bindings b
+          INNER JOIN skill_catalog s
+            ON s.id = b.skill_id
+          WHERE b.app_id = ${input.appId}
+            AND b.agent_id = ${input.agentId}
+            AND b.status = 'active'
+            AND s.app_id = ${input.appId}
+            AND s.status = 'installed'
+        ) AS enabled_definitions
+    `);
+    const row = result.rows[0];
+    return {
+      activeBindings: jsonArray(row?.active_bindings).map((entry) => ({
+        binding: this.mapBinding(fromDbJson(entry.binding) as never),
+        definition: entry.definition
+          ? this.mapSkill(fromDbJson(entry.definition) as never)
+          : null,
+      })),
+      enabledDefinitions: jsonArray(row?.enabled_definitions).map((skill) =>
+        this.mapSkill(fromDbJson(skill) as never),
+      ),
+    };
   }
 
   async listAgentSkillBindingsForAgents(input: {

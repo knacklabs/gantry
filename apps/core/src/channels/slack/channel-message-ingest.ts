@@ -14,6 +14,8 @@ import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import type { SlackMessageLike } from './channel-state.js';
 import { ingestSlackSlashCommand as ingestSlackSlashCommandEvent } from './slash-command-ingest.js';
 import { shouldLogUnregisteredChatDrop } from '../unregistered-chat-drop-log.js';
+import { resolveInboundConversationIdentity } from '../inbound-conversation-identity.js';
+import { routeSlackDeletion } from './slack-message-deletion.js';
 
 type SlackIngestOpts = Pick<
   ChannelOpts,
@@ -22,6 +24,7 @@ type SlackIngestOpts = Pick<
   | 'conversationRoutes'
   | 'providerAccountId'
   | 'inboundProviderAccountIds'
+  | 'onMessageAttachmentsDeleted'
 >;
 type EnrichedSlackMessage = {
   text: string;
@@ -90,7 +93,6 @@ export async function ingestSlackSlashCommand(input: {
 
 export async function ingestSlackMessage(input: {
   event: SlackMessageLike;
-  options?: { forceOwnedTopLevel?: boolean };
   opts: SlackIngestOpts;
   botUserId: string | null;
   resolveChannelName: (channelId: string) => Promise<string>;
@@ -103,6 +105,22 @@ export async function ingestSlackMessage(input: {
   ) => Promise<EnrichedSlackMessage>;
 }): Promise<void> {
   const { event } = input;
+  const deletionProviderAccountIds = input.opts.inboundProviderAccountIds
+    ?.length
+    ? input.opts.inboundProviderAccountIds
+    : input.opts.providerAccountId
+      ? [input.opts.providerAccountId]
+      : [];
+  if (
+    await routeSlackDeletion(
+      event,
+      input.opts.conversationRoutes(),
+      deletionProviderAccountIds,
+      input.opts.onMessageAttachmentsDeleted,
+    )
+  ) {
+    return;
+  }
   if (!event.channel || !event.ts) return;
   if (event.bot_id) return;
   if (event.subtype && event.subtype !== 'file_share') return;
@@ -110,14 +128,6 @@ export async function ingestSlackMessage(input: {
   if (event.edited) return;
   const jid = `sl:${event.channel}`;
   const chatName = await input.resolveChannelName(event.channel);
-  await input.opts.onChatMetadata(
-    jid,
-    nowIso(),
-    chatName,
-    'slack',
-    input.isLikelyGroupConversation(event.channel),
-    { providerAccountId: input.opts.providerAccountId },
-  );
   const isGroupConversation = input.isLikelyGroupConversation(event.channel);
   const routes = input.opts.conversationRoutes();
   const providerAccountIds =
@@ -134,6 +144,21 @@ export async function ingestSlackMessage(input: {
       ).map((match) => [...match, providerAccountId] as SlackRouteMatch),
     ),
   );
+  const identity = resolveInboundConversationIdentity({
+    hasRegisteredRoute: routeMatches.length > 0,
+    name: chatName,
+    isGroup: isGroupConversation,
+  });
+  if (identity.needsStandaloneMetadataWrite) {
+    await input.opts.onChatMetadata(
+      jid,
+      nowIso(),
+      chatName,
+      'slack',
+      isGroupConversation,
+      { providerAccountId: input.opts.providerAccountId },
+    );
+  }
   const singleRoute =
     routeMatches.length === 1 ? routeMatches[0]?.[1] : undefined;
   if (routeMatches.length < 1 && isGroupConversation) {
@@ -193,18 +218,11 @@ export async function ingestSlackMessage(input: {
       : enriched.attachments;
   const sender = event.user || 'unknown';
   const senderName = await input.resolveUserName(event.user);
-  const ownsTopLevelMessage =
-    input.options?.forceOwnedTopLevel ||
-    (group
-      ? group.requiresTrigger === false ||
-        buildTriggerPattern(triggerForRoute(group)).test(content.trim())
-      : false);
-  const threadId =
-    event.thread_ts ||
-    (isGroupConversation && ownsTopLevelMessage ? event.ts : undefined);
+  const threadId = event.thread_ts;
   await input.opts.onMessage(jid, {
     id: event.ts,
     chat_jid: jid,
+    ...identity.messageIdentity,
     provider: 'slack',
     ...(messageProviderAccountId
       ? { providerAccountId: messageProviderAccountId }

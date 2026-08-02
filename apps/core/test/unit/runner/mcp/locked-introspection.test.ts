@@ -98,6 +98,7 @@ describe('capabilityStatusText access projection', () => {
     const text = capabilityStatusText();
     expect(text).toContain('Agent access model:');
     expect(text).toContain('request_access target.kind=capability');
+    expect(text).toContain('request_access target.kind=mcp_capability');
     expect(text).toContain('request_access target.kind=tool');
     expect(text).toContain('Gantry admin tool capabilities:');
     expect(text).toContain('- requestable: mcp__gantry__register_agent');
@@ -730,8 +731,25 @@ describe('honest now/next-turn receipts', () => {
       'covered_by_reviewed_capability: yes (github.search.read) — callable through mcp_call_tool',
     );
     expect(text).toContain(
-      'covered_by_reviewed_capability: no — inventory only; a reviewed capability must cover it before mcp_call_tool succeeds',
+      'covered_by_reviewed_capability: no — inventory only; propose reviewed coverage with request_access target.kind=mcp_capability before mcp_call_tool can succeed',
     );
     expect(text).toContain('"search_repositories"');
+
+    const lockedText = formatMcpSearchToolsResponse(
+      {
+        matches: [
+          {
+            name: 'find_code',
+            serverName: 'github',
+            coveredByReviewedCapability: false,
+          },
+        ],
+      },
+      { includeReviewGuidance: false },
+    );
+    expect(lockedText).toContain(
+      'covered_by_reviewed_capability: no — inventory only; not callable with the current fixed capability set',
+    );
+    expect(lockedText).not.toContain('request_access');
   });
 });

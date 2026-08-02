@@ -21,11 +21,8 @@ import { SteeringDeliveryGate } from './steering-delivery-gate.js';
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import {
-  buildSdkFilesystemSandbox,
   normalizeFilesystemSandboxPaths,
   readLocalCliCredentialDirectories,
-  readProtectedFilesystemSandboxPaths,
-  requireSdkSandboxEgressProxyPort,
 } from './filesystem-sandbox.js';
 import { createSafetyPreToolUseHook } from './protected-capability-hook.js';
 import {
@@ -65,7 +62,10 @@ import {
   shouldPrefixVisibleBoundary,
   topLevelAssistantText,
 } from './sdk-message-output.js';
-import { createCanUseToolCallback } from './tool-permission-gate.js';
+import {
+  createCanUseToolCallback,
+  createPermissionApprovalContextChannel,
+} from './tool-permission-gate.js';
 import {
   decideClaudeSdkToolSearch,
   toolSearchStartupRuntimeEvent,
@@ -122,6 +122,7 @@ export async function runQuery(
   const toolSuccessLedger = agentInput.toolRules?.length
     ? new RunScopedToolSuccessLedger()
     : undefined;
+  const permissionApprovalContext = createPermissionApprovalContextChannel();
   const declarativePreToolUse = toolSuccessLedger
     ? async (hookInput: {
         hook_event_name: string;
@@ -249,22 +250,13 @@ export async function runQuery(
   const additionalDirectories = [
     ...new Set([...extraDirs, ...localCliCredentialDirectories]),
   ].sort();
-  const protectedFilesystemPaths = readProtectedFilesystemSandboxPaths();
-  const protectedFilesystemDenyReadPaths = protectedFilesystemPaths.denyRead;
-  const protectedFilesystemDenyWritePaths = [
-    ...protectedFilesystemPaths.denyWrite,
-    ...localCliCredentialDirectories,
-  ];
-  const sdkFilesystemSandbox =
-    process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
-      ? undefined
-      : buildSdkFilesystemSandbox(protectedFilesystemDenyWritePaths, {
-          denyReadPaths: protectedFilesystemDenyReadPaths,
-          denyWritePaths: protectedFilesystemDenyWritePaths,
-          httpProxyPort: requireSdkSandboxEgressProxyPort(
-            process.env.GANTRY_EGRESS_PROXY_URL,
-          ),
-        });
+  // Two-axis model (decision 0040): `direct` = authorization is the whole control
+  // (permission engine + classifier + host-side credential/protected-path rail);
+  // no inner SDK Seatbelt, so Chromium's Mach-port register (and the whole class)
+  // runs. `sandbox_runtime` confinement is the runner OS sandbox
+  // (runner-sandbox-provider), which is applied out-of-band — this SDK-level
+  // filesystem Seatbelt is never the confinement layer, so it is dropped.
+  const sdkFilesystemSandbox = undefined;
   const workspaceFolder = agentInput.workspaceFolder;
   const enabledSdkSkills = readClaudeSdkSkillNamesFromEnv();
   const isolatedSdkEnv: Record<string, string | undefined> = {
@@ -299,6 +291,7 @@ export async function runQuery(
     memoryReviewerIsControlApprover: agentInput.memoryReviewerIsControlApprover,
     persona: agentInput.persona,
     browserProfileName: agentInput.browserProfileName,
+    browserTurnToken: agentInput.browserTurnToken,
     configuredAllowedTools: agentInput.allowedTools,
     attachedSkillSourceIds: agentInput.attachedSkillSourceIds,
     selectedSkillDisplays: agentInput.selectedSkillDisplays,
@@ -338,6 +331,20 @@ export async function runQuery(
       `(reason=${toolSearchDecision.reason} tools=${toolSearchDecision.availableToolCount} ` +
       `mcpServers=${toolSearchDecision.mcpServerCount} bytes=${toolSearchDecision.serializedToolConfigBytes})`,
   );
+  const postToolUseHook = async (
+    hookInput: HookInput,
+    toolUseID: string | undefined,
+    hookOptions: { signal: AbortSignal },
+  ) => {
+    if (hookInput.hook_event_name === 'PostToolUse' && toolSuccessLedger) {
+      recordSuccessfulToolUse(hookInput, toolSuccessLedger);
+    }
+    return permissionApprovalContext.postToolUse(
+      hookInput,
+      toolUseID,
+      hookOptions,
+    );
+  };
   const sdkQuery = query({
     prompt: stream,
     options: {
@@ -359,7 +366,6 @@ export async function runQuery(
       },
       skills: enabledSdkSkills,
       tools: [...capabilities.availableTools],
-      allowedTools: [...capabilities.allowedTools],
       disallowedTools: [...capabilities.disallowedTools],
       env: isolatedSdkEnv,
       // Without this the subprocess's own stderr is lost and startup failures
@@ -389,22 +395,16 @@ export async function runQuery(
             timeout: 5,
           },
         ],
-        ...(toolSuccessLedger
-          ? {
-              PostToolUse: [
-                {
-                  hooks: [
-                    async (hookInput: HookInput) => {
-                      if (hookInput.hook_event_name === 'PostToolUse') {
-                        recordSuccessfulToolUse(hookInput, toolSuccessLedger);
-                      }
-                      return { continue: true as const };
-                    },
-                  ],
-                },
-              ],
-            }
-          : {}),
+        PostToolUse: [
+          {
+            hooks: [postToolUseHook],
+          },
+        ],
+        PostToolUseFailure: [
+          {
+            hooks: [postToolUseHook],
+          },
+        ],
       },
       canUseTool: createCanUseToolCallback({
         agentInput,
@@ -418,8 +418,11 @@ export async function runQuery(
         emitInteractionBoundary,
         recordToolActivity: (toolName) =>
           heartbeat.recordToolActivity(toolName),
+        recordPermissionApprovalContext: permissionApprovalContext.record,
       }),
-      settingSources: [],
+      // Load only the per-run CLAUDE_CONFIG_DIR settings so Claude discovers
+      // Gantry-materialized skills without reading workspace configuration.
+      settingSources: ['user'],
       mcpServers: capabilities.mcpServers,
       strictMcpConfig: true,
       includePartialMessages: true,

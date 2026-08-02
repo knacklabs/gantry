@@ -12,7 +12,6 @@ import {
   isSenderAllowed,
   loadSenderControlAllowlist,
   loadSenderAllowlist,
-  shouldDropMessage,
   shouldLogDenied,
 } from '../../platform/sender-allowlist.js';
 import {
@@ -20,12 +19,10 @@ import {
   isPartialMessageDeliveryError,
 } from '../../domain/messages/partial-delivery.js';
 import { AmbiguousDurableDeliveryError } from '../../domain/messages/durable-delivery.js';
-import {
-  getRuntimeStorage,
-  getRuntimeRepositories,
-  tryAcquireRuntimeAdvisoryLease,
-} from '../../adapters/storage/postgres/runtime-store.js';
+// prettier-ignore
+import { getRuntimeRepositories, getRuntimeStorage, tryAcquireRuntimeAdvisoryLease } from '../../adapters/storage/postgres/runtime-store.js';
 import { EnvRuntimeSecretProvider } from '../../adapters/credentials/env-runtime-secret-provider.js';
+import { ConversationHistoryCoverageDistrust } from './conversation-history-coverage-distrust.js';
 import { RuntimeApp } from './runtime-app.js';
 import { ConversationAdministrationService } from '../../application/provider-conversations/conversation-administration-service.js';
 import { RuntimeSecretConversationMembershipValidator } from '../../channels/conversation-membership-validation.js';
@@ -43,6 +40,7 @@ import {
 } from './channel-capability-ports.js';
 import {
   listChannelProviders,
+  normalizeProviderId,
   providerForJid,
   providerIdForJid,
 } from '../../channels/provider-registry.js';
@@ -85,6 +83,8 @@ import {
 import { createPermissionApprovalRequester } from '../../channels/permission-approval-requester.js';
 import * as routeProviderAccount from './channel-wiring-route-provider-account.js';
 import { syncChannelGroups } from './channel-wiring-group-sync.js';
+import { fetchHistoricalAttachmentFromChannel } from './channel-wiring-historical-attachments.js';
+import { createChannelAttachmentDeletionHandler } from './channel-wiring-attachment-deletion.js';
 const PROVIDER_INBOUND_LEASE_PREFIX = 'runtime:provider-inbound';
 type AccountOpts = { providerAccountId?: string };
 type BoundChannel = BoundProviderAccountChannel['channel'];
@@ -92,12 +92,12 @@ export function createChannelWiring(
   app: RuntimeApp,
   deps: Partial<ChannelWiringDeps> = {},
 ): ChannelWiring {
+  app.setProviderIdNormalizer?.(normalizeProviderId);
   const resolved: ChannelWiringDeps = {
     appId: 'default' as AppId,
     providerIds: listChannelProviders(),
     loadSenderAllowlist,
     loadSenderControlAllowlist,
-    shouldDropMessage,
     isSenderAllowed,
     isSenderControlAllowed,
     shouldLogDenied,
@@ -112,6 +112,15 @@ export function createChannelWiring(
   const messageActionRouter = createChannelMessageActionRouter();
   const persistenceQueue = new AsyncTaskQueue(4, 5_000);
   const ops = () => resolved.opsRepository ?? getRuntimeRepositories();
+  // prettier-ignore
+  const historyDistrust = new ConversationHistoryCoverageDistrust(() => resolved.historyCoverage ?? getRuntimeStorage().repositories.conversationHistoryCoverage, resolved.logger);
+  if (resolved.historyCoverage)
+    app.setConversationHistoryCoverageRepository(resolved.historyCoverage);
+  if (typeof app.setHistoryCoverageDistrustEpochReader === 'function') {
+    app.setHistoryCoverageDistrustEpochReader((providerAccountId) =>
+      historyDistrust.readEpoch(providerAccountId),
+    );
+  }
   const optionalOps = () => {
     try {
       return ops();
@@ -233,9 +242,17 @@ export function createChannelWiring(
     conversationRoutes: () => app.getConversationRoutes(),
     runtimeSettings: () => currentRuntimeSettings,
     runtimeLease: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
-    get runtimeSecrets() {
-      return resolved.runtimeSecrets;
-    },
+    distrustHistoryCoverage: historyDistrust.distrust,
+    setHistoryCoverageInboundActive: historyDistrust.setInboundActive,
+    onMessageAttachmentsDeleted: createChannelAttachmentDeletionHandler(
+      resolved.appId,
+      () =>
+        resolved.messageAttachments ??
+        getRuntimeStorage().repositories.messageAttachments,
+      { warn: (context, message) => resolved.logger.warn(context, message) },
+    ),
+    // prettier-ignore
+    get runtimeSecrets() { return resolved.runtimeSecrets; },
     isControlApproverAllowed,
     onMessageAction: messageActionRouter.handle,
   };
@@ -268,18 +285,12 @@ export function createChannelWiring(
       });
     }
   }
-
   const hasConnectedChannels = (): boolean => connectedChannels.length > 0;
-  function describeDestinationJid(jid: string) {
-    const provider = providerForJid(jid);
-    return {
-      ...(provider
-        ? { providerId: provider.id, internal: provider.internal === true }
-        : { internal: false }),
-      runtimeAppId: resolved.appId,
-    };
-  }
-
+  const describeDestinationJid = (jid: string) =>
+    routeProviderAccount.describeProviderDestination(
+      providerForJid(jid),
+      resolved.appId,
+    );
   const hasChannel = (jid: string, options?: { providerAccountId?: string }) =>
     findBoundChannel(jid, options?.providerAccountId) !== undefined;
   function supportsStreaming(
@@ -291,7 +302,6 @@ export function createChannelWiring(
     if (!channel || provider?.canStreamToJid?.(jid) === false) return false;
     return asStreamingSink(channel) !== undefined;
   }
-
   function supportsProgress(
     jid: string,
     options?: { providerAccountId?: string },
@@ -381,7 +391,6 @@ export function createChannelWiring(
       baseMessage,
       publishEvent: publishConversationOutboundEvent,
     } = projection;
-
     let durableAttempt:
       | Awaited<ReturnType<DurableOutboundAttemptFactory>>
       | undefined;
@@ -408,7 +417,6 @@ export function createChannelWiring(
         );
       }
     }
-
     let outboundOps = (() => {
       if (options.persistence !== 'message_row_projection') return undefined;
       return optionalOps();
@@ -708,21 +716,32 @@ export function createChannelWiring(
   }
   return {
     getRuntimeAppId: () => resolved.appId,
-    setRuntimeSecrets: (provider) => {
-      resolved.runtimeSecrets = provider;
-    },
+    normalizeProviderId,
+    getHistoryCoverageDistrustEpoch: (id) => historyDistrust.readEpoch(id),
+    // prettier-ignore
+    setRuntimeSecrets: (provider) => { resolved.runtimeSecrets = provider; },
     describeDestinationJid,
     connectEnabledChannels,
     hasConnectedChannels,
     hasChannel,
     supportsStreaming,
     supportsProgress,
+    fetchHistoricalAttachment: (input) =>
+      fetchHistoricalAttachmentFromChannel(input, findBoundChannel),
+    getMessageAttachmentRepository: () =>
+      getRuntimeStorage().repositories.messageAttachments,
     sendMessage,
     sendProviderMessage,
     createRecoveryDispatchPermit,
     setRetryTailRecoveryEnqueue,
     setDurableOutboundAttemptFactory,
     setMessageActionHandler: messageActionRouter.set,
+    setMemoryReviewMessageActionHandler:
+      messageActionRouter.setMemoryReviewHandler,
+    setObserverFeedbackMessageActionHandler:
+      messageActionRouter.setObserverFeedbackHandler,
+    setBrainDreamReviewMessageActionHandler:
+      messageActionRouter.setBrainDreamReviewHandler,
     sendStreamingChunk,
     resetStreaming: streamReset.resetStreaming,
     setTyping,
@@ -730,7 +749,9 @@ export function createChannelWiring(
     addReaction,
     syncGroups: (force) => syncChannelGroups(connectedChannels, force),
     requestPermissionApproval,
+    cancelPermissionApproval: requestPermissionApproval.cancel,
     requestUserAnswer: userQuestionResponder.requestUserAnswer,
+    cancelUserQuestion: userQuestionResponder.cancelUserQuestion,
     renderAgentTodo: agentTodoRenderer,
     renderRichInteraction: richInteractionRenderer,
     hydrateConversationContext: (request) =>

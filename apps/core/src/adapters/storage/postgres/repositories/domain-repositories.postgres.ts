@@ -77,6 +77,18 @@ import {
   type CanonicalDb,
 } from './canonical-graph-repository.postgres.js';
 import {
+  attachmentIdentityConflicts,
+  existingAttachmentMetadataMaps,
+  providerAttachmentStorageRefsRemovedByReplacement,
+} from './canonical-message-attachments.postgres.js';
+import { lockCanonicalMessageAttachments } from './canonical-message-attachment-lock.postgres.js';
+import {
+  cleanupRemovedProviderAttachments,
+  storageRefForAttachmentWriter,
+  type ProviderAttachmentCleanup,
+  type RemovedProviderAttachment,
+} from './provider-attachment-cleanup.postgres.js';
+import {
   PostgresAgentSessionRepository,
   PostgresAgentSessionDigestRepository,
   PostgresAgentSessionSummaryRepository,
@@ -104,6 +116,7 @@ import { PostgresAsyncTaskRepository } from './async-task-repository.postgres.js
 import { PostgresPatternCandidateRepository } from './pattern-candidate-repository.postgres.js';
 import { PostgresProactiveSurfacingRepository } from './proactive-surfacing-repository.postgres.js';
 import { PostgresObserverInsightRepository } from './observer-insight-repository.postgres.js';
+import { PostgresBrainDreamReviewRepository } from './brain-dream-review-repository.postgres.js';
 import { PostgresChatBatchRepository } from './chat-batch-repository.postgres.js';
 import type {
   RuntimeDependencyRepository,
@@ -113,11 +126,19 @@ import type {
 import type { AsyncTaskRepository } from '../../../../domain/ports/async-tasks.js';
 import type { PatternCandidateRepository } from '../../../../domain/ports/pattern-candidates.js';
 import type { ObserverInsightRepository } from '../../../../domain/ports/observer-insights.js';
+import type { BrainDreamReviewRepository } from '../../../../brain/brain-dream-review-repository.js';
 import type { ChatBatchRepository } from '../../../../domain/ports/chat-batches.js';
 import type { PermissionPromotionRepository } from '../../../../domain/ports/permission-promotion.js';
+import type { PermissionDecisionMemoryRepository } from '../../../../domain/ports/permission-decision-memory.js';
 import type { GroupJoinOnboardingRepository } from '../../../../domain/ports/group-join-onboarding.js';
+import type { MessageAttachmentRepository } from '../../../../domain/ports/message-attachment-repository.js';
+import type { ConversationHistoryCoverageRepository } from '../../../../domain/ports/conversation-history-coverage.js';
 import { PostgresPermissionPromotionRepository } from './permission-promotion-repository.postgres.js';
+import { PostgresPermissionDecisionMemoryRepository } from './permission-decision-memory-repository.postgres.js';
 import { PostgresGroupJoinOnboardingRepository } from './group-join-onboarding-repository.postgres.js';
+import { PostgresMessageAttachmentRepository } from './message-attachment-repository.postgres.js';
+import { PostgresConversationHistoryCoverageRepository } from './conversation-history-coverage-repository.postgres.js';
+import { deletionMarkerTimestampForMessage } from './message-attachment-deletion-markers.postgres.js';
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
   agents: AgentRepository;
@@ -125,6 +146,8 @@ export interface PostgresDomainRepositoryBundle {
   providerAccounts: ProviderAccountRepository;
   conversations: ConversationRepository;
   messages: MessageRepository;
+  conversationHistoryCoverage: ConversationHistoryCoverageRepository;
+  messageAttachments: MessageAttachmentRepository;
   agentSessions: AgentSessionRepository;
   agentSessionDigests: AgentSessionDigestRepository;
   providerSessions: ProviderSessionRepository;
@@ -149,8 +172,10 @@ export interface PostgresDomainRepositoryBundle {
   patternCandidates: PatternCandidateRepository;
   proactiveSurfacing: PostgresProactiveSurfacingRepository;
   observerInsights: ObserverInsightRepository;
+  brainDreamReviews: BrainDreamReviewRepository;
   chatBatches: ChatBatchRepository;
   permissionPromotions: PermissionPromotionRepository;
+  permissionDecisionMemory: PermissionDecisionMemoryRepository;
   groupJoinOnboarding: GroupJoinOnboardingRepository;
 }
 type JsonRecord = Record<string, unknown>;
@@ -877,30 +902,55 @@ export class PostgresConversationRepository implements ConversationRepository {
     return rows[0] ? this.threadFromRow(rows[0].thread) : null;
   }
   async saveConversation(conversation: Conversation): Promise<void> {
-    await this.db
-      .insert(pgSchema.conversationsPostgres)
-      .values({
-        id: conversation.id,
-        appId: conversation.appId,
-        providerAccountId: conversation.providerAccountId,
-        externalRefJson: encodeJsonOrNull(conversation.externalRef),
-        kind: conversation.kind,
-        title: conversation.title ?? null,
-        status: conversation.status,
-        createdAt: conversation.createdAt,
-        updatedAt: conversation.updatedAt,
-      })
-      .onConflictDoUpdate({
-        target: pgSchema.conversationsPostgres.id,
-        set: {
+    await this.db.transaction(async (tx) => {
+      const conversations = pgSchema.conversationsPostgres;
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`conversation_ownership:${conversation.id}`}, 0))`,
+      );
+      const existing = await tx
+        .select({ providerAccountId: conversations.providerAccountId })
+        .from(conversations)
+        .where(eq(conversations.id, conversation.id))
+        .for('update')
+        .limit(1);
+      if (
+        existing[0] &&
+        existing[0].providerAccountId !== conversation.providerAccountId
+      ) {
+        await tx
+          .delete(pgSchema.conversationHistoryCoveragePostgres)
+          .where(
+            eq(
+              pgSchema.conversationHistoryCoveragePostgres.conversationId,
+              conversation.id,
+            ),
+          );
+      }
+      await tx
+        .insert(conversations)
+        .values({
+          id: conversation.id,
+          appId: conversation.appId,
           providerAccountId: conversation.providerAccountId,
           externalRefJson: encodeJsonOrNull(conversation.externalRef),
           kind: conversation.kind,
           title: conversation.title ?? null,
           status: conversation.status,
+          createdAt: conversation.createdAt,
           updatedAt: conversation.updatedAt,
-        },
-      });
+        })
+        .onConflictDoUpdate({
+          target: conversations.id,
+          set: {
+            providerAccountId: conversation.providerAccountId,
+            externalRefJson: encodeJsonOrNull(conversation.externalRef),
+            kind: conversation.kind,
+            title: conversation.title ?? null,
+            status: conversation.status,
+            updatedAt: conversation.updatedAt,
+          },
+        });
+    });
   }
   async saveThread(thread: ConversationThread): Promise<void> {
     await this.db
@@ -1062,7 +1112,10 @@ export class PostgresConversationRepository implements ConversationRepository {
   }
 }
 export class PostgresMessageRepository implements MessageRepository {
-  constructor(private readonly db: CanonicalDb) {}
+  constructor(
+    private readonly db: CanonicalDb,
+    private readonly cleanupProviderAttachment: ProviderAttachmentCleanup = missingProviderAttachmentCleanup,
+  ) {}
   async listConversationIdsForJid(jid: string): Promise<Conversation['id'][]> {
     const c = pgSchema.conversationsPostgres;
     const rows = await this.db
@@ -1095,23 +1148,32 @@ export class PostgresMessageRepository implements MessageRepository {
     return this.messageFromRows(row, parts, attachments);
   }
   async saveMessage(message: Message): Promise<void> {
+    let removedProviderStorageRefs: RemovedProviderAttachment[];
     try {
-      await this.writeMessage(message);
+      removedProviderStorageRefs = await this.writeMessage(message);
     } catch (err) {
       if (!message.externalRef?.value || !isUniqueViolation(err)) {
         throw err;
       }
-      await this.writeMessage(message);
+      removedProviderStorageRefs = await this.writeMessage(message);
     }
+    await cleanupRemovedProviderAttachments(
+      this.db,
+      removedProviderStorageRefs,
+      this.cleanupProviderAttachment,
+    );
   }
-  private async writeMessage(message: Message): Promise<void> {
-    await this.db.transaction(async (tx) => {
+  private async writeMessage(
+    message: Message,
+  ): Promise<RemovedProviderAttachment[]> {
+    return this.db.transaction(async (tx) => {
       const c = pgSchema.conversationsPostgres;
       const ci = pgSchema.providerAccountsPostgres;
       const channelRows = await tx
         .select({
           providerAccountId: c.providerAccountId,
           providerId: ci.providerId,
+          conversationJid: sql<string>`${c.externalRefJson}::jsonb->>'jid'`,
         })
         .from(c)
         .innerJoin(ci, eq(ci.id, c.providerAccountId))
@@ -1152,7 +1214,7 @@ export class PostgresMessageRepository implements MessageRepository {
           .limit(1);
         targetMessageId = (duplicateRows[0]?.id ?? message.id) as Message['id'];
       }
-      await tx
+      const [messageUpsertResult] = await tx
         .insert(pgSchema.messagesPostgres)
         .values({
           id: targetMessageId,
@@ -1187,15 +1249,111 @@ export class PostgresMessageRepository implements MessageRepository {
             deliveredAt: message.deliveredAt ?? null,
             deliveryError: message.deliveryError ?? null,
           },
+        })
+        .returning({
+          inserted: sql<boolean>`(xmax = 0)`,
         });
+      const messageInserted = messageUpsertResult?.inserted === true;
       await tx
         .delete(pgSchema.messagePartsPostgres)
         .where(eq(pgSchema.messagePartsPostgres.messageId, targetMessageId));
-      await tx
-        .delete(pgSchema.messageAttachmentsPostgres)
-        .where(
-          eq(pgSchema.messageAttachmentsPostgres.messageId, targetMessageId),
-        );
+      if (!messageInserted) {
+        await lockCanonicalMessageAttachments(tx, targetMessageId);
+      }
+      const existingAttachments = messageInserted
+        ? []
+        : await tx
+            .select()
+            .from(pgSchema.messageAttachmentsPostgres)
+            .where(
+              eq(
+                pgSchema.messageAttachmentsPostgres.messageId,
+                targetMessageId,
+              ),
+            );
+      const existingAttachmentsById =
+        existingAttachmentMetadataMaps(existingAttachments).byId;
+      const externalThreadId = externalThreadIdFromMessage(message);
+      const deletionMarkerTimestamp =
+        message.attachments.length > 0 &&
+        (externalThreadId || channel.conversationJid)
+          ? await deletionMarkerTimestampForMessage(tx, {
+              appId: message.appId,
+              providerId: channel.providerId,
+              providerAccountId: channel.providerAccountId,
+              conversationJid: channel.conversationJid ?? '',
+              ...(externalThreadId ? { threadId: externalThreadId } : {}),
+              externalMessageId,
+              canonicalMessageId: targetMessageId,
+              incomingHasProviderRefs: message.attachments.some(
+                (incoming) =>
+                  typeof incoming.storageRef === 'string' &&
+                  incoming.storageRef.startsWith('provider-attachments/'),
+              ),
+            })
+          : undefined;
+      const replacementAttachmentRows = message.attachments.map(
+        (attachment) => {
+          const idMatch = existingAttachmentsById.get(attachment.id);
+          const existing = attachmentIdentityConflicts(
+            { externalId: attachment.externalRef?.value },
+            idMatch,
+          )
+            ? undefined
+            : idMatch;
+          return {
+            id: attachment.id,
+            messageId: targetMessageId,
+            kind: attachment.kind,
+            contentType:
+              attachment.contentType ?? existing?.contentType ?? null,
+            sizeBytes: attachment.sizeBytes ?? existing?.sizeBytes ?? null,
+            externalRefJson: jsonbOrNull(attachment.externalRef),
+            storageRef: storageRefForAttachmentWriter(
+              attachment.storageRef,
+              existing?.storageRef,
+            ),
+            fileName: existing?.fileName ?? null,
+            providerFetchJson: existing?.providerFetchJson ?? null,
+            deletedAt: (() => {
+              const markerApplies =
+                deletionMarkerTimestamp !== undefined &&
+                (existing?.providerFetchJson === null ||
+                  existing?.providerFetchJson === undefined ||
+                  (existing.providerFetchJson as { provider?: unknown })
+                    .provider === undefined ||
+                  (existing.providerFetchJson as { provider?: unknown })
+                    .provider === deletionMarkerTimestamp.providerId);
+              const markerDeletedAt = markerApplies
+                ? deletionMarkerTimestamp.deletedAt
+                : undefined;
+              if (existing?.deletedAt && markerDeletedAt) {
+                return Date.parse(existing.deletedAt) <=
+                  Date.parse(markerDeletedAt)
+                  ? existing.deletedAt
+                  : markerDeletedAt;
+              }
+              return existing?.deletedAt ?? markerDeletedAt ?? null;
+            })(),
+            trust: attachment.trust,
+          };
+        },
+      );
+      const removedProviderStorageRefs =
+        providerAttachmentStorageRefsRemovedByReplacement(
+          existingAttachments,
+          replacementAttachmentRows,
+        ).map((storageRef) => ({
+          messageId: targetMessageId,
+          storageRef,
+        }));
+      if (!messageInserted) {
+        await tx
+          .delete(pgSchema.messageAttachmentsPostgres)
+          .where(
+            eq(pgSchema.messageAttachmentsPostgres.messageId, targetMessageId),
+          );
+      }
       if (message.parts.length > 0) {
         await tx.insert(pgSchema.messagePartsPostgres).values(
           message.parts.map((part, ordinal) => ({
@@ -1206,20 +1364,12 @@ export class PostgresMessageRepository implements MessageRepository {
           })),
         );
       }
-      if (message.attachments.length > 0) {
-        await tx.insert(pgSchema.messageAttachmentsPostgres).values(
-          message.attachments.map((attachment) => ({
-            id: attachment.id,
-            messageId: targetMessageId,
-            kind: attachment.kind,
-            contentType: attachment.contentType ?? null,
-            sizeBytes: attachment.sizeBytes ?? null,
-            externalRefJson: jsonbOrNull(attachment.externalRef),
-            storageRef: attachment.storageRef ?? null,
-            trust: attachment.trust,
-          })),
-        );
+      if (replacementAttachmentRows.length > 0) {
+        await tx
+          .insert(pgSchema.messageAttachmentsPostgres)
+          .values(replacementAttachmentRows);
       }
+      return removedProviderStorageRefs;
     });
   }
   async listMessages(input: {
@@ -1427,6 +1577,13 @@ export class PostgresMessageRepository implements MessageRepository {
     } as unknown as Message;
   }
 }
+
+function externalThreadIdFromMessage(message: Message): string | undefined {
+  const threadId = (message.externalRef as JsonRecord | undefined)?.thread_id;
+  return typeof threadId === 'string' && threadId.trim()
+    ? threadId.trim()
+    : undefined;
+}
 export class PostgresAgentRunRepository implements AgentRunRepository {
   constructor(private readonly db: CanonicalDb) {}
   async getAgentRun(id: AgentRun['id']): Promise<AgentRun | null> {
@@ -1497,6 +1654,27 @@ export class PostgresAgentRunRepository implements AgentRunRepository {
       .select()
       .from(pgSchema.agentRunsPostgres)
       .where(eq(pgSchema.agentRunsPostgres.sessionId, input.sessionId))
+      .orderBy(
+        desc(pgSchema.agentRunsPostgres.createdAt),
+        desc(pgSchema.agentRunsPostgres.id),
+      )
+      .limit(input.limit ?? 100);
+    return rows.map((row) => this.runFromRow(row));
+  }
+  async listAgentRunsByConversation(input: {
+    appId: string;
+    conversationId: string;
+    limit?: number;
+  }): Promise<AgentRun[]> {
+    const rows = await this.db
+      .select()
+      .from(pgSchema.agentRunsPostgres)
+      .where(
+        and(
+          eq(pgSchema.agentRunsPostgres.appId, input.appId),
+          eq(pgSchema.agentRunsPostgres.conversationId, input.conversationId),
+        ),
+      )
       .orderBy(
         desc(pgSchema.agentRunsPostgres.createdAt),
         desc(pgSchema.agentRunsPostgres.id),
@@ -1739,7 +1917,11 @@ export class PostgresSandboxRepository implements SandboxRepository {
 export function createPostgresDomainRepositories(
   db: CanonicalDb,
   _pool?: Pool,
-  options: { liveTurnCommandNotifier?: LiveTurnCommandNotifier } = {},
+  options: {
+    liveTurnCommandNotifier?: LiveTurnCommandNotifier;
+    maxLiveAdmissionBacklog?: number;
+    cleanupProviderAttachment?: ProviderAttachmentCleanup;
+  } = {},
 ): PostgresDomainRepositoryBundle {
   return {
     apps: new PostgresAppRepository(db),
@@ -1747,13 +1929,27 @@ export function createPostgresDomainRepositories(
     agentConfigs: new PostgresAgentConfigRepository(db),
     providerAccounts: new PostgresProviderAccountRepository(db),
     conversations: new PostgresConversationRepository(db),
-    messages: new PostgresMessageRepository(db),
+    messages: new PostgresMessageRepository(
+      db,
+      options.cleanupProviderAttachment,
+    ),
+    conversationHistoryCoverage:
+      new PostgresConversationHistoryCoverageRepository(db),
+    messageAttachments: new PostgresMessageAttachmentRepository(
+      db,
+      options.cleanupProviderAttachment,
+    ),
     agentSessions: new PostgresAgentSessionRepository(db),
     agentSessionDigests: new PostgresAgentSessionDigestRepository(db),
     providerSessions: new PostgresProviderSessionRepository(db),
     agentSessionSummaries: new PostgresAgentSessionSummaryRepository(db),
     agentRuns: new PostgresAgentRunRepository(db),
-    runtimeEvents: new PostgresRuntimeEventRepository(db),
+    runtimeEvents: new PostgresRuntimeEventRepository(
+      db,
+      undefined,
+      options.maxLiveAdmissionBacklog,
+      options.cleanupProviderAttachment,
+    ),
     tools: new PostgresToolCatalogRepository(db),
     skills: new PostgresSkillCatalogRepository(db),
     capabilitySecrets: new PostgresCapabilitySecretRepository(db),
@@ -1770,6 +1966,7 @@ export function createPostgresDomainRepositories(
     liveTurns: new PostgresLiveTurnRepository(
       db,
       options.liveTurnCommandNotifier,
+      options.maxLiveAdmissionBacklog,
     ),
     runtimeDependencies: new PostgresRuntimeDependencyRepository(db),
     settingsRevisions: new PostgresSettingsRevisionRepository(db),
@@ -1777,8 +1974,16 @@ export function createPostgresDomainRepositories(
     patternCandidates: new PostgresPatternCandidateRepository(db),
     proactiveSurfacing: new PostgresProactiveSurfacingRepository(db),
     observerInsights: new PostgresObserverInsightRepository(db),
+    brainDreamReviews: new PostgresBrainDreamReviewRepository(db),
     chatBatches: new PostgresChatBatchRepository(db),
     permissionPromotions: new PostgresPermissionPromotionRepository(db),
+    permissionDecisionMemory: new PostgresPermissionDecisionMemoryRepository(
+      db,
+    ),
     groupJoinOnboarding: new PostgresGroupJoinOnboardingRepository(db),
   };
+}
+
+async function missingProviderAttachmentCleanup(): Promise<never> {
+  throw new Error('Provider attachment cleanup dependency is not configured');
 }

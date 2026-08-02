@@ -243,7 +243,8 @@ describe('locked agent parent-side permission IPC denial', () => {
         responseKeyId: envelope.responseKeyId,
         sourceAgentFolder: 'support_agent',
         targetJid: 'tg:support',
-        toolName: 'Bash',
+        toolName: 'mcp__crm__update',
+        toolInput: { id: 'crm-1' },
       },
       sourceAgentFolder: 'support_agent',
       deps: {

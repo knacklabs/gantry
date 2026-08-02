@@ -1,6 +1,9 @@
-import { and, asc, desc, eq, inArray, lt } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 
-import type { McpServerRepository } from '../../../../domain/ports/repositories.js';
+import type {
+  AgentMcpAccessSnapshot,
+  McpServerRepository,
+} from '../../../../domain/ports/repositories.js';
 import type {
   AgentMcpServerBinding,
   MaterializedMcpServer,
@@ -10,6 +13,7 @@ import type {
 } from '../../../../domain/mcp/mcp-servers.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 import * as pgSchema from '../schema/schema.js';
+import { lockAgentMcpBindingSet } from './mcp-binding-authority-fence.postgres.js';
 
 function encodeJson(value: unknown): string {
   return JSON.stringify(value ?? null);
@@ -31,8 +35,125 @@ function parseJsonRecord(
     : {};
 }
 
+function jsonArray(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) return value as Array<Record<string, unknown>>;
+  if (typeof value !== 'string') return [];
+  const parsed = JSON.parse(value);
+  return Array.isArray(parsed)
+    ? (parsed as Array<Record<string, unknown>>)
+    : [];
+}
+
+function fromDbJson(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const row = value as Record<string, unknown>;
+  return {
+    id: row.id,
+    appId: row.app_id,
+    agentId: row.agent_id,
+    serverId: row.server_id,
+    status: row.status,
+    required: row.required,
+    permissionPolicyIdsJson: row.permission_policy_ids_json,
+    allowedToolPatternsJson: row.allowed_tool_patterns_json,
+    conversationId: row.conversation_id,
+    threadId: row.thread_id,
+    name: row.name,
+    displayName: row.display_name,
+    description: row.description,
+    createdSource: row.created_source,
+    riskClass: row.risk_class,
+    requestedBy: row.requested_by,
+    requestedReason: row.requested_reason,
+    transport: row.transport,
+    configJson: row.config_json,
+    autoApproveToolPatternsJson: row.auto_approve_tool_patterns_json,
+    credentialRefsJson: row.credential_refs_json,
+    networkHostsJson: row.network_hosts_json,
+    sandboxProfileId: row.sandbox_profile_id,
+    disabledBy: row.disabled_by,
+    disabledAt: row.disabled_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 export class PostgresMcpServerRepository implements McpServerRepository {
+  private readonly mcpCapabilityLockTails = new Map<string, Promise<void>>();
+
   constructor(private readonly db: CanonicalDb) {}
+
+  async withMcpCapabilityApprovalLock<T>(input: {
+    appId: McpServerDefinition['appId'];
+    serverNames: readonly string[];
+    operation: () => Promise<T>;
+  }): Promise<T> {
+    return this.withMcpCapabilityApprovalLockSlot(input.appId, () =>
+      this.db.transaction(async (tx) => {
+        // Lock only the definition row. The settings mirror in `operation`
+        // rewrites agent MCP bindings on another connection; locking those rows
+        // here would deadlock. Binding scope remains a separate, live R5
+        // intersection and this approval path never widens it.
+        await tx
+          .select({ id: pgSchema.mcpServersPostgres.id })
+          .from(pgSchema.mcpServersPostgres)
+          .where(
+            and(
+              eq(pgSchema.mcpServersPostgres.appId, input.appId),
+              inArray(pgSchema.mcpServersPostgres.name, [
+                ...new Set(input.serverNames),
+              ]),
+            ),
+          )
+          .for('no key update');
+        return input.operation();
+      }),
+    );
+  }
+
+  async withMcpCapabilityAuthorizationLock<T>(input: {
+    appId: McpServerDefinition['appId'];
+    operation: () => Promise<T>;
+  }): Promise<T> {
+    // Keep only one outer lock transaction per runtime instance. The operation
+    // performs repository reads through the shared pool, so letting a
+    // pool-sized burst reserve one outer connection each could deadlock the
+    // pool before any read obtains a connection.
+    return this.withMcpCapabilityApprovalLockSlot(input.appId, () =>
+      this.db.transaction(async (tx) => {
+        // Shared locks let ordinary MCP authorizations wait for an exclusive
+        // capability-approval publication to settle across runtime instances.
+        await tx
+          .select({ id: pgSchema.mcpServersPostgres.id })
+          .from(pgSchema.mcpServersPostgres)
+          .where(eq(pgSchema.mcpServersPostgres.appId, input.appId))
+          .for('share');
+        return input.operation();
+      }),
+    );
+  }
+
+  private async withMcpCapabilityApprovalLockSlot<T>(
+    appId: McpServerDefinition['appId'],
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    let release!: () => void;
+    const key = String(appId);
+    const previous = this.mcpCapabilityLockTails.get(key) ?? Promise.resolve();
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.mcpCapabilityLockTails.set(key, current);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.mcpCapabilityLockTails.get(key) === current) {
+        this.mcpCapabilityLockTails.delete(key);
+      }
+    }
+  }
 
   async getServer(id: McpServerId): Promise<McpServerDefinition | null> {
     const [row] = await this.db
@@ -174,34 +295,56 @@ export class PostgresMcpServerRepository implements McpServerRepository {
   }
 
   async saveAgentBinding(binding: AgentMcpServerBinding): Promise<void> {
-    await this.db
-      .insert(pgSchema.agentMcpServerBindingsPostgres)
-      .values({
-        id: binding.id,
-        appId: binding.appId,
-        agentId: binding.agentId,
-        serverId: binding.serverId,
-        status: binding.status,
-        required: binding.required,
-        permissionPolicyIdsJson: encodeJson(binding.permissionPolicyIds),
-        allowedToolPatternsJson: encodeJson(binding.allowedToolPatterns),
-        conversationId: binding.conversationId ?? null,
-        threadId: binding.threadId ?? null,
-        createdAt: binding.createdAt,
-        updatedAt: binding.updatedAt,
-      })
-      .onConflictDoUpdate({
-        target: pgSchema.agentMcpServerBindingsPostgres.id,
-        set: {
+    await this.db.transaction(async (tx) => {
+      await lockAgentMcpBindingSet(tx, binding);
+      await tx
+        .insert(pgSchema.agentMcpServerBindingsPostgres)
+        .values({
+          id: binding.id,
+          appId: binding.appId,
+          agentId: binding.agentId,
+          serverId: binding.serverId,
           status: binding.status,
           required: binding.required,
           permissionPolicyIdsJson: encodeJson(binding.permissionPolicyIds),
           allowedToolPatternsJson: encodeJson(binding.allowedToolPatterns),
           conversationId: binding.conversationId ?? null,
           threadId: binding.threadId ?? null,
+          createdAt: binding.createdAt,
           updatedAt: binding.updatedAt,
-        },
-      });
+        })
+        .onConflictDoUpdate({
+          target: pgSchema.agentMcpServerBindingsPostgres.id,
+          set: {
+            status: binding.status,
+            required: binding.required,
+            permissionPolicyIdsJson: encodeJson(binding.permissionPolicyIds),
+            allowedToolPatternsJson: encodeJson(binding.allowedToolPatterns),
+            conversationId: binding.conversationId ?? null,
+            threadId: binding.threadId ?? null,
+            updatedAt: binding.updatedAt,
+          },
+        });
+    });
+  }
+
+  async getAgentBinding(input: {
+    appId: AgentMcpServerBinding['appId'];
+    agentId: AgentMcpServerBinding['agentId'];
+    serverId: AgentMcpServerBinding['serverId'];
+  }): Promise<AgentMcpServerBinding | null> {
+    const [row] = await this.db
+      .select()
+      .from(pgSchema.agentMcpServerBindingsPostgres)
+      .where(
+        and(
+          eq(pgSchema.agentMcpServerBindingsPostgres.appId, input.appId),
+          eq(pgSchema.agentMcpServerBindingsPostgres.agentId, input.agentId),
+          eq(pgSchema.agentMcpServerBindingsPostgres.serverId, input.serverId),
+        ),
+      )
+      .limit(1);
+    return row ? this.mapBinding(row) : null;
   }
 
   async disableAgentBinding(input: {
@@ -210,18 +353,24 @@ export class PostgresMcpServerRepository implements McpServerRepository {
     serverId: AgentMcpServerBinding['serverId'];
     updatedAt: string;
   }): Promise<AgentMcpServerBinding | null> {
-    const [row] = await this.db
-      .update(pgSchema.agentMcpServerBindingsPostgres)
-      .set({ status: 'disabled', updatedAt: input.updatedAt })
-      .where(
-        and(
-          eq(pgSchema.agentMcpServerBindingsPostgres.appId, input.appId),
-          eq(pgSchema.agentMcpServerBindingsPostgres.agentId, input.agentId),
-          eq(pgSchema.agentMcpServerBindingsPostgres.serverId, input.serverId),
-        ),
-      )
-      .returning();
-    return row ? this.mapBinding(row) : null;
+    return this.db.transaction(async (tx) => {
+      await lockAgentMcpBindingSet(tx, input);
+      const [row] = await tx
+        .update(pgSchema.agentMcpServerBindingsPostgres)
+        .set({ status: 'disabled', updatedAt: input.updatedAt })
+        .where(
+          and(
+            eq(pgSchema.agentMcpServerBindingsPostgres.appId, input.appId),
+            eq(pgSchema.agentMcpServerBindingsPostgres.agentId, input.agentId),
+            eq(
+              pgSchema.agentMcpServerBindingsPostgres.serverId,
+              input.serverId,
+            ),
+          ),
+        )
+        .returning();
+      return row ? this.mapBinding(row) : null;
+    });
   }
 
   async listAgentBindings(input: {
@@ -231,6 +380,64 @@ export class PostgresMcpServerRepository implements McpServerRepository {
     cursor?: string;
   }): Promise<AgentMcpServerBinding[]> {
     return this.listAgentBindingRows(input);
+  }
+
+  async listAgentMcpAccessSnapshot(input: {
+    appId: AgentMcpServerBinding['appId'];
+    agentId: AgentMcpServerBinding['agentId'];
+  }): Promise<AgentMcpAccessSnapshot> {
+    const result = await this.db.execute<{
+      active_bindings: unknown;
+      materialized_servers: unknown;
+    }>(sql`
+      WITH newest_bindings AS (
+        SELECT *
+        FROM agent_mcp_server_bindings
+        WHERE app_id = ${input.appId}
+          AND agent_id = ${input.agentId}
+        ORDER BY created_at DESC
+        LIMIT 500
+      )
+      SELECT
+        (
+          SELECT COALESCE(jsonb_agg(jsonb_build_object(
+            'binding', to_jsonb(b),
+            'definition', CASE WHEN s.id IS NULL THEN NULL ELSE to_jsonb(s) END
+          ) ORDER BY b.created_at DESC), '[]'::jsonb)
+          FROM newest_bindings b
+          LEFT JOIN mcp_servers s
+            ON s.id = b.server_id
+           AND s.app_id = ${input.appId}
+          WHERE b.status = 'active'
+        ) AS active_bindings,
+        (
+          SELECT COALESCE(jsonb_agg(jsonb_build_object(
+            'binding', to_jsonb(b),
+            'definition', to_jsonb(s)
+          ) ORDER BY s.name), '[]'::jsonb)
+          FROM newest_bindings b
+          INNER JOIN mcp_servers s
+            ON s.id = b.server_id
+          WHERE b.status = 'active'
+            AND s.app_id = ${input.appId}
+            AND s.status = 'active'
+        ) AS materialized_servers
+    `);
+    const row = result.rows[0];
+    return {
+      activeBindings: jsonArray(row?.active_bindings).map((entry) => ({
+        binding: this.mapBinding(fromDbJson(entry.binding) as never),
+        definition: entry.definition
+          ? this.mapServer(fromDbJson(entry.definition) as never)
+          : null,
+      })),
+      materializedServers: jsonArray(row?.materialized_servers).map(
+        (entry) => ({
+          binding: this.mapBinding(fromDbJson(entry.binding) as never),
+          definition: this.mapServer(fromDbJson(entry.definition) as never),
+        }),
+      ),
+    };
   }
 
   async listAgentBindingsForAgents(input: {
@@ -273,15 +480,18 @@ export class PostgresMcpServerRepository implements McpServerRepository {
         lt(pgSchema.agentMcpServerBindingsPostgres.createdAt, input.cursor),
       );
     }
-    const rows = await this.db
+    const query = this.db
       .select()
       .from(pgSchema.agentMcpServerBindingsPostgres)
       .where(and(...filters))
       .orderBy(
         asc(pgSchema.agentMcpServerBindingsPostgres.agentId),
         desc(pgSchema.agentMcpServerBindingsPostgres.createdAt),
-      )
-      .limit(normalizeLimit(input.limit));
+      );
+    const rows =
+      input.limit === undefined
+        ? await query
+        : await query.limit(normalizeLimit(input.limit));
     return rows.map((row) => this.mapBinding(row));
   }
 
@@ -417,9 +627,14 @@ export class PostgresMcpServerRepository implements McpServerRepository {
         row.permissionPolicyIdsJson,
       ) as AgentMcpServerBinding['permissionPolicyIds'],
       allowedToolPatterns: parseJsonArray(row.allowedToolPatternsJson),
-      conversationId:
-        row.conversationId as AgentMcpServerBinding['conversationId'],
-      threadId: row.threadId as AgentMcpServerBinding['threadId'],
+      // Postgres stores an unscoped binding as NULL, but the domain type is
+      // `conversationId?`/`threadId?` (undefined = unscoped). Coerce NULL to
+      // undefined so scope checks that test `=== undefined` treat an
+      // agent-global binding correctly.
+      conversationId: (row.conversationId ??
+        undefined) as AgentMcpServerBinding['conversationId'],
+      threadId: (row.threadId ??
+        undefined) as AgentMcpServerBinding['threadId'],
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };

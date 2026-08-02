@@ -54,6 +54,8 @@ import {
 } from './app-memory-recall.js';
 import {
   decideMemoryReview,
+  getMemoryReviewDetail,
+  getMemoryReviewWithinAgentBoundary,
   listPendingMemoryReviewPage,
   listPendingMemoryReviews,
 } from './app-memory-review.js';
@@ -581,6 +583,41 @@ export class AppMemoryService {
     });
     options.signal?.throwIfAborted();
     return page;
+  }
+
+  async getReviewDetail(
+    input: Partial<MemoryBoundaryContext> & {
+      reviewId: string;
+      subjectType?: MemorySubjectType;
+      subjectId?: string;
+    },
+    options: { signal?: AbortSignal; statementTimeoutMs?: number } = {},
+  ): Promise<MemoryReviewRecord | null> {
+    if (!this.isEnabled()) return null;
+    options.signal?.throwIfAborted();
+    const subject = normalizeSubject(input);
+    return getMemoryReviewDetail({
+      db: this.db,
+      subject,
+      reviewId: input.reviewId,
+      statementTimeoutMs: options.statementTimeoutMs,
+    });
+  }
+
+  async getReviewWithinAgentBoundary(
+    input: { appId: string; agentId: string; reviewId: string },
+    options: { statementTimeoutMs?: number } = {},
+  ): Promise<MemoryReviewRecord | null> {
+    if (!this.isEnabled()) return null;
+    return getMemoryReviewWithinAgentBoundary({
+      db: this.db,
+      appId: input.appId,
+      agentId: input.agentId,
+      reviewId: input.reviewId,
+      ...(options.statementTimeoutMs !== undefined
+        ? { statementTimeoutMs: options.statementTimeoutMs }
+        : {}),
+    });
   }
 
   async decideReview(

@@ -65,7 +65,7 @@ const fileToolSchema = {
 export function registerFileTools(server: McpServer): void {
   server.tool(
     'file',
-    'List, read, write, or promote Gantry FileArtifacts by virtual scope/path. Descriptors are compact by default; file content is returned only by read. Host filesystem paths and storage refs are never exposed.',
+    'List, read, write, or promote Gantry FileArtifacts by virtual scope/path. Read inbound channel attachment refs such as attachments/report.md with action=read and path=<gantry_ref>. Descriptors are compact by default; file content is returned only by read. Host filesystem paths and backend storage refs are never exposed.',
     fileToolSchema,
     async (args) => {
       const result = await handleFileToolAction(args);
@@ -108,6 +108,8 @@ async function requestHostFileArtifactAction(
       ? (response.data as Record<string, unknown>)
       : {};
   if (typeof data.content === 'string') return data.content;
+  const encodedContent = decodeReadContent(data.content);
+  if (encodedContent) return encodedContent;
   if (Array.isArray(data.artifacts)) {
     if (data.artifacts.length === 0) return 'No files found.';
     const lines = data.artifacts.map((entry) => {
@@ -127,6 +129,20 @@ async function requestHostFileArtifactAction(
     ? String(artifact.virtualPath ?? artifact.path ?? '')
     : '';
   return path ? `Saved ${path}.` : 'Done.';
+}
+
+function decodeReadContent(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  if (record.encoding === 'utf8' && typeof record.text === 'string') {
+    return record.text;
+  }
+  if (record.encoding === 'base64' && typeof record.data === 'string') {
+    return `[base64 attachment content]\n${record.data}`;
+  }
+  return undefined;
 }
 
 export function measureFileToolPayloadSize(value: unknown): number {

@@ -70,13 +70,13 @@ describe('Anthropic Claude Agent model config', () => {
   it('keeps the conversation thinking override authoritative over configured defaults', () => {
     expect(
       resolveThinkingOptions(
-        { mode: 'adaptive', effort: 'low' },
+        { mode: 'adaptive', effort: 'high' },
         { mode: 'off' },
-        'high',
+        'max',
       ),
     ).toMatchObject({
       thinking: { type: 'adaptive' },
-      effort: 'low',
+      effort: 'high',
     });
   });
 });

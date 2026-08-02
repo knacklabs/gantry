@@ -14,6 +14,7 @@ import {
   semanticCapabilityRule,
 } from './semantic-capability-ids.js';
 import { NEUTRAL_CA_TRUST_ENV_KEYS } from './neutral-ca-trust-env.js';
+import { stableSha256Json } from './stable-hash.js';
 
 export type SemanticCapabilityRisk = 'read' | 'write' | 'admin';
 export type SemanticCapabilityCredentialSource =
@@ -78,6 +79,52 @@ export interface SemanticCapabilityDefinition {
     filesystem?: 'read_only' | 'workspace_write' | 'credential_read';
   };
   source?: unknown;
+}
+
+export function sameMcpCapabilityProposalAuthority(
+  left: SemanticCapabilityDefinition,
+  right: SemanticCapabilityDefinition,
+): boolean {
+  if (
+    !isMcpCapabilityProposalDefinition(left) ||
+    !isMcpCapabilityProposalDefinition(right)
+  ) {
+    return false;
+  }
+  return (
+    stableSha256Json({ ...left, displayName: '' }) ===
+    stableSha256Json({ ...right, displayName: '' })
+  );
+}
+
+export function isMcpCapabilityProposalDefinition(
+  capability: SemanticCapabilityDefinition,
+): boolean {
+  const source = capability.source;
+  return Boolean(
+    source &&
+    typeof source === 'object' &&
+    !Array.isArray(source) &&
+    (source as Record<string, unknown>).kind === 'mcp_capability_proposal',
+  );
+}
+
+export function isMcpCapabilityProposalRequest(input: {
+  toolName: string;
+  toolInput?: Record<string, unknown>;
+  capabilityId?: string;
+  semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
+}): boolean {
+  if (
+    input.toolName === 'request_permission' &&
+    input.toolInput?.capabilityProposalKind === 'mcp_capability'
+  ) {
+    return true;
+  }
+  const capability = input.capabilityId
+    ? input.semanticCapabilityDefinitions?.[input.capabilityId]
+    : undefined;
+  return Boolean(capability && isMcpCapabilityProposalDefinition(capability));
 }
 
 const SEMANTIC_CAPABILITY_SCHEMA_FORMAT = 'gantry.semantic-capability.v1';

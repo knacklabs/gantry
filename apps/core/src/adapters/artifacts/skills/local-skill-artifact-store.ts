@@ -1,14 +1,17 @@
-import { createHash } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type {
-  SkillArtifactAsset,
-  SkillArtifactBundle,
-  SkillArtifactStore,
-  StoredSkillArtifact,
+import {
+  type SkillArtifactAsset,
+  type SkillArtifactBundle,
+  type SkillArtifactStore,
+  type StoredSkillArtifact,
 } from '../../../domain/ports/skill-artifact-store.js';
-import { materializedSkillDirectoryNameFor } from '../../../domain/skills/skills.js';
+import {
+  hashSkillBundle,
+  normalizeSkillBundle,
+} from '../../../shared/skill-artifact-helpers.js';
 
 export class LocalSkillArtifactStore implements SkillArtifactStore {
   constructor(private readonly artifactRoot: string) {}
@@ -20,28 +23,55 @@ export class LocalSkillArtifactStore implements SkillArtifactStore {
     bundle: SkillArtifactBundle;
   }): Promise<StoredSkillArtifact> {
     const bundle = normalizeSkillBundle(input.bundle);
+    // The content hash is both the immutable storage key and integrity value;
+    // hashSkillBundle uses unambiguous length-prefixed framing.
     const contentHash = hashSkillBundle(bundle);
     const storageRef = path.posix.join(
+      'apps',
+      encodeStorageSegment(input.appId),
       'skills',
-      sanitizeSegment(materializedSkillDirectoryNameFor(input.skillName)),
+      encodeStorageSegment(input.skillId),
+      encodeStorageSegment(contentHash),
     );
     const target = resolveStoragePath(this.artifactRoot, storageRef);
-    fs.rmSync(target, { recursive: true, force: true });
-    fs.mkdirSync(target, { recursive: true, mode: 0o700 });
-    let sizeBytes = 0;
-    for (const asset of bundle.assets) {
-      const filePath = resolveAssetPath(target, asset.path);
-      fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
-      const content = Buffer.from(asset.content);
-      fs.writeFileSync(filePath, content, { mode: 0o600 });
-      sizeBytes += content.byteLength;
-    }
-    return {
+    const sizeBytes = bundle.assets.reduce(
+      (total, asset) => total + asset.content.byteLength,
+      0,
+    );
+    const stored: StoredSkillArtifact = {
       storageType: 'local-filesystem',
       storageRef,
       contentHash,
       sizeBytes,
     };
+    if (fs.existsSync(target)) {
+      return stored;
+    }
+
+    fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+    const tempDir = `${target}.tmp-${randomBytes(16).toString('hex')}`;
+    fs.mkdirSync(tempDir, { mode: 0o700 });
+    try {
+      for (const asset of bundle.assets) {
+        const filePath = resolveAssetPath(tempDir, asset.path);
+        fs.mkdirSync(path.dirname(filePath), {
+          recursive: true,
+          mode: 0o700,
+        });
+        fs.writeFileSync(filePath, Buffer.from(asset.content), { mode: 0o600 });
+      }
+      try {
+        fs.renameSync(tempDir, target);
+      } catch (error) {
+        if (!isConcurrentPublish(error) || !fs.existsSync(target)) {
+          throw error;
+        }
+      }
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+    // ponytail: Superseded hash directories stay in place; garbage collection is a follow-up.
+    return stored;
   }
 
   async getSkillArtifact(storageRef: string): Promise<SkillArtifactBundle> {
@@ -54,33 +84,6 @@ export class LocalSkillArtifactStore implements SkillArtifactStore {
     }
     return normalizeSkillBundle({ assets: readAssetsRecursive(target) });
   }
-}
-
-export function normalizeSkillBundle(
-  bundle: SkillArtifactBundle,
-): SkillArtifactBundle {
-  const assets = bundle.assets
-    .map((asset) => ({
-      path: normalizeAssetPath(asset.path),
-      contentType: asset.contentType,
-      content: new Uint8Array(asset.content),
-    }))
-    .sort((left, right) => left.path.localeCompare(right.path));
-  if (!assets.some((asset) => asset.path === 'SKILL.md')) {
-    throw new Error('Skill artifact must contain SKILL.md');
-  }
-  return { assets };
-}
-
-export function hashSkillBundle(bundle: SkillArtifactBundle): string {
-  const hash = createHash('sha256');
-  for (const asset of normalizeSkillBundle(bundle).assets) {
-    hash.update(asset.path);
-    hash.update('\0');
-    hash.update(asset.content);
-    hash.update('\0');
-  }
-  return `sha256:${hash.digest('hex')}`;
 }
 
 function normalizeAssetPath(value: string): string {
@@ -188,11 +191,13 @@ function isHiddenPathSegment(value: string): boolean {
   return value.startsWith('.');
 }
 
-function sanitizeSegment(value: string): string {
-  const safe = value
-    .replace(/[^A-Za-z0-9._-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^\.+/, '')
-    .slice(0, 120);
-  return safe || 'skill';
+function encodeStorageSegment(value: string): string {
+  const encoded = encodeURIComponent(value).replace(/\./g, '%2E');
+  if (!encoded) throw new Error('Skill artifact storage segment is empty');
+  return encoded;
+}
+
+function isConcurrentPublish(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === 'EEXIST' || code === 'ENOTEMPTY';
 }

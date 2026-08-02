@@ -1521,6 +1521,49 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     });
   });
 
+  it('submits an MCP capability proposal without letting the agent author its definition', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: {
+        kind: 'mcp_capability',
+        serverName: 'e2e-sum',
+        tools: ['get-sum'],
+        displayName: 'E2E sum read',
+      },
+      reason: 'Add numbers through the reviewed MCP source.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskDir = path.join(fixture.ipcDir, 'tasks');
+    const taskFiles = fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : [];
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(path.join(taskDir, taskFiles[0]), 'utf-8'),
+    );
+    expect(task).toMatchObject({
+      type: 'request_permission',
+      targetJid: 'tg:team',
+      chatJid: 'tg:team',
+      payload: {
+        permissionKind: 'tool',
+        capabilityRequestSource: 'request_access',
+        capabilityProposalKind: 'mcp_capability',
+        mcpServerName: 'e2e-sum',
+        mcpToolPatterns: ['get-sum'],
+        capabilityDisplayName: 'E2E sum read',
+        temporaryOnly: false,
+        reason: 'Add numbers through the reviewed MCP source.',
+      },
+    });
+    expect(JSON.stringify(task.payload)).not.toContain(
+      'semanticCapabilityDefinition',
+    );
+    expect(JSON.stringify(task.payload)).not.toContain(
+      'implementationBindings',
+    );
+  });
+
   it('submits request_access exact Gantry tool targets as reviewed permission requests', async () => {
     const fixture = createMcpFixture();
 

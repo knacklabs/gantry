@@ -12,6 +12,7 @@ import type {
   AgentOutput,
   RunAgentOptions,
 } from './agent-spawn-types.js';
+export { registerWorkerPermissionRunRestriction } from './agent-spawn-permission-run-restriction.js';
 
 type HostStartupTiming = ReturnType<typeof createRunnerHostStartupTiming>;
 

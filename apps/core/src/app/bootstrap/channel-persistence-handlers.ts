@@ -11,6 +11,7 @@ import {
 import type { RuntimeApp } from './runtime-app.js';
 import type { AsyncTaskQueue } from './async-task-queue.js';
 import type { ChannelWiringDeps } from './channel-wiring-types.js';
+import { createRuntimeProviderAttachmentMaterializer } from './runtime-services.js';
 
 type ChannelPersistenceRepository = RuntimeChatMetadataRepository &
   RuntimeMessageRepository;
@@ -130,7 +131,20 @@ export function createChannelPersistenceHandlers({
     const isKnownDirect =
       chatIsGroup.get(chatJid) === false ||
       existingGroup?.conversationKind === 'dm';
-    if (!isKnownDirect) return Boolean(existingGroup);
+    if (!isKnownDirect) {
+      if (!existingGroup && !msg.is_from_me && !msg.is_bot_message) {
+        resolved.logger.warn(
+          {
+            chatJid,
+            threadId: msg.thread_id,
+            providerAccountId: msg.providerAccountId,
+            sender: msg.sender,
+          },
+          'Dropping channel message without configured conversation route',
+        );
+      }
+      return Boolean(existingGroup);
+    }
     if (!existingGroup && !msg.is_from_me && !msg.is_bot_message) {
       resolved.logger.warn(
         { chatJid, sender: msg.sender },
@@ -142,32 +156,17 @@ export function createChannelPersistenceHandlers({
 
   return {
     groupJoinOnboarding: resolved.groupJoinOnboarding,
+    materializeProviderAttachment:
+      createRuntimeProviderAttachmentMaterializer(app),
     ensureMessageRoute: ensureConfiguredConversationRoute,
     onMessage: async (chatJid: string, msg: NewMessage) => {
       const canRoute = await ensureConfiguredConversationRoute(chatJid, msg);
-      if (!canRoute) return;
-      let routes = routesForChat(chatJid, msg.thread_id, msg.providerAccountId);
-      if (!msg.is_from_me && !msg.is_bot_message && routes.length > 0) {
-        const cfg = resolved.loadSenderAllowlist();
-        routes = routes.filter((route) => {
-          if (
-            !resolved.shouldDropMessage(chatJid, cfg, route.folder) ||
-            resolved.isSenderAllowed(chatJid, msg.sender, cfg, route.folder)
-          ) {
-            return true;
-          }
-          if (resolved.shouldLogDenied(chatJid, cfg)) {
-            resolved.logger.debug(
-              { chatJid, sender: msg.sender, agentFolder: route.folder },
-              'sender-allowlist: dropping message (drop mode)',
-            );
-          }
-          return false;
-        });
-        if (routes.length === 0) {
-          return;
-        }
-      }
+      if (!canRoute) return 'dropped' as const;
+      const routes = routesForChat(
+        chatJid,
+        msg.thread_id,
+        msg.providerAccountId,
+      );
 
       const persistMessage = async () => {
         try {
@@ -224,6 +223,7 @@ export function createChannelPersistenceHandlers({
           'Persistence queue full; waiting to enqueue message persistence',
         ),
       );
+      return 'stored' as const;
     },
     onChatMetadata: async (
       chatJid: string,

@@ -6,6 +6,13 @@
 // follow-up (durable versioned CAS).
 const skillMaterializationLocks = new Map<string, Promise<unknown>>();
 
+export function skillMaterializationLockKey(
+  appId: string,
+  materializedSkillName: string,
+): string {
+  return `${appId}:${materializedSkillName.toLowerCase()}`;
+}
+
 export async function withSkillMaterializationLock<T>(
   key: string,
   fn: () => Promise<T>,

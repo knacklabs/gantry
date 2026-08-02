@@ -45,6 +45,17 @@ type PermissionTextSanitizer = (
   tail: number,
 ) => string;
 
+export function permissionRiskLines(
+  request: PermissionApprovalRequest,
+): string[] {
+  if (!request.risk_level && !request.risk_category) return [];
+  return [
+    `Risk: ${[request.risk_level, request.risk_category]
+      .filter(Boolean)
+      .join(' — ')}`,
+  ];
+}
+
 export function formatPermissionToolInputLines(
   request: PermissionApprovalRequest,
   sanitizePermissionText: PermissionTextSanitizer,

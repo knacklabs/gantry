@@ -2,9 +2,10 @@ import fs from 'fs';
 import path from 'path';
 import { getGantryHome } from './gantry-home.js';
 type PermissionTimeoutContext = 'interactive' | 'autonomous';
+export const NO_PERMISSION_TIMEOUT_MS = 0;
 const INTERACTIVE_MIN_MS = 10_000;
-const INTERACTIVE_DEFAULT_MS = 300_000;
-const AUTONOMOUS_DEFAULT_MS = 0;
+const INTERACTIVE_DEFAULT_MS = NO_PERMISSION_TIMEOUT_MS;
+const AUTONOMOUS_DEFAULT_MS = NO_PERMISSION_TIMEOUT_MS;
 const INTERACTIVE_KEYS = [
   'GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS',
   'PERMISSION_APPROVAL_TIMEOUT_MS',
@@ -27,9 +28,11 @@ export function getPermissionTimeoutMs(
   const parsed = parseInt(raw || String(defaultMs), 10);
   const timeoutMs = Number.isFinite(parsed) ? parsed : defaultMs;
   if (context === 'interactive') {
-    return Math.max(INTERACTIVE_MIN_MS, timeoutMs || INTERACTIVE_DEFAULT_MS);
+    return timeoutMs === NO_PERMISSION_TIMEOUT_MS
+      ? NO_PERMISSION_TIMEOUT_MS
+      : Math.max(INTERACTIVE_MIN_MS, timeoutMs);
   }
-  return Math.max(0, timeoutMs);
+  return Math.max(NO_PERMISSION_TIMEOUT_MS, timeoutMs);
 }
 export function resolvePermissionApprovalTimeoutMs(
   env: Record<string, string | undefined> = process.env,

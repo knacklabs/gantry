@@ -24,7 +24,12 @@ export interface PermissionPersistenceBackend {
   mirrorAgentToolRulesToSettings?: (
     sourceAgentFolder: string,
     rules: string[],
-    options?: { appId?: string; mode?: 'add' | 'remove' },
+    options?: {
+      appId?: string;
+      mode?: 'add' | 'remove';
+      expectedMcpBindings?: import('../../domain/mcp/mcp-servers.js').McpBindingAuthorityPrecondition[];
+      mcpCapabilityGrantToken?: string;
+    },
   ) => Promise<void> | void;
   onSchedulerChanged?: (jobId?: string) => void;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
@@ -68,6 +73,7 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
     sourceAgentFolder: input.sourceAgentFolder,
     updates,
     toolRepository,
+    mcpServerRepository: input.persistence.getMcpServerRepository?.(),
     mirrorAgentToolRulesToSettings,
     permissionRepository: input.persistence.getPermissionRepository?.(),
     semanticCapabilityDefinitions: input.request.semanticCapabilityDefinitions,

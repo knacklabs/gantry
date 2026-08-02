@@ -57,6 +57,8 @@ const pendingAsyncMcpExecutions = new Map<
     serverName: string;
     toolName: string;
     arguments: Record<string, unknown>;
+    authorizationConversationId?: string;
+    authorizationThreadId?: string;
   }
 >();
 
@@ -64,6 +66,8 @@ type DurableAsyncMcpPayload = {
   serverName: string;
   toolName: string;
   arguments: Record<string, unknown>;
+  authorizationConversationId?: string;
+  authorizationThreadId?: string;
 };
 
 export async function createAsyncMcpTask(input: {
@@ -79,6 +83,8 @@ export async function createAsyncMcpTask(input: {
   serverName: string;
   toolName: string;
   arguments?: Record<string, unknown>;
+  authorizationConversationId?: string;
+  authorizationThreadId?: string;
 }): Promise<
   { ok: true; task: AsyncTaskRecord } | { ok: false; message: string }
 > {
@@ -110,6 +116,8 @@ export async function createAsyncMcpTask(input: {
       serverName: input.serverName,
       toolName: input.toolName,
       arguments: input.arguments ?? {},
+      authorizationConversationId: input.authorizationConversationId,
+      authorizationThreadId: input.authorizationThreadId,
     }),
     leaseToken: randomUUID(),
     fencingVersion: 1,
@@ -170,6 +178,8 @@ export async function enqueueAsyncMcpTask(input: {
   serverName: string;
   toolName: string;
   arguments: Record<string, unknown>;
+  authorizationConversationId?: string;
+  authorizationThreadId?: string;
 }): Promise<void> {
   pendingAsyncMcpExecutions.set(input.task.id, input);
   await drainAsyncMcpTasks(input.repository);
@@ -224,6 +234,8 @@ export async function recoverQueuedAsyncMcpTasks(input: {
       serverName: payload.serverName,
       toolName: payload.toolName,
       arguments: payload.arguments,
+      authorizationConversationId: payload.authorizationConversationId,
+      authorizationThreadId: payload.authorizationThreadId,
     });
     recovered += 1;
   }
@@ -240,6 +252,8 @@ export async function executeAsyncMcpTask(input: {
   serverName: string;
   toolName: string;
   arguments: Record<string, unknown>;
+  authorizationConversationId?: string;
+  authorizationThreadId?: string;
 }): Promise<void> {
   const controller = new AbortController();
   activeAsyncMcpControllers.set(input.task.id, {
@@ -290,6 +304,8 @@ export async function executeAsyncMcpTask(input: {
       serverName: input.serverName,
       toolName: input.toolName,
       arguments: input.arguments,
+      conversationId: input.authorizationConversationId,
+      threadId: input.authorizationThreadId,
       timeoutMs: ASYNC_MCP_TIMEOUT_MS,
       signal: controller.signal,
     });
@@ -439,15 +455,14 @@ async function drainAsyncMcpTasks(repository: AsyncTaskRepository) {
       ) {
         continue;
       }
-      const claimed =
-        (await repository.claimQueuedTask?.({
-          taskId: execution.task.id,
-          leaseToken: randomUUID(),
-          now: nowIso(),
-          maxRunningPerApp: MAX_ACTIVE_ASYNC_MCP_PER_APP,
-          maxRunningPerAgent: MAX_ACTIVE_ASYNC_MCP_PER_AGENT,
-        })) ?? execution.task;
-      if (claimed.status !== 'running' && repository.claimQueuedTask) continue;
+      const claimed = await repository.claimQueuedTask({
+        taskId: execution.task.id,
+        leaseToken: randomUUID(),
+        now: nowIso(),
+        maxRunningPerApp: MAX_ACTIVE_ASYNC_MCP_PER_APP,
+        maxRunningPerAgent: MAX_ACTIVE_ASYNC_MCP_PER_AGENT,
+      });
+      if (!claimed) continue;
       pendingAsyncMcpExecutions.delete(execution.task.id);
       void executeAsyncMcpTask({ ...execution, task: claimed });
     }
@@ -559,6 +574,10 @@ function isDurableAsyncMcpPayload(
     value &&
     typeof value.serverName === 'string' &&
     typeof value.toolName === 'string' &&
+    (value.authorizationConversationId === undefined ||
+      typeof value.authorizationConversationId === 'string') &&
+    (value.authorizationThreadId === undefined ||
+      typeof value.authorizationThreadId === 'string') &&
     isRecord(value.arguments),
   );
 }

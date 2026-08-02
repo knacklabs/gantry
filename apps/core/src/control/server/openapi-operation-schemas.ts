@@ -1,4 +1,8 @@
 import type { JsonSchema } from './openapi-route-helpers.js';
+import {
+  peopleOpenApiRequestSchemas,
+  peopleOpenApiResponseSchemas,
+} from './openapi-people.js';
 
 const ref = (name: string): JsonSchema => ({
   $ref: `#/components/schemas/${name}`,
@@ -68,7 +72,12 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
   listJobs: ref('JobListResponse'),
   listMcpServers: ref('McpServerPageResponse'),
   listMemory: ref('MemoryListResponse'),
+  listMemoryReviews: ref('MemoryReviewPageResponse'),
+  getMemoryReview: ref('MemoryReviewDetailResponse'),
+  decideMemoryReview: ref('MemoryReviewDetailResponse'),
   listObserverInsights: ref('ObserverInsightListResponse'),
+  previewObserverDigest: ref('ObserverDigestPreviewResponse'),
+  listObserverDeliveries: ref('ObserverDigestDeliveryListResponse'),
   listModelCredentials: ref('ModelCredentialListResponse'),
   listModels: ref('ModelListResponse'),
   listOrStreamSessionEvents: ref('SessionRuntimeEventListResponse'),
@@ -120,6 +129,7 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
   waitForTrigger: ref('TriggerWaitResponse'),
   importBrainPages: ref('BrainImportResponse'),
   getBrainStatus: ref('BrainStatusResponse'),
+  ...peopleOpenApiResponseSchemas,
 };
 
 export const openApiRequestSchemas: Record<string, JsonSchema> = {
@@ -130,6 +140,7 @@ export const openApiRequestSchemas: Record<string, JsonSchema> = {
   createExternalIngress: ref('ExternalIngressRequest'),
   createJob: ref('JobCreateRequest'),
   createMemory: ref('MemorySaveRequest'),
+  decideMemoryReview: ref('MemoryReviewDecisionRequest'),
   createProviderAccount: ref('ProviderAccountRequest'),
   createWebhook: ref('WebhookCreateRequest'),
   disableMcpServer: ref('DisableMcpServerRequest'),
@@ -139,6 +150,7 @@ export const openApiRequestSchemas: Record<string, JsonSchema> = {
   invokeExternalIngress: ref('ExternalIngressInvokeRequest'),
   invokeLlmChatCompletions: ref('LlmChatCompletionsRequest'),
   invokeLlmMessages: ref('LlmMessagesRequest'),
+  ...peopleOpenApiRequestSchemas,
   invokeLlmMessagesCountTokens: ref('LlmMessagesCountTokensRequest'),
   importBrainPages: ref('BrainImportRequest'),
   patchMemory: ref('MemorySaveRequest'),

@@ -1,4 +1,7 @@
-import { withSkillMaterializationLock } from '../../../shared/skill-install-lock.js';
+import {
+  skillMaterializationLockKey,
+  withSkillMaterializationLock,
+} from '../../../shared/skill-install-lock.js';
 import { readSkillFrontmatterName } from '../../../shared/skill-artifact-helpers.js';
 import { materializedSkillDirectoryNameFor } from '../../../domain/skills/skills.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -95,7 +98,10 @@ export async function handleSkillRoutes(
           ) ?? uploaded.fallbackName)
         : uploaded.fallbackName;
       const skill = await withSkillMaterializationLock(
-        materializedSkillDirectoryNameFor(uploadedName).toLowerCase(),
+        skillMaterializationLockKey(
+          auth.appId,
+          materializedSkillDirectoryNameFor(uploadedName),
+        ),
         () =>
           service().installSkill({
             appId: auth.appId as AppId,

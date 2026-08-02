@@ -142,7 +142,11 @@ describe('AgentProfileService', () => {
     });
     expect(first.version).toBe(1);
     expect(mirror).toHaveBeenCalledWith(
-      expect.objectContaining({ fileName: 'AGENTS.md', content: '# v1' }),
+      expect.objectContaining({
+        fileName: 'AGENTS.md',
+        content: '# v1',
+        version: 1,
+      }),
     );
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'update', kind: 'agents', version: 1 }),

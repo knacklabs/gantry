@@ -66,7 +66,7 @@ describe('egress gateway', () => {
       expect.objectContaining({
         eventType: 'egress.connect',
         agentId: 'agent:test',
-        conversationId: 'conversation:tg:test',
+        conversationId: 'tg:test',
         payload: expect.objectContaining({
           host: address,
           allowed: false,

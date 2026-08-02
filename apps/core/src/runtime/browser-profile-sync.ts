@@ -12,11 +12,15 @@ import type {
   BrowserProfileSnapshotRepository,
   UpsertBrowserProfileSnapshotResult,
 } from '../domain/ports/browser-profile-snapshot.js';
+import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { isExcludedBrowserProfilePath } from '../shared/browser-profile-snapshot-exclude.js';
 import { hashBrowserProfileFileModel } from '../shared/browser-profile-hash.js';
 import { nowIso } from '../shared/time/datetime.js';
-import { acquireProfileLock } from './browser-profiles.js';
+import {
+  acquireProfileLock,
+  type BrowserProfileLock,
+} from './browser-profiles.js';
 
 /**
  * Snapshot quiescence acquire window. Finalize already closed the browser and
@@ -39,6 +43,7 @@ const SNAPSHOT_LOCK_TIMEOUT_MS = 250;
 export interface BrowserProfileSyncDeps {
   store: BrowserProfileArtifactStore & BrowserProfileArtifactMaterializer;
   repository: BrowserProfileSnapshotRepository;
+  leases: RuntimeLeasePort;
   workerInstanceId?: string;
 }
 
@@ -51,6 +56,13 @@ export interface SnapshotProfileInput {
   snapshotRunId?: string | null;
   /** Lease fence of the snapshotting turn; higher == more recent ownership. */
   snapshotFencingVersion?: number;
+  /**
+   * Ownership generation of the profile lease the snapshotted bytes were
+   * produced under — take it from `closeBrowser()`'s `leaseGeneration`, which
+   * is bound to the session that was closed. Omit only when no profile lease
+   * was held; it then defaults to 0 and fences nothing.
+   */
+  snapshotLeaseGeneration?: number;
   authMarkers?: string[];
 }
 
@@ -65,21 +77,75 @@ const SNAPSHOT_MARKER_FILE = 'snapshot.json';
 let coordinator: BrowserProfileSyncDeps | null = null;
 
 /**
- * Per-profile "the browser was actually used this turn" flag. Set by the IPC
- * browser handler when it processes a browser action; consumed (read + cleared)
- * by the live finalize snapshot trigger. In-memory and bounded by the number of
- * distinct profile names a worker touches between finalizes; cleared on consume.
- * The JOB path uses its own browserActivityCount diagnostic instead.
+ * "The browser was actually used this turn" flag, keyed by profile AND turn.
+ *
+ * Set by the IPC browser handler when it processes a browser action; consumed
+ * (read + cleared) by the live finalize snapshot trigger. Threads of one
+ * conversation and account deliberately SHARE a profile, so keying by profile
+ * alone lets one thread's finalize consume a sibling's marker — the sibling
+ * then skips its snapshot and that browser work is lost. The queue key makes
+ * the marker belong to the turn that produced it.
+ *
+ * In-memory and bounded by (profiles x turns) touched between finalizes;
+ * cleared on consume. The JOB path uses its own browserActivityCount instead.
  */
 const profileActivity = new Set<string>();
 
-export function markBrowserProfileActivity(profileName: string): void {
-  profileActivity.add(profileName);
+function activityKey(profileName: string, queueKey: string): string {
+  return `${profileName}\n${queueKey}`;
+}
+/**
+ * profileName -> the lease generation that LOST the profile. A snapshot at that
+ * generation (or older) is suppressed; a later owner at a higher generation is
+ * not. Keyed by generation rather than a bare profile name so the marker cannot
+ * swallow a valid successor's snapshot (D-0017).
+ */
+const snapshotsSkippedAfterLeaseLoss = new Map<string, number>();
+
+export function markBrowserProfileActivity(
+  profileName: string,
+  queueKey: string,
+): void {
+  profileActivity.add(activityKey(profileName, queueKey));
 }
 
-/** Read-and-clear the activity flag for a profile. */
-export function consumeBrowserProfileActivity(profileName: string): boolean {
-  return profileActivity.delete(profileName);
+/** Read-and-clear THIS turn's activity flag; a sibling turn's is untouched. */
+export function consumeBrowserProfileActivity(
+  profileName: string,
+  queueKey: string,
+): boolean {
+  return profileActivity.delete(activityKey(profileName, queueKey));
+}
+
+export function skipNextBrowserProfileSnapshot(
+  profileName: string,
+  generation: number,
+): void {
+  const previous = snapshotsSkippedAfterLeaseLoss.get(profileName) ?? 0;
+  // Keep the highest lost generation: an older loss must not lower the bar.
+  if (generation >= previous) {
+    snapshotsSkippedAfterLeaseLoss.set(profileName, generation);
+  }
+}
+
+/**
+ * True when a snapshot at `generation` is suppressed by a recorded lease loss.
+ * The marker is a high-water mark that is never cleared: any generation at or
+ * below it stays blocked (so a second attempt from the dead owner is still
+ * suppressed), and any generation above it passes (a new valid owner).
+ */
+function snapshotSuppressedForGeneration(
+  profileName: string,
+  generation: number,
+): boolean {
+  const lost = snapshotsSkippedAfterLeaseLoss.get(profileName);
+  if (lost === undefined) return false;
+  // High-water mark, never cleared. Clearing it when a NEWER generation merely
+  // ATTEMPTS a snapshot would unsuppress the dead generation if that attempt
+  // then no-ops or fails (lock contention, upload error, repository failure) —
+  // the stale write could publish afterwards. Allowing anything above the mark
+  // is sufficient and needs no retirement step.
+  return generation <= lost;
 }
 
 export function registerBrowserProfileSync(
@@ -131,6 +197,12 @@ function writeSnapshotMarker(profileDir: string, contentHash: string): void {
   const tmp = `${target}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify({ content_hash: contentHash }));
   fs.renameSync(tmp, target);
+}
+
+function assertSnapshotLockValid(lock: BrowserProfileLock): void {
+  if (!lock.isValid()) {
+    throw new Error(`Browser profile snapshot lease lost for ${lock.name}`);
+  }
 }
 
 /**
@@ -229,12 +301,38 @@ export async function snapshotBrowserProfile(
   | { status: 'stale'; contentHash: string }
 > {
   if (!coordinator) return { status: 'noop', reason: 'sync_disabled' };
+  // The generation these bytes were produced under. It MUST arrive from the
+  // caller, carried out of the session that was closed, and must NOT be read
+  // from profile-wide state or from the short lock taken below: a successor can
+  // overwrite profile-wide state between this owner's close and its snapshot,
+  // and the snapshot-time lock would hand a stale owner a HIGHER generation.
+  // 0 when the caller held no profile lease at all.
+  // 0 when the caller has no provenance for these bytes. That is SAFE rather
+  // than silent: the repository's exact-issued-generation guard rejects the
+  // write and the 'stale' branch below logs it. What must never happen is
+  // claiming a generation these bytes did not have — see the stray-session
+  // path in browser-capability, which reads provenance from the durable
+  // session record instead of the lease's current value.
+  const ownedGeneration = input.snapshotLeaseGeneration ?? 0;
+  if (snapshotSuppressedForGeneration(input.profileName, ownedGeneration)) {
+    logger.error(
+      { profileName: input.profileName, generation: ownedGeneration },
+      'Skipped browser profile snapshot after profile lease loss',
+    );
+    return { status: 'noop', reason: 'lease_lost' };
+  }
 
-  let lock: { release: () => void };
+  let lock: BrowserProfileLock;
   try {
     lock = await acquireProfileLock(
       input.profileName,
+      coordinator.leases,
       SNAPSHOT_LOCK_TIMEOUT_MS,
+      // SHARED: taking a snapshot is not a new ownership epoch. Bumping here
+      // would inflate the counter this snapshot is fenced against, and would
+      // hand a stale owner a generation newer than the successor that
+      // displaced it. Exclusion against a launching browser is unchanged.
+      { shared: true },
     );
   } catch {
     // Lock held by a live Chrome relaunch (or contended). Skip rather than
@@ -247,6 +345,14 @@ export async function snapshotBrowserProfile(
   }
 
   try {
+    if (snapshotSuppressedForGeneration(input.profileName, ownedGeneration)) {
+      logger.error(
+        { profileName: input.profileName, generation: ownedGeneration },
+        'Skipped browser profile snapshot after profile lease loss',
+      );
+      return { status: 'noop', reason: 'lease_lost' };
+    }
+    assertSnapshotLockValid(lock);
     const files = await collectUserDataFiles(input.userDataDir);
     if (!files) return { status: 'noop', reason: 'no_state' };
     const contentHash = hashBrowserProfileFileModel(files);
@@ -255,6 +361,7 @@ export async function snapshotBrowserProfile(
       input.profileName,
     );
     if (existing && existing.contentHash === contentHash) {
+      assertSnapshotLockValid(lock);
       const result = await coordinator.repository.upsertBrowserProfileSnapshot({
         profileName: input.profileName,
         appId: input.appId ?? existing.appId,
@@ -265,6 +372,8 @@ export async function snapshotBrowserProfile(
         snapshotWorkerInstanceId: coordinator.workerInstanceId ?? null,
         snapshotRunId: input.snapshotRunId ?? null,
         snapshotFencingVersion: input.snapshotFencingVersion ?? 0,
+        snapshotLeaseGeneration: ownedGeneration,
+        leaseKey: lock.leaseKey,
         snapshottedAt: nowIso(),
       });
       if (result.status === 'stale') {
@@ -272,7 +381,7 @@ export async function snapshotBrowserProfile(
           {
             profileName: input.profileName,
             incomingFence: input.snapshotFencingVersion ?? 0,
-            currentFence: result.current.snapshotFencingVersion,
+            currentFence: result.current?.snapshotFencingVersion ?? null,
           },
           'Dropped stale browser profile snapshot metadata update',
         );
@@ -280,14 +389,17 @@ export async function snapshotBrowserProfile(
       }
       // Bytes unchanged since the last snapshot: write no artifact bytes, but
       // advance the fencing metadata and keep the local marker in sync.
+      assertSnapshotLockValid(lock);
       writeSnapshotMarker(input.profileDir, contentHash);
       return { status: 'noop', reason: 'unchanged' };
     }
 
+    assertSnapshotLockValid(lock);
     const stored = await coordinator.store.putBrowserProfile({
       profileName: input.profileName,
       files,
     });
+    assertSnapshotLockValid(lock);
     const result: UpsertBrowserProfileSnapshotResult =
       await coordinator.repository.upsertBrowserProfileSnapshot({
         profileName: input.profileName,
@@ -299,6 +411,8 @@ export async function snapshotBrowserProfile(
         snapshotWorkerInstanceId: coordinator.workerInstanceId ?? null,
         snapshotRunId: input.snapshotRunId ?? null,
         snapshotFencingVersion: input.snapshotFencingVersion ?? 0,
+        snapshotLeaseGeneration: ownedGeneration,
+        leaseKey: lock.leaseKey,
         snapshottedAt: nowIso(),
       });
 
@@ -307,16 +421,17 @@ export async function snapshotBrowserProfile(
         {
           profileName: input.profileName,
           incomingFence: input.snapshotFencingVersion ?? 0,
-          currentFence: result.current.snapshotFencingVersion,
+          currentFence: result.current?.snapshotFencingVersion ?? null,
         },
         'Dropped stale browser profile snapshot (a newer snapshot already exists)',
       );
       return { status: 'stale', contentHash: stored.contentHash };
     }
+    assertSnapshotLockValid(lock);
     writeSnapshotMarker(input.profileDir, stored.contentHash);
     return { status: 'written', contentHash: stored.contentHash };
   } finally {
-    lock.release();
+    await lock.release();
   }
 }
 

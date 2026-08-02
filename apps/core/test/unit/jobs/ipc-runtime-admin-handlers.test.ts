@@ -93,11 +93,11 @@ function depsWithAdminTools(
 }
 
 function fakeSettingsRevisions() {
+  let latest: any = null;
   return {
-    getLatestSettingsRevision: vi.fn(async () => null),
-    appendSettingsRevision: vi.fn(async (input: any) => ({
-      status: 'appended',
-      revision: {
+    getLatestSettingsRevision: vi.fn(async () => latest),
+    appendSettingsRevision: vi.fn(async (input: any) => {
+      latest = {
         appId: input.appId,
         revision: 1,
         settingsDocument: input.settingsDocument,
@@ -105,8 +105,9 @@ function fakeSettingsRevisions() {
         createdBy: input.createdBy,
         note: input.note ?? null,
         createdAt: new Date(0).toISOString(),
-      },
-    })),
+      };
+      return { status: 'appended', revision: latest };
+    }),
     getSettingsRevision: vi.fn(async () => null),
     listRecentSettingsRevisions: vi.fn(async () => []),
   };
@@ -315,6 +316,9 @@ describe('runtime admin IPC handlers', () => {
       createDefaultRuntimeSettings(),
     );
     vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+      tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+        release: vi.fn(async () => {}),
+      })),
       getRuntimeStorage: () => ({
         ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
         repositories: {
@@ -403,6 +407,9 @@ describe('runtime admin IPC handlers', () => {
       return { approved: true, decidedBy: 'tg:admin' };
     });
     vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+      tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+        release: vi.fn(async () => {}),
+      })),
       getRuntimeStorage: () => ({
         ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
         repositories: {
@@ -500,6 +507,9 @@ describe('runtime admin IPC handlers', () => {
     const replaceAgentCapabilityBindings = vi.fn(async () => undefined);
     const reloadRuntimeState = vi.fn(async () => undefined);
     vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+      tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+        release: vi.fn(async () => {}),
+      })),
       getRuntimeStorage: () => ({
         ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
         repositories: {
@@ -626,6 +636,9 @@ describe('runtime admin IPC handlers', () => {
     const reloadRuntimeState = vi.fn(async () => undefined);
     const sendMessage = vi.fn(async () => undefined);
     vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+      tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+        release: vi.fn(async () => {}),
+      })),
       getRuntimeStorage: () => ({
         ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
         repositories: {
@@ -768,6 +781,9 @@ describe('runtime admin IPC handlers', () => {
       replacement.agents.main_agent.permissionMode = 'auto';
       const settingsRevisions = fakeSettingsRevisions();
       vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+        tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+          release: vi.fn(async () => {}),
+        })),
         getRuntimeStorage: () => ({
           ops: {
             getAllConversationRoutes: vi.fn(async () => ({})),
@@ -915,6 +931,9 @@ describe('runtime admin IPC handlers', () => {
     const replacementYaml = renderRuntimeSettingsYaml(replacement);
     const settingsRevisions = fakeSettingsRevisions();
     vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+      tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+        release: vi.fn(async () => {}),
+      })),
       getRuntimeStorage: () => ({
         ops: {
           getAllConversationRoutes: vi.fn(async () => ({})),
@@ -1069,6 +1088,9 @@ describe('runtime admin IPC handlers', () => {
     expect(replacementYaml).not.toContain('agent_engine');
     const reloadRuntimeState = vi.fn(async () => undefined);
     vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+      tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+        release: vi.fn(async () => {}),
+      })),
       getRuntimeStorage: () => ({
         ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
         repositories: {

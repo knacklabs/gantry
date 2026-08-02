@@ -1,5 +1,8 @@
 import type { AppId } from '../../domain/app/app.js';
-import type { Conversation } from '../../domain/conversation/conversation.js';
+import type {
+  Conversation,
+  ConversationThread,
+} from '../../domain/conversation/conversation.js';
 import type { ProviderAccount } from '../../domain/provider/provider.js';
 import {
   configuredBindingId,
@@ -21,6 +24,7 @@ import {
   groupByAgentId,
   groupByConversationId,
   storedConversationKey,
+  defaultRequiresTriggerForConversationKind,
 } from './desired-state-service-helpers.js';
 import type { SettingsDesiredStateServiceDeps } from './desired-state-service-types.js';
 import type {
@@ -31,6 +35,11 @@ import type {
   RuntimeProviderSettings,
   RuntimeSettings,
 } from './runtime-settings-types.js';
+
+// Keep projection sync below small Supavisor session-pool limits. A settings
+// change must inspect every stored conversation's threads, but it must not open
+// one database query per conversation at the same time.
+const CONVERSATION_THREAD_EXPORT_BATCH_SIZE = 4;
 
 export async function exportCurrentDesiredState(input: {
   deps: SettingsDesiredStateServiceDeps;
@@ -45,17 +54,25 @@ export async function exportCurrentDesiredState(input: {
   const conversations: Record<string, RuntimeConfiguredConversation> = {};
   const bindings: Record<string, RuntimeConfiguredBinding> = {};
 
-  const groupEntries = Object.entries(groups);
   const storedAgents = await deps.repositories.agents.listAgents(appId);
   const activeStoredAgents = storedAgents.filter(
     (agent) => agent.status === 'active',
   );
   const agentIds = [
     ...new Set([
-      ...groupEntries.map(([, group]) => agentIdForFolder(group.folder)),
       ...activeStoredAgents.map((agent) => agent.id),
+      ...Object.keys(settings.agents).map(agentIdForFolder),
+      ...Object.values(settings.bindings).map((binding) =>
+        agentIdForFolder(binding.agent),
+      ),
     ]),
   ];
+  const groupEntries =
+    agentIds.length === 0
+      ? Object.entries(groups)
+      : Object.entries(groups).filter(([, group]) =>
+          agentIds.includes(agentIdForFolder(group.folder)),
+        );
   const [
     toolBindingRows,
     toolSourceRows,
@@ -125,12 +142,13 @@ export async function exportCurrentDesiredState(input: {
   }
   const publicThreadIdsByCanonicalId = new Map<string, string>();
   if (typeof deps.repositories.conversations?.listThreads === 'function') {
-    const storedThreads = await Promise.all(
-      storedConversations.map((conversation) =>
-        deps.repositories.conversations!.listThreads(conversation.id),
+    const storedThreads = await listConversationThreadsInBatches(
+      storedConversations,
+      deps.repositories.conversations.listThreads.bind(
+        deps.repositories.conversations,
       ),
     );
-    for (const thread of storedThreads.flat()) {
+    for (const thread of storedThreads) {
       const publicThreadId = thread.externalRef?.value?.trim();
       if (publicThreadId) {
         publicThreadIdsByCanonicalId.set(thread.id, publicThreadId);
@@ -408,6 +426,13 @@ export async function exportCurrentDesiredState(input: {
   // manufactures duplicate conversations with mangled external ids.
   const exportedGroups = groupEntries
     .filter(([jid]) => !jid.includes('::'))
+    .filter(([, group]) => {
+      const providerAccountId = group.providerAccountId?.trim();
+      return (
+        !providerAccountId ||
+        !isCanonicalFallbackProviderAccountId(providerAccountId)
+      );
+    })
     .map(([jid, group]) => {
       const agentId = agentIdForFolder(group.folder);
       return {
@@ -594,6 +619,32 @@ export async function exportCurrentDesiredState(input: {
   };
 }
 
+async function listConversationThreadsInBatches(
+  conversations: readonly Conversation[],
+  listThreads: (
+    conversationId: Conversation['id'],
+  ) => Promise<ConversationThread[]>,
+): Promise<ConversationThread[]> {
+  const threads: ConversationThread[] = [];
+
+  for (
+    let start = 0;
+    start < conversations.length;
+    start += CONVERSATION_THREAD_EXPORT_BATCH_SIZE
+  ) {
+    const batch = conversations.slice(
+      start,
+      start + CONVERSATION_THREAD_EXPORT_BATCH_SIZE,
+    );
+    const batchThreads = await Promise.all(
+      batch.map((conversation) => listThreads(conversation.id)),
+    );
+    threads.push(...batchThreads.flat());
+  }
+
+  return threads;
+}
+
 function isInternalAppControlProviderAccount(
   connection: ProviderAccount,
 ): boolean {
@@ -608,7 +659,10 @@ function isInternalAppControlProviderAccount(
 function isCanonicalFallbackProviderAccount(
   connection: ProviderAccount,
 ): boolean {
-  const id = String(connection.id);
+  return isCanonicalFallbackProviderAccountId(String(connection.id));
+}
+
+function isCanonicalFallbackProviderAccountId(id: string): boolean {
   return (
     id.startsWith('channel-providerAccount:') ||
     id.startsWith('channel-providerConnection:')
@@ -642,10 +696,4 @@ function publicThreadIdFromCanonical(input: {
   return input.canonicalThreadId.startsWith(prefix)
     ? input.canonicalThreadId.slice(prefix.length)
     : input.canonicalThreadId;
-}
-
-function defaultRequiresTriggerForConversationKind(
-  kind: Conversation['kind'],
-): boolean {
-  return kind !== 'direct';
 }

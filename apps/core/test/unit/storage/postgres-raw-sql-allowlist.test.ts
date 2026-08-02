@@ -13,9 +13,24 @@ const ALLOWED_RAW_SQL_FILES = new Set([
   'apps/core/src/adapters/storage/postgres/repositories/worker-coordination-lease.postgres.ts',
   // pg_advisory_xact_lock makes async task admission atomic across workers.
   'apps/core/src/adapters/storage/postgres/repositories/async-task-repository.postgres.ts',
+  // pg_advisory_xact_lock makes live admission cap checks atomic per app.
+  'apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts',
+  // pg_advisory_xact_lock serializes attachment writers against the
+  // reference-aware provider-ref cleanup (FILE-1A reclamation invariants).
+  'apps/core/src/adapters/storage/postgres/repositories/canonical-message-attachment-lock.postgres.ts',
   // pg_advisory_xact_lock makes Observer batch claiming atomic across workers
   // (prefer-orphan state machine); same operational primitive as above.
   'apps/core/src/adapters/storage/postgres/repositories/chat-batch-repository.postgres.ts',
+  // Identity alias and merge mutations use transaction-scoped advisory locks
+  // to make exact-key resolution and merge idempotency atomic.
+  'apps/core/src/adapters/storage/postgres/repositories/person-identity-mappers.postgres.ts',
+  'apps/core/src/adapters/storage/postgres/repositories/person-identity-repository.postgres.ts',
+  // pg_advisory_xact_lock serializes first-time SDK session app-user binding
+  // so concurrent first requests cannot bind different users.
+  'apps/core/src/adapters/storage/postgres/repositories/control-plane-repository.postgres.ts',
+  // pg_advisory_xact_lock serializes conversation ownership checks even when
+  // the conversation row does not exist yet.
+  'apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts',
   // LISTEN/NOTIFY is wakeup-only; durable rows remain authoritative.
   'apps/core/src/adapters/storage/postgres/live-admission-notify.postgres.ts',
   'apps/core/src/adapters/storage/postgres/runtime-event-notifier.postgres.ts',
@@ -57,5 +72,64 @@ describe('Postgres raw SQL allowlist', () => {
       }
     }
     expect(violations).toEqual([]);
+  });
+});
+
+describe('person identity migration contract', () => {
+  it('retires duplicate active aliases before adding coalesced uniqueness', () => {
+    const migration = fs.readFileSync(
+      path.join(
+        ROOT,
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20260801060607_person_identity_management.sql',
+      ),
+      'utf8',
+    );
+    const retirement = migration.indexOf(
+      'migration:0102_duplicate_alias_retirement',
+    );
+    const uniqueIndex = migration.indexOf(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_user_aliases_active_provider_external',
+    );
+
+    expect(retirement).toBeGreaterThanOrEqual(0);
+    expect(uniqueIndex).toBeGreaterThan(retirement);
+    expect(migration).toContain('row_number() OVER');
+    expect(migration).toContain("COALESCE(provider_account_id, '')");
+    expect(migration).toContain('COUNT(DISTINCT user_id) > 1');
+    expect(migration).toContain('RAISE EXCEPTION');
+  });
+
+  it('adds the merge result payload required by the active schema', () => {
+    const migration = fs.readFileSync(
+      path.join(
+        ROOT,
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20260801060610_person_merge_audit_result.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration).toContain('ADD COLUMN IF NOT EXISTS result_json jsonb');
+  });
+
+  it('cleans non-person memory user ids before adding the app-scoped memory foreign key', () => {
+    const migration = fs.readFileSync(
+      path.join(
+        ROOT,
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20260801060612_identity_app_scoped_person_foreign_keys.sql',
+      ),
+      'utf8',
+    );
+    const cleanup = migration.indexOf(
+      "WHERE subject_type <> 'user'\n  AND user_id IS NOT NULL",
+    );
+    const memoryForeignKey = migration.indexOf(
+      'ADD CONSTRAINT memory_items_app_user_fk',
+    );
+
+    expect(cleanup).toBeGreaterThanOrEqual(0);
+    expect(memoryForeignKey).toBeGreaterThan(cleanup);
+    expect(migration).toContain('SET user_id = NULL');
+    expect(migration).toContain('FOREIGN KEY (app_id, user_id)');
+    expect(migration).toContain('REFERENCES users (app_id, id)');
   });
 });

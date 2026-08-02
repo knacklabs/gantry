@@ -1,0 +1,21 @@
+{
+  "artifact": "outcome",
+  "phase": "pr-ready",
+  "recorded_by": "forge outcome set \"<paragraph>\" (or --from <file>)",
+  "generated_by": [
+    "implementer",
+    "planner-high",
+    "autoreview",
+    "functional-checker"
+  ],
+  "required": {
+    "generated_by": "str",
+    "outcome": "str"
+  },
+  "optional": {
+    "issue": "str",
+    "commit": "str",
+    "recorded_at": "str"
+  },
+  "kind_note": "The only artifact written AFTER the work: what changed and what you can now do, in the language a reader uses six weeks later. Every other field in the harness is authored before implementation. Length is enforced by the recorder (>= 12 words, <= 800 chars) so neither a command line nor a dumped diff can stand in for a sentence."
+}

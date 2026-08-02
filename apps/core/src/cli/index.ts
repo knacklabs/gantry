@@ -36,6 +36,7 @@ configureDesiredSettingsStorageProvider(async (input) => {
     getRuntimeStorage,
     initializeRuntimeStorage,
     isStorageUnavailableError,
+    tryAcquireRuntimeAdvisoryLease,
   } = await import('../adapters/storage/postgres/runtime-store.js');
   try {
     const storage = getRuntimeStorage();
@@ -44,6 +45,7 @@ configureDesiredSettingsStorageProvider(async (input) => {
       repositories: storage.repositories,
       settingsRevisions: storage.repositories.settingsRevisions,
       pool: storage.service.pool,
+      leases: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
     };
   } catch {
     // CLI invocations usually run outside the runtime process.
@@ -57,6 +59,7 @@ configureDesiredSettingsStorageProvider(async (input) => {
       repositories: storage.repositories,
       settingsRevisions: storage.repositories.settingsRevisions,
       pool: storage.service.pool,
+      leases: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
     };
   } catch (err) {
     if (!isStorageUnavailableError(err)) throw err;
@@ -359,6 +362,10 @@ async function runSetupCommand(
           label: 'Add another agent',
         },
         {
+          value: 'add_conversation',
+          label: 'Add conversation to existing agent',
+        },
+        {
           value: 'channel',
           label: 'Chat channel',
         },
@@ -396,6 +403,11 @@ async function runSetupCommand(
       const { runAddAgentSetupSlice } =
         await import('./setup-flow-core-steps.js');
       return runAddAgentSetupSlice(runtimeHome);
+    }
+    if (choice === 'add_conversation') {
+      const { runAddConversationSetupSlice } =
+        await import('./setup-flow-core-steps.js');
+      return runAddConversationSetupSlice(runtimeHome);
     }
     startStep = choice as OnboardingStep;
     const nextState = createInitialState(runtimeHome);

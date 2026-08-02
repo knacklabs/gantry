@@ -14,23 +14,23 @@ jobs:
         with:
           python-version: '3.11'
       - name: Check scaffold files
-        run: python3 .agents/scripts/check_factory_scaffold.py
+        run: python3 factory/scripts/check_factory_scaffold.py
       - name: Check AGENTS hygiene
-        run: python3 .agents/scripts/check_agents_hygiene.py
+        run: python3 factory/scripts/check_agents_hygiene.py
       - name: Check dual runtime
-        run: python3 .agents/scripts/check_dual_runtime.py
+        run: python3 factory/scripts/check_dual_runtime.py
       - name: Check context ledger freshness
-        run: python3 .agents/scripts/forge.py context scan --check
+        run: python3 factory/scripts/forge.py context scan --check
       - name: Check repo budget
-        run: python3 .agents/scripts/check_repo_budget.py
+        run: python3 factory/scripts/check_repo_budget.py
       - name: Compile factory scripts
-        run: python3 -m compileall .agents/scripts
+        run: python3 -m compileall factory/scripts
       - name: Gate regression tests
         run: |
           python3 -m pip install --quiet pytest
-          python3 -m pytest .agents/tests -q
+          python3 -m pytest factory/tests -q
       - name: Smoke test forge init
         run: |
-          python3 .agents/scripts/forge.py init --name smoke --target "$RUNNER_TEMP/forge-smoke"
-          python3 .agents/scripts/check_dual_runtime.py "$RUNNER_TEMP/forge-smoke"
-          python3 .agents/scripts/check_factory_scaffold.py "$RUNNER_TEMP/forge-smoke"
+          python3 factory/scripts/forge.py init --name smoke --target "$RUNNER_TEMP/forge-smoke"
+          python3 factory/scripts/check_dual_runtime.py "$RUNNER_TEMP/forge-smoke"
+          python3 factory/scripts/check_factory_scaffold.py "$RUNNER_TEMP/forge-smoke"

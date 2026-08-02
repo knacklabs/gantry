@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { RemoteFirstSkillArtifactStore } from '@core/adapters/artifacts/skills/remote-first-skill-artifact-store.js';
-import type {
-  SkillArtifactBundle,
-  SkillArtifactStore,
-  StoredSkillArtifact,
+import {
+  type SkillArtifactBundle,
+  type SkillArtifactStore,
+  type StoredSkillArtifact,
 } from '@core/domain/ports/skill-artifact-store.js';
+import { hashSkillBundle } from '@core/shared/skill-artifact-helpers.js';
 
 const bundle: SkillArtifactBundle = {
   assets: [{ path: 'SKILL.md', content: Buffer.from('# Skill') }],
@@ -34,12 +35,13 @@ class MemorySkillArtifactStore implements SkillArtifactStore {
   }): Promise<StoredSkillArtifact> {
     if (this.failPut) throw new Error('put failed');
     this.puts.push(input);
-    const storageRef = `skills/${input.skillName}`;
+    const contentHash = hashSkillBundle(input.bundle);
+    const storageRef = `apps/${encodeStorageSegment(input.appId)}/skills/${encodeStorageSegment(input.skillId)}/${encodeStorageSegment(contentHash)}`;
     this.bundles.set(storageRef, input.bundle);
     return {
       storageType: this.storageType,
       storageRef,
-      contentHash: 'sha256:test',
+      contentHash,
       sizeBytes: input.bundle.assets.reduce(
         (sum, asset) => sum + asset.content.byteLength,
         0,
@@ -69,7 +71,9 @@ describe('RemoteFirstSkillArtifactStore', () => {
     });
 
     expect(stored.storageType).toBe('object-store');
-    expect(stored.storageRef).toBe('skills/ATS_Skills');
+    expect(stored.storageRef).toBe(
+      `apps/default/skills/skill%3Aats/${encodeStorageSegment(hashSkillBundle(bundle))}`,
+    );
     expect(remote.puts).toHaveLength(1);
     expect(cache.puts).toHaveLength(1);
   });
@@ -77,7 +81,7 @@ describe('RemoteFirstSkillArtifactStore', () => {
   it('reads from S3 authority first and rehydrates the local cache after redeploy', async () => {
     const remote = new MemorySkillArtifactStore('object-store');
     const cache = new MemorySkillArtifactStore('local-filesystem');
-    await remote.putSkillArtifact({
+    const stored = await remote.putSkillArtifact({
       appId: 'default',
       skillId: 'skill:ats',
       skillName: 'ATS_Skills',
@@ -85,15 +89,16 @@ describe('RemoteFirstSkillArtifactStore', () => {
     });
     const store = new RemoteFirstSkillArtifactStore(remote, cache);
 
-    const loaded = await store.getSkillArtifact('skills/ATS_Skills');
+    const loaded = await store.getSkillArtifact(stored.storageRef);
 
     expect(loaded).toBe(bundle);
     expect(cache.puts).toHaveLength(1);
     expect(cache.puts[0]).toMatchObject({
-      skillName: 'ATS_Skills',
-      skillId: 'cache:skills/ATS_Skills',
+      appId: 'default',
+      skillName: stored.storageRef,
+      skillId: 'skill:ats',
     });
-    await expect(cache.getSkillArtifact('skills/ATS_Skills')).resolves.toBe(
+    await expect(cache.getSkillArtifact(stored.storageRef)).resolves.toBe(
       bundle,
     );
   });
@@ -101,12 +106,7 @@ describe('RemoteFirstSkillArtifactStore', () => {
   it('falls back to local cache for legacy local-only artifacts during first sync', async () => {
     const remote = new MemorySkillArtifactStore('object-store');
     const cache = new MemorySkillArtifactStore('local-filesystem');
-    await cache.putSkillArtifact({
-      appId: 'default',
-      skillId: 'skill:legacy',
-      skillName: 'Legacy',
-      bundle,
-    });
+    cache.bundles.set('skills/Legacy', bundle);
     const store = new RemoteFirstSkillArtifactStore(remote, cache);
 
     await expect(store.getSkillArtifact('skills/Legacy')).resolves.toBe(bundle);
@@ -115,7 +115,7 @@ describe('RemoteFirstSkillArtifactStore', () => {
   it('does not fall back to stale local cache when the remote authority is unavailable', async () => {
     const remote = new MemorySkillArtifactStore('object-store', true);
     const cache = new MemorySkillArtifactStore('local-filesystem');
-    await cache.putSkillArtifact({
+    const stored = await cache.putSkillArtifact({
       appId: 'default',
       skillId: 'skill:stale',
       skillName: 'Stale',
@@ -123,7 +123,7 @@ describe('RemoteFirstSkillArtifactStore', () => {
     });
     const store = new RemoteFirstSkillArtifactStore(remote, cache);
 
-    await expect(store.getSkillArtifact('skills/Stale')).rejects.toThrow(
+    await expect(store.getSkillArtifact(stored.storageRef)).rejects.toThrow(
       'get failed',
     );
   });
@@ -131,7 +131,7 @@ describe('RemoteFirstSkillArtifactStore', () => {
   it('does not fail a remote read when local cache warming fails', async () => {
     const remote = new MemorySkillArtifactStore('object-store');
     const cache = new MemorySkillArtifactStore('local-filesystem', false, true);
-    await remote.putSkillArtifact({
+    const stored = await remote.putSkillArtifact({
       appId: 'default',
       skillId: 'skill:remote',
       skillName: 'Remote',
@@ -139,6 +139,12 @@ describe('RemoteFirstSkillArtifactStore', () => {
     });
     const store = new RemoteFirstSkillArtifactStore(remote, cache);
 
-    await expect(store.getSkillArtifact('skills/Remote')).resolves.toBe(bundle);
+    await expect(store.getSkillArtifact(stored.storageRef)).resolves.toBe(
+      bundle,
+    );
   });
 });
+
+function encodeStorageSegment(value: string): string {
+  return encodeURIComponent(value).replace(/\./g, '%2E');
+}

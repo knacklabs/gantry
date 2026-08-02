@@ -187,15 +187,18 @@ export async function handleSessionRoutes(
         assertedAppId,
         agentId: body.agentId ?? null,
         conversationId,
+        conversationKind: body.conversationKind,
         title: body.title ?? null,
         responseMode: body.responseMode,
         webhookId: body.webhookId ?? null,
+        appUser: body.appUser ?? null,
       });
       sendJson(res, 200, {
         sessionId: result.session.sessionId,
         appId: result.session.appId,
         conversationId: result.session.conversationId,
         chatJid: result.session.conversationJid,
+        ...(result.session.appUser ? { appUser: result.session.appUser } : {}),
       });
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
@@ -343,7 +346,7 @@ export async function handleSessionRoutes(
         appId: auth.appId,
         sessionId: sessionRoute.sessionId,
         message: String(body.message || ''),
-        senderId: typeof body.senderId === 'string' ? body.senderId : 'sdk',
+        senderId: typeof body.senderId === 'string' ? body.senderId : undefined,
         senderName:
           typeof body.senderName === 'string' ? body.senderName : 'SDK',
         threadId: typeof body.threadId === 'string' ? body.threadId : undefined,
@@ -395,10 +398,11 @@ export async function handleSessionRoutes(
         );
         return true;
       }
+      ctx.state.activeStreams += 1;
       const initial = events.length > 0 ? events : [];
       let lastEventId = initial[initial.length - 1]?.eventId;
       let closed = req.destroyed || res.destroyed;
-      let streamActive = false;
+      let streamActive = true;
       let subscription: SessionEventSubscription | undefined;
       const cleanup = () => {
         if (closed && !streamActive && !subscription) return;
@@ -411,6 +415,10 @@ export async function handleSessionRoutes(
       };
       req.once('close', cleanup);
       res.once('close', cleanup);
+      if (closed) {
+        cleanup();
+        return true;
+      }
       try {
         subscription = await module.subscribeEvents({
           appId: auth.appId,
@@ -419,6 +427,7 @@ export async function handleSessionRoutes(
           limit: 100,
         });
       } catch (error) {
+        cleanup();
         if (sendApplicationError(res, error)) return true;
         throw error;
       }
@@ -426,8 +435,6 @@ export async function handleSessionRoutes(
         cleanup();
         return true;
       }
-      ctx.state.activeStreams += 1;
-      streamActive = true;
       res.statusCode = 200;
       res.setHeader('content-type', 'text/event-stream');
       res.setHeader('cache-control', 'no-cache');

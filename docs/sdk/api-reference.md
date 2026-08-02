@@ -20,7 +20,7 @@ LaunchAgent.
 Control API settings are read from process env and from `~/gantry/.env`:
 
 ```env
-GANTRY_CONTROL_API_KEYS_JSON=[{"kid":"local-admin","token":"replace-with-a-generated-token","appId":"default","scopes":["sessions:read","sessions:write","jobs:read","jobs:write","providers:read","providers:admin","conversations:read","conversations:admin","messages:read","agents:admin","skills:read","skills:admin","mcp:read","mcp:admin","webhooks:read","webhooks:write","ingresses:read","ingresses:write","memory:read","memory:admin","llm:invoke"]}]
+GANTRY_CONTROL_API_KEYS_JSON=[{"kid":"local-admin","token":"replace-with-a-generated-token","appId":"default","scopes":["sessions:read","sessions:write","jobs:read","jobs:write","providers:read","providers:admin","conversations:read","conversations:admin","messages:read","agents:admin","skills:read","skills:admin","mcp:read","mcp:admin","webhooks:read","webhooks:write","ingresses:read","ingresses:write","memory:read","memory:admin","identity:resolve","people:read","people:admin","llm:invoke"]}]
 GANTRY_CONTROL_PORT=8787
 GANTRY_CONTROL_HOST=127.0.0.1
 ```
@@ -232,7 +232,9 @@ Agent-facing tools:
 
 - `send_message`: progress updates or direct channel messages while the agent is still running.
 - `ask_user_question`: structured choices with options, single-select, multi-select, preview/details, and channel-native buttons.
-- `continuity_summary`: inspect current durable continuity, staged memory candidates, reviewed memory state, and last injected context for the trusted subject.
+- `continuity_summary` (baseline): inspect current durable continuity, staged
+  memory candidates, reviewed memory state, and last injected context for the
+  trusted subject.
 - `file`: list, read, write, or promote Gantry FileArtifacts by virtual scope/path; host filesystem paths and storage refs stay hidden.
 - `request_skill_install`: reviewed skill install requests with staged package files or an installer command that produces a `SKILL.md` package in host-controlled staging.
 - `request_skill_proposal`: agent-created or modified skill file bundles for review.
@@ -707,11 +709,21 @@ API exposes `agentHarness` as the public selector and keeps
 `executionProviderId` internal/read-only diagnostic. The 2026-06-14 harness contract in
 [`docs/decisions/0028-agent-harness-selection.md`](../decisions/0028-agent-harness-selection.md)
 defines the agent-level `agentHarness` (`auto`, `anthropic_sdk`, or
-`deepagents`) and the `settings.yaml` key `agent_harness`. DeepAgents-lane entries omit the static
-`contextWindowTokens`/`maxOutputTokens` limits because those are reported at
-runtime from the engine's model profile.
+`deepagents`) and the `settings.yaml` key `agent_harness`. DeepAgents-lane
+entries normally use limits reported at runtime by the engine's model profile;
+entries with pinned official catalog data can also expose static
+`contextWindowTokens`/`maxOutputTokens`.
 API job creation rejects raw provider model IDs unless they are registered
 catalog aliases.
+
+Current OpenAI/xAI aliases include `gpt-terra` (`gpt-5.6-terra`), `gpt-luna`
+(`gpt-5.6-luna`), `gpt-sol` (`gpt-5.6-sol`), and `grok` (`grok-4.5`). The
+pinned `grok-4.3` alias remains available. Terra, Luna, Sol, and Grok 4.5 are
+available for chat and jobs. Displayed token prices are base rates and do not
+include long-context multipliers, cache-write rates, or provider server-tool
+fees. See
+[Credential Management](../architecture/credential-management.md#gpt-56-grok-45-and-claude-opus-5-aliases)
+for credential commands, official prices, thresholds, and source links.
 
 Use `client.models.defaults.get()` to inspect configured and effective chat,
 job, and memory LLM defaults. Use `client.models.defaults.update()` or
@@ -1033,17 +1045,28 @@ API version.
 ## Memory
 
 Memory APIs are app-bound by the API key. Pass stable `appId`, `agentId`,
-`userId`, `groupId`, and `channelId` when your application has them. Provider
-topic/thread ids are routing metadata and do not partition durable memory.
-`common` memory is app-wide and requires admin/service authority to write. Agent
-MCP/IPC `memory_save` defaults to user or group scope and cannot directly write
-common/global memory.
+`personId`, `groupId`, and `channelId` when your application has them. Resolve
+raw provider user ids through `client.identity.resolve()` before personal memory
+reads or writes. Provider topic/thread ids are routing metadata and do not
+partition durable memory. `common` memory is app-wide and requires
+admin/service authority to write. Agent MCP/IPC memory tools are selected tools
+and cannot directly write common/global memory.
+
+Live provider-channel turns attempt sender identity resolution in both DMs and
+channels/groups when a sender id is present. SDK app-session turns use
+`evidenceType='web_user'` only for explicit `senderId` values; omitted
+`senderId` keeps the internal `sdk` sentinel and skips personal identity
+resolution. SDK sessions default to app-channel turns, where an explicit
+sender supplies identity evidence but does not add that person's long-term
+memory to the turn. A session ensured with `conversationKind: 'dm'` and a
+bound `appUser` is a direct conversation: the bound person's identity
+resolves on every turn and their personal memory hydrates as in any DM.
 
 ```ts
 client.memory.save({
   appId?,
   agentId?,
-  userId?,
+  personId?,
   groupId?,
   channelId?,
   subjectType?, // user | group | channel | common
@@ -1059,7 +1082,7 @@ client.memory.save({
 client.memory.search({
   appId?,
   agentId?,
-  userId?,
+  personId?,
   groupId?,
   channelId?,
   query?,
@@ -1068,12 +1091,23 @@ client.memory.search({
   subjectTypes?,
 })
 
-client.memory.list({ appId?, agentId?, userId?, groupId?, channelId? })
+client.memory.list({ appId?, agentId?, personId?, groupId?, channelId? })
 client.memory.patch(memoryId, { appId?, agentId?, expectedVersion?, key?, value?, why?, confidence?, isPinned? })
 client.memory.delete(memoryId, { appId?, agentId? })
 client.memory.dreaming.trigger({ appId?, agentId?, subjectType?, subjectId?, phase?, dryRun? })
 client.memory.dreaming.status({ appId?, agentId? })
+client.identity.resolve({ appId?, provider, providerAccountId?, externalUserId, displayName?, evidenceType, createIfMissing? })
+client.people.list({ appId?, limit?, cursor? })
+client.people.get(personId, { appId? })
+client.people.aliases.add(personId, { provider, providerAccountId?, externalUserId, displayName?, evidenceType, evidence? })
+client.people.aliases.retire(personId, aliasId, { appId? })
+client.people.merge.preview(personId, { sourcePersonId, idempotencyKey?, conflictResolution? })
+client.people.merge.apply(personId, { sourcePersonId, fingerprint, idempotencyKey?, conflictResolution? })
+client.people.unmerge(personId, { auditId, fingerprint, appId? })
 ```
+
+Identity lookup requires `identity:resolve`. People list/get operations require
+`people:read`; alias and merge administration require `people:admin`.
 
 `reference` memory is reserved for procedure/knowledge-source flows instead of
 direct `memory_save` payloads.

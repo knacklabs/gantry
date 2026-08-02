@@ -20,7 +20,7 @@ import type {
 } from './memory-types.js';
 
 interface TrustedMemoryContext {
-  userId?: string;
+  personId?: string;
   reviewerIsControlApprover?: boolean;
 }
 
@@ -89,12 +89,34 @@ export async function processPendingMemoryReviewRequest(input: {
   };
 }
 
+/**
+ * Resolve a review's OWN stored subject by id, scoped to the app+agent boundary
+ * (never the caller's subject). Channel-action decisions need this because the
+ * approver who clicks may not be the review's subject owner. Returns null when
+ * the review is outside the boundary.
+ */
+export async function resolveReviewSubjectWithinBoundary(input: {
+  appId: string;
+  agentId: string;
+  reviewId: string;
+}): Promise<NormalizedMemorySubject | null> {
+  const review =
+    await AppMemoryService.getInstance().getReviewWithinAgentBoundary(input);
+  if (!review) return null;
+  return {
+    appId: review.appId,
+    agentId: review.agentId,
+    subjectType: review.subjectType,
+    subjectId: review.subjectId,
+  };
+}
+
 export async function processMemoryReviewDecisionRequest(input: {
   request: MemoryReviewTrustedRequest;
   subject: NormalizedMemorySubject;
 }): Promise<MemoryIpcResponse> {
   const decisionInput = parseReviewDecisionRequest(input.request.payload);
-  if (!input.request.context?.userId) {
+  if (!input.request.context?.personId) {
     throw new Error(
       'memory_review_decision requires a trusted reviewer user id',
     );
@@ -104,7 +126,7 @@ export async function processMemoryReviewDecisionRequest(input: {
       'memory_review_decision requires a conversation control approver',
     );
   }
-  const reviewerId = input.request.context.userId;
+  const reviewerId = input.request.context.personId;
   if (!hasEnoughMemoryBudget(input.request, nowMs)) {
     return deadlineUnavailableResponse(input.request, MEMORY_REVIEW_PROVIDER);
   }
@@ -206,6 +228,9 @@ export async function processMemoryReviewDecisionRequest(input: {
         : {}),
       ...(decisionInput.editedReason !== undefined
         ? { editedReason: decisionInput.editedReason }
+        : {}),
+      ...(decisionInput.decisionSource !== undefined
+        ? { decisionSource: decisionInput.decisionSource }
         : {}),
       reviewerId,
     }),

@@ -1,6 +1,12 @@
 import type { JobCapabilityRequirement } from '../../domain/types.js';
+import type { ToolCatalogRepository } from '../../domain/ports/repositories.js';
 import { ApplicationError } from '../common/application-error.js';
+import type { AgentAccessSnapshot } from '../agent-execution/agent-access-snapshot.js';
 import { isValidSemanticCapabilityId } from '../../shared/semantic-capability-ids.js';
+import {
+  semanticCapabilityFromToolCatalogItem,
+  type SemanticCapabilityDefinition,
+} from '../../shared/semantic-capabilities.js';
 import {
   RUN_COMMAND_TOOL_NAME,
   validateReadableAgentToolRule,
@@ -112,6 +118,28 @@ export function localCliCommandTemplatePermissionRule(
     `${RUN_COMMAND_TOOL_NAME}(${normalized})`,
   );
   return validation.ok ? normalized : undefined;
+}
+
+export async function catalogSemanticCapabilityDefinition(input: {
+  capabilityId: string;
+  appId: string;
+  repository?: ToolCatalogRepository;
+  accessSnapshot?: AgentAccessSnapshot;
+}): Promise<SemanticCapabilityDefinition | undefined> {
+  const tools = input.accessSnapshot
+    ? input.accessSnapshot.tools.appActiveDefinitions
+    : input.repository && typeof input.repository.listTools === 'function'
+      ? await input.repository.listTools({
+          appId: input.appId as never,
+          statuses: ['active'],
+        })
+      : undefined;
+  if (!tools) return undefined;
+  for (const tool of tools) {
+    const capability = semanticCapabilityFromToolCatalogItem(tool);
+    if (capability?.capabilityId === input.capabilityId) return capability;
+  }
+  return undefined;
 }
 
 function normalizeImplementation(

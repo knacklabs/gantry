@@ -259,6 +259,82 @@ describe('@gantry/sdk transport', () => {
     });
   });
 
+  it('builds memory-review queue requests', async () => {
+    const client = new GantryClient({
+      apiKey: 'test-key',
+      baseUrl: 'http://127.0.0.1:3939',
+    });
+    const request = vi
+      .spyOn(
+        (client as unknown as { transport: { request: () => unknown } })
+          .transport,
+        'request',
+      )
+      .mockResolvedValue({ review: {} });
+
+    await client.memory.reviews.list({
+      agentId: 'agent/1',
+      subjectType: 'user',
+      subjectId: 'user/9',
+      limit: 5,
+    });
+    await client.memory.reviews.get('rev/1', {
+      agentId: 'agent/1',
+      subjectType: 'user',
+      subjectId: 'user/9',
+    });
+    await client.memory.reviews.decide('rev/1', {
+      agentId: 'agent/1',
+      subjectType: 'user',
+      subjectId: 'user/9',
+      decision: 'edit_approve',
+      editedValue: 'v2',
+      reason: 'why',
+    });
+
+    expect(request).toHaveBeenNthCalledWith(1, {
+      method: 'GET',
+      path: '/v1/memory/reviews?agentId=agent%2F1&subjectType=user&subjectId=user%2F9&limit=5',
+    });
+    expect(request).toHaveBeenNthCalledWith(2, {
+      method: 'GET',
+      path: '/v1/memory/reviews/rev%2F1?agentId=agent%2F1&subjectType=user&subjectId=user%2F9',
+    });
+    // Subject rides on the query; only the decision fields go in the body.
+    expect(request).toHaveBeenNthCalledWith(3, {
+      method: 'POST',
+      path: '/v1/memory/reviews/rev%2F1/decision?agentId=agent%2F1&subjectType=user&subjectId=user%2F9',
+      body: { decision: 'edit_approve', editedValue: 'v2', reason: 'why' },
+    });
+
+    // Compile-time contract: edit_approve without editedValue is a type error
+    // (never executed — checked by tsc). approve without editedValue is fine.
+    const _typeCheck = () => {
+      // @ts-expect-error editedValue is required for an edit_approve decision.
+      client.memory.reviews.decide('rev/1', {
+        agentId: 'agent/1',
+        subjectType: 'user',
+        subjectId: 'user/9',
+        decision: 'edit_approve',
+      });
+      client.memory.reviews.decide('rev/1', {
+        agentId: 'agent/1',
+        subjectType: 'user',
+        subjectId: 'user/9',
+        decision: 'approve',
+      });
+      // approve accepts (server ignores) editedValue — back-compat.
+      client.memory.reviews.decide('rev/1', {
+        agentId: 'agent/1',
+        subjectType: 'user',
+        subjectId: 'user/9',
+        decision: 'approve',
+        editedValue: 'x',
+      });
+    };
+    void _typeCheck;
+  });
+
   it('builds ingress management requests', async () => {
     const seen: Array<{ method?: string; url?: string; body: unknown }> = [];
     const port = await listen((req, res) => {

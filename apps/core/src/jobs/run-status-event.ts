@@ -2,9 +2,11 @@ import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import type { RuntimeEventType } from '../domain/events/runtime-event-types.js';
 
 export function runtimeEventTypeForRunStatus(
-  status: 'completed' | 'failed' | 'timeout' | 'dead_lettered',
+  status: 'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered',
 ): RuntimeEventType {
   switch (status) {
+    case 'paused':
+      return RUNTIME_EVENT_TYPES.RUN_PAUSED;
     case 'completed':
       return RUNTIME_EVENT_TYPES.RUN_COMPLETED;
     case 'failed':

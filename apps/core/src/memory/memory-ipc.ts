@@ -20,10 +20,6 @@ import {
 } from '../shared/private-fs.js';
 import { resolveWorkspaceIpcPath } from '../platform/workspace-folder.js';
 import {
-  DEFAULT_MEMORY_APP_ID,
-  memoryAgentIdForWorkspaceFolder,
-} from './app-memory-boundaries.js';
-import {
   resolveScopedMemorySubject,
   canonicalConversationIdForMemory,
   searchInputForResolvedMemorySubject,
@@ -62,9 +58,11 @@ import { incrementOperationalError } from '../shared/operational-error-counters.
 const MEMORY_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 
 interface TrustedMemoryContext {
+  appId: string;
+  agentId: string;
   threadId?: string;
   chatJid?: string;
-  userId?: string;
+  personId?: string;
   defaultScope?: 'user' | 'group';
   reviewerIsControlApprover?: boolean;
 }
@@ -180,13 +178,20 @@ export function resolveTrustedMemorySubject(
   context: TrustedMemoryContext | undefined,
   scope?: SaveMemoryInput['scope'] | SaveProcedureInput['scope'],
 ) {
+  if (!context?.appId?.trim()) {
+    throw new Error('memory IPC context.appId is required');
+  }
+  const defaultScope = context?.defaultScope === 'user' ? 'user' : 'group';
+  if (scope && scope !== defaultScope) {
+    throw new Error('memory scope must match the trusted conversation scope');
+  }
   return resolveScopedMemorySubject({
-    appId: DEFAULT_MEMORY_APP_ID,
-    agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
+    appId: context.appId,
+    agentId: context.agentId,
     groupId: sourceAgentFolder,
     conversationId: canonicalConversationIdForMemory(context?.chatJid),
-    userId: context?.userId,
-    defaultScope: context?.defaultScope,
+    userId: context?.personId,
+    defaultScope,
     ...(scope ? { scope } : {}),
   }).subject;
 }
@@ -334,15 +339,39 @@ export async function processMemoryRequest(
       }
       case 'brain_search': {
         provider = 'postgres';
-        return processBrainSearchRequest(request);
+        return processBrainSearchRequest({
+          requestId: request.requestId,
+          payload: request.payload,
+          appId: request.context!.appId,
+          agentId: request.context!.agentId,
+          ...(request.deadlineAtMs !== undefined
+            ? { deadlineAtMs: request.deadlineAtMs }
+            : {}),
+        });
       }
       case 'brain_query': {
         provider = 'postgres';
-        return processBrainQueryRequest(request);
+        return processBrainQueryRequest({
+          requestId: request.requestId,
+          payload: request.payload,
+          appId: request.context!.appId,
+          agentId: request.context!.agentId,
+          ...(request.deadlineAtMs !== undefined
+            ? { deadlineAtMs: request.deadlineAtMs }
+            : {}),
+        });
       }
       case 'brain_write': {
         provider = 'postgres';
-        return processBrainWriteRequest(request, sourceAgentFolder);
+        return processBrainWriteRequest({
+          requestId: request.requestId,
+          payload: request.payload,
+          appId: request.context!.appId,
+          agentId: request.context!.agentId,
+          ...(request.deadlineAtMs !== undefined
+            ? { deadlineAtMs: request.deadlineAtMs }
+            : {}),
+        });
       }
       case 'memory_patch': {
         const input = parsePatchMemoryInput(request.payload);
@@ -358,8 +387,8 @@ export async function processMemoryRequest(
           getMemory().patch({
             ...subject,
             id: input.id,
-            appId: DEFAULT_MEMORY_APP_ID,
-            agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
+            appId: subject.appId,
+            agentId: subject.agentId,
             subjectType: subject.subjectType,
             subjectId: subject.subjectId,
             key: input.key,
@@ -569,8 +598,8 @@ export async function processMemoryRequest(
           getMemory().patch({
             ...subject,
             id: input.id,
-            appId: DEFAULT_MEMORY_APP_ID,
-            agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
+            appId: subject.appId,
+            agentId: subject.agentId,
             subjectType: subject.subjectType,
             subjectId: subject.subjectId,
             key: input.title ? `procedure:${input.title}` : undefined,

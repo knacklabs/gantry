@@ -53,6 +53,16 @@ model:
 - NO runtime/image surface change from a test provider (that idea is dropped).
   Surface matrix Runtime row reverts to Read-only/observable.
 
+## Current CI runner boundary (decision 0044)
+
+All current workflow jobs run on GitHub-hosted ephemeral `ubuntu-latest`
+runners, including the pull-request agent E2E lane. The real-model step keeps
+its `E2E_MODEL_API_KEY` mapping step-local and exits successfully before model
+invocation when that secret is absent, which is the expected fork-PR path.
+Workflow-level token permissions default to `contents: read`; jobs that publish
+branches, packages, issues, or labels add only their required write scopes.
+`scripts/check_ci_runner_isolation.py` enforces these invariants.
+
 ## What already exists (dedup — do NOT rebuild)
 Deep unit + integration coverage exists for permission/capability LOGIC. THE GAP:
 (a) `test:integration:postgres` is NOT in CI (gates nothing today), and (b)
@@ -92,9 +102,9 @@ Cite the existing test for each proven row; add only the rightmost boundary gap.
 - `auto_strict`: asks WITHOUT classifier only when deterministic safety is
   unproven; deterministic-PROVEN input still calls the strict classifier (does NOT
   auto-allow from the gate alone) — classifier.test.ts:614-667.
-- YOLO denylist hit → returns `ask` + emits `permission.yolo_denylist_hit`; an
-  unattended/locked parent flow may CONVERT that ask to denial (name the context;
-  it's not universally "blocked") — classifier.test.ts:868-941.
+- YOLO denylist hit → host hard-deny + `permission.yolo_denylist_hit` before
+  cache, classifier, or human prompt — prove no execution and no pending
+  interaction through the real decision chain.
 - Durable authority = `RunCommand(...)` ARGV-LEAF scope (NOT a command-name class;
   command-name class is the separate permission-lane's future change). Each simple
   command leaf matches its own rule — permission-suggestion-synthesis.test.ts,
@@ -106,7 +116,9 @@ Cite the existing test for each proven row; add only the rightmost boundary gap.
   change) — request-permission-review.test.ts:429-505.
 - Locked-agent forged IPC → fail-closed at parent boundary —
   ipc-locked-permission-denial.test.ts.
-- Eligibility → only Bash/RunCommand + non-gantry MCP reach the classifier.
+- Eligibility → tool-family Bash/RunCommand, MCP (including Gantry), and bare
+  Gantry-native canonical tools may reach the classifier; admin, review, and
+  promotion request families do not.
 Remaining integration GAPS to add (the only new work): one real chain through the
 parent callback/IPC boundary → durable interaction → decision → event repository;
 attended-vs-unattended context proof; promotion RESTART SURVIVAL + record-before-
@@ -301,9 +313,10 @@ needs the packaged real-turn path.
 Typed `AgentE2EScenario` + `AgentE2EEvidence` under `apps/core/test/agent-e2e/`.
 Start the EXACT CI-built image (immutable artifact) with isolated `GANTRY_HOME`,
 disposable Postgres, real migrations, isolated non-production encryption/IPC
-secrets, an enforcing `sandbox_runtime` config (the production image sets
-NODE_ENV=production → security posture requires enforcing sandbox + non-prod
-secrets independent of model access — `security-posture.ts:31-80`), restart once,
+secrets, and an explicitly selected sandbox provider (`direct` or
+`sandbox_runtime`). The production image sets `NODE_ENV=production`, so the
+security posture requires strong secrets independent of model access but does
+not choose confinement (`security-posture.ts:31-80`). Restart once,
 then drive onboarding + model selection via API (above), then a real Control API
 turn: `POST /v1/sessions/ensure` (sessions:write) → `POST
 /v1/sessions/{id}/messages` (returns 202 — NOT completion) → observe events via
@@ -355,8 +368,9 @@ production.
 Add the planned agent E2E workflow, triggered on PR open/synchronize/reopen/label/unlabel.
 - The required gate (real `haiku` agent turn + all-tools exercise, API-driven) +
   (extended) test:integration:postgres run for every non-docs PR. It needs the
-  protected-environment model credential (so it runs on same-repo PRs; fork PRs
-  route through the trusted-artifact path, never seeing secrets).
+  model credential on same-repo PRs. Fork PRs receive no model secret, so the
+  real-model step exits successfully without model invocation while the
+  credential-free checks still run.
 - Path-map (checked-in globs → risk area) classifies changed paths. UNKNOWN stays
   RISKY for live-gate purposes until the path-map is updated; `e2e-reviewed` may
   ACKNOWLEDGE a mapping miss but MUST NOT silently downgrade unknown code to
@@ -364,10 +378,10 @@ Add the planned agent E2E workflow, triggered on PR open/synchronize/reopen/labe
 - Risky PRs fail until `live-agent-e2e`; the label starts the protected-environment
   extended-model job (gpt-mini/deepagents + catalog diff) against the immutable
   prebuilt image artifact (same digest, never a rebuild).
-- **Fork-secret safety:** protected model secrets never exposed to untrusted fork
-  PR code. Trust boundary = same-repository PRs + protected-environment approval,
-  or a trusted workflow executing an already-built reviewed artifact. NO
-  `pull_request_target` checkout of PR code.
+- **Fork-secret safety:** model secrets are absent from untrusted fork PRs and
+  the real-model step carries an explicit absent-secret skip guard. Same-repository
+  PRs keep the full real-model merge check. NO `pull_request_target` checkout of
+  PR code.
 - `agent-e2e-gate` aggregates all results. Branch-protection/ruleset activation +
   verification of the exact required check name is IN SCOPE (a workflow check is
   not a required gate by itself).

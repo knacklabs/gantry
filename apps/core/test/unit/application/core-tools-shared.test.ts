@@ -142,6 +142,8 @@ describe('shared core tool handlers', () => {
     vi.spyOn(AppMemoryService, 'getInstance').mockReturnValue(memory as never);
     const registry = createCoreToolRegistry({
       context: {
+        appId: 'default',
+        agentId: 'agent:main_agent',
         sourceAgentFolder: 'main_agent',
         conversationId: 'conversation:test',
         permissionMode: 'ask',

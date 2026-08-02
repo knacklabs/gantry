@@ -9,9 +9,9 @@ import type {
   ChatAllowlistEntry,
   SenderAllowlistConfig,
 } from '../config/settings/sender-allowlist.js';
+import { jidForProviderExternalId } from '../config/settings/desired-state-provider-conversations.js';
 import { settingsFilePath } from '../config/settings/runtime-home.js';
 import {
-  getProvider,
   listChannelProviders,
   providerForJid,
 } from '../channels/provider-registry.js';
@@ -76,7 +76,7 @@ const DEFAULT_CONTROL_CHANNEL_CONFIG: SenderControlAllowlistConfig = {
 
 const DEFAULT_ENTRY: ChatAllowlistEntry = {
   allow: [],
-  mode: 'drop',
+  mode: 'trigger',
 };
 
 function cloneDefaultChannelConfig(): RuntimeSenderProviderAllowlistConfig {
@@ -210,11 +210,7 @@ function jidForSettingsConversation(
   providerId: string,
   externalId: string,
 ): string {
-  const provider = getProvider(providerId);
-  if (!provider) return externalId;
-  return externalId.startsWith(provider.jidPrefix)
-    ? externalId
-    : `${provider.jidPrefix}${externalId}`;
+  return jidForProviderExternalId(providerId, externalId);
 }
 
 export function loadSenderAllowlist(
@@ -324,14 +320,6 @@ export function isSenderControlAllowed(
   agentFolder?: string,
 ): boolean {
   return getControlSenders(chatJid, cfg, agentFolder).includes(sender);
-}
-
-export function shouldDropMessage(
-  chatJid: string,
-  cfg: RuntimeSenderAllowlistConfig,
-  agentFolder?: string,
-): boolean {
-  return getEntry(chatJid, cfg, agentFolder).mode === 'drop';
 }
 
 export function isTriggerAllowed(

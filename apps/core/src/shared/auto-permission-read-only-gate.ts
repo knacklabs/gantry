@@ -4,8 +4,18 @@ import path from 'path';
 import {
   bashExecutableName,
   parseBashCommand,
+  type BashCommandLeaf,
   type BashCommandParseResult,
 } from './bash-command-parser.js';
+import {
+  BARE_SAFE_EXECUTABLES,
+  capabilityTokens,
+  GENERIC_READ_EXECUTABLES,
+  genericReadFileArgs,
+  hasHiddenPathSegment,
+  normalizeCapabilityId,
+  sedReadFileArgs,
+} from './auto-permission-read-only-catalog.js';
 import { mcpToolPatternCovers } from './mcp-tool-scope.js';
 import { allProtectedPathMentions } from './tool-execution-protected-paths.js';
 
@@ -54,7 +64,11 @@ const CAT_OPTIONS = new Set([
 const LS_OPTIONS = /^-(?:[1ACFRSTUabcdfghiklmnopqrstux@])+$/;
 const LS_LONG_OPTIONS =
   /^--(?:all|almost-all|classify|directory|file-type|group-directories-first|human-readable|inode|long|numeric-uid-gid|recursive|reverse|size|color(?:=\w+)?|sort=\w+|time=\w+)$/;
-const SHELL_CONTROL_OR_EXPANSION = /[\r\n#;&|<>`$(){}*?\[\]]/;
+// `;`, `&`, `|` are intentionally absent: they gate the safe-compound path
+// (`&&`/`||`/`;`/`|`), which parseBashCommand splits into leaves we vet
+// individually. Redirects (`<`/`>`), command substitution (`` ` ``/`$(...)`),
+// braces, globs (`*`/`?`/`[]`), and comments (`#`) still block outright.
+const SHELL_CONTROL_OR_EXPANSION = /[\r\n#<>`$(){}*?\[\]]/;
 const SECRET_KEY =
   /(?:^|[_-])(?:apikey|authorization|credential|key|password|private[_-]?key|secret|token)(?:$|[_-])/i;
 const SECRET_PATH =
@@ -108,23 +122,53 @@ function evaluateShellRead(
   }
 
   const parsed = parseGateCommand(command);
-  if (!parsed.ok || parsed.leaves.length !== 1) {
-    return blocked(
-      parsed.ok
-        ? 'Compound shell commands require approval.'
-        : `Shell command is not provably simple: ${parsed.reason}`,
-    );
+  if (!parsed.ok) {
+    return blocked(`Shell command is not provably simple: ${parsed.reason}`);
   }
-  const leaf = parsed.leaves[0]!;
+
+  const compound = parsed.leaves.length > 1;
+  if (!compound) {
+    return evaluateLeaf(parsed.leaves[0]!, capabilityIds, workspaceRoot, false);
+  }
+  // A compound (`&&`/`||`/`;`/`|`) is allowed only when EVERY leaf is a proven
+  // safe read; a leaf feeding a pipe legitimately reads stdin, so targets are
+  // optional there.
+  for (const leaf of parsed.leaves) {
+    const result = evaluateLeaf(leaf, capabilityIds, workspaceRoot, true);
+    if (!result.allowed) return result;
+  }
+  return allowed('Parser-proven safe compound read command.');
+}
+
+function evaluateLeaf(
+  leaf: BashCommandLeaf,
+  capabilityIds: readonly string[],
+  workspaceRoot: string | undefined,
+  stdinOk: boolean,
+): AutoPermissionReadOnlyGateResult {
   if (leaf.redirects.length > 0 || leaf.argv.some(isSecretLikeValue)) {
     return blocked('Secret or redirected reads require approval.');
   }
-
   const executable = bashExecutableName(leaf.argv[0] ?? '');
   if (leaf.argv[0] !== executable) {
     return blocked('Executable path is not an exact reviewed read command.');
   }
   const args = leaf.argv.slice(1);
+
+  if (BARE_SAFE_EXECUTABLES.has(executable)) {
+    return allowed(`Known-safe command ${executable}.`);
+  }
+  if (executable === 'sed') {
+    const fileArgs = sedReadFileArgs(args);
+    if (!fileArgs) return blockedReadShape('read');
+    return evaluateFileRead(
+      'read',
+      fileArgs,
+      capabilityIds,
+      !stdinOk,
+      workspaceRoot,
+    );
+  }
   if (executable === 'ls') {
     const fileArgs = collectPlainFileArgs(args, isLsArg);
     if (!fileArgs) return blockedReadShape('list');
@@ -143,7 +187,7 @@ function evaluateShellRead(
       'read',
       fileArgs,
       capabilityIds,
-      true,
+      !stdinOk,
       workspaceRoot,
     );
   }
@@ -171,7 +215,18 @@ function evaluateShellRead(
       'read',
       fileArgs,
       capabilityIds,
-      true,
+      !stdinOk,
+      workspaceRoot,
+    );
+  }
+  if (GENERIC_READ_EXECUTABLES.has(executable)) {
+    const fileArgs = genericReadFileArgs(executable, args);
+    if (!fileArgs) return blockedReadShape('read');
+    return evaluateFileRead(
+      'read',
+      fileArgs,
+      capabilityIds,
+      false,
       workspaceRoot,
     );
   }
@@ -181,7 +236,7 @@ function evaluateShellRead(
       'read',
       fileArgs,
       capabilityIds,
-      executable !== 'du',
+      executable !== 'du' && !stdinOk,
       workspaceRoot,
     );
   }
@@ -359,7 +414,7 @@ function simpleReadFileArgs(
       optionsEnded = true;
     } else if (optionsEnded || !arg.startsWith('-')) {
       fileArgs.push(arg);
-    } else if (/^-[qvz]+$|^-[nc]\d+$|^--(?:bytes|lines)=\d+$/.test(arg)) {
+    } else if (/^-[qvz]+$|^-[nc]?\d+$|^--(?:bytes|lines)=\d+$/.test(arg)) {
       continue;
     } else if (/^(?:-[nc]|--bytes|--lines)$/.test(arg)) {
       if (!/^\d+$/.test(args[index + 1] ?? '')) return undefined;
@@ -419,13 +474,6 @@ function blockedReadShape(
   return blocked(`The file ${action} command shape is not provably safe.`);
 }
 
-function hasHiddenPathSegment(value: string): boolean {
-  return value
-    .replaceAll('\\', '/')
-    .split('/')
-    .some((segment) => segment !== '.' && segment.startsWith('.'));
-}
-
 function isWithinPath(base: string, candidate: string): boolean {
   const relative = path.relative(base, candidate);
   return (
@@ -480,14 +528,6 @@ function commandText(input: unknown): string | undefined {
   const record = input as Record<string, unknown>;
   const value = record.command ?? record.cmd;
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-}
-
-function normalizeCapabilityId(value: string): string {
-  return value.trim().toLowerCase().replaceAll(/[_-]+/g, '.');
-}
-
-function capabilityTokens(value: string): string[] {
-  return normalizeCapabilityId(value).split('.').filter(Boolean);
 }
 
 function allowed(reason: string): AutoPermissionReadOnlyGateResult {

@@ -18,6 +18,7 @@ import {
   type DeepAgentsShellFilesystemGuardInput,
 } from './deepagents-shell-filesystem-guard.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
+import { computeAttachmentIpcAuthToken } from './ipc-auth.js';
 
 const SANDBOX_RUNTIME_GO_DNS = 'netdns=go';
 // Host env projection for the DeepAgents shell tool. Returns the enable flag the
@@ -70,6 +71,8 @@ export function buildBaseRunnerEnv(input: {
   workspaceIpcDir: string;
   ipcInputDir: string;
   ipcAuthToken: string;
+  /** Per-turn browser credential; adapter-independent so every runner gets it. */
+  browserTurnToken?: string;
   chatJid: string;
   providerAccountId?: string;
   jobId?: string;
@@ -92,6 +95,7 @@ export function buildBaseRunnerEnv(input: {
   agentAccessPreset: string;
   deploymentMode: string;
   permissionMode: NonNullable<AgentInput['permissionMode']>;
+  permissionLane: 'interactive' | 'autonomous';
   turnIntentSummary: string;
   permissionTimeoutMs: number;
   egressProxyUrl: string;
@@ -125,6 +129,19 @@ export function buildBaseRunnerEnv(input: {
     GANTRY_IPC_DIR: input.workspaceIpcDir,
     GANTRY_IPC_INPUT_DIR: input.ipcInputDir,
     GANTRY_IPC_AUTH_TOKEN: input.ipcAuthToken,
+    GANTRY_ATTACHMENT_IPC_AUTH_TOKEN: computeAttachmentIpcAuthToken(
+      input.workspaceKey,
+      {
+        chatJid: input.chatJid,
+        threadId: input.threadId,
+        appId: input.runnerAppId,
+        agentId: input.agentId,
+        providerAccountId: input.providerAccountId,
+      },
+    ),
+    ...(input.browserTurnToken
+      ? { GANTRY_BROWSER_TURN_TOKEN: input.browserTurnToken }
+      : {}),
     GANTRY_CHAT_JID: input.chatJid,
     ...(input.providerAccountId
       ? { GANTRY_PROVIDER_ACCOUNT_ID: input.providerAccountId }
@@ -167,6 +184,7 @@ export function buildBaseRunnerEnv(input: {
     GANTRY_DEPLOYMENT_MODE: input.deploymentMode,
     GANTRY_PERMISSION_MODE:
       input.permissionMode === 'auto_strict' ? 'auto' : input.permissionMode,
+    GANTRY_PERMISSION_LANE: input.permissionLane,
     GANTRY_TURN_INTENT_SUMMARY: input.turnIntentSummary.slice(0, 1_500),
     GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS: String(input.permissionTimeoutMs),
     GANTRY_PERMISSION_TIMEOUT_MS: String(input.permissionTimeoutMs),

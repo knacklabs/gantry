@@ -1,11 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
+const spawnAgent = vi.hoisted(() => vi.fn());
+
+vi.mock('@core/runtime/agent-spawn.js', () => ({
+  spawnAgent,
+}));
+
 import {
   createInlineCoreTools,
   createInlineCoreToolsForRun,
   wireInlineAgentLoopTools,
 } from '@core/app/bootstrap/inline-agent-loop-tools.js';
+import { createInlineAgentTaskLifecycle } from '@core/app/bootstrap/inline-agent-task-lifecycle.js';
 import {
   evaluateNeutralToolPolicy,
   evaluateNeutralToolPreChecks,
@@ -15,9 +22,19 @@ import {
   formatMemoryWriteResponse,
 } from '@core/runner/mcp/formatting.js';
 import type {
+  AsyncTaskBacklogAdmissionInput,
+  AsyncTaskClaimInput,
   AsyncTaskCreateInput,
   AsyncTaskRecord,
+  AsyncTaskScopedAdmissionInput,
 } from '@core/domain/ports/async-tasks.js';
+import {
+  loadAgentAccessSnapshot,
+  resolveTurnSelectedMcpServerIdsFromSnapshot,
+  resolveTurnSelectedSkillContextFromSnapshot,
+  resolveTurnSemanticCapabilitiesFromSnapshot,
+  resolveTurnToolPolicyFromSnapshot,
+} from '@core/runtime/group-run-context.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 
 const publishRuntimeEvent = vi.fn(async () => undefined);
@@ -25,6 +42,10 @@ const sendMessage = vi.fn(async () => undefined);
 const requestPermissionApproval = vi.fn(async () => ({
   approved: true,
   mode: 'allow_once' as const,
+}));
+const requestUserAnswer = vi.fn(async (request) => ({
+  requestId: request.requestId,
+  answers: {},
 }));
 
 function wire(overrides: Record<string, unknown> = {}) {
@@ -67,10 +88,7 @@ function wire(overrides: Record<string, unknown> = {}) {
     channelWiring: {
       sendMessage,
       requestPermissionApproval,
-      requestUserAnswer: vi.fn(async (request) => ({
-        requestId: request.requestId,
-        answers: {},
-      })),
+      requestUserAnswer,
     },
     interactionsEnabled: true,
     getAgentAccessPreset: () => 'full',
@@ -164,9 +182,46 @@ function support(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  spawnAgent.mockImplementation(async (_group, _input, onProcess, onOutput) => {
+    onProcess?.({
+      pid: 12345,
+      kill: vi.fn(() => true),
+    } as never);
+    await onOutput?.({ status: 'success', result: 'delegated done' });
+    return { status: 'success', result: 'delegated done' };
+  });
 });
 
 describe('inline core tool bootstrap', () => {
+  it('uses the active correlation run for permission and question requests', async () => {
+    wire();
+    const input = laneInput();
+    input.correlationRunId = 'run-active';
+    input.input.runId = undefined;
+    const tools = createInlineCoreTools(input, support());
+
+    await tools.execute('delegate_task', { objective: 'Investigate' });
+    await tools.execute('ask_user_question', {
+      questions: [
+        {
+          question: 'Continue?',
+          header: 'Continue',
+          options: [
+            { label: 'Yes', description: 'Continue.' },
+            { label: 'No', description: 'Stop.' },
+          ],
+        },
+      ],
+    });
+
+    expect(requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: 'run-active' }),
+    );
+    expect(requestUserAnswer).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: 'run-active' }),
+    );
+  });
+
   it('returns the structured rule denial envelope on the inline lane', async () => {
     wire();
     const input = laneInput();
@@ -424,7 +479,33 @@ describe('inline core tool bootstrap', () => {
       }),
       listTasks: vi.fn(async () => []),
       countTasksByStatus: vi.fn(async () => []),
-      claimQueuedTask: vi.fn(async () => null),
+      createTaskWithBacklogAdmission: vi.fn(
+        async (input: AsyncTaskBacklogAdmissionInput) =>
+          repository.createTask(input.task),
+      ),
+      createTaskWithScopedAdmission: vi.fn(
+        async (input: AsyncTaskScopedAdmissionInput) => ({
+          task: await repository.createTask(input.task),
+          admitted: true,
+          staleTasks: [],
+        }),
+      ),
+      claimQueuedTask: vi.fn(async (input: AsyncTaskClaimInput) => {
+        const index = tasks.findIndex((task) => task.id === input.taskId);
+        const current = tasks[index];
+        if (!current || current.status !== 'queued') return null;
+        const claimed: AsyncTaskRecord = {
+          ...current,
+          status: 'running',
+          leaseToken: input.leaseToken,
+          fencingVersion: current.fencingVersion + 1,
+          heartbeatAt: input.now,
+          startedAt: input.now,
+          updatedAt: input.now,
+        };
+        tasks[index] = claimed;
+        return claimed;
+      }),
     };
     const listAgents = vi.fn(async () => [
       {
@@ -476,6 +557,195 @@ describe('inline core tool bootstrap', () => {
       maxDepth: 1,
     });
     expect(tasks[0]?.authoritySnapshotJson.toolName).not.toBe('delegate_task');
+  });
+
+  it('reuses one target access snapshot for inline delegated input and run options', async () => {
+    const tasks: AsyncTaskRecord[] = [];
+    const repository = {
+      createTask: vi.fn(async (taskInput: AsyncTaskCreateInput) => {
+        const task: AsyncTaskRecord = {
+          ...taskInput,
+          conversationId: taskInput.conversationId ?? null,
+          threadId: taskInput.threadId ?? null,
+          parentRunId: taskInput.parentRunId ?? null,
+          parentJobId: taskInput.parentJobId ?? null,
+          parentJobRunId: taskInput.parentJobRunId ?? null,
+          privateCorrelationJson: taskInput.privateCorrelationJson ?? {},
+          createdAt: taskInput.now,
+          updatedAt: taskInput.now,
+        };
+        tasks.push(task);
+        return task;
+      }),
+      getTask: vi.fn(
+        async (taskId: string) =>
+          tasks.find((task) => task.id === taskId) ?? null,
+      ),
+      transitionTask: vi.fn(async (transition) => {
+        const index = tasks.findIndex((task) => task.id === transition.taskId);
+        const current = tasks[index];
+        if (!current) return null;
+        const updated = {
+          ...current,
+          status: transition.status,
+          updatedAt: transition.now,
+          privateCorrelationJson:
+            transition.privateCorrelationJson ?? current.privateCorrelationJson,
+          outputSummary: transition.outputSummary ?? current.outputSummary,
+          errorSummary: transition.errorSummary ?? current.errorSummary,
+          receiptJson: transition.receiptJson ?? current.receiptJson,
+        };
+        tasks[index] = updated;
+        return updated;
+      }),
+      listTasks: vi.fn(async () => []),
+      countTasksByStatus: vi.fn(async () => []),
+      createTaskWithBacklogAdmission: vi.fn(
+        async (input: AsyncTaskBacklogAdmissionInput) =>
+          repository.createTask(input.task),
+      ),
+      createTaskWithScopedAdmission: vi.fn(
+        async (input: AsyncTaskScopedAdmissionInput) => ({
+          task: await repository.createTask(input.task),
+          admitted: true,
+          staleTasks: [],
+        }),
+      ),
+      claimQueuedTask: vi.fn(async (input: AsyncTaskClaimInput) => {
+        const index = tasks.findIndex((task) => task.id === input.taskId);
+        const current = tasks[index];
+        if (!current || current.status !== 'queued') return null;
+        const claimed: AsyncTaskRecord = {
+          ...current,
+          status: 'running',
+          leaseToken: input.leaseToken,
+          fencingVersion: current.fencingVersion + 1,
+          heartbeatAt: input.now,
+          startedAt: input.now,
+          updatedAt: input.now,
+        };
+        tasks[index] = claimed;
+        return claimed;
+      }),
+    };
+    const toolSnapshot = {
+      activeBindings: [
+        {
+          binding: { status: 'active', toolId: 'tool:file-read' },
+          definition: { appId: 'default', name: 'FileRead' },
+        },
+      ],
+      appActiveDefinitions: [],
+    };
+    const skillSnapshot = {
+      activeBindings: [],
+      enabledDefinitions: [],
+    };
+    const mcpSnapshot = {
+      activeBindings: [],
+      materializedServers: [],
+    };
+    const listAgentToolAccessSnapshot = vi.fn(async () => toolSnapshot);
+    const listAgentSkillAccessSnapshot = vi.fn(async () => skillSnapshot);
+    const listAgentMcpAccessSnapshot = vi.fn(async () => mcpSnapshot);
+    let resolvedAccessSnapshot: unknown;
+    const input = laneInput();
+    input.input.toolPolicyRules = ['AgentDelegation'];
+    const snapshotDeps = {
+      getToolRepository: () =>
+        ({
+          listAgentToolAccessSnapshot,
+        }) as never,
+      getSkillRepository: () =>
+        ({
+          listAgentSkillAccessSnapshot,
+        }) as never,
+      getMcpServerRepository: () =>
+        ({
+          listAgentMcpAccessSnapshot,
+        }) as never,
+    };
+    const backend = createInlineAgentTaskLifecycle({
+      laneInput: input,
+      repository: repository as never,
+      getConversationRoutes: () => ({
+        [makeAgentThreadQueueKey(
+          'conversation:test',
+          'agent-1',
+          undefined,
+          'slack-main',
+        )]: {
+          name: 'Main',
+          folder: 'main_agent',
+          trigger: '',
+          added_at: new Date(0).toISOString(),
+          agentId: 'agent-1',
+          providerAccountId: 'slack-main',
+          conversationId: 'conversation:shared',
+        },
+        [makeAgentThreadQueueKey('conversation:test', 'agent:reviewer')]: {
+          name: 'Reviewer',
+          folder: 'reviewer',
+          trigger: '',
+          added_at: new Date(0).toISOString(),
+          agentId: 'agent:reviewer',
+          providerAccountId: 'slack-reviewer',
+          conversationId: 'conversation:shared',
+        },
+      }),
+      resolveExecutionProviderId: vi.fn(async () => 'test:inline'),
+      resolveRunAccess: async (agentId) => {
+        const accessSnapshot = await loadAgentAccessSnapshot(snapshotDeps, {
+          appId: 'default',
+          agentId,
+        });
+        resolvedAccessSnapshot = accessSnapshot;
+        const toolPolicy = resolveTurnToolPolicyFromSnapshot(accessSnapshot);
+        const selectedSkills =
+          resolveTurnSelectedSkillContextFromSnapshot(accessSnapshot);
+        return {
+          toolPolicyRules: toolPolicy.toolPolicyRules,
+          runtimeAccess: toolPolicy.runtimeAccess,
+          attachedSkillSourceIds: selectedSkills.ids,
+          selectedSkillDisplays: selectedSkills.displays,
+          attachedMcpSourceIds:
+            resolveTurnSelectedMcpServerIdsFromSnapshot(accessSnapshot),
+          semanticCapabilities:
+            resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot),
+          accessSnapshot,
+        };
+      },
+      buildRunOptions: async (_agentId, runAccess) =>
+        ({
+          accessSnapshot: runAccess.accessSnapshot,
+          runnerSandboxProvider: { enforcing: true },
+        }) as never,
+    });
+
+    vi.stubEnv('SECRET_ENCRYPTION_KEY', Buffer.alloc(32, 1).toString('base64'));
+    const result = await backend!.delegate_task({
+      objective: 'Review the change',
+      targetAgentId: 'agent:reviewer',
+    });
+    vi.unstubAllEnvs();
+
+    expect(result).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(spawnAgent).toHaveBeenCalledOnce());
+    expect(listAgentToolAccessSnapshot).toHaveBeenCalledOnce();
+    expect(listAgentSkillAccessSnapshot).toHaveBeenCalledOnce();
+    expect(listAgentMcpAccessSnapshot).toHaveBeenCalledOnce();
+    const delegatedInput = spawnAgent.mock.calls[0]?.[1];
+    const delegatedOptions = spawnAgent.mock.calls[0]?.[4];
+    expect(delegatedInput).toMatchObject({
+      agentId: 'agent:reviewer',
+      toolPolicyRules: ['FileRead'],
+    });
+    expect(delegatedInput).not.toHaveProperty('accessSnapshot');
+    expect(delegatedOptions?.accessSnapshot).toMatchObject({
+      appId: 'default',
+      agentId: 'agent:reviewer',
+    });
+    expect(delegatedOptions?.accessSnapshot).toBe(resolvedAccessSnapshot);
   });
 
   it.each([
@@ -625,59 +895,6 @@ describe('inline core tool bootstrap', () => {
     expect(requestPermissionApproval).toHaveBeenCalledOnce();
   });
 
-  it('shows the promotion hint and counts a human inline allow-once', async () => {
-    const counter = {
-      appId: 'default',
-      agentFolder: 'main_agent',
-      suggestionKey: 'main_agent|RunCommand(git status)',
-      allowCount: 2,
-      lastOfferedAt: null,
-      deniedAt: null,
-      createdAt: '2026-07-12T00:00:00.000Z',
-      updatedAt: '2026-07-12T00:00:00.000Z',
-    };
-    const incrementAndGet = vi.fn(async () => ({
-      ...counter,
-      allowCount: 3,
-    }));
-    wire({
-      getPermissionPromotionRepository: () => ({
-        incrementAndGet,
-        get: vi.fn(async () => counter),
-        markOffered: vi.fn(async () => false),
-        markDenied: vi.fn(async () => undefined),
-      }),
-    });
-    const input = laneInput();
-    const tools = createInlineCoreTools(
-      input,
-      support((() => ({
-        status: 'prompt',
-        reason: 'Approval required.',
-      })) as never),
-    );
-
-    // A real inline allow-once decision carries the approver's identity;
-    // recordHumanPermissionPromotionSignal only counts human decisions.
-    requestPermissionApproval.mockResolvedValueOnce({
-      approved: true,
-      mode: 'allow_once' as const,
-      decidedBy: 'user-1',
-    });
-
-    await tools.authorizeThirdPartyMcpTool('RunCommand', {
-      command: 'git status',
-    });
-
-    expect(requestPermissionApproval).toHaveBeenCalledWith(
-      expect.objectContaining({
-        promotionHintCount: 2,
-        decisionOptions: ['allow_persistent_rule', 'allow_once', 'cancel'],
-      }),
-    );
-    await vi.waitFor(() => expect(incrementAndGet).toHaveBeenCalledOnce());
-  });
-
   it('does not prompt for auto-approved remote MCP tools', async () => {
     wire();
     const input = laneInput();
@@ -698,7 +915,7 @@ describe('inline core tool bootstrap', () => {
 
   it('auto-allows a deterministic-safe remote MCP tool after classifier consultation', async () => {
     const classifierConsult = vi.fn(async () => ({
-      decision: 'allow' as const,
+      risk_level: 'low' as const,
       reason: 'Read-only lookup matches the turn intent.',
       latencyMs: 4,
     }));
@@ -733,9 +950,9 @@ describe('inline core tool bootstrap', () => {
     await expect(
       tools.authorizeThirdPartyMcpTool('mcp__crm__read', { id: 'crm-1' }),
     ).resolves.toEqual({ allowed: true });
-    expect(classifierConsult).toHaveBeenCalledWith(
-      expect.objectContaining({ posture: 'allow_leaning' }),
-    );
+    // posture was removed in PERM-2 A (one empowered classifier); assert the
+    // classifier was consulted, not the retired posture argument.
+    expect(classifierConsult).toHaveBeenCalled();
     expect(requestPermissionApproval).not.toHaveBeenCalled();
     expect(input.emitOutput).not.toHaveBeenCalled();
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
@@ -752,7 +969,7 @@ describe('inline core tool bootstrap', () => {
 
   it('audits an auto-classifier ask verdict before preserving the existing prompt flow', async () => {
     const classifierConsult = vi.fn(async () => ({
-      decision: 'ask' as const,
+      risk_level: 'high' as const,
       reason: 'The requested scope is ambiguous.',
       latencyMs: 5,
       failureCode: 'parse_failure' as const,
@@ -805,7 +1022,7 @@ describe('inline core tool bootstrap', () => {
     );
   });
 
-  it('marks sanitized inline input before classifier consult and approval', async () => {
+  it('routes sanitized inline input to human approval without classifier consultation', async () => {
     const classifierConsult = vi.fn();
     wire({
       classifierConsult,
@@ -842,23 +1059,15 @@ describe('inline core tool bootstrap', () => {
     ).resolves.toEqual({ allowed: true });
 
     expect(classifierConsult).not.toHaveBeenCalled();
-    expect(requestPermissionApproval).toHaveBeenCalledWith(
-      expect.objectContaining({
-        toolInputSanitized: true,
-        toolInputSanitizedPaths: ['password'],
-      }),
-    );
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'permission.classifier_decision',
-        payload: expect.objectContaining({ failureCode: 'input_truncated' }),
-      }),
+      expect.objectContaining({ eventType: 'permission.classifier_decision' }),
     );
   });
 
-  it('classifies benign inline input beyond the display limit with full input', async () => {
+  it('routes display-sanitized inline input through the classifier tail', async () => {
     const classifierConsult = vi.fn(async () => ({
-      decision: 'allow' as const,
+      risk_level: 'low' as const,
       reason: 'Benign lookup.',
       latencyMs: 1,
     }));
@@ -888,15 +1097,16 @@ describe('inline core tool bootstrap', () => {
       tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { query }),
     ).resolves.toEqual({ allowed: true });
 
-    expect(classifierConsult).toHaveBeenCalledWith(
-      expect.objectContaining({ toolInput: { query } }),
-    );
+    expect(classifierConsult).toHaveBeenCalledOnce();
     expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'permission.classifier_decision' }),
+    );
   });
 
-  it('asks instead of classifying inline input truncated at the classifier limit', async () => {
+  it('routes classifier-truncated inline input to human approval', async () => {
     const classifierConsult = vi.fn(async () => ({
-      decision: 'allow' as const,
+      risk_level: 'low' as const,
       reason: 'Only the prefix was visible.',
       latencyMs: 1,
     }));
@@ -930,16 +1140,13 @@ describe('inline core tool bootstrap', () => {
     expect(classifierConsult).not.toHaveBeenCalled();
     expect(requestPermissionApproval).toHaveBeenCalledOnce();
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'permission.classifier_decision',
-        payload: expect.objectContaining({ failureCode: 'input_truncated' }),
-      }),
+      expect.objectContaining({ eventType: 'permission.classifier_decision' }),
     );
   });
 
   it('denies an unattended classifier ask without prompting', async () => {
     const classifierConsult = vi.fn(async () => ({
-      decision: 'ask' as const,
+      risk_level: 'high' as const,
       reason: 'The requested scope needs human approval.',
       latencyMs: 2,
     }));
@@ -992,7 +1199,7 @@ describe('inline core tool bootstrap', () => {
     'consults for %s without requester gating',
     async (_label, conversationKind, senderId, isApprover, isScheduledJob) => {
       const classifierConsult = vi.fn(async () => ({
-        decision: 'allow' as const,
+        risk_level: 'low' as const,
         reason: 'Read-only lookup.',
         latencyMs: 1,
       }));

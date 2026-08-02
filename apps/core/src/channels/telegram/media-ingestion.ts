@@ -23,7 +23,7 @@ export function registerTelegramMediaHandlers(input: {
       options?: { providerAccountId?: string },
     ) => Promise<void>;
     providerAccountId?: string;
-    onMessage: (jid: string, message: any) => Promise<void>;
+    onMessage: (jid: string, message: any) => Promise<unknown>;
     ensureMessageRoute?: (jid: string, message: any) => Promise<unknown>;
     conversationRoutes: () => Record<
       string,
@@ -118,6 +118,7 @@ export function registerTelegramMediaHandlers(input: {
         kind: 'image' | 'file' | 'audio' | 'video' | 'other';
         externalId?: string;
         storageRef?: string;
+        fileName?: string;
       },
     ) => {
       const msgId = ctx.message.message_id.toString();
@@ -125,6 +126,7 @@ export function registerTelegramMediaHandlers(input: {
         id: msgId,
         chat_jid: chatJid,
         provider: 'telegram',
+        providerAccountId: input.opts.providerAccountId,
         sender: ctx.from?.id?.toString() || '',
         sender_name: senderName,
         content,
@@ -138,6 +140,9 @@ export function registerTelegramMediaHandlers(input: {
                 id: `telegram-attachment:${chatJid}:${msgId}`,
                 kind: attachment.kind,
                 externalId: attachment.externalId,
+                ...(attachment.fileName === undefined
+                  ? {}
+                  : { file_name: attachment.fileName }),
                 ...(attachment.storageRef === undefined
                   ? {}
                   : { storageRef: attachment.storageRef }),
@@ -178,6 +183,7 @@ export function registerTelegramMediaHandlers(input: {
             kind,
             externalId: opts.fileId,
             storageRef: downloaded.storageRef,
+            fileName: opts.filename,
           });
           return;
         }
@@ -185,6 +191,7 @@ export function registerTelegramMediaHandlers(input: {
       await deliver(`${placeholder}${caption}`, {
         kind,
         externalId: opts.fileId,
+        fileName: opts.filename,
       });
       return;
     }

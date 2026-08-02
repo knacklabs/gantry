@@ -4,6 +4,7 @@ import { McpToolProxy } from '../application/mcp/mcp-tool-proxy.js';
 import {
   getRuntimeRepositories,
   getRuntimeStorage,
+  tryAcquireRuntimeAdvisoryLease,
 } from '../adapters/storage/postgres/runtime-store.js';
 import {
   GANTRY_HOME,
@@ -16,8 +17,13 @@ import { logger } from '../infrastructure/logging/logger.js';
 import { isValidWorkspaceFolder } from '../platform/workspace-folder.js';
 import { TaskContext, TaskHandler } from './ipc-types.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
-import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
+import {
+  createTaskResponder,
+  sanitizedStringList,
+  toTrimmedString,
+} from './ipc-shared.js';
 import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
+import { authorizedMcpServerIdsForAgent } from '../application/mcp/mcp-authorized-servers.js';
 import {
   isPermanentPermissionDecision,
   formatDurableAccessRulesForUser,
@@ -49,9 +55,13 @@ import {
   isBrowserActionMcpToolRule,
   isProjectedBrowserMcpToolRule,
 } from '../shared/agent-tool-references.js';
-import { semanticCapabilityFromToolCatalogItem } from '../shared/semantic-capabilities.js';
 import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
-import { skillActionDefinitionsForAgent } from '../application/agents/agent-capability-skill-actions.js';
+import {
+  attachReviewedMcpCapabilityCandidate,
+  missingReviewedCapabilityCatalogEntry,
+  type RequestOnlyCapabilityReview,
+  type RequestOnlyCapabilityToolName,
+} from './ipc-request-only-capability-review.js';
 import {
   formatApprovalRequestedMessage,
   formatNotApprovedMessage,
@@ -81,11 +91,13 @@ import {
   appendLiveToolRules,
   readLiveToolRules,
 } from '../shared/live-tool-rules.js';
+import { isMcpCapabilityProposalRequest } from '../shared/semantic-capabilities.js';
 import {
   formatRequestAccessPersistentGrantMessage,
   recheckPausedSetupJobsAfterRequestAccessGrant,
 } from './request-access-job-recovery.js';
 import { requestOnlyCapabilityPendingKey } from './request-only-capability-dedupe.js';
+import { resolveRunnerIpcRoute } from '../runtime/ipc-route-authorization.js';
 const pendingRequestOnlyCapabilityReviews = new Set<string>();
 const {
   asyncMcpCallToolHandler,
@@ -297,17 +309,13 @@ const requestMcpServerHandler: TaskHandler = async (context) => {
   }
 };
 // prettier-ignore
-type RequestOnlyCapabilityToolName = 'request_skill_dependency_install' | 'request_permission';
-// prettier-ignore
-interface RequestOnlyCapabilityReview { toolName: RequestOnlyCapabilityToolName; requestKind: string; displayName: string; reason: string; toolInput: Record<string, unknown>; }
-// prettier-ignore
 const requestOnlyCapabilitySpecs: Record<RequestOnlyCapabilityToolName, { kind: string; required: string[]; any?: string[]; display: string; effect: string }> = {
   request_skill_dependency_install: { kind: 'Skill dependency install', required: ['ecosystem'], any: ['packages', 'commandArgv'], display: 'ecosystem', effect: 'review_only_no_command_execution' },
-  request_permission: { kind: 'Permission', required: [], any: ['capabilityId', 'toolName', 'toolNames', 'channelTool'], display: 'capabilityDisplayName', effect: 'review_only_no_permission_change' },
+  request_permission: { kind: 'Permission', required: [], any: ['capabilityId', 'toolName', 'toolNames', 'channelTool', 'mcpServerName'], display: 'capabilityDisplayName', effect: 'review_only_no_permission_change' },
 };
 // prettier-ignore
 const requestOnlyCapabilityHandler: TaskHandler = async (context) => {
-  const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
+  const { data, deps, sourceAgentFolder, sourceAgentFolderJids, conversationBindings } = context;
   const { accept, reject } = createContextTaskResponder(context);
   const toolName = data.type as RequestOnlyCapabilityToolName;
   const parsed = parseRequestOnlyCapabilityReview(toolName, data.payload || {});
@@ -315,62 +323,33 @@ const requestOnlyCapabilityHandler: TaskHandler = async (context) => {
   if (!data.appId) { reject(`${parsed.review.requestKind} requests require signed app scope.`, 'forbidden'); return; }
   const requestedTargetJid = validateSameChannelApprovalTarget({ data, sourceAgentFolderJids, requestKind: parsed.review.requestKind, reject });
   if (!requestedTargetJid) return;
+  let approvalRoute: ReturnType<typeof resolveRunnerIpcRoute>;
+  try {
+    approvalRoute = Object.keys(conversationBindings).length === 0 && !data.providerAccountId
+      ? { targetJid: requestedTargetJid }
+      : resolveRunnerIpcRoute({ routes: conversationBindings, sourceAgentFolder, targetJid: requestedTargetJid, threadId: data.authThreadId, providerAccountId: data.providerAccountId });
+  } catch {
+    reject(`${parsed.review.requestKind} requests must use the authenticated provider account for the originating chat.`, 'forbidden');
+    return;
+  }
   if (typeof deps.requestPermissionApproval !== 'function' || typeof deps.sendMessage !== 'function') { reject(`${parsed.review.requestKind} requests require a configured approval surface.`, 'preflight_failed'); return; }
-  const jobConflict = await jobLocalCliCapabilityConflict({ deps, jobId: data.jobId, review: parsed.review });
+  let review = parsed.review;
+  try {
+    review = await attachReviewedMcpCapabilityCandidate({ deps, appId: data.appId as never, agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never, conversationId: approvalRoute.conversationId, threadId: data.authThreadId, review });
+  } catch (err) {
+    reject(err instanceof Error ? err.message : 'Invalid MCP capability proposal.', 'invalid_request');
+    return;
+  }
+  const jobConflict = await jobLocalCliCapabilityConflict({ deps, jobId: data.jobId, review });
   if (jobConflict) { reject(jobConflict, 'wrong_capability_lane'); return; }
-  const catalogConflict = await missingReviewedCapabilityCatalogEntry({ deps, appId: data.appId as string, agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder), review: parsed.review });
+  const catalogConflict = await missingReviewedCapabilityCatalogEntry({ deps, appId: data.appId as string, agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder), conversationId: approvalRoute.conversationId, threadId: data.authThreadId, review });
   if (catalogConflict) { reject(catalogConflict, 'invalid_request'); return; }
-  const pendingKey = requestOnlyCapabilityPendingKey({ data, sourceAgentFolder, targetJid: requestedTargetJid, review: parsed.review });
-  if (pendingRequestOnlyCapabilityReviews.has(pendingKey)) { accept(`${parsed.review.displayName} request is already waiting for approval in this chat.`, 'capability_request_already_pending'); return; }
+  const pendingKey = requestOnlyCapabilityPendingKey({ data: { ...data, providerAccountId: approvalRoute.providerAccountId }, sourceAgentFolder, targetJid: requestedTargetJid, review });
+  if (pendingRequestOnlyCapabilityReviews.has(pendingKey)) { accept(`${review.displayName} request is already waiting for approval in this chat.`, 'capability_request_already_pending'); return; }
   pendingRequestOnlyCapabilityReviews.add(pendingKey);
-  startRequestOnlyCapabilityReview({ deps, appId: data.appId as never, agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never, sourceAgentFolder, targetJid: requestedTargetJid, threadId: data.authThreadId, ipcDir: context.ipcBaseDir ? path.join(context.ipcBaseDir, sourceAgentFolder) : undefined, runHandle: data.runHandle, jobId: data.jobId, review: parsed.review, pendingKey });
-  accept(requestOnlyCapabilityQueuedMessage(parsed.review), 'capability_request_recorded');
+  startRequestOnlyCapabilityReview({ deps, appId: data.appId as never, agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never, sourceAgentFolder, targetJid: approvalRoute.targetJid, threadId: data.authThreadId, providerAccountId: approvalRoute.providerAccountId, ipcDir: context.ipcBaseDir ? path.join(context.ipcBaseDir, sourceAgentFolder) : undefined, runHandle: data.runHandle, jobId: data.jobId, review, pendingKey });
+  accept(requestOnlyCapabilityQueuedMessage(review), 'capability_request_recorded');
 };
-async function missingReviewedCapabilityCatalogEntry(input: {
-  deps: TaskContext['deps'];
-  appId: string;
-  agentId: string;
-  review: RequestOnlyCapabilityReview;
-}): Promise<string | undefined> {
-  if (input.review.toolName !== 'request_permission') return undefined;
-  const capabilityId = toTrimmedString(input.review.toolInput.capabilityId, {
-    maxLen: 160,
-  });
-  if (!capabilityId) return undefined;
-  const toolNames = sanitizedStringList([
-    input.review.toolInput.toolName,
-    ...(Array.isArray(input.review.toolInput.toolNames)
-      ? input.review.toolInput.toolNames
-      : []),
-  ]);
-  if (toolNames.length > 0) return undefined;
-  const repository = input.deps.getToolRepository?.();
-  if (repository && typeof repository.listTools === 'function') {
-    const activeTools = await repository.listTools({
-      appId: input.appId as never,
-      statuses: ['active'],
-    });
-    const matched = activeTools.some((tool) => {
-      if (tool.status !== 'active' || !tool.selectable) return false;
-      const capability = semanticCapabilityFromToolCatalogItem({
-        name: tool.name,
-        inputSchema: tool.inputSchema,
-      });
-      return capability?.capabilityId === capabilityId;
-    });
-    if (matched) return undefined;
-  }
-  const skillRepository = input.deps.getSkillRepository?.();
-  if (skillRepository) {
-    const skillCapabilities = await skillActionDefinitionsForAgent({
-      appId: input.appId as never,
-      agentId: input.agentId as never,
-      skillRepository,
-    });
-    if (skillCapabilities[capabilityId]) return undefined;
-  }
-  return 'Capability access requires an active reviewed capability catalog entry. Request the reviewed capability with request_access target.kind=capability.';
-}
 // prettier-ignore
 const adminPermissionRevokeHandler: TaskHandler = async (context) => {
   const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
@@ -497,16 +476,6 @@ function sanitizeCapabilityPayload(payload: Record<string, unknown>) {
   }
   return output;
 }
-function sanitizedStringList(values: unknown[]): string[] {
-  return [
-    ...new Set(
-      values
-        .slice(0, 50)
-        .map((item) => toTrimmedString(item, { maxLen: 512 }))
-        .filter((item): item is string => Boolean(item)),
-    ),
-  ];
-}
 // prettier-ignore
 function isTemporaryBrowserPermissionRequest(payload: Record<string, unknown>): boolean {
   if (payload.temporaryOnly !== true) return false;
@@ -533,7 +502,7 @@ function capabilityDisplayValue(payload: Record<string, unknown>, spec: (typeof 
   return spec.kind;
 }
 // prettier-ignore
-function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>[0]['deps']; appId: import('../domain/app/app.js').AppId; agentId: import('../domain/agent/agent.js').AgentId; sourceAgentFolder: string; targetJid: string; threadId?: string; ipcDir?: string; runHandle?: string; jobId?: string; review: RequestOnlyCapabilityReview; pendingKey?: string }): void {
+function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>[0]['deps']; appId: import('../domain/app/app.js').AppId; agentId: import('../domain/agent/agent.js').AgentId; sourceAgentFolder: string; targetJid: string; threadId?: string; providerAccountId?: string; ipcDir?: string; runHandle?: string; jobId?: string; review: RequestOnlyCapabilityReview; pendingKey?: string }): void {
   void (async () => {
     let message: string;
     const requestId = `capability-${input.review.toolName}-${globalThis.crypto.randomUUID()}`;
@@ -549,12 +518,20 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
       } catch (err) {
         logger.warn({ err, requestId }, 'Failed to record pending access request');
       }
-      const semanticCapabilityDefinitions =
+      const trustedSemanticCapabilityDefinitions =
         await resolveTrustedSemanticCapabilityDefinitions({
           deps: input.deps,
           appId: input.appId,
           agentId: input.agentId,
         });
+      const candidateDefinition =
+        input.review.mcpCapabilityCandidate?.definition;
+      const semanticCapabilityDefinitions = candidateDefinition
+        ? {
+            ...(trustedSemanticCapabilityDefinitions ?? {}),
+            [candidateDefinition.capabilityId]: candidateDefinition,
+          }
+        : trustedSemanticCapabilityDefinitions;
       const decision = await input.deps.requestPermissionApproval({
         requestId,
         appId: input.appId,
@@ -562,6 +539,7 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
         sourceAgentFolder: input.sourceAgentFolder,
         targetJid: input.targetJid,
         threadId: input.threadId,
+        providerAccountId: input.providerAccountId,
         decisionPolicy: 'same_channel',
         toolName: input.review.toolName,
         displayName: input.review.displayName,
@@ -593,7 +571,23 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
         persistedRules = await persistRequestPermissionRules({ deps: input.deps, appId: input.appId, agentId: input.agentId, sourceAgentFolder: input.sourceAgentFolder, ipcDir: input.ipcDir, runHandle: input.runHandle, requestId, updates: decision.updatedPermissions ?? [], toolInput: input.review.toolInput, semanticCapabilityDefinitions, actor: decision.decidedBy, conversationId: input.targetJid, threadId: input.threadId, jobId: input.jobId, reason: decision.reason });
       }
       const recovery = persistedRules.length > 0 ? await recheckPausedSetupJobsAfterRequestAccessGrant({ deps: input.deps, appId: input.appId, sourceAgentFolder: input.sourceAgentFolder, targetJid: input.targetJid, jobId: input.jobId, logWarn: (context, message) => logger.warn(context, message) }) : undefined;
-      const transientRules = input.review.toolName === 'request_permission' && decision.approved && decision.decidedBy && decision.mode === 'allow_once' ? requestPermissionOnceLiveRules(input.review.toolInput, semanticCapabilityDefinitions) : [];
+      const mcpProposalRequest = isMcpCapabilityProposalRequest({
+        toolName: input.review.toolName,
+        toolInput: input.review.toolInput,
+        capabilityId: toTrimmedString(
+          input.review.toolInput.capabilityId,
+          { maxLen: 160 },
+        ),
+        semanticCapabilityDefinitions,
+      });
+      const transientRules =
+        !mcpProposalRequest &&
+        input.review.toolName === 'request_permission' &&
+        decision.approved &&
+        decision.decidedBy &&
+        decision.mode === 'allow_once'
+          ? requestPermissionOnceLiveRules(input.review.toolInput, semanticCapabilityDefinitions)
+          : [];
       if (transientRules.length > 0) liveRules = appendLiveToolRules({ ipcDir: input.ipcDir, runHandle: input.runHandle, rules: transientRules });
       try {
         await getRuntimeStorage().repositories.pendingAccessRequests.markResolved({
@@ -613,6 +607,10 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
               conversationId: input.targetJid,
             })
           : null;
+      const mcpAllowOnceWithoutAuthority =
+        mcpProposalRequest &&
+        decision.approved &&
+        decision.mode === 'allow_once';
       message = decision.approved && decision.decidedBy
         ? bakeMessage
           ? bakeMessage
@@ -620,6 +618,8 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
           ? formatRequestAccessPersistentGrantMessage({ displayName: input.review.displayName, rules: persistedRules, semanticCapabilityDefinitions, recovery })
           : liveRules.length
             ? `Allowed ${input.review.displayName} for this run. Details: ${formatDurableAccessRulesForUser(liveRules)}.`
+          : mcpAllowOnceWithoutAuthority
+            ? `No MCP access was granted for ${input.review.displayName}. MCP action authority requires Allow for future; nothing changed.`
           : `Approved ${input.review.displayName}. Admin setup may still be needed before it can be used.`
         : `Not approved: ${input.review.displayName}. Reason: ${reason}.`;
     } catch (err) {
@@ -639,7 +639,18 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
         logger.warn({ err: markErr, requestId }, 'Failed to resolve pending access request');
       }
     }
-    await input.deps.sendMessage(input.targetJid, message, input.threadId ? { threadId: input.threadId } : undefined);
+    await input.deps.sendMessage(
+      input.targetJid,
+      message,
+      input.threadId || input.providerAccountId
+        ? {
+            ...(input.threadId ? { threadId: input.threadId } : {}),
+            ...(input.providerAccountId
+              ? { providerAccountId: input.providerAccountId }
+              : {}),
+          }
+        : undefined,
+    );
   })()
     .catch((err) => logger.error({ err, sourceAgentFolder: input.sourceAgentFolder, toolName: input.review.toolName }, 'Capability permission review final message failed'))
     .finally(() => {
@@ -843,12 +854,21 @@ function mcpReviewMessageOptions(
 async function createMcpProxyForSourceGroup(input: {
   appId: import('../domain/app/app.js').AppId;
   agentId: import('../domain/agent/agent.js').AgentId;
+  conversationId?: string;
+  threadId?: string;
   deps: Parameters<TaskHandler>[0]['deps'];
   ipcDir?: string;
   runHandle?: string;
   runId?: string;
 }): Promise<McpToolProxy> {
   const storage = getRuntimeStorage();
+  const sourceServerIds = await authorizedMcpServerIdsForAgent({
+    mcpServers: storage.repositories.mcpServers,
+    appId: input.appId,
+    agentId: input.agentId,
+    conversationId: input.conversationId,
+    threadId: input.threadId,
+  });
   const credentialEnv = await resolveMcpCredentialEnvForAgent({
     appId: input.appId,
     agentId: input.agentId,
@@ -856,11 +876,13 @@ async function createMcpProxyForSourceGroup(input: {
     secrets:
       input.deps.getCapabilitySecretRepository?.() ??
       storage.repositories.capabilitySecrets,
+    serverIds: sourceServerIds as never,
   });
   return new McpToolProxy(storage.repositories.mcpServers, {
     tools: storage.repositories.tools,
     skills: storage.repositories.skills,
     credentialEnv,
+    sourceServerIds,
     liveToolRules: readLiveToolRules({
       ipcDir: input.ipcDir,
       runHandle: input.runHandle,
@@ -884,5 +906,6 @@ async function syncApprovedCapabilitySettings(
     pool: storage.service?.pool,
     createdBy: 'capability-approval:projection-sync',
     appId,
+    leases: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
   });
 }

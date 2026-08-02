@@ -37,6 +37,10 @@ import { processRichInteractionRequestDirectory } from './ipc-rich-interaction-d
 import { resolveRunnerIpcRoute } from './ipc-route-authorization.js';
 import { incrementOperationalError } from '../shared/operational-error-counters.js';
 import { releaseIpcRootLock } from './ipc-root-lock-release.js';
+import { acquireIpcRootLockForWatcher } from './ipc-root-lock-acquisition.js';
+import { buildIpcFolderTargets } from './ipc-folder-targets.js';
+import { processPermissionCancellationDirectory } from './ipc-permission-cancellation-directory.js';
+import { processQuestionCancellationDirectory } from './ipc-question-cancellation-directory.js';
 export type { IpcDeps } from './ipc-domain-types.js';
 export { processTaskIpc } from '../jobs/ipc-handler.js';
 export { validateIpcAuthRequest } from './ipc-auth-validation.js';
@@ -64,63 +68,12 @@ export function startIpcWatcher(deps: IpcDeps): void {
   activeRunnerControlPort = runnerControlPort;
   const ipcBaseDir = runnerControlPort.baseDir;
   runnerControlPort.ensureRoot();
-  try {
-    ipcRootLockPath = runnerControlPort.acquireRootLock();
-  } catch (err) {
-    const lockPath = path.join(ipcBaseDir, '.lock');
-    const code =
-      err && typeof err === 'object' && 'code' in err
-        ? String((err as { code?: string }).code)
-        : '';
-    if (code === 'EEXIST') {
-      const recoveredLock = runnerControlPort.recoverRootLock(lockPath);
-      if (!recoveredLock.recovered) {
-        logger.warn(
-          {
-            lockPath,
-            holderPid: recoveredLock.pid,
-            holderStartedAt: recoveredLock.startedAt,
-            reason: recoveredLock.recoveryReason,
-          },
-          'IPC watcher lock already held, skipping start',
-        );
-        return;
-      }
-      logger.warn(
-        {
-          lockPath,
-          holderPid: recoveredLock.pid,
-          holderStartedAt: recoveredLock.startedAt,
-          reason: recoveredLock.recoveryReason,
-        },
-        'Recovered stale IPC watcher lock; retrying start',
-      );
-      try {
-        ipcRootLockPath = runnerControlPort.acquireRootLock();
-      } catch (retryErr) {
-        const retryCode =
-          retryErr && typeof retryErr === 'object' && 'code' in retryErr
-            ? String((retryErr as { code?: string }).code)
-            : '';
-        if (retryCode === 'EEXIST') {
-          const retryDetails = runnerControlPort.readRootLock(lockPath);
-          logger.warn(
-            {
-              lockPath,
-              holderPid: retryDetails.pid,
-              holderStartedAt: retryDetails.startedAt,
-              reason: 'reacquire_raced',
-            },
-            'IPC watcher lock already held, skipping start',
-          );
-          return;
-        }
-        throw retryErr;
-      }
-    } else {
-      throw err;
-    }
-  }
+  const acquiredRootLockPath = acquireIpcRootLockForWatcher({
+    runnerControlPort,
+    warn: logger.warn.bind(logger),
+  });
+  if (!acquiredRootLockPath) return;
+  ipcRootLockPath = acquiredRootLockPath;
   ipcWatcherRunning = true;
   const initializedLayoutFolders = new Set<string>();
   let processingIpcFiles = false;
@@ -218,15 +171,8 @@ export function startIpcWatcher(deps: IpcDeps): void {
       }
       activeRequestWakeups?.reconcile(ipcFolders);
 
-      const folderTargetJid = new Map<string, string>();
-      const folderTargetJids = new Map<string, Set<string>>();
-      for (const [jid, group] of Object.entries(groupRegistry)) {
-        if (!folderTargetJid.has(group.folder))
-          folderTargetJid.set(group.folder, jid);
-        const targets = folderTargetJids.get(group.folder) ?? new Set<string>();
-        targets.add(jid);
-        folderTargetJids.set(group.folder, targets);
-      }
+      const { folderTargetJid, folderTargetJids } =
+        buildIpcFolderTargets(groupRegistry);
 
       for (const sourceAgentFolder of ipcFolders) {
         const messagesDir = runnerControlPort.requestDir(
@@ -639,6 +585,16 @@ export function startIpcWatcher(deps: IpcDeps): void {
           );
         }
 
+        await processPermissionCancellationDirectory({
+          sourceAgentFolder,
+          shouldProcessRequestLane,
+          inFlightInteractionIpc,
+          runnerControlPort,
+          cancelPermissionApproval: deps.cancelPermissionApproval,
+          publishRuntimeEvent: deps.publishRuntimeEvent,
+          logger,
+        });
+
         processRichInteractionRequestDirectory({
           sourceAgentFolder,
           processScope,
@@ -786,6 +742,16 @@ export function startIpcWatcher(deps: IpcDeps): void {
             'Error reading user question IPC requests directory',
           );
         }
+
+        await processQuestionCancellationDirectory({
+          sourceAgentFolder,
+          shouldProcessRequestLane,
+          inFlightInteractionIpc,
+          runnerControlPort,
+          cancelUserQuestion: deps.cancelUserQuestion,
+          publishRuntimeEvent: deps.publishRuntimeEvent,
+          logger,
+        });
       }
     } finally {
       processingIpcFiles = false;

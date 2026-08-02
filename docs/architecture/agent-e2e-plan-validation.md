@@ -6,6 +6,14 @@ Validated: 2026-07-20
 
 Scope: validation of `agent-e2e-ci-merge-gate-goal-prompt.md` against the current tree; no implementation.
 
+> **Current-contract note (2026-07-28):** This report preserves a 2026-07-20
+> validation snapshot. Decision 0040 later superseded its enforcing-sandbox
+> premise: production still requires strong isolated secrets, but accepts either
+> `direct` or `sandbox_runtime`. PERM-7/PERM-8 also superseded its permission
+> observations: the host YOLO denylist now hard-denies before classifier or
+> prompt, and classifier eligibility includes tool-family Bash/RunCommand, MCP
+> tools including Gantry, and bare Gantry-native canonical tools.
+
 ## Executive verdict
 
 The plan identifies a real coverage gap, but it is not decision-complete or internally consistent enough to implement.
@@ -65,7 +73,12 @@ A real Control API turn requires:
 3. A configured agent/conversation route, model alias and compatible harness, durable message admission, and a running queue. The message endpoint returns `202 accepted`; it does not mean the model turn completed (`apps/core/src/control/server/routes/sessions.ts:278-301`; `apps/core/src/control/server/session-interaction-adapter.ts:50-62`).
 4. A usable model credential and provider execution boundary.
 
-The image also sets `NODE_ENV=production` (`ops/docker/Dockerfile:55-63`). A harness must therefore supply isolated, non-production encryption and IPC secrets plus an enforcing `sandbox_runtime` configuration; the production security gate requires these independently of model access (`apps/core/src/shared/security-posture.ts:31-80`).
+The image also sets `NODE_ENV=production` (`ops/docker/Dockerfile:55-63`). A
+harness must therefore supply isolated, non-production encryption and IPC
+secrets. At the time of this validation it was also expected to provide an
+enforcing `sandbox_runtime`; decision 0040 later removed that coupling, so the
+current production security gate accepts either provider
+(`apps/core/src/shared/security-posture.ts:31-80`).
 
 The fourth requirement makes the acceptance criterion impossible today:
 

@@ -28,9 +28,9 @@ jobs:
         id: health
         run: |
           set +e
-          AUDIT_OUT=$(python3 .agents/scripts/forge.py audit 2>&1)
+          AUDIT_OUT=$(python3 factory/scripts/forge.py audit 2>&1)
           AUDIT_N=$(printf '%s\n' "$AUDIT_OUT" | grep -c '^- ')
-          DRIFT_OUT=$(python3 .agents/scripts/check_vendor_integrity.py 2>&1)
+          DRIFT_OUT=$(python3 factory/scripts/check_vendor_integrity.py 2>&1)
           DRIFT_RC=$?
           set -e
           echo "audit_n=${AUDIT_N:-0}" >> "$GITHUB_OUTPUT"
@@ -71,7 +71,7 @@ jobs:
           # forge upgrade runs FROM the harness clone TARGETING this repo,
           # and re-freezes VENDOR_MANIFEST.json as part of the vendoring.
           (cd "$RUNNER_TEMP/harness" \
-            && python3 .agents/scripts/forge.py upgrade --target "$GITHUB_WORKSPACE")
+            && python3 factory/scripts/forge.py upgrade --target "$GITHUB_WORKSPACE")
           git add -A
           git commit -m "chore: harness upgrade (automated proposal from harness-health)"
           git push -f origin chore/harness-upgrade

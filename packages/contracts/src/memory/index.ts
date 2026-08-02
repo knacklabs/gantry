@@ -37,19 +37,23 @@ export const MemorySubjectRefSchema = z.object({
 });
 export type MemorySubjectRef = z.infer<typeof MemorySubjectRefSchema>;
 
-export const MemorySearchRequestSchema = z.object({
-  appId: z.string().optional(),
-  agentId: z.string().optional(),
-  userId: z.string().optional(),
-  groupId: z.string().optional(),
-  channelId: z.string().optional(),
-  conversationId: z.string().optional(),
-  query: z.string().optional(),
-  limit: z.number().int().min(1).max(100).optional(),
-  includeCommon: z.boolean().optional(),
-  subjectTypes: z.array(MemorySubjectTypeSchema).optional(),
-  metadata: ContractMetadataSchema.optional(),
-});
+export const MemorySearchRequestSchema = z
+  .object({
+    appId: z.string().optional(),
+    agentId: z.string().optional(),
+    personId: z.string().optional(),
+    groupId: z.string().optional(),
+    channelId: z.string().optional(),
+    conversationId: z.string().optional(),
+    query: z.string().optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+    includeCommon: z.boolean().optional(),
+    subjectTypes: z.array(MemorySubjectTypeSchema).optional(),
+    metadata: ContractMetadataSchema.optional(),
+    // Strict: an unknown filter key must fail the parse, not be stripped —
+    // stripping a filter silently broadens the search to every subject.
+  })
+  .strict();
 export type MemorySearchRequest = z.infer<typeof MemorySearchRequestSchema>;
 
 export * from './pattern-candidates.js';
@@ -60,7 +64,7 @@ export const MemoryItemResponseSchema = z.object({
   agentId: z.string().nullable().optional(),
   subjectType: MemorySubjectTypeSchema.optional(),
   subjectId: z.string().optional(),
-  userId: z.string().nullable().optional(),
+  personId: z.string().nullable().optional(),
   conversationId: z.string().nullable().optional(),
   subject: MemorySubjectRefSchema,
   kind: MemoryKindSchema,
@@ -105,7 +109,7 @@ export const MemoryIpcRequestSchema = z.object({
       appId: z.string().optional(),
       agentId: z.string().optional(),
       threadId: z.string().optional(),
-      userId: z.string().optional(),
+      personId: z.string().optional(),
       defaultScope: z.enum(['user', 'group']).optional(),
     })
     .optional(),

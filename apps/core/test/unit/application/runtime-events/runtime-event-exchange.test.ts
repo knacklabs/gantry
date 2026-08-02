@@ -210,7 +210,7 @@ describe('RuntimeEventExchange', () => {
     expect(repository.events).toHaveLength(1);
   });
 
-  it('canonicalizes provider conversation ids before persistence', async () => {
+  it('moves raw provider conversation ids into payload route context before persistence', async () => {
     const repository = new MemoryRuntimeEventRepository();
     const notifier = new InMemoryRuntimeEventNotifier();
     const exchange = new RuntimeEventExchange(repository, notifier);
@@ -223,16 +223,13 @@ describe('RuntimeEventExchange', () => {
       payload: {},
     });
 
-    expect(event.conversationId).toBe('conversation:tg:-100123');
-    expect(repository.events[0]?.conversationId).toBe(
-      'conversation:tg:-100123',
-    );
-    expect(notifier.notifiedEvents[0]?.conversationId).toBe(
-      'conversation:tg:-100123',
-    );
+    expect(event.conversationId).toBeUndefined();
+    expect(repository.events[0]?.conversationId).toBeUndefined();
+    expect(notifier.notifiedEvents[0]?.conversationId).toBeUndefined();
+    expect(event.payload).toEqual({ conversationJid: 'tg:-100123' });
   });
 
-  it('canonicalizes provider thread ids before persistence', async () => {
+  it('moves raw provider thread ids into payload route context before persistence', async () => {
     const repository = new MemoryRuntimeEventRepository();
     const notifier = new InMemoryRuntimeEventNotifier();
     const exchange = new RuntimeEventExchange(repository, notifier);
@@ -246,12 +243,17 @@ describe('RuntimeEventExchange', () => {
       payload: {},
     });
 
-    expect(event.threadId).toBe('thread:tg:-100123:2771');
-    expect(repository.events[0]?.threadId).toBe('thread:tg:-100123:2771');
-    expect(notifier.notifiedEvents[0]?.threadId).toBe('thread:tg:-100123:2771');
+    expect(event.conversationId).toBeUndefined();
+    expect(event.threadId).toBeUndefined();
+    expect(repository.events[0]?.threadId).toBeUndefined();
+    expect(notifier.notifiedEvents[0]?.threadId).toBeUndefined();
+    expect(event.payload).toEqual({
+      conversationJid: 'tg:-100123',
+      threadId: '2771',
+    });
   });
 
-  it('canonicalizes provider conversation ids in list filters', async () => {
+  it('preserves canonical conversation ids in list filters', async () => {
     const repository = new MemoryRuntimeEventRepository();
     const exchange = new RuntimeEventExchange(
       repository,
@@ -259,7 +261,7 @@ describe('RuntimeEventExchange', () => {
     );
     await exchange.publish({
       appId: 'app:test' as never,
-      conversationId: 'tg:-100123' as never,
+      conversationId: 'conversation:tg:-100123' as never,
       eventType: RUNTIME_EVENT_TYPES.SANDBOX_BLOCKED,
       actor: 'runner',
       payload: {},
@@ -268,12 +270,12 @@ describe('RuntimeEventExchange', () => {
     await expect(
       exchange.list({
         appId: 'app:test' as never,
-        conversationId: 'tg:-100123' as never,
+        conversationId: 'conversation:tg:-100123' as never,
       }),
     ).resolves.toHaveLength(1);
   });
 
-  it('canonicalizes provider thread ids in list filters', async () => {
+  it('preserves canonical thread ids in list filters', async () => {
     const repository = new MemoryRuntimeEventRepository();
     const exchange = new RuntimeEventExchange(
       repository,
@@ -281,8 +283,8 @@ describe('RuntimeEventExchange', () => {
     );
     await exchange.publish({
       appId: 'app:test' as never,
-      conversationId: 'tg:-100123' as never,
-      threadId: '2771' as never,
+      conversationId: 'conversation:tg:-100123' as never,
+      threadId: 'thread:tg:-100123:2771' as never,
       eventType: RUNTIME_EVENT_TYPES.SANDBOX_BLOCKED,
       actor: 'runner',
       payload: {},
@@ -291,8 +293,8 @@ describe('RuntimeEventExchange', () => {
     await expect(
       exchange.list({
         appId: 'app:test' as never,
-        conversationId: 'tg:-100123' as never,
-        threadId: '2771' as never,
+        conversationId: 'conversation:tg:-100123' as never,
+        threadId: 'thread:tg:-100123:2771' as never,
       }),
     ).resolves.toHaveLength(1);
   });

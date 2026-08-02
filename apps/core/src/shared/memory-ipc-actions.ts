@@ -50,6 +50,19 @@ const REVIEWER_MEMORY_REVIEW_IPC_ACTIONS = [
   'memory_review_pending',
   'memory_review_decision',
 ] as const satisfies readonly GantryMemoryIpcAction[];
+const AUTHORITY_CHANGING_MEMORY_TOOL_NAMES = new Set<string>([
+  // Organization-wide brain writes change shared authority state and must not
+  // survive into authority-hidden runs.
+  'brain_write',
+  'memory_patch',
+  'memory_demote',
+  'continuity_summary_patch',
+  'memory_consolidate',
+  'memory_dream',
+  'memory_review_pending',
+  'memory_review_decision',
+  'procedure_patch',
+]);
 
 export function normalizeMemoryIpcActions(
   actions: readonly string[] | undefined,
@@ -77,6 +90,7 @@ export function memoryIpcActionForToolName(
 
 export interface MemoryIpcActionSelectionOptions {
   memoryReviewerIsControlApprover?: boolean;
+  excludeAuthorityTools?: boolean;
 }
 
 export function selectedMemoryIpcActionsFromToolRules(
@@ -84,13 +98,22 @@ export function selectedMemoryIpcActionsFromToolRules(
   options: MemoryIpcActionSelectionOptions = {},
 ): GantryMemoryIpcAction[] {
   const actions: GantryMemoryIpcAction[] = [...DEFAULT_MEMORY_IPC_ACTIONS];
-  if (options.memoryReviewerIsControlApprover) {
+  if (
+    options.memoryReviewerIsControlApprover &&
+    !options.excludeAuthorityTools
+  ) {
     actions.push(...REVIEWER_MEMORY_REVIEW_IPC_ACTIONS);
   }
   for (const rule of configuredTools) {
     const trimmed = rule.trim();
     if (!trimmed.startsWith('mcp__gantry__')) continue;
     const toolName = trimmed.slice('mcp__gantry__'.length);
+    if (
+      options.excludeAuthorityTools &&
+      AUTHORITY_CHANGING_MEMORY_TOOL_NAMES.has(toolName)
+    ) {
+      continue;
+    }
     const action = memoryIpcActionForToolName(toolName);
     if (action) actions.push(action);
   }

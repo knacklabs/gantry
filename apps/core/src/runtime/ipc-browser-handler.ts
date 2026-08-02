@@ -56,7 +56,7 @@ interface BrowserResponse {
 
 type BrowserContext = Pick<
   IpcDomainContext,
-  'sourceAgentFolder' | 'browserProfileName'
+  'sourceAgentFolder' | 'browserProfileName' | 'turnQueueKey'
 > & {
   browserIpcAuthorized?: boolean;
   getFileArtifactStore?: IpcDomainContext['deps']['getFileArtifactStore'];
@@ -475,7 +475,7 @@ async function handleBrowserToolAction(
     // read-and-clears this flag to decide whether to snapshot. The job path uses
     // its own browserActivityCount diagnostic instead.
     if (request.action !== 'status' && profileTouched) {
-      markBrowserProfileActivity(profileName);
+      markBrowserProfileActivity(profileName, context.turnQueueKey ?? '');
     }
     console.info('Browser tool action audit', {
       sourceAgentFolder: context.sourceAgentFolder,

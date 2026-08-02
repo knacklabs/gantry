@@ -234,20 +234,28 @@ describe('job visibility metadata', () => {
   });
 
   it('surfaces latest terminal run health in list metadata', async () => {
+    const listLatestJobRunsByJobIds = vi.fn(
+      async () =>
+        new Map([
+          [
+            'job-1',
+            makeRun({
+              status: 'timeout',
+              result_summary: null,
+              error_summary: 'Scheduler run lease expired before completion.',
+            }),
+          ],
+        ]),
+    );
     const metadata = await buildJobListVisibilityMetadata({
       jobs: [makeJob({ status: 'active' })],
       ops: {
-        listJobRuns: vi.fn(async () => [
-          makeRun({
-            status: 'timeout',
-            result_summary: null,
-            error_summary: 'Scheduler run lease expired before completion.',
-          }),
-        ]),
+        listLatestJobRunsByJobIds,
       } as unknown as RuntimeJobRepository,
       nowMs: Date.parse('2026-04-24T09:10:00.000Z'),
     });
 
+    expect(listLatestJobRunsByJobIds).toHaveBeenCalledWith(['job-1']);
     expect(metadata.get('job-1')?.health).toMatchObject({
       state: 'timed_out',
       latestRunId: 'run-1',
@@ -300,13 +308,20 @@ describe('job visibility metadata', () => {
     const metadata = await buildJobListVisibilityMetadata({
       jobs: [makeJob({ status: 'active' })],
       ops: {
-        listJobRuns: vi.fn(async () => [
-          makeRun({
-            status: 'timeout',
-            result_summary: null,
-            error_summary: 'Scheduler runtime restarted before completion.',
-          }),
-        ]),
+        listLatestJobRunsByJobIds: vi.fn(
+          async () =>
+            new Map([
+              [
+                'job-1',
+                makeRun({
+                  status: 'timeout',
+                  result_summary: null,
+                  error_summary:
+                    'Scheduler runtime restarted before completion.',
+                }),
+              ],
+            ]),
+        ),
       } as unknown as RuntimeJobRepository,
       nowMs: Date.parse('2026-04-24T09:10:00.000Z'),
     });

@@ -7,29 +7,37 @@ import type {
   MessageDeliveryResult,
   MessageSendOptions,
   NewMessage,
+  PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
   RichInteractionRequest,
   StreamingChunkOptions,
+  UserQuestionCancellation,
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../domain/types.js';
 import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import { nowIso } from '../shared/time/datetime.js';
+import { resolveTeamsInboundIdentity } from './teams-conversation-context.js';
 import {
   buildTeamsUserQuestionCard,
   formatTeamsAttachmentUnavailableCopy as teamsTextWithAttachmentNotice,
 } from './teams-cards.js';
-import { handleTeamsMessageAction } from './teams-message-actions.js';
+import {
+  handleTeamsMessageAction,
+  teamsMessageActionCardSinks,
+} from './teams-message-actions.js';
 import {
   sendTeamsProgressUpdate,
   sendTeamsTextOrActionMessage,
   type TeamsProgressMessages,
 } from './teams-progress.js';
 import { requestTeamsPermissionApproval } from './teams-permission-approval.js';
+import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
+import { resolveInteractionSettlementDelayMs } from './interaction-settlement.js';
+import { cancelPendingTeamsPermission } from './teams-permission-cancellation.js';
 import { renderTeamsAgentTodo, type TeamsTodoMessages } from './teams-todos.js';
 import {
   isTeamsJid,
@@ -50,12 +58,14 @@ import {
 } from './teams-conversation-context.js';
 import { renderTeamsRichInteraction } from './teams-rich-interaction.js';
 import { teamsDeliveredQuestionIndexes } from './teams-user-question.js';
+import { buildTeamsQuestionTimeoutAnswers } from './teams-user-question-timeout.js';
 import { createMicrosoftTeamsSdkClient } from './teams-sdk-client.js';
 import {
   applyTeamsStreamingChunk,
   type TeamsStreamingState,
 } from './teams-streaming.js';
 import {
+  cancelPendingTeamsQuestion,
   dropPendingTeamsInteraction,
   handleTeamsPermissionDecision,
   handleTeamsUserQuestionSubmit,
@@ -94,7 +104,6 @@ export {
 
 export class TeamsChannel implements ChannelAdapter {
   name = 'teams';
-
   private connected = false;
   private outboundReady = false;
   private readonly pendingPermissionPrompts = new Map<
@@ -111,7 +120,6 @@ export class TeamsChannel implements ChannelAdapter {
     string,
     PendingTeamsUserQuestion
   >();
-
   constructor(
     private readonly credentials: TeamsChannelCredentials,
     private readonly opts: TeamsChannelOpts,
@@ -123,7 +131,25 @@ export class TeamsChannel implements ChannelAdapter {
   ): void {
     dropPendingTeamsInteraction(this.interactionContext(), kind, request);
   }
-
+  async cancelPendingPermission(
+    cancellation: PermissionApprovalCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'> {
+    return cancelPendingTeamsPermission(
+      this.pendingPermissionPrompts,
+      cancellation,
+      (providerAlias, reason) =>
+        settlePendingTeamsPermission(
+          this.interactionContext(),
+          providerAlias,
+          'cancel',
+          'runtime',
+          reason,
+        ),
+    );
+  }
+  cancelPendingQuestion(cancellation: UserQuestionCancellation) {
+    return cancelPendingTeamsQuestion(this.interactionContext(), cancellation);
+  }
   async connect(
     options: { inbound?: boolean; interactionCallbacks?: boolean } = {},
   ): Promise<void> {
@@ -163,11 +189,9 @@ export class TeamsChannel implements ChannelAdapter {
       logger.info('Teams outbound delivery client initialized');
     }
   }
-
   isConnected(): boolean {
     return this.connected || this.outboundReady;
   }
-
   async disconnect(): Promise<void> {
     if (!this.connected && !this.outboundReady) return;
     for (const providerAlias of this.pendingPermissionPrompts.keys()) {
@@ -413,18 +437,20 @@ export class TeamsChannel implements ChannelAdapter {
     const attachments = teamsInboundMessageAttachments(message);
     if (!content && attachments.length === 0) return;
 
-    await this.opts.onChatMetadata(
+    const isGroup = message.conversationType !== 'personal';
+    const messageIdentity = await resolveTeamsInboundIdentity({
+      opts: this.opts,
       jid,
       timestamp,
-      message.conversationName,
-      'teams',
-      message.conversationType !== 'personal',
-      { providerAccountId: this.opts.providerAccountId },
-    );
+      conversationName: message.conversationName,
+      threadId: message.threadId,
+      isGroup,
+    });
 
     const normalized: NewMessage = {
       id: message.id || `teams:${message.conversationId}:${timestamp}`,
       chat_jid: jid,
+      ...messageIdentity,
       provider: 'teams',
       sender,
       sender_name: senderName,
@@ -449,6 +475,7 @@ export class TeamsChannel implements ChannelAdapter {
       connected: this.connected,
       jid,
       request,
+      timeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
       onPromptDelivered,
       sdkClient: this.sdkClient,
       pendingPermissionPrompts: this.pendingPermissionPrompts,
@@ -498,48 +525,52 @@ export class TeamsChannel implements ChannelAdapter {
         ...(request.threadId ? { threadId: request.threadId } : {}),
       });
       const response = new Promise<UserQuestionResponse>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          void (async () => {
-            const remainingQuestionIndexes = request.questions.flatMap(
-              (_, index) => (index >= startIndex ? [index] : []),
-            );
-            const timeoutAnswers = Object.fromEntries(
-              remainingQuestionIndexes.map((questionIndex) => {
-                const question = request.questions[questionIndex]!;
-                return [
-                  question.question,
-                  question.multiSelect ? ([] as string[]) : '',
-                ];
-              }),
-            );
-            const recorded = await recordDurableQuestionAnswerProgress({
-              requestId: request.requestId,
-              appId: request.appId,
-              sourceAgentFolder: request.sourceAgentFolder,
-              answers: timeoutAnswers,
-              completedQuestionIndexes: remainingQuestionIndexes,
-            });
-            if (!recorded) {
-              throw new DurableInteractionPersistenceError(
-                'Teams user question timeout was not persisted',
+        const { expiresAt, permissionLane } =
+          questionRequest as UserQuestionRequest & {
+            expiresAt?: unknown;
+            permissionLane?: 'interactive' | 'autonomous';
+          };
+        const settlementDelayMs = resolveInteractionSettlementDelayMs({
+          expiresAt,
+          permissionLane,
+          fallbackTimeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
+        });
+        let timer!: ReturnType<typeof setTimeout>;
+        if (settlementDelayMs !== undefined) {
+          timer = setTimeout(() => {
+            void (async () => {
+              const { remainingQuestionIndexes, timeoutAnswers } =
+                buildTeamsQuestionTimeoutAnswers(request, startIndex);
+              const recorded = await recordDurableQuestionAnswerProgress({
+                requestId: request.requestId,
+                appId: request.appId,
+                sourceAgentFolder: request.sourceAgentFolder,
+                answers: timeoutAnswers,
+                completedQuestionIndexes: remainingQuestionIndexes,
+              });
+              if (!recorded) {
+                throw new DurableInteractionPersistenceError(
+                  'Teams user question timeout was not persisted',
+                );
+              }
+              await this.resolvePendingUserQuestion(callback.providerAlias, {
+                requestId: request.requestId,
+                answers: timeoutAnswers,
+                answeredBy: 'system',
+              });
+            })().catch((err) => {
+              reject(
+                err instanceof DurableInteractionPersistenceError
+                  ? err
+                  : new DurableInteractionPersistenceError(
+                      'Teams user question timeout could not be persisted',
+                      err,
+                    ),
               );
-            }
-            await this.resolvePendingUserQuestion(callback.providerAlias, {
-              requestId: request.requestId,
-              answers: timeoutAnswers,
-              answeredBy: 'system',
             });
-          })().catch((err) => {
-            reject(
-              err instanceof DurableInteractionPersistenceError
-                ? err
-                : new DurableInteractionPersistenceError(
-                    'Teams user question timeout could not be persisted',
-                    err,
-                  ),
-            );
-          });
-        }, PERMISSION_APPROVAL_TIMEOUT_MS);
+          }, settlementDelayMs);
+          timer.unref?.();
+        }
         this.pendingUserQuestions.set(callback.providerAlias, {
           callback,
           conversationId,
@@ -596,17 +627,7 @@ export class TeamsChannel implements ChannelAdapter {
       userId,
       providerAccountId: this.opts.providerAccountId,
       onMessageAction: this.opts.onMessageAction,
-      sendDenied: async (conversationId, text) => {
-        if (!conversationId) return;
-        try {
-          await this.sdkClient.sendMessage({ conversationId, text });
-        } catch (err) {
-          logger.debug(
-            { conversationId, err },
-            'Failed to send Teams permission denial feedback',
-          );
-        }
-      },
+      ...teamsMessageActionCardSinks(this.sdkClient),
     });
   }
 

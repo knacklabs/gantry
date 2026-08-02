@@ -74,6 +74,8 @@ export function asyncMcpPrivateCorrelation(input: {
   serverName: string;
   toolName: string;
   arguments: Record<string, unknown>;
+  authorizationConversationId?: string;
+  authorizationThreadId?: string;
 }): Record<string, unknown> {
   const base = {
     ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
@@ -91,6 +93,8 @@ export function asyncMcpPrivateCorrelation(input: {
       serverName: input.serverName,
       toolName: input.toolName,
       arguments: input.arguments,
+      authorizationConversationId: input.authorizationConversationId,
+      authorizationThreadId: input.authorizationThreadId,
     },
   });
 }

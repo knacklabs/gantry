@@ -44,8 +44,10 @@ function profileFor(family: string, route: string): MemoryLlmModelProfile {
 describe('memory route scope isolation', () => {
   it('resolves identical subjects regardless of memory model family', () => {
     const context = {
+      appId: 'default',
+      agentId: 'agent:team-folder',
       chatJid: 'sl:C999',
-      userId: 'sl:U999',
+      personId: 'sl:U999',
       defaultScope: 'group' as const,
     };
 
@@ -59,6 +61,35 @@ describe('memory route scope isolation', () => {
     });
   });
 
+  it('rejects memory scope overrides across the trusted conversation boundary', () => {
+    expect(() =>
+      resolveTrustedMemorySubject(
+        'team-folder',
+        {
+          appId: 'default',
+          agentId: 'agent:team-folder',
+          chatJid: 'sl:C999',
+          personId: 'person:one',
+          defaultScope: 'group',
+        },
+        'user',
+      ),
+    ).toThrow('memory scope must match the trusted conversation scope');
+    expect(() =>
+      resolveTrustedMemorySubject(
+        'dm-folder',
+        {
+          appId: 'default',
+          agentId: 'agent:dm-folder',
+          chatJid: 'sl:D999',
+          personId: 'person:one',
+          defaultScope: 'user',
+        },
+        'group',
+      ),
+    ).toThrow('memory scope must match the trusted conversation scope');
+  });
+
   it('keeps subject resolution independent of which family the router dispatches to', async () => {
     const openai = recordingClient('openai');
     const anthropicLane = recordingClient(['anth', 'ropic'].join(''));
@@ -69,7 +100,12 @@ describe('memory route scope isolation', () => {
       openai: openai.client,
     });
 
-    const context = { chatJid: 'tg:-100123', userId: 'tg:42' };
+    const context = {
+      appId: 'default',
+      agentId: 'agent:dm-folder',
+      chatJid: 'tg:-100123',
+      personId: 'tg:42',
+    };
     const subjectBefore = resolveTrustedMemorySubject('dm-folder', context);
 
     await router.query({

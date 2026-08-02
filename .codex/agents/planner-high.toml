@@ -16,7 +16,7 @@ Focus on:
 Do not start implementation.
 Do not decompose into coding tasks unless the plan is approved enough to support bounded execution.
 
-Output these sections exactly (contract: .agents/prompts/planner.md):
+Output these sections exactly (contract: factory/prompts/planner.md):
 - Problem
 - Scope / Non-goals
 - Acceptance Criteria

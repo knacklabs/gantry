@@ -5,10 +5,11 @@ import { logger } from '../infrastructure/logging/logger.js';
 import type { IpcDeps } from '../runtime/ipc-domain-types.js';
 import { resolveRunnerIpcRoute } from '../runtime/ipc-route-authorization.js';
 import {
-  resolveTurnSelectedMcpServerIds,
-  resolveTurnSelectedSkillContext,
-  resolveTurnSemanticCapabilities,
-  resolveTurnToolPolicy,
+  loadAgentAccessSnapshot,
+  resolveTurnSemanticCapabilitiesFromSnapshot,
+  resolveTurnSelectedMcpServerIdsFromSnapshot,
+  resolveTurnSelectedSkillContextFromSnapshot,
+  resolveTurnToolPolicyFromSnapshot,
 } from '../runtime/group-run-context.js';
 import { CALLABLE_AGENT_SYNC_WAIT_MAX_MS } from '../application/core-tools/callable-agent-tools.js';
 import {
@@ -109,7 +110,12 @@ export async function resolveDelegatedAgentTarget(input: {
       code: 'not_found' as const,
     };
   }
-  const callerToolPolicy = await resolveTurnToolPolicy(input.deps, input.owner);
+  const callerAccessSnapshot = await loadAgentAccessSnapshot(
+    input.deps,
+    input.owner,
+  );
+  const callerToolPolicy =
+    resolveTurnToolPolicyFromSnapshot(callerAccessSnapshot);
   if (!callerToolPolicy.toolPolicyRules?.includes('AgentDelegation')) {
     return {
       ok: false as const,
@@ -142,17 +148,21 @@ export async function resolveDelegatedAgentTarget(input: {
     if (syntheticToolName) callableAgentEntry = permittedEntry;
   }
   const targetOwner = { ...input.owner, agentId: targetAgentId };
-  const [toolPolicy, selectedSkillContext, semanticCapabilities] =
-    await Promise.all([
-      targetAgentId === input.owner.agentId
-        ? Promise.resolve(callerToolPolicy)
-        : resolveTurnToolPolicy(input.deps, targetOwner),
-      resolveTurnSelectedSkillContext(input.deps, targetOwner),
-      resolveTurnSemanticCapabilities(input.deps, targetOwner),
-    ]);
-  const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
-    input.deps,
-    targetOwner,
+  const accessSnapshot =
+    targetAgentId === input.owner.agentId
+      ? callerAccessSnapshot
+      : await loadAgentAccessSnapshot(input.deps, targetOwner);
+  const toolPolicy = resolveTurnToolPolicyFromSnapshot(accessSnapshot);
+  const selectedSkillContext =
+    resolveTurnSelectedSkillContextFromSnapshot(accessSnapshot);
+  const semanticCapabilities =
+    resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot);
+  const attachedMcpSourceIds = resolveTurnSelectedMcpServerIdsFromSnapshot(
+    accessSnapshot,
+    {
+      conversationId: group.conversationId,
+      threadId: input.owner.threadId ?? undefined,
+    },
   );
   return {
     ok: true as const,
@@ -163,6 +173,7 @@ export async function resolveDelegatedAgentTarget(input: {
     selectedSkillContext,
     semanticCapabilities,
     attachedMcpSourceIds,
+    accessSnapshot,
     callableAgentEntry,
     providerAccountId: callerRoute.providerAccountId ?? null,
   };

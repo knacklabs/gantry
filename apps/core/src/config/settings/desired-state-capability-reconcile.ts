@@ -1,6 +1,10 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
-import type { McpServerId } from '../../domain/mcp/mcp-servers.js';
+import type {
+  AgentMcpServerBinding,
+  McpBindingAuthorityPrecondition,
+  McpServerId,
+} from '../../domain/mcp/mcp-servers.js';
 import type { SettingsDesiredStateRepositories } from './desired-state-service.js';
 import type {
   RuntimeConfiguredAgent,
@@ -48,7 +52,28 @@ export async function replaceDesiredStateCapabilities(input: {
   repositories: SettingsDesiredStateRepositories;
   now: string;
   authoritative: boolean;
+  expectedMcpBindingAgentIds?: AgentId[];
+  expectedMcpBindings?: McpBindingAuthorityPrecondition[];
 }): Promise<void> {
+  const replacement = await buildDesiredStateCapabilityReplacement(input);
+  await input.repositories.agents.replaceAgentCapabilityBindings(replacement);
+  await replaceAgentToolSources(input);
+}
+
+export async function buildDesiredStateCapabilityReplacement(input: {
+  appId: AppId;
+  agentId: AgentId;
+  agent: RuntimeConfiguredAgent;
+  repositories: SettingsDesiredStateRepositories;
+  now: string;
+  authoritative: boolean;
+  expectedMcpBindingAgentIds?: AgentId[];
+  expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+}): Promise<
+  Parameters<
+    SettingsDesiredStateRepositories['agents']['replaceAgentCapabilityBindings']
+  >[0]
+> {
   const activeSkillSources = input.agent.sources.skills.filter(
     (source) => source.status !== 'disabled',
   );
@@ -80,7 +105,10 @@ export async function replaceDesiredStateCapabilities(input: {
   const skillActionDefinitions = skillActionDefinitionsForSkills([
     ...resolvedSkills.skills.values(),
   ]);
-  const mcpBindings = await configuredMcpSourceBindings(input);
+  const mcpBindings = (await configuredMcpSourceBindings(input)).map(
+    (binding) =>
+      preserveReviewedMcpBindingFields(binding, input.expectedMcpBindings),
+  );
   const toolIds = await toolIdsForReplacement({
     ...input,
     skillActionDefinitions,
@@ -116,7 +144,8 @@ export async function replaceDesiredStateCapabilities(input: {
         : [],
     ),
   });
-  await input.repositories.agents.replaceAgentCapabilityBindings({
+  const nextMcpBindings = [...mcpBindings, ...preserved.mcpBindings];
+  return {
     appId: input.appId,
     agentId: input.agentId,
     toolBindings: toolIds.map((toolId) => ({
@@ -140,10 +169,39 @@ export async function replaceDesiredStateCapabilities(input: {
       })),
       ...preserved.skillBindings,
     ],
-    mcpBindings: [...mcpBindings, ...preserved.mcpBindings],
+    mcpBindings: nextMcpBindings,
+    expectedMcpBindingAgentIds: input.expectedMcpBindingAgentIds,
+    expectedMcpBindings: input.expectedMcpBindings,
+    preserveExistingMcpPolicy: true,
     updatedAt: input.now,
-  });
+  };
+}
+
+export async function replaceDesiredStateToolSources(input: {
+  appId: AppId;
+  agentId: AgentId;
+  agent: RuntimeConfiguredAgent;
+  repositories: SettingsDesiredStateRepositories;
+  now: string;
+}): Promise<void> {
   await replaceAgentToolSources(input);
+}
+
+function preserveReviewedMcpBindingFields(
+  binding: AgentMcpServerBinding,
+  preconditions: McpBindingAuthorityPrecondition[] | undefined,
+): AgentMcpServerBinding {
+  const precondition = preconditions?.find(
+    (candidate) => candidate.id === binding.id,
+  );
+  if (!precondition) return binding;
+  return {
+    ...binding,
+    required: precondition.required,
+    permissionPolicyIds: [...precondition.permissionPolicyIds],
+    conversationId: precondition.conversationId,
+    threadId: precondition.threadId,
+  };
 }
 
 async function agentInstalledBindingsToPreserve(input: {
@@ -184,7 +242,6 @@ async function agentInstalledBindingsToPreserve(input: {
   const mcpBindings = await input.repositories.mcpServers.listAgentBindings({
     appId: input.appId,
     agentId: input.agentId,
-    limit: 500,
   });
   const preservedMcpBindings = [];
   for (const binding of mcpBindings) {
@@ -420,6 +477,14 @@ async function configuredMcpSourceBindings(input: {
   repositories: SettingsDesiredStateRepositories;
   now: string;
 }) {
+  const existingBindings =
+    await input.repositories.mcpServers.listAgentBindings({
+      appId: input.appId,
+      agentId: input.agentId,
+    });
+  const existingByServerId = new Map(
+    existingBindings.map((binding) => [binding.serverId, binding]),
+  );
   const bindings = await Promise.all(
     input.agent.sources.mcpServers
       .filter((source) => source.status !== 'disabled')
@@ -438,20 +503,23 @@ async function configuredMcpSourceBindings(input: {
           );
           return null;
         }
+        const existing = existingByServerId.get(serverId);
         return {
           id: `agent-mcp-binding:${input.agentId}:${serverId}` as never,
           appId: input.appId,
           agentId: input.agentId,
           serverId,
           status: 'active' as const,
-          required: false,
-          permissionPolicyIds: [],
+          required: existing?.required ?? false,
+          permissionPolicyIds: existing?.permissionPolicyIds ?? [],
           allowedToolPatterns: normalizeMcpToolScope({
             serverName: server.name,
             requested: source.tools,
             definitionPatterns: reviewedMcpToolPatterns(server),
           }),
-          createdAt: input.now,
+          conversationId: existing?.conversationId,
+          threadId: existing?.threadId,
+          createdAt: existing?.createdAt ?? input.now,
           updatedAt: input.now,
         };
       }),

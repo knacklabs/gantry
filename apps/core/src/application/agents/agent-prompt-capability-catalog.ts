@@ -1,9 +1,5 @@
-import type { AgentId } from '../../domain/agent/agent.js';
-import type { AppId } from '../../domain/app/app.js';
-import type {
-  McpServerRepository,
-  SkillCatalogRepository,
-} from '../../domain/ports/repositories.js';
+import type { McpServerDefinition } from '../../domain/mcp/mcp-servers.js';
+import type { SkillCatalogItem } from '../../domain/skills/skills.js';
 import { isSkillUsableForBinding } from '../../domain/skills/skills.js';
 import { stableSha256Json } from '../../shared/stable-hash.js';
 import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
@@ -32,28 +28,28 @@ export interface AgentPromptCapabilityCatalog {
   digest: string;
 }
 
-type RepositoryInput<T> = T | (() => T | undefined);
-
 const DISPLAY_NAME_LIMIT = 96;
 const DESCRIPTION_LIMIT = 160;
 const CATEGORY_LIMIT = 64;
 const ACCOUNT_LABEL_LIMIT = 96;
 
-export async function resolveAgentPromptCapabilityCatalog(input: {
+export function resolveAgentPromptCapabilityCatalog(input: {
   appId: string;
   agentId: string;
   readySemanticCapabilities?: readonly SemanticCapabilityDefinition[];
-  skillRepository?: RepositoryInput<SkillCatalogRepository>;
-  mcpServerRepository?: RepositoryInput<McpServerRepository>;
-}): Promise<AgentPromptCapabilityCatalog> {
-  const skillRepository = repositoryValue(input.skillRepository);
-  const mcpServerRepository = repositoryValue(input.mcpServerRepository);
-  const [readyActions, installedSkills, connectedMcpSources] =
-    await Promise.all([
-      resolveReadyActions(input.readySemanticCapabilities),
-      resolveInstalledSkills(input, skillRepository),
-      resolveConnectedMcpSources(input, mcpServerRepository),
-    ]);
+  installedSkills?: readonly SkillCatalogItem[];
+  connectedMcpSources?: readonly McpServerDefinition[];
+}): AgentPromptCapabilityCatalog {
+  const readyActions = resolveReadyActions(input.readySemanticCapabilities);
+  const installedSkills = projectInstalledSkills(
+    input.appId,
+    input.agentId,
+    input.installedSkills ?? [],
+  );
+  const connectedMcpSources = projectConnectedMcpSources(
+    input.appId,
+    input.connectedMcpSources ?? [],
+  );
   const projection = {
     schemaVersion: 1 as const,
     readyActions: sortEntries(readyActions),
@@ -103,31 +99,17 @@ function resolveReadyActions(
   );
 }
 
-async function resolveInstalledSkills(
-  input: { appId: string; agentId: string },
-  repository: SkillCatalogRepository | undefined,
-): Promise<CatalogEntry[]> {
-  if (!repository) return [];
-  const bindings = await repository.listAgentSkillBindings({
-    appId: input.appId as AppId,
-    agentId: input.agentId as AgentId,
-  });
-  const skills = await Promise.all(
-    bindings
-      .filter(
-        (binding) =>
-          binding.status === 'active' &&
-          binding.appId === input.appId &&
-          binding.agentId === input.agentId,
-      )
-      .map((binding) => repository.getSkill(binding.skillId)),
-  );
+function projectInstalledSkills(
+  appId: string,
+  agentId: string,
+  skills: readonly (SkillCatalogItem | null)[],
+): CatalogEntry[] {
   return dedupeEntries(
     skills.flatMap((skill): CatalogEntry[] => {
       if (
         !skill ||
-        skill.appId !== input.appId ||
-        (skill.agentId && skill.agentId !== input.agentId) ||
+        skill.appId !== appId ||
+        (skill.agentId && skill.agentId !== agentId) ||
         !isSkillUsableForBinding(skill)
       ) {
         return [];
@@ -157,33 +139,13 @@ async function resolveInstalledSkills(
   );
 }
 
-async function resolveConnectedMcpSources(
-  input: { appId: string; agentId: string },
-  repository: McpServerRepository | undefined,
-): Promise<CatalogEntry[]> {
-  if (!repository) return [];
-  const bindings = await repository.listAgentBindings({
-    appId: input.appId as AppId,
-    agentId: input.agentId as AgentId,
-    limit: 500,
-  });
-  const servers = await Promise.all(
-    bindings
-      .filter(
-        (binding) =>
-          binding.status === 'active' &&
-          binding.appId === input.appId &&
-          binding.agentId === input.agentId,
-      )
-      .map((binding) => repository.getServer(binding.serverId)),
-  );
+function projectConnectedMcpSources(
+  appId: string,
+  servers: readonly (McpServerDefinition | null)[],
+): CatalogEntry[] {
   return dedupeEntries(
     servers.flatMap((server): CatalogEntry[] => {
-      if (
-        !server ||
-        server.appId !== input.appId ||
-        server.status !== 'active'
-      ) {
+      if (!server || server.appId !== appId || server.status !== 'active') {
         return [];
       }
       const revision = normalizedRevision(server.updatedAt);
@@ -207,12 +169,6 @@ async function resolveConnectedMcpSources(
       ];
     }),
   );
-}
-
-function repositoryValue<T>(
-  input: RepositoryInput<T> | undefined,
-): T | undefined {
-  return typeof input === 'function' ? (input as () => T | undefined)() : input;
 }
 
 function normalizedText(

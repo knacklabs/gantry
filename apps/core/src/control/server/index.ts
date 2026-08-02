@@ -34,9 +34,11 @@ import {
   getRuntimeControlRepository,
   getRuntimeRepositories,
   getRuntimeStorage,
+  tryAcquireRuntimeAdvisoryLease,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import { preflightModelProvider } from '../../adapters/llm/model-provider-preflight.js';
 import type { AppId } from '../../domain/app/app.js';
+import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import { canAccessApp, makeAppGroup } from './app-identity.js';
 import {
   isValidControlId,
@@ -62,6 +64,7 @@ import { handleMemoryRoutes } from './routes/memory.js';
 import { handleObserverRoutes } from './routes/observer.js';
 import { handleMcpServerRoutes } from './routes/mcp-servers.js';
 import { handleModelRoutes } from './routes/models.js';
+import { handlePeopleRoutes } from './routes/people.js';
 import { handleOpenApiRoutes } from './routes/openapi.js';
 import { handleRunRoutes } from './routes/runs.js';
 import { handleSessionRoutes } from './routes/sessions.js';
@@ -166,6 +169,7 @@ function createControlRequestHandler(
       if (await handleSessionRoutes(req, res, ctx, url, pathname)) return;
       if (await handleProviderConversationRoutes(req, res, ctx, url, pathname))
         return;
+      if (await handlePeopleRoutes(req, res, ctx, url, pathname)) return;
       if (await handleMemoryRoutes(req, res, ctx, url, pathname)) return;
       if (await handleObserverRoutes(req, res, ctx, url, pathname)) return;
       if (await handleBrainRoutes(req, res, ctx, url, pathname)) return;
@@ -271,7 +275,11 @@ export function startControlServer(input: {
   agentSettings?: ControlRouteContext['agentSettings'];
   settingsImport?: ControlRouteContext['settingsImport'];
   resolveObserverStatus?: ControlRouteContext['resolveObserverStatus'];
+  leases?: RuntimeLeasePort;
 }): ControlServerHandle {
+  const leases = input.leases ?? {
+    tryAcquire: tryAcquireRuntimeAdvisoryLease,
+  };
   configureDesiredSettingsStorageProvider(async () => {
     const storage = getRuntimeStorage();
     return {
@@ -279,6 +287,7 @@ export function startControlServer(input: {
       repositories: storage.repositories,
       settingsRevisions: storage.repositories.settingsRevisions,
       pool: storage.service.pool,
+      leases,
     };
   });
   const socketPath =
@@ -394,6 +403,7 @@ export function startControlServer(input: {
         providerId,
         chatAlias,
         settings: getRuntimeSettingsForConfig(),
+        modelCredentials: getRuntimeStorage().repositories.modelCredentials,
         appId,
       }),
     getActiveModelCredentialProviderIds: async (appId: AppId) => {
@@ -439,6 +449,7 @@ export function startControlServer(input: {
         settingsRevisions: storage.repositories.settingsRevisions,
         pool: storage.service?.pool,
         createdBy: 'control-api:projection-sync',
+        leases,
         reloadRuntimeState: () => input.app.loadState(),
         overrides,
       });

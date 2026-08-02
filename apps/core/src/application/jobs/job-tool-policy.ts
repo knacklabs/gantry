@@ -6,9 +6,14 @@ import type {
 import { ApplicationError } from '../common/application-error.js';
 import {
   resolveAgentToolRuntimePolicy,
+  resolveAgentToolRuntimePolicyFromSnapshot,
   resolveAgentToolRuntimeRules,
 } from '../agents/agent-tool-runtime-rules.js';
 import type { CapabilityRuntimeAccess } from '../../shared/capability-runtime-access.js';
+import {
+  assertHostAccessSnapshot,
+  type AgentAccessSnapshot,
+} from '../agent-execution/agent-access-snapshot.js';
 
 export interface JobToolPolicyResolution {
   inheritedTools: string[];
@@ -27,15 +32,25 @@ export async function resolveJobToolPolicy(input: {
   agentId?: string;
   toolRepository?: ToolCatalogRepository;
   skillRepository?: SkillCatalogRepository;
+  accessSnapshot?: AgentAccessSnapshot;
 }): Promise<JobToolPolicyResolution> {
   const inheritedTools =
     input.appId && input.agentId
-      ? await resolveAgentToolBindingPolicy({
-          repository: input.toolRepository,
-          appId: input.appId,
-          agentId: input.agentId,
-          skillRepository: input.skillRepository,
-        })
+      ? input.accessSnapshot
+        ? resolveAgentToolBindingPolicyFromSnapshot({
+            accessSnapshot: assertHostAccessSnapshot({
+              accessSnapshot: input.accessSnapshot,
+              appId: input.appId,
+              agentId: input.agentId,
+              subject: 'Job tool policy',
+            })!,
+          })
+        : await resolveAgentToolBindingPolicy({
+            repository: input.toolRepository,
+            appId: input.appId,
+            agentId: input.agentId,
+            skillRepository: input.skillRepository,
+          })
       : {
           rules: [],
           runtimeAccess: [],
@@ -44,6 +59,26 @@ export async function resolveJobToolPolicy(input: {
     inheritedTools: inheritedTools.rules,
     effectiveAllowedTools: mergeUnique(inheritedTools.rules),
     runtimeAccess: inheritedTools.runtimeAccess,
+  };
+}
+
+function resolveAgentToolBindingPolicyFromSnapshot(input: {
+  accessSnapshot: AgentAccessSnapshot;
+}): {
+  rules: string[];
+  runtimeAccess: CapabilityRuntimeAccess[];
+} {
+  const policy = resolveAgentToolRuntimePolicyFromSnapshot({
+    appId: input.accessSnapshot.appId,
+    errorSubject: 'Inherited agent tool',
+    selectedToolDefinitionsByBinding:
+      input.accessSnapshot.tools.activeBindings.map((row) => row.definition),
+    activeSkillDefinitions: input.accessSnapshot.skills.enabledDefinitions,
+    makeError: (message) => new ApplicationError('FORBIDDEN', message),
+  });
+  return {
+    rules: policy.rules,
+    runtimeAccess: policy.runtimeAccess,
   };
 }
 

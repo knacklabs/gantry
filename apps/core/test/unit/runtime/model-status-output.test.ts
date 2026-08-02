@@ -83,6 +83,24 @@ describe('runtime model status output', () => {
     expect(snapshot?.lastUsage?.estimatedCostUsd).toBeCloseTo(16.6, 6);
   });
 
+  it('prices GPT-5.6 cache writes at the catalog write rate', () => {
+    const snapshot = record(
+      'cost-openai-gpt-5-6',
+      usage({
+        model: 'gpt-terra',
+        provider: 'openai',
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+        cacheReadTokens: 400_000,
+        cacheWriteTokens: 100_000,
+        cacheProvider: 'openai',
+        cacheStatus: 'partial',
+      }),
+    );
+
+    expect(snapshot?.lastUsage?.estimatedCostUsd).toBeCloseTo(16.6625, 6);
+  });
+
   it('keeps runner-reported positive cost', () => {
     const snapshot = record(
       'cost-reported',

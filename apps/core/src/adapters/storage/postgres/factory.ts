@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import {
@@ -13,6 +14,7 @@ import {
   GANTRY_HOME,
   createDefaultRuntimeSettings,
   getRuntimeSettingsForConfig,
+  resolveRuntimeStorageConfigForRuntimeHome,
   resolveRuntimeStorageConfig,
   resolveRuntimeStorageConfigFromSettings,
   type RuntimeSettings,
@@ -82,8 +84,10 @@ export interface StorageRuntime {
 }
 
 export interface StorageRuntimeOptions {
+  runtimeHome?: string;
   storageConfig?: ResolvedStorageConfig;
   runtimeSettings?: RuntimeSettings;
+  reclaimProviderAttachment?: (storageRef: string) => Promise<void>;
   loadSessionAppMemoryItems?: (input: {
     session: AgentSession;
     limit: number;
@@ -98,6 +102,38 @@ export interface StorageRuntimeOptions {
       subject: Record<string, unknown>;
     }>
   >;
+}
+
+export function storageRuntimeOptionsForRuntimeHome(
+  runtimeHome: string,
+  runtimeSettings: RuntimeSettings,
+): StorageRuntimeOptions {
+  return {
+    runtimeHome,
+    runtimeSettings,
+    storageConfig: resolveRuntimeStorageConfigForRuntimeHome(
+      runtimeHome,
+      runtimeSettings,
+    ),
+  };
+}
+
+export function runtimeStorageScopeKey(
+  options: StorageRuntimeOptions = {},
+): string {
+  const runtimeHome =
+    options.runtimeHome ?? (process.env.GANTRY_HOME?.trim() || GANTRY_HOME);
+  const storageConfig =
+    options.storageConfig ??
+    resolveStorageConfigFromSettings(options.runtimeSettings) ??
+    resolveStorageConfigFromRuntime();
+  return createHash('sha256')
+    .update(path.resolve(runtimeHome))
+    .update('\0')
+    .update(storageConfig.postgresUrl ?? '')
+    .update('\0')
+    .update(storageConfig.postgresSchema)
+    .digest('hex');
 }
 
 export function resolveStorageConfigFromRuntime(): ResolvedStorageConfig {
@@ -124,6 +160,8 @@ export function createStorageRuntime(
   const runtimeSettings =
     options.runtimeSettings ?? getRuntimeSettingsForStorageRuntime();
   const sessionSettings = runtimeSettings.agent.sessions;
+  const maxLiveAdmissionBacklog =
+    runtimeSettings.runtime.queue.maxLiveAdmissionBacklog;
   const control = new PostgresControlPlaneRepository(service.db);
   const liveTurnCommandNotifier = new PostgresLiveTurnCommandNotifier(
     service.pool,
@@ -131,7 +169,11 @@ export function createStorageRuntime(
   const repositories = createPostgresDomainRepositories(
     service.db,
     service.pool,
-    { liveTurnCommandNotifier },
+    {
+      liveTurnCommandNotifier,
+      maxLiveAdmissionBacklog,
+      cleanupProviderAttachment: options.reclaimProviderAttachment,
+    },
   );
   const runtimeEventNotifier = new PostgresRuntimeEventNotifier(service.pool);
   const liveAdmissionNotifier = new PostgresLiveAdmissionNotifier(service.pool);
@@ -151,6 +193,8 @@ export function createStorageRuntime(
     {
       runtimeEvents,
       liveAdmissionNotifier,
+      maxLiveAdmissionBacklog,
+      cleanupProviderAttachment: options.reclaimProviderAttachment,
       sessions: {
         ...sessionSettings,
         loadAppMemoryItems: options.loadSessionAppMemoryItems,

@@ -38,6 +38,7 @@ export function permissionTelemetryContext(
     threadId: request.threadId,
     requestId: request.requestId,
     toolName: request.toolName,
+    decisionReason: request.decisionReason,
     canonicalCapability: permissionCanonicalCapability(request),
     ...safeCommandTelemetry(command),
     ...extra,
@@ -57,7 +58,9 @@ function permissionCanonicalCapability(
 }
 
 function permissionCommand(request: PermissionApprovalRequest): string | null {
-  if (request.toolName !== 'Bash') return null;
+  if (request.toolName !== 'Bash' && request.toolName !== 'RunCommand') {
+    return null;
+  }
   const command = request.toolInput?.command ?? request.toolInput?.cmd;
   return typeof command === 'string' && command.trim() ? command.trim() : null;
 }

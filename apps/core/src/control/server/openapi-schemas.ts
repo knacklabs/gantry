@@ -1,6 +1,7 @@
 import type { JsonSchema } from './openapi-route-helpers.js';
 import { listModelRouteProviders } from '../../shared/model-provider-registry.js';
 import { modelCredentialSchemas } from './openapi-model-credential-schemas.js';
+import { peopleOpenApiSchemas } from './openapi-people.js';
 import {
   agentHarnessProp,
   modelPreviewSchemas,
@@ -184,6 +185,7 @@ export const openApiSchemas: Record<string, JsonSchema> = {
     },
   },
   CapabilityListResponse: arrayEnvelope('capabilities', 'CapabilityManifest'),
+  ...peopleOpenApiSchemas,
   ...modelCredentialSchemas,
   AgentSourceSelection: {
     type: 'object',

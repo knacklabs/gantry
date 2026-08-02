@@ -1,8 +1,9 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, sql } from 'drizzle-orm';
 
 import type {
   LiveAdmissionWorkItem,
   LiveAdmissionWorkItemEnqueueResult,
+  LiveAdmissionWorkItemRepository,
 } from '../../../../domain/ports/live-turns.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
@@ -13,6 +14,9 @@ import type {
 
 type LiveAdmissionWorkItemRow =
   typeof pgSchema.liveAdmissionWorkItemsPostgres.$inferSelect;
+type EnqueueLiveAdmissionWorkItemInput = Parameters<
+  LiveAdmissionWorkItemRepository['enqueueLiveAdmissionWorkItem']
+>[0];
 
 function toLiveAdmissionWorkItem(
   row: LiveAdmissionWorkItemRow,
@@ -49,24 +53,49 @@ function toLiveAdmissionWorkItem(
 }
 
 export async function enqueueLiveAdmissionWorkItem(
-  db: CanonicalExecutor,
-  input: {
-    id: string;
-    appId: string;
-    agentId?: string | null;
-    agentSessionId?: string | null;
-    conversationId: string;
-    threadId?: string | null;
-    queueJid: string;
-    messageId: string;
-    messageCursor: string;
-    senderUserId?: string | null;
-    senderDisplayName?: string | null;
-    idempotencyKey: string;
-    triggerDecision?: Record<string, unknown>;
-    now?: string;
-  },
+  db: CanonicalDb,
+  input: EnqueueLiveAdmissionWorkItemInput,
+  maxLiveAdmissionBacklog: number,
 ): Promise<LiveAdmissionWorkItemEnqueueResult> {
+  return db.transaction((tx) =>
+    enqueueLiveAdmissionWorkItemWithExecutor(
+      tx,
+      input,
+      maxLiveAdmissionBacklog,
+    ),
+  );
+}
+
+export async function enqueueLiveAdmissionWorkItemWithExecutor(
+  db: CanonicalExecutor,
+  input: EnqueueLiveAdmissionWorkItemInput,
+  maxLiveAdmissionBacklog: number,
+): Promise<LiveAdmissionWorkItemEnqueueResult> {
+  await db.execute(
+    sql`select pg_advisory_xact_lock(hashtext(${`live_admission_active_backlog:${input.appId}`}))`,
+  );
+  const existing = await findLiveAdmissionWorkItemByIdempotencyKey(
+    db,
+    input.idempotencyKey,
+  );
+  const replayed =
+    existing ?? (await findLiveAdmissionWorkItemById(db, input.id));
+  if (replayed) {
+    return { outcome: 'replayed', item: replayed };
+  }
+  const items = pgSchema.liveAdmissionWorkItemsPostgres;
+  const [active] = await db
+    .select({ count: count() })
+    .from(items)
+    .where(
+      and(
+        eq(items.appId, input.appId),
+        inArray(items.state, ['queued', 'claimed', 'deferred']),
+      ),
+    );
+  if ((active?.count ?? 0) >= maxLiveAdmissionBacklog) {
+    return { outcome: 'overloaded' };
+  }
   const now = input.now ?? currentIso();
   const row: LiveAdmissionWorkItemRow = {
     id: input.id,
@@ -105,16 +134,16 @@ export async function enqueueLiveAdmissionWorkItem(
   if (inserted.length > 0) {
     return { outcome: 'enqueued', item: toLiveAdmissionWorkItem(row) };
   }
-  const existing = await findLiveAdmissionWorkItemByIdempotencyKey(
+  const conflicting = await findLiveAdmissionWorkItemByIdempotencyKey(
     db,
     input.idempotencyKey,
   );
-  const replayed =
-    existing ?? (await findLiveAdmissionWorkItemById(db, input.id));
-  if (!replayed) {
+  const conflictReplay =
+    conflicting ?? (await findLiveAdmissionWorkItemById(db, input.id));
+  if (!conflictReplay) {
     throw new Error('Live admission work item conflict was not replayable.');
   }
-  return { outcome: 'replayed', item: replayed };
+  return { outcome: 'replayed', item: conflictReplay };
 }
 
 export async function claimLiveAdmissionWorkItems(

@@ -328,6 +328,8 @@ const domainRepositories = {
   },
   messages: {
     listMessages: vi.fn(async () => []),
+    // The session feeds resolve conversation rows by jid and union them.
+    listConversationIdsForJid: vi.fn(async () => []),
   },
   capabilitySecrets: {
     getSecret: vi.fn(async () => null),
@@ -372,6 +374,9 @@ const ingressSignatureCrypto = {
 };
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+  tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+    release: vi.fn(async () => {}),
+  })),
   getRuntimeControlRepository: () => controlRepo,
   getRuntimeEventExchange: () => runtimeEvents,
   getRuntimeRepositories: () => opsRepo,
@@ -391,7 +396,10 @@ import {
   _testControlServer,
   startControlServer,
 } from '@core/control/server/index.js';
-import { _testSessionRoutes } from '@core/control/server/routes/sessions.js';
+import {
+  _testSessionRoutes,
+  handleSessionRoutes,
+} from '@core/control/server/routes/sessions.js';
 
 async function reservePort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {
@@ -464,6 +472,70 @@ async function requestWithRetry(
   throw lastError instanceof Error
     ? lastError
     : new Error('Control server did not start in time');
+}
+
+function createSessionEventStreamRouteHarness() {
+  const token = 'token-events-sse-limit';
+  const state = {
+    activeStreams: 0,
+    activeWaits: 0,
+    activeTriggerWaits: 0,
+  };
+  const ctx = {
+    keys: [
+      {
+        kid: 'k',
+        tokenHash: createHash('sha256').update(token).digest(),
+        scopes: new Set(['sessions:read']),
+        appId: 'app-one',
+      },
+    ],
+    maxConcurrentStreams: 25,
+    state,
+  } as any;
+  const url = new URL(
+    'http://localhost/v1/sessions/session-1/events?afterEventId=0',
+  );
+
+  const request = () => {
+    const req = new EventEmitter() as EventEmitter & {
+      method: string;
+      headers: Record<string, string>;
+      destroyed: boolean;
+    };
+    req.method = 'GET';
+    req.headers = {
+      accept: 'text/event-stream',
+      authorization: `Bearer ${token}`,
+    };
+    req.destroyed = false;
+
+    const res = new EventEmitter() as EventEmitter & {
+      destroyed: boolean;
+      statusCode: number;
+      body: string;
+      setHeader: ReturnType<typeof vi.fn>;
+      write: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    };
+    res.destroyed = false;
+    res.statusCode = 0;
+    res.body = '';
+    res.setHeader = vi.fn();
+    res.write = vi.fn(() => true);
+    res.end = vi.fn((body = '') => {
+      res.body += String(body);
+    });
+
+    return {
+      req,
+      res,
+      run: () =>
+        handleSessionRoutes(req as never, res as never, ctx, url, url.pathname),
+    };
+  };
+
+  return { request, state };
 }
 
 function signIngressRequest(input: {
@@ -1161,8 +1233,115 @@ describe('control server runtime hardening', () => {
       );
       expect(response.status).toBe(200);
       const body = await response.json();
+      const nativeOpenAiModels = body.models.filter(
+        (model: { modelRoute?: { id?: string } }) =>
+          model.modelRoute?.id === 'openai',
+      );
+      expect(
+        nativeOpenAiModels.map(
+          (model: { aliases: string[] }) => model.aliases[0],
+        ),
+      ).toEqual([
+        'gpt',
+        'gpt-5.4',
+        'gpt-mini',
+        'gpt-terra',
+        'gpt-luna',
+        'gpt-sol',
+      ]);
+      for (const model of nativeOpenAiModels as Array<{
+        aliases: string[];
+        supportedWorkloads: string[];
+      }>) {
+        expect(model.supportedWorkloads, model.aliases[0]).toEqual([
+          'chat',
+          'one_time_job',
+          'recurring_job',
+          'memory_extractor',
+          'memory_dreaming',
+          'memory_consolidation',
+        ]);
+      }
       expect(body.models).toEqual(
         expect.arrayContaining([
+          expect.objectContaining({
+            displayName: 'GPT-5.6 Terra',
+            aliases: ['gpt-terra', 'gpt-5.6-terra'],
+            supportedWorkloads: [
+              'chat',
+              'one_time_job',
+              'recurring_job',
+              'memory_extractor',
+              'memory_dreaming',
+              'memory_consolidation',
+            ],
+            inputUsdPerMillionTokens: 2.5,
+            outputUsdPerMillionTokens: 15,
+          }),
+          expect.objectContaining({
+            displayName: 'GPT-5.6 Luna',
+            aliases: ['gpt-luna', 'gpt-5.6-luna'],
+            supportedWorkloads: [
+              'chat',
+              'one_time_job',
+              'recurring_job',
+              'memory_extractor',
+              'memory_dreaming',
+              'memory_consolidation',
+            ],
+            inputUsdPerMillionTokens: 1,
+            outputUsdPerMillionTokens: 6,
+          }),
+          expect.objectContaining({
+            displayName: 'GPT-5.6 Sol',
+            aliases: ['gpt-sol', 'gpt-5.6-sol'],
+            supportedWorkloads: [
+              'chat',
+              'one_time_job',
+              'recurring_job',
+              'memory_extractor',
+              'memory_dreaming',
+              'memory_consolidation',
+            ],
+            inputUsdPerMillionTokens: 5,
+            outputUsdPerMillionTokens: 30,
+          }),
+          expect.objectContaining({
+            displayName: 'Opus 5',
+            aliases: ['opus', 'opus-5'],
+            supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
+            inputUsdPerMillionTokens: 5,
+            outputUsdPerMillionTokens: 25,
+            cacheSupport: expect.objectContaining({
+              prompt: expect.objectContaining({
+                minimumTokenThresholds: expect.arrayContaining([
+                  {
+                    modelFamily: 'claude-opus-5',
+                    tokens: 512,
+                  },
+                ]),
+              }),
+            }),
+          }),
+          expect.objectContaining({
+            displayName: 'Opus 4.8',
+            aliases: ['opus-4.8'],
+          }),
+          expect.objectContaining({
+            displayName: 'Grok 4.5',
+            aliases: ['grok', 'grok-4.5'],
+            supportedWorkloads: expect.arrayContaining([
+              'chat',
+              'one_time_job',
+              'recurring_job',
+            ]),
+            inputUsdPerMillionTokens: 2,
+            outputUsdPerMillionTokens: 6,
+          }),
+          expect.objectContaining({
+            displayName: 'Grok 4.3',
+            aliases: ['grok-4.3'],
+          }),
           expect.objectContaining({
             displayName: 'Kimi K2.6',
             aliases: expect.arrayContaining(['kimi', 'kimi-k2.6']),
@@ -2677,7 +2856,7 @@ describe('control server runtime hardening', () => {
     }
   });
 
-  it('projects thread-scoped conversation installs to the live route table', async () => {
+  it('syncs desired settings before projecting thread-scoped conversation installs', async () => {
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);
     process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
@@ -2744,6 +2923,9 @@ describe('control server runtime hardening', () => {
       );
 
       expect(response.status).toBe(200);
+      expect(
+        mockedSyncRuntimeSettingsFromProjection.mock.invocationCallOrder[0],
+      ).toBeLessThan(app.projectConversationRoute.mock.invocationCallOrder[0]);
       expect(app.projectConversationRoute).toHaveBeenCalledWith(
         makeAgentThreadQueueKey('sl:C123', undefined, '171.222'),
         expect.objectContaining({
@@ -2752,6 +2934,71 @@ describe('control server runtime hardening', () => {
           conversationKind: 'channel',
         }),
       );
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('does not project a conversation install when desired settings sync fails', async () => {
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'conversation-admin-token',
+        scopes: ['agents:admin', 'conversations:admin'],
+        appId: 'app-one',
+      },
+    ]);
+    domainRepositories.providerAccounts.getProviderAccount.mockResolvedValue({
+      id: 'slack-one',
+      appId: 'app-one',
+      agentId: 'agent-1',
+      providerId: 'slack',
+      label: 'Slack',
+      status: 'active',
+      config: {},
+      runtimeSecretRefs: {},
+      createdAt: '2026-04-24T00:00:00.000Z',
+      updatedAt: '2026-04-24T00:00:00.000Z',
+    });
+    domainRepositories.conversations.getConversation.mockResolvedValue({
+      id: 'conversation-1',
+      appId: 'app-one',
+      providerAccountId: 'slack-one',
+      externalRef: { kind: 'conversation', value: 'C123' },
+      kind: 'channel',
+      title: 'Engineering',
+      status: 'active',
+      createdAt: '2026-04-24T00:00:00.000Z',
+      updatedAt: '2026-04-24T00:00:00.000Z',
+    });
+    mockedSyncRuntimeSettingsFromProjection.mockRejectedValueOnce(
+      new Error('settings sync failed'),
+    );
+    const app = {
+      projectConversationRoute: vi.fn(async () => undefined),
+      registerGroup: vi.fn(),
+      queue: { enqueueMessageCheck: vi.fn() },
+    };
+    const handle = startControlServer({ app: app as any });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/agents/agent-1/conversation-installs/conversation-1`,
+        'conversation-admin-token',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ providerAccountId: 'slack-one' }),
+        },
+      );
+
+      expect(response.status).toBe(500);
+      expect(mockedSyncRuntimeSettingsFromProjection).toHaveBeenCalledWith(
+        expect.objectContaining({ appId: 'app-one' }),
+      );
+      expect(app.projectConversationRoute).not.toHaveBeenCalled();
     } finally {
       await handle.close();
     }
@@ -4296,6 +4543,134 @@ describe('control server runtime hardening', () => {
     } finally {
       await handle.close();
     }
+  });
+
+  it('reserves at most 25 SSE permits while subscription setup is blocked', async () => {
+    controlRepo.getAppSessionById.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'app:app-one:conv-1',
+      workspaceKey: 'app_app_one_conv_1',
+      title: 'Conversation',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    let releaseSetup!: () => void;
+    const setupBarrier = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+    runtimeEvents.subscribe.mockImplementation(async () => {
+      await setupBarrier;
+      return {
+        next: vi.fn(() => new Promise<never[]>(() => undefined)),
+        close: vi.fn(),
+      };
+    });
+    const harness = createSessionEventStreamRouteHarness();
+    const requests = Array.from({ length: 26 }, () => harness.request());
+    const pending = requests.map((request) => request.run());
+
+    await vi.waitFor(() => {
+      expect(runtimeEvents.subscribe).toHaveBeenCalledTimes(25);
+    });
+
+    expect(harness.state.activeStreams).toBe(25);
+    expect(requests.filter(({ res }) => res.statusCode === 429)).toHaveLength(
+      1,
+    );
+    expect(
+      JSON.parse(requests.find(({ res }) => res.statusCode === 429)!.res.body),
+    ).toMatchObject({ error: { code: 'TOO_MANY_STREAMS' } });
+
+    releaseSetup();
+    await Promise.all(pending);
+
+    expect(requests.filter(({ res }) => res.statusCode === 200)).toHaveLength(
+      25,
+    );
+    for (const { req, res } of requests) {
+      req.emit('close');
+      res.emit('close');
+    }
+    expect(harness.state.activeStreams).toBe(0);
+  });
+
+  it('releases the SSE permit when subscription setup rejects', async () => {
+    controlRepo.getAppSessionById.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'app:app-one:conv-1',
+      workspaceKey: 'app_app_one_conv_1',
+      title: 'Conversation',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    runtimeEvents.subscribe.mockRejectedValue(new Error('setup failed'));
+    const harness = createSessionEventStreamRouteHarness();
+    harness.state.activeStreams = 1;
+    const request = harness.request();
+
+    await expect(request.run()).rejects.toThrow('setup failed');
+
+    expect(harness.state.activeStreams).toBe(1);
+    request.req.emit('close');
+    request.res.emit('close');
+    expect(harness.state.activeStreams).toBe(1);
+  });
+
+  it('releases one SSE permit when the client disconnects during setup', async () => {
+    controlRepo.getAppSessionById.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'app:app-one:conv-1',
+      workspaceKey: 'app_app_one_conv_1',
+      title: 'Conversation',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    let releaseSetup!: () => void;
+    const setupBarrier = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+    const close = vi.fn();
+    runtimeEvents.subscribe.mockImplementation(async () => {
+      await setupBarrier;
+      return {
+        next: vi.fn(() => new Promise<never[]>(() => undefined)),
+        close,
+      };
+    });
+    const harness = createSessionEventStreamRouteHarness();
+    harness.state.activeStreams = 1;
+    const request = harness.request();
+    const pending = request.run();
+
+    await vi.waitFor(() => {
+      expect(runtimeEvents.subscribe).toHaveBeenCalledTimes(1);
+    });
+    expect(harness.state.activeStreams).toBe(2);
+
+    request.req.destroyed = true;
+    request.res.destroyed = true;
+    request.req.emit('close');
+    request.res.emit('close');
+    expect(harness.state.activeStreams).toBe(1);
+
+    releaseSetup();
+    await pending;
+
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(harness.state.activeStreams).toBe(1);
+
+    const alreadyClosed = harness.request();
+    alreadyClosed.req.destroyed = true;
+    await alreadyClosed.run();
+
+    expect(runtimeEvents.subscribe).toHaveBeenCalledTimes(1);
+    expect(harness.state.activeStreams).toBe(1);
   });
 
   it('waits over the full session cursor while returning only visible events', async () => {

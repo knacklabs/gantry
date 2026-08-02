@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.agents/scripts/session_start.py\"",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/factory/scripts/session_start.py\"",
             "statusMessage": "Loading factory context"
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.agents/scripts/pre_tool_use.py\"",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/factory/scripts/pre_tool_use.py\"",
             "statusMessage": "Applying factory command policy"
           }
         ]
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.agents/scripts/stop_continue.py\"",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/factory/scripts/stop_continue.py\"",
             "timeout": 30,
             "statusMessage": "Checking factory completion"
           }

@@ -155,6 +155,7 @@ export interface Job {
 
 export type JobRunStatus =
   | 'running'
+  | 'paused'
   | 'completed'
   | 'failed'
   | 'timeout'

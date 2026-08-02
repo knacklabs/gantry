@@ -1,12 +1,13 @@
 import {
   MessageDeliveryResult,
   MessageSendOptions,
+  PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
   RichInteractionRequest,
+  UserQuestionCancellation,
   UserQuestionRequest,
-  UserQuestionResponse,
 } from '../domain/types.js';
 import {
   claimPermissionInteractionCallback,
@@ -16,6 +17,9 @@ import {
   resolveDurableQuestionInteractionByRequestId,
 } from '../application/interactions/pending-interaction-durability.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
+import { resolveInteractionSettlementDelayMs } from './interaction-settlement.js';
+import { cancelPendingDiscordPermission } from './discord-permission-cancellation.js';
+import { cancelPendingDiscordQuestion } from './discord-question-cancellation.js';
 import {
   buildPermissionPromptParts,
   decisionForMode,
@@ -63,8 +67,8 @@ import {
   handleDiscordPermissionFullView,
 } from './discord-permission-full-view.js';
 import {
+  createDiscordUserQuestionRequester,
   dropPendingDiscordQuestions,
-  requestDiscordUserAnswer,
   resolvePendingDiscordQuestionsOnDisconnect,
   type PendingDiscordQuestion,
 } from './discord-user-question-delivery.js';
@@ -105,6 +109,23 @@ export class DiscordInteractionHandler {
     if (kind === 'permission')
       permissionPrompt.drop(this.pendingPermissions, request);
     else dropPendingDiscordQuestions(this.pendingQuestions, request);
+  }
+  async cancelPendingPermission(
+    cancellation: PermissionApprovalCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'> {
+    return cancelPendingDiscordPermission(
+      this.pendingPermissions,
+      cancellation,
+      (providerAlias, reason) =>
+        this.settlePermissionPrompt(providerAlias, 'cancel', 'runtime', reason),
+    );
+  }
+  cancelPendingQuestion(cancellation: UserQuestionCancellation) {
+    return cancelPendingDiscordQuestion(
+      this.pendingQuestions,
+      this.input.botToken,
+      cancellation,
+    );
   }
   async renderRichInteraction(
     jid: string,
@@ -185,10 +206,24 @@ export class DiscordInteractionHandler {
     const decision = new Promise<PermissionApprovalDecision>((resolve) => {
       resolveDecision = resolve;
     });
-    const timeout = setTimeout(() => {
-      void this.timeoutPermissionPrompt(callback.providerAlias);
-    }, PERMISSION_APPROVAL_TIMEOUT_MS);
-    timeout.unref?.();
+    const { expiresAt } = request as PermissionApprovalRequest & {
+      expiresAt?: unknown;
+    };
+    const settlementDelayMs = resolveInteractionSettlementDelayMs({
+      expiresAt,
+      permissionLane: request.permissionLane,
+      fallbackTimeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
+    });
+    let timeout!: ReturnType<typeof setTimeout>;
+    if (settlementDelayMs !== undefined) {
+      timeout = setTimeout(() => {
+        void this.timeoutPermissionPrompt(
+          callback.providerAlias,
+          settlementDelayMs,
+        );
+      }, settlementDelayMs);
+      timeout.unref?.();
+    }
     const livePending = permissionPrompt.pending(
       callback,
       request,
@@ -235,20 +270,12 @@ export class DiscordInteractionHandler {
     if (sent.externalMessageId) onPromptDelivered?.(sent.externalMessageId);
     return decision;
   }
-  async requestUserAnswer(
-    jid: string,
-    request: UserQuestionRequest,
-    onPromptDelivered?: (messageId: string, questionIndex?: number) => void,
-  ): Promise<UserQuestionResponse> {
-    return requestDiscordUserAnswer({
-      jid,
-      request,
-      pendingQuestions: this.pendingQuestions,
-      sendPrompt: (targetJid, text, options) =>
-        this.sendDiscordPrompt(targetJid, text, options),
-      onPromptDelivered,
-    });
-  }
+  requestUserAnswer = createDiscordUserQuestionRequester({
+    pendingQuestions: this.pendingQuestions,
+    sendPrompt: (jid, text, options) =>
+      this.sendDiscordPrompt(jid, text, options),
+    timeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
+  });
 
   async handleInteraction(interaction: DiscordInteraction): Promise<void> {
     if (!interaction.id || !interaction.token || !interaction.channel_id)
@@ -426,7 +453,10 @@ export class DiscordInteractionHandler {
     return 'settled';
   }
 
-  private async timeoutPermissionPrompt(providerAlias: string): Promise<void> {
+  private async timeoutPermissionPrompt(
+    providerAlias: string,
+    retryWindowMs: number,
+  ): Promise<void> {
     let result = await this.settlePermissionPrompt(
       providerAlias,
       'cancel',
@@ -437,7 +467,7 @@ export class DiscordInteractionHandler {
     if (result === 'already_decided') return;
     if (result === 'retryable') {
       for (const delayMs of permissionPrompt.timeoutRetryDelays(
-        PERMISSION_APPROVAL_TIMEOUT_MS,
+        retryWindowMs,
       )) {
         await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, delayMs);

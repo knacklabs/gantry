@@ -3,6 +3,8 @@ const CONTROL_CONVERSATION_PREFIX = 'control:';
 
 export const RETRY_TAIL_PROFILE_ID = 'runtime.retry_tail_suffix.v1';
 export const LIVE_SEND_PROFILE_ID = 'runtime.live_send.v1';
+export const OBSERVER_DIGEST_PROFILE_ID = 'runtime.observer_digest.v1';
+export const BRAIN_REVIEW_PROFILE_ID = 'runtime.brain_review.v1';
 const PREFIX_SL = 'sl:';
 const PREFIX_TG = 'tg:';
 

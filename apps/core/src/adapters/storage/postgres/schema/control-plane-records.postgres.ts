@@ -3,13 +3,16 @@ export type ControlResponseMode = 'sse' | 'webhook' | 'both' | 'none';
 export interface AppSessionRecord {
   sessionId: string;
   appId: string;
+  agentId: string;
   conversationId: string;
+  canonicalConversationId: string;
   chatJid: string;
   workspaceFolder: string;
   workspaceKey: string;
   title: string | null;
   defaultResponseMode: ControlResponseMode;
   defaultWebhookId: string | null;
+  appUser?: { authorityId: string; subject: string } | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -15,6 +15,7 @@ import {
   semanticCapabilityInputSchema,
   type SemanticCapabilityDefinition,
 } from '@core/shared/semantic-capabilities.js';
+import { McpBindingAuthorityChangedError } from '@core/domain/mcp/mcp-servers.js';
 
 function emptySources() {
   return { skills: [], mcpServers: [], tools: [] };
@@ -120,6 +121,8 @@ function makeRepositories(overrides: Record<string, unknown> = {}) {
   return {
     agents: {
       saveAgent: vi.fn(async () => undefined),
+      assertMcpBindingAuthorityPreconditions: vi.fn(async () => undefined),
+      replaceAgentCapabilityBindingsBatch: vi.fn(async () => undefined),
       replaceAgentCapabilityBindings: vi.fn(async () => undefined),
       disableAgent: vi.fn(async () => undefined),
       listAgents: vi.fn(async () => []),
@@ -1366,37 +1369,37 @@ conversations:
     expect(result.invalidReferences).toEqual([]);
     expect(ops.setConversationRoute).toHaveBeenCalledWith(
       makeAgentThreadQueueKey(
-        'sl:slack:C123',
+        'sl:C123',
         'agent:main_agent',
         undefined,
         'slack_one',
       ),
       expect.objectContaining({
-        conversationId: 'conversation:slack_one:sl:slack:C123',
+        conversationId: 'conversation:slack_one:sl:C123',
         providerAccountId: 'slack_one',
       }),
     );
     expect(ops.setConversationRoute).toHaveBeenCalledWith(
       makeAgentThreadQueueKey(
-        'sl:slack:C123',
+        'sl:C123',
         'agent:main_agent',
         undefined,
         'slack_two',
       ),
       expect.objectContaining({
-        conversationId: 'conversation:slack_two:sl:slack:C123',
+        conversationId: 'conversation:slack_two:sl:C123',
         providerAccountId: 'slack_two',
       }),
     );
     expect(repositories.conversations.saveConversation).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 'conversation:slack_one:sl:slack:C123',
+        id: 'conversation:slack_one:sl:C123',
         providerAccountId: 'slack_one',
       }),
     );
     expect(repositories.conversations.saveConversation).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 'conversation:slack_two:sl:slack:C123',
+        id: 'conversation:slack_two:sl:C123',
         providerAccountId: 'slack_two',
       }),
     );
@@ -1563,9 +1566,7 @@ conversations:
         saveConversation: vi.fn(async () => undefined),
         replaceConversationApprovers: vi.fn(async () => []),
         listParticipantExternalUserIds: vi.fn(async (conversationId: string) =>
-          conversationId === 'conversation:slack_one:sl:slack:C123'
-            ? ['UADMIN']
-            : [],
+          conversationId === 'conversation:slack_one:sl:C123' ? ['UADMIN'] : [],
         ),
       },
     });
@@ -1579,12 +1580,12 @@ conversations:
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         providerAccountId: 'slack_two',
-        conversationId: 'conversation:slack_two:sl:slack:C123',
+        conversationId: 'conversation:slack_two:sl:C123',
       }),
     );
     expect(repositories.conversations.saveConversation).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 'conversation:slack_two:sl:slack:C123',
+        id: 'conversation:slack_two:sl:C123',
         providerAccountId: 'slack_two',
       }),
     );
@@ -1592,7 +1593,7 @@ conversations:
       repositories.conversations.replaceConversationApprovers,
     ).toHaveBeenCalledWith(
       expect.objectContaining({
-        conversationId: 'conversation:slack_two:sl:slack:C123',
+        conversationId: 'conversation:slack_two:sl:C123',
         externalUserIds: ['UADMIN'],
       }),
     );
@@ -1600,7 +1601,7 @@ conversations:
       repositories.conversations.replaceConversationApprovers,
     ).toHaveBeenCalledWith(
       expect.objectContaining({
-        conversationId: 'conversation:slack_one:sl:slack:C123',
+        conversationId: 'conversation:slack_one:sl:C123',
         externalUserIds: ['UADMIN'],
       }),
     );
@@ -1665,7 +1666,7 @@ conversations:
     expect(result.invalidReferences).toEqual([]);
     expect(ops.setConversationRoute).toHaveBeenCalledWith(
       makeAgentThreadQueueKey(
-        'sl:slack:C123',
+        'sl:C123',
         'agent:main_agent',
         undefined,
         'slack_two',
@@ -1677,7 +1678,7 @@ conversations:
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         providerAccountId: 'slack_two',
-        conversationId: 'conversation:slack_two:sl:slack:C123',
+        conversationId: 'conversation:slack_two:sl:C123',
       }),
     );
   });
@@ -1723,7 +1724,7 @@ conversations:
     expect(result.invalidReferences).toEqual([]);
     expect(ops.setConversationRoute).toHaveBeenCalledWith(
       makeAgentThreadQueueKey(
-        'sl:slack:C123',
+        'sl:C123',
         'agent:main_agent',
         '171.222',
         'slack_default',
@@ -1734,13 +1735,13 @@ conversations:
       repositories.providerAccounts.saveConversationInstall,
     ).toHaveBeenCalledWith(
       expect.objectContaining({
-        threadId: 'thread:slack_default:sl:slack:C123:171.222',
+        threadId: 'thread:slack_default:sl:C123:171.222',
       }),
     );
     expect(repositories.conversations.saveThread).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 'thread:slack_default:sl:slack:C123:171.222',
-        conversationId: 'conversation:slack_default:sl:slack:C123',
+        id: 'thread:slack_default:sl:C123:171.222',
+        conversationId: 'conversation:slack_default:sl:C123',
         externalRef: { kind: 'conversation_thread', value: '171.222' },
       }),
     );
@@ -1793,7 +1794,7 @@ conversations:
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         agentId: 'agent:main_agent',
-        conversationId: 'conversation:slack_default:sl:slack:C123',
+        conversationId: 'conversation:slack_default:sl:C123',
       }),
     );
   });
@@ -1834,7 +1835,7 @@ conversations:
             appId: 'default',
             agentId: 'agent:main_agent',
             providerAccountId: 'slack_default',
-            conversationId: 'conversation:slack_default:sl:slack:C123',
+            conversationId: 'conversation:slack_default:sl:C123',
             displayName: 'Main',
             status: 'active',
             senderPolicy: 'provider_native',
@@ -1843,7 +1844,7 @@ conversations:
             memorySubject: {
               kind: 'conversation',
               appId: 'default',
-              conversationId: 'conversation:slack_default:sl:slack:C123',
+              conversationId: 'conversation:slack_default:sl:C123',
             },
             permissionPolicyIds: [],
             createdAt: '2026-05-01T00:00:00.000Z',
@@ -1865,7 +1866,7 @@ conversations:
     ).toHaveBeenCalledWith({
       appId: 'default',
       agentId: 'agent:main_agent',
-      conversationId: 'conversation:slack_default:sl:slack:C123',
+      conversationId: 'conversation:slack_default:sl:C123',
       updatedAt: '2026-05-02T00:00:00.000Z',
     });
   });
@@ -1936,7 +1937,7 @@ conversations:
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         agentId: 'agent:side_agent',
-        conversationId: 'conversation:slack_side:sl:slack:C123',
+        conversationId: 'conversation:slack_side:sl:C123',
       }),
     );
   });
@@ -3826,6 +3827,78 @@ conversations:
       restartRequired: ['observer'],
     });
   });
+
+  it('classifies conversation install topology additions as restart-required', () => {
+    const before = createDefaultRuntimeSettings();
+    const after = structuredClone(before);
+    after.providerAccounts.slack_ops = {
+      agentId: 'main_agent',
+      provider: 'slack',
+      label: 'Slack Ops',
+      runtimeSecretRefs: {
+        bot_token: 'gantry-secret:MAIN_SLACK_BOT_TOKEN',
+        app_token: 'gantry-secret:MAIN_SLACK_APP_TOKEN',
+      },
+    };
+    before.providerAccounts = structuredClone(after.providerAccounts);
+    after.conversations.slack_ops_incidents = {
+      providerAccount: 'slack_ops',
+      externalId: 'C12345678',
+      kind: 'channel',
+      displayName: 'incidents',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['U12345678'],
+      installedAgents: {
+        main_agent: {
+          agentId: 'main_agent',
+          providerAccountId: 'slack_ops',
+          status: 'active',
+          addedAt: '2026-07-28T00:00:00.000Z',
+          memoryScope: 'conversation',
+          trigger: '@Main',
+          requiresTrigger: true,
+        },
+      },
+    };
+
+    expect(classifySettingsChanges(before, after)).toEqual({
+      liveApplied: [],
+      restartRequired: ['conversations'],
+    });
+  });
+
+  it('keeps conversation policy-only changes live-applied', () => {
+    const before = createDefaultRuntimeSettings();
+    before.conversations.slack_ops_incidents = {
+      providerAccount: 'slack_ops',
+      externalId: 'C12345678',
+      kind: 'channel',
+      displayName: 'incidents',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['U12345678'],
+      installedAgents: {
+        main_agent: {
+          agentId: 'main_agent',
+          providerAccountId: 'slack_ops',
+          status: 'active',
+          addedAt: '2026-07-28T00:00:00.000Z',
+          memoryScope: 'conversation',
+          trigger: '@Main',
+          requiresTrigger: true,
+        },
+      },
+    };
+    const after = structuredClone(before);
+    after.conversations.slack_ops_incidents.controlApprovers = ['U87654321'];
+    after.conversations.slack_ops_incidents.installedAgents[
+      'main_agent'
+    ]!.requiresTrigger = false;
+
+    expect(classifySettingsChanges(before, after)).toEqual({
+      liveApplied: ['conversation_policies'],
+      restartRequired: [],
+    });
+  });
 });
 
 describe('reconcile preserves agent-installed bindings', () => {
@@ -3955,6 +4028,469 @@ describe('reconcile preserves agent-installed bindings', () => {
         expect.objectContaining({ serverId: 'mcp:crm', status: 'active' }),
       ]),
     );
+  });
+
+  it('passes reviewed MCP binding snapshots into desired-state persistence', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [{ id: 'mcp:github' }], tools: [] },
+      capabilities: [],
+    };
+    const repositories = makeRepositories();
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+    const expected = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:github',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:github',
+      status: 'active',
+      required: true,
+      permissionPolicyIds: ['permission-policy:mcp:github'],
+      allowedToolPatterns: ['search_*'],
+      conversationId: 'conversation:telegram:review',
+      threadId: 'thread:telegram:review:topic',
+      createdAt: '2026-07-21T11:00:00.000Z',
+      updatedAt: '2026-07-21T11:00:00.000Z',
+    };
+
+    await service.reconcile(settings, {
+      expectedMcpBindings: [expected as never],
+    });
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindingsBatch,
+    ).toHaveBeenCalledWith({
+      appId: 'default',
+      agents: [
+        expect.objectContaining({
+          id: 'agent:main_agent',
+          name: 'Main',
+          status: 'active',
+        }),
+      ],
+      expectedMcpBindingAgentIds: ['agent:main_agent'],
+      expectedMcpBindings: [expected],
+      replacements: [
+        expect.objectContaining({
+          agentId: 'agent:main_agent',
+          preserveExistingMcpPolicy: true,
+          mcpBindings: expect.arrayContaining([
+            expect.objectContaining({
+              id: expected.id,
+              required: true,
+              permissionPolicyIds: ['permission-policy:mcp:github'],
+              conversationId: 'conversation:telegram:review',
+              threadId: 'thread:telegram:review:topic',
+            }),
+          ]),
+        }),
+      ],
+    });
+    expect(repositories.agents.saveAgent).not.toHaveBeenCalled();
+  });
+
+  it('applies every agent capability replacement covered by a full-revision fence', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents = {
+      main_agent: {
+        name: 'Main',
+        folder: 'main_agent',
+        bindings: {},
+        sources: { skills: [], mcpServers: [{ id: 'mcp:github' }], tools: [] },
+        capabilities: [],
+      },
+      other_agent: {
+        name: 'Other',
+        folder: 'other_agent',
+        bindings: {},
+        sources: { skills: [], mcpServers: [{ id: 'mcp:github' }], tools: [] },
+        capabilities: [],
+      },
+    };
+    const repositories = makeRepositories();
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+    const expectedMain = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:github',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:github',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: [],
+    } as never;
+    const expectedOther = {
+      ...expectedMain,
+      id: 'agent-mcp-binding:agent:other_agent:mcp:github',
+      agentId: 'agent:other_agent',
+    } as never;
+
+    await service.reconcile(settings, {
+      expectedMcpBindings: [expectedMain, expectedOther],
+    });
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindingsBatch,
+    ).toHaveBeenCalledOnce();
+    expect(
+      repositories.agents.replaceAgentCapabilityBindingsBatch,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agents: [
+          expect.objectContaining({ id: 'agent:main_agent' }),
+          expect.objectContaining({ id: 'agent:other_agent' }),
+        ],
+        expectedMcpBindingAgentIds: ['agent:main_agent', 'agent:other_agent'],
+        expectedMcpBindings: [expectedMain, expectedOther],
+        replacements: [
+          expect.objectContaining({ agentId: 'agent:main_agent' }),
+          expect.objectContaining({ agentId: 'agent:other_agent' }),
+        ],
+      }),
+    );
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('atomically disables and clears a fenced agent removed by authoritative desired state', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.desiredState.authoritative = true;
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+    };
+    const removedAgent = {
+      id: 'agent:old_agent',
+      appId: 'default',
+      name: 'Old',
+      status: 'active',
+      createdAt: '2026-07-21T00:00:00.000Z',
+      updatedAt: '2026-07-21T00:00:00.000Z',
+    };
+    const removedFence = {
+      id: 'agent-mcp-binding:agent:old_agent:mcp:github',
+      appId: 'default',
+      agentId: 'agent:old_agent',
+      serverId: 'mcp:github',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: [],
+    } as never;
+    const repositories = makeRepositories();
+    repositories.agents.listAgents.mockResolvedValue([removedAgent]);
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings, {
+      expectedMcpBindingAgentIds: ['agent:old_agent' as never],
+      expectedMcpBindings: [removedFence],
+    });
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindingsBatch,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agents: [
+          expect.objectContaining({
+            id: 'agent:old_agent',
+            appId: 'default',
+            name: 'Old',
+            status: 'disabled',
+          }),
+        ],
+        replacements: [
+          expect.objectContaining({
+            agentId: 'agent:old_agent',
+            toolBindings: [],
+            skillBindings: [],
+            mcpBindings: [],
+          }),
+        ],
+        expectedMcpBindingAgentIds: ['agent:old_agent'],
+        expectedMcpBindings: [removedFence],
+      }),
+    );
+    expect(repositories.agents.disableAgent).not.toHaveBeenCalled();
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings.mock.calls.some(
+        ([input]: [{ agentId: string }]) => input.agentId === 'agent:old_agent',
+      ),
+    ).toBe(false);
+  });
+
+  it('fences but does not replace an omitted non-authoritative agent capability set', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents = {
+      main_agent: {
+        name: 'Main',
+        folder: 'main_agent',
+        bindings: {},
+        sources: { skills: [], mcpServers: [{ id: 'mcp:github' }], tools: [] },
+        capabilities: [],
+      },
+      other_agent: {
+        name: 'Other',
+        folder: 'other_agent',
+        bindings: {},
+        sources: { skills: [], mcpServers: [], tools: [] },
+        capabilities: [],
+      },
+    };
+    const repositories = makeRepositories();
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+    const expectedMain = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:github',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:github',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: [],
+    } as never;
+    const expectedOther = {
+      ...expectedMain,
+      id: 'agent-mcp-binding:agent:other_agent:mcp:github',
+      agentId: 'agent:other_agent',
+    } as never;
+
+    await service.reconcile(settings, {
+      expectedMcpBindingAgentIds: [
+        'agent:main_agent' as never,
+        'agent:other_agent' as never,
+      ],
+      expectedMcpBindings: [expectedMain, expectedOther],
+    });
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindingsBatch,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedMcpBindingAgentIds: ['agent:main_agent', 'agent:other_agent'],
+        expectedMcpBindings: [expectedMain, expectedOther],
+        agents: [expect.objectContaining({ id: 'agent:main_agent' })],
+        replacements: [
+          expect.objectContaining({ agentId: 'agent:main_agent' }),
+        ],
+      }),
+    );
+    expect(repositories.agents.saveAgent).toHaveBeenCalledOnce();
+    expect(repositories.agents.saveAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'agent:other_agent' }),
+    );
+  });
+
+  it('atomically fences an agent whose reviewed MCP binding set is empty', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+    };
+    const repositories = makeRepositories();
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings, {
+      expectedMcpBindingAgentIds: ['agent:main_agent' as never],
+      expectedMcpBindings: [],
+    });
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindingsBatch,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agents: [],
+        expectedMcpBindingAgentIds: ['agent:main_agent'],
+        expectedMcpBindings: [],
+        replacements: [],
+      }),
+    );
+    expect(repositories.agents.saveAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'agent:main_agent' }),
+    );
+    expect(
+      repositories.agents.replaceAgentCapabilityBindingsBatch.mock
+        .invocationCallOrder[0],
+    ).toBeLessThan(repositories.agents.saveAgent.mock.invocationCallOrder[0]);
+  });
+
+  it('preserves durable MCP binding policy on later unfenced settings revisions', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: {
+        skills: [],
+        mcpServers: [{ id: 'mcp:github', tools: ['search_*'] }],
+        tools: [],
+      },
+      capabilities: [],
+    };
+    const repositories = makeRepositories();
+    repositories.mcpServers.getServer.mockResolvedValue({
+      id: 'mcp:github',
+      appId: 'default',
+      status: 'active',
+      name: 'github',
+      createdSource: 'admin',
+      riskClass: 'medium',
+      transport: 'stdio_template',
+      config: { transport: 'stdio_template', templateId: 'github' },
+      allowedToolPatterns: ['search_*'],
+      autoApproveToolPatterns: [],
+      credentialRefs: [],
+    });
+    repositories.mcpServers.listAgentBindings.mockResolvedValue([
+      {
+        id: 'agent-mcp-binding:agent:main_agent:mcp:github',
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        serverId: 'mcp:github',
+        status: 'active',
+        required: true,
+        permissionPolicyIds: ['permission-policy:mcp:github'],
+        allowedToolPatterns: ['search_*'],
+        conversationId: 'conversation:telegram:review',
+        threadId: 'thread:telegram:review:topic',
+        createdAt: '2026-07-21T11:00:00.000Z',
+        updatedAt: '2026-07-21T11:00:00.000Z',
+      },
+    ]);
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings);
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preserveExistingMcpPolicy: true,
+        mcpBindings: [
+          expect.objectContaining({
+            required: true,
+            permissionPolicyIds: ['permission-policy:mcp:github'],
+            conversationId: 'conversation:telegram:review',
+            threadId: 'thread:telegram:review:topic',
+            createdAt: '2026-07-21T11:00:00.000Z',
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('rejects a stale MCP fence before any capability binding replacement', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [{ id: 'mcp:github' }], tools: [] },
+      capabilities: [],
+    };
+    const repositories = makeRepositories();
+    repositories.agents.replaceAgentCapabilityBindingsBatch.mockRejectedValue(
+      new Error('binding changed'),
+    );
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await expect(
+      service.reconcile(settings, {
+        expectedMcpBindings: [
+          {
+            id: 'agent-mcp-binding:agent:main_agent:mcp:github',
+            appId: 'default',
+            agentId: 'agent:main_agent',
+            serverId: 'mcp:github',
+            status: 'active',
+            required: false,
+            permissionPolicyIds: [],
+            allowedToolPatterns: [],
+          } as never,
+        ],
+      }),
+    ).rejects.toThrow('binding changed');
+
+    expect(repositories.agents.saveAgent).not.toHaveBeenCalled();
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).not.toHaveBeenCalled();
+    expect(repositories.tools.replaceAgentToolSources).not.toHaveBeenCalled();
+  });
+
+  it('runs the transactional MCP fence recheck before any desired-state write', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [{ id: 'mcp:github' }], tools: [] },
+      capabilities: [],
+    };
+    const repositories = makeRepositories();
+    repositories.agents.replaceAgentCapabilityBindingsBatch.mockRejectedValue(
+      new McpBindingAuthorityChangedError('mcp:github'),
+    );
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await expect(
+      service.reconcile(settings, {
+        expectedMcpBindings: [
+          {
+            id: 'agent-mcp-binding:agent:main_agent:mcp:github',
+            appId: 'default',
+            agentId: 'agent:main_agent',
+            serverId: 'mcp:github',
+            status: 'active',
+            required: false,
+            permissionPolicyIds: [],
+            allowedToolPatterns: [],
+          } as never,
+        ],
+      }),
+    ).rejects.toThrow('changed during capability approval');
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindingsBatch,
+    ).toHaveBeenCalledOnce();
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).not.toHaveBeenCalled();
+    expect(repositories.agents.saveAgent).not.toHaveBeenCalled();
+    expect(repositories.tools.replaceAgentToolSources).not.toHaveBeenCalled();
   });
 
   it('removes active agent-request bindings explicitly disabled by an authoritative revision', async () => {

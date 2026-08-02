@@ -3,7 +3,8 @@ import type { ToolCatalogRepository } from '../ports/repositories.js';
 import type { ToolCatalogItem, ToolId } from './tools.js';
 import {
   adminMcpToolIdForFullName,
-  isAdminMcpToolFullName,
+  isDurableGantryMcpToolFullName,
+  isSeededGantryMcpToolFullName,
 } from '../../shared/admin-mcp-tools.js';
 import {
   persistentPermissionToolId,
@@ -15,8 +16,13 @@ import {
   containsGeneratedRuntimeSkillPath,
   GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON,
 } from '../../shared/generated-runtime-paths.js';
-import { validateDurableAccessRule } from '../../shared/durable-access-policy.js';
 import {
+  formatDurableAccessRulesForUser,
+  validateDurableAccessRule,
+} from '../../shared/durable-access-policy.js';
+import {
+  isMcpCapabilityProposalDefinition,
+  sameMcpCapabilityProposalAuthority,
   semanticCapabilityInputSchema,
   semanticCapabilityFromToolCatalogItem,
   type SemanticCapabilityDefinition,
@@ -42,6 +48,35 @@ export async function ensureAgentToolCatalogItem(input: {
     semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
   });
   if (!durableValidation.ok) throw new Error(durableValidation.reason);
+  if (isDurableGantryMcpToolFullName(reference)) {
+    const toolId = durableGantryCatalogToolId(input.appId, reference);
+    const existing = await input.repository.getTool(toolId);
+    if (existing) {
+      const validated = validateCatalogTool(input.appId, toolId, existing);
+      if (validated.tool) return validated.tool;
+      throw new Error(validated.error);
+    }
+    const item: ToolCatalogItem = {
+      id: toolId,
+      appId: input.appId,
+      name: reference,
+      kind: 'host',
+      provider: 'gantry',
+      displayName: formatDurableAccessRulesForUser([reference]),
+      description:
+        input.description ??
+        'Persistent Gantry tool approved from settings.yaml.',
+      category: 'admin',
+      risk: 'high',
+      selectable: true,
+      status: 'active',
+      adapterRef: input.adapterRef ?? 'permission/settings.yaml',
+      createdAt: input.now as never,
+      updatedAt: input.now as never,
+    };
+    await input.repository.saveTool(item);
+    return item;
+  }
   const requestedSemanticCapabilityId = parseSemanticCapabilityRule(reference);
   const requestedCapability = requestedSemanticCapabilityId
     ? input.semanticCapabilityDefinitions?.[requestedSemanticCapabilityId]
@@ -154,8 +189,26 @@ async function saveSemanticCapabilityTool(input: {
     createdAt: input.now as never,
     updatedAt: input.now as never,
   };
-  await input.repository.saveTool(item);
-  return item;
+  if (
+    !isMcpCapabilityProposalDefinition(input.capability) ||
+    !input.repository.saveToolIfAbsent
+  ) {
+    await input.repository.saveTool(item);
+    return item;
+  }
+  const stored = await input.repository.saveToolIfAbsent(item);
+  if (
+    stored.appId === input.appId &&
+    stored.status === 'active' &&
+    stored.selectable &&
+    (catalogToolMatchesSemanticCapability(stored, input.capability) ||
+      catalogToolSharesMcpProposalAuthority(stored, input.capability))
+  ) {
+    return stored;
+  }
+  throw new Error(
+    `Semantic capability ${input.capabilityId} does not match the active catalog definition.`,
+  );
 }
 
 export async function resolveAgentToolReference(input: {
@@ -185,13 +238,13 @@ export async function resolveAgentToolReference(input: {
   );
   if (byName) return validateCatalogTool(input.appId, byName.id, byName);
 
-  if (isAdminMcpToolFullName(reference)) {
-    const adminId = adminMcpToolIdForFullName(reference);
-    const adminTool = await input.repository.getTool(adminId as ToolId);
-    if (adminTool) {
-      return validateCatalogTool(input.appId, adminId, adminTool);
+  if (isDurableGantryMcpToolFullName(reference)) {
+    const toolId = durableGantryCatalogToolId(input.appId, reference);
+    const tool = await input.repository.getTool(toolId);
+    if (tool) {
+      return validateCatalogTool(input.appId, toolId, tool);
     }
-    return { error: `Tool catalog row ${adminId} is unavailable.` };
+    return {};
   }
 
   const validation = validateReadableAgentToolRule(reference);
@@ -229,6 +282,14 @@ function validateCatalogTool(
   return { tool };
 }
 
+function durableGantryCatalogToolId(appId: AppId, reference: string): ToolId {
+  return (
+    isSeededGantryMcpToolFullName(reference)
+      ? adminMcpToolIdForFullName(reference)
+      : persistentPermissionToolId(appId, reference)
+  ) as ToolId;
+}
+
 function catalogToolMatchesSemanticCapability(
   tool: ToolCatalogItem,
   capability: SemanticCapabilityDefinition,
@@ -241,5 +302,18 @@ function catalogToolMatchesSemanticCapability(
     !!existing &&
     existing.capabilityId === capability.capabilityId &&
     stableSha256Json(existing) === stableSha256Json(capability)
+  );
+}
+
+function catalogToolSharesMcpProposalAuthority(
+  tool: ToolCatalogItem,
+  capability: SemanticCapabilityDefinition,
+): boolean {
+  const existing = semanticCapabilityFromToolCatalogItem({
+    name: tool.name,
+    inputSchema: tool.inputSchema,
+  });
+  return Boolean(
+    existing && sameMcpCapabilityProposalAuthority(existing, capability),
   );
 }

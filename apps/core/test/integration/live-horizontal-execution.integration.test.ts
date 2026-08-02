@@ -685,7 +685,7 @@ maybeDescribe('live horizontal execution acceptance gates', () => {
       kind: 'permission',
       payload: { toolName: 'Bash', commandPreview: 'ls' },
       callbackRoute: { targetJid: 'tg:prompt-restart' },
-      idempotencyKey: 'permission:live-agent:req-live-1',
+      idempotencyKey: 'default:permission:live-agent:req-live-1',
       expiresAt: toIso(nowMs() + 60_000),
     });
     expect(created.status).toBe('pending');
@@ -698,7 +698,7 @@ maybeDescribe('live horizontal execution acceptance gates', () => {
       runId: 'run-prompt-restart',
       kind: 'permission',
       payload: { toolName: 'Bash', commandPreview: 'ls' },
-      idempotencyKey: 'permission:live-agent:req-live-1',
+      idempotencyKey: 'default:permission:live-agent:req-live-1',
       expiresAt: toIso(nowMs() + 60_000),
     });
     expect(reprompted.id).toBe('live-interaction-1');

@@ -25,7 +25,7 @@ import {
 } from '../../../../shared/message-cursor.js';
 import { makeAgentThreadQueueKey } from '../../../../shared/thread-queue-key.js';
 import * as pgSchema from '../schema/schema.js';
-import { enqueueLiveAdmissionWorkItem } from './live-admission-work-item-repository.postgres.js';
+import { enqueueLiveAdmissionWorkItemWithExecutor } from './live-admission-work-item-repository.postgres.js';
 import {
   CANONICAL_APP_ID,
   type CanonicalDb,
@@ -38,9 +38,14 @@ import {
 } from './canonical-graph-repository.postgres.js';
 import {
   attachmentsJsonForMessage,
-  existingAttachmentStorageMaps,
-  storageRefForIncomingAttachment,
+  replaceCanonicalMessageAttachments,
 } from './canonical-message-attachments.postgres.js';
+import { deletionMarkerTimestampForMessage } from './message-attachment-deletion-markers.postgres.js';
+import {
+  cleanupRemovedProviderAttachments as cleanupProviderAttachments,
+  type ProviderAttachmentCleanup,
+  type RemovedProviderAttachment,
+} from './provider-attachment-cleanup.postgres.js';
 import {
   externalRefForMessage,
   liveAdmissionIdempotencyKey,
@@ -79,6 +84,11 @@ export interface MessageLiveAdmissionInput {
   providerAccountId?: string | null;
   triggerDecision?: Record<string, unknown>;
   now?: string;
+}
+
+export interface MessageSaveWithExecutorResult {
+  liveAdmissionResult: LiveAdmissionWorkItemEnqueueResult | undefined;
+  removedProviderStorageRefs: RemovedProviderAttachment[];
 }
 
 interface MessageListInput {
@@ -141,15 +151,34 @@ function messageThreadFilter(
 
 export class PostgresCanonicalMessageRepository {
   private readonly graph: PostgresCanonicalGraphRepository;
-  constructor(private readonly db: CanonicalDb) {
+  constructor(
+    private readonly db: CanonicalDb,
+    private readonly maxLiveAdmissionBacklog = 100,
+    private readonly cleanupProviderAttachment: ProviderAttachmentCleanup = missingProviderAttachmentCleanup,
+  ) {
     this.graph = new PostgresCanonicalGraphRepository(db);
   }
   async saveMessage(
     msg: NewMessage,
     options: { liveAdmission?: MessageLiveAdmissionInput } = {},
   ): Promise<LiveAdmissionWorkItemEnqueueResult | undefined> {
-    return this.db.transaction((tx) =>
+    const result = await this.db.transaction((tx) =>
       this.saveMessageWithExecutor(tx, msg, options),
+    );
+    await this.cleanupRemovedProviderAttachments(
+      result.removedProviderStorageRefs,
+    );
+    return result.liveAdmissionResult;
+  }
+
+  async cleanupRemovedProviderAttachments(
+    storageRefs: readonly RemovedProviderAttachment[],
+  ): Promise<void> {
+    if (storageRefs.length === 0) return;
+    await cleanupProviderAttachments(
+      this.db,
+      storageRefs,
+      this.cleanupProviderAttachment,
     );
   }
 
@@ -157,7 +186,7 @@ export class PostgresCanonicalMessageRepository {
     tx: CanonicalExecutor,
     msg: NewMessage,
     options: { liveAdmission?: MessageLiveAdmissionInput } = {},
-  ): Promise<LiveAdmissionWorkItemEnqueueResult | undefined> {
+  ): Promise<MessageSaveWithExecutorResult> {
     const providerId =
       normalizeProviderId(msg.provider ?? providerIdForJid(msg.chat_jid)) ||
       'app';
@@ -180,6 +209,8 @@ export class PostgresCanonicalMessageRepository {
     const conversationId = await this.graph.ensureConversation(
       msg.chat_jid,
       {
+        name: msg.name,
+        isGroup: msg.isGroup,
         timestamp: msg.timestamp,
         channel: providerId,
         providerAccountId,
@@ -190,7 +221,7 @@ export class PostgresCanonicalMessageRepository {
       msg.chat_jid,
       msg.thread_id,
       tx,
-      { channel: providerId, providerAccountId },
+      { conversationId, providerAccountId },
     );
     let canonicalMessageId = messageIdFor(
       msg.chat_jid,
@@ -233,7 +264,7 @@ export class PostgresCanonicalMessageRepository {
         tx,
       );
     }
-    await tx
+    const [messageUpsertResult] = await tx
       .insert(pgSchema.messagesPostgres)
       .values({
         id: canonicalMessageId,
@@ -267,7 +298,11 @@ export class PostgresCanonicalMessageRepository {
           deliveredAt: msg.delivered_at ?? null,
           deliveryError: msg.delivery_error ?? null,
         },
+      })
+      .returning({
+        inserted: sql<boolean>`(xmax = 0)`,
       });
+    const messageInserted = messageUpsertResult?.inserted === true;
     await tx
       .insert(pgSchema.messagePartsPostgres)
       .values({
@@ -286,100 +321,76 @@ export class PostgresCanonicalMessageRepository {
           payloadJson: sql`excluded.payload_json`,
         },
       });
-    if (msg.attachments !== undefined) {
-      const incomingAttachments = msg.attachments;
-      const existingStorageRefs =
-        incomingAttachments.length > 0
-          ? existingAttachmentStorageMaps(
-              await tx
-                .select({
-                  id: pgSchema.messageAttachmentsPostgres.id,
-                  externalRefJson:
-                    pgSchema.messageAttachmentsPostgres.externalRefJson,
-                  storageRef: pgSchema.messageAttachmentsPostgres.storageRef,
-                })
-                .from(pgSchema.messageAttachmentsPostgres)
-                .where(
-                  eq(
-                    pgSchema.messageAttachmentsPostgres.messageId,
+    const removedProviderStorageRefs =
+      msg.attachments === undefined
+        ? []
+        : await replaceCanonicalMessageAttachments(tx, {
+            messageId: canonicalMessageId,
+            incomingAttachments: msg.attachments,
+            messageInserted,
+            trust: msg.is_bot_message ? 'system' : 'trusted',
+            deletionMarkerTimestamp:
+              msg.attachments.length > 0
+                ? await deletionMarkerTimestampForMessage(tx, {
+                    appId: CANONICAL_APP_ID,
+                    providerId,
+                    providerAccountId,
+                    conversationJid: msg.chat_jid,
+                    ...(msg.thread_id ? { threadId: msg.thread_id } : {}),
+                    externalMessageId,
                     canonicalMessageId,
-                  ),
-                ),
-            )
-          : existingAttachmentStorageMaps([]);
-      await tx
-        .delete(pgSchema.messageAttachmentsPostgres)
-        .where(
-          eq(pgSchema.messageAttachmentsPostgres.messageId, canonicalMessageId),
-        );
-      if (incomingAttachments.length > 0) {
-        await tx.insert(pgSchema.messageAttachmentsPostgres).values(
-          incomingAttachments.map((attachment, index) => {
-            const attachmentId =
-              attachment.id ??
-              `message-attachment:${canonicalMessageId}:${index}`;
-            return {
-              id: attachmentId,
-              messageId: canonicalMessageId,
-              kind: attachment.kind,
-              contentType: attachment.contentType ?? null,
-              sizeBytes: attachment.sizeBytes ?? null,
-              externalRefJson: attachment.externalId
-                ? jsonb({
-                    kind: 'message_attachment',
-                    value: attachment.externalId,
+                    incomingHasProviderRefs: msg.attachments.some(
+                      (incoming) =>
+                        typeof incoming.storageRef === 'string' &&
+                        incoming.storageRef.startsWith('provider-attachments/'),
+                    ),
                   })
-                : null,
-              storageRef: storageRefForIncomingAttachment(
-                attachment,
-                attachmentId,
-                existingStorageRefs,
-              ),
-              trust: msg.is_bot_message ? 'system' : 'trusted',
-            };
-          }),
-        );
-      }
-    }
+                : undefined,
+          });
     if (direction !== 'inbound' || !options.liveAdmission) {
-      return undefined;
+      return { liveAdmissionResult: undefined, removedProviderStorageRefs };
     }
     const admission = options.liveAdmission;
     const agentId = admission.agentId
       ? normalizeAgentIdForFolder(admission.agentId)
       : null;
-    return enqueueLiveAdmissionWorkItem(tx, {
-      id: liveAdmissionWorkItemId(
-        admission.appId,
-        canonicalMessageId,
-        providerAccountId,
+    const liveAdmissionResult = await enqueueLiveAdmissionWorkItemWithExecutor(
+      tx,
+      {
+        id: liveAdmissionWorkItemId(
+          admission.appId,
+          canonicalMessageId,
+          providerAccountId,
+          agentId,
+        ),
+        appId: admission.appId,
         agentId,
-      ),
-      appId: admission.appId,
-      agentId,
-      agentSessionId: admission.agentSessionId,
-      conversationId: msg.chat_jid,
-      threadId: msg.thread_id ?? null,
-      queueJid: makeAgentThreadQueueKey(
-        msg.chat_jid,
-        agentId,
-        msg.thread_id,
-        providerAccountId,
-      ),
-      messageId: canonicalMessageId,
-      messageCursor: encodeGroupMessageCursor(toGroupMessageCursor(msg)),
-      senderUserId: msg.sender,
-      senderDisplayName: msg.sender_name,
-      idempotencyKey: liveAdmissionIdempotencyKey(
-        msg,
-        admission.appId,
-        providerId,
-        providerAccountId,
-        agentId,
-      ),
-      triggerDecision: admission.triggerDecision,
-      now: admission.now ?? msg.timestamp,
-    });
+        agentSessionId: admission.agentSessionId,
+        conversationId: msg.chat_jid,
+        threadId: msg.thread_id ?? null,
+        queueJid: makeAgentThreadQueueKey(
+          msg.chat_jid,
+          agentId,
+          msg.thread_id,
+          providerAccountId,
+        ),
+        messageId: canonicalMessageId,
+        messageCursor: encodeGroupMessageCursor(toGroupMessageCursor(msg)),
+        senderUserId: msg.sender,
+        senderDisplayName: msg.sender_name,
+        idempotencyKey: liveAdmissionIdempotencyKey(
+          msg,
+          admission.appId,
+          providerId,
+          providerAccountId,
+          agentId,
+        ),
+        triggerDecision: admission.triggerDecision,
+        now: admission.now ?? msg.timestamp,
+      },
+      this.maxLiveAdmissionBacklog,
+    );
+    return { liveAdmissionResult, removedProviderStorageRefs };
   }
 
   async listInboundMessages(
@@ -612,4 +623,8 @@ export class PostgresCanonicalMessageRepository {
       .limit(1);
     return rows[0];
   }
+}
+
+async function missingProviderAttachmentCleanup(): Promise<never> {
+  throw new Error('Provider attachment cleanup dependency is not configured');
 }

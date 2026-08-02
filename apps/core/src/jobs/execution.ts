@@ -25,9 +25,11 @@ import {
   failRuntimeSessionRun as failSessionRun,
 } from '../runtime/session-resume-runtime.js';
 import {
-  resolveTurnSemanticCapabilities,
-  resolveTurnSelectedMcpServerIds,
-  resolveTurnSelectedSkillContext,
+  loadAgentAccessSnapshot,
+  resolveTurnSemanticCapabilitiesFromSnapshot,
+  resolveTurnSelectedMcpServerIdsFromSnapshot,
+  resolveTurnSelectedSkillContextFromSnapshot,
+  resolveTurnToolPolicyFromSnapshot,
 } from '../runtime/group-run-context.js';
 // prettier-ignore
 import { collectCompactBoundaryMemory, collectJobCompletionMemory } from './compact-memory.js';
@@ -41,6 +43,7 @@ import {
   logMemoryDreamJobFailure,
   notifySchedulerTerminalRunState,
 } from './execution-notifications.js';
+import type { MemoryReviewCreatedNotification } from './memory-dreaming-job-outcome.js';
 import {
   claimSchedulerRunLease,
   createSchedulerRunLeaseAbort,
@@ -266,6 +269,7 @@ async function runActiveJob(
       resultSummaryAccumulator.append(delta);
     };
     let accumulatedUsage: AgentOutput['usage'];
+    let memoryReviewNotification: MemoryReviewCreatedNotification | undefined;
     const startNotified = false;
     try {
       const groupDir = resolveWorkspaceFolderPath(execution.group.folder);
@@ -294,6 +298,7 @@ async function runActiveJob(
       });
       appendResultSummary(systemOutcome.result);
       error = systemOutcome.error;
+      memoryReviewNotification = systemOutcome.notificationContext;
     } else {
       if (!error) {
         let turnContext: JobTurnContext | undefined;
@@ -344,36 +349,30 @@ async function runActiveJob(
             appId: executionAppId,
             agentId: executionAgentId,
           });
-          const [
-            toolPolicy,
-            selectedSkillContext,
-            semanticCapabilities,
-            credentialBroker,
-          ] = await Promise.all([
-            jobToolPolicy.resolveJobToolPolicy({
-              job: currentJob,
-              appId: executionAppId,
-              agentId: executionAgentId,
-              toolRepository: deps.getToolRepository?.(),
-              skillRepository: deps.getSkillRepository?.(),
-            }),
-            resolveTurnSelectedSkillContext(deps, {
-              appId: executionAppId,
-              agentId: executionAgentId,
-            }),
-            resolveTurnSemanticCapabilities(deps, {
-              appId: executionAppId,
-              agentId: executionAgentId,
-            }),
+          const snapshotOwner = {
+            appId: executionAppId,
+            agentId: executionAgentId,
+          };
+          const [accessSnapshot, credentialBroker] = await Promise.all([
+            loadAgentAccessSnapshot(deps, snapshotOwner),
             deps.getCredentialBroker?.() ?? Promise.resolve(undefined),
           ]);
-          const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
-            deps,
-            {
-              appId: executionAppId,
-              agentId: executionAgentId,
-            },
-          );
+          const inheritedToolPolicy =
+            resolveTurnToolPolicyFromSnapshot(accessSnapshot);
+          const toolPolicy: jobToolPolicy.JobToolPolicyResolution = {
+            inheritedTools: inheritedToolPolicy.toolPolicyRules ?? [],
+            effectiveAllowedTools: inheritedToolPolicy.toolPolicyRules ?? [],
+            runtimeAccess: inheritedToolPolicy.runtimeAccess,
+          };
+          const selectedSkillContext =
+            resolveTurnSelectedSkillContextFromSnapshot(accessSnapshot);
+          const semanticCapabilities =
+            resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot);
+          const attachedMcpSourceIds =
+            resolveTurnSelectedMcpServerIdsFromSnapshot(accessSnapshot, {
+              conversationId: execution.group.conversationId,
+              threadId: execution.threadId ?? undefined,
+            });
           const toolAccessRequirementPreflight =
             await assertToolAccessRequirementsReadyForRun({
               toolAccessRequirements: splitAccessRequirements(
@@ -391,6 +390,7 @@ async function runActiveJob(
             agentId: executionAgentId,
             source: 'final_setup',
             runId,
+            accessSnapshot,
             publishRuntimeEvent,
           }));
           const browserPrelaunchSetup = finalReadinessPassed
@@ -398,6 +398,7 @@ async function runActiveJob(
                 currentJob,
                 executionGroupFolder: execution.group.folder,
                 executionJid: execution.executionJid,
+                executionProviderAccountId: execution.group.providerAccountId,
                 diagnostics,
                 deps,
                 emitJobEvent,
@@ -435,6 +436,7 @@ async function runActiveJob(
                 agentId: executionAgentId,
               },
             });
+            if (accessSnapshot) runOptions.accessSnapshot = accessSnapshot;
             agentRunId = turnContext?.agentSessionId
               ? await deps.opsRepository.createSessionAgentRun?.({
                   agentSessionId: turnContext.agentSessionId,
@@ -657,7 +659,12 @@ async function runActiveJob(
             leaseToken: leaseContext.lease.leaseToken,
             workerInstanceId: leaseContext.lease.workerInstanceId,
             fencingVersion: leaseContext.lease.fencingVersion,
-            leaseOutcome: error ? 'failed' : 'completed',
+            leaseOutcome:
+              state.runStatus === 'paused'
+                ? 'released'
+                : error
+                  ? 'failed'
+                  : 'completed',
             runStatus: state.runStatus,
             resultSummary: safeResultSummary
               ? safeResultSummary.slice(0, 500)
@@ -681,7 +688,12 @@ async function runActiveJob(
           leaseToken: leaseContext.lease.leaseToken,
           workerInstanceId: leaseContext.lease.workerInstanceId,
           fencingVersion: leaseContext.lease.fencingVersion,
-          leaseOutcome: error ? 'failed' : 'completed',
+          leaseOutcome:
+            runStatus === 'paused'
+              ? 'released'
+              : error
+                ? 'failed'
+                : 'completed',
           runStatus,
           resultSummary: safeResultSummary
             ? safeResultSummary.slice(0, 500)
@@ -713,6 +725,7 @@ async function runActiveJob(
       currentJob,
       executionGroupFolder: execution?.group.folder,
       executionJid: execution?.executionJid,
+      executionProviderAccountId: execution?.group.providerAccountId,
       diagnostics,
       deps,
       snapshotRunId: runId,
@@ -744,6 +757,7 @@ async function runActiveJob(
         durationMs: Math.max(0, nowMs() - startedAtMs),
         runShortId,
         sendMessage: deps.sendMessage,
+        ...(memoryReviewNotification ? { memoryReviewNotification } : {}),
       }));
     if (notified) {
       const markJobRunNotified = deps.opsRepository.markJobRunNotified;

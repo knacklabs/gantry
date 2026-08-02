@@ -6,6 +6,7 @@ import type {
   MemoryReviewProposedChange,
   MemoryReviewReadableItem,
   MemoryReviewRecord,
+  MemoryReviewSnapshot,
   NormalizedMemorySubject,
 } from './memory-types.js';
 
@@ -68,6 +69,54 @@ export function reviewEvidenceIds(
   reviews: Pick<MemoryReviewRecord, 'proposal'>[],
 ): string[] {
   return [...new Set(reviews.flatMap((review) => review.proposal.evidenceIds))];
+}
+
+/**
+ * Readable before/after items for ONE review, sourced from that review's own
+ * frozen snapshot (conflict.active + every retiring merge participant). Keyed
+ * by itemId only within this single snapshot, so two reviews of the same item
+ * never bleed each other's frozen values.
+ */
+export function readableItemsFromSnapshot(
+  snapshot: MemoryReviewSnapshot,
+): Map<string, MemoryReviewReadableItem> {
+  const map = new Map<string, MemoryReviewReadableItem>();
+  const put = (claim: {
+    itemId: string;
+    kind: string;
+    key: string;
+    value: string;
+  }) =>
+    map.set(claim.itemId, {
+      itemId: claim.itemId,
+      kind: claim.kind,
+      key: claim.key,
+      value: claim.value,
+    });
+  if (snapshot.conflict?.active) put(snapshot.conflict.active);
+  for (const participant of snapshot.retiring ?? []) put(participant);
+  return map;
+}
+
+/**
+ * Bounded evidence snippets for ONE review, from that review's own snapshot.
+ * Full untruncated text + sourceUri stays available via getReviewDetail.
+ */
+export function evidenceSnippetsFromSnapshot(
+  snapshot: MemoryReviewSnapshot,
+): Map<string, MemoryReviewEvidenceSnippet> {
+  const map = new Map<string, MemoryReviewEvidenceSnippet>();
+  for (const evidence of snapshot.evidence) {
+    if (map.has(evidence.id)) continue;
+    map.set(evidence.id, {
+      evidenceId: evidence.id,
+      sourceType: evidence.sourceType,
+      sourceId: evidence.sourceId ?? null,
+      snippet: truncateReviewText(evidence.text.replace(/\s+/g, ' '), 240),
+      createdAt: evidence.capturedAt,
+    });
+  }
+  return map;
 }
 
 export function toReadableReviewItem(
@@ -192,11 +241,19 @@ function buildMemoryReviewProposedChange(
 
 export function withProposedChanges(
   reviews: MemoryReviewRecord[],
-  itemsById: Map<string, MemoryReviewReadableItem>,
+  // Live re-queried items, consumed ONLY by reviews without a snapshot.
+  legacyItemsById: Map<string, MemoryReviewReadableItem>,
 ): MemoryReviewRecord[] {
   return reviews.map((review) => ({
     ...review,
-    proposedChange: buildMemoryReviewProposedChange(review.proposal, itemsById),
+    proposedChange: buildMemoryReviewProposedChange(
+      review.proposal,
+      // Snapshotted reviews render from their OWN frozen artifact; only legacy
+      // rows fall back to the shared live map.
+      review.reviewSnapshot
+        ? readableItemsFromSnapshot(review.reviewSnapshot)
+        : legacyItemsById,
+    ),
   }));
 }
 
@@ -209,14 +266,20 @@ export function toMemoryReviewDisplayPage(input: {
   limit: number;
   offset: number;
   nextOffset: number | null;
-  evidenceById?: Map<string, MemoryReviewEvidenceSnippet>;
+  // Live re-queried evidence, consumed ONLY by reviews without a snapshot.
+  legacyEvidenceById?: Map<string, MemoryReviewEvidenceSnippet>;
 }): MemoryReviewDisplayPage {
-  const evidenceById = input.evidenceById || new Map();
+  const legacyEvidenceById = input.legacyEvidenceById || new Map();
   return {
     items: input.reviews.map((review, index) => {
       const change =
         review.proposedChange ||
         buildMemoryReviewProposedChange(review.proposal, new Map());
+      // Each review's evidence comes from its OWN snapshot; legacy rows use the
+      // shared live map. Never a page-wide snapshot map keyed by evidence id.
+      const evidenceById = review.reviewSnapshot
+        ? evidenceSnippetsFromSnapshot(review.reviewSnapshot)
+        : legacyEvidenceById;
       return {
         number: index + 1,
         reviewId: review.id,

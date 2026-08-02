@@ -531,30 +531,24 @@ describe('runAppMemoryDreamPass guardrails', () => {
     ]);
   });
 
-  it('routes REM correction-language items to review with source evidence', async () => {
-    const { db, inserted } = createDb([]);
-    const createPendingReview = vi.fn(async () => ({
-      status: 'created' as const,
-      reviewId: 'mrv-correction',
-    }));
-    const sourceRefJson = JSON.stringify({
-      source: 'dreaming',
-      subject,
-      version: 1,
-      evidenceIds: ['mev-1'],
-    });
+  it('does not flag correction language in a single memory value (no contradiction pair)', async () => {
+    // The old lexical REM detector filed a self-referential review whenever one
+    // memory contained "actually/instead/wrong". A contradiction needs a PAIR,
+    // so a lone memory with correction language must produce NO review.
+    const { db, inserted } = createDb([[], []]);
+    const createPendingReview = vi.fn();
 
     const decisions = await runAppMemoryDreamPass({
       db: db as never,
-      runId: 'mdr-rem-correction',
+      runId: 'mdr-single-value-correction',
       subject,
-      phase: 'rem',
+      phase: 'all',
       dryRun: false,
       listItems: vi.fn(async () => [
         {
           row: activeItemRow({
-            value: 'Actually use lead finder instead of Mode A.',
-            sourceRefJson,
+            value:
+              'Actually use lead finder instead of Mode A; the old note was wrong.',
           }),
         },
       ]),
@@ -563,53 +557,134 @@ describe('runAppMemoryDreamPass guardrails', () => {
       createPendingReview,
     });
 
-    expect(decisions).toEqual([{ action: 'needs_review' }]);
-    expect(createPendingReview).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'needs_review',
-        itemId: 'mem-1',
-        value: 'Actually use lead finder instead of Mode A.',
-        evidenceIds: ['mev-1'],
-      }),
-      db,
+    expect(createPendingReview).not.toHaveBeenCalled();
+    expect(decisions.filter((d) => d.action === 'needs_review')).toHaveLength(
+      0,
     );
-    expect(decisionValues(inserted)).toMatchObject([
-      {
-        action: 'needs_review',
-        itemId: 'mem-1',
-        evidenceIdsJson: '["mev-1"]',
-        rationale:
-          'REM dreaming routed correction language to memory review: mrv-correction.',
-      },
-    ]);
   });
 
-  it('skips re-flagging correction language a human already adjudicated', async () => {
-    const { db, inserted } = createDb([]);
-    const createPendingReview = vi.fn(async () => ({
-      status: 'adjudicated' as const,
-      reviewId: 'mrv-already-decided',
-    }));
-    const sourceRefJson = JSON.stringify({
+  it('files one contradiction review for a same-key pair with distinct grounded claims', async () => {
+    const activeSourceRef = JSON.stringify({
       source: 'dreaming',
       subject,
       version: 1,
-      evidenceIds: ['mev-1'],
+      evidenceIds: ['mev-active'],
     });
+    const { db, inserted } = createDb([
+      [],
+      [candidateRow({ value: 'new value' })],
+    ]);
+    const createPendingReview = vi.fn(async () => ({
+      status: 'created' as const,
+      reviewId: 'mrv-contradiction',
+    }));
 
     const decisions = await runAppMemoryDreamPass({
       db: db as never,
-      runId: 'mdr-rem-correction-adjudicated',
+      runId: 'mdr-deep-contradiction',
       subject,
-      phase: 'rem',
+      phase: 'deep',
       dryRun: false,
       listItems: vi.fn(async () => [
         {
           row: activeItemRow({
-            value: 'Actually use lead finder instead of Mode A.',
-            sourceRefJson,
+            value: 'old value',
+            sourceRefJson: activeSourceRef,
           }),
         },
+      ]),
+      save: vi.fn(),
+      retire: vi.fn(async () => ({ deleted: true })),
+      createPendingReview,
+    });
+
+    expect(decisions).toEqual([
+      { action: 'needs_review', reviewId: 'mrv-contradiction' },
+    ]);
+    expect(createPendingReview).toHaveBeenCalledTimes(1);
+    expect(createPendingReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'needs_review',
+        itemId: 'mem-1',
+        candidateId: 'mca-1',
+        value: 'new value',
+        contradiction: expect.objectContaining({
+          type: 'same_key_value_disagreement',
+          active: expect.objectContaining({
+            itemId: 'mem-1',
+            value: 'old value',
+            evidenceIds: ['mev-active'],
+          }),
+          incoming: expect.objectContaining({
+            candidateId: 'mca-1',
+            value: 'new value',
+            evidenceIds: ['mev-1'],
+          }),
+          proposedCanonical: expect.objectContaining({
+            value: 'new value',
+            evidenceIds: ['mev-1'],
+          }),
+        }),
+      }),
+      db,
+    );
+    // The contradiction must survive into the persisted proposal_json.
+    expect(decisionValues(inserted)).toMatchObject([
+      { action: 'needs_review', candidateId: 'mca-1', itemId: 'mem-1' },
+    ]);
+  });
+
+  it('does not report a reviewId when the review already exists (pending_exists)', async () => {
+    const { db } = createDb([[], [candidateRow({ value: 'new value' })]]);
+    const activeSourceRef = JSON.stringify({
+      source: 'dreaming',
+      subject,
+      version: 1,
+      evidenceIds: ['mev-active'],
+    });
+    // The proposal re-encounters a review that already exists; it must NOT be
+    // reported as newly-created, or every recurring run re-announces it.
+    const createPendingReview = vi.fn(async () => ({
+      status: 'pending_exists' as const,
+      reviewId: 'mrv-already-there',
+    }));
+
+    const decisions = await runAppMemoryDreamPass({
+      db: db as never,
+      runId: 'mdr-deep-pending-exists',
+      subject,
+      phase: 'deep',
+      dryRun: false,
+      listItems: vi.fn(async () => [
+        {
+          row: activeItemRow({
+            value: 'old value',
+            sourceRefJson: activeSourceRef,
+          }),
+        },
+      ]),
+      save: vi.fn(),
+      retire: vi.fn(async () => ({ deleted: true })),
+      createPendingReview,
+    });
+
+    // action stays needs_review, but reviewId is absent → not collected into
+    // createdReviewIds → no "review created" notification this run.
+    expect(decisions).toEqual([{ action: 'needs_review' }]);
+  });
+
+  it('does not attach a contradiction when the two sides carry identical values', async () => {
+    const { db } = createDb([[], [candidateRow({ value: 'same value' })]]);
+    const createPendingReview = vi.fn();
+
+    const decisions = await runAppMemoryDreamPass({
+      db: db as never,
+      runId: 'mdr-deep-identical',
+      subject,
+      phase: 'deep',
+      dryRun: false,
+      listItems: vi.fn(async () => [
+        { row: activeItemRow({ value: 'same value' }) },
       ]),
       save: vi.fn(),
       retire: vi.fn(async () => ({ deleted: true })),
@@ -617,15 +692,322 @@ describe('runAppMemoryDreamPass guardrails', () => {
     });
 
     expect(decisions).toEqual([{ action: 'skip' }]);
-    expect(decisionValues(inserted)).toMatchObject([
+    expect(createPendingReview).not.toHaveBeenCalled();
+  });
+
+  it('drops an LLM contradiction that references a foreign active item', async () => {
+    const { db } = createDb([[evidenceRow()], []]);
+    const createPendingReview = vi.fn();
+    const proposeDreaming = vi.fn(async () => [
       {
-        action: 'skip',
-        itemId: 'mem-1',
-        rationale: expect.stringContaining(
-          'identical content was already reviewed (mrv-already-decided)',
-        ),
+        action: 'needs_review' as const,
+        value: 'Runtime queue policy belongs under runtime.queue.',
+        reason: 'Contradiction resolved.',
+        confidence: 0.9,
+        evidenceIds: ['mev-1'],
+        contradictionNomination: {
+          conflictType: 'llm_claim_conflict' as const,
+          activeItemId: 'mem-FOREIGN',
+          incomingCandidateId: 'mca-1',
+          activeEvidenceIds: ['mev-active'],
+          incomingEvidenceIds: ['mev-1'],
+        },
       },
     ]);
+
+    const decisions = await runAppMemoryDreamPass({
+      db: db as never,
+      runId: 'mdr-llm-foreign',
+      subject,
+      phase: 'deep',
+      dryRun: false,
+      listItems: vi.fn(async () => [{ row: activeItemRow({ id: 'mem-1' }) }]),
+      save: vi.fn(),
+      retire: vi.fn(async () => ({ deleted: true })),
+      proposeDreaming,
+      createPendingReview,
+    });
+
+    expect(createPendingReview).not.toHaveBeenCalled();
+    expect(decisions).toEqual([]);
+  });
+
+  it('drops an LLM contradiction that is missing evidence on one side', async () => {
+    const activeSourceRef = JSON.stringify({
+      source: 'dreaming',
+      subject,
+      version: 1,
+      evidenceIds: ['mev-active'],
+    });
+    const { db } = createDb([
+      [evidenceRow()],
+      [candidateRow({ value: 'new value' })],
+    ]);
+    const createPendingReview = vi.fn(async () => ({
+      status: 'created' as const,
+      reviewId: 'mrv-deterministic',
+    }));
+    const proposeDreaming = vi.fn(async () => [
+      {
+        action: 'needs_review' as const,
+        value: 'new value',
+        reason: 'Contradiction resolved.',
+        confidence: 0.9,
+        evidenceIds: ['mev-1'],
+        contradictionNomination: {
+          conflictType: 'llm_claim_conflict' as const,
+          activeItemId: 'mem-1',
+          incomingCandidateId: 'mca-1',
+          activeEvidenceIds: [],
+          incomingEvidenceIds: ['mev-1'],
+        },
+      },
+    ]);
+
+    const decisions = await runAppMemoryDreamPass({
+      db: db as never,
+      runId: 'mdr-llm-missing-evidence',
+      subject,
+      phase: 'deep',
+      dryRun: false,
+      listItems: vi.fn(async () => [
+        {
+          row: activeItemRow({
+            id: 'mem-1',
+            value: 'old value',
+            sourceRefJson: activeSourceRef,
+          }),
+        },
+      ]),
+      save: vi.fn(),
+      retire: vi.fn(async () => ({ deleted: true })),
+      proposeDreaming,
+      createPendingReview,
+    });
+
+    // The LLM contradiction is dropped; the deterministic same-key pair still
+    // fires from the staged candidate, so exactly one review is created.
+    expect(createPendingReview).toHaveBeenCalledTimes(1);
+    expect(createPendingReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'needs_review',
+        candidateId: 'mca-1',
+        contradiction: expect.objectContaining({
+          type: 'same_key_value_disagreement',
+        }),
+      }),
+      db,
+    );
+    expect(decisions).toEqual([
+      { action: 'needs_review', reviewId: 'mrv-deterministic' },
+    ]);
+  });
+
+  it('forces a contradiction onto needs_review even when the model asked to promote', async () => {
+    const activeSourceRef = JSON.stringify({
+      source: 'dreaming',
+      subject,
+      version: 1,
+      evidenceIds: ['mev-active'],
+    });
+    const save = vi.fn();
+    const { db } = createDb([
+      [evidenceRow()],
+      [candidateRow({ value: 'new value' })],
+    ]);
+    const createPendingReview = vi.fn(async () => ({
+      status: 'created' as const,
+      reviewId: 'mrv-forced',
+    }));
+    const proposeDreaming = vi.fn(async () => [
+      {
+        // The model tries to sneak a contradiction through as an auto-apply.
+        action: 'promote' as const,
+        value: 'new value',
+        reason: 'Contradiction resolved.',
+        confidence: 0.9,
+        evidenceIds: ['mev-1'],
+        contradictionNomination: {
+          conflictType: 'same_key_value_disagreement' as const,
+          activeItemId: 'mem-1',
+          incomingCandidateId: 'mca-1',
+          activeEvidenceIds: ['mev-active'],
+          incomingEvidenceIds: ['mev-1'],
+        },
+      },
+    ]);
+
+    await runAppMemoryDreamPass({
+      db: db as never,
+      runId: 'mdr-llm-force-review',
+      subject,
+      phase: 'deep',
+      dryRun: false,
+      listItems: vi.fn(async () => [
+        {
+          row: activeItemRow({
+            id: 'mem-1',
+            value: 'old value',
+            sourceRefJson: activeSourceRef,
+          }),
+        },
+      ]),
+      save,
+      retire: vi.fn(async () => ({ deleted: true })),
+      proposeDreaming,
+      createPendingReview,
+    });
+
+    // Never auto-applied, and every review it produced is needs_review.
+    expect(save).not.toHaveBeenCalled();
+    for (const call of createPendingReview.mock.calls) {
+      expect((call[0] as { action: string }).action).toBe('needs_review');
+    }
+    expect(createPendingReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'needs_review',
+        contradiction: expect.objectContaining({
+          type: 'same_key_value_disagreement',
+        }),
+      }),
+      db,
+    );
+  });
+
+  it('binds candidateId from the resolved incoming side, overriding the top-level id', async () => {
+    const activeSourceRef = JSON.stringify({
+      source: 'dreaming',
+      subject,
+      version: 1,
+      evidenceIds: ['mev-active'],
+    });
+    const { db } = createDb([
+      [evidenceRow()],
+      [candidateRow({ value: 'new value' })],
+    ]);
+    const createPendingReview = vi.fn(async () => ({
+      status: 'created' as const,
+      reviewId: 'mrv-candidate-bind',
+    }));
+    const proposeDreaming = vi.fn(async () => [
+      {
+        action: 'needs_review' as const,
+        // The model supplies a WRONG top-level candidate id.
+        candidateId: 'mca-WRONG',
+        value: 'new value',
+        reason: 'Contradiction resolved.',
+        confidence: 0.9,
+        evidenceIds: ['mev-1'],
+        contradictionNomination: {
+          conflictType: 'same_key_value_disagreement' as const,
+          activeItemId: 'mem-1',
+          incomingCandidateId: 'mca-1',
+          activeEvidenceIds: ['mev-active'],
+          incomingEvidenceIds: ['mev-1'],
+        },
+      },
+    ]);
+
+    await runAppMemoryDreamPass({
+      db: db as never,
+      runId: 'mdr-llm-candidate-bind',
+      subject,
+      phase: 'deep',
+      dryRun: false,
+      listItems: vi.fn(async () => [
+        {
+          row: activeItemRow({
+            id: 'mem-1',
+            value: 'old value',
+            sourceRefJson: activeSourceRef,
+          }),
+        },
+      ]),
+      save: vi.fn(),
+      retire: vi.fn(async () => ({ deleted: true })),
+      proposeDreaming,
+      createPendingReview,
+    });
+
+    // Every routed proposal targets the resolved incoming candidate, never
+    // the bogus top-level id.
+    for (const call of createPendingReview.mock.calls) {
+      const proposal = call[0] as {
+        candidateId?: string;
+        contradiction?: { incoming: { candidateId: string } };
+      };
+      expect(proposal.candidateId).toBe('mca-1');
+      if (proposal.contradiction) {
+        expect(proposal.candidateId).toBe(
+          proposal.contradiction.incoming.candidateId,
+        );
+      }
+    }
+  });
+
+  it('drops a same-key contradiction whose sides carry different keys', async () => {
+    const activeSourceRef = JSON.stringify({
+      source: 'dreaming',
+      subject,
+      version: 1,
+      evidenceIds: ['mev-active'],
+    });
+    const createPendingReview = vi.fn();
+    const { db } = createDb([
+      [evidenceRow()],
+      [candidateRow({ key: 'decision:key-b', value: 'new value' })],
+    ]);
+    const proposeDreaming = vi.fn(async () => [
+      {
+        action: 'needs_review' as const,
+        value: 'new value',
+        reason: 'Contradiction resolved.',
+        confidence: 0.9,
+        evidenceIds: ['mev-1'],
+        contradictionNomination: {
+          conflictType: 'same_key_value_disagreement' as const,
+          activeItemId: 'mem-1',
+          incomingCandidateId: 'mca-1',
+          activeEvidenceIds: ['mev-active'],
+          incomingEvidenceIds: ['mev-1'],
+        },
+      },
+    ]);
+
+    await runAppMemoryDreamPass({
+      db: db as never,
+      runId: 'mdr-llm-key-mismatch',
+      subject,
+      phase: 'deep',
+      dryRun: false,
+      listItems: vi.fn(async () => [
+        {
+          row: activeItemRow({
+            id: 'mem-1',
+            key: 'decision:key-a',
+            value: 'old value',
+            sourceRefJson: activeSourceRef,
+          }),
+        },
+      ]),
+      save: vi.fn(async (value) => ({
+        id: 'mem-promoted',
+        key: value.key,
+        kind: value.kind,
+        value: value.value,
+      })),
+      retire: vi.fn(async () => ({ deleted: true })),
+      proposeDreaming,
+      createPendingReview,
+    });
+
+    // The same-key nomination names two differently-keyed claims: dropped, so
+    // no contradiction review is ever created.
+    for (const call of createPendingReview.mock.calls) {
+      expect(
+        (call[0] as { contradiction?: unknown }).contradiction,
+      ).toBeUndefined();
+    }
   });
 
   it('does not mark candidates needs_review when their content was adjudicated', async () => {
@@ -686,7 +1068,9 @@ describe('runAppMemoryDreamPass guardrails', () => {
       createPendingReview,
     });
 
-    expect(decisions).toEqual([{ action: 'needs_review' }]);
+    expect(decisions).toEqual([
+      { action: 'needs_review', reviewId: 'mrv-update' },
+    ]);
     expect(save).not.toHaveBeenCalled();
     expect(createPendingReview).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -783,8 +1167,8 @@ describe('runAppMemoryDreamPass guardrails', () => {
     });
 
     expect(decisions).toEqual([
-      { action: 'needs_review' },
-      { action: 'needs_review' },
+      { action: 'needs_review', reviewId: 'mrv-preference' },
+      { action: 'needs_review', reviewId: 'mrv-risky' },
     ]);
     expect(save).not.toHaveBeenCalled();
     expect(createPendingReview).toHaveBeenCalledTimes(2);
@@ -898,7 +1282,9 @@ describe('runAppMemoryDreamPass guardrails', () => {
       createPendingReview,
     });
 
-    expect(decisions).toEqual([{ action: 'needs_review' }]);
+    expect(decisions).toEqual([
+      { action: 'needs_review', reviewId: 'mrv-retire' },
+    ]);
     expect(retire).not.toHaveBeenCalled();
     expect(createPendingReview).toHaveBeenCalledWith(
       expect.objectContaining({

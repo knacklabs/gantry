@@ -5,6 +5,10 @@ import type {
   CapabilitySecretRepository,
   McpServerRepository,
 } from '../../domain/ports/repositories.js';
+import {
+  type AgentAccessSnapshot,
+  assertHostAccessSnapshot,
+} from '../agent-execution/agent-access-snapshot.js';
 import { CapabilitySecretService } from './capability-secret-service.js';
 
 export async function resolveMcpCredentialEnvForAgent(input: {
@@ -13,12 +17,24 @@ export async function resolveMcpCredentialEnvForAgent(input: {
   mcpServers: McpServerRepository;
   secrets: CapabilitySecretRepository;
   serverIds?: readonly McpServerId[];
+  accessSnapshot?: AgentAccessSnapshot;
 }): Promise<Record<string, string>> {
-  const records = await input.mcpServers.listMaterializedServersForAgent({
+  const accessSnapshot = assertHostAccessSnapshot({
+    accessSnapshot: input.accessSnapshot,
     appId: input.appId,
     agentId: input.agentId,
-    ...(input.serverIds ? { serverIds: input.serverIds } : {}),
+    subject: 'MCP credential projection',
   });
+  const selectedIds = input.serverIds ? new Set(input.serverIds) : undefined;
+  const records =
+    accessSnapshot?.mcp.materializedServers.filter(
+      (record) => !selectedIds || selectedIds.has(record.definition.id),
+    ) ??
+    (await input.mcpServers.listMaterializedServersForAgent({
+      appId: input.appId,
+      agentId: input.agentId,
+      ...(input.serverIds ? { serverIds: input.serverIds } : {}),
+    }));
   const service = new CapabilitySecretService(input.secrets);
   const credentialEnv: Record<string, string> = {};
   for (const record of records) {

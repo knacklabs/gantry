@@ -41,6 +41,36 @@ describe('job model resolution', () => {
     });
   });
 
+  it('resolves explicit OpenAI job models through DeepAgents', () => {
+    const resolved = resolveJobModel(
+      { model: 'gpt-terra', schedule_type: 'manual' } as never,
+      { model: 'opus', source: 'system default' },
+    );
+
+    expect(resolved).toMatchObject({
+      selectedModel: 'gpt-terra',
+      source: 'job.model',
+      agentEngine: 'deepagents',
+      entry: {
+        modelRoute: {
+          id: 'openai',
+          providerModelId: 'gpt-5.6-terra',
+        },
+        recommendedAlias: 'gpt-terra',
+      },
+    });
+    expect(resolveJobExecutionProviderId({ resolvedModel: resolved })).toBe(
+      'deepagents:langchain',
+    );
+    expect(jobStartedModelPayload(resolved)).toMatchObject({
+      resolved_model_alias: 'gpt-terra',
+      model_source: 'job.model',
+      model_selection_reason: 'explicit job model alias',
+      response_family: 'openai',
+      execution_provider_id: 'deepagents:langchain',
+    });
+  });
+
   it('falls back to default config and carries usage into completion audit', () => {
     const resolved = resolveJobModel(
       { model: null, schedule_type: 'manual' } as never,
@@ -67,6 +97,37 @@ describe('job model resolution', () => {
       model_selection_reason:
         'inherited from settings.yaml agent.one_time_job_default_model',
       cache_policy: 'anthropic-prompt',
+    });
+  });
+
+  it('inherits OpenAI job defaults from settings for recurring jobs', () => {
+    const resolved = resolveJobModel(
+      { model: null, schedule_type: 'cron' } as never,
+      {
+        model: 'gpt-sol',
+        source: 'settings.yaml agent.recurring_job_default_model',
+      },
+    );
+
+    expect(resolved).toMatchObject({
+      source: 'settings.yaml agent.recurring_job_default_model',
+      agentEngine: 'deepagents',
+      entry: {
+        modelRoute: {
+          id: 'openai',
+          providerModelId: 'gpt-5.6-sol',
+        },
+        recommendedAlias: 'gpt-sol',
+      },
+    });
+    expect(resolveJobExecutionProviderId({ resolvedModel: resolved })).toBe(
+      'deepagents:langchain',
+    );
+    expect(jobCompletedModelPayload(resolved)).toMatchObject({
+      resolved_model_alias: 'gpt-sol',
+      model_source: 'settings.yaml agent.recurring_job_default_model',
+      model_selection_reason:
+        'inherited from settings.yaml agent.recurring_job_default_model',
     });
   });
 

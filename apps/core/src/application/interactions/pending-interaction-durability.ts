@@ -10,6 +10,7 @@ import type {
   PermissionCallbackClaimReference,
   QuestionRecoveryEnvelope,
 } from '../../domain/types.js';
+import { IPC_INTERACTION_RETENTION_TTL_MS } from '../../shared/ipc-interaction-lifetime.js';
 import { nowMs, toIso } from '../../shared/time/datetime.js';
 import {
   applyPendingInteractionGrantDecision,
@@ -34,7 +35,6 @@ import {
 import { pendingInteractionIdempotencyKey } from './pending-interaction-idempotency.js';
 
 export { DurableInteractionPersistenceError } from './pending-interaction-persistence-error.js';
-const DEFAULT_INTERACTION_TTL_MS = 24 * 60 * 60_000;
 const DEFAULT_APP_ID = 'default';
 type InteractionDurabilityRepository = PendingInteractionRepository &
   RunLeaseRepository &
@@ -103,7 +103,9 @@ export async function recordPendingInteractionRequested(input: {
           : input.payload,
       callbackRoute: input.callbackRoute ?? null,
       idempotencyKey: pendingInteractionIdempotencyKey(input),
-      expiresAt: toIso(nowMs() + (input.ttlMs ?? DEFAULT_INTERACTION_TTL_MS)),
+      expiresAt: toIso(
+        nowMs() + (input.ttlMs ?? IPC_INTERACTION_RETENTION_TTL_MS),
+      ),
     });
   } catch (err) {
     active.warn?.(

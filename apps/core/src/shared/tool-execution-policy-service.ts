@@ -8,7 +8,7 @@ import {
   normalizeBashLeafRuleContent,
   parseBashCommand,
 } from './bash-command-parser.js';
-import { isAdminMcpToolFullName } from './admin-mcp-tools.js';
+import { isDurableGantryMcpToolFullName } from './admin-mcp-tools.js';
 import {
   isKnownProjectedBrowserMcpToolName,
   publicGantryToolNameForSdkTool,
@@ -37,6 +37,8 @@ import {
   containsGeneratedRuntimePath,
   isGeneratedRuntimeToolResultPath,
 } from './generated-runtime-paths.js';
+import { type SemanticCapabilityDefinition } from './semantic-capabilities.js';
+import { resolveCapabilityRules } from './tool-execution-capability-resolution.js';
 
 export type ToolExecutionOrigin =
   | 'sdk'
@@ -178,6 +180,14 @@ export class ToolExecutionPolicyService {
     request: ToolExecutionRequest;
     allowedToolRules?: readonly string[];
     autonomousAllowedToolRules?: readonly string[];
+    // Reviewed capability bundles keyed by id. A granted `capability:<id>` tool
+    // rule is resolved through these to the concrete authority its bundle
+    // declares (commandRules / allowedTools / runtimeToolRules); a rule whose
+    // definition is absent is skipped instead of poisoning the whole match.
+    semanticCapabilityDefinitions?: Record<
+      string,
+      SemanticCapabilityDefinition
+    >;
     // True for locked-preset / fixed-image agents whose capability request
     // tools are hidden: recovery guidance must say "provision before the run"
     // instead of instructing a hidden request tool.
@@ -196,16 +206,23 @@ export class ToolExecutionPolicyService {
       );
       if (runtimeToolResultRead) return runtimeToolResultRead;
 
-      const rules =
-        input.autonomousAllowedToolRules ?? input.allowedToolRules ?? [];
+      const resolved = resolveCapabilityRules(
+        input.autonomousAllowedToolRules ?? input.allowedToolRules ?? [],
+        input.semanticCapabilityDefinitions,
+      );
       const toolPolicy = evaluateAutonomousToolUse({
-        rules,
+        rules: resolved.rules,
         toolName: input.request.toolName,
         toolInput: input.request.input,
       });
       if (toolPolicy.allowed) {
+        const capabilityId = resolved.capabilityByRule.get(
+          toolPolicy.matchedRule ?? '',
+        );
         return decision(input.request, 'allow', {
-          reason: `Allowed by autonomous tool rule ${toolPolicy.matchedRule}.`,
+          reason: capabilityId
+            ? `Allowed by selected capability ${capabilityId}.`
+            : `Allowed by autonomous tool rule ${toolPolicy.matchedRule}.`,
           matchedRule: toolPolicy.matchedRule,
         });
       }
@@ -220,14 +237,23 @@ export class ToolExecutionPolicyService {
     }
 
     if (input.allowedToolRules?.length) {
+      const resolved = resolveCapabilityRules(
+        input.allowedToolRules,
+        input.semanticCapabilityDefinitions,
+      );
       const toolPolicy = evaluateAutonomousToolUse({
-        rules: input.allowedToolRules,
+        rules: resolved.rules,
         toolName: input.request.toolName,
         toolInput: input.request.input,
       });
       if (toolPolicy.allowed) {
+        const capabilityId = resolved.capabilityByRule.get(
+          toolPolicy.matchedRule ?? '',
+        );
         return decision(input.request, 'allow', {
-          reason: `Allowed by selected capability rule ${toolPolicy.matchedRule}.`,
+          reason: capabilityId
+            ? `Allowed by selected capability ${capabilityId}.`
+            : `Allowed by selected capability rule ${toolPolicy.matchedRule}.`,
           matchedRule: toolPolicy.matchedRule,
         });
       }
@@ -581,8 +607,8 @@ function autonomousGrantRecovery(
     }
     return `request_access { "target": { "kind": "run_command", "argvPattern": "${escapeJson(rule)}" }, "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }`;
   }
-  if (isAdminMcpToolFullName(request.toolName)) {
-    return `Use the Agent Access summary to find and request the reviewed admin capability for ${request.toolName}; exact tool grants are not accepted as durable authority.`;
+  if (isDurableGantryMcpToolFullName(request.toolName)) {
+    return `request_access { "target": { "kind": "tool", "name": "${escapeJson(request.toolName)}" }, "temporaryOnly": false, "reason": "This autonomous run needs exact Gantry tool access." }`;
   }
   const thirdPartyMcp = thirdPartyMcpToolServerName(request.toolName);
   if (thirdPartyMcp) {

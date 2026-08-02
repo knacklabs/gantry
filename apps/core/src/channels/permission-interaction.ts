@@ -3,7 +3,6 @@ import type {
   PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
 } from '../domain/types.js';
-import { logger } from '../infrastructure/logging/logger.js';
 import { adminMcpToolNameFromFullName } from '../shared/admin-mcp-tools.js';
 import {
   isCanonicalBrowserCapabilityRule,
@@ -13,14 +12,12 @@ import {
 } from '../shared/agent-tool-references.js';
 import { generatedRuntimeSkillPathDisplay } from '../shared/generated-runtime-paths.js';
 import {
+  isMcpCapabilityProposalRequest,
   skillActionCapabilityDisplayName,
   type SemanticCapabilityDefinition,
 } from '../shared/semantic-capabilities.js';
 import { parseSemanticCapabilityRule } from '../shared/semantic-capability-ids.js';
-import {
-  firstPersistentRule,
-  PERSISTENT_RULE_APPROVAL_MAX_RULES,
-} from '../domain/permission-decision.js';
+import { firstPersistentRule } from '../domain/permission-decision.js';
 import {
   buildPermissionPromptFullView,
   formatInteractionDetailLine as formatPromptInteractionDetailLine,
@@ -38,6 +35,7 @@ import {
 } from './permission-agent-display.js';
 import {
   formatPermissionToolInputLines,
+  permissionRiskLines,
   runtimeDisplayCommand,
 } from './permission-tool-input-format.js';
 import {
@@ -52,8 +50,11 @@ import {
   formatPermissionBatchPromptText,
   isPermissionBatchRequest,
   permissionBatchButtonLabel,
-  withRecoveredBatchOption,
 } from './permission-batch-coalescer.js';
+export {
+  normalizePermissionAction,
+  permissionDecisionOptions,
+} from './permission-decision-options.js';
 
 export {
   firstPersistentRule,
@@ -82,62 +83,8 @@ const USER_FACING_TOOL_LABELS: Record<string, string> = {
   AgentDelegation: 'agent delegation',
   Agent: 'agent delegation',
   Task: 'agent delegation',
+  mcp__gantry__mcp_call_tool: 'MCP Call Tool (any connected server)',
 };
-
-export function normalizePermissionAction(
-  action: string,
-): PermissionApprovalDecisionMode | null {
-  if (action === 'allow_once') return 'allow_once';
-  if (action === 'allow_persistent_rule') return 'allow_persistent_rule';
-  if (action === 'cancel') return 'cancel';
-  return null;
-}
-
-export function permissionDecisionOptions(
-  request: PermissionApprovalRequest,
-  matchKind?: 'individual' | 'batch',
-): PermissionApprovalDecisionMode[] {
-  const rule = firstPersistentRule(request);
-  const requested = request.decisionOptions;
-  const fallback: PermissionApprovalDecisionMode[] = rule
-    ? ['allow_once', 'allow_persistent_rule', 'cancel']
-    : ['allow_once', 'cancel'];
-  const options = requested?.length ? requested : fallback;
-  if (!requested?.length && !rule) logOptionDrop(request);
-  return withRecoveredBatchOption(options, matchKind);
-}
-
-function logOptionDrop(request: PermissionApprovalRequest): void {
-  const suggestions = request.suggestions || [];
-  if (suggestions.length === 0) return;
-  logger.debug(
-    {
-      requestId: request.requestId,
-      toolName: request.toolName,
-      suggestionCount: suggestions.length,
-      reason: persistentOptionDropReason(request),
-    },
-    'Persistent permission option unavailable',
-  );
-}
-
-function persistentOptionDropReason(
-  request: PermissionApprovalRequest,
-): string {
-  const candidates = (request.suggestions || []).filter(
-    (update) =>
-      (update.type === 'addRules' || update.type === 'replaceRules') &&
-      update.behavior === 'allow' &&
-      Array.isArray(update.rules) &&
-      update.rules.length > 0,
-  );
-  if (candidates.length !== 1) return 'expected exactly one allow rule update';
-  if (!candidates[0].rules?.length) return 'expected at least one rule';
-  if (candidates[0].rules.length > PERSISTENT_RULE_APPROVAL_MAX_RULES) {
-    return `expected at most ${PERSISTENT_RULE_APPROVAL_MAX_RULES} rules`;
-  }
-  return 'rule missing toolName';
-}
 
 export function permissionButtonLabel(
   mode: PermissionApprovalDecisionMode,
@@ -145,7 +92,10 @@ export function permissionButtonLabel(
 ): string {
   const batchLabel = permissionBatchButtonLabel(_request, mode);
   if (batchLabel) return batchLabel;
-  if (mode === 'allow_once') return 'Allow once';
+  if (mode === 'allow_once')
+    return isMcpCapabilityProposal(_request)
+      ? 'Allow once (no access)'
+      : 'Allow once';
   if (mode === 'cancel') return 'Cancel';
   return 'Allow for future';
 }
@@ -176,9 +126,8 @@ export function formatPermissionPromptText(
     );
   }
   const label = permissionAccessLabel(request);
-  const lines = [
-    `🔐 ${permissionPromptTitle(request.sourceAgentFolder, label)}`,
-  ];
+  const title = permissionPromptTitle(request.sourceAgentFolder, label);
+  const lines = [`🔐 ${title}`, ...permissionRiskLines(request)];
   const inputLines = formatPermissionToolInputLines(
     request,
     sanitizePermissionText,
@@ -215,24 +164,35 @@ export function formatPermissionReceiptText(
       `Allowed for future: ${summary}. Saved for ${agentName}. Manage access to revoke it later.`,
     );
   }
+  if (isMcpCapabilityProposal(request)) {
+    return limitPermissionMessage(
+      `No MCP access granted: ${summary}. MCP action authority requires Allow for future; nothing changed.`,
+    );
+  }
   return limitPermissionMessage(
     `Allowed once: ${summary}. The agent will continue this request.`,
   );
 }
 
+function isMcpCapabilityProposal(
+  request: PermissionApprovalRequest | undefined,
+): boolean {
+  const rule = request ? firstPersistentRule(request) : undefined;
+  const capabilityId = rule ? parseSemanticCapabilityRule(rule) : undefined;
+  return isMcpCapabilityProposalRequest({
+    toolName: request?.toolName ?? '',
+    toolInput: request?.toolInput,
+    capabilityId,
+    semanticCapabilityDefinitions: request?.semanticCapabilityDefinitions,
+  });
+}
+
 export const PERMISSION_GLYPH = '🔐';
 
-/**
- * Structured view of a permission prompt for provider-native renderers
- * (Slack blocks, Telegram HTML). The plain-text `formatPermissionPromptText`
- * above remains the canonical fallback; keep both in sync when fields change.
- */
+/** Provider-native prompt view; keep in sync with the plain-text formatter. */
 export interface PermissionPromptParts {
-  /** Title without the glyph, e.g. "Allow exact command access?" */
   title: string;
-  /** Tool-input / field lines. May contain ``` fenced code regions. */
   bodyLines: string[];
-  /** Dim metadata lines (agent · source, routing note). */
   contextLines: string[];
   replyInMinutes: number;
   fullView?: PermissionPromptFullView;
@@ -255,7 +215,7 @@ export function buildPermissionPromptParts(
       request.sourceAgentFolder,
       capabilityName ?? permissionAccessLabel(request),
     );
-    const bodyLines: string[] = [];
+    const bodyLines = permissionRiskLines(request);
     const accountLabel = request.toolInput?.accountLabel;
     if (typeof accountLabel === 'string' && accountLabel.trim()) {
       bodyLines.push(
@@ -297,7 +257,7 @@ export function buildPermissionPromptParts(
   const capabilityName = semanticCapabilityName(request, rule);
   if (capabilityName) {
     const definition = semanticCapabilityDefinition(request, rule);
-    const bodyLines: string[] = [];
+    const bodyLines = permissionRiskLines(request);
     const accountLabel =
       definition?.accountLabel ?? request.toolInput?.accountLabel;
     if (typeof accountLabel === 'string' && accountLabel.trim()) {
@@ -305,8 +265,10 @@ export function buildPermissionPromptParts(
         `Account: ${sanitizePermissionText(accountLabel.trim(), 100, 40)}`,
       );
     }
-    if (definition?.risk) {
-      bodyLines.push(`Risk: ${humanizeIdentifier(definition.risk)}`);
+    if (!request.risk_category && definition?.risk) {
+      if (request.risk_level)
+        bodyLines[0] = `${bodyLines[0]} — ${humanizeIdentifier(definition.risk)}`;
+      else bodyLines.push(`Risk: ${humanizeIdentifier(definition.risk)}`);
     }
     const networkLine = semanticCapabilityNetworkLine(definition);
     if (networkLine) bodyLines.push(networkLine);
@@ -319,11 +281,12 @@ export function buildPermissionPromptParts(
     };
   }
   const label = permissionAccessLabel(request);
-  const bodyLines = formatPermissionToolInputLines(
-    request,
-    sanitizePermissionText,
-    { sanitizeCommandText: sanitizePermissionCommandText },
-  );
+  const bodyLines = [
+    ...permissionRiskLines(request),
+    ...formatPermissionToolInputLines(request, sanitizePermissionText, {
+      sanitizeCommandText: sanitizePermissionCommandText,
+    }),
+  ];
   if (request.blockedPath) {
     bodyLines.push(
       `Path: ${sanitizePermissionText(request.blockedPath, 250, 100)}`,
@@ -411,7 +374,7 @@ function formatInteractionPermissionPrompt(
     request.sourceAgentFolder,
     capabilityName ?? permissionAccessLabel(request),
   )}`;
-  const lines = [title];
+  const lines = [title, ...permissionRiskLines(request)];
   const accountLabel = request.toolInput?.accountLabel;
   if (typeof accountLabel === 'string' && accountLabel.trim()) {
     lines.push(
@@ -462,6 +425,7 @@ function formatSemanticPermissionPrompt(
   const definition = semanticCapabilityDefinition(request, rule);
   const lines = [
     `🔐 ${permissionPromptTitle(request.sourceAgentFolder, capabilityName)}`,
+    ...permissionRiskLines(request),
   ];
   const accountLabel =
     definition?.accountLabel ?? request.toolInput?.accountLabel;
@@ -470,8 +434,10 @@ function formatSemanticPermissionPrompt(
       `Account: ${sanitizePermissionText(accountLabel.trim(), 100, 40)}`,
     );
   }
-  if (definition?.risk) {
-    lines.push(`Risk: ${humanizeIdentifier(definition.risk)}`);
+  if (!request.risk_category && definition?.risk) {
+    if (request.risk_level)
+      lines[1] = `${lines[1]} — ${humanizeIdentifier(definition.risk)}`;
+    else lines.push(`Risk: ${humanizeIdentifier(definition.risk)}`);
   }
   const networkLine = semanticCapabilityNetworkLine(definition);
   if (networkLine) lines.push(networkLine);

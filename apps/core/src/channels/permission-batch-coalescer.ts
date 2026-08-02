@@ -124,8 +124,7 @@ export function formatPermissionBatchPromptText(
         `🔐 ${batch.title}`,
         '',
         ...batch.rows,
-        '',
-        `Reply in ${batch.replyInMinutes}m`,
+        ...(timeoutMs > 0 ? ['', `Reply in ${batch.replyInMinutes}m`] : []),
       ].join('\n')
     : undefined;
 }

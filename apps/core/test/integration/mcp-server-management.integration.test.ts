@@ -77,6 +77,17 @@ class InMemoryMcpServerRepository implements McpServerRepository {
     );
   }
 
+  async getAgentBinding(input: {
+    appId: AppId;
+    agentId: AgentId;
+    serverId: McpServerId;
+  }) {
+    return (
+      this.bindings.get(`${input.appId}:${input.agentId}:${input.serverId}`) ??
+      null
+    );
+  }
+
   async disableAgentBinding(input: {
     appId: AppId;
     agentId: AgentId;
@@ -109,6 +120,25 @@ class InMemoryMcpServerRepository implements McpServerRepository {
           (!input.cursor || binding.updatedAt < input.cursor),
       )
       .slice(0, input.limit ?? 100);
+  }
+
+  async listAgentMcpAccessSnapshot(input: { appId: AppId; agentId: AgentId }) {
+    const activeBindings = (await this.listAgentBindings(input)).filter(
+      (binding) => binding.status === 'active',
+    );
+    const rows = activeBindings.map((binding) => ({
+      binding,
+      definition: this.servers.get(binding.serverId) ?? null,
+    }));
+    return {
+      activeBindings: rows,
+      materializedServers: rows.flatMap((row) =>
+        row.definition?.appId === input.appId &&
+        row.definition.status === 'active'
+          ? [{ binding: row.binding, definition: row.definition }]
+          : [],
+      ),
+    };
   }
 
   async listAgentBindingsForAgents(input: {
@@ -231,6 +261,9 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => {
     listAgents: vi.fn(async () => []),
   };
   return {
+    tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+      release: vi.fn(async () => {}),
+    })),
     getRuntimeControlRepository: () => ({
       listDueWebhookDeliveries: vi.fn(async () => []),
       claimDueWebhookDeliveries: vi.fn(async () => []),

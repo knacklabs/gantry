@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
@@ -22,8 +21,12 @@ import {
 import {
   isUnsafeEvidence,
   parseJsonArray,
-  parseJsonObject,
 } from './app-memory-dreaming-evidence.js';
+import {
+  buildDeterministicContradiction,
+  resolveContradictionNomination,
+} from './app-memory-contradiction.js';
+import { logger } from '../infrastructure/logging/logger.js';
 import { nowIso as currentIso } from '../shared/time/datetime.js';
 import {
   recordDreamDecision,
@@ -33,6 +36,13 @@ import {
 } from './app-memory-dreaming-review-routing.js';
 type Db = NodePgDatabase<typeof pgSchema>;
 type MemoryItemRow = typeof pgSchema.memoryItemsPostgres.$inferSelect;
+type ContradictionSideRef = {
+  id: string;
+  key: string;
+  kind: string;
+  value: string;
+  evidenceIds: string[];
+};
 // prettier-ignore
 type DreamEmbeddingResult = { status: 'stored' | 'disabled' | 'retryable'; reason?: string };
 function nowIso(): string {
@@ -104,10 +114,11 @@ export async function runAppMemoryDreamPass(input: {
     db: Db;
     signal?: AbortSignal;
   }) => Promise<void>;
-}): Promise<Array<{ action: DreamDecisionAction }>> {
+}): Promise<Array<{ action: DreamDecisionAction; reviewId?: string }>> {
   const { db, runId, subject, phase, dryRun } = input;
   input.signal?.throwIfAborted();
-  const decisions: Array<{ action: DreamDecisionAction }> = [];
+  const decisions: Array<{ action: DreamDecisionAction; reviewId?: string }> =
+    [];
   const recentEvidence = await db
     .select()
     .from(pgSchema.memoryEvidencePostgres)
@@ -190,60 +201,25 @@ export async function runAppMemoryDreamPass(input: {
       decisions.push({ action: 'stage_candidate' });
     }
   }
-  if (phase === 'rem' || phase === 'all') {
-    input.signal?.throwIfAborted();
-    const items = await input.listItems();
-    for (const item of items) {
-      input.signal?.throwIfAborted();
-      const payload = parseJsonObject(item.row.valueJson);
-      const value =
-        typeof payload.value === 'string' ? payload.value.toLowerCase() : '';
-      if (/\b(no longer|instead|actually|correction|wrong)\b/.test(value)) {
-        const evidenceIds = parseItemSource(item.row).evidenceIds;
-        const action = await routeMemoryProposalToReview({
-          db,
-          runId,
-          subject,
-          dryRun,
-          createPendingReview: input.createPendingReview,
-          itemId: item.row.id,
-          evidenceIds,
-          proposal: {
-            action: 'needs_review',
-            itemId: item.row.id,
-            key: item.row.key,
-            value: extractMemoryValue(item.row),
-            reason:
-              'REM dreaming found correction language; human or admin review should decide whether to rewrite or retire related memory.',
-            confidence: item.row.confidence,
-            evidenceIds,
-          },
-          reviewRationale:
-            'REM dreaming routed correction language to memory review',
-          blockRationale:
-            evidenceIds.length > 0
-              ? 'REM dreaming blocked correction-language review because memory review creation failed.'
-              : 'REM dreaming blocked correction-language review because the active memory has no source evidence.',
-        });
-        decisions.push({ action });
-      }
-    }
-  }
+  // A contradiction is a PAIR (active claim vs incoming claim), never a single
+  // memory's phrasing — the old REM lexical scan is gone. Detection lives in
+  // the deep phase where both sides and their evidence are in hand.
   if (phase === 'deep' || phase === 'all') {
     input.signal?.throwIfAborted();
     const activeItems = await input.listItems();
-    const activeByKey = new Map<
-      string,
-      { id: string; key: string; kind: string; value: string }
-    >();
+    const activeByKey = new Map<string, ContradictionSideRef>();
+    const activeById = new Map<string, ContradictionSideRef>();
     for (const item of activeItems) {
+      const ref: ContradictionSideRef = {
+        id: item.row.id,
+        key: item.row.key,
+        kind: item.row.kind,
+        value: extractMemoryValue(item.row),
+        evidenceIds: parseItemSource(item.row).evidenceIds,
+      };
+      activeById.set(item.row.id, ref);
       if (!activeByKey.has(item.row.key)) {
-        activeByKey.set(item.row.key, {
-          id: item.row.id,
-          key: item.row.key,
-          kind: item.row.kind,
-          value: extractMemoryValue(item.row),
-        });
+        activeByKey.set(item.row.key, ref);
       }
     }
     const candidates = await db
@@ -263,6 +239,18 @@ export async function runAppMemoryDreamPass(input: {
       )
       .orderBy(desc(pgSchema.memoryCandidatesPostgres.confidence))
       .limit(10);
+    const candidateById = new Map<string, ContradictionSideRef>(
+      candidates.map((candidate) => [
+        candidate.id,
+        {
+          id: candidate.id,
+          key: candidate.key,
+          kind: candidate.kind,
+          value: candidate.value,
+          evidenceIds: parseJsonArray(candidate.evidenceIdsJson),
+        },
+      ]),
+    );
     input.signal?.throwIfAborted();
     const llmDreamingProposals =
       (await input.proposeDreaming?.({
@@ -290,13 +278,44 @@ export async function runAppMemoryDreamPass(input: {
       ...llmConsolidationProposals,
     ]) {
       input.signal?.throwIfAborted();
+      if (proposal.contradictionNomination) {
+        // A contradiction the model nominated: verify it against the active
+        // inventory we actually supplied. Any mismatch is DROPPED (no review).
+        const resolved = resolveContradictionNomination({
+          nomination: proposal.contradictionNomination,
+          proposal,
+          activeById,
+          candidateById,
+        });
+        if (!resolved.ok) {
+          logger.warn(
+            { runId, reason: resolved.reason },
+            'dropped invalid LLM contradiction proposal',
+          );
+          continue;
+        }
+        proposal.contradiction = resolved.contradiction;
+        // A resolved contradiction is inherently a review item: force
+        // needs_review so it can never ride a promote/update/stage action
+        // into auto-apply. Bind both sides authoritatively from resolution.
+        proposal.action = 'needs_review';
+        proposal.itemId = resolved.contradiction.active.itemId;
+        proposal.candidateId = resolved.contradiction.incoming.candidateId;
+        proposal.kind = resolved.contradiction.proposedCanonical
+          .kind as MemoryKind;
+        proposal.key = resolved.contradiction.proposedCanonical.key;
+        proposal.value = resolved.contradiction.proposedCanonical.value;
+        proposal.evidenceIds =
+          resolved.contradiction.proposedCanonical.evidenceIds;
+        delete proposal.contradictionNomination;
+      }
       if (
         proposal.action === 'retire' ||
         proposal.action === 'rewrite' ||
         proposal.action === 'merge' ||
         proposal.action === 'needs_review'
       ) {
-        const action = await routeMemoryProposalToReview({
+        const { action, reviewId } = await routeMemoryProposalToReview({
           db,
           runId,
           subject,
@@ -310,7 +329,7 @@ export async function runAppMemoryDreamPass(input: {
           blockRationale:
             'LLM proposal blocked because memory review creation failed.',
         });
-        decisions.push({ action });
+        decisions.push({ action, reviewId });
       }
     }
     for (const candidate of candidates) {
@@ -374,7 +393,7 @@ export async function runAppMemoryDreamPass(input: {
           decisions.push({ action: 'dry_run' });
           continue;
         }
-        const action = await routeMemoryProposalToReview({
+        const { action, reviewId } = await routeMemoryProposalToReview({
           db,
           runId,
           subject,
@@ -400,7 +419,7 @@ export async function runAppMemoryDreamPass(input: {
           blockRationale:
             'Deep dreaming blocked retire candidate because memory review creation failed.',
         });
-        decisions.push({ action });
+        decisions.push({ action, reviewId });
         continue;
       }
       const validation = validatePromotableCandidate(candidate);
@@ -418,7 +437,7 @@ export async function runAppMemoryDreamPass(input: {
           decisions.push({ action: 'blocked' });
           continue;
         }
-        const action = await routeMemoryProposalToReview({
+        const { action, reviewId } = await routeMemoryProposalToReview({
           db,
           runId,
           subject,
@@ -439,11 +458,28 @@ export async function runAppMemoryDreamPass(input: {
           reviewRationale: `${validation.rationale} Routed to memory review`,
           blockRationale: validation.rationale,
         });
-        decisions.push({ action });
+        decisions.push({ action, reviewId });
         continue;
       }
       if (existing && existing.value !== candidate.value) {
-        const action = await routeMemoryProposalToReview({
+        const reason =
+          candidate.reason ||
+          'Deep dreaming proposed changing active memory with the same key.';
+        // Same canonical key, meaningfully different grounded claims on each
+        // side = a real contradiction pair. When only one side has evidence
+        // (or the diff is cosmetic) it stays a plain needs_review.
+        const contradiction = buildDeterministicContradiction({
+          active: existing,
+          candidate: {
+            id: candidate.id,
+            key: candidate.key,
+            kind: candidate.kind,
+            value: candidate.value,
+            evidenceIds,
+          },
+          reason,
+        });
+        const { action, reviewId } = await routeMemoryProposalToReview({
           db,
           runId,
           subject,
@@ -459,18 +495,17 @@ export async function runAppMemoryDreamPass(input: {
             ...(reviewKind ? { kind: reviewKind } : {}),
             key: existing.key,
             value: candidate.value,
-            reason:
-              candidate.reason ||
-              'Deep dreaming proposed changing active memory with the same key.',
+            reason,
             confidence: candidate.confidence,
             evidenceIds,
+            ...(contradiction ? { contradiction } : {}),
           },
           reviewRationale:
             'Deep dreaming routed candidate to memory review because it changes an active memory with the same key',
           blockRationale:
             'Deep dreaming blocked candidate because memory review creation failed.',
         });
-        decisions.push({ action });
+        decisions.push({ action, reviewId });
         continue;
       }
       if (
@@ -561,6 +596,7 @@ export async function runAppMemoryDreamPass(input: {
         key: saved.key,
         kind: saved.kind,
         value: saved.value,
+        evidenceIds,
       });
       const contentHash = embeddingContentHash({
         key: saved.key,

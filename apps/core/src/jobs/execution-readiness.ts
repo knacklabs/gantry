@@ -20,6 +20,10 @@ import {
   fleetCapabilitySetupState,
 } from './capability-readiness.js';
 import type { SchedulerDependencies } from './types.js';
+import {
+  assertHostAccessSnapshot,
+  type AgentAccessSnapshot,
+} from '../application/agent-execution/agent-access-snapshot.js';
 
 export async function pauseJobForSetupIfNeeded(input: {
   currentJob: Job;
@@ -30,11 +34,18 @@ export async function pauseJobForSetupIfNeeded(input: {
   agentId?: string;
   source?: JobRecoveryIntentSource;
   runId?: string | null;
+  accessSnapshot?: AgentAccessSnapshot;
   publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
 }): Promise<boolean> {
   const appId = input.appSession?.appId ?? input.runtimeAppId;
   const agentId =
     input.agentId ?? agentIdForJobWorkspaceKey(input.executionAgentFolder);
+  const accessSnapshot = assertHostAccessSnapshot({
+    accessSnapshot: input.accessSnapshot,
+    appId,
+    agentId,
+    subject: 'Job execution readiness',
+  });
 
   // Fleet-wide capability gate first: pause ONLY when no active worker can
   // satisfy the job's required set (not on local-worker insufficiency, which
@@ -43,6 +54,7 @@ export async function pauseJobForSetupIfNeeded(input: {
     deps: input.deps,
     appId,
     agentId,
+    accessSnapshot,
     previous: input.currentJob.setup_state,
   });
   if (fleetSetupState) {
@@ -61,6 +73,7 @@ export async function pauseJobForSetupIfNeeded(input: {
     credentialBroker: await input.deps.getCredentialBroker?.(),
     getBrowserStatus: input.deps.getBrowserStatus,
     workerImageInventory: readImageCapabilityInventory(),
+    accessSnapshot,
   });
   if (readiness.ready) return false;
 
@@ -77,6 +90,7 @@ async function fleetCapabilitySetupStateIfUnsatisfiable(input: {
   deps: SchedulerDependencies;
   appId: string;
   agentId: string;
+  accessSnapshot?: AgentAccessSnapshot;
   previous?: Job['setup_state'];
 }): Promise<Job['setup_state'] | null> {
   if (getDeploymentMode() !== 'fleet') return null;
@@ -87,7 +101,11 @@ async function fleetCapabilitySetupStateIfUnsatisfiable(input: {
       runtimeDependencies: getRuntimeStorage().repositories.runtimeDependencies,
       workerRegistry: getWorkerCoordinationRepository(),
     },
-    { appId: input.appId, agentId: input.agentId },
+    {
+      appId: input.appId,
+      agentId: input.agentId,
+      accessSnapshot: input.accessSnapshot,
+    },
   );
   if (fleet.satisfiable) return null;
   return fleetCapabilitySetupState({

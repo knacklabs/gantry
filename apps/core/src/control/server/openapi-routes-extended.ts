@@ -1,5 +1,7 @@
 import { doc, ids, query, type RouteDoc } from './openapi-route-helpers.js';
 import { mcpOpenApiRouteDocs } from './openapi-mcp-routes.js';
+import { memoryReviewRouteDocs } from './openapi-memory-review-routes.js';
+import { peopleOpenApiRouteDocs } from './openapi-people.js';
 
 export const extendedOpenApiRouteDocs: RouteDoc[] = [
   doc(
@@ -62,6 +64,7 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     ['llm:invoke'],
     { body: 'json' },
   ),
+  ...peopleOpenApiRouteDocs,
   doc(
     'get',
     '/v1/jobs',
@@ -395,7 +398,7 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
       parameters: [
         query('appId', 'App id. Defaults to API key app.'),
         query('agentId', 'Agent id filter.'),
-        query('userId', 'User id filter.'),
+        query('personId', 'Canonical person id filter.'),
         query('groupId', 'Group id filter.'),
         query('channelId', 'Channel id filter.'),
         query('threadId', 'Thread id filter.'),
@@ -458,7 +461,7 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
         ids.memory,
         query('appId', 'App id. Defaults to API key app.'),
         query('agentId', 'Agent id filter.'),
-        query('userId', 'User id filter.'),
+        query('personId', 'Canonical person id filter.'),
         query('groupId', 'Group id filter.'),
         query('channelId', 'Channel id filter.'),
         query('threadId', 'Thread id filter.'),
@@ -490,6 +493,7 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
       ],
     },
   ),
+  ...memoryReviewRouteDocs,
   doc(
     'get',
     '/v1/observer/status',
@@ -542,6 +546,36 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
           default: 20,
         }),
         query('cursor', 'Opaque pagination cursor.'),
+      ],
+    },
+  ),
+  doc(
+    'post',
+    '/v1/observer/preview',
+    'previewObserverDigest',
+    'Observer',
+    'Preview the observer digest',
+    'Dry-run: computes the would-be owner digest (top-N selected and rendered) WITHOUT claiming insights, reserving a delivery, or sending. Creates no delivery row and no outbound record.',
+    ['memory:read'],
+    { parameters: [query('appId', 'App id. Defaults to API key app.')] },
+  ),
+  doc(
+    'get',
+    '/v1/observer/deliveries',
+    'listObserverDeliveries',
+    'Observer',
+    'List observer digest deliveries',
+    'Lists past digest reservations and deliveries for the app owner, newest first, with per-delivery state, local day, and insight count.',
+    ['memory:read'],
+    {
+      parameters: [
+        query('appId', 'App id. Defaults to API key app.'),
+        query('limit', 'Maximum number of deliveries.', {
+          type: 'integer',
+          minimum: 1,
+          maximum: 100,
+          default: 20,
+        }),
       ],
     },
   ),

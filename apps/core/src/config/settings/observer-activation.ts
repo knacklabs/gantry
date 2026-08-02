@@ -176,6 +176,32 @@ export function resolveObserverActivationStatus(
   };
 }
 
+// DB-verify a resolved owner route: the owner DM must be a stored `direct`
+// conversation whose participants + persisted approvers include the recipient.
+// Extracted from resolveVerifiedObserverActivationStatus so brain-dream reviews
+// can verify the same owner even when Observer is disabled.
+export async function verifyOwnerRoute(
+  owner: ObserverOwnerRoute,
+  appId: string,
+  conversations: ConversationRepository,
+): Promise<boolean> {
+  const storedConversation = await conversations.getConversationByExternalRef({
+    appId: appId as AppId,
+    providerId: owner.providerId as ProviderId,
+    providerAccountId: owner.providerAccountId as ProviderAccountId,
+    externalConversationId: owner.externalConversationId,
+  });
+  if (!storedConversation || storedConversation.kind !== 'direct') return false;
+  const [participants, approvers] = await Promise.all([
+    conversations.listParticipantExternalUserIds(storedConversation.id),
+    conversations.listConversationApprovers(storedConversation.id),
+  ]);
+  return (
+    participants.includes(owner.recipient) &&
+    approvers.some((approver) => approver.externalUserId === owner.recipient)
+  );
+}
+
 export async function resolveVerifiedObserverActivationStatus(
   settings: RuntimeSettings,
   appId: string,
@@ -183,28 +209,123 @@ export async function resolveVerifiedObserverActivationStatus(
 ): Promise<ObserverActivationStatus> {
   const activation = resolveObserverActivationStatus(settings);
   if (!('owner' in activation)) return activation;
+  return (await verifyOwnerRoute(activation.owner, appId, conversations))
+    ? activation
+    : unverifiedOwnerStatus();
+}
 
-  const storedConversation = await conversations.getConversationByExternalRef({
-    appId: appId as AppId,
-    providerId: activation.owner.providerId as ProviderId,
-    providerAccountId: activation.owner.providerAccountId as ProviderAccountId,
-    externalConversationId: activation.owner.externalConversationId,
-  });
-  if (!storedConversation || storedConversation.kind !== 'direct') {
-    return unverifiedOwnerStatus();
+/**
+ * Verified owner route for OWNER-ONLY actions that must work even when Observer
+ * is OFF (brain-dream destructive reviews). Uses resolveObserverOwnerRoute —
+ * which is NOT gated on observer.enabled — then the same DB verification. The
+ * owner is still configured under settings.observer.owner (the app owner).
+ */
+export async function resolveVerifiedOwnerRoute(
+  settings: RuntimeSettings,
+  appId: string,
+  conversations: ConversationRepository,
+): Promise<{
+  owner?: {
+    recipient: string;
+    conversationJid: string;
+    providerAccountId: string;
+  };
+}> {
+  const resolved = resolveObserverOwnerRoute(settings);
+  if (!resolved.ok) return {};
+  if (!(await verifyOwnerRoute(resolved.owner, appId, conversations)))
+    return {};
+  return {
+    owner: {
+      recipient: resolved.owner.recipient,
+      conversationJid: resolved.owner.conversationJid,
+      providerAccountId: resolved.owner.providerAccountId,
+    },
+  };
+}
+
+export type ObserverDeliveryIneligibleReason =
+  | 'observer_disabled'
+  | 'delivery_not_configured'
+  | 'delivery_disabled'
+  | ObserverOwnerResolutionFailure;
+
+export interface ObserverDeliverySchedule {
+  timezone: string;
+  sendAt: string;
+  quietHours?: { start: string; end: string };
+  maxInsights: number;
+}
+
+export type ObserverDeliveryStatus =
+  | {
+      eligible: false;
+      reason: ObserverDeliveryIneligibleReason;
+      message: string;
+    }
+  | {
+      eligible: true;
+      owner: ObserverOwnerRoute;
+      schedule: ObserverDeliverySchedule;
+    };
+
+// Delivery eligibility from settings alone: observer on, delivery opted in, a
+// resolvable owner route, and a validated timezone+send_at. The parser already
+// guarantees timezone/send_at are present and valid when delivery.enabled, so
+// this composes the emission owner route with the parsed schedule. The async
+// DB-verified owner route (resolveVerifiedObserverActivationStatus) is layered
+// in by the delivery job, which has a ConversationRepository this pure-settings
+// helper does not.
+export function resolveObserverDeliveryStatus(
+  settings: RuntimeSettings,
+): ObserverDeliveryStatus {
+  if (!settings.observer.enabled) {
+    return {
+      eligible: false,
+      reason: 'observer_disabled',
+      message: 'Observer is disabled.',
+    };
   }
-  const [participants, approvers] = await Promise.all([
-    conversations.listParticipantExternalUserIds(storedConversation.id),
-    conversations.listConversationApprovers(storedConversation.id),
-  ]);
-  const recipient = activation.owner.recipient;
-  if (
-    !participants.includes(recipient) ||
-    !approvers.some((approver) => approver.externalUserId === recipient)
-  ) {
-    return unverifiedOwnerStatus();
+  const delivery = settings.observer.delivery;
+  if (!delivery) {
+    return {
+      eligible: false,
+      reason: 'delivery_not_configured',
+      message: 'Observer delivery is not configured.',
+    };
   }
-  return activation;
+  if (!delivery.enabled) {
+    return {
+      eligible: false,
+      reason: 'delivery_disabled',
+      message: 'Observer delivery is disabled.',
+    };
+  }
+  const resolved = resolveObserverOwnerRoute(settings);
+  if (!resolved.ok) {
+    return {
+      eligible: false,
+      reason: resolved.reason,
+      message: 'Observer owner and owner DM must be configured for delivery.',
+    };
+  }
+  if (!delivery.timezone || !delivery.sendAt) {
+    return {
+      eligible: false,
+      reason: 'delivery_not_configured',
+      message: 'Observer delivery requires a valid timezone and send time.',
+    };
+  }
+  return {
+    eligible: true,
+    owner: resolved.owner,
+    schedule: {
+      timezone: delivery.timezone,
+      sendAt: delivery.sendAt,
+      ...(delivery.quietHours ? { quietHours: delivery.quietHours } : {}),
+      maxInsights: delivery.maxInsights,
+    },
+  };
 }
 
 function unverifiedOwnerStatus(): ObserverActivationStatus {

@@ -1,8 +1,13 @@
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import {
+  isRuntimeEventConversationFkId,
+  isRuntimeEventThreadFkId,
+} from '../domain/events/runtime-event-conversation.js';
+import {
   isRuntimeEventType,
   RUNTIME_EVENT_TYPES,
 } from '../domain/events/runtime-event-types.js';
+import { logger } from '../infrastructure/logging/logger.js';
 import type { AgentOutput } from './agent-spawn.js';
 
 export { RUNTIME_EVENT_TYPES };
@@ -35,6 +40,30 @@ function runtimeEventDedupKey(input: {
   ].join('\u001f');
 }
 
+function payloadWithRouteContext(input: {
+  payload: unknown;
+  conversationJid?: string;
+  threadId?: string | null;
+}): unknown {
+  if (
+    input.payload === null ||
+    typeof input.payload !== 'object' ||
+    Array.isArray(input.payload)
+  ) {
+    return input.payload;
+  }
+  const payload = input.payload as Record<string, unknown>;
+  return {
+    ...payload,
+    ...(!('conversationJid' in payload) && input.conversationJid
+      ? { conversationJid: input.conversationJid }
+      : {}),
+    ...(!('threadId' in payload) && input.threadId
+      ? { threadId: input.threadId }
+      : {}),
+  };
+}
+
 export async function forwardRuntimeEvents(input: {
   output: AgentOutput;
   publishRuntimeEvent?: (
@@ -64,24 +93,43 @@ export async function forwardRuntimeEvents(input: {
       payload: event.payload,
     });
     if (input.forwardedKeys.has(eventKey)) continue;
-    input.forwardedKeys.add(eventKey);
-    await publishRuntimeEvent({
-      appId: appId as never,
-      ...((event.agentId ?? input.turnAgentId)
-        ? { agentId: (event.agentId ?? input.turnAgentId) as never }
-        : {}),
-      ...((event.runId ?? input.runId)
-        ? { runId: (event.runId ?? input.runId) as never }
-        : {}),
-      ...(event.jobId ? { jobId: event.jobId as never } : {}),
-      conversationId: (event.conversationId ?? input.chatJid) as never,
-      ...((event.threadId ?? input.sessionThreadId)
-        ? { threadId: (event.threadId ?? input.sessionThreadId) as never }
-        : {}),
-      eventType: event.eventType,
-      actor: event.actor ?? 'runner',
-      responseMode: event.responseMode ?? 'none',
-      payload: event.payload,
-    });
+    try {
+      await publishRuntimeEvent({
+        appId: appId as never,
+        ...((event.agentId ?? input.turnAgentId)
+          ? { agentId: (event.agentId ?? input.turnAgentId) as never }
+          : {}),
+        ...((event.runId ?? input.runId)
+          ? { runId: (event.runId ?? input.runId) as never }
+          : {}),
+        ...(event.jobId ? { jobId: event.jobId as never } : {}),
+        conversationId: (event.conversationId ?? input.chatJid) as never,
+        ...((event.threadId ?? input.sessionThreadId)
+          ? { threadId: (event.threadId ?? input.sessionThreadId) as never }
+          : {}),
+        eventType: event.eventType,
+        actor: event.actor ?? 'runner',
+        responseMode: event.responseMode ?? 'none',
+        payload: event.payload,
+      });
+      // Mark forwarded only after a successful publish so a failed event
+      // remains retriable on a later forwarding pass in the same turn.
+      input.forwardedKeys.add(eventKey);
+    } catch (error) {
+      // Runtime events are observability/audit breadcrumbs. They must not
+      // fail a user-visible turn when storage is temporarily unhealthy or
+      // schema drift is being repaired. The key is intentionally NOT added,
+      // so a later forwarding pass can retry this event.
+      logger.warn(
+        {
+          error,
+          eventType: event.eventType,
+          conversationId: event.conversationId ?? input.chatJid,
+          runId: event.runId ?? input.runId,
+          agentId: event.agentId ?? input.turnAgentId,
+        },
+        'Failed to persist forwarded runtime event; will remain retriable',
+      );
+    }
   }
 }

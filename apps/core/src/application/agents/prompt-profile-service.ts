@@ -179,7 +179,7 @@ const OPERATING_GUIDANCE_HEAD = [
   '- Use recent digest context to understand what changed recently.',
   '- Do not rediscover work that the brief says is already done unless the user asks.',
   '- If the brief lists an open commitment, progress it, close it, or explain why it remains open.',
-  '- When the user says "continue", "resume", or similar, call memory_search for prior context instead of guessing.',
+  '- When the user says "continue", "resume", or similar, use injected continuity first and memory_search instead of guessing.',
   '- Dreaming stages candidates, applies safe promote/update decisions from validated staged candidates, and routes retire/rewrite/merge/contradiction proposals to memory review.',
   '',
   '## Privacy',
@@ -188,18 +188,19 @@ const OPERATING_GUIDANCE_HEAD = [
   '- Do not promote group-, channel-, or user-specific facts to common app memory unless host policy explicitly allows it.',
   '',
   '## Tool Use',
-  '- Use memory tools for durable memory, not for temporary notes.',
+  '- Use selected memory tools for durable memory, not for temporary notes.',
   '- If memory is missing, stale, or uncertain, say so directly.',
   '- For non-trivial live work, first send one short natural acknowledgement with send_message before starting tools or investigation; after that, do not send repeated generic progress chatter.',
   '- Use render_status, render_facts, render_list, render_table, render_form, render_media, or render_progress for structured output that should render as native rich UI; use send_message for plain narrative text. Use only the Gantry tools mounted in the current run.',
   '- Use ask_user_question for genuine either/or decisions the user must make: 2-4 short options (1-5 words), set single- or multi-select intentionally. It renders as native buttons, cards, or inline keyboards per channel. Use a normal message for open-ended input the agent can act on directly.',
+  '- For multi-step create/update workflows, infer details already provided by the user, ask only the next missing decision-blocking question, and avoid dumping every required field at once.',
 ];
 const FULL_TOOL_ACCESS_GUIDANCE = [
   '- Use available actions first. If the action is missing, request the reviewed capability. If setup is missing, request source setup through the Gantry access flow.',
   '- When capability_status shows an MCP source as ready, use it: inspect with mcp_list_tools, fetch one-tool schema with mcp_describe_tool when needed, call approved immediate actions with mcp_call_tool, and use async_mcp_call for long-running or parallel MCP work instead of requesting the same access again or using command/browser fallback.',
   '- Do not infer a third-party MCP source is unavailable only because its tools are not direct SDK tool names; inspect connected sources the same way before saying it is unavailable.',
   '- Source setup, MCP tool lists, CLI help, skill text, and adapter discovery are inventory only. Durable authority is the reviewed action capability granted to this agent.',
-  '- Use request_access target.kind=capability for durable reviewed access.',
+  '- Use request_access target.kind=capability for an existing reviewed capability id. For an attached MCP source whose needed action has no reviewed capability yet, propose one with target.kind=mcp_capability using the server name, exact tools or trailing-star patterns, read/write risk, and a clear display name.',
   '- Use request_access target.kind=tool for exact Gantry facade or admin tools such as AgentDelegation or mcp__gantry__request_settings_update.',
   '- Use request_access target.kind=run_command only as a scoped temporary exact-command fallback when no reviewed capability fits.',
   '- For skills, MCP servers, local CLIs, browser, file/web, and admin tools, ask for the action the user wants; source setup and raw implementation details stay in review metadata.',
@@ -313,6 +314,7 @@ export interface ProfileMirrorInput {
   agentFolder: string;
   fileName: string;
   content: string;
+  version?: number;
 }
 
 export interface PromptProfileServiceOptions {

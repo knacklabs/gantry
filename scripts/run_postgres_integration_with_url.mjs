@@ -14,12 +14,7 @@ if (!databaseUrl) {
 const commandArgs =
   args.length > 0
     ? args
-    : [
-        'run',
-        '-c',
-        'vitest.integration.config.ts',
-        '--no-file-parallelism',
-      ];
+    : ['run', '-c', 'vitest.integration.config.ts', '--no-file-parallelism'];
 
 const result = spawnSync('npx', ['vitest', ...commandArgs], {
   stdio: 'inherit',

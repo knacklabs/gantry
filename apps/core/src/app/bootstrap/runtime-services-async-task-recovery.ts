@@ -20,10 +20,11 @@ import type { AgentOutput } from '../../runtime/agent-spawn-types.js';
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
 import {
-  resolveTurnSelectedMcpServerIds,
-  resolveTurnSelectedSkillContext,
-  resolveTurnSemanticCapabilities,
-  resolveTurnToolPolicy,
+  loadAgentAccessSnapshot,
+  resolveTurnSemanticCapabilitiesFromSnapshot,
+  resolveTurnSelectedMcpServerIdsFromSnapshot,
+  resolveTurnSelectedSkillContextFromSnapshot,
+  resolveTurnToolPolicyFromSnapshot,
 } from '../../runtime/group-run-context.js';
 import {
   releaseCompactionLockFromTask,
@@ -302,15 +303,18 @@ function createRecoveredDelegatedAgentRun(
       appId: runInput.task.appId,
       agentId: taskInput.targetAgentId ? routedAgentId : runInput.task.agentId,
     };
-    const [toolPolicy, selectedSkillContext, semanticCapabilities] =
-      await Promise.all([
-        resolveTurnToolPolicy(deps, scopedTaskOwner),
-        resolveTurnSelectedSkillContext(deps, scopedTaskOwner),
-        resolveTurnSemanticCapabilities(deps, scopedTaskOwner),
-      ]);
-    const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
-      deps,
-      scopedTaskOwner,
+    const accessSnapshot = await loadAgentAccessSnapshot(deps, scopedTaskOwner);
+    const toolPolicy = resolveTurnToolPolicyFromSnapshot(accessSnapshot);
+    const selectedSkillContext =
+      resolveTurnSelectedSkillContextFromSnapshot(accessSnapshot);
+    const semanticCapabilities =
+      resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot);
+    const attachedMcpSourceIds = resolveTurnSelectedMcpServerIdsFromSnapshot(
+      accessSnapshot,
+      {
+        conversationId: group.conversationId,
+        threadId: runInput.task.threadId ?? undefined,
+      },
     );
     const runAgent = deps.runAgent ?? spawnAgent;
     let latestResult: string | null = null;
@@ -366,6 +370,7 @@ function createRecoveredDelegatedAgentRun(
         mcpContext: scopedTaskOwner,
         mcpHostnameLookup: deps.mcpHostnameLookup,
         mcpDnsValidationCache: deps.getMcpDnsValidationCache?.(),
+        accessSnapshot,
         publishRuntimeEvent: deps.publishRuntimeEvent,
         executionAdapter: deps.executionAdapter,
         executionAdapters: deps.executionAdapters,

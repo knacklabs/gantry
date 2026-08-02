@@ -30,12 +30,17 @@ import {
   validateTransportConfig,
 } from './mcp-server-policy.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
+import {
+  type AgentAccessSnapshot,
+  assertHostAccessSnapshot,
+} from '../agent-execution/agent-access-snapshot.js';
 import { reviewedMcpToolPatterns } from '../../shared/mcp-tool-scope.js';
 import {
   materializeMcpRecord,
   type MaterializedMcpCapability,
 } from './mcp-server-materialization.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import { mcpServerDefinitionFingerprint } from './mcp-server-definition-fingerprint.js';
 
 export type { MaterializedMcpCapability } from './mcp-server-materialization.js';
 
@@ -127,6 +132,16 @@ export class McpServerService {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
+    if (
+      existing &&
+      mcpServerDefinitionFingerprint(existing) !==
+        mcpServerDefinitionFingerprint(definition)
+    ) {
+      throw new ApplicationError(
+        'CONFLICT',
+        `MCP server name ${name} belongs to a different disabled definition. Connect the replacement under a new name.`,
+      );
+    }
     await this.mcpServers.saveServer(definition);
     await this.audit({
       appId: input.appId,
@@ -246,13 +261,11 @@ export class McpServerService {
         `MCP server must be active before binding: ${server.id}`,
       );
     }
-    const existingBinding = (
-      await this.mcpServers.listAgentBindings({
-        appId: input.appId,
-        agentId: input.agentId,
-        limit: 500,
-      })
-    ).find((binding) => binding.serverId === input.serverId);
+    const existingBinding = await this.mcpServers.getAgentBinding({
+      appId: input.appId,
+      agentId: input.agentId,
+      serverId: input.serverId,
+    });
     const latestServer = await this.requireServer(input.appId, input.serverId);
     if (!isMcpServerActive(latestServer)) {
       throw new ApplicationError(
@@ -277,6 +290,8 @@ export class McpServerService {
       permissionPolicyIds:
         input.permissionPolicyIds ?? existingBinding?.permissionPolicyIds ?? [],
       allowedToolPatterns,
+      conversationId: existingBinding?.conversationId,
+      threadId: existingBinding?.threadId,
       createdAt: existingBinding?.createdAt ?? now,
       updatedAt: now,
     };
@@ -391,12 +406,22 @@ export class McpServerService {
     agentId: AgentId;
     serverIds?: readonly McpServerId[];
     credentialEnv?: Record<string, string>;
+    accessSnapshot?: AgentAccessSnapshot;
   }): Promise<MaterializedMcpCapability[]> {
     if (input.serverIds && input.serverIds.length === 0) {
       return [];
     }
+    const accessSnapshot = assertHostAccessSnapshot({
+      accessSnapshot: input.accessSnapshot,
+      appId: input.appId,
+      agentId: input.agentId,
+      subject: 'MCP materialization',
+    });
+    const selectedIds = input.serverIds ? new Set(input.serverIds) : undefined;
     const records =
-      await this.mcpServers.listMaterializedServersForAgent(input);
+      accessSnapshot?.mcp.materializedServers.filter(
+        (record) => !selectedIds || selectedIds.has(record.definition.id),
+      ) ?? (await this.mcpServers.listMaterializedServersForAgent(input));
     const settled = await Promise.allSettled(
       records.map((record) =>
         this.materializeOne(record, input.credentialEnv ?? {}),

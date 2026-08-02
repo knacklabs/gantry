@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@core/platform/sender-allowlist.js', () => ({
   loadSenderAllowlist: vi.fn(() => ({})),
   loadSenderControlAllowlist: vi.fn(() => ({})),
-  shouldDropMessage: vi.fn(() => false),
   isSenderAllowed: vi.fn(() => true),
   isSenderControlAllowed: vi.fn(() => true),
   shouldLogDenied: vi.fn(() => false),
@@ -33,6 +32,8 @@ const runtimeStoreMock = vi.hoisted(() => ({
 }));
 const runtimeLeaseMock = vi.hoisted(() => ({
   tryAcquire: vi.fn(async () => ({
+    generation: 1,
+    isValid: () => true,
     onLost: vi.fn(),
     release: vi.fn(async () => undefined),
   })),
@@ -51,6 +52,7 @@ import { AsyncTaskQueue } from '@core/app/bootstrap/async-task-queue.js';
 import { createChannelPersistenceHandlers } from '@core/app/bootstrap/channel-persistence-handlers.js';
 import { hydrateChannelConversationContext } from '@core/app/bootstrap/channel-wiring-conversation-context.js';
 import { createChannelWiring } from '@core/app/bootstrap/channel-wiring.js';
+import { createChannelAttachmentDeletionHandler } from '@core/app/bootstrap/channel-wiring-attachment-deletion.js';
 import {
   createAgentTodoRenderer,
   createRichInteractionRenderer,
@@ -181,6 +183,8 @@ function makeApp(conversationRoutes: Record<string, any> = {}): RuntimeApp {
     getConversationRoutes: vi.fn(() => conversationRoutes),
     setAgentCursor: vi.fn(),
     setChannelRuntime: vi.fn(),
+    setHistoryCoverageDistrustEpochReader: vi.fn(),
+    setConversationHistoryCoverageRepository: vi.fn(),
   };
 }
 
@@ -214,6 +218,121 @@ function makeProvider(
 }
 
 describe('createChannelWiring', () => {
+  it('registers its process-local history distrust epoch reader with the runtime app', () => {
+    const app = makeApp();
+    const wiring = createChannelWiring(app);
+    const setReader = vi.mocked(app.setHistoryCoverageDistrustEpochReader);
+
+    expect(setReader).toHaveBeenCalledTimes(1);
+    expect(setReader.mock.calls[0][0]('slack-account-1')).toEqual(
+      wiring.getHistoryCoverageDistrustEpoch('slack-account-1'),
+    );
+  });
+
+  it('registers an override coverage repository with the runtime app', () => {
+    const app = makeApp();
+    const historyCoverage = {
+      readProviderGeneration: vi.fn(),
+      bumpProviderGeneration: vi.fn(),
+      getCoverage: vi.fn(),
+      upsertCoverage: vi.fn(),
+    } as any;
+
+    createChannelWiring(app, { historyCoverage });
+
+    expect(app.setConversationHistoryCoverageRepository).toHaveBeenCalledWith(
+      historyCoverage,
+    );
+  });
+
+  it('maps one provider-neutral deletion callback to one scoped repository call', async () => {
+    let onMessageAttachmentsDeleted: Parameters<
+      Provider['create']
+    >[0]['onMessageAttachmentsDeleted'];
+    const channel = makeChannel({ name: 'slack' });
+    const create = vi.fn<Provider['create']>(async (opts) => {
+      onMessageAttachmentsDeleted = opts.onMessageAttachmentsDeleted;
+      return channel;
+    });
+    const setDeletedAtByMessageExternalIds = vi.fn(async () => ({
+      tombstonedAttachments: [],
+    }));
+    const wiring = createChannelWiring(makeApp(), {
+      appId: 'app-one' as never,
+      providerIds: [makeProvider('slack', create)],
+      messageAttachments: { setDeletedAtByMessageExternalIds } as never,
+    });
+
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({
+        telegram: false,
+        slack: true,
+      }),
+    );
+    await onMessageAttachmentsDeleted?.({
+      providerId: 'slack',
+      channelId: 'C123',
+      externalMessageIds: ['message-1'],
+      deletedAt: '2026-08-01T00:00:00.000Z',
+    });
+
+    expect(setDeletedAtByMessageExternalIds).toHaveBeenCalledOnce();
+    expect(setDeletedAtByMessageExternalIds).toHaveBeenCalledWith({
+      appId: 'app-one',
+      providerId: 'slack',
+      providerAccountIds: ['slack_default'],
+      channelId: 'C123',
+      externalMessageIds: ['message-1'],
+      deletedAt: '2026-08-01T00:00:00.000Z',
+    });
+    await wiring.disconnectChannels();
+  });
+
+  it('rejects a failed durable deletion and coalesces its background retry', async () => {
+    vi.useFakeTimers();
+    try {
+      const failure = new Error('tombstone failed once');
+      const setDeletedAtByMessageExternalIds = vi
+        .fn()
+        .mockRejectedValueOnce(failure)
+        .mockResolvedValue({ tombstonedAttachments: [] });
+      const retryPendingMessageAttachmentDeletions = vi.fn(async () => false);
+      const handler = createChannelAttachmentDeletionHandler(
+        'app-one',
+        () =>
+          ({
+            setDeletedAtByMessageExternalIds,
+            retryPendingMessageAttachmentDeletions,
+          }) as never,
+        { retryDelayMs: 10 },
+      );
+
+      await expect(
+        handler({
+          providerId: 'discord',
+          providerAccountIds: ['discord-one', 'discord-two'],
+          channelId: 'channel-1',
+          externalMessageIds: ['message-1', 'message-2'],
+          deletedAt: '2026-08-01T00:00:00.000Z',
+        }),
+      ).rejects.toBe(failure);
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(retryPendingMessageAttachmentDeletions).toHaveBeenCalledOnce();
+      expect(setDeletedAtByMessageExternalIds).toHaveBeenCalledTimes(2);
+      expect(setDeletedAtByMessageExternalIds).toHaveBeenLastCalledWith({
+        appId: 'app-one',
+        providerId: 'discord',
+        providerAccountIds: ['discord-one', 'discord-two'],
+        channelId: 'channel-1',
+        externalMessageIds: ['message-1', 'message-2'],
+        deletedAt: '2026-08-01T00:00:00.000Z',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('coalesces run permission requests into one live batch prompt', async () => {
     vi.useFakeTimers();
     try {
@@ -403,6 +522,308 @@ describe('createChannelWiring', () => {
     });
     expect(missingReset).not.toHaveBeenCalled();
   });
+
+  it('routes a claimed question cancellation to the active channel waiter', async () => {
+    let resolveAnswer!: (response: {
+      requestId: string;
+      answers: Record<string, string | string[]>;
+    }) => void;
+    const requestUserAnswer = vi.fn(
+      async (
+        _jid: string,
+        request: UserQuestionRequest,
+        onPromptDelivered?: (messageId: string, questionIndex?: number) => void,
+      ) => {
+        onPromptDelivered?.('question-prompt-1');
+        return new Promise<{
+          requestId: string;
+          answers: Record<string, string | string[]>;
+        }>((resolve) => {
+          resolveAnswer = resolve;
+        });
+      },
+    );
+    const cancelPendingQuestion = vi.fn(async (cancellation) => {
+      resolveAnswer({ requestId: cancellation.requestId, answers: {} });
+      return 'settled' as const;
+    });
+    const responder = createUserQuestionResponder({
+      findBoundChannel: () => ({}),
+      asUserQuestionSurface: () => ({
+        requestUserAnswer,
+        cancelPendingQuestion,
+      }),
+      interactionLifecycle: {
+        logger: { debug: vi.fn(), error: vi.fn() },
+      },
+    });
+    const request: UserQuestionRequest = {
+      requestId: 'question-cancel-active',
+      appId: 'default',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:team',
+      questions: [],
+    };
+    const answer = responder.requestUserAnswer(request);
+
+    await expect(
+      responder.cancelUserQuestion({
+        requestId: request.requestId,
+        appId: request.appId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Question cancelled. Nothing changed.',
+      }),
+    ).resolves.toBe('settled');
+    await expect(answer).resolves.toEqual({
+      requestId: request.requestId,
+      answers: {},
+    });
+    expect(cancelPendingQuestion).toHaveBeenCalledWith({
+      requestId: request.requestId,
+      appId: request.appId,
+      sourceAgentFolder: request.sourceAgentFolder,
+      reason: 'Question cancelled. Nothing changed.',
+    });
+  });
+
+  it('does not dispatch a question that was cancelled before channel delivery', async () => {
+    const requestUserAnswer = vi.fn(
+      async (_jid: string, request: UserQuestionRequest) => ({
+        requestId: request.requestId,
+        answers: { Choice: 'A' },
+      }),
+    );
+    const responder = createUserQuestionResponder({
+      findBoundChannel: () => ({}),
+      asUserQuestionSurface: () => ({ requestUserAnswer }),
+      interactionLifecycle: {
+        logger: { debug: vi.fn(), error: vi.fn() },
+      },
+    });
+    const request: UserQuestionRequest = {
+      requestId: 'question-cancel-before-dispatch',
+      appId: 'default',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:team',
+      questions: [],
+    };
+
+    await expect(
+      responder.cancelUserQuestion({
+        requestId: request.requestId,
+        appId: request.appId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Question cancelled. Nothing changed.',
+      }),
+    ).resolves.toBe('queued');
+    await expect(responder.requestUserAnswer(request)).resolves.toEqual({
+      requestId: request.requestId,
+      answers: {},
+    });
+    expect(requestUserAnswer).not.toHaveBeenCalled();
+  });
+
+  it('settles an aborted question through the normal channel-wiring facade', async () => {
+    let resolveAnswer!: (response: {
+      requestId: string;
+      answers: Record<string, string | string[]>;
+    }) => void;
+    const cancelPendingQuestion = vi.fn(async (cancellation) => {
+      resolveAnswer({ requestId: cancellation.requestId, answers: {} });
+      return 'settled' as const;
+    });
+    const questionChannel = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:group'),
+      requestUserAnswer: vi.fn(
+        async (
+          _jid: string,
+          _request: UserQuestionRequest,
+          onPromptDelivered?: (
+            messageId: string,
+            questionIndex?: number,
+          ) => void,
+        ) => {
+          onPromptDelivered?.('question-prompt-normal-wiring');
+          return new Promise<{
+            requestId: string;
+            answers: Record<string, string | string[]>;
+          }>((resolve) => {
+            resolveAnswer = resolve;
+          });
+        },
+      ),
+      cancelPendingQuestion,
+    });
+    const wiring = createChannelWiring(
+      makeApp({ 'tg:group': { name: 'Group', folder: 'group' } }),
+      {
+        providerIds: [
+          makeProvider(
+            'telegram',
+            vi.fn(() => questionChannel),
+          ),
+        ],
+      },
+    );
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+    const request: UserQuestionRequest = {
+      requestId: 'question-normal-wiring-cancel',
+      appId: 'default',
+      sourceAgentFolder: 'group',
+      targetJid: 'tg:group',
+      questions: [],
+    };
+    const answer = wiring.requestUserAnswer(request);
+
+    await expect(
+      wiring.cancelUserQuestion({
+        requestId: request.requestId,
+        appId: request.appId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Question cancelled. Nothing changed.',
+      }),
+    ).resolves.toBe('settled');
+    await expect(answer).resolves.toEqual({
+      requestId: request.requestId,
+      answers: {},
+    });
+    expect(cancelPendingQuestion).toHaveBeenCalledWith({
+      requestId: request.requestId,
+      appId: request.appId,
+      sourceAgentFolder: request.sourceAgentFolder,
+      reason: 'Question cancelled. Nothing changed.',
+    });
+  });
+
+  it('catches a throwing question handler and leaves retry ownership to the durable directory', async () => {
+    vi.useFakeTimers();
+    const unhandledRejection = vi.fn();
+    process.on('unhandledRejection', unhandledRejection);
+    let resolveAnswer!: (response: {
+      requestId: string;
+      answers: Record<string, string | string[]>;
+    }) => void;
+    const cancellationFailure = new Error('question cancellation unavailable');
+    const cancelPendingQuestion = vi
+      .fn()
+      .mockRejectedValue(cancellationFailure);
+    const logger = { debug: vi.fn(), error: vi.fn() };
+    const responder = createUserQuestionResponder({
+      findBoundChannel: () => ({}),
+      asUserQuestionSurface: () => ({
+        requestUserAnswer: vi.fn(async (_jid, request, onPromptDelivered) => {
+          onPromptDelivered?.('question-prompt-retry');
+          return new Promise<{
+            requestId: string;
+            answers: Record<string, string | string[]>;
+          }>((resolve) => {
+            resolveAnswer = resolve;
+          });
+        }),
+        cancelPendingQuestion,
+      }),
+      interactionLifecycle: { logger },
+    });
+    const request: UserQuestionRequest = {
+      requestId: 'question-cancel-retry',
+      appId: 'default',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:team',
+      questions: [],
+    };
+
+    try {
+      const answer = responder.requestUserAnswer(request);
+      await expect(
+        responder.cancelUserQuestion({
+          requestId: request.requestId,
+          appId: request.appId,
+          sourceAgentFolder: request.sourceAgentFolder,
+          reason: 'Question cancelled.',
+        }),
+      ).resolves.toBe('queued');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          err: cancellationFailure,
+          targetJid: 'tg:team',
+          requestId: request.requestId,
+          message: 'Target channel user question cancellation failed',
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(cancelPendingQuestion).toHaveBeenCalledOnce();
+      resolveAnswer({ requestId: request.requestId, answers: {} });
+      await expect(answer).resolves.toEqual({
+        requestId: request.requestId,
+        answers: {},
+      });
+      await Promise.resolve();
+      expect(unhandledRejection).not.toHaveBeenCalled();
+    } finally {
+      responder.clear();
+      process.off('unhandledRejection', unhandledRejection);
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['retryable', 'queued'],
+    ['not_found', 'queued'],
+    ['settled', 'settled'],
+    ['already_decided', 'settled'],
+  ] as const)(
+    'maps question result %s to %s without starting a local retry',
+    async (channelResult, cancellationResult) => {
+      vi.useFakeTimers();
+      let resolveAnswer!: (response: {
+        requestId: string;
+        answers: Record<string, string | string[]>;
+      }) => void;
+      const cancelPendingQuestion = vi.fn(async () => channelResult);
+      const responder = createUserQuestionResponder({
+        findBoundChannel: () => ({}),
+        asUserQuestionSurface: () => ({
+          requestUserAnswer: vi.fn(async (_jid, request, onPromptDelivered) => {
+            onPromptDelivered?.('question-prompt');
+            return new Promise<{
+              requestId: string;
+              answers: Record<string, string | string[]>;
+            }>((resolve) => {
+              resolveAnswer = resolve;
+            });
+          }),
+          cancelPendingQuestion,
+        }),
+        interactionLifecycle: {
+          logger: { debug: vi.fn(), error: vi.fn() },
+        },
+      });
+      const cancellation = {
+        requestId: `question-${channelResult}`,
+        appId: 'default',
+        sourceAgentFolder: 'main_agent',
+        reason: 'Question cancelled.',
+      };
+      const answer = responder.requestUserAnswer({
+        ...cancellation,
+        targetJid: 'tg:team',
+        questions: [],
+      });
+
+      await expect(responder.cancelUserQuestion(cancellation)).resolves.toBe(
+        cancellationResult,
+      );
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(cancelPendingQuestion).toHaveBeenCalledOnce();
+      resolveAnswer({ requestId: cancellation.requestId, answers: {} });
+      await answer;
+      responder.clear();
+      vi.useRealTimers();
+    },
+  );
 
   it('drops a shadowing question waiter before rethrowing its persistence error', async () => {
     const events: string[] = [];
@@ -708,6 +1129,25 @@ describe('createChannelWiring', () => {
     });
   });
 
+  it('uses runtime secret rotations made after channel wiring creation', async () => {
+    const initialSecrets = { getSecret: vi.fn() } as never;
+    const rotatedSecrets = { getSecret: vi.fn() } as never;
+    const create = vi.fn(() => makeChannel());
+    const wiring = createChannelWiring(makeApp(), {
+      providerIds: [makeProvider('slack', create)],
+      runtimeSecrets: initialSecrets,
+    });
+
+    wiring.setRuntimeSecrets(rotatedSecrets);
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: false, slack: true }),
+    );
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ runtimeSecrets: rotatedSecrets }),
+    );
+  });
+
   it('derives provider account and agent context for same-channel approval checks', async () => {
     runtimeStoreMock.repositories.conversations.getConversation.mockResolvedValue(
       {
@@ -935,6 +1375,8 @@ describe('createChannelWiring', () => {
     const app = makeApp();
     const channel = makeChannel();
     const lease = {
+      generation: 1,
+      isValid: () => true,
       onLost: vi.fn(),
       release: vi.fn(async () => undefined),
     };
@@ -1018,7 +1460,7 @@ describe('createChannelWiring', () => {
     ).rejects.toThrow(/runtime transport is not implemented/);
   });
 
-  it('drops disallowed inbound sender before persistence', async () => {
+  it('persists a non-allowed sender on a registered route', async () => {
     const app = makeApp({
       'tg:123': {
         name: 'Main',
@@ -1038,7 +1480,6 @@ describe('createChannelWiring', () => {
       ],
       opsRepository: { storeMessage } as any,
       loadSenderAllowlist: vi.fn(() => ({}) as any),
-      shouldDropMessage: vi.fn(() => true),
       isSenderAllowed: vi.fn(() => false),
       shouldLogDenied: vi.fn(() => true),
     });
@@ -1058,7 +1499,18 @@ describe('createChannelWiring', () => {
       is_bot_message: false,
     });
 
-    expect(storeMessage).not.toHaveBeenCalled();
+    expect(storeMessage).toHaveBeenCalledWith({
+      agentId: 'agent:main_agent',
+      chat_jid: 'tg:123',
+      content: 'hello',
+      id: 'm1',
+      is_bot_message: false,
+      is_from_me: false,
+      providerAccountId: 'telegram_default',
+      sender: 'user-1',
+      sender_name: 'User',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    });
   });
 
   it('stores normal inbound messages', async () => {
@@ -1080,7 +1532,6 @@ describe('createChannelWiring', () => {
         }),
       ],
       opsRepository: { storeMessage } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -1133,7 +1584,6 @@ describe('createChannelWiring', () => {
         storeMessage,
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -1207,7 +1657,6 @@ describe('createChannelWiring', () => {
         storeMessage: vi.fn(),
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -1229,8 +1678,26 @@ describe('createChannelWiring', () => {
     expect(
       storeMessageWithLiveAdmission.mock.calls.map((call) => call[1]),
     ).toEqual([
-      expect.objectContaining({ agentId: 'agent:alpha' }),
-      expect.objectContaining({ agentId: 'agent:beta' }),
+      {
+        appId: 'app-one',
+        agentId: 'agent:alpha',
+        providerAccountId: 'telegram_default',
+        triggerDecision: {
+          source: 'channel_persistence',
+          requiresTrigger: false,
+          conversationKind: 'channel',
+        },
+      },
+      {
+        appId: 'app-one',
+        agentId: 'agent:beta',
+        providerAccountId: 'telegram_default',
+        triggerDecision: {
+          source: 'channel_persistence',
+          requiresTrigger: true,
+          conversationKind: 'channel',
+        },
+      },
     ]);
   });
 
@@ -1290,7 +1757,6 @@ describe('createChannelWiring', () => {
         storeMessage: vi.fn(),
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(settings);
@@ -1331,19 +1797,19 @@ describe('createChannelWiring', () => {
       },
     });
     const storeMessageWithLiveAdmission = vi.fn(async () => undefined);
+    const warn = vi.fn();
     const handlers = createChannelPersistenceHandlers({
       app,
       resolved: {
         providerIds: [],
         loadSenderAllowlist: vi.fn(() => ({}) as any),
         loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-        shouldDropMessage: vi.fn(() => false),
         isSenderAllowed: vi.fn(() => true),
         isSenderControlAllowed: vi.fn(() => true),
         shouldLogDenied: vi.fn(() => false),
         logger: {
           info: vi.fn(),
-          warn: vi.fn(),
+          warn,
           debug: vi.fn(),
           error: vi.fn(),
         },
@@ -1368,6 +1834,14 @@ describe('createChannelWiring', () => {
     });
 
     expect(storeMessageWithLiveAdmission).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatJid: 'sl:C123',
+        providerAccountId: 'slack_alpha',
+        sender: 'U1',
+      }),
+      'Dropping channel message without configured conversation route',
+    );
   });
 
   it('does not match stale unscoped routes when inbound message has a Provider Account', async () => {
@@ -1389,7 +1863,6 @@ describe('createChannelWiring', () => {
         providerIds: [],
         loadSenderAllowlist: vi.fn(() => ({}) as any),
         loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-        shouldDropMessage: vi.fn(() => false),
         isSenderAllowed: vi.fn(() => true),
         isSenderControlAllowed: vi.fn(() => true),
         shouldLogDenied: vi.fn(() => false),
@@ -1457,7 +1930,6 @@ describe('createChannelWiring', () => {
         providerIds: [],
         loadSenderAllowlist: vi.fn(() => ({}) as any),
         loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-        shouldDropMessage: vi.fn(() => false),
         isSenderAllowed: vi.fn(() => true),
         isSenderControlAllowed: vi.fn(() => true),
         shouldLogDenied: vi.fn(() => false),
@@ -1519,6 +1991,29 @@ describe('createChannelWiring', () => {
     );
 
     expect(findBoundChannel).toHaveBeenCalledWith('sl:C123', 'slack_beta');
+  });
+
+  it('returns the exact unsupported result without coverage for a hookless channel', async () => {
+    const result = await hydrateChannelConversationContext(
+      {
+        conversationJid: 'tg:-100123',
+        latestMessage: {
+          id: 'current',
+          timestamp: '2026-01-01T00:00:00.000Z',
+        },
+        limits: { channelMessages: 30, threadMessages: 50 },
+      },
+      vi.fn(() => ({})),
+      () => 'telegram',
+    );
+
+    expect(result).toEqual({
+      providerId: 'telegram',
+      attempted: false,
+      skipped: true,
+      reason: 'unsupported',
+    });
+    expect('coverage' in result).toBe(false);
   });
 
   it('resets the routed Provider Account channel after an IPC approval prompt', async () => {
@@ -1967,7 +2462,6 @@ describe('createChannelWiring', () => {
         storeMessage,
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -2023,7 +2517,6 @@ describe('createChannelWiring', () => {
         storeMessage: vi.fn(),
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -2086,7 +2579,6 @@ describe('createChannelWiring', () => {
         storeMessage: vi.fn(),
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -2134,7 +2626,6 @@ describe('createChannelWiring', () => {
         providerIds: [],
         loadSenderAllowlist: vi.fn(() => ({}) as any),
         loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-        shouldDropMessage: vi.fn(() => false),
         isSenderAllowed: vi.fn(() => true),
         isSenderControlAllowed: vi.fn(() => true),
         shouldLogDenied: vi.fn(() => false),
@@ -3650,7 +4141,6 @@ describe('createChannelPersistenceHandlers conversation-owned direct routes', ()
           providerIds: [],
           loadSenderAllowlist: vi.fn(() => ({}) as any),
           loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-          shouldDropMessage: vi.fn(() => false),
           isSenderAllowed: vi.fn(() => true),
           isSenderControlAllowed: vi.fn(() => true),
           shouldLogDenied: vi.fn(() => false),
@@ -3702,7 +4192,6 @@ describe('createChannelPersistenceHandlers conversation-owned direct routes', ()
         providerIds: [],
         loadSenderAllowlist: vi.fn(() => ({}) as any),
         loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-        shouldDropMessage: vi.fn(() => false),
         isSenderAllowed: vi.fn(() => true),
         isSenderControlAllowed: vi.fn(() => true),
         shouldLogDenied: vi.fn(() => false),

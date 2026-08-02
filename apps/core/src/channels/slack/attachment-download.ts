@@ -1,17 +1,12 @@
-import fs from 'fs';
-
 import { logger } from '../../infrastructure/logging/logger.js';
-import {
-  PRIVATE_FILE_MODE,
-  assertPrivateFileTargetSync,
-  writePrivateFileSync,
-} from '../../shared/private-fs.js';
+import { writeInboundAttachment } from '../../shared/inbound-attachment-writer.js';
 
 export const SLACK_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
 export async function writeSlackAttachmentResponse(
   response: Response,
-  destPath: string,
+  workspaceRoot: string,
+  workspaceRelativePath: string,
 ): Promise<boolean> {
   const declaredLength = Number(response.headers.get('content-length'));
   if (
@@ -35,45 +30,32 @@ export async function writeSlackAttachmentResponse(
       );
       return false;
     }
-    writePrivateFileSync(destPath, buffer);
+    await writeInboundAttachment({
+      workspaceRoot,
+      workspaceRelativePath,
+      content: buffer,
+      maxBytes: SLACK_MAX_ATTACHMENT_BYTES,
+    });
     return true;
   }
 
-  assertPrivateFileTargetSync(destPath);
-  const fd = fs.openSync(destPath, 'w', PRIVATE_FILE_MODE);
-  let totalBytes = 0;
-  let shouldCleanup = false;
+  let result;
   try {
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      const value = chunk.value;
-      if (!value || value.byteLength === 0) continue;
-      totalBytes += value.byteLength;
-      if (totalBytes > SLACK_MAX_ATTACHMENT_BYTES) {
-        shouldCleanup = true;
-        logger.warn(
-          { bytes: totalBytes, maxBytes: SLACK_MAX_ATTACHMENT_BYTES },
-          'Slack file exceeds max allowed size',
-        );
-        return false;
-      }
-      fs.writeSync(fd, Buffer.from(value));
-    }
-    return true;
+    result = await writeInboundAttachment({
+      workspaceRoot,
+      workspaceRelativePath,
+      content: reader,
+      maxBytes: SLACK_MAX_ATTACHMENT_BYTES,
+    });
   } catch (err) {
-    shouldCleanup = true;
     throw new Error('Failed to stream Slack attachment', { cause: err });
-  } finally {
-    fs.closeSync(fd);
-    if (shouldCleanup) {
-      try {
-        fs.unlinkSync(destPath);
-      } catch {
-        // ignore cleanup failures
-      }
-    } else {
-      fs.chmodSync(destPath, PRIVATE_FILE_MODE);
-    }
   }
+  if (result.status === 'too-large') {
+    logger.warn(
+      { bytes: result.bytes, maxBytes: SLACK_MAX_ATTACHMENT_BYTES },
+      'Slack file exceeds max allowed size',
+    );
+    return false;
+  }
+  return true;
 }

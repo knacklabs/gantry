@@ -2,9 +2,15 @@ import {
   decisionForMode,
   firstPersistentRule,
 } from '../domain/permission-decision.js';
+import {
+  evaluatePermissionDeterministicRails,
+  permissionRiskForDeterministicRailDecision,
+  type PermissionDeterministicRailRisk,
+} from '../domain/permission-deterministic-rails.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionRiskLevel,
 } from '../domain/types.js';
 import { resolveEffectivePermissionMode } from '../shared/permission-mode.js';
 import {
@@ -22,12 +28,155 @@ import {
 import { runDurablePermissionInteraction } from '../application/interactions/durable-interaction-handler.js';
 import { resolveAgentToolRuntimePolicy } from '../application/agents/agent-tool-runtime-rules.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
+import {
+  computePermissionEffectHash,
+  EFFECT_SCHEMA_VERSION,
+  RAIL_CATALOG_VERSION,
+} from '../domain/permission-effect-key.js';
+import type { PermissionDecisionMemoryRepository } from '../domain/ports/permission-decision-memory.js';
 import type { YoloModeSettings } from '../shared/yolo-mode-policy.js';
+import {
+  evaluateYoloModeDenylist,
+  yoloModeDenylistDenyReason,
+} from '../shared/yolo-mode-policy.js';
+import {
+  buildAgentToolExecutionRequest,
+  evaluateProtectedCapabilityToolUse,
+  ToolExecutionClassifier,
+  ToolExecutionPolicyService,
+} from '../shared/tool-execution-policy-service.js';
+import {
+  coordinatePermissionDecision,
+  permissionRunRestriction,
+} from './permission-decision-coordinator.js';
 
 export async function resolvePermissionIpcDecision(input: {
   request: ParsedPermissionIpcRequest;
   sourceAgentFolder: string;
   deps: IpcDeps;
+}): Promise<PermissionApprovalDecision> {
+  const settings = input.deps.getPermissionRuntimeSettings?.();
+  const agentSettings = settings?.agents[input.sourceAgentFolder] as
+    | {
+        accessPreset?: 'full' | 'locked';
+        capabilities?: Array<{ id: string }>;
+      }
+    | null
+    | undefined;
+  const approvedCapabilityIds =
+    agentSettings?.capabilities?.map(({ id }) => id) ?? [];
+  const workspaceRoot = resolveWorkspaceFolderPath(input.sourceAgentFolder);
+  const fixedImageRestricted = input.request.responseKeyId
+    ? (permissionRunRestriction({
+        sourceAgentFolder: input.sourceAgentFolder,
+        responseKeyId: input.request.responseKeyId,
+      })?.hideAuthorityTools ?? false)
+    : false;
+  const protectedCapability = evaluateProtectedCapabilityToolUse(
+    input.request.toolName,
+    input.request.toolInput,
+  );
+  const yoloMode = (
+    settings?.permissions as { yoloMode?: YoloModeSettings } | undefined
+  )?.yoloMode;
+  const yoloMatch = evaluateYoloModeDenylist({
+    settings: yoloMode,
+    toolName: input.request.toolName,
+    toolInput: input.request.toolInput,
+  });
+  const effectHash = computePermissionEffectHash({
+    request: input.request,
+    workspaceRoot,
+  });
+  const decisionMemory = input.deps.getPermissionDecisionMemoryRepository?.();
+  let railRisk: PermissionDeterministicRailRisk | undefined;
+  let railRequiresApproval = false;
+  let railApprovalReason: string | undefined;
+  return coordinatePermissionDecision({
+    request: input.request,
+    effectHash,
+    decisionMemory,
+    hardDenyReason: protectedCapability
+      ? `Denied by Gantry tool execution policy: ${protectedCapability.reason} ${protectedCapability.recoveryAction}`
+      : yoloMatch
+        ? yoloModeDenylistDenyReason(yoloMatch)
+        : undefined,
+    accessPreset: agentSettings?.accessPreset,
+    fixedImageRestricted,
+    deterministicRailsInput: {
+      approvedCapabilityIds,
+      workspaceRoot,
+      trustedRoots: settings?.permissions.trustedRoots ?? [],
+    },
+    deterministicRails: (railsInput) => {
+      const decision = evaluatePermissionDeterministicRails(railsInput);
+      if (decision?.railOutcome === 'ask' && decision.hardFloor === true) {
+        railRequiresApproval = true;
+        railApprovalReason = decision.reason;
+      }
+      railRisk =
+        permissionRiskForDeterministicRailDecision(decision) ?? railRisk;
+      return decision;
+    },
+    reviewedRuleDecision: async () => {
+      const repository = input.deps.getToolRepository?.();
+      if (!repository) return undefined;
+      const policy = await resolveAgentToolRuntimePolicy({
+        repository,
+        appId: input.request.appId ?? 'default',
+        agentId:
+          input.request.agentId ?? agentIdForFolder(input.sourceAgentFolder),
+        errorSubject: 'Configured agent tool',
+        skillRepository: input.deps.getSkillRepository?.(),
+      }).catch(() => undefined);
+      if (!policy) return undefined;
+      return new ToolExecutionPolicyService().evaluate({
+        request: buildAgentToolExecutionRequest(
+          new ToolExecutionClassifier(),
+          input.request.toolName,
+          input.request.toolInput,
+          {
+            isScheduledJob: Boolean(input.request.jobId),
+            jobId: input.request.jobId,
+            threadId: input.request.threadId,
+            conversationId: input.request.targetJid ?? '',
+          },
+        ),
+        // Resolve `capability:<id>` rules against the same server-reviewed
+        // bundles the rules were projected from — trusted, no new state, and
+        // consistent with policy.rules (never runner-supplied definitions).
+        semanticCapabilityDefinitions: Object.fromEntries(
+          policy.semanticCapabilities.map((capability) => [
+            capability.capabilityId,
+            capability,
+          ]),
+        ),
+        ...(input.request.jobId
+          ? { autonomousAllowedToolRules: policy.rules }
+          : { allowedToolRules: policy.rules }),
+      });
+    },
+    tail: () =>
+      resolvePermissionIpcDecisionTail({
+        ...input,
+        effectHash,
+        decisionMemory,
+        railRisk,
+        railRequiresApproval,
+        railApprovalReason,
+      }),
+  });
+}
+
+async function resolvePermissionIpcDecisionTail(input: {
+  request: ParsedPermissionIpcRequest;
+  sourceAgentFolder: string;
+  deps: IpcDeps;
+  effectHash?: string;
+  decisionMemory?: PermissionDecisionMemoryRepository;
+  railRisk?: PermissionDeterministicRailRisk;
+  railRequiresApproval?: boolean;
+  railApprovalReason?: string;
 }): Promise<PermissionApprovalDecision> {
   const route = input.request.targetJid
     ? findConversationRouteForQueue(
@@ -145,27 +294,104 @@ export async function resolvePermissionIpcDecision(input: {
         classifierConsult: input.deps.classifierConsult,
       })
     : undefined;
+  const railVetoedClassifierAllow =
+    classifierDecision?.decision === 'allow' && input.railRequiresApproval;
+  const primaryRisk = selectPrimaryPermissionRisk(
+    input.railRisk,
+    classifierDecision
+      ? {
+          level: classifierDecision.risk_level,
+          category: classifierDecision.risk_category,
+        }
+      : undefined,
+  );
+  if (primaryRisk) {
+    input.request.risk_level = primaryRisk.level;
+    if (primaryRisk.category) {
+      input.request.risk_category = primaryRisk.category;
+    } else {
+      delete input.request.risk_category;
+    }
+  }
+  if (classifierDecision) {
+    input.request.decisionReason = railVetoedClassifierAllow
+      ? (input.railApprovalReason ??
+        'Deterministic permission rail requires human approval.')
+      : classifierDecision.reason;
+  }
 
-  if (classifierDecision?.decision === 'allow') {
-    return decisionForMode(input.request, 'allow_once', 'auto_classifier');
+  // Cache-miss writeback: the tail is reached only on a miss, so a verdict the
+  // classifier actually produced is cached here (never a human allow_once —
+  // those flow through requestPermissionApproval below and never reach this).
+  // Skipped when effectHash is undefined (sanitized/truncated input).
+  //
+  // A hard-floor rail ASK makes the effect UNCACHEABLE in either direction, not
+  // just when it vetoes an allow: the rail fires precisely when the effect could
+  // not be bounded (e.g. a concealed/risk-sanitized input-gated birthright tool),
+  // so a verdict derived from input the human never saw must never be persisted
+  // and reused by a later concealed request.
+  // (subsumes the narrower railVetoedClassifierAllow case: that is an allow
+  // under railRequiresApproval, so this guard already covers it.)
+  if (
+    classifierDecision &&
+    !input.railRequiresApproval &&
+    input.effectHash &&
+    input.decisionMemory
+  ) {
+    await input.decisionMemory
+      .putClassifierVerdict({
+        appId: input.request.appId ?? 'default',
+        agentFolder: input.request.sourceAgentFolder,
+        effectHash: input.effectHash,
+        decision: classifierDecision.decision,
+        reason: classifierDecision.reason,
+        risk_level: classifierDecision.risk_level,
+        risk_category: classifierDecision.risk_category,
+        effectSchemaVersion: EFFECT_SCHEMA_VERSION,
+        railVersion: RAIL_CATALOG_VERSION,
+        provenance: 'classifier',
+        nowIso: new Date().toISOString(),
+      })
+      // ponytail: a cache-write failure must never block the live decision.
+      .catch(() => undefined);
+  }
+
+  // Deterministic rails are authoritative: once they require approval, the
+  // fallible classifier cannot downgrade that ASK. Classifier auto-allow is
+  // available only when the rails abstain.
+  if (classifierDecision?.decision === 'allow' && !input.railRequiresApproval) {
+    return withRequestRisk(
+      input.request,
+      decisionForMode(input.request, 'allow_once', 'auto_classifier'),
+    );
   }
   if (
     (permissionMode === 'auto' || permissionMode === 'auto_strict') &&
     input.request.unattended
   ) {
-    return {
-      ...decisionForMode(input.request, 'cancel', 'runtime'),
-      reason: classifierDecision
-        ? `Classifier requested human approval: ${classifierDecision.reason}`
-        : 'This tool is not eligible for unattended auto-permission.',
-    };
+    return withRequestRisk(input.request, {
+      ...decisionForMode(
+        input.request,
+        'cancel',
+        railVetoedClassifierAllow ? 'deterministic_rails' : 'runtime',
+      ),
+      reason: railVetoedClassifierAllow
+        ? (input.railApprovalReason ??
+          'Deterministic permission rail requires human approval.')
+        : classifierDecision
+          ? `Classifier requested human approval: ${classifierDecision.reason}`
+          : 'This tool is not eligible for unattended auto-permission.',
+    });
   }
   if (classifierDecision?.denylistHit) {
     // Denylist-forced prompts are allow-once/cancel only: a persisted rule
     // would never be honored while the denylist blocks rule-based auto-allows.
     input.request.suggestions = undefined;
     input.request.decisionOptions = ['allow_once', 'cancel'];
-    return input.deps.requestPermissionApproval(input.request);
+    return withRequestRisk(
+      input.request,
+      await input.deps.requestPermissionApproval(input.request),
+    );
   }
   input.request.promotionHintCount =
     classifierDecision?.promotionHintCount ??
@@ -192,5 +418,48 @@ export async function resolvePermissionIpcDecision(input: {
       'cancel',
     ];
   }
-  return input.deps.requestPermissionApproval(input.request);
+  return withRequestRisk(
+    input.request,
+    await input.deps.requestPermissionApproval(input.request),
+  );
+}
+
+function withRequestRisk(
+  request: PermissionApprovalRequest,
+  decision: PermissionApprovalDecision,
+): PermissionApprovalDecision {
+  return {
+    ...decision,
+    ...(request.risk_level ? { risk_level: request.risk_level } : {}),
+    ...(request.risk_category ? { risk_category: request.risk_category } : {}),
+  };
+}
+
+const PERMISSION_RISK_SEVERITY_RANK: Record<PermissionRiskLevel, number> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+  critical: 3,
+};
+
+type PermissionRiskSignal = {
+  level: PermissionRiskLevel;
+  category?: PermissionApprovalRequest['risk_category'];
+};
+
+function selectPrimaryPermissionRisk(
+  railRisk: PermissionRiskSignal | undefined,
+  classifierRisk: PermissionRiskSignal | undefined,
+): PermissionRiskSignal | undefined {
+  if (!railRisk) return classifierRisk;
+  if (!classifierRisk) return railRisk;
+  if (
+    PERMISSION_RISK_SEVERITY_RANK[classifierRisk.level] <=
+    PERMISSION_RISK_SEVERITY_RANK[railRisk.level]
+  ) {
+    return railRisk;
+  }
+  return classifierRisk.category && classifierRisk.category !== 'benign'
+    ? classifierRisk
+    : { ...railRisk, level: classifierRisk.level };
 }

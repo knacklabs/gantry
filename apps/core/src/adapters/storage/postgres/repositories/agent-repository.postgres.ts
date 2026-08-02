@@ -3,14 +3,24 @@ import { and, asc, eq } from 'drizzle-orm';
 import type { Agent } from '../../../../domain/agent/agent.js';
 import type { App } from '../../../../domain/app/app.js';
 import type { AgentRepository } from '../../../../domain/ports/repositories.js';
-import type { AgentMcpServerBinding } from '../../../../domain/mcp/mcp-servers.js';
+import type {
+  AgentMcpServerBinding,
+  McpBindingAuthorityPrecondition,
+} from '../../../../domain/mcp/mcp-servers.js';
 import type { AgentSkillBinding } from '../../../../domain/skills/skills.js';
 import type {
   AgentToolBinding,
   AgentToolSource,
 } from '../../../../domain/tools/tools.js';
 import * as pgSchema from '../schema/schema.js';
-import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import type {
+  CanonicalDb,
+  CanonicalExecutor,
+} from './canonical-graph-repository.postgres.js';
+import {
+  assertExpectedMcpBindingsUnchanged,
+  lockAgentMcpBindingSet,
+} from './mcp-binding-authority-fence.postgres.js';
 
 type AgentWriteDb = Parameters<Parameters<CanonicalDb['transaction']>[0]>[0];
 
@@ -39,7 +49,14 @@ export class PostgresAgentRepository implements AgentRepository {
   }
 
   async saveAgent(agent: Agent): Promise<void> {
-    await this.db
+    await this.saveAgentWithDb(this.db, agent);
+  }
+
+  private async saveAgentWithDb(
+    db: CanonicalExecutor,
+    agent: Agent,
+  ): Promise<void> {
+    await db
       .insert(pgSchema.agentsPostgres)
       .values({
         ...agent,
@@ -56,16 +73,62 @@ export class PostgresAgentRepository implements AgentRepository {
       });
   }
 
+  async assertMcpBindingAuthorityPreconditions(input: {
+    appId: Agent['appId'];
+    expectedMcpBindingAgentIds?: Agent['id'][];
+    expectedMcpBindings: McpBindingAuthorityPrecondition[];
+  }): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await assertExpectedMcpBindingsUnchanged(tx, input);
+    });
+  }
+
   async replaceAgentCapabilityBindings(input: {
     appId: Agent['appId'];
     agentId: Agent['id'];
     toolBindings: AgentToolBinding[];
     skillBindings: AgentSkillBinding[];
     mcpBindings: AgentMcpServerBinding[];
+    expectedMcpBindingAgentIds?: Agent['id'][];
+    expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+    preserveExistingMcpPolicy?: boolean;
     updatedAt: string;
   }): Promise<void> {
     await this.db.transaction(async (tx) => {
       await this.writeAgentCapabilityBindings(tx, input);
+    });
+  }
+
+  async replaceAgentCapabilityBindingsBatch(input: {
+    appId: Agent['appId'];
+    agents: Agent[];
+    replacements: Array<{
+      agentId: Agent['id'];
+      toolBindings: AgentToolBinding[];
+      skillBindings: AgentSkillBinding[];
+      mcpBindings: AgentMcpServerBinding[];
+      preserveExistingMcpPolicy?: boolean;
+      updatedAt: string;
+    }>;
+    expectedMcpBindingAgentIds: Agent['id'][];
+    expectedMcpBindings: McpBindingAuthorityPrecondition[];
+  }): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      for (const agent of [...input.agents].sort((left, right) =>
+        String(left.id).localeCompare(String(right.id)),
+      )) {
+        await this.saveAgentWithDb(tx, agent);
+      }
+      await assertExpectedMcpBindingsUnchanged(tx, input);
+      for (const replacement of [...input.replacements].sort((left, right) =>
+        String(left.agentId).localeCompare(String(right.agentId)),
+      )) {
+        await this.writeAgentCapabilityBindings(
+          tx,
+          { ...replacement, appId: input.appId },
+          true,
+        );
+      }
     });
   }
 
@@ -92,9 +155,23 @@ export class PostgresAgentRepository implements AgentRepository {
       toolBindings: AgentToolBinding[];
       skillBindings: AgentSkillBinding[];
       mcpBindings: AgentMcpServerBinding[];
+      expectedMcpBindingAgentIds?: Agent['id'][];
+      expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+      preserveExistingMcpPolicy?: boolean;
       updatedAt: string;
     },
+    mcpFenceAlreadyHeld = false,
   ): Promise<void> {
+    if (mcpFenceAlreadyHeld) {
+      // The batch path locked and checked the complete multi-agent snapshot.
+    } else if (
+      (input.expectedMcpBindingAgentIds?.length ?? 0) > 0 ||
+      (input.expectedMcpBindings?.length ?? 0) > 0
+    ) {
+      await assertExpectedMcpBindingsUnchanged(tx, input);
+    } else {
+      await lockAgentMcpBindingSet(tx, input);
+    }
     const [existingToolBindings, existingSkillBindings, existingMcpBindings] =
       await Promise.all([
         tx
@@ -126,7 +203,8 @@ export class PostgresAgentRepository implements AgentRepository {
                 input.agentId,
               ),
             ),
-          ),
+          )
+          .for('update'),
       ]);
     const nextToolIds = new Set(
       input.toolBindings.map((binding) => String(binding.id)),
@@ -204,7 +282,23 @@ export class PostgresAgentRepository implements AgentRepository {
           },
         });
     }
-    for (const binding of input.mcpBindings) {
+    const existingMcpById = new Map(
+      existingMcpBindings.map((binding) => [String(binding.id), binding]),
+    );
+    for (const requestedBinding of input.mcpBindings) {
+      const existing = existingMcpById.get(String(requestedBinding.id));
+      const binding =
+        input.preserveExistingMcpPolicy && existing
+          ? {
+              ...requestedBinding,
+              required: existing.required,
+              permissionPolicyIds: JSON.parse(
+                existing.permissionPolicyIdsJson,
+              ) as AgentMcpServerBinding['permissionPolicyIds'],
+              conversationId: existing.conversationId ?? undefined,
+              threadId: existing.threadId ?? undefined,
+            }
+          : requestedBinding;
       await tx
         .insert(pgSchema.agentMcpServerBindingsPostgres)
         .values({

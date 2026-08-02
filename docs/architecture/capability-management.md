@@ -199,9 +199,13 @@ The reviewed definition pins `/usr/local/bin/acme`, allows only
 `/usr/local/bin/acme auth status` as preflight, protects `~/.config/acme`, and
 shows `Acme invoices read` in prompts and management views. Once selected and
 verified, runtime projects only the reviewed scoped command rules, mounts declared
-credential directories as readable SDK additional directories, keeps those
-directories write-denied, and records command-bound network host bindings for
-scheduled-job SDK network prompt correlation.
+credential directories as readable SDK additional directories, keeps their
+paths behind the host credential/protected-path rails, and records command-bound
+network host bindings for scheduled-job SDK network prompt correlation.
+`direct` does not turn those paths into SDK filesystem sandbox rules; the
+deployment account/container is its OS boundary. When `sandbox_runtime` is
+selected, the outer runner sandbox adds filesystem confinement around the same
+reviewed projection.
 
 ## Third-Party MCP Network Hosts
 
@@ -370,18 +374,18 @@ per-API-key `maxTokens` ceiling rejects requests whose `max_tokens` /
 
 ### Auto-permission mode
 
-Per-agent `permission_mode: auto` adds an allow-leaning LLM classifier between
-"policy says ask a human" and the prompt actually rendering. Per the user
-decision recorded in
-`docs/architecture/runtime-permission-ux-goal-prompt.md` Stage B, an unproven
-eligible call is still classified: `allow` is the default unless the classifier
-identifies concrete risk, and `ask` is the exception. `auto_strict` preserves
-the deterministic-proof-only posture. In both modes the classifier is a policy
-relief valve, not durable authority: its verdict space is `allow | ask` only,
-and it is never consulted for anything the deterministic tiers already decide
-(pre-checks, `tool_rules`, locked access presets, and the hard always-ask
-families: spend, credentials, settings mutations, outward-facing sends,
-delegation, admin/review prompts).
+Per-agent `permission_mode: auto` enables an allow-leaning risk classifier after
+the host's deterministic authority stages abstain. Per the user decision
+recorded in `docs/architecture/runtime-permission-ux-goal-prompt.md` Stage B, an
+eligible unproven call may still be classified instead of immediately prompting.
+`auto_strict` preserves the deterministic-proof-only posture for unproven
+actions.
+
+The classifier is not authority. Its strict model output contains only
+`risk_level`, optional `risk_category`, and `reason`. Gantry derives the
+permission result: low/medium risk becomes a run-local `allow_once`;
+high/critical risk, malformed output, timeout, or unavailable configuration
+requires a human when interactive and denies when unattended.
 
 ```yaml
 agents:
@@ -392,17 +396,40 @@ permissions:
     model: haiku # optional; defaults to the memory extractor slot model
 ```
 
-How a gray-zone call resolves — the mode judges the **action, never the
-requester** (requester identity at this layer is runner-supplied and
-forgeable; the only identity trust left in the flow is who taps an approval
-button, which the channel authenticates):
+The full worker IPC order is:
 
-1. Deterministic checks run unchanged. Only calls that would interrupt a
-   human continue.
-2. Eligibility is deterministic and narrow: third-party MCP tools
-   (`mcp__<server>__<op>`, excluding the Gantry server) and shell
-   (`Bash`/`RunCommand`). Everything else keeps today's behavior.
-3. A deterministic read-only gate runs BEFORE any model call and checks:
+```text
+hard deny -> locked preset -> fixed image -> reviewed agent rule/capability
+-> deterministic rails -> cached classifier allow -> classifier -> human
+```
+
+How a gray-zone call resolves — the mode judges the **action, never the
+requester**. Requester identity at this layer is runner-supplied context, not
+authorization; the channel authenticates the configured control approver who
+responds:
+
+1. Hard deny, locked access, fixed-image restrictions, and reviewed
+   agent-owned rules/capabilities run before any cache or classifier.
+2. Deterministic rails may allow, deny, require approval, or abstain.
+   Input-independent Gantry birthright tools may allow without inspecting a
+   payload. Otherwise missing, redacted, or risk-relevant truncated input,
+   destructive/credential/protected-path behavior, privilege, egress, and
+   out-of-root effects cannot be weakened by cache or classifier. An
+   approval-floor result goes to the learned-root stage or the human directly.
+3. When the rails abstain, worker IPC may reuse an exact cached classifier
+   `allow`. The versioned effect hash includes the app, provider account,
+   parent conversation, agent, tool, canonical action, schema version, and rail
+   version. Thread ids are excluded, so threads inherit their parent
+   conversation's cache; another conversation misses. If no parent-conversation
+   id exists, the hash falls back to app/provider-account/agent/effect scope.
+   Only `allow` is reused: a stored `ask` is classified again, and a human
+   `Allow once` is never cached.
+4. Classifier eligibility is deterministic and limited to tool-family requests:
+   shell (`Bash`/`RunCommand`), MCP tools, and Gantry-native canonical tools.
+   Admin, review, and promotion requests are ineligible. Gantry-native tools
+   use a deterministic risk map; eligible Bash and third-party MCP gray zones
+   may use the configured model.
+5. Before any model call, the deterministic read-only gate checks:
    - **Provably read-only.** Shell: a parser-proven single invocation of one
      reviewed executable — `ls`, `cat`, `pwd`, `stat`, `file`, `head`, `tail`,
      `wc`, `du`, `df`, `which`, or `grep` — using only its
@@ -426,18 +453,25 @@ button, which the channel authenticates):
      `tokenRef`, …), paths, and values (bearer/JWT/PEM patterns) block.
    - **Inside an approved capability boundary** (the agent's admin-selected
      capabilities).
-4. In `auto_strict`, an unproven call asks without consulting the model; a
+6. In `auto_strict`, an unproven call asks without consulting the model; a
    proven call receives one strict classifier pass that may only narrow the
    deterministic result to `ask`. In `auto`, eligible proven and unproven calls
    receive one allow-leaning classifier pass against best-effort task context
-   (never a trust input). `allow` resolves the request as an `allow_once`
-   decision recorded with `decidedBy: auto_classifier`; `ask` falls through to
-   the normal prompt when interactive (approvable only by control approvers)
-   and denies with the classifier's reason when unattended. Denylist matches
-   and secret-redacted inputs always ask. Display-only truncation does not skip
-   classification; the classifier receives a separately bounded redacted view.
-   Timeouts, parse failures, or an
-   unconfigured model also collapse to `ask`.
+   (never a trust input). Low/medium risk resolves as an `allow_once` decision
+   recorded with `decidedBy: auto_classifier`; high/critical risk falls through
+   to the normal prompt when interactive and denies with the classifier's
+   reason when unattended. The settings-owned YOLO denylist is a hard deny
+   before this stage. Model timeouts, parse/validation failures, and
+   unconfigured models collapse to high risk and therefore never auto-allow.
+7. On an exact cacheable miss, the worker path writes the classifier result
+   after classification. Cache-write failure does not block the live decision.
+   The coordinator currently does not catch cache-read failure, so the cache is
+   not yet operationally removable despite being a correctness-neutral memo.
+
+Optional stages are lane-specific. Worker IPC supplies the effect hash and
+decision-memory repository. Inline third-party MCP uses the host coordinator
+and classifier without the cache. Core-tool paths use the same hard precedence
+and durable human interaction but do not all invoke classifier or cache.
 
 Conversation-level data exposure is governed by Agent Access and the
 channel's approver configuration, not by this gate: whoever may converse
@@ -447,7 +481,7 @@ in-boundary reads. `auto_strict` sends everything unprovable to a control
 approver; `auto` may resolve an eligible unproven call as a one-time allow under
 the allow-leaning risk rubric above.
 
-Every verdict (including failure-coded asks) is published as a
+Every classifier consultation verdict (including failure-coded asks) is published as a
 `permission.classifier_decision` runtime event, so the audit trail is
 complete and queryable.
 
@@ -581,7 +615,7 @@ become durable authority by themselves.
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `send_message`                           | Progress updates or direct channel messages while the agent is still running.                                                                                            | Persistent capability changes.                                                                                                                       |
 | `ask_user_question`                      | Structured choices with content, options, single-select, multi-select, preview/details, and channel-native buttons.                                                      | Open-ended chat or approval of persistent capabilities.                                                                                              |
-| `continuity_summary`                     | Summarizes current durable continuity, staged memory candidates, reviewed memory state, dreaming status, and last injected context.                                      | Treating memory or continuity content as instruction or tool authority.                                                                              |
+| `continuity_summary`                     | Summarizes current durable continuity, staged memory candidates, reviewed memory state, dreaming status, and last injected context; part of the baseline memory tool set. | Treating memory or continuity content as instruction or tool authority.                                                                              |
 | `file`                                   | Lists, reads, writes, or promotes Gantry FileArtifacts by virtual scope/path while hiding host filesystem paths and storage refs; full host tool id `mcp__gantry__file`. | Arbitrary host filesystem reads/writes or bypassing approved file facades.                                                                           |
 | `request_skill_install`                  | Skill source setup using staged `SKILL.md` package files or an approved installer command that imports the resulting package in host-controlled staging.                 | Treating skill setup as approval to run risky skill actions, installing silently, or editing skill directories directly.                             |
 | `request_skill_proposal`                 | Skill source setup for agent-created or modified `SKILL.md` bundles.                                                                                                     | Treating proposed skill files as durable action authority or writing directly to `.agents/skills`, provider skill folders, or agent-local `skills/`. |
@@ -696,10 +730,12 @@ on the next scheduled run or a manual rerun. Browser remains a single public
 tools are not job-local authority.
 
 Conversation threads and provider topics are routing details, not separate
-permission boundaries. Permission prompts may be delivered in a Slack thread,
-Teams reply chain, or Telegram topic, but decisions scope to the parent
-conversation and selected agent capability set. Thread or topic ids may appear
-in audit/routing metadata only.
+durable permission boundaries. Permission prompts may be delivered in a Slack
+thread, Teams reply chain, or Telegram topic. The classifier cache is scoped to
+the parent conversation and shared by its threads. Durable selected
+capabilities, learned trusted roots, and `Allow for future` rules are
+agent-owned and apply wherever that agent runs; thread or topic ids remain
+delivery/audit metadata.
 
 Direct writes to `settings.json`, `settings.local.json`, `.mcp.json`,
 generated provider MCP directories, and skill capability files are protected
@@ -745,7 +781,8 @@ not durable Gantry truth.
 7. Materialize: only installed enabled skill bindings project into future agent
    runs as native skills. Third-party MCP bindings remain behind the Gantry MCP
    proxy in every run.
-8. Execute: tool use still passes permission and sandbox evaluation.
+8. Execute: tool use still passes deterministic permission evaluation and,
+   when an enforcing provider is selected, sandbox evaluation.
 9. Disable: disabled capabilities stop future materialization without deleting
    history.
 

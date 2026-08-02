@@ -4,6 +4,7 @@ import type { PatternCandidate } from '@gantry/contracts';
 
 import type {
   ObserverInsightCursor,
+  ObserverInsightEvidenceRef,
   ObserverInsightRepository,
   ObserverInsightType,
   ObserverSubjectKey,
@@ -72,11 +73,7 @@ interface NormalizedCandidate {
   content: string;
   signatureIdentity: string;
   confidence: number;
-  evidenceRefs: Array<{
-    conversationId: string;
-    messageId: string;
-    ts: string;
-  }>;
+  evidenceRefs: ObserverInsightEvidenceRef[];
   batchSnapshotAt: string;
 }
 
@@ -122,16 +119,42 @@ export function normalizeSurfaceableInsightDraft(
   };
 }
 
+interface ChannelSourceRef {
+  providerAccountId: string;
+  conversationJid: string;
+  discriminator: string;
+}
+
+/**
+ * Channel pages encode `${providerAccountId}:${chat_jid}#${discriminator}`
+ * (see brain-channel-harvest.ts). The provider account is the first segment;
+ * the chat_jid can itself contain colons (e.g. `<provider>:C123`). The account is
+ * load-bearing: conversation ids are only unique per provider account.
+ */
+export function parseChannelSourceRef(
+  sourceRef: string | null,
+): ChannelSourceRef | null {
+  if (!sourceRef) return null;
+  const hashIndex = sourceRef.indexOf('#');
+  const base = hashIndex >= 0 ? sourceRef.slice(0, hashIndex) : sourceRef;
+  const discriminator = hashIndex >= 0 ? sourceRef.slice(hashIndex + 1) : '';
+  const separator = base.indexOf(':');
+  if (separator < 0) return null;
+  const providerAccountId = base.slice(0, separator).trim();
+  const conversationJid = base.slice(separator + 1).trim();
+  if (!providerAccountId || !conversationJid) return null;
+  return {
+    providerAccountId,
+    conversationJid,
+    discriminator: discriminator.trim(),
+  };
+}
+
 export function observerSubjectForPage(page: BrainPage): ObserverSubjectKey {
-  if (page.sourceKind !== 'channel' || !page.sourceRef) {
-    return OBSERVER_APP_SUBJECT;
-  }
-  const withoutFragment = page.sourceRef.split('#', 1)[0]?.trim() ?? '';
-  const separator = withoutFragment.indexOf(':');
-  const conversationId =
-    separator >= 0 ? withoutFragment.slice(separator + 1).trim() : '';
-  return conversationId
-    ? (`conversation:${conversationId}` as ObserverSubjectKey)
+  if (page.sourceKind !== 'channel') return OBSERVER_APP_SUBJECT;
+  const parsed = parseChannelSourceRef(page.sourceRef);
+  return parsed
+    ? (`conversation:${parsed.conversationJid}` as ObserverSubjectKey)
     : OBSERVER_APP_SUBJECT;
 }
 
@@ -154,6 +177,7 @@ export async function emitObserverInsights(input: {
   persisted: number;
   deduplicated: number;
   filtered: number;
+  typeSuppressed: number;
   message: string;
 }> {
   const embedding = input.embedding;
@@ -172,10 +196,32 @@ export async function emitObserverInsights(input: {
         limit: 20,
       })
     : [];
-  const candidates = [
+  let candidates = [
     ...input.drafts.map(normalizePageCandidate),
     ...patterns.map(normalizePatternCandidate),
   ].filter((candidate): candidate is NormalizedCandidate => candidate !== null);
+
+  // Owner-suppressed types are dropped ONCE per run, before embedding, so no
+  // embed cost or insert is spent on a type the owner has muted. The set is
+  // time-boxed by the repo (expired suppressions resume surfacing).
+  const suppressedTypes =
+    candidates.length === 0
+      ? new Set<ObserverInsightType>()
+      : await input.repository.listActiveSuppressedTypes({
+          appId: input.appId,
+          recipient: input.ownerRecipient,
+          nowIso: nowIso(),
+        });
+  let typeSuppressed = 0;
+  if (suppressedTypes.size > 0) {
+    candidates = candidates.filter((candidate) => {
+      if (suppressedTypes.has(candidate.insightType)) {
+        typeSuppressed += 1;
+        return false;
+      }
+      return true;
+    });
+  }
 
   if (candidates.length === 0) {
     const createdAt = nowIso();
@@ -194,9 +240,9 @@ export async function emitObserverInsights(input: {
     return {
       persisted: 0,
       deduplicated: 0,
-      filtered: 0,
-      message:
-        'Insight emission complete: 0 persisted, 0 deduplicated, 0 filtered.',
+      filtered: typeSuppressed,
+      typeSuppressed,
+      message: `Insight emission complete: 0 persisted, 0 deduplicated, ${typeSuppressed} filtered.`,
     };
   }
 
@@ -349,20 +395,33 @@ export async function emitObserverInsights(input: {
       createdAt,
     );
   }
+  const totalFiltered = filtered + typeSuppressed;
   return {
     persisted,
     deduplicated,
-    filtered,
-    message: `Insight emission complete: ${persisted} persisted, ${deduplicated} deduplicated, ${filtered} filtered.`,
+    filtered: totalFiltered,
+    typeSuppressed,
+    message: `Insight emission complete: ${persisted} persisted, ${deduplicated} deduplicated, ${totalFiltered} filtered.`,
   };
 }
 
-function normalizePageCandidate(input: PageDraft): NormalizedCandidate | null {
+export function normalizePageCandidate(
+  input: PageDraft,
+): NormalizedCandidate | null {
   const content = canonicalizeObserverInsightText(
     input.draft.canonicalSignature,
   );
   if (!content) return null;
   const subject = observerSubjectForPage(input.page);
+  // Persist account-qualified provenance so digest freshness/permalinks can
+  // tell the same jid on different provider accounts apart. Only channel pages
+  // carry a messaging source ref; a non-channel ref that happens to contain a
+  // colon (e.g. a URL) must NOT be parsed into a bogus jid — omit it and let
+  // freshness fail closed. Legacy rows lack it and are handled the same way.
+  const parsed =
+    input.page.sourceKind === 'channel'
+      ? parseChannelSourceRef(input.page.sourceRef)
+      : null;
   return {
     subject,
     insightType: input.draft.insightType,
@@ -375,6 +434,12 @@ function normalizePageCandidate(input: PageDraft): NormalizedCandidate | null {
       conversationId: subject,
       messageId,
       ts: input.page.updatedAt,
+      ...(parsed
+        ? {
+            providerAccountId: parsed.providerAccountId,
+            conversationJid: parsed.conversationJid,
+          }
+        : {}),
     })),
     batchSnapshotAt: input.page.updatedAt,
   };
@@ -437,12 +502,14 @@ function pausedResult(): {
   persisted: number;
   deduplicated: number;
   filtered: number;
+  typeSuppressed: number;
   message: string;
 } {
   return {
     persisted: 0,
     deduplicated: 0,
     filtered: 0,
+    typeSuppressed: 0,
     message: OBSERVER_EMBEDDINGS_UNAVAILABLE_MESSAGE,
   };
 }

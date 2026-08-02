@@ -1,7 +1,11 @@
 import type { RuntimeLease } from '../domain/ports/runtime-lease.js';
 import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
 import type { logger } from '../infrastructure/logging/logger.js';
-import type { ChannelAdapter, ChannelOpts } from './channel-provider.js';
+import {
+  InboundMessageDeliveryError,
+  type ChannelAdapter,
+  type ChannelOpts,
+} from './channel-provider.js';
 import {
   internalControlProviderAccountId,
   type Provider,
@@ -140,7 +144,7 @@ export async function connectProviderAccountChannels(input: {
       onMessage: (chatJid, msg) =>
         msg.providerAccountId
           ? input.channelOpts.onMessage(chatJid, msg)
-          : Promise.all(
+          : Promise.allSettled(
               inboundProviderAccountIds.map((targetProviderAccountId) =>
                 input.channelOpts.onMessage(chatJid, {
                   ...msg,
@@ -151,7 +155,26 @@ export async function connectProviderAccountChannels(input: {
                   ),
                 }),
               ),
-            ).then(() => undefined),
+            ).then((results) => {
+              const failures = results.flatMap((result) =>
+                result.status === 'rejected' ? [result.reason] : [],
+              );
+              const stored = results.some(
+                (result) =>
+                  result.status === 'fulfilled' && result.value === 'stored',
+              );
+              if (failures.length > 0) {
+                throw new InboundMessageDeliveryError(failures, stored);
+              }
+              return stored ? 'stored' : 'dropped';
+            }),
+      onMessageAttachmentsDeleted: input.channelOpts.onMessageAttachmentsDeleted
+        ? (event) =>
+            input.channelOpts.onMessageAttachmentsDeleted!({
+              ...event,
+              providerAccountIds: inboundProviderAccountIds,
+            })
+        : undefined,
     });
     if (!channel) {
       if (
@@ -167,11 +190,23 @@ export async function connectProviderAccountChannels(input: {
       );
       continue;
     }
+    const hasHistoryCoverage =
+      channel.hydrateConversationContext && input.provider.id !== 'telegram';
 
     let providerInbound =
       input.inboundEnabled &&
       (!inboundKey || !attemptedInboundKeys.has(inboundKey));
     let providerInboundLease: RuntimeLease | undefined;
+    let providerInboundLeaseLost: Error | undefined;
+    let channelConnected = false;
+    let leaseLossTeardown: Promise<void> | undefined;
+    const disconnectAfterLeaseLoss = () =>
+      (leaseLossTeardown ??= channel.disconnect().catch((disconnectErr) => {
+        input.logger.warn(
+          { err: disconnectErr, channel: input.provider.id, providerAccountId },
+          'Failed to disconnect channel after provider account inbound lease loss',
+        );
+      }));
     if (providerInbound && inboundKey) attemptedInboundKeys.add(inboundKey);
     if (
       providerInbound &&
@@ -181,6 +216,24 @@ export async function connectProviderAccountChannels(input: {
         `${input.inboundLeasePrefix}:${input.provider.id}:${providerAccountId}`,
       );
       providerInbound = providerInboundLease !== undefined;
+      providerInboundLease?.onLost?.((err) => {
+        if (providerInboundLeaseLost) return;
+        providerInboundLeaseLost = err;
+        if (hasHistoryCoverage) {
+          input.channelOpts.setHistoryCoverageInboundActive?.(
+            inboundProviderAccountIds,
+            false,
+          );
+          input.channelOpts.distrustHistoryCoverage?.(
+            inboundProviderAccountIds,
+          );
+        }
+        input.logger.warn(
+          { err, channel: input.provider.id, providerAccountId },
+          'Provider Account inbound lease lost; disconnecting channel',
+        );
+        if (channelConnected) return disconnectAfterLeaseLoss();
+      });
       if (!providerInbound) {
         input.logger.info(
           { channel: input.provider.id, providerAccountId },
@@ -189,7 +242,80 @@ export async function connectProviderAccountChannels(input: {
       }
     }
 
+    // onLost now replays synchronously, so a lease lost immediately after
+    // acquisition is already known here. Don't start connecting inbound without
+    // ownership — a slow or hanging connect would otherwise run unowned and could
+    // process inbound events, which is exactly what failing closed is meant to stop.
+    // Degrade to outbound-only rather than dropping the account, matching how
+    // ordinary lease contention above behaves: losing inbound must not also cost the
+    // ability to send.
+    if (
+      providerInboundLease &&
+      (providerInboundLeaseLost || !providerInboundLease.isValid())
+    ) {
+      input.logger.warn(
+        { channel: input.provider.id, providerAccountId },
+        'Provider Account inbound lease lost before connect; connecting channel outbound-only',
+      );
+      await providerInboundLease.release();
+      providerInboundLease = undefined;
+      providerInbound = false;
+    }
+
     try {
+      if (hasHistoryCoverage) {
+        if (providerInbound) {
+          input.channelOpts.setHistoryCoverageInboundActive?.(
+            inboundProviderAccountIds,
+            false,
+          );
+        }
+        input.channelOpts.distrustHistoryCoverage?.(inboundProviderAccountIds);
+      }
+      await channel.connect({
+        inbound: providerInbound,
+        interactionCallbacks: providerInbound,
+      });
+      channelConnected = true;
+      if (hasHistoryCoverage) {
+        if (
+          providerInbound &&
+          channel.reportsHistoryCoverageInboundLiveness !== true
+        ) {
+          const disconnect = channel.disconnect.bind(channel);
+          let fallbackInboundActive = true;
+          channel.disconnect = async () => {
+            if (fallbackInboundActive) {
+              fallbackInboundActive = false;
+              input.channelOpts.setHistoryCoverageInboundActive?.(
+                inboundProviderAccountIds,
+                false,
+              );
+              input.channelOpts.distrustHistoryCoverage?.(
+                inboundProviderAccountIds,
+              );
+            }
+            await disconnect();
+          };
+          input.channelOpts.setHistoryCoverageInboundActive?.(
+            inboundProviderAccountIds,
+            true,
+          );
+        }
+        input.channelOpts.distrustHistoryCoverage?.(inboundProviderAccountIds);
+      }
+      if (
+        providerInboundLease &&
+        (providerInboundLeaseLost || !providerInboundLease.isValid())
+      ) {
+        await disconnectAfterLeaseLoss();
+        throw (
+          providerInboundLeaseLost ??
+          new Error(
+            `Provider Account inbound lease became invalid during connect: ${input.provider.id}/${providerAccountId}`,
+          )
+        );
+      }
       input.connectedChannels.push({
         channel,
         providerId: input.provider.id,
@@ -198,27 +324,18 @@ export async function connectProviderAccountChannels(input: {
         interactionCallbacks: providerInbound,
         agentId,
       });
-      await channel.connect({
-        inbound: providerInbound,
-        interactionCallbacks: providerInbound,
-      });
     } catch (err) {
+      // Publication happens after connect resolves, so a rejected connect is not in
+      // connectedChannels and nothing else can clean it up. A multi-step connect can
+      // already have started its inbound transport before failing (Slack starts the
+      // app before auth.test), so disconnect explicitly rather than leaking it.
+      // Route through the memoized lease-loss teardown so a connect that rejects
+      // *because* the lease was lost disconnects once, not twice.
+      await disconnectAfterLeaseLoss();
       await providerInboundLease?.release();
       throw err;
     }
     if (!providerInboundLease) continue;
     input.connectedChannelLeases.push(providerInboundLease);
-    providerInboundLease.onLost?.((err) => {
-      input.logger.warn(
-        { err, channel: input.provider.id, providerAccountId },
-        'Provider Account inbound lease lost; disconnecting channel',
-      );
-      void channel.disconnect().catch((disconnectErr) => {
-        input.logger.warn(
-          { err: disconnectErr, channel: input.provider.id, providerAccountId },
-          'Failed to disconnect channel after provider account inbound lease loss',
-        );
-      });
-    });
   }
 }

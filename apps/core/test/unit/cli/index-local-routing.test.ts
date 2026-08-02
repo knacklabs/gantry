@@ -25,6 +25,7 @@ afterEach(() => {
   vi.doUnmock('@core/cli/onboarding-state.js');
   vi.doUnmock('@core/cli/setup-flow.js');
   vi.doUnmock('@core/cli/setup-flow-core-steps.js');
+  vi.doUnmock('@core/cli/setup-add-conversation.js');
   vi.doUnmock('@core/cli/setup-credentials.js');
   vi.doUnmock('@core/cli/setup-flow-provider-steps.js');
   vi.doUnmock('@core/cli/setup-flow-final-steps.js');
@@ -344,6 +345,43 @@ describe('CLI local routing', () => {
     );
   });
 
+  it('runs the completed setup add-conversation mini-flow', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const onboarding = await import('@core/cli/onboarding-state.js');
+    const state = onboarding.createInitialState(runtimeHome);
+    state.status = 'completed';
+    state.currentStep = 'ready';
+    onboarding.writeOnboardingState(runtimeHome, state);
+    const select = vi.fn(async () => 'add_conversation');
+    const runAddConversationSetupSlice = vi.fn(async () => 0);
+    vi.doMock('@clack/prompts', () => ({
+      isCancel: () => false,
+      outro: vi.fn(),
+      select,
+      log: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), success: vi.fn() },
+    }));
+    vi.doMock('@core/cli/setup-flow-core-steps.js', () => ({
+      runAddConversationSetupSlice,
+    }));
+
+    const { main } = await import('@core/cli/index.js');
+    const code = await main(['--runtime-home', runtimeHome, 'setup']);
+
+    expect(code).toBe(0);
+    expect(select).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'What do you want to change?',
+        options: expect.arrayContaining([
+          expect.objectContaining({
+            value: 'add_conversation',
+            label: 'Add conversation to existing agent',
+          }),
+        ]),
+      }),
+    );
+    expect(runAddConversationSetupSlice).toHaveBeenCalledWith(runtimeHome);
+  });
+
   it('does not persist an add-agent when the conversation kept its existing owner', async () => {
     const runtimeHome = makeRuntimeHome();
     const onboarding = await import('@core/cli/onboarding-state.js');
@@ -444,6 +482,9 @@ describe('CLI local routing', () => {
       ensureRuntimeSettings: vi.fn(),
     }));
     vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+      tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+        release: vi.fn(async () => {}),
+      })),
       getRuntimeStorage: vi.fn(() => {
         throw new Error('runtime storage not initialized');
       }),

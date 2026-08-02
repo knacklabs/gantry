@@ -27,10 +27,13 @@ import type {
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
 } from '../domain/ports/conversation-context-hydration.js';
+import type { InboundAttachmentReader } from '../shared/inbound-attachment-writer.js';
 
 export type {
+  ConversationContextHydrationCoverage,
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 } from '../domain/ports/conversation-context-hydration.js';
 
 export const CHANNEL_STREAM_UPDATE_INTERVAL_MS = {
@@ -40,16 +43,59 @@ export const CHANNEL_STREAM_UPDATE_INTERVAL_MS = {
   discord: 1200,
 } as const;
 
+export type InboundMessageDeliveryResult = 'stored' | 'dropped';
+
+export class InboundMessageDeliveryError extends Error {
+  readonly name = 'InboundMessageDeliveryError';
+
+  constructor(
+    readonly failures: readonly unknown[],
+    readonly stored: boolean,
+  ) {
+    super('Inbound message persistence failed');
+  }
+}
+
+export type MaterializedProviderAttachment = {
+  storageRef: string;
+  reclaim: () => Promise<void>;
+};
+
+export type MaterializeProviderAttachment = (input: {
+  fileName: string;
+  content: InboundAttachmentReader & {
+    cancel(reason?: unknown): Promise<void>;
+  };
+}) => Promise<MaterializedProviderAttachment>;
+
+export interface MessageAttachmentsDeleted {
+  providerId: string;
+  providerAccountIds?: readonly string[];
+  channelId: string;
+  fallbackConversationJid?: string;
+  requireStoredMessageMatch?: boolean;
+  /** Persist and match this deletion at conversation scope, including threaded rows. */
+  fallbackMatchesThreadedRows?: boolean;
+  externalMessageIds: readonly string[];
+  deletedAt: string;
+}
+
 export interface ChannelOpts {
   appId?: string;
   providerAccountId?: string;
   inboundProviderAccountIds?: string[];
   agentId?: string;
-  onMessage: OnInboundMessage;
+  onMessage: (
+    ...args: Parameters<OnInboundMessage>
+  ) => Promise<InboundMessageDeliveryResult>;
   ensureMessageRoute?: (
     chatJid: string,
     message: NewMessage,
   ) => Promise<boolean>;
+  materializeProviderAttachment?: MaterializeProviderAttachment;
+  onMessageAttachmentsDeleted?: (
+    input: MessageAttachmentsDeleted,
+  ) => Promise<void>;
   onChatMetadata: OnChatMetadata;
   onMessageAction?: OnMessageAction;
   conversationRoutes: () => Record<string, ConversationRoute>;
@@ -57,6 +103,11 @@ export interface ChannelOpts {
   runtimeLease?: RuntimeLeasePort;
   runtimeSecrets?: RuntimeSecretProvider;
   groupJoinOnboarding?: GroupJoinOnboardingCoordinator;
+  distrustHistoryCoverage?: (providerAccountIds: readonly string[]) => void;
+  setHistoryCoverageInboundActive?: (
+    providerAccountIds: readonly string[],
+    active: boolean,
+  ) => void;
   isControlApproverAllowed?: (input: {
     providerId: string;
     providerAccountId?: string;
@@ -73,8 +124,7 @@ export type MaybePromise<T> = T | Promise<T>;
 
 export type ChannelAdapter = ChannelLifecyclePort &
   ChannelOwnershipPort &
-  MessageSink &
-  Partial<
+  MessageSink & { reportsHistoryCoverageInboundLiveness?: boolean } & Partial<
     StreamingSink &
       StreamingStateSink &
       TypingSink &

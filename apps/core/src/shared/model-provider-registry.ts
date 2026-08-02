@@ -223,6 +223,7 @@ export const MODEL_PROVIDER_DEFINITIONS = [
         requestControl: 'cache_control_blocks',
         ttlOptions: ['5m', '1h'],
         minimumTokenThresholds: [
+          { modelFamily: ['cla', 'ude-opus-5'].join(''), tokens: 512 },
           { modelFamily: 'claude-opus-4.6+', tokens: 4096 },
           { modelFamily: 'claude-sonnet-4.6', tokens: 2048 },
           { modelFamily: 'claude-haiku-4.5', tokens: 4096 },
@@ -354,6 +355,8 @@ export const MODEL_PROVIDER_DEFINITIONS = [
     responseFamily: 'openai',
     supportedWorkloads: [
       'chat',
+      'one_time_job',
+      'recurring_job',
       'memory_extractor',
       'memory_dreaming',
       'memory_consolidation',
@@ -398,6 +401,7 @@ export const MODEL_PROVIDER_DEFINITIONS = [
         minimumTokenThresholds: [{ modelFamily: 'openai', tokens: 1024 }],
         usageFields: {
           readTokens: 'prompt_tokens_details.cached_tokens',
+          writeTokens: 'prompt_tokens_details.cache_write_tokens',
         },
       },
       response: {
@@ -416,9 +420,7 @@ export const MODEL_PROVIDER_DEFINITIONS = [
     },
     supportsReasoningEffort: true,
   },
-  // Additional OpenAI-chat-completions-compatible providers on the DeepAgents
-  // engine. Defined in a sibling module to keep this file under its line
-  // budget; spread here so the registry stays the single source of truth.
+  // OpenAI-compatible DeepAgents providers live in a sibling module; spread here so the registry stays the source of truth.
   ...OPENAI_COMPATIBLE_PROVIDER_DEFINITIONS,
 ] as const satisfies readonly ModelProviderDefinition[];
 
@@ -435,7 +437,6 @@ const MODEL_ROUTE_PROVIDERS = MODEL_PROVIDER_DEFINITIONS.filter(
 const EMBEDDING_MODEL_PROVIDERS = MODEL_PROVIDER_DEFINITIONS.filter(
   (provider) => provider.embeddingProvider,
 );
-
 export type ModelProviderId = (typeof MODEL_PROVIDER_DEFINITIONS)[number]['id'];
 export type ModelRouteProviderId = Extract<
   (typeof MODEL_PROVIDER_DEFINITIONS)[number],

@@ -34,7 +34,7 @@
     "docker-compose.yml",
     "ops/postgres/init/",
     "!**/*.map",
-    ".agents/skills/*/SKILL.md"
+    "factory/skills/*/SKILL.md"
   ],
   "workspaces": [
     "packages/contracts",
@@ -50,6 +50,9 @@
     "build": "npm run build:runtime && npm run build:examples",
     "copy:migrations": "mkdir -p dist/adapters/storage/postgres/schema && cp -R apps/core/src/adapters/storage/postgres/schema/migrations dist/adapters/storage/postgres/schema/",
     "db:migrate": "node dist/postgres-migrate.js",
+    "db:migrations:generate": "drizzle-kit generate --config drizzle.postgres.config.ts",
+    "db:migrations:custom": "drizzle-kit generate --config drizzle.postgres.config.ts --custom",
+    "db:migrations:check": "drizzle-kit check --config drizzle.postgres.config.ts",
     "start": "npm run db:migrate && node dist/index.js",
     "dev": "tsx apps/core/src/index.ts",
     "cli:dev": "tsx apps/core/src/cli/index.ts",
@@ -58,7 +61,6 @@
     "format:fix": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"",
     "format:check": "prettier --check \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"",
     "check:architecture": "python3 scripts/check_architecture.py",
-    "security:audit": "npm audit --omit=dev --audit-level=high",
     "security:sbom": "npm sbom --omit=dev --sbom-format=cyclonedx",
     "security:package": "python3 scripts/check_package_contents.py",
     "security:images": "python3 scripts/check_runtime_images.py",

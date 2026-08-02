@@ -1,0 +1,1488 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forge Board</title>
+<style>
+  /* ═══ Editorial ledger ═══════════════════════════════════════════════
+     Warm paper, oxblood accent, three typefaces with one job each.
+     Position carries progress; colour never carries state alone — every
+     station and card also shows a glyph or a word. */
+  :root {
+    --paper:   #faf8f4;
+    --surface: #fffdfa;
+    --ink:     #1a1714;
+    --muted:   #6f675e;   /* readable secondary — --stone is for marks */
+    --accent:  #8c2f39;   /* oxblood */
+    --shipped: #2f6b4f;   /* forest */
+    --build:   #3b4c8a;   /* indigo */
+    --ready:   #a8741a;   /* ochre  */
+    --stone:   #9a938a;
+    --rule:    #1a17141f; /* hairline, ink @ 12% */
+    --wash:    #1a17140a;
+    --tint:    #8c2f390f;
+    --shadow:  0 1px 2px #1a17140f, 0 12px 32px #1a171418;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono:  ui-monospace, "SF Mono", Consolas, monospace;
+
+    --enter: cubic-bezier(.32,.72,0,1);
+    --gutter: clamp(.75rem, 2.2vw, 1.75rem);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:   #16140f;
+      --surface: #1e1b15;
+      --ink:     #f0ece4;
+      --muted:   #a49b8d;
+      --accent:  #d4707a;
+      --shipped: #5fa37e;
+      --build:   #8296d8;
+      --ready:   #d9a441;
+      --stone:   #6b6459;
+      --rule:    #f0ece424; /* cream @ 14% */
+      --wash:    #f0ece40a;
+      --tint:    #d4707a14;
+      --shadow:  0 1px 2px #00000059, 0 14px 36px #00000066;
+    }
+  }
+
+  * { box-sizing: border-box; margin: 0; }
+  /* No scrollbars anywhere — this is a display surface, and a gutter that
+     appears and vanishes with content would shift the column ruler. */
+  * { scrollbar-width: none; }
+  ::-webkit-scrollbar { width: 0; height: 0; }
+  /* author `display` on #banner/.bar/.panel would otherwise outrank the UA
+     rule for [hidden]; state the intent once instead of per selector. */
+  [hidden] { display: none !important; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font: 14px/1.5 var(--sans);
+    overflow-x: hidden;
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; }
+  code, .mono { font-family: var(--mono); }
+  .wrap { max-width: 1240px; margin: 0 auto; padding-inline: var(--gutter); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+  /* ── header ───────────────────────────────────────────────────────── */
+  #topbar {
+    position: sticky; top: 0; z-index: 20;
+    background: var(--paper); border-bottom: 1px solid var(--rule);
+    padding-block: .7rem .1rem;
+  }
+  .masthead { display: flex; align-items: baseline; gap: .5rem 1rem; flex-wrap: wrap; }
+  .wordmark {
+    font: 400 1.18rem/1.1 var(--serif); letter-spacing: .005em; white-space: nowrap;
+  }
+  .wordmark em { font-style: normal; color: var(--accent); }
+  #runline { color: var(--muted); font-size: .78rem; flex: 1; min-width: 10rem; }
+  #runline b { color: var(--ink); font-weight: 600; }
+  #runline b.key { font-family: var(--mono); font-size: .74rem; }
+  .masthead-right { display: flex; align-items: center; gap: .9rem; margin-left: auto; }
+  .tick { display: inline-flex; align-items: center; gap: .4rem; color: var(--muted); font-size: .74rem; }
+  .tick i { width: 6px; height: 6px; border-radius: 50%; background: var(--shipped); flex: none; }
+  .tick.stale { color: var(--accent); }
+  .tick.stale i { background: var(--accent); border-radius: 1px; }
+  .ghost {
+    font-size: .72rem; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--muted); cursor: pointer; padding: .3rem .55rem; border-radius: 3px;
+    transition: color 140ms ease-out, background-color 140ms ease-out, transform 110ms ease-out;
+  }
+  .ghost:hover { color: var(--ink); background: var(--wash); }
+  .ghost:active { transform: scale(.98); }
+
+  /* progress */
+  .progress { margin-top: .6rem; }
+  .bar { display: flex; height: 6px; border-radius: 1px; overflow: hidden; background: var(--rule); }
+  .bar i { display: block; min-width: 0; }
+  .bar.animate i { transition: width 420ms var(--enter); }
+  .bar i.shipped  { background: var(--shipped); }
+  .bar i.building { background: var(--build); }
+  .bar i.ready    { background: var(--ready); }
+  .bar i.blocked  { background: var(--stone); }
+  .progress-line { margin-top: .38rem; font-size: .78rem; color: var(--muted); }
+  .progress-line b { color: var(--ink); font-weight: 600; }
+  .progress-line span { white-space: nowrap; }
+  .progress-line span + span::before { content: " · "; color: var(--stone); }
+  .progress-line em { font-style: normal; margin-right: .28em; }
+  .k-shipped  { color: var(--shipped); }
+  .k-building { color: var(--build); }
+  .k-ready    { color: var(--ready); }
+  .k-blocked  { color: var(--muted); }
+
+  /* banner — urgent only, hidden when empty */
+  #banner { margin-top: .55rem; display: grid; gap: .3rem; }
+  .flag {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .7rem;
+    font-size: .8rem; padding: .35rem 0 .35rem .7rem;
+    border-left: 2px solid var(--stone);
+  }
+  .flag.urgent { border-left-color: var(--accent); background: var(--tint); }
+  .flag em { font-style: normal; color: var(--accent); }
+  .flag b { font-weight: 600; }
+  .flag code { font-size: .72rem; color: var(--muted); }
+
+  /* next */
+  .next { margin-top: .55rem; }
+  .next-head {
+    display: flex; align-items: baseline; gap: .55rem; width: 100%;
+    cursor: pointer; text-align: left; padding: .3rem 0;
+    transition: opacity 140ms ease-out;
+  }
+  .next-head:hover { opacity: .78; }
+  .next-head:active { transform: scale(.995); }
+  .next-label {
+    font-size: .66rem; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--accent); flex: none;
+  }
+  .next-verb {
+    font: .88rem/1.35 var(--serif); flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .next-count { font-size: .72rem; color: var(--muted); flex: none; }
+  .next-count::after { content: " ▾"; display: inline-block; transition: transform 180ms var(--enter); }
+  .next-head[aria-expanded="true"] .next-count::after { transform: rotate(180deg); }
+  .collapse { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 180ms var(--enter); }
+  .collapse > div { overflow: hidden; min-height: 0; }
+  .collapse.open { grid-template-rows: 1fr; }
+  .next ol { margin: .1rem 0 .5rem; padding-left: 1.4rem; font-size: .82rem; color: var(--muted); }
+  .next li { margin: .18rem 0; }
+  .next li code { font-family: var(--mono); font-size: .74rem; color: var(--ink); }
+  .next li b { color: var(--ink); }
+
+  /* column header — the ruler the whole board reads against */
+  .colhead {
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0 .5rem; margin-top: .5rem; border-top: 1px solid var(--rule);
+  }
+  .colhead > div {
+    /* Inset to match a card's text: its 2px rule plus .5rem padding. The
+       ruler has to sit exactly over the keys it labels. */
+    padding: .42rem .1rem .38rem calc(2px + .5rem);
+    font-size: .64rem; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--muted); min-width: 0;
+    display: flex; align-items: baseline; gap: .35rem;
+  }
+  .colhead > div.bottleneck { color: var(--accent); }
+  .colhead .bn { font-size: .58rem; letter-spacing: .06em; opacity: .95; }
+
+  /* ── lanes ────────────────────────────────────────────────────────── */
+  main { padding-block: .4rem 4rem; }
+  .lane { padding-block: .1rem .35rem; }
+  .lane-head { display: flex; align-items: center; gap: .7rem; padding: .85rem 0 .3rem; }
+  .lane-name {
+    font: 400 .95rem/1.2 var(--serif); letter-spacing: .01em; flex: none;
+    max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .lane-rule { flex: 1; border-top: 1px solid var(--rule); }
+  .lane-count { flex: none; font-size: .7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .lane-grid {
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: .3rem .5rem; align-items: start;
+    border-bottom: 1px solid var(--rule); padding-bottom: .7rem; min-height: 1.6rem;
+  }
+  .cell { display: grid; gap: .3rem; align-content: start; min-width: 0; }
+  .cell.bottleneck { background: var(--tint); border-radius: 2px; }
+
+  /* ── card ─────────────────────────────────────────────────────────── */
+  .card {
+    display: grid; gap: .12rem; width: 100%; min-width: 0; text-align: left;
+    padding: .34rem .45rem .38rem .5rem; cursor: pointer;
+    border-left: 2px solid var(--stone); border-radius: 0 2px 2px 0;
+    background: var(--wash);
+    box-shadow: 0 0 0 2px transparent;
+    transition: background-color 140ms ease-out, transform 110ms ease-out,
+                box-shadow 1100ms ease-out;
+  }
+  .card:hover { background: var(--surface); }
+  .card:active { transform: scale(.98); }
+  .card.settling {
+    box-shadow: 0 0 0 2px var(--accent);
+    transition: background-color 140ms ease-out, transform 110ms ease-out,
+                box-shadow 160ms ease-out;
+  }
+  .card[data-state="shipped"]  { border-left-color: var(--shipped); }
+  .card[data-state="building"] { border-left-color: var(--build); }
+  .card[data-state="ready"]    { border-left-color: var(--ready); }
+  .card[data-state="shipped"]  { opacity: .72; }
+  .card[data-state="shipped"]:hover, .card[data-state="shipped"]:focus-visible { opacity: 1; }
+  .card-top { display: flex; align-items: baseline; gap: .3rem; min-width: 0; }
+  .card-glyph { flex: none; font-size: .74rem; line-height: 1; color: var(--stone); }
+  .card[data-state="shipped"]  .card-glyph { color: var(--shipped); }
+  .card[data-state="building"] .card-glyph { color: var(--build); }
+  .card[data-state="ready"]    .card-glyph { color: var(--ready); }
+  .card-key {
+    font-family: var(--mono); font-size: .7rem; font-weight: 600; letter-spacing: -.01em;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+  }
+  .card-dot {
+    flex: none; margin-left: auto; width: 5px; height: 5px; border-radius: 50%;
+    background: var(--accent);
+  }
+  .card-title {
+    font-size: .74rem; line-height: 1.3; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .card-mark { font-size: .66rem; color: var(--accent); letter-spacing: .01em; }
+  .card[data-state="blocked"] .card-mark, .card[data-state="waiting"] .card-mark { color: var(--muted); }
+  .card-mark:empty { display: none; }
+
+  .empty {
+    margin-top: 2rem; padding: 1.4rem 0; border-top: 1px solid var(--rule);
+    color: var(--muted); font: .9rem/1.6 var(--serif); max-width: 46rem;
+  }
+  .empty code { font-family: var(--mono); font-size: .78rem; color: var(--accent); }
+
+  footer {
+    color: var(--muted); font-size: .72rem; padding-block: 1.4rem 3rem;
+    border-top: 1px solid var(--rule); max-width: 1240px; margin: 0 auto;
+  }
+  footer code { color: var(--accent); }
+  footer p + p { margin-top: .3rem; }
+
+  /* ── overlays ─────────────────────────────────────────────────────── */
+  #scrim {
+    position: fixed; inset: 0; z-index: 30; background: #1a1714;
+    opacity: 0; transition: opacity 220ms ease-out;
+  }
+  #scrim.open { opacity: .28; }
+  @media (prefers-color-scheme: dark) { #scrim.open { opacity: .5; } }
+
+  .panel {
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 40;
+    width: var(--pw, min(420px, 100vw));
+    background: var(--surface); border-left: 1px solid var(--rule);
+    box-shadow: var(--shadow);
+    display: flex; flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 220ms var(--enter), width 260ms var(--enter);
+  }
+  .panel.open { transform: none; }
+  #drawer.wide { --pw: min(760px, 100vw); }
+  #library { --pw: min(560px, 100vw); }
+  .panel-head {
+    display: flex; align-items: center; gap: .6rem;
+    padding: .8rem var(--gutter) .55rem; border-bottom: 1px solid var(--rule); flex: none;
+  }
+  .panel-eyebrow {
+    font-size: .64rem; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--muted); flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .panel-body { overflow: auto; padding: 1rem var(--gutter) 3rem; flex: 1; }
+  .panel h2 { font: 400 1.32rem/1.25 var(--serif); letter-spacing: .005em; }
+  .panel h2 .k { display: block; font: 600 .74rem/1 var(--mono); color: var(--accent); margin-bottom: .35rem; letter-spacing: .02em; }
+  .panel h3 {
+    font-size: .64rem; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--muted); margin: 1.5rem 0 .5rem; padding-top: .7rem;
+    border-top: 1px solid var(--rule);
+  }
+  .panel h3:first-of-type { border-top: 0; padding-top: 0; }
+
+  .statline { margin-top: .5rem; font-size: .8rem; color: var(--muted); }
+  .statline b { font-weight: 600; }
+
+  /* gate rail */
+  .rail { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .4rem; }
+  .rail .st { display: grid; gap: .18rem; justify-items: start; min-width: 0; }
+  .rail .st i { font-style: normal; font-size: .8rem; line-height: 1; color: var(--stone); }
+  .rail .st.done i { color: var(--shipped); }
+  .rail .st.partial i { color: var(--build); }
+  .rail .st.gap i { color: var(--accent); }
+  .rail .st b {
+    font-size: .58rem; letter-spacing: .1em; text-transform: uppercase;
+    font-weight: 500; color: var(--muted);
+  }
+  .rail .st.done b, .rail .st.partial b { color: var(--ink); }
+  .rail .st small { font-size: .6rem; color: var(--muted); min-height: .8em; }
+
+  .check { display: flex; gap: .5rem; align-items: baseline; font-size: .8rem; padding: .18rem 0; }
+  .check em { font-style: normal; flex: none; width: .9rem; color: var(--shipped); }
+  .check.no em { color: var(--accent); }
+  .check .fix { display: block; font-family: var(--mono); font-size: .7rem; color: var(--muted); margin-top: .1rem; }
+  .ids { margin: .15rem 0 .1rem; }
+  .ids summary {
+    cursor: pointer; font-size: .72rem; color: var(--muted);
+    list-style: none; width: max-content;
+  }
+  .ids summary::-webkit-details-marker { display: none; }
+  .ids summary::before {
+    content: "▸"; display: inline-block; margin-right: .35em;
+    transition: transform 160ms var(--enter);
+  }
+  .ids[open] summary::before { transform: rotate(90deg); }
+  .ids summary:hover { color: var(--ink); }
+  .ids > div { font-family: var(--mono); font-size: .68rem; color: var(--muted); padding: .2rem 0 .1rem .8rem; }
+  .check-note { font-size: .76rem; color: var(--muted); margin-top: .5rem; font-style: italic; }
+
+  .tasks { list-style: none; display: grid; gap: .1rem; font-size: .8rem; }
+  .tasks li { display: flex; gap: .5rem; align-items: baseline; color: var(--muted); }
+  .tasks li em { font-style: normal; flex: none; width: .9rem; }
+  .tasks li.done { color: var(--ink); }
+  .tasks li.done em { color: var(--shipped); }
+  .tasks li.active em { color: var(--build); }
+  .tasks li .id { font-family: var(--mono); font-size: .7rem; flex: none; }
+
+  /* A task opens onto its own dossier: what it was for, its slice of the plan,
+     and what proves it ran. Closed by default — the list stays scannable. */
+  .tasks li details { flex: 1; interpolate-size: allow-keywords; }
+  .tasks li summary {
+    display: flex; gap: .5rem; align-items: baseline; cursor: pointer;
+    list-style: none; padding: .1rem 0;
+  }
+  .tasks li summary::-webkit-details-marker { display: none; }
+  /* The native marker is replaced, not removed: a row that opens onto a
+     dossier must not look identical to one that opens onto nothing, and
+     hover is no affordance at all on the tablets this is read on. Same
+     glyph and rotation as the next-steps disclosure above. */
+  .tasks li summary::after {
+    content: "▾"; margin-left: auto; padding-left: .5rem; flex: none;
+    font-size: .7rem; display: inline-block; opacity: .5;
+    transition: transform 180ms var(--enter), opacity 140ms ease-out;
+  }
+  /* currentColor, so the marker carries the same weight as its row rather
+     than fading out on the done rows that are darkest. */
+  .tasks li summary:hover::after,
+  .tasks li details[open] summary::after { opacity: 1; }
+  .tasks li details[open] summary::after { transform: rotate(180deg); }
+  .tasks li summary:hover { color: var(--ink); }
+  .tasks li details[open] summary { color: var(--ink); }
+  .tasks li details > *:not(summary) { margin-left: 1.4rem; }
+  /* Progressive enhancement: where ::details-content is supported the dossier
+     unfolds at the same 180ms as the house .collapse pattern; elsewhere it
+     simply appears, which is the behaviour today. */
+  .tasks li details::details-content {
+    block-size: 0; overflow: hidden;
+    transition: block-size 180ms var(--enter), content-visibility 180ms allow-discrete;
+  }
+  .tasks li details[open]::details-content { block-size: auto; }
+  .task-objective { margin: .5rem 0 .3rem; color: var(--ink); line-height: 1.5; }
+  .task-ac h5, .task-plan h5, .task-proof h5, .task-focus h5 {
+    font-family: var(--sans); font-size: .62rem; text-transform: uppercase;
+    letter-spacing: .09em; color: var(--stone); margin: .7rem 0 .25rem; font-weight: 600;
+  }
+  .task-ac ul { list-style: none; display: grid; gap: .15rem; }
+  .task-ac li { padding-left: .9rem; position: relative; line-height: 1.45; }
+  .task-ac li::before { content: "◦"; position: absolute; left: 0; color: var(--stone); }
+  .task-plan { border-left: 2px solid var(--rule); padding-left: .7rem; }
+  .task-plan p { font-family: var(--serif); line-height: 1.55; margin: .2rem 0; }
+  .task-proof div { line-height: 1.6; }
+  .task-proof b {
+    font-family: var(--sans); font-size: .62rem; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--stone); font-weight: 600; margin-right: .4rem;
+  }
+  .task-proof code { font-family: var(--mono); font-size: .68rem; color: var(--muted); }
+  .task-proof .ran { color: var(--shipped); }
+  .task-proof .unproven { color: var(--ready); }
+  .task-focus p { line-height: 1.5; }
+
+  .widen {
+    margin-top: 1.4rem; font-size: .78rem; color: var(--accent); cursor: pointer;
+    padding: .4rem 0; letter-spacing: .02em;
+    transition: opacity 140ms ease-out, transform 110ms ease-out;
+  }
+  .widen:hover { opacity: .75; }
+  .widen:active { transform: scale(.98); }
+
+  .tabs { display: flex; gap: .1rem; align-items: baseline; border-bottom: 1px solid var(--rule); margin-bottom: .9rem; }
+  .tabs button {
+    cursor: pointer; padding: .35rem .6rem; font-size: .66rem;
+    letter-spacing: .13em; text-transform: uppercase; color: var(--muted);
+    border-bottom: 2px solid transparent;
+    transition: color 140ms ease-out, border-color 140ms ease-out, transform 110ms ease-out;
+  }
+  .tabs button:hover { color: var(--ink); }
+  .tabs button:active { transform: scale(.98); }
+  .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+  .tabs .spacer { flex: 1; }
+  .tabs button.raw { text-transform: none; letter-spacing: .02em; font-size: .66rem; }
+
+  .filelink {
+    display: inline-block; font-family: var(--mono); font-size: .68rem;
+    color: var(--muted); text-decoration: none;
+    border-bottom: 1px solid var(--rule); margin-bottom: .8rem;
+    transition: color 140ms ease-out, border-color 140ms ease-out;
+  }
+  .filelink:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* markdown, typeset at a comfortable measure */
+  .md { max-width: 34em; }
+  .md h1, .md h2, .md h3 { font-family: var(--serif); font-weight: 600; line-height: 1.25; margin: 1.3rem 0 .4rem; }
+  .md h1 { font-size: 1.16rem; }
+  .md h2 { font-size: 1.02rem; color: var(--accent); }
+  .md h3 { font-size: .92rem; letter-spacing: 0; text-transform: none; color: var(--ink); border: 0; padding: 0; }
+  .md p { font: .92rem/1.66 var(--serif); margin: .55rem 0; }
+  .md ul, .md ol { font: .92rem/1.62 var(--serif); margin: .5rem 0 .5rem 1.2rem; }
+  .md li { margin: .18rem 0; }
+  .md strong { font-weight: 700; }
+  .md code { font-family: var(--mono); font-size: .76rem; background: var(--wash); padding: .05em .3em; border-radius: 2px; }
+  .md pre { background: var(--wash); border-left: 2px solid var(--rule); padding: .6rem .7rem; overflow-x: auto; margin: .6rem 0; }
+  .md pre code { background: none; padding: 0; font-size: .72rem; line-height: 1.55; }
+
+  /* Plan tables (every Surface Impact is one): ruled like a ledger, not boxed.
+     The wrapper scrolls so a wide table never scrolls the page itself. */
+  .tablewrap { overflow-x: auto; margin: .7rem 0; }
+  .md table { border-collapse: collapse; width: 100%; font-size: .84rem; }
+  .md th {
+    font: 600 .62rem/1.3 var(--sans); text-transform: uppercase;
+    letter-spacing: .09em; color: var(--stone); text-align: left;
+    padding: 0 .8rem .35rem 0; border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  .md td {
+    font-family: var(--serif); line-height: 1.5; vertical-align: baseline;
+    padding: .42rem .8rem .42rem 0; border-bottom: 1px solid var(--rule);
+    color: var(--muted);
+  }
+  .md tbody tr:last-child td { border-bottom: 0; }
+  .md td.rowhead { color: var(--ink); white-space: nowrap; }
+  .md td:last-child, .md th:last-child { padding-right: 0; }
+  pre.raw {
+    background: var(--wash); border-left: 2px solid var(--rule); padding: .6rem .7rem;
+    overflow-x: auto; font-family: var(--mono); font-size: .7rem; line-height: 1.5;
+  }
+
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .9rem; font-size: .78rem; }
+  .kv dt { color: var(--muted); font-family: var(--mono); font-size: .7rem; }
+  .kv dd { margin: 0; }
+  .verdict { font-weight: 600; }
+  .verdict.ok { color: var(--shipped); }
+  .verdict.bad { color: var(--accent); }
+  .verdict.none { color: var(--muted); }
+  .finding { border-left: 2px solid var(--accent); padding: .1rem .55rem; margin: .25rem 0; font-size: .76rem; }
+  .finding.minor { border-left-color: var(--rule); color: var(--muted); }
+
+  .ledger { display: grid; gap: .3rem; font-size: .8rem; }
+  .ledger > div { display: flex; flex-wrap: wrap; gap: .15rem .6rem; align-items: baseline; padding-bottom: .3rem; border-bottom: 1px solid var(--rule); }
+  .ledger .id { font-family: var(--mono); font-size: .7rem; font-weight: 600; flex: none; }
+  .ledger .meta { color: var(--muted); font-size: .72rem; }
+  .ledger .tag { font-size: .6rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .ledger .tag.draft { color: var(--ready); }
+  .ledger .tag.confirmed { color: var(--shipped); }
+  .quiet { color: var(--muted); font-size: .8rem; font-style: italic; }
+
+  /* ── responsive ───────────────────────────────────────────────────── */
+  @media (max-width: 900px) {
+    .card-title { font-size: .7rem; }
+    .lane-name { max-width: 55%; }
+  }
+  @media (max-width: 620px) {
+    .colhead > div { font-size: .56rem; letter-spacing: .06em; }
+    .colhead .bn { font-size: 0; }
+    .colhead .bn::before { content: "\25C6"; font-size: .6rem; }
+    .card-title { display: none; }
+    .rail { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem .4rem; }
+  }
+
+  /* ── motion budget ────────────────────────────────────────────────── */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      transition-duration: 1ms !important;
+      animation-duration: 1ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<header id="topbar">
+  <div class="wrap">
+    <div class="masthead">
+      <h1 class="wordmark">Forge <em>·</em> Board</h1>
+      <p id="runline"></p>
+      <div class="masthead-right">
+        <span id="tick" class="tick"><i aria-hidden="true"></i><span id="tick-label">connecting</span></span>
+        <button id="library-open" class="ghost" type="button" aria-haspopup="dialog" aria-expanded="false">☰ Library</button>
+      </div>
+    </div>
+
+    <div class="progress">
+      <div class="bar" id="bar" role="img" aria-label="story progress"></div>
+      <p class="progress-line" id="progress-line"></p>
+    </div>
+
+    <div id="banner" hidden></div>
+
+    <div class="next" id="next" hidden>
+      <button class="next-head" id="next-toggle" type="button" aria-expanded="false" aria-controls="next-steps">
+        <span class="next-label">Next</span>
+        <span class="next-verb" id="next-verb"></span>
+        <span class="next-count" id="next-count"></span>
+      </button>
+      <div class="collapse" id="next-steps"><div><ol id="next-list"></ol></div></div>
+    </div>
+
+    <div class="colhead" id="colhead"></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="lanes"></div>
+  <div id="empty" class="empty" hidden></div>
+</main>
+
+<footer class="wrap">
+  <p>Read-only. Every action lives in the CLI — <code>./forge next</code> prints the current move,
+     and plan approval happens in chat because the grill is bound by digest to the exact plan text.</p>
+  <p>A card sits in the column it is waiting on. ★ marks one you can plan now.</p>
+</footer>
+
+<div id="scrim" hidden></div>
+<aside id="drawer" class="panel" hidden role="dialog" aria-modal="true" aria-labelledby="drawer-title"></aside>
+<aside id="library" class="panel" hidden role="dialog" aria-modal="true" aria-labelledby="library-title"></aside>
+
+<script>
+"use strict";
+
+/* ═══ helpers ═══════════════════════════════════════════════════════════ */
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+// Every consumer reads REDUCE.matches at call time, so an OS toggle applies
+// on the next poll without a reload — no change listener needed.
+const REDUCE = matchMedia("(prefers-reduced-motion: reduce)");
+const ENTER = "cubic-bezier(.32,.72,0,1)";
+
+/* Minimal markdown for what plans actually use. Input is escaped FIRST, so
+   nothing here can inject — the patterns only add tags around safe text. */
+function md(src) {
+  // Comments are notes the author wrote to themselves — a template hint, a
+  // "review before merge" reminder. Stripped BEFORE escaping, or they escape
+  // into visible text. (Safe: removing content can never inject.)
+  const lines = esc(String(src ?? "").replace(/<!--[\s\S]*?-->/g, "")).split(/\r?\n/);
+  const out = [];
+  let list = null, fence = false;
+  const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  const inline = (s) => s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  const cells = (row) => row.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+  const isDivider = (row) => /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(row) && row.includes("-");
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    // A table is a header row followed by a divider — the shape every plan's
+    // Surface Impact uses, and the one thing here that must not read as pipes.
+    if (!fence && line.trim().startsWith("|") && isDivider(lines[index + 1] || "")) {
+      closeList();
+      const head = cells(line);
+      const body = [];
+      let cursor = index + 2;
+      while (cursor < lines.length && lines[cursor].trim().startsWith("|")) {
+        body.push(cells(lines[cursor]));
+        cursor++;
+      }
+      out.push(`<div class="tablewrap"><table><thead><tr>${
+        head.map(c => `<th>${inline(c)}</th>`).join("")}</tr></thead><tbody>${
+        body.map(row => `<tr>${row.map((c, n) =>
+          `<td${n === 0 ? ' class="rowhead"' : ""}>${inline(c)}</td>`).join("")}</tr>`)
+          .join("")}</tbody></table></div>`);
+      index = cursor - 1;
+      continue;
+    }
+    if (/^```/.test(line)) {
+      closeList();
+      out.push(fence ? "</code></pre>" : "<pre><code>");
+      fence = !fence;
+      continue;
+    }
+    if (fence) { out.push(line); continue; }
+    const heading = line.match(/^(#{1,3})\s+(.*)$/);
+    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+    const numbered = line.match(/^\s*\d+\.\s+(.*)$/);
+    if (heading) {
+      closeList();
+      const level = heading[1].length;
+      out.push(`<h${level}>${inline(heading[2])}</h${level}>`);
+    } else if (bullet) {
+      if (list !== "ul") { closeList(); out.push("<ul>"); list = "ul"; }
+      out.push(`<li>${inline(bullet[1])}</li>`);
+    } else if (numbered) {
+      if (list !== "ol") { closeList(); out.push("<ol>"); list = "ol"; }
+      out.push(`<li>${inline(numbered[1])}</li>`);
+    } else if (!line.trim()) {
+      closeList();
+    } else {
+      closeList();
+      out.push(`<p>${inline(line)}</p>`);
+    }
+  }
+  closeList();
+  if (fence) out.push("</code></pre>");
+  return `<div class="md">${out.join("\n")}</div>`;
+}
+
+const rawBlock = (value) => `<pre class="raw">${esc(JSON.stringify(value, null, 2))}</pre>`;
+
+// Command-shaped fragments read as commands, so mark them up as such.
+// Escaped first; the replacements only wrap already-safe text.
+const asCode = (s) => esc(s)
+  .replace(/(^|\s)((?:\.\/forge|forge\.py|python3|\/grill-me)[^,;()]*)/g, "$1<code>$2</code>")
+  .replace(/^\[([^\]]+)\]/, "<b>[$1]</b>");
+
+let repoRoot = "";
+// Opens the real file in the editor — review in the browser, edit in VS Code.
+const openFile = (rel, label) => rel
+  ? `<a class="filelink" href="vscode://file/${esc(repoRoot)}/${esc(rel)}">${esc(label || rel)} ↗</a>`
+  : "";
+
+/* ═══ lifecycle model ═══════════════════════════════════════════════════ */
+/* The gate sequence, as the drawer's rail reads it. "Story derived" is not a
+   station: every card on this board is already a roadmap item, so the flag was
+   always true and its column could never hold a card. */
+const STATIONS = ["Spec", "Plan", "Build", "Checks", "Ship"];
+/* Column headings name what a card IS, not the gate it faces — a card under
+   "Plan" reads as planned when it means the opposite. */
+const COLUMNS = ["Needs spec", "Awaiting plan", "Building", "In checks", "Shipped"];
+const FLAG_GLYPH = {done: "✓", partial: "◐", todo: "○", gap: "✗"};
+const STATE_GLYPH = {shipped: "✓", building: "◐", ready: "★", blocked: "⊘", waiting: "·"};
+const STATE_WORD = {shipped: "shipped", building: "building", ready: "ready to plan",
+                    blocked: "blocked", waiting: "waiting"};
+
+const REVIEW_ASPECTS = ["quality", "performance", "security"];
+/* verify + tests + one review per aspect — the gates pr_ready.py demands. */
+const CHECKS_TOTAL = 2 + REVIEW_ASPECTS.length;
+
+function checksDone(lc) {
+  const reviews = lc.reviews || {};
+  const reviewed = REVIEW_ASPECTS.filter(a => reviews[a]).length;
+  return [lc.verify, lc.tests].filter(Boolean).length + reviewed;
+}
+
+/** One flag per station: done | partial | todo | gap, plus a short note. */
+function stationFlags(story) {
+  const lc = story.lifecycle || {};
+  const st = lc.stages;
+  const done = checksDone(lc);
+  return [
+    {flag: lc.spec === "confirmed" ? "done" : (lc.spec === "draft" ? "partial" : "gap"),
+     note: lc.spec === "confirmed" ? "" : String(lc.spec || "missing")},
+    {flag: lc.planned ? "done" : "todo", note: ""},
+    {flag: !st || !st.total ? "todo" : (st.done === st.total ? "done" : (st.done ? "partial" : "todo")),
+     note: st && st.total ? `${st.done}/${st.total}` : ""},
+    {flag: done === CHECKS_TOTAL ? "done" : (done ? "partial" : "todo"),
+     note: done ? `${done}/${CHECKS_TOTAL}` : ""},
+    {flag: lc.shipped ? "done" : "todo", note: ""},
+  ];
+}
+
+/** The column a story sits in: the first station it has not cleared. */
+function columnOf(story) {
+  const last = STATIONS.length - 1;
+  if (story.lifecycle && story.lifecycle.shipped) return last;
+  const flags = stationFlags(story);
+  const at = flags.findIndex(s => s.flag !== "done");
+  return at === -1 ? last : at;
+}
+
+/** Transitive count of not-yet-shipped stories each story unblocks. */
+function leverageMap(stories) {
+  const dependents = new Map();
+  for (const s of stories) {
+    for (const dep of s.depends_on || []) {
+      if (!dependents.has(dep)) dependents.set(dep, []);
+      dependents.get(dep).push(s.key);
+    }
+  }
+  const shipped = new Set(stories.filter(s => s.state === "shipped").map(s => s.key));
+  const out = new Map();
+  for (const s of stories) {
+    const seen = new Set();
+    const queue = [...(dependents.get(s.key) || [])];
+    while (queue.length) {
+      const key = queue.shift();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      queue.push(...(dependents.get(key) || []));
+    }
+    out.set(s.key, [...seen].filter(k => !shipped.has(k)).length);
+  }
+  return out;
+}
+
+const DAY = 86400000;
+function ageDays(iso) {
+  const t = Date.parse(iso || "");
+  if (!t) return null;
+  // Clamp at zero: a clock skew between the recording machine and this
+  // browser must read "today", never "-1 days ago".
+  return Math.max(0, Math.floor((Date.now() - t) / DAY));
+}
+
+/** At most one derived marker per card — blockers first, then leverage,
+    then a stall old enough to be worth saying out loud. */
+function cardMark(story, leverage) {
+  const waiting = story.blocked_by || [];
+  if (waiting.length) return `⊘ waits on ${waiting.slice(0, 2).join(", ")}${waiting.length > 2 ? "…" : ""}`;
+  if (story.state === "ready") {
+    const n = leverage.get(story.key) || 0;
+    return n ? `★ unblocks ${n}` : "★ ready to plan";
+  }
+  if (story.state === "building") {
+    const days = ageDays(story.plan && story.plan.saved);
+    if (days !== null && days >= 2) return `◷ building ${days}d`;
+  }
+  return "";
+}
+
+/* ═══ since you last looked ═════════════════════════════════════════════ */
+// A card's signature: everything that would move or change it on the board.
+const signature = (s) => {
+  const lc = s.lifecycle || {};
+  const st = lc.stages;
+  return [columnOf(s), s.state, st ? `${st.done}/${st.total}` : "-", checksDone(lc)].join("|");
+};
+const changed = new Set();
+let snapshot = null;
+
+function readSnapshot(root) {
+  try { return JSON.parse(localStorage.getItem("forge-board:" + root) || "null"); }
+  catch { return null; }
+}
+let lastSnapshot = "";
+function writeSnapshot(root, map) {
+  // Only on a real change — this runs every poll, and the board is idle most
+  // of the time.
+  const text = JSON.stringify(map);
+  if (text === lastSnapshot) return;
+  lastSnapshot = text;
+  try { localStorage.setItem("forge-board:" + root, text); } catch { /* private mode */ }
+}
+
+/* ═══ header ════════════════════════════════════════════════════════════ */
+function renderRunline(state) {
+  const run = state.run || {};
+  $("runline").innerHTML = run.issue_key
+    ? `run <b class="key">${esc(run.issue_key)}</b> · phase <b>${esc(run.phase || "—")}</b> · plan <b>${esc(run.plan_status || "—")}</b>`
+    : `no active task · phase <b>${esc(run.phase || "—")}</b>`;
+}
+
+const barSegments = new Map();
+function renderProgress(state) {
+  const sum = state.summary && state.summary.stories;
+  const bar = $("bar");
+  if (!sum || !sum.total) {
+    bar.hidden = true;
+    $("progress-line").textContent = "";
+    return;
+  }
+  bar.hidden = false;
+  const total = sum.total;
+  const parts = [
+    ["shipped", sum.shipped], ["building", sum.building],
+    ["ready", sum.ready], ["blocked", sum.blocked + sum.waiting],
+  ];
+  for (const [cls, n] of parts) {
+    let seg = barSegments.get(cls);
+    if (!seg) {
+      seg = document.createElement("i");
+      seg.className = cls;
+      bar.appendChild(seg);
+      barSegments.set(cls, seg);
+    }
+    seg.style.width = `${(n / total) * 100}%`;
+  }
+  bar.setAttribute("aria-label",
+    `${sum.shipped} of ${total} stories shipped, ${sum.building} building, ` +
+    `${sum.ready} ready to plan, ${sum.blocked + sum.waiting} blocked`);
+  const cell = (cls, glyph, n, word) =>
+    `<span class="k-${cls}"><em>${glyph}</em><b>${n}</b> ${word}</span>`;
+  $("progress-line").innerHTML =
+    `<span class="k-shipped"><em>✓</em><b>${sum.shipped}/${total}</b> shipped</span>` +
+    (sum.building ? cell("building", "◐", sum.building, "building") : "") +
+    (sum.ready ? cell("ready", "★", sum.ready, "ready to plan") : "") +
+    (sum.blocked + sum.waiting ? cell("blocked", "⊘", sum.blocked + sum.waiting, "waiting") : "");
+}
+
+function renderBanner(state) {
+  const rows = [];
+  for (const sig of state.signals || []) {
+    rows.push(`<div class="flag urgent"><em>⚠</em>
+      <b>Worker paused — ${esc(sig.kind)}</b>
+      <span>${esc(sig.id)}: ${esc(sig.message || "")}</span>
+      <code>./forge signal resolve ${esc(sig.id)} --notes "…"</code></div>`);
+  }
+  if (state.quickfix) {
+    const q = state.quickfix;
+    rows.push(`<div class="flag urgent"><em>◆</em>
+      <b>Quickfix window open</b>
+      <span>${esc(q.id)} — ${esc(q.reason || "")} (${(q.files || []).length}/${esc(q.max_files)} files)</span>
+      <code>./forge quickfix done</code></div>`);
+  }
+  const a = (state.summary || {}).attention || {};
+  const quiet = [];
+  if (a.assumptions) quiet.push(`${plural(a.assumptions, "assumption")} to guide`);
+  if ((a.spec_gaps || []).length)
+    quiet.push(`${plural(a.spec_gaps.length, "story")} ahead of its spec (${a.spec_gaps.map(esc).join(", ")})`);
+  if (quiet.length) rows.push(`<div class="flag"><em>·</em><span>${quiet.join(" · ")}</span></div>`);
+  $("banner").innerHTML = rows.join("");
+  $("banner").hidden = rows.length === 0;
+}
+
+function renderNext(state) {
+  const next = state.next || {};
+  const steps = next.steps || [];
+  if (!steps.length && !next.phase) { $("next").hidden = true; return; }
+  $("next").hidden = false;
+  $("next-verb").textContent = steps[0] ? steps[0].replace(/^\[[^\]]+\]\s*/, "") : `phase ${next.phase || "—"}`;
+  $("next-count").textContent = steps.length > 1 ? `${steps.length} steps` : (next.phase || "");
+  $("next-list").innerHTML = steps.map(s => `<li>${asCode(s)}</li>`).join("");
+}
+$("next-toggle").addEventListener("click", () => {
+  const open = $("next-steps").classList.toggle("open");
+  $("next-toggle").setAttribute("aria-expanded", String(open));
+});
+
+let bottleneck = -1;
+const colCells = [];
+function renderColhead() {
+  if (colCells.length) return;
+  const head = $("colhead");
+  COLUMNS.forEach((label, i) => {
+    const cell = document.createElement("div");
+    cell.innerHTML = `<span>${label}</span><span class="bn"></span>`;
+    head.appendChild(cell);
+    colCells.push(cell);
+  });
+}
+
+/** The station holding the most unshipped work — why the board feels stuck. */
+function findBottleneck(stories) {
+  const counts = COLUMNS.map(() => 0);
+  for (const s of stories) if (s.state !== "shipped") counts[columnOf(s)]++;
+  const upstream = counts.slice(0, COLUMNS.length - 1);
+  let best = -1, top = 1;
+  upstream.forEach((n, i) => { if (n > top) { top = n; best = i; } });
+  if (best >= 0 && upstream.filter(n => n === top).length > 1) return -1;
+  return best;
+}
+
+/* ═══ lanes — keyed diff and patch ══════════════════════════════════════ */
+const cards = new Map();   // story key -> {el, key, sig, col, title, mark, state, dot}
+const lanes = new Map();   // epic key  -> {el, cells[6], countEl}
+let firstPaint = true;
+
+function makeCard(key) {
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "card";
+  el.dataset.key = key;
+  el.innerHTML = `<span class="card-top">
+      <span class="card-glyph" aria-hidden="true"></span>
+      <span class="card-key"></span>
+      <span class="card-dot" hidden aria-hidden="true"></span>
+    </span>
+    <span class="card-title"></span>
+    <span class="card-mark"></span>`;
+  el.addEventListener("click", () => {
+    if (changed.delete(key)) el.querySelector(".card-dot").hidden = true;
+    openDrawer(key, el);
+  });
+  return el;
+}
+
+function makeLane(key, name) {
+  const el = document.createElement("section");
+  el.className = "lane";
+  el.dataset.epic = key;
+  el.innerHTML = `<div class="lane-head">
+      <h2 class="lane-name"></h2><span class="lane-rule"></span>
+      <span class="lane-count"></span>
+    </div><div class="lane-grid"></div>`;
+  el.querySelector(".lane-name").textContent = name;
+  const grid = el.querySelector(".lane-grid");
+  const cells = COLUMNS.map((_, i) => {
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    cell.dataset.col = String(i);
+    grid.appendChild(cell);
+    return cell;
+  });
+  return {el, cells, countEl: el.querySelector(".lane-count"), nameEl: el.querySelector(".lane-name")};
+}
+
+function rollCount(el, text) {
+  if (el.textContent === text) return;
+  const had = el.textContent !== "";
+  el.textContent = text;
+  if (had && !REDUCE.matches) {
+    el.animate([{opacity: 0, transform: "translateY(-.35em)"}, {opacity: 1, transform: "none"}],
+               {duration: 260, easing: "ease-out"});
+  }
+}
+
+function patchLanes(state) {
+  const stories = state.stories || [];
+  const host = $("lanes");
+  $("empty").hidden = stories.length > 0;
+  if (!stories.length) {
+    $("empty").innerHTML = `No stories yet. They are derived from confirmed specs — save specs while
+      prototyping (<code>./forge spec save &lt;slug&gt; --from &lt;draft.md&gt;</code>), confirm them,
+      then <code>./forge roadmap derive --input &lt;roadmap.json&gt;</code>.`;
+  }
+
+  // 1. measure, before anything moves
+  const before = new Map();
+  if (!firstPaint && !REDUCE.matches) {
+    for (const [key, card] of cards) before.set(key, card.el.getBoundingClientRect());
+  }
+
+  // 2. lanes, in roadmap order
+  const titles = new Map((state.epics || []).map(e => [e.id, e.title || e.id]));
+  const order = [];
+  const grouped = new Map();
+  for (const s of stories) {
+    const epic = s.epic || "Backlog";
+    if (!grouped.has(epic)) { grouped.set(epic, []); order.push(epic); }
+    grouped.get(epic).push(s);
+  }
+  let anchor = host.firstElementChild;
+  for (const epic of order) {
+    let lane = lanes.get(epic);
+    if (!lane) { lane = makeLane(epic, titles.get(epic) || epic); lanes.set(epic, lane); }
+    else lane.nameEl.textContent = titles.get(epic) || epic;
+    if (lane.el !== anchor) host.insertBefore(lane.el, anchor);
+    anchor = lane.el.nextElementSibling;
+  }
+  for (const [epic, lane] of lanes) {
+    if (!grouped.has(epic)) { lane.el.remove(); lanes.delete(epic); }
+  }
+
+  // 3. cards — created once, moved only when their position actually changes
+  const leverage = leverageMap(stories);
+  const bn = findBottleneck(stories);
+  if (bn !== bottleneck) {
+    bottleneck = bn;
+    colCells.forEach((cell, i) => {
+      cell.classList.toggle("bottleneck", i === bn);
+      cell.querySelector(".bn").textContent = i === bn ? "◆ bottleneck" : "";
+    });
+  }
+  for (const lane of lanes.values()) {
+    lane.cells.forEach((cell, i) => cell.classList.toggle("bottleneck", i === bn));
+  }
+
+  const advanced = new Set();
+  const live = new Set();
+  const cursor = new Map();
+  const nextSnapshot = {};
+  for (const epic of order) {
+    const lane = lanes.get(epic);
+    let shipped = 0;
+    // Within a column, the story that unblocks the most work comes first —
+    // the leverage number is only half the signal if position ignores it.
+    // Stable, so equal leverage keeps roadmap order.
+    const ranked = grouped.get(epic).slice().sort((a, b) =>
+      columnOf(a) - columnOf(b) ||
+      (leverage.get(b.key) || 0) - (leverage.get(a.key) || 0));
+    for (const story of ranked) {
+      const key = story.key;
+      live.add(key);
+      let card = cards.get(key);
+      if (!card) { card = {el: makeCard(key), sig: null, col: null}; cards.set(key, card); }
+      const el = card.el;
+      const col = columnOf(story);
+      const sig = signature(story);
+      nextSnapshot[key] = sig;
+      if (story.state === "shipped") shipped++;
+
+      if (card.sig !== sig) {
+        if (card.sig !== null) { advanced.add(key); changed.add(key); }
+        card.sig = sig;
+      }
+      // text updates are idempotent; only write what differs
+      const glyph = STATE_GLYPH[story.state] || "·";
+      const title = story.title || "";
+      const mark = cardMark(story, leverage);
+      if (el.dataset.state !== story.state) el.dataset.state = story.state;
+      if (card.glyph !== glyph) { el.querySelector(".card-glyph").textContent = glyph; card.glyph = glyph; }
+      if (card.key !== key) { el.querySelector(".card-key").textContent = key; card.key = key; }
+      if (card.title !== title) { el.querySelector(".card-title").textContent = title; card.title = title; }
+      if (card.mark !== mark) { el.querySelector(".card-mark").textContent = mark; card.mark = mark; }
+      el.querySelector(".card-dot").hidden = !changed.has(key);
+      el.setAttribute("aria-label",
+        `${key}${title ? " — " + title : ""}. ${STATE_WORD[story.state] || story.state}, at ${COLUMNS[col]}.` +
+        `${mark ? " " + mark.replace(/^\S\s/, "") + "." : ""}${changed.has(key) ? " Changed." : ""}`);
+
+      const cell = lane.cells[col];
+      const after = cursor.get(cell) || null;
+      const want = after ? after.nextElementSibling : cell.firstElementChild;
+      if (want !== el) cell.insertBefore(el, want);
+      cursor.set(cell, el);
+      card.col = col;
+    }
+    rollCount(lane.countEl, `${shipped} of ${grouped.get(epic).length} shipped`);
+  }
+  for (const [key, card] of cards) {
+    if (!live.has(key)) { card.el.remove(); cards.delete(key); changed.delete(key); }
+  }
+
+  // 4. FLIP — the only automatic animation on the board. Restricted to cards
+  // that actually advanced: a card merely displaced by one above it changing
+  // must jump, or an ordinary reflow would animate half the board.
+  if (before.size && advanced.size) {
+    // Read every rect first, then write — interleaving them forces a
+    // synchronous layout per card.
+    const moves = [];
+    for (const key of advanced) {
+      const card = cards.get(key), was = before.get(key);
+      if (!card || !was) continue;
+      const now = card.el.getBoundingClientRect();
+      moves.push([card.el, was.left - now.left, was.top - now.top]);
+    }
+    for (const [el, dx, dy] of moves) {
+      if (Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5) {
+        el.animate([{transform: `translate(${dx}px, ${dy}px)`}, {transform: "none"}],
+                   {duration: 400, easing: ENTER});
+      }
+      el.classList.add("settling");
+      setTimeout(() => el.classList.remove("settling"), 340);
+    }
+  }
+
+  // 5. what changed since the last visit, recorded for the next one
+  if (snapshot) {
+    for (const [key, sig] of Object.entries(nextSnapshot)) {
+      if (snapshot[key] !== undefined && snapshot[key] !== sig) changed.add(key);
+    }
+    snapshot = null;
+    for (const [key, card] of cards) card.el.querySelector(".card-dot").hidden = !changed.has(key);
+  }
+  writeSnapshot(repoRoot, nextSnapshot);
+  firstPaint = false;
+}
+
+/* ═══ overlays — drawer and library share the shell ═════════════════════ */
+let openPanel = null, opener = null;
+const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function showPanel(panel, returnTo) {
+  if (openPanel && openPanel !== panel) hidePanel(true);
+  opener = returnTo || opener;
+  openPanel = panel;
+  panel.hidden = false;
+  $("scrim").hidden = false;
+  requestAnimationFrame(() => { panel.classList.add("open"); $("scrim").classList.add("open"); });
+  const first = panel.querySelector(FOCUSABLE);
+  if (first) first.focus();
+}
+
+function hidePanel(immediate) {
+  const panel = openPanel;
+  if (!panel) return;
+  openPanel = null;
+  panel.classList.remove("open");
+  $("scrim").classList.remove("open");
+  const settle = () => {
+    if (openPanel === panel) return;   // reopened mid-transition
+    panel.hidden = true;
+    $("scrim").hidden = openPanel === null;
+  };
+  if (immediate || REDUCE.matches) settle(); else setTimeout(settle, 220);
+  $("library-open").setAttribute("aria-expanded", "false");
+  if (opener && document.body.contains(opener)) opener.focus();
+  opener = null;
+}
+
+function trapFocus(event) {
+  if (!openPanel) return;
+  if (event.key === "Escape") { event.preventDefault(); hidePanel(); return; }
+  if (event.key !== "Tab") return;
+  const items = [...openPanel.querySelectorAll(FOCUSABLE)].filter(el => el.offsetParent !== null);
+  if (!items.length) { event.preventDefault(); return; }
+  const first = items[0], last = items[items.length - 1];
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || !openPanel.contains(active))) {
+    event.preventDefault(); last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault(); first.focus();
+  }
+}
+addEventListener("keydown", trapFocus);
+$("scrim").addEventListener("click", () => hidePanel());
+
+/* ═══ drawer ════════════════════════════════════════════════════════════ */
+const drawer = {key: null, detail: null, wide: false, tab: "plan", raw: false};
+
+function railBlock(story) {
+  const flags = stationFlags(story);
+  return `<div class="rail">${flags.map((s, i) => `<div class="st ${s.flag}">
+      <i aria-hidden="true">${FLAG_GLYPH[s.flag]}</i>
+      <b>${STATIONS[i]}</b>
+      <small>${esc(s.note)}</small>
+    </div>`).join("")}</div>`;
+}
+
+/** Ids behind a disclosure. Sixteen decision slugs inline is the wall of
+    text this board exists to stop printing. */
+function detailList(items) {
+  if (!items || !items.length) return "";
+  return `<details class="ids"><summary>${plural(items.length, "id")}</summary>
+    <div>${items.map(esc).join("<br>")}</div></details>`;
+}
+
+function readinessBlock(detail) {
+  const checks = detail.readiness || [];
+  if (!checks.length) return "";
+  const blockers = checks.filter(c => !c.ok);
+  return `<h3>${blockers.length
+      ? `${plural(blockers.length, "blocker")} before approval`
+      : "Clear for approval"}</h3>
+    ${checks.map(c => `<div class="check ${c.ok ? "" : "no"}">
+      <em aria-hidden="true">${c.ok ? "✓" : "✗"}</em>
+      <span>${esc(c.label)}${c.ok ? "" : `${detailList(c.detail)}<span class="fix">${esc(c.fix)}</span>`}</span>
+    </div>`).join("")}
+    <p class="check-note">Approval happens in chat — the grill is an interrogation bound to
+      the exact plan text, not a button.</p>`;
+}
+
+function taskBlock(story) {
+  const tasks = story.tasks || [];
+  if (!tasks.length) {
+    return `<p class="quiet">${(story.lifecycle || {}).planned
+      ? "Planned, no tasks recorded yet — they appear once the decomposition is recorded."
+      : "Tasks appear after this story is planned and decomposed."}</p>`;
+  }
+  const mark = {done: "✓", active: "◐", "in-progress": "◐"};
+  return `<ul class="tasks">${tasks.map(t => {
+    const cls = t.status === "done" ? "done"
+      : (t.status === "active" || t.status === "in-progress" ? "active" : "");
+    const head = `<em aria-hidden="true">${mark[t.status] || "○"}</em>
+      <span class="id">${esc(t.id || "")}</span><span>${esc(t.title || "")}</span>`;
+    // A task with no recorded detail stays a plain row: a disclosure that opens
+    // onto nothing is worse than no disclosure.
+    const detail = taskDossier(t);
+    return detail
+      ? `<li class="${cls}"><details><summary>${head}</summary>${detail}</details></li>`
+      : `<li class="${cls}">${head}</li>`;
+  }).join("")}</ul>`;
+}
+
+/** What this task was for, what the plan said, and what proves it ran. */
+function taskDossier(t) {
+  const rows = [];
+  if (t.objective) rows.push(`<p class="task-objective">${esc(t.objective)}</p>`);
+  if ((t.acceptance_criteria || []).length) {
+    rows.push(`<div class="task-ac"><h5>Done when</h5><ul>${
+      t.acceptance_criteria.map(c => `<li>${esc(c)}</li>`).join("")}</ul></div>`);
+  }
+  if (t.plan_excerpt) {
+    rows.push(`<div class="task-plan"><h5>From the plan</h5>${md(t.plan_excerpt)}</div>`);
+  }
+  const proof = t.proof || {};
+  const bits = [];
+  if (proof.spec) bits.push(`<div><b>Spec</b> ${openFile(proof.spec)}</div>`);
+  if ((proof.required_tests || []).length) {
+    const covered = new Set(proof.covered_tests || []);
+    bits.push(`<div><b>Tests</b> ${proof.required_tests.map(name =>
+      `<span class="${covered.has(name) ? "ran" : "unproven"}">${
+        covered.has(name) ? "✓" : "○"} ${esc(name)}</span>`).join(" ")}</div>`);
+  }
+  if (proof.verify_ok) {
+    bits.push(`<div><b>Verify</b> passed${proof.verify_at
+      ? ` · ${esc(String(proof.verify_at).slice(0, 10))}` : ""}</div>`);
+  }
+  if ((t.write_scope || []).length) {
+    bits.push(`<div><b>Scope</b> ${t.write_scope.map(p =>
+      `<code>${esc(p)}</code>`).join(" ")}</div>`);
+  }
+  if (t.started_at) {
+    bits.push(`<div><b>Worked</b> ${esc(String(t.started_at).slice(0, 10))}${
+      t.completed_at ? ` → ${esc(String(t.completed_at).slice(0, 10))}` : " → in progress"}</div>`);
+  }
+  if (bits.length) rows.push(`<div class="task-proof"><h5>Proof</h5>${bits.join("")}</div>`);
+  (proof.findings || []).forEach(f => rows.push(
+    `<div class="finding note">${esc(f.aspect)}: ${esc(f.summary)}</div>`));
+  if (t.reviewer_focus) {
+    rows.push(`<div class="task-focus"><h5>Reviewer focus</h5><p>${
+      esc(t.reviewer_focus)}</p></div>`);
+  }
+  return rows.join("");
+}
+
+function findingList(items, cls) {
+  if (!items || !items.length) return "";
+  return items.map(f => {
+    const text = typeof f === "string" ? f
+      : [f.category, f.area, f.summary].filter(Boolean).join(" · ");
+    return `<div class="finding ${cls}">${esc(text)}</div>`;
+  }).join("");
+}
+
+function proofBlock(detail) {
+  const ev = detail.evidence || {};
+  const rows = [];
+  rows.push(["verify", ev.verify
+    ? `<span class="verdict ${ev.verify.ok ? "ok" : "bad"}">${ev.verify.ok ? "✓ passed" : "✗ failed"}</span>`
+    : `<span class="verdict none">not recorded</span>`]);
+  rows.push(["tests", ev.tests
+    ? esc(Object.keys(ev.tests).join(", "))
+    : `<span class="verdict none">not recorded</span>`]);
+  for (const [aspect, review] of Object.entries(ev.reviews || {})) {
+    rows.push([aspect, review
+      ? `<span class="verdict ${review.score >= 8 ? "ok" : "bad"}">${esc(review.score)}/10</span>
+         ${esc(review.summary || "")}
+         ${findingList(review.blocking_findings, "")}
+         ${findingList(review.non_blocking_findings, "minor")}`
+      : `<span class="verdict none">not recorded</span>`]);
+  }
+  for (const [gate, grill] of Object.entries(ev.grills || {})) {
+    rows.push([`grill:${gate}`, grill
+      ? `<span class="verdict ${grill.verdict === "pass" ? "ok" : "bad"}">${esc(grill.verdict)}</span>`
+      : `<span class="verdict none">not recorded</span>`]);
+  }
+  const d = ev.decomposition;
+  const decomposition = d
+    ? `<h3>Decomposition</h3><dl class="kv">
+         <dt>user facing</dt><dd>${d.user_facing ? "yes" : "no"}</dd>
+         <dt>recorded by</dt><dd>${esc(d.generated_by || "")}</dd>
+         <dt>tasks</dt><dd>${(d.tasks || []).length}</dd>
+       </dl>
+       <ul class="tasks">${(d.tasks || []).map(t =>
+         `<li><em aria-hidden="true">·</em><span class="id">${esc(t.id || "")}</span>
+          <span>${esc(t.title || t.summary || "")}</span></li>`).join("")}</ul>`
+    : `<h3>Decomposition</h3><p class="quiet">Not recorded yet — it is written when the approved
+       plan is broken into bounded tasks.</p>`;
+  return `<h3>Gate evidence</h3><dl class="kv">${rows.map(([k, v]) =>
+    `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>${decomposition}`;
+}
+
+const RAW_SOURCE = {
+  plan: (d) => ({path: d.plan && d.plan.path, frontmatter: d.plan, body: d.plan_body}),
+  spec: (d) => d.spec,
+  proof: (d) => ({verify: (d.evidence || {}).verify, tests: (d.evidence || {}).tests,
+                  reviews: (d.evidence || {}).reviews, grills: (d.evidence || {}).grills,
+                  decomposition: (d.evidence || {}).decomposition}),
+};
+
+function drawerBody() {
+  const detail = drawer.detail;
+  if (!detail) return `<p class="quiet">Loading…</p>`;
+  // The live story carries lifecycle/state/tasks; the detail carries artifacts.
+  const s = liveStory(drawer.key) || detail.story || {};
+  if (drawer.wide) {
+    if (drawer.raw) return `<div class="tabs">${tabBar()}</div>${rawBlock(RAW_SOURCE[drawer.tab](detail))}`;
+    let content;
+    if (drawer.tab === "plan") {
+      content = detail.plan_body
+        ? openFile(detail.plan && detail.plan.path) + md(detail.plan_body)
+        : `<p class="quiet">No plan saved for this story yet —
+           <code>forge.py plan save --from &lt;plan-file&gt;</code>.</p>`;
+    } else if (drawer.tab === "spec") {
+      content = detail.spec
+        ? openFile(detail.spec.path) + md(detail.spec.body)
+        : `<p class="quiet">This story has no spec linked.</p>`;
+    } else {
+      content = proofBlock(detail);
+    }
+    return `<div class="tabs">${tabBar()}</div>${content}`;
+  }
+  const days = ageDays(detail.plan && detail.plan.saved);
+  const age = days !== null && s.state !== "shipped"
+    ? ` · plan saved ${days === 0 ? "today" : plural(days, "day") + " ago"}` : "";
+  const blocked = (s.blocked_by || []).length
+    ? `<p class="statline">⊘ waiting on <b>${(s.blocked_by || []).map(esc).join(", ")}</b></p>` : "";
+  return `<h2 id="drawer-title"><span class="k">${esc(s.key || drawer.key)}</span>${esc(s.title || "")}</h2>
+    <p class="statline">${STATE_GLYPH[s.state] || "·"} <b>${esc(STATE_WORD[s.state] || s.state || "")}</b>${esc(age)}</p>
+    ${blocked}
+    <h3>Gate rail</h3>${railBlock(s)}
+    ${readinessBlock(detail)}
+    <h3>Tasks</h3>${taskBlock(detail.tasks ? detail : s)}
+    <button class="widen" type="button" data-widen="1">Read plan, spec and proof ›</button>`;
+}
+
+function tabBar() {
+  return ["plan", "spec", "proof"].map(t =>
+    `<button type="button" data-tab="${t}" aria-selected="${t === drawer.tab}">${t}</button>`).join("")
+    + `<span class="spacer"></span>
+       <button type="button" class="raw" data-raw="1" aria-selected="${drawer.raw}">raw json</button>`;
+}
+
+function liveStory(key) {
+  const list = (lastState && lastState.stories) || [];
+  return list.find(s => s.key === key) || null;
+}
+
+function paintDrawer() {
+  const panel = $("drawer");
+  panel.classList.toggle("wide", drawer.wide);
+  panel.innerHTML = `<div class="panel-head">
+      ${drawer.wide
+        ? `<button class="ghost" type="button" data-narrow="1">‹ Back</button>`
+        : `<span class="panel-eyebrow">Story</span>`}
+      ${drawer.wide ? `<span class="panel-eyebrow">${esc(drawer.key)}</span>` : ""}
+      <button class="ghost" type="button" data-close="1">Close ✕</button>
+    </div>
+    <div class="panel-body">${drawerBody()}</div>`;
+  if (!panel.querySelector("#drawer-title")) {
+    panel.querySelector(".panel-eyebrow").id = "drawer-title";
+  }
+  panel.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => hidePanel()));
+  const widen = panel.querySelector("[data-widen]");
+  if (widen) widen.addEventListener("click", () => { drawer.wide = true; paintDrawer(); refocus("[data-narrow]"); });
+  const narrow = panel.querySelector("[data-narrow]");
+  if (narrow) narrow.addEventListener("click", () => { drawer.wide = false; paintDrawer(); refocus("[data-widen]"); });
+  panel.querySelectorAll("[data-tab]").forEach(b =>
+    b.addEventListener("click", () => {
+      drawer.tab = b.dataset.tab; paintDrawer(); refocus(`[data-tab="${b.dataset.tab}"]`);
+    }));
+  const raw = panel.querySelector("[data-raw]");
+  if (raw) raw.addEventListener("click", () => { drawer.raw = !drawer.raw; paintDrawer(); refocus("[data-raw]"); });
+}
+
+// innerHTML replaces the control that was just clicked, so hand focus to
+// its successor rather than dropping the keyboard user back on <body>.
+function refocus(selector) {
+  const el = $("drawer").querySelector(selector) || $("drawer").querySelector(FOCUSABLE);
+  if (el) el.focus();
+}
+
+async function openDrawer(key, fromEl) {
+  drawer.key = key;
+  drawer.detail = null;
+  drawer.wide = false;
+  drawer.tab = "plan";
+  drawer.raw = false;
+  paintDrawer();
+  showPanel($("drawer"), fromEl || null);
+  try {
+    const res = await fetch(`/api/story/${encodeURIComponent(key)}`, {cache: "no-store"});
+    const detail = await res.json();
+    if (detail.error) throw new Error(detail.error);
+    if (drawer.key !== key) return;
+    drawer.detail = detail;
+  } catch {
+    if (drawer.key !== key) return;
+    drawer.detail = {story: liveStory(key) || {key}, readiness: [], evidence: {}};
+  }
+  paintDrawer();
+}
+
+/* ═══ library — reference material, consulted rarely ════════════════════ */
+function libraryBody(state) {
+  const specs = state.specs || [];
+  const decisions = state.decisions || [];
+  const plans = state.plans || {};
+  // The ledger holds closed windows; an open one lives in `quickfix`.
+  const quickfixes = (state.quickfix ? [state.quickfix] : [])
+    .concat([...(state.quickfix_ledger || [])].reverse());
+  const sp = (state.summary || {}).specs || {};
+  const specRows = specs.length
+    ? `<div class="ledger">${specs.map(s => `<div>
+        <span class="id">${esc(s.slug || "")}</span>
+        <span>${esc(s.title || "")}</span>
+        <span class="tag ${esc(s.status || "draft")}">${esc(s.status || "draft")}</span>
+        ${openFile(s.path)}
+      </div>`).join("")}</div>
+      ${(sp.unreferenced || []).length
+        ? `<p class="quiet">Unreferenced by any story: ${sp.unreferenced.map(esc).join(", ")}</p>` : ""}`
+    : `<p class="quiet">No specs saved. First capability:
+        <code>./forge spec save &lt;slug&gt; --from &lt;draft.md&gt;</code></p>`;
+  const planRows = (loc) => (plans[loc] || []).map(p => `<div>
+      <span class="id">${esc(p.story || p.issue || "")}</span>
+      <span class="meta">saved ${esc((p.saved || "").slice(0, 10))}</span>
+      ${openFile(p.path)}
+    </div>`).join("");
+  const active = planRows("active"), completed = planRows("completed");
+  return `<h3>Specs <span class="meta">${specs.length}</span></h3>${specRows}
+    <h3>Active decisions <span class="meta">${decisions.length}</span></h3>
+    ${decisions.length
+      ? `<div class="ledger">${decisions.map(d => `<div>
+          <span class="id">${esc(d.id)}</span><span>${esc(d.title)}</span>${openFile(d.path)}
+        </div>`).join("")}</div>`
+      : `<p class="quiet">No accepted decisions yet — <code>./forge decision new &lt;slug&gt;</code>.</p>`}
+    <h3>Plans ledger</h3>
+    ${active ? `<p class="quiet">Active</p><div class="ledger">${active}</div>` : ""}
+    ${completed ? `<p class="quiet">Completed</p><div class="ledger">${completed}</div>` : ""}
+    ${!active && !completed ? `<p class="quiet">No plans saved yet.</p>` : ""}
+    <h3>Quickfix windows</h3>
+    ${quickfixes.length
+      ? `<div class="ledger">${quickfixes.map(q => `<div>
+          <span class="id">${esc(q.id || "")}</span><span>${esc(q.reason || "")}</span>
+          <span class="meta">${plural((q.files || []).length, "file")}${
+            q.completed_at ? ` · closed ${esc(q.completed_at.slice(0, 10))}` : " · open now"}</span>
+        </div>`).join("")}</div>`
+      : `<p class="quiet">No quickfix window recorded.</p>`}`;
+}
+
+function openLibrary() {
+  const panel = $("library");
+  panel.innerHTML = `<div class="panel-head">
+      <span class="panel-eyebrow" id="library-title">Library — reference</span>
+      <button class="ghost" type="button" data-close="1">Close ✕</button>
+    </div>
+    <div class="panel-body">${libraryBody(lastState || {})}</div>`;
+  panel.querySelector("[data-close]").addEventListener("click", () => hidePanel());
+  $("library-open").setAttribute("aria-expanded", "true");
+  showPanel(panel, $("library-open"));
+}
+$("library-open").addEventListener("click", () => {
+  if (openPanel === $("library")) hidePanel(); else openLibrary();
+});
+
+/* ═══ poll ══════════════════════════════════════════════════════════════ */
+let lastState = null, lastOk = 0;
+
+function render(state) {
+  const firstEver = lastState === null;
+  lastState = state;
+  repoRoot = state.root || "";
+  if (firstEver) snapshot = readSnapshot(repoRoot);
+  renderRunline(state);
+  renderProgress(state);
+  renderBanner(state);
+  renderNext(state);
+  renderColhead();
+  patchLanes(state);
+  if (firstEver) requestAnimationFrame(() => $("bar").classList.add("animate"));
+}
+
+async function poll() {
+  try {
+    const res = await fetch("/api/state", {cache: "no-store"});
+    if (!res.ok) throw new Error(String(res.status));
+    render(await res.json());
+    lastOk = Date.now();
+  } catch { /* staleness shows in the tick */ }
+}
+
+function tick() {
+  const el = $("tick"), label = $("tick-label");
+  if (!lastOk) { label.textContent = "connecting"; return; }
+  const secs = Math.round((Date.now() - lastOk) / 1000);
+  const stale = secs > 15;
+  el.classList.toggle("stale", stale);
+  label.textContent = stale ? `stale ${secs}s — is \`./forge board\` still running?` : "live";
+}
+
+// #STORY-KEY opens that story — the skill deep-links straight to a card.
+const deepLink = () => {
+  const raw = location.hash.replace(/^#/, "");
+  // A hash the user typed by hand can be malformed ("#100%"); a URIError here
+  // would take down the poll chain and the hashchange listener with it.
+  try { return decodeURIComponent(raw); } catch { return raw; }
+};
+function followHash() {
+  const key = deepLink();
+  if (!key) return;
+  const card = cards.get(key);
+  if (!card) return;
+  card.el.scrollIntoView({block: "center", behavior: REDUCE.matches ? "auto" : "smooth"});
+  openDrawer(key, card.el);
+}
+addEventListener("hashchange", followHash);
+
+poll().then(() => { if (deepLink()) followHash(); });
+setInterval(poll, 4000);
+setInterval(tick, 1000);
+</script>
+</body>
+</html>
