@@ -114,8 +114,10 @@ maybeDescribe('identity memory scope cleanup migration', () => {
 
       const constraint = await client.query<{ convalidated: boolean }>(
         `SELECT convalidated
-         FROM pg_constraint
-         WHERE conname = 'memory_items_app_user_fk'`,
+         FROM pg_constraint c
+         JOIN pg_namespace n ON n.oid = c.connamespace
+         WHERE c.conname = 'memory_items_app_user_fk'
+           AND n.nspname = current_schema()`,
       );
       expect(constraint.rows).toEqual([{ convalidated: true }]);
     } finally {

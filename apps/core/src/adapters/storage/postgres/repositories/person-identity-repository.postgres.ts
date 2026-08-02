@@ -228,6 +228,12 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
     ) => import('../../../../domain/events/events.js').RuntimeEventPublishInput,
   ): Promise<PersonAliasRecord> {
     return await this.db.transaction(async (tx) => {
+      // Canonical lock order everywhere an alias key and a person row are
+      // both taken: advisory alias-key lock FIRST, person row second.
+      // ensureParticipant acquires the advisory lock and then needs a
+      // key-share on the person via the participant foreign key; taking the
+      // person row first here would deadlock against it.
+      await lockPersonAliasKey(tx, input);
       const person = await this.getPersonForUpdate(
         tx,
         input.appId,
@@ -240,7 +246,6 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         );
       }
       assertAliasTargetIsActive(person.status);
-      await lockPersonAliasKey(tx, input);
       const duplicate = await this.findActiveAlias(tx, input);
       assertAliasOwnership(duplicate?.userId, input.personId);
       const unverifiedAlias = {
@@ -368,7 +373,9 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       const sourcePerson = people.find(
         (person) => person.id === input.sourcePersonId,
       )!;
-      const preview = await this.buildMergePreview(tx, input);
+      const preview = await this.buildMergePreview(tx, input, {
+        lockAliases: true,
+      });
       const aliasConflicts = preview.conflicts.filter(
         (conflict) => conflict.type === 'alias',
       );
@@ -913,19 +920,25 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
   private async buildMergePreview(
     executor: Executor,
     input: PersonMergeInput,
+    options: { lockAliases?: boolean } = {},
   ): Promise<PersonMergePreview> {
+    // The apply path locks the alias rows it fingerprints so a concurrent
+    // retire between the in-transaction preview and the ownership update
+    // cannot diverge the audit from what actually moves. The public preview
+    // stays lock-free.
+    const aliasQuery = executor
+      .select()
+      .from(pgSchema.userAliasesPostgres)
+      .where(
+        and(
+          eq(pgSchema.userAliasesPostgres.appId, input.appId),
+          eq(pgSchema.userAliasesPostgres.userId, input.sourcePersonId),
+        ),
+      )
+      .orderBy(asc(pgSchema.userAliasesPostgres.id))
+      .limit(PERSON_MERGE_DETAIL_LIMIT + 1);
     const aliases = (
-      await executor
-        .select()
-        .from(pgSchema.userAliasesPostgres)
-        .where(
-          and(
-            eq(pgSchema.userAliasesPostgres.appId, input.appId),
-            eq(pgSchema.userAliasesPostgres.userId, input.sourcePersonId),
-          ),
-        )
-        .orderBy(asc(pgSchema.userAliasesPostgres.id))
-        .limit(PERSON_MERGE_DETAIL_LIMIT + 1)
+      await (options.lockAliases ? aliasQuery.for('update') : aliasQuery)
     ).map(toAlias);
     assertDetailLimit('alias', aliases.length, PERSON_MERGE_DETAIL_LIMIT);
     const sourceMemoryRows = await executor

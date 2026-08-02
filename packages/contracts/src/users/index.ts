@@ -34,7 +34,7 @@ export const PersonAliasResponseSchema = z.object({
   providerAccountId: z.string().nullable().optional(),
   externalUserId: z.string(),
   displayName: z.string().nullable().optional(),
-  verificationStatus: PersonAliasVerificationStatusSchema.default('unverified'),
+  verificationStatus: PersonAliasVerificationStatusSchema,
   verifiedAt: IsoDateTimeSchema.nullable().optional(),
   verifiedBy: z.string().nullable().optional(),
   retiredAt: IsoDateTimeSchema.nullable().optional(),

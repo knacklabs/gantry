@@ -27,10 +27,11 @@
   `Always allow` grants and selected capability runtime projection must use the
   parent conversation identity. Thread/topic ids may choose approval delivery
   and audit metadata, but must not create another permission scope.
-- Personal memory hydration is sender-scoped, not DM-only. Live channel/group
-  turns should resolve a real sender id to a canonical `personId` when
-  identity evidence is configured, while conversation memory remains keyed by
-  conversation scope.
+- Personal memory hydration is DM-only (spec person-identity-aliases,
+  ID-1 decision 8). Live channel/group turns still resolve a real sender id to
+  a canonical `personId` for participant attribution and audit evidence, but
+  that resolution never hydrates personal memory outside a direct
+  conversation; conversation memory remains keyed by conversation scope.
 - Generated `.llm-runtime` access failures are adapter-state failures. Surface
   actionable `.llm-runtime` guidance instead of returning raw `EACCES` as a
   generic runner-exited error.
