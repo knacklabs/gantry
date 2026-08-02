@@ -169,6 +169,10 @@ export async function rekeyPersonalMemory(
   movedMemoryRows: Array<{ id: string; subjectId: string }>;
   supersededMemoryRows: Array<{ id: string; priorStatus: string }>;
 }> {
+  // Accepted residual: a turn that resolved the source person BEFORE the
+  // merge can still write a personal row after this snapshot. No repository
+  // lock can span a turn lifetime; such a row lands on the archived source,
+  // which no longer resolves, so nothing leaks or re-surfaces.
   const memory = pgSchema.memoryItemsPostgres;
   const rows = await executor
     .select({
