@@ -43,6 +43,15 @@ ALTER TABLE users
 ALTER TABLE user_aliases
   DROP CONSTRAINT IF EXISTS user_aliases_user_id_users_id_fk;
 
+-- No-legacy cleanup: an alias whose app does not match its person's app can
+-- exist under the old independent foreign keys and would fail the composite
+-- key. Cross-app aliases are meaningless under app-scoped identity; drop them
+-- rather than fail the upgrade.
+DELETE FROM user_aliases ua
+WHERE NOT EXISTS (
+    SELECT 1 FROM users u WHERE u.app_id = ua.app_id AND u.id = ua.user_id
+  );
+
 ALTER TABLE user_aliases
   ADD CONSTRAINT user_aliases_app_user_fk
   FOREIGN KEY (app_id, user_id)

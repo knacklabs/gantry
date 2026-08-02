@@ -1624,6 +1624,7 @@ describe('contracts package', () => {
         provider: 'slack',
         providerAccountId: 'provider-account-1',
         externalUserId: 'U123',
+        verificationStatus: 'unverified',
         createdAt: iso,
         updatedAt: iso,
       }),
