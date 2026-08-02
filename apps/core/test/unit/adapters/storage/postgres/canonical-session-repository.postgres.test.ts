@@ -42,7 +42,10 @@ describe('PostgresCanonicalSessionRepository thread route', () => {
     const ensureThread = vi.fn(async () => 'thread:exact');
     const repository = new PostgresCanonicalSessionRepository({} as never);
     const internals = repository as unknown as {
-      graph: { ensureConversation: typeof ensureConversation; ensureThread: typeof ensureThread };
+      graph: {
+        ensureConversation: typeof ensureConversation;
+        ensureThread: typeof ensureThread;
+      };
       resolveBoundAgentId: () => Promise<string>;
       resolveSessionRoute: (
         input: {
