@@ -661,6 +661,12 @@ function facadeDescription(toolName: DeepAgentsFacadeToolName): string {
   }
 }
 
+// The two prefixes below are runtime-reserved namespaces by prompt contract:
+// conversation attachments are never workspace files, and the system prompt
+// tells agents exactly that. A workspace directory that shadows a reserved
+// namespace loses facade-read access by design (accepted collision) — the
+// alternative, probing the filesystem before redirecting, would reintroduce
+// the permission wait this redirect exists to avoid.
 function isConversationAttachmentFacadeRequest(
   toolName: DeepAgentsFacadeToolName,
   input: unknown,

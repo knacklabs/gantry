@@ -335,12 +335,76 @@ export async function sniffAttachmentKind(
   }
 }
 
+const MAX_IMAGE_DIMENSION_PX = 8000;
+
+// Header-declared pixel dimensions; 0x0 when the format needs a full decode
+// (JPEG SOF scan covers baseline/progressive markers).
+function declaredImageDimensions(
+  bytes: Buffer,
+  mime: string,
+): { width: number; height: number } {
+  if (mime === 'image/png' && bytes.length >= 24) {
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  }
+  if (mime === 'image/gif' && bytes.length >= 10) {
+    return { width: bytes.readUInt16LE(6), height: bytes.readUInt16LE(8) };
+  }
+  if (mime === 'image/jpeg') {
+    let cursor = 2;
+    while (cursor + 9 < bytes.length) {
+      if (bytes[cursor] !== 0xff) break;
+      const marker = bytes[cursor + 1]!;
+      const length = bytes.readUInt16BE(cursor + 2);
+      if (
+        marker >= 0xc0 &&
+        marker <= 0xcf &&
+        marker !== 0xc4 &&
+        marker !== 0xc8 &&
+        marker !== 0xcc
+      ) {
+        return {
+          height: bytes.readUInt16BE(cursor + 5),
+          width: bytes.readUInt16BE(cursor + 7),
+        };
+      }
+      cursor += 2 + length;
+    }
+    return { width: 0, height: 0 };
+  }
+  if (mime === 'image/webp' && bytes.length >= 30) {
+    const chunk = bytes.subarray(12, 16).toString('latin1');
+    if (chunk === 'VP8X') {
+      return {
+        width: 1 + bytes.readUIntLE(24, 3),
+        height: 1 + bytes.readUIntLE(27, 3),
+      };
+    }
+    if (chunk === 'VP8L') {
+      const b = bytes.readUInt32LE(21);
+      return { width: 1 + (b & 0x3fff), height: 1 + ((b >> 14) & 0x3fff) };
+    }
+    if (chunk === 'VP8 ') {
+      return {
+        width: bytes.readUInt16LE(26) & 0x3fff,
+        height: bytes.readUInt16LE(28) & 0x3fff,
+      };
+    }
+  }
+  return { width: 0, height: 0 };
+}
+
 // Structural completeness check (signature + trailer/length consistency):
 // a truncated or corrupt file must produce guidance, not an image block a
 // model API would reject. Dependency-free approximation of decodability.
 export function validateDeliverableImage(bytes: Buffer): string | null {
   const mime = sniffDeliverableImageMime(bytes);
   if (!mime) return null;
+  const { width, height } = declaredImageDimensions(bytes, mime);
+  // Provider image contracts cap dimensions (8000px on the strictest lane);
+  // an oversized-but-small file must degrade to guidance, not abort the turn.
+  if (width > MAX_IMAGE_DIMENSION_PX || height > MAX_IMAGE_DIMENSION_PX) {
+    return null;
+  }
   if (mime === 'image/png') {
     return bytes.length >= 20 &&
       bytes.subarray(bytes.length - 8).includes(Buffer.from('IEND', 'latin1'))
