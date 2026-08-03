@@ -486,9 +486,11 @@ const { parentPort, workerData } = require('node:worker_threads');
 const { createRequire } = require('node:module');
 const { pathToFileURL } = require('node:url');
 const parentRequire = createRequire(workerData.parentUrl);
+const TRUNCATION_MARK = '\\n\\n[Attachment content truncated.]';
 const clamp = (text) =>
   text.length > workerData.maxOutputChars
-    ? text.slice(0, workerData.maxOutputChars)
+    ? text.slice(0, workerData.maxOutputChars - TRUNCATION_MARK.length) +
+      TRUNCATION_MARK
     : text;
 const report = (result) =>
   parentPort.postMessage(
