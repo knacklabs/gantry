@@ -1,7 +1,7 @@
 ---
 slug: architecture-atlas-and-adoption
 title: Source-derived architecture atlas and company adoption guide
-status: draft
+status: confirmed
 saved: 2026-08-03T10:17:20+00:00
 ---
 
