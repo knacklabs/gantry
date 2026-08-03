@@ -338,6 +338,6 @@ describe('provider attachment materialization reads', () => {
     expect(result).toMatchObject({ status: 'opened' });
     const content = result.status === 'opened' ? result.content : '';
     expect(content).toMatch(/^ERROR: /);
-    expect(content).toContain('scanned or image-only PDF');
+    expect(content).toContain('could not be read as a PDF');
   });
 });

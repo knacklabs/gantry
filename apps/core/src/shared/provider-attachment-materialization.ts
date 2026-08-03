@@ -10,6 +10,7 @@ const PROVIDER_ATTACHMENT_STORAGE_PREFIX = 'provider-attachments/';
 const MAX_TEXT_OUTPUT_BYTES = 80_000;
 const MAX_BINARY_OUTPUT_BYTES = 60_000;
 const MAX_DOCUMENT_INPUT_BYTES = 20 * 1024 * 1024;
+const MAX_DOCUMENT_DECOMPRESSED_BYTES = 100 * 1024 * 1024;
 const DOCUMENT_PARSE_TIMEOUT_MS = 15_000;
 const MAX_PDF_TEXT_PAGES = 50;
 const DOCUMENT_EXTENSIONS = new Set([
@@ -280,11 +281,21 @@ export async function extractDocumentText(
   if (stats.size > MAX_DOCUMENT_INPUT_BYTES) {
     return `ERROR: ${label} is larger than 20 MB, the limit for document text extraction.`;
   }
+  const declaredBytes = await declaredZipDecompressedBytes(filePath).catch(
+    () => 0,
+  );
+  if (declaredBytes > MAX_DOCUMENT_DECOMPRESSED_BYTES) {
+    return `ERROR: ${label} declares more than 100 MB of decompressed content and was not parsed.`;
+  }
   const deadline = Date.now() + DOCUMENT_PARSE_TIMEOUT_MS;
   try {
     // Heavy parsers load lazily so processes that only route storage refs
     // never pay for them.
     const { parseOffice } = await import('officeparser');
+    // ponytail: officeparser has no abort API, so a timed-out parse of a
+    // size-legit file may burn CPU after we stop waiting; the zip guard above
+    // bounds memory. Upgrade path: run extraction in a resource-limited
+    // worker if this ever shows up in production profiles.
     const document = await withDeadline(
       parseOffice(filePath, {
         extractAttachments: false,
@@ -303,13 +314,49 @@ export async function extractDocumentText(
     // pdfjs text layer before giving guidance.
   }
   if (isPdfAttachment(attachment.contentType, attachment.fileName)) {
-    const text = await extractPdfTextLayer(filePath, deadline).catch(() => '');
-    if (text.trim().length > 0) {
-      return truncateTextOutput(text.trim());
+    try {
+      const text = await extractPdfTextLayer(filePath, deadline);
+      if (text.trim().length > 0) {
+        return truncateTextOutput(text.trim());
+      }
+    } catch {
+      return `ERROR: ${label} could not be read as a PDF. It may be password-protected, damaged, or use unsupported features.`;
     }
     return `ERROR: ${label} appears to be a scanned or image-only PDF with no text layer. This agent's model cannot view it through this tool; ask an agent whose model supports document/vision input, which reads such PDFs natively.`;
   }
   return `${label} contains no extractable text. It may be encrypted, damaged, or empty.`;
+}
+
+// Office documents are zip archives whose central directory declares each
+// entry's decompressed size; summing those rejects zip bombs before parsing.
+async function declaredZipDecompressedBytes(filePath: string): Promise<number> {
+  const file = await fs.open(filePath, 'r');
+  try {
+    const stats = await file.stat();
+    const tailLength = Math.min(stats.size, 66_000);
+    const tail = Buffer.alloc(tailLength);
+    await file.read(tail, 0, tailLength, stats.size - tailLength);
+    const eocd = tail.lastIndexOf(Buffer.from('PK\x05\x06', 'latin1'));
+    if (eocd === -1) return 0;
+    const centralSize = tail.readUInt32LE(eocd + 12);
+    const centralOffset = tail.readUInt32LE(eocd + 16);
+    if (centralSize === 0 || centralSize > 8 * 1024 * 1024) return 0;
+    const central = Buffer.alloc(centralSize);
+    await file.read(central, 0, centralSize, centralOffset);
+    let cursor = 0;
+    let total = 0;
+    while (cursor + 46 <= central.length) {
+      if (central.readUInt32LE(cursor) !== 0x02014b50) break;
+      total += central.readUInt32LE(cursor + 24);
+      const nameLength = central.readUInt16LE(cursor + 28);
+      const extraLength = central.readUInt16LE(cursor + 30);
+      const commentLength = central.readUInt16LE(cursor + 32);
+      cursor += 46 + nameLength + extraLength + commentLength;
+    }
+    return total;
+  } finally {
+    await file.close();
+  }
 }
 
 async function extractPdfTextLayer(
@@ -369,7 +416,12 @@ async function withDeadline<T>(work: Promise<T>, deadline: number): Promise<T> {
 function truncateTextOutput(text: string): string {
   const content = Buffer.from(text, 'utf8');
   if (content.length <= MAX_TEXT_OUTPUT_BYTES) return text;
-  return `${content.subarray(0, MAX_TEXT_OUTPUT_BYTES).toString('utf8')}\n\n[Attachment content truncated.]`;
+  const suffix = '\n\n[Attachment content truncated.]';
+  const limit = MAX_TEXT_OUTPUT_BYTES - Buffer.byteLength(suffix, 'utf8');
+  return `${content
+    .subarray(0, limit)
+    .toString('utf8')
+    .replace(/\uFFFD+$/u, '')}${suffix}`;
 }
 
 function isExtractableDocument(

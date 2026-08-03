@@ -24,4 +24,4 @@
 {"event": "open", "id": "Q-0013-e8c7", "reason": "Prevent conversation attachments from waiting on FileRead permissions", "started_at": "2026-08-03T08:56:01+00:00", "max_files": 5, "files": []}
 {"event": "done", "id": "Q-0013-e8c7", "reason": "Prevent conversation attachments from waiting on FileRead permissions", "started_at": "2026-08-03T08:56:01+00:00", "completed_at": "2026-08-03T09:00:31+00:00", "files": []}
 {"event": "open", "id": "Q-0014-65de", "reason": "Add lazy bounded OCR fallback for scanned PDFs and image attachments", "started_at": "2026-08-03T09:26:26+00:00", "max_files": 5, "files": []}
-{"event": "done", "id": "Q-0014-65de", "reason": "Add lazy bounded OCR fallback for scanned PDFs and image attachments", "started_at": "2026-08-03T09:26:26+00:00", "completed_at": "2026-08-03T09:36:39+00:00", "files": []}
+{"event": "done", "id": "Q-0014-65de", "reason": "OCR fallback superseded by model-native design decision (Ravi, 2026-08-03): images and scanned PDFs return explicit switch-to-a-vision-capable-model guidance instead of host-side OCR", "started_at": "2026-08-03T09:26:26+00:00", "completed_at": "2026-08-03T09:36:39+00:00", "files": []}
