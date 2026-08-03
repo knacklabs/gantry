@@ -249,6 +249,13 @@ export interface LiveAdmissionWorkItemRepository {
     >;
     now?: string;
   }): Promise<boolean>;
+  /**
+   * Deletes terminal work items older than the cutoff in bounded batches.
+   * A provider delivery replayed after retention expires is admitted as new.
+   */
+  deleteExpiredTerminalLiveAdmissionWorkItems(
+    cutoffIso: string,
+  ): Promise<{ deleted: number; more: boolean }>;
 }
 
 export interface LiveTurnCommandAppendResult {

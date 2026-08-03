@@ -54,6 +54,7 @@ import {
   PgBossSchedulerEngine,
   SCHEDULER_MAINTENANCE_SYNC_INTERVAL_MS,
 } from '@core/infrastructure/pgboss/scheduler-engine.js';
+import { LIVE_ADMISSION_RETENTION_SWEEP_INTERVAL_MS } from '@core/infrastructure/pgboss/live-admission-retention.js';
 import { configureRunSlotBackend } from '@core/jobs/concurrency.js';
 import { JOB_INTERACTIVE_CAPACITY_RESERVED_DELAY_TEXT } from '@core/shared/scheduler-copy.js';
 import { nowMs, toIso } from '@core/shared/time/datetime.js';
@@ -104,6 +105,108 @@ describe('PgBossSchedulerEngine', () => {
     workerCoordination.getWorker.mockResolvedValue({ capabilities: [] });
     vi.clearAllMocks();
     configureRunSlotBackend(null);
+  });
+
+  it('sweeps terminal live-admission work items at most once per interval', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-03T00:00:00.000Z'));
+    try {
+      const sweepTerminalLiveAdmissions = vi
+        .fn()
+        .mockResolvedValue({ deleted: 3, more: false });
+      const engine = new PgBossSchedulerEngine(
+        {
+          conversationRoutes: () => ({}),
+          queue: {} as never,
+          onProcess: vi.fn(),
+          sendMessage: vi.fn(),
+          sweepTerminalLiveAdmissions,
+          opsRepository: {
+            releaseStaleJobLeases: vi.fn().mockResolvedValue([]),
+            getAllJobs: vi.fn().mockResolvedValue([]),
+          } as never,
+        },
+        {
+          registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+          runJob: vi.fn().mockResolvedValue(undefined),
+          sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+        },
+      );
+      (engine as unknown as { boss: object }).boss = {};
+
+      await (
+        engine as unknown as { syncAllJobs: () => Promise<void> }
+      ).syncAllJobs();
+      await (
+        engine as unknown as { syncAllJobs: () => Promise<void> }
+      ).syncAllJobs();
+      vi.advanceTimersByTime(LIVE_ADMISSION_RETENTION_SWEEP_INTERVAL_MS - 1);
+      await (
+        engine as unknown as { syncAllJobs: () => Promise<void> }
+      ).syncAllJobs();
+
+      expect(sweepTerminalLiveAdmissions).toHaveBeenCalledTimes(1);
+      expect(sweepTerminalLiveAdmissions).toHaveBeenLastCalledWith(
+        '2026-07-04T00:00:00.000Z',
+      );
+
+      vi.advanceTimersByTime(1);
+      await (
+        engine as unknown as { syncAllJobs: () => Promise<void> }
+      ).syncAllJobs();
+      expect(sweepTerminalLiveAdmissions).toHaveBeenCalledTimes(2);
+      expect(sweepTerminalLiveAdmissions).toHaveBeenLastCalledWith(
+        '2026-07-04T06:00:00.000Z',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries the retention sweep on the next pass after a failure', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-03T00:00:00.000Z'));
+    try {
+      const sweepTerminalLiveAdmissions = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('db down'))
+        .mockResolvedValue({ deleted: 0, more: false });
+      const engine = new PgBossSchedulerEngine(
+        {
+          conversationRoutes: () => ({}),
+          queue: {} as never,
+          onProcess: vi.fn(),
+          sendMessage: vi.fn(),
+          sweepTerminalLiveAdmissions,
+          opsRepository: {
+            releaseStaleJobLeases: vi.fn().mockResolvedValue([]),
+            getAllJobs: vi.fn().mockResolvedValue([]),
+          } as never,
+        },
+        {
+          registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+          runJob: vi.fn().mockResolvedValue(undefined),
+          sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+        },
+      );
+      (engine as unknown as { boss: object }).boss = {};
+      const sync = () =>
+        (
+          engine as unknown as { syncAllJobs: () => Promise<void> }
+        ).syncAllJobs();
+
+      // The failing sweep neither aborts the maintenance pass nor latches the
+      // interval guard: the very next pass retries.
+      await expect(sync()).resolves.toBeUndefined();
+      expect(sweepTerminalLiveAdmissions).toHaveBeenCalledTimes(1);
+      await sync();
+      expect(sweepTerminalLiveAdmissions).toHaveBeenCalledTimes(2);
+      // After the successful retry the guard holds again.
+      await sync();
+      expect(sweepTerminalLiveAdmissions).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('re-enqueues stale pending once jobs immediately and throttles repeated syncs', async () => {

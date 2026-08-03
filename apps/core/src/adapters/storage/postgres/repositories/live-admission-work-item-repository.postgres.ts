@@ -18,6 +18,11 @@ type EnqueueLiveAdmissionWorkItemInput = Parameters<
   LiveAdmissionWorkItemRepository['enqueueLiveAdmissionWorkItem']
 >[0];
 
+const LIVE_ADMISSION_RETENTION_DELETE_BATCH_SIZE = 5_000;
+const LIVE_ADMISSION_RETENTION_MAX_BATCHES_PER_SWEEP = 4;
+const LIVE_ADMISSION_RETENTION_LOCK_KEY =
+  'live_admission_terminal_retention_sweep';
+
 function toLiveAdmissionWorkItem(
   row: LiveAdmissionWorkItemRow,
 ): LiveAdmissionWorkItem {
@@ -345,6 +350,42 @@ export async function settleLiveAdmissionWorkItem(
     )
     .returning({ id: items.id });
   return rows.length > 0;
+}
+
+export async function deleteExpiredTerminalLiveAdmissionWorkItems(
+  db: CanonicalDb,
+  cutoffIso: string,
+): Promise<{ deleted: number; more: boolean }> {
+  let deleted = 0;
+  // Bounded per invocation so a large first-deploy backlog cannot stall the
+  // scheduler maintenance pass; the caller re-runs while `more` is true.
+  for (let i = 0; i < LIVE_ADMISSION_RETENTION_MAX_BATCHES_PER_SWEEP; i++) {
+    const batchCount = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${LIVE_ADMISSION_RETENTION_LOCK_KEY}))`,
+      );
+      const items = pgSchema.liveAdmissionWorkItemsPostgres;
+      const result = await tx.execute<{ id: string }>(sql`
+        WITH expired AS (
+          SELECT ${items.id}
+          FROM ${items}
+          WHERE ${items.state} IN ('completed', 'failed', 'canceled')
+            AND coalesce(${items.endedAt}, ${items.updatedAt}) < ${cutoffIso}
+          ORDER BY coalesce(${items.endedAt}, ${items.updatedAt}) ASC, ${items.id} ASC
+          LIMIT ${LIVE_ADMISSION_RETENTION_DELETE_BATCH_SIZE}
+        )
+        DELETE FROM ${items}
+        WHERE ${items.id} IN (SELECT id FROM expired)
+        RETURNING ${items.id}
+      `);
+      return result.rows.length;
+    });
+    deleted += batchCount;
+    if (batchCount < LIVE_ADMISSION_RETENTION_DELETE_BATCH_SIZE) {
+      return { deleted, more: false };
+    }
+  }
+  return { deleted, more: true };
 }
 
 async function findLiveAdmissionWorkItemByIdempotencyKey(
