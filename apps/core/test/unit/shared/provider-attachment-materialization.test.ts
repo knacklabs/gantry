@@ -10,6 +10,10 @@ import {
 } from '@core/shared/provider-attachment-materialization.js';
 
 const temporaryRoots: string[] = [];
+const MINIMAL_DOCX = Buffer.from(
+  'UEsDBBQAAAAIAOhoA13MVIwQ4AAAAJwBAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbH2Qy07DMBBFf8XyFsUTukAIJekCyhJYlA+w7Eli4Zc8bil/z6QtXaDC0r6PM7rd+hC82GMhl2Ivb1UrBUaTrItTL9+3z829XA/d9isjCbZG6uVca34AIDNj0KRSxsjKmErQlZ9lgqzNh54QVm17BybFirE2demQQ/eEo975KjYH/j5hC3qS4vFkXFi91Dl7Z3RlHfbR/qI0Z4Li5NFDs8t0wwYJVwmL8jfgnHvlHYqzKN50qS86sAs+U7Fgk9kFTqr/a67cmcbRGbzkl7ZckkEiHjh4dVGCdvHnfjjOPXwDUEsDBBQAAAAIAOhoA102V97cogAAABgBAAALAAAAX3JlbHMvLnJlbHONzzsOwjAMBuCrRN6pCwNCqGkXhNQVlQNEiZtGNA8l4XV7MjBQxMBo+/dnuekedmY3isl4x2Fd1cDISa+M0xzOw3G1g65tTjSLXBJpMiGxsuIShynnsEdMciIrUuUDuTIZfbQilzJqDEJehCbc1PUW46cBS5P1ikPs1RrY8Az0j+3H0Ug6eHm15PKPE1+JIouoKXO4+6hQvdtVYQHbBhcvti9QSwMEFAAAAAgA6GgDXWDSmdOwAAAA7AAAABEAAAB3b3JkL2RvY3VtZW50LnhtbEWOsY7CMAyGXyXKDikMJ1S1ZQDdeicEEqtJDK3U2FVsKLw9TRlYPsv+5c+uts/Ymwcm6Zhqu1oW1iB5Dh3dans6/i421ogCBeiZsLYvFLttqrEM7O8RSc0kICnH2raqQ+mc+BYjyJIHpCm7coqgU5tubuQUhsQeRSZ/7N26KH5chI5sVl44vHIdMlKGNgeEAJcezf5vdzagCr7NZyuX08w0c94R9Pqf3Dz4yNz30eYNUEsBAhQDFAAAAAgA6GgDXcxUjBDgAAAAnAEAABMAAAAAAAAAAAAAAIABAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAMUAAAACADoaANdNlfe3KIAAAAYAQAACwAAAAAAAAAAAAAAgAERAQAAX3JlbHMvLnJlbHNQSwECFAMUAAAACADoaANdYNKZ07AAAADsAAAAEQAAAAAAAAAAAAAAgAHcAQAAd29yZC9kb2N1bWVudC54bWxQSwUGAAAAAAMAAwC5AAAAuwIAAAAA',
+  'base64',
+);
 
 async function temporaryMaterializationRoot(): Promise<string> {
   const root = await fs.mkdtemp(
@@ -42,6 +46,39 @@ function stubReads(content: Buffer, maxBytesPerRead: number): void {
     ),
     close: vi.fn(),
   } as unknown as FileHandle);
+}
+
+function minimalPdf(text: string): Buffer {
+  const stream = `BT /F1 18 Tf 72 720 Td (${text}) Tj ET`;
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  let body = '%PDF-1.4\n';
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(body));
+    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = Buffer.byteLength(body);
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  body += offsets
+    .slice(1)
+    .map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`)
+    .join('');
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(body);
+}
+
+async function writeProviderAttachment(
+  root: string,
+  fileName: string,
+  content: Buffer,
+): Promise<void> {
+  await fs.writeFile(path.join(root, fileName), content);
 }
 
 afterEach(async () => {
@@ -137,5 +174,197 @@ describe('provider attachment materialization reads', () => {
     expect(result.status === 'opened' ? result.content : '').toMatch(
       /\[Attachment content truncated\.\]$/,
     );
+  });
+
+  it('extracts readable text from PDF attachments', async () => {
+    const root = await temporaryMaterializationRoot();
+    await writeProviderAttachment(
+      root,
+      'report.pdf',
+      minimalPdf('Readable PDF attachment'),
+    );
+
+    const result = await readProviderAttachment({
+      materializationRoot: root,
+      workspaceRoots: [],
+      storageRef: 'provider-attachments/report.pdf',
+      attachment: { fileName: 'report.pdf', contentType: 'application/pdf' },
+    });
+
+    expect(result).toMatchObject({ status: 'opened' });
+    expect(result.status === 'opened' ? result.content : '').toContain(
+      'Readable PDF attachment',
+    );
+  });
+
+  it('keeps plain text off the document extractor entirely', async () => {
+    stubReads(Buffer.from('plain text body'), 4_096);
+    const extract = vi.fn();
+
+    const result = await readProviderAttachment({
+      materializationRoot: await temporaryMaterializationRoot(),
+      workspaceRoots: [],
+      storageRef: 'provider-attachments/notes.txt',
+      attachment: { fileName: 'notes.txt', contentType: 'text/plain' },
+      extract,
+    });
+
+    expect(result).toMatchObject({
+      status: 'opened',
+      content: 'plain text body',
+    });
+    expect(extract).not.toHaveBeenCalled();
+  });
+
+  it('accepts documents whose full text is short', async () => {
+    const root = await temporaryMaterializationRoot();
+    await writeProviderAttachment(root, 'memo.pdf', minimalPdf('Approved'));
+
+    const result = await readProviderAttachment({
+      materializationRoot: root,
+      workspaceRoots: [],
+      storageRef: 'provider-attachments/memo.pdf',
+      attachment: { fileName: 'memo.pdf', contentType: 'application/pdf' },
+    });
+
+    expect(result.status === 'opened' ? result.content : '').toContain(
+      'Approved',
+    );
+  });
+
+  it('returns vision guidance plus an inline image payload for small images', async () => {
+    const root = await temporaryMaterializationRoot();
+    const pngBytes = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    await writeProviderAttachment(root, 'screenshot.png', pngBytes);
+
+    const result = await readProviderAttachment({
+      materializationRoot: root,
+      workspaceRoots: [],
+      storageRef: 'provider-attachments/screenshot.png',
+      attachment: { fileName: 'screenshot.png', contentType: 'image/png' },
+    });
+
+    if (result.status !== 'opened') throw new Error('expected opened');
+    expect(result.content).toMatch(/^ERROR: /);
+    expect(result.content).toContain('accepts images in tool results');
+    expect(result.image?.mimeType).toBe('image/png');
+    expect(Buffer.from(result.image!.base64, 'base64')).toEqual(pngBytes);
+  });
+
+  it('withholds the image payload above the inline delivery limit', async () => {
+    const root = await temporaryMaterializationRoot();
+    await writeProviderAttachment(
+      root,
+      'huge.png',
+      Buffer.alloc(3 * 1024 * 1024 + 1),
+    );
+
+    const result = await readProviderAttachment({
+      materializationRoot: root,
+      workspaceRoots: [],
+      storageRef: 'provider-attachments/huge.png',
+      attachment: { fileName: 'huge.png', contentType: 'image/png' },
+    });
+
+    if (result.status !== 'opened') throw new Error('expected opened');
+    expect(result.content).toMatch(/^ERROR: /);
+    expect(result.content).toContain('larger than 3 MB');
+    expect(result.image).toBeUndefined();
+  });
+
+  it('errors with scanned guidance for image-only PDFs', async () => {
+    const root = await temporaryMaterializationRoot();
+    await writeProviderAttachment(root, 'scan.pdf', minimalPdf(''));
+
+    const result = await readProviderAttachment({
+      materializationRoot: root,
+      workspaceRoots: [],
+      storageRef: 'provider-attachments/scan.pdf',
+      attachment: { fileName: 'scan.pdf', contentType: 'application/pdf' },
+    });
+
+    const content = result.status === 'opened' ? result.content : '';
+    expect(content).toMatch(/^ERROR: /);
+    expect(content).toContain('scanned or image-only PDF');
+  });
+
+  it('rejects documents beyond the extraction size limit', async () => {
+    const root = await temporaryMaterializationRoot();
+    const big = Buffer.alloc(21 * 1024 * 1024);
+    minimalPdf('padding').copy(big);
+    await writeProviderAttachment(root, 'huge.pdf', big);
+
+    const result = await readProviderAttachment({
+      materializationRoot: root,
+      workspaceRoots: [],
+      storageRef: 'provider-attachments/huge.pdf',
+      attachment: { fileName: 'huge.pdf', contentType: 'application/pdf' },
+    });
+
+    const content = result.status === 'opened' ? result.content : '';
+    expect(content).toMatch(/^ERROR: /);
+    expect(content).toContain('larger than 20 MB');
+  });
+
+  it('extracts readable text from modern Office attachments', async () => {
+    const root = await temporaryMaterializationRoot();
+    await writeProviderAttachment(root, 'report.docx', MINIMAL_DOCX);
+
+    const result = await readProviderAttachment({
+      materializationRoot: root,
+      workspaceRoots: [],
+      storageRef: 'provider-attachments/report.docx',
+      attachment: {
+        fileName: 'report.docx',
+        contentType:
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      },
+    });
+
+    expect(result).toMatchObject({ status: 'opened' });
+    expect(result.status === 'opened' ? result.content : '').toContain(
+      'Readable DOCX attachment',
+    );
+  });
+
+  it('returns honest guidance for legacy Office attachments', async () => {
+    const root = await temporaryMaterializationRoot();
+    await writeProviderAttachment(root, 'report.doc', Buffer.from('legacy'));
+
+    const result = await readProviderAttachment({
+      materializationRoot: root,
+      workspaceRoots: [],
+      storageRef: 'provider-attachments/report.doc',
+      attachment: { fileName: 'report.doc', contentType: 'application/msword' },
+    });
+
+    expect(result).toMatchObject({ status: 'opened' });
+    expect(result.status === 'opened' ? result.content : '').toContain(
+      'legacy Microsoft Office format',
+    );
+  });
+
+  it('does not crash the agent when a document cannot be parsed', async () => {
+    const root = await temporaryMaterializationRoot();
+    await writeProviderAttachment(
+      root,
+      'broken.pdf',
+      Buffer.from('%PDF-1.4 garbage that is not a valid document body'),
+    );
+
+    const result = await readProviderAttachment({
+      materializationRoot: root,
+      workspaceRoots: [],
+      storageRef: 'provider-attachments/broken.pdf',
+      attachment: { fileName: 'broken.pdf', contentType: 'application/pdf' },
+    });
+
+    expect(result).toMatchObject({ status: 'opened' });
+    const content = result.status === 'opened' ? result.content : '';
+    expect(content).toMatch(/^ERROR: /);
+    expect(content).toContain('could not be read as a PDF');
   });
 });

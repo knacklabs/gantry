@@ -526,6 +526,7 @@ async function spawnAgentWithContext(
       browserTurnToken,
       chatJid: input.chatJid,
       providerAccountId: group.providerAccountId,
+      runnerModel: effectiveModel,
       jobId: input.jobId,
       jobName: input.jobName,
       runId: input.runId,
