@@ -290,9 +290,9 @@
         "no JSON-blob state machine remains for recovery intent",
         "concurrent-recovery test pins the CAS invariant"
       ],
-      "completed_at": "2026-08-03T09:45:48+00:00",
+      "completed_at": "2026-08-03T00:00:00+00:00",
       "history": ".factory/history/CO-1/",
-      "outcome": "Job coordination state (failure counter, pause reason, setup/notification state) moved out of the free-form target_json blob into dedicated database columns written only by single targeted statements \u2014 concurrent writers can no longer silently erase each other's updates, and the failure counter that decides auto-pause now counts every failure. The dead recovery-intent machinery (never called in production since its brief May run) is deleted rather than hardened, and the migration logs-and-drops any inert residue, un-sticking jobs a stale intent was wrongly blocking. Net 286 lines removed."
+      "outcome": "Merged PR #380 per decision 0104 reframe: dead recovery-intent machinery deleted; live coordination fields (failure counter, pause reason, setup state) promoted to race-safe columns with in-DB increments and fingerprint-guarded writes; validated live (migration backfill + full lifecycle on the production runtime). Net -286 lines."
     },
     {
       "status": "pending",
