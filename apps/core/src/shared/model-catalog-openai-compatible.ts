@@ -62,6 +62,8 @@ type ExecutableModelEntryFn = (input: {
   cacheTokenFields: readonly string[];
   supportsThinking?: boolean;
   supportsTools?: boolean;
+  imageInput?: boolean;
+  pdfInput?: boolean;
   supportedWorkloads: readonly ModelWorkload[];
   providerAvailability?: ModelCatalogEntry['providerAvailability'];
   providerRouting?: ModelCatalogEntry['providerRouting'];
@@ -461,6 +463,8 @@ export function buildOpenAiCompatibleCatalog(deps: {
       // Best-effort: Gemini's cached-token field via the OpenAI-compat layer is
       // UNVERIFIED; accounting is best-effort and must not block.
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
+      imageInput: true,
+      pdfInput: true,
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
       experimental: true,
     }),
@@ -477,6 +481,8 @@ export function buildOpenAiCompatibleCatalog(deps: {
       outputUsdPerMillionTokens: 2.5,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
+      imageInput: true,
+      pdfInput: true,
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
       experimental: true,
     }),
@@ -493,6 +499,8 @@ export function buildOpenAiCompatibleCatalog(deps: {
       outputUsdPerMillionTokens: 9,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
+      imageInput: true,
+      pdfInput: true,
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
       experimental: true,
     }),
@@ -512,6 +520,8 @@ export function buildOpenAiCompatibleCatalog(deps: {
       contextWindowTokens: WINDOW_1M,
       cacheMode: 'none',
       cacheTokenFields: [],
+      imageInput: true,
+      pdfInput: true,
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
       providerAvailability: VERTEX_GLOBAL_AVAILABILITY,
       experimental: true,

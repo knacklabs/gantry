@@ -10,9 +10,11 @@ import {
 import { makeIpcId } from '../ipc-ids.js';
 import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
 import {
-  attachmentOpenResponseText,
+  attachmentOpenResponsePayload,
   attachmentOpenTaskRequest,
   openAttachmentBatch,
+  type AttachmentOpenImagePayload,
+  type AttachmentOpenPayload,
 } from '../attachment-open-protocol.js';
 
 export {
@@ -43,20 +45,48 @@ export function registerAttachmentTools(server: McpServer): void {
         .map((value) => value.trim())
         .filter(Boolean)
         .filter((value, index, all) => all.indexOf(value) === index);
-      const text =
+      const { text, images } =
         ids.length === 0
-          ? 'No gantry_attachment id was provided.'
+          ? { text: 'No gantry_attachment id was provided.', images: [] }
           : ids.length === 1
-            ? await requestHostAttachmentOpen(ids[0]!)
-            : await openAttachmentBatch(ids, requestHostAttachmentOpen);
-      return { content: [{ type: 'text' as const, text }] };
+            ? singleAttachmentResult(
+                await requestHostAttachmentOpenPayload(ids[0]!),
+              )
+            : await openAttachmentBatch(ids, requestHostAttachmentOpenPayload);
+      // Image payloads reach the model only when its declared input
+      // modalities include images; otherwise the host's guidance text (which
+      // already points at vision-capable agents) stands alone.
+      const deliverableImages = modelSupportsImageInput() ? images : [];
+      return {
+        content: [
+          { type: 'text' as const, text },
+          ...deliverableImages.map((image) => ({
+            type: 'image' as const,
+            data: image.base64,
+            mimeType: image.mimeType,
+          })),
+        ],
+      };
     },
   );
 }
 
-export async function requestHostAttachmentOpen(
+function modelSupportsImageInput(): boolean {
+  return (process.env.GANTRY_MODEL_INPUT_MODALITIES ?? '')
+    .split(',')
+    .includes('image');
+}
+
+function singleAttachmentResult(payload: AttachmentOpenPayload): {
+  text: string;
+  images: AttachmentOpenImagePayload[];
+} {
+  return { text: payload.text, images: payload.image ? [payload.image] : [] };
+}
+
+export async function requestHostAttachmentOpenPayload(
   attachmentId: string,
-): Promise<string> {
+): Promise<AttachmentOpenPayload> {
   const taskId = makeIpcId('attachment-open');
   writeIpcFile(
     TASKS_DIR,
@@ -72,5 +102,5 @@ export async function requestHostAttachmentOpen(
     taskId,
     ATTACHMENT_OPEN_TASK_TIMEOUT_MS,
   );
-  return attachmentOpenResponseText(response);
+  return attachmentOpenResponsePayload(response);
 }

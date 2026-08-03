@@ -7,6 +7,7 @@ import {
 } from './inbound-attachment-writer.js';
 
 const PROVIDER_ATTACHMENT_STORAGE_PREFIX = 'provider-attachments/';
+const MAX_INLINE_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_TEXT_OUTPUT_BYTES = 80_000;
 const MAX_BINARY_OUTPUT_BYTES = 60_000;
 const MAX_DOCUMENT_INPUT_BYTES = 20 * 1024 * 1024;
@@ -68,6 +69,11 @@ const LEGACY_OFFICE_EXTENSIONS = new Set(['.doc', '.xls', '.ppt']);
 interface ReadableAttachmentMetadata {
   fileName?: string;
   contentType?: string;
+}
+
+export interface AttachmentImagePayload {
+  base64: string;
+  mimeType: string;
 }
 
 export type DocumentTextExtractor = (
@@ -176,7 +182,12 @@ export async function readProviderAttachment(input: {
   attachment: ReadableAttachmentMetadata;
   extract?: DocumentTextExtractor;
 }): Promise<
-  | { status: 'opened'; content: string; materializedPath: string }
+  | {
+      status: 'opened';
+      content: string;
+      image?: AttachmentImagePayload;
+      materializedPath: string;
+    }
   | { status: 'missing' }
 > {
   const root = await prepareMaterializationRoot(
@@ -188,13 +199,15 @@ export async function readProviderAttachment(input: {
     ...providerAttachmentStoragePath(input.storageRef).split('/'),
   );
   try {
+    const read = await readAttachmentContent(
+      materializedPath,
+      input.attachment,
+      input.extract ?? extractDocumentText,
+    );
     return {
       status: 'opened',
-      content: await readAttachmentContent(
-        materializedPath,
-        input.attachment,
-        input.extract ?? extractDocumentText,
-      ),
+      content: read.content,
+      ...(read.image ? { image: read.image } : {}),
       materializedPath,
     };
   } catch (error) {
@@ -265,18 +278,32 @@ async function readAttachmentContent(
   filePath: string,
   attachment: ReadableAttachmentMetadata,
   extract: DocumentTextExtractor,
-): Promise<string> {
+): Promise<{ content: string; image?: AttachmentImagePayload }> {
   const textLike = isTextLike(attachment.contentType, attachment.fileName);
   if (isExtractableDocument(attachment.contentType, attachment.fileName)) {
-    return extract(filePath, attachment);
+    return { content: await extract(filePath, attachment) };
   }
   if (isImageAttachment(attachment.contentType, attachment.fileName)) {
     const label = attachment.fileName || path.basename(filePath);
-    return `ERROR: ${label} is an image. This agent's model cannot view images through this tool. Ask in a conversation with an agent whose model supports image input; vision-capable models read images natively.`;
+    const stats = await fs.stat(filePath);
+    if (stats.size > MAX_INLINE_IMAGE_BYTES) {
+      return {
+        content: `ERROR: ${label} is larger than 3 MB, the limit for inline image delivery.`,
+      };
+    }
+    return {
+      content: `ERROR: ${label} is an image. This agent's model cannot view images through this tool. Ask in a conversation with an agent whose model supports image input; vision-capable models read images natively.`,
+      image: {
+        base64: (await fs.readFile(filePath)).toString('base64'),
+        mimeType: imageMimeType(attachment.contentType, attachment.fileName),
+      },
+    };
   }
   if (isLegacyOfficeDocument(attachment.fileName)) {
     const label = attachment.fileName || path.basename(filePath);
-    return `${label} uses a legacy Microsoft Office format that Gantry cannot read yet. Please save it as DOCX, XLSX, PPTX, PDF, RTF, or OpenDocument and share it again.`;
+    return {
+      content: `${label} uses a legacy Microsoft Office format that Gantry cannot read yet. Please save it as DOCX, XLSX, PPTX, PDF, RTF, or OpenDocument and share it again.`,
+    };
   }
   const limit = textLike ? MAX_TEXT_OUTPUT_BYTES : MAX_BINARY_OUTPUT_BYTES;
   const file = await fs.open(filePath, 'r');
@@ -296,20 +323,45 @@ async function readAttachmentContent(
     const truncated = bytesRead > limit;
     const content = buffer.subarray(0, Math.min(bytesRead, limit));
     if (textLike) {
-      return `${content.toString('utf8')}${
-        truncated ? '\n\n[Attachment content truncated.]' : ''
-      }`;
+      return {
+        content: `${content.toString('utf8')}${
+          truncated ? '\n\n[Attachment content truncated.]' : ''
+        }`,
+      };
     }
     const label = attachment.fileName || path.basename(filePath);
     const contentType = attachment.contentType || 'application/octet-stream';
-    return [
-      `${label} (${contentType}), base64 content:`,
-      content.toString('base64'),
-      ...(truncated ? ['[Attachment content truncated.]'] : []),
-    ].join('\n');
+    return {
+      content: [
+        `${label} (${contentType}), base64 content:`,
+        content.toString('base64'),
+        ...(truncated ? ['[Attachment content truncated.]'] : []),
+      ].join('\n'),
+    };
   } finally {
     await file.close();
   }
+}
+
+const IMAGE_EXTENSION_MIME_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
+  '.tif': 'image/tiff',
+  '.tiff': 'image/tiff',
+  '.webp': 'image/webp',
+  '.heic': 'image/heic',
+};
+
+function imageMimeType(contentType?: string, fileName?: string): string {
+  const normalized = contentType?.toLowerCase() ?? '';
+  if (normalized.startsWith('image/')) return normalized;
+  return (
+    IMAGE_EXTENSION_MIME_TYPES[path.extname(fileName ?? '').toLowerCase()] ??
+    'application/octet-stream'
+  );
 }
 
 export async function extractDocumentText(

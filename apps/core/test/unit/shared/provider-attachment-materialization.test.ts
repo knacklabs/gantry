@@ -232,13 +232,10 @@ describe('provider attachment materialization reads', () => {
     );
   });
 
-  it('errors with vision guidance for image attachments', async () => {
+  it('returns vision guidance plus an inline image payload for small images', async () => {
     const root = await temporaryMaterializationRoot();
-    await writeProviderAttachment(
-      root,
-      'screenshot.png',
-      Buffer.from('89504e470d0a1a0a', 'hex'),
-    );
+    const pngBytes = Buffer.from('89504e470d0a1a0a', 'hex');
+    await writeProviderAttachment(root, 'screenshot.png', pngBytes);
 
     const result = await readProviderAttachment({
       materializationRoot: root,
@@ -247,9 +244,32 @@ describe('provider attachment materialization reads', () => {
       attachment: { fileName: 'screenshot.png', contentType: 'image/png' },
     });
 
-    const content = result.status === 'opened' ? result.content : '';
-    expect(content).toMatch(/^ERROR: /);
-    expect(content).toContain('supports image input');
+    if (result.status !== 'opened') throw new Error('expected opened');
+    expect(result.content).toMatch(/^ERROR: /);
+    expect(result.content).toContain('supports image input');
+    expect(result.image?.mimeType).toBe('image/png');
+    expect(Buffer.from(result.image!.base64, 'base64')).toEqual(pngBytes);
+  });
+
+  it('withholds the image payload above the inline delivery limit', async () => {
+    const root = await temporaryMaterializationRoot();
+    await writeProviderAttachment(
+      root,
+      'huge.png',
+      Buffer.alloc(3 * 1024 * 1024 + 1),
+    );
+
+    const result = await readProviderAttachment({
+      materializationRoot: root,
+      workspaceRoots: [],
+      storageRef: 'provider-attachments/huge.png',
+      attachment: { fileName: 'huge.png', contentType: 'image/png' },
+    });
+
+    if (result.status !== 'opened') throw new Error('expected opened');
+    expect(result.content).toMatch(/^ERROR: /);
+    expect(result.content).toContain('larger than 3 MB');
+    expect(result.image).toBeUndefined();
   });
 
   it('errors with scanned guidance for image-only PDFs', async () => {

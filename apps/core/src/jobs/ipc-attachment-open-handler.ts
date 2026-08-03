@@ -61,7 +61,12 @@ const attachmentOpenHandler: TaskHandler = async (context) => {
     });
     return;
   }
-  acceptData('Attachment opened.', { content: result.content });
+  acceptData('Attachment opened.', {
+    content: result.content,
+    ...(result.status === 'opened' && result.image
+      ? { image: result.image }
+      : {}),
+  });
 };
 
 export const attachmentOpenTaskHandlers: Record<string, TaskHandler> = {

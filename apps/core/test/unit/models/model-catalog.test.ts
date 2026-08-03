@@ -7,6 +7,7 @@ import {
   findModelByRunnerModel,
   listModelCatalogEntries,
   memoryModelDefaultsForProvider,
+  modelInputModalities,
   providerRoute,
   resolveModelSelection,
   resolveModelSelectionForWorkload,
@@ -52,6 +53,12 @@ const COMPLETE_OPENAI_WORKLOADS = [
 describe('model catalog resolution', () => {
   afterEach(() => {
     configureCustomModelCatalogEntries([]);
+  });
+
+  it('reports declared input modalities and fails closed for unknown models', () => {
+    expect(modelInputModalities('claude-sonnet-4-6')).toEqual(['image', 'pdf']);
+    expect(modelInputModalities('moonshotai/kimi-k2.6')).toEqual(['image']);
+    expect(modelInputModalities('unknown-model')).toEqual([]);
   });
 
   it('keeps versioned aliases pinned while short aliases stay recommended', () => {
@@ -307,8 +314,12 @@ describe('model catalog resolution', () => {
       tokenAccounting: true,
       cacheAccounting: true,
       structuredOutput: false,
+      imageInput: true,
+      pdfInput: true,
     };
     const shared = {
+      imageInput: true,
+      pdfInput: true,
       responseFamily: 'openai',
       credentialProfileRef: 'gantry-model-access',
       cacheMode: 'openai-automatic-prompt',

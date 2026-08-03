@@ -106,6 +106,7 @@ export function buildGantryMcpProjection(
     ...passthrough(env, 'GANTRY_AGENT_RUN_HANDLE'),
     ...passthrough(env, 'GANTRY_CHAT_JID'),
     ...passthrough(env, 'GANTRY_PROVIDER_ACCOUNT_ID'),
+    ...passthrough(env, 'GANTRY_MODEL_INPUT_MODALITIES'),
     ...passthrough(env, 'GANTRY_WORKSPACE_KEY'),
     ...passthrough(env, 'GANTRY_THREAD_ID'),
     ...passthrough(env, 'GANTRY_JOB_ID'),

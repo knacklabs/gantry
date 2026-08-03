@@ -6,9 +6,21 @@ interface AttachmentOpenTaskResponse {
   data?: unknown;
 }
 
+export interface AttachmentOpenImagePayload {
+  base64: string;
+  mimeType: string;
+}
+
+export interface AttachmentOpenPayload {
+  text: string;
+  image?: AttachmentOpenImagePayload;
+}
+
 const DEFAULT_BATCH_CONCURRENCY = 4;
 const MAX_BATCH_ITEM_BYTES = 32_000;
 const MAX_BATCH_OUTPUT_BYTES = 160_000;
+export const MAX_IMAGE_BLOCKS_PER_CALL = 4;
+const IMAGE_LIMIT_NOTE = '[image omitted: 4-image limit]';
 const TRUNCATION_SUFFIX = '\n[Attachment content truncated.]';
 
 export function attachmentOpenTaskRequest(input: {
@@ -35,16 +47,18 @@ export function attachmentOpenTaskRequest(input: {
   };
 }
 
-export function attachmentOpenResponseText(
+export function attachmentOpenResponsePayload(
   response: AttachmentOpenTaskResponse | null,
-): string {
+): AttachmentOpenPayload {
   if (!response) {
-    return "I can't get that file from the channel right now.";
+    return { text: "I can't get that file from the channel right now." };
   }
   if (!response.ok) {
-    return `I can't open that attachment: ${
-      response.error || 'the host rejected the request.'
-    }`;
+    return {
+      text: `I can't open that attachment: ${
+        response.error || 'the host rejected the request.'
+      }`,
+    };
   }
   const data =
     response.data &&
@@ -52,17 +66,35 @@ export function attachmentOpenResponseText(
     !Array.isArray(response.data)
       ? (response.data as Record<string, unknown>)
       : {};
-  return typeof data.content === 'string'
-    ? data.content
-    : "I can't get that file from the channel right now.";
+  if (typeof data.content !== 'string') {
+    return { text: "I can't get that file from the channel right now." };
+  }
+  const image =
+    data.image &&
+    typeof data.image === 'object' &&
+    !Array.isArray(data.image) &&
+    typeof (data.image as Record<string, unknown>).base64 === 'string' &&
+    typeof (data.image as Record<string, unknown>).mimeType === 'string'
+      ? {
+          base64: (data.image as Record<string, string>).base64,
+          mimeType: (data.image as Record<string, string>).mimeType,
+        }
+      : undefined;
+  return { text: data.content, ...(image ? { image } : {}) };
+}
+
+export function attachmentOpenResponseText(
+  response: AttachmentOpenTaskResponse | null,
+): string {
+  return attachmentOpenResponsePayload(response).text;
 }
 
 export async function openAttachmentBatch(
   attachmentIds: readonly string[],
-  openAttachment: (attachmentId: string) => Promise<string>,
+  openAttachment: (attachmentId: string) => Promise<AttachmentOpenPayload>,
   concurrency = DEFAULT_BATCH_CONCURRENCY,
-): Promise<string> {
-  const results = new Array<string>(attachmentIds.length);
+): Promise<{ text: string; images: AttachmentOpenImagePayload[] }> {
+  const results = new Array<AttachmentOpenPayload>(attachmentIds.length);
   // Split the combined budget across every requested id so late attachments
   // cannot be truncated out of the response entirely.
   const perItemBudget = Math.min(
@@ -83,22 +115,35 @@ export async function openAttachmentBatch(
         const index = nextIndex++;
         const attachmentId = attachmentIds[index]!;
         // One failed attachment must not discard the others' reads.
-        results[index] = boundedUtf8(
-          await openAttachment(attachmentId).catch(
-            () => 'ERROR: this attachment could not be read.',
-          ),
-          perItemBudget,
+        const payload = await openAttachment(attachmentId).catch(
+          (): AttachmentOpenPayload => ({
+            text: 'ERROR: this attachment could not be read.',
+          }),
         );
+        results[index] = {
+          ...payload,
+          text: boundedUtf8(payload.text, perItemBudget),
+        };
       }
     }),
   );
+  // Cap image payloads per call in source order; later images degrade to
+  // their guidance text with an explicit omission note.
+  const images: AttachmentOpenImagePayload[] = [];
   const combined = results
-    .map(
-      (content, index) =>
-        `Attachment ${index + 1} (gantry_attachment=${attachmentIds[index]}):\n${content}`,
-    )
+    .map((payload, index) => {
+      let text = payload.text;
+      if (payload.image) {
+        if (images.length < MAX_IMAGE_BLOCKS_PER_CALL) {
+          images.push(payload.image);
+        } else {
+          text = `${text}\n${IMAGE_LIMIT_NOTE}`;
+        }
+      }
+      return `Attachment ${index + 1} (gantry_attachment=${attachmentIds[index]}):\n${text}`;
+    })
     .join('\n\n');
-  return boundedUtf8(combined, MAX_BATCH_OUTPUT_BYTES);
+  return { text: boundedUtf8(combined, MAX_BATCH_OUTPUT_BYTES), images };
 }
 
 function boundedUtf8(value: string, maxBytes: number): string {
