@@ -702,6 +702,83 @@ describe('control job trigger', () => {
     }
   });
 
+  it('reads the tool repository at request time after storage becomes ready', async () => {
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'app-one',
+      },
+    ]);
+    const handle = startControlServer({
+      app: {
+        queue: { enqueueMessageCheck: vi.fn() },
+        getConversationRoutes: () => ({
+          'chat-1': {
+            name: 'App Folder',
+            folder: 'app-folder',
+            trigger: '@App',
+            requiresTrigger: false,
+            conversationKind: 'channel',
+            agentConfig: { persona: 'generalist' },
+          },
+        }),
+      } as never,
+      getBrowserStatus: browserMocks.getBrowserStatus,
+    });
+    const requestBody = {
+      name: 'Browser Preview',
+      prompt: 'Open the site',
+      accessRequirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
+      executionContext: {
+        conversationJid: 'chat-1',
+        threadId: null,
+        workspaceKey: 'app-folder',
+        sessionId: 'session-1',
+      },
+      dryRun: true,
+    };
+
+    try {
+      const beforeStorageInit = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs`,
+        'token-jobs',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(requestBody),
+        },
+      );
+      expect(beforeStorageInit.status).toBe(200);
+      await expect(beforeStorageInit.json()).resolves.toMatchObject({
+        status: 'paused',
+        setup: { state: 'missing_capability' },
+      });
+
+      exposeAgentTools(['Browser']);
+
+      const afterStorageInit = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs`,
+        'token-jobs',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(requestBody),
+        },
+      );
+      expect(afterStorageInit.status).toBe(200);
+      await expect(afterStorageInit.json()).resolves.toMatchObject({
+        status: 'active',
+        setup: { state: 'ready' },
+      });
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('passes control API capability requirements into job creation', async () => {
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);

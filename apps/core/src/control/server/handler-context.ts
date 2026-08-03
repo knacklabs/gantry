@@ -7,6 +7,7 @@ import type {
   ReadinessRoleRequirements,
 } from './system-health.js';
 import type { JobManagementServiceDeps } from '../../application/jobs/job-management-types.js';
+import type { JobManagementService } from '../../application/jobs/job-management-service.js';
 import type {
   ControlAgentSettingsPort,
   ControlAgentSettingsView,
@@ -85,6 +86,7 @@ export type ControlModelProviderPreflightResult = {
 
 export type ControlRouteContext = {
   app: RuntimeApp;
+  jobManagement: JobManagementService;
   runtimeHome: string;
   keys: ApiKeyRecord[];
   /** Process role this server runs as; drives role-aware readiness + metrics. */

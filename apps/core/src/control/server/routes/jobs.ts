@@ -142,12 +142,21 @@ function parseUpdateJobRequest(
   return undefined;
 }
 
-export function createJobManagementService(ctx?: ControlRouteContext) {
-  const control = getRuntimeControlRepository();
+export function createJobManagementService(
+  input: Pick<ControlRouteContext, 'app' | 'getBrowserStatus'>,
+) {
   return new JobManagementService({
-    ops: getRuntimeRepositories(),
-    control: adaptJobControl(control),
-    runtimeEvents: getRuntimeEventExchange(),
+    // Storage is initialized and replaceable after control-server boot, so
+    // every mutable repository must be resolved when the service uses it.
+    get ops() {
+      return getRuntimeRepositories();
+    },
+    get control() {
+      return adaptJobControl(getRuntimeControlRepository());
+    },
+    get runtimeEvents() {
+      return getRuntimeEventExchange();
+    },
     scheduler: { requestSchedulerSync },
     schedulePlanner: runtimeJobSchedulePlanner,
     clock: { now: nowIso },
@@ -156,14 +165,20 @@ export function createJobManagementService(ctx?: ControlRouteContext) {
       enqueue: enqueueJobTrigger,
       notReadyReason: schedulerNotReadyReason,
     },
-    toolRepository: getRuntimeToolRepositoryIfReady(),
-    skillRepository: getRuntimeStorage().repositories.skills,
-    mcpServerRepository: getRuntimeStorage().repositories.mcpServers,
-    getCredentialBroker:
-      ctx && typeof ctx.app.getCredentialBroker === 'function'
-        ? () => ctx.app.getCredentialBroker()
+    get toolRepository() {
+      return getRuntimeToolRepositoryIfReady();
+    },
+    get skillRepository() {
+      return getRuntimeStorage().repositories.skills;
+    },
+    get mcpServerRepository() {
+      return getRuntimeStorage().repositories.mcpServers;
+    },
+    getCredentialBroker: async () =>
+      typeof input.app.getCredentialBroker === 'function'
+        ? input.app.getCredentialBroker()
         : undefined,
-    getBrowserStatus: ctx?.getBrowserStatus,
+    getBrowserStatus: input.getBrowserStatus,
   });
 }
 
@@ -312,7 +327,7 @@ export async function handleJobRoutes(
       const executionContext = requestExecutionContextToInternal(
         body.executionContext,
       );
-      const created = await createJobManagementService(ctx).createJob({
+      const created = await ctx.jobManagement.createJob({
         appId: auth.appId,
         name: String(body.name || ''),
         prompt: String(body.prompt || ''),
@@ -397,7 +412,7 @@ export async function handleJobRoutes(
   if (pathname === '/v1/jobs' && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
     if (!auth) return true;
-    const service = createJobManagementService(ctx);
+    const service = ctx.jobManagement;
     const { jobs: visibleJobs } = await service.listJobs({
       appId: auth.appId,
       statuses: url.searchParams.getAll('status'),
@@ -435,7 +450,7 @@ export async function handleJobRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
     if (!auth) return true;
     try {
-      const service = createJobManagementService(ctx);
+      const service = ctx.jobManagement;
       const result = await service.listJobEvents({
         appId: auth.appId,
         jobId: jobRoute.jobId,
@@ -458,7 +473,7 @@ export async function handleJobRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
     if (!auth) return true;
     try {
-      const service = createJobManagementService(ctx);
+      const service = ctx.jobManagement;
       const { job } = await service.getJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
@@ -494,7 +509,7 @@ export async function handleJobRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
     try {
-      await createJobManagementService(ctx).deleteJob({
+      await ctx.jobManagement.deleteJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
       });
@@ -513,7 +528,7 @@ export async function handleJobRoutes(
     );
     if (!body) return true;
     try {
-      const service = createJobManagementService(ctx);
+      const service = ctx.jobManagement;
       const { job: existingJob } = await service.getJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
@@ -578,7 +593,7 @@ export async function handleJobRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
     try {
-      const result = await createJobManagementService(ctx).pauseJob({
+      const result = await ctx.jobManagement.pauseJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
       });
@@ -592,7 +607,7 @@ export async function handleJobRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
     try {
-      const result = await createJobManagementService(ctx).resumeJob({
+      const result = await ctx.jobManagement.resumeJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
       });
@@ -618,7 +633,7 @@ export async function handleJobRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
     try {
-      const result = await createJobManagementService(ctx).triggerJob({
+      const result = await ctx.jobManagement.triggerJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
         consumeRateLimit: (key, limit) =>
@@ -655,7 +670,7 @@ export async function handleJobRoutes(
     );
     const startedAt = currentTimeMs();
     try {
-      const result = await createJobManagementService(ctx).waitForTrigger({
+      const result = await ctx.jobManagement.waitForTrigger({
         appId: auth.appId,
         triggerId,
         timeoutMs: Math.max(0, timeoutMs - (currentTimeMs() - startedAt)),

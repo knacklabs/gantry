@@ -37,7 +37,6 @@ import {
   TRIGGER_RATE_LIMIT_PER_JOB,
 } from './rate-limit.js';
 import { adaptSessionControlPort } from './session-control-port.js';
-import { createJobManagementService } from './routes/jobs.js';
 
 export function hasRouteForConversation(
   routes: Record<string, unknown>,
@@ -193,7 +192,7 @@ export function createExternalIngressModule(
           send: ctx.sendConversationIngressProjection,
         }
       : undefined,
-    jobs: createJobManagementService(ctx),
+    jobs: ctx.jobManagement,
     now: nowIso,
     createSecret: () => randomBytes(32).toString('hex'),
     createInvocationId: randomUUID,

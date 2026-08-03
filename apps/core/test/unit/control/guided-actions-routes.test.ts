@@ -8,10 +8,6 @@ import { handleGuidedActionRoutes } from '@core/control/server/routes/guided-act
 
 const resumeJob = vi.fn();
 
-vi.mock('@core/control/server/routes/jobs.js', () => ({
-  createJobManagementService: () => ({ resumeJob }),
-}));
-
 type TestResponse = ServerResponse & {
   body: string;
   headers: Record<string, string>;
@@ -64,6 +60,7 @@ function adminContext(
   ],
 ): ControlRouteContext {
   return {
+    jobManagement: { resumeJob } as never,
     keys: [
       {
         kid: 'test',

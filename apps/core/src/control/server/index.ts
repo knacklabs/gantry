@@ -58,7 +58,7 @@ import { handleCredentialRoutes } from './routes/credentials.js';
 import { handleProviderConversationRoutes } from './routes/provider-conversation-routes.js';
 import { handleExternalIngressRoutes } from './routes/external-ingress.js';
 import { handleGuidedActionRoutes } from './routes/guided-actions.js';
-import { handleJobRoutes } from './routes/jobs.js';
+import { createJobManagementService, handleJobRoutes } from './routes/jobs.js';
 import { handleLlmRoutes } from './routes/llm.js';
 import { handleMemoryRoutes } from './routes/memory.js';
 import { handleObserverRoutes } from './routes/observer.js';
@@ -354,6 +354,10 @@ export function startControlServer(input: {
     (() => (effectiveRuntimeSettings ??= getRuntimeSettingsForConfig()));
   const ctx: ControlRouteContext = {
     app: input.app,
+    jobManagement: createJobManagementService({
+      app: input.app,
+      getBrowserStatus: input.getBrowserStatus,
+    }),
     runtimeHome: GANTRY_HOME,
     keys,
     processRole: input.processRole ?? 'all',

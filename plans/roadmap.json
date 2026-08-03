@@ -550,7 +550,7 @@
       "outcome": "Branch protection enabled on main: the ci check (unit + integration + postgres + structural gates incl. check:architecture) is REQUIRED before merge; force-pushes and deletions blocked; enforce_admins off so the harness ledger keeps direct-push access."
     },
     {
-      "status": "pending",
+      "status": "active",
       "key": "SIMP-2",
       "title": "Construct control application services once in the composition root",
       "epic": "runtime-hardening-audit",
@@ -694,5 +694,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-02T21:04:14+00:00"
+  "updated_at": "2026-08-03T02:35:51+00:00"
 }
