@@ -278,6 +278,8 @@ if (workerData.kind === 'office') {
     const pages = Math.min(document.numPages, workerData.maxPdfPages);
     const parts = [];
     let collected = 0;
+    let processed = 0;
+    let budgetHit = false;
     for (let index = 1; index <= pages; index += 1) {
       const page = await document.getPage(index);
       const content = await page.getTextContent();
@@ -286,12 +288,17 @@ if (workerData.kind === 'office') {
         .join(' ');
       parts.push(pageText.slice(0, workerData.maxOutputChars - collected));
       collected += pageText.length;
-      if (collected >= workerData.maxOutputChars) break;
+      if (collected >= workerData.maxOutputChars) {
+        processed = index;
+        budgetHit = true;
+        break;
+      }
+      processed = index;
     }
     const suffix =
-      document.numPages > pages
+      budgetHit || document.numPages > processed
         ? '\\n\\n[Text extracted from the first ' +
-          pages +
+          processed +
           ' of ' +
           document.numPages +
           ' pages.]'
@@ -303,7 +310,7 @@ if (workerData.kind === 'office') {
 
 export async function sniffAttachmentKind(
   filePath: string,
-): Promise<'document' | 'image' | 'unknown'> {
+): Promise<'pdf' | 'zip' | 'image' | 'unknown'> {
   const file = await fs.open(filePath, 'r');
   try {
     const header = Buffer.alloc(12);
@@ -312,10 +319,12 @@ export async function sniffAttachmentKind(
       bytesRead >= 5 &&
       header.subarray(0, 5).toString('latin1') === '%PDF-'
     ) {
-      return 'document';
+      return 'pdf';
     }
     if (bytesRead >= 4 && header.readUInt32LE(0) === 0x04034b50) {
-      return 'document';
+      // A generic ZIP container: whether it is a document (docx/odt/...) or a
+      // plain archive (zip/jar/apk) needs the metadata to disambiguate.
+      return 'zip';
     }
     if (sniffDeliverableImageMime(header.subarray(0, bytesRead))) {
       return 'image';

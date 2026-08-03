@@ -242,18 +242,23 @@ async function readAttachmentContent(
   extract: DocumentTextExtractor,
 ): Promise<{ content: string; image?: AttachmentImagePayload }> {
   const textLike = isTextLike(attachment.contentType, attachment.fileName);
-  // Dispatch is decided by sniffed bytes first: metadata is optional and
-  // untrusted, and octet-stream PDFs/images must still take the right path.
+  // Dispatch is decided by sniffed bytes first: a conclusive signature
+  // overrides metadata; metadata only disambiguates (generic ZIP containers)
+  // or fills in when sniffing is inconclusive.
   const sniffedKind = await sniffAttachmentKind(filePath);
   if (
-    sniffedKind === 'document' ||
-    isExtractableDocument(attachment.contentType, attachment.fileName)
+    sniffedKind === 'pdf' ||
+    (sniffedKind === 'zip' &&
+      isExtractableDocument(attachment.contentType, attachment.fileName)) ||
+    (sniffedKind === 'unknown' &&
+      isExtractableDocument(attachment.contentType, attachment.fileName))
   ) {
     return { content: await extract(filePath, attachment) };
   }
   if (
     sniffedKind === 'image' ||
-    isImageAttachment(attachment.contentType, attachment.fileName)
+    (sniffedKind === 'unknown' &&
+      isImageAttachment(attachment.contentType, attachment.fileName))
   ) {
     const label = attachment.fileName || path.basename(filePath);
     const stats = await fs.stat(filePath);
