@@ -250,21 +250,17 @@ export class DiscordChannel implements ChannelAdapter {
   ): Promise<boolean> {
     const channelId = options.threadId || discordChannelIdFromJid(jid);
     if (!channelId) return false;
-    const generationKey = `${jid}\n${options.threadId ?? ''}\n${options.generation ?? ''}`;
-    const controlKey = `${jid}\n${options.threadId ?? ''}\ncontrol`;
-    const hasStopAction = options.actionAffordances?.some(
-      (action) => action.kind === 'live_turn_stop',
-    );
     const progressKey =
-      hasStopAction ||
-      (options.done && this.activeProgressMessages.has(controlKey))
-        ? controlKey
-        : generationKey;
+      options.progressCardIdentity ?? this.progressCardIdentity(jid, options);
+    const dispatchOptions =
+      options.progressCardIdentity && options.done
+        ? { ...options, replaceOnly: options.replaceOnly ?? true }
+        : options;
     return sendDiscordProgressUpdate({
       key: progressKey,
       activeMessages: this.activeProgressMessages,
       text,
-      options,
+      options: dispatchOptions,
       post: (body, components) =>
         postDiscordMessageParts({
           channelId,
@@ -274,6 +270,21 @@ export class DiscordChannel implements ChannelAdapter {
         }),
       edit: (messageId, body) => this.patchMessage(channelId, messageId, body),
     });
+  }
+
+  progressCardIdentity(
+    jid: string,
+    options: ProgressUpdateOptions = {},
+  ): string {
+    const generationKey = `${jid}\n${options.threadId ?? ''}\n${options.generation ?? ''}`;
+    const controlKey = `${jid}\n${options.threadId ?? ''}\ncontrol`;
+    const hasStopAction = options.actionAffordances?.some(
+      (action) => action.kind === 'live_turn_stop',
+    );
+    return hasStopAction ||
+      (options.done && this.activeProgressMessages.has(controlKey))
+      ? controlKey
+      : generationKey;
   }
 
   async sendStreamingChunk(

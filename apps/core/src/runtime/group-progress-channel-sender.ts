@@ -1,5 +1,14 @@
 import type { ProgressUpdateOptions } from '../domain/types.js';
 import type { GroupProcessingDeps } from './group-processing-types.js';
+import {
+  clearCachedCardIdentity,
+  deletePendingCardIdentity,
+  markStopCardIdentityLanded,
+  resolveProgressCardTarget,
+  type CachedStopCardIdentity,
+  type ProgressCardIdentityRegistry,
+  type ProgressCardTarget,
+} from './group-progress-card-identity.js';
 
 type RuntimeLogger = {
   warn(input: unknown, message: string): void;
@@ -14,6 +23,8 @@ type DesiredProgressPayload = {
   sequence: number;
   text: string;
   options?: ProgressUpdateOptions;
+  stopCardIdentity?: CachedStopCardIdentity;
+  terminalControlIdentity?: CachedStopCardIdentity;
   previousDesired?: DesiredProgressPayload;
 };
 
@@ -46,6 +57,8 @@ type ProgressSendChain = {
   nextSequence: number;
   currentOwnerEpoch: number;
   currentOwner: ProgressSenderOwner;
+  unsettledAttemptCount: number;
+  handleMayExist: boolean;
   tail?: ProgressSendLink;
   pendingRepair?: ProgressSendLink;
   repairDirty: boolean;
@@ -58,7 +71,9 @@ type ProgressSendChain = {
   lastLandedSequence?: number;
 };
 
-type ProgressOrderingRegistry = Map<string, ProgressSendChain>;
+type ProgressOrderingRegistry = ProgressCardIdentityRegistry & {
+  chains: Map<string, ProgressSendChain>;
+};
 
 const orderingRegistries = new WeakMap<object, ProgressOrderingRegistry>();
 
@@ -77,7 +92,10 @@ function orderingRegistryFor(
 ): ProgressOrderingRegistry {
   const existing = orderingRegistries.get(channelRuntime);
   if (existing) return existing;
-  const created: ProgressOrderingRegistry = new Map();
+  const created: ProgressOrderingRegistry = {
+    chains: new Map(),
+    stopCardIdentityByRoute: new Map(),
+  };
   orderingRegistries.set(channelRuntime, created);
   return created;
 }
@@ -85,21 +103,15 @@ function orderingRegistryFor(
 export function progressOrderingRegistrySize(
   channelRuntime: GroupProcessingDeps['channelRuntime'],
 ): number {
-  return orderingRegistries.get(channelRuntime)?.size ?? 0;
+  return orderingRegistries.get(channelRuntime)?.chains.size ?? 0;
 }
 
-function progressCardKey(input: {
-  chatJid: string;
-  providerAccountId?: string;
-  threadId?: string;
-  generation?: number;
-}): string {
-  return [
-    input.chatJid,
-    input.providerAccountId ?? '',
-    input.threadId ?? '',
-    input.generation === undefined ? '' : String(input.generation),
-  ].join('\n');
+export function progressCardIdentityCacheSize(
+  channelRuntime: GroupProcessingDeps['channelRuntime'],
+): number {
+  return (
+    orderingRegistries.get(channelRuntime)?.stopCardIdentityByRoute.size ?? 0
+  );
 }
 
 async function waitForProgressLink(link: ProgressSendLink): Promise<void> {
@@ -115,6 +127,16 @@ async function waitForProgressLink(link: ProgressSendLink): Promise<void> {
   if (!settled) link.abandon();
 }
 
+function deleteChain(
+  registry: ProgressOrderingRegistry,
+  key: string,
+  chain: ProgressSendChain,
+): void {
+  if (registry.chains.get(key) !== chain) return;
+  registry.chains.delete(key);
+  deletePendingCardIdentity(registry, key);
+}
+
 function maybeDeleteQuiescentChain(
   registry: ProgressOrderingRegistry,
   key: string,
@@ -125,10 +147,10 @@ function maybeDeleteQuiescentChain(
     !chain.pendingRepair &&
     !chain.repairRetryTimer &&
     chain.detachedCount === 0 &&
-    registry.get(key) === chain
+    registry.chains.get(key) === chain
   ) {
     if (chain.retentionTimer) clearTimeout(chain.retentionTimer);
-    registry.delete(key);
+    deleteChain(registry, key, chain);
   }
 }
 
@@ -150,9 +172,9 @@ function scheduleRetiredChainGc(
       !chain.pendingRepair &&
       !chain.repairRetryTimer &&
       chain.detachedCount === 0 &&
-      registry.get(key) === chain
+      registry.chains.get(key) === chain
     ) {
-      registry.delete(key);
+      deleteChain(registry, key, chain);
     }
   }, PROGRESS_SEND_LINK_TIMEOUT_MS);
 }
@@ -165,8 +187,8 @@ function scheduleRetiredChainRetentionCap(
   if (chain.retentionTimer) return;
   chain.retentionTimer = setTimeout(() => {
     chain.retentionTimer = undefined;
-    if (chain.currentOwner.retired && registry.get(key) === chain) {
-      registry.delete(key);
+    if (chain.currentOwner.retired && registry.chains.get(key) === chain) {
+      deleteChain(registry, key, chain);
       if (chain.repairRetryTimer) clearTimeout(chain.repairRetryTimer);
       chain.repairRetryTimer = undefined;
       for (const link of [...chain.pending]) link.abandon();
@@ -198,7 +220,7 @@ function reconcile(
   chain: ProgressSendChain,
   trigger: 'original' | 'repair',
 ): void {
-  if (registry.get(key) !== chain) {
+  if (registry.chains.get(key) !== chain) {
     resetRepairEpisode(chain);
     if (chain.retentionTimer) clearTimeout(chain.retentionTimer);
     chain.retentionTimer = undefined;
@@ -222,7 +244,7 @@ function reconcile(
     if (
       chain.repairRetryTimer ||
       chain.repairRetryCount >= PROGRESS_REPAIR_BACKOFF_MS.length ||
-      registry.get(key) !== chain
+      registry.chains.get(key) !== chain
     ) {
       maybeDeleteQuiescentChain(registry, key, chain);
       return;
@@ -282,6 +304,8 @@ function reconcile(
   chain.pending.add(link);
 
   let targetSequence: number | undefined;
+  let stopCardIdentity: CachedStopCardIdentity | undefined;
+  let terminalControlIdentity: CachedStopCardIdentity | undefined;
   let repairLanded = false;
   const result = (async () => {
     if (previous) await waitForProgressLink(previous);
@@ -290,10 +314,34 @@ function reconcile(
     if (!target || target.ownerEpoch !== chain.currentOwnerEpoch) return false;
     if (chain.lastLandedSequence === target.sequence) return false;
     targetSequence = target.sequence;
+    stopCardIdentity = target.stopCardIdentity;
+    terminalControlIdentity = target.terminalControlIdentity;
     link.ownerEpoch = target.ownerEpoch;
     link.sequence = target.sequence;
     link.dispatched = true;
-    return chain.currentOwner.sendPayload(target);
+    const forceReplaceOnly =
+      chain.handleMayExist || chain.unsettledAttemptCount > 0;
+    if (chain.unsettledAttemptCount > 0) chain.handleMayExist = true;
+    chain.unsettledAttemptCount += 1;
+    try {
+      const landed = await chain.currentOwner.sendPayload({
+        ...target,
+        options: forceReplaceOnly
+          ? { ...target.options, replaceOnly: true }
+          : target.options,
+      });
+      if (landed) {
+        chain.handleMayExist = true;
+      } else if (chain.unsettledAttemptCount === 1) {
+        chain.handleMayExist = false;
+      }
+      return landed;
+    } catch (err) {
+      chain.handleMayExist = true;
+      throw err;
+    } finally {
+      chain.unsettledAttemptCount -= 1;
+    }
   })();
 
   link.settled = result.then(
@@ -301,6 +349,12 @@ function reconcile(
       repairLanded = landed;
       if (landed && targetSequence !== undefined) {
         chain.lastLandedSequence = targetSequence;
+        if (stopCardIdentity) {
+          markStopCardIdentityLanded(registry, stopCardIdentity);
+        }
+        if (terminalControlIdentity) {
+          clearCachedCardIdentity(registry, terminalControlIdentity);
+        }
       }
     },
     (err) => {
@@ -319,7 +373,7 @@ function reconcile(
   void link.settled.then(() => {
     clearTimeout(abandonmentTimer);
     if (link.nonBlocking) chain.detachedCount -= 1;
-    if (registry.get(key) !== chain) return;
+    if (registry.chains.get(key) !== chain) return;
     chain.pending.delete(link);
     if (chain.pendingRepair === link) chain.pendingRepair = undefined;
     const repairDirty = chain.repairDirty;
@@ -374,22 +428,35 @@ export function createProgressChannelSender(input: {
     finalizingGenerations: input.finalizingGenerations,
   };
 
-  const keyFor = (options?: ProgressUpdateOptions) =>
-    progressCardKey({
+  const targetFor = (options?: ProgressUpdateOptions): ProgressCardTarget => {
+    return resolveProgressCardTarget({
+      registry,
       chatJid: input.chatJid,
-      providerAccountId: options?.providerAccountId ?? input.providerAccountId,
-      threadId: options?.threadId ?? input.threadId,
-      generation: options?.generation,
+      defaultProviderAccountId: input.providerAccountId,
+      defaultThreadId: input.threadId,
+      options,
+      resolveProviderCardIdentity: (identityOptions) =>
+        input.channelRuntime.progressCardIdentity?.(
+          input.chatJid,
+          identityOptions,
+        ),
+      canRegisterStopCard: (cardKey) =>
+        !owner.retired && !owner.supersededCards.has(cardKey),
     });
+  };
 
   const claimCard = (key: string): ProgressSendChain | undefined => {
     if (owner.retired || owner.supersededCards.has(key)) return undefined;
     const owned = ownedCards.get(key);
-    if (owned && registry.get(key) === owned && owned.currentOwner === owner) {
+    if (
+      owned &&
+      registry.chains.get(key) === owned &&
+      owned.currentOwner === owner
+    ) {
       return owned;
     }
 
-    const existing = registry.get(key);
+    const existing = registry.chains.get(key);
     if (existing) {
       if (existing.retentionTimer) clearTimeout(existing.retentionTimer);
       existing.retentionTimer = undefined;
@@ -405,12 +472,14 @@ export function createProgressChannelSender(input: {
       nextSequence: 0,
       currentOwnerEpoch: 0,
       currentOwner: owner,
+      unsettledAttemptCount: 0,
+      handleMayExist: false,
       repairDirty: false,
       repairRetryCount: 0,
       pending: new Set<ProgressSendLink>(),
       detachedCount: 0,
     };
-    registry.set(key, created);
+    registry.chains.set(key, created);
     ownedCards.set(key, created);
     return created;
   };
@@ -419,7 +488,8 @@ export function createProgressChannelSender(input: {
     text: string,
     options?: ProgressUpdateOptions,
   ): Promise<boolean> => {
-    const key = keyFor(options);
+    const { key, dispatchOptions, stopCardIdentity, terminalControlIdentity } =
+      targetFor(options);
     const chain = claimCard(key);
     if (!chain) return Promise.resolve(false);
     if (options?.done) supersedePendingStallNotices(chain);
@@ -467,17 +537,36 @@ export function createProgressChannelSender(input: {
       ) {
         return false;
       }
-      chain.lastDesired = {
+      const desired: DesiredProgressPayload = {
         ownerEpoch: chain.currentOwnerEpoch,
         sequence,
         text,
-        ...(options ? { options: { ...options } } : {}),
+        ...(dispatchOptions ? { options: { ...dispatchOptions } } : {}),
+        ...(stopCardIdentity ? { stopCardIdentity } : {}),
+        ...(terminalControlIdentity ? { terminalControlIdentity } : {}),
         ...(chain.lastDesired ? { previousDesired: chain.lastDesired } : {}),
       };
+      chain.lastDesired = desired;
       link.dispatched = true;
+      const forceReplaceOnly =
+        chain.handleMayExist || chain.unsettledAttemptCount > 0;
+      if (chain.unsettledAttemptCount > 0) chain.handleMayExist = true;
+      chain.unsettledAttemptCount += 1;
       try {
-        return await owner.sendPayload({ text, options });
+        const landed = await owner.sendPayload({
+          text,
+          options: forceReplaceOnly
+            ? { ...dispatchOptions, replaceOnly: true }
+            : dispatchOptions,
+        });
+        if (landed) {
+          chain.handleMayExist = true;
+        } else if (chain.unsettledAttemptCount === 1) {
+          chain.handleMayExist = false;
+        }
+        return landed;
       } catch (err) {
+        chain.handleMayExist = true;
         input.log.warn(
           {
             err,
@@ -492,19 +581,29 @@ export function createProgressChannelSender(input: {
           'Progress lifecycle runtime send failed',
         );
         throw err;
+      } finally {
+        chain.unsettledAttemptCount -= 1;
       }
     })();
     link.settled = result.then(
       (landed) => {
         originalLanded = landed;
-        if (landed) chain.lastLandedSequence = link.sequence;
+        if (landed && stopCardIdentity) {
+          markStopCardIdentityLanded(registry, stopCardIdentity);
+        }
+        if (landed && terminalControlIdentity) {
+          clearCachedCardIdentity(registry, terminalControlIdentity);
+        }
+        if (landed) {
+          chain.lastLandedSequence = link.sequence;
+        }
       },
       () => undefined,
     );
     chain.tail = link;
     void link.settled.then(() => {
       if (link.nonBlocking) chain.detachedCount -= 1;
-      if (registry.get(key) !== chain) return;
+      if (registry.chains.get(key) !== chain) return;
       chain.pending.delete(link);
       const isCurrentDesiredSettlement =
         chain.lastDesired?.ownerEpoch === link.ownerEpoch &&
@@ -526,7 +625,7 @@ export function createProgressChannelSender(input: {
   const sender = enqueueOriginal as ProgressChannelSender;
   sender.beforeVisibleDelivery = async (options?: ProgressUpdateOptions) => {
     if (owner.retired) return;
-    const key = keyFor(options);
+    const { key } = targetFor(options);
     const chain = ownedCards.get(key);
     if (!chain || chain.currentOwner !== owner) return;
     supersedePendingStallNotices(chain);
@@ -536,7 +635,8 @@ export function createProgressChannelSender(input: {
     text: string,
     options?: ProgressUpdateOptions,
   ) => {
-    const key = keyFor(options);
+    const { key, dispatchOptions, terminalControlIdentity } =
+      targetFor(options);
     const chain = claimCard(key);
     if (!chain) return;
     supersedePendingStallNotices(chain);
@@ -546,10 +646,15 @@ export function createProgressChannelSender(input: {
       ownerEpoch: chain.currentOwnerEpoch,
       sequence,
       text,
-      ...(options ? { options: { ...options } } : {}),
+      ...(dispatchOptions ? { options: { ...dispatchOptions } } : {}),
+      ...(terminalControlIdentity ? { terminalControlIdentity } : {}),
       ...(previousDesired ? { previousDesired } : {}),
     };
     chain.lastLandedSequence = sequence;
+    chain.handleMayExist = true;
+    if (terminalControlIdentity) {
+      clearCachedCardIdentity(registry, terminalControlIdentity);
+    }
     maybeDeleteQuiescentChain(registry, key, chain);
   };
   sender.cancelPendingStallNotices = () => {
@@ -563,7 +668,7 @@ export function createProgressChannelSender(input: {
     owner.retired = true;
     for (const [key, chain] of ownedCards) {
       maybeDeleteQuiescentChain(registry, key, chain);
-      if (registry.get(key) === chain) {
+      if (registry.chains.get(key) === chain) {
         scheduleRetiredChainGc(registry, key, chain);
         scheduleRetiredChainRetentionCap(registry, key, chain);
       }

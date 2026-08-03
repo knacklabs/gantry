@@ -229,6 +229,10 @@ export interface ChannelWiring {
     isTyping: boolean,
     options?: ChannelAccountOptions,
   ) => Promise<void>;
+  progressCardIdentity?: (
+    jid: string,
+    options?: ProgressUpdateOptions,
+  ) => string | undefined;
   sendProgressUpdate: (
     jid: string,
     text: string,

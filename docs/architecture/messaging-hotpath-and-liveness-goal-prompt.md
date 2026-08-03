@@ -73,13 +73,22 @@ shipped/measured/deferred status.
 
 ## Part B — Ambient liveness (Fable-ranked, no-clutter-filtered)
 
-**Shipped in LIVE-1 (2026-08-02).** The runtime now uses the existing progress
+**Shipped in LIVE-1 (2026-08-03).** The runtime now uses the existing progress
 card for a replace-only three-minute stall notice, provides thread-aware
 Discord typing, flips seen/running reactions around first delivered visible
 output, acknowledges both continuation routes, and keeps retryable failures on
-the failing card generation. Teams remains signal-less until a real client
-lands (D-0042, shared trigger with D-0034); Slack typing remains absent by
-design; wall-clock UX was not measured.
+the provider card that actually owns the progress handle. First-visible cleanup
+and progress ordering links are bounded at about two seconds. Late repairs are
+provider-card-fenced and replace-only while an earlier attempt may still land.
+A rejected send stays ambiguous; only an explicit provider `false` establishes
+that no handle exists and permits a later repair to recreate the missing card.
+Provider-card identity is frozen when each update enters its chain, and
+terminals borrow a pending Discord control identity only from the same or an
+older stop generation. If the bounded identity cache expires first, a terminal
+consults Discord's live control-card state before falling back to its generation
+card. Teams typing and reactions remain deferred until a real client lands
+(D-0042, shared trigger with D-0034); Slack typing remains absent by design;
+wall-clock UX was not measured.
 
 1. **Revive the progress heartbeat as a REPLACE-ONLY card edit.**
    `startGroupProgressHeartbeats` already receives getElapsedMs/
@@ -90,9 +99,10 @@ design; wall-clock UX was not measured.
    PLAIN "Still working" (NO elapsed text — clutter rule). This also fixes
    stuck-vs-working: stop refreshing Telegram typing when the runner is actually
    stalled so typing stops lying.
-2. **Typing/ack parity for Discord + Teams.** Implement TypingSink on both (single
-   API call each); the 4s refresh loop is already provider-agnostic. Wire Teams'
-   reaction (its addReaction is a no-op, `channels/teams.ts:247`).
+2. **Typing/ack parity for Discord; defer Teams.** Discord implements its
+   thread-aware TypingSink through the provider-agnostic 4s refresh loop. Teams'
+   production SDK client is still a null stub, so its TypingSink and reactions
+   remain deferred to the real-client trigger (D-0042, shared with D-0034).
 3. **Seen→running reaction FLIP on slow spawns.** Both Telegram and Slack already
    MAP a 'running' hourglass reaction that NO caller ever sends
    (`telegram/reactions.ts:5`, `slack/reactions.ts:6`); flip seen→running after
@@ -545,7 +555,7 @@ deterministic operation/statement counts on real Postgres, not wall-clock.
 | Phase 6 — skill-artifact caching                 | **partially superseded**   | RACE-1/decision 0066 delivered app/content-addressed refs + read-time hash verification.                                                                                                                                                                                         | Remaining scope (read cache, layout reconciliation, bounded materialization) is measurement-gated and unscheduled.                                                                                                                                               |
 | Phase 7 — direct in-process LLM forwarding       | **not started**            | —                                                                                                                                                                                                                                                                                | Decision-gated; the gateway's streaming-audit await (audit item 5) was NOT fixed separately to avoid colliding with the deepagents/SDK audit that owns that hot path.                                                                                            |
 | Phase 9 — warm runtime resources                 | **not started**            | —                                                                                                                                                                                                                                                                                | Measurement-gated; no measurement has justified it yet.                                                                                                                                                                                                          |
-| Part B — ambient liveness                        | shipped in LIVE-1          | Behavioral fake-timer and provider-adapter contracts pin the 180s stall threshold, first-visible-output reaction lifecycle, continuation receipts, and retry-card numbering.                                                                                                     | Teams remains signal-less pending a real client (D-0042, shared with D-0034); Slack typing is absent by design; wall-clock UX was not measured.                                                                                                                  |
+| Part B — ambient liveness                        | shipped in LIVE-1          | Behavioral fake-timer and provider-adapter contracts pin the 180s stall threshold, bounded first-visible-output reaction cleanup, continuation receipts, retry-card numbering, provider-card identity, and ambiguity-aware repairs.                                              | Teams typing/reactions remain deferred pending a real client (D-0042, shared with D-0034); Slack typing is absent by design; wall-clock UX was not measured.                                                                                                     |
 
 Spun out of this program and shipped through the same lifecycle: the
 conversation-file trust program (FILE-1A #365, FILE-1B #371 — see

@@ -6,6 +6,8 @@ import {
   startGroupProgressHeartbeats,
 } from './group-progress-heartbeats.js';
 
+const FIRST_VISIBLE_OUTPUT_HOOK_TIMEOUT_MS = 2_000;
+
 export function createGroupTurnTypingSender(input: {
   channelRuntime: GroupProcessingDeps['channelRuntime'];
   chatJid: string;
@@ -85,12 +87,34 @@ export function startGroupLivenessHeartbeat(input: {
     resetStallEpoch();
     if (firstVisibleOutputNotified) return;
     firstVisibleOutputNotified = true;
-    await Promise.resolve(input.onFirstVisibleOutput?.()).catch((err) =>
-      input.log.debug(
-        { err, group: input.groupName },
-        'First visible output hook failed',
+    const hook = Promise.resolve().then(() => input.onFirstVisibleOutput?.());
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const completed = await Promise.race([
+      hook.then(
+        () => true,
+        (err) => {
+          input.log.debug(
+            { err, group: input.groupName },
+            'First visible output hook failed',
+          );
+          return true;
+        },
       ),
-    );
+      new Promise<false>((resolve) => {
+        timeout = setTimeout(
+          () => resolve(false),
+          FIRST_VISIBLE_OUTPUT_HOOK_TIMEOUT_MS,
+        );
+        timeout.unref?.();
+      }),
+    ]);
+    if (timeout) clearTimeout(timeout);
+    if (!completed) {
+      input.log.debug(
+        { group: input.groupName },
+        'First visible output hook timed out',
+      );
+    }
   };
   return {
     ...heartbeat,

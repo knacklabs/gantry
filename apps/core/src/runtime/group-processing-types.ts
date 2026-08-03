@@ -134,6 +134,10 @@ export interface GroupProcessingDeps {
       isTyping: boolean,
       options?: { providerAccountId?: string; threadId?: string },
     ) => Promise<void>;
+    progressCardIdentity?: (
+      chatJid: string,
+      options?: ProgressUpdateOptions,
+    ) => string | undefined;
     sendProgressUpdate: (
       chatJid: string,
       text: string,

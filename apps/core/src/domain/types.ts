@@ -514,6 +514,8 @@ export interface StreamingChunkOptions {
 export interface ProgressUpdateOptions {
   threadId?: string;
   providerAccountId?: string;
+  /** Provider-card identity sampled when the update entered its ordering chain. */
+  progressCardIdentity?: string;
   done?: boolean;
   replaceOnly?: boolean;
   generation?: number;
@@ -621,6 +623,10 @@ export interface StreamingStateSink {
   resetStreaming(jid: string, options?: { threadId?: string }): void;
 }
 export interface ProgressSink {
+  progressCardIdentity?(
+    jid: string,
+    options?: ProgressUpdateOptions,
+  ): string | undefined;
   sendProgressUpdate(
     jid: string,
     text: string,

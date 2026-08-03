@@ -701,14 +701,33 @@ describe('DiscordChannel', () => {
       .mockResolvedValueOnce(jsonResponse({ id: 'progress-1' }))
       .mockResolvedValue(new Response('{}', { status: 200 }));
     const channel = new DiscordChannel('bot-token', 'app-id', opts());
-
-    await channel.sendProgressUpdate('dc:channel-1', '', {
+    const stopOptions = {
       generation: 1,
       actionOnly: true,
       actionAffordances: [
-        { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+        {
+          kind: 'live_turn_stop' as const,
+          label: 'Stop',
+          actionToken: 'token-1',
+        },
       ],
-    });
+    };
+    const controlIdentity = channel.progressCardIdentity(
+      'dc:channel-1',
+      stopOptions,
+    );
+
+    expect(
+      channel.progressCardIdentity('dc:channel-1', { generation: 1 }),
+    ).not.toBe(channel.progressCardIdentity('dc:channel-1', { generation: 2 }));
+
+    await channel.sendProgressUpdate('dc:channel-1', '', stopOptions);
+    expect(
+      channel.progressCardIdentity('dc:channel-1', {
+        generation: 2,
+        done: true,
+      }),
+    ).toBe(controlIdentity);
     await channel.sendProgressUpdate('dc:channel-1', 'Done', {
       generation: 2,
       done: true,
@@ -724,6 +743,36 @@ describe('DiscordChannel', () => {
       String(fetchMock.mock.calls[1]?.[1]?.body || '{}'),
     );
     expect(doneBody).toMatchObject({ content: 'Done', components: [] });
+    fetchMock.mockRestore();
+  });
+
+  it('honors a queued terminal identity after a newer control card appears', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ id: 'control-progress' }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const oldGenerationIdentity = channel.progressCardIdentity('dc:channel-1', {
+      generation: 1,
+    });
+
+    await channel.sendProgressUpdate('dc:channel-1', 'Working generation 2', {
+      generation: 2,
+      actionAffordances: [
+        { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-2' },
+      ],
+    });
+    const landed = await channel.sendProgressUpdate(
+      'dc:channel-1',
+      'Done generation 1',
+      {
+        generation: 1,
+        done: true,
+        progressCardIdentity: oldGenerationIdentity,
+      },
+    );
+
+    expect(landed).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     fetchMock.mockRestore();
   });
 

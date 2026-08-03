@@ -4,6 +4,7 @@ import {
   MessageDeliveryResult,
   MessageSendOptions,
   PermissionApprovalRequest,
+  ProgressUpdateOptions,
   StreamingChunkOptions,
 } from '../../domain/types.js';
 import { stripInternalTagsPreserveWhitespace } from '../../messaging/router.js';
@@ -309,6 +310,15 @@ export function createChannelWiring(
   ): boolean {
     const channel = findBoundChannel(jid, options?.providerAccountId);
     return channel ? asProgressSink(channel) !== undefined : false;
+  }
+  function progressCardIdentity(
+    jid: string,
+    options?: ProgressUpdateOptions,
+  ): string | undefined {
+    const channel = findBoundChannel(jid, options?.providerAccountId);
+    return channel
+      ? asProgressSink(channel)?.progressCardIdentity?.(jid, options)
+      : undefined;
   }
   async function sendMessage(
     jid: string,
@@ -727,6 +737,7 @@ export function createChannelWiring(
     sendStreamingChunk,
     resetStreaming: streamReset.resetStreaming,
     setTyping,
+    progressCardIdentity,
     sendProgressUpdate,
     addReaction,
     removeReaction,
