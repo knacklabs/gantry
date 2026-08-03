@@ -25,7 +25,7 @@ The repository contains valuable historical records. This atlas does not rewrite
 | Archify repository | `https://github.com/tt-a1i/archify` |
 | Archify version | `2.13.0` |
 | Quality profile | `showcase` |
-| Delivery evidence | [delivery-receipts.json](delivery-receipts.json) |
+| Delivery evidence | [delivery-receipts.json](./delivery-receipts.json) |
 
 ## Subsystem evidence map
 

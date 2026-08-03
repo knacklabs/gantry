@@ -26,6 +26,52 @@ conversation when each has its own Provider Account. Users select agents through
 provider-native identity, such as mentioning or DMing the actual bot/account,
 not through Gantry text selectors.
 
+## Supported Topologies And Isolation
+
+### One agent in several conversations
+
+Reuse one agent and one active Provider Account across several Conversation
+Installs. The provider credential and agent-owned model/capability authority are
+shared by reference; each install still has its own conversation identity,
+sender trigger, control approvers, delivery target, sessions, live-turn scope,
+and conversation memory.
+
+For example, the Ops Slack bot can be installed in `#ops`, `#incidents`, and a
+DM. A message in `#incidents` cannot continue the runner, approve a request, or
+read conversation memory from `#ops`. Agent-owned durable authority can apply
+to future runs in both installs because that authority belongs to the agent,
+not to either conversation. User memory is shared only when identity resolution
+maps both routes to the same app/agent/person subject.
+
+### Several agents or accounts in one provider-native conversation
+
+Create one Conversation Install per agent/account route. Each agent needs its
+own Provider Account/native identity in that conversation. Provider-native
+selection—such as mentioning the Ops bot versus the Triage bot—chooses the
+route. Gantry does not use magic text prefixes to impersonate several agents
+behind one provider identity.
+
+The agents may have different models, personas, capabilities, locked presets,
+credentials, and durable memory. SDK, external-ingress, or scheduler requests
+that target a native conversation with several installs must name `agentId` or
+`providerAccountId`; Gantry does not guess.
+
+| Boundary | Isolated by |
+| --- | --- |
+| Native credentials and outbound identity | Provider Account |
+| Trigger and sender policy | Conversation Install and conversation |
+| Human approval authority | Conversation approvers plus target agent/run |
+| Live ownership and continuation | App, agent session, conversation, and thread |
+| Provider resume metadata | Provider Account, agent, conversation, and thread |
+| Durable memory | App, agent, and user/group/channel/common subject |
+| Capability and durable tool authority | Agent config and reviewed agent grants |
+| Delivery and attachment access | Provider Account plus conversation/thread route |
+
+Threads/topics inherit parent conversation installation and approver context;
+they remain distinct routing/session scopes but do not create a new durable
+memory subject. Native SDK subagents are not another topology here: they stay
+inside one parent run and inherit its authority.
+
 ## Configure Provider Accounts
 
 Secrets are referenced by `runtime_secret_refs`; raw provider tokens do not
@@ -118,7 +164,7 @@ conversations:
     display_name: '#ops'
     sender_policy:
       allow: '*'
-      mode: 'all'
+      mode: 'trigger'
     control_approvers: ['slack:U123', 'slack:U456']
 
 conversation_installs:
