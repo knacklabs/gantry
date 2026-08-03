@@ -304,13 +304,11 @@ export async function extractDocumentText(
   if (stats.size > MAX_DOCUMENT_INPUT_BYTES) {
     return `ERROR: ${label} is larger than 20 MB, the limit for document text extraction.`;
   }
-  if (await isZipFile(filePath)) {
-    const declaredBytes = await declaredZipDecompressedBytes(filePath).catch(
-      () => Number.POSITIVE_INFINITY,
-    );
-    if (declaredBytes > MAX_DOCUMENT_DECOMPRESSED_BYTES) {
-      return `ERROR: ${label} could not be verified as a safely sized document (its archive declares too much or unreadable decompressed content), so it was not parsed.`;
-    }
+  const declaredBytes = await declaredZipDecompressedBytes(filePath).catch(
+    () => Number.POSITIVE_INFINITY,
+  );
+  if (declaredBytes > MAX_DOCUMENT_DECOMPRESSED_BYTES) {
+    return `ERROR: ${label} could not be verified as a safely sized document (its archive declares too much or unreadable decompressed content), so it was not parsed.`;
   }
   const deadline = Date.now() + DOCUMENT_PARSE_TIMEOUT_MS;
   const officeText = await extractOfficeTextBounded(filePath, deadline);
@@ -336,9 +334,15 @@ async function extractOfficeTextBounded(
   deadline: number,
 ): Promise<string> {
   const release = await acquireParseSlot();
-  // Heavy parsers load lazily so processes that only route storage refs never
-  // pay for them.
-  const { parseOffice } = await import('officeparser');
+  let parseOffice: typeof import('officeparser').parseOffice;
+  try {
+    // Heavy parsers load lazily so processes that only route storage refs
+    // never pay for them.
+    ({ parseOffice } = await import('officeparser'));
+  } catch {
+    release();
+    return '';
+  }
   // ponytail: officeparser has no abort API; a timed-out parse keeps its slot
   // (releasing only when it settles) so runaway documents can never exceed
   // MAX_CONCURRENT_DOCUMENT_PARSES. Upgrade path: a resource-limited worker
@@ -356,17 +360,6 @@ async function extractOfficeTextBounded(
   return withDeadline(parse, deadline).catch(() => '');
 }
 
-async function isZipFile(filePath: string): Promise<boolean> {
-  const file = await fs.open(filePath, 'r');
-  try {
-    const header = Buffer.alloc(4);
-    const { bytesRead } = await file.read(header, 0, 4, 0);
-    return bytesRead === 4 && header.readUInt32LE(0) === 0x04034b50;
-  } finally {
-    await file.close();
-  }
-}
-
 // Office documents are zip archives whose central directory declares each
 // entry's decompressed size; summing those rejects zip bombs before parsing.
 async function declaredZipDecompressedBytes(filePath: string): Promise<number> {
@@ -377,7 +370,7 @@ async function declaredZipDecompressedBytes(filePath: string): Promise<number> {
     const tail = Buffer.alloc(tailLength);
     await file.read(tail, 0, tailLength, stats.size - tailLength);
     const eocd = tail.lastIndexOf(Buffer.from('PK\x05\x06', 'latin1'));
-    if (eocd === -1) return Number.POSITIVE_INFINITY;
+    if (eocd === -1) return 0;
     const centralSize = tail.readUInt32LE(eocd + 12);
     const centralOffset = tail.readUInt32LE(eocd + 16);
     if (centralSize === 0 || centralSize > 8 * 1024 * 1024) {
