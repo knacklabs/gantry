@@ -15,24 +15,41 @@ const DOCUMENT_PARSE_TIMEOUT_MS = 15_000;
 const MAX_PDF_TEXT_PAGES = 50;
 const MAX_CONCURRENT_DOCUMENT_PARSES = 2;
 
-// FIFO semaphore for officeparser work. A slot is held until the underlying
-// parse SETTLES (not until we stop waiting), so zombie parses stay inside the
-// concurrency budget and later requests queue instead of failing.
+// FIFO semaphore bounding concurrent document parsing. Acquire honors the
+// caller's deadline and returns null when the wait exceeds it, so queue time
+// can never exceed the extraction budget.
 let availableParseSlots = MAX_CONCURRENT_DOCUMENT_PARSES;
-const parseSlotWaiters: Array<() => void> = [];
+const parseSlotWaiters: Array<(slot: boolean) => void> = [];
 
-async function acquireParseSlot(): Promise<() => void> {
+async function acquireParseSlot(
+  deadline: number,
+): Promise<(() => void) | null> {
   if (availableParseSlots > 0) {
     availableParseSlots -= 1;
   } else {
-    await new Promise<void>((resolve) => parseSlotWaiters.push(resolve));
+    const granted = await new Promise<boolean>((resolve) => {
+      const waiter = (slot: boolean) => {
+        clearTimeout(timer);
+        resolve(slot);
+      };
+      const timer = setTimeout(
+        () => {
+          const index = parseSlotWaiters.indexOf(waiter);
+          if (index !== -1) parseSlotWaiters.splice(index, 1);
+          resolve(false);
+        },
+        Math.max(0, deadline - Date.now()),
+      );
+      parseSlotWaiters.push(waiter);
+    });
+    if (!granted) return null;
   }
   let released = false;
   return () => {
     if (released) return;
     released = true;
     const next = parseSlotWaiters.shift();
-    if (next) next();
+    if (next) next(true);
     else availableParseSlots += 1;
   };
 }
@@ -304,61 +321,115 @@ export async function extractDocumentText(
   if (stats.size > MAX_DOCUMENT_INPUT_BYTES) {
     return `ERROR: ${label} is larger than 20 MB, the limit for document text extraction.`;
   }
-  const declaredBytes = await declaredZipDecompressedBytes(filePath).catch(
-    () => Number.POSITIVE_INFINITY,
-  );
-  if (declaredBytes > MAX_DOCUMENT_DECOMPRESSED_BYTES) {
-    return `ERROR: ${label} could not be verified as a safely sized document (its archive declares too much or unreadable decompressed content), so it was not parsed.`;
-  }
   const deadline = Date.now() + DOCUMENT_PARSE_TIMEOUT_MS;
-  const officeText = await extractOfficeTextBounded(filePath, deadline);
-  if (officeText.length > 0) {
-    return truncateTextOutput(officeText);
-  }
   if (isPdfAttachment(attachment.contentType, attachment.fileName)) {
+    // PDF.js is genuinely cancellable (destroy()), page-bounded, and runs
+    // under the same slot budget as Office parsing.
+    const release = await acquireParseSlot(deadline);
+    if (!release) {
+      return `ERROR: document extraction is busy; ${label} was not read. Retry in a moment.`;
+    }
     try {
-      const text = await extractPdfTextLayer(filePath, deadline);
-      if (text.trim().length > 0) {
-        return truncateTextOutput(text.trim());
-      }
+      const text = (await extractPdfTextLayer(filePath, deadline)).trim();
+      if (text.length > 0) return truncateTextOutput(text);
+      return `ERROR: ${label} appears to be a scanned or image-only PDF with no text layer. This agent's model cannot view it through this tool; ask an agent whose model supports document/vision input, which reads such PDFs natively.`;
     } catch {
       return `ERROR: ${label} could not be read as a PDF. It may be password-protected, damaged, or use unsupported features.`;
+    } finally {
+      release();
     }
-    return `ERROR: ${label} appears to be a scanned or image-only PDF with no text layer. This agent's model cannot view it through this tool; ask an agent whose model supports document/vision input, which reads such PDFs natively.`;
   }
-  return `${label} contains no extractable text. It may be encrypted, damaged, or empty.`;
+  if (isZipContainerDocument(attachment.contentType, attachment.fileName)) {
+    const declaredBytes = await declaredZipDecompressedBytes(filePath).catch(
+      () => Number.POSITIVE_INFINITY,
+    );
+    if (declaredBytes > MAX_DOCUMENT_DECOMPRESSED_BYTES) {
+      return `ERROR: ${label} could not be verified as a safely sized document (its archive declares too much or unreadable decompressed content), so it was not parsed.`;
+    }
+  }
+  const release = await acquireParseSlot(deadline);
+  if (!release) {
+    return `ERROR: document extraction is busy; ${label} was not read. Retry in a moment.`;
+  }
+  try {
+    const text = (await parseOfficeInWorker(filePath, deadline)).trim();
+    if (text.length > 0) return truncateTextOutput(text);
+    return `${label} contains no extractable text. It may be encrypted, damaged, or empty.`;
+  } finally {
+    release();
+  }
 }
 
-async function extractOfficeTextBounded(
+function isZipContainerDocument(
+  contentType?: string,
+  fileName?: string,
+): boolean {
+  const extension = path.extname(fileName ?? '').toLowerCase();
+  if (['.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp'].includes(extension)) {
+    return true;
+  }
+  const normalized = contentType?.toLowerCase() ?? '';
+  return (
+    normalized.includes('openxmlformats-officedocument') ||
+    normalized.includes('opendocument')
+  );
+}
+
+// officeparser has no abort API, so it runs in a disposable worker thread with
+// a heap cap and an empty environment; the deadline terminates the worker,
+// which both cancels the work and deterministically frees the slot.
+async function parseOfficeInWorker(
   filePath: string,
   deadline: number,
 ): Promise<string> {
-  const release = await acquireParseSlot();
-  let parseOffice: typeof import('officeparser').parseOffice;
+  const { Worker } = await import('node:worker_threads');
+  const worker = new Worker(OFFICE_PARSE_WORKER_SOURCE, {
+    eval: true,
+    env: {},
+    resourceLimits: {
+      maxOldGenerationSizeMb: 512,
+      maxYoungGenerationSizeMb: 64,
+    },
+    workerData: { filePath, parentUrl: import.meta.url },
+  });
   try {
-    // Heavy parsers load lazily so processes that only route storage refs
-    // never pay for them.
-    ({ parseOffice } = await import('officeparser'));
-  } catch {
-    release();
-    return '';
+    return await withDeadline(
+      new Promise<string>((resolve, reject) => {
+        worker.once('message', (message: { text?: string; error?: string }) =>
+          typeof message.text === 'string'
+            ? resolve(message.text)
+            : reject(new Error(message.error ?? 'parse failed')),
+        );
+        worker.once('error', reject);
+        worker.once('exit', (code) => {
+          if (code !== 0) reject(new Error(`parser worker exited ${code}`));
+        });
+      }),
+      deadline,
+    ).catch(() => '');
+  } finally {
+    await worker.terminate().catch(() => undefined);
   }
-  // ponytail: officeparser has no abort API; a timed-out parse keeps its slot
-  // (releasing only when it settles) so runaway documents can never exceed
-  // MAX_CONCURRENT_DOCUMENT_PARSES. Upgrade path: a resource-limited worker
-  // if this shows in production profiles.
-  const parse = parseOffice(filePath, {
-    extractAttachments: false,
-    includeRawContent: false,
-    ocr: false,
-    outputErrorToConsole: false,
-  }).then(
-    (document) => document.toText().trim(),
-    () => '',
-  );
-  void parse.finally(release);
-  return withDeadline(parse, deadline).catch(() => '');
 }
+
+// createRequire anchored to THIS module resolves officeparser identically from
+// checked-out source and from dist.
+const OFFICE_PARSE_WORKER_SOURCE = `
+const { parentPort, workerData } = require('node:worker_threads');
+const { createRequire } = require('node:module');
+const parentRequire = createRequire(workerData.parentUrl);
+const { parseOffice } = parentRequire('officeparser');
+parseOffice(workerData.filePath, {
+  extractAttachments: false,
+  includeRawContent: false,
+  ocr: false,
+  outputErrorToConsole: false,
+})
+  .then((document) => parentPort.postMessage({ text: document.toText() }))
+  .catch((error) => {
+    parentPort.postMessage({ error: String(error && error.message) });
+  });
+`;
 
 // Office documents are zip archives whose central directory declares each
 // entry's decompressed size; summing those rejects zip bombs before parsing.

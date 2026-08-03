@@ -202,7 +202,7 @@ describe('Gantry DeepAgents facade tools', () => {
 
   it.each([
     ['FileRead', { path: 'media/attachments/resume.pdf' }],
-    ['FileRead', { path: './attachments/report.pdf' }],
+    ['FileRead', { path: './provider-attachments/report.pdf' }],
     ['FileSearch', { mode: 'path', query: '/media/attachments/' }],
   ])(
     'redirects conversation attachment %s calls before permission IPC',

@@ -65,7 +65,6 @@ const MAX_SEARCH_ENTRIES = 10_000;
 const MAX_WEB_RESPONSE_BYTES = 1_000_000;
 const WEB_FETCH_TIMEOUT_MS = 20_000;
 const CONVERSATION_ATTACHMENT_PATH_PREFIXES = [
-  'attachments/',
   'media/attachments/',
   'provider-attachments/',
 ] as const;
