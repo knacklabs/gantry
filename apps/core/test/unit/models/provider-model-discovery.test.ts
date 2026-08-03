@@ -585,6 +585,38 @@ describe('provider model catalog merge', () => {
       }),
     ).rejects.toMatchObject({ code: 'MODEL_NOT_DISCOVERED' });
   });
+
+  it('does not register a model from a failed stale discovery result', async () => {
+    let now = 0;
+    const discover = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          providerModelId: 'vendor/stale-model',
+          displayName: 'Stale Model',
+          deprecated: false,
+          supportedWorkloads: CHAT_WORKLOADS,
+        },
+      ])
+      .mockRejectedValueOnce(new Error('provider offline'));
+    const service = new ProviderModelDiscoveryService(
+      { getModelCredential: async () => credential('openrouter') },
+      { discover },
+      registeredModels,
+      () => now,
+    );
+    await service.list({ appId, providerId: 'openrouter' });
+    now = 15 * 60_000 + 1;
+
+    await expect(
+      service.prepareRegistration({
+        appId,
+        providerId: 'openrouter',
+        providerModelId: 'vendor/stale-model',
+        alias: 'stale-model',
+      }),
+    ).rejects.toMatchObject({ code: 'MODEL_NOT_DISCOVERED' });
+  });
 });
 
 describe('provider model execution errors', () => {
@@ -594,6 +626,15 @@ describe('provider model execution errors', () => {
       normalizeProviderModelError({
         error: `model_not_found: "${entry.modelRoute.providerModelId}" does not exist`,
         modelEntry: entry,
+      }),
+    ).toContain('MODEL_NOT_AVAILABLE');
+    const anthropicEntry = listModelCatalogEntries().find(
+      (candidate) => candidate.modelRoute.id === 'anthropic',
+    )!;
+    expect(
+      normalizeProviderModelError({
+        error: 'not_found_error: resource not found',
+        modelEntry: anthropicEntry,
       }),
     ).toContain('MODEL_NOT_AVAILABLE');
     expect(

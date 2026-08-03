@@ -201,7 +201,11 @@ export class ProviderModelDiscoveryService {
     const discovered = live.find(
       (candidate) => candidate.providerModelId === input.providerModelId,
     );
-    if (!model || !discovered) {
+    if (
+      !model ||
+      !discovered ||
+      model.availability !== 'available_to_register'
+    ) {
       throw new ProviderModelRegistrationError(
         'MODEL_NOT_DISCOVERED',
         `Model ${input.providerModelId} is not in the latest ${listing.providerLabel} discovery result.`,
