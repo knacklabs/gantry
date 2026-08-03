@@ -5,6 +5,9 @@ boundaries, decisions, security model, and operations.
 
 ## Start Here
 
+- [Static project explorer](index.html) - four reader paths and five offline-capable architecture views.
+- [Company adoption guide](product/company-adoption-guide.md) - fit, trade-offs, ownership, rollout, readiness, and evaluation.
+- [Basic-to-advanced learning path](getting-started.md) - setup through fleet deployment.
 - [Repository README](../README.md) - install, setup, and runtime overview.
 - [Product brief](product/BRIEF.md) - concise product intent and scope.
 - [Requirements](REQUIREMENTS.md) - product and architecture requirements.
@@ -16,6 +19,7 @@ boundaries, decisions, security model, and operations.
 - [Architecture overview](architecture/overview.md) - top-down runtime map.
 - [Runtime components](architecture/runtime-components.md) - contributor source-reading guide.
 - [Memory](MEMORY.md) - memory boundary model and dreaming lifecycle.
+- [Interactive architecture atlas](architecture/atlas/README.md) - five revision-pinned, self-contained diagrams.
 
 ## Decisions And Safety
 
@@ -24,5 +28,4 @@ boundaries, decisions, security model, and operations.
 
 ## Operations
 
-- [Validation loop](validation-loop.md) - deterministic validation flow.
 - [Debug checklist](DEBUG_CHECKLIST.md) - operational troubleshooting.

@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Choose an evidence-linked path to evaluate, learn, operate, extend, or explore Gantry.">
+  <title>Gantry project explorer</title>
+  <style>
+    :root {
+      --ink: #17233d;
+      --muted: #5c687d;
+      --paper: #f5f8fb;
+      --panel: #ffffff;
+      --line: #c8d4df;
+      --route: #175d72;
+      --route-soft: #d9edf1;
+      --signal: #d45b36;
+      --focus: #2166d1;
+      --shadow: 0 18px 48px rgba(23, 35, 61, 0.1);
+      --display: Georgia, "Times New Roman", serif;
+      --body: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      --utility: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    html[data-theme="dark"] {
+      --ink: #eef5fa;
+      --muted: #a9b8c8;
+      --paper: #0e1726;
+      --panel: #172235;
+      --line: #35465b;
+      --route: #77cad6;
+      --route-soft: #173943;
+      --signal: #ff9674;
+      --focus: #8db9ff;
+      --shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: auto; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, transparent 0 49.8%, color-mix(in srgb, var(--line) 24%, transparent) 50%, transparent 50.2%),
+        var(--paper);
+      font-family: var(--body);
+      font-size: 1rem;
+      line-height: 1.6;
+    }
+
+    a { color: inherit; }
+
+    a:focus-visible,
+    button:focus-visible {
+      outline: 3px solid var(--focus);
+      outline-offset: 4px;
+    }
+
+    .skip-link {
+      position: fixed;
+      z-index: 10;
+      top: 0.75rem;
+      left: 0.75rem;
+      padding: 0.65rem 0.85rem;
+      color: var(--paper);
+      background: var(--ink);
+      transform: translateY(-180%);
+    }
+
+    .skip-link:focus { transform: translateY(0); }
+
+    .shell {
+      width: min(1180px, calc(100% - 2rem));
+      margin: 0 auto;
+    }
+
+    .masthead {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1.25rem 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.7rem;
+      text-decoration: none;
+      font-family: var(--utility);
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .mark {
+      display: grid;
+      width: 2rem;
+      aspect-ratio: 1;
+      place-items: center;
+      border: 1px solid var(--ink);
+      border-radius: 50%;
+      color: var(--panel);
+      background: var(--ink);
+      font-size: 0.72rem;
+      letter-spacing: 0;
+    }
+
+    .theme-toggle {
+      min-height: 2.75rem;
+      padding: 0.55rem 0.8rem;
+      border: 1px solid var(--line);
+      border-radius: 0.35rem;
+      color: var(--ink);
+      background: var(--panel);
+      font: 700 0.75rem/1 var(--utility);
+      cursor: pointer;
+    }
+
+    .theme-toggle:active { transform: scale(0.97); }
+
+    main { padding-bottom: 5rem; }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(18rem, 0.8fr);
+      gap: clamp(2rem, 7vw, 7rem);
+      align-items: end;
+      min-height: 33rem;
+      padding: clamp(4rem, 10vw, 8rem) 0 4rem;
+    }
+
+    .eyebrow,
+    .section-label,
+    .route-key,
+    .artifact-kind {
+      margin: 0;
+      color: var(--route);
+      font-family: var(--utility);
+      font-size: 0.72rem;
+      font-weight: 750;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p { margin-top: 0; }
+
+    h1 {
+      max-width: 760px;
+      margin-bottom: 1.5rem;
+      font-family: var(--display);
+      font-size: clamp(3.4rem, 8vw, 7.4rem);
+      font-weight: 400;
+      line-height: 0.92;
+      letter-spacing: -0.055em;
+    }
+
+    h1 em {
+      display: block;
+      color: var(--route);
+      font-weight: 400;
+    }
+
+    .lede {
+      max-width: 42rem;
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: clamp(1.08rem, 2vw, 1.35rem);
+    }
+
+    .boundary-note {
+      padding: 1.35rem;
+      border-top: 4px solid var(--signal);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .boundary-note strong {
+      display: block;
+      margin-bottom: 0.55rem;
+      font-family: var(--utility);
+      font-size: 0.77rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .boundary-note p { margin-bottom: 0; color: var(--muted); }
+
+    .routes-section,
+    .atlas-section,
+    .evidence-section {
+      padding: 4rem 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: 0.35fr 1fr;
+      gap: 2rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .section-head h2 {
+      max-width: 700px;
+      margin-bottom: 0;
+      font-family: var(--display);
+      font-size: clamp(2rem, 4.5vw, 3.6rem);
+      font-weight: 400;
+      line-height: 1.05;
+      letter-spacing: -0.035em;
+    }
+
+    .routes {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+    }
+
+    .route-card {
+      position: relative;
+      min-height: 18rem;
+      padding: clamp(1.4rem, 3vw, 2.25rem);
+      border: 1px solid var(--line);
+      border-radius: 0.45rem;
+      background: var(--panel);
+      text-decoration: none;
+    }
+
+    .route-card::after {
+      position: absolute;
+      right: 1.5rem;
+      bottom: 1.25rem;
+      content: "↗";
+      color: var(--route);
+      font-size: 1.5rem;
+    }
+
+    .route-card:active { transform: scale(0.99); }
+
+    @media (hover: hover) and (pointer: fine) {
+      .route-card:hover { border-color: var(--route); }
+      .artifact-card:hover { background: var(--route-soft); }
+    }
+
+    .route-card h3 {
+      max-width: 15ch;
+      margin: 2.4rem 0 0.8rem;
+      font-family: var(--display);
+      font-size: clamp(1.8rem, 3vw, 2.7rem);
+      font-weight: 400;
+      line-height: 1.05;
+    }
+
+    .route-card p:not(.route-key) {
+      max-width: 35rem;
+      margin-bottom: 0;
+      padding-right: 2rem;
+      color: var(--muted);
+    }
+
+    .atlas-intro {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+      margin-bottom: 2rem;
+    }
+
+    .atlas-intro p { max-width: 42rem; color: var(--muted); }
+
+    .atlas-intro .source-stamp {
+      justify-self: end;
+      align-self: start;
+      padding: 0.55rem 0.7rem;
+      border: 1px solid var(--line);
+      font: 0.7rem/1.3 var(--utility);
+    }
+
+    .artifact-list {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      border-top: 1px solid var(--line);
+      border-left: 1px solid var(--line);
+    }
+
+    .artifact-card {
+      min-width: 0;
+      min-height: 15rem;
+      padding: 1.25rem;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      text-decoration: none;
+    }
+
+    .artifact-number {
+      display: block;
+      margin-bottom: 4rem;
+      color: var(--muted);
+      font: 0.72rem/1 var(--utility);
+    }
+
+    .artifact-card h3 {
+      margin: 0.55rem 0 0;
+      font-family: var(--display);
+      font-size: 1.45rem;
+      font-weight: 400;
+      line-height: 1.1;
+    }
+
+    .evidence-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .evidence-grid article {
+      padding: 1.25rem;
+      border-left: 3px solid var(--route);
+      background: color-mix(in srgb, var(--panel) 80%, transparent);
+    }
+
+    .evidence-grid h3 {
+      margin-bottom: 0.45rem;
+      font-size: 1rem;
+    }
+
+    .evidence-grid p { margin-bottom: 0; color: var(--muted); }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1.5rem 0 2.5rem;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font: 0.74rem/1.5 var(--utility);
+    }
+
+    footer p { margin: 0; }
+
+    @media (max-width: 900px) {
+      body { background: var(--paper); }
+      .hero { grid-template-columns: 1fr; min-height: auto; }
+      .section-head { grid-template-columns: 1fr; gap: 0.75rem; }
+      .artifact-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .evidence-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 620px) {
+      .shell { width: min(100% - 1.25rem, 1180px); }
+      .masthead { align-items: flex-start; }
+      .brand span:last-child { max-width: 10rem; line-height: 1.25; }
+      h1 { font-size: clamp(3rem, 18vw, 5rem); }
+      .routes { grid-template-columns: 1fr; }
+      .route-card { min-height: 15rem; }
+      .atlas-intro { grid-template-columns: 1fr; }
+      .atlas-intro .source-stamp { justify-self: start; }
+      .artifact-list { grid-template-columns: 1fr; }
+      .artifact-card { min-height: 11rem; }
+      .artifact-number { margin-bottom: 2.5rem; }
+      footer { flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#reader-paths">Skip to reader paths</a>
+
+  <header class="shell masthead">
+    <a class="brand" href="../README.md" aria-label="Gantry repository overview">
+      <span class="mark" aria-hidden="true">G</span>
+      <span>Gantry project explorer</span>
+    </a>
+    <button class="theme-toggle" type="button" aria-pressed="false" aria-label="Use dark theme">
+      Theme: <span data-theme-label>Light</span>
+    </button>
+  </header>
+
+  <main id="main" class="shell">
+    <section class="hero" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">Customer-operated agent runtime</p>
+        <h1 id="page-title">Find your way through <em>Gantry.</em></h1>
+        <p class="lede">Four intent-based paths connect evaluation and learning to the current project sources. No account, build system, or network connection is required to use this explorer.</p>
+      </div>
+      <aside class="boundary-note" aria-label="Product boundary">
+        <strong>The honest boundary</strong>
+        <p>Gantry is self-hosted infrastructure, not a hosted SaaS, certification, benchmark, or production guarantee. Your team owns deployment and operational outcomes.</p>
+      </aside>
+    </section>
+
+    <section id="reader-paths" class="routes-section" aria-labelledby="routes-title">
+      <div class="section-head">
+        <p class="section-label">Choose by intent</p>
+        <h2 id="routes-title">Start with the decision you need to make.</h2>
+      </div>
+
+      <nav class="routes" aria-label="Gantry reader paths">
+        <a class="route-card" href="product/company-adoption-guide.md" data-route="1">
+          <p class="route-key">Path 1 · Evaluation</p>
+          <h3>Evaluate Gantry</h3>
+          <p>Test organizational fit, trade-offs, responsibilities, rollout gates, readiness, and measures without relying on sales claims.</p>
+        </a>
+        <a class="route-card" href="architecture/scaling-and-deployment.md" data-route="2">
+          <p class="route-key">Path 2 · Operations</p>
+          <h3>Deploy and operate</h3>
+          <p>Understand workstation and fleet roles, state ownership, capacity, recovery, provider constraints, and current scaling ceilings.</p>
+        </a>
+        <a class="route-card" href="getting-started.md" data-route="3">
+          <p class="route-key">Path 3 · Practice</p>
+          <h3>Build and extend</h3>
+          <p>Move from setup and a first conversation to APIs, memory, reviewed capabilities, observability, and fleet rehearsal.</p>
+        </a>
+        <a class="route-card" href="architecture/atlas/README.md" data-route="4">
+          <p class="route-key">Path 4 · System map</p>
+          <h3>Explore architecture</h3>
+          <p>Open five self-contained interactive views backed by a pinned source revision, typed specifications, and delivery receipts.</p>
+        </a>
+      </nav>
+    </section>
+
+    <section class="atlas-section" aria-labelledby="atlas-title">
+      <div class="section-head">
+        <p class="section-label">Five bounded views</p>
+        <h2 id="atlas-title">Inspect one runtime question at a time.</h2>
+      </div>
+      <div class="atlas-intro">
+        <p>Each artifact is a self-contained HTML page with keyboard navigation, light and dark themes, search, focus lenses, zoom, and export controls. Start with the view that matches the question in front of you.</p>
+        <span class="source-stamp">Source snapshot · 69ac5b7</span>
+      </div>
+      <nav class="artifact-list" aria-label="Interactive architecture artifacts">
+        <a class="artifact-card" href="architecture/atlas/gantry-system.architecture.html">
+          <span class="artifact-number">01 / 05</span>
+          <span class="artifact-kind">Architecture</span>
+          <h3>System boundary</h3>
+        </a>
+        <a class="artifact-card" href="architecture/atlas/live-turn.sequence.html">
+          <span class="artifact-number">02 / 05</span>
+          <span class="artifact-kind">Sequence</span>
+          <h3>Live turn</h3>
+        </a>
+        <a class="artifact-card" href="architecture/atlas/memory-dreaming.dataflow.html">
+          <span class="artifact-number">03 / 05</span>
+          <span class="artifact-kind">Dataflow</span>
+          <h3>Memory and dreaming</h3>
+        </a>
+        <a class="artifact-card" href="architecture/atlas/permission-execution.lifecycle.html">
+          <span class="artifact-number">04 / 05</span>
+          <span class="artifact-kind">Lifecycle</span>
+          <h3>Permission execution</h3>
+        </a>
+        <a class="artifact-card" href="architecture/atlas/fleet-execution.architecture.html">
+          <span class="artifact-number">05 / 05</span>
+          <span class="artifact-kind">Architecture</span>
+          <h3>Fleet execution</h3>
+        </a>
+      </nav>
+    </section>
+
+    <section class="evidence-section" aria-labelledby="evidence-title">
+      <div class="section-head">
+        <p class="section-label">How to trust the map</p>
+        <h2 id="evidence-title">Claims terminate in inspectable project evidence.</h2>
+      </div>
+      <div class="evidence-grid">
+        <article>
+          <h3><a href="architecture/system-atlas.md">Current capability status</a></h3>
+          <p>Distinguishes current, optional, default-off, deferred, and non-goal behavior.</p>
+        </article>
+        <article>
+          <h3><a href="architecture/atlas/source-evidence.md">Source evidence</a></h3>
+          <p>Records the authority order, source revision, subsystem entrypoints, and accepted decisions.</p>
+        </article>
+        <article>
+          <h3><a href="architecture/atlas/delivery-receipts.json">Delivery receipts</a></h3>
+          <p>Pin the generator, specification and artifact hashes, validation result, and visual review.</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell">
+    <p>Static by design · no external assets or runtime dependency</p>
+    <p>Keyboard: Tab to navigate · 1–4 to open reader paths · T to change theme</p>
+  </footer>
+
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const toggle = document.querySelector('.theme-toggle');
+      const label = document.querySelector('[data-theme-label]');
+      const storageKey = 'gantry-docs-theme';
+
+      const storedTheme = (() => {
+        try { return localStorage.getItem(storageKey); } catch { return null; }
+      })();
+      const systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const initialTheme = storedTheme === 'dark' || storedTheme === 'light'
+        ? storedTheme
+        : (systemDark ? 'dark' : 'light');
+
+      function applyTheme(theme) {
+        const dark = theme === 'dark';
+        root.dataset.theme = theme;
+        toggle.setAttribute('aria-pressed', String(dark));
+        toggle.setAttribute('aria-label', `Use ${dark ? 'light' : 'dark'} theme`);
+        label.textContent = dark ? 'Dark' : 'Light';
+      }
+
+      function changeTheme() {
+        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        applyTheme(next);
+        try { localStorage.setItem(storageKey, next); } catch { /* Static file privacy modes may block storage. */ }
+      }
+
+      applyTheme(initialTheme);
+      toggle.addEventListener('click', changeTheme);
+
+      document.addEventListener('keydown', (event) => {
+        if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat) return;
+        if (event.key.toLowerCase() === 't') {
+          event.preventDefault();
+          changeTheme();
+          return;
+        }
+        const route = document.querySelector(`[data-route="${event.key}"]`);
+        if (route) {
+          event.preventDefault();
+          route.click();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -3,6 +3,11 @@
 Gantry is a provider-neutral and channel-neutral agent runtime for teams that
 need AI agents to run safely inside product and operations workflows.
 
+For adoption decisions, use the [company adoption guide](./company-adoption-guide.md).
+For a practitioner path from local setup to fleet rehearsal, use
+[Getting started](../getting-started.md). The [static project explorer](../index.html)
+links those paths to the current architecture atlas.
+
 ## Product Intent
 
 - Run agents behind controlled channel, tool, memory, scheduling, and audit boundaries.

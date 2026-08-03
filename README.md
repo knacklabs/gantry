@@ -237,6 +237,15 @@ should first read [AGENTS.md](AGENTS.md), [WORKFLOW.md](WORKFLOW.md),
 
 ## Documentation
 
+- [Static project explorer](docs/index.html) — choose an evaluation, learning,
+  operations, extension, or architecture path without a build step.
+- [Company adoption guide](docs/product/company-adoption-guide.md) — fit,
+  trade-offs, rollout, readiness, responsibilities, and evaluation metrics.
+- [Basic-to-advanced learning path](docs/getting-started.md) — setup through
+  multi-agent operation, security, memory, APIs, extension, observability, and
+  fleet deployment.
+- [Interactive architecture atlas](docs/architecture/atlas/README.md) — five
+  revision-pinned, self-contained system views.
 - [Product brief](docs/product/BRIEF.md)
 - [Architecture docs](docs/architecture/README.md)
 - [Decision records](docs/decisions/README.md)
