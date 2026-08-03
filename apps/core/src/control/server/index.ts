@@ -378,10 +378,7 @@ export function startControlServer(input: {
     createId: randomUUID,
     stableHash: (input) => createHash('sha256').update(input).digest('hex'),
   });
-  const providerModels = new ProviderModelDiscoveryService(
-    getRuntimeStorage().repositories.modelCredentials,
-    new LiveProviderModelDiscoveryAdapter(),
-  );
+  let providerModels: ProviderModelDiscoveryService | undefined;
   const ctx: ControlRouteContext = {
     app: input.app,
     sessionInteraction,
@@ -457,7 +454,12 @@ export function startControlServer(input: {
         return [];
       }
     },
-    providerModels,
+    get providerModels() {
+      return (providerModels ??= new ProviderModelDiscoveryService(
+        getRuntimeStorage().repositories.modelCredentials,
+        new LiveProviderModelDiscoveryAdapter(),
+      ));
+    },
     countPendingAccessRequests: async (appId: AppId) =>
       getRuntimeStorage().repositories.pendingAccessRequests.countPendingAccessRequests(
         { appId },
