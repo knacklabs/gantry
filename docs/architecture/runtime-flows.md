@@ -264,4 +264,3 @@ candidate promotion and its human review queue.
 Terminal live-admission work is retained for 30 days, then a maintenance sweep
 deletes only old terminal rows. Longer-term forensics must use logs and
 telemetry.
-

@@ -230,4 +230,3 @@ For concrete role checks, metrics, and upgrade cases, continue with
 [Deployment Profiles](./deployment-profiles.md). For turn-level recovery, see
 [Live Horizontal Execution](./live-horizontal-execution.md) and
 [Multi-Worker Job Execution](./multi-worker-execution.md).
-
