@@ -1,12 +1,9 @@
 import fs, { type FileHandle } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { deflateSync } from 'node:zlib';
 
-import { createCanvas } from '@napi-rs/canvas';
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { terminateAttachmentOcrWorkers } from '@core/shared/provider-attachment-ocr.js';
 import {
   createProviderAttachmentMaterializer,
   readProviderAttachment,
@@ -76,84 +73,6 @@ function minimalPdf(text: string): Buffer {
   return Buffer.from(body);
 }
 
-async function textImage(text: string): Promise<Buffer> {
-  const canvas = createCanvas(900, 220);
-  const context = canvas.getContext('2d');
-  context.fillStyle = 'white';
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = 'black';
-  context.font = 'bold 64px sans-serif';
-  context.fillText(text, 30, 135);
-  return canvas.encode('png');
-}
-
-function scannedPdf(text: string): Buffer {
-  const width = 900;
-  const height = 220;
-  const canvas = createCanvas(width, height);
-  const context = canvas.getContext('2d');
-  context.fillStyle = 'white';
-  context.fillRect(0, 0, width, height);
-  context.fillStyle = 'black';
-  context.font = 'bold 64px sans-serif';
-  context.fillText(text, 30, 135);
-  const rgba = context.getImageData(0, 0, width, height).data;
-  const rgb = Buffer.alloc(width * height * 3);
-  for (let source = 0, target = 0; source < rgba.length; source += 4) {
-    rgb[target++] = rgba[source]!;
-    rgb[target++] = rgba[source + 1]!;
-    rgb[target++] = rgba[source + 2]!;
-  }
-  const compressed = deflateSync(rgb);
-  const content = Buffer.from(`q ${width} 0 0 ${height} 0 0 cm /Im0 Do Q`);
-  return pdfObjects([
-    Buffer.from('<< /Type /Catalog /Pages 2 0 R >>'),
-    Buffer.from('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'),
-    Buffer.from(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>`,
-    ),
-    Buffer.concat([
-      Buffer.from(`<< /Length ${content.length} >>\nstream\n`),
-      content,
-      Buffer.from('\nendstream'),
-    ]),
-    Buffer.concat([
-      Buffer.from(
-        `<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length ${compressed.length} >>\nstream\n`,
-      ),
-      compressed,
-      Buffer.from('\nendstream'),
-    ]),
-  ]);
-}
-
-function pdfObjects(objects: readonly Buffer[]): Buffer {
-  const chunks = [Buffer.from('%PDF-1.4\n')];
-  const offsets = [0];
-  let byteLength = chunks[0]!.length;
-  objects.forEach((object, index) => {
-    offsets.push(byteLength);
-    const chunk = Buffer.concat([
-      Buffer.from(`${index + 1} 0 obj\n`),
-      object,
-      Buffer.from('\nendobj\n'),
-    ]);
-    chunks.push(chunk);
-    byteLength += chunk.length;
-  });
-  const xrefOffset = byteLength;
-  const xref = [
-    `xref\n0 ${objects.length + 1}\n`,
-    '0000000000 65535 f \n',
-    ...offsets
-      .slice(1)
-      .map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`),
-    `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`,
-  ].join('');
-  chunks.push(Buffer.from(xref));
-  return Buffer.concat(chunks);
-}
-
 async function writeProviderAttachment(
   root: string,
   fileName: string,
@@ -167,10 +86,6 @@ afterEach(async () => {
   await Promise.all(
     temporaryRoots.splice(0).map((root) => fs.rm(root, { recursive: true })),
   );
-});
-
-afterAll(async () => {
-  await terminateAttachmentOcrWorkers();
 });
 
 describe('provider attachment materialization reads', () => {
@@ -282,35 +197,47 @@ describe('provider attachment materialization reads', () => {
     );
   });
 
-  it('keeps readable PDFs on the direct extraction fast path', async () => {
+  it('keeps plain text off the document extractor entirely', async () => {
+    stubReads(Buffer.from('plain text body'), 4_096);
+    const extract = vi.fn();
+
+    const result = await readProviderAttachment({
+      materializationRoot: await temporaryMaterializationRoot(),
+      workspaceRoots: [],
+      storageRef: 'provider-attachments/notes.txt',
+      attachment: { fileName: 'notes.txt', contentType: 'text/plain' },
+      extract,
+    });
+
+    expect(result).toMatchObject({
+      status: 'opened',
+      content: 'plain text body',
+    });
+    expect(extract).not.toHaveBeenCalled();
+  });
+
+  it('accepts documents whose full text is short', async () => {
     const root = await temporaryMaterializationRoot();
-    await writeProviderAttachment(
-      root,
-      'report.pdf',
-      minimalPdf('Direct extraction stays fast'),
-    );
-    const ocr = vi.fn();
+    await writeProviderAttachment(root, 'memo.pdf', minimalPdf('Approved'));
 
     const result = await readProviderAttachment({
       materializationRoot: root,
       workspaceRoots: [],
-      storageRef: 'provider-attachments/report.pdf',
-      attachment: { fileName: 'report.pdf', contentType: 'application/pdf' },
-      ocr,
+      storageRef: 'provider-attachments/memo.pdf',
+      attachment: { fileName: 'memo.pdf', contentType: 'application/pdf' },
     });
 
     expect(result.status === 'opened' ? result.content : '').toContain(
-      'Direct extraction stays fast',
+      'Approved',
     );
-    expect(ocr).not.toHaveBeenCalled();
   });
 
-  it('extracts text from image attachments with OCR', async () => {
+  it('errors with vision guidance for image attachments', async () => {
     const root = await temporaryMaterializationRoot();
     await writeProviderAttachment(
       root,
       'screenshot.png',
-      await textImage('OCR IMAGE 7429'),
+      Buffer.from('89504e470d0a1a0a', 'hex'),
     );
 
     const result = await readProviderAttachment({
@@ -320,18 +247,14 @@ describe('provider attachment materialization reads', () => {
       attachment: { fileName: 'screenshot.png', contentType: 'image/png' },
     });
 
-    expect(result.status === 'opened' ? result.content : '').toContain(
-      'OCR IMAGE 7429',
-    );
-  }, 30_000);
+    const content = result.status === 'opened' ? result.content : '';
+    expect(content).toMatch(/^ERROR: /);
+    expect(content).toContain('supports image input');
+  });
 
-  it('falls back to bounded OCR for scanned PDFs', async () => {
+  it('errors with scanned guidance for image-only PDFs', async () => {
     const root = await temporaryMaterializationRoot();
-    await writeProviderAttachment(
-      root,
-      'scan.pdf',
-      scannedPdf('SCANNED PDF 7319'),
-    );
+    await writeProviderAttachment(root, 'scan.pdf', minimalPdf(''));
 
     const result = await readProviderAttachment({
       materializationRoot: root,
@@ -340,10 +263,28 @@ describe('provider attachment materialization reads', () => {
       attachment: { fileName: 'scan.pdf', contentType: 'application/pdf' },
     });
 
-    expect(result.status === 'opened' ? result.content : '').toContain(
-      'SCANNED PDF 7319',
-    );
-  }, 30_000);
+    const content = result.status === 'opened' ? result.content : '';
+    expect(content).toMatch(/^ERROR: /);
+    expect(content).toContain('scanned or image-only PDF');
+  });
+
+  it('rejects documents beyond the extraction size limit', async () => {
+    const root = await temporaryMaterializationRoot();
+    const big = Buffer.alloc(21 * 1024 * 1024);
+    minimalPdf('padding').copy(big);
+    await writeProviderAttachment(root, 'huge.pdf', big);
+
+    const result = await readProviderAttachment({
+      materializationRoot: root,
+      workspaceRoots: [],
+      storageRef: 'provider-attachments/huge.pdf',
+      attachment: { fileName: 'huge.pdf', contentType: 'application/pdf' },
+    });
+
+    const content = result.status === 'opened' ? result.content : '';
+    expect(content).toMatch(/^ERROR: /);
+    expect(content).toContain('larger than 20 MB');
+  });
 
   it('extracts readable text from modern Office attachments', async () => {
     const root = await temporaryMaterializationRoot();
@@ -395,8 +336,8 @@ describe('provider attachment materialization reads', () => {
     });
 
     expect(result).toMatchObject({ status: 'opened' });
-    expect(result.status === 'opened' ? result.content : '').toContain(
-      'could not extract text',
-    );
+    const content = result.status === 'opened' ? result.content : '';
+    expect(content).toMatch(/^ERROR: /);
+    expect(content).toContain('scanned or image-only PDF');
   });
 });

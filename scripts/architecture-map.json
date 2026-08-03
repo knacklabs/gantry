@@ -70,20 +70,12 @@
   },
   "layers": {
     "domain": {
-      "paths": [
-        "apps/core/src/domain"
-      ],
-      "allowedImportLayers": [
-        "domain",
-        "shared",
-        "packages/contracts"
-      ],
+      "paths": ["apps/core/src/domain"],
+      "allowedImportLayers": ["domain", "shared", "packages/contracts"],
       "allowedExternalImports": []
     },
     "application": {
-      "paths": [
-        "apps/core/src/application"
-      ],
+      "paths": ["apps/core/src/application"],
       "allowedImportLayers": [
         "domain",
         "application",
@@ -137,14 +129,10 @@
         "shared",
         "packages/contracts"
       ],
-      "allowedExternalImports": [
-        "*"
-      ]
+      "allowedExternalImports": ["*"]
     },
     "config": {
-      "paths": [
-        "apps/core/src/config"
-      ],
+      "paths": ["apps/core/src/config"],
       "allowedImportLayers": [
         "config",
         "domain",
@@ -162,54 +150,28 @@
       ]
     },
     "shared": {
-      "paths": [
-        "apps/core/src/shared",
-        "apps/core/src/infrastructure/logging"
-      ],
-      "allowedImportLayers": [
-        "shared",
-        "packages/contracts"
-      ],
+      "paths": ["apps/core/src/shared", "apps/core/src/infrastructure/logging"],
+      "allowedImportLayers": ["shared", "packages/contracts"],
       "allowedExternalImports": [
         "node:",
-        "@napi-rs/canvas",
-        "@tesseract.js-data/eng",
         "crypto",
         "fs",
         "officeparser",
         "path",
         "pdfjs-dist",
-        "tesseract.js",
         "url",
         "os"
       ]
     },
     "packages/contracts": {
-      "paths": [
-        "packages/contracts/src"
-      ],
-      "allowedImportLayers": [
-        "packages/contracts"
-      ],
-      "allowedExternalImports": [
-        "zod"
-      ]
+      "paths": ["packages/contracts/src"],
+      "allowedImportLayers": ["packages/contracts"],
+      "allowedExternalImports": ["zod"]
     },
     "packages/sdk": {
-      "paths": [
-        "packages/sdk/src"
-      ],
-      "allowedImportLayers": [
-        "packages/contracts",
-        "packages/sdk"
-      ],
-      "allowedExternalImports": [
-        "node:",
-        "http",
-        "https",
-        "url",
-        "crypto"
-      ]
+      "paths": ["packages/sdk/src"],
+      "allowedImportLayers": ["packages/contracts", "packages/sdk"],
+      "allowedExternalImports": ["node:", "http", "https", "url", "crypto"]
     }
   },
   "approvedProviderSpecificPaths": [
@@ -264,8 +226,5 @@
     "registeredGroup": "\\bregisteredGroups?\\b",
     "claude_only": "\\b(?:claude-only|Claude-only|claude only|Claude only|only Claude|only supports Claude)\\b"
   },
-  "emptyFolderScanRoots": [
-    "apps/core/src",
-    "packages"
-  ]
+  "emptyFolderScanRoots": ["apps/core/src", "packages"]
 }

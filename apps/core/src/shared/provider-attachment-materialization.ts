@@ -1,12 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { parseOffice } from 'officeparser';
-
-import {
-  extractAttachmentOcrText,
-  isOcrImageAttachment,
-} from './provider-attachment-ocr.js';
 import {
   createInboundAttachmentStorageRef,
   writeInboundAttachment,
@@ -15,6 +9,9 @@ import {
 const PROVIDER_ATTACHMENT_STORAGE_PREFIX = 'provider-attachments/';
 const MAX_TEXT_OUTPUT_BYTES = 80_000;
 const MAX_BINARY_OUTPUT_BYTES = 60_000;
+const MAX_DOCUMENT_INPUT_BYTES = 20 * 1024 * 1024;
+const DOCUMENT_PARSE_TIMEOUT_MS = 15_000;
+const MAX_PDF_TEXT_PAGES = 50;
 const DOCUMENT_EXTENSIONS = new Set([
   '.docx',
   '.xlsx',
@@ -32,7 +29,10 @@ interface ReadableAttachmentMetadata {
   contentType?: string;
 }
 
-type AttachmentOcr = typeof extractAttachmentOcrText;
+export type DocumentTextExtractor = (
+  filePath: string,
+  attachment: ReadableAttachmentMetadata,
+) => Promise<string>;
 
 export type ProviderAttachmentWriter = typeof writeInboundAttachment;
 export const providerAttachmentWriter: ProviderAttachmentWriter =
@@ -133,7 +133,7 @@ export async function readProviderAttachment(input: {
   workspaceRoots: readonly string[];
   storageRef: string;
   attachment: ReadableAttachmentMetadata;
-  ocr?: AttachmentOcr;
+  extract?: DocumentTextExtractor;
 }): Promise<
   | { status: 'opened'; content: string; materializedPath: string }
   | { status: 'missing' }
@@ -152,7 +152,7 @@ export async function readProviderAttachment(input: {
       content: await readAttachmentContent(
         materializedPath,
         input.attachment,
-        input.ocr ?? extractAttachmentOcrText,
+        input.extract ?? extractDocumentText,
       ),
       materializedPath,
     };
@@ -223,14 +223,15 @@ function isPathWithin(root: string, candidate: string): boolean {
 async function readAttachmentContent(
   filePath: string,
   attachment: ReadableAttachmentMetadata,
-  ocr: AttachmentOcr,
+  extract: DocumentTextExtractor,
 ): Promise<string> {
   const textLike = isTextLike(attachment.contentType, attachment.fileName);
   if (isExtractableDocument(attachment.contentType, attachment.fileName)) {
-    return extractDocumentText(filePath, attachment, ocr);
+    return extract(filePath, attachment);
   }
-  if (isOcrImageAttachment(attachment.contentType, attachment.fileName)) {
-    return extractOcrText(filePath, attachment, ocr);
+  if (isImageAttachment(attachment.contentType, attachment.fileName)) {
+    const label = attachment.fileName || path.basename(filePath);
+    return `ERROR: ${label} is an image. This agent's model cannot view images through this tool. Ask in a conversation with an agent whose model supports image input; vision-capable models read images natively.`;
   }
   if (isLegacyOfficeDocument(attachment.fileName)) {
     const label = attachment.fileName || path.basename(filePath);
@@ -270,52 +271,98 @@ async function readAttachmentContent(
   }
 }
 
-async function extractDocumentText(
+export async function extractDocumentText(
   filePath: string,
   attachment: ReadableAttachmentMetadata,
-  ocr: AttachmentOcr,
 ): Promise<string> {
   const label = attachment.fileName || path.basename(filePath);
+  const stats = await fs.stat(filePath);
+  if (stats.size > MAX_DOCUMENT_INPUT_BYTES) {
+    return `ERROR: ${label} is larger than 20 MB, the limit for document text extraction.`;
+  }
+  const deadline = Date.now() + DOCUMENT_PARSE_TIMEOUT_MS;
   try {
-    const document = await parseOffice(filePath, {
-      extractAttachments: false,
-      includeRawContent: false,
-      ocr: false,
-      outputErrorToConsole: false,
-    });
+    // Heavy parsers load lazily so processes that only route storage refs
+    // never pay for them.
+    const { parseOffice } = await import('officeparser');
+    const document = await withDeadline(
+      parseOffice(filePath, {
+        extractAttachments: false,
+        includeRawContent: false,
+        ocr: false,
+        outputErrorToConsole: false,
+      }),
+      deadline,
+    );
     const text = document.toText().trim();
-    if (text.length >= 24) {
+    if (text.length > 0) {
       return truncateTextOutput(text);
     }
   } catch {
-    // Scanned PDFs commonly fail or return no text in the direct parser. OCR is
-    // intentionally attempted only after this fast path has failed.
+    // PDFs with no embedded text commonly fail here; fall through to the
+    // pdfjs text layer before giving guidance.
   }
   if (isPdfAttachment(attachment.contentType, attachment.fileName)) {
-    return extractOcrText(filePath, attachment, ocr);
+    const text = await extractPdfTextLayer(filePath, deadline).catch(() => '');
+    if (text.trim().length > 0) {
+      return truncateTextOutput(text.trim());
+    }
+    return `ERROR: ${label} appears to be a scanned or image-only PDF with no text layer. This agent's model cannot view it through this tool; ask an agent whose model supports document/vision input, which reads such PDFs natively.`;
   }
-  return `${label} contains no extractable text. It may be image-only, encrypted, damaged, or empty.`;
+  return `${label} contains no extractable text. It may be encrypted, damaged, or empty.`;
 }
 
-async function extractOcrText(
+async function extractPdfTextLayer(
   filePath: string,
-  attachment: ReadableAttachmentMetadata,
-  ocr: AttachmentOcr,
+  deadline: number,
 ): Promise<string> {
-  const label = attachment.fileName || path.basename(filePath);
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const data = new Uint8Array(await fs.readFile(filePath));
+  const document = await withDeadline(
+    pdfjs.getDocument({
+      data,
+      isEvalSupported: false,
+      useSystemFonts: false,
+      disableFontFace: true,
+    }).promise,
+    deadline,
+  );
   try {
-    const text = (
-      await ocr({
-        filePath,
-        fileName: attachment.fileName,
-        contentType: attachment.contentType,
-      })
-    ).trim();
-    return text
-      ? truncateTextOutput(text)
-      : `Gantry OCR found no readable text in ${label}.`;
-  } catch {
-    return `Gantry could not extract text from ${label}. The file may be damaged, encrypted, too large, or use unsupported image features.`;
+    const pages = Math.min(document.numPages, MAX_PDF_TEXT_PAGES);
+    const parts: string[] = [];
+    for (let index = 1; index <= pages; index += 1) {
+      const page = await withDeadline(document.getPage(index), deadline);
+      const content = await withDeadline(page.getTextContent(), deadline);
+      parts.push(
+        content.items.map((item) => ('str' in item ? item.str : '')).join(' '),
+      );
+    }
+    const suffix =
+      document.numPages > pages
+        ? `\n\n[Text extracted from the first ${pages} of ${document.numPages} pages.]`
+        : '';
+    return parts.join('\n') + suffix;
+  } finally {
+    await document.destroy().catch(() => undefined);
+  }
+}
+
+async function withDeadline<T>(work: Promise<T>, deadline: number): Promise<T> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new Error('document parse deadline exceeded');
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, rejectRace) => {
+        timer = setTimeout(
+          () => rejectRace(new Error('document parse deadline exceeded')),
+          remaining,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -352,6 +399,12 @@ function isLegacyOfficeDocument(fileName?: string): boolean {
   return LEGACY_OFFICE_EXTENSIONS.has(
     path.extname(fileName ?? '').toLowerCase(),
   );
+}
+
+function isImageAttachment(contentType?: string, fileName?: string): boolean {
+  const normalized = contentType?.toLowerCase() ?? '';
+  if (normalized.startsWith('image/')) return true;
+  return /\.(?:png|jpe?g|gif|bmp|tiff?|webp|heic)$/i.test(fileName ?? '');
 }
 
 function isTextLike(contentType?: string, fileName?: string): boolean {

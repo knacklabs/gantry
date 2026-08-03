@@ -28,25 +28,19 @@ export function registerAttachmentTools(server: McpServer): void {
     'attachment_open',
     'Read inbound conversation attachments using their opaque gantry_attachment ids. Always use this for attachment metadata; never use FileRead or FileSearch on gantry_ref paths. Pass attachment_ids to read multiple files concurrently in one call. The host verifies conversation scope and returns bounded extracted text for documents.',
     {
-      attachment_id: z
-        .string()
-        .min(1)
-        .optional()
-        .describe('One opaque id from a gantry_attachment attribute.'),
       attachment_ids: z
         .array(z.string().min(1))
+        .min(1)
         .max(MAX_ATTACHMENT_BATCH_SIZE)
-        .optional()
         .describe(
-          'Opaque gantry_attachment ids to read concurrently, in source order.',
+          'Opaque gantry_attachment ids to read concurrently, in source order. Pass one id to read a single attachment.',
         ),
     },
-    async ({ attachment_id, attachment_ids }) => {
-      const ids = [attachment_id, ...(attachment_ids ?? [])]
-        .filter((value): value is string => Boolean(value?.trim()))
+    async ({ attachment_ids }) => {
+      const ids = attachment_ids
         .map((value) => value.trim())
-        .filter((value, index, all) => all.indexOf(value) === index)
-        .slice(0, MAX_ATTACHMENT_BATCH_SIZE);
+        .filter(Boolean)
+        .filter((value, index, all) => all.indexOf(value) === index);
       const text =
         ids.length === 0
           ? 'No gantry_attachment id was provided.'

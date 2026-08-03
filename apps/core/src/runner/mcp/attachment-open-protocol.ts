@@ -73,8 +73,11 @@ export async function openAttachmentBatch(
       while (nextIndex < attachmentIds.length) {
         const index = nextIndex++;
         const attachmentId = attachmentIds[index]!;
+        // One failed attachment must not discard the others' reads.
         results[index] = boundedUtf8(
-          await openAttachment(attachmentId),
+          await openAttachment(attachmentId).catch(
+            () => 'ERROR: this attachment could not be read.',
+          ),
           MAX_BATCH_ITEM_BYTES,
         );
       }

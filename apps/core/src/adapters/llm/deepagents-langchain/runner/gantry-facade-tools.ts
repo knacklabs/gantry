@@ -667,7 +667,11 @@ function isConversationAttachmentFacadeRequest(
   input: unknown,
 ): boolean {
   if (toolName !== 'FileRead' && toolName !== 'FileSearch') return false;
+  if (typeof input !== 'object' || input === null) return false;
   const record = input as Record<string, unknown>;
+  // A content search may legitimately mention "attachments/..." as text; only
+  // path lookups are attachment-path requests.
+  if (toolName === 'FileSearch' && record.mode !== 'path') return false;
   const candidate = toolName === 'FileRead' ? record.path : record.query;
   if (typeof candidate !== 'string') return false;
   const normalized = candidate
