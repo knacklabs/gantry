@@ -343,6 +343,79 @@ describe('provider model catalog merge', () => {
     expect(discover).toHaveBeenCalledTimes(2);
   });
 
+  it('aborts an in-flight refresh when the credential rotates', async () => {
+    let fingerprint = 'fingerprint:old';
+    let oldRequestAborted = false;
+    let oldCalls = 0;
+    let resolveOld!: (
+      models: Awaited<ReturnType<ProviderModelDiscoveryPort['discover']>>,
+    ) => void;
+    const discover = vi.fn<ProviderModelDiscoveryPort['discover']>(
+      ({ signal }) => {
+        if (fingerprint !== 'fingerprint:old') {
+          return Promise.resolve([
+            {
+              providerModelId: 'claude-current',
+              displayName: 'Claude Current',
+              deprecated: false,
+            },
+          ]);
+        }
+        oldCalls += 1;
+        if (oldCalls > 1) {
+          return Promise.resolve([
+            {
+              providerModelId: 'claude-reloaded',
+              displayName: 'Claude Reloaded',
+              deprecated: false,
+            },
+          ]);
+        }
+        return new Promise((resolve) => {
+          resolveOld = resolve;
+          signal?.addEventListener(
+            'abort',
+            () => void (oldRequestAborted = true),
+            { once: true },
+          );
+        });
+      },
+    );
+    const service = new ProviderModelDiscoveryService(
+      {
+        getModelCredential: async () => ({
+          ...credential('anthropic'),
+          fingerprint,
+        }),
+      },
+      { discover },
+    );
+    const staleRequest = service.list({ appId, providerId: 'anthropic' });
+    await vi.waitFor(() => expect(discover).toHaveBeenCalledTimes(1));
+    fingerprint = 'fingerprint:new';
+
+    const current = await service.list({ appId, providerId: 'anthropic' });
+    resolveOld([
+      {
+        providerModelId: 'claude-stale',
+        displayName: 'Claude Stale',
+        deprecated: false,
+      },
+    ]);
+    await staleRequest;
+    fingerprint = 'fingerprint:old';
+    const restored = await service.list({ appId, providerId: 'anthropic' });
+
+    expect(oldRequestAborted).toBe(true);
+    expect(discover).toHaveBeenCalledTimes(3);
+    expect(current.models).toContainEqual(
+      expect.objectContaining({ providerModelId: 'claude-current' }),
+    );
+    expect(restored.models).toContainEqual(
+      expect.objectContaining({ providerModelId: 'claude-reloaded' }),
+    );
+  });
+
   it('prepares only an explicitly discovered, unregistered alias', async () => {
     const service = new ProviderModelDiscoveryService(
       { getModelCredential: async () => credential('openrouter') },
