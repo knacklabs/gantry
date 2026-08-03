@@ -453,6 +453,9 @@ async function parseInWorker(
       filePath,
       parentUrl: import.meta.url,
       maxPdfPages: MAX_PDF_TEXT_PAGES,
+      // Bounded inside the worker BEFORE postMessage so an adversarial
+      // document can never clone an unbounded string into the host heap.
+      maxOutputChars: MAX_TEXT_OUTPUT_BYTES,
     },
   });
   try {
@@ -483,7 +486,14 @@ const { parentPort, workerData } = require('node:worker_threads');
 const { createRequire } = require('node:module');
 const { pathToFileURL } = require('node:url');
 const parentRequire = createRequire(workerData.parentUrl);
-const report = (result) => parentPort.postMessage(result);
+const clamp = (text) =>
+  text.length > workerData.maxOutputChars
+    ? text.slice(0, workerData.maxOutputChars)
+    : text;
+const report = (result) =>
+  parentPort.postMessage(
+    typeof result.text === 'string' ? { text: clamp(result.text) } : result,
+  );
 const fail = (error) => report({ error: String(error && error.message) });
 if (workerData.kind === 'office') {
   const { parseOffice } = parentRequire('officeparser');
@@ -510,12 +520,16 @@ if (workerData.kind === 'office') {
     const document = await task.promise;
     const pages = Math.min(document.numPages, workerData.maxPdfPages);
     const parts = [];
+    let collected = 0;
     for (let index = 1; index <= pages; index += 1) {
       const page = await document.getPage(index);
       const content = await page.getTextContent();
-      parts.push(
-        content.items.map((item) => ('str' in item ? item.str : '')).join(' '),
-      );
+      const pageText = content.items
+        .map((item) => ('str' in item ? item.str : ''))
+        .join(' ');
+      parts.push(pageText.slice(0, workerData.maxOutputChars - collected));
+      collected += pageText.length;
+      if (collected >= workerData.maxOutputChars) break;
     }
     const suffix =
       document.numPages > pages
