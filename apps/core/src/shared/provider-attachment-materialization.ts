@@ -291,12 +291,18 @@ async function readAttachmentContent(
         content: `ERROR: ${label} is larger than 3 MB, the limit for inline image delivery.`,
       };
     }
+    const bytes = await fs.readFile(filePath);
+    // Deliver only formats the model APIs accept, typed by the actual bytes:
+    // provider metadata is untrusted and a wrong MIME can invalidate the turn.
+    const sniffed = sniffDeliverableImageMime(bytes);
+    if (!sniffed) {
+      return {
+        content: `ERROR: ${label} is not in a deliverable image format (PNG, JPEG, GIF, or WebP). Ask for it re-shared in one of those formats.`,
+      };
+    }
     return {
       content: `ERROR: ${label} is an image. This agent's model cannot view images through this tool. Ask in a conversation with an agent whose model supports image input; vision-capable models read images natively.`,
-      image: {
-        base64: (await fs.readFile(filePath)).toString('base64'),
-        mimeType: imageMimeType(attachment.contentType, attachment.fileName),
-      },
+      image: { base64: bytes.toString('base64'), mimeType: sniffed },
     };
   }
   if (isLegacyOfficeDocument(attachment.fileName)) {
@@ -355,15 +361,6 @@ const IMAGE_EXTENSION_MIME_TYPES: Record<string, string> = {
   '.heic': 'image/heic',
 };
 
-function imageMimeType(contentType?: string, fileName?: string): string {
-  const normalized = contentType?.toLowerCase() ?? '';
-  if (normalized.startsWith('image/')) return normalized;
-  return (
-    IMAGE_EXTENSION_MIME_TYPES[path.extname(fileName ?? '').toLowerCase()] ??
-    'application/octet-stream'
-  );
-}
-
 export async function extractDocumentText(
   filePath: string,
   attachment: ReadableAttachmentMetadata,
@@ -394,7 +391,7 @@ export async function extractDocumentText(
         await parseInWorker('pdf', filePath, deadline, { rethrow: true })
       ).trim();
       if (text.length > 0) return truncateTextOutput(text);
-      return `ERROR: ${label} appears to be a scanned or image-only PDF with no text layer. This agent's model cannot view it through this tool; ask an agent whose model supports document/vision input, which reads such PDFs natively.`;
+      return `ERROR: ${label} appears to be a scanned or image-only PDF with no text layer, which this tool cannot deliver. Ask for a text-based export, or ask the sender to share the pages as images so a vision-capable agent can view them.`;
     } catch {
       return `ERROR: ${label} could not be read as a PDF. It may be password-protected, damaged, or use unsupported features.`;
     } finally {
@@ -638,6 +635,35 @@ function isImageAttachment(contentType?: string, fileName?: string): boolean {
   const normalized = contentType?.toLowerCase() ?? '';
   if (normalized.startsWith('image/')) return true;
   return /\.(?:png|jpe?g|gif|bmp|tiff?|webp|heic)$/i.test(fileName ?? '');
+}
+
+function sniffDeliverableImageMime(bytes: Buffer): string | null {
+  if (
+    bytes.length >= 8 &&
+    bytes.readUInt32BE(0) === 0x89504e47 &&
+    bytes.readUInt32BE(4) === 0x0d0a1a0a
+  ) {
+    return 'image/png';
+  }
+  if (
+    bytes.length >= 3 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[2] === 0xff
+  ) {
+    return 'image/jpeg';
+  }
+  if (bytes.length >= 6 && bytes.subarray(0, 4).toString('latin1') === 'GIF8') {
+    return 'image/gif';
+  }
+  if (
+    bytes.length >= 12 &&
+    bytes.subarray(0, 4).toString('latin1') === 'RIFF' &&
+    bytes.subarray(8, 12).toString('latin1') === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+  return null;
 }
 
 function isTextLike(contentType?: string, fileName?: string): boolean {

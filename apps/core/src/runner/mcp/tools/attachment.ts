@@ -45,14 +45,23 @@ export function registerAttachmentTools(server: McpServer): void {
         .map((value) => value.trim())
         .filter(Boolean)
         .filter((value, index, all) => all.indexOf(value) === index);
+      // When the image block is actually delivered, the host's switch-agent
+      // guidance would contradict it; substitute neutral text up front.
+      const openPayload = async (attachmentId: string) => {
+        const payload = await requestHostAttachmentOpenPayload(attachmentId);
+        return payload.image && modelSupportsImageInput()
+          ? {
+              ...payload,
+              text: 'Image attachment: delivered as an image block in this result.',
+            }
+          : payload;
+      };
       const { text, images } =
         ids.length === 0
           ? { text: 'No gantry_attachment id was provided.', images: [] }
           : ids.length === 1
-            ? singleAttachmentResult(
-                await requestHostAttachmentOpenPayload(ids[0]!),
-              )
-            : await openAttachmentBatch(ids, requestHostAttachmentOpenPayload);
+            ? singleAttachmentResult(await openPayload(ids[0]!))
+            : await openAttachmentBatch(ids, openPayload);
       // Image payloads reach the model only when its declared input
       // modalities include images; otherwise the host's guidance text (which
       // already points at vision-capable agents) stands alone.

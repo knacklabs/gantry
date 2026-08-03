@@ -221,7 +221,10 @@ describe('attachment_open tool image delivery', () => {
     const result = await callTool({ a1: imageResponse('a1') }, ['a1']);
 
     expect(result.content).toEqual([
-      { type: 'text', text: 'ERROR: a1 is an image.' },
+      {
+        type: 'text',
+        text: 'Image attachment: delivered as an image block in this result.',
+      },
       { type: 'image', data: 'bytes-a1', mimeType: 'image/png' },
     ]);
   });

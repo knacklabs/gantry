@@ -183,6 +183,10 @@ export interface ModelCapabilityDescriptor {
    * fields: declared per entry, absent means unsupported (fail closed).
    */
   imageInput?: boolean;
+  /**
+   * Declared capability metadata; not yet consumed by any delivery path.
+   * Native PDF hand-off needs its own story (workspace-boundary decision).
+   */
   pdfInput?: boolean;
   streaming: boolean;
   toolUse: boolean;
