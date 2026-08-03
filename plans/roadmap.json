@@ -260,19 +260,21 @@
       ]
     },
     {
-      "status": "pending",
+      "status": "active",
       "key": "MDL-1",
-      "title": "Model management: unify then UX",
+      "title": "Live provider model discovery and safe registration",
       "epic": "post-cutover",
       "skill": "backend",
       "order": 16,
       "depends_on": [
-        "PONY-1"
+        "PAY-1"
       ],
-      "story": "Starts after the Ponytail lane closes (shares the settings parser/renderer surface). Folds status-cost-cache-visibility UX remainder.",
+      "story": "Client authorized MDL-1 to proceed independently of the dormant Ponytail cutover on 2026-08-03. Implement against current main; a future Ponytail revival must reconcile the shared settings parser/renderer surface. Folds status-cost-cache-visibility UX remainder.",
       "acceptance_criteria": [
-        "model-management goal-prompt acceptance list satisfied",
-        "status/cost/cache UX remainder folded in or explicitly re-scoped"
+        "configured providers can expose live models without making provider listings durable state",
+        "users can safely register a discovered model into the existing alias catalog",
+        "saved selections and historical runs remain readable when discovery fails or a provider omits a model",
+        "the broader model-management and status/cost/cache UX work is explicitly re-scoped"
       ]
     },
     {
@@ -702,5 +704,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-03T09:45:48+00:00"
+  "updated_at": "2026-08-03T11:57:02+00:00"
 }
