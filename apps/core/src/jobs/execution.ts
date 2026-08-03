@@ -54,6 +54,7 @@ import { createJobExecutionDeletionGuard } from './execution-deletion-guard.js';
 import { runtimeEventTypeForRunStatus } from './run-status-event.js';
 import {
   jobCompletedModelPayload,
+  jobModelWorkloadForSchedule,
   jobStartedModelPayload,
   modelUseKindForJobSchedule,
   resolveJobModelForRun,
@@ -446,7 +447,7 @@ async function runActiveJob(
                 const fromProviderId = executionProviderId;
                 executionProviderId = toProviderId;
                 // prettier-ignore
-                runModelIdentity = modelIdentitySnapshot(resolveModelSelectionForWorkload(details.toModel, 'chat'));
+                runModelIdentity = modelIdentitySnapshot(resolveModelSelectionForWorkload(details.toModel, jobModelWorkloadForSchedule(currentJob.schedule_type)));
                 error = null;
                 await updateRunProviderMetadata({
                   providerRunId: null,

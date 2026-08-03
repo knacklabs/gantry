@@ -11,6 +11,7 @@ import {
 import { resolveExecutionRoute } from '../shared/model-execution-route.js';
 import { getModelProviderDefinition } from '../shared/model-provider-registry.js';
 import {
+  jobModelWorkloadForSchedule,
   modelUseKindForJobSchedule,
   resolveDefaultJobExecutionProviderId,
   resolveJobModel,
@@ -19,6 +20,7 @@ import {
 
 export type { NormalizedModelUsage };
 export {
+  jobModelWorkloadForSchedule,
   modelUseKindForJobSchedule,
   resolveDefaultJobExecutionProviderId,
   resolveJobModel,
