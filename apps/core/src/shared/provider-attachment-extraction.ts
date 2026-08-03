@@ -402,14 +402,19 @@ export function validateDeliverableImage(bytes: Buffer): string | null {
   const { width, height } = declaredImageDimensions(bytes, mime);
   // Provider image contracts cap dimensions (8000px on the strictest lane);
   // an oversized-but-small file must degrade to guidance, not abort the turn.
-  if (width > MAX_IMAGE_DIMENSION_PX || height > MAX_IMAGE_DIMENSION_PX) {
+  // Zero-dimension results mean the structural header was absent or bogus.
+  if (
+    width <= 0 ||
+    height <= 0 ||
+    width > MAX_IMAGE_DIMENSION_PX ||
+    height > MAX_IMAGE_DIMENSION_PX
+  ) {
     return null;
   }
+  // Structure checks below are dependency-free; a fully adversarial file can
+  // still fail upstream decode, which costs one recoverable tool turn.
   if (mime === 'image/png') {
-    return bytes.length >= 20 &&
-      bytes.subarray(bytes.length - 8).includes(Buffer.from('IEND', 'latin1'))
-      ? mime
-      : null;
+    return validPngChunkChain(bytes) ? mime : null;
   }
   if (mime === 'image/jpeg') {
     return bytes.length >= 4 &&
@@ -419,12 +424,34 @@ export function validateDeliverableImage(bytes: Buffer): string | null {
       : null;
   }
   if (mime === 'image/gif') {
-    return bytes.length >= 14 && bytes[bytes.length - 1] === 0x3b ? mime : null;
+    const version = bytes.subarray(0, 6).toString('latin1');
+    return (version === 'GIF87a' || version === 'GIF89a') &&
+      bytes.length >= 14 &&
+      bytes[bytes.length - 1] === 0x3b
+      ? mime
+      : null;
   }
-  // WebP: RIFF declares payload length; require agreement with actual size.
   return bytes.length >= 12 && bytes.readUInt32LE(4) === bytes.length - 8
     ? mime
     : null;
+}
+
+// Walk the PNG chunk chain: IHDR must come first and lengths must chain
+// exactly onto an IEND chunk.
+function validPngChunkChain(bytes: Buffer): boolean {
+  let cursor = 8;
+  let first = true;
+  while (cursor + 8 <= bytes.length) {
+    const length = bytes.readUInt32BE(cursor);
+    const type = bytes.subarray(cursor + 4, cursor + 8).toString('latin1');
+    if (first && (type !== 'IHDR' || length !== 13)) return false;
+    first = false;
+    const next = cursor + 12 + length;
+    if (type === 'IEND') return next === bytes.length;
+    if (next > bytes.length) return false;
+    cursor = next;
+  }
+  return false;
 }
 
 export function sniffDeliverableImageMime(bytes: Buffer): string | null {
