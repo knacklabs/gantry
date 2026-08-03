@@ -7,6 +7,7 @@ import type {
   ReadinessRoleRequirements,
 } from './system-health.js';
 import type { JobManagementServiceDeps } from '../../application/jobs/job-management-types.js';
+import type { JobManagementService } from '../../application/jobs/job-management-service.js';
 import type {
   ControlAgentSettingsPort,
   ControlAgentSettingsView,
@@ -26,6 +27,7 @@ import type { EgressSettings } from '../../shared/egress-policy.js';
 import { authenticate, type ApiKeyRecord, type Scope } from './auth.js';
 import { sendError } from './http.js';
 import type { RateLimiter } from './rate-limit.js';
+import type { SessionInteractionModule } from '../../application/sessions/session-interaction-module.js';
 
 type ProjectionSettingsOverrides = {
   providerAccount?: {
@@ -85,6 +87,8 @@ export type ControlModelProviderPreflightResult = {
 
 export type ControlRouteContext = {
   app: RuntimeApp;
+  sessionInteraction: SessionInteractionModule;
+  jobManagement: JobManagementService;
   runtimeHome: string;
   keys: ApiKeyRecord[];
   /** Process role this server runs as; drives role-aware readiness + metrics. */

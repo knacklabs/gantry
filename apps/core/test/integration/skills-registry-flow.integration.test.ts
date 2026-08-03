@@ -47,6 +47,7 @@ vi.mock('@core/config/index.js', () => ({
 }));
 
 vi.mock('@core/jobs/scheduler.js', () => ({
+  schedulerNotReadyReason: vi.fn(() => undefined),
   enqueueJobTrigger: vi.fn(async () => undefined),
   isJobTriggerQueueReady: vi.fn(() => true),
   isSchedulerReady: vi.fn(() => true),

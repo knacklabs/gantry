@@ -198,6 +198,7 @@ function makeModule(overrides?: {
   const module = new ExternalIngressModule({
     control: control as never,
     sessions: sessions as never,
+    liveAdmissionAppId: 'default',
     registerSessionGroup,
     conversationMessages: conversationMessages as never,
     conversationProviderMessages: conversationProviderMessages as never,
@@ -621,6 +622,7 @@ describe('ExternalIngressModule', () => {
         threadId: 'thread-1',
         beforeDurableAdmission: expect.any(Function),
       }),
+      'default',
     );
     expect(control.updateExternalIngressInvocation).toHaveBeenCalledWith(
       expect.objectContaining({
