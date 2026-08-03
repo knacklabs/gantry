@@ -14,19 +14,28 @@ const MAX_DOCUMENT_DECOMPRESSED_BYTES = 100 * 1024 * 1024;
 const DOCUMENT_PARSE_TIMEOUT_MS = 15_000;
 const MAX_PDF_TEXT_PAGES = 50;
 const MAX_CONCURRENT_DOCUMENT_PARSES = 2;
-const ZIP_CONTAINER_EXTENSIONS = new Set([
-  '.docx',
-  '.xlsx',
-  '.pptx',
-  '.odt',
-  '.ods',
-  '.odp',
-]);
 
-// Zombie parses (officeparser has no abort API) keep occupying a slot past
-// their deadline, so runaway documents cap total host burn at two parsers
-// instead of accumulating across batches.
-let activeDocumentParses = 0;
+// FIFO semaphore for officeparser work. A slot is held until the underlying
+// parse SETTLES (not until we stop waiting), so zombie parses stay inside the
+// concurrency budget and later requests queue instead of failing.
+let availableParseSlots = MAX_CONCURRENT_DOCUMENT_PARSES;
+const parseSlotWaiters: Array<() => void> = [];
+
+async function acquireParseSlot(): Promise<() => void> {
+  if (availableParseSlots > 0) {
+    availableParseSlots -= 1;
+  } else {
+    await new Promise<void>((resolve) => parseSlotWaiters.push(resolve));
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const next = parseSlotWaiters.shift();
+    if (next) next();
+    else availableParseSlots += 1;
+  };
+}
 const DOCUMENT_EXTENSIONS = new Set([
   '.docx',
   '.xlsx',
@@ -295,7 +304,7 @@ export async function extractDocumentText(
   if (stats.size > MAX_DOCUMENT_INPUT_BYTES) {
     return `ERROR: ${label} is larger than 20 MB, the limit for document text extraction.`;
   }
-  if (isZipContainerDocument(attachment.fileName)) {
+  if (await isZipFile(filePath)) {
     const declaredBytes = await declaredZipDecompressedBytes(filePath).catch(
       () => Number.POSITIVE_INFINITY,
     );
@@ -303,47 +312,10 @@ export async function extractDocumentText(
       return `ERROR: ${label} could not be verified as a safely sized document (its archive declares too much or unreadable decompressed content), so it was not parsed.`;
     }
   }
-  if (activeDocumentParses >= MAX_CONCURRENT_DOCUMENT_PARSES) {
-    return `ERROR: document extraction is busy with earlier attachments. Retry this attachment in a moment.`;
-  }
-  activeDocumentParses += 1;
-  try {
-    return await extractDocumentTextInSlot(filePath, attachment, label);
-  } finally {
-    activeDocumentParses -= 1;
-  }
-}
-
-async function extractDocumentTextInSlot(
-  filePath: string,
-  attachment: ReadableAttachmentMetadata,
-  label: string,
-): Promise<string> {
   const deadline = Date.now() + DOCUMENT_PARSE_TIMEOUT_MS;
-  try {
-    // Heavy parsers load lazily so processes that only route storage refs
-    // never pay for them.
-    const { parseOffice } = await import('officeparser');
-    // ponytail: officeparser has no abort API; a timed-out parse may burn CPU
-    // after we stop waiting, but the slot cap above bounds how many can ever
-    // run and the zip guard bounds memory. Upgrade path: a resource-limited
-    // worker if this shows in production profiles.
-    const document = await withDeadline(
-      parseOffice(filePath, {
-        extractAttachments: false,
-        includeRawContent: false,
-        ocr: false,
-        outputErrorToConsole: false,
-      }),
-      deadline,
-    );
-    const text = document.toText().trim();
-    if (text.length > 0) {
-      return truncateTextOutput(text);
-    }
-  } catch {
-    // PDFs with no embedded text commonly fail here; fall through to the
-    // pdfjs text layer before giving guidance.
+  const officeText = await extractOfficeTextBounded(filePath, deadline);
+  if (officeText.length > 0) {
+    return truncateTextOutput(officeText);
   }
   if (isPdfAttachment(attachment.contentType, attachment.fileName)) {
     try {
@@ -359,10 +331,40 @@ async function extractDocumentTextInSlot(
   return `${label} contains no extractable text. It may be encrypted, damaged, or empty.`;
 }
 
-function isZipContainerDocument(fileName?: string): boolean {
-  return ZIP_CONTAINER_EXTENSIONS.has(
-    path.extname(fileName ?? '').toLowerCase(),
+async function extractOfficeTextBounded(
+  filePath: string,
+  deadline: number,
+): Promise<string> {
+  const release = await acquireParseSlot();
+  // Heavy parsers load lazily so processes that only route storage refs never
+  // pay for them.
+  const { parseOffice } = await import('officeparser');
+  // ponytail: officeparser has no abort API; a timed-out parse keeps its slot
+  // (releasing only when it settles) so runaway documents can never exceed
+  // MAX_CONCURRENT_DOCUMENT_PARSES. Upgrade path: a resource-limited worker
+  // if this shows in production profiles.
+  const parse = parseOffice(filePath, {
+    extractAttachments: false,
+    includeRawContent: false,
+    ocr: false,
+    outputErrorToConsole: false,
+  }).then(
+    (document) => document.toText().trim(),
+    () => '',
   );
+  void parse.finally(release);
+  return withDeadline(parse, deadline).catch(() => '');
+}
+
+async function isZipFile(filePath: string): Promise<boolean> {
+  const file = await fs.open(filePath, 'r');
+  try {
+    const header = Buffer.alloc(4);
+    const { bytesRead } = await file.read(header, 0, 4, 0);
+    return bytesRead === 4 && header.readUInt32LE(0) === 0x04034b50;
+  } finally {
+    await file.close();
+  }
 }
 
 // Office documents are zip archives whose central directory declares each
