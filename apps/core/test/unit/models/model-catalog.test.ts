@@ -56,7 +56,11 @@ describe('model catalog resolution', () => {
   });
 
   it('reports declared input modalities and fails closed for unknown models', () => {
-    expect(modelInputModalities('claude-sonnet-4-6')).toEqual(['image', 'pdf']);
+    expect(modelInputModalities('claude-sonnet-4-6')).toEqual([
+      'image',
+      'image-tool-results',
+      'pdf',
+    ]);
     expect(modelInputModalities('moonshotai/kimi-k2.6')).toEqual(['image']);
     expect(modelInputModalities('unknown-model')).toEqual([]);
   });

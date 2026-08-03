@@ -407,6 +407,9 @@ export const openApiSchemas: Record<string, JsonSchema> = {
           'structuredOutput',
         ],
         properties: {
+          imageInput: { type: 'boolean' },
+          imageToolResults: { type: 'boolean' },
+          pdfInput: { type: 'boolean' },
           streaming: { type: 'boolean' },
           toolUse: { type: 'boolean' },
           mcpProjection: { type: 'boolean' },
