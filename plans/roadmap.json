@@ -491,7 +491,7 @@
       "completed_at": "2026-08-03T00:00:00+00:00"
     },
     {
-      "status": "pending",
+      "status": "done",
       "key": "SEC-4",
       "title": "Rate limits: cluster-authoritative store or declared singleton (decision required)",
       "epic": "runtime-hardening-audit",
@@ -506,7 +506,9 @@
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 31
+      "order": 31,
+      "completed_at": "2026-08-03T00:00:00+00:00",
+      "outcome": "Decided by record 0099: runtime is single-instance-authoritative for rate limits; cluster store deferred behind an explicit multi-instance revisit trigger. No code."
     },
     {
       "status": "pending",
@@ -524,7 +526,8 @@
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 32
+      "order": 32,
+      "notes": "Decision 0103 accepted 2026-08-03: 30-day TTL sweep of terminal rows via existing maintenance machinery. Remaining work is the sweep job + test."
     },
     {
       "status": "done",
