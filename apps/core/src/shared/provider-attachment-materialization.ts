@@ -322,9 +322,17 @@ export async function extractDocumentText(
     return `ERROR: ${label} is larger than 20 MB, the limit for document text extraction.`;
   }
   const deadline = Date.now() + DOCUMENT_PARSE_TIMEOUT_MS;
-  if (isPdfAttachment(attachment.contentType, attachment.fileName)) {
-    // PDF.js is genuinely cancellable (destroy()), page-bounded, and runs
-    // under the same slot budget as Office parsing.
+  // Route on the file's actual bytes, not provider-controlled metadata:
+  // officeparser auto-detects content, so metadata-based routing would let a
+  // mislabeled file skip the matching resource guard.
+  const isPdf = await hasPdfHeader(filePath);
+  const declaredBytes = isPdf
+    ? null
+    : await declaredZipDecompressedBytes(filePath).catch(
+        () => Number.POSITIVE_INFINITY,
+      );
+  if (isPdf) {
+    // PDF pages are parsed in the terminable worker with a hard page cap.
     const release = await acquireParseSlot(deadline);
     if (!release) {
       return `ERROR: document extraction is busy; ${label} was not read. Retry in a moment.`;
@@ -341,13 +349,11 @@ export async function extractDocumentText(
       release();
     }
   }
-  if (isZipContainerDocument(attachment.contentType, attachment.fileName)) {
-    const declaredBytes = await declaredZipDecompressedBytes(filePath).catch(
-      () => Number.POSITIVE_INFINITY,
-    );
-    if (declaredBytes > MAX_DOCUMENT_DECOMPRESSED_BYTES) {
-      return `ERROR: ${label} could not be verified as a safely sized document (its archive declares too much or unreadable decompressed content), so it was not parsed.`;
-    }
+  if (
+    declaredBytes !== null &&
+    declaredBytes > MAX_DOCUMENT_DECOMPRESSED_BYTES
+  ) {
+    return `ERROR: ${label} could not be verified as a safely sized document (its archive declares too much or unreadable decompressed content), so it was not parsed.`;
   }
   const release = await acquireParseSlot(deadline);
   if (!release) {
@@ -362,19 +368,17 @@ export async function extractDocumentText(
   }
 }
 
-function isZipContainerDocument(
-  contentType?: string,
-  fileName?: string,
-): boolean {
-  const extension = path.extname(fileName ?? '').toLowerCase();
-  if (['.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp'].includes(extension)) {
-    return true;
+async function hasPdfHeader(filePath: string): Promise<boolean> {
+  const file = await fs.open(filePath, 'r');
+  try {
+    const header = Buffer.alloc(8);
+    const { bytesRead } = await file.read(header, 0, 8, 0);
+    return (
+      bytesRead >= 5 && header.subarray(0, 5).toString('latin1') === '%PDF-'
+    );
+  } finally {
+    await file.close();
   }
-  const normalized = contentType?.toLowerCase() ?? '';
-  return (
-    normalized.includes('openxmlformats-officedocument') ||
-    normalized.includes('opendocument')
-  );
 }
 
 // Untrusted parsing (officeparser has no abort API; pdfjs uses a fake worker
@@ -479,7 +483,9 @@ if (workerData.kind === 'office') {
 
 // Office documents are zip archives whose central directory declares each
 // entry's decompressed size; summing those rejects zip bombs before parsing.
-async function declaredZipDecompressedBytes(filePath: string): Promise<number> {
+async function declaredZipDecompressedBytes(
+  filePath: string,
+): Promise<number | null> {
   const file = await fs.open(filePath, 'r');
   try {
     const stats = await file.stat();
@@ -487,7 +493,7 @@ async function declaredZipDecompressedBytes(filePath: string): Promise<number> {
     const tail = Buffer.alloc(tailLength);
     await file.read(tail, 0, tailLength, stats.size - tailLength);
     const eocd = tail.lastIndexOf(Buffer.from('PK\x05\x06', 'latin1'));
-    if (eocd === -1) return 0;
+    if (eocd === -1) return null;
     const centralSize = tail.readUInt32LE(eocd + 12);
     const centralOffset = tail.readUInt32LE(eocd + 16);
     if (centralSize === 0 || centralSize > 8 * 1024 * 1024) {
@@ -554,13 +560,6 @@ function isExtractableDocument(
     normalized === 'text/rtf' ||
     normalized.includes('openxmlformats-officedocument') ||
     normalized.includes('opendocument')
-  );
-}
-
-function isPdfAttachment(contentType?: string, fileName?: string): boolean {
-  return (
-    path.extname(fileName ?? '').toLowerCase() === '.pdf' ||
-    contentType?.toLowerCase() === 'application/pdf'
   );
 }
 

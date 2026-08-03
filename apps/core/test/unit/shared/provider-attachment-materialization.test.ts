@@ -326,7 +326,11 @@ describe('provider attachment materialization reads', () => {
 
   it('does not crash the agent when a document cannot be parsed', async () => {
     const root = await temporaryMaterializationRoot();
-    await writeProviderAttachment(root, 'broken.pdf', Buffer.from('not a PDF'));
+    await writeProviderAttachment(
+      root,
+      'broken.pdf',
+      Buffer.from('%PDF-1.4 garbage that is not a valid document body'),
+    );
 
     const result = await readProviderAttachment({
       materializationRoot: root,
