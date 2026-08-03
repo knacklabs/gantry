@@ -2722,6 +2722,9 @@ describe('createGroupProcessor', () => {
       (deps.opsRepository as any).createSessionAgentRun = vi
         .fn()
         .mockResolvedValue('agent-run:message-1');
+      (deps.opsRepository as any).setAgentRunModelIdentity = vi
+        .fn()
+        .mockResolvedValue(true);
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
@@ -2738,6 +2741,10 @@ describe('createGroupProcessor', () => {
         executionProviderId: 'anthropic:claude-agent-sdk',
         providerSessionId: undefined,
         cause: 'message',
+      });
+      expect(deps.opsRepository.setAgentRunModelIdentity).toHaveBeenCalledWith({
+        runId: 'agent-run:message-1',
+        modelIdentity: expect.objectContaining({ alias: 'opus' }),
       });
       expect(deps.opsRepository.setSession).toHaveBeenCalledWith(
         group.folder,
@@ -2813,6 +2820,9 @@ describe('createGroupProcessor', () => {
       (deps.opsRepository as any).createSessionAgentRun = vi
         .fn()
         .mockResolvedValue('agent-run:message-1');
+      (deps.opsRepository as any).setAgentRunModelIdentity = vi
+        .fn()
+        .mockResolvedValue(true);
 
       mockSpawnAgent.mockImplementationOnce(
         async (
@@ -3019,6 +3029,9 @@ describe('createGroupProcessor', () => {
       (deps.opsRepository as any).createSessionAgentRun = vi
         .fn()
         .mockResolvedValue('agent-run:message-1');
+      (deps.opsRepository as any).setAgentRunModelIdentity = vi
+        .fn()
+        .mockResolvedValue(true);
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
@@ -3041,6 +3054,10 @@ describe('createGroupProcessor', () => {
         executionProviderId: 'anthropic:claude-agent-sdk',
         providerSessionId: undefined,
         cause: 'message',
+      });
+      expect(deps.opsRepository.setAgentRunModelIdentity).toHaveBeenCalledWith({
+        runId: 'agent-run:message-1',
+        modelIdentity: expect.objectContaining({ alias: 'opus' }),
       });
       expect(
         deps.opsRepository.updateAgentRunProviderMetadata,
@@ -8634,6 +8651,9 @@ describe('createGroupProcessor', () => {
       (deps.opsRepository as any).createSessionAgentRun = vi
         .fn()
         .mockResolvedValue('agent-run:family-1');
+      (deps.opsRepository as any).setAgentRunModelIdentity = vi
+        .fn()
+        .mockResolvedValue(true);
       return { deps, group };
     }
 
@@ -8675,6 +8695,13 @@ describe('createGroupProcessor', () => {
         model: 'cerebras',
       });
       expect(mockSpawnAgent.mock.calls[1][1]).not.toHaveProperty('sessionId');
+      expect(deps.opsRepository.setAgentRunModelIdentity).toHaveBeenCalledWith({
+        runId: 'agent-run:family-1',
+        modelIdentity: expect.objectContaining({
+          alias: 'cerebras',
+          providerId: 'cerebras',
+        }),
+      });
     });
 
     it('uses the first concrete family candidate provider for turn context and run creation', async () => {
@@ -8695,6 +8722,15 @@ describe('createGroupProcessor', () => {
         executionProviderId: 'deepagents:langchain',
         providerSessionId: undefined,
         cause: 'message',
+      });
+      expect(deps.opsRepository.setAgentRunModelIdentity).toHaveBeenCalledWith({
+        runId: 'agent-run:family-1',
+        modelIdentity: {
+          alias: 'groq-oss',
+          providerId: 'groq',
+          providerModelId: 'openai/gpt-oss-120b',
+          displayName: 'Groq GPT-OSS 120B',
+        },
       });
       expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
         model: 'groq-oss',

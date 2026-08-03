@@ -1,0 +1,81 @@
+{
+  "commit": "c70d658e3c3159959c6a5d76cb7f2566baaa2f7a",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "Live provider discovery, registration, cache safety, terminal error handling, and final failover model snapshots passed focused automated validation.",
+    "blocking_findings": [],
+    "commands_run": [
+      "pnpm exec vitest run apps/core/test/unit/models/provider-model-discovery.test.ts apps/core/test/unit/runtime/failover-eligibility.test.ts apps/core/test/unit/runtime/group-processing.test.ts apps/core/test/unit/jobs/execution.test.ts apps/core/test/unit/cli/model-discovery-command.test.ts apps/core/test/unit/control/model-discovery-routes.test.ts apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts apps/core/test/unit/bootstrap/live-execution.test.ts",
+      "npm run typecheck",
+      "npm run check:architecture",
+      "npm run format:check",
+      "npm run db:migrations:check",
+      "npm run check:generated --workspace @gantry/sdk",
+      "/Users/caw-dev/.codex/skills/autoreview/scripts/autoreview --mode local --max-priority P3"
+    ],
+    "tests_added_or_updated": [
+      "Provider endpoint, pagination, response-boundary, UTF-8, caching, backoff, eviction, registration, and error-normalization tests",
+      "Control API, OpenAPI, CLI refresh and terminal escaping tests",
+      "Interactive and scheduled failover snapshot persistence tests",
+      "Postgres model-identity snapshot mapping tests"
+    ],
+    "pass_fail_summary": "346 focused tests passed; typecheck, architecture, formatting, migration consistency, generated SDK validation, secret scan, and two-part autoreview passed.",
+    "remaining_gaps": [
+      "No live provider credential calls or manual Slack/Telegram runtime check were run in this implementation stage."
+    ],
+    "reviewed_scope": [
+      "apps/core provider discovery, settings registration, runtime and job model snapshots",
+      "contracts, OpenAPI, SDK, CLI, migration, and architecture docs"
+    ],
+    "skills_used": [
+      "emil-design-eng",
+      "frontend-design",
+      "review-animations"
+    ],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-08-03T13:40:52+00:00",
+    "commit": "4cdf25c25212e4d2123f7e39cb2a5b5857d5d1e1"
+  },
+  "updated_at": "2026-08-03T14:49:00+00:00",
+  "functional": {
+    "generated_by": "functional-checker",
+    "status": "passed",
+    "score": 9,
+    "summary": "MDL-1 user-facing behavior validated for Control API, SDK, CLI, model registration, stale/failed discovery handling, OpenAPI exposure, model-resolution safety, and run-history model identity snapshots. Targeted checks passed: 7 discovery/API/CLI/contracts/runtime tests with 66 assertions, 4 persistence/OpenAPI/failover tests with 61 assertions, plus SDK build and generated OpenAPI type check.",
+    "manual_validation_steps": [
+      "From the feature worktree, run the contracts build with Gantry Control API environment variables unset.",
+      "Run the seven targeted discovery, API, CLI, contracts, model-resolution, provider metadata, and initial-execution unit test files.",
+      "Build the SDK and run its generated OpenAPI type check.",
+      "Run the four targeted OpenAPI, Postgres repository, and failover eligibility unit test files.",
+      "Against a configured local runtime, discover, force-refresh, and register a provider model through the CLI.",
+      "Select the registered alias and confirm raw provider model IDs remain invalid direct selectors."
+    ],
+    "blocking_findings": [],
+    "non_blocking_findings": [
+      "{'category': 'live-provider-validation-not-run', 'area': 'provider-adapters', 'summary': 'Deterministic adapter tests passed, but this check did not call live provider accounts.'}"
+    ],
+    "residual_risks": [
+      "Future provider response shapes may differ from current fixtures; bounded parsing reduces failures to stale or error states.",
+      "No graphical model selector is included, so user-visible validation covers Control API, SDK, and CLI only.",
+      "Real Slack and Telegram agent runs were not part of this feature check."
+    ],
+    "recommendation": "approve-with-caveats",
+    "reviewed_scope": [
+      "Provider model discovery merged with registered aliases",
+      "Explicit desired-state registration",
+      "Non-destructive failure and omission handling",
+      "Alias-only model selection",
+      "Exact model-unavailable handling and failover safety",
+      "Nullable run-history model identity snapshots",
+      "Control API, OpenAPI, SDK, and CLI surfaces"
+    ],
+    "remaining_gaps": [],
+    "commands_run": [],
+    "tests_added_or_updated": [],
+    "recorded_at": "2026-08-03T14:49:00+00:00",
+    "commit": "c70d658e3c3159959c6a5d76cb7f2566baaa2f7a"
+  }
+}

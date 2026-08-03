@@ -1,0 +1,17 @@
+{
+  "issue_key": "MDL-1",
+  "title": "Live provider model discovery and safe registration",
+  "tracker": "linear",
+  "branch": "feat/MDL-1-live-provider-model-discovery-and-safe-registration",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-08-03T11:57:02+00:00",
+  "updated_at": "2026-08-03T14:49:24+00:00",
+  "plan_file": "plans/completed/MDL-1-live-provider-model-discovery-and-safe-registration.md",
+  "story": "MDL-1"
+}

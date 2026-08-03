@@ -164,6 +164,10 @@ export interface PreparedAgentExecution {
 export interface AgentExecutionAdapter {
   readonly id: AgentExecutionProviderId;
   isMissingProviderSessionError?(error: string | undefined): boolean;
+  normalizeModelError?(input: {
+    error: string | undefined;
+    modelEntry: ModelCatalogEntry;
+  }): string | undefined;
   sessionCompactionPrompt?(): string | undefined;
   prepare(
     input: AgentExecutionAdapterPrepareInput,

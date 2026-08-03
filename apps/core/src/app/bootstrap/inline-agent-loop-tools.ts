@@ -588,7 +588,7 @@ export function wireInlineAgentLoopTools(input: {
     | 'runnerSandboxProvider'
     | 'getCredentialBroker'
     | 'getConversationRoutes'
-    | 'resolveExecutionProviderId'
+    | 'resolveInitialExecution'
   >;
   channelWiring: ChannelWiring;
   interactionsEnabled: boolean;
@@ -678,7 +678,7 @@ export function wireInlineAgentLoopTools(input: {
         repository: input.getAsyncTaskRepository?.(),
         runRepository: input.opsRepository,
         getConversationRoutes: input.app.getConversationRoutes,
-        resolveExecutionProviderId: input.app.resolveExecutionProviderId,
+        resolveInitialExecution: input.app.resolveInitialExecution,
         resolveRunAccess: async (agentId) => {
           const turnContext = laneInput.input.appId
             ? { appId: laneInput.input.appId, agentId }

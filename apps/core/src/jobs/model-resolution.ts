@@ -1,11 +1,17 @@
 import type { AgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter.js';
 import type { AgentExecutionAdapterRegistry } from '../application/agent-execution/agent-execution-adapter-registry.js';
 import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
+import type { Job } from '../domain/types.js';
 import { resolveConfiguredRuntimeExecutionProviderId } from '../runtime/execution-provider-id.js';
-import type { NormalizedModelUsage } from '../shared/model-catalog.js';
+import { resolveModelFamilyCandidatesForApp } from '../runtime/model-family-resolution.js';
+import {
+  modelIdentitySnapshot,
+  type NormalizedModelUsage,
+} from '../shared/model-catalog.js';
 import { resolveExecutionRoute } from '../shared/model-execution-route.js';
 import { getModelProviderDefinition } from '../shared/model-provider-registry.js';
 import {
+  jobModelWorkloadForSchedule,
   modelUseKindForJobSchedule,
   resolveDefaultJobExecutionProviderId,
   resolveJobModel,
@@ -14,10 +20,46 @@ import {
 
 export type { NormalizedModelUsage };
 export {
+  jobModelWorkloadForSchedule,
   modelUseKindForJobSchedule,
   resolveDefaultJobExecutionProviderId,
   resolveJobModel,
 };
+
+export async function resolveJobModelForRun(input: {
+  job: Job;
+  appId: string;
+  modelConfig: Parameters<typeof resolveJobModel>[1];
+  agentHarness: Parameters<typeof resolveJobModel>[2];
+  listConfiguredProviders: Parameters<
+    typeof resolveModelFamilyCandidatesForApp
+  >[0]['listConfiguredProviders'];
+  familyOrder: Parameters<
+    typeof resolveModelFamilyCandidatesForApp
+  >[0]['familyOrder'];
+}) {
+  const jobFailoverCandidates = await resolveModelFamilyCandidatesForApp({
+    alias: input.job.model || '',
+    appId: input.appId,
+    listConfiguredProviders: input.listConfiguredProviders,
+    familyOrder: input.familyOrder,
+  });
+  const resolvedModel = resolveJobModel(
+    {
+      ...input.job,
+      model: jobFailoverCandidates[0] || input.job.model,
+    },
+    input.modelConfig,
+    input.agentHarness,
+  );
+  const runModelIdentity = modelIdentitySnapshot(resolvedModel.resolution);
+  return {
+    agentHarness: input.agentHarness,
+    jobFailoverCandidates,
+    resolvedModel,
+    runModelIdentity,
+  };
+}
 
 export function resolveJobExecutionProviderId(input: {
   resolvedModel: ResolvedJobModel;

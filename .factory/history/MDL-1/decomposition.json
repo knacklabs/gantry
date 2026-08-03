@@ -1,0 +1,67 @@
+{
+  "generated_by": "docs-decomposer",
+  "status": "recorded",
+  "user_facing": true,
+  "project": "Gantry live provider model discovery",
+  "doc_roots": [
+    "plans/active/MDL-1-live-provider-model-discovery-and-safe-registration.md",
+    "docs/decisions/0015-model-catalog-and-cache-accounting.md",
+    "docs/architecture/model-management-goal-prompt.md"
+  ],
+  "epics": [
+    {
+      "id": "live-model-discovery",
+      "title": "Live provider model discovery",
+      "objective": "Expose provider-advertised models without replacing Gantry's durable alias catalog.",
+      "source_refs": [
+        "plans/active/MDL-1-live-provider-model-discovery-and-safe-registration.md"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "MDL-1A",
+      "epic_id": "live-model-discovery",
+      "title": "Discover and safely register provider models",
+      "objective": "Add bounded live model discovery and explicit registration through the existing settings-owned alias catalog, while retaining configured aliases when providers fail or omit models and snapshotting resolved identity on new runs.",
+      "write_scope": [
+        "apps/core/src/shared/",
+        "apps/core/src/application/",
+        "apps/core/src/control/",
+        "apps/core/src/cli/",
+        "apps/core/src/config/",
+        "apps/core/src/adapters/llm/",
+        "apps/core/src/adapters/storage/postgres/",
+        "apps/core/src/domain/",
+        "apps/core/src/jobs/",
+        "apps/core/src/app/bootstrap/",
+        "apps/core/src/runtime/",
+        "apps/core/test/",
+        "packages/contracts/",
+        "packages/sdk/",
+        "docs/"
+      ],
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Configured Anthropic, OpenAI-compatible, and OpenRouter accounts expose bounded live model listings merged with all registered aliases.",
+        "A user can explicitly register a discovered model through a settings desired-state revision and then select its alias through existing runtime paths.",
+        "Discovery failure or omission never deletes saved aliases or history, and new runs retain immutable resolved model identity snapshots.",
+        "Raw provider model IDs remain invalid selectors and unavailable execution never silently falls back."
+      ],
+      "verify_commands": [
+        "pnpm --filter @gantry/core test",
+        "pnpm --filter @gantry/contracts test",
+        "pnpm --filter @gantry/sdk test",
+        "pnpm build",
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "Credential isolation and bounded outbound requests; settings revision conflict safety; non-destructive omission and failure semantics; single catalog resolver integration; nullable run-history migration safety."
+    }
+  ],
+  "build_waves": [
+    [
+      "MDL-1A"
+    ]
+  ],
+  "commit": "4cdf25c25212e4d2123f7e39cb2a5b5857d5d1e1"
+}

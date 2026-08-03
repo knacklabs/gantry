@@ -1,5 +1,9 @@
 # @gantry/contracts
 
+## Unreleased
+
+- Added bounded provider-model discovery and explicit model-registration contracts.
+
 ## 3.0.0
 
 - Removed the v1 runtime settings schemas.

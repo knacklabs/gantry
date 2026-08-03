@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import type {
   ChatInfo,
@@ -54,6 +55,8 @@ import { CanonicalMessageOpsService } from '../services/canonical-message-ops-se
 import { CanonicalSessionOpsService } from '../services/canonical-session-ops-service.js';
 import { redactProviderSessionHandlesInText } from '../../../../shared/provider-session-redaction.js';
 import { nowIso } from '../../../../shared/time/datetime.js';
+import type { ResolvedModelIdentitySnapshot } from '../../../../shared/model-catalog.js';
+import { agentRunsPostgres } from './runs.js';
 
 interface SessionRuntimeOptions {
   memoryItemLimit?: number;
@@ -578,6 +581,7 @@ export class PostgresRuntimeRepositoryBundle
     executionProviderId: ExecutionProviderId;
     providerSessionId?: string | null;
     cause: 'message' | 'job' | 'control' | 'manual';
+    modelIdentity?: ResolvedModelIdentitySnapshot;
   }): Promise<string | undefined> {
     assertSafeExecutionProviderId(input.executionProviderId);
     const repositories = createPostgresDomainRepositories(this.db, this.pool, {
@@ -600,6 +604,10 @@ export class PostgresRuntimeRepositoryBundle
       threadId: session.threadId,
       jobId,
       llmProfileId: DEFAULT_LLM_PROFILE_ID,
+      modelAliasSnapshot: input.modelIdentity?.alias,
+      modelProviderSnapshot: input.modelIdentity?.providerId,
+      providerModelIdSnapshot: input.modelIdentity?.providerModelId,
+      modelDisplayNameSnapshot: input.modelIdentity?.displayName,
       executionProviderId: input.executionProviderId,
       providerSessionId: input.providerSessionId ?? undefined,
       permissionDecisionIds: [],
@@ -630,6 +638,31 @@ export class PostgresRuntimeRepositoryBundle
       createdAt: now,
     });
     return runId;
+  }
+
+  async setAgentRunModelIdentity(input: {
+    runId: string;
+    modelIdentity: ResolvedModelIdentitySnapshot;
+  }): Promise<boolean> {
+    const rows = await this.db
+      .update(agentRunsPostgres)
+      .set({
+        modelAliasSnapshot: input.modelIdentity.alias,
+        modelProviderSnapshot: input.modelIdentity.providerId,
+        providerModelIdSnapshot: input.modelIdentity.providerModelId,
+        modelDisplayNameSnapshot: input.modelIdentity.displayName,
+      })
+      .where(
+        and(
+          eq(agentRunsPostgres.id, input.runId),
+          isNull(agentRunsPostgres.modelAliasSnapshot),
+          isNull(agentRunsPostgres.modelProviderSnapshot),
+          isNull(agentRunsPostgres.providerModelIdSnapshot),
+          isNull(agentRunsPostgres.modelDisplayNameSnapshot),
+        ),
+      )
+      .returning({ id: agentRunsPostgres.id });
+    return rows.length === 1;
   }
 
   async updateAgentRunProviderMetadata(input: {

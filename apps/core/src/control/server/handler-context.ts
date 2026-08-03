@@ -28,6 +28,7 @@ import { authenticate, type ApiKeyRecord, type Scope } from './auth.js';
 import { sendError } from './http.js';
 import type { RateLimiter } from './rate-limit.js';
 import type { SessionInteractionModule } from '../../application/sessions/session-interaction-module.js';
+import type { ProviderModelDiscoveryService } from '../../application/models/provider-model-discovery-service.js';
 
 type ProjectionSettingsOverrides = {
   providerAccount?: {
@@ -145,6 +146,10 @@ export type ControlRouteContext = {
     chatAlias?: string,
   ) => Promise<ControlModelProviderPreflightResult>;
   getActiveModelCredentialProviderIds: (appId: AppId) => Promise<string[]>;
+  providerModels?: Pick<
+    ProviderModelDiscoveryService,
+    'list' | 'prepareRegistration'
+  >;
   countPendingAccessRequests: (appId: AppId) => Promise<number>;
   listControlPlaneJobs: (appId: AppId) => Promise<
     Array<{

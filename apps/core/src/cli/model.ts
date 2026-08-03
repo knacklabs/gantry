@@ -34,6 +34,7 @@ import {
   type RuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import { controlApiRequest } from './control-api.js';
+import { runModelProviderDiscoveryCommand } from './model-provider-discovery-command.js';
 import type { ModelPreviewResponse } from './model-preview-types.js';
 import { formatPreviewWhy, parseAgentFlag } from './model-preview-format.js';
 import {
@@ -52,6 +53,8 @@ function usage(): string {
   return `Usage:
   gantry model status
   gantry model list [--provider <id>]
+  gantry model discover <provider>
+  gantry model register <provider> <provider-model-id> --alias <alias>
   gantry model chat|jobs|memory
   gantry model set chat <alias|family>
   gantry model set chat <alias> --agent <id>
@@ -333,6 +336,12 @@ async function runModelCommandInner(
     );
     return 0;
   }
+
+  const discoveryResult = await runModelProviderDiscoveryCommand(
+    runtimeHome,
+    args,
+  );
+  if (discoveryResult !== undefined) return discoveryResult;
 
   if (action === 'chat' || action === 'jobs' || action === 'memory') {
     console.log(formatTarget(settings, action));

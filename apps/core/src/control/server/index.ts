@@ -23,7 +23,9 @@ import {
   getRuntimeSettingsForConfig,
   getRuntimeModelDefaults,
   getPublicRuntimeSettings,
+  modelAliasesToCatalogEntries,
   patchRuntimeModelDefaults,
+  settingsFromRevisionDocument,
   syncRuntimeSettingsFromProjection,
 } from '../../config/index.js';
 import {
@@ -39,6 +41,9 @@ import {
   tryAcquireRuntimeAdvisoryLease,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import { preflightModelProvider } from '../../adapters/llm/model-provider-preflight.js';
+import { LiveProviderModelDiscoveryAdapter } from '../../adapters/llm/provider-model-discovery-adapter.js';
+import { ProviderModelDiscoveryService } from '../../application/models/provider-model-discovery-service.js';
+import { MODEL_CATALOG } from '../../shared/model-catalog.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import { canAccessApp, makeAppGroup } from './app-identity.js';
@@ -376,6 +381,7 @@ export function startControlServer(input: {
     createId: randomUUID,
     stableHash: (input) => createHash('sha256').update(input).digest('hex'),
   });
+  let providerModels: ProviderModelDiscoveryService | undefined;
   const ctx: ControlRouteContext = {
     app: input.app,
     sessionInteraction,
@@ -450,6 +456,26 @@ export function startControlServer(input: {
         // degrade to "none configured".
         return [];
       }
+    },
+    get providerModels() {
+      return (providerModels ??= new ProviderModelDiscoveryService(
+        getRuntimeStorage().repositories.modelCredentials,
+        new LiveProviderModelDiscoveryAdapter(),
+        async (appId) => {
+          const latest =
+            await getRuntimeStorage().repositories.settingsRevisions.getLatestSettingsRevision(
+              appId,
+            );
+          if (!latest) return MODEL_CATALOG;
+          const settings = settingsFromRevisionDocument(
+            latest.settingsDocument,
+          );
+          return [
+            ...MODEL_CATALOG,
+            ...modelAliasesToCatalogEntries(settings.modelAliases),
+          ];
+        },
+      ));
     },
     countPendingAccessRequests: async (appId: AppId) =>
       getRuntimeStorage().repositories.pendingAccessRequests.countPendingAccessRequests(

@@ -787,6 +787,15 @@ async function spawnAgentWithContext(
         },
       }),
     });
+    if (output.status === 'error')
+      output = {
+        ...output,
+        error:
+          executionAdapter.normalizeModelError?.({
+            error: output.error,
+            modelEntry: resolvedModel.value.modelEntry,
+          }) ?? output.error,
+      };
     return output;
   } finally {
     unregisterPermissionRunRestriction();

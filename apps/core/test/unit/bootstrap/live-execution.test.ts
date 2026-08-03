@@ -13,7 +13,9 @@ describe('startLiveExecutionServices', () => {
       appId: 'default',
       agentSessionId: 'session-thread',
     }));
-    const resolveExecutionProviderId = vi.fn(() => 'deepagents:langchain');
+    const resolveInitialExecution = vi.fn(async () => ({
+      executionProviderId: 'deepagents:langchain' as const,
+    }));
     const processor = buildLiveAdmissionProcessor({
       liveTurnAuthority: {
         ownedRunId: vi.fn(),
@@ -48,7 +50,7 @@ describe('startLiveExecutionServices', () => {
         getOrRecoverCursor: vi.fn(async () => ''),
         setAgentCursor: vi.fn(),
         saveState: vi.fn(),
-        resolveExecutionProviderId,
+        resolveInitialExecution,
       },
       opsRepository: {
         getAgentTurnContext,
@@ -69,7 +71,7 @@ describe('startLiveExecutionServices', () => {
         threadId: 'T1',
       }),
     );
-    expect(resolveExecutionProviderId).toHaveBeenCalledWith(
+    expect(resolveInitialExecution).toHaveBeenCalledWith(
       expect.objectContaining({ agentConfig: { model: 'gpt-5.5' } }),
       'sl:C123',
     );

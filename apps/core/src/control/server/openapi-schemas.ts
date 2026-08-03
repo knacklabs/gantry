@@ -1,4 +1,5 @@
 import type { JsonSchema } from './openapi-route-helpers.js';
+import { providerModelOpenApiSchemas } from './openapi-model-discovery-schemas.js';
 import { listModelRouteProviders } from '../../shared/model-provider-registry.js';
 import { modelCredentialSchemas } from './openapi-model-credential-schemas.js';
 import { peopleOpenApiSchemas } from './openapi-people.js';
@@ -523,6 +524,7 @@ export const openApiSchemas: Record<string, JsonSchema> = {
     },
   },
   ModelListResponse: arrayEnvelope('models', 'Model'),
+  ...providerModelOpenApiSchemas,
   ModelDefaultSlot: {
     type: 'object',
     required: [

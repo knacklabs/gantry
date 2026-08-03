@@ -85,6 +85,7 @@ async function handleDesiredState(
   write?: {
     key: { appId: string; kid: string };
     body: unknown;
+    respond?: (revision: number) => void;
   },
 ): Promise<boolean> {
   if (req.method === 'GET') {
@@ -274,7 +275,8 @@ async function handleDesiredState(
           );
           return true;
         }
-        sendJson(res, 200, { revision });
+        if (write?.respond) write.respond(revision);
+        else sendJson(res, 200, { revision });
         return true;
       }
       const outcome = await ctx.settingsImport.importFleet(
@@ -317,7 +319,8 @@ async function handleDesiredState(
         );
         return true;
       }
-      sendJson(res, 200, { revision: outcome.revision });
+      if (write?.respond) write.respond(outcome.revision);
+      else sendJson(res, 200, { revision: outcome.revision });
       return true;
     }
   }
@@ -332,12 +335,13 @@ export function writeControlDesiredState(input: {
   ctx: ControlRouteContext;
   key: { appId: string; kid: string };
   body: unknown;
+  respond?: (revision: number) => void;
 }): Promise<boolean> {
   return handleDesiredState(
     { method: 'PUT' } as IncomingMessage,
     input.res,
     input.ctx,
-    { key: input.key, body: input.body },
+    { key: input.key, body: input.body, respond: input.respond },
   );
 }
 

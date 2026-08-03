@@ -23,6 +23,8 @@ import { recordRuntimeModelUsage } from './model-status-output.js';
 import { providerSessionAccessFingerprintMatches } from './provider-session-access-fingerprint.js';
 import { buildBoundedMemoryRecallQuery } from '../memory/app-memory-recall-query.js';
 import { appIdFromConversationJid } from '../shared/app-conversation-jid.js';
+// prettier-ignore
+import { modelIdentitySnapshot, resolveModelSelectionForWorkload } from '../shared/model-catalog.js';
 import {
   loadPatternsContext,
   markPatternsContextSurfaced,
@@ -171,6 +173,7 @@ export function createGroupAgentRunner(input: {
     const runtimeAppId = turnContext?.appId ?? turnAppId;
     const defaultRuntimeModel =
       group.agentConfig?.model ?? defaultInteractiveModel;
+    let runModelIdentity = initialProvider.modelIdentity;
     const forwardedRuntimeEventKeys = new Set<string>();
     const defaultMemoryScope = memoryScopeForConversationKind(
       group.conversationKind,
@@ -640,6 +643,8 @@ export function createGroupAgentRunner(input: {
         onFailover: (toProviderId, details) => {
           const fromProviderId = executionProviderId;
           executionProviderId = toProviderId;
+          // prettier-ignore
+          runModelIdentity = modelIdentitySnapshot(resolveModelSelectionForWorkload(details.toModel, 'chat'));
           publishRunFailoverEvent({
             publish: deps.publishRuntimeEvent,
             appId: runtimeAppId,
@@ -656,6 +661,12 @@ export function createGroupAgentRunner(input: {
         log: (message) =>
           logger.warn({ group: group.name }, redactString(message)),
       });
+      if (runState.runId && runModelIdentity) {
+        await ops().setAgentRunModelIdentity?.({
+          runId: runState.runId,
+          modelIdentity: runModelIdentity,
+        });
+      }
       await forwardRuntimeEvents({
         output,
         publishRuntimeEvent: deps.publishRuntimeEvent,

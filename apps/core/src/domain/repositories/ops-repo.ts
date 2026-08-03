@@ -8,6 +8,7 @@ import type {
 } from './domain-types.js';
 import type { RuntimeEventType } from '../events/runtime-event-types.js';
 import type { ExecutionProviderId } from '../sessions/sessions.js';
+import type { ResolvedModelIdentitySnapshot } from '../../shared/model-catalog.js';
 import type { RunLease } from '../ports/worker-coordination.js';
 import type { LiveAdmissionWorkItemEnqueueResult } from '../ports/live-turns.js';
 
@@ -396,7 +397,12 @@ export interface RuntimeAgentSessionRepository {
     executionProviderId: ExecutionProviderId;
     providerSessionId?: string | null;
     cause: 'message' | 'job' | 'control' | 'manual';
+    modelIdentity?: ResolvedModelIdentitySnapshot;
   }): Promise<string | undefined>;
+  setAgentRunModelIdentity?(input: {
+    runId: string;
+    modelIdentity: ResolvedModelIdentitySnapshot;
+  }): Promise<boolean>;
   updateAgentRunProviderMetadata?(input: {
     runId: string;
     runIds?: string[];

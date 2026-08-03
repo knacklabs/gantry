@@ -23,6 +23,17 @@ vi.mock('@core/config/index.js', async (importOriginal) => {
   };
 });
 
+vi.mock('@core/shared/model-catalog.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@core/shared/model-catalog.js')>();
+  return {
+    ...actual,
+    resolveModelSelectionForWorkload: vi.fn(
+      actual.resolveModelSelectionForWorkload,
+    ),
+  };
+});
+
 vi.mock('@core/platform/workspace-folder.js', () => ({
   resolveWorkspaceFolderPath: () => '/tmp/gantry-unit-scheduler-agent',
 }));
@@ -59,6 +70,10 @@ vi.mock('@core/jobs/system-jobs.js', () => ({
 }));
 
 const systemJobs = await import('@core/jobs/system-jobs.js');
+const modelCatalog = await import('@core/shared/model-catalog.js');
+const resolveModelSelectionForWorkloadMock = vi.mocked(
+  modelCatalog.resolveModelSelectionForWorkload,
+);
 const runtimeStore =
   await import('@core/adapters/storage/postgres/runtime-store.js');
 const getConfiguredModelProvidersForAppMock = vi.mocked(
@@ -631,6 +646,7 @@ describe('jobs/execution', () => {
         agentSessionId: 'agent-session:scheduler',
       })),
       createSessionAgentRun: vi.fn(async () => 'agent-run:job-1'),
+      setAgentRunModelIdentity: vi.fn(async () => true),
       completeSessionAgentRun: vi
         .fn()
         .mockRejectedValue(new Error('session bookkeeping unavailable')),
@@ -1039,6 +1055,7 @@ describe('jobs/execution', () => {
         externalSessionId: 'provider-session:resume',
       })),
       createSessionAgentRun: vi.fn(async () => 'agent-run:job-1'),
+      setAgentRunModelIdentity: vi.fn(async () => true),
       completeSessionAgentRun: vi.fn(async () => undefined),
     };
     const runAgent = vi.fn(async (_group, _input, onProcess) => {
@@ -1071,6 +1088,15 @@ describe('jobs/execution', () => {
       executionProviderId: 'anthropic:claude-agent-sdk',
       providerSessionId: 'provider-session:resume',
       cause: 'job',
+    });
+    expect(opsRepository.setAgentRunModelIdentity).toHaveBeenCalledWith({
+      runId: 'agent-run:job-1',
+      modelIdentity: {
+        alias: 'opus',
+        providerId: 'anthropic',
+        providerModelId: 'claude-opus-5',
+        displayName: 'Opus 5',
+      },
     });
     expect(opsRepository.updateAgentRunProviderMetadata).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2903,6 +2929,7 @@ describe('jobs/execution', () => {
           agentSessionId: 'agent-session:scheduler',
         })),
         createSessionAgentRun: vi.fn(async () => 'agent-run:job-1'),
+        setAgentRunModelIdentity: vi.fn(async () => true),
       };
       // gpt-oss family: members groq-oss (groq) + cerebras. Both configured ->
       // candidates [groq-oss, cerebras].
@@ -2943,6 +2970,17 @@ describe('jobs/execution', () => {
       expect(runAgent).toHaveBeenCalledTimes(2);
       expect(runAgent.mock.calls[0][1]).toMatchObject({ model: 'groq-oss' });
       expect(runAgent.mock.calls[1][1]).toMatchObject({ model: 'cerebras' });
+      expect(opsRepository.setAgentRunModelIdentity).toHaveBeenCalledWith({
+        runId: 'agent-run:job-1',
+        modelIdentity: expect.objectContaining({
+          alias: 'cerebras',
+          providerId: 'cerebras',
+        }),
+      });
+      expect(resolveModelSelectionForWorkloadMock).toHaveBeenCalledWith(
+        'cerebras',
+        'one_time_job',
+      );
       // SAME lease across both attempts: no re-claim, same lease token + fencing.
       expect(opsRepository.claimDueJobRunStart).toHaveBeenCalledTimes(1);
       expect(runAgent.mock.calls[0][1]).toMatchObject({

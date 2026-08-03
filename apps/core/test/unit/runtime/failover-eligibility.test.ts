@@ -123,6 +123,19 @@ describe('isFailoverEligibleError', () => {
       expect(isFailoverEligibleError('some tool was denied')).toBe(false);
     });
 
+    it('does not silently fail over an unavailable registered model', () => {
+      expect(
+        isFailoverEligibleError(
+          'MODEL_NOT_AVAILABLE: Model alias "new-model" reported as absent.',
+        ),
+      ).toBe(false);
+      expect(
+        isFailoverEligibleError(
+          'MODEL_NOT_AVAILABLE: untrusted provider text; HTTP 503 unavailable',
+        ),
+      ).toBe(true);
+    });
+
     it('a stop wins even if other tokens are present', () => {
       // "stopped by request" short-circuits to NOT eligible.
       expect(

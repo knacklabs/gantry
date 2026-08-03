@@ -26,6 +26,7 @@ import {
   GANTRY_CLAUDE_SDK_SKILLS_ENV,
   claudeSdkSkillNamesForMaterializedSkills,
 } from './native-sdk-skills.js';
+import { normalizeProviderModelError } from '../provider-model-error.js';
 
 const CLAUDE_CONFIG_DIR_ENV = 'CLAUDE_CONFIG_DIR';
 const ANTHROPIC_MODEL_ENV = 'ANTHROPIC_MODEL';
@@ -45,6 +46,8 @@ export class AnthropicClaudeAgentExecutionAdapter implements AgentExecutionAdapt
   isMissingProviderSessionError(error: string | undefined): boolean {
     return /\bNo conversation found with session ID\b/i.test(error ?? '');
   }
+
+  normalizeModelError = normalizeProviderModelError;
 
   sessionCompactionPrompt(): string {
     return '/compact';

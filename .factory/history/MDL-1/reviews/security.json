@@ -1,0 +1,18 @@
+{
+  "generated_by": "autoreview",
+  "score": 10,
+  "summary": "The single branch autoreview pass reported no accepted or actionable security findings.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [],
+  "recommendation": "Approve",
+  "reviewed_scope": [
+    "upstream/main...feature/mdl-1-live-provider-models"
+  ],
+  "skills_used": [
+    "review-animations"
+  ],
+  "aspect": "security",
+  "recorded_at": "2026-08-03T14:45:58+00:00",
+  "commit": "c70d658e3c3159959c6a5d76cb7f2566baaa2f7a"
+}

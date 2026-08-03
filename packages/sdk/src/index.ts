@@ -46,6 +46,7 @@ export type {
 export type * from './job-model-types.js';
 export type * from './openapi-types.js';
 export type * from './people.js';
+export type * from './models.js';
 
 export type ResponseMode = 'sse' | 'webhook' | 'both' | 'none';
 export type MemorySubjectType = 'user' | 'group' | 'channel' | 'common';

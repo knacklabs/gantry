@@ -18,7 +18,9 @@ import {
   ProviderAccountListResponseSchema,
   ProviderAccountResponseSchema,
   ProviderListResponseSchema,
+  ProviderModelListingResponseSchema,
   ProviderResponseSchema,
+  RegisterProviderModelRequestSchema,
   ContractMetadataSchema,
   ConversationListResponseSchema,
   ConversationResponseSchema,
@@ -1455,6 +1457,32 @@ describe('contracts package', () => {
       id: 'slack',
       displayName: 'Slack',
       capabilities: ['threads'],
+    });
+    expect(
+      ProviderModelListingResponseSchema.parse({
+        providerId: 'openrouter',
+        providerLabel: 'OpenRouter',
+        discoverySource: 'live',
+        refreshedAt: iso,
+        refreshError: null,
+        models: [
+          {
+            providerModelId: 'vendor/new-model',
+            displayName: 'New Model',
+            aliases: [],
+            registered: false,
+            availability: 'available_to_register',
+            source: 'live',
+            deprecated: false,
+          },
+        ],
+      }),
+    ).toMatchObject({ providerId: 'openrouter' });
+    expectInvalid(RegisterProviderModelRequestSchema, {
+      providerId: 'openrouter',
+      providerModelId: 'vendor/new-model',
+      alias: 'new model',
+      expectedRevision: 1,
     });
 
     expect(

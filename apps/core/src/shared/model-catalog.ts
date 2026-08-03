@@ -178,6 +178,13 @@ export interface ModelCatalogEntry {
   experimental?: boolean;
 }
 
+export interface ResolvedModelIdentitySnapshot {
+  alias: string;
+  providerId: string;
+  providerModelId: string;
+  displayName: string;
+}
+
 export interface ModelCapabilityDescriptor {
   /**
    * Input modalities the model accepts beyond text, analogous to the pricing
@@ -745,6 +752,16 @@ export function resolveModelSelectionForWorkload(
   workload: ModelWorkload,
 ): ModelResolution {
   return enforceWorkloadEligibility(resolveModelSelection(value), workload);
+}
+
+export function modelIdentitySnapshot(resolution: ModelResolution | undefined) {
+  if (!resolution?.ok) return undefined;
+  return {
+    alias: resolution.alias,
+    providerId: resolution.entry.modelRoute.id,
+    providerModelId: resolution.entry.modelRoute.providerModelId,
+    displayName: resolution.entry.displayName,
+  };
 }
 
 export function resolveModelAlias(value?: string | null): string | undefined {

@@ -43,7 +43,6 @@ import {
 import { appIdFromConversationJid } from '../../shared/app-conversation-jid.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import { resolveConversationRoute } from './runtime-app-routes.js';
-import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
 import type {
   RuntimeAgentSessionRepository,
   RuntimeChatMetadataRepository,
@@ -70,7 +69,7 @@ import { registerMemoryLlmClient } from '../../memory/memory-llm-port.js';
 import type { RunnerSandboxProvider } from '../../shared/runner-sandbox-provider.js';
 import type { ConversationHistoryCoverageRepository } from '../../domain/ports/conversation-history-coverage.js';
 import { createMutableChannelRuntime } from './runtime-app-channel-runtime.js';
-import { resolveGroupRouteExecutionProviderId } from '../../runtime/group-initial-execution-provider.js';
+import { resolveInitialGroupExecutionProviderId } from '../../runtime/group-initial-execution-provider.js';
 import { resolveRuntimeDefaultAdapters } from './runtime-default-adapters.js';
 import type { AvailableGroup } from '../../runtime/agent-spawn.js';
 export type RuntimeAppRepository = RuntimeRouterStateRepository &
@@ -128,10 +127,10 @@ export interface RuntimeApp {
     },
   ) => Promise<boolean>;
   getConversationRoutes: () => Record<string, ConversationRoute>;
-  resolveExecutionProviderId: (
+  resolveInitialExecution: (
     route: Pick<ConversationRoute, 'agentConfig' | 'folder'>,
     chatJid: string,
-  ) => Promise<ExecutionProviderId>;
+  ) => ReturnType<typeof resolveInitialGroupExecutionProviderId>;
   setAgentCursor: (chatJid: string, timestamp: string) => void;
   setChannelRuntime: (runtime: GroupProcessingDeps['channelRuntime']) => void;
   setProviderIdNormalizer?: (normalize: (providerId: string) => string) => void;
@@ -206,11 +205,11 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   let conversationHistoryCoverageRepository:
     | ConversationHistoryCoverageRepository
     | undefined;
-  const resolveExecutionProviderId = (
+  const resolveInitialExecution = (
     route: Pick<ConversationRoute, 'agentConfig' | 'folder'>,
     chatJid: string,
   ) =>
-    resolveGroupRouteExecutionProviderId({
+    resolveInitialGroupExecutionProviderId({
       group: route,
       appId: appIdFromConversationJid(chatJid) ?? 'default',
       defaultModel: getDefaultModelConfig('interactive', route.folder).model,
@@ -688,7 +687,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     processGroupMessages: (chatJid, options) =>
       groupProcessor.processGroupMessages(chatJid, options),
     getConversationRoutes: () => conversationRoutes,
-    resolveExecutionProviderId,
+    resolveInitialExecution,
     setAgentCursor: (chatJid, timestamp) => {
       lastAgentTimestamp[chatJid] = timestamp;
     },

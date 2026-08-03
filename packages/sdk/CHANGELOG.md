@@ -1,5 +1,9 @@
 # @gantry/sdk
 
+## Unreleased
+
+- Added `client.models.discover()` and revision-safe `client.models.register()`.
+
 ## 0.4.0
 
 - Updated SDK contracts for the clean capability, model defaults, and job capability requirement surfaces.

@@ -1,0 +1,15 @@
+{
+  "issue": "MDL-1",
+  "stages": [
+    {
+      "id": "MDL-1A",
+      "title": "Discover and safely register provider models",
+      "status": "done",
+      "started_at": "2026-08-03T13:41:28+00:00",
+      "base_sha": "c6f52a52309892f4a9b735168181df83904ebad8",
+      "dirty_at_start": {},
+      "task_sha256": "f0e0434085694fed185a436612092f3a710219073774f4590e2a7ba8a45af7a8",
+      "completed_at": "2026-08-03T13:58:22+00:00"
+    }
+  ]
+}

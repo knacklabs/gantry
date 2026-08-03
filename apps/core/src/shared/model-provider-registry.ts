@@ -1,13 +1,7 @@
-import type {
-  ModelExecutionProviderId,
-  ModelResponseFamily,
-  ModelWorkload,
-} from './model-catalog.js';
-import {
-  DEFAULT_AGENT_ENGINE,
-  DEEPAGENTS_ENGINE,
-  type AgentEngine,
-} from './agent-engine.js';
+// prettier-ignore
+import type { ModelExecutionProviderId, ModelResponseFamily, ModelWorkload } from './model-catalog.js';
+// prettier-ignore
+import { DEFAULT_AGENT_ENGINE, DEEPAGENTS_ENGINE, type AgentEngine } from './agent-engine.js';
 import { OPENAI_COMPATIBLE_PROVIDER_DEFINITIONS } from './model-provider-registry-openai-compatible.js';
 
 export type ModelCredentialPayload = Record<string, string>;
@@ -142,6 +136,7 @@ export interface ModelProviderDefinition {
   supportedWorkloads: readonly ModelWorkload[];
   credentialModes: readonly ModelCredentialModeDefinition[];
   gateway: ModelGatewayDefinition;
+  discovery?: { path: string; cursorParameter?: string };
   cacheSupport: ModelProviderCacheSupport;
   executionRoute: ModelExecutionRoute;
   sdkModelCapabilityMetadata?: boolean;
@@ -216,6 +211,7 @@ export const MODEL_PROVIDER_DEFINITIONS = [
         credentialProvider: 'native',
       },
     },
+    discovery: { path: '/v1/models', cursorParameter: 'after_id' },
     cacheSupport: {
       prompt: {
         mode: 'anthropic_cache_control',
@@ -301,6 +297,7 @@ export const MODEL_PROVIDER_DEFINITIONS = [
         credentialProvider: 'openrouter',
       },
     },
+    discovery: { path: '/v1/models' },
     cacheSupport: {
       prompt: {
         // Via chat/completions the usage is prefix-shaped; Kimi/Moonshot caches
@@ -392,6 +389,7 @@ export const MODEL_PROVIDER_DEFINITIONS = [
         credentialProvider: 'native',
       },
     },
+    discovery: { path: '/v1/models' },
     cacheSupport: {
       prompt: {
         mode: 'openai_automatic_prefix',
