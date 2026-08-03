@@ -10,7 +10,6 @@ function makeModule(overrides?: {
   ops?: Record<string, unknown>;
   repositories?: Record<string, unknown>;
   runtimeEvents?: Record<string, unknown>;
-  liveAdmissionAppId?: string | null;
   getConfiguredAgentRuntime?: (
     agentFolder: string,
   ) => 'worker' | 'inline' | undefined;
@@ -81,7 +80,6 @@ function makeModule(overrides?: {
         : {}),
     } as never,
     runtimeEvents: runtimeEvents as never,
-    liveAdmissionAppId: overrides?.liveAdmissionAppId,
     getConfiguredAgentRuntime:
       overrides?.getConfiguredAgentRuntime ?? vi.fn(() => 'inline'),
     now: () => '2026-04-30T00:00:00.000Z' as never,
@@ -294,7 +292,6 @@ describe('SessionInteractionModule', () => {
       };
     });
     const { module, ops } = makeModule({
-      liveAdmissionAppId: 'default',
       control: {
         upsertAppResponseRoute: vi.fn(async () => {
           order.push('upsertAppResponseRoute');
@@ -316,28 +313,31 @@ describe('SessionInteractionModule', () => {
       },
     });
 
-    const accepted = await module.acceptMessage({
-      appId: 'app-one',
-      sessionId: 'session-1',
-      message: 'hello from sdk',
-      threadId: 'thread-1',
-      responseMode: 'webhook',
-      senderId: 'user-1',
-      senderName: 'User One',
-      correlationId: 'corr-1',
-      responseSchema: {
-        type: 'object',
-        required: ['answer'],
+    const accepted = await module.acceptMessage(
+      {
+        appId: 'app-one',
+        sessionId: 'session-1',
+        message: 'hello from sdk',
+        threadId: 'thread-1',
+        responseMode: 'webhook',
+        senderId: 'user-1',
+        senderName: 'User One',
+        correlationId: 'corr-1',
+        responseSchema: {
+          type: 'object',
+          required: ['answer'],
+        },
+        agentControls: {
+          effort: 'high',
+          thinking: { mode: 'on', budgetTokens: 1024 },
+          maxOutputTokens: 4096,
+        },
+        beforeDurableAdmission: async () => {
+          order.push('beforeDurableAdmission');
+        },
       },
-      agentControls: {
-        effort: 'high',
-        thinking: { mode: 'on', budgetTokens: 1024 },
-        maxOutputTokens: 4096,
-      },
-      beforeDurableAdmission: async () => {
-        order.push('beforeDurableAdmission');
-      },
-    });
+      'default',
+    );
 
     expect(order).toEqual([
       'upsertAppResponseRoute',
@@ -358,7 +358,6 @@ describe('SessionInteractionModule', () => {
   it('does not notify or report durable work for overloaded admission', async () => {
     const notifyLiveAdmissionWorkItem = vi.fn();
     const { module } = makeModule({
-      liveAdmissionAppId: 'default',
       ops: { notifyLiveAdmissionWorkItem },
       runtimeEvents: {
         publishWithLiveAdmissionMessage: vi.fn(async () => ({
@@ -368,11 +367,14 @@ describe('SessionInteractionModule', () => {
       },
     });
 
-    const accepted = await module.acceptMessage({
-      appId: 'app-one',
-      sessionId: 'session-1',
-      message: 'hello from sdk',
-    });
+    const accepted = await module.acceptMessage(
+      {
+        appId: 'app-one',
+        sessionId: 'session-1',
+        message: 'hello from sdk',
+      },
+      'default',
+    );
 
     expect(notifyLiveAdmissionWorkItem).not.toHaveBeenCalled();
     expect(accepted.enqueue.durableAdmissionCreated).toBe(false);
@@ -410,16 +412,18 @@ describe('SessionInteractionModule', () => {
     const getConfiguredAgentRuntime = vi.fn(() => undefined);
     const { module, control, ops, runtimeEvents } = makeModule({
       getConfiguredAgentRuntime,
-      liveAdmissionAppId: null,
     });
 
     await expect(
-      module.acceptMessage({
-        appId: 'app-one',
-        sessionId: 'session-1',
-        message: 'hello from sdk',
-        responseSchema: { type: 'object' },
-      }),
+      module.acceptMessage(
+        {
+          appId: 'app-one',
+          sessionId: 'session-1',
+          message: 'hello from sdk',
+          responseSchema: { type: 'object' },
+        },
+        null,
+      ),
     ).rejects.toMatchObject({
       code: 'INVALID_REQUEST',
       message: 'response_schema requires an inline agent runtime',
@@ -434,18 +438,18 @@ describe('SessionInteractionModule', () => {
 
   it('accepts and persists response schemas for inline runtimes', async () => {
     const getConfiguredAgentRuntime = vi.fn(() => 'inline' as const);
-    const { module, ops } = makeModule({
-      getConfiguredAgentRuntime,
-      liveAdmissionAppId: null,
-    });
+    const { module, ops } = makeModule({ getConfiguredAgentRuntime });
 
     await expect(
-      module.acceptMessage({
-        appId: 'app-one',
-        sessionId: 'session-1',
-        message: 'hello from sdk',
-        responseSchema: { type: 'object' },
-      }),
+      module.acceptMessage(
+        {
+          appId: 'app-one',
+          sessionId: 'session-1',
+          message: 'hello from sdk',
+          responseSchema: { type: 'object' },
+        },
+        null,
+      ),
     ).resolves.toMatchObject({ accepted: true });
 
     expect(getConfiguredAgentRuntime).toHaveBeenCalledWith('group');
@@ -462,16 +466,18 @@ describe('SessionInteractionModule', () => {
       item: {},
     }));
     const { module, ops } = makeModule({
-      liveAdmissionAppId: null,
       ops: { storeMessageWithLiveAdmission },
     });
 
-    const accepted = await module.acceptMessage({
-      appId: 'app-one',
-      sessionId: 'session-1',
-      message: 'hello from sdk',
-      responseSchema: { type: 'object' },
-    });
+    const accepted = await module.acceptMessage(
+      {
+        appId: 'app-one',
+        sessionId: 'session-1',
+        message: 'hello from sdk',
+        responseSchema: { type: 'object' },
+      },
+      null,
+    );
 
     expect(storeMessageWithLiveAdmission).not.toHaveBeenCalled();
     expect(ops.storeMessage).toHaveBeenCalledWith(

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
 
 import type { RuntimeApp } from '../../app/bootstrap/runtime-app.js';
 import type {
@@ -32,6 +33,7 @@ import {
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
   getRuntimeControlRepository,
+  getRuntimeEventExchange,
   getRuntimeRepositories,
   getRuntimeStorage,
   tryAcquireRuntimeAdvisoryLease,
@@ -81,6 +83,8 @@ import {
 import { isPrivateAddress } from './webhook-target.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import { subscribeWebhookDeliveryReady } from '../../application/runtime-events/webhook-delivery-wakeup.js';
+import { SessionInteractionModule } from '../../application/sessions/session-interaction-module.js';
+import { adaptSessionControlPort } from './session-control-port.js';
 
 export interface ControlServerHandle {
   close: () => Promise<void>;
@@ -352,8 +356,29 @@ export function startControlServer(input: {
   const getEffectiveRuntimeSettings =
     input.getEffectiveRuntimeSettings ??
     (() => (effectiveRuntimeSettings ??= getRuntimeSettingsForConfig()));
+  const sessionInteraction = new SessionInteractionModule({
+    get control() {
+      return adaptSessionControlPort(getRuntimeControlRepository());
+    },
+    get ops() {
+      return getRuntimeRepositories();
+    },
+    get repositories() {
+      return getRuntimeStorage().repositories;
+    },
+    get runtimeEvents() {
+      return getRuntimeEventExchange();
+    },
+    get getConfiguredAgentRuntime() {
+      return getConfiguredAgentRuntime;
+    },
+    now: () => nowIso() as never,
+    createId: randomUUID,
+    stableHash: (input) => createHash('sha256').update(input).digest('hex'),
+  });
   const ctx: ControlRouteContext = {
     app: input.app,
+    sessionInteraction,
     jobManagement: createJobManagementService({
       app: input.app,
       getBrowserStatus: input.getBrowserStatus,
