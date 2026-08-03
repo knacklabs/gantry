@@ -18,6 +18,8 @@ The HTML files need no server-side application and can be opened from static hos
 
 Use the guided views first, then select a component or relationship to isolate its neighborhood. In the architecture views, `SRC` badges expose revision-verified repository evidence.
 
+See [Known viewer limitations](./known-limitations.md) for interaction issues inherited from the pinned Archify v2.13.0 viewer and safe ways to continue when they occur.
+
 ## Evidence and verification
 
 - [Source evidence](./source-evidence.md) identifies the current authority order and subsystem entrypoints.

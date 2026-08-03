@@ -6,10 +6,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 import sys
-from html.parser import HTMLParser
+from functools import lru_cache
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
 
 SOURCE_REVISION = "69ac5b71650d1d8ff99c24eb15fa368b9c3eb418"
 ARCHIFY_VERSION = "2.13.0"
@@ -24,14 +25,20 @@ ARTIFACTS = (
 PUBLIC_ROOTS = (
     Path("README.md"),
     Path("docs/README.md"),
+    Path("docs/MEMORY.md"),
     Path("docs/getting-started.md"),
+    Path("docs/product/BRIEF.md"),
     Path("docs/product/company-adoption-guide.md"),
     Path("docs/architecture/README.md"),
+    Path("docs/architecture/deployment-profiles.md"),
+    Path("docs/architecture/multi-agent-provider-configuration.md"),
     Path("docs/architecture/overview.md"),
     Path("docs/architecture/system-atlas.md"),
     Path("docs/architecture/runtime-flows.md"),
     Path("docs/architecture/scaling-and-deployment.md"),
+    Path("docs/specs/architecture-atlas-and-adoption.md"),
     Path("docs/index.html"),
+    ATLAS / "known-limitations.md",
     ATLAS,
 )
 PROHIBITED = ("/private/tmp", "/Users/", "file://")
@@ -43,17 +50,6 @@ REQUIRED_VALIDATION = {
     "warnings": 0,
 }
 EXPECTED_RECEIPTS = {f"{stem}.json" for _diagram_type, stem in ARTIFACTS}
-
-
-class _LinkParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.links: list[str] = []
-
-    def handle_starttag(self, _tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        for name, value in attrs:
-            if name.lower() in {"href", "src"} and value:
-                self.links.append(value)
 
 
 def _sha256(path: Path) -> str:
@@ -82,27 +78,128 @@ def _public_files(root: Path) -> list[Path]:
 def _links(path: Path, text: str) -> list[str]:
     if path.suffix.lower() == ".md":
         return [match.group(1).strip().split(maxsplit=1)[0].strip("<>") for match in MARKDOWN_LINK.finditer(text)]
-    parser = _LinkParser()
-    parser.feed(text)
-    return parser.links
+    links, _anchors, _base_href = _html_ast_evidence(text)
+    return list(links)
 
 
 def _is_external(target: str) -> bool:
     split = urlsplit(target)
-    return bool(split.scheme or split.netloc or target.startswith(("#", "//")))
+    return bool(split.scheme or split.netloc or target.startswith("//"))
+
+
+MARKDOWN_AST_SCRIPT = r"""
+import * as prettier from "prettier";
+import GithubSlugger from "github-slugger";
+let source = "";
+for await (const chunk of process.stdin) source += chunk;
+const { ast } = await prettier.__debug.parse(source, { parser: "markdown" });
+const slugger = new GithubSlugger();
+const headings = [];
+const html = [];
+function text(node) {
+  if (!node || typeof node !== "object") return "";
+  if (node.type === "text" || node.type === "inlineCode") return node.value || "";
+  if (node.type === "image" || node.type === "imageReference") return node.alt || "";
+  return Array.isArray(node.children) ? node.children.map(text).join("") : "";
+}
+function visit(node) {
+  if (!node || typeof node !== "object") return;
+  if (node.type === "heading") headings.push(slugger.slug(text(node)));
+  if (node.type === "html" && typeof node.value === "string") html.push(node.value);
+  if (Array.isArray(node.children)) node.children.forEach(visit);
+}
+visit(ast);
+process.stdout.write(JSON.stringify({ headings, html }));
+"""
+
+HTML_AST_SCRIPT = r"""
+import { parse } from "parse5";
+let source = "";
+for await (const chunk of process.stdin) source += chunk;
+const document = parse(source, { scriptingEnabled: true });
+const links = [];
+const anchors = [];
+let baseHref = null;
+function visit(node) {
+  if (!node || typeof node !== "object") return;
+  const attrs = Array.isArray(node.attrs) ? node.attrs : [];
+  const tag = typeof node.tagName === "string" ? node.tagName.toLowerCase() : "";
+  for (const attr of attrs) {
+    const name = attr.name.toLowerCase();
+    if (tag === "base" && name === "href" && baseHref === null) baseHref = attr.value;
+    if (tag !== "base" && (name === "href" || name === "src") && attr.value) links.push(attr.value);
+    if (attr.value && (name === "id" || (tag === "a" && name === "name"))) {
+      anchors.push(attr.value);
+    }
+  }
+  // Template descendants live in a separate DocumentFragment and cannot be
+  // fragment targets in this document. parse5 exposes them on `content`, not
+  // `childNodes`, so walking childNodes mirrors the browser document tree.
+  if (Array.isArray(node.childNodes)) node.childNodes.forEach(visit);
+}
+visit(document);
+process.stdout.write(JSON.stringify({ links, anchors, baseHref }));
+"""
+
+
+@lru_cache(maxsize=128)
+def _markdown_ast_evidence(text: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", MARKDOWN_AST_SCRIPT],
+        input=text,
+        text=True,
+        capture_output=True,
+        check=True,
+        cwd=Path(__file__).resolve().parents[1],
+    )
+    payload = json.loads(result.stdout)
+    return tuple(payload["headings"]), tuple(payload["html"])
+
+
+@lru_cache(maxsize=128)
+def _html_ast_evidence(text: str) -> tuple[tuple[str, ...], tuple[str, ...], str | None]:
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", HTML_AST_SCRIPT],
+        input=text,
+        text=True,
+        capture_output=True,
+        check=True,
+        cwd=Path(__file__).resolve().parents[1],
+    )
+    payload = json.loads(result.stdout)
+    return tuple(payload["links"]), tuple(payload["anchors"]), payload["baseHref"]
+
+
+def _anchors(path: Path, text: str) -> set[str]:
+    headings: tuple[str, ...] = ()
+    if path.suffix.lower() == ".md":
+        headings, html_blocks = _markdown_ast_evidence(text)
+        _links, html_anchors, _base_href = _html_ast_evidence("\n".join(html_blocks))
+    else:
+        _links, html_anchors, _base_href = _html_ast_evidence(text)
+    anchors = set(html_anchors)
+    if path.suffix.lower() == ".md":
+        anchors.update(headings)
+    return anchors
 
 
 def _check_links(root: Path, errors: list[str]) -> None:
     for path in _public_files(root):
         text = path.read_text(encoding="utf-8")
         relative = path.relative_to(root)
+        base_href = _html_ast_evidence(text)[2] if path.suffix.lower() == ".html" else None
         for raw_target in _links(path, text):
-            if not raw_target or _is_external(raw_target):
+            effective_target = urljoin(base_href, raw_target) if base_href else raw_target
+            if not effective_target or _is_external(effective_target):
                 continue
-            target = unquote(urlsplit(raw_target).path)
+            split = urlsplit(effective_target)
+            target = unquote(split.path)
             if not target:
-                continue
-            resolved = (path.parent / target).resolve()
+                resolved = path.resolve()
+            elif target.startswith("/"):
+                resolved = (root / target.lstrip("/")).resolve()
+            else:
+                resolved = (path.parent / target).resolve()
             try:
                 resolved.relative_to(root.resolve())
             except ValueError:
@@ -110,6 +207,21 @@ def _check_links(root: Path, errors: list[str]) -> None:
                 continue
             if not resolved.exists():
                 errors.append(f"{relative}: broken local link: {raw_target}")
+                continue
+            fragment = unquote(split.fragment)
+            if not fragment or not resolved.is_file() or resolved.suffix.lower() not in {".md", ".html"}:
+                continue
+            # HTML Standard §7.4.6.4 selects the top of the document when the
+            # decoded fragment is an ASCII-case-insensitive `top`. Markdown
+            # targets here are renderable documents and receive that browser
+            # behavior after rendering just like checked `.html` targets.
+            if fragment.lower() == "top":
+                continue
+            target_text = resolved.read_text(encoding="utf-8")
+            if fragment not in _anchors(resolved, target_text):
+                errors.append(
+                    f"{relative}: missing local fragment in {resolved.relative_to(root.resolve())}: #{fragment}"
+                )
 
 
 def _check_prohibited_paths(root: Path, errors: list[str]) -> None:

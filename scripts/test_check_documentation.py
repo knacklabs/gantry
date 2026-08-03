@@ -78,6 +78,504 @@ class DocumentationCheckerTest(unittest.TestCase):
         (self.atlas / "README.md").write_text("[Missing](missing.md)\n", encoding="utf-8")
         self.assertTrue(any("broken local link" in error for error in checker.check_repository(self.root)))
 
+    def test_valid_markdown_heading_fragment_passes(self) -> None:
+        self._fixture()
+        (self.atlas / "README.md").write_text(
+            "[Evidence policy](source-evidence.md#evidence-policy)\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_invalid_markdown_heading_fragment_is_reported(self) -> None:
+        self._fixture()
+        (self.atlas / "README.md").write_text(
+            "[Missing section](source-evidence.md#missing-section)\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "missing local fragment" in error and "#missing-section" in error
+            for error in checker.check_repository(self.root)
+        ))
+
+    def test_setext_markdown_heading_fragment_passes(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8") + "\nSetext section\n--------------\n",
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Setext section](source-evidence.md#setext-section)\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_duplicate_heading_slug_avoids_natural_suffix_collision(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8") + "\n# Foo\n# Foo-1\n# Foo\n",
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Third Foo](source-evidence.md#foo-2)\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_heading_in_markdown_containers_produces_fragment(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8") + "\n> - ## Nested evidence\n",
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Nested evidence](source-evidence.md#nested-evidence)\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_ordered_list_continuation_heading_and_html_id_produce_fragments(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8")
+            + '\n10. item\n\n    ## Nested section\n    <span id="nested-id"></span>\n',
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Nested section](source-evidence.md#nested-section)\n"
+            "[Nested ID](source-evidence.md#nested-id)\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_heading_slug_uses_rendered_link_text_and_decoded_entity(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8")
+            + "\n## [Evidence policy](source-evidence.md) &amp; ownership\n",
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Policy ownership](source-evidence.md#evidence-policy--ownership)\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_heading_in_raw_html_blocks_is_not_a_fragment(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8")
+            + "\n<!--\n# Retired section\n-->\n"
+            + "<pre>\n# Example section\n</pre>\n\n"
+            + "<xmp>\n# Legacy section\n</xmp>\n\n"
+            + "<div>\n# Raw block section\n</div>\n\n",
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Retired](source-evidence.md#retired-section)\n"
+            "[Example](source-evidence.md#example-section)\n"
+            "[Legacy](source-evidence.md#legacy-section)\n"
+            "[Raw block](source-evidence.md#raw-block-section)\n",
+            encoding="utf-8",
+        )
+        errors = checker.check_repository(self.root)
+        self.assertTrue(any("#retired-section" in error for error in errors))
+        self.assertTrue(any("#example-section" in error for error in errors))
+        self.assertTrue(any("#legacy-section" in error for error in errors))
+        self.assertTrue(any("#raw-block-section" in error for error in errors))
+
+    def test_heading_slug_preserves_autolink_and_code_span_text(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8")
+            + "\n## API <https://example.com> and `<tag_name>`\n",
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[API](source-evidence.md#api-httpsexamplecom-and-tag_name)\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_heading_slug_renders_underscore_emphasis_but_preserves_intraword_underscore(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8")
+            + "\n## _Evidence policy_ for agent_name\n",
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Policy](source-evidence.md#evidence-policy-for-agent_name)\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_heading_slug_preserves_unicode_combining_marks(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8") + "\n## नमस्ते\n",
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Greeting](source-evidence.md#नमस्ते)\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_heading_slug_uses_exact_github_slugger_punctuation_policy(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8") + "\n## Foo·Bar\n",
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Middle dot](source-evidence.md#foobar)\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_fenced_html_id_does_not_create_fragment(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8") + '\n```html\n<section id="example"></section>\n```\n',
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Example](source-evidence.md#example)\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any("missing local fragment" in error for error in checker.check_repository(self.root)))
+
+    def test_container_fenced_code_does_not_create_fragments(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8")
+            + '\n> ```html\n> # Ghost heading\n> <span id="ghost-id"></span>\n> ```\n',
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Ghost heading](source-evidence.md#ghost-heading)\n"
+            "[Ghost ID](source-evidence.md#ghost-id)\n",
+            encoding="utf-8",
+        )
+        errors = checker.check_repository(self.root)
+        self.assertTrue(any("#ghost-heading" in error for error in errors))
+        self.assertTrue(any("#ghost-id" in error for error in errors))
+
+    def test_unclosed_container_fence_does_not_hide_outer_heading(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8")
+            + "\n> ```text\n> quoted code\n# Real heading\n",
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Real](source-evidence.md#real-heading)\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_fence_with_trailing_text_does_not_close_block(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8")
+            + '\n```text\n``` not a closing fence\n# Still code\n```\n',
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Still code](source-evidence.md#still-code)\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "#still-code" in error for error in checker.check_repository(self.root)
+        ))
+
+    def test_container_looking_fence_content_does_not_close_root_fence(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8")
+            + "\n```text\n> ```\n# Ghost root heading\n```\n",
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Ghost](source-evidence.md#ghost-root-heading)\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "#ghost-root-heading" in error for error in checker.check_repository(self.root)
+        ))
+
+    def test_ordered_list_continuation_fence_does_not_create_fragments(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8")
+            + '\n10. item\n\n    ```html\n    # Ghost list heading\n'
+            + '    <span id="ghost-list-id"></span>\n    ```\n',
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Ghost heading](source-evidence.md#ghost-list-heading)\n"
+            "[Ghost ID](source-evidence.md#ghost-list-id)\n",
+            encoding="utf-8",
+        )
+        errors = checker.check_repository(self.root)
+        self.assertTrue(any("#ghost-list-heading" in error for error in errors))
+        self.assertTrue(any("#ghost-list-id" in error for error in errors))
+
+    def test_inline_and_indented_code_html_ids_do_not_create_fragments(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8")
+            + '\n`<span id="inline-example">`\n\n    <section id="indented-example"></section>\n',
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Inline](source-evidence.md#inline-example)\n"
+            "[Indented](source-evidence.md#indented-example)\n",
+            encoding="utf-8",
+        )
+        errors = checker.check_repository(self.root)
+        self.assertTrue(any("#inline-example" in error for error in errors))
+        self.assertTrue(any("#indented-example" in error for error in errors))
+
+    def test_multiline_code_span_html_id_does_not_create_fragment(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8")
+            + '\n`code starts\n<span id="multiline-code"></span>\ncode ends`\n',
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Multiline code](source-evidence.md#multiline-code)\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "#multiline-code" in error for error in checker.check_repository(self.root)
+        ))
+
+    def test_container_indented_code_html_id_does_not_create_fragment(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8")
+            + '\n>     <span id="quoted-code"></span>\n',
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Quoted code](source-evidence.md#quoted-code)\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "#quoted-code" in error for error in checker.check_repository(self.root)
+        ))
+
+    def test_raw_text_content_id_is_not_anchor_but_element_id_is(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8")
+            + '\n<xmp id="real-xmp"><span id="ghost"></span></xmp>\n',
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Real](source-evidence.md#real-xmp)\n"
+            "[Ghost](source-evidence.md#ghost)\n",
+            encoding="utf-8",
+        )
+        errors = checker.check_repository(self.root)
+        self.assertFalse(any("#real-xmp" in error for error in errors))
+        self.assertTrue(any("#ghost" in error for error in errors))
+
+    def test_valid_html_id_fragment_passes(self) -> None:
+        self._fixture()
+        (self.atlas / "guide.html").write_text(
+            '<!doctype html><a href="#details">Details</a><section id="details"></section>',
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_html_fragment_resolves_against_first_base_href(self) -> None:
+        self._fixture()
+        (self.atlas / "guide.html").write_text(
+            '<!doctype html><base href="details.html"><a href="#details">Details</a>',
+            encoding="utf-8",
+        )
+        (self.atlas / "details.html").write_text(
+            '<!doctype html><section id="details"></section>',
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_implicit_html_top_fragment_passes_case_insensitively(self) -> None:
+        self._fixture()
+        (self.atlas / "guide.html").write_text(
+            '<!doctype html><a href="#TOP">Top</a>',
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_implicit_markdown_top_fragment_passes(self) -> None:
+        self._fixture()
+        (self.atlas / "README.md").write_text(
+            "[Back to top](source-evidence.md#top)\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_list_followed_by_thematic_break_does_not_create_setext_fragment(self) -> None:
+        self._fixture()
+        manifest = self.atlas / "source-evidence.md"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8") + "\n- Not a heading\n---\n",
+            encoding="utf-8",
+        )
+        (self.atlas / "README.md").write_text(
+            "[Not a heading](source-evidence.md#not-a-heading)\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "#not-a-heading" in error for error in checker.check_repository(self.root)
+        ))
+
+    def test_invalid_html_id_fragment_is_reported(self) -> None:
+        self._fixture()
+        (self.atlas / "guide.html").write_text(
+            '<!doctype html><a href="#missing">Missing</a><section id="details"></section>',
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "missing local fragment" in error and "#missing" in error
+            for error in checker.check_repository(self.root)
+        ))
+
+    def test_html_raw_text_content_id_is_not_a_fragment(self) -> None:
+        self._fixture()
+        (self.atlas / "guide.html").write_text(
+            '<!doctype html><a href="#ghost">Ghost</a>'
+            '<textarea><span id="ghost"></span></textarea>',
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "missing local fragment" in error and "#ghost" in error
+            for error in checker.check_repository(self.root)
+        ))
+
+    def test_html_title_content_id_is_not_a_fragment(self) -> None:
+        self._fixture()
+        (self.atlas / "guide.html").write_text(
+            '<!doctype html><a href="#ghost">Ghost</a>'
+            '<title><span id="ghost"></span></title>',
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "missing local fragment" in error and "#ghost" in error
+            for error in checker.check_repository(self.root)
+        ))
+
+    def test_html_noscript_and_template_content_ids_are_not_fragments(self) -> None:
+        self._fixture()
+        (self.atlas / "guide.html").write_text(
+            '<!doctype html><a href="#noscript-ghost">Ghost</a>'
+            '<a href="#template-ghost">Ghost</a>'
+            '<noscript><span id="noscript-ghost"></span></noscript>'
+            '<template><span id="template-ghost"></span></template>',
+            encoding="utf-8",
+        )
+        errors = checker.check_repository(self.root)
+        self.assertTrue(any("#noscript-ghost" in error for error in errors))
+        self.assertTrue(any("#template-ghost" in error for error in errors))
+
+    def test_nested_template_content_id_is_not_a_fragment(self) -> None:
+        self._fixture()
+        (self.atlas / "guide.html").write_text(
+            '<!doctype html><a href="#ghost">Ghost</a>'
+            '<template><template></template><span id="ghost"></span></template>',
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "missing local fragment" in error and "#ghost" in error
+            for error in checker.check_repository(self.root)
+        ))
+
+    def test_raw_text_start_tag_text_does_not_nest_parser_state(self) -> None:
+        self._fixture()
+        (self.atlas / "guide.html").write_text(
+            '<!doctype html><a href="#details">Details</a>'
+            '<textarea><textarea></textarea><section id="details"></section>',
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_self_closing_syntax_on_nonvoid_inert_element_stays_inert(self) -> None:
+        self._fixture()
+        (self.atlas / "guide.html").write_text(
+            '<!doctype html><a href="#ghost">Ghost</a>'
+            '<textarea/><span id="ghost"></span>',
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "missing local fragment" in error and "#ghost" in error
+            for error in checker.check_repository(self.root)
+        ))
+
+    def test_rcdata_comment_text_does_not_swallow_matching_end_tag(self) -> None:
+        self._fixture()
+        (self.atlas / "guide.html").write_text(
+            '<!doctype html><a href="#details">Details</a>'
+            '<textarea><!-- </textarea> --><section id="details"></section>',
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_raw_text_tag_inside_html_comment_does_not_hide_following_anchor(self) -> None:
+        self._fixture()
+        (self.atlas / "guide.html").write_text(
+            '<!doctype html><a href="#details">Details</a>'
+            '<!-- <script> --><section id="details"></section>',
+            encoding="utf-8",
+        )
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_unclosed_html_raw_text_content_id_is_not_a_fragment(self) -> None:
+        self._fixture()
+        (self.atlas / "guide.html").write_text(
+            '<!doctype html><a href="#ghost">Ghost</a>'
+            '<textarea><span id="ghost"></span>',
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "missing local fragment" in error and "#ghost" in error
+            for error in checker.check_repository(self.root)
+        ))
+
+    def test_non_anchor_html_name_attribute_is_not_a_fragment(self) -> None:
+        self._fixture()
+        (self.atlas / "guide.html").write_text(
+            '<!doctype html><a href="#viewport">Viewport</a><meta name="viewport">',
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "missing local fragment" in error and "#viewport" in error
+            for error in checker.check_repository(self.root)
+        ))
+
     def test_missing_artifact_pair_is_reported(self) -> None:
         self._fixture()
         (self.atlas / "live-turn.sequence.html").unlink()
@@ -136,6 +634,22 @@ class DocumentationCheckerTest(unittest.TestCase):
         (self.root / "README.md").write_text("Generated at /Users/example/output\n", encoding="utf-8")
         self.assertTrue(any(
             error.startswith("README.md:") and "prohibited local reference" in error
+            for error in checker.check_repository(self.root)
+        ))
+
+    def test_changed_public_architecture_document_is_scanned(self) -> None:
+        self._fixture()
+        docs = self.root / "docs"
+        architecture = docs / "architecture"
+        architecture.mkdir(parents=True, exist_ok=True)
+        (docs / "index.html").write_text("<!doctype html><title>Docs</title>", encoding="utf-8")
+        (architecture / "deployment-profiles.md").write_text(
+            "Local output: /Users/example/deployment\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            error.startswith("docs/architecture/deployment-profiles.md:")
+            and "prohibited local reference" in error
             for error in checker.check_repository(self.root)
         ))
 
