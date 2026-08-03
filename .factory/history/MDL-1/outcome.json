@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Gantry can now fetch the models available from a configured AI provider, show them alongside saved model aliases, and let users explicitly register a discovered model for agent use through the Control API, SDK, or CLI. Existing aliases, configuration, and run history remain preserved when a provider is unavailable or stops advertising a model, while bounded caching, safe parsing, and model identity snapshots keep discovery reliable without changing the existing alias-based execution flow.",
+  "issue": "MDL-1",
+  "commit": "c70d658e3c3159959c6a5d76cb7f2566baaa2f7a",
+  "recorded_at": "2026-08-03T14:49:23+00:00"
+}

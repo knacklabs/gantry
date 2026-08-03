@@ -1,0 +1,25 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "gaps": [
+    "The roadmap's prior MDL-1 scope required the broader model-management UX while this plan addresses live provider discovery.",
+    "A live provider omission could be mistaken for deletion or deprecation and cause destructive cleanup.",
+    "Automatic registration would require Gantry to guess aliases, workloads, and capabilities that provider listings do not reliably supply.",
+    "A second durable provider-model inventory would conflict with settings-owned model aliases."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Committed roadmap change 4cdf25c25 narrows MDL-1 to the client-approved discovery and registration feature and explicitly re-scopes the broader UX program.",
+    "The plan makes provider listings observational only, retains every saved alias, labels omission as configured_not_advertised, and forbids inferred deprecation.",
+    "The plan requires explicit registration through the existing model_aliases parser and settings revision path; raw discovered IDs remain unselectable.",
+    "The plan rejects a new inventory table and keeps model_aliases as durable authority, adding only immutable run identity snapshots."
+  ],
+  "open_items": [],
+  "summary": "The smallest complete design reuses provider routing, credential resolution, model aliases, and settings revisions. Live listings remain bounded, cached observations and never become deletion authority.",
+  "questions_asked": 4,
+  "issue": "MDL-1",
+  "input_sha256": "9edcca6a857a40962f174150356a4bee7bd27a6b4f2691e1a788db7760a1ac94",
+  "recorded_at": "2026-08-03T12:00:25+00:00",
+  "commit": "4cdf25c25212e4d2123f7e39cb2a5b5857d5d1e1"
+}
