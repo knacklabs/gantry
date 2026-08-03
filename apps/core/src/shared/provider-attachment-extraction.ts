@@ -335,6 +335,34 @@ export async function sniffAttachmentKind(
   }
 }
 
+// Structural completeness check (signature + trailer/length consistency):
+// a truncated or corrupt file must produce guidance, not an image block a
+// model API would reject. Dependency-free approximation of decodability.
+export function validateDeliverableImage(bytes: Buffer): string | null {
+  const mime = sniffDeliverableImageMime(bytes);
+  if (!mime) return null;
+  if (mime === 'image/png') {
+    return bytes.length >= 20 &&
+      bytes.subarray(bytes.length - 8).includes(Buffer.from('IEND', 'latin1'))
+      ? mime
+      : null;
+  }
+  if (mime === 'image/jpeg') {
+    return bytes.length >= 4 &&
+      bytes[bytes.length - 2] === 0xff &&
+      bytes[bytes.length - 1] === 0xd9
+      ? mime
+      : null;
+  }
+  if (mime === 'image/gif') {
+    return bytes.length >= 14 && bytes[bytes.length - 1] === 0x3b ? mime : null;
+  }
+  // WebP: RIFF declares payload length; require agreement with actual size.
+  return bytes.length >= 12 && bytes.readUInt32LE(4) === bytes.length - 8
+    ? mime
+    : null;
+}
+
 export function sniffDeliverableImageMime(bytes: Buffer): string | null {
   if (
     bytes.length >= 8 &&

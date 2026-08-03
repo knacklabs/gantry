@@ -4,7 +4,7 @@ import path from 'node:path';
 import {
   extractDocumentText,
   sniffAttachmentKind,
-  sniffDeliverableImageMime,
+  validateDeliverableImage,
 } from './provider-attachment-extraction.js';
 import {
   createInboundAttachmentStorageRef,
@@ -270,14 +270,14 @@ async function readAttachmentContent(
     const bytes = await fs.readFile(filePath);
     // Deliver only formats the model APIs accept, typed by the actual bytes:
     // provider metadata is untrusted and a wrong MIME can invalidate the turn.
-    const sniffed = sniffDeliverableImageMime(bytes);
+    const sniffed = validateDeliverableImage(bytes);
     if (!sniffed) {
       return {
-        content: `ERROR: ${label} is not in a deliverable image format (PNG, JPEG, GIF, or WebP). Ask for it re-shared in one of those formats.`,
+        content: `ERROR: ${label} is not a complete image in a deliverable format (PNG, JPEG, GIF, or WebP). It may be truncated or corrupt; ask for it re-shared.`,
       };
     }
     return {
-      content: `ERROR: ${label} is an image. This agent's model cannot view images through this tool. Ask in a conversation with an agent whose model supports image input; vision-capable models read images natively.`,
+      content: `ERROR: ${label} is an image. This agent's model cannot receive images through this tool. Ask in a conversation with an agent whose model accepts images in tool results.`,
       image: { base64: bytes.toString('base64'), mimeType: sniffed },
     };
   }

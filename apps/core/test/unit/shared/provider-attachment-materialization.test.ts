@@ -234,7 +234,10 @@ describe('provider attachment materialization reads', () => {
 
   it('returns vision guidance plus an inline image payload for small images', async () => {
     const root = await temporaryMaterializationRoot();
-    const pngBytes = Buffer.from('89504e470d0a1a0a', 'hex');
+    const pngBytes = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    );
     await writeProviderAttachment(root, 'screenshot.png', pngBytes);
 
     const result = await readProviderAttachment({
@@ -246,7 +249,7 @@ describe('provider attachment materialization reads', () => {
 
     if (result.status !== 'opened') throw new Error('expected opened');
     expect(result.content).toMatch(/^ERROR: /);
-    expect(result.content).toContain('supports image input');
+    expect(result.content).toContain('accepts images in tool results');
     expect(result.image?.mimeType).toBe('image/png');
     expect(Buffer.from(result.image!.base64, 'base64')).toEqual(pngBytes);
   });
