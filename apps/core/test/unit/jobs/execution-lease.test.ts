@@ -254,6 +254,7 @@ describe('claimSchedulerRunLease', () => {
         resultSummary: null,
         errorSummary:
           'Scheduler run failed before runner-control evidence was persisted.',
+        incrementConsecutiveFailures: true,
         jobUpdates: {
           status: 'active',
           next_run: '2026-06-10T00:00:10.000Z',
@@ -326,6 +327,7 @@ describe('claimSchedulerRunLease', () => {
         resultSummary: null,
         errorSummary:
           'Scheduler run failed before runner-control evidence was persisted.',
+        incrementConsecutiveFailures: true,
         jobUpdates: {
           status: 'active',
           next_run: '2026-06-10T00:00:05.000Z',

@@ -295,6 +295,7 @@ describe('ipc-interaction-handler', () => {
         selectable: true,
       })),
       listTools: vi.fn(async () => []),
+      listAgentToolBindings: vi.fn(async () => []),
       saveAgentToolBinding: vi.fn(async () => undefined),
       disableAgentToolBinding: vi.fn(async () => null),
     };
@@ -375,6 +376,7 @@ describe('ipc-interaction-handler', () => {
         selectable: true,
       })),
       listTools: vi.fn(async () => []),
+      listAgentToolBindings: vi.fn(async () => []),
       saveAgentToolBinding: vi.fn(async () => undefined),
       disableAgentToolBinding: vi.fn(async () => null),
     };
@@ -418,8 +420,20 @@ describe('ipc-interaction-handler', () => {
               workspace_key: 'main_agent',
               status: 'paused',
               pause_reason: 'Setup required',
-              setup_state: { state: 'blocked' },
-              recovery_intent: { state: 'running' },
+              execution_context: {
+                conversationJid: 'tg:team',
+                threadId: 'topic-7',
+                workspaceKey: 'main_agent',
+              },
+              access_requirements: [
+                { target: { kind: 'tool_rule', rule: 'Browser' } },
+              ],
+              setup_state: {
+                state: 'missing_capability',
+                checked_at: '2026-05-14T00:00:00.000Z',
+                fingerprint: 'browser-missing',
+                blockers: [],
+              },
             },
           ]),
           getJobById: vi.fn(async () => null),
@@ -449,9 +463,15 @@ describe('ipc-interaction-handler', () => {
       classification: 'user_permanent',
     });
     expect(savedDecision.actorContext).not.toHaveProperty('threadId');
-    const persistedEvent = publishRuntimeEvent.mock.calls
-      .map((call) => call[0])
-      .find((event) => event.eventType === 'permission.persisted');
+    const publishedEvents = publishRuntimeEvent.mock.calls.map(
+      (call) => call[0],
+    );
+    expect(publishedEvents.map((event) => event.eventType)).toContain(
+      'permission.persisted',
+    );
+    const persistedEvent = publishedEvents.find(
+      (event) => event.eventType === 'permission.persisted',
+    );
     expect(persistedEvent).toEqual(
       expect.objectContaining({
         conversationId: 'tg:team',
@@ -460,7 +480,7 @@ describe('ipc-interaction-handler', () => {
     );
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:team',
-      'Still needs setup: Recovery is already running for this job.',
+      'Still needs setup: request_access {"target":{"kind":"capability","id":"browser.use"},"temporaryOnly":false,"reason":"This autonomous run requires Browser access."}.',
       { threadId: 'topic-7' },
     );
   });

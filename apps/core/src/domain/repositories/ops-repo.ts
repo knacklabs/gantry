@@ -41,7 +41,6 @@ export interface JobUpsertInput {
   notification_routes?: Job['notification_routes'];
   access_requirements?: Job['access_requirements'];
   setup_state?: Job['setup_state'];
-  recovery_intent?: Job['recovery_intent'];
   required_capabilities?: Job['required_capabilities'];
 }
 
@@ -193,7 +192,15 @@ export interface RuntimeJobRepository {
   getAllJobs(): Promise<Job[]>;
   listJobs(filters?: JobListFilters): Promise<Job[]>;
   getRecentJobRuns(limit?: number): Promise<JobRun[]>;
-  updateJob(id: string, updates: Partial<Job>): Promise<void>;
+  updateJob(
+    id: string,
+    updates: Partial<Job>,
+    options?: { incrementConsecutiveFailures?: boolean },
+  ): Promise<void>;
+  markJobSetupNotified(
+    id: string,
+    expectedFingerprint: string,
+  ): Promise<boolean>;
   deleteJob(id: string): Promise<void>;
   deleteExpiredCompletedOneTimeJobs(nowIso?: string): Promise<number>;
   claimDueJobRunStart(input: {
@@ -265,6 +272,7 @@ export interface RuntimeJobRepository {
     resultSummary?: string | null;
     errorSummary?: string | null;
     jobUpdates: Partial<Job>;
+    incrementConsecutiveFailures?: boolean;
   }): Promise<boolean>;
   markJobRunNotified(
     runId: string,

@@ -390,20 +390,6 @@ describe('PgBossSchedulerEngine', () => {
         fingerprint: 'setup-browser',
         blockers: [],
       },
-      recovery_intent: {
-        kind: 'missing_capability',
-        state: 'pending',
-        dedupe_key: 'dedupe-1',
-        created_at: '2026-04-24T08:00:00.000Z',
-        updated_at: '2026-04-24T08:00:00.000Z',
-        source_run_id: null,
-        setup_fingerprint: 'setup-browser',
-        requirement_type: 'browser',
-        requirement_id: 'Browser',
-        next_action: 'request_permission',
-        attempts: 0,
-        last_error: null,
-      },
     });
     const boss = {
       send: vi.fn().mockResolvedValue(undefined),

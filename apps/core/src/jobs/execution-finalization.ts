@@ -30,6 +30,7 @@ export interface FinalizedJobRunState {
   runStatus: SchedulerRunStatus;
   nextRun: string | null;
   retryCount: number;
+  incrementConsecutiveFailures: boolean;
   pauseReason: string | null;
   safeErrorSummary: string | null;
   toolDenial: ReturnType<typeof parseAutonomousToolDenial>;
@@ -67,6 +68,7 @@ export async function finalizeSchedulerJobRun(input: {
   let runStatus: SchedulerRunStatus = 'completed';
   let nextRun: string | null = nextRunOnSuccess;
   let retryCount = currentJob.consecutive_failures;
+  let incrementConsecutiveFailures = false;
   let pauseReason: string | null = null;
   const safePrimaryErrorSummary = input.error
     ? redactProviderSessionHandlesInText(input.error)
@@ -98,6 +100,7 @@ export async function finalizeSchedulerJobRun(input: {
       runStatus,
       nextRun,
       retryCount,
+      incrementConsecutiveFailures,
       pauseReason,
       safeErrorSummary,
       toolDenial,
@@ -108,6 +111,7 @@ export async function finalizeSchedulerJobRun(input: {
       runStatus,
       nextRun,
       retryCount,
+      incrementConsecutiveFailures,
       pauseReason,
       safeErrorSummary,
       toolDenial,
@@ -117,7 +121,13 @@ export async function finalizeSchedulerJobRun(input: {
       await input.updateJobState(updates, state);
       return;
     }
-    await deps.opsRepository.updateJob(currentJob.id, updates);
+    if (incrementConsecutiveFailures) {
+      await deps.opsRepository.updateJob(currentJob.id, updates, {
+        incrementConsecutiveFailures: true,
+      });
+    } else {
+      await deps.opsRepository.updateJob(currentJob.id, updates);
+    }
   };
 
   if (input.deletedDuringRun) {
@@ -152,6 +162,7 @@ export async function finalizeSchedulerJobRun(input: {
       }
     } else {
       retryCount += 1;
+      incrementConsecutiveFailures = true;
       runStatus = /timed out|deadline exceeded/i.test(input.error)
         ? 'timeout'
         : 'failed';
@@ -299,6 +310,7 @@ export async function finalizeSchedulerJobRun(input: {
     runStatus,
     nextRun,
     retryCount,
+    incrementConsecutiveFailures,
     pauseReason,
     safeErrorSummary,
     toolDenial,

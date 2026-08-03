@@ -163,7 +163,7 @@ describe('CanonicalJobOpsService', () => {
     });
   });
 
-  it('round-trips job recovery intent through target metadata', async () => {
+  it('stores coordination state outside target metadata', async () => {
     const repository = {
       findJobById: vi.fn(async () => null),
       upsertJob: vi.fn(async () => undefined),
@@ -189,33 +189,28 @@ describe('CanonicalJobOpsService', () => {
         },
       ],
       workspace_key: 'agent_one',
-      recovery_intent: {
-        kind: 'permission_denied',
-        state: 'pending',
-        dedupe_key: 'dedupe-1',
-        created_at: '2026-04-24T00:00:00.000Z',
-        updated_at: '2026-04-24T00:00:01.000Z',
-        source_run_id: 'run-1',
-        setup_fingerprint: 'fingerprint-1',
-        requirement_type: 'tool',
-        requirement_id: 'RunCommand',
-        next_action:
-          'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
-        attempts: 0,
-        last_error: null,
+      consecutive_failures: 2,
+      max_consecutive_failures: 7,
+      pause_reason: 'Setup required',
+      setup_state: {
+        state: 'missing_capability',
+        checked_at: '2026-04-24T00:00:00.000Z',
+        fingerprint: 'fingerprint-1',
+        blockers: [],
       },
     });
 
     const stored = vi.mocked(repository.upsertJob).mock.calls[0]?.[0] as {
       targetJson: string;
     };
-    expect(JSON.parse(stored.targetJson)).toMatchObject({
-      recoveryIntent: {
-        kind: 'permission_denied',
-        state: 'pending',
-        dedupe_key: 'dedupe-1',
-        requirement_id: 'RunCommand',
-      },
+    expect(JSON.parse(stored.targetJson)).not.toHaveProperty(
+      'consecutiveFailures',
+    );
+    expect(vi.mocked(repository.upsertJob).mock.calls[0]?.[1]).toMatchObject({
+      consecutiveFailures: 2,
+      maxConsecutiveFailures: 7,
+      pauseReason: 'Setup required',
+      setupState: { fingerprint: 'fingerprint-1' },
     });
   });
 

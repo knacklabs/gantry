@@ -1,0 +1,74 @@
+import { and, eq, sql } from 'drizzle-orm';
+
+import * as pgSchema from '../schema/schema.js';
+import type { Job } from '../../../../domain/types.js';
+import {
+  type CanonicalDb,
+  jsonb,
+} from './canonical-graph-repository.postgres.js';
+import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
+
+export interface CanonicalJobCoordinationUpdate {
+  consecutiveFailures?: number;
+  incrementConsecutiveFailures?: boolean;
+  maxConsecutiveFailures?: number | null;
+  pauseReason?: string | null;
+  setupState?: Job['setup_state'] | null;
+}
+
+export function coordinationColumnUpdate(
+  update: CanonicalJobCoordinationUpdate,
+): Record<string, unknown> {
+  const jobs = pgSchema.canonicalJobsPostgres;
+  const setupState = update.setupState;
+  return {
+    ...(update.incrementConsecutiveFailures
+      ? {
+          consecutiveFailures: sql`${jobs.consecutiveFailures} + 1`,
+        }
+      : update.consecutiveFailures !== undefined
+        ? { consecutiveFailures: update.consecutiveFailures }
+        : {}),
+    ...(update.maxConsecutiveFailures !== undefined
+      ? { maxConsecutiveFailures: update.maxConsecutiveFailures }
+      : {}),
+    ...(update.pauseReason !== undefined
+      ? { pauseReason: update.pauseReason }
+      : {}),
+    ...(setupState !== undefined
+      ? {
+          setupState:
+            setupState === null
+              ? null
+              : sql`CASE
+                  WHEN ${jobs.setupState} ->> 'fingerprint' = ${setupState.fingerprint}
+                    AND ${jobs.setupState} ? 'notified_fingerprint'
+                  THEN jsonb_set(${jsonb(setupState)}, '{notified_fingerprint}', ${jobs.setupState} -> 'notified_fingerprint', true)
+                  ELSE ${jsonb(setupState)}
+                END`,
+        }
+      : {}),
+  };
+}
+
+export async function markJobSetupNotified(
+  db: CanonicalDb,
+  id: string,
+  expectedFingerprint: string,
+): Promise<boolean> {
+  const jobs = pgSchema.canonicalJobsPostgres;
+  const rows = await db
+    .update(jobs)
+    .set({
+      setupState: sql`jsonb_set(${jobs.setupState}, '{notified_fingerprint}', to_jsonb(${expectedFingerprint}::text), true)`,
+      updatedAt: currentIso(),
+    })
+    .where(
+      and(
+        eq(jobs.id, id),
+        sql`${jobs.setupState} ->> 'fingerprint' = ${expectedFingerprint}`,
+      ),
+    )
+    .returning({ id: jobs.id });
+  return rows.length > 0;
+}
