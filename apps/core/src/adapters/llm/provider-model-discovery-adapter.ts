@@ -16,6 +16,10 @@ const TIMEOUT_MS = 5_000;
 const MAX_BYTES = 4 * 1024 * 1024;
 const MAX_PAGES = 10;
 const MAX_MODELS = 5_000;
+const OPENAI_TEXT_GENERATION_MODEL_ID =
+  /^(?:gpt-(?!image)|chatgpt-|o[1-9](?:-|$)|ft:(?:gpt-(?!image)|o[1-9](?:-|$)))/i;
+const NON_GENERATIVE_MODEL_ID =
+  /(?:^|[-_.:/])(?:audio|embed(?:ding)?s?|rerank(?:er)?|moderation|whisper|transcrib(?:e|er|ing)|tts|speech|dall-e|image(?:gen|generation)?|realtime|video|sora)(?:$|[-_.:/])/i;
 
 export class LiveProviderModelDiscoveryAdapter implements ProviderModelDiscoveryPort {
   constructor(private readonly fetchProvider: typeof fetch = fetch) {}
@@ -149,7 +153,9 @@ function parseDiscoveryPage(
   if (!Array.isArray(record.data)) {
     throw new Error('provider returned a malformed model listing');
   }
-  const models = record.data.map(parseDiscoveredModel);
+  const models = record.data
+    .map((item) => parseDiscoveredModel(provider, item))
+    .filter((model): model is DiscoveredProviderModel => model !== undefined);
   const hasMore = record.has_more === true || record.hasMore === true;
   const lastId = stringValue(record.last_id) ?? models.at(-1)?.providerModelId;
   if (
@@ -162,7 +168,10 @@ function parseDiscoveryPage(
   return { models, hasMore, ...(lastId ? { lastId } : {}) };
 }
 
-function parseDiscoveredModel(item: unknown): DiscoveredProviderModel {
+function parseDiscoveredModel(
+  provider: ModelProviderDefinition,
+  item: unknown,
+): DiscoveredProviderModel | undefined {
   if (!item || typeof item !== 'object' || Array.isArray(item)) {
     throw new Error('provider returned a malformed model entry');
   }
@@ -176,6 +185,7 @@ function parseDiscoveredModel(item: unknown): DiscoveredProviderModel {
   if (displayName.length > 512) {
     throw new Error('provider returned a malformed model display name');
   }
+  if (!supportsTextGeneration(provider.id, record, id)) return undefined;
   return {
     providerModelId: id,
     displayName,
@@ -183,7 +193,65 @@ function parseDiscoveredModel(item: unknown): DiscoveredProviderModel {
       record.deprecated === true ||
       record.status === 'deprecated' ||
       record.lifecycle_status === 'deprecated',
+    supportedWorkloads: provider.supportedWorkloads,
   };
+}
+
+function supportsTextGeneration(
+  providerId: string,
+  record: Record<string, unknown>,
+  modelId: string,
+): boolean {
+  const architecture = objectValue(record.architecture);
+  const outputModalities = stringArrayValue(
+    record.output_modalities ?? architecture?.output_modalities,
+  );
+  if (outputModalities) return outputModalities.includes('text');
+
+  const capabilities = objectValue(record.capabilities);
+  const chatFlags = capabilities
+    ? [
+        capabilities.chat_completion,
+        capabilities.chat_completions,
+        capabilities.completion,
+        capabilities.text_generation,
+      ].filter((value): value is boolean => typeof value === 'boolean')
+    : [];
+  if (chatFlags.length > 0) return chatFlags.some(Boolean);
+
+  const declaredType = [
+    record.type,
+    record.model_type,
+    record.task,
+    record.pipeline_tag,
+  ]
+    .map(stringValue)
+    .filter((value): value is string => value !== undefined)
+    .join('-');
+  if (
+    NON_GENERATIVE_MODEL_ID.test(modelId) ||
+    (declaredType && NON_GENERATIVE_MODEL_ID.test(declaredType))
+  ) {
+    return false;
+  }
+  return (
+    providerId !== 'openai' || OPENAI_TEXT_GENERATION_MODEL_ID.test(modelId)
+  );
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function stringArrayValue(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const values = value
+    .map(stringValue)
+    .filter((item): item is string => item !== undefined)
+    .map((item) => item.toLowerCase());
+  return values.length > 0 ? values : undefined;
 }
 
 function stringValue(value: unknown): string | undefined {

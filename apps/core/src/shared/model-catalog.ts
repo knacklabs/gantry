@@ -754,9 +754,7 @@ export function resolveModelSelectionForWorkload(
   return enforceWorkloadEligibility(resolveModelSelection(value), workload);
 }
 
-export function modelIdentitySnapshot(
-  resolution: ModelResolution | undefined,
-): ResolvedModelIdentitySnapshot | undefined {
+export function modelIdentitySnapshot(resolution: ModelResolution | undefined) {
   if (!resolution?.ok) return undefined;
   return {
     alias: resolution.alias,

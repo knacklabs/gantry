@@ -9,8 +9,11 @@ import {
   listModelCatalogEntries,
   type ModelCatalogEntry,
 } from '@core/shared/model-catalog.js';
+import { getModelProviderDefinition } from '@core/shared/model-provider-registry.js';
 
 const appId = 'default' as AppId;
+const CHAT_WORKLOADS = ['chat'] as const;
+const registeredModels = async () => listModelCatalogEntries();
 
 function credential(providerId: string) {
   return {
@@ -55,6 +58,8 @@ describe('live provider model discovery', () => {
           providerModelId: `${providerId}-new`,
           displayName: 'New model',
           deprecated: false,
+          supportedWorkloads:
+            getModelProviderDefinition(providerId)!.supportedWorkloads,
         },
       ]);
       const [url, init] = request.mock.calls[0]!;
@@ -97,6 +102,64 @@ describe('live provider model discovery', () => {
       }),
     ).rejects.toThrow('malformed JSON');
   });
+
+  it('filters non-generative provider models before registration', async () => {
+    const request = vi.fn(async () =>
+      Response.json({
+        data: [
+          { id: 'gpt-6-mini', name: 'GPT 6 Mini' },
+          { id: 'text-embedding-4-large', name: 'Embedding' },
+          { id: 'gpt-image-2', name: 'Image' },
+          { id: 'gpt-6-realtime-preview', name: 'Realtime' },
+          { id: 'whisper-2', name: 'Transcription' },
+          { id: 'omni-moderation-2', name: 'Moderation' },
+        ],
+      }),
+    );
+    const adapter = new LiveProviderModelDiscoveryAdapter(request as never);
+
+    await expect(
+      adapter.discover({
+        providerId: 'openai',
+        authMode: 'api_key',
+        credential: { apiKey: 'secret-provider-key' },
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        providerModelId: 'gpt-6-mini',
+        supportedWorkloads:
+          getModelProviderDefinition('openai')!.supportedWorkloads,
+      }),
+    ]);
+  });
+
+  it('honors provider-declared text output capability', async () => {
+    const request = vi.fn(async () =>
+      Response.json({
+        data: [
+          {
+            id: 'vendor/text-model',
+            architecture: { output_modalities: ['text'] },
+          },
+          {
+            id: 'vendor/image-model',
+            architecture: { output_modalities: ['image'] },
+          },
+        ],
+      }),
+    );
+    const adapter = new LiveProviderModelDiscoveryAdapter(request as never);
+
+    await expect(
+      adapter.discover({
+        providerId: 'openrouter',
+        authMode: 'api_key',
+        credential: { apiKey: 'secret-provider-key' },
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({ providerModelId: 'vendor/text-model' }),
+    ]);
+  });
 });
 
 describe('provider model catalog merge', () => {
@@ -110,16 +173,19 @@ describe('provider model catalog merge', () => {
         providerModelId: matching.modelRoute.providerModelId,
         displayName: matching.displayName,
         deprecated: false,
+        supportedWorkloads: CHAT_WORKLOADS,
       },
       {
         providerModelId: 'claude-discovered-only',
         displayName: 'Claude Discovered Only',
         deprecated: false,
+        supportedWorkloads: CHAT_WORKLOADS,
       },
     ]);
     const service = new ProviderModelDiscoveryService(
       { getModelCredential: async () => credential('anthropic') },
       { discover },
+      registeredModels,
       () => Date.parse('2026-08-03T00:00:00.000Z'),
     );
 
@@ -156,12 +222,14 @@ describe('provider model catalog merge', () => {
           providerModelId: 'claude-stale',
           displayName: 'Claude Stale',
           deprecated: false,
+          supportedWorkloads: CHAT_WORKLOADS,
         },
       ])
       .mockRejectedValueOnce(new Error('provider offline'));
     const service = new ProviderModelDiscoveryService(
       { getModelCredential: async () => credential('anthropic') },
       { discover },
+      registeredModels,
       () => now,
     );
     await service.list({ appId, providerId: 'anthropic' });
@@ -184,6 +252,51 @@ describe('provider model catalog merge', () => {
     );
   });
 
+  it('merges only the requested app catalog', async () => {
+    const otherAppId = 'other-app' as AppId;
+    const base = listModelCatalogEntries().find(
+      (entry) => entry.modelRoute.id === 'anthropic',
+    )!;
+    const scopedEntry: ModelCatalogEntry = {
+      ...base,
+      id: 'settings:scoped-model',
+      modelRoute: {
+        ...base.modelRoute,
+        providerModelId: 'claude-scoped-model',
+      },
+      displayName: 'Scoped Model',
+      runnerModel: 'claude-scoped-model',
+      aliases: ['scoped-model'],
+      recommendedAlias: 'scoped-model',
+    };
+    const service = new ProviderModelDiscoveryService(
+      { getModelCredential: async () => credential('anthropic') },
+      {
+        discover: async () => [
+          {
+            providerModelId: 'claude-scoped-model',
+            displayName: 'Scoped Model',
+            deprecated: false,
+            supportedWorkloads: CHAT_WORKLOADS,
+          },
+        ],
+      },
+      async (requestedAppId) => (requestedAppId === appId ? [scopedEntry] : []),
+    );
+
+    const appListing = await service.list({
+      appId,
+      providerId: 'anthropic',
+    });
+    const otherListing = await service.list({
+      appId: otherAppId,
+      providerId: 'anthropic',
+    });
+
+    expect(appListing.models[0]).toMatchObject({ registered: true });
+    expect(otherListing.models[0]).toMatchObject({ registered: false });
+  });
+
   it('retains the last good listing when refresh is empty', async () => {
     let now = 0;
     const discover = vi
@@ -193,12 +306,14 @@ describe('provider model catalog merge', () => {
           providerModelId: 'claude-last-good',
           displayName: 'Claude Last Good',
           deprecated: false,
+          supportedWorkloads: CHAT_WORKLOADS,
         },
       ])
       .mockResolvedValueOnce([]);
     const service = new ProviderModelDiscoveryService(
       { getModelCredential: async () => credential('anthropic') },
       { discover },
+      registeredModels,
       () => now,
     );
     await service.list({ appId, providerId: 'anthropic' });
@@ -220,11 +335,13 @@ describe('provider model catalog merge', () => {
         providerModelId: `claude-refresh-${now}`,
         displayName: 'Claude Refresh',
         deprecated: false,
+        supportedWorkloads: CHAT_WORKLOADS,
       },
     ]);
     const service = new ProviderModelDiscoveryService(
       { getModelCredential: async () => credential('anthropic') },
       { discover },
+      registeredModels,
       () => now,
     );
     await service.list({ appId, providerId: 'anthropic' });
@@ -245,12 +362,14 @@ describe('provider model catalog merge', () => {
           providerModelId: 'claude-last-good',
           displayName: 'Claude Last Good',
           deprecated: false,
+          supportedWorkloads: CHAT_WORKLOADS,
         },
       ])
       .mockRejectedValueOnce(new Error('provider offline'));
     const service = new ProviderModelDiscoveryService(
       { getModelCredential: async () => credential('anthropic') },
       { discover },
+      registeredModels,
       () => now,
     );
     await service.list({ appId, providerId: 'anthropic' });
@@ -279,6 +398,7 @@ describe('provider model catalog merge', () => {
     const service = new ProviderModelDiscoveryService(
       { getModelCredential: async () => credential('anthropic') },
       { discover },
+      registeredModels,
       () => now,
     );
     await service.list({ appId, providerId: 'anthropic', force: true });
@@ -303,6 +423,7 @@ describe('provider model catalog merge', () => {
     const service = new ProviderModelDiscoveryService(
       { getModelCredential: async () => credential('anthropic') },
       { discover },
+      registeredModels,
       () => now,
     );
     await service.list({ appId, providerId: 'anthropic' });
@@ -324,6 +445,7 @@ describe('provider model catalog merge', () => {
         providerModelId: 'claude-live',
         displayName: 'Claude Live',
         deprecated: false,
+        supportedWorkloads: CHAT_WORKLOADS,
       },
     ]);
     const service = new ProviderModelDiscoveryService(
@@ -332,6 +454,7 @@ describe('provider model catalog merge', () => {
           active ? credential('anthropic') : undefined,
       },
       { discover },
+      registeredModels,
     );
     await service.list({ appId, providerId: 'anthropic' });
     active = false;
@@ -358,6 +481,7 @@ describe('provider model catalog merge', () => {
               providerModelId: 'claude-current',
               displayName: 'Claude Current',
               deprecated: false,
+              supportedWorkloads: CHAT_WORKLOADS,
             },
           ]);
         }
@@ -368,6 +492,7 @@ describe('provider model catalog merge', () => {
               providerModelId: 'claude-reloaded',
               displayName: 'Claude Reloaded',
               deprecated: false,
+              supportedWorkloads: CHAT_WORKLOADS,
             },
           ]);
         }
@@ -389,6 +514,7 @@ describe('provider model catalog merge', () => {
         }),
       },
       { discover },
+      registeredModels,
     );
     const staleRequest = service.list({ appId, providerId: 'anthropic' });
     await vi.waitFor(() => expect(discover).toHaveBeenCalledTimes(1));
@@ -400,6 +526,7 @@ describe('provider model catalog merge', () => {
         providerModelId: 'claude-stale',
         displayName: 'Claude Stale',
         deprecated: false,
+        supportedWorkloads: CHAT_WORKLOADS,
       },
     ]);
     await staleRequest;
@@ -425,9 +552,11 @@ describe('provider model catalog merge', () => {
             providerModelId: 'vendor/new-model',
             displayName: 'New Model',
             deprecated: false,
+            supportedWorkloads: CHAT_WORKLOADS,
           },
         ],
       },
+      registeredModels,
     );
 
     await expect(
@@ -444,6 +573,7 @@ describe('provider model catalog merge', () => {
         provider_model_id: 'vendor/new-model',
         aliases: ['new-model'],
         recommended_alias: 'new-model',
+        supported_workloads: CHAT_WORKLOADS,
       },
     });
     await expect(

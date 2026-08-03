@@ -38,6 +38,8 @@ export * from './memory.js';
 export { SettingsDesiredStateService } from './settings/desired-state-service.js';
 export { createGroupJoinOnboardingCoordinator } from './settings/group-join-onboarding.js';
 export { configureDesiredSettingsStorageProvider } from './settings/runtime-settings.js';
+export { settingsFromRevisionDocument } from './settings/settings-revision-document.js';
+export { modelAliasesToCatalogEntries } from './settings/runtime-settings-model-aliases-parser.js';
 export {
   applyRuntimeSettingsDesiredState,
   syncRuntimeSettingsFromProjection,

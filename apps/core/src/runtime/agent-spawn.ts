@@ -787,7 +787,7 @@ async function spawnAgentWithContext(
         },
       }),
     });
-    if (output.status === 'error') {
+    if (output.status === 'error')
       output = {
         ...output,
         error:
@@ -796,7 +796,6 @@ async function spawnAgentWithContext(
             modelEntry: resolvedModel.value.modelEntry,
           }) ?? output.error,
       };
-    }
     return output;
   } finally {
     unregisterPermissionRunRestriction();

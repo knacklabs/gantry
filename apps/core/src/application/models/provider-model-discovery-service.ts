@@ -4,10 +4,7 @@ import type {
   DiscoveredProviderModel,
   ProviderModelDiscoveryPort,
 } from '../../domain/ports/provider-model-discovery.js';
-import {
-  listModelCatalogEntries,
-  type ModelCatalogEntry,
-} from '../../shared/model-catalog.js';
+import type { ModelCatalogEntry } from '../../shared/model-catalog.js';
 import {
   getModelProviderDefinition,
   type ModelCredentialPayload,
@@ -64,6 +61,9 @@ export class ProviderModelDiscoveryService {
       'getModelCredential'
     >,
     private readonly discovery: ProviderModelDiscoveryPort,
+    private readonly registeredModels: (
+      appId: AppId,
+    ) => Promise<readonly ModelCatalogEntry[]>,
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -72,6 +72,17 @@ export class ProviderModelDiscoveryService {
     providerId: string;
     force?: boolean;
   }): Promise<ProviderModelListing> {
+    return (await this.resolveListing(input)).listing;
+  }
+
+  private async resolveListing(input: {
+    appId: AppId;
+    providerId: string;
+    force?: boolean;
+  }): Promise<{
+    listing: ProviderModelListing;
+    live: readonly DiscoveredProviderModel[];
+  }> {
     const provider = getModelProviderDefinition(input.providerId);
     if (!provider?.discovery) {
       throw new ProviderModelDiscoveryError(
@@ -79,24 +90,30 @@ export class ProviderModelDiscoveryService {
         `Model discovery is not supported for provider ${input.providerId}.`,
       );
     }
-    const credential = await this.credentials.getModelCredential({
-      appId: input.appId,
-      providerId: provider.id,
-    });
-    const registered = listModelCatalogEntries().filter(
+    const [credential, appCatalog] = await Promise.all([
+      this.credentials.getModelCredential({
+        appId: input.appId,
+        providerId: provider.id,
+      }),
+      this.registeredModels(input.appId),
+    ]);
+    const registered = appCatalog.filter(
       (entry) => entry.modelRoute.id === provider.id,
     );
     const prefix = `${input.appId}\0${provider.id}\0`;
     if (!credential || credential.status !== 'active') {
       this.removeSupersededCredentials(prefix);
-      return mergeProviderModels({
-        provider,
-        registered,
+      return {
+        listing: mergeProviderModels({
+          provider,
+          registered,
+          live: [],
+          discoverySource: 'none',
+          refreshedAt: null,
+          refreshError: `No active ${provider.label} Model Access credential is configured.`,
+        }),
         live: [],
-        discoverySource: 'none',
-        refreshedAt: null,
-        refreshError: `No active ${provider.label} Model Access credential is configured.`,
-      });
+      };
     }
 
     const key = `${prefix}${credential.fingerprint}`;
@@ -117,14 +134,18 @@ export class ProviderModelDiscoveryService {
       ((forcedRecently || failureBackoff) && (cached || refreshError)) ||
       (cached && !input.force && cached.expiresAtMs > now)
     ) {
-      return mergeProviderModels({
-        provider,
-        registered,
-        live: cached?.models ?? [],
-        discoverySource: cached ? 'cache' : 'none',
-        refreshedAt: cached?.refreshedAt ?? null,
-        refreshError,
-      });
+      const live = cached?.models ?? [];
+      return {
+        listing: mergeProviderModels({
+          provider,
+          registered,
+          live,
+          discoverySource: cached ? 'cache' : 'none',
+          refreshedAt: cached?.refreshedAt ?? null,
+          refreshError,
+        }),
+        live,
+      };
     }
     if (input.force) this.lastForcedRefresh.set(key, now);
 
@@ -135,28 +156,35 @@ export class ProviderModelDiscoveryService {
       });
       this.lastFailedRefresh.delete(key);
       this.lastRefreshError.delete(key);
-      return mergeProviderModels({
-        provider,
-        registered,
+      return {
+        listing: mergeProviderModels({
+          provider,
+          registered,
+          live: fresh.models,
+          discoverySource: 'live',
+          refreshedAt: fresh.refreshedAt,
+          refreshError: null,
+        }),
         live: fresh.models,
-        discoverySource: 'live',
-        refreshedAt: fresh.refreshedAt,
-        refreshError: null,
-      });
+      };
     } catch (error) {
       const message = discoveryErrorMessage(provider, error);
       if (this.keys.has(key)) {
         this.lastFailedRefresh.set(key, now);
         this.lastRefreshError.set(key, message);
       }
-      return mergeProviderModels({
-        provider,
-        registered,
-        live: cached?.models ?? [],
-        discoverySource: cached ? 'cache' : 'none',
-        refreshedAt: cached?.refreshedAt ?? null,
-        refreshError: message,
-      });
+      const live = cached?.models ?? [];
+      return {
+        listing: mergeProviderModels({
+          provider,
+          registered,
+          live,
+          discoverySource: cached ? 'cache' : 'none',
+          refreshedAt: cached?.refreshedAt ?? null,
+          refreshError: message,
+        }),
+        live,
+      };
     }
   }
 
@@ -166,11 +194,14 @@ export class ProviderModelDiscoveryService {
     providerModelId: string;
     alias: string;
   }): Promise<{ alias: string; value: Record<string, unknown> }> {
-    const listing = await this.list(input);
+    const { listing, live } = await this.resolveListing(input);
     const model = listing.models.find(
       (candidate) => candidate.providerModelId === input.providerModelId,
     );
-    if (!model || model.source === 'registered') {
+    const discovered = live.find(
+      (candidate) => candidate.providerModelId === input.providerModelId,
+    );
+    if (!model || !discovered) {
       throw new ProviderModelRegistrationError(
         'MODEL_NOT_DISCOVERED',
         `Model ${input.providerModelId} is not in the latest ${listing.providerLabel} discovery result.`,
@@ -193,7 +224,7 @@ export class ProviderModelDiscoveryService {
         display_name: model.displayName,
         aliases: [input.alias],
         recommended_alias: input.alias,
-        supported_workloads: provider.supportedWorkloads,
+        supported_workloads: discovered.supportedWorkloads,
         source: {
           label: `${provider.label} live model discovery`,
           url: sourceUrl.toString(),

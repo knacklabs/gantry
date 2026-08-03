@@ -18,6 +18,10 @@ alias in the settings-owned `model_aliases` catalog.
   failure returns saved aliases as `availability_unknown`, using the last
   successful cached discovery when available. Omitted saved models are marked
   `configured_not_advertised`; neither condition edits settings or history.
+- The merge loads aliases from the requested app's desired-state revision.
+  Provider adapters exclude entries that are explicitly non-generative or do
+  not support text output; registration persists only the workloads validated
+  for that discovered model.
 - Registration requires the current desired-state revision. A concurrent
   settings edit returns `REVISION_CONFLICT`, and the caller must rediscover or
   retry against the new revision.
