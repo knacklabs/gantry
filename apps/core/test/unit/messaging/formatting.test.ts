@@ -365,6 +365,26 @@ describe('formatConversationContextMessages', () => {
     );
   });
 
+  it('renders up to twelve attachment handles for multi-file requests', () => {
+    const attachments = Array.from({ length: 13 }, (_, index) => ({
+      id: `attachment-${index + 1}`,
+      kind: 'file' as const,
+      file_name: `resume-${index + 1}.pdf`,
+    }));
+    const result = formatConversationContextMessages(
+      {
+        recentChannelContext: [],
+        activeThreadContext: [],
+        currentMessages: [makeMsg({ id: 'current', attachments })],
+      },
+      TZ,
+    );
+
+    expect(result).toContain('gantry_attachment="attachment-12"');
+    expect(result).not.toContain('gantry_attachment="attachment-13"');
+    expect(result).toContain('<attachments_truncated omitted="1" />');
+  });
+
   it('does not render a durable handle for an identity-less attachment', () => {
     const result = formatConversationContextMessages(
       {

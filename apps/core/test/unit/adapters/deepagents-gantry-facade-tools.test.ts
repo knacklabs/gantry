@@ -201,6 +201,32 @@ describe('Gantry DeepAgents facade tools', () => {
   });
 
   it.each([
+    ['FileRead', { path: 'media/attachments/resume.pdf' }],
+    ['FileRead', { path: './attachments/report.pdf' }],
+    ['FileSearch', { mode: 'path', query: '/media/attachments/' }],
+  ])(
+    'redirects conversation attachment %s calls before permission IPC',
+    async (toolName, input) => {
+      const root = makeRoot();
+      const result = await invoke(makeTools(root), toolName, input);
+
+      expect(result).toContain('Use attachment_open');
+      expect(result).toContain('attachment_ids');
+      expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps ordinary workspace reads on the permission path', async () => {
+    const root = makeRoot();
+    fs.writeFileSync(path.join(root, 'docs.pdf'), 'workspace data', 'utf-8');
+
+    await expect(
+      invoke(makeTools(root), 'FileRead', { path: 'docs.pdf' }),
+    ).resolves.toBe('workspace data');
+    expect(requestPermissionApprovalViaIpc).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
     ['WebSearch', { query: 'gantry runtime' }],
     ['WebRead', { url: 'https://example.com' }],
     ['FileSearch', { mode: 'path', query: 'notes' }],

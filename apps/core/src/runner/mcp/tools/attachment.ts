@@ -12,6 +12,7 @@ import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
 import {
   attachmentOpenResponseText,
   attachmentOpenTaskRequest,
+  openAttachmentBatch,
 } from '../attachment-open-protocol.js';
 
 export {
@@ -20,25 +21,40 @@ export {
 } from '../attachment-open-protocol.js';
 
 const ATTACHMENT_OPEN_TASK_TIMEOUT_MS = 120_000;
+const MAX_ATTACHMENT_BATCH_SIZE = 12;
 
 export function registerAttachmentTools(server: McpServer): void {
   server.tool(
     'attachment_open',
-    'Open one durable conversation attachment by its opaque gantry_attachment id. The host verifies conversation scope before returning bounded content.',
+    'Read inbound conversation attachments using their opaque gantry_attachment ids. Always use this for attachment metadata; never use FileRead or FileSearch on gantry_ref paths. Pass attachment_ids to read multiple files concurrently in one call. The host verifies conversation scope and returns bounded extracted text for documents.',
     {
       attachment_id: z
         .string()
         .min(1)
-        .describe('Opaque id from the attachment gantry_attachment attribute.'),
+        .optional()
+        .describe('One opaque id from a gantry_attachment attribute.'),
+      attachment_ids: z
+        .array(z.string().min(1))
+        .max(MAX_ATTACHMENT_BATCH_SIZE)
+        .optional()
+        .describe(
+          'Opaque gantry_attachment ids to read concurrently, in source order.',
+        ),
     },
-    async ({ attachment_id }) => ({
-      content: [
-        {
-          type: 'text' as const,
-          text: await requestHostAttachmentOpen(attachment_id),
-        },
-      ],
-    }),
+    async ({ attachment_id, attachment_ids }) => {
+      const ids = [attachment_id, ...(attachment_ids ?? [])]
+        .filter((value): value is string => Boolean(value?.trim()))
+        .map((value) => value.trim())
+        .filter((value, index, all) => all.indexOf(value) === index)
+        .slice(0, MAX_ATTACHMENT_BATCH_SIZE);
+      const text =
+        ids.length === 0
+          ? 'No gantry_attachment id was provided.'
+          : ids.length === 1
+            ? await requestHostAttachmentOpen(ids[0]!)
+            : await openAttachmentBatch(ids, requestHostAttachmentOpen);
+      return { content: [{ type: 'text' as const, text }] };
+    },
   );
 }
 

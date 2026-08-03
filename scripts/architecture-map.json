@@ -172,9 +172,14 @@
       ],
       "allowedExternalImports": [
         "node:",
+        "@napi-rs/canvas",
+        "@tesseract.js-data/eng",
         "crypto",
         "fs",
+        "officeparser",
         "path",
+        "pdfjs-dist",
+        "tesseract.js",
         "url",
         "os"
       ]

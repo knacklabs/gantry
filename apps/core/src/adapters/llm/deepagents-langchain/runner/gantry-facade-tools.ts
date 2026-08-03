@@ -64,6 +64,13 @@ const MAX_SEARCH_FILE_BYTES = 1_000_000;
 const MAX_SEARCH_ENTRIES = 10_000;
 const MAX_WEB_RESPONSE_BYTES = 1_000_000;
 const WEB_FETCH_TIMEOUT_MS = 20_000;
+const CONVERSATION_ATTACHMENT_PATH_PREFIXES = [
+  'attachments/',
+  'media/attachments/',
+  'provider-attachments/',
+] as const;
+const CONVERSATION_ATTACHMENT_TOOL_GUIDANCE =
+  'Conversation attachments are not workspace files. Use attachment_open with the opaque gantry_attachment id from current_message. For multiple files, pass all ids in attachment_ids so Gantry reads them concurrently. Do not request FileRead or FileSearch permission for attachment paths.';
 
 export function createGantryFacadeTools(
   config: GantryFacadeToolsConfig,
@@ -83,6 +90,13 @@ function createOneFacadeTool(
 ): StructuredToolInterface {
   return tool(
     async (input: unknown): Promise<unknown> => {
+      if (isConversationAttachmentFacadeRequest(toolName, input)) {
+        return gatedToolErrorResult(
+          CONVERSATION_ATTACHMENT_TOOL_GUIDANCE,
+          'validation',
+        );
+      }
+
       const validation = validateGantryFacadeToolInput(toolName, input);
       if (!validation.ok) {
         return gatedToolErrorResult(validation.reason, 'validation');
@@ -636,9 +650,9 @@ function facadeDescription(toolName: DeepAgentsFacadeToolName): string {
     case 'WebRead':
       return 'Read one exact http(s) URL and return extracted text.';
     case 'FileSearch':
-      return 'Search approved host workspace files by safe relative path or content.';
+      return 'Search approved host workspace files by safe relative path or content. Never use for inbound conversation attachments; use attachment_open with gantry_attachment ids.';
     case 'FileRead':
-      return 'Read one approved host workspace file by exact safe relative path.';
+      return 'Read one approved host workspace file by exact safe relative path. Never use for attachments/, media/attachments/, gantry_ref, or inbound conversation files; use attachment_open with gantry_attachment ids.';
     case 'FileEdit':
       return 'Edit one approved host workspace file. Patch must be JSON {"oldText":"...","newText":"..."}.';
     case 'FileWrite':
@@ -646,4 +660,24 @@ function facadeDescription(toolName: DeepAgentsFacadeToolName): string {
     case 'AgentDelegation':
       return 'Start a durable Gantry child agent task and inspect it with task_get/task_list.';
   }
+}
+
+function isConversationAttachmentFacadeRequest(
+  toolName: DeepAgentsFacadeToolName,
+  input: unknown,
+): boolean {
+  if (toolName !== 'FileRead' && toolName !== 'FileSearch') return false;
+  const record = input as Record<string, unknown>;
+  const candidate = toolName === 'FileRead' ? record.path : record.query;
+  if (typeof candidate !== 'string') return false;
+  const normalized = candidate
+    .trim()
+    .replaceAll('\\', '/')
+    .replace(/^(?:\.\/)+/u, '')
+    .replace(/^\/+/, '')
+    .toLowerCase();
+  return CONVERSATION_ATTACHMENT_PATH_PREFIXES.some(
+    (prefix) =>
+      normalized === prefix.slice(0, -1) || normalized.startsWith(prefix),
+  );
 }
