@@ -625,10 +625,13 @@
         "No runtime behavior, API, schema, settings, or package contracts change."
       ],
       "order": 37,
-      "status": "active",
+      "status": "done",
       "epic": "documentation",
       "skill": "fullstack",
-      "spec": "docs/specs/architecture-atlas-and-adoption.md"
+      "spec": "docs/specs/architecture-atlas-and-adoption.md",
+      "completed_at": "2026-08-03T14:39:57+00:00",
+      "history": ".factory/history/DOCS-002/",
+      "outcome": "Gantry now has a source-derived, revision-pinned documentation experience that lets evaluators, operators, developers, and architects understand the product from first setup through multi-agent operation, memory and dreaming, permissions, deployment, and horizontal scaling; companies can explore five interactive architecture views, follow role-specific learning paths, assess adoption trade-offs honestly, and rely on deterministic link, fragment, provenance, and generated-artifact checks to keep the published guidance trustworthy."
     }
   ],
   "epics": [
@@ -717,5 +720,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-03T10:18:13+00:00"
+  "updated_at": "2026-08-03T14:39:57+00:00"
 }
