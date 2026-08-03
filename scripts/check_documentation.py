@@ -36,6 +36,13 @@ PUBLIC_ROOTS = (
 )
 PROHIBITED = ("/private/tmp", "/Users/", "file://")
 MARKDOWN_LINK = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
+REQUIRED_VALIDATION = {
+    "checks_passed": 9,
+    "check_count": 9,
+    "errors": 0,
+    "warnings": 0,
+}
+EXPECTED_RECEIPTS = {f"{stem}.json" for _diagram_type, stem in ARTIFACTS}
 
 
 class _LinkParser(HTMLParser):
@@ -89,9 +96,6 @@ def _check_links(root: Path, errors: list[str]) -> None:
     for path in _public_files(root):
         text = path.read_text(encoding="utf-8")
         relative = path.relative_to(root)
-        for marker in PROHIBITED:
-            if marker in text:
-                errors.append(f"{relative}: contains prohibited local reference {marker!r}")
         for raw_target in _links(path, text):
             if not raw_target or _is_external(raw_target):
                 continue
@@ -108,6 +112,52 @@ def _check_links(root: Path, errors: list[str]) -> None:
                 errors.append(f"{relative}: broken local link: {raw_target}")
 
 
+def _check_prohibited_paths(root: Path, errors: list[str]) -> None:
+    paths = set(_public_files(root))
+    paths.update((root / ATLAS).rglob("*.json"))
+    for path in sorted(paths):
+        text = path.read_text(encoding="utf-8")
+        relative = path.relative_to(root)
+        for marker in PROHIBITED:
+            if marker in text:
+                errors.append(f"{relative}: contains prohibited local reference {marker!r}")
+
+
+def _check_evidence_manifest(root: Path, errors: list[str]) -> None:
+    manifest = root / ATLAS / "source-evidence.md"
+    if not manifest.is_file():
+        errors.append(f"{manifest.relative_to(root)}: missing evidence manifest")
+        return
+    text = manifest.read_text(encoding="utf-8")
+    required_markers = {
+        SOURCE_REVISION: "pinned Gantry source revision",
+        f"| Archify version | `{ARCHIFY_VERSION}` |": "pinned Archify version",
+        "## Evidence policy": "authority order",
+        "## Subsystem evidence map": "subsystem source entrypoints",
+    }
+    for marker, description in required_markers.items():
+        if marker not in text:
+            errors.append(f"{manifest.relative_to(root)}: missing {description}")
+
+
+def _check_delivered_html(root: Path, path: Path, text: str, errors: list[str]) -> None:
+    relative = path.relative_to(root)
+    lower = text.lower()
+    required_markers = {
+        "<!doctype html": "HTML doctype",
+        '<html lang="en"': "document language",
+        "<title>": "document title",
+        "<style": "inline styles",
+        "<script": "inline interaction code",
+        "aria-labelledby": "accessible diagram labelling",
+    }
+    for marker, description in required_markers.items():
+        if marker not in lower:
+            errors.append(f"{relative}: missing {description}")
+    if SOURCE_REVISION not in text and SOURCE_REVISION[:7] not in text:
+        errors.append(f"{relative}: missing pinned source revision")
+
+
 def _check_artifacts(root: Path, errors: list[str]) -> None:
     atlas = root / ATLAS
     receipt_path = atlas / "delivery-receipts.json"
@@ -120,14 +170,43 @@ def _check_artifacts(root: Path, errors: list[str]) -> None:
         errors.append(f"{receipt_path.relative_to(root)}: invalid receipt manifest: {exc}")
         return
 
-    if receipt.get("generator", {}).get("version") != ARCHIFY_VERSION:
+    if not isinstance(receipt, dict):
+        errors.append("delivery receipt: root must be an object")
+        return
+    generator = receipt.get("generator")
+    source = receipt.get("source")
+    if not isinstance(generator, dict) or generator.get("name") != "Archify":
+        errors.append("delivery receipt: generator must be Archify")
+        generator = {}
+    if not isinstance(source, dict):
+        errors.append("delivery receipt: source must be an object")
+        source = {}
+    if generator.get("version") != ARCHIFY_VERSION:
         errors.append("delivery receipt: Archify version mismatch")
-    if receipt.get("source", {}).get("revision") != SOURCE_REVISION:
+    if source.get("revision") != SOURCE_REVISION:
         errors.append("delivery receipt: Gantry source revision mismatch")
     if receipt.get("quality_profile") != "showcase":
         errors.append("delivery receipt: quality profile must be showcase")
 
-    rows = {row.get("specification"): row for row in receipt.get("artifacts", []) if isinstance(row, dict)}
+    receipt_rows = receipt.get("artifacts", [])
+    if not isinstance(receipt_rows, list):
+        errors.append("delivery receipt: artifacts must be a list")
+        receipt_rows = []
+    rows: dict[str, dict] = {}
+    for row in receipt_rows:
+        if not isinstance(row, dict):
+            errors.append("delivery receipt: artifact row must be an object")
+            continue
+        name = row.get("specification")
+        if not isinstance(name, str):
+            errors.append("delivery receipt: artifact row lacks a specification")
+            continue
+        if name in rows:
+            errors.append(f"delivery receipt: duplicate {name}")
+        rows[name] = row
+    unexpected = sorted(set(rows) - EXPECTED_RECEIPTS)
+    if unexpected:
+        errors.append(f"delivery receipt: unexpected specifications: {', '.join(unexpected)}")
     for diagram_type, stem in ARTIFACTS:
         specification = atlas / f"{stem}.json"
         artifact = atlas / f"{stem}.html"
@@ -141,21 +220,39 @@ def _check_artifacts(root: Path, errors: list[str]) -> None:
         except json.JSONDecodeError as exc:
             errors.append(f"{specification.relative_to(root)}: invalid JSON: {exc}")
             continue
+        if not isinstance(payload, dict):
+            errors.append(f"{specification.relative_to(root)}: JSON root must be an object")
+            continue
         if payload.get("diagram_type") != diagram_type:
             errors.append(f"{specification.relative_to(root)}: diagram type mismatch")
         meta = payload.get("meta", {})
+        if not isinstance(meta, dict):
+            errors.append(f"{specification.relative_to(root)}: meta must be an object")
+            meta = {}
         if meta.get("quality_profile") != "showcase":
             errors.append(f"{specification.relative_to(root)}: quality profile must be showcase")
-        declared_revision = meta.get("repository", {}).get("revision") or meta.get("subtitle", "")
+        if meta.get("output") != str(ATLAS / artifact.name):
+            errors.append(f"{specification.relative_to(root)}: output path mismatch")
+        repository = meta.get("repository")
+        declared_revision = repository.get("revision", "") if isinstance(repository, dict) else ""
+        if not isinstance(declared_revision, str):
+            declared_revision = ""
+        if not declared_revision and isinstance(meta.get("subtitle"), str):
+            declared_revision = meta["subtitle"]
         if SOURCE_REVISION not in declared_revision and SOURCE_REVISION[:7] not in declared_revision:
             errors.append(f"{specification.relative_to(root)}: missing pinned source revision")
+
+        artifact_text = artifact.read_text(encoding="utf-8")
+        _check_delivered_html(root, artifact, artifact_text, errors)
 
         row = rows.get(specification.name)
         if row is None:
             errors.append(f"delivery receipt: missing {specification.name}")
             continue
+        if row.get("diagram_type") != diagram_type:
+            errors.append(f"delivery receipt: {specification.name} diagram type mismatch")
         checks = row.get("validation", {})
-        if checks != {"checks_passed": 9, "check_count": 9, "errors": 0, "warnings": 0}:
+        if checks != REQUIRED_VALIDATION:
             errors.append(f"delivery receipt: {specification.name} is not a clean 9/9 showcase result")
         if row.get("visual_review") != "passed":
             errors.append(f"delivery receipt: {specification.name} lacks passed visual review")
@@ -168,6 +265,8 @@ def _check_artifacts(root: Path, errors: list[str]) -> None:
 def check_repository(root: Path) -> list[str]:
     errors: list[str] = []
     _check_links(root, errors)
+    _check_prohibited_paths(root, errors)
+    _check_evidence_manifest(root, errors)
     _check_artifacts(root, errors)
     return errors
 
