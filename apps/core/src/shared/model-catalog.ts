@@ -176,6 +176,12 @@ export interface ModelCatalogEntry {
 }
 
 export interface ModelCapabilityDescriptor {
+  /**
+   * Input modalities the model accepts beyond text, analogous to the pricing
+   * fields: declared per entry, absent means unsupported (fail closed).
+   */
+  imageInput?: boolean;
+  pdfInput?: boolean;
   streaming: boolean;
   toolUse: boolean;
   mcpProjection: boolean;

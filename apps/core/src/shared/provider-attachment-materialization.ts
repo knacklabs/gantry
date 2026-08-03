@@ -494,15 +494,21 @@ async function declaredZipDecompressedBytes(
     await file.read(tail, 0, tailLength, stats.size - tailLength);
     const eocd = tail.lastIndexOf(Buffer.from('PK\x05\x06', 'latin1'));
     if (eocd === -1) return null;
+    if (eocd + 22 > tail.length) return Number.POSITIVE_INFINITY;
+    const entryCount = tail.readUInt16LE(eocd + 10);
     const centralSize = tail.readUInt32LE(eocd + 12);
     const centralOffset = tail.readUInt32LE(eocd + 16);
     if (centralSize === 0 || centralSize > 8 * 1024 * 1024) {
+      return Number.POSITIVE_INFINITY;
+    }
+    if (centralOffset + centralSize > stats.size) {
       return Number.POSITIVE_INFINITY;
     }
     const central = Buffer.alloc(centralSize);
     await file.read(central, 0, centralSize, centralOffset);
     let cursor = 0;
     let total = 0;
+    let records = 0;
     while (cursor + 46 <= central.length) {
       if (central.readUInt32LE(cursor) !== 0x02014b50) break;
       total += central.readUInt32LE(cursor + 24);
@@ -510,6 +516,13 @@ async function declaredZipDecompressedBytes(
       const extraLength = central.readUInt16LE(cursor + 30);
       const commentLength = central.readUInt16LE(cursor + 32);
       cursor += 46 + nameLength + extraLength + commentLength;
+      records += 1;
+    }
+    // The directory must be fully consumed and agree with the EOCD entry
+    // count; a partially valid directory is how a bomb hides from this scan
+    // while the parser (which follows the EOCD count) still expands it.
+    if (records !== entryCount || cursor !== central.length) {
+      return Number.POSITIVE_INFINITY;
     }
     return total;
   } finally {

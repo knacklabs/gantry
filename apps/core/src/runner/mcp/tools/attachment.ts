@@ -28,6 +28,8 @@ export function registerAttachmentTools(server: McpServer): void {
     'attachment_open',
     'Read inbound conversation attachments using their opaque gantry_attachment ids. Always use this for attachment metadata; never use FileRead or FileSearch on gantry_ref paths. Pass attachment_ids to read multiple files concurrently in one call. The host verifies conversation scope and returns bounded extracted text for documents.',
     {
+      // Batch-only by design: this repo ships runner+host+prompts atomically
+      // and keeps no backward-compatible aliases (decision: no-legacy policy).
       attachment_ids: z
         .array(z.string().min(1))
         .min(1)
