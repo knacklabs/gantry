@@ -62,6 +62,8 @@ type ExecutableModelEntryFn = (input: {
   cacheTokenFields: readonly string[];
   supportsThinking?: boolean;
   supportsTools?: boolean;
+  imageInput?: boolean;
+  pdfInput?: boolean;
   supportedWorkloads: readonly ModelWorkload[];
   providerAvailability?: ModelCatalogEntry['providerAvailability'];
   providerRouting?: ModelCatalogEntry['providerRouting'];
@@ -248,6 +250,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
     // request. Server-tool fees are separate and are not catalog token rates.
     executableModelEntry({
       id: 'xai:grok-4.5',
+      imageInput: true,
       route: providerRoute('xai', 'grok-4.5'),
       displayName: 'Grok 4.5',
       runnerModel: 'grok-4.5',
@@ -271,6 +274,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
     }),
     executableModelEntry({
       id: 'xai:grok-4.3',
+      imageInput: true,
       route: providerRoute('xai', 'grok-4.3'),
       displayName: 'Grok 4.3',
       runnerModel: 'grok-4.3',
@@ -419,6 +423,8 @@ export function buildOpenAiCompatibleCatalog(deps: {
     // real cost of a search query. Renders as `—`.
     executableModelEntry({
       id: 'perplexity:sonar-pro',
+      imageInput: true,
+      pdfInput: true,
       route: providerRoute('perplexity', 'sonar-pro'),
       displayName: 'Perplexity Sonar Pro',
       runnerModel: 'sonar-pro',
@@ -433,6 +439,8 @@ export function buildOpenAiCompatibleCatalog(deps: {
     }),
     executableModelEntry({
       id: 'perplexity:sonar',
+      imageInput: true,
+      pdfInput: true,
       route: providerRoute('perplexity', 'sonar'),
       displayName: 'Perplexity Sonar',
       runnerModel: 'sonar',
@@ -461,6 +469,8 @@ export function buildOpenAiCompatibleCatalog(deps: {
       // Best-effort: Gemini's cached-token field via the OpenAI-compat layer is
       // UNVERIFIED; accounting is best-effort and must not block.
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
+      imageInput: true,
+      pdfInput: true,
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
       experimental: true,
     }),
@@ -477,6 +487,8 @@ export function buildOpenAiCompatibleCatalog(deps: {
       outputUsdPerMillionTokens: 2.5,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
+      imageInput: true,
+      pdfInput: true,
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
       experimental: true,
     }),
@@ -493,6 +505,8 @@ export function buildOpenAiCompatibleCatalog(deps: {
       outputUsdPerMillionTokens: 9,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
+      imageInput: true,
+      pdfInput: true,
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
       experimental: true,
     }),
@@ -512,6 +526,8 @@ export function buildOpenAiCompatibleCatalog(deps: {
       contextWindowTokens: WINDOW_1M,
       cacheMode: 'none',
       cacheTokenFields: [],
+      imageInput: true,
+      pdfInput: true,
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
       providerAvailability: VERTEX_GLOBAL_AVAILABILITY,
       experimental: true,

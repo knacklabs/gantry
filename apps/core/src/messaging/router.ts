@@ -19,7 +19,7 @@ export const CONVERSATION_CONTEXT_RENDER_LIMITS = {
   renderedMessageBytes: 6000,
   renderedContextBytes: 16000,
   attributeBytes: 160,
-  attachmentsPerMessage: 4,
+  attachmentsPerMessage: 12,
 } as const;
 
 interface MessageLineLimits {

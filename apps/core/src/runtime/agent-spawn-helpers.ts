@@ -19,6 +19,7 @@ import {
 } from './deepagents-shell-filesystem-guard.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import { computeAttachmentIpcAuthToken } from './ipc-auth.js';
+import { modelInputModalities } from '../shared/model-catalog.js';
 
 const SANDBOX_RUNTIME_GO_DNS = 'netdns=go';
 // Host env projection for the DeepAgents shell tool. Returns the enable flag the
@@ -75,6 +76,7 @@ export function buildBaseRunnerEnv(input: {
   browserTurnToken?: string;
   chatJid: string;
   providerAccountId?: string;
+  runnerModel: string;
   jobId?: string;
   jobName?: string;
   runId?: string;
@@ -146,6 +148,11 @@ export function buildBaseRunnerEnv(input: {
     ...(input.providerAccountId
       ? { GANTRY_PROVIDER_ACCOUNT_ID: input.providerAccountId }
       : {}),
+    // Comma-joined input modalities of the run's model (e.g. "image,pdf");
+    // empty means text-only, so attachment tooling fails closed to text.
+    GANTRY_MODEL_INPUT_MODALITIES: modelInputModalities(input.runnerModel).join(
+      ',',
+    ),
     ...(input.jobId ? { GANTRY_JOB_ID: input.jobId } : {}),
     ...(input.jobName ? { GANTRY_JOB_NAME: input.jobName } : {}),
     ...(input.runId ? { GANTRY_JOB_RUN_ID: input.runId } : {}),

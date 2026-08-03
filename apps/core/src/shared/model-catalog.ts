@@ -115,6 +115,9 @@ const OPUS_MODEL_METADATA = {
   cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
   supportsThinking: true,
   supportsTools: true,
+  imageInput: true,
+  imageToolResults: true,
+  pdfInput: true,
   supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
 } as const;
 
@@ -176,6 +179,23 @@ export interface ModelCatalogEntry {
 }
 
 export interface ModelCapabilityDescriptor {
+  /**
+   * Input modalities the model accepts beyond text, analogous to the pricing
+   * fields: declared per entry, absent means unsupported (fail closed).
+   */
+  imageInput?: boolean;
+  /**
+   * The provider's TOOL-RESULT contract accepts image blocks (documented for
+   * the Anthropic Messages API only). Distinct from imageInput: vision in
+   * user messages does not imply multimodal tool results, and sending an
+   * image block on a text-only tool contract can invalidate the turn.
+   */
+  imageToolResults?: boolean;
+  /**
+   * Declared capability metadata; not yet consumed by any delivery path.
+   * Native PDF hand-off needs its own story (workspace-boundary decision).
+   */
+  pdfInput?: boolean;
   streaming: boolean;
   toolUse: boolean;
   mcpProjection: boolean;
@@ -309,6 +329,9 @@ export function executableModelEntry(input: {
   supportsAdaptiveThinking?: boolean;
   supportsThinkingBudget?: boolean;
   supportsTools?: boolean;
+  imageInput?: boolean;
+  imageToolResults?: boolean;
+  pdfInput?: boolean;
   supportedWorkloads: readonly ModelWorkload[];
   providerAvailability?: ModelProviderAvailability;
   providerRouting?: ModelProviderRouting;
@@ -340,6 +363,9 @@ export function executableModelEntry(input: {
       thinking: input.supportsThinking ?? false,
       toolUse: input.supportsTools ?? false,
       cacheAccounting: input.cacheMode !== 'none',
+      ...(input.imageInput ? { imageInput: true } : {}),
+      ...(input.imageToolResults ? { imageToolResults: true } : {}),
+      ...(input.pdfInput ? { pdfInput: true } : {}),
     },
   };
 }
@@ -385,6 +411,9 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     supportedEffortLevels: ALL_MODEL_EFFORT_LEVELS,
     supportsAdaptiveThinking: true,
     supportsTools: true,
+    imageInput: true,
+    imageToolResults: true,
+    pdfInput: true,
     supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
   }),
   executableModelEntry({
@@ -458,6 +487,9 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     supportsAdaptiveThinking: true,
     supportsThinkingBudget: true,
     supportsTools: true,
+    imageInput: true,
+    imageToolResults: true,
+    pdfInput: true,
     supportedWorkloads: ALL_MODEL_WORKLOADS,
   }),
   executableModelEntry({
@@ -478,6 +510,9 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
     supportsThinking: false,
     supportsTools: true,
+    imageInput: true,
+    imageToolResults: true,
+    pdfInput: true,
     supportedWorkloads: ALL_MODEL_WORKLOADS,
   }),
   executableModelEntry({
@@ -500,6 +535,7 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     cacheTokenFields: OPENROUTER_CACHE_TOKEN_FIELDS,
     supportsThinking: true,
     supportsTools: true,
+    imageInput: true,
     supportedWorkloads: ALL_MODEL_WORKLOADS,
     providerAvailability: OPENROUTER_PROVIDER_AVAILABILITY,
     experimental: true,
@@ -719,6 +755,18 @@ export function resolveModelAlias(value?: string | null): string | undefined {
 export function resolveRunnerModel(value?: string | null): string | undefined {
   const resolved = resolveModelSelection(value);
   return resolved.ok ? resolved.runnerModel : undefined;
+}
+
+export function modelInputModalities(
+  modelIdOrAlias: string,
+): readonly string[] {
+  const entry = findModelByRunnerModel(modelIdOrAlias);
+  if (!entry) return [];
+  return [
+    ...(entry.capabilities.imageInput ? ['image'] : []),
+    ...(entry.capabilities.imageToolResults ? ['image-tool-results'] : []),
+    ...(entry.capabilities.pdfInput ? ['pdf'] : []),
+  ];
 }
 
 export function findModelByRunnerModel(
