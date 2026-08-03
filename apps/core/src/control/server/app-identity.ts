@@ -147,7 +147,6 @@ export function mapManualJobToStored(
     nextActionLabel: metadata.nextActionLabel,
     accessRequirements: job.access_requirements ?? [],
     setup: metadata.setup,
-    recovery: metadata.recovery,
     nextRun: job.next_run,
     lastRun: job.last_run,
     staleness: metadata.staleness,

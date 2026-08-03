@@ -150,6 +150,7 @@ function makeOpsRepository(job: Job) {
     updateAgentRunProviderMetadata: vi.fn(async () => true),
     createJobRun: vi.fn(async () => true),
     updateJob: vi.fn(async () => undefined),
+    markJobSetupNotified: vi.fn(async () => true),
     completeJobRun: vi.fn(async () => undefined),
     finalizeJobRunLease: vi.fn(async (input) => {
       await repo.completeJobRun(
@@ -161,7 +162,13 @@ function makeOpsRepository(job: Job) {
       return true;
     }),
     finalizeJobRunWithLease: vi.fn(async (input) => {
-      await repo.updateJob(input.jobId, input.jobUpdates);
+      if (input.incrementConsecutiveFailures) {
+        await repo.updateJob(input.jobId, input.jobUpdates, {
+          incrementConsecutiveFailures: true,
+        });
+      } else {
+        await repo.updateJob(input.jobId, input.jobUpdates);
+      }
       await repo.completeJobRun(
         input.runId,
         input.runStatus,
@@ -347,6 +354,7 @@ describe('jobs/execution', () => {
         pause_reason: 'Execution context route not found: tg:missing',
         next_run: null,
       }),
+      { incrementConsecutiveFailures: true },
     );
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:scheduler',
@@ -576,6 +584,7 @@ describe('jobs/execution', () => {
           state: 'missing_capability',
         }),
       }),
+      { incrementConsecutiveFailures: true },
     );
     // Autonomous not-on-allowlist denial: the RUN is a dead-end (failed); the
     // JOB still pauses for setup (asserted above) and notifies the admin.
@@ -654,6 +663,7 @@ describe('jobs/execution', () => {
         pause_reason: 'Setup required',
         lease_run_id: null,
       }),
+      { incrementConsecutiveFailures: true },
     );
     // Autonomous dead-end: run failed, job paused for setup (asserted above).
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
@@ -701,6 +711,7 @@ describe('jobs/execution', () => {
           state: 'missing_capability',
         }),
       }),
+      { incrementConsecutiveFailures: true },
     );
     expect(opsRepository.updateJob).not.toHaveBeenCalledWith(
       job.id,
@@ -1842,7 +1853,6 @@ describe('jobs/execution', () => {
 
     expect(queue.enqueueTask).not.toHaveBeenCalled();
     expect(runAgent).not.toHaveBeenCalled();
-    expect(storedJob.recovery_intent).toBeUndefined();
     expect(storedJob.setup_state).toMatchObject({
       state: 'missing_capability',
     });
@@ -2393,6 +2403,7 @@ describe('jobs/execution', () => {
           ],
         }),
       }),
+      { incrementConsecutiveFailures: true },
     );
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),

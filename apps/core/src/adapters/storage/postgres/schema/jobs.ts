@@ -47,6 +47,10 @@ export const canonicalJobsPostgres = pgTable(
     timeoutMs: integer('timeout_ms').notNull().default(300000),
     maxRetries: integer('max_retries').notNull().default(3),
     retryBackoffMs: integer('retry_backoff_ms').notNull().default(5000),
+    consecutiveFailures: integer('consecutive_failures').notNull().default(0),
+    maxConsecutiveFailures: integer('max_consecutive_failures'),
+    pauseReason: text('pause_reason'),
+    setupState: jsonb('setup_state'),
     nextRunAt: timestamp('next_run_at', {
       withTimezone: true,
       mode: 'string',

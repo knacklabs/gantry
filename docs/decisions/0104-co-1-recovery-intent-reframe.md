@@ -26,8 +26,11 @@ machinery outright — service, parser, domain type, claim guard, visibility
 metadata, null-clear writes — and promote the LIVE coordination fields to
 dedicated jobs columns written only by targeted, race-safe statements (in-DB
 counter arithmetic, fingerprint-guarded `jsonb_set` for notify-dedup, plain
-column sets for pause/clears). The cutover migration refuses (RAISE) if any
-non-null recovery intent exists in data.
+column sets for pause/clears). Residual intents written by the 2026-05-25..bdf86d2f0
+era (the flow production briefly ran before it was deleted) are inert residue;
+the cutover migration logs and drops them — a stale 'running' intent only ever
+blocked claims via the guard being retired, so dropping it un-sticks the job.
+The live deployment was verified to hold zero residual intents.
 
 ## Consequences
 

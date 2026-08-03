@@ -23,11 +23,12 @@ import type { RunLease } from '../../../../domain/ports/worker-coordination.js';
 import type { ExecutionProviderId } from '../../../../domain/sessions/sessions.js';
 // prettier-ignore
 import type { CanonicalJobEventRecord, CanonicalJobRecord, CanonicalRunRecord, JobRecordInput, PostgresCanonicalJobRepository } from '../repositories/canonical-job-repository.postgres.js';
+import type { CanonicalJobCoordinationUpdate } from '../repositories/canonical-job-coordination.postgres.js';
 import { redactProviderSessionHandlesInText } from '../../../../shared/provider-session-redaction.js';
 import {
-  parseRecoveryIntent,
   parseRequiredCapabilities,
   parseSetupState,
+  coordinationUpdateFromJob,
 } from './canonical-job-target-state.js';
 
 type JobRecordSource = Omit<JobUpsertInput, 'id'> | JobUpsertInput | Job;
@@ -73,11 +74,15 @@ export class CanonicalJobOpsService {
         execution_context: job.execution_context,
         notification_routes: job.notification_routes,
         access_requirements: job.access_requirements,
-        setup_state: job.setup_state,
-        recovery_intent: job.recovery_intent,
         created_at: job.created_at || now,
         updated_at: job.updated_at || now,
       }),
+      {
+        consecutiveFailures: job.consecutive_failures ?? 0,
+        maxConsecutiveFailures: job.max_consecutive_failures ?? null,
+        pauseReason: job.pause_reason ?? null,
+        setupState: parseSetupState(job.setup_state) ?? null,
+      },
     );
     return { created: !existing };
   }
@@ -97,7 +102,11 @@ export class CanonicalJobOpsService {
     return rows.map((row) => this.rowToJob(row));
   }
 
-  async updateJob(id: string, updates: Partial<Job>): Promise<void> {
+  async updateJob(
+    id: string,
+    updates: Partial<Job>,
+    options?: { incrementConsecutiveFailures?: boolean },
+  ): Promise<void> {
     const current = await this.getJobById(id);
     if (!current) return;
     const next = { ...current, ...updates };
@@ -107,7 +116,15 @@ export class CanonicalJobOpsService {
         ...next,
         updated_at: updates.updated_at ?? currentIso(),
       }),
+      coordinationUpdateFromJob(updates, options),
     );
+  }
+
+  async markJobSetupNotified(
+    id: string,
+    expectedFingerprint: string,
+  ): Promise<boolean> {
+    return this.repository.markJobSetupNotified(id, expectedFingerprint);
   }
 
   async deleteJob(id: string): Promise<void> {
@@ -300,6 +317,7 @@ export class CanonicalJobOpsService {
     resultSummary?: string | null;
     errorSummary?: string | null;
     jobUpdates: Partial<Job>;
+    incrementConsecutiveFailures?: boolean;
   }): Promise<boolean> {
     const redactedResultSummary =
       input.resultSummary == null
@@ -322,7 +340,10 @@ export class CanonicalJobOpsService {
         resultSummary: redactedResultSummary,
         errorSummary: redactedErrorSummary,
       },
-      jobUpdate: this.toTerminalJobUpdate(input.jobUpdates),
+      jobUpdate: this.toTerminalJobUpdate(
+        input.jobUpdates,
+        input.incrementConsecutiveFailures,
+      ),
     });
   }
 
@@ -428,8 +449,6 @@ export class CanonicalJobOpsService {
     const accessRequirements = parseAccessRequirements(
       target.accessRequirements,
     );
-    const setupState = parseSetupState(target.setupState);
-    const recoveryIntent = parseRecoveryIntent(target.recoveryIntent);
     const requiredCapabilities = parseRequiredCapabilities(
       target.requiredCapabilities,
     );
@@ -454,16 +473,15 @@ export class CanonicalJobOpsService {
       timeout_ms: row.timeoutMs,
       max_retries: row.maxRetries,
       retry_backoff_ms: row.retryBackoffMs,
-      max_consecutive_failures: Number(target.maxConsecutiveFailures ?? 5),
-      consecutive_failures: Number(target.consecutiveFailures ?? 0),
+      max_consecutive_failures: row.maxConsecutiveFailures ?? 5,
+      consecutive_failures: row.consecutiveFailures,
       lease_run_id: row.leaseRunId,
       lease_expires_at: row.leaseExpiresAt,
-      pause_reason: (target.pauseReason as string | null | undefined) ?? null,
+      pause_reason: row.pauseReason,
       execution_context: executionContext,
       notification_routes: notificationRoutes,
       access_requirements: accessRequirements,
-      setup_state: setupState,
-      recovery_intent: recoveryIntent,
+      setup_state: parseSetupState(row.setupState),
       required_capabilities: requiredCapabilities,
     };
   }
@@ -495,12 +513,7 @@ export class CanonicalJobOpsService {
         notificationRoutes,
         createdBy: job.created_by || 'agent',
         cleanupAfterMs: job.cleanup_after_ms ?? 86400000,
-        maxConsecutiveFailures: job.max_consecutive_failures ?? 5,
-        consecutiveFailures: job.consecutive_failures ?? 0,
-        pauseReason: job.pause_reason ?? null,
         accessRequirements: parseAccessRequirements(job.access_requirements),
-        setupState: parseSetupState(job.setup_state),
-        recoveryIntent: parseRecoveryIntent(job.recovery_intent),
         requiredCapabilities: parseRequiredCapabilities(
           job.required_capabilities,
         ),
@@ -518,23 +531,10 @@ export class CanonicalJobOpsService {
     };
   }
 
-  private toTerminalJobUpdate(job: Partial<Job>) {
-    const targetJsonPatch: Record<string, unknown> = {};
-    if (job.consecutive_failures !== undefined) {
-      targetJsonPatch.consecutiveFailures = job.consecutive_failures;
-    }
-    if (job.pause_reason !== undefined) {
-      targetJsonPatch.pauseReason = job.pause_reason;
-    }
-    if (job.setup_state !== undefined) {
-      targetJsonPatch.setupState = parseSetupState(job.setup_state);
-    }
-    if (job.recovery_intent !== undefined) {
-      targetJsonPatch.recoveryIntent = parseRecoveryIntent(job.recovery_intent);
-    }
-    if (job.max_consecutive_failures !== undefined) {
-      targetJsonPatch.maxConsecutiveFailures = job.max_consecutive_failures;
-    }
+  private toTerminalJobUpdate(
+    job: Partial<Job>,
+    incrementConsecutiveFailures = false,
+  ) {
     return {
       ...(job.status !== undefined ? { status: job.status } : {}),
       ...(job.next_run !== undefined ? { nextRunAt: job.next_run } : {}),
@@ -546,7 +546,9 @@ export class CanonicalJobOpsService {
         ? { leaseExpiresAt: job.lease_expires_at }
         : {}),
       updatedAt: job.updated_at ?? currentIso(),
-      ...(Object.keys(targetJsonPatch).length > 0 ? { targetJsonPatch } : {}),
+      coordination: coordinationUpdateFromJob(job, {
+        incrementConsecutiveFailures,
+      }),
     };
   }
 

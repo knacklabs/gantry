@@ -49,7 +49,6 @@ export function applyJobReadinessToUpdates(
     updates.next_run = null;
     return;
   }
-  updates.recovery_intent = null;
   if (options.clearPauseWhenActive && options.mergedStatus === 'active') {
     updates.pause_reason = null;
   }

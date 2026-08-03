@@ -297,8 +297,19 @@ export class PostgresRuntimeRepositoryBundle
     return this.jobs.getRecentJobRuns(limit);
   }
 
-  async updateJob(id: string, updates: Partial<Job>): Promise<void> {
-    await this.jobs.updateJob(id, updates);
+  async updateJob(
+    id: string,
+    updates: Partial<Job>,
+    options?: { incrementConsecutiveFailures?: boolean },
+  ): Promise<void> {
+    await this.jobs.updateJob(id, updates, options);
+  }
+
+  async markJobSetupNotified(
+    id: string,
+    expectedFingerprint: string,
+  ): Promise<boolean> {
+    return this.jobs.markJobSetupNotified(id, expectedFingerprint);
   }
 
   async deleteJob(id: string): Promise<void> {
@@ -389,6 +400,7 @@ export class PostgresRuntimeRepositoryBundle
     resultSummary?: string | null;
     errorSummary?: string | null;
     jobUpdates: Partial<Job>;
+    incrementConsecutiveFailures?: boolean;
   }): Promise<boolean> {
     return this.jobs.finalizeJobRunWithLease(input);
   }

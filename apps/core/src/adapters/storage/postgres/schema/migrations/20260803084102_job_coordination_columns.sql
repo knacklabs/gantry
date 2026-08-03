@@ -1,12 +1,17 @@
 DO $$
+DECLARE
+  residual integer;
 BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM jobs
-    WHERE (target_json ? 'recoveryIntent' AND target_json -> 'recoveryIntent' <> 'null'::jsonb)
-       OR (target_json ? 'recovery_intent' AND target_json -> 'recovery_intent' <> 'null'::jsonb)
-  ) THEN
-    RAISE EXCEPTION 'jobs target_json contains non-null recovery intent';
+  -- Historical recovery intents (written 2026-05-25..bdf86d2f0, flow since
+  -- deleted) are inert residue; a stale 'running' intent only blocks claims
+  -- via the guard this migration retires. Dropping them un-sticks those jobs,
+  -- so we log and proceed rather than abort the upgrade.
+  SELECT count(*) INTO residual
+  FROM jobs
+  WHERE (target_json ? 'recoveryIntent' AND target_json -> 'recoveryIntent' <> 'null'::jsonb)
+     OR (target_json ? 'recovery_intent' AND target_json -> 'recovery_intent' <> 'null'::jsonb);
+  IF residual > 0 THEN
+    RAISE NOTICE 'dropping % residual job recovery intent(s) from the retired flow', residual;
   END IF;
 END $$;
 --> statement-breakpoint

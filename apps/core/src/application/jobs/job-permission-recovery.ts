@@ -64,16 +64,6 @@ export async function recheckSetupPausedJobsAfterCapabilityUpdate(
   const stillBlocked: RecheckedSetupJob[] = [];
   for (const job of candidates) {
     if (!isSetupPausedJob(job)) continue;
-    if (job.recovery_intent?.state === 'running') {
-      stillBlocked.push({
-        jobId: job.id,
-        name: job.name,
-        state: 'still_blocked',
-        nextAction: 'Recovery is already running for this job.',
-      });
-      await publishRecheckEvent(input, job, 'still_blocked', job.setup_state);
-      continue;
-    }
     const readiness = await evaluateJobReadiness({
       job,
       appId: input.appId,
@@ -92,7 +82,6 @@ export async function recheckSetupPausedJobsAfterCapabilityUpdate(
         pause_reason: null,
         next_run: now,
         setup_state: readiness.setupState,
-        recovery_intent: null,
         lease_run_id: null,
         lease_expires_at: null,
       });

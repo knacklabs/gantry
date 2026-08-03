@@ -276,7 +276,7 @@
       ]
     },
     {
-      "status": "pending",
+      "status": "active",
       "key": "CO-1",
       "title": "Jobs recovery-intent -> columns + CAS",
       "epic": "coordination-hardening",
@@ -699,5 +699,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-03T08:11:00+00:00"
+  "updated_at": "2026-08-03T08:28:42+00:00"
 }
