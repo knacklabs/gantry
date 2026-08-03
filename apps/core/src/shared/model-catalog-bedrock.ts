@@ -394,7 +394,9 @@ export function buildBedrockCatalog(deps: {
         cacheMode: 'none',
         cacheTokenFields: [],
         // Vision-capable Kimi id only; the tuple format stays lean for the rest.
-        ...(id === 'kimi-k2.5' ? { imageInput: true } : {}),
+        ...(id === 'kimi-k2.5' || id.startsWith('qwen3-vl')
+          ? { imageInput: true }
+          : {}),
         supportedWorkloads: deps.supportedWorkloads,
         providerAvailability: BEDROCK_AP_SOUTH_1_AVAILABILITY,
         experimental: true,

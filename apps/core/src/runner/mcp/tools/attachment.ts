@@ -46,7 +46,7 @@ export function registerAttachmentTools(server: McpServer): void {
         .map((value) => value.trim())
         .filter(Boolean)
         .filter((value, index, all) => all.indexOf(value) === index);
-      const deliverImages = modelSupportsImageInput();
+      const deliverImages = modelSupportsImageToolResults();
       const { text, images } =
         ids.length === 0
           ? { text: 'No gantry_attachment id was provided.', images: [] }
@@ -61,7 +61,7 @@ export function registerAttachmentTools(server: McpServer): void {
       // Image payloads reach the model only when its declared input
       // modalities include images; otherwise the host's guidance text (which
       // already points at vision-capable agents) stands alone.
-      const deliverableImages = modelSupportsImageInput() ? images : [];
+      const deliverableImages = modelSupportsImageToolResults() ? images : [];
       return {
         content: [
           { type: 'text' as const, text },
@@ -76,10 +76,10 @@ export function registerAttachmentTools(server: McpServer): void {
   );
 }
 
-function modelSupportsImageInput(): boolean {
+function modelSupportsImageToolResults(): boolean {
   return (process.env.GANTRY_MODEL_INPUT_MODALITIES ?? '')
     .split(',')
-    .includes('image');
+    .includes('image-tool-results');
 }
 
 function singleAttachmentResult(

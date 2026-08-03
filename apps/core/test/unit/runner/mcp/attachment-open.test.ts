@@ -217,7 +217,7 @@ describe('attachment_open tool image delivery', () => {
   });
 
   it('appends image blocks when the model declares image input', async () => {
-    process.env.GANTRY_MODEL_INPUT_MODALITIES = 'image,pdf';
+    process.env.GANTRY_MODEL_INPUT_MODALITIES = 'image,image-tool-results,pdf';
 
     const result = await callTool({ a1: imageResponse('a1') }, ['a1']);
 
@@ -241,7 +241,7 @@ describe('attachment_open tool image delivery', () => {
   });
 
   it('caps a batch call at four image blocks', async () => {
-    process.env.GANTRY_MODEL_INPUT_MODALITIES = 'image';
+    process.env.GANTRY_MODEL_INPUT_MODALITIES = 'image,image-tool-results';
     const ids = ['b1', 'b2', 'b3', 'b4', 'b5', 'b6'];
 
     const result = await callTool(

@@ -280,10 +280,19 @@ async function readAttachmentContent(
   extract: DocumentTextExtractor,
 ): Promise<{ content: string; image?: AttachmentImagePayload }> {
   const textLike = isTextLike(attachment.contentType, attachment.fileName);
-  if (isExtractableDocument(attachment.contentType, attachment.fileName)) {
+  // Dispatch is decided by sniffed bytes first: metadata is optional and
+  // untrusted, and octet-stream PDFs/images must still take the right path.
+  const sniffedKind = await sniffAttachmentKind(filePath);
+  if (
+    sniffedKind === 'document' ||
+    isExtractableDocument(attachment.contentType, attachment.fileName)
+  ) {
     return { content: await extract(filePath, attachment) };
   }
-  if (isImageAttachment(attachment.contentType, attachment.fileName)) {
+  if (
+    sniffedKind === 'image' ||
+    isImageAttachment(attachment.contentType, attachment.fileName)
+  ) {
     const label = attachment.fileName || path.basename(filePath);
     const stats = await fs.stat(filePath);
     if (stats.size > MAX_INLINE_IMAGE_BYTES) {
@@ -651,6 +660,31 @@ function isImageAttachment(contentType?: string, fileName?: string): boolean {
   const normalized = contentType?.toLowerCase() ?? '';
   if (normalized.startsWith('image/')) return true;
   return /\.(?:png|jpe?g|gif|bmp|tiff?|webp|heic)$/i.test(fileName ?? '');
+}
+
+async function sniffAttachmentKind(
+  filePath: string,
+): Promise<'document' | 'image' | 'unknown'> {
+  const file = await fs.open(filePath, 'r');
+  try {
+    const header = Buffer.alloc(12);
+    const { bytesRead } = await file.read(header, 0, 12, 0);
+    if (
+      bytesRead >= 5 &&
+      header.subarray(0, 5).toString('latin1') === '%PDF-'
+    ) {
+      return 'document';
+    }
+    if (bytesRead >= 4 && header.readUInt32LE(0) === 0x04034b50) {
+      return 'document';
+    }
+    if (sniffDeliverableImageMime(header.subarray(0, bytesRead))) {
+      return 'image';
+    }
+    return 'unknown';
+  } finally {
+    await file.close();
+  }
 }
 
 function sniffDeliverableImageMime(bytes: Buffer): string | null {

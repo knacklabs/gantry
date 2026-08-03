@@ -250,6 +250,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
     // request. Server-tool fees are separate and are not catalog token rates.
     executableModelEntry({
       id: 'xai:grok-4.5',
+      imageInput: true,
       route: providerRoute('xai', 'grok-4.5'),
       displayName: 'Grok 4.5',
       runnerModel: 'grok-4.5',
@@ -273,6 +274,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
     }),
     executableModelEntry({
       id: 'xai:grok-4.3',
+      imageInput: true,
       route: providerRoute('xai', 'grok-4.3'),
       displayName: 'Grok 4.3',
       runnerModel: 'grok-4.3',
@@ -421,6 +423,8 @@ export function buildOpenAiCompatibleCatalog(deps: {
     // real cost of a search query. Renders as `—`.
     executableModelEntry({
       id: 'perplexity:sonar-pro',
+      imageInput: true,
+      pdfInput: true,
       route: providerRoute('perplexity', 'sonar-pro'),
       displayName: 'Perplexity Sonar Pro',
       runnerModel: 'sonar-pro',
@@ -435,6 +439,8 @@ export function buildOpenAiCompatibleCatalog(deps: {
     }),
     executableModelEntry({
       id: 'perplexity:sonar',
+      imageInput: true,
+      pdfInput: true,
       route: providerRoute('perplexity', 'sonar'),
       displayName: 'Perplexity Sonar',
       runnerModel: 'sonar',

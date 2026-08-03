@@ -116,6 +116,7 @@ const OPUS_MODEL_METADATA = {
   supportsThinking: true,
   supportsTools: true,
   imageInput: true,
+  imageToolResults: true,
   pdfInput: true,
   supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
 } as const;
@@ -183,6 +184,13 @@ export interface ModelCapabilityDescriptor {
    * fields: declared per entry, absent means unsupported (fail closed).
    */
   imageInput?: boolean;
+  /**
+   * The provider's TOOL-RESULT contract accepts image blocks (documented for
+   * the Anthropic Messages API only). Distinct from imageInput: vision in
+   * user messages does not imply multimodal tool results, and sending an
+   * image block on a text-only tool contract can invalidate the turn.
+   */
+  imageToolResults?: boolean;
   /**
    * Declared capability metadata; not yet consumed by any delivery path.
    * Native PDF hand-off needs its own story (workspace-boundary decision).
@@ -322,6 +330,7 @@ export function executableModelEntry(input: {
   supportsThinkingBudget?: boolean;
   supportsTools?: boolean;
   imageInput?: boolean;
+  imageToolResults?: boolean;
   pdfInput?: boolean;
   supportedWorkloads: readonly ModelWorkload[];
   providerAvailability?: ModelProviderAvailability;
@@ -355,6 +364,7 @@ export function executableModelEntry(input: {
       toolUse: input.supportsTools ?? false,
       cacheAccounting: input.cacheMode !== 'none',
       ...(input.imageInput ? { imageInput: true } : {}),
+      ...(input.imageToolResults ? { imageToolResults: true } : {}),
       ...(input.pdfInput ? { pdfInput: true } : {}),
     },
   };
@@ -402,6 +412,7 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     supportsAdaptiveThinking: true,
     supportsTools: true,
     imageInput: true,
+    imageToolResults: true,
     pdfInput: true,
     supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
   }),
@@ -477,6 +488,7 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     supportsThinkingBudget: true,
     supportsTools: true,
     imageInput: true,
+    imageToolResults: true,
     pdfInput: true,
     supportedWorkloads: ALL_MODEL_WORKLOADS,
   }),
@@ -499,6 +511,7 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     supportsThinking: false,
     supportsTools: true,
     imageInput: true,
+    imageToolResults: true,
     pdfInput: true,
     supportedWorkloads: ALL_MODEL_WORKLOADS,
   }),
@@ -751,6 +764,7 @@ export function modelInputModalities(
   if (!entry) return [];
   return [
     ...(entry.capabilities.imageInput ? ['image'] : []),
+    ...(entry.capabilities.imageToolResults ? ['image-tool-results'] : []),
     ...(entry.capabilities.pdfInput ? ['pdf'] : []),
   ];
 }
