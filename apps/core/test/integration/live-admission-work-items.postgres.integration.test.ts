@@ -208,6 +208,66 @@ maybeDescribe('live admission work items (Postgres)', () => {
     ).resolves.toMatchObject({ outcome: 'enqueued' });
   });
 
+  it('deletes only expired terminal work items', async () => {
+    const appId = 'app-terminal-retention';
+    const oldAt = '2026-07-03T00:00:00.000Z';
+    const recentAt = '2026-07-05T00:00:00.000Z';
+    const cutoff = '2026-07-04T00:00:00.000Z';
+    const rows = [
+      ['retention-old-completed', 'completed', oldAt, oldAt],
+      ['retention-old-failed', 'failed', oldAt, oldAt],
+      ['retention-old-canceled', 'canceled', oldAt, null],
+      ['retention-old-queued', 'queued', oldAt, null],
+      ['retention-old-claimed', 'claimed', oldAt, null],
+      ['retention-old-deferred', 'deferred', oldAt, null],
+      ['retention-recent-completed', 'completed', recentAt, recentAt],
+      ['retention-recent-failed', 'failed', recentAt, recentAt],
+      ['retention-recent-canceled', 'canceled', recentAt, recentAt],
+    ] as const;
+    await Promise.all(
+      rows.map(([id], index) =>
+        liveTurns.enqueueLiveAdmissionWorkItem({
+          id,
+          ...base,
+          appId,
+          messageId: `message:retention:${index}`,
+          messageCursor: `2026-08-03T00:00:00.000Z::retention-${index}`,
+          idempotencyKey: `telegram:delivery:retention-${index}`,
+        }),
+      ),
+    );
+    const tableName = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('live_admission_work_items')}`;
+    await Promise.all(
+      rows.map(([id, state, updatedAt, endedAt]) =>
+        runtime.service.pool.query(
+          `UPDATE ${tableName}
+           SET state = $2, updated_at = $3, ended_at = $4
+           WHERE id = $1`,
+          [id, state, updatedAt, endedAt],
+        ),
+      ),
+    );
+
+    await expect(
+      liveTurns.deleteExpiredTerminalLiveAdmissionWorkItems(cutoff),
+    ).resolves.toEqual({ deleted: 3, more: false });
+
+    const remaining = await runtime.service.pool.query<{ id: string }>(
+      `SELECT id FROM ${tableName} WHERE app_id = $1 ORDER BY id`,
+      [appId],
+    );
+    expect(remaining.rows.map(({ id }) => id)).toEqual([
+      'retention-old-claimed',
+      'retention-old-deferred',
+      'retention-old-queued',
+      'retention-recent-canceled',
+      'retention-recent-completed',
+      'retention-recent-failed',
+    ]);
+  });
+
   it('persists an overloaded canonical message without a work row or wakeup', async () => {
     const notifyLiveAdmissionWorkItem = vi.fn(async () => undefined);
     const messages = new CanonicalMessageOpsService(

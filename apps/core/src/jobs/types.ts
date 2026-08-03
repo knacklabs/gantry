@@ -34,6 +34,9 @@ export interface SchedulerDependencies {
   /** Process role; persisted on the worker_instances row at registration. */
   processRole?: ProcessRole;
   hasLiveAdmissionBacklog?: () => Promise<boolean>;
+  sweepTerminalLiveAdmissions?: (
+    cutoffIso: string,
+  ) => Promise<{ deleted: number; more: boolean }>;
   conversationRoutes: () => Record<string, ConversationRoute>;
   queue: GroupQueue;
   onProcess: (

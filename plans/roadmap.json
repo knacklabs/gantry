@@ -511,7 +511,7 @@
       "outcome": "Decided by record 0099: runtime is single-instance-authoritative for rate limits; cluster store deferred behind an explicit multi-instance revisit trigger. No code."
     },
     {
-      "status": "pending",
+      "status": "active",
       "key": "PERF-4",
       "title": "Live-admission: admission caps + terminal retention (decision required)",
       "epic": "runtime-hardening-audit",
@@ -566,9 +566,8 @@
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
       "order": 34,
-      "completed_at": "2026-08-03T04:16:02+00:00",
-      "history": ".factory/history/SIMP-2/",
-      "outcome": "The control server now builds its job and session services once at startup instead of assembling them on every request (22 construction sites collapsed to 2). Everything that can change while the server runs \u2014 storage readiness, reloadable settings, the credential broker \u2014 is read live through explicit getters, pinned by tests, so behavior is unchanged. The live-admission app id moved from the session module's constructor to the one method that uses it, making the per-caller difference explicit instead of a hidden constructor default."
+      "completed_at": "2026-08-03T04:30:48+00:00",
+      "outcome": "Merged PR #377: JobManagementService and SessionInteractionModule constructed once in the control composition root; live deps via getters; liveAdmissionAppId is a method argument."
     },
     {
       "status": "pending",
@@ -697,5 +696,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-03T04:16:02+00:00"
+  "updated_at": "2026-08-03T04:19:33+00:00"
 }

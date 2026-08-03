@@ -177,6 +177,12 @@ export async function startSchedulerLoop(
     opsRepository: deps.opsRepository ?? getRuntimeRepositories(),
     hasLiveAdmissionBacklog:
       deps.hasLiveAdmissionBacklog ?? hasQueuedLiveAdmissionWork,
+    sweepTerminalLiveAdmissions:
+      deps.sweepTerminalLiveAdmissions ??
+      ((cutoffIso: string) =>
+        getRuntimeStorage().repositories.liveTurns.deleteExpiredTerminalLiveAdmissionWorkItems(
+          cutoffIso,
+        )),
   };
   const warn = (context: Record<string, unknown>, message: string): void =>
     logger.warn(context, message);
