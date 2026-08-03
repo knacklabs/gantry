@@ -1501,10 +1501,12 @@ maybeDescribe('inline session turns through the control API', () => {
       repository: runtime.repositories.asyncTasks,
       runRepository: runtime.ops,
       getConversationRoutes: () => routes,
-      resolveExecutionProviderId: async (route) =>
-        route.agentConfig?.runtime === 'inline'
-          ? ('integration:inline' as never)
-          : ('integration:worker' as never),
+      resolveInitialExecution: async (route) => ({
+        executionProviderId:
+          route.agentConfig?.runtime === 'inline'
+            ? ('integration:inline' as never)
+            : ('integration:worker' as never),
+      }),
       resolveRunAccess: async (agentId) => ({
         toolPolicyRules: [`target:${agentId}`],
         attachedMcpSourceIds: [`mcp:${agentId}`],

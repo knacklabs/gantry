@@ -49,6 +49,10 @@ export const agentRunsPostgres = pgTable(
     llmProfileId: text('llm_profile_id')
       .notNull()
       .references(() => llmProfilesPostgres.id),
+    modelAliasSnapshot: text('model_alias_snapshot'),
+    modelProviderSnapshot: text('model_provider_snapshot'),
+    providerModelIdSnapshot: text('provider_model_id_snapshot'),
+    modelDisplayNameSnapshot: text('model_display_name_snapshot'),
     executionProviderId: text('execution_provider_id').notNull(),
     providerRunId: text('provider_run_id'),
     providerSessionId: text('provider_session_id'),

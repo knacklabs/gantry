@@ -32,6 +32,23 @@ describe('createPostgresDomainRepositories', () => {
   });
 });
 
+describe('agent run model identity schema', () => {
+  it('keeps resolved model snapshots nullable for existing history', () => {
+    expect(pgSchema.agentRunsPostgres.modelAliasSnapshot.name).toBe(
+      'model_alias_snapshot',
+    );
+    expect(pgSchema.agentRunsPostgres.modelProviderSnapshot.notNull).toBe(
+      false,
+    );
+    expect(pgSchema.agentRunsPostgres.providerModelIdSnapshot.notNull).toBe(
+      false,
+    );
+    expect(pgSchema.agentRunsPostgres.modelDisplayNameSnapshot.notNull).toBe(
+      false,
+    );
+  });
+});
+
 describe('provider account schema', () => {
   it('persists ownership and native identity evidence without trigger routing', () => {
     expect(providerAccountsPostgres.agentId.name).toBe('agent_id');

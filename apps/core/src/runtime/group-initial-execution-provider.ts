@@ -2,6 +2,11 @@ import type { AgentExecutionAdapter } from '../application/agent-execution/agent
 import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
 import type { ConversationRoute } from '../domain/types.js';
 import type { AgentHarness } from '../shared/agent-engine.js';
+import {
+  modelIdentitySnapshot,
+  resolveModelSelectionForWorkload,
+  type ResolvedModelIdentitySnapshot,
+} from '../shared/model-catalog.js';
 import { resolveExecutionRoute } from '../shared/model-execution-route.js';
 import {
   defaultModelStatusSelection,
@@ -31,6 +36,7 @@ export async function resolveInitialGroupExecutionProviderId(input: {
   firstModel?: string;
   failoverCandidates: string[];
   initialModelSelection: ModelStatusSelectionUpdate;
+  modelIdentity?: ResolvedModelIdentitySnapshot;
 }> {
   const requestedModel = input.group.agentConfig?.model ?? input.defaultModel;
   const initialModelSelection = defaultModelStatusSelection(
@@ -43,6 +49,12 @@ export async function resolveInitialGroupExecutionProviderId(input: {
     familyOrder: input.familyOrder,
   });
   const firstModel = failoverCandidates[0];
+  const modelIdentity = modelIdentitySnapshot(
+    resolveModelSelectionForWorkload(
+      firstModel ?? requestedModel ?? DEFAULT_MODEL_ALIAS,
+      'chat',
+    ),
+  );
   const liveTurnRoute = initialModelSelection.model
     ? resolveExecutionRoute({
         entry: initialModelSelection.model,
@@ -56,6 +68,7 @@ export async function resolveInitialGroupExecutionProviderId(input: {
   return {
     initialModelSelection,
     failoverCandidates,
+    ...(modelIdentity ? { modelIdentity } : {}),
     ...(firstModel ? { firstModel } : {}),
     executionProviderId: firstModel
       ? executionProviderIdForCandidate(

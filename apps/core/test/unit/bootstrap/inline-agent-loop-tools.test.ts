@@ -83,7 +83,9 @@ function wire(overrides: Record<string, unknown> = {}) {
           conversationId: 'conversation:shared',
         },
       })),
-      resolveExecutionProviderId: vi.fn(async () => 'test:inline'),
+      resolveInitialExecution: vi.fn(async () => ({
+        executionProviderId: 'test:inline',
+      })),
     },
     channelWiring: {
       sendMessage,
@@ -693,7 +695,9 @@ describe('inline core tool bootstrap', () => {
           conversationId: 'conversation:shared',
         },
       }),
-      resolveExecutionProviderId: vi.fn(async () => 'test:inline'),
+      resolveInitialExecution: vi.fn(async () => ({
+        executionProviderId: 'test:inline',
+      })),
       resolveRunAccess: async (agentId) => {
         const accessSnapshot = await loadAgentAccessSnapshot(snapshotDeps, {
           appId: 'default',

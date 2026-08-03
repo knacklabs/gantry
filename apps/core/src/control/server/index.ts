@@ -39,6 +39,8 @@ import {
   tryAcquireRuntimeAdvisoryLease,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import { preflightModelProvider } from '../../adapters/llm/model-provider-preflight.js';
+import { LiveProviderModelDiscoveryAdapter } from '../../adapters/llm/provider-model-discovery-adapter.js';
+import { ProviderModelDiscoveryService } from '../../application/models/provider-model-discovery-service.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import { canAccessApp, makeAppGroup } from './app-identity.js';
@@ -376,6 +378,10 @@ export function startControlServer(input: {
     createId: randomUUID,
     stableHash: (input) => createHash('sha256').update(input).digest('hex'),
   });
+  const providerModels = new ProviderModelDiscoveryService(
+    getRuntimeStorage().repositories.modelCredentials,
+    new LiveProviderModelDiscoveryAdapter(),
+  );
   const ctx: ControlRouteContext = {
     app: input.app,
     sessionInteraction,
@@ -451,6 +457,7 @@ export function startControlServer(input: {
         return [];
       }
     },
+    providerModels,
     countPendingAccessRequests: async (appId: AppId) =>
       getRuntimeStorage().repositories.pendingAccessRequests.countPendingAccessRequests(
         { appId },

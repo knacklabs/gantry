@@ -26,12 +26,11 @@ import {
   DEFAULT_AGENT_ENGINE,
 } from '../../../shared/agent-engine.js';
 import { agentModelPreview } from './model-agent-preview.js';
-import {
-  authorizeControlRequest,
-  type ControlRouteContext,
-} from '../handler-context.js';
+// prettier-ignore
+import { authorizeControlRequest, type ControlRouteContext } from '../handler-context.js';
 import { readJson, sendError, sendJson } from '../http.js';
 import { authenticate, type ApiKeyRecord } from '../auth.js';
+import { handleProviderModelRoutes } from './provider-models.js';
 
 type FamilyProviderOptions = {
   configuredProviders?: ReadonlySet<string>;
@@ -568,6 +567,8 @@ export async function handleModelRoutes(
   ctx: ControlRouteContext,
   pathname: string,
 ): Promise<boolean> {
+  if (await handleProviderModelRoutes(req, res, ctx, pathname)) return true;
+
   if (
     pathname !== '/v1/models' &&
     pathname !== '/v1/models/defaults' &&

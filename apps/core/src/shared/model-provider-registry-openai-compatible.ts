@@ -148,6 +148,7 @@ function openAiCompatibleProvider(input: {
   pathSegment: string;
   upstreamOrigin: string;
   upstreamPathPrefix: string;
+  discoveryPath?: string;
   cacheSupport: ModelProviderCacheSupport;
   memory?: boolean;
 }): ModelProviderDefinition {
@@ -173,6 +174,7 @@ function openAiCompatibleProvider(input: {
         credentialProvider: input.id,
       },
     },
+    discovery: { path: input.discoveryPath ?? '/models' },
     cacheSupport: input.cacheSupport,
     executionRoute: deepAgentsExecutionRoute(),
   };
@@ -487,6 +489,7 @@ export const OPENAI_COMPATIBLE_PROVIDER_DEFINITIONS = [
     upstreamOrigin: 'https://api.perplexity.ai',
     // Perplexity serves chat/completions at the origin root (no /v1).
     upstreamPathPrefix: '',
+    discoveryPath: '/v1/models',
     cacheSupport: NO_CACHE_SUPPORT,
   }),
   openAiCompatibleProvider({

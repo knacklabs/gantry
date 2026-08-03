@@ -59,6 +59,35 @@ export const coreOpenApiRouteDocs: RouteDoc[] = [
   ),
   doc(
     'get',
+    '/v1/model-providers/{providerId}/models',
+    'discoverProviderModels',
+    'Models',
+    'Discover provider models',
+    'Returns bounded live discovery merged with every registered alias. Provider failure never removes saved aliases.',
+    ['sessions:read'],
+    {
+      parameters: [
+        ids.modelCredentialProvider,
+        query(
+          'refresh',
+          'Request a provider refresh. Forced refreshes are limited to one per 30 seconds.',
+          { type: 'boolean' },
+        ),
+      ],
+    },
+  ),
+  doc(
+    'post',
+    '/v1/model-registrations',
+    'registerProviderModel',
+    'Models',
+    'Register a discovered model alias',
+    'Adds one discovered model to the settings-owned alias catalog using an expected desired-state revision.',
+    ['agents:admin'],
+    { body: 'json', conflict: true },
+  ),
+  doc(
+    'get',
     '/v1/models/defaults',
     'getModelDefaults',
     'Models',

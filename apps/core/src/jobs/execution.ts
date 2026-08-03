@@ -12,9 +12,10 @@ import { SETUP_REQUIRED_PAUSE_REASON } from '../application/jobs/job-readiness-s
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { nowIso, nowMs, toIso } from '../shared/time/datetime.js';
 import { accumulateModelUsage } from '../shared/model-usage.js';
+// prettier-ignore
+import { modelIdentitySnapshot, resolveModelSelectionForWorkload } from '../shared/model-catalog.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import { AgentOutput, spawnAgent } from '../runtime/agent-spawn.js';
-import { resolveModelFamilyCandidatesForApp } from '../runtime/model-family-resolution.js';
 import { runJobAgentWithFailover } from './execution-failover.js';
 import { publishRunFailoverEvent } from '../runtime/failover-candidate-loop.js';
 import { providerSessionExternalSessionId } from '../runtime/agent-output-provider-session.js';
@@ -55,8 +56,8 @@ import {
   jobCompletedModelPayload,
   jobStartedModelPayload,
   modelUseKindForJobSchedule,
+  resolveJobModelForRun,
   resolveJobExecutionProviderId,
-  resolveJobModel,
 } from './model-resolution.js';
 // prettier-ignore
 import { createJobRunDiagnostics, createStreamingEventFlusher, filterUnforwardedRunnerRuntimeEvents, formatTerminalToolDenial, forwardRunnerRuntimeEvents, runnerRuntimeEventKey, terminalDiagnosticsPayload, toolDenialEventPayload } from './execution-diagnostics.js';
@@ -145,19 +146,8 @@ async function runActiveJob(
   const timeoutMs = Math.max(30_000, currentJob.timeout_ms || 300_000);
   const leaseExpiresAt = toIso(nowMs() + timeoutMs + 30_000);
   const jobModelUseKind = modelUseKindForJobSchedule(currentJob.schedule_type);
-  const jobFailoverCandidates = await resolveModelFamilyCandidatesForApp({
-    alias: currentJob.model || '',
-    appId: runtimeAppId,
-    listConfiguredProviders: getConfiguredModelProvidersForApp,
-    familyOrder: getRuntimeSettingsForConfig().modelFamilies,
-  });
-  const jobModelForResolution = jobFailoverCandidates[0] ?? '';
-  const agentHarness = getSelectedAgentHarness(execution.group.folder);
-  const resolvedModel = resolveJobModel(
-    { ...currentJob, model: jobModelForResolution || currentJob.model },
-    getEffectiveModelConfig(undefined, jobModelUseKind, execution.group.folder),
-    agentHarness,
-  );
+  // prettier-ignore
+  let { agentHarness, jobFailoverCandidates, resolvedModel, runModelIdentity } = await resolveJobModelForRun({ job: currentJob, appId: runtimeAppId, modelConfig: getEffectiveModelConfig(undefined, jobModelUseKind, execution.group.folder), agentHarness: getSelectedAgentHarness(execution.group.folder), listConfiguredProviders: getConfiguredModelProvidersForApp, familyOrder: getRuntimeSettingsForConfig().modelFamilies });
   const eventControl = getRuntimeControlRepository();
   const preflightAppSession = await resolveAppSessionForJob(
     currentJob,
@@ -455,6 +445,8 @@ async function runActiveJob(
               onFailover: async (toProviderId, details) => {
                 const fromProviderId = executionProviderId;
                 executionProviderId = toProviderId;
+                // prettier-ignore
+                runModelIdentity = modelIdentitySnapshot(resolveModelSelectionForWorkload(details.toModel, 'chat'));
                 error = null;
                 await updateRunProviderMetadata({
                   providerRunId: null,
@@ -558,6 +550,12 @@ async function runActiveJob(
                 }
               },
             });
+            if (agentRunId && runModelIdentity) {
+              await deps.opsRepository.setAgentRunModelIdentity?.({
+                runId: agentRunId,
+                modelIdentity: runModelIdentity,
+              });
+            }
             if (runLeaseAbort.isAborted()) {
               error = runLeaseAbort.error;
             } else {

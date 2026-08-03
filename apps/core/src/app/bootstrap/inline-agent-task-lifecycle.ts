@@ -17,6 +17,7 @@ import type {
 import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
 import { AsyncCommandTaskService } from '../../jobs/async-command-task-service.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import { type ResolvedModelIdentitySnapshot } from '../../shared/model-catalog.js';
 import type { InlineAgentLoopLaneInput } from '../../runtime/agent-inline.js';
 import { spawnAgent } from '../../runtime/agent-spawn.js';
 import type {
@@ -62,10 +63,13 @@ export function createInlineAgentTaskLifecycle(input: {
   repository?: AsyncTaskRepository;
   runRepository?: DelegatedRunRepository;
   getConversationRoutes(): Record<string, ConversationRoute>;
-  resolveExecutionProviderId(
+  resolveInitialExecution(
     route: Pick<ConversationRoute, 'agentConfig' | 'folder'>,
     chatJid: string,
-  ): Promise<ExecutionProviderId>;
+  ): Promise<{
+    executionProviderId: ExecutionProviderId;
+    modelIdentity?: ResolvedModelIdentitySnapshot;
+  }>;
   resolveRunAccess(agentId: string): Promise<DelegatedRunAccess>;
   buildRunOptions(
     agentId: string,
@@ -127,10 +131,11 @@ export function createInlineAgentTaskLifecycle(input: {
               targetGroup.agentId ?? agentIdForFolder(targetGroup.folder);
             const sameAgent =
               !delegated.targetAgentId || targetAgentId === owner.agentId;
-            const executionProviderId = await input.resolveExecutionProviderId(
-              targetGroup,
-              owner.conversationId,
-            );
+            const { executionProviderId, modelIdentity } =
+              await input.resolveInitialExecution(
+                targetGroup,
+                owner.conversationId,
+              );
             const turnContext =
               await input.runRepository?.getAgentTurnContext?.({
                 appId: owner.appId,
@@ -167,6 +172,7 @@ export function createInlineAgentTaskLifecycle(input: {
                   agentSessionId: turnContext.agentSessionId,
                   executionProviderId,
                   cause: 'manual',
+                  modelIdentity,
                 })
               : undefined;
             let latestResult: string | null = null;

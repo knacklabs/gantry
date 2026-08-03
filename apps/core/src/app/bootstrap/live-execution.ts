@@ -100,10 +100,10 @@ interface AdmissionOpsRepository {
 
 interface AdmissionApp {
   getConversationRoutes(): Record<string, ConversationRoute>;
-  resolveExecutionProviderId?: (
+  resolveInitialExecution?: (
     route: ConversationRoute,
     chatJid: string,
-  ) => Promise<ExecutionProviderId> | ExecutionProviderId;
+  ) => Promise<{ executionProviderId: ExecutionProviderId }>;
   processGroupMessages: (
     queueJid: string,
     options: GroupProcessOptions & { queued: boolean },
@@ -219,7 +219,8 @@ export function buildLiveAdmissionProcessor(input: {
       );
       if (!route) return false;
       const executionProviderId =
-        (await app.resolveExecutionProviderId?.(route, chatJid)) ??
+        (await app.resolveInitialExecution?.(route, chatJid))
+          ?.executionProviderId ??
         resolveRuntimeExecutionProviderId(executionAdapter);
       const turnContext = await opsRepository.getAgentTurnContext?.({
         agentFolder: route.folder,

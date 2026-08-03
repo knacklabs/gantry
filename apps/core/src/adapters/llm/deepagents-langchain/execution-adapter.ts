@@ -15,6 +15,7 @@ import { ensureDeepAgentsCheckpointSchema } from './checkpoint-setup.js';
 import { resolveDeepAgentSkillProjection } from './skill-projection.js';
 import { resolveDeepAgentsPromptCache } from './prompt-cache.js';
 import type { OpenRouterProviderRouting } from '../../../shared/model-catalog-provider-metadata.js';
+import { normalizeProviderModelError } from '../provider-model-error.js';
 
 const GANTRY_DEEPAGENTS_MODEL_ID_ENV = 'GANTRY_DEEPAGENTS_MODEL_ID';
 const GANTRY_DEEPAGENTS_MODEL_PROVIDER_ENV = 'GANTRY_DEEPAGENTS_MODEL_PROVIDER';
@@ -71,6 +72,8 @@ export class DeepAgentsLangChainExecutionAdapter implements AgentExecutionAdapte
   isMissingProviderSessionError(error: string | undefined): boolean {
     return isMissingDeepAgentSessionError(error);
   }
+
+  normalizeModelError = normalizeProviderModelError;
 
   async prepare(
     input: AgentExecutionAdapterPrepareInput,

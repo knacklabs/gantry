@@ -178,6 +178,10 @@ export interface AgentRun {
   messageId?: MessageId;
   jobId?: JobId;
   llmProfileId: LlmProfileId;
+  modelAliasSnapshot?: string;
+  modelProviderSnapshot?: string;
+  providerModelIdSnapshot?: string;
+  modelDisplayNameSnapshot?: string;
   executionProviderId: ExecutionProviderId;
   providerRunId?: string;
   providerSessionId?: ProviderSessionId;

@@ -119,6 +119,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/model-providers/{providerId}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Discover provider models
+         * @description Returns bounded live discovery merged with every registered alias. Provider failure never removes saved aliases.
+         */
+        get: operations["discoverProviderModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/model-registrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register a discovered model alias
+         * @description Adds one discovered model to the settings-owned alias catalog using an expected desired-state revision.
+         */
+        post: operations["registerProviderModel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/models/defaults": {
         parameters: {
             query?: never;
@@ -2661,6 +2701,38 @@ export interface components {
         ModelListResponse: {
             models: components["schemas"]["Model"][];
         };
+        ProviderModelListingResponse: {
+            providerId: string;
+            providerLabel: string;
+            /** @enum {string} */
+            discoverySource: "live" | "cache" | "none";
+            /** Format: date-time */
+            refreshedAt: string | null;
+            refreshError: string | null;
+            models: {
+                providerModelId: string;
+                displayName: string;
+                aliases: string[];
+                registered: boolean;
+                /** @enum {string} */
+                availability: "ready" | "available_to_register" | "configured_not_advertised" | "availability_unknown";
+                /** @enum {string} */
+                source: "registered" | "live" | "registered_and_live";
+                deprecated: boolean;
+            }[];
+        };
+        RegisterProviderModelRequest: {
+            providerId: string;
+            providerModelId: string;
+            alias: string;
+            expectedRevision: number;
+        };
+        RegisterProviderModelResponse: {
+            revision: number;
+            alias: string;
+            providerId: string;
+            providerModelId: string;
+        };
         ModelDefaultSlot: {
             configuredAlias: string | null;
             effectiveAlias: string | null;
@@ -4486,6 +4558,68 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    discoverProviderModels: {
+        parameters: {
+            query?: {
+                /** @description Request a provider refresh. Forced refreshes are limited to one per 30 seconds. */
+                refresh?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Model credential provider id. */
+                providerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderModelListingResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    registerProviderModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterProviderModelRequest"];
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisterProviderModelResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             500: components["responses"]["InternalError"];
         };
     };

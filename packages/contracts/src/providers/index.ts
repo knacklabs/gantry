@@ -32,6 +32,65 @@ export const ProviderListResponseSchema = z.object({
 });
 export type ProviderListResponse = z.infer<typeof ProviderListResponseSchema>;
 
+export const ProviderModelAvailabilitySchema = z.enum([
+  'ready',
+  'available_to_register',
+  'configured_not_advertised',
+  'availability_unknown',
+]);
+export type ProviderModelAvailability = z.infer<
+  typeof ProviderModelAvailabilitySchema
+>;
+
+export const ProviderModelListingResponseSchema = z.object({
+  providerId: z.string(),
+  providerLabel: z.string(),
+  discoverySource: z.enum(['live', 'cache', 'none']),
+  refreshedAt: IsoDateTimeSchema.nullable(),
+  refreshError: z.string().nullable(),
+  models: z.array(
+    z.object({
+      providerModelId: z.string(),
+      displayName: z.string(),
+      aliases: z.array(z.string()),
+      registered: z.boolean(),
+      availability: ProviderModelAvailabilitySchema,
+      source: z.enum(['registered', 'live', 'registered_and_live']),
+      deprecated: z.boolean(),
+    }),
+  ),
+});
+export type ProviderModelListingResponse = z.infer<
+  typeof ProviderModelListingResponseSchema
+>;
+
+export const RegisterProviderModelRequestSchema = z
+  .object({
+    providerId: z.string().trim().min(1).max(96),
+    providerModelId: z.string().trim().min(1).max(512),
+    alias: z
+      .string()
+      .trim()
+      .min(1)
+      .max(96)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/),
+    expectedRevision: z.number().int().nonnegative(),
+  })
+  .strict();
+export type RegisterProviderModelRequest = z.infer<
+  typeof RegisterProviderModelRequestSchema
+>;
+
+export const RegisterProviderModelResponseSchema = z.object({
+  revision: z.number().int().nonnegative(),
+  alias: z.string(),
+  providerId: z.string(),
+  providerModelId: z.string(),
+});
+export type RegisterProviderModelResponse = z.infer<
+  typeof RegisterProviderModelResponseSchema
+>;
+
 export const ProviderAccountConfigSchema = ContractMetadataSchema;
 
 export const CreateProviderAccountRequestSchema = z.object({

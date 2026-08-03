@@ -53,6 +53,37 @@ function makeBundleWithSessionService(input: {
 }
 
 describe('PostgresRuntimeRepositoryBundle', () => {
+  it('writes a resolved model identity only through the fenced snapshot update', async () => {
+    const returning = vi.fn(async () => [{ id: 'run-1' }]);
+    const where = vi.fn(() => ({ returning }));
+    const set = vi.fn(() => ({ where }));
+    const db = { update: vi.fn(() => ({ set })) };
+    const bundle = new PostgresRuntimeRepositoryBundle(
+      { end: vi.fn(async () => undefined) } as any,
+      db as any,
+      { runtimeEvents: { publish: vi.fn(async () => undefined) } },
+    );
+
+    await expect(
+      bundle.setAgentRunModelIdentity({
+        runId: 'run-1',
+        modelIdentity: {
+          alias: 'new-model',
+          providerId: 'openrouter',
+          providerModelId: 'vendor/new-model',
+          displayName: 'New Model',
+        },
+      }),
+    ).resolves.toBe(true);
+    expect(set).toHaveBeenCalledWith({
+      modelAliasSnapshot: 'new-model',
+      modelProviderSnapshot: 'openrouter',
+      providerModelIdSnapshot: 'vendor/new-model',
+      modelDisplayNameSnapshot: 'New Model',
+    });
+    expect(where).toHaveBeenCalledOnce();
+  });
+
   it('stores chat metadata under the provider account scoped conversation', async () => {
     const bundle = new PostgresRuntimeRepositoryBundle(
       { end: vi.fn(async () => undefined) } as any,
