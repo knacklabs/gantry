@@ -13,6 +13,20 @@ const MAX_DOCUMENT_INPUT_BYTES = 20 * 1024 * 1024;
 const MAX_DOCUMENT_DECOMPRESSED_BYTES = 100 * 1024 * 1024;
 const DOCUMENT_PARSE_TIMEOUT_MS = 15_000;
 const MAX_PDF_TEXT_PAGES = 50;
+const MAX_CONCURRENT_DOCUMENT_PARSES = 2;
+const ZIP_CONTAINER_EXTENSIONS = new Set([
+  '.docx',
+  '.xlsx',
+  '.pptx',
+  '.odt',
+  '.ods',
+  '.odp',
+]);
+
+// Zombie parses (officeparser has no abort API) keep occupying a slot past
+// their deadline, so runaway documents cap total host burn at two parsers
+// instead of accumulating across batches.
+let activeDocumentParses = 0;
 const DOCUMENT_EXTENSIONS = new Set([
   '.docx',
   '.xlsx',
@@ -281,21 +295,39 @@ export async function extractDocumentText(
   if (stats.size > MAX_DOCUMENT_INPUT_BYTES) {
     return `ERROR: ${label} is larger than 20 MB, the limit for document text extraction.`;
   }
-  const declaredBytes = await declaredZipDecompressedBytes(filePath).catch(
-    () => 0,
-  );
-  if (declaredBytes > MAX_DOCUMENT_DECOMPRESSED_BYTES) {
-    return `ERROR: ${label} declares more than 100 MB of decompressed content and was not parsed.`;
+  if (isZipContainerDocument(attachment.fileName)) {
+    const declaredBytes = await declaredZipDecompressedBytes(filePath).catch(
+      () => Number.POSITIVE_INFINITY,
+    );
+    if (declaredBytes > MAX_DOCUMENT_DECOMPRESSED_BYTES) {
+      return `ERROR: ${label} could not be verified as a safely sized document (its archive declares too much or unreadable decompressed content), so it was not parsed.`;
+    }
   }
+  if (activeDocumentParses >= MAX_CONCURRENT_DOCUMENT_PARSES) {
+    return `ERROR: document extraction is busy with earlier attachments. Retry this attachment in a moment.`;
+  }
+  activeDocumentParses += 1;
+  try {
+    return await extractDocumentTextInSlot(filePath, attachment, label);
+  } finally {
+    activeDocumentParses -= 1;
+  }
+}
+
+async function extractDocumentTextInSlot(
+  filePath: string,
+  attachment: ReadableAttachmentMetadata,
+  label: string,
+): Promise<string> {
   const deadline = Date.now() + DOCUMENT_PARSE_TIMEOUT_MS;
   try {
     // Heavy parsers load lazily so processes that only route storage refs
     // never pay for them.
     const { parseOffice } = await import('officeparser');
-    // ponytail: officeparser has no abort API, so a timed-out parse of a
-    // size-legit file may burn CPU after we stop waiting; the zip guard above
-    // bounds memory. Upgrade path: run extraction in a resource-limited
-    // worker if this ever shows up in production profiles.
+    // ponytail: officeparser has no abort API; a timed-out parse may burn CPU
+    // after we stop waiting, but the slot cap above bounds how many can ever
+    // run and the zip guard bounds memory. Upgrade path: a resource-limited
+    // worker if this shows in production profiles.
     const document = await withDeadline(
       parseOffice(filePath, {
         extractAttachments: false,
@@ -327,6 +359,12 @@ export async function extractDocumentText(
   return `${label} contains no extractable text. It may be encrypted, damaged, or empty.`;
 }
 
+function isZipContainerDocument(fileName?: string): boolean {
+  return ZIP_CONTAINER_EXTENSIONS.has(
+    path.extname(fileName ?? '').toLowerCase(),
+  );
+}
+
 // Office documents are zip archives whose central directory declares each
 // entry's decompressed size; summing those rejects zip bombs before parsing.
 async function declaredZipDecompressedBytes(filePath: string): Promise<number> {
@@ -337,10 +375,12 @@ async function declaredZipDecompressedBytes(filePath: string): Promise<number> {
     const tail = Buffer.alloc(tailLength);
     await file.read(tail, 0, tailLength, stats.size - tailLength);
     const eocd = tail.lastIndexOf(Buffer.from('PK\x05\x06', 'latin1'));
-    if (eocd === -1) return 0;
+    if (eocd === -1) return Number.POSITIVE_INFINITY;
     const centralSize = tail.readUInt32LE(eocd + 12);
     const centralOffset = tail.readUInt32LE(eocd + 16);
-    if (centralSize === 0 || centralSize > 8 * 1024 * 1024) return 0;
+    if (centralSize === 0 || centralSize > 8 * 1024 * 1024) {
+      return Number.POSITIVE_INFINITY;
+    }
     const central = Buffer.alloc(centralSize);
     await file.read(central, 0, centralSize, centralOffset);
     let cursor = 0;

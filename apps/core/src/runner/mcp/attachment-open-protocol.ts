@@ -63,6 +63,15 @@ export async function openAttachmentBatch(
   concurrency = DEFAULT_BATCH_CONCURRENCY,
 ): Promise<string> {
   const results = new Array<string>(attachmentIds.length);
+  // Split the combined budget across every requested id so late attachments
+  // cannot be truncated out of the response entirely.
+  const perItemBudget = Math.min(
+    MAX_BATCH_ITEM_BYTES,
+    Math.max(
+      2_000,
+      Math.floor(MAX_BATCH_OUTPUT_BYTES / attachmentIds.length) - 120,
+    ),
+  );
   let nextIndex = 0;
   const workerCount = Math.min(
     attachmentIds.length,
@@ -78,7 +87,7 @@ export async function openAttachmentBatch(
           await openAttachment(attachmentId).catch(
             () => 'ERROR: this attachment could not be read.',
           ),
-          MAX_BATCH_ITEM_BYTES,
+          perItemBudget,
         );
       }
     }),
