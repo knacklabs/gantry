@@ -104,7 +104,7 @@ describe('attachment_open MCP bridge', () => {
         active -= 1;
         return { text: `content-${attachmentId}` };
       },
-      3,
+      { concurrency: 3 },
     );
 
     expect(peak).toBe(3);
@@ -132,6 +132,7 @@ describe('attachment_open MCP bridge', () => {
         text: `guidance-${attachmentId}`,
         image: { base64: `data-${attachmentId}`, mimeType: 'image/png' },
       }),
+      { deliverImages: true },
     );
 
     expect(result.images.map((image) => image.base64)).toEqual([

@@ -12,6 +12,7 @@ import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
 import {
   attachmentOpenResponsePayload,
   attachmentOpenTaskRequest,
+  DELIVERED_IMAGE_TEXT,
   openAttachmentBatch,
   type AttachmentOpenImagePayload,
   type AttachmentOpenPayload,
@@ -45,23 +46,18 @@ export function registerAttachmentTools(server: McpServer): void {
         .map((value) => value.trim())
         .filter(Boolean)
         .filter((value, index, all) => all.indexOf(value) === index);
-      // When the image block is actually delivered, the host's switch-agent
-      // guidance would contradict it; substitute neutral text up front.
-      const openPayload = async (attachmentId: string) => {
-        const payload = await requestHostAttachmentOpenPayload(attachmentId);
-        return payload.image && modelSupportsImageInput()
-          ? {
-              ...payload,
-              text: 'Image attachment: delivered as an image block in this result.',
-            }
-          : payload;
-      };
+      const deliverImages = modelSupportsImageInput();
       const { text, images } =
         ids.length === 0
           ? { text: 'No gantry_attachment id was provided.', images: [] }
           : ids.length === 1
-            ? singleAttachmentResult(await openPayload(ids[0]!))
-            : await openAttachmentBatch(ids, openPayload);
+            ? singleAttachmentResult(
+                await requestHostAttachmentOpenPayload(ids[0]!),
+                deliverImages,
+              )
+            : await openAttachmentBatch(ids, requestHostAttachmentOpenPayload, {
+                deliverImages,
+              });
       // Image payloads reach the model only when its declared input
       // modalities include images; otherwise the host's guidance text (which
       // already points at vision-capable agents) stands alone.
@@ -86,10 +82,13 @@ function modelSupportsImageInput(): boolean {
     .includes('image');
 }
 
-function singleAttachmentResult(payload: AttachmentOpenPayload): {
-  text: string;
-  images: AttachmentOpenImagePayload[];
-} {
+function singleAttachmentResult(
+  payload: AttachmentOpenPayload,
+  deliverImages: boolean,
+): { text: string; images: AttachmentOpenImagePayload[] } {
+  if (payload.image && deliverImages) {
+    return { text: DELIVERED_IMAGE_TEXT, images: [payload.image] };
+  }
   return { text: payload.text, images: payload.image ? [payload.image] : [] };
 }
 

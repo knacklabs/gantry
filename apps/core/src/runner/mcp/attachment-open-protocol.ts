@@ -21,6 +21,8 @@ const MAX_BATCH_ITEM_BYTES = 32_000;
 const MAX_BATCH_OUTPUT_BYTES = 160_000;
 export const MAX_IMAGE_BLOCKS_PER_CALL = 4;
 const IMAGE_LIMIT_NOTE = '[image omitted: 4-image limit]';
+export const DELIVERED_IMAGE_TEXT =
+  'Image attachment: delivered as an image block in this result.';
 const TRUNCATION_SUFFIX = '\n[Attachment content truncated.]';
 
 export function attachmentOpenTaskRequest(input: {
@@ -92,8 +94,9 @@ export function attachmentOpenResponseText(
 export async function openAttachmentBatch(
   attachmentIds: readonly string[],
   openAttachment: (attachmentId: string) => Promise<AttachmentOpenPayload>,
-  concurrency = DEFAULT_BATCH_CONCURRENCY,
+  options?: { deliverImages?: boolean; concurrency?: number },
 ): Promise<{ text: string; images: AttachmentOpenImagePayload[] }> {
+  const concurrency = options?.concurrency ?? DEFAULT_BATCH_CONCURRENCY;
   const results = new Array<AttachmentOpenPayload>(attachmentIds.length);
   // Split the combined budget across every requested id so late attachments
   // cannot be truncated out of the response entirely.
@@ -127,15 +130,17 @@ export async function openAttachmentBatch(
       }
     }),
   );
-  // Cap image payloads per call in source order; later images degrade to
-  // their guidance text with an explicit omission note.
+  // Cap image payloads per call in source order. Text is decided HERE, where
+  // delivery is known: a retained image gets neutral delivered-text, an
+  // omitted one keeps the host's actionable guidance plus the omission note.
   const images: AttachmentOpenImagePayload[] = [];
   const combined = results
     .map((payload, index) => {
       let text = payload.text;
-      if (payload.image) {
+      if (payload.image && options?.deliverImages) {
         if (images.length < MAX_IMAGE_BLOCKS_PER_CALL) {
           images.push(payload.image);
+          text = DELIVERED_IMAGE_TEXT;
         } else {
           text = `${text}\n${IMAGE_LIMIT_NOTE}`;
         }
