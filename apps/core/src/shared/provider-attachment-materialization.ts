@@ -330,7 +330,9 @@ export async function extractDocumentText(
       return `ERROR: document extraction is busy; ${label} was not read. Retry in a moment.`;
     }
     try {
-      const text = (await extractPdfTextLayer(filePath, deadline)).trim();
+      const text = (
+        await parseInWorker('pdf', filePath, deadline, { rethrow: true })
+      ).trim();
       if (text.length > 0) return truncateTextOutput(text);
       return `ERROR: ${label} appears to be a scanned or image-only PDF with no text layer. This agent's model cannot view it through this tool; ask an agent whose model supports document/vision input, which reads such PDFs natively.`;
     } catch {
@@ -352,7 +354,7 @@ export async function extractDocumentText(
     return `ERROR: document extraction is busy; ${label} was not read. Retry in a moment.`;
   }
   try {
-    const text = (await parseOfficeInWorker(filePath, deadline)).trim();
+    const text = (await parseInWorker('office', filePath, deadline)).trim();
     if (text.length > 0) return truncateTextOutput(text);
     return `${label} contains no extractable text. It may be encrypted, damaged, or empty.`;
   } finally {
@@ -375,25 +377,33 @@ function isZipContainerDocument(
   );
 }
 
-// officeparser has no abort API, so it runs in a disposable worker thread with
-// a heap cap and an empty environment; the deadline terminates the worker,
+// Untrusted parsing (officeparser has no abort API; pdfjs uses a fake worker
+// on the calling thread in Node) runs in a disposable worker thread with a
+// heap cap and an empty environment; the deadline terminates the worker,
 // which both cancels the work and deterministically frees the slot.
-async function parseOfficeInWorker(
+async function parseInWorker(
+  kind: 'office' | 'pdf',
   filePath: string,
   deadline: number,
+  options?: { rethrow?: boolean },
 ): Promise<string> {
   const { Worker } = await import('node:worker_threads');
-  const worker = new Worker(OFFICE_PARSE_WORKER_SOURCE, {
+  const worker = new Worker(DOCUMENT_PARSE_WORKER_SOURCE, {
     eval: true,
     env: {},
     resourceLimits: {
       maxOldGenerationSizeMb: 512,
       maxYoungGenerationSizeMb: 64,
     },
-    workerData: { filePath, parentUrl: import.meta.url },
+    workerData: {
+      kind,
+      filePath,
+      parentUrl: import.meta.url,
+      maxPdfPages: MAX_PDF_TEXT_PAGES,
+    },
   });
   try {
-    return await withDeadline(
+    const parsed = withDeadline(
       new Promise<string>((resolve, reject) => {
         worker.once('message', (message: { text?: string; error?: string }) =>
           typeof message.text === 'string'
@@ -406,29 +416,65 @@ async function parseOfficeInWorker(
         });
       }),
       deadline,
-    ).catch(() => '');
+    );
+    return options?.rethrow ? await parsed : await parsed.catch(() => '');
   } finally {
     await worker.terminate().catch(() => undefined);
   }
 }
 
-// createRequire anchored to THIS module resolves officeparser identically from
-// checked-out source and from dist.
-const OFFICE_PARSE_WORKER_SOURCE = `
+// createRequire anchored to THIS module resolves the parser packages
+// identically from checked-out source and from dist.
+const DOCUMENT_PARSE_WORKER_SOURCE = `
 const { parentPort, workerData } = require('node:worker_threads');
 const { createRequire } = require('node:module');
+const { pathToFileURL } = require('node:url');
 const parentRequire = createRequire(workerData.parentUrl);
-const { parseOffice } = parentRequire('officeparser');
-parseOffice(workerData.filePath, {
-  extractAttachments: false,
-  includeRawContent: false,
-  ocr: false,
-  outputErrorToConsole: false,
-})
-  .then((document) => parentPort.postMessage({ text: document.toText() }))
-  .catch((error) => {
-    parentPort.postMessage({ error: String(error && error.message) });
-  });
+const report = (result) => parentPort.postMessage(result);
+const fail = (error) => report({ error: String(error && error.message) });
+if (workerData.kind === 'office') {
+  const { parseOffice } = parentRequire('officeparser');
+  parseOffice(workerData.filePath, {
+    extractAttachments: false,
+    includeRawContent: false,
+    ocr: false,
+    outputErrorToConsole: false,
+  })
+    .then((document) => report({ text: document.toText() }))
+    .catch(fail);
+} else {
+  const fs = require('node:fs/promises');
+  const pdfPath = parentRequire.resolve('pdfjs-dist/legacy/build/pdf.mjs');
+  (async () => {
+    const pdfjs = await import(pathToFileURL(pdfPath).href);
+    const data = new Uint8Array(await fs.readFile(workerData.filePath));
+    const task = pdfjs.getDocument({
+      data,
+      isEvalSupported: false,
+      useSystemFonts: false,
+      disableFontFace: true,
+    });
+    const document = await task.promise;
+    const pages = Math.min(document.numPages, workerData.maxPdfPages);
+    const parts = [];
+    for (let index = 1; index <= pages; index += 1) {
+      const page = await document.getPage(index);
+      const content = await page.getTextContent();
+      parts.push(
+        content.items.map((item) => ('str' in item ? item.str : '')).join(' '),
+      );
+    }
+    const suffix =
+      document.numPages > pages
+        ? '\\n\\n[Text extracted from the first ' +
+          pages +
+          ' of ' +
+          document.numPages +
+          ' pages.]'
+        : '';
+    report({ text: parts.join('\\n') + suffix });
+  })().catch(fail);
+}
 `;
 
 // Office documents are zip archives whose central directory declares each
@@ -462,41 +508,6 @@ async function declaredZipDecompressedBytes(filePath: string): Promise<number> {
     return total;
   } finally {
     await file.close();
-  }
-}
-
-async function extractPdfTextLayer(
-  filePath: string,
-  deadline: number,
-): Promise<string> {
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  const data = new Uint8Array(await fs.readFile(filePath));
-  const document = await withDeadline(
-    pdfjs.getDocument({
-      data,
-      isEvalSupported: false,
-      useSystemFonts: false,
-      disableFontFace: true,
-    }).promise,
-    deadline,
-  );
-  try {
-    const pages = Math.min(document.numPages, MAX_PDF_TEXT_PAGES);
-    const parts: string[] = [];
-    for (let index = 1; index <= pages; index += 1) {
-      const page = await withDeadline(document.getPage(index), deadline);
-      const content = await withDeadline(page.getTextContent(), deadline);
-      parts.push(
-        content.items.map((item) => ('str' in item ? item.str : '')).join(' '),
-      );
-    }
-    const suffix =
-      document.numPages > pages
-        ? `\n\n[Text extracted from the first ${pages} of ${document.numPages} pages.]`
-        : '';
-    return parts.join('\n') + suffix;
-  } finally {
-    await document.destroy().catch(() => undefined);
   }
 }
 

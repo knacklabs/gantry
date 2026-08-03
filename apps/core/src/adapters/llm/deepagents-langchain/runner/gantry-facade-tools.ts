@@ -651,7 +651,7 @@ function facadeDescription(toolName: DeepAgentsFacadeToolName): string {
     case 'FileSearch':
       return 'Search approved host workspace files by safe relative path or content. Never use for inbound conversation attachments; use attachment_open with gantry_attachment ids.';
     case 'FileRead':
-      return 'Read one approved host workspace file by exact safe relative path. Never use for attachments/, media/attachments/, gantry_ref, or inbound conversation files; use attachment_open with gantry_attachment ids.';
+      return 'Read one approved host workspace file by exact safe relative path. Never use for media/attachments/, provider-attachments/, gantry_ref, or inbound conversation files; use attachment_open with gantry_attachment ids.';
     case 'FileEdit':
       return 'Edit one approved host workspace file. Patch must be JSON {"oldText":"...","newText":"..."}.';
     case 'FileWrite':
