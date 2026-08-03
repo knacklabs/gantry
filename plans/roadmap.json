@@ -625,7 +625,7 @@
         "No runtime behavior, API, schema, settings, or package contracts change."
       ],
       "order": 37,
-      "status": "pending",
+      "status": "active",
       "epic": "documentation",
       "skill": "fullstack",
       "spec": "docs/specs/architecture-atlas-and-adoption.md"
@@ -717,5 +717,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-03T10:17:56+00:00"
+  "updated_at": "2026-08-03T10:18:13+00:00"
 }

@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "A durable Gantry live turn",
+    "subtitle": "Persist first, claim with fencing, execute through host authority, then deliver (source 69ac5b7)",
+    "output": "docs/architecture/atlas/live-turn.sequence.html",
+    "viewBox": [940, 1040],
+    "animation": "none",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "accept",
+        "label": "Persist before execution",
+        "focus": ["provider", "ingress", "postgres", "admission"],
+        "note": "Inbound identity and payload become durable before a worker receives the turn."
+      },
+      {
+        "id": "execute",
+        "label": "Claim and execute",
+        "focus": ["admission", "worker", "memory", "runner", "authority"],
+        "note": "A fenced worker hydrates memory and uses mediated model and capability access."
+      },
+      {
+        "id": "deliver",
+        "label": "Commit and deliver",
+        "focus": ["runner", "postgres", "ingress", "provider"],
+        "note": "Durable assistant state precedes provider delivery and retry evidence."
+      }
+    ]
+  },
+  "participants": [
+    {"id": "provider", "type": "external", "label": "Channel", "sublabel": "Slack · Telegram · Teams · Discord · app"},
+    {"id": "ingress", "type": "backend", "label": "Ingress", "sublabel": "normalize & route"},
+    {"id": "postgres", "type": "database", "label": "Postgres", "sublabel": "durable truth"},
+    {"id": "admission", "type": "messagebus", "label": "Admission", "sublabel": "scope · slot · lease"},
+    {"id": "worker", "type": "backend", "label": "Live worker", "sublabel": "fenced owner"},
+    {"id": "memory", "type": "database", "label": "Memory", "sublabel": "scoped recall"},
+    {"id": "runner", "type": "backend", "label": "Agent runner", "sublabel": "harness loop"},
+    {"id": "authority", "type": "security", "label": "Host gate", "sublabel": "models · tools · permissions"}
+  ],
+  "segments": [
+    {"from": 150, "to": 350, "label": "Ingress and durable admission"},
+    {"from": 370, "to": 704, "label": "Fenced execution"},
+    {"from": 724, "to": 934, "label": "Commit and delivery"}
+  ],
+  "messages": [
+    {"id": "inbound", "from": "provider", "to": "ingress", "y": 178, "label": "provider event", "variant": "emphasis"},
+    {"id": "normalize", "from": "ingress", "to": "postgres", "y": 220, "label": "persist normalized inbound + route", "variant": "security"},
+    {"id": "admit", "from": "ingress", "to": "admission", "y": 262, "label": "request one-active-turn admission", "variant": "emphasis"},
+    {"id": "reserve", "from": "admission", "to": "postgres", "y": 304, "label": "atomically reserve scope and run slot", "variant": "security"},
+    {"id": "accepted", "from": "admission", "to": "ingress", "y": 346, "label": "durable run id", "variant": "return"},
+    {"id": "claim", "from": "worker", "to": "postgres", "y": 394, "label": "claim lease generation", "variant": "security"},
+    {"id": "context", "from": "worker", "to": "memory", "y": 436, "label": "hydrate scoped context once", "variant": "default"},
+    {"id": "recall", "from": "memory", "to": "worker", "y": 478, "label": "lexical / optional hybrid recall", "variant": "return"},
+    {"id": "start", "from": "worker", "to": "runner", "y": 520, "label": "start fenced agent turn", "variant": "emphasis"},
+    {"id": "model", "from": "runner", "to": "authority", "y": 562, "label": "brokered model request", "variant": "security"},
+    {"id": "tool", "from": "runner", "to": "authority", "y": 604, "label": "permissioned capability request", "variant": "security"},
+    {"id": "result", "from": "authority", "to": "runner", "y": 646, "label": "approved result or denial", "variant": "return"},
+    {"id": "assistant", "from": "runner", "to": "postgres", "y": 688, "label": "append run events + assistant reply", "variant": "emphasis"},
+    {"id": "outbox", "from": "postgres", "to": "ingress", "y": 746, "label": "claim delivery outbox", "variant": "dashed"},
+    {"id": "send", "from": "ingress", "to": "provider", "y": 788, "label": "deliver as provider account", "variant": "emphasis"},
+    {"id": "receipt", "from": "provider", "to": "ingress", "y": 830, "label": "provider receipt / retryable error", "variant": "return"},
+    {"id": "finalize", "from": "ingress", "to": "postgres", "y": 872, "label": "record delivery + terminal state", "variant": "security"}
+  ],
+  "activations": [
+    {"participant": "ingress", "from": 172, "to": 352, "type": "backend"},
+    {"participant": "postgres", "from": 214, "to": 878, "type": "database"},
+    {"participant": "admission", "from": 256, "to": 352, "type": "messagebus"},
+    {"participant": "worker", "from": 388, "to": 704, "type": "backend"},
+    {"participant": "memory", "from": 430, "to": 484, "type": "database"},
+    {"participant": "runner", "from": 514, "to": 704, "type": "backend"},
+    {"participant": "authority", "from": 556, "to": 652, "type": "security"},
+    {"participant": "ingress", "from": 740, "to": 878, "type": "backend"}
+  ],
+  "cards": [
+    {"dot": "cyan", "title": "Identity is part of the route", "items": ["App, agent, provider account, conversation, and thread define scope", "The same agent can be installed in many conversations", "Delivery uses the provider account that accepted the turn"]},
+    {"dot": "rose", "title": "Durability before side effects", "items": ["Inbound messages and admission are persisted first", "Lease generation fences stale workers", "Assistant output and delivery attempts remain auditable"]},
+    {"dot": "emerald", "title": "Authority stays outside the model", "items": ["Memory is hydrated under host-defined scope", "Model credentials are brokered", "Capabilities pass deterministic and human permission gates"]}
+  ]
+}
