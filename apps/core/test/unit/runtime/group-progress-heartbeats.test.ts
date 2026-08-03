@@ -74,7 +74,7 @@ describe('startGroupProgressHeartbeats', () => {
     clearInterval(heartbeat.typingHeartbeatTimer);
   });
 
-  it('releases a definitive false, keeps typing, and retries after one stall interval', async () => {
+  it('releases a definitive false without typing and retries after one stall interval', async () => {
     let claimed = false;
     const releaseStallNotice = vi.fn(() => {
       claimed = false;
@@ -106,14 +106,15 @@ describe('startGroupProgressHeartbeats', () => {
     await vi.advanceTimersByTimeAsync(4_000);
     expect(sendStallProgress).toHaveBeenCalledTimes(1);
     expect(releaseStallNotice).toHaveBeenCalledTimes(1);
-    expect(setTyping).toHaveBeenCalledTimes(1);
+    expect(setTyping).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(STALL_HEARTBEAT_THRESHOLD_MS - 4_000);
     expect(sendStallProgress).toHaveBeenCalledTimes(1);
-    expect(setTyping.mock.calls.length).toBeGreaterThan(1);
+    expect(setTyping).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(4_000);
     expect(sendStallProgress).toHaveBeenCalledTimes(2);
+    expect(setTyping).not.toHaveBeenCalled();
     clearInterval(heartbeat.typingHeartbeatTimer);
   });
 

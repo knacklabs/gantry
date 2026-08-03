@@ -3761,7 +3761,7 @@ describe('createGroupProcessor', () => {
       await processing;
     });
 
-    it('keeps typing and retries only after one stall interval when the provider reports no card handle', async () => {
+    it('suppresses typing and retries only after one stall interval when the provider reports no card handle', async () => {
       const finish = deferred<AgentOutput>();
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage()];
@@ -3791,16 +3791,19 @@ describe('createGroupProcessor', () => {
       expect(stallCalls()).toHaveLength(1);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBeGreaterThan(typingAt179);
+      ).toBe(typingAt179);
 
       await vi.advanceTimersByTimeAsync(178_999);
       expect(stallCalls()).toHaveLength(1);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBeGreaterThan(typingAt179 + 1);
+      ).toBe(typingAt179);
 
       await vi.advanceTimersByTimeAsync(1);
       expect(stallCalls()).toHaveLength(2);
+      expect(
+        (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
+      ).toBe(typingAt179);
 
       finish.resolve({ status: 'success', result: null });
       await processing;

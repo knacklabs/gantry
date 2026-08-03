@@ -572,6 +572,10 @@ describe('createProgressChannelSender', () => {
     const oldEdit = deferred<boolean>();
     const calls: Array<{ text: string; generation?: number }> = [];
     const channelRuntime = {
+      progressCardIdentity: vi.fn(
+        (_jid: string, options?: { generation?: number }) =>
+          `discord-generation-${options?.generation ?? ''}`,
+      ),
       sendProgressUpdate: vi.fn(
         async (
           _jid: string,
@@ -619,6 +623,66 @@ describe('createProgressChannelSender', () => {
       { text: 'Working generation 71.', generation: 71 },
       { text: 'Done generation 70.', generation: 70 },
       { text: 'Done generation 70.', generation: 70 },
+    ]);
+  });
+
+  it('reconciles a late Slack edit to the newest route-scoped terminal state', async () => {
+    const oldEdit = deferred<boolean>();
+    const calls: Array<{
+      text: string;
+      generation?: number;
+      replaceOnly?: boolean;
+    }> = [];
+    const channelRuntime = {
+      progressCardIdentity: vi.fn(() => undefined),
+      sendProgressUpdate: vi.fn(
+        async (
+          _jid: string,
+          text: string,
+          options?: { generation?: number; replaceOnly?: boolean },
+        ) => {
+          calls.push({
+            text,
+            generation: options?.generation,
+            replaceOnly: options?.replaceOnly,
+          });
+          if (text === 'Still working') return oldEdit.promise;
+          return true;
+        },
+      ),
+    } as never;
+    const sender = createProgressChannelSender({
+      channelRuntime,
+      chatJid: 'slack:channel',
+      groupName: 'thread',
+      providerAccountId: 'slack-account',
+      threadId: 'thread',
+      finalizingGenerations: new Set<number>(),
+      log: { warn: vi.fn() },
+    });
+
+    const stale = sender('Still working', {
+      generation: 1,
+      replaceOnly: true,
+    });
+    const retry = sender('retrying 1/3', {
+      generation: 2,
+      replaceOnly: true,
+    });
+    const terminal = sender('Done.', { generation: 2, done: true });
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(retry).resolves.toBe(true);
+    await expect(terminal).resolves.toBe(true);
+    oldEdit.resolve(true);
+    await expect(stale).resolves.toBe(true);
+    await flushMicrotasks();
+
+    expect(calls.map(({ text }) => text)).toEqual([
+      'Still working',
+      'retrying 1/3',
+      'Done.',
+      'Done.',
     ]);
   });
 

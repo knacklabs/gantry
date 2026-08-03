@@ -173,7 +173,6 @@ export function startGroupProgressHeartbeats(input: {
     }
     const stalled = input.isStalled();
     if (stalled && Date.now() < stallRetryNotBefore) {
-      refreshTyping();
       return;
     }
     if (stalled && input.claimStallNotice()) {
@@ -191,7 +190,6 @@ export function startGroupProgressHeartbeats(input: {
           if (landed) return;
           stallRetryNotBefore = Date.now() + STALL_HEARTBEAT_THRESHOLD_MS;
           input.releaseStallNotice();
-          refreshTyping();
           input.log.debug(
             { group: input.groupName, landed: false },
             'Failed to send stalled progress heartbeat',

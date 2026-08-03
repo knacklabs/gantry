@@ -26,15 +26,13 @@ function progressCardKey(input: {
   chatJid: string;
   providerAccountId?: string;
   threadId?: string;
-  generation?: number;
   providerCardIdentity?: string;
 }): string {
   return [
     input.chatJid,
     input.providerAccountId ?? '',
     input.threadId ?? '',
-    input.providerCardIdentity ??
-      (input.generation === undefined ? '' : String(input.generation)),
+    input.providerCardIdentity ?? '',
   ].join('\n');
 }
 
@@ -143,7 +141,6 @@ export function resolveProgressCardTarget(input: {
     chatJid: input.chatJid,
     providerAccountId,
     threadId,
-    generation,
     providerCardIdentity,
   });
   let stopCardIdentity: CachedStopCardIdentity | undefined;
