@@ -146,8 +146,7 @@ export function createJobManagementService(
   input: Pick<ControlRouteContext, 'app' | 'getBrowserStatus'>,
 ) {
   return new JobManagementService({
-    // Storage is initialized and replaceable after control-server boot, so
-    // every mutable repository must be resolved when the service uses it.
+    // Mutable runtime-store deps must resolve when the service uses them.
     get ops() {
       return getRuntimeRepositories();
     },
@@ -174,10 +173,7 @@ export function createJobManagementService(
     get mcpServerRepository() {
       return getRuntimeStorage().repositories.mcpServers;
     },
-    getCredentialBroker: async () =>
-      typeof input.app.getCredentialBroker === 'function'
-        ? input.app.getCredentialBroker()
-        : undefined,
+    getCredentialBroker: async () => input.app.getCredentialBroker?.(),
     getBrowserStatus: input.getBrowserStatus,
   });
 }
@@ -412,8 +408,7 @@ export async function handleJobRoutes(
   if (pathname === '/v1/jobs' && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
     if (!auth) return true;
-    const service = ctx.jobManagement;
-    const { jobs: visibleJobs } = await service.listJobs({
+    const { jobs: visibleJobs } = await ctx.jobManagement.listJobs({
       appId: auth.appId,
       statuses: url.searchParams.getAll('status'),
       workspaceKey: url.searchParams.get('workspaceKey') || undefined,
@@ -450,8 +445,7 @@ export async function handleJobRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
     if (!auth) return true;
     try {
-      const service = ctx.jobManagement;
-      const result = await service.listJobEvents({
+      const result = await ctx.jobManagement.listJobEvents({
         appId: auth.appId,
         jobId: jobRoute.jobId,
         runId:
@@ -473,8 +467,7 @@ export async function handleJobRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
     if (!auth) return true;
     try {
-      const service = ctx.jobManagement;
-      const { job } = await service.getJob({
+      const { job } = await ctx.jobManagement.getJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
       });
