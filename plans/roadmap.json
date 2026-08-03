@@ -276,7 +276,7 @@
       ]
     },
     {
-      "status": "active",
+      "status": "done",
       "key": "CO-1",
       "title": "Jobs recovery-intent -> columns + CAS",
       "epic": "coordination-hardening",
@@ -289,7 +289,10 @@
         "audit item B1 implemented: recovery intent as columns with compare-and-set transitions",
         "no JSON-blob state machine remains for recovery intent",
         "concurrent-recovery test pins the CAS invariant"
-      ]
+      ],
+      "completed_at": "2026-08-03T09:45:48+00:00",
+      "history": ".factory/history/CO-1/",
+      "outcome": "Job coordination state (failure counter, pause reason, setup/notification state) moved out of the free-form target_json blob into dedicated database columns written only by single targeted statements \u2014 concurrent writers can no longer silently erase each other's updates, and the failure counter that decides auto-pause now counts every failure. The dead recovery-intent machinery (never called in production since its brief May run) is deleted rather than hardened, and the migration logs-and-drops any inert residue, un-sticking jobs a stale intent was wrongly blocking. Net 286 lines removed."
     },
     {
       "status": "pending",
@@ -699,5 +702,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-03T08:28:42+00:00"
+  "updated_at": "2026-08-03T09:45:48+00:00"
 }
