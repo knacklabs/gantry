@@ -4011,7 +4011,7 @@ describe('createChannelWiring', () => {
     );
   });
 
-  it('reports a rejected provider progress update as not landed', async () => {
+  it('propagates a rejected provider progress update as ambiguous', async () => {
     const app = makeApp({
       'tg:group': { name: 'Group', folder: 'group' },
     });
@@ -4020,6 +4020,33 @@ describe('createChannelWiring', () => {
       sendProgressUpdate: vi.fn(async () => {
         throw new Error('provider update rejected');
       }),
+    });
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => channel),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    await expect(
+      wiring.sendProgressUpdate('tg:group', 'Still working', {
+        replaceOnly: true,
+      }),
+    ).rejects.toThrow('provider update rejected');
+  });
+
+  it('preserves an explicit provider false as definitively not landed', async () => {
+    const app = makeApp({
+      'tg:group': { name: 'Group', folder: 'group' },
+    });
+    const channel = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:group'),
+      sendProgressUpdate: vi.fn(async () => false),
     });
     const wiring = createChannelWiring(app, {
       providerIds: [

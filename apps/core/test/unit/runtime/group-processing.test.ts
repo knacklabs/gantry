@@ -3719,54 +3719,92 @@ describe('createGroupProcessor', () => {
       await processing;
     });
 
-    it.each([
-      {
-        name: 'the replace-only edit rejects',
-        firstResult: () => Promise.reject(new Error('edit failed')),
-      },
-      {
-        name: 'the provider reports no card handle',
-        firstResult: () => Promise.resolve(false),
-      },
-    ])(
-      'keeps typing and retries the stalled notice when $name',
-      async ({ firstResult }) => {
-        const finish = deferred<AgentOutput>();
-        const group = makeGroup({ requiresTrigger: false });
-        const messages = [makeMessage()];
-        const sendProgressUpdate = vi
-          .fn()
-          .mockResolvedValue(true)
-          .mockImplementationOnce(async () => true);
-        const channel = makeChannel({ sendProgressUpdate });
-        const { deps } = setupHappyPath({ group, messages });
-        deps.channelRuntime = channel;
+    it('holds the stall latch and typing suppression when the replace-only edit rejects', async () => {
+      const finish = deferred<AgentOutput>();
+      const group = makeGroup({ requiresTrigger: false });
+      const messages = [makeMessage()];
+      const sendProgressUpdate = vi
+        .fn()
+        .mockResolvedValue(true)
+        .mockImplementationOnce(async () => true);
+      const channel = makeChannel({ sendProgressUpdate });
+      const { deps } = setupHappyPath({ group, messages });
+      deps.channelRuntime = channel;
 
-        mockSpawnAgent.mockImplementation(async () => finish.promise);
+      mockSpawnAgent.mockImplementation(async () => finish.promise);
 
-        const { processGroupMessages } = createGroupProcessor(deps);
-        const processing = processGroupMessages('group1@g.us');
-        await vi.advanceTimersByTimeAsync(179_000);
-        const typingAt179 = (channel.setTyping as ReturnType<typeof vi.fn>).mock
-          .calls.length;
-        sendProgressUpdate.mockImplementationOnce(firstResult);
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const processing = processGroupMessages('group1@g.us');
+      await vi.advanceTimersByTimeAsync(179_000);
+      const typingAt179 = (channel.setTyping as ReturnType<typeof vi.fn>).mock
+        .calls.length;
+      sendProgressUpdate.mockImplementationOnce(() =>
+        Promise.reject(new Error('edit failed')),
+      );
 
-        await vi.advanceTimersByTimeAsync(2_000);
-        await vi.advanceTimersByTimeAsync(0);
-        expect(
-          (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-        ).toBeGreaterThan(typingAt179);
+      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(
+        (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
+      ).toBe(typingAt179);
 
-        await vi.advanceTimersByTimeAsync(4_000);
-        const stallCalls = sendProgressUpdate.mock.calls.filter(
+      await vi.advanceTimersByTimeAsync(12_000);
+      const stallCalls = sendProgressUpdate.mock.calls.filter(
+        (call) => call[1] === 'Still working',
+      );
+      expect(stallCalls).toHaveLength(1);
+      expect(
+        (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
+      ).toBe(typingAt179);
+
+      finish.resolve({ status: 'success', result: null });
+      await processing;
+    });
+
+    it('keeps typing and retries only after one stall interval when the provider reports no card handle', async () => {
+      const finish = deferred<AgentOutput>();
+      const group = makeGroup({ requiresTrigger: false });
+      const messages = [makeMessage()];
+      const sendProgressUpdate = vi
+        .fn()
+        .mockResolvedValue(true)
+        .mockImplementationOnce(async () => true);
+      const channel = makeChannel({ sendProgressUpdate });
+      const { deps } = setupHappyPath({ group, messages });
+      deps.channelRuntime = channel;
+
+      mockSpawnAgent.mockImplementation(async () => finish.promise);
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const processing = processGroupMessages('group1@g.us');
+      await vi.advanceTimersByTimeAsync(179_000);
+      const typingAt179 = (channel.setTyping as ReturnType<typeof vi.fn>).mock
+        .calls.length;
+      sendProgressUpdate.mockImplementationOnce(() => Promise.resolve(false));
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(0);
+      const stallCalls = () =>
+        sendProgressUpdate.mock.calls.filter(
           (call) => call[1] === 'Still working',
         );
-        expect(stallCalls).toHaveLength(2);
+      expect(stallCalls()).toHaveLength(1);
+      expect(
+        (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
+      ).toBeGreaterThan(typingAt179);
 
-        finish.resolve({ status: 'success', result: null });
-        await processing;
-      },
-    );
+      await vi.advanceTimersByTimeAsync(178_999);
+      expect(stallCalls()).toHaveLength(1);
+      expect(
+        (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
+      ).toBeGreaterThan(typingAt179 + 1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(stallCalls()).toHaveLength(2);
+
+      finish.resolve({ status: 'success', result: null });
+      await processing;
+    });
 
     it('does not restart typing when a stalled edit fails after terminal cleanup starts', async () => {
       const stalledEdit = deferred<boolean>();

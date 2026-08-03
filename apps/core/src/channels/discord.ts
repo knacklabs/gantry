@@ -26,7 +26,10 @@ import {
   postDiscordMessageParts,
   splitDiscordText,
 } from './discord-delivery.js';
-import { sendDiscordProgressUpdate } from './discord-progress.js';
+import {
+  DiscordProgressIdentityLifecycle,
+  sendDiscordProgressUpdateForRoute,
+} from './discord-progress.js';
 import {
   connectDiscordGateway,
   DiscordGatewayConnection,
@@ -93,6 +96,7 @@ export class DiscordChannel implements ChannelAdapter {
   private gateway: DiscordGatewayConnection | null = null;
   private botUserId = '';
   private activeProgressMessages = new Map<string, string>();
+  private progressIdentityLifecycle = new DiscordProgressIdentityLifecycle();
   private activeStreams = new Map<
     string,
     {
@@ -252,15 +256,14 @@ export class DiscordChannel implements ChannelAdapter {
     if (!channelId) return false;
     const progressKey =
       options.progressCardIdentity ?? this.progressCardIdentity(jid, options);
-    const dispatchOptions =
-      options.progressCardIdentity && options.done
-        ? { ...options, replaceOnly: options.replaceOnly ?? true }
-        : options;
-    return sendDiscordProgressUpdate({
+    const routeKey = `${jid}\n${options.threadId ?? ''}`;
+    return sendDiscordProgressUpdateForRoute({
+      routeKey,
       key: progressKey,
       activeMessages: this.activeProgressMessages,
+      identityLifecycle: this.progressIdentityLifecycle,
       text,
-      options: dispatchOptions,
+      options,
       post: (body, components) =>
         postDiscordMessageParts({
           channelId,

@@ -144,6 +144,7 @@ export function startGroupProgressHeartbeats(input: {
   let visibleDeliveryInFlight = false;
   let visibleDeliveryStartedAt = 0;
   let lifecycleEpoch = 0;
+  let stallRetryNotBefore = 0;
   const visibleDeliveryIsSuppressed = () =>
     visibleDeliveryInFlight &&
     Date.now() - visibleDeliveryStartedAt < STALL_HEARTBEAT_THRESHOLD_MS;
@@ -171,6 +172,10 @@ export function startGroupProgressHeartbeats(input: {
       return;
     }
     const stalled = input.isStalled();
+    if (stalled && Date.now() < stallRetryNotBefore) {
+      refreshTyping();
+      return;
+    }
     if (stalled && input.claimStallNotice()) {
       const requestEpoch = lifecycleEpoch;
       void input
@@ -184,8 +189,13 @@ export function startGroupProgressHeartbeats(input: {
             return;
           }
           if (landed) return;
+          stallRetryNotBefore = Date.now() + STALL_HEARTBEAT_THRESHOLD_MS;
           input.releaseStallNotice();
           refreshTyping();
+          input.log.debug(
+            { group: input.groupName, landed: false },
+            'Failed to send stalled progress heartbeat',
+          );
         })
         .catch((err: unknown) => {
           if (
@@ -195,8 +205,6 @@ export function startGroupProgressHeartbeats(input: {
           ) {
             return;
           }
-          input.releaseStallNotice();
-          refreshTyping();
           input.log.debug(
             { err, group: input.groupName },
             'Failed to send stalled progress heartbeat',
@@ -204,6 +212,7 @@ export function startGroupProgressHeartbeats(input: {
         });
     }
     if (stalled) return;
+    stallRetryNotBefore = 0;
     refreshTyping();
   }, TYPING_HEARTBEAT_INTERVAL_MS);
   return {
@@ -211,6 +220,7 @@ export function startGroupProgressHeartbeats(input: {
     pause: () => {
       paused = true;
       lifecycleEpoch += 1;
+      stallRetryNotBefore = 0;
       input.releaseStallNotice();
       input.cancelPendingStallNotices();
     },
@@ -221,6 +231,7 @@ export function startGroupProgressHeartbeats(input: {
       visibleDeliveryInFlight = true;
       visibleDeliveryStartedAt = Date.now();
       lifecycleEpoch += 1;
+      stallRetryNotBefore = 0;
       input.releaseStallNotice();
       input.cancelPendingStallNotices();
       await input.beforeVisibleDelivery();

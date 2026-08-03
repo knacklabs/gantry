@@ -39,15 +39,16 @@ export function createChannelProgressSender(input: {
       { jid, progressText: text, options },
       'Progress lifecycle channel-wiring send attempt',
     );
-    const landed = await sink
-      .sendProgressUpdate(jid, text, options)
-      .catch((err: unknown) => {
-        input.logger.info(
-          { err, jid, progressText: text, options },
-          'Progress lifecycle channel-wiring send failed',
-        );
-        return false;
-      });
+    let landed: boolean | void;
+    try {
+      landed = await sink.sendProgressUpdate(jid, text, options);
+    } catch (err) {
+      input.logger.info(
+        { err, jid, progressText: text, options },
+        'Progress lifecycle channel-wiring send failed',
+      );
+      throw err;
+    }
     input.logger.info(
       { jid, progressText: text, options },
       'Progress lifecycle channel-wiring send complete',

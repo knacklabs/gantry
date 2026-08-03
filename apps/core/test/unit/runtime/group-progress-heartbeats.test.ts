@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { startGroupProgressHeartbeats } from '@core/runtime/group-progress-heartbeats.js';
+import {
+  STALL_HEARTBEAT_THRESHOLD_MS,
+  startGroupProgressHeartbeats,
+} from '@core/runtime/group-progress-heartbeats.js';
 
 function deferred<T>(): {
   promise: Promise<T>;
@@ -23,6 +26,95 @@ describe('startGroupProgressHeartbeats', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('keeps the stall claim held and typing suppressed when the notice rejects', async () => {
+    let claimed = false;
+    const releaseStallNotice = vi.fn(() => {
+      claimed = false;
+    });
+    const sendStallProgress = vi.fn(() =>
+      Promise.reject(new Error('provider rejected stall edit')),
+    );
+    const setTyping = vi.fn().mockResolvedValue(undefined);
+    const debug = vi.fn();
+    const heartbeat = startGroupProgressHeartbeats({
+      supportsProgress: true,
+      isTypingActive: () => true,
+      chatJid: 'discord:parent',
+      groupName: 'thread',
+      isStalled: () => true,
+      claimStallNotice: () => {
+        if (claimed) return false;
+        claimed = true;
+        return true;
+      },
+      releaseStallNotice,
+      sendStallProgress,
+      beforeVisibleDelivery: vi.fn(async () => undefined),
+      cancelPendingStallNotices: vi.fn(),
+      channelRuntime: { setTyping },
+      log: { debug },
+    });
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    await vi.advanceTimersByTimeAsync(STALL_HEARTBEAT_THRESHOLD_MS);
+
+    expect(sendStallProgress).toHaveBeenCalledTimes(1);
+    expect(releaseStallNotice).not.toHaveBeenCalled();
+    expect(setTyping).not.toHaveBeenCalled();
+    expect(debug).toHaveBeenCalledWith(
+      expect.objectContaining({ group: 'thread' }),
+      'Failed to send stalled progress heartbeat',
+    );
+
+    heartbeat.finishVisibleDelivery(true);
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(sendStallProgress).toHaveBeenCalledTimes(2);
+    clearInterval(heartbeat.typingHeartbeatTimer);
+  });
+
+  it('releases a definitive false, keeps typing, and retries after one stall interval', async () => {
+    let claimed = false;
+    const releaseStallNotice = vi.fn(() => {
+      claimed = false;
+    });
+    const sendStallProgress = vi
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true);
+    const setTyping = vi.fn().mockResolvedValue(undefined);
+    const heartbeat = startGroupProgressHeartbeats({
+      supportsProgress: true,
+      isTypingActive: () => true,
+      chatJid: 'discord:parent',
+      groupName: 'thread',
+      isStalled: () => true,
+      claimStallNotice: () => {
+        if (claimed) return false;
+        claimed = true;
+        return true;
+      },
+      releaseStallNotice,
+      sendStallProgress,
+      beforeVisibleDelivery: vi.fn(async () => undefined),
+      cancelPendingStallNotices: vi.fn(),
+      channelRuntime: { setTyping },
+      log: { debug: vi.fn() },
+    });
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(sendStallProgress).toHaveBeenCalledTimes(1);
+    expect(releaseStallNotice).toHaveBeenCalledTimes(1);
+    expect(setTyping).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(STALL_HEARTBEAT_THRESHOLD_MS - 4_000);
+    expect(sendStallProgress).toHaveBeenCalledTimes(1);
+    expect(setTyping.mock.calls.length).toBeGreaterThan(1);
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(sendStallProgress).toHaveBeenCalledTimes(2);
+    clearInterval(heartbeat.typingHeartbeatTimer);
   });
 
   it('releases an obsolete stall claim after pause so a resumed heartbeat can retry', async () => {

@@ -695,6 +695,82 @@ describe('DiscordChannel', () => {
     fetchMock.mockRestore();
   });
 
+  it('lets a terminal carrying the current identity create after a definitive missing handle', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ id: 'terminal-1' }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const stopOptions = {
+      generation: 1,
+      actionOnly: true,
+      actionAffordances: [
+        {
+          kind: 'live_turn_stop' as const,
+          label: 'Stop',
+          actionToken: 'token-1',
+        },
+      ],
+    };
+    const currentIdentity = channel.progressCardIdentity(
+      'dc:channel-1',
+      stopOptions,
+    );
+
+    await expect(
+      channel.sendProgressUpdate('dc:channel-1', '', stopOptions),
+    ).resolves.toBe(false);
+    await expect(
+      channel.sendProgressUpdate('dc:channel-1', 'I hit an issue.', {
+        generation: 1,
+        done: true,
+        progressCardIdentity: currentIdentity,
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      'https://discord.com/api/v10/channels/channel-1/messages',
+    );
+    fetchMock.mockRestore();
+  });
+
+  it('keeps a terminal replace-only after the initial card POST rejects ambiguously', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new Error('response lost after POST'));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const stopOptions = {
+      generation: 1,
+      actionOnly: true,
+      actionAffordances: [
+        {
+          kind: 'live_turn_stop' as const,
+          label: 'Stop',
+          actionToken: 'token-1',
+        },
+      ],
+    };
+    const currentIdentity = channel.progressCardIdentity(
+      'dc:channel-1',
+      stopOptions,
+    );
+
+    await expect(
+      channel.sendProgressUpdate('dc:channel-1', '', stopOptions),
+    ).rejects.toThrow('response lost after POST');
+    await expect(
+      channel.sendProgressUpdate('dc:channel-1', 'I hit an issue.', {
+        generation: 1,
+        done: true,
+        progressCardIdentity: currentIdentity,
+      }),
+    ).resolves.toBe(false);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fetchMock.mockRestore();
+  });
+
   it('settles the Discord Stop progress message across generation rollover', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
