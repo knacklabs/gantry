@@ -987,6 +987,177 @@ describe('createProgressChannelSender', () => {
     expect(calls).toEqual(['Configured thread', 'Explicit thread']);
   });
 
+  it('dispatches configured account and thread defaults for an optionless update', async () => {
+    const sendProgressUpdate = vi.fn(async () => true);
+    const sender = createProgressChannelSender({
+      channelRuntime: {
+        progressCardIdentity: vi.fn(() => 'configured-route-card'),
+        sendProgressUpdate,
+      } as never,
+      chatJid: 'discord:configured-route',
+      groupName: 'thread',
+      providerAccountId: 'account-1',
+      threadId: 'thread-1',
+      finalizingGenerations: new Set<number>(),
+      log: { warn: vi.fn() },
+    });
+
+    await expect(sender('Configured route')).resolves.toBe(true);
+
+    expect(sendProgressUpdate).toHaveBeenCalledWith(
+      'discord:configured-route',
+      'Configured route',
+      {
+        providerAccountId: 'account-1',
+        threadId: 'thread-1',
+        progressCardIdentity: 'configured-route-card',
+      },
+    );
+  });
+
+  it.each([
+    ['cached', 0, 1],
+    ['live after cache expiry', 10 * 60_000, 0],
+  ] as const)(
+    'targets the %s stop card for nonterminal stall and retry edits',
+    async (_source, cacheAgeMs, expectedCacheSize) => {
+      const calls: Array<{ text: string; identity?: string }> = [];
+      let controlHandleExists = false;
+      const channelRuntime = {
+        progressCardIdentity: vi.fn(
+          (
+            _jid: string,
+            options?: {
+              done?: boolean;
+              generation?: number;
+              actionAffordances?: Array<{ kind: string }>;
+            },
+          ) => {
+            const hasStop = options?.actionAffordances?.some(
+              (action) => action.kind === 'live_turn_stop',
+            );
+            return hasStop || (options?.done && controlHandleExists)
+              ? 'discord-control'
+              : `discord-generation-${options?.generation ?? ''}`;
+          },
+        ),
+        sendProgressUpdate: vi.fn(
+          async (
+            _jid: string,
+            text: string,
+            options?: {
+              progressCardIdentity?: string;
+              replaceOnly?: boolean;
+            },
+          ) => {
+            calls.push({ text, identity: options?.progressCardIdentity });
+            if (text === 'Stop') controlHandleExists = true;
+            return (
+              !options?.replaceOnly ||
+              options.progressCardIdentity === 'discord-control'
+            );
+          },
+        ),
+      } as never;
+      const sender = createProgressChannelSender({
+        channelRuntime,
+        chatJid: `discord:nonterminal-control-${cacheAgeMs}`,
+        groupName: 'thread',
+        finalizingGenerations: new Set<number>(),
+        log: { warn: vi.fn() },
+      });
+
+      await sender('Stop', {
+        generation: 1,
+        actionAffordances: [
+          {
+            kind: 'live_turn_stop',
+            label: 'Stop',
+            actionToken: 'stop-token',
+          },
+        ],
+      });
+      if (cacheAgeMs) await vi.advanceTimersByTimeAsync(cacheAgeMs);
+      expect(progressCardIdentityCacheSize(channelRuntime)).toBe(
+        expectedCacheSize,
+      );
+
+      await expect(
+        sender('Still working', { generation: 1, replaceOnly: true }),
+      ).resolves.toBe(true);
+      await expect(
+        sender('retrying 1/3', { generation: 1, replaceOnly: true }),
+      ).resolves.toBe(true);
+      expect(calls).toEqual([
+        { text: 'Stop', identity: 'discord-control' },
+        { text: 'Still working', identity: 'discord-control' },
+        { text: 'retrying 1/3', identity: 'discord-control' },
+      ]);
+    },
+  );
+
+  it('keeps an older nonterminal edit off a newer cached control card', async () => {
+    const calls: Array<{ text: string; identity?: string }> = [];
+    const channelRuntime = {
+      progressCardIdentity: vi.fn(
+        (
+          _jid: string,
+          options?: {
+            done?: boolean;
+            generation?: number;
+            actionAffordances?: Array<{ kind: string }>;
+          },
+        ) =>
+          options?.actionAffordances?.some(
+            (action) => action.kind === 'live_turn_stop',
+          ) || options?.done
+            ? 'discord-control'
+            : `discord-generation-${options?.generation ?? ''}`,
+      ),
+      sendProgressUpdate: vi.fn(
+        async (
+          _jid: string,
+          text: string,
+          options?: { progressCardIdentity?: string; replaceOnly?: boolean },
+        ) => {
+          calls.push({ text, identity: options?.progressCardIdentity });
+          return options?.replaceOnly !== true;
+        },
+      ),
+    } as never;
+    const sender = createProgressChannelSender({
+      channelRuntime,
+      chatJid: 'discord:older-nonterminal',
+      groupName: 'thread',
+      finalizingGenerations: new Set<number>(),
+      log: { warn: vi.fn() },
+    });
+
+    await sender('Stop generation 2', {
+      generation: 2,
+      actionAffordances: [
+        {
+          kind: 'live_turn_stop',
+          label: 'Stop',
+          actionToken: 'stop-token-2',
+        },
+      ],
+    });
+    await expect(
+      sender('Still working generation 1', {
+        generation: 1,
+        replaceOnly: true,
+      }),
+    ).resolves.toBe(false);
+
+    expect(calls.slice(1)).toEqual(
+      calls.slice(1).map(() => ({
+        text: 'Still working generation 1',
+        identity: 'discord-generation-1',
+      })),
+    );
+  });
+
   it('retains a landed stop identity after chain quiescence until a later terminal lands', async () => {
     const calls: Array<{ text: string; identity?: string }> = [];
     const channelRuntime = {

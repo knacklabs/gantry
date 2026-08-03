@@ -113,7 +113,10 @@ export function resolveProgressCardTarget(input: {
   let rejectedPendingControl = false;
   let terminalControlIdentity: CachedStopCardIdentity | undefined;
   let providerCardIdentity: string | undefined;
-  if (!hasStopAction && input.options?.done) {
+  const targetsExistingControl =
+    !hasStopAction &&
+    (input.options?.done === true || input.options?.replaceOnly === true);
+  if (targetsExistingControl) {
     const pendingControl = input.registry.stopCardIdentityByRoute.get(routeKey);
     const mayBorrowPendingControl =
       pendingControl !== undefined &&
@@ -122,13 +125,15 @@ export function resolveProgressCardTarget(input: {
         : generation !== undefined && generation >= pendingControl.generation);
     if (mayBorrowPendingControl) {
       providerCardIdentity = pendingControl.identity;
-      terminalControlIdentity = pendingControl;
+      if (input.options?.done) terminalControlIdentity = pendingControl;
     } else {
       rejectedPendingControl = pendingControl !== undefined;
       providerCardIdentity = input.resolveProviderCardIdentity(
         rejectedPendingControl
           ? { ...normalizedOptions, done: undefined }
-          : normalizedOptions,
+          : input.options?.replaceOnly && !input.options.done
+            ? { ...normalizedOptions, done: true }
+            : normalizedOptions,
       );
     }
   } else {
@@ -163,13 +168,13 @@ export function resolveProgressCardTarget(input: {
   const dispatchOptions =
     providerCardIdentity !== undefined || rejectedPendingControl
       ? {
-          ...input.options,
+          ...normalizedOptions,
           ...(providerCardIdentity !== undefined
             ? { progressCardIdentity: providerCardIdentity }
             : {}),
           ...(rejectedPendingControl ? { replaceOnly: true } : {}),
         }
-      : input.options;
+      : normalizedOptions;
   return {
     key: cardKey,
     dispatchOptions,
