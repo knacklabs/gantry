@@ -189,11 +189,17 @@ capture (FILE-1C) lands. No Teams code changes in this story.
 - Embed folding grows message text; bounds keep it under router budgets
   (`attachmentsPerMessage`/byte caps unchanged).
 
-## Surface impact
+## Surface Impact
 
-Runtime behavior: changed (fallback guidance, snippet uploads, richer
-Telegram/Discord ingestion, canvas tools). API: none. Schema: none.
-CLI/ops: doctor scope check. Docs: Slack app scopes note. Tests: as above.
+| Surface | Class | Reason |
+|---|---|---|
+| Runtime behavior | Changed | fallback guidance, snippet/file uploads, richer Telegram/Discord ingestion, canvas tools |
+| API | Unchanged by design | no control-plane or SDK surface changes |
+| Data/schema | Unchanged by design | no migrations; canvas handle sets are in-memory conversation state |
+| CLI/ops | Changed | setup doctor learns the canvas scopes with re-auth guidance |
+| UI | Unchanged by design | none exists for these surfaces |
+| Docs | Changed | Slack app scope/install note |
+| Tests | Changed | per Verification section |
 `user_facing: false` — no UI surface (agent tools + ingestion changes); the
 live smoke in Verification covers user-visible behavior in place of a
 UI functional check.
