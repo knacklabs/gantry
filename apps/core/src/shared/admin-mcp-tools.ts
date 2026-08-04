@@ -49,6 +49,9 @@ export type SeededSchedulerMcpToolName =
 
 export const BASELINE_GANTRY_MCP_TOOL_NAMES = [
   'attachment_open',
+  'canvas_read',
+  'canvas_create',
+  'canvas_update',
   'send_message',
   'ask_user_question',
   'render_status',

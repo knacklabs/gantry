@@ -8,6 +8,7 @@ import {
   getRuntimeSettingsForConfig,
 } from '../../config/index.js';
 import path from 'node:path';
+import { configureCanvasIpcHandlers } from '../../jobs/ipc-canvas-handlers.js';
 import { agentIdForFolder } from '../../config/settings/desired-state-service-helpers.js';
 import {
   createAgentToolRuleSettingsMirror,
@@ -515,6 +516,13 @@ export async function startRuntimeServices(
           : Promise.resolve(false),
       mcpHostnameLookup: resolved.mcpHostnameLookup,
     });
+  configureCanvasIpcHandlers((input) =>
+    channelWiring.executeContentCanvasAction(
+      input.conversationJid,
+      input.action,
+      { providerAccountId: input.providerAccountId },
+    ),
+  );
   syncGroupSnapshots();
   app.queue.setLiveTurnRunnerRegistrar(
     liveTurnAuthority
