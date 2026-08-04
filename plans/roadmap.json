@@ -734,6 +734,25 @@
         "materialization verified for a Slack, a Telegram, and a Discord attachment through the same code path (no provider branches)"
       ],
       "order": 42
+    },
+    {
+      "key": "LIVE-2",
+      "title": "Liveness hardening: unified dispatcher, declared capabilities, deterministic tests",
+      "story": "As a chat user, I always see truthful liveness signals (reactions, typing, progress) while the agent works, so that I never wonder whether it heard me",
+      "acceptance_criteria": [
+        "Adapters declare liveness in one liveUx capability object; no advertised no-ops (Teams reactions: none, Slack typing: none)",
+        "One route-aware dispatcher owns reaction/typing delivery: bounded deadlines, catch-and-warn, rate-limit warn+retry-once, loud missing-sink diagnosis; a liveness failure can never fail a turn",
+        "One liveness phase owner; reaction admission and terminal restore share one scope; first-reaction send cannot block the turn; typing resumes on stall recovery",
+        "Provider fixes land: Telegram replace-only/flip/topic-typing, Slack restart stale-and-repost, Discord thread-reaction fallback removal, batch backwards-scan, flip-race settlement",
+        "Proven-dead state deleted (3 dedupe registries, unreachable rollback, unused alias map); tombstone collapse deferred as D-0043",
+        "Liveness suites assert final provider-visible state via a shared stateful fake with failure/latency/restart falsifiers; flow-level chain test; two-account sink tests"
+      ],
+      "order": 43,
+      "status": "pending",
+      "epic": "Ambient liveness",
+      "skill": "backend",
+      "kind": "feature",
+      "spec": "docs/specs/live-2-liveness-hardening.md"
     }
   ],
   "epics": [
@@ -822,5 +841,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-03T09:45:48+00:00"
+  "updated_at": "2026-08-04T14:08:03+00:00"
 }

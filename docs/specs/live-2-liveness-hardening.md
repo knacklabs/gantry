@@ -1,6 +1,12 @@
+---
+slug: live-2-liveness-hardening
+title: LIVE-2 liveness hardening
+status: confirmed
+saved: 2026-08-04T14:07:00+00:00
+---
+
 # LIVE-2 — Liveness hardening: unified dispatcher, declared capabilities, deterministic tests
 
-Status: draft
 Story: LIVE-2
 Inputs: Fable determinism audit (10 findings, 2026-08-04) + Codex xhigh holistic review
 (scratchpad live1-holistic-review-result.md, 2026-08-04). Both independently converge on

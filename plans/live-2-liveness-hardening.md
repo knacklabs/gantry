@@ -95,6 +95,7 @@ decisions_reviewed:
   - 0103-live-admission-terminal-retention
   - 0104-co-1-recovery-intent-reframe
   - 0105-physical-attachment-workspace-handoff
+  - 0106-live-ux-capability-dispatcher
 ---
 
 # LIVE-2 — Liveness hardening: unified dispatcher, declared capabilities, deterministic tests
