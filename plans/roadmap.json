@@ -481,10 +481,13 @@
         "Teams items deferred on the real-client trigger; goal-prompt doc Part B/C truth updated"
       ],
       "order": 29,
-      "status": "pending",
+      "status": "done",
       "skill": "backend",
       "kind": "feature",
-      "spec": "docs/specs/live-1-ambient-liveness.md"
+      "spec": "docs/specs/live-1-ambient-liveness.md",
+      "completed_at": "2026-08-04T09:33:18+00:00",
+      "history": ".factory/history/LIVE-1/",
+      "outcome": "Gantry now shows truthful, low-noise liveness in chats: typing indicators only while the agent is genuinely working, a single 'Still working' card edit if a turn stalls past 3 minutes, seen-to-running reaction flips on the triggering message, retry status on the same card, and receipts on both continuation routes. Under the hood, progress-card updates are strictly serialized per card with self-healing repair, so slow or failed Discord/Slack/Telegram API calls can no longer leave stale 'Still working' text, duplicate Stop buttons, or lost 'Done.' states."
     }
   ],
   "epics": [
@@ -573,5 +576,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-02T10:37:15+00:00"
+  "updated_at": "2026-08-04T09:33:18+00:00"
 }
