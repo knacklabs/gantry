@@ -10,29 +10,30 @@ import {
 } from '../domain/ports/async-tasks.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { readAsyncCommandSandboxPolicy } from '../runtime/async-command-sandbox-policy.js';
+import { resolveRunnerIpcRoute } from '../runtime/ipc-route-authorization.js';
 import type { McpCompatibleToolError } from '../runtime/core-tools/registry.js';
 import {
   createAsyncMcpTask,
   enqueueAsyncMcpTask,
 } from './async-mcp-tool-task.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
-import { TaskHandler } from './ipc-types.js';
+import type { TaskContext, TaskHandler } from './ipc-types.js';
 import {
   mcpCallToolProxyInput,
   mcpDescribeToolProxyInput,
   mcpListToolsProxyInput,
 } from './ipc-mcp-list-tools-input.js';
 import { delegatedTaskAgentInScope } from './async-command-task-helpers.js';
-
 type CreateMcpProxyForSourceGroup = (input: {
   appId: import('../domain/app/app.js').AppId;
   agentId: import('../domain/agent/agent.js').AgentId;
+  conversationId?: string;
+  threadId?: string;
   deps: Parameters<TaskHandler>[0]['deps'];
   ipcDir?: string;
   runHandle?: string;
   runId?: string;
 }) => Promise<McpToolProxy>;
-
 export function createMcpToolHandlers(
   createMcpProxyForSourceGroup: CreateMcpProxyForSourceGroup,
 ): {
@@ -54,7 +55,6 @@ export function createMcpToolHandlers(
     ),
   };
 }
-
 function mcpSearchToolsHandler(
   createMcpProxyForSourceGroup: CreateMcpProxyForSourceGroup,
 ): TaskHandler {
@@ -77,6 +77,13 @@ function mcpSearchToolsHandler(
       reject,
     });
     if (!requestedTargetJid) return;
+    const routeScope = resolveMcpRouteScope(
+      context,
+      requestedTargetJid,
+      'MCP tool search',
+      reject,
+    );
+    if (!routeScope) return;
     try {
       const searchInput = mcpListToolsProxyInput(data.payload || {});
       if (!searchInput.query) {
@@ -87,6 +94,7 @@ function mcpSearchToolsHandler(
       const proxy = await createMcpProxyForSourceGroup({
         appId: data.appId as never,
         agentId,
+        ...routeScope,
         deps,
         ipcDir: context.ipcBaseDir
           ? path.join(context.ipcBaseDir, sourceAgentFolder)
@@ -97,6 +105,7 @@ function mcpSearchToolsHandler(
       const result = await proxy.searchTools({
         appId: data.appId as never,
         agentId,
+        ...routeScope,
         query: searchInput.query,
         limit: searchInput.limit,
       });
@@ -132,12 +141,20 @@ function mcpListToolsHandler(
       reject,
     });
     if (!requestedTargetJid) return;
+    const routeScope = resolveMcpRouteScope(
+      context,
+      requestedTargetJid,
+      'MCP tool listing',
+      reject,
+    );
+    if (!routeScope) return;
     try {
       const listInput = mcpListToolsProxyInput(data.payload || {});
       const agentId = agentIdForMcpTask(data, sourceAgentFolder);
       const proxy = await createMcpProxyForSourceGroup({
         appId: data.appId as never,
         agentId,
+        ...routeScope,
         deps,
         ipcDir: context.ipcBaseDir
           ? path.join(context.ipcBaseDir, sourceAgentFolder)
@@ -148,6 +165,7 @@ function mcpListToolsHandler(
       const result = await proxy.listTools({
         appId: data.appId as never,
         agentId,
+        ...routeScope,
         ...listInput,
       });
       acceptData('Connected MCP tools listed for this agent.', result);
@@ -182,6 +200,13 @@ function mcpDescribeToolHandler(
       reject,
     });
     if (!requestedTargetJid) return;
+    const routeScope = resolveMcpRouteScope(
+      context,
+      requestedTargetJid,
+      'MCP tool description',
+      reject,
+    );
+    if (!routeScope) return;
     try {
       const detailInput = mcpDescribeToolProxyInput(data.payload || {});
       if (!detailInput.serverName || !detailInput.toolName) {
@@ -195,6 +220,7 @@ function mcpDescribeToolHandler(
       const proxy = await createMcpProxyForSourceGroup({
         appId: data.appId as never,
         agentId,
+        ...routeScope,
         deps,
         ipcDir: context.ipcBaseDir
           ? path.join(context.ipcBaseDir, sourceAgentFolder)
@@ -205,6 +231,7 @@ function mcpDescribeToolHandler(
       const result = await proxy.describeTool({
         appId: data.appId as never,
         agentId,
+        ...routeScope,
         serverName: detailInput.serverName,
         toolName: detailInput.toolName,
       });
@@ -243,6 +270,13 @@ function mcpCallToolHandler(
       reject,
     });
     if (!requestedTargetJid) return;
+    const routeScope = resolveMcpRouteScope(
+      context,
+      requestedTargetJid,
+      'MCP tool call',
+      reject,
+    );
+    if (!routeScope) return;
     try {
       const callInput = mcpCallToolProxyInput(data.payload || {});
       if (
@@ -268,6 +302,7 @@ function mcpCallToolHandler(
       const proxy = await createMcpProxyForSourceGroup({
         appId: data.appId as never,
         agentId,
+        ...routeScope,
         deps,
         ipcDir: context.ipcBaseDir
           ? path.join(context.ipcBaseDir, sourceAgentFolder)
@@ -290,6 +325,7 @@ function mcpCallToolHandler(
       const result = await proxy.callTool({
         appId: data.appId as never,
         agentId,
+        ...routeScope,
         serverName,
         toolName,
         arguments: callInput.arguments ?? {},
@@ -384,6 +420,13 @@ function asyncMcpCallToolHandler(
       reject,
     });
     if (!requestedTargetJid) return;
+    const routeScope = resolveMcpRouteScope(
+      context,
+      requestedTargetJid,
+      'Async MCP tool call',
+      reject,
+    );
+    if (!routeScope) return;
     try {
       const callInput = mcpCallToolProxyInput(data.payload || {});
       if (
@@ -461,6 +504,7 @@ function asyncMcpCallToolHandler(
       const proxy = await createMcpProxyForSourceGroup({
         appId: data.appId as never,
         agentId,
+        ...routeScope,
         deps,
         ipcDir: context.ipcBaseDir
           ? path.join(context.ipcBaseDir, sourceAgentFolder)
@@ -471,6 +515,7 @@ function asyncMcpCallToolHandler(
       await proxy.assertToolAllowed({
         appId: data.appId as never,
         agentId,
+        ...routeScope,
         serverName,
         toolName,
         arguments: callInput.arguments ?? {},
@@ -488,6 +533,8 @@ function asyncMcpCallToolHandler(
         serverName,
         toolName,
         arguments: callInput.arguments ?? {},
+        authorizationConversationId: routeScope.conversationId,
+        authorizationThreadId: routeScope.threadId,
       });
       if (!taskResult.ok) {
         reject(taskResult.message, 'capacity_full');
@@ -502,6 +549,8 @@ function asyncMcpCallToolHandler(
         serverName,
         toolName,
         arguments: callInput.arguments ?? {},
+        authorizationConversationId: routeScope.conversationId,
+        authorizationThreadId: routeScope.threadId,
       });
       acceptData(`Queued: ${serverName}.${toolName}`, {
         task: toPublicAsyncTaskDto(taskResult.task),
@@ -613,4 +662,38 @@ function validateSameChannelMcpTarget(input: {
     return null;
   }
   return requestedTargetJid;
+}
+function resolveMcpRouteScope(
+  context: TaskContext,
+  targetJid: string,
+  requestKind: string,
+  reject: (error: string, code?: string, details?: string[]) => void,
+): { conversationId?: string; threadId?: string } | null {
+  const threadId =
+    context.data.authThreadId || context.data.threadId || undefined;
+  if (
+    Object.keys(context.conversationBindings).length === 0 &&
+    !context.data.providerAccountId
+  ) {
+    return { threadId };
+  }
+  try {
+    const route = resolveRunnerIpcRoute({
+      routes: context.conversationBindings,
+      sourceAgentFolder: context.sourceAgentFolder,
+      targetJid,
+      threadId,
+      providerAccountId: context.data.providerAccountId,
+    });
+    return {
+      ...(route.conversationId ? { conversationId: route.conversationId } : {}),
+      ...(threadId ? { threadId } : {}),
+    };
+  } catch {
+    reject(
+      `${requestKind} must use the authenticated conversation route.`,
+      'forbidden',
+    );
+    return null;
+  }
 }

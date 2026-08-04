@@ -94,7 +94,6 @@ export type SessionInteractionDeps = {
     agentRuns: AgentRunRepository;
   };
   runtimeEvents: RuntimeEventExchange;
-  liveAdmissionAppId?: string | null;
   getConfiguredAgentRuntime?: (agentFolder: string) => AgentRuntime | undefined;
   now: () => IsoTimestamp;
   createId: () => string;
@@ -292,21 +291,24 @@ export class SessionInteractionModule {
     return { runs: runs.map((run) => AgentRunResponseSchema.parse(run)) };
   }
 
-  async acceptMessage(input: {
-    appId: string;
-    sessionId: string;
-    message: string;
-    senderId?: string;
-    senderName?: string;
-    threadId?: string;
-    correlationId?: string | null;
-    responseMode?: unknown;
-    webhookId?: string | null;
-    responseSchema?: Record<string, unknown>;
-    agentControls?: AgentControlOverrides;
-    durableLiveAdmission?: boolean;
-    beforeDurableAdmission?: () => Promise<void> | void;
-  }): Promise<{
+  async acceptMessage(
+    input: {
+      appId: string;
+      sessionId: string;
+      message: string;
+      senderId?: string;
+      senderName?: string;
+      threadId?: string;
+      correlationId?: string | null;
+      responseMode?: unknown;
+      webhookId?: string | null;
+      responseSchema?: Record<string, unknown>;
+      agentControls?: AgentControlOverrides;
+      durableLiveAdmission?: boolean;
+      beforeDurableAdmission?: () => Promise<void> | void;
+    },
+    liveAdmissionAppId?: string | null,
+  ): Promise<{
     accepted: true;
     messageId: string;
     acceptedEventId: number;
@@ -426,14 +428,13 @@ export class SessionInteractionModule {
     const useDurableAdmission =
       input.durableLiveAdmission !== false &&
       publishWithLiveAdmissionMessage &&
-      this.deps.liveAdmissionAppId !== null;
+      liveAdmissionAppId !== null;
     if (useDurableAdmission) {
       await input.beforeDurableAdmission?.();
-      const liveAdmissionAppId = this.deps.liveAdmissionAppId ?? session.appId;
       const result = await publishWithLiveAdmissionMessage(acceptedEvent, {
         message,
         liveAdmission: {
-          appId: liveAdmissionAppId,
+          appId: liveAdmissionAppId ?? session.appId,
           triggerDecision: {
             source: 'sdk_session',
             responseMode,

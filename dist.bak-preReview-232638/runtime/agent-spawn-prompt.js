@@ -1,0 +1,62 @@
+import { PromptProfileService, promptProfileAgentIdForFolder, renderChannelPromptPresentationLine, } from '../application/agents/prompt-profile-service.js';
+import { logger } from '../infrastructure/logging/logger.js';
+import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
+export function resolveSpawnPromptAccessPreset(configured, hideAuthorityTools) {
+    return configured === 'locked' || hideAuthorityTools ? 'locked' : 'full';
+}
+export async function compileSpawnSystemPrompt(input) {
+    const promptProfileService = new PromptProfileService({
+        fileArtifactStore: input.fileArtifactStore,
+        onCapabilityCatalogRendered: ({ rendered, omitted }) => {
+            logger.info({
+                agentFolder: input.group.folder,
+                rendered,
+                omitted,
+            }, 'Rendered agent prompt capability catalog');
+        },
+    });
+    let compiledSystemPrompt = '';
+    try {
+        compiledSystemPrompt = await input.measureAsync('promptCompileMs', () => promptProfileService.compileSystemPrompt({
+            agentFolder: input.group.folder,
+            persona: input.agentInput.persona ?? input.group.agentConfig?.persona,
+            appId: input.appId,
+            agentId: input.agentInput.agentId ??
+                promptProfileAgentIdForFolder(input.group.folder),
+            accessPreset: input.accessPreset,
+            capabilityCatalog: input.agentInput.capabilityCatalog,
+            mcpInventoryToolsMounted: input.mcpInventoryToolsMounted,
+            ...(input.modelIdentity ? { modelIdentity: input.modelIdentity } : {}),
+            runtimeContext: {
+                channelContextLine: renderChannelPromptPresentationLine(input.agentInput.chatJid, input.group.conversationKind),
+                ...(() => {
+                    try {
+                        return {
+                            workspacePath: resolveWorkspaceFolderPath(input.group.folder),
+                        };
+                    }
+                    catch {
+                        // Invalid folder names still compile the rest of the profile.
+                        return {};
+                    }
+                })(),
+                ...(input.agentInput.isScheduledJob
+                    ? {
+                        job: {
+                            ...(input.agentInput.jobId
+                                ? { id: input.agentInput.jobId }
+                                : {}),
+                            ...(input.agentInput.jobName
+                                ? { name: input.agentInput.jobName }
+                                : {}),
+                        },
+                    }
+                    : {}),
+            },
+        }));
+    }
+    catch (err) {
+        logger.warn({ err, agentFolder: input.group.folder }, 'Failed to compile prompt profile; continuing without custom system prompt');
+    }
+    return compiledSystemPrompt;
+}

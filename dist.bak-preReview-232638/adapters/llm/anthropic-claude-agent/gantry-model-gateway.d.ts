@@ -1,0 +1,45 @@
+import type { RuntimeEventPublishInput } from '../../../domain/events/events.js';
+import type { AgentCredentialBroker } from '../../../domain/ports/agent-credential-broker.js';
+import type { ModelCredentialRepository } from '../../../domain/ports/repositories.js';
+import type { AgentCredentialBrokerInput, AgentCredentialBrokerCapabilities } from '../../../domain/ports/agent-credential-broker.js';
+import type { AgentCredentialInjection, CredentialBrokerHealth } from '../../../domain/models/credentials.js';
+import { type GatewayProviderRateLimits } from './gantry-model-gateway-rate-limit.js';
+export declare class GantryModelGatewayBroker implements AgentCredentialBroker {
+    private readonly credentials;
+    private readonly credentialService;
+    private server?;
+    private listenPromise?;
+    private port;
+    private readonly tokens;
+    private readonly bindHost;
+    private readonly tokenTtlMs;
+    private readonly tokenSweepIntervalMs;
+    private readonly maxTokens;
+    private readonly requestBodyLimitBytes;
+    private readonly upstreamTimeoutMs;
+    private tokenSweepTimer?;
+    private readonly audit?;
+    private readonly rateLimiter;
+    constructor(credentials: ModelCredentialRepository, options?: {
+        bindHost?: string;
+        tokenTtlMs?: number;
+        tokenSweepIntervalMs?: number;
+        maxTokens?: number;
+        requestBodyLimitBytes?: number;
+        upstreamTimeoutMs?: number;
+        audit?: (event: RuntimeEventPublishInput) => Promise<unknown> | unknown;
+        limits?: () => GatewayProviderRateLimits;
+    });
+    getInjection(input: AgentCredentialBrokerInput): Promise<AgentCredentialInjection>;
+    healthCheck(input?: AgentCredentialBrokerInput): Promise<CredentialBrokerHealth>;
+    getCapabilities(): AgentCredentialBrokerCapabilities;
+    revokeInjection(input: AgentCredentialBrokerInput): Promise<void>;
+    close(): Promise<void>;
+    private ensureListening;
+    private handleRequest;
+    private publishGatewayUseAudit;
+    private publishGatewayTokenAudit;
+    private startTokenSweep;
+    private sweepExpiredTokens;
+}
+export declare function extractGatewayResponseUsage(response: Response, requestBody: Buffer): Promise<import("../../../shared/model-catalog.js").NormalizedModelUsage | undefined>;

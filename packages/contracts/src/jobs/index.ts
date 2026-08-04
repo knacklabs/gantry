@@ -463,6 +463,9 @@ export const ModelRecordSchema = z.object({
   }),
   capabilities: z
     .object({
+      imageInput: z.boolean().optional(),
+      imageToolResults: z.boolean().optional(),
+      pdfInput: z.boolean().optional(),
       streaming: z.boolean(),
       toolUse: z.boolean(),
       mcpProjection: z.boolean(),

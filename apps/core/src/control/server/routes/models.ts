@@ -26,7 +26,6 @@ import {
   DEFAULT_AGENT_ENGINE,
 } from '../../../shared/agent-engine.js';
 import { agentModelPreview } from './model-agent-preview.js';
-import { createJobManagementService } from './jobs.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,
@@ -463,10 +462,10 @@ async function previewResponse(
         };
       }
       let jobResult: Awaited<
-        ReturnType<ReturnType<typeof createJobManagementService>['getJob']>
+        ReturnType<ControlRouteContext['jobManagement']['getJob']>
       >;
       try {
-        jobResult = await createJobManagementService(ctx).getJob({
+        jobResult = await ctx.jobManagement.getJob({
           appId: auth.appId,
           jobId,
         });

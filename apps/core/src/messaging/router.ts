@@ -19,7 +19,7 @@ export const CONVERSATION_CONTEXT_RENDER_LIMITS = {
   renderedMessageBytes: 6000,
   renderedContextBytes: 16000,
   attributeBytes: 160,
-  attachmentsPerMessage: 4,
+  attachmentsPerMessage: 12,
 } as const;
 
 interface MessageLineLimits {
@@ -107,7 +107,7 @@ function renderBoundedConversationContext(input: {
 }): string {
   const recentChannelLines = [...input.recentChannelLines];
   const activeThreadLines = [...input.activeThreadLines];
-  const currentMessageLines = formatMessageLineList(
+  let currentMessageLines = formatMessageLineList(
     input.currentMessages,
     input.timezone,
     CURRENT_MESSAGE_LINE_LIMITS,
@@ -135,7 +135,77 @@ function renderBoundedConversationContext(input: {
   ) {
     activeThreadLines.shift();
   }
-  return render();
+  if (
+    utf8Bytes(render()) >
+      CONVERSATION_CONTEXT_RENDER_LIMITS.renderedContextBytes &&
+    input.currentMessages.length > 0
+  ) {
+    let low = 0;
+    let high = Math.max(
+      ...input.currentMessages.map((message) => utf8Bytes(message.content)),
+    );
+    while (low < high) {
+      const candidate = Math.ceil((low + high) / 2);
+      const candidateLines = formatMessageLineList(
+        input.currentMessages,
+        input.timezone,
+        { ...CURRENT_MESSAGE_LINE_LIMITS, messageContentBytes: candidate },
+      );
+      currentMessageLines = candidateLines;
+      if (
+        utf8Bytes(render()) <=
+        CONVERSATION_CONTEXT_RENDER_LIMITS.renderedContextBytes
+      ) {
+        low = candidate;
+      } else {
+        high = candidate - 1;
+      }
+    }
+    currentMessageLines = formatMessageLineList(
+      input.currentMessages,
+      input.timezone,
+      { ...CURRENT_MESSAGE_LINE_LIMITS, messageContentBytes: low },
+    );
+  }
+  let rendered = render();
+  // Even at zero content budget the fixed per-message envelope can exceed the
+  // aggregate limit for a large batch. The contract is absolute AND envelopes
+  // must stay complete: drop OLDEST current messages (keeping the newest)
+  // with an explicit marker, never slice rendered markup.
+  const limit = CONVERSATION_CONTEXT_RENDER_LIMITS.renderedContextBytes;
+  if (utf8Bytes(rendered) > limit && input.currentMessages.length > 0) {
+    let kept = [...input.currentMessages];
+    while (utf8Bytes(rendered) > limit && kept.length > 1) {
+      kept = kept.slice(1);
+      const dropped = input.currentMessages.length - kept.length;
+      const droppedMarker = `[${dropped} earlier current message(s) omitted to fit the context budget.]`;
+      // Dropping envelopes frees room: re-search the content budget for the
+      // retained subset instead of pinning survivors to zero content.
+      let low = 0;
+      let high = Math.max(...kept.map((message) => utf8Bytes(message.content)));
+      while (low < high) {
+        const candidate = Math.ceil((low + high) / 2);
+        currentMessageLines = [
+          droppedMarker,
+          ...formatMessageLineList(kept, input.timezone, {
+            ...CURRENT_MESSAGE_LINE_LIMITS,
+            messageContentBytes: candidate,
+          }),
+        ];
+        if (utf8Bytes(render()) <= limit) low = candidate;
+        else high = candidate - 1;
+      }
+      currentMessageLines = [
+        droppedMarker,
+        ...formatMessageLineList(kept, input.timezone, {
+          ...CURRENT_MESSAGE_LINE_LIMITS,
+          messageContentBytes: low,
+        }),
+      ];
+      rendered = render();
+    }
+  }
+  return rendered;
 }
 
 function formatMessageLine(

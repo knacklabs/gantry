@@ -1,6 +1,10 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
-import type { AgentMcpServerBinding } from '../../domain/mcp/mcp-servers.js';
+import {
+  mcpBindingAuthorityPrecondition,
+  type AgentMcpServerBinding,
+  type McpBindingAuthorityPrecondition,
+} from '../../domain/mcp/mcp-servers.js';
 import type { McpServerRepository } from '../../domain/ports/repositories.js';
 import { parseSemanticCapabilityRule } from '../../shared/semantic-capability-ids.js';
 import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
@@ -8,10 +12,51 @@ import {
   normalizeMcpToolScope,
   reviewedMcpToolPatterns,
 } from '../../shared/mcp-tool-scope.js';
+import { mcpServerDefinitionFingerprint } from '../mcp/mcp-server-definition-fingerprint.js';
 
 export interface AppliedMcpSourceBinding {
   binding: AgentMcpServerBinding;
   previous?: AgentMcpServerBinding;
+}
+
+export interface EnsuredMcpSourceBindings {
+  applied: AppliedMcpSourceBinding[];
+  proposalBindingSnapshots: McpBindingAuthorityPrecondition[];
+}
+
+export async function withMcpCapabilityProposalSourceLocks<T>(input: {
+  appId: AppId;
+  agentId: AgentId;
+  mcpServerRepository?: McpServerRepository;
+  rules: readonly string[];
+  semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
+  operation: () => Promise<T>;
+}): Promise<T> {
+  const proposalSources = [
+    ...mcpServerToolPatternsForRules({
+      rules: input.rules,
+      semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
+    }).entries(),
+  ].filter(([, scope]) => scope.requireExistingBinding);
+  if (proposalSources.length === 0) return input.operation();
+  const repository = input.mcpServerRepository;
+  if (!repository?.withMcpCapabilityApprovalLock) {
+    throw new Error(
+      'MCP source repository with approval locking is required for persistent MCP capability approval.',
+    );
+  }
+  return repository.withMcpCapabilityApprovalLock<T>({
+    appId: input.appId,
+    serverNames: proposalSources.map(([serverName]) => serverName),
+    operation: input.operation,
+  });
+}
+
+interface RequestedMcpSourceScope {
+  patterns: Set<string>;
+  requireExistingBinding: boolean;
+  expectedServerId?: string;
+  expectedServerDefinitionFingerprint?: string;
 }
 
 export async function ensureMcpSourceBindingsForRules(input: {
@@ -21,28 +66,37 @@ export async function ensureMcpSourceBindingsForRules(input: {
   rules: readonly string[];
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
   timestamp: string;
-}): Promise<AppliedMcpSourceBinding[]> {
+}): Promise<EnsuredMcpSourceBindings> {
   const requestedPatternsByServerName = mcpServerToolPatternsForRules({
     rules: input.rules,
     semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
   });
-  if (requestedPatternsByServerName.size === 0 || !input.mcpServerRepository) {
-    return [];
+  if (requestedPatternsByServerName.size === 0) {
+    return { applied: [], proposalBindingSnapshots: [] };
+  }
+  if (!input.mcpServerRepository) {
+    if (
+      [...requestedPatternsByServerName.values()].some(
+        (scope) => scope.requireExistingBinding,
+      )
+    ) {
+      throw new Error(
+        'MCP source repository is required for persistent MCP capability approval.',
+      );
+    }
+    return { applied: [], proposalBindingSnapshots: [] };
   }
   const existingBindings = await input.mcpServerRepository.listAgentBindings({
     appId: input.appId,
     agentId: input.agentId,
-    limit: 500,
   });
   const existingByServerId = new Map(
     existingBindings.map((binding) => [binding.serverId, binding]),
   );
   const activated: AppliedMcpSourceBinding[] = [];
+  const proposalBindingSnapshots: McpBindingAuthorityPrecondition[] = [];
   try {
-    for (const [
-      serverName,
-      requestedPatterns,
-    ] of requestedPatternsByServerName) {
+    for (const [serverName, requestedScope] of requestedPatternsByServerName) {
       const server = await input.mcpServerRepository.getServerByName({
         appId: input.appId,
         name: serverName,
@@ -54,9 +108,50 @@ export async function ensureMcpSourceBindingsForRules(input: {
       }
       const existing = existingByServerId.get(server.id);
       const definitionPatterns = reviewedMcpToolPatterns(server);
-      const requestedScope = normalizeMcpToolScope({
+      if (requestedScope.requireExistingBinding) {
+        if (
+          requestedScope.expectedServerId &&
+          requestedScope.expectedServerId !== server.id
+        ) {
+          throw new Error(
+            `MCP source ${serverName} no longer matches the server reviewed in this capability request. Request the capability again.`,
+          );
+        }
+        if (
+          requestedScope.expectedServerDefinitionFingerprint &&
+          requestedScope.expectedServerDefinitionFingerprint !==
+            mcpServerDefinitionFingerprint(server)
+        ) {
+          throw new Error(
+            `MCP source ${serverName} definition changed after this capability request was reviewed. Request the capability again.`,
+          );
+        }
+        if (!existing || existing.status !== 'active') {
+          throw new Error(
+            `MCP source ${serverName} is no longer active for this agent. Request the capability again after reconnecting it.`,
+          );
+        }
+        const effectiveSourcePatterns =
+          existing.allowedToolPatterns.length > 0
+            ? normalizeMcpToolScope({
+                serverName: server.name,
+                requested: existing.allowedToolPatterns,
+                definitionPatterns,
+              })
+            : definitionPatterns;
+        normalizeMcpToolScope({
+          serverName: server.name,
+          requested: [...requestedScope.patterns],
+          definitionPatterns: effectiveSourcePatterns,
+        });
+        proposalBindingSnapshots.push(
+          mcpBindingAuthorityPrecondition(existing),
+        );
+        continue;
+      }
+      const normalizedRequestedScope = normalizeMcpToolScope({
         serverName: server.name,
-        requested: requestedPatterns,
+        requested: [...requestedScope.patterns],
         definitionPatterns,
       });
       const allowedToolPatterns = mergeMcpToolPatterns({
@@ -64,7 +159,7 @@ export async function ensureMcpSourceBindingsForRules(input: {
           existing?.status === 'active'
             ? existing.allowedToolPatterns
             : undefined,
-        requested: requestedScope,
+        requested: normalizedRequestedScope,
         serverName: server.name,
         definitionPatterns,
       });
@@ -86,6 +181,8 @@ export async function ensureMcpSourceBindingsForRules(input: {
         required: existing?.required ?? false,
         permissionPolicyIds: existing?.permissionPolicyIds ?? [],
         allowedToolPatterns,
+        conversationId: existing?.conversationId,
+        threadId: existing?.threadId,
         createdAt: existing?.createdAt ?? (input.timestamp as never),
         updatedAt: input.timestamp as never,
       };
@@ -115,7 +212,7 @@ export async function ensureMcpSourceBindingsForRules(input: {
     });
     throw err;
   }
-  return activated;
+  return { applied: activated, proposalBindingSnapshots };
 }
 
 export async function rollbackAppliedMcpSourceBindings(input: {
@@ -167,8 +264,8 @@ function mcpToolPatternsEqual(
 function mcpServerToolPatternsForRules(input: {
   rules: readonly string[];
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
-}): Map<string, string[]> {
-  const out = new Map<string, Set<string>>();
+}): Map<string, RequestedMcpSourceScope> {
+  const out = new Map<string, RequestedMcpSourceScope>();
   for (const rule of input.rules) {
     const capabilityId = parseSemanticCapabilityRule(rule);
     const capability = capabilityId
@@ -177,29 +274,102 @@ function mcpServerToolPatternsForRules(input: {
     if (!capability) continue;
     const source = parseMcpCapabilitySource(capability.source);
     if (source?.serverName && source.allowedToolPatterns.length > 0) {
-      const existing = out.get(source.serverName) ?? new Set();
-      for (const pattern of source.allowedToolPatterns) {
-        existing.add(pattern);
-      }
-      out.set(source.serverName, existing);
+      addRequestedMcpSourceScope(out, {
+        serverName: source.serverName,
+        patterns: source.allowedToolPatterns,
+        requireExistingBinding: false,
+      });
       continue;
     }
+    const proposalSource = parseMcpCapabilityProposalSource(capability.source);
+    if (isMcpCapabilityProposalSource(capability.source) && !proposalSource) {
+      throw new Error('MCP capability proposal source metadata is invalid.');
+    }
     for (const binding of capability.implementationBindings) {
+      if (binding.kind === 'mcp_pattern') {
+        const serverName = binding.mcpServer?.trim();
+        const patterns = (binding.mcpToolPatterns ?? [])
+          .map((pattern) => pattern.trim())
+          .filter(Boolean);
+        if (!serverName || patterns.length === 0) continue;
+        addRequestedMcpSourceScope(out, {
+          serverName,
+          patterns,
+          requireExistingBinding: proposalSource?.serverName === serverName,
+          expectedServerId:
+            proposalSource?.serverName === serverName
+              ? proposalSource.serverId
+              : undefined,
+          expectedServerDefinitionFingerprint:
+            proposalSource?.serverName === serverName
+              ? proposalSource.serverDefinitionFingerprint
+              : undefined,
+        });
+        continue;
+      }
       if (binding.kind !== 'mcp_tool') continue;
       const parsed = mcpServerAndToolFromRule(binding.mcpTool);
       if (!parsed) continue;
-      const existing = out.get(parsed.serverName) ?? new Set<string>();
-      existing.add(parsed.toolName);
-      out.set(parsed.serverName, existing);
+      addRequestedMcpSourceScope(out, {
+        serverName: parsed.serverName,
+        patterns: [parsed.toolName],
+        requireExistingBinding: false,
+      });
     }
   }
-  const sortedEntries: Array<[string, string[]]> = [...out.entries()]
-    .map(([serverName, patterns]): [string, string[]] => [
+  const sortedEntries: Array<[string, RequestedMcpSourceScope]> = [
+    ...out.entries(),
+  ]
+    .map(([serverName, scope]): [string, RequestedMcpSourceScope] => [
       serverName,
-      [...patterns].sort(),
+      {
+        ...scope,
+        patterns: new Set([...scope.patterns].sort()),
+      },
     ])
     .sort(([left], [right]) => left.localeCompare(right));
   return new Map(sortedEntries);
+}
+
+function addRequestedMcpSourceScope(
+  target: Map<string, RequestedMcpSourceScope>,
+  input: {
+    serverName: string;
+    patterns: readonly string[];
+    requireExistingBinding: boolean;
+    expectedServerId?: string;
+    expectedServerDefinitionFingerprint?: string;
+  },
+): void {
+  const existing = target.get(input.serverName) ?? {
+    patterns: new Set<string>(),
+    requireExistingBinding: false,
+  };
+  if (
+    existing.expectedServerId &&
+    input.expectedServerId &&
+    existing.expectedServerId !== input.expectedServerId
+  ) {
+    throw new Error(
+      `MCP source ${input.serverName} has conflicting reviewed server identities.`,
+    );
+  }
+  if (
+    existing.expectedServerDefinitionFingerprint &&
+    input.expectedServerDefinitionFingerprint &&
+    existing.expectedServerDefinitionFingerprint !==
+      input.expectedServerDefinitionFingerprint
+  ) {
+    throw new Error(
+      `MCP source ${input.serverName} has conflicting reviewed server definitions.`,
+    );
+  }
+  for (const pattern of input.patterns) existing.patterns.add(pattern);
+  existing.requireExistingBinding ||= input.requireExistingBinding;
+  existing.expectedServerId ??= input.expectedServerId;
+  existing.expectedServerDefinitionFingerprint ??=
+    input.expectedServerDefinitionFingerprint;
+  target.set(input.serverName, existing);
 }
 
 function parseMcpCapabilitySource(
@@ -222,6 +392,40 @@ function parseMcpCapabilitySource(
     serverName: record.serverName.trim(),
     allowedToolPatterns,
   };
+}
+
+function parseMcpCapabilityProposalSource(source: unknown): {
+  serverName: string;
+  serverId: string;
+  serverDefinitionFingerprint: string;
+} | null {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    return null;
+  }
+  const record = source as Record<string, unknown>;
+  if (
+    record.kind !== 'mcp_capability_proposal' ||
+    typeof record.serverName !== 'string' ||
+    typeof record.serverId !== 'string' ||
+    typeof record.serverDefinitionFingerprint !== 'string'
+  ) {
+    return null;
+  }
+  const serverName = record.serverName.trim();
+  const serverId = record.serverId.trim();
+  const serverDefinitionFingerprint = record.serverDefinitionFingerprint.trim();
+  return serverName && serverId && serverDefinitionFingerprint
+    ? { serverName, serverId, serverDefinitionFingerprint }
+    : null;
+}
+
+function isMcpCapabilityProposalSource(source: unknown): boolean {
+  return Boolean(
+    source &&
+    typeof source === 'object' &&
+    !Array.isArray(source) &&
+    (source as Record<string, unknown>).kind === 'mcp_capability_proposal',
+  );
 }
 
 function mcpServerAndToolFromRule(

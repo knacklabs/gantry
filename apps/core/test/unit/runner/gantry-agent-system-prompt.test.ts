@@ -84,6 +84,10 @@ describe('buildGantryAgentSystemPrompt', () => {
     );
     expect(prompt.prompt).toContain('WebRead');
     expect(prompt.prompt).toContain('FileRead');
+    expect(prompt.prompt).toContain(
+      'Read their gantry_attachment ids with attachment_open',
+    );
+    expect(prompt.prompt).toContain('attachment_ids');
     expect(prompt.prompt).toContain('RunCommand(<scope>)');
     expect(prompt.prompt).not.toContain('WebFetch');
     expect(prompt.prompt).not.toContain('DeepAgents');

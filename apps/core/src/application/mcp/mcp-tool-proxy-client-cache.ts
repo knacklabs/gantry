@@ -81,7 +81,16 @@ export async function closeCachedMcpClient(
 }
 
 function mcpClientCacheKey(capability: MaterializedMcpCapability): string {
-  return `${capability.name}:${JSON.stringify(capability.config)}`;
+  return JSON.stringify({
+    appId: capability.appId,
+    agentId: capability.agentId,
+    conversationId: capability.conversationId ?? null,
+    threadId: capability.threadId ?? null,
+    serverId: capability.serverId,
+    bindingId: capability.bindingId,
+    sourceRevision: capability.sourceRevision ?? null,
+    config: capability.config,
+  });
 }
 
 function createClientIdleTimer(

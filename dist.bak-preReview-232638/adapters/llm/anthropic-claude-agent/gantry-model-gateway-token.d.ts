@@ -1,0 +1,44 @@
+import type { AppId } from '../../../domain/app/app.js';
+import type { RuntimeEventPublishInput } from '../../../domain/events/events.js';
+import type { AgentCredentialBrokerBinding, AgentCredentialPurpose } from '../../../domain/models/credentials.js';
+import type { ModelCredentialProvider } from '../../../domain/model-credentials/model-credentials.js';
+import type { ModelProviderDefinition } from '../../../shared/model-provider-registry.js';
+export interface GatewayTokenRecord {
+    token: string;
+    appId: AppId;
+    providerId: ModelCredentialProvider;
+    authMode: string;
+    schemaVersion: number;
+    credentialFingerprint: string;
+    createdAtMs: number;
+    expiresAtMs: number;
+    tokenScope: string;
+    purpose: AgentCredentialPurpose;
+    modelBatchRequestCount: number;
+    modelBatchId?: string;
+    modelBatchUploadedFileIds: Set<string>;
+    modelBatchFileIds: Map<string, string>;
+    agentId?: RuntimeEventPublishInput['agentId'];
+    runId?: RuntimeEventPublishInput['runId'];
+    apiKeyId?: string;
+    apiRequestId?: string;
+    jobId?: RuntimeEventPublishInput['jobId'];
+    conversationId?: RuntimeEventPublishInput['conversationId'];
+    threadId?: RuntimeEventPublishInput['threadId'];
+}
+export declare function assertGatewayBatchCredential(provider: ModelProviderDefinition, authMode: string, purpose: AgentCredentialPurpose): void;
+export declare function batchRequestCountFor(purpose: AgentCredentialPurpose, value: number | undefined): number;
+export declare function gatewayTokenAllowsPath(token: GatewayTokenRecord, provider: ModelProviderDefinition, providerPath: string, method?: string): boolean;
+export declare function gatewayTokenAllowsRequestBody(token: GatewayTokenRecord, provider: ModelProviderDefinition, providerPath: string, method: string, body: Buffer): boolean;
+export declare function recordGatewayBatchFileAssociations(input: {
+    token: GatewayTokenRecord;
+    provider: ModelProviderDefinition;
+    providerPath: string;
+    method: string;
+    requestBody: Buffer;
+    responsePayload?: Record<string, unknown>;
+}): void;
+export declare function gatewayRateWeight(token: GatewayTokenRecord, provider: ModelProviderDefinition, providerPath: string, method: string): number;
+export declare function gatewayTokenScope(binding: AgentCredentialBrokerBinding): string;
+export declare function isRevocableGatewayTokenScope(scope: string): boolean;
+export declare function runtimeEventRunIdFor(token: GatewayTokenRecord): RuntimeEventPublishInput['runId'] | undefined;

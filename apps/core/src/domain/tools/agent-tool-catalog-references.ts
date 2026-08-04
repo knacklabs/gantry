@@ -21,6 +21,8 @@ import {
   validateDurableAccessRule,
 } from '../../shared/durable-access-policy.js';
 import {
+  isMcpCapabilityProposalDefinition,
+  sameMcpCapabilityProposalAuthority,
   semanticCapabilityInputSchema,
   semanticCapabilityFromToolCatalogItem,
   type SemanticCapabilityDefinition,
@@ -187,8 +189,26 @@ async function saveSemanticCapabilityTool(input: {
     createdAt: input.now as never,
     updatedAt: input.now as never,
   };
-  await input.repository.saveTool(item);
-  return item;
+  if (
+    !isMcpCapabilityProposalDefinition(input.capability) ||
+    !input.repository.saveToolIfAbsent
+  ) {
+    await input.repository.saveTool(item);
+    return item;
+  }
+  const stored = await input.repository.saveToolIfAbsent(item);
+  if (
+    stored.appId === input.appId &&
+    stored.status === 'active' &&
+    stored.selectable &&
+    (catalogToolMatchesSemanticCapability(stored, input.capability) ||
+      catalogToolSharesMcpProposalAuthority(stored, input.capability))
+  ) {
+    return stored;
+  }
+  throw new Error(
+    `Semantic capability ${input.capabilityId} does not match the active catalog definition.`,
+  );
 }
 
 export async function resolveAgentToolReference(input: {
@@ -282,5 +302,18 @@ function catalogToolMatchesSemanticCapability(
     !!existing &&
     existing.capabilityId === capability.capabilityId &&
     stableSha256Json(existing) === stableSha256Json(capability)
+  );
+}
+
+function catalogToolSharesMcpProposalAuthority(
+  tool: ToolCatalogItem,
+  capability: SemanticCapabilityDefinition,
+): boolean {
+  const existing = semanticCapabilityFromToolCatalogItem({
+    name: tool.name,
+    inputSchema: tool.inputSchema,
+  });
+  return Boolean(
+    existing && sameMcpCapabilityProposalAuthority(existing, capability),
   );
 }

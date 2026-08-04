@@ -82,6 +82,53 @@ describe('Postgres migration journal', () => {
     }
   });
 
+  it('registers the job coordination column cutover', () => {
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20260803084102_job_coordination_columns.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration).toContain(
+      "RAISE NOTICE 'dropping % residual job recovery intent(s) from the retired flow', residual",
+    );
+    expect(migration).toContain(
+      'ADD COLUMN "consecutive_failures" integer DEFAULT 0 NOT NULL',
+    );
+    expect(migration).toContain(
+      'ADD COLUMN "max_consecutive_failures" integer',
+    );
+    expect(migration).toContain('ADD COLUMN "pause_reason" text');
+    expect(migration).toContain('ADD COLUMN "setup_state" jsonb');
+    expect(migration).toContain(
+      "(target_json ->> 'consecutiveFailures')::integer",
+    );
+    expect(migration).toContain(
+      "(target_json ->> 'consecutive_failures')::integer",
+    );
+    expect(migration).toContain(
+      "(target_json ->> 'maxConsecutiveFailures')::integer",
+    );
+    expect(migration).toContain(
+      "(target_json ->> 'max_consecutive_failures')::integer",
+    );
+    expect(migration).toContain("target_json ->> 'pauseReason'");
+    expect(migration).toContain("target_json ->> 'pause_reason'");
+    expect(migration).toContain("target_json -> 'setupState'");
+    expect(migration).toContain("target_json -> 'setup_state'");
+    expect(migration).toContain("- 'consecutiveFailures'");
+    expect(migration).toContain("- 'consecutive_failures'");
+    expect(migration).toContain("- 'maxConsecutiveFailures'");
+    expect(migration).toContain("- 'max_consecutive_failures'");
+    expect(migration).toContain("- 'pauseReason'");
+    expect(migration).toContain("- 'pause_reason'");
+    expect(migration).toContain("- 'setupState'");
+    expect(migration).toContain("- 'setup_state'");
+    expect(migration).toContain("- 'recoveryIntent'");
+    expect(migration).toContain("- 'recovery_intent'");
+  });
+
   it('registers the generated identity primary-key repair', () => {
     const migrationsDir = path.resolve(
       'apps/core/src/adapters/storage/postgres/schema/migrations',

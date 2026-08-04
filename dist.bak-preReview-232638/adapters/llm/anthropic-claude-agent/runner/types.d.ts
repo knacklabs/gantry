@@ -1,0 +1,126 @@
+import type { EffortLevel } from '@anthropic-ai/claude-agent-sdk';
+import type { NormalizedModelUsage, RuntimeContextUsageSnapshot } from '../../../../shared/model-catalog.js';
+import type { AgentPersona } from '../../../../shared/agent-persona.js';
+import type { YoloModeSettings } from '../../../../shared/yolo-mode-policy.js';
+import type { PermissionMode } from '../../../../shared/permission-mode.js';
+import type { CapabilityRuntimeAccess } from '../../../../shared/capability-runtime-access.js';
+import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
+import type { GantryAgentPromptMode } from '../../../../runner/gantry-agent-system-prompt.js';
+import type { DeclarativeToolRule } from '../../../../runner/tool-gate-core.js';
+import type { CallableAgentToolManifestEntry } from '../../../../application/core-tools/callable-agent-tools.js';
+export interface AgentRunnerInput {
+    prompt: string;
+    runMode?: 'prime' | 'execute';
+    appId?: string;
+    agentId?: string;
+    sessionId?: string;
+    workspaceFolder: string;
+    chatJid: string;
+    threadId?: string;
+    memoryUserId?: string;
+    memoryDefaultScope?: 'user' | 'group';
+    memoryReviewerIsControlApprover?: boolean;
+    persona?: AgentPersona;
+    browserProfileName?: string;
+    allowedTools?: string[];
+    toolRules?: DeclarativeToolRule[];
+    toolAccessRequirements?: string[];
+    attachedSkillSourceIds?: string[];
+    selectedSkillDisplays?: string[];
+    attachedMcpSourceIds?: string[];
+    semanticCapabilities?: SemanticCapabilityDefinition[];
+    hideAuthorityTools?: boolean;
+    isScheduledJob?: boolean;
+    jobId?: string;
+    runId?: string;
+    parentTaskId?: string;
+    callableAgentManifest?: CallableAgentToolManifestEntry[];
+    runLeaseToken?: string;
+    runLeaseFencingVersion?: number;
+    assistantName?: string;
+    promptMode?: GantryAgentPromptMode;
+    compiledSystemPrompt?: string;
+    memoryContextBlock?: string;
+    yoloMode?: YoloModeSettings;
+    egressDenylist?: string[];
+    permissionMode: PermissionMode;
+    modelCredentialEnv?: Record<string, string>;
+    toolNetworkEnv?: Record<string, string>;
+    runtimeAccess?: CapabilityRuntimeAccess[];
+    thinking?: {
+        mode: 'adaptive' | 'enabled' | 'disabled';
+        effort?: EffortLevel;
+        budgetTokens?: number;
+        display?: 'summarized' | 'omitted';
+    };
+    effort?: EffortLevel;
+    configuredThinking?: {
+        mode: 'off';
+        budgetTokens?: never;
+    } | {
+        mode: 'on';
+        budgetTokens?: number;
+    };
+}
+export interface AgentRunnerOutput {
+    status: 'success' | 'error';
+    result: string | null;
+    newSessionId?: string;
+    runtimeEventOnly?: boolean;
+    compactBoundary?: boolean;
+    interactionBoundary?: 'user_interaction';
+    continuedByFollowup?: boolean;
+    usage?: NormalizedModelUsage;
+    usageEventId?: string;
+    contextUsage?: RuntimeContextUsageSnapshot;
+    error?: string;
+    runtimeEvents?: AgentRunnerRuntimeEventOutput[];
+    primeToolAttempts?: AgentRunnerToolAttemptOutput[];
+}
+export interface AgentRunnerToolAttemptOutput {
+    runMode: 'prime';
+    requestedToolName: string;
+    toolName: string;
+    title?: string;
+    displayName?: string;
+    description?: string;
+    decisionReason?: string;
+    blockedPath?: string;
+    toolUseID?: string;
+    agentID?: string;
+    toolInput?: unknown;
+    suggestions?: unknown[];
+    deniedReason: string;
+}
+export interface RunnerCapabilitiesForPermission {
+    allowedTools: readonly string[];
+    alwaysAllowedTools: readonly string[];
+    permissionMode: 'default' | 'deny';
+}
+export interface AgentRunnerRuntimeEventOutput {
+    appId?: string;
+    agentId?: string;
+    runId?: string;
+    jobId?: string;
+    conversationId?: string;
+    threadId?: string;
+    eventType: string;
+    actor?: string;
+    responseMode?: 'sse' | 'webhook' | 'both' | 'none';
+    payload: unknown;
+}
+export interface PermissionDecision {
+    approved: boolean;
+    mode?: 'allow_once' | 'allow_persistent_rule' | 'cancel';
+    decidedBy?: string;
+    reason?: string;
+    risk_level?: 'low' | 'medium' | 'high' | 'critical';
+    risk_category?: 'destructive' | 'privileged' | 'secret' | 'network' | 'filesystem' | 'benign';
+    updatedPermissions?: unknown[];
+    decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject';
+}
+export interface SessionSlashCommand {
+    command: string;
+    kind: 'model';
+}
+export declare const WORKSPACE_FOLDER_OPTION_KEY: "workspaceFolder";

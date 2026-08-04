@@ -29,7 +29,8 @@ export function formatMcpApprovalResponse(
     '',
     'Next action:',
     `- Refresh source inventory: call mcp_list_tools with serverName="${context.server.name}"`,
-    '- Request durable access: use request_access with target.kind=capability when a reviewed capability exists.',
+    '- Request existing durable access: use request_access with target.kind=capability when a reviewed capability id already exists.',
+    `- Propose reviewed MCP access: use request_access with target.kind=mcp_capability, serverName="${context.server.name}", the exact tools or trailing-star patterns, read/write risk, and a clear displayName.`,
     '- Immediate command fallback: use request_access with target.kind=run_command and temporaryOnly=true if no reviewed capability fits.',
     context.availableToolNames.length > 0
       ? `- Source-reported tool names: ${context.availableToolNames.join(', ')}`
@@ -210,7 +211,9 @@ export function formatMcpSearchToolsResponse(
       );
     } else {
       lines.push(
-        '  covered_by_reviewed_capability: no — inventory only; a reviewed capability must cover it before mcp_call_tool succeeds',
+        options.includeReviewGuidance === false
+          ? '  covered_by_reviewed_capability: no — inventory only; not callable with the current fixed capability set'
+          : '  covered_by_reviewed_capability: no — inventory only; propose reviewed coverage with request_access target.kind=mcp_capability before mcp_call_tool can succeed',
       );
     }
   }

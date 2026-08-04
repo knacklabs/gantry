@@ -1,0 +1,35 @@
+import type { DreamingRunStatus, MemoryEvidenceRecord } from './memory-types.js';
+export declare function conversationIdForChannel(channelId: string | undefined): string | null;
+type MemoryEvidenceRow = {
+    id: string;
+    appId: string;
+    agentId: string;
+    subjectType: string;
+    subjectId: string;
+    userId: string | null;
+    groupId: string | null;
+    channelId: string | null;
+    threadId: string | null;
+    sourceType: string;
+    sourceId: string | null;
+    actorId: string | null;
+    text: string;
+    metadataJson: string | null;
+    createdAt: string;
+};
+type MemoryDreamRunRow = {
+    id: string;
+    appId: string;
+    agentId: string;
+    subjectType: string;
+    subjectId: string;
+    threadId: string | null;
+    phase: string;
+    status: string;
+    summaryJson: string | null;
+    startedAt: string;
+    completedAt: string | null;
+};
+export declare function toEvidence(row: MemoryEvidenceRow): MemoryEvidenceRecord;
+export declare function toRun(row: MemoryDreamRunRow): DreamingRunStatus;
+export {};

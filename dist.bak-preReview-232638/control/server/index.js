@@ -1,0 +1,427 @@
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import { DEFAULT_JOB_RUNTIME_APP_ID, filterJobsByCanonicalAppSession, } from '../../application/jobs/job-access.js';
+import { GANTRY_HOME, configureDesiredSettingsStorageProvider, getControlEnvValue, getDefaultModelConfig, getConfiguredAgentRuntime, getSelectedAgentHarness, getRuntimeSettingsForConfig, getRuntimeModelDefaults, getPublicRuntimeSettings, patchRuntimeModelDefaults, syncRuntimeSettingsFromProjection, } from '../../config/index.js';
+import { resolveRuntimeSecurityPosture, validateProductionSecurityGate, } from '../../shared/security-posture.js';
+import { logger } from '../../infrastructure/logging/logger.js';
+import { getRuntimeControlRepository, getRuntimeRepositories, getRuntimeStorage, } from '../../adapters/storage/postgres/runtime-store.js';
+import { preflightModelProvider } from '../../adapters/llm/model-provider-preflight.js';
+import { canAccessApp, makeAppGroup } from './app-identity.js';
+import { isValidControlId, parseControlApiKeys, parseControlApiKeysStrict, } from './auth.js';
+import { sendError } from './http.js';
+import { createRateLimiter } from './rate-limit.js';
+import { handleAgentRoutes } from './routes/agents.js';
+import { handleBrainRoutes } from './routes/brain.js';
+import { handleCapabilityCatalogRoutes } from './routes/capability-catalog.js';
+import { handleCredentialRoutes } from './routes/credentials.js';
+import { handleProviderConversationRoutes } from './routes/provider-conversation-routes.js';
+import { handleExternalIngressRoutes } from './routes/external-ingress.js';
+import { handleGuidedActionRoutes } from './routes/guided-actions.js';
+import { handleJobRoutes } from './routes/jobs.js';
+import { handleLlmRoutes } from './routes/llm.js';
+import { handleMemoryRoutes } from './routes/memory.js';
+import { handleObserverRoutes } from './routes/observer.js';
+import { handleMcpServerRoutes } from './routes/mcp-servers.js';
+import { handleModelRoutes } from './routes/models.js';
+import { handleOpenApiRoutes } from './routes/openapi.js';
+import { handleRunRoutes } from './routes/runs.js';
+import { handleSessionRoutes } from './routes/sessions.js';
+import { handleSettingsRoutes } from './routes/settings.js';
+import { handleSkillRoutes } from './routes/skills.js';
+import { handleSystemRoutes } from './routes/system.js';
+import { handleUsageRoutes } from './routes/usage.js';
+import { handleWebhookRoutes } from './routes/webhooks.js';
+import { deliverWebhookDelivery, flushWebhookDeliveries, logWebhookFlushFailure, } from './webhook-delivery.js';
+import { isPrivateAddress } from './webhook-target.js';
+import { nowIso } from '../../shared/time/datetime.js';
+import { subscribeWebhookDeliveryReady } from '../../application/runtime-events/webhook-delivery-wakeup.js';
+function applyControlSocketMode(socketPath, server) {
+    try {
+        fs.chmodSync(socketPath, 0o600);
+        return true;
+    }
+    catch (error) {
+        logger.error({ err: error, socketPath }, 'Failed to set control socket mode to 0600; closing control server');
+        server.close();
+        return false;
+    }
+}
+function getErrorCode(error) {
+    if (!error || typeof error !== 'object' || !('code' in error)) {
+        return undefined;
+    }
+    const code = error.code;
+    return typeof code === 'string' ? code : undefined;
+}
+function isControlClientDisconnectError(error) {
+    const code = getErrorCode(error);
+    return (code === 'ECONNRESET' ||
+        code === 'EPIPE' ||
+        code === 'ERR_STREAM_PREMATURE_CLOSE');
+}
+function logControlStreamError(error, path) {
+    if (isControlClientDisconnectError(error)) {
+        logger.debug({ err: error, path }, 'Control client disconnected');
+        return;
+    }
+    logger.warn({ err: error, path }, 'Control request stream error');
+}
+function sendControlError(res, status, code, message) {
+    if (res.destroyed || res.writableEnded)
+        return;
+    sendError(res, status, code, message);
+}
+function createControlRequestHandler(ctx, routeProfile) {
+    return async (req, res) => {
+        const url = new URL(req.url || '/', 'http://localhost');
+        const pathname = url.pathname;
+        req.on('error', (error) => logControlStreamError(error, pathname));
+        res.on('error', (error) => logControlStreamError(error, pathname));
+        try {
+            // Ops profile (live-worker, job-worker) serves only operational and
+            // read-only diagnostic routes; every admin/mutation route is unmounted and
+            // falls through to the 404 fallback below.
+            if (routeProfile === 'ops') {
+                if (await handleSystemRoutes(req, res, ctx, pathname))
+                    return;
+                if (isLiveIngressRoute(pathname)) {
+                    if (await handleExternalIngressRoutes(req, res, ctx, pathname))
+                        return;
+                }
+                sendControlError(res, 404, 'NOT_FOUND', 'Route not found');
+                return;
+            }
+            if (await handleOpenApiRoutes(req, res, pathname))
+                return;
+            if (await handleSystemRoutes(req, res, ctx, pathname))
+                return;
+            if (await handleGuidedActionRoutes(req, res, ctx, pathname))
+                return;
+            if (await handleAgentRoutes(req, res, ctx, pathname))
+                return;
+            if (await handleCapabilityCatalogRoutes(req, res, ctx, pathname))
+                return;
+            if (await handleSessionRoutes(req, res, ctx, url, pathname))
+                return;
+            if (await handleProviderConversationRoutes(req, res, ctx, url, pathname))
+                return;
+            if (await handleMemoryRoutes(req, res, ctx, url, pathname))
+                return;
+            if (await handleObserverRoutes(req, res, ctx, url, pathname))
+                return;
+            if (await handleBrainRoutes(req, res, ctx, url, pathname))
+                return;
+            if (await handleCredentialRoutes(req, res, ctx, pathname))
+                return;
+            if (await handleModelRoutes(req, res, ctx, pathname))
+                return;
+            if (await handleLlmRoutes(req, res, ctx, pathname))
+                return;
+            if (await handleJobRoutes(req, res, ctx, url, pathname))
+                return;
+            if (await handleExternalIngressRoutes(req, res, ctx, pathname))
+                return;
+            if (await handleRunRoutes(req, res, ctx, url, pathname))
+                return;
+            if (await handleUsageRoutes(req, res, ctx, url, pathname))
+                return;
+            if (await handleSettingsRoutes(req, res, ctx, pathname))
+                return;
+            if (await handleSkillRoutes(req, res, ctx, url, pathname))
+                return;
+            if (await handleMcpServerRoutes(req, res, ctx, url, pathname))
+                return;
+            if (await handleWebhookRoutes(req, res, ctx, pathname))
+                return;
+            sendControlError(res, 404, 'NOT_FOUND', 'Route not found');
+        }
+        catch (error) {
+            if (error &&
+                typeof error === 'object' &&
+                'statusCode' in error &&
+                typeof error.statusCode === 'number') {
+                const errorCode = 'code' in error && typeof error.code === 'string'
+                    ? error.code
+                    : 'INVALID_REQUEST';
+                sendControlError(res, error.statusCode, errorCode, error instanceof Error ? error.message : 'Request failed');
+                return;
+            }
+            logger.error({ err: error, path: pathname }, 'Control server request failed');
+            sendControlError(res, 500, 'INTERNAL_ERROR', 'Control server request failed');
+        }
+    };
+}
+function isLiveIngressRoute(pathname) {
+    return /^\/webhooks\/[^/]+(?:\/wait)?$/.test(pathname);
+}
+function missingControlPort(name) {
+    throw new Error(`${name} was not composed at the app root`);
+}
+function unavailableControlAgentSettingsPort() {
+    return {
+        decodeRevisionDocument: () => missingControlPort('agentSettings'),
+        defaultSettings: () => missingControlPort('agentSettings'),
+        serializeRevisionDocument: () => missingControlPort('agentSettings'),
+        writeAgentHarnessSetting: async () => missingControlPort('agentSettings'),
+    };
+}
+function unavailableControlSettingsImportPort() {
+    return {
+        serializeRevisionDocument: () => missingControlPort('settingsImport'),
+        importWorkstation: async () => missingControlPort('settingsImport'),
+        importFleet: async () => missingControlPort('settingsImport'),
+        classifyImportError: () => null,
+    };
+}
+export function startControlServer(input) {
+    configureDesiredSettingsStorageProvider(async () => {
+        const storage = getRuntimeStorage();
+        return {
+            ops: getRuntimeRepositories(),
+            repositories: storage.repositories,
+            settingsRevisions: storage.repositories.settingsRevisions,
+            pool: storage.service.pool,
+        };
+    });
+    const socketPath = getControlEnvValue('GANTRY_CONTROL_SOCKET_PATH') ||
+        path.join(GANTRY_HOME, 'run', 'control.sock');
+    const port = Number(getControlEnvValue('GANTRY_CONTROL_PORT') || 0);
+    const host = resolveControlHost();
+    const nodeEnv = getControlEnvValue('NODE_ENV');
+    const securityPosture = getControlEnvValue('GANTRY_SECURITY_POSTURE');
+    const runtimeEnv = getControlEnvValue('GANTRY_RUNTIME_ENV');
+    const posture = resolveRuntimeSecurityPosture({
+        NODE_ENV: nodeEnv,
+        GANTRY_SECURITY_POSTURE: securityPosture,
+        GANTRY_RUNTIME_ENV: runtimeEnv,
+        GANTRY_CONTROL_HOST: host,
+        GANTRY_CONTROL_PORT: String(port),
+    });
+    const rawControlKeys = getControlEnvValue('GANTRY_CONTROL_API_KEYS_JSON');
+    const keys = parseControlApiKeysStrict({
+        rawJson: rawControlKeys,
+        requireStrongTokens: posture.requiresProductionSecrets,
+        requireNonEmptyScopes: posture.requiresProductionSecrets,
+    });
+    const sandboxProvider = posture.requiresEnforcingSandbox
+        ? getRuntimeSettingsForConfig().runtime.sandbox.provider
+        : undefined;
+    const productionFailures = validateProductionSecurityGate({
+        env: {
+            NODE_ENV: nodeEnv,
+            GANTRY_SECURITY_POSTURE: securityPosture,
+            GANTRY_RUNTIME_ENV: runtimeEnv,
+            GANTRY_CONTROL_HOST: host,
+            GANTRY_CONTROL_PORT: String(port),
+            GANTRY_CONTROL_API_KEYS_JSON: rawControlKeys,
+            GANTRY_IPC_AUTH_SECRET: getControlEnvValue('GANTRY_IPC_AUTH_SECRET'),
+            REMOTE_CONTROL_AUTO_ACCEPT: getControlEnvValue('REMOTE_CONTROL_AUTO_ACCEPT'),
+            SECRET_ENCRYPTION_KEY: getControlEnvValue('SECRET_ENCRYPTION_KEY'),
+            SECRET_ENCRYPTION_KEYRING_JSON: getControlEnvValue('SECRET_ENCRYPTION_KEYRING_JSON'),
+        },
+        sandboxProvider,
+    });
+    if (productionFailures.length > 0) {
+        throw new Error(['Production security preflight failed.', ...productionFailures].join('\n- '));
+    }
+    const state = {
+        activeStreams: 0,
+        activeWaits: 0,
+        activeTriggerWaits: 0,
+    };
+    let webhookFlushInFlight = false;
+    let effectiveRuntimeSettings;
+    const getEffectiveRuntimeSettings = input.getEffectiveRuntimeSettings ??
+        (() => (effectiveRuntimeSettings ??= getRuntimeSettingsForConfig()));
+    const ctx = {
+        app: input.app,
+        runtimeHome: GANTRY_HOME,
+        keys,
+        processRole: input.processRole ?? 'all',
+        liveExecution: input.liveExecution ?? true,
+        liveTurnsEnabled: input.liveTurnsEnabled ?? true,
+        roleReadinessRequirements: input.roleReadinessRequirements ?? {
+            // Default (workstation `all`): the historical check set, no role checks.
+            requiresApiAuthConfigured: false,
+            requiresWorkerRegistration: false,
+            requiresSchedulerClaiming: false,
+            requiresLiveCapacitySignal: false,
+        },
+        currentWorkerInstanceId: input.currentWorkerInstanceId,
+        isSchedulerReady: input.isSchedulerReady,
+        oldestWaitingLiveAdmissionSeconds: input.oldestWaitingLiveAdmissionSeconds,
+        liveCapacityLimit: input.liveCapacityLimit,
+        socketPath,
+        port,
+        maxConcurrentStreams: 25,
+        maxConcurrentWaits: 50,
+        maxConcurrentTriggerWaits: 50,
+        state,
+        triggerRateLimiter: createRateLimiter(),
+        getRuntimeSettings: () => getPublicRuntimeSettings(),
+        getInternalRuntimeSettings: () => getRuntimeSettingsForConfig(),
+        getEffectiveRuntimeSettings,
+        getEffectiveMemoryState: input.getEffectiveMemoryState ??
+            (() => ({
+                enabled: getEffectiveRuntimeSettings().memory.enabled,
+                dreamingEnabled: getEffectiveRuntimeSettings().memory.dreaming.enabled ?? false,
+            })),
+        agentSettings: input.agentSettings ?? unavailableControlAgentSettingsPort(),
+        settingsImport: input.settingsImport ?? unavailableControlSettingsImportPort(),
+        resolveObserverStatus: input.resolveObserverStatus ??
+            (async () => missingControlPort('resolveObserverStatus')),
+        getEgressSettings: () => getRuntimeSettingsForConfig().permissions.egress,
+        getDefaultModelConfig,
+        getModelDefaults: getRuntimeModelDefaults,
+        patchModelDefaults: patchRuntimeModelDefaults,
+        preflightModelProvider: (providerId, appId, chatAlias) => preflightModelProvider({
+            runtimeHome: GANTRY_HOME,
+            providerId,
+            chatAlias,
+            settings: getRuntimeSettingsForConfig(),
+            appId,
+        }),
+        getActiveModelCredentialProviderIds: async (appId) => {
+            try {
+                const credentials = await getRuntimeStorage().repositories.modelCredentials.listModelCredentials({ appId });
+                return credentials
+                    .filter((credential) => credential.status === 'active')
+                    .map((credential) => credential.providerId);
+            }
+            catch {
+                // Best-effort: availability reads (model catalog `available`, why/preview
+                // badges) must never fail the response on a credential-store error;
+                // degrade to "none configured".
+                return [];
+            }
+        },
+        countPendingAccessRequests: async (appId) => getRuntimeStorage().repositories.pendingAccessRequests.countPendingAccessRequests({ appId }),
+        listControlPlaneJobs: async (appId) => {
+            const jobs = await getRuntimeRepositories().listJobs({
+                ...(appId === DEFAULT_JOB_RUNTIME_APP_ID ? {} : { appId }),
+            });
+            return filterJobsByCanonicalAppSession({
+                control: getRuntimeStorage().control,
+                jobs,
+                appId,
+            });
+        },
+        sendConversationIngressProjection: input.sendConversationIngressProjection,
+        addMessageReaction: input.addMessageReaction,
+        getBrowserStatus: input.getBrowserStatus,
+        syncSettingsFromProjection: (appId, overrides) => {
+            const storage = getRuntimeStorage();
+            return syncRuntimeSettingsFromProjection({
+                runtimeHome: GANTRY_HOME,
+                ops: getRuntimeRepositories(),
+                repositories: storage.repositories,
+                appId,
+                settingsRevisions: storage.repositories.settingsRevisions,
+                pool: storage.service?.pool,
+                createdBy: 'control-api:projection-sync',
+                reloadRuntimeState: () => input.app.loadState(),
+                overrides,
+            });
+        },
+        getSelectedAgentHarness: (agentFolder) => getSelectedAgentHarness(agentFolder),
+        getConfiguredAgentRuntime: (agentFolder) => getConfiguredAgentRuntime(agentFolder),
+    };
+    const server = http.createServer(createControlRequestHandler(ctx, input.routeProfile ?? 'full'));
+    server.on('clientError', (error, socket) => {
+        if (isControlClientDisconnectError(error)) {
+            logger.debug({ err: error }, 'Control client socket disconnected');
+        }
+        else {
+            logger.warn({ err: error }, 'Control client socket error');
+        }
+        socket.destroy();
+    });
+    if (port > 0) {
+        server.listen(port, host);
+        logger.info({ host, port }, 'Control server listening on TCP');
+    }
+    else {
+        fs.mkdirSync(path.dirname(socketPath), { recursive: true });
+        if (fs.existsSync(socketPath)) {
+            try {
+                fs.unlinkSync(socketPath);
+            }
+            catch (error) {
+                logger.warn({ err: error, socketPath }, 'Failed to remove stale control socket before listen');
+            }
+        }
+        server.listen(socketPath, () => applyControlSocketMode(socketPath, server));
+        logger.info({ socketPath }, 'Control server listening on unix socket');
+    }
+    const triggerWebhookFlush = () => {
+        if (webhookFlushInFlight)
+            return;
+        webhookFlushInFlight = true;
+        void flushWebhookDeliveries()
+            .catch(logWebhookFlushFailure)
+            .finally(() => {
+            webhookFlushInFlight = false;
+        });
+    };
+    const unsubscribeWebhookDeliveryReady = subscribeWebhookDeliveryReady(triggerWebhookFlush);
+    const deliveryInterval = setInterval(triggerWebhookFlush, 1000);
+    let ingressMaintenanceInFlight = false;
+    const ingressMaintenanceInterval = setInterval(() => {
+        if (ingressMaintenanceInFlight)
+            return;
+        ingressMaintenanceInFlight = true;
+        void getRuntimeControlRepository()
+            .sweepExpiredExternalIngressState({
+            now: nowIso(),
+        })
+            .catch((error) => {
+            logger.warn({ err: error }, 'Failed sweeping expired external ingress state');
+        })
+            .finally(() => {
+            ingressMaintenanceInFlight = false;
+        });
+    }, 60_000);
+    return {
+        async close() {
+            clearInterval(deliveryInterval);
+            clearInterval(ingressMaintenanceInterval);
+            unsubscribeWebhookDeliveryReady();
+            await new Promise((resolve, reject) => {
+                server.close((error) => {
+                    if (error) {
+                        reject(error);
+                        return;
+                    }
+                    resolve();
+                });
+            });
+            if (port === 0) {
+                if (fs.existsSync(socketPath)) {
+                    try {
+                        fs.unlinkSync(socketPath);
+                    }
+                    catch (error) {
+                        logger.warn({ err: error, socketPath }, 'Failed to remove control socket during close');
+                    }
+                }
+            }
+        },
+    };
+}
+function resolveControlHost() {
+    return getControlEnvValue('GANTRY_CONTROL_HOST') || '127.0.0.1';
+}
+export const _testControlServer = {
+    parseControlApiKeys,
+    parseControlApiKeysStrict,
+    canAccessApp,
+    applyControlSocketMode,
+    isControlClientDisconnectError,
+    isValidControlId,
+    isPrivateAddress,
+    makeAppGroup,
+    resolveControlHost,
+    deliverWebhookDelivery,
+    flushWebhookDeliveries,
+};

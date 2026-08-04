@@ -365,6 +365,26 @@ describe('formatConversationContextMessages', () => {
     );
   });
 
+  it('renders up to twelve attachment handles for multi-file requests', () => {
+    const attachments = Array.from({ length: 13 }, (_, index) => ({
+      id: `attachment-${index + 1}`,
+      kind: 'file' as const,
+      file_name: `resume-${index + 1}.pdf`,
+    }));
+    const result = formatConversationContextMessages(
+      {
+        recentChannelContext: [],
+        activeThreadContext: [],
+        currentMessages: [makeMsg({ id: 'current', attachments })],
+      },
+      TZ,
+    );
+
+    expect(result).toContain('gantry_attachment="attachment-12"');
+    expect(result).not.toContain('gantry_attachment="attachment-13"');
+    expect(result).toContain('<attachments_truncated omitted="1" />');
+  });
+
   it('does not render a durable handle for an identity-less attachment', () => {
     const result = formatConversationContextMessages(
       {
@@ -470,7 +490,7 @@ describe('formatConversationContextMessages', () => {
     expect(result.trim().endsWith('</current_message>')).toBe(true);
   });
 
-  it('drops historical context but does not drop current-turn messages for the context budget', () => {
+  it('bounds oversized current-turn messages without dropping their identities', () => {
     const recentChannelContext = Array.from({ length: 80 }, (_, index) =>
       makeMsg({
         id: `recent-${index}`,
@@ -497,9 +517,31 @@ describe('formatConversationContextMessages', () => {
     expect(result).not.toContain('recent-0 ');
     for (const message of currentMessages) {
       expect(result).toContain(message.id.replace('current-', 'CURRENT_'));
-      expect(result).toContain(message.id.replace('current-', 'TAIL_'));
     }
+    expect(result).toContain('...[truncated]');
+    expect(Buffer.byteLength(result, 'utf8')).toBeLessThanOrEqual(
+      CONVERSATION_CONTEXT_RENDER_LIMITS.renderedContextBytes,
+    );
     expect(result.trim().endsWith('</current_message>')).toBe(true);
+  });
+
+  it('keeps a max-body multibyte current turn inside the aggregate budget', () => {
+    const result = formatConversationContextMessages(
+      {
+        recentChannelContext: [],
+        activeThreadContext: [],
+        currentMessages: [
+          makeMsg({ content: `Body ${'🙂'.repeat(5000)} MULTIBYTE_TAIL` }),
+        ],
+      },
+      TZ,
+    );
+
+    expect(Buffer.byteLength(result, 'utf8')).toBeLessThanOrEqual(
+      CONVERSATION_CONTEXT_RENDER_LIMITS.renderedContextBytes,
+    );
+    expect(result).toContain('...[truncated]');
+    expect(result).not.toContain('MULTIBYTE_TAIL');
   });
 });
 

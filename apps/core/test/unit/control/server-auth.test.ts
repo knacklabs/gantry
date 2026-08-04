@@ -26,6 +26,8 @@ import { signExternalIngressRequest } from '@core/application/external-ingress/s
 import { preflightModelProvider } from '@core/adapters/llm/model-provider-preflight.js';
 import { listSlackRecentChats } from '@core/cli/slack-chat-discovery.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
+import { SessionInteractionModule } from '@core/application/sessions/session-interaction-module.js';
+import { adaptSessionControlPort } from '@core/control/server/session-control-port.js';
 
 vi.mock('@core/adapters/llm/model-provider-preflight.js', () => ({
   preflightModelProvider: vi.fn(async () => ({
@@ -481,6 +483,15 @@ function createSessionEventStreamRouteHarness() {
     activeWaits: 0,
     activeTriggerWaits: 0,
   };
+  const sessionInteraction = new SessionInteractionModule({
+    control: adaptSessionControlPort(controlRepo as never),
+    ops: opsRepo as never,
+    repositories: domainRepositories as never,
+    runtimeEvents: runtimeEvents as never,
+    now: () => '2026-08-03T00:00:00.000Z' as never,
+    createId: () => 'session-event-stream-test',
+    stableHash: (input) => createHash('sha256').update(input).digest('hex'),
+  });
   const ctx = {
     keys: [
       {
@@ -492,6 +503,7 @@ function createSessionEventStreamRouteHarness() {
     ],
     maxConcurrentStreams: 25,
     state,
+    sessionInteraction,
   } as any;
   const url = new URL(
     'http://localhost/v1/sessions/session-1/events?afterEventId=0',

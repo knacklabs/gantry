@@ -7,6 +7,7 @@ import type {
 } from './channel-provider.js';
 import type {
   DiscordChannelInfo,
+  DiscordMessageEmbed,
   DiscordMessageCreate,
   DiscordUser,
 } from './discord-types.js';
@@ -15,6 +16,9 @@ const DISCORD_JID_PREFIX = 'dc:';
 const DISCORD_PUBLIC_THREAD_TYPES = new Set([10, 11, 12]);
 const DISCORD_THREAD_FIRST_REPLY_LIMIT = 10;
 const DISCORD_THREAD_LATEST_REPLY_LIMIT = 39;
+const DISCORD_EMBED_TEXT_MAX_BYTES = 1024;
+const DISCORD_EMBEDS_MAX_PER_MESSAGE = 4;
+const DISCORD_EMBEDS_TOTAL_MAX_BYTES = 4096;
 
 export type DiscordConversationContextCache = Map<
   string,
@@ -350,7 +354,7 @@ function normalizeDiscordContextMessages(input: {
   for (const message of input.rawMessages) {
     if (byExternalId.size >= input.limit) break;
     if (!message.id || isDiscordEphemeralMessage(message)) continue;
-    const content = message.content?.trim() || '';
+    const content = discordMessageContent(message);
     const attachments = discordMessageAttachments(
       message,
       input.conversationJid,
@@ -395,7 +399,11 @@ export function discordMessageAttachments(
     .filter((attachment) => attachment.ephemeral !== true)
     .map((attachment) => ({
       id: attachment.id ? `discord-attachment:${attachment.id}` : undefined,
-      kind: attachment.content_type?.startsWith('image/') ? 'image' : 'file',
+      kind: attachment.content_type?.startsWith('image/')
+        ? 'image'
+        : attachment.content_type?.startsWith('audio/')
+          ? 'audio'
+          : 'file',
       contentType: attachment.content_type,
       sizeBytes:
         typeof attachment.size === 'number' && Number.isFinite(attachment.size)
@@ -418,6 +426,73 @@ export function discordMessageAttachments(
             }
           : undefined,
     }));
+}
+
+export function discordMessageContent(message: DiscordMessageCreate): string {
+  // The native body is forwarded VERBATIM (whitespace-sensitive content like
+  // indented code must survive); trimming is only used to decide emptiness.
+  const raw = message.content ?? '';
+  const body = raw.trim() ? raw : '';
+  // Aggregate embed budget: at most 4 embeds share a combined byte cap so
+  // multi-embed messages cannot multiply the per-embed bound.
+  let remaining = DISCORD_EMBEDS_TOTAL_MAX_BYTES;
+  const folded: string[] = [];
+  for (const embed of (message.embeds ?? []).slice(
+    0,
+    DISCORD_EMBEDS_MAX_PER_MESSAGE,
+  )) {
+    if (remaining <= 0) break;
+    const text = foldEmbed(embed);
+    if (!text) continue;
+    if (folded.length > 0) remaining -= 2; // '\n\n' separator
+    if (remaining <= 0) break;
+    const bounded =
+      Buffer.byteLength(text, 'utf8') > remaining
+        ? `${Buffer.from(text, 'utf8')
+            .subarray(0, Math.max(0, remaining - 3))
+            .toString('utf8')
+            .replace(/\uFFFD+$/u, '')}…`
+        : text;
+    remaining -= Buffer.byteLength(bounded, 'utf8');
+    folded.push(bounded);
+  }
+  if (folded.length === 0) return body;
+  return [body, ...folded].filter(Boolean).join('\n\n');
+}
+
+function foldEmbed(embed: DiscordMessageEmbed): string {
+  const parts = [
+    embed.title ? `Title: ${embed.title}` : '',
+    embed.description ? `Description: ${embed.description}` : '',
+    embed.url ? `URL: ${embed.url}` : '',
+    ...(embed.fields ?? []).flatMap((field) => [
+      field.name ? `Field: ${field.name}` : '',
+      field.value ? `Value: ${field.value}` : '',
+    ]),
+    embed.author?.name ? `Author: ${embed.author.name}` : '',
+    embed.footer?.text ? `Footer: ${embed.footer.text}` : '',
+    embed.image?.description ? `Image: ${embed.image.description}` : '',
+    embed.thumbnail?.description
+      ? `Thumbnail: ${embed.thumbnail.description}`
+      : '',
+    embed.video?.description ? `Video: ${embed.video.description}` : '',
+  ].filter(Boolean);
+  return truncateUtf8(parts.join('\n'), DISCORD_EMBED_TEXT_MAX_BYTES);
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value, 'utf8') <= maxBytes) return value;
+  const suffix = '...[truncated]';
+  const contentBytes = maxBytes - Buffer.byteLength(suffix, 'utf8');
+  let result = '';
+  let bytes = 0;
+  for (const character of value) {
+    const characterBytes = Buffer.byteLength(character, 'utf8');
+    if (bytes + characterBytes > contentBytes) break;
+    result += character;
+    bytes += characterBytes;
+  }
+  return `${result}${suffix}`;
 }
 
 export function isDiscordEphemeralMessage(

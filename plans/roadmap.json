@@ -173,7 +173,7 @@
       ]
     },
     {
-      "status": "pending",
+      "status": "done",
       "key": "CAP-1",
       "title": "Close out the capability-authoring lane",
       "epic": "capability-search",
@@ -187,7 +187,9 @@
         "branch verified (typecheck + unit + relevant integration) and reviewed via one autoreview pass",
         "merged to main or explicitly split/reverted with a decision note",
         "mcp-tool-proxy.ts conflict window closed"
-      ]
+      ],
+      "completed_at": "2026-08-02T19:08:22+00:00",
+      "outcome": "Merged via PR #376. Agents can author MCP capabilities; approval cards are host-derived and fail-closed (agent input is not risk authority). Formal review fixed 12 findings incl. 3 security Highs (principal-required approvals, route-scoped credentials, tenant-scoped MCP client caches). mcp-tool-proxy conflict window closed."
     },
     {
       "status": "pending",
@@ -274,7 +276,7 @@
       ]
     },
     {
-      "status": "pending",
+      "status": "done",
       "key": "CO-1",
       "title": "Jobs recovery-intent -> columns + CAS",
       "epic": "coordination-hardening",
@@ -287,7 +289,10 @@
         "audit item B1 implemented: recovery intent as columns with compare-and-set transitions",
         "no JSON-blob state machine remains for recovery intent",
         "concurrent-recovery test pins the CAS invariant"
-      ]
+      ],
+      "completed_at": "2026-08-03T00:00:00+00:00",
+      "history": ".factory/history/CO-1/",
+      "outcome": "Merged PR #380 per decision 0104 reframe: dead recovery-intent machinery deleted; live coordination fields (failure counter, pause reason, setup state) promoted to race-safe columns with in-DB increments and fingerprint-guarded writes; validated live (migration backfill + full lifecycle on the production runtime). Net -286 lines."
     },
     {
       "status": "pending",
@@ -389,26 +394,6 @@
       "outcome": "Agent conversations on Slack and Discord now remember, durably in Postgres, what history they have already stored. Once a channel or thread is fully persisted, later turns skip the provider history call (measured 1 to 0 calls, for exactly one extra SQL statement), so replies start faster. The record is trusted only while a live inbound stream is delivering: reconnects, dropped sockets, outbound-only accounts, interaction-only sockets, failed dispatches and account rebinds all invalidate it, and the next turn re-fetches from the provider so nothing said while the agent was away is silently skipped. Telegram is unchanged. Known residual: a brief multi-process stale-trust window, deferred as D-0036."
     },
     {
-      "key": "ID-1",
-      "title": "Identity management phases 2-3: reconcile, harden, land",
-      "story": "As an operator, I can resolve any sender to one app-scoped person across Slack/Telegram/Teams/app (and later OIDC/WhatsApp/email/phone), so the agent knows it is the same human and personal memory stays with the person while conversation memory stays with the room.",
-      "acceptance_criteria": [
-        "PR 217 reconciled with main; its 7 migrations converted to the timestamped scheme with no drizzle drift",
-        "Contact aliases normalised at write time (email lowercase, phone E.164) with a collision-safe backfill",
-        "mergePeople gains a faithful unmerge restoring from person_merge_audit",
-        "verified is system-attested only and unsettable via the People API",
-        "Decision-8 boundary/invariant tests pass with reverted-guard negative controls; agents-as-service-kind invariants pinned"
-      ],
-      "order": 26,
-      "status": "done",
-      "epic": "identity",
-      "skill": "backend",
-      "origin": "adhoc",
-      "spec": "docs/specs/person-identity-aliases.md",
-      "completed_at": "2026-08-02T10:24:13+00:00",
-      "outcome": "Merged via PR #373 (supersedes #217, credits Suraj). One canonical person per app with provider-neutral exact-match aliases; personal memory DM-only; audited merge with single-use all-or-nothing unmerge; People API + SDK incl. unmerge; boundaries pinned by revert-proven tests; 22 review rounds, ~50 fixes."
-    },
-    {
       "key": "FILE-1B",
       "title": "Discord conversation-file parity",
       "story": "As a Discord user sharing files with the agent, I want the agent to save, recall, and honestly account for my files exactly as it does on Slack, so that trust in shared files does not depend on which chat app I use.",
@@ -429,6 +414,26 @@
       "outcome": "Files shared in Discord now behave like Slack files. The agent saves the bytes the moment a file is posted, remembers the filename and where it came from, and can fetch an old file it never saved the first time someone needs it. When a message is deleted on Discord, its files are honestly reported as deleted and the stored bytes are removed \u2014 durably, so a deletion that races message ingestion, hits a transient database error, or arrives for a not-yet-stored message still lands. Ephemeral content is never stored, downloads only ever come from Discord's CDN with no credentials attached, and every file stays locked to its own conversation. Remaining edges (attachment removal via message edits, marker retention hygiene) are recorded as deferrals with triggers."
     },
     {
+      "key": "ID-1",
+      "title": "Identity management phases 2-3: reconcile, harden, land",
+      "story": "As an operator, I can resolve any sender to one app-scoped person across Slack/Telegram/Teams/app (and later OIDC/WhatsApp/email/phone), so the agent knows it is the same human and personal memory stays with the person while conversation memory stays with the room.",
+      "acceptance_criteria": [
+        "PR 217 reconciled with main; its 7 migrations converted to the timestamped scheme with no drizzle drift",
+        "Contact aliases normalised at write time (email lowercase, phone E.164) with a collision-safe backfill",
+        "mergePeople gains a faithful unmerge restoring from person_merge_audit",
+        "verified is system-attested only and unsettable via the People API",
+        "Decision-8 boundary/invariant tests pass with reverted-guard negative controls; agents-as-service-kind invariants pinned"
+      ],
+      "order": 27,
+      "status": "done",
+      "epic": "identity",
+      "skill": "backend",
+      "origin": "adhoc",
+      "spec": "docs/specs/person-identity-aliases.md",
+      "completed_at": "2026-08-02T10:24:13+00:00",
+      "outcome": "Merged via PR #373 (supersedes #217, credits Suraj). One canonical person per app with provider-neutral exact-match aliases; personal memory DM-only; audited merge with single-use all-or-nothing unmerge; People API + SDK incl. unmerge; boundaries pinned by revert-proven tests; 22 review rounds, ~50 fixes."
+    },
+    {
       "key": "FILE-2",
       "title": "Slack deletion registration on the neutral attachment-deletion operation",
       "story": "As a Slack user, when I delete a message whose files the agent saved, I want the agent to treat those files as deleted \u2014 honestly reported and bytes removed \u2014 the same way it already does on Discord.",
@@ -439,7 +444,7 @@
         "Telegram documented as having no deletion signal for ordinary bot chats; 0094 matrix rows flipped with citations",
         "Real-Postgres proof: Slack deletion event tombstones exactly the tracked attachments and the resolver serves the deleted copy with zero provider calls"
       ],
-      "order": 27,
+      "order": 28,
       "status": "done",
       "skill": "backend",
       "kind": "feature",
@@ -447,6 +452,26 @@
       "completed_at": "2026-08-02T06:06:47+00:00",
       "history": ".factory/history/FILE-2/",
       "outcome": "Deleting a Slack message whose files the agent saved now works like Discord: the files are honestly reported as deleted and the stored bytes are removed, durably \u2014 a deletion that races message ingestion or arrives before the message is stored still lands, threads included (Slack threads share the parent channel, so no thread bookkeeping is needed and events without thread metadata are handled). Interaction-only connections never observe deletions. Telegram is honestly documented as having no deletion signal for ordinary bot chats."
+    },
+    {
+      "status": "done",
+      "key": "SEC-2",
+      "title": "Inbound attachments: one atomic O_NOFOLLOW writer for Telegram + Slack",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "High audit finding: Telegram (fs.writeFile / open(path,'w')) and Slack (lstat-then-open race) attachment writers can follow a symlink out of the workspace and truncate a service-account-writable file. Create one shared hardened writer: O_CREAT|O_EXCL|O_NOFOLLOW into a verified attachment dir, validate the descriptor + containment, stream in, then atomically publish without replacing an existing target (or use generated immutable storage names + original name as metadata). Reuse the descriptor-containment pattern already in workspace-message-attachment.ts (currently a reader). NOTE: Implementation exists unlanded in myclaw-SEC2 worktree (979264eb8): platform no-follow-fs + private-file-writer + Telegram/Slack wiring.",
+      "acceptance_criteria": [
+        "every inbound channel attachment write goes through one shared O_NOFOLLOW descriptor-based writer",
+        "real-filesystem adversarial tests: existing final-file symlink, final-file swap during open, ancestor swap, hard links, streaming + buffered paths; the outside target is never truncated or unlinked",
+        "no check-then-open race remains (atomic create-if-absent)"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 29,
+      "completed_at": "2026-07-24T00:00:00+00:00",
+      "outcome": "Superseded: SEC-1 (PR #280) shipped shared/inbound-attachment-writer.ts \u2014 O_CREAT|O_EXCL|O_NOFOLLOW(_ANY) open, atomic rename finalize, size caps, sanitized storage refs \u2014 wired into Telegram, Slack, AND the Discord materialization path the Jul-23 lane implementation never covered. Verified by content 2026-08-03; the parallel worktree implementation was discarded."
     },
     {
       "key": "LAT-4B",
@@ -459,7 +484,7 @@
         "Thread recency message-timestamped per decision 0096; isGroup survives thread traffic",
         "Jobs and binding/setup flows unaffected"
       ],
-      "order": 28,
+      "order": 30,
       "status": "done",
       "skill": "backend",
       "kind": "refactor",
@@ -467,6 +492,26 @@
       "completed_at": "2026-08-02T07:41:08+00:00",
       "history": ".factory/history/LAT-4B/",
       "outcome": "Message persistence stopped re-writing identities the database already knows. A normal message now persists in 15 SQL statements instead of 19, and a thread message in 16 instead of 29 \u2014 the same saving applies to the agent's own replies and to history backfill in threads. Thread activity now orders the chat list by the message's own time, exactly like normal messages (decision 0096), which also means a redelivered old message can no longer jump a conversation to the top, and thread messages no longer corrupt the conversation's group flag. The remaining identity writes need receipt plumbing and are deferred with a measured trigger (D-0041)."
+    },
+    {
+      "status": "done",
+      "key": "SEC-3",
+      "title": "LLM passthrough: race-free concurrency admission + fewer body copies",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "High audit finding: /llm/v1/* has a per-minute counter but no concurrency semaphore, and buffers \u226416 MiB bodies several times (public read -> parse -> reserialize -> loopback -> gateway read). Acquire a race-free global and per-app/key concurrency permit BEFORE reading the body; reject excess before consuming bodies; release in one finally covering disconnect/parse/setup/provider failures. Reduce the body limit unless 16 MiB is justified. (Loopback collapse is the separate SIMP-3.)",
+      "acceptance_criteria": [
+        "a global and per-app/key concurrency permit is acquired before body read; excess requests are rejected before body consumption",
+        "the permit is released in a single finally covering disconnect, parse failure, setup failure, provider failure, and streamed cleanup",
+        "barrier test: with upstream held, more-than-cap requests prove only the allowed number begin body consumption; RSS and open sockets measured under concurrent max-size requests"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 31,
+      "outcome": "Shipped in SEC-1 / PR #280 (race-free LLM concurrency admission).",
+      "completed_at": "2026-08-03T00:00:00+00:00"
     },
     {
       "key": "LIVE-1",
@@ -480,7 +525,7 @@
         "Retryable failures edit the same card ('retrying n/max'); only final failure finalizes it",
         "Teams items deferred on the real-client trigger; goal-prompt doc Part B/C truth updated"
       ],
-      "order": 29,
+      "order": 32,
       "status": "done",
       "skill": "backend",
       "kind": "feature",
@@ -488,6 +533,207 @@
       "completed_at": "2026-08-04T09:33:18+00:00",
       "history": ".factory/history/LIVE-1/",
       "outcome": "Gantry now shows truthful, low-noise liveness in chats: typing indicators only while the agent is genuinely working, a single 'Still working' card edit if a turn stalls past 3 minutes, seen-to-running reaction flips on the triggering message, retry status on the same card, and receipts on both continuation routes. Under the hood, progress-card updates are strictly serialized per card with self-healing repair, so slow or failed Discord/Slack/Telegram API calls can no longer leave stale 'Still working' text, duplicate Stop buttons, or lost 'Done.' states."
+    },
+    {
+      "status": "done",
+      "key": "PERF-2",
+      "title": "Jobs: batch the latest-run projection (kill the list N+1)",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "High audit finding: GET /v1/jobs runs loadLatestRunsByJobId = Promise.all of one listJobRuns(job.id,1) per job (up to 500 concurrent). Add one batch repository method returning the latest run for all requested job IDs via DISTINCT ON (job_id) or a window function; build the visibility metadata synchronously from two maps. Subsumes the audit's simplification #4.",
+      "acceptance_criteria": [
+        "a 500-job list issues a constant, small number of SQL queries (instrumented)",
+        "latest-run ordering, health/staleness, error summaries, app filtering, and the public response schema are unchanged",
+        "load test: concurrent list requests hold pool wait time and p95/p99 within target"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 33,
+      "outcome": "Shipped on main as buildJobListVisibilityMetadata / listLatestJobRunsByJobIds (single batched query).",
+      "completed_at": "2026-08-03T00:00:00+00:00"
+    },
+    {
+      "status": "done",
+      "key": "PERF-3",
+      "title": "SSE: reserve the stream permit before subscription setup",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "Medium audit finding (TOCTOU): the session event-stream cap is checked before activeStreams is incremented after an await, so >25 concurrent setups all pass. Reserve/increment a token synchronously immediately after the check, before the first await; release it in one idempotent cleanup on setup failure/disconnect/close/normal end (mirror the sibling wait route). NOTE: overlaps CO-2 (coordination hardening TOCTOU batch) \u2014 land it there or here, not twice.",
+      "acceptance_criteria": [
+        "the stream permit is reserved synchronously before the first await",
+        "barrier test: 26 concurrent requests admit exactly 25; the rest get 429 TOO_MANY_STREAMS; permits returned once on failure/disconnect",
+        "reconciled with CO-2 so the TOCTOU fix is not duplicated"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 34,
+      "outcome": "Shipped in PERF-1 (c156cf9dd): SSE stream permits reserved before subscription setup.",
+      "completed_at": "2026-08-03T00:00:00+00:00"
+    },
+    {
+      "status": "done",
+      "key": "SEC-4",
+      "title": "Rate limits: cluster-authoritative store or declared singleton (decision required)",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "Medium audit finding: control + gateway rate limiters are per-process in-memory Maps, so the effective limit multiplies by replica count and resets on restart. Architecture decision required: enforce counters through one shared atomic store (Postgres/Redis) OR make the service singleton and reject horizontally-scaled config; document per-process vs cluster-wide for each limit. Record a decision before implementing.",
+      "acceptance_criteria": [
+        "a decision record chooses shared-store vs declared-singleton and is accepted",
+        "two live replicas accept a combined count equal to the configured cluster limit (if shared-store) OR horizontally-scaled config is rejected (if singleton)",
+        "each limit documented as per-process or cluster-wide"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 35,
+      "completed_at": "2026-08-03T00:00:00+00:00",
+      "outcome": "Decided by record 0099: runtime is single-instance-authoritative for rate limits; cluster store deferred behind an explicit multi-instance revisit trigger. No code."
+    },
+    {
+      "status": "done",
+      "key": "PERF-4",
+      "title": "Live-admission: admission caps + terminal retention (decision required)",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "Medium audit finding: the durable live-admission table has no per-app/per-conversation admission cap at insert and no terminal retention (rows with identity metadata accumulate forever). Add atomic admission limits at the insert transaction returning an explicit overloaded/deferred outcome; define terminal retention with an ended_at index and a bounded purge/archival job. Architecture decision required and its retention half overlaps DUR-1 / deferral D-0001 \u2014 reconcile so retention is defined once.",
+      "acceptance_criteria": [
+        "atomic per-app (and optionally per-conversation) admission cap; overload returns an explicit outcome; exact replay still returns the existing item",
+        "terminal retention defined with an ended_at-based index and a bounded purge that never removes active/deferred/recently-completed items",
+        "retention ownership reconciled with DUR-1 / D-0001 (defined once)"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 36,
+      "notes": "Decision 0103 accepted 2026-08-03: 30-day TTL sweep of terminal rows via existing maintenance machinery. Remaining work is the sweep job + test.",
+      "completed_at": "2026-08-03T00:00:00+00:00",
+      "history": ".factory/history/PERF-4/",
+      "outcome": "Merged PR #378: 30-day TTL sweep of terminal live-admission rows (bounded advisory-locked batches from scheduler maintenance, 6h cadence, retry-on-failure). Completes PERF-4 with the earlier caps half."
+    },
+    {
+      "status": "done",
+      "key": "CI-1",
+      "title": "Make check:architecture a required CI gate",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "Medium audit finding: check:architecture is a documented ratchet but absent from CI. PAY-1 already restored a green baseline (exit 0). Add the command as a required CI step; add a fixture/controlled mutation per rule class proving CI fails on one additional violation; baseline any accepted debt with exact path/count entries. Sequence with E2E-3 (the same make-a-green-checker-required move).",
+      "acceptance_criteria": [
+        "check:architecture runs in ci.yml and a clean HEAD passes it",
+        "a controlled mutation per rule class proves CI fails on one added violation",
+        "expired/over-budget exceptions fail the gate"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 37,
+      "completed_at": "2026-08-03T00:00:00+00:00",
+      "outcome": "Branch protection enabled on main: the ci check (unit + integration + postgres + structural gates incl. check:architecture) is REQUIRED before merge; force-pushes and deletions blocked; enforce_admins off so the harness ledger keeps direct-push access."
+    },
+    {
+      "status": "done",
+      "key": "SIMP-2",
+      "title": "Construct control application services once in the composition root",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "refactor",
+      "story": "Audit simplification: createJobManagementService and createSessionInteractionModule are rebuilt per route from global getters. Build them once in the control-server composition root and pass through ControlRouteContext; keep live settings getters behind explicit getters so settings-reload behavior is unchanged.",
+      "acceptance_criteria": [
+        "job and session services constructed once and injected via ControlRouteContext",
+        "live values (settings reload, app identity, credential broker, clocks, event exchange) still read live",
+        "route tests pass before and after settings reload and runtime-store init"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 38,
+      "completed_at": "2026-08-03T04:30:48+00:00",
+      "outcome": "Merged PR #377: JobManagementService and SessionInteractionModule constructed once in the control composition root; live deps via getters; liveAdmissionAppId is a method argument."
+    },
+    {
+      "status": "pending",
+      "key": "SIMP-3",
+      "title": "Collapse the direct-LLM loopback HTTP hop into one in-process service",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "refactor",
+      "story": "Audit simplification (pairs with SEC-3): the direct API path serializes and buffers the same request through two in-process HTTP layers (public route -> loopback -> model gateway). Extract provider forwarding into one in-process application operation used directly by the public route; keep the loopback HTTP adapter only for child runners that need an HTTP endpoint. Do after SEC-3's concurrency admission lands.",
+      "acceptance_criteria": [
+        "the direct API path no longer makes a loopback HTTP hop; one body reader and one serialize/deserialize cycle removed",
+        "provider credential isolation, per-app/route audit, provider path confinement, streaming, cancellation, rate limits, and child-runner gateway support unchanged",
+        "contract test: identical provider URL/headers/body/frames/usage/errors/cancellation before and after"
+      ],
+      "depends_on": [
+        "SEC-3"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 39
+    },
+    {
+      "status": "pending",
+      "key": "SIMP-4",
+      "title": "Make durable coordination mandatory; remove process-local fallbacks",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "refactor",
+      "story": "Audit simplification: AsyncTaskRepository atomic admission/claim are optional, and session compaction falls back to a process-global Set when the durable method is absent \u2014 two coordination systems with different guarantees. Make atomic admission/claim required for production repositories; the in-memory test repository implements the same atomic semantics. Removes createTaskWithLocalAdmission, optional-method probing, and the global compaction dedup set. Overlaps DUR-1 \u2014 fold in unless it lands sooner as standalone cleanup.",
+      "acceptance_criteria": [
+        "atomic admission/claim required; local count/create and global compaction-dedup fallbacks removed",
+        "per-app/per-agent backlog caps, compaction dedup, stale-task recovery, fencing, and restart-safe records unchanged",
+        "concurrent admission tests pass against Postgres and the in-memory repository (two workers, restart, stale tasks, cap boundaries)",
+        "reconciled with DUR-1 (not implemented twice)"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 40
+    },
+    {
+      "status": "active",
+      "key": "CONTENT-1",
+      "title": "Provider content gaps: honest fallbacks, quick fixes, Slack canvas CRUD",
+      "epic": "provider-content",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "Six verified quick fixes (honest binary fallback guidance, .eml text, Slack snippet delivery, Discord voice-note classification, Telegram location/venue/contact data, Discord embed folding) plus Slack canvas read/create/update behind host-issued handles with split read/write authority. Teams equivalents deferred to TEAMS-1; reading reactions/edits stays backlog.",
+      "acceptance_criteria": [
+        "binary attachments return typed guidance, never truncated base64",
+        "Slack oversized messages deliver as snippet (<=1MB) or .txt file with text-path fallback on provider failure",
+        "canvas create/update/read tools enforce the split-capability trust boundary and IPC bounds per the plan",
+        "TEAMS-1 roadmap entry carries the deferred Teams criteria"
+      ],
+      "source_refs": [
+        "docs/architecture/provider-content-gaps-plan-draft.md"
+      ],
+      "order": 41
+    },
+    {
+      "status": "pending",
+      "key": "CONTENT-2",
+      "title": "Physical attachment hand-off for ALL providers: materialize conversation files into the agent workspace",
+      "epic": "provider-content",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [
+        "CONTENT-1"
+      ],
+      "story": "An attachment_materialize tool copies a conversation-scoped attachment (host-issued ref, signed proof \u2014 the attachment_open trust model) into a quarantined subdirectory of the agent's CURRENT workspace, size-capped, on explicit request, so agents can process files with any tool (scripts over CSVs, proper conversions, native model PDF/image reads, re-upload of results). Requires its own decision record: crossing the deliberate workspace/attachment-store isolation, with the quarantine contract (dedicated dir, never auto-read into context, prompt guidance that contents are untrusted data not instructions). Provider-neutral by construction: operates on the shared provider-attachments store, so Slack, Telegram, and Discord are covered identically at ship time and Teams inherits automatically when FILE-1C Graph capture lands. Decision 0105 (accepted) holds the quarantine contract. Generalizes the native-PDF hand-off follow-up recorded during PR #379.",
+      "acceptance_criteria": [
+        "decision record for the workspace-boundary crossing and quarantine contract, accepted before implementation",
+        "attachment_materialize mints only from conversation-scoped host-issued refs; size-capped; writes only inside the quarantine dir via the hardened writer",
+        "quarantined files are reachable by agent tools but never auto-ingested into context; prompt guidance marks them untrusted data",
+        "models with pdfInput/imageInput can be handed the physical file where the runner supports it",
+        "materialization verified for a Slack, a Telegram, and a Discord attachment through the same code path (no provider branches)"
+      ],
+      "order": 42
     }
   ],
   "epics": [
@@ -576,5 +822,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-04T09:33:18+00:00"
+  "updated_at": "2026-08-03T09:45:48+00:00"
 }

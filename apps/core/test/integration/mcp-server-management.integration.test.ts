@@ -77,6 +77,17 @@ class InMemoryMcpServerRepository implements McpServerRepository {
     );
   }
 
+  async getAgentBinding(input: {
+    appId: AppId;
+    agentId: AgentId;
+    serverId: McpServerId;
+  }) {
+    return (
+      this.bindings.get(`${input.appId}:${input.agentId}:${input.serverId}`) ??
+      null
+    );
+  }
+
   async disableAgentBinding(input: {
     appId: AppId;
     agentId: AgentId;
@@ -218,6 +229,7 @@ vi.mock('@core/config/index.js', () => ({
 }));
 
 vi.mock('@core/jobs/scheduler.js', () => ({
+  schedulerNotReadyReason: vi.fn(() => undefined),
   enqueueJobTrigger: vi.fn(async () => undefined),
   isJobTriggerQueueReady: vi.fn(() => true),
   isSchedulerReady: vi.fn(() => true),

@@ -7,6 +7,7 @@ import type {
 import type { SettingsRevisionWakeupSource } from '@core/config/settings/settings-revision-notify.js';
 
 const applied: number[] = [];
+const applySettingsRevisionWithMcpFenceRecovery = vi.hoisted(() => vi.fn());
 const importSettings = vi.hoisted(() => vi.fn());
 const leaseState = vi.hoisted(() => {
   let held = false;
@@ -33,10 +34,22 @@ vi.mock('@core/config/settings/settings-import-service.js', async () => {
   >('@core/config/settings/settings-import-service.js');
   return {
     ...actual,
+    applySettingsRevisionWithMcpFenceRecovery:
+      applySettingsRevisionWithMcpFenceRecovery.mockImplementation(
+        async (input: { revision: SettingsRevision }) => {
+          await importSettings(
+            {
+              expectedMcpBindings: input.revision.mcpBindingPreconditions,
+            },
+            {},
+          );
+          return {
+            settings: {} as never,
+            revision: input.revision.revision,
+          };
+        },
+      ),
     importWorkstationSettings: importSettings,
-    settingsFromRevisionDocument: vi.fn(
-      (document: Record<string, unknown>) => document as never,
-    ),
   };
 });
 
@@ -138,6 +151,25 @@ describe('SettingsRevisionListener', () => {
         applied.push(settings.revision ?? -1);
       },
     );
+    applySettingsRevisionWithMcpFenceRecovery.mockReset();
+    applySettingsRevisionWithMcpFenceRecovery.mockImplementation(
+      async (input: { revision: SettingsRevision }) => {
+        const settings = input.revision.settingsDocument as {
+          revision?: number;
+        };
+        await importSettings(
+          {
+            projectionAuthority: 'revision',
+            expectedMcpBindings: input.revision.mcpBindingPreconditions,
+          },
+          settings,
+        );
+        return {
+          settings: settings as never,
+          revision: input.revision.revision,
+        };
+      },
+    );
   });
 
   it('applies a new revision and marks settings loaded on first apply', async () => {
@@ -156,6 +188,48 @@ describe('SettingsRevisionListener', () => {
     );
     expect(loadState.markSettingsLoaded).toHaveBeenCalledOnce();
     expect(listener.getAppliedRevision()).toBe(1);
+  });
+
+  it('replays the durable MCP source fence with the revision', async () => {
+    applied.length = 0;
+    importSettings.mockClear();
+    const expectedMcpBinding = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+    } as const;
+    const row = revision(1, 1);
+    row.mcpBindingPreconditions = [expectedMcpBinding as never];
+    const listener = makeListener(makeRepo([row]), new FakeWakeupSource());
+
+    await listener.applyLatest();
+
+    expect(importSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedMcpBindings: [expectedMcpBinding],
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('advances to the successor revision returned by MCP fence recovery', async () => {
+    applied.length = 0;
+    const row = revision(1, 1);
+    applySettingsRevisionWithMcpFenceRecovery.mockResolvedValueOnce({
+      settings: {} as never,
+      revision: 2,
+    });
+    const listener = makeListener(makeRepo([row]), new FakeWakeupSource());
+
+    const result = await listener.applyLatest();
+
+    expect(result).toEqual({ result: 'applied', revision: 2 });
+    expect(listener.getAppliedRevision()).toBe(2);
   });
 
   it('holds the last-applied revision and alerts on reader-version skew', async () => {

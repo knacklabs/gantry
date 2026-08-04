@@ -1,0 +1,49 @@
+import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
+import { authorizeControlRequest, } from '../handler-context.js';
+import { sendError, sendJson } from '../http.js';
+const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+const USAGE_GROUPS = new Set(['agent', 'api_key', 'model', 'day']);
+function parseDateTime(value) {
+    if (!value || !ISO_DATE_TIME.test(value))
+        return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+export async function handleUsageRoutes(req, res, ctx, url, pathname) {
+    if (pathname !== '/v1/usage' || req.method !== 'GET')
+        return false;
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['usage:read']);
+    if (!auth)
+        return true;
+    const from = parseDateTime(url.searchParams.get('from'));
+    const to = parseDateTime(url.searchParams.get('to'));
+    if (!from || !to) {
+        sendError(res, 400, 'INVALID_REQUEST', 'from and to are required ISO 8601 date-times');
+        return true;
+    }
+    if (from >= to) {
+        sendError(res, 400, 'INVALID_REQUEST', 'from must be before to');
+        return true;
+    }
+    const requestedGroup = url.searchParams.get('group_by');
+    if (requestedGroup && !USAGE_GROUPS.has(requestedGroup)) {
+        sendError(res, 400, 'INVALID_REQUEST', 'group_by must be one of agent, api_key, model, or day');
+        return true;
+    }
+    const groupBy = requestedGroup;
+    const repository = getRuntimeStorage().repositories.runtimeEvents;
+    const query = {
+        appId: auth.appId,
+        from: from.toISOString(),
+        to: to.toISOString(),
+        agentId: url.searchParams.get('agentId') || undefined,
+        apiKeyId: url.searchParams.get('apiKeyId') || undefined,
+        runId: url.searchParams.get('runId') || undefined,
+        jobId: url.searchParams.get('jobId') || undefined,
+        model: url.searchParams.get('model') || undefined,
+        groupBy: groupBy || undefined,
+    };
+    const usage = await repository.queryUsage(query);
+    sendJson(res, 200, { usage });
+    return true;
+}

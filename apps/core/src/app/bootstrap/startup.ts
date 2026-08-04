@@ -28,6 +28,7 @@ import {
 import { SettingsDesiredStateService } from '../../config/settings/desired-state-service.js';
 import {
   CURRENT_SETTINGS_READER_VERSION,
+  applySettingsRevisionWithMcpFenceRecovery,
   importWorkstationSettings,
   settingsFromRevisionDocument,
   settingsToRevisionDocument,
@@ -333,11 +334,25 @@ async function loadRevisionAuthoritySettings(input: {
         },
         settings,
       );
+      const applied = await applySettingsRevisionWithMcpFenceRecovery({
+        runtimeHome: input.runtimeHome,
+        ops: input.storage.ops,
+        repositories: input.storage.repositories,
+        appId,
+        revision: head,
+        revisionMirror: {
+          settingsRevisions: input.storage.repositories.settingsRevisions,
+          pool: input.storage.service.pool,
+          createdBy: 'startup:mcp-fence-recovery',
+          logWarn: (context, message) => input.logger.warn(context, message),
+        },
+        applySettings: input.importWorkstationSettings,
+      });
       input.logger.info(
-        { appId, revision: head.revision },
+        { appId, revision: applied.revision },
         'Loaded workstation settings from settings revision',
       );
-      return settings;
+      return applied.settings;
     });
   }
 

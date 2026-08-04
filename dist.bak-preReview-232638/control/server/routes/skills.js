@@ -1,0 +1,289 @@
+import { withSkillMaterializationLock } from '../../../shared/skill-install-lock.js';
+import { readSkillFrontmatterName } from '../../../shared/skill-artifact-helpers.js';
+import { materializedSkillDirectoryNameFor } from '../../../domain/skills/skills.js';
+import { InstallSkillContextSchema, UpdateAgentSkillBindingRequestSchema, } from '@gantry/contracts';
+import { SkillService } from '../../../application/skills/skill-service.js';
+import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
+import { authorizeControlRequest, } from '../handler-context.js';
+import { readJson, readRawBody, sendError, sendJson } from '../http.js';
+import { MAX_SKILL_ZIP_BYTES, parseSkillZipUpload, } from '../skill-zip-upload.js';
+function service() {
+    const storage = getRuntimeStorage();
+    return new SkillService(storage.repositories.skills, storage.skillArtifacts);
+}
+export async function handleSkillRoutes(req, res, ctx, url, pathname) {
+    if (pathname === '/v1/skills' && req.method === 'GET') {
+        const auth = authorizeControlRequest(req, res, ctx.keys, ['skills:read']);
+        if (!auth)
+            return true;
+        const agentId = url.searchParams.get('agentId') || undefined;
+        const skills = await service().listSkills({
+            appId: auth.appId,
+            agentId: agentId,
+        });
+        sendJson(res, 200, { skills: skills.map(skillToResponse) });
+        return true;
+    }
+    if (pathname === '/v1/skills/install' && req.method === 'POST') {
+        const auth = authorizeControlRequest(req, res, ctx.keys, ['skills:admin']);
+        if (!auth)
+            return true;
+        const contentType = String(req.headers['content-type'] || '').split(';')[0];
+        if (contentType !== 'application/zip') {
+            sendError(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Skill install requires application/zip');
+            return true;
+        }
+        const parsed = InstallSkillContextSchema.safeParse({
+            appId: url.searchParams.get('appId') || undefined,
+            agentId: url.searchParams.get('agentId') || undefined,
+            createdBy: url.searchParams.get('createdBy') || undefined,
+        });
+        if (!parsed.success) {
+            sendError(res, 400, 'INVALID_REQUEST', 'Invalid skill install');
+            return true;
+        }
+        if (parsed.data.appId && parsed.data.appId !== auth.appId) {
+            sendError(res, 403, 'FORBIDDEN', 'API key cannot install for this app');
+            return true;
+        }
+        try {
+            if (parsed.data.agentId) {
+                await requireAgentInApp({
+                    appId: auth.appId,
+                    agentId: parsed.data.agentId,
+                });
+            }
+            const zip = await readRawBody(req, MAX_SKILL_ZIP_BYTES);
+            const uploaded = parseSkillZipUpload(zip);
+            const uploadedSkillMarkdown = uploaded.assets.find((asset) => asset.path === 'SKILL.md');
+            const uploadedName = uploadedSkillMarkdown
+                ? (readSkillFrontmatterName(Buffer.from(uploadedSkillMarkdown.content).toString('utf-8')) ?? uploaded.fallbackName)
+                : uploaded.fallbackName;
+            const skill = await withSkillMaterializationLock(materializedSkillDirectoryNameFor(uploadedName).toLowerCase(), () => service().installSkill({
+                appId: auth.appId,
+                agentId: parsed.data.agentId,
+                createdBy: parsed.data.createdBy,
+                fallbackName: uploaded.fallbackName,
+                assets: uploaded.assets,
+            }));
+            sendJson(res, 201, { skill: skillToResponse(skill) });
+        }
+        catch (error) {
+            sendError(res, error instanceof Error && error.message === 'Payload too large'
+                ? 413
+                : 400, 'INVALID_REQUEST', error instanceof Error ? error.message : 'Invalid skill install');
+        }
+        return true;
+    }
+    const skillFilesMatch = pathname.match(/^\/v1\/skills\/([^/]+)\/files(?:\/(.+))?$/);
+    if (skillFilesMatch && req.method === 'GET') {
+        const auth = authorizeControlRequest(req, res, ctx.keys, ['skills:read']);
+        if (!auth)
+            return true;
+        try {
+            const runtime = getRuntimeStorage();
+            const skill = await new SkillService(runtime.repositories.skills, runtime.skillArtifacts).requireSkill(auth.appId, decodeURIComponent(skillFilesMatch[1]));
+            if (!skill.storage) {
+                sendError(res, 404, 'NOT_FOUND', 'Skill does not have readable local files');
+                return true;
+            }
+            const bundle = await runtime.skillArtifacts.getSkillArtifact(skill.storage.storageRef);
+            const requestedPath = skillFilesMatch[2]
+                ? normalizeRequestedSkillFilePath(decodeURIComponent(skillFilesMatch[2]))
+                : undefined;
+            if (!requestedPath) {
+                sendJson(res, 200, {
+                    skill: skillToResponse(skill),
+                    files: bundle.assets.map(skillAssetToFileResponse),
+                });
+                return true;
+            }
+            const asset = bundle.assets.find((item) => item.path === requestedPath);
+            if (!asset) {
+                sendError(res, 404, 'NOT_FOUND', 'Skill file not found');
+                return true;
+            }
+            sendJson(res, 200, {
+                file: {
+                    ...skillAssetToFileResponse(asset),
+                    ...skillAssetContentResponse(asset),
+                },
+            });
+        }
+        catch (error) {
+            sendError(res, 400, 'INVALID_REQUEST', error instanceof Error ? error.message : 'Skill file lookup failed');
+        }
+        return true;
+    }
+    const agentSkillMatch = pathname.match(/^\/v1\/agents\/([^/]+)\/skills\/([^/]+)$/);
+    if (agentSkillMatch && req.method === 'PUT') {
+        const auth = authorizeControlRequest(req, res, ctx.keys, ['skills:admin']);
+        if (!auth)
+            return true;
+        const parsed = UpdateAgentSkillBindingRequestSchema.safeParse(await readJson(req));
+        if (!parsed.success) {
+            sendError(res, 400, 'INVALID_REQUEST', 'Invalid agent skill binding');
+            return true;
+        }
+        if (parsed.data.appId && parsed.data.appId !== auth.appId) {
+            sendError(res, 403, 'FORBIDDEN', 'API key cannot bind for this app');
+            return true;
+        }
+        const appId = auth.appId;
+        const agentId = decodeURIComponent(agentSkillMatch[1]);
+        const skillId = decodeURIComponent(agentSkillMatch[2]);
+        const skillService = service();
+        let binding;
+        try {
+            await requireAgentInApp({
+                appId,
+                agentId,
+            });
+            binding = await skillService.bindSkillToAgent({
+                appId,
+                agentId,
+                skillId,
+            });
+            await ctx.syncSettingsFromProjection(appId);
+            sendJson(res, 200, { binding: bindingToResponse(binding) });
+        }
+        catch (error) {
+            if (binding) {
+                await skillService
+                    .unbindSkillFromAgent({
+                    appId,
+                    agentId,
+                    skillId,
+                })
+                    .catch(() => undefined);
+            }
+            sendError(res, 400, 'INVALID_REQUEST', error instanceof Error ? error.message : 'Skill binding failed');
+        }
+        return true;
+    }
+    if (agentSkillMatch && req.method === 'DELETE') {
+        const auth = authorizeControlRequest(req, res, ctx.keys, ['skills:admin']);
+        if (!auth)
+            return true;
+        try {
+            await requireAgentInApp({
+                appId: auth.appId,
+                agentId: decodeURIComponent(agentSkillMatch[1]),
+            });
+            const binding = await service().unbindSkillFromAgent({
+                appId: auth.appId,
+                agentId: decodeURIComponent(agentSkillMatch[1]),
+                skillId: decodeURIComponent(agentSkillMatch[2]),
+            });
+            await ctx.syncSettingsFromProjection(auth.appId);
+            sendJson(res, 200, {
+                disabled: Boolean(binding),
+                binding: binding ? bindingToResponse(binding) : null,
+            });
+        }
+        catch (error) {
+            sendError(res, 400, 'INVALID_REQUEST', error instanceof Error ? error.message : 'Skill unbinding failed');
+        }
+        return true;
+    }
+    const agentSkillsMatch = pathname.match(/^\/v1\/agents\/([^/]+)\/skills$/);
+    if (agentSkillsMatch && req.method === 'GET') {
+        const auth = authorizeControlRequest(req, res, ctx.keys, ['skills:read']);
+        if (!auth)
+            return true;
+        try {
+            await requireAgentInApp({
+                appId: auth.appId,
+                agentId: decodeURIComponent(agentSkillsMatch[1]),
+            });
+        }
+        catch (error) {
+            sendError(res, 400, 'INVALID_REQUEST', error instanceof Error ? error.message : 'Agent skill lookup failed');
+            return true;
+        }
+        const bindings = await getRuntimeStorage().repositories.skills.listAgentSkillBindings({
+            appId: auth.appId,
+            agentId: decodeURIComponent(agentSkillsMatch[1]),
+        });
+        sendJson(res, 200, { bindings: bindings.map(bindingToResponse) });
+        return true;
+    }
+    return false;
+}
+function skillAssetContentResponse(asset) {
+    const content = Buffer.from(asset.content);
+    const contentType = asset.contentType ?? '';
+    const textLike = contentType.startsWith('text/') ||
+        [
+            'application/json',
+            'application/javascript',
+            'application/typescript',
+            'application/xml',
+            'image/svg+xml',
+        ].includes(contentType);
+    return textLike
+        ? { encoding: 'utf-8', content: content.toString('utf-8') }
+        : { encoding: 'base64', content: content.toString('base64') };
+}
+function skillToResponse(skill) {
+    return {
+        id: skill.id,
+        appId: skill.appId,
+        agentId: skill.agentId,
+        name: skill.name,
+        description: skill.description,
+        source: skill.source,
+        status: skill.status,
+        promptRefs: skill.promptRefs,
+        toolIds: skill.toolIds,
+        workflowRefs: skill.workflowRefs,
+        requiredEnvVars: skill.requiredEnvVars ?? [],
+        actionPermissions: skill.actionPermissions ?? [],
+        storage: skill.storage
+            ? {
+                storageType: skill.storage.storageType,
+                storageRef: skill.storage.storageRef,
+                sizeBytes: skill.storage.sizeBytes,
+            }
+            : undefined,
+        createdBy: skill.createdBy,
+        createdAt: skill.createdAt,
+        updatedAt: skill.updatedAt,
+    };
+}
+async function requireAgentInApp(input) {
+    const agent = await getRuntimeStorage().repositories.agents.getAgent(input.agentId);
+    if (!agent || agent.appId !== input.appId) {
+        throw new Error(`Agent not found: ${input.agentId}`);
+    }
+}
+function bindingToResponse(binding) {
+    return {
+        id: binding.id,
+        appId: binding.appId,
+        agentId: binding.agentId,
+        skillId: binding.skillId,
+        configVersionId: binding.configVersionId,
+        status: binding.status,
+        createdAt: binding.createdAt,
+        updatedAt: binding.updatedAt,
+    };
+}
+function skillAssetToFileResponse(asset) {
+    const content = Buffer.from(asset.content);
+    return {
+        path: asset.path,
+        contentType: asset.contentType,
+        sizeBytes: content.byteLength,
+    };
+}
+function normalizeRequestedSkillFilePath(value) {
+    const normalized = value.replace(/\\/g, '/').replace(/^\/+/, '');
+    const parts = normalized.split('/');
+    if (!normalized ||
+        normalized.includes('\0') ||
+        parts.some((part) => part === '' || part === '.' || part === '..')) {
+        throw new Error(`Invalid skill file path: ${value}`);
+    }
+    return parts.join('/');
+}

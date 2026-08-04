@@ -15,6 +15,7 @@ import {
   semanticCapabilityInputSchema,
   type SemanticCapabilityDefinition,
 } from '@core/shared/semantic-capabilities.js';
+import { McpBindingAuthorityChangedError } from '@core/domain/mcp/mcp-servers.js';
 
 function emptySources() {
   return { skills: [], mcpServers: [], tools: [] };
@@ -120,6 +121,8 @@ function makeRepositories(overrides: Record<string, unknown> = {}) {
   return {
     agents: {
       saveAgent: vi.fn(async () => undefined),
+      assertMcpBindingAuthorityPreconditions: vi.fn(async () => undefined),
+      replaceAgentCapabilityBindingsBatch: vi.fn(async () => undefined),
       replaceAgentCapabilityBindings: vi.fn(async () => undefined),
       disableAgent: vi.fn(async () => undefined),
       listAgents: vi.fn(async () => []),
@@ -4025,6 +4028,469 @@ describe('reconcile preserves agent-installed bindings', () => {
         expect.objectContaining({ serverId: 'mcp:crm', status: 'active' }),
       ]),
     );
+  });
+
+  it('passes reviewed MCP binding snapshots into desired-state persistence', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [{ id: 'mcp:github' }], tools: [] },
+      capabilities: [],
+    };
+    const repositories = makeRepositories();
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+    const expected = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:github',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:github',
+      status: 'active',
+      required: true,
+      permissionPolicyIds: ['permission-policy:mcp:github'],
+      allowedToolPatterns: ['search_*'],
+      conversationId: 'conversation:telegram:review',
+      threadId: 'thread:telegram:review:topic',
+      createdAt: '2026-07-21T11:00:00.000Z',
+      updatedAt: '2026-07-21T11:00:00.000Z',
+    };
+
+    await service.reconcile(settings, {
+      expectedMcpBindings: [expected as never],
+    });
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindingsBatch,
+    ).toHaveBeenCalledWith({
+      appId: 'default',
+      agents: [
+        expect.objectContaining({
+          id: 'agent:main_agent',
+          name: 'Main',
+          status: 'active',
+        }),
+      ],
+      expectedMcpBindingAgentIds: ['agent:main_agent'],
+      expectedMcpBindings: [expected],
+      replacements: [
+        expect.objectContaining({
+          agentId: 'agent:main_agent',
+          preserveExistingMcpPolicy: true,
+          mcpBindings: expect.arrayContaining([
+            expect.objectContaining({
+              id: expected.id,
+              required: true,
+              permissionPolicyIds: ['permission-policy:mcp:github'],
+              conversationId: 'conversation:telegram:review',
+              threadId: 'thread:telegram:review:topic',
+            }),
+          ]),
+        }),
+      ],
+    });
+    expect(repositories.agents.saveAgent).not.toHaveBeenCalled();
+  });
+
+  it('applies every agent capability replacement covered by a full-revision fence', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents = {
+      main_agent: {
+        name: 'Main',
+        folder: 'main_agent',
+        bindings: {},
+        sources: { skills: [], mcpServers: [{ id: 'mcp:github' }], tools: [] },
+        capabilities: [],
+      },
+      other_agent: {
+        name: 'Other',
+        folder: 'other_agent',
+        bindings: {},
+        sources: { skills: [], mcpServers: [{ id: 'mcp:github' }], tools: [] },
+        capabilities: [],
+      },
+    };
+    const repositories = makeRepositories();
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+    const expectedMain = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:github',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:github',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: [],
+    } as never;
+    const expectedOther = {
+      ...expectedMain,
+      id: 'agent-mcp-binding:agent:other_agent:mcp:github',
+      agentId: 'agent:other_agent',
+    } as never;
+
+    await service.reconcile(settings, {
+      expectedMcpBindings: [expectedMain, expectedOther],
+    });
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindingsBatch,
+    ).toHaveBeenCalledOnce();
+    expect(
+      repositories.agents.replaceAgentCapabilityBindingsBatch,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agents: [
+          expect.objectContaining({ id: 'agent:main_agent' }),
+          expect.objectContaining({ id: 'agent:other_agent' }),
+        ],
+        expectedMcpBindingAgentIds: ['agent:main_agent', 'agent:other_agent'],
+        expectedMcpBindings: [expectedMain, expectedOther],
+        replacements: [
+          expect.objectContaining({ agentId: 'agent:main_agent' }),
+          expect.objectContaining({ agentId: 'agent:other_agent' }),
+        ],
+      }),
+    );
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('atomically disables and clears a fenced agent removed by authoritative desired state', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.desiredState.authoritative = true;
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+    };
+    const removedAgent = {
+      id: 'agent:old_agent',
+      appId: 'default',
+      name: 'Old',
+      status: 'active',
+      createdAt: '2026-07-21T00:00:00.000Z',
+      updatedAt: '2026-07-21T00:00:00.000Z',
+    };
+    const removedFence = {
+      id: 'agent-mcp-binding:agent:old_agent:mcp:github',
+      appId: 'default',
+      agentId: 'agent:old_agent',
+      serverId: 'mcp:github',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: [],
+    } as never;
+    const repositories = makeRepositories();
+    repositories.agents.listAgents.mockResolvedValue([removedAgent]);
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings, {
+      expectedMcpBindingAgentIds: ['agent:old_agent' as never],
+      expectedMcpBindings: [removedFence],
+    });
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindingsBatch,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agents: [
+          expect.objectContaining({
+            id: 'agent:old_agent',
+            appId: 'default',
+            name: 'Old',
+            status: 'disabled',
+          }),
+        ],
+        replacements: [
+          expect.objectContaining({
+            agentId: 'agent:old_agent',
+            toolBindings: [],
+            skillBindings: [],
+            mcpBindings: [],
+          }),
+        ],
+        expectedMcpBindingAgentIds: ['agent:old_agent'],
+        expectedMcpBindings: [removedFence],
+      }),
+    );
+    expect(repositories.agents.disableAgent).not.toHaveBeenCalled();
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings.mock.calls.some(
+        ([input]: [{ agentId: string }]) => input.agentId === 'agent:old_agent',
+      ),
+    ).toBe(false);
+  });
+
+  it('fences but does not replace an omitted non-authoritative agent capability set', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents = {
+      main_agent: {
+        name: 'Main',
+        folder: 'main_agent',
+        bindings: {},
+        sources: { skills: [], mcpServers: [{ id: 'mcp:github' }], tools: [] },
+        capabilities: [],
+      },
+      other_agent: {
+        name: 'Other',
+        folder: 'other_agent',
+        bindings: {},
+        sources: { skills: [], mcpServers: [], tools: [] },
+        capabilities: [],
+      },
+    };
+    const repositories = makeRepositories();
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+    const expectedMain = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:github',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:github',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: [],
+    } as never;
+    const expectedOther = {
+      ...expectedMain,
+      id: 'agent-mcp-binding:agent:other_agent:mcp:github',
+      agentId: 'agent:other_agent',
+    } as never;
+
+    await service.reconcile(settings, {
+      expectedMcpBindingAgentIds: [
+        'agent:main_agent' as never,
+        'agent:other_agent' as never,
+      ],
+      expectedMcpBindings: [expectedMain, expectedOther],
+    });
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindingsBatch,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedMcpBindingAgentIds: ['agent:main_agent', 'agent:other_agent'],
+        expectedMcpBindings: [expectedMain, expectedOther],
+        agents: [expect.objectContaining({ id: 'agent:main_agent' })],
+        replacements: [
+          expect.objectContaining({ agentId: 'agent:main_agent' }),
+        ],
+      }),
+    );
+    expect(repositories.agents.saveAgent).toHaveBeenCalledOnce();
+    expect(repositories.agents.saveAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'agent:other_agent' }),
+    );
+  });
+
+  it('atomically fences an agent whose reviewed MCP binding set is empty', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+    };
+    const repositories = makeRepositories();
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings, {
+      expectedMcpBindingAgentIds: ['agent:main_agent' as never],
+      expectedMcpBindings: [],
+    });
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindingsBatch,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agents: [],
+        expectedMcpBindingAgentIds: ['agent:main_agent'],
+        expectedMcpBindings: [],
+        replacements: [],
+      }),
+    );
+    expect(repositories.agents.saveAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'agent:main_agent' }),
+    );
+    expect(
+      repositories.agents.replaceAgentCapabilityBindingsBatch.mock
+        .invocationCallOrder[0],
+    ).toBeLessThan(repositories.agents.saveAgent.mock.invocationCallOrder[0]);
+  });
+
+  it('preserves durable MCP binding policy on later unfenced settings revisions', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: {
+        skills: [],
+        mcpServers: [{ id: 'mcp:github', tools: ['search_*'] }],
+        tools: [],
+      },
+      capabilities: [],
+    };
+    const repositories = makeRepositories();
+    repositories.mcpServers.getServer.mockResolvedValue({
+      id: 'mcp:github',
+      appId: 'default',
+      status: 'active',
+      name: 'github',
+      createdSource: 'admin',
+      riskClass: 'medium',
+      transport: 'stdio_template',
+      config: { transport: 'stdio_template', templateId: 'github' },
+      allowedToolPatterns: ['search_*'],
+      autoApproveToolPatterns: [],
+      credentialRefs: [],
+    });
+    repositories.mcpServers.listAgentBindings.mockResolvedValue([
+      {
+        id: 'agent-mcp-binding:agent:main_agent:mcp:github',
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        serverId: 'mcp:github',
+        status: 'active',
+        required: true,
+        permissionPolicyIds: ['permission-policy:mcp:github'],
+        allowedToolPatterns: ['search_*'],
+        conversationId: 'conversation:telegram:review',
+        threadId: 'thread:telegram:review:topic',
+        createdAt: '2026-07-21T11:00:00.000Z',
+        updatedAt: '2026-07-21T11:00:00.000Z',
+      },
+    ]);
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings);
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preserveExistingMcpPolicy: true,
+        mcpBindings: [
+          expect.objectContaining({
+            required: true,
+            permissionPolicyIds: ['permission-policy:mcp:github'],
+            conversationId: 'conversation:telegram:review',
+            threadId: 'thread:telegram:review:topic',
+            createdAt: '2026-07-21T11:00:00.000Z',
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('rejects a stale MCP fence before any capability binding replacement', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [{ id: 'mcp:github' }], tools: [] },
+      capabilities: [],
+    };
+    const repositories = makeRepositories();
+    repositories.agents.replaceAgentCapabilityBindingsBatch.mockRejectedValue(
+      new Error('binding changed'),
+    );
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await expect(
+      service.reconcile(settings, {
+        expectedMcpBindings: [
+          {
+            id: 'agent-mcp-binding:agent:main_agent:mcp:github',
+            appId: 'default',
+            agentId: 'agent:main_agent',
+            serverId: 'mcp:github',
+            status: 'active',
+            required: false,
+            permissionPolicyIds: [],
+            allowedToolPatterns: [],
+          } as never,
+        ],
+      }),
+    ).rejects.toThrow('binding changed');
+
+    expect(repositories.agents.saveAgent).not.toHaveBeenCalled();
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).not.toHaveBeenCalled();
+    expect(repositories.tools.replaceAgentToolSources).not.toHaveBeenCalled();
+  });
+
+  it('runs the transactional MCP fence recheck before any desired-state write', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [{ id: 'mcp:github' }], tools: [] },
+      capabilities: [],
+    };
+    const repositories = makeRepositories();
+    repositories.agents.replaceAgentCapabilityBindingsBatch.mockRejectedValue(
+      new McpBindingAuthorityChangedError('mcp:github'),
+    );
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await expect(
+      service.reconcile(settings, {
+        expectedMcpBindings: [
+          {
+            id: 'agent-mcp-binding:agent:main_agent:mcp:github',
+            appId: 'default',
+            agentId: 'agent:main_agent',
+            serverId: 'mcp:github',
+            status: 'active',
+            required: false,
+            permissionPolicyIds: [],
+            allowedToolPatterns: [],
+          } as never,
+        ],
+      }),
+    ).rejects.toThrow('changed during capability approval');
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindingsBatch,
+    ).toHaveBeenCalledOnce();
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).not.toHaveBeenCalled();
+    expect(repositories.agents.saveAgent).not.toHaveBeenCalled();
+    expect(repositories.tools.replaceAgentToolSources).not.toHaveBeenCalled();
   });
 
   it('removes active agent-request bindings explicitly disabled by an authoritative revision', async () => {

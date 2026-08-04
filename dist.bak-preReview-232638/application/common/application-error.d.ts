@@ -1,0 +1,8 @@
+export type ApplicationErrorCode = 'FORBIDDEN' | 'INVALID_SCHEDULE' | 'INVALID_REQUEST' | 'INVALID_CONTROL_ALLOWLIST' | 'NOT_FOUND' | 'NOT_IMPLEMENTED' | 'CONFLICT' | 'RATE_LIMITED' | 'SCHEDULER_NOT_READY' | 'ENQUEUE_FAILED' | 'TRIGGER_NOT_FOUND' | 'UNAVAILABLE' | 'WAIT_TIMEOUT';
+export declare class ApplicationError extends Error {
+    readonly code: ApplicationErrorCode;
+    constructor(code: ApplicationErrorCode, message: string, options?: ErrorOptions & {
+        details?: string[];
+    });
+    readonly details?: string[];
+}

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { PostgresSettingsRevisionRepository } from '@core/adapters/storage/postgres/repositories/settings-revision-repository.postgres.js';
 import type { CanonicalDb } from '@core/adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
@@ -153,6 +153,191 @@ describe('PostgresSettingsRevisionRepository.appendSettingsRevision', () => {
     if (result.status === 'appended') {
       expect(result.revision.revision).toBe(1);
     }
+  });
+
+  it('rejects a changed MCP source binding before publishing the settings revision', async () => {
+    const lockedRows = [
+      {
+        id: 'agent-mcp-binding:agent:test:mcp:sum',
+        appId: 'default',
+        agentId: 'agent:test',
+        serverId: 'mcp:sum',
+        status: 'disabled',
+        allowedToolPatternsJson: '["get-sum"]',
+        updatedAt: '2026-07-21T12:01:00.000Z',
+      },
+    ];
+    let selectCall = 0;
+    const agentLock = { for: vi.fn(async () => []) };
+    const rowLock = { for: vi.fn(async () => lockedRows) };
+    const tx = {
+      select: vi.fn(() => {
+        selectCall += 1;
+        return {
+          from: () => ({
+            where: () => (selectCall === 1 ? agentLock : rowLock),
+          }),
+        };
+      }),
+      insert: vi.fn(),
+    };
+    const db = {
+      transaction: vi.fn(
+        async (operation: (transaction: typeof tx) => Promise<unknown>) =>
+          operation(tx),
+      ),
+    };
+    const repository = new PostgresSettingsRevisionRepository(db as never);
+
+    await expect(
+      repository.appendSettingsRevision({
+        ...appendInput(1),
+        expectedMcpBindings: [
+          {
+            id: 'agent-mcp-binding:agent:test:mcp:sum' as never,
+            appId: 'default' as never,
+            agentId: 'agent:test' as never,
+            serverId: 'mcp:sum' as never,
+            status: 'active',
+            required: false,
+            permissionPolicyIds: [],
+            allowedToolPatterns: ['get-sum'],
+            createdAt: '2026-07-21T12:00:00.000Z' as never,
+            updatedAt: '2026-07-21T12:00:00.000Z' as never,
+          },
+        ],
+      }),
+    ).rejects.toThrow(
+      'MCP source binding mcp:sum changed during capability approval',
+    );
+    expect(db.transaction).toHaveBeenCalledOnce();
+    expect(agentLock.for).toHaveBeenCalledWith('update');
+    expect(rowLock.for).toHaveBeenCalledWith('update');
+    expect(tx.insert).not.toHaveBeenCalled();
+  });
+
+  it('persists the semantic MCP source fence with the revision while preserving its note', async () => {
+    const precondition = {
+      id: 'agent-mcp-binding:agent:test:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:test',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+    } as const;
+    const lockedRows = [
+      {
+        ...precondition,
+        permissionPolicyIdsJson: '[]',
+        allowedToolPatternsJson: '["get-sum"]',
+        conversationId: null,
+        threadId: null,
+        updatedAt: '2026-07-21 12:00:00+00',
+      },
+    ];
+    const agentLock = { for: vi.fn(async () => []) };
+    const rowLock = { for: vi.fn(async () => lockedRows) };
+    const insertedValues = vi.fn(async () => undefined);
+    const tx = {
+      select: vi
+        .fn()
+        .mockReturnValueOnce({
+          from: () => ({ where: () => agentLock }),
+        })
+        .mockReturnValueOnce({
+          from: () => ({ where: () => rowLock }),
+        })
+        .mockReturnValueOnce({
+          from: () => ({
+            where: () => ({
+              orderBy: () => ({ limit: async () => [row(1)] }),
+            }),
+          }),
+        }),
+      insert: vi.fn(() => ({ values: insertedValues })),
+    };
+    const db = {
+      transaction: vi.fn(
+        async (operation: (transaction: typeof tx) => Promise<unknown>) =>
+          operation(tx),
+      ),
+    };
+    const repository = new PostgresSettingsRevisionRepository(db as never);
+
+    const result = await repository.appendSettingsRevision({
+      ...appendInput(1),
+      note: 'human approval',
+      expectedMcpBindings: [precondition as never],
+      mcpCapabilityGrantTokens: {
+        '["main_agent","mcp.sum.read.reviewed","catalog"]':
+          'permission-request:mcp-sum',
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: 'appended',
+      revision: {
+        note: 'human approval',
+        mcpBindingPreconditions: [precondition],
+        mcpCapabilityGrantTokens: {
+          '["main_agent","mcp.sum.read.reviewed","catalog"]':
+            'permission-request:mcp-sum',
+        },
+      },
+    });
+    expect(agentLock.for).toHaveBeenCalledWith('update');
+    expect(rowLock.for).toHaveBeenCalledWith('update');
+    expect(insertedValues).toHaveBeenCalledOnce();
+  });
+
+  it('persists an explicit empty MCP binding set for a fenced agent', async () => {
+    const agentLock = { for: vi.fn(async () => []) };
+    const rowLock = { for: vi.fn(async () => []) };
+    const insertedValues = vi.fn(async () => undefined);
+    const tx = {
+      select: vi
+        .fn()
+        .mockReturnValueOnce({
+          from: () => ({ where: () => agentLock }),
+        })
+        .mockReturnValueOnce({
+          from: () => ({ where: () => rowLock }),
+        })
+        .mockReturnValueOnce({
+          from: () => ({
+            where: () => ({
+              orderBy: () => ({ limit: async () => [row(1)] }),
+            }),
+          }),
+        }),
+      insert: vi.fn(() => ({ values: insertedValues })),
+    };
+    const db = {
+      transaction: vi.fn(
+        async (operation: (transaction: typeof tx) => Promise<unknown>) =>
+          operation(tx),
+      ),
+    };
+    const repository = new PostgresSettingsRevisionRepository(db as never);
+
+    const result = await repository.appendSettingsRevision({
+      ...appendInput(1),
+      expectedMcpBindingAgentIds: ['agent:test' as never],
+      expectedMcpBindings: [],
+    });
+
+    expect(result).toMatchObject({
+      status: 'appended',
+      revision: {
+        mcpBindingPreconditionAgentIds: ['agent:test'],
+        mcpBindingPreconditions: [],
+      },
+    });
+    expect(agentLock.for).toHaveBeenCalledWith('update');
+    expect(rowLock.for).toHaveBeenCalledWith('update');
+    expect(insertedValues).toHaveBeenCalledOnce();
   });
 
   it('unconditional append keeps the allocate-and-retry behavior past a violation', async () => {

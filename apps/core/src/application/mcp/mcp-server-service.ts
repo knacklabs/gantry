@@ -40,6 +40,7 @@ import {
   type MaterializedMcpCapability,
 } from './mcp-server-materialization.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import { mcpServerDefinitionFingerprint } from './mcp-server-definition-fingerprint.js';
 
 export type { MaterializedMcpCapability } from './mcp-server-materialization.js';
 
@@ -131,6 +132,16 @@ export class McpServerService {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
+    if (
+      existing &&
+      mcpServerDefinitionFingerprint(existing) !==
+        mcpServerDefinitionFingerprint(definition)
+    ) {
+      throw new ApplicationError(
+        'CONFLICT',
+        `MCP server name ${name} belongs to a different disabled definition. Connect the replacement under a new name.`,
+      );
+    }
     await this.mcpServers.saveServer(definition);
     await this.audit({
       appId: input.appId,
@@ -250,13 +261,11 @@ export class McpServerService {
         `MCP server must be active before binding: ${server.id}`,
       );
     }
-    const existingBinding = (
-      await this.mcpServers.listAgentBindings({
-        appId: input.appId,
-        agentId: input.agentId,
-        limit: 500,
-      })
-    ).find((binding) => binding.serverId === input.serverId);
+    const existingBinding = await this.mcpServers.getAgentBinding({
+      appId: input.appId,
+      agentId: input.agentId,
+      serverId: input.serverId,
+    });
     const latestServer = await this.requireServer(input.appId, input.serverId);
     if (!isMcpServerActive(latestServer)) {
       throw new ApplicationError(
@@ -281,6 +290,8 @@ export class McpServerService {
       permissionPolicyIds:
         input.permissionPolicyIds ?? existingBinding?.permissionPolicyIds ?? [],
       allowedToolPatterns,
+      conversationId: existingBinding?.conversationId,
+      threadId: existingBinding?.threadId,
       createdAt: existingBinding?.createdAt ?? now,
       updatedAt: now,
     };

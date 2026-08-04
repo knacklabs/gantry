@@ -7,7 +7,10 @@ const loadState = vi.hoisted(() => ({
   markSettingsLoaded: vi.fn(),
   markSettingsNotLoaded: vi.fn(),
 }));
-const importMock = vi.hoisted(() => ({ importWorkstationSettings: vi.fn() }));
+const importMock = vi.hoisted(() => ({
+  applySettingsRevisionWithMcpFenceRecovery: vi.fn(),
+  importWorkstationSettings: vi.fn(),
+}));
 const lease = vi.hoisted(() => {
   const release = vi.fn(async () => {});
   return {
@@ -26,6 +29,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeBrowserProfileSnapshotRepository: () => ({}),
   getRuntimeStorage: () => ({
     ops: {},
+    service: { pool: undefined },
     repositories: {
       settingsRevisions: {
         getLatestSettingsRevision: async () => latest.current,
@@ -90,6 +94,8 @@ vi.mock('@core/config/settings/settings-import-service.js', async () => {
   >('@core/config/settings/settings-import-service.js');
   return {
     ...actual,
+    applySettingsRevisionWithMcpFenceRecovery:
+      importMock.applySettingsRevisionWithMcpFenceRecovery,
     importWorkstationSettings: importMock.importWorkstationSettings,
     settingsFromRevisionDocument: () => ({}) as never,
   };
@@ -148,6 +154,13 @@ describe('prepareFleetSettings', () => {
     loadState.markSettingsLoaded.mockClear();
     loadState.markSettingsNotLoaded.mockClear();
     importMock.importWorkstationSettings.mockClear();
+    importMock.applySettingsRevisionWithMcpFenceRecovery.mockReset();
+    importMock.applySettingsRevisionWithMcpFenceRecovery.mockImplementation(
+      async (input: { revision: SettingsRevision }) => ({
+        settings: {} as never,
+        revision: input.revision.revision,
+      }),
+    );
     lease.tryAcquire.mockClear();
     log.warn.mockClear();
     log.info.mockClear();
@@ -166,7 +179,9 @@ describe('prepareFleetSettings', () => {
     expect(result).toEqual({ loaded: false, revision: null });
     expect(loadState.markSettingsNotLoaded).toHaveBeenCalledOnce();
     expect(loadState.markSettingsLoaded).not.toHaveBeenCalled();
-    expect(importMock.importWorkstationSettings).not.toHaveBeenCalled();
+    expect(
+      importMock.applySettingsRevisionWithMcpFenceRecovery,
+    ).not.toHaveBeenCalled();
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         seedCommand: 'gantry settings import --file settings.yaml',
@@ -176,6 +191,16 @@ describe('prepareFleetSettings', () => {
   });
 
   it('applies the latest revision through the shared import path and marks loaded', async () => {
+    const mcpBindingPrecondition = {
+      id: 'agent-mcp-binding:agent:main:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:main',
+      serverId: 'mcp:sum',
+      status: 'active' as const,
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+    };
     latest.current = {
       appId: 'default',
       revision: 9,
@@ -184,6 +209,7 @@ describe('prepareFleetSettings', () => {
       createdBy: 'cli',
       note: null,
       createdAt: '2026-06-11T00:00:00.000Z',
+      mcpBindingPreconditions: [mcpBindingPrecondition] as never,
     };
     const result = await prepareFleetSettings({
       appId: 'default' as never,
@@ -193,18 +219,26 @@ describe('prepareFleetSettings', () => {
     });
 
     expect(result).toEqual({ loaded: true, revision: 9 });
-    expect(lease.tryAcquire).toHaveBeenCalledWith('settings-projector:default');
-    expect(importMock.importWorkstationSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ projectionAuthority: 'revision' }),
-      expect.anything(),
+    expect(
+      importMock.applySettingsRevisionWithMcpFenceRecovery,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        revision: expect.objectContaining({
+          mcpBindingPreconditions: [mcpBindingPrecondition],
+        }),
+      }),
     );
+    expect(importMock.importWorkstationSettings).not.toHaveBeenCalled();
+    expect(lease.tryAcquire).toHaveBeenCalledWith('settings-projector:default');
     expect(loadState.markSettingsLoaded).toHaveBeenCalledOnce();
   });
 
   it('leaves a failed boot projection for forward correction', async () => {
     latest.current = revisionRow(9);
     const failure = new Error('projection failed');
-    importMock.importWorkstationSettings.mockRejectedValueOnce(failure);
+    importMock.applySettingsRevisionWithMcpFenceRecovery.mockRejectedValueOnce(
+      failure,
+    );
 
     await expect(
       prepareFleetSettings({
@@ -215,10 +249,7 @@ describe('prepareFleetSettings', () => {
       }),
     ).rejects.toBe(failure);
 
-    expect(importMock.importWorkstationSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ projectionAuthority: 'revision' }),
-      expect.anything(),
-    );
+    expect(importMock.importWorkstationSettings).not.toHaveBeenCalled();
     expect(loadState.markSettingsLoaded).not.toHaveBeenCalled();
   });
 

@@ -22,7 +22,11 @@ import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
-import { makeAppGroup } from '@core/application/sessions/session-interaction-module.js';
+import {
+  makeAppGroup,
+  SessionInteractionModule,
+} from '@core/application/sessions/session-interaction-module.js';
+import { adaptSessionControlPort } from '@core/control/server/session-control-port.js';
 import { hashSkillBundle } from '@core/shared/skill-artifact-helpers.js';
 
 const INLINE_DATA_DIR = vi.hoisted(
@@ -1042,8 +1046,11 @@ maybeDescribe('inline session turns through the control API', () => {
     credentials.gatewayUrl = gateway.url;
     configureProviderMocks();
 
-    const { _setRuntimeStorageForTest } =
-      await import('@core/adapters/storage/postgres/runtime-store.js');
+    const {
+      _setRuntimeStorageForTest,
+      getRuntimeControlRepository,
+      getRuntimeEventExchange,
+    } = await import('@core/adapters/storage/postgres/runtime-store.js');
     _setRuntimeStorageForTest(runtime.storageRuntime);
     await runtime.repositories.workerCoordination.registerWorker({
       id: workerId,
@@ -1064,9 +1071,16 @@ maybeDescribe('inline session turns through the control API', () => {
       await import('@core/application/agent-execution/agent-execution-adapter-registry.js');
     const { DirectRunnerSandboxProvider } =
       await import('@core/adapters/sandbox/runner-sandbox-provider.js');
-    const { createSessionInteractionModule } =
-      await import('@core/control/server/session-interaction-adapter.js');
     const { GroupQueue } = await import('@core/runtime/group-queue.js');
+    const sessionInteraction = new SessionInteractionModule({
+      control: adaptSessionControlPort(getRuntimeControlRepository()),
+      ops: {} as never,
+      repositories: {} as never,
+      runtimeEvents: getRuntimeEventExchange(),
+      now: () => '2026-07-10T00:00:00.000Z' as never,
+      createId: () => 'inline-stage-2d-event',
+      stableHash: (input) => createHash('sha256').update(input).digest('hex'),
+    });
 
     const remoteCapability = {
       serverId: 'mcp:inline-itest',
@@ -1144,14 +1158,14 @@ maybeDescribe('inline session turns through the control API', () => {
         answeredBy: 'stage-2d-user',
       }),
       sendMessage: async (conversationJid, text) => {
-        await createSessionInteractionModule().publishOutboundEvent({
+        await sessionInteraction.publishOutboundEvent({
           conversationJid,
           eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
           payload: { text },
         });
       },
       sendStreamingChunk: async (conversationJid, text) => {
-        await createSessionInteractionModule().publishOutboundEvent({
+        await sessionInteraction.publishOutboundEvent({
           conversationJid,
           eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_STREAMING,
           payload: { text },

@@ -24,7 +24,6 @@ import {
 import { parseSessionRoute } from '../route-parser.js';
 import {
   acceptMessageForControl,
-  createSessionInteractionModule,
   ensureSessionForControl,
   type SessionEventSubscription,
 } from '../session-interaction-adapter.js';
@@ -211,7 +210,7 @@ export async function handleSessionRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['sessions:read']);
     if (!auth) return true;
     try {
-      const details = await createSessionInteractionModule().getSessionDetails({
+      const details = await ctx.sessionInteraction.getSessionDetails({
         appId: auth.appId,
         sessionId: sessionRoute.sessionId,
       });
@@ -227,7 +226,7 @@ export async function handleSessionRoutes(
     if (!auth) return true;
     const limit = parseListLimit(url.searchParams.get('limit'));
     try {
-      const result = await createSessionInteractionModule().listMessages({
+      const result = await ctx.sessionInteraction.listMessages({
         appId: auth.appId,
         sessionId: sessionRoute.sessionId,
         limit,
@@ -243,7 +242,7 @@ export async function handleSessionRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['sessions:read']);
     if (!auth) return true;
     try {
-      const session = await createSessionInteractionModule().requireSession({
+      const session = await ctx.sessionInteraction.requireSession({
         appId: auth.appId,
         sessionId: sessionRoute.sessionId,
       });
@@ -275,7 +274,7 @@ export async function handleSessionRoutes(
       return true;
     }
     try {
-      const session = await createSessionInteractionModule().requireSession({
+      const session = await ctx.sessionInteraction.requireSession({
         appId: auth.appId,
         sessionId: sessionRoute.sessionId,
       });
@@ -297,7 +296,7 @@ export async function handleSessionRoutes(
     if (!auth) return true;
     const limit = parseListLimit(url.searchParams.get('limit'));
     try {
-      const result = await createSessionInteractionModule().listRuns({
+      const result = await ctx.sessionInteraction.listRuns({
         appId: auth.appId,
         sessionId: sessionRoute.sessionId,
         limit,
@@ -375,7 +374,7 @@ export async function handleSessionRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['sessions:read']);
     if (!auth) return true;
     const afterEventId = Number(url.searchParams.get('afterEventId') || 0);
-    const module = createSessionInteractionModule();
+    const module = ctx.sessionInteraction;
     let events: RuntimeEvent[];
     try {
       events = await module.listEvents({
@@ -484,13 +483,12 @@ export async function handleSessionRoutes(
     );
     const startedAt = currentTimeMs();
     try {
-      const visible =
-        await createSessionInteractionModule().waitForVisibleEvent({
-          appId: auth.appId,
-          sessionId: sessionRoute.sessionId,
-          afterEventId,
-          timeoutMs: Math.max(0, timeoutMs - (currentTimeMs() - startedAt)),
-        });
+      const visible = await ctx.sessionInteraction.waitForVisibleEvent({
+        appId: auth.appId,
+        sessionId: sessionRoute.sessionId,
+        afterEventId,
+        timeoutMs: Math.max(0, timeoutMs - (currentTimeMs() - startedAt)),
+      });
       sendJson(res, 200, {
         ...serializeSessionEventEnvelope(visible),
         afterEventId: visible.eventId,

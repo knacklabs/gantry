@@ -1,0 +1,252 @@
+import permissionCredentialPathPattern from './permission-credential-path-pattern.json' with { type: 'json' };
+import { decisionForMode } from './permission-decision.js';
+import { evaluateAutoPermissionReadOnlyGate, } from '../shared/auto-permission-read-only-gate.js';
+import { bashExecutableName, destructiveBashCommandHint, parseBashCommand, } from '../shared/bash-command-parser.js';
+import { outOfTrustedRootReason } from '../shared/permission-trusted-paths.js';
+import { allProtectedPathMentions } from '../shared/tool-execution-protected-paths.js';
+const SHELL_TOOLS = new Set(['Bash', 'RunCommand']);
+const GANTRY_INPUT_INDEPENDENT_BIRTHRIGHT_TOOLS = new Set([
+    'ask_user_question',
+    'render_status',
+    'render_facts',
+    'render_list',
+    'render_table',
+    'render_form',
+    'render_media',
+    'render_progress',
+    'task_get',
+    'task_list',
+    'scheduler_list_jobs',
+    'scheduler_list_runs',
+    'scheduler_list_events',
+    'scheduler_list_models',
+    'scheduler_get_job',
+    'scheduler_get_dead_letter',
+    'scheduler_list_notification_targets',
+    'scheduler_wait_for_events',
+    'memory_search',
+    'memory_review_pending',
+    'brain_search',
+    'brain_query',
+    'continuity_summary',
+    'mcp_list_tools',
+    'mcp_search_tools',
+    'mcp_describe_tool',
+    'agent_profile_read',
+]);
+const GANTRY_INPUT_GATED_BIRTHRIGHT_TOOLS = new Set([
+    'send_message',
+    'todo_update',
+    'memory_save',
+    'brain_write',
+    'procedure_save',
+    'task_cancel',
+    'task_message',
+]);
+const DESTRUCTIVE_EXECUTABLE = /^(?:dd|mkfs(?:\..+)?|rm|rmdir|shred|truncate|unlink)$/;
+const PRIVILEGED_EXECUTABLE = /^(?:doas|launchctl|pkexec|su|sudo|systemctl)$/;
+const CREDENTIAL_PATH = new RegExp(permissionCredentialPathPattern.pattern, 'i');
+export function evaluatePermissionDeterministicRails(input) {
+    const { request } = input;
+    const gantryTool = /^mcp__gantry__(.+)$/.exec(request.toolName);
+    // INVARIANT (decision 0045): A/B tools are intentionally payload-independent.
+    // They only display to, or read state for, the trusted user, who sees the real
+    // execution input; engine redaction/truncation conceals nothing from that
+    // audience. Gating them would reintroduce the ask_user_question deadlock.
+    if (gantryTool !== null &&
+        GANTRY_INPUT_INDEPENDENT_BIRTHRIGHT_TOOLS.has(gantryTool[1])) {
+        return allow(request, 'Agent self-surface birthright.', 'birthright');
+    }
+    if (inputIsIncomplete(request)) {
+        return hardFloorAsk('Exact tool input is missing, redacted, or truncated.', 'privileged');
+    }
+    const isInputGatedBirthrightTool = gantryTool !== null &&
+        GANTRY_INPUT_GATED_BIRTHRIGHT_TOOLS.has(gantryTool[1]);
+    if (isInputGatedBirthrightTool && !hasRiskRelevantSanitization(request)) {
+        return allow(request, 'Agent self-surface birthright.', 'birthright');
+    }
+    if (isInputGatedBirthrightTool) {
+        return hardFloorAsk('Displayed tool input is sanitized or redacted.', 'secret_path');
+    }
+    // Evaluate the 16K classifier view, not the 500-char display copy, so the
+    // command we inspect matches the truncation signal inputIsIncomplete guards.
+    const toolInput = request.classifierToolInput ?? request.toolInput;
+    if (!toolInput)
+        return ask('Exact tool input is missing.', 'privileged');
+    const readOnly = evaluateAutoPermissionReadOnlyGate({
+        canonicalToolName: request.toolName,
+        toolInput,
+        approvedCapabilityIds: [...(input.approvedCapabilityIds ?? [])],
+        workspaceRoot: input.workspaceRoot,
+        reviewedMcpReadBindings: input.reviewedMcpReadBindings,
+    });
+    if (!SHELL_TOOLS.has(request.toolName)) {
+        return readOnly.allowed ? allow(request, readOnly.reason) : undefined;
+    }
+    const command = commandText(toolInput);
+    if (!command)
+        return ask('Exact shell command input is missing.', 'privileged');
+    const parsed = parseBashCommand(command);
+    if (!parsed.ok) {
+        // If the deterministic parser cannot model the command, no downstream
+        // layer can bound its effect. It must escalate to a human and can never be
+        // deterministically or classifier-auto-allowed.
+        return hardFloorAsk(`Shell input is unsupported: ${parsed.reason}`, 'privileged');
+    }
+    // GOVERNING PRINCIPLE: A rail ASK is a HARD FLOOR whenever the command's
+    // effect cannot be DETERMINISTICALLY BOUNDED. Only bounded, inspectable
+    // effects may remain classifier-eligible.
+    if (parsed.leaves.some(isInterpreterString)) {
+        return hardFloorAsk('An interpreter string requires approval.', 'privileged');
+    }
+    const protectedPath = containsProtectedPath(toolInput, command, parsed.leaves);
+    const destructiveHint = destructiveBashCommandHint(command);
+    if (destructiveHint || parsed.leaves.some(isDestructiveLeaf)) {
+        const hardFloor = Boolean(destructiveHint) ||
+            parsed.leaves.some(isHardFloorDestructiveLeaf) ||
+            protectedPath;
+        return hardFloor
+            ? hardFloorAsk('Destructive command requires approval.', protectedPath ? 'secret_path' : 'destructive')
+            : ask('Destructive command requires approval.', 'destructive');
+    }
+    if (protectedPath) {
+        return hardFloorAsk('Command references a credential, secret, or protected path.', 'secret_path');
+    }
+    if (parsed.leaves.some(isPrivilegedLeaf)) {
+        return hardFloorAsk('Privileged command requires approval.', 'privileged');
+    }
+    if (uploadsLocalFile(command)) {
+        return hardFloorAsk('Network command uploads local file content.', 'egress');
+    }
+    if (!readOnly.allowed) {
+        const outside = outOfTrustedRootReason(parsed.leaves, input.workspaceRoot, input.trustedRoots ?? []);
+        if (outside) {
+            return (input.trustedRoots?.length ?? 0) > 0
+                ? hardFloorAsk(outside, 'out_of_trusted_root')
+                : ask(outside, 'out_of_trusted_root');
+        }
+    }
+    return readOnly.allowed ? allow(request, readOnly.reason) : undefined;
+}
+export function permissionRiskForDeterministicRailDecision(decision) {
+    if (decision?.railOutcome !== 'ask')
+        return undefined;
+    switch (decision.railSignal) {
+        case 'destructive':
+            return decision.hardFloor
+                ? { level: 'high', category: 'destructive' }
+                : { level: 'medium', category: 'destructive' };
+        case 'egress':
+            return { level: 'medium', category: 'network' };
+        case 'privileged':
+            return { level: 'high', category: 'privileged' };
+        case 'secret_path':
+            return { level: 'high', category: 'secret' };
+        case 'out_of_trusted_root':
+            return { level: 'medium', category: 'filesystem' };
+    }
+}
+/**
+ * Incomplete ⇒ the risk-relevant input is genuinely unavailable, so we must
+ * ask. Without a classifier view, display sanitization is relevant only when
+ * its altered paths implicate the effect-bearing input: command/cmd for shell
+ * tools, or any field for non-shell tools. With a classifier view, its existing
+ * redaction/truncation metadata remains authoritative.
+ *
+ */
+function inputIsIncomplete(request) {
+    const ipc = request;
+    if (!request.toolInput)
+        return true;
+    if (!request.classifierToolInput) {
+        return SHELL_TOOLS.has(request.toolName)
+            ? hasCommandPath(request.toolInputSanitizedPaths)
+            : (request.toolInputSanitizedPaths?.length ?? 0) > 0;
+    }
+    if ((ipc.toolInputTruncatedPaths?.length ?? 0) > 0)
+        return true;
+    if (!SHELL_TOOLS.has(request.toolName)) {
+        // Mirror the effect-key no-cache invariant: any hidden non-shell field may
+        // be effect-bearing, so it must not reach a deterministic auto-allow.
+        return (ipc.toolInputRedactedPaths?.length ?? 0) > 0;
+    }
+    return hasCommandPath(ipc.toolInputRedactedPaths);
+}
+function hasCommandPath(paths) {
+    return paths?.some((path) => path === 'command' || path === 'cmd') ?? false;
+}
+function hasRiskRelevantSanitization(request) {
+    const ipc = request;
+    return (request.toolInputSanitized === true ||
+        (request.toolInputSanitizedPaths?.length ?? 0) > 0 ||
+        (ipc.toolInputRedactedPaths?.length ?? 0) > 0);
+}
+function isInterpreterString(leaf) {
+    const executable = bashExecutableName(leaf.argv[0] ?? '');
+    const args = leaf.argv.slice(1);
+    return ((executable === 'node' &&
+        args.some((arg) => arg === '-e' || arg === '--eval')) ||
+        ((executable === 'python' || executable === 'python3') &&
+            args.includes('-c')) ||
+        ((executable === 'perl' || executable === 'ruby') && args.includes('-e')));
+}
+function isDestructiveLeaf(leaf) {
+    const executable = bashExecutableName(leaf.argv[0] ?? '');
+    if (DESTRUCTIVE_EXECUTABLE.test(executable) ||
+        leaf.redirects.some(({ destructive }) => destructive)) {
+        return true;
+    }
+    if (executable !== 'git')
+        return false;
+    const args = leaf.argv.slice(1);
+    return (/\b(?:clean|reset|restore)\b/.test(args.join(' ')) ||
+        args.includes('-D') ||
+        (args.includes('checkout') && args.includes('--')) ||
+        args.some((arg) => /^(?:-f|--force(?:-with-lease)?)$/.test(arg)));
+}
+function isHardFloorDestructiveLeaf(leaf) {
+    return (bashExecutableName(leaf.argv[0] ?? '') !== 'rm' && isDestructiveLeaf(leaf));
+}
+function uploadsLocalFile(command) {
+    return (/\bcurl\b[\s\S]*(?:(?:-d|--data(?:-binary|-urlencode)?|--form)(?:=|\s)+@|(?:-F)[^\s]*=@|(?:-T|--upload-file)(?:=|\s)+\S+)/i.test(command) || /\bwget\b[\s\S]*--(?:post|body)-file(?:=|\s)+\S+/i.test(command));
+}
+function containsProtectedPath(toolInput, command, leaves) {
+    if (allProtectedPathMentions(command).length > 0)
+        return true;
+    return [
+        ...stringValues(toolInput),
+        ...leaves.flatMap((leaf) => [
+            ...leaf.argv,
+            ...leaf.redirects.map(({ target }) => target),
+        ]),
+    ].some((value) => CREDENTIAL_PATH.test(value.replaceAll('\\', '/')));
+}
+function isPrivilegedLeaf(leaf) {
+    return PRIVILEGED_EXECUTABLE.test(bashExecutableName(leaf.argv[0] ?? ''));
+}
+function commandText(input) {
+    const value = input.command ?? input.cmd;
+    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+function stringValues(value) {
+    if (typeof value === 'string')
+        return [value];
+    if (Array.isArray(value))
+        return value.flatMap(stringValues);
+    if (!value || typeof value !== 'object')
+        return [];
+    return Object.values(value).flatMap(stringValues);
+}
+function ask(reason, railSignal) {
+    return { railOutcome: 'ask', reason, railSignal };
+}
+function hardFloorAsk(reason, railSignal) {
+    return { railOutcome: 'ask', reason, railSignal, hardFloor: true };
+}
+function allow(request, reason, decidedBy = 'deterministic_read_only') {
+    return {
+        ...decisionForMode(request, 'allow_once', decidedBy),
+        railOutcome: 'allow',
+        reason,
+    };
+}

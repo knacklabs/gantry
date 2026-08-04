@@ -47,6 +47,7 @@ import {
   type ChannelOpts,
 } from '@core/channels/channel-provider.js';
 import { DISCORD_LIVE_ATTACHMENT_DEADLINE_MS } from '@core/channels/discord-live-attachment-capture.js';
+import { discordMessageContent } from '@core/channels/discord-conversation-context.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
 
 class FakeWebSocket {
@@ -1267,6 +1268,13 @@ describe('DiscordChannel', () => {
             url: 'https://cdn.discordapp.com/attachments/private/file',
           },
           {
+            id: 'attachment-voice',
+            filename: 'voice-message.ogg',
+            content_type: 'audio/ogg',
+            size: 2048,
+            url: 'https://cdn.discordapp.com/attachments/private/voice',
+          },
+          {
             id: 'attachment-ephemeral',
             filename: 'secret.txt',
             content_type: 'text/plain',
@@ -1314,14 +1322,63 @@ describe('DiscordChannel', () => {
               messageId: 'message-2',
             },
           },
+          {
+            id: 'discord-attachment:attachment-voice',
+            kind: 'audio',
+            contentType: 'audio/ogg',
+            sizeBytes: 2048,
+            externalId: 'attachment-voice',
+            file_name: 'voice-message.ogg',
+            provider_fetch: {
+              provider: 'discord',
+              kind: 'attachment_id',
+              id: 'attachment-voice',
+              channelId: 'channel-1',
+              messageId: 'message-2',
+            },
+          },
         ],
       }),
     );
     const delivered = onMessage.mock.calls[0]?.[1];
-    expect(delivered.attachments).toHaveLength(2);
+    expect(delivered.attachments).toHaveLength(3);
     expect(delivered.attachments[0]).not.toHaveProperty('url');
     await channel.disconnect();
     vi.restoreAllMocks();
+  });
+
+  it('folds all human-readable Discord embed text under a UTF-8 byte cap', () => {
+    const content = discordMessageContent({
+      content: 'Body',
+      embeds: [
+        {
+          title: 'Title',
+          description: 'Description',
+          url: 'https://example.com',
+          fields: [{ name: 'Field name', value: 'Field value' }],
+          author: { name: 'Author name' },
+          footer: { text: 'Footer text' },
+          image: { description: 'Image description' },
+          thumbnail: { description: 'Thumbnail description' },
+          video: { description: `Video description ${'🙂'.repeat(2000)}` },
+        },
+      ],
+    });
+    const foldedEmbed = content.slice(content.indexOf('\n\n') + 2);
+
+    expect(content).toContain('Body');
+    expect(content).toContain('Title: Title');
+    expect(content).toContain('Description: Description');
+    expect(content).toContain('URL: https://example.com');
+    expect(content).toContain('Field: Field name');
+    expect(content).toContain('Value: Field value');
+    expect(content).toContain('Author: Author name');
+    expect(content).toContain('Footer: Footer text');
+    expect(content).toContain('Image: Image description');
+    expect(content).toContain('Thumbnail: Thumbnail description');
+    expect(content).toContain('Video: Video description');
+    expect(Buffer.byteLength(foldedEmbed, 'utf8')).toBeLessThanOrEqual(6000);
+    expect(foldedEmbed).toContain('...[truncated]');
   });
 
   it('admits the route before attachment network I/O or materialization', async () => {

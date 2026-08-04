@@ -271,33 +271,41 @@ describe('PostgresCanonicalJobRepository', () => {
       }
     ).graph = graph;
 
-    await repository.upsertJob({
-      id: 'system:dreaming:main_agent:tg-5759865942',
-      agentId: 'agent:main_agent',
-      name: 'Memory Dreaming (main_agent tg:5759865942)',
-      prompt: 'Run memory dreaming',
-      model: null,
-      scheduleJson: JSON.stringify({ type: 'cron', value: '0 * * * *' }),
-      status: 'active',
-      targetJson: JSON.stringify({
-        executionContext: {
-          conversationJid: 'tg:5759865942',
-          threadId: null,
-          workspaceKey: 'main_agent',
-          sessionId: null,
-        },
-      }),
-      silent: true,
-      timeoutMs: 300000,
-      maxRetries: 3,
-      retryBackoffMs: 5000,
-      nextRunAt: null,
-      lastRunAt: null,
-      leaseRunId: null,
-      leaseExpiresAt: null,
-      createdAt: '2026-05-09T00:00:00.000Z',
-      updatedAt: '2026-05-09T00:00:00.000Z',
-    });
+    await repository.upsertJob(
+      {
+        id: 'system:dreaming:main_agent:tg-5759865942',
+        agentId: 'agent:main_agent',
+        name: 'Memory Dreaming (main_agent tg:5759865942)',
+        prompt: 'Run memory dreaming',
+        model: null,
+        scheduleJson: JSON.stringify({ type: 'cron', value: '0 * * * *' }),
+        status: 'active',
+        targetJson: JSON.stringify({
+          executionContext: {
+            conversationJid: 'tg:5759865942',
+            threadId: null,
+            workspaceKey: 'main_agent',
+            sessionId: null,
+          },
+        }),
+        silent: true,
+        timeoutMs: 300000,
+        maxRetries: 3,
+        retryBackoffMs: 5000,
+        nextRunAt: null,
+        lastRunAt: null,
+        leaseRunId: null,
+        leaseExpiresAt: null,
+        createdAt: '2026-05-09T00:00:00.000Z',
+        updatedAt: '2026-05-09T00:00:00.000Z',
+      },
+      {
+        consecutiveFailures: 0,
+        maxConsecutiveFailures: 5,
+        pauseReason: null,
+        setupState: null,
+      },
+    );
 
     expect(graph.ensureAgentExists).toHaveBeenCalledWith(
       'main_agent',

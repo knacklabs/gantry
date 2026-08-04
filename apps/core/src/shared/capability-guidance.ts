@@ -1,7 +1,7 @@
 export const REQUEST_TOOL_ENABLE_SCOPE_GUIDANCE = [
   'Access decision ladder:',
   'Use an available action.',
-  'If the action is missing, request the reviewed capability.',
+  'If the action is missing, request an existing reviewed capability; for an attached MCP source with an unreviewed action, propose one with request_access target.kind=mcp_capability.',
   'If setup is missing, request source setup through the Gantry access flow.',
   'If policy blocks the action, report the policy blocker.',
   'Use request_access target.kind=run_command only as a temporary exact-command fallback when no reviewed capability fits.',
@@ -17,7 +17,7 @@ export const NO_REVIEWED_CAPABILITY_GUIDANCE = [
   'No reviewed capabilities matched.',
   'Next action:',
   '- If setup is missing, request the source setup through the Gantry access flow.',
-  '- If setup exists but the action is unreviewed, refresh inventory and request capability review.',
+  '- If setup exists but an MCP action is unreviewed, refresh inventory and propose it with request_access target.kind=mcp_capability.',
   '- If the user needs one immediate command action, request exact scoped command access with request_access target.kind=run_command and temporaryOnly=true.',
 ].join('\n');
 
@@ -43,7 +43,7 @@ export function renderDefaultCapabilityRules(options?: {
     '- Use ask_user_question for structured choices.',
     '- Use the mounted Gantry tools that fit the task; if a requested workflow cannot be done with them, say what is unavailable and continue with the best available path.',
     `- ${SOURCE_INVENTORY_AUTHORITY_GUIDANCE}`,
-    '- Use request_access target.kind=capability for durable reviewed access.',
+    '- Use request_access target.kind=capability for an existing reviewed capability id; for an attached MCP source with no reviewed action capability, propose one with target.kind=mcp_capability.',
     '- Use request_access target.kind=run_command only as a scoped temporary exact-command fallback when no reviewed capability fits.',
     '- For skills, MCP servers, local CLIs, browser, file/web, and admin tools, ask for the action the user wants; source setup and raw implementation details stay in review metadata.',
     `- ${UNREVIEWED_DISCOVERY_GUIDANCE}`,

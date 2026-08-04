@@ -1,0 +1,508 @@
+import fs from 'fs';
+import path from 'path';
+import { AGENT_MAX_OUTPUT_SIZE, AGENT_TIMEOUT, IDLE_TIMEOUT, LOG_LEVEL, } from '../config/index.js';
+import { logger } from '../infrastructure/logging/logger.js';
+import { activeRunStopWasRequested } from './group-queue-stop.js';
+import { formatDuration } from '../shared/human-format.js';
+import { nowIso, nowMs as currentTimeMs } from '../shared/time/datetime.js';
+import { formatRunnerProcessExitError } from './generated-runtime-path-error.js';
+import { readScheduledJobHeartbeat, scheduledJobIdleTimeoutMs, } from './agent-spawn-scheduled-idle.js';
+import { sandboxBlockedEvents } from './agent-spawn-sandbox-events.js';
+import { outputWithProviderSession, providerSessionExternalSessionId, runnerResultWithProviderSession, } from './agent-output-provider-session.js';
+import { abortedRunnerOutput, bindRunnerAbortSignal, } from './agent-spawn-process-abort.js';
+import { writeRunnerTimeoutLog, } from './agent-spawn-process-timeout.js';
+import { isRunnerCompletionEvidenceFrame, isVisibleResultFrame, } from './agent-output-callbacks.js';
+import { sanitizeRunnerLogText as sanitizeLogText, stderrLooksLikeSandboxBlock, } from './agent-spawn-log-sanitization.js';
+import { createRunnerStartupTiming } from './agent-spawn-startup-timing.js';
+import { publishRunnerProcessStartupDiagnostic } from './agent-spawn-process-diagnostic.js';
+const OUTPUT_START_MARKER = '---GANTRY_OUTPUT_START---';
+const OUTPUT_END_MARKER = '---GANTRY_OUTPUT_END---';
+const STREAM_PARSE_BUFFER_LIMIT = Math.max(AGENT_MAX_OUTPUT_SIZE * 4, 131_072);
+function formatResumeSessionStatus(sessionId) {
+    return sessionId ? 'present' : 'none';
+}
+function parseBufferedRunnerOutput(stdout) {
+    const endIdx = stdout.lastIndexOf(OUTPUT_END_MARKER);
+    const startIdx = endIdx === -1 ? -1 : stdout.lastIndexOf(OUTPUT_START_MARKER, endIdx);
+    let jsonLine;
+    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+        jsonLine = stdout
+            .slice(startIdx + OUTPUT_START_MARKER.length, endIdx)
+            .trim();
+    }
+    else {
+        const lines = stdout.trim().split('\n');
+        jsonLine = lines[lines.length - 1];
+    }
+    return JSON.parse(jsonLine);
+}
+function runnerContextPayload(input) {
+    const { appId, agentId, sessionId, jobId, runId } = input;
+    return { appId, agentId, sessionId, jobId, runId };
+}
+export function executeRunnerProcess(spec) {
+    const { group, input, command, args, env, onProcess, onOutput, options, runnerLabel, processName, startTime, logsDir, runtimeDetails, sandbox, } = spec;
+    return new Promise((resolve) => {
+        const sandboxProvider = options?.runnerSandboxProvider;
+        if (!sandboxProvider) {
+            resolve({
+                status: 'error',
+                result: null,
+                error: `${runnerLabel} sandbox provider is not configured.`,
+                runtimeEvents: sandboxBlockedEvents({
+                    spec,
+                    message: 'runner sandbox provider is not configured',
+                    sanitize: sanitizeLogText,
+                }),
+            });
+            return;
+        }
+        if (options?.signal?.aborted)
+            return resolve(abortedRunnerOutput(runnerLabel));
+        let runner;
+        const startupTiming = createRunnerStartupTiming({
+            startTime,
+            nowMs: currentTimeMs,
+            hostPhases: spec.startupHostPhases,
+        });
+        try {
+            runner = sandboxProvider.start({ command, args, env, ...sandbox });
+            startupTiming.markSandboxStartReturned();
+        }
+        catch (err) {
+            const error = err instanceof Error ? err.message : String(err);
+            logger.error({
+                group: group.name,
+                processName,
+                sandboxProvider: sandboxProvider.id,
+                error,
+            }, `${runnerLabel} sandbox provider failed`);
+            resolve({
+                status: 'error',
+                result: null,
+                error: `Sandbox startup failed: ${error}. The run did not start.`,
+                runtimeEvents: sandboxBlockedEvents({
+                    spec,
+                    message: error,
+                    sanitize: sanitizeLogText,
+                }),
+            });
+            return;
+        }
+        const abortBinding = bindRunnerAbortSignal({
+            signal: options?.signal,
+            runner,
+            runnerLabel,
+            context: {
+                group: group.name,
+                processName,
+                ...runnerContextPayload(input),
+            },
+            warn: logger.warn.bind(logger),
+        });
+        onProcess(runner, processName);
+        let stdout = '';
+        let stderr = '';
+        let stdoutTruncated = false;
+        let stderrTruncated = false;
+        startupTiming.measureStdinWrite(() => {
+            if (abortBinding.aborted())
+                return;
+            runner.stdin.write(JSON.stringify(input));
+            runner.stdin.end();
+        });
+        let parseBuffer = '';
+        let parseBufferTruncated = false;
+        let providerSessionExternalId;
+        let outputChain = Promise.resolve();
+        let timedOut = false;
+        let timeoutReason = 'timeout';
+        let lastScheduledJobHeartbeat = null;
+        const scheduledJobIdleMs = scheduledJobIdleTimeoutMs();
+        let hadStreamingOutput = false;
+        const configuredTimeout = options?.timeoutMs ?? group.agentConfig?.timeout ?? AGENT_TIMEOUT;
+        const hasExplicitTimeout = options?.timeoutMs != null;
+        const timeoutMs = hasExplicitTimeout
+            ? configuredTimeout
+            : Math.max(configuredTimeout, IDLE_TIMEOUT + 30_000);
+        const killOnTimeout = () => {
+            timedOut = true;
+            timeoutReason = 'timeout';
+            logger.error({ group: group.name, processName, ...runnerContextPayload(input) }, `${runnerLabel} timeout, stopping`);
+            runner.kill('SIGKILL');
+        };
+        let timeout = setTimeout(killOnTimeout, timeoutMs);
+        const resetTimeout = () => {
+            if (hasExplicitTimeout && !input.isScheduledJob)
+                return;
+            clearTimeout(timeout);
+            timeout = setTimeout(killOnTimeout, timeoutMs);
+        };
+        runner.stdout.on('data', (data) => {
+            startupTiming.markFirstStdout();
+            const chunk = data.toString();
+            if (!stdoutTruncated) {
+                const remaining = AGENT_MAX_OUTPUT_SIZE - stdout.length;
+                if (chunk.length > remaining) {
+                    stdout += chunk.slice(0, remaining);
+                    stdoutTruncated = true;
+                    logger.warn({ group: group.name, size: stdout.length }, 'Agent stdout truncated due to size limit');
+                }
+                else {
+                    stdout += chunk;
+                }
+            }
+            if (onOutput) {
+                parseBuffer += chunk;
+                if (parseBuffer.length > STREAM_PARSE_BUFFER_LIMIT) {
+                    const latestMarker = parseBuffer.lastIndexOf(OUTPUT_START_MARKER);
+                    if (latestMarker > 0) {
+                        parseBuffer = parseBuffer.slice(latestMarker);
+                    }
+                    if (parseBuffer.length > STREAM_PARSE_BUFFER_LIMIT) {
+                        parseBuffer = parseBuffer.slice(-STREAM_PARSE_BUFFER_LIMIT);
+                    }
+                    if (!parseBufferTruncated) {
+                        parseBufferTruncated = true;
+                        logger.warn({ group: group.name, limit: STREAM_PARSE_BUFFER_LIMIT }, 'Streaming parse buffer exceeded limit and was trimmed');
+                    }
+                }
+                let startIdx;
+                while ((startIdx = parseBuffer.indexOf(OUTPUT_START_MARKER)) !== -1) {
+                    const endIdx = parseBuffer.indexOf(OUTPUT_END_MARKER, startIdx);
+                    if (endIdx === -1)
+                        break;
+                    const jsonStr = parseBuffer
+                        .slice(startIdx + OUTPUT_START_MARKER.length, endIdx)
+                        .trim();
+                    parseBuffer = parseBuffer.slice(endIdx + OUTPUT_END_MARKER.length);
+                    try {
+                        let parsed = JSON.parse(jsonStr);
+                        startupTiming.markFirstStructuredOutput();
+                        if (isVisibleResultFrame(parsed)) {
+                            startupTiming.markFirstVisibleOutput();
+                        }
+                        const streamedProviderSessionId = providerSessionExternalSessionId(parsed);
+                        if (streamedProviderSessionId) {
+                            providerSessionExternalId = streamedProviderSessionId;
+                            startupTiming.markProviderSession();
+                        }
+                        parsed = outputWithProviderSession(parsed, providerSessionExternalId);
+                        const heartbeat = readScheduledJobHeartbeat(parsed);
+                        if (input.isScheduledJob && heartbeat) {
+                            lastScheduledJobHeartbeat = heartbeat;
+                            const pendingPermissions = heartbeat.pendingPermissionRequests ?? 0;
+                            const idleForMs = heartbeat.lastActivityAgoMs ?? 0;
+                            if (pendingPermissions === 0 && idleForMs >= scheduledJobIdleMs) {
+                                timedOut = true;
+                                timeoutReason = 'scheduled_job_idle_stall';
+                                logger.error({
+                                    group: group.name,
+                                    processName,
+                                    idleForMs,
+                                    scheduledJobIdleMs,
+                                    lastTool: heartbeat.lastTool ?? heartbeat.currentTool,
+                                    lastActivityAt: heartbeat.lastActivityAt,
+                                    totalToolCalls: heartbeat.totalToolCalls,
+                                    ...runnerContextPayload(input),
+                                }, `${runnerLabel} scheduled job idle stall, stopping`);
+                                runner.kill('SIGKILL');
+                            }
+                        }
+                        if (isRunnerCompletionEvidenceFrame(parsed)) {
+                            hadStreamingOutput = true;
+                        }
+                        resetTimeout();
+                        outputChain = outputChain
+                            .then(() => onOutput(parsed))
+                            .catch((err) => {
+                            logger.error({
+                                group: group.name,
+                                error: err instanceof Error ? err.message : String(err),
+                            }, 'onOutput callback failed');
+                        });
+                    }
+                    catch (err) {
+                        logger.warn({
+                            group: group.name,
+                            error: err instanceof Error ? err.message : String(err),
+                        }, 'Failed to parse streamed output chunk');
+                    }
+                }
+            }
+        });
+        runner.stderr.on('data', (data) => {
+            startupTiming.markFirstStderr();
+            const chunk = data.toString();
+            const sanitizedChunkForLog = sanitizeLogText(chunk, AGENT_MAX_OUTPUT_SIZE);
+            const lines = sanitizedChunkForLog.trim().split('\n');
+            for (const line of lines) {
+                if (line)
+                    logger.debug({ agent: group.folder }, line);
+            }
+            if (stderrTruncated)
+                return;
+            const remaining = AGENT_MAX_OUTPUT_SIZE - stderr.length;
+            if (chunk.length > remaining) {
+                stderr += chunk.slice(0, remaining);
+                stderrTruncated = true;
+                logger.warn({ group: group.name, size: stderr.length }, 'Agent stderr truncated due to size limit');
+            }
+            else {
+                stderr += chunk;
+            }
+        });
+        runner.on('close', (code, signal) => {
+            clearTimeout(timeout);
+            abortBinding.close();
+            const duration = currentTimeMs() - startTime;
+            publishRunnerProcessStartupDiagnostic({
+                spec,
+                code,
+                signal,
+                hadStreamingOutput,
+                timedOut,
+                timeoutReason,
+                startupTiming: startupTiming.payload(),
+            });
+            if (timedOut) {
+                const timeoutLog = writeRunnerTimeoutLog({
+                    spec,
+                    logsDir,
+                    duration,
+                    code,
+                    hadStreamingOutput,
+                    startupLines: startupTiming.lines(),
+                    timeoutReason,
+                    scheduledJobIdleMs,
+                    lastScheduledJobHeartbeat,
+                    timeoutMs,
+                });
+                if (hadStreamingOutput &&
+                    !hasExplicitTimeout &&
+                    timeoutReason === 'timeout') {
+                    logger.info({
+                        group: group.name,
+                        processName,
+                        duration,
+                        code,
+                        startupTiming: startupTiming.payload(),
+                        logFile: timeoutLog.logFile,
+                        ...runnerContextPayload(input),
+                    }, `${runnerLabel} timed out after output (idle cleanup)`);
+                    outputChain.then(() => {
+                        resolve(runnerResultWithProviderSession({
+                            status: 'success',
+                            externalSessionId: providerSessionExternalId,
+                        }));
+                    });
+                    return;
+                }
+                logger.error({
+                    group: group.name,
+                    processName,
+                    duration,
+                    code,
+                    hadStreamingOutput,
+                    startupTiming: startupTiming.payload(),
+                    logFile: timeoutLog.logFile,
+                    timeoutReason,
+                    ...runnerContextPayload(input),
+                }, timeoutReason === 'scheduled_job_idle_stall'
+                    ? `${runnerLabel} scheduled job idle stall`
+                    : hadStreamingOutput
+                        ? `${runnerLabel} timed out after streamed output`
+                        : `${runnerLabel} timed out with no output`);
+                outputChain.then(() => {
+                    resolve(runnerResultWithProviderSession({
+                        status: 'error',
+                        externalSessionId: providerSessionExternalId,
+                        error: timeoutLog.error,
+                    }));
+                });
+                return;
+            }
+            const timestamp = nowIso().replace(/[:.]/g, '-');
+            const logFile = path.join(logsDir, `agent-${timestamp}.log`);
+            const isVerbose = LOG_LEVEL === 'debug' || LOG_LEVEL === 'trace';
+            const logLines = [
+                `=== Agent Run Log ===`,
+                `Timestamp: ${nowIso()}`,
+                `Group: ${group.name}`,
+                `Duration: ${formatDuration(duration)}`,
+                `Exit Code: ${code}`,
+                `Signal: ${signal ?? 'none'}`,
+                `Stdout Truncated: ${stdoutTruncated}`,
+                `Stderr Truncated: ${stderrTruncated}`,
+                ``,
+                `=== Startup Timing ===`,
+                ...startupTiming.lines(),
+                ``,
+            ];
+            const isError = code !== 0;
+            const sanitizedStdoutForLog = sanitizeLogText(stdout, AGENT_MAX_OUTPUT_SIZE);
+            const sanitizedStderrForLog = sanitizeLogText(stderr, AGENT_MAX_OUTPUT_SIZE);
+            if (isVerbose || isError) {
+                if (isVerbose) {
+                    logLines.push(`=== Input Summary ===`, `Prompt length: ${input.prompt.length} chars`, `SDK session persistence: ${input.isScheduledJob ? 'disabled' : 'enabled'}`, `Resume session: ${formatResumeSessionStatus(input.sessionId)}`, `Chat JID: ${input.chatJid}`, `Workspace Folder: ${input.workspaceFolder}`, '');
+                }
+                else {
+                    logLines.push(`=== Input Summary ===`, `Prompt length: ${input.prompt.length} chars`, `SDK session persistence: ${input.isScheduledJob ? 'disabled' : 'enabled'}`, `Resume session: ${formatResumeSessionStatus(input.sessionId)}`, ``);
+                }
+                logLines.push(`=== Spawn Command ===`, [command, ...args].join(' '), ``, `=== Runtime Details ===`, runtimeDetails.join('\n'), ``, `=== Stderr${stderrTruncated ? ' (TRUNCATED)' : ''} ===`, sanitizedStderrForLog, ``, `=== Stdout${stdoutTruncated ? ' (TRUNCATED)' : ''} ===`, sanitizedStdoutForLog);
+            }
+            else {
+                logLines.push(`=== Input Summary ===`, `Prompt length: ${input.prompt.length} chars`, `SDK session persistence: ${input.isScheduledJob ? 'disabled' : 'enabled'}`, `Resume session: ${formatResumeSessionStatus(input.sessionId)}`, ``, `=== Runtime Details ===`, runtimeDetails.join('\n'), ``);
+            }
+            fs.writeFileSync(logFile, logLines.join('\n'));
+            logger.debug({ logFile, verbose: isVerbose }, 'Agent log written');
+            const stopRequested = activeRunStopWasRequested(runner);
+            const streamedSigterm = onOutput && signal === 'SIGTERM' && hadStreamingOutput;
+            if (abortBinding.aborted()) {
+                outputChain.then(() => {
+                    logger.warn({
+                        group: group.name,
+                        duration,
+                        hadStreamingOutput,
+                        signal,
+                        startupTiming: startupTiming.payload(),
+                        ...runnerContextPayload(input),
+                    }, `${runnerLabel} stopped after run abort`);
+                    resolve(abortedRunnerOutput(runnerLabel, providerSessionExternalId));
+                });
+                return;
+            }
+            if (streamedSigterm && !stopRequested) {
+                outputChain.then(() => {
+                    logger.info({
+                        group: group.name,
+                        duration,
+                        providerSessionCreated: !!providerSessionExternalId,
+                        startupTiming: startupTiming.payload(),
+                        signal,
+                    }, `${runnerLabel} closed after streamed output`);
+                    resolve(runnerResultWithProviderSession({
+                        status: 'success',
+                        externalSessionId: providerSessionExternalId,
+                    }));
+                });
+                return;
+            }
+            if (stopRequested) {
+                outputChain.then(() => {
+                    logger.warn({
+                        group: group.name,
+                        duration,
+                        hadStreamingOutput,
+                        signal,
+                        startupTiming: startupTiming.payload(),
+                        ...runnerContextPayload(input),
+                    }, `${runnerLabel} stopped by request`);
+                    resolve(runnerResultWithProviderSession({
+                        status: 'error',
+                        externalSessionId: providerSessionExternalId,
+                        error: `${runnerLabel} stopped by request`,
+                    }));
+                });
+                return;
+            }
+            if (code !== 0) {
+                const sanitizedStdout = sanitizeLogText(stdout);
+                const sanitizedStderr = sanitizeLogText(stderr);
+                let structuredError = null;
+                try {
+                    const parsedOutput = parseBufferedRunnerOutput(stdout);
+                    if (parsedOutput.status === 'error') {
+                        structuredError = parsedOutput;
+                    }
+                }
+                catch {
+                    structuredError = null;
+                }
+                logger.error({
+                    group: group.name,
+                    code,
+                    duration,
+                    startupTiming: startupTiming.payload(),
+                    stderr: sanitizedStderr,
+                    stdout: sanitizedStdout,
+                    logFile,
+                }, `${runnerLabel} exited with error`);
+                const processError = formatRunnerProcessExitError({
+                    runnerLabel,
+                    code,
+                    stdout,
+                    stderr,
+                    structuredError,
+                    newSessionId: providerSessionExternalId,
+                    fallbackStderr: sanitizeLogText(stderr.slice(-200), 200),
+                });
+                if (stderrLooksLikeSandboxBlock(stderr)) {
+                    processError.runtimeEvents = [
+                        ...(processError.runtimeEvents ?? []),
+                        ...sandboxBlockedEvents({
+                            spec,
+                            message: stderr,
+                            sanitize: sanitizeLogText,
+                        }),
+                    ];
+                }
+                if (structuredError)
+                    outputChain.then(() => resolve(processError));
+                else
+                    resolve(processError);
+                return;
+            }
+            if (onOutput) {
+                outputChain.then(() => {
+                    logger.info({
+                        group: group.name,
+                        duration,
+                        providerSessionCreated: !!providerSessionExternalId,
+                        startupTiming: startupTiming.payload(),
+                    }, `${runnerLabel} completed (streaming mode)`);
+                    resolve(runnerResultWithProviderSession({
+                        status: 'success',
+                        externalSessionId: providerSessionExternalId,
+                    }));
+                });
+                return;
+            }
+            try {
+                const output = outputWithProviderSession(parseBufferedRunnerOutput(stdout), providerSessionExternalId);
+                logger.info({
+                    group: group.name,
+                    duration,
+                    status: output.status,
+                    hasResult: !!output.result,
+                    startupTiming: startupTiming.payload(),
+                }, `${runnerLabel} completed`);
+                resolve(output);
+            }
+            catch (err) {
+                const sanitizedStdout = sanitizeLogText(stdout);
+                const sanitizedStderr = sanitizeLogText(stderr);
+                logger.error({
+                    group: group.name,
+                    stdout: sanitizedStdout,
+                    stderr: sanitizedStderr,
+                    error: err instanceof Error ? err.message : String(err),
+                }, 'Failed to parse runner output');
+                resolve({
+                    status: 'error',
+                    result: null,
+                    error: `Failed to parse runner output: ${err instanceof Error ? err.message : String(err)}`,
+                });
+            }
+        });
+        runner.on('error', (err) => {
+            clearTimeout(timeout);
+            logger.error({ group: group.name, processName, error: err.message }, `${runnerLabel} spawn error`);
+            resolve({
+                status: 'error',
+                result: null,
+                error: `${runnerLabel} spawn error: ${err.message}`,
+            });
+        });
+    });
+}

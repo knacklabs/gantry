@@ -1,0 +1,210 @@
+import { doc, ids, query } from './openapi-route-helpers.js';
+import { mcpOpenApiRouteDocs } from './openapi-mcp-routes.js';
+export const extendedOpenApiRouteDocs = [
+    doc('get', '/v1/usage', 'queryUsage', 'Usage', 'Query token usage', 'Returns app-scoped token and request counts recorded from deployment forward; historical usage is not backfilled.', ['usage:read'], {
+        parameters: [
+            {
+                ...query('from', 'Inclusive range start as an ISO 8601 date-time.'),
+                required: true,
+            },
+            {
+                ...query('to', 'Exclusive range end as an ISO 8601 date-time.'),
+                required: true,
+            },
+            query('agentId', 'Agent id filter.'),
+            query('apiKeyId', 'Control API key id filter.'),
+            query('runId', 'Run id filter.'),
+            query('jobId', 'Job id filter.'),
+            query('model', 'Model alias filter.'),
+            query('group_by', 'Aggregation dimension.', {
+                type: 'string',
+                enum: ['agent', 'api_key', 'model', 'day'],
+            }),
+        ],
+    }),
+    doc('post', '/llm/v1/messages', 'invokeLlmMessages', 'LLM', 'Invoke Messages', 'Forwards a Messages-shaped request through the Gantry Model Gateway after resolving the Gantry model alias. Supports streaming, caller-defined tools with input_schema, structured output, and thinking parameters. Rejects provider-side server tools, MCP servers, containers, and execution betas.', ['llm:invoke'], { body: 'json' }),
+    doc('post', '/llm/v1/messages/count_tokens', 'invokeLlmMessagesCountTokens', 'LLM', 'Count Messages tokens', 'Counts input tokens for a Messages-shaped request after resolving the Gantry model alias.', ['llm:invoke'], { body: 'json' }),
+    doc('post', '/llm/v1/chat/completions', 'invokeLlmChatCompletions', 'LLM', 'Invoke Chat Completions', 'Forwards a Chat Completions-shaped request through the Gantry Model Gateway after resolving the Gantry model alias. Supports streaming, function tools, response_format structured output, and effort parameters. Rejects hosted provider tools, hosted-tool fields, attachments, and file references.', ['llm:invoke'], { body: 'json' }),
+    doc('get', '/v1/jobs', 'listJobs', 'Jobs', 'List jobs', 'Lists jobs visible to the API key app scope.', ['jobs:read'], {
+        parameters: [
+            query('status', 'Status filters; repeat for multiple values.', {
+                type: 'array',
+                items: { type: 'string' },
+            }),
+            query('workspaceKey', 'Workspace key filter.'),
+            query('agentId', 'Agent id filter.'),
+            query('kind', 'Job kind filter.', {
+                type: 'string',
+                enum: ['manual', 'once', 'recurring'],
+            }),
+            query('conversationJid', 'Conversation JID filter.'),
+            query('limit', 'Maximum number of jobs.', {
+                type: 'integer',
+                minimum: 1,
+            }),
+        ],
+    }),
+    doc('post', '/v1/jobs', 'createJob', 'Jobs', 'Create a job', 'Creates or dry-runs a job using catalog-resolved models.', ['jobs:write'], { body: 'json', status: '201' }),
+    doc('get', '/v1/jobs/{jobId}', 'getJob', 'Jobs', 'Get job', 'Reads a job with runtime visibility metadata.', ['jobs:read'], { parameters: [ids.job] }),
+    doc('patch', '/v1/jobs/{jobId}', 'updateJob', 'Jobs', 'Update job', 'Updates job prompt, context, routes, capabilities, status, or model.', ['jobs:write'], { body: 'json', parameters: [ids.job] }),
+    doc('delete', '/v1/jobs/{jobId}', 'deleteJob', 'Jobs', 'Delete job', 'Deletes a job owned by the API key app scope.', ['jobs:write'], { body: 'none', parameters: [ids.job] }),
+    doc('get', '/v1/jobs/{jobId}/events', 'listJobEvents', 'Jobs', 'List job events', 'Lists persisted runtime events for a job.', ['jobs:read'], {
+        parameters: [
+            ids.job,
+            query('run', 'Run id filter.'),
+            query('runId', 'Run id filter alias.'),
+            query('eventType', 'Runtime event type filter.'),
+            query('sinceId', 'Return events after this event id.', {
+                type: 'integer',
+                minimum: 1,
+            }),
+            query('since', 'Return events after this timestamp.'),
+            query('limit', 'Maximum number of events.', {
+                type: 'integer',
+                minimum: 1,
+            }),
+        ],
+    }),
+    doc('post', '/v1/jobs/{jobId}/pause', 'pauseJob', 'Jobs', 'Pause job', 'Pauses future execution for a job.', ['jobs:write'], { body: 'none', parameters: [ids.job] }),
+    doc('post', '/v1/jobs/{jobId}/resume', 'resumeJob', 'Jobs', 'Resume job', 'Resumes a paused job and returns setup blockers if present.', ['jobs:write'], { body: 'none', parameters: [ids.job] }),
+    doc('post', '/v1/jobs/{jobId}/trigger', 'triggerJob', 'Jobs', 'Trigger job now', 'Creates an immediate trigger subject to rate limits.', ['jobs:write'], { body: 'none', parameters: [ids.job], status: '202' }),
+    doc('get', '/v1/triggers/{triggerId}/wait', 'waitForTrigger', 'Jobs', 'Wait for trigger completion', 'Long-polls for a previously accepted job trigger.', ['jobs:read'], {
+        parameters: [
+            ids.trigger,
+            query('timeoutMs', 'Timeout in milliseconds.', {
+                type: 'integer',
+                minimum: 1000,
+                maximum: 300000,
+            }),
+        ],
+    }),
+    doc('get', '/v1/runs', 'listRuns', 'Runs', 'List job runs', 'Lists job runs visible to the API key app scope.', ['jobs:read'], { parameters: [query('jobId', 'Optional job id filter.')] }),
+    doc('get', '/v1/runs/{runId}', 'getRun', 'Runs', 'Get run', 'Reads one job run after verifying app ownership.', ['jobs:read'], { parameters: [ids.run] }),
+    doc('get', '/v1/runs/{runId}/events', 'listRunEvents', 'Runs', 'List run events', 'Lists runtime events projected into run-event shape.', ['jobs:read'], { parameters: [ids.run] }),
+    doc('get', '/v1/webhooks', 'listWebhooks', 'Webhooks', 'List outbound webhooks', 'Lists outbound callback registrations.', ['webhooks:read']),
+    doc('post', '/v1/webhooks', 'createWebhook', 'Webhooks', 'Create outbound webhook', 'Registers an outbound callback URL with optional lifecycle event and subject filters.', ['webhooks:write'], { body: 'json', status: '201' }),
+    doc('patch', '/v1/webhooks/{webhookId}', 'updateWebhook', 'Webhooks', 'Update outbound webhook', 'Updates destination, enabled state, or lifecycle event subscription filters.', ['webhooks:write'], { body: 'json', parameters: [ids.webhook] }),
+    doc('delete', '/v1/webhooks/{webhookId}', 'deleteWebhook', 'Webhooks', 'Delete outbound webhook', 'Deletes an outbound webhook registration.', ['webhooks:write'], { body: 'none', parameters: [ids.webhook] }),
+    doc('post', '/v1/webhooks/{webhookId}/test', 'testWebhook', 'Webhooks', 'Send webhook test event', 'Publishes a webhook test runtime event for delivery.', ['webhooks:write'], { body: 'none', parameters: [ids.webhook], status: '202' }),
+    doc('post', '/v1/webhooks/{webhookId}/replay-dead-letter', 'replayWebhookDeadLetters', 'Webhooks', 'Replay webhook dead letters', 'Requeues dead-lettered webhook deliveries.', ['webhooks:write'], { body: 'none', parameters: [ids.webhook] }),
+    doc('post', '/v1/webhooks/{webhookId}/purge-dead-letter', 'purgeWebhookDeadLetters', 'Webhooks', 'Purge webhook dead letters', 'Deletes dead-lettered webhook deliveries.', ['webhooks:write'], { body: 'none', parameters: [ids.webhook] }),
+    doc('get', '/v1/ingresses', 'listExternalIngresses', 'External Ingresses', 'List external ingresses', 'Lists signed inbound authorities for systems without API keys.', ['ingresses:read']),
+    doc('post', '/v1/ingresses', 'createExternalIngress', 'External Ingresses', 'Create external ingress', 'Creates a signed ingress record with explicit target metadata.', ['ingresses:write'], { body: 'json', status: '201' }),
+    doc('get', '/v1/ingresses/{ingressId}', 'getExternalIngress', 'External Ingresses', 'Get external ingress', 'Reads one signed ingress record.', ['ingresses:read'], { parameters: [ids.ingress] }),
+    doc('patch', '/v1/ingresses/{ingressId}', 'updateExternalIngress', 'External Ingresses', 'Update external ingress', 'Updates ingress name, enabled state, or metadata.', ['ingresses:write'], { body: 'json', parameters: [ids.ingress] }),
+    doc('delete', '/v1/ingresses/{ingressId}', 'deleteExternalIngress', 'External Ingresses', 'Delete external ingress', 'Deletes a signed ingress record.', ['ingresses:write'], { body: 'none', parameters: [ids.ingress] }),
+    doc('post', '/v1/ingresses/{ingressId}/rotate', 'rotateExternalIngressSecret', 'External Ingresses', 'Rotate external ingress secret', 'Rotates the signing secret for an external ingress.', ['ingresses:write'], { body: 'none', parameters: [ids.ingress] }),
+    doc('post', '/v1/ingresses/{ingressId}/invoke', 'invokeExternalIngress', 'External Ingresses', 'Invoke external ingress', 'Accepts a signed inbound payload. conversation_message targets enqueue a normal provider conversation or thread message asynchronously.', undefined, { body: 'json', parameters: [ids.ingress], status: '202' }),
+    doc('post', '/v1/ingresses/{ingressId}/wait', 'waitForExternalIngress', 'External Ingresses', 'Invoke and wait for external ingress', 'Accepts a signed ingress payload and waits for the result.', undefined, { body: 'json', parameters: [ids.ingress] }),
+    doc('get', '/v1/memory', 'listMemory', 'Memory', 'List memory items', 'Lists app-scoped memory items with optional subject filters.', ['memory:read'], {
+        parameters: [
+            query('appId', 'App id. Defaults to API key app.'),
+            query('agentId', 'Agent id filter.'),
+            query('userId', 'User id filter.'),
+            query('groupId', 'Group id filter.'),
+            query('channelId', 'Channel id filter.'),
+            query('threadId', 'Thread id filter.'),
+            query('q', 'Text query.'),
+            query('limit', 'Maximum number of memory items.', {
+                type: 'number',
+            }),
+            query('includeCommon', 'Include common memory.', {
+                type: 'boolean',
+                default: true,
+            }),
+            query('subjectType', 'Subject type filters.', {
+                type: 'array',
+                items: { type: 'string' },
+            }),
+        ],
+    }),
+    doc('post', '/v1/memory', 'createMemory', 'Memory', 'Create memory item', 'Directly saves an app memory item using canonical kinds.', ['memory:admin'], { body: 'json', status: '201' }),
+    doc('post', '/v1/memory/search', 'searchMemory', 'Memory', 'Search memory', 'Searches app memory with configured subject filters.', ['memory:read'], { body: 'json' }),
+    doc('patch', '/v1/memory/{memoryId}', 'patchMemory', 'Memory', 'Patch memory item', 'Updates mutable memory item fields.', ['memory:admin'], { body: 'json', parameters: [ids.memory] }),
+    doc('delete', '/v1/memory/{memoryId}', 'deleteMemory', 'Memory', 'Delete memory item', 'Deletes a memory item in the requested subject scope.', ['memory:admin'], {
+        body: 'none',
+        parameters: [
+            ids.memory,
+            query('appId', 'App id. Defaults to API key app.'),
+            query('agentId', 'Agent id filter.'),
+            query('userId', 'User id filter.'),
+            query('groupId', 'Group id filter.'),
+            query('channelId', 'Channel id filter.'),
+            query('threadId', 'Thread id filter.'),
+        ],
+    }),
+    doc('post', '/v1/memory/dreaming/trigger', 'triggerMemoryDreaming', 'Memory', 'Trigger memory dreaming', 'Starts an app or agent scoped memory dreaming run.', ['memory:admin'], { body: 'json', status: '202' }),
+    doc('get', '/v1/memory/dreaming/status', 'getMemoryDreamingStatus', 'Memory', 'Get memory dreaming status', 'Returns recent memory dreaming runs.', ['memory:read'], {
+        parameters: [
+            query('appId', 'App id. Defaults to API key app.'),
+            query('agentId', 'Agent id filter.'),
+        ],
+    }),
+    doc('get', '/v1/observer/status', 'getObserverStatus', 'Observer', 'Get observer status', 'Returns the app-scoped observer activation state and evidence and insight counts.', ['memory:read'], { parameters: [query('appId', 'App id. Defaults to API key app.')] }),
+    doc('get', '/v1/observer/insights', 'listObserverInsights', 'Observer', 'List observer insights', 'Lists app-scoped persisted observer insights with optional subject, type, and state filters.', ['memory:read'], {
+        parameters: [
+            query('appId', 'App id. Defaults to API key app.'),
+            query('subject', 'Canonical memory subject filter.'),
+            query('type', 'Insight type filter.', {
+                type: 'string',
+                enum: [
+                    'commitment',
+                    'contradiction',
+                    'open_question',
+                    'stale_fact',
+                    'decision_without_owner',
+                    'duplicated_work',
+                    'repetition',
+                ],
+            }),
+            query('state', 'Insight state filter.', {
+                type: 'string',
+                enum: [
+                    'pending',
+                    'claimed',
+                    'sent',
+                    'cooldown',
+                    'resolved',
+                    'dropped',
+                ],
+            }),
+            query('limit', 'Maximum number of insights.', {
+                type: 'integer',
+                minimum: 1,
+                maximum: 100,
+                default: 20,
+            }),
+            query('cursor', 'Opaque pagination cursor.'),
+        ],
+    }),
+    doc('post', '/v1/observer/preview', 'previewObserverDigest', 'Observer', 'Preview the observer digest', 'Dry-run: computes the would-be owner digest (top-N selected and rendered) WITHOUT claiming insights, reserving a delivery, or sending. Creates no delivery row and no outbound record.', ['memory:read'], { parameters: [query('appId', 'App id. Defaults to API key app.')] }),
+    doc('get', '/v1/observer/deliveries', 'listObserverDeliveries', 'Observer', 'List observer digest deliveries', 'Lists past digest reservations and deliveries for the app owner, newest first, with per-delivery state, local day, and insight count.', ['memory:read'], {
+        parameters: [
+            query('appId', 'App id. Defaults to API key app.'),
+            query('limit', 'Maximum number of deliveries.', {
+                type: 'integer',
+                minimum: 1,
+                maximum: 100,
+                default: 20,
+            }),
+        ],
+    }),
+    doc('post', '/v1/brain/import', 'importBrainPages', 'Memory', 'Import company brain pages', 'Upserts company brain markdown pages and extracts entities and edges.', ['memory:admin'], { body: 'json', status: '201' }),
+    doc('get', '/v1/brain/status', 'getBrainStatus', 'Memory', 'Get company brain status', 'Returns page, entity, edge, and embedding counts for the app-scoped company brain.', ['memory:read'], { parameters: [query('appId', 'App id. Defaults to API key app.')] }),
+    doc('get', '/v1/skills', 'listSkills', 'Skills', 'List skills', 'Lists installed skill records.', ['skills:read'], { parameters: [query('agentId', 'Agent id filter.')] }),
+    doc('post', '/v1/skills/install', 'installSkill', 'Skills', 'Install skill', 'Installs a zip package as a local skill.', ['skills:admin'], {
+        body: 'zip',
+        status: '201',
+        parameters: [
+            query('appId', 'App id. Defaults to API key app.'),
+            query('agentId', 'Agent id to bind after install.'),
+            query('createdBy', 'Installer identity.'),
+        ],
+    }),
+    doc('get', '/v1/skills/{skillId}/files', 'listSkillFiles', 'Skills', 'List skill files', 'Lists readable files for a skill artifact.', ['skills:read'], { parameters: [ids.skill] }),
+    doc('get', '/v1/skills/{skillId}/files/{filePath}', 'getSkillFile', 'Skills', 'Get skill file', 'Reads one file from a skill artifact.', ['skills:read'], { parameters: [ids.skill, ids.file] }),
+    doc('get', '/v1/agents/{agentId}/skills', 'listAgentSkillBindings', 'Skills', 'List agent skill bindings', 'Lists skills currently bound to an agent.', ['skills:read'], { parameters: [ids.agent] }),
+    doc('put', '/v1/agents/{agentId}/skills/{skillId}', 'bindSkillToAgent', 'Skills', 'Bind skill to agent', 'Binds an installed skill and syncs settings desired state.', ['skills:admin'], { body: 'json', parameters: [ids.agent, ids.skill] }),
+    doc('delete', '/v1/agents/{agentId}/skills/{skillId}', 'unbindSkillFromAgent', 'Skills', 'Unbind skill from agent', 'Removes a skill binding and syncs settings desired state.', ['skills:admin'], { body: 'none', parameters: [ids.agent, ids.skill] }),
+    ...mcpOpenApiRouteDocs,
+];

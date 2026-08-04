@@ -12,7 +12,8 @@
     "docs/architecture/ponytail-audit-2026-07-14.md",
     "docs/architecture/pr237-final-review.md",
     "docs/architecture/pr237-validation.md",
-    "docs/architecture/permission-durable-storage-plan-validation.md"
+    "docs/architecture/permission-durable-storage-plan-validation.md",
+    "docs/architecture/runtime-hardening-audit-2026-07-22.md"
   ],
   "defaultLineBudget": 700,
   "lineBudgets": {
@@ -26,7 +27,8 @@
     "apps/core/src/adapters/storage/postgres/services/canonical-job-ops-service.ts": 807,
     "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts": 950,
     "apps/core/src/adapters/storage/postgres/schema/schema.ts": 900,
-    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts": 745,
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts": 750,
+    "apps/core/src/application/permissions/permission-management-service.ts": 745,
     "apps/core/src/app/bootstrap/runtime-app.ts": 737,
     "apps/core/src/app/bootstrap/runtime-services.ts": 1185,
     "apps/core/src/channels/slack/channel-delivery-helpers.ts": 776,
@@ -68,20 +70,12 @@
   },
   "layers": {
     "domain": {
-      "paths": [
-        "apps/core/src/domain"
-      ],
-      "allowedImportLayers": [
-        "domain",
-        "shared",
-        "packages/contracts"
-      ],
+      "paths": ["apps/core/src/domain"],
+      "allowedImportLayers": ["domain", "shared", "packages/contracts"],
       "allowedExternalImports": []
     },
     "application": {
-      "paths": [
-        "apps/core/src/application"
-      ],
+      "paths": ["apps/core/src/application"],
       "allowedImportLayers": [
         "domain",
         "application",
@@ -135,14 +129,10 @@
         "shared",
         "packages/contracts"
       ],
-      "allowedExternalImports": [
-        "*"
-      ]
+      "allowedExternalImports": ["*"]
     },
     "config": {
-      "paths": [
-        "apps/core/src/config"
-      ],
+      "paths": ["apps/core/src/config"],
       "allowedImportLayers": [
         "config",
         "domain",
@@ -160,49 +150,28 @@
       ]
     },
     "shared": {
-      "paths": [
-        "apps/core/src/shared",
-        "apps/core/src/infrastructure/logging"
-      ],
-      "allowedImportLayers": [
-        "shared",
-        "packages/contracts"
-      ],
+      "paths": ["apps/core/src/shared", "apps/core/src/infrastructure/logging"],
+      "allowedImportLayers": ["shared", "packages/contracts"],
       "allowedExternalImports": [
         "node:",
         "crypto",
         "fs",
+        "officeparser",
         "path",
+        "pdfjs-dist",
         "url",
         "os"
       ]
     },
     "packages/contracts": {
-      "paths": [
-        "packages/contracts/src"
-      ],
-      "allowedImportLayers": [
-        "packages/contracts"
-      ],
-      "allowedExternalImports": [
-        "zod"
-      ]
+      "paths": ["packages/contracts/src"],
+      "allowedImportLayers": ["packages/contracts"],
+      "allowedExternalImports": ["zod"]
     },
     "packages/sdk": {
-      "paths": [
-        "packages/sdk/src"
-      ],
-      "allowedImportLayers": [
-        "packages/contracts",
-        "packages/sdk"
-      ],
-      "allowedExternalImports": [
-        "node:",
-        "http",
-        "https",
-        "url",
-        "crypto"
-      ]
+      "paths": ["packages/sdk/src"],
+      "allowedImportLayers": ["packages/contracts", "packages/sdk"],
+      "allowedExternalImports": ["node:", "http", "https", "url", "crypto"]
     }
   },
   "approvedProviderSpecificPaths": [
@@ -257,8 +226,5 @@
     "registeredGroup": "\\bregisteredGroups?\\b",
     "claude_only": "\\b(?:claude-only|Claude-only|claude only|Claude only|only Claude|only supports Claude)\\b"
   },
-  "emptyFolderScanRoots": [
-    "apps/core/src",
-    "packages"
-  ]
+  "emptyFolderScanRoots": ["apps/core/src", "packages"]
 }

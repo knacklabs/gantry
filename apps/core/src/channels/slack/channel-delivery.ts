@@ -27,8 +27,6 @@ import {
   sendSlackMessage,
   sendSlackProgressUpdate,
   syncSlackGroups,
-  type SlackSnippetFallbackInput,
-  type SlackSnippetFallbackResult,
 } from './channel-delivery-helpers.js';
 import { SlackChannelInteractions } from './channel-interactions.js';
 import {
@@ -48,6 +46,11 @@ import { renderSlackRichInteraction } from './rich-interaction.js';
 import { addSlackReaction, removeSlackReaction } from './reactions.js';
 import { requestSlackUserAnswer } from './user-question-delivery.js';
 import { historyCoverageInboundCallbacks } from '../conversation-history-coverage-lifecycle.js';
+import {
+  uploadSlackTextFallback,
+  type SlackSnippetFallbackInput,
+  type SlackSnippetFallbackResult,
+} from './file-delivery.js';
 const SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS = 4;
 
 export abstract class SlackChannelDelivery extends SlackChannelInteractions {
@@ -56,9 +59,29 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
   private deactivateHistoryCoverageInbound: (() => void) | null = null;
   private readonly reactionKeys = new Set<string>();
   protected async sendSnippetFallback(
-    _input: SlackSnippetFallbackInput,
+    input: SlackSnippetFallbackInput,
   ): Promise<SlackSnippetFallbackResult | null> {
-    return null;
+    if (!this.app) return null;
+    try {
+      const uploaded = await uploadSlackTextFallback({
+        app: this.app,
+        channelId: input.channelId,
+        text: input.text,
+        threadTs: input.threadId,
+      });
+      return {
+        fallbackArtifactId: uploaded.fileId,
+        ...(uploaded.externalMessageId
+          ? { externalMessageId: uploaded.externalMessageId }
+          : {}),
+      };
+    } catch (error) {
+      logger.warn(
+        { channelId: input.channelId, reason: input.reason, error },
+        'Slack snippet fallback upload failed; using split text delivery',
+      );
+      return null;
+    }
   }
   async connect(
     options: { inbound?: boolean; interactionCallbacks?: boolean } = {},

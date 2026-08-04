@@ -55,6 +55,7 @@ import type {
 import type {
   AgentMcpServerBinding,
   MaterializedMcpServer,
+  McpBindingAuthorityPrecondition,
   McpServerAuditEvent,
   McpServerDefinition,
   McpServerId,
@@ -106,12 +107,34 @@ export interface AgentRepository {
   getAgent(id: AgentId): Promise<Agent | null>;
   listAgents(appId: AppId): Promise<Agent[]>;
   saveAgent(agent: Agent): Promise<void>;
+  assertMcpBindingAuthorityPreconditions?(input: {
+    appId: AppId;
+    expectedMcpBindingAgentIds?: AgentId[];
+    expectedMcpBindings: McpBindingAuthorityPrecondition[];
+  }): Promise<void>;
+  replaceAgentCapabilityBindingsBatch?(input: {
+    appId: AppId;
+    agents: Agent[];
+    replacements: Array<{
+      agentId: AgentId;
+      toolBindings: AgentToolBinding[];
+      skillBindings: AgentSkillBinding[];
+      mcpBindings: AgentMcpServerBinding[];
+      preserveExistingMcpPolicy?: boolean;
+      updatedAt: string;
+    }>;
+    expectedMcpBindingAgentIds: AgentId[];
+    expectedMcpBindings: McpBindingAuthorityPrecondition[];
+  }): Promise<void>;
   replaceAgentCapabilityBindings(input: {
     appId: AppId;
     agentId: AgentId;
     toolBindings: AgentToolBinding[];
     skillBindings: AgentSkillBinding[];
     mcpBindings: AgentMcpServerBinding[];
+    expectedMcpBindingAgentIds?: AgentId[];
+    expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+    preserveExistingMcpPolicy?: boolean;
     updatedAt: string;
   }): Promise<void>;
   replaceAgentAccess(input: {
@@ -392,6 +415,7 @@ export interface ToolCatalogRepository {
     statuses?: ToolCatalogItem['status'][];
   }): Promise<ToolCatalogItem[]>;
   saveTool(item: ToolCatalogItem): Promise<void>;
+  saveToolIfAbsent?(item: ToolCatalogItem): Promise<ToolCatalogItem>;
   saveAgentToolBinding(binding: AgentToolBinding): Promise<void>;
   disableAgentToolBinding(input: {
     appId: AppId;
@@ -521,6 +545,15 @@ export interface ModelCredentialRepository {
 }
 
 export interface McpServerRepository {
+  withMcpCapabilityApprovalLock?<T>(input: {
+    appId: AppId;
+    serverNames: readonly string[];
+    operation: () => Promise<T>;
+  }): Promise<T>;
+  withMcpCapabilityAuthorizationLock?<T>(input: {
+    appId: AppId;
+    operation: () => Promise<T>;
+  }): Promise<T>;
   getServer(id: McpServerId): Promise<McpServerDefinition | null>;
   getServerByName(input: {
     appId: AppId;
@@ -539,6 +572,11 @@ export interface McpServerRepository {
     expectedStatus: McpServerDefinition['status'];
     next: McpServerDefinition;
   }): Promise<McpServerDefinition | null>;
+  getAgentBinding(input: {
+    appId: AppId;
+    agentId: AgentId;
+    serverId: McpServerId;
+  }): Promise<AgentMcpServerBinding | null>;
   saveAgentBinding(binding: AgentMcpServerBinding): Promise<void>;
   disableAgentBinding(input: {
     appId: AppId;

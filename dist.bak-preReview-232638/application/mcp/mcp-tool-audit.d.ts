@@ -1,0 +1,22 @@
+import type { AgentId } from '../../domain/agent/agent.js';
+import type { AppId } from '../../domain/app/app.js';
+import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
+import type { McpServerRepository } from '../../domain/ports/repositories.js';
+export type McpToolAuditResultClass = 'attempt' | 'invalid_request' | 'denied' | 'success' | 'timeout' | 'failure';
+export declare function summarizeMcpToolArguments(args: Record<string, unknown>): Record<string, unknown>;
+export declare function summarizeMcpToolArgumentPayload(value: unknown): Record<string, unknown>;
+export declare function publishInvalidMcpToolRequestAudit(input: {
+    mcpServers: McpServerRepository;
+    publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<unknown> | unknown;
+    appId: AppId;
+    agentId: AgentId;
+    runId?: string;
+    runHandle?: string;
+    serverName?: string;
+    toolName?: string;
+    argumentPayload?: unknown;
+    reason: string;
+    missingFields?: string[];
+}): Promise<void>;
+export declare function classifyMcpToolAuditError(err: unknown): McpToolAuditResultClass;
+export declare function summarizeMcpToolError(err: unknown): Record<string, unknown>;

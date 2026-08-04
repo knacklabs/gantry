@@ -1,4 +1,5 @@
 import type { Job } from '../../../../domain/repositories/domain-types.js';
+import type { CanonicalJobCoordinationUpdate } from '../repositories/canonical-job-coordination.postgres.js';
 
 export function parseSetupState(input: unknown): Job['setup_state'] {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -45,64 +46,6 @@ export function parseRequiredCapabilities(
   return [...new Set(ids)].sort();
 }
 
-export function parseRecoveryIntent(input: unknown): Job['recovery_intent'] {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) {
-    return undefined;
-  }
-  const record = input as Record<string, unknown>;
-  const kind = normalizeString(record.kind);
-  if (
-    kind !== 'setup_required' &&
-    kind !== 'missing_capability' &&
-    kind !== 'permission_denied' &&
-    kind !== 'permission_timeout'
-  ) {
-    return undefined;
-  }
-  const state = normalizeString(record.state);
-  if (
-    state !== 'pending' &&
-    state !== 'running' &&
-    state !== 'completed' &&
-    state !== 'failed' &&
-    state !== 'suppressed'
-  ) {
-    return undefined;
-  }
-  const dedupeKey = normalizeString(record.dedupe_key ?? record.dedupeKey);
-  const createdAt = normalizeString(record.created_at ?? record.createdAt);
-  const updatedAt = normalizeString(record.updated_at ?? record.updatedAt);
-  if (!dedupeKey || !createdAt || !updatedAt) return undefined;
-  const attempts =
-    typeof record.attempts === 'number' && Number.isFinite(record.attempts)
-      ? Math.max(0, Math.floor(record.attempts))
-      : 0;
-  return {
-    kind,
-    state,
-    dedupe_key: dedupeKey,
-    created_at: createdAt,
-    updated_at: updatedAt,
-    source_run_id: normalizeNullableString(
-      record.source_run_id ?? record.sourceRunId,
-    ),
-    setup_fingerprint: normalizeNullableString(
-      record.setup_fingerprint ?? record.setupFingerprint,
-    ),
-    requirement_type: normalizeRecoveryRequirementType(
-      record.requirement_type ?? record.requirementType,
-    ),
-    requirement_id: normalizeNullableString(
-      record.requirement_id ?? record.requirementId,
-    ),
-    next_action: normalizeNullableString(
-      record.next_action ?? record.nextAction,
-    ),
-    attempts,
-    last_error: normalizeNullableString(record.last_error ?? record.lastError),
-  };
-}
-
 function parseSetupBlocker(
   input: unknown,
 ): NonNullable<Job['setup_state']>['blockers'] {
@@ -118,9 +61,7 @@ function parseSetupBlocker(
   ) {
     return [];
   }
-  const requirementType = normalizeRecoveryRequirementType(
-    record.requirementType,
-  );
+  const requirementType = normalizeRequirementType(record.requirementType);
   const message = normalizeString(record.message);
   const nextAction = normalizeString(record.nextAction);
   const requirementId = normalizeString(record.requirementId);
@@ -136,9 +77,11 @@ function parseSetupBlocker(
   ];
 }
 
-function normalizeRecoveryRequirementType(
+function normalizeRequirementType(
   input: unknown,
-): NonNullable<Job['recovery_intent']>['requirement_type'] {
+):
+  | NonNullable<Job['setup_state']>['blockers'][number]['requirementType']
+  | null {
   const value = normalizeString(input);
   return value === 'tool' ||
     value === 'semantic_capability' ||
@@ -156,8 +99,24 @@ function normalizeString(input: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function normalizeNullableString(input: unknown): string | null {
-  return input === null || input === undefined
-    ? null
-    : (normalizeString(input) ?? null);
+export function coordinationUpdateFromJob(
+  job: Partial<Job>,
+  options?: { incrementConsecutiveFailures?: boolean },
+): CanonicalJobCoordinationUpdate {
+  return {
+    ...(options?.incrementConsecutiveFailures
+      ? { incrementConsecutiveFailures: true }
+      : job.consecutive_failures !== undefined
+        ? { consecutiveFailures: job.consecutive_failures }
+        : {}),
+    ...(job.max_consecutive_failures !== undefined
+      ? { maxConsecutiveFailures: job.max_consecutive_failures }
+      : {}),
+    ...(job.pause_reason !== undefined
+      ? { pauseReason: job.pause_reason }
+      : {}),
+    ...(job.setup_state !== undefined
+      ? { setupState: parseSetupState(job.setup_state) ?? null }
+      : {}),
+  };
 }

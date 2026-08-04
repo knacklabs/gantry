@@ -1,0 +1,541 @@
+import { canonicalConversationThreadId, } from '../../domain/conversation/conversation.js';
+import { replaceDesiredStateCapabilities, } from './desired-state-capability-reconcile.js';
+import { exportCurrentDesiredState } from './desired-state-current-export.js';
+import { normalizeConfiguredCapabilitiesInSettings, } from './configured-capability-normalization.js';
+import { configuredConversationKind, jidForConfiguredConversation, stripProviderPrefix, } from './desired-state-provider-conversations.js';
+import { agentIdForFolder, configuredAgentConfig, configuredRoutingBindings, configuredRoutingBindingsByAgent, errorMessage, folderForAgentId, hasAnyCapability, isInternalProviderAccount, isValidExternalUserId, listDbOnlyGroupJids, memorySubjectForConfiguredBinding, normalizeRuntimeSecretRefs, normalizeUserIds, } from './desired-state-service-helpers.js';
+export { agentIdForFolder, classifySettingsChanges, } from './desired-state-service-helpers.js';
+import { nowIso } from '../../shared/time/datetime.js';
+import { makeAgentThreadQueueKey } from '../../shared/thread-queue-key.js';
+import { validateDesiredStateCapabilityReferences } from './desired-state-capability-validation.js';
+export class SettingsDesiredStateService {
+    deps;
+    appId;
+    clock;
+    constructor(deps) {
+        this.deps = deps;
+        this.appId = deps.appId ?? 'default';
+        this.clock = deps.clock ?? { now: () => nowIso() };
+    }
+    async exportCurrent(settings) {
+        return exportCurrentDesiredState({
+            deps: this.deps,
+            appId: this.appId,
+            settings,
+        });
+    }
+    async normalizeConfiguredCapabilities(settings) {
+        return normalizeConfiguredCapabilitiesInSettings({
+            settings,
+            repositories: this.deps.repositories,
+            appId: this.appId,
+        });
+    }
+    async drift(settings) {
+        settings = (await this.normalizeConfiguredCapabilities(settings)).settings;
+        const [groups, chats] = await Promise.all([
+            this.deps.ops.getAllConversationRoutes(),
+            this.deps.ops.getAllChats?.() ?? Promise.resolve([]),
+        ]);
+        const configuredFolders = new Set(Object.keys(settings.agents));
+        const configuredJids = new Set();
+        for (const binding of configuredRoutingBindings(settings, groups)) {
+            configuredJids.add(binding.jid);
+            configuredJids.add(makeAgentThreadQueueKey(binding.jid, agentIdForFolder(binding.agentFolder), binding.threadId, binding.providerAccountId));
+        }
+        return {
+            missingSettingsAgents: [
+                ...new Set(Object.values(groups)
+                    .map((group) => group.folder)
+                    .filter((folder) => !configuredFolders.has(folder))),
+            ].sort(),
+            dbOnlyGroupJids: listDbOnlyGroupJids({
+                groups,
+                chats,
+                configuredJids,
+            }),
+            invalidReferences: await this.validateCapabilityReferences(settings),
+        };
+    }
+    async reconcile(settings) {
+        const normalization = await normalizeConfiguredCapabilitiesInSettings({
+            settings,
+            repositories: this.deps.repositories,
+            appId: this.appId,
+        });
+        settings = normalization.settings;
+        const normalizedCapabilityFolders = new Set(normalization.changedAgentFolders);
+        const invalidReferences = await this.validateCapabilityReferences(settings);
+        if (invalidReferences.length > 0) {
+            return { applied: [], skipped: [], invalidReferences };
+        }
+        const applied = [];
+        const skipped = [];
+        const existingGroups = await this.deps.ops.getAllConversationRoutes();
+        const configuredFolders = new Set(Object.keys(settings.agents));
+        const configuredJids = new Set();
+        const bindingsByAgent = configuredRoutingBindingsByAgent(settings, existingGroups);
+        const providerAccountEntries = Object.entries(settings.providerAccounts);
+        for (const [folder, agent] of Object.entries(settings.agents)) {
+            const agentId = agentIdForFolder(folder);
+            const now = this.clock.now();
+            await this.deps.repositories.agents.saveAgent({
+                id: agentId,
+                appId: this.appId,
+                name: agent.name,
+                status: 'active',
+                createdAt: now,
+                updatedAt: now,
+            });
+            applied.push(`agent:${folder}`);
+            if (settings.desiredState.authoritative ||
+                hasAnyCapability(agent) ||
+                normalizedCapabilityFolders.has(folder)) {
+                await this.replaceCapabilities(agentId, agent, now, settings.desiredState.authoritative);
+                applied.push(`capabilities:${folder}`);
+            }
+            else {
+                skipped.push(`capabilities:${folder}:not-authoritative-empty`);
+            }
+        }
+        if (this.deps.repositories.providerAccounts) {
+            const desiredProviderAccountIds = new Set();
+            for (const [accountId, account] of providerAccountEntries) {
+                desiredProviderAccountIds.add(accountId);
+                await this.saveDesiredProviderAccount({
+                    accountId,
+                    account,
+                    status: settings.providers[account.provider]?.enabled === false
+                        ? 'disabled'
+                        : (account.status ?? 'active'),
+                    now: this.clock.now(),
+                });
+                applied.push(`provider_account:${accountId}`);
+            }
+            if (settings.desiredState.authoritative) {
+                const storedProviderAccounts = this.deps.repositories.providerAccounts
+                    .listProviderAccounts
+                    ? await this.deps.repositories.providerAccounts.listProviderAccounts(this.appId)
+                    : [];
+                for (const connection of storedProviderAccounts) {
+                    if (connection.status !== 'active' ||
+                        desiredProviderAccountIds.has(connection.id) ||
+                        isInternalProviderAccount(connection.providerId)) {
+                        continue;
+                    }
+                    await this.deps.repositories.providerAccounts.disableProviderAccount({
+                        appId: this.appId,
+                        id: connection.id,
+                        updatedAt: this.clock.now(),
+                    });
+                    applied.push(`provider_account:${connection.id}:disabled_absent`);
+                }
+            }
+        }
+        else if (providerAccountEntries.length > 0) {
+            skipped.push('provider_accounts:missing-repository');
+        }
+        for (const [folder, agent] of Object.entries(settings.agents)) {
+            for (const binding of bindingsByAgent.get(folder) ?? []) {
+                const conversation = binding.conversation;
+                const routeKey = makeAgentThreadQueueKey(binding.jid, agentIdForFolder(folder), binding.threadId, binding.providerAccountId);
+                configuredJids.add(routeKey);
+                await this.deps.ops.setConversationRoute(routeKey, {
+                    name: agent.name,
+                    folder,
+                    conversationId: binding.conversationId,
+                    trigger: binding.trigger,
+                    added_at: binding.addedAt,
+                    requiresTrigger: binding.requiresTrigger,
+                    providerAccountId: binding.providerAccountId,
+                    conversationKind: conversation?.kind === 'dm' || conversation?.kind === 'direct'
+                        ? 'dm'
+                        : 'channel',
+                    agentConfig: configuredAgentConfig(binding, agent),
+                });
+                applied.push(`binding:${binding.jid}:${folder}`);
+            }
+        }
+        if (this.deps.repositories.conversations &&
+            this.deps.repositories.providerAccounts) {
+            for (const [conversationKey, conversation] of Object.entries(settings.conversations)) {
+                const storedConversation = await this.ensureDesiredConversation({
+                    key: conversationKey,
+                    conversation,
+                    providerAccounts: settings.providerAccounts,
+                    now: this.clock.now(),
+                    skipped,
+                });
+                if (!storedConversation)
+                    continue;
+                await this.rebindConfiguredConversationBindings({
+                    settings,
+                    conversationKey,
+                    conversation,
+                    storedConversation,
+                    now: this.clock.now(),
+                    skipped,
+                });
+                try {
+                    await this.replaceStoredConversationApprovers({
+                        conversation: storedConversation,
+                        userIds: conversation.controlApprovers,
+                        updatedAt: this.clock.now(),
+                    });
+                    applied.push(`conversation_approvers:${conversationKey}`);
+                }
+                catch (err) {
+                    skipped.push(`conversation_approvers:${conversationKey}:${errorMessage(err)}`);
+                }
+            }
+        }
+        else if (Object.keys(settings.conversations).length > 0) {
+            skipped.push('conversation_approvers:missing-repositories');
+        }
+        if (settings.desiredState.authoritative &&
+            this.deps.ops.deleteConversationRoute) {
+            await Promise.all(Object.keys(existingGroups)
+                .filter((jid) => !configuredJids.has(jid))
+                .map((jid) => this.deps.ops.deleteConversationRoute(jid)));
+            applied.push('authoritative:removed_absent_bindings');
+        }
+        if (settings.desiredState.authoritative) {
+            const agents = await this.deps.repositories.agents.listAgents(this.appId);
+            for (const agent of agents) {
+                const folder = folderForAgentId(agent.id);
+                if (!folder || configuredFolders.has(folder))
+                    continue;
+                const now = this.clock.now();
+                await this.deps.repositories.agents.disableAgent({
+                    appId: this.appId,
+                    agentId: agent.id,
+                    updatedAt: now,
+                });
+                await this.replaceCapabilities(agent.id, {
+                    name: agent.name,
+                    folder,
+                    delegates: [],
+                    bindings: {},
+                    sources: { skills: [], mcpServers: [], tools: [] },
+                    capabilities: [],
+                    accessPreset: 'full',
+                }, now, true);
+                applied.push(`authoritative:disabled_absent_agent:${folder}`);
+            }
+        }
+        return { applied, skipped, invalidReferences: [] };
+    }
+    async saveDesiredProviderAccount(input) {
+        const providerAccounts = this.deps.repositories.providerAccounts;
+        if (!providerAccounts)
+            return;
+        const id = input.accountId;
+        const providerId = input.account.provider;
+        const existing = await providerAccounts.getProviderAccount(id);
+        if (existing && existing.appId !== this.appId) {
+            throw new Error(`provider_accounts.${input.accountId} already belongs to another app`);
+        }
+        if (existing && existing.providerId !== providerId) {
+            throw new Error(`provider_accounts.${input.accountId}.provider cannot change from ${existing.providerId} to ${providerId}; use a new provider account id.`);
+        }
+        const existingForApp = existing ?? null;
+        const agentId = input.account.agentId ?? existingForApp?.agentId;
+        if (!agentId) {
+            throw new Error(`provider_accounts.${input.accountId}.agent is required`);
+        }
+        await providerAccounts.saveProviderAccount({
+            id,
+            appId: this.appId,
+            agentId: agentIdForFolder(agentId),
+            providerId,
+            externalIdentityRef: input.account
+                .externalIdentityRef ??
+                existingForApp?.externalIdentityRef,
+            label: input.account.label,
+            status: input.status,
+            config: input.account.config ?? existingForApp?.config ?? {},
+            runtimeSecretRefs: normalizeRuntimeSecretRefs({
+                refs: input.account.runtimeSecretRefs,
+                pathPrefix: `provider_accounts.${input.accountId}.runtime_secret_refs`,
+            }),
+            createdAt: existingForApp?.createdAt ?? input.now,
+            updatedAt: input.now,
+        });
+    }
+    async ensureDesiredConversation(input) {
+        const conversations = this.deps.repositories.conversations;
+        if (!conversations)
+            return null;
+        const configuredProviderAccount = input.conversation.providerAccount ??
+            input.conversation.providerConnection;
+        const connectionSettings = input.providerAccounts[configuredProviderAccount];
+        if (!connectionSettings) {
+            input.skipped.push(`conversation:${input.key}:missing-provider-connection`);
+            return null;
+        }
+        const jid = jidForConfiguredConversation(input.conversation, input.providerAccounts);
+        const externalConversationId = stripProviderPrefix(jid);
+        const providerId = connectionSettings.provider;
+        const providerAccountId = configuredProviderAccount;
+        const existing = await this.findConfiguredConversation({
+            conversations,
+            providerId,
+            providerAccountId,
+            externalConversationId,
+        });
+        const kind = configuredConversationKind(input.conversation.kind);
+        if (existing) {
+            if (existing.providerAccountId === providerAccountId &&
+                existing.externalRef?.value === externalConversationId &&
+                existing.kind === kind &&
+                existing.title === input.conversation.displayName &&
+                existing.status === 'active') {
+                return existing;
+            }
+            const reconciled = {
+                ...existing,
+                providerAccountId,
+                externalRef: {
+                    kind: 'conversation',
+                    value: externalConversationId,
+                },
+                kind,
+                title: input.conversation.displayName,
+                status: 'active',
+                updatedAt: input.now,
+            };
+            await conversations.saveConversation(reconciled);
+            return reconciled;
+        }
+        const conversation = {
+            id: `conversation:${providerAccountId}:${jid}`,
+            appId: this.appId,
+            providerAccountId,
+            externalRef: {
+                kind: 'conversation',
+                value: externalConversationId,
+            },
+            kind,
+            title: input.conversation.displayName,
+            status: 'active',
+            createdAt: input.now,
+            updatedAt: input.now,
+        };
+        await conversations.saveConversation(conversation);
+        return conversation;
+    }
+    async rebindConfiguredConversationBindings(input) {
+        const providerAccounts = this.deps.repositories.providerAccounts;
+        if (!providerAccounts)
+            return;
+        const desiredInstallIds = new Set();
+        const installConversationIds = new Set([
+            input.storedConversation.id,
+        ]);
+        for (const [bindingKey, binding] of Object.entries(input.settings.bindings)) {
+            if (binding.conversation !== input.conversationKey)
+                continue;
+            const agent = input.settings.agents[binding.agent];
+            if (!agent)
+                continue;
+            const agentId = agentIdForFolder(binding.agent);
+            const install = input.conversation.installedAgents?.[binding.installKey ?? ''];
+            const installProviderAccountId = install?.providerAccountId ??
+                input.storedConversation.providerAccountId;
+            const installConversation = installProviderAccountId === input.storedConversation.providerAccountId
+                ? input.storedConversation
+                : await this.ensureDesiredConversation({
+                    key: `${input.conversationKey}:${installProviderAccountId}`,
+                    conversation: {
+                        ...input.conversation,
+                        providerAccount: installProviderAccountId,
+                        providerConnection: installProviderAccountId,
+                    },
+                    providerAccounts: input.settings.providerAccounts,
+                    now: input.now,
+                    skipped: input.skipped,
+                });
+            if (!installConversation)
+                continue;
+            if (installConversation.id !== input.storedConversation.id) {
+                await this.replaceStoredConversationApprovers({
+                    conversation: installConversation,
+                    participantSourceConversation: input.storedConversation,
+                    userIds: input.conversation.controlApprovers,
+                    updatedAt: input.now,
+                });
+            }
+            const threadId = binding.threadId
+                ? await this.ensureDesiredConversationThread({
+                    conversation: installConversation,
+                    publicThreadId: binding.threadId,
+                    now: input.now,
+                })
+                : undefined;
+            const installId = `agent-conversation-binding:${encodeURIComponent(binding.agent)}:${encodeURIComponent(bindingKey)}`;
+            desiredInstallIds.add(installId);
+            installConversationIds.add(installConversation.id);
+            await providerAccounts.saveConversationInstall({
+                id: installId,
+                appId: this.appId,
+                agentId,
+                providerAccountId: installProviderAccountId,
+                conversationId: installConversation.id,
+                ...(threadId ? { threadId } : {}),
+                displayName: input.conversation.displayName || agent.name,
+                status: 'active',
+                senderPolicy: 'provider_native',
+                controlPolicy: 'conversation_approvers',
+                memoryScope: binding.memoryScope,
+                memorySubject: {
+                    ...memorySubjectForConfiguredBinding({
+                        appId: this.appId,
+                        agentId,
+                        memoryScope: binding.memoryScope,
+                        conversation: input.conversation,
+                        conversationId: installConversation.id,
+                    }),
+                    route: {
+                        configuredConversationId: input.conversationKey,
+                        trigger: binding.trigger,
+                        requiresTrigger: binding.requiresTrigger,
+                        agentConfig: configuredAgentConfig(binding),
+                    },
+                },
+                permissionPolicyIds: [],
+                createdAt: binding.addedAt || input.now,
+                updatedAt: input.now,
+            });
+        }
+        for (const install of Object.values(input.conversation.installedAgents ?? {})) {
+            if (install.status !== 'disabled')
+                continue;
+            const installProviderAccountId = install.providerAccountId ?? input.storedConversation.providerAccountId;
+            const installConversation = installProviderAccountId === input.storedConversation.providerAccountId
+                ? input.storedConversation
+                : await this.ensureDesiredConversation({
+                    key: `${input.conversationKey}:${installProviderAccountId}`,
+                    conversation: {
+                        ...input.conversation,
+                        providerAccount: installProviderAccountId,
+                        providerConnection: installProviderAccountId,
+                    },
+                    providerAccounts: input.settings.providerAccounts,
+                    now: input.now,
+                    skipped: input.skipped,
+                });
+            if (!installConversation)
+                continue;
+            installConversationIds.add(installConversation.id);
+            const threadId = canonicalConversationThreadId({
+                conversation: installConversation,
+                threadId: install.threadId,
+            });
+            await providerAccounts.disableConversationInstall({
+                appId: this.appId,
+                agentId: agentIdForFolder(install.agentId),
+                conversationId: installConversation.id,
+                ...(threadId ? { threadId } : {}),
+                updatedAt: input.now,
+            });
+        }
+        if (!input.settings.desiredState.authoritative)
+            return;
+        for (const conversationId of installConversationIds) {
+            const storedInstalls = await providerAccounts.listConversationInstallsByConversation({
+                appId: this.appId,
+                conversationId,
+            });
+            for (const install of storedInstalls) {
+                if (install.status !== 'active')
+                    continue;
+                if (desiredInstallIds.has(install.id))
+                    continue;
+                await providerAccounts.disableConversationInstall({
+                    appId: this.appId,
+                    agentId: install.agentId,
+                    conversationId: install.conversationId,
+                    ...(install.threadId ? { threadId: install.threadId } : {}),
+                    updatedAt: input.now,
+                });
+            }
+        }
+    }
+    async ensureDesiredConversationThread(input) {
+        const threadId = canonicalConversationThreadId({
+            conversation: input.conversation,
+            threadId: input.publicThreadId,
+        });
+        if (!threadId)
+            return undefined;
+        await this.deps.repositories.conversations?.saveThread({
+            id: threadId,
+            appId: this.appId,
+            conversationId: input.conversation.id,
+            externalRef: {
+                kind: 'conversation_thread',
+                value: input.publicThreadId,
+            },
+            status: 'active',
+            createdAt: input.now,
+            updatedAt: input.now,
+        });
+        return threadId;
+    }
+    async replaceStoredConversationApprovers(input) {
+        const conversations = this.deps.repositories.conversations;
+        if (!conversations)
+            return;
+        const userIds = normalizeUserIds(input.userIds);
+        const invalidShape = userIds.filter((id) => !isValidExternalUserId(id));
+        if (invalidShape.length > 0) {
+            throw new Error(`Invalid control approver user ids: ${invalidShape.join(', ')}`);
+        }
+        if (userIds.length > 0) {
+            const knownMembers = new Set(await conversations.listParticipantExternalUserIds(input.participantSourceConversation?.id ?? input.conversation.id));
+            const invalidUserIds = userIds.filter((id) => !knownMembers.has(id));
+            if (invalidUserIds.length > 0) {
+                throw new Error([
+                    'Control approvers must be members of the conversation.',
+                    `Invalid: ${invalidUserIds.join(', ')}`,
+                    knownMembers.size === 0
+                        ? 'No conversation participant records are available.'
+                        : undefined,
+                ]
+                    .filter(Boolean)
+                    .join(' '));
+            }
+        }
+        await conversations.replaceConversationApprovers({
+            appId: this.appId,
+            conversationId: input.conversation.id,
+            externalUserIds: userIds,
+            updatedAt: input.updatedAt,
+        });
+    }
+    async findConfiguredConversation(input) {
+        return input.conversations.getConversationByExternalRef({
+            appId: this.appId,
+            providerId: input.providerId,
+            providerAccountId: input.providerAccountId,
+            externalConversationId: input.externalConversationId,
+        });
+    }
+    async validateCapabilityReferences(settings) {
+        return validateDesiredStateCapabilityReferences({
+            appId: this.appId,
+            deps: this.deps,
+            settings,
+        });
+    }
+    async replaceCapabilities(agentId, agent, now, authoritative) {
+        await replaceDesiredStateCapabilities({
+            appId: this.appId,
+            agentId,
+            agent,
+            repositories: this.deps.repositories,
+            now,
+            authoritative,
+        });
+    }
+}

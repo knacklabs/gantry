@@ -35,6 +35,7 @@ import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 import { activeRunLeaseFence } from './run-lease-fence.postgres.js';
 import {
   claimLiveAdmissionWorkItems,
+  deleteExpiredTerminalLiveAdmissionWorkItems,
   deferLiveAdmissionWorkItem,
   enqueueLiveAdmissionWorkItem,
   renewLiveAdmissionWorkItemClaim,
@@ -141,6 +142,12 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
     now?: string;
   }): Promise<boolean> {
     return settleLiveAdmissionWorkItem(this.db, input);
+  }
+
+  async deleteExpiredTerminalLiveAdmissionWorkItems(
+    cutoffIso: string,
+  ): Promise<{ deleted: number; more: boolean }> {
+    return deleteExpiredTerminalLiveAdmissionWorkItems(this.db, cutoffIso);
   }
 
   async claimLiveTurn(input: {

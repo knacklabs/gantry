@@ -126,6 +126,7 @@ export class ExternalIngressModule {
     private readonly deps: {
       control: ExternalIngressControlPort;
       sessions: SessionInteractionModule;
+      liveAdmissionAppId: string | null;
       registerSessionGroup?: (
         registration: SessionGroupRegistration,
       ) => Promise<void>;
@@ -454,21 +455,24 @@ export class ExternalIngressModule {
       sessionId = ensured.session.sessionId;
       registerGroup = ensured.registerGroup;
     }
-    const accepted = await this.deps.sessions.acceptMessage({
-      appId,
-      sessionId,
-      message,
-      senderId: readOptionalString(target, 'senderId') ?? 'external-ingress',
-      senderName:
-        readOptionalString(target, 'senderName') ?? 'External Ingress',
-      threadId: readOptionalString(target, 'threadId') ?? undefined,
-      correlationId: readOptionalString(target, 'correlationId') ?? null,
-      responseMode: target.responseMode,
-      webhookId: readOptionalString(target, 'webhookId'),
-      beforeDurableAdmission: registerGroup
-        ? () => this.deps.registerSessionGroup?.(registerGroup)
-        : undefined,
-    });
+    const accepted = await this.deps.sessions.acceptMessage(
+      {
+        appId,
+        sessionId,
+        message,
+        senderId: readOptionalString(target, 'senderId') ?? 'external-ingress',
+        senderName:
+          readOptionalString(target, 'senderName') ?? 'External Ingress',
+        threadId: readOptionalString(target, 'threadId') ?? undefined,
+        correlationId: readOptionalString(target, 'correlationId') ?? null,
+        responseMode: target.responseMode,
+        webhookId: readOptionalString(target, 'webhookId'),
+        beforeDurableAdmission: registerGroup
+          ? () => this.deps.registerSessionGroup?.(registerGroup)
+          : undefined,
+      },
+      this.deps.liveAdmissionAppId,
+    );
     return {
       targetKind: 'session_message',
       sessionId,
