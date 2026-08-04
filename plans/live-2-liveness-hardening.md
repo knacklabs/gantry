@@ -126,33 +126,45 @@ decision 0033); content/canvas work (CONTENT-1 lane); provider SDK upgrades.
 ## Acceptance Criteria
 
 1. Every adapter's liveness support is declared in one optional `liveUx` capability
-   object (`typing: none|expiring`; `reactions: none|{removal: exact|all}`); no
-   inferred casts, no advertised no-op operations. Teams declares `reactions: none`;
-   Slack declares `typing: none`.
+   object (`typing: none|expiring|explicit`; `reactions: none|{removal: exact|all}`);
+   no inferred casts, no advertised no-op operations. Teams declares
+   `reactions: none`; Slack declares `typing: none`; the app (web session) adapter
+   declares `typing: explicit` — dispatcher sends on at start and off on EVERY
+   terminal path, no refresh cadence (signal S-0001 resolution).
 2. One route-aware dispatcher owns reactions + typing delivery for all providers:
    bounded best-effort deadlines, catch-and-warn policy, rate-limit warn + retry-once,
-   missing-sink loud diagnosis. Discord setTyping can no longer fail a turn.
+   missing-sink loud diagnosis. The dispatcher is the ONLY retry owner: adapters
+   surface failures (with classified rate-limit delay) instead of swallowing or
+   retrying locally; a falsifier asserts at most two transport attempts per operation
+   (Discord's REST helper already triples). Discord setTyping can no longer fail a
+   turn.
 3. Liveness phase (`active|delivering|waiting|stalled|terminal`) has one owner;
    reaction admission and terminal restoration share one finally scope — no path
    strands ⏳ (including pre-agent setup failures and live-execution finalization).
 4. The first-reaction send cannot block turn start (bounded or detached).
 5. Telegram: replace-only edits never create a duplicate on edit failure (ambiguous,
-   sticky); reaction flips are no-op-flagged (no remove-all wipe); typing carries
-   message_thread_id into topics.
+   sticky); reaction flips use the declared `reactions.removal` mode — `all` replaces
+   without a preceding removal, `exact` keeps remove-then-add; no second
+   provider-specific flip flag. Typing carries message_thread_id into topics.
 6. Slack: after a restart, a card persisted by a prior process is terminally marked
    stale (best-effort) and new work posts a fresh card — no update is ever silently
    rejected into muteness (stale-and-repost, grill-locked); restart test uses real
    restart arithmetic.
 7. Discord: thread reactions never fall back to the parent channel; the test asserting
    that fallback as success is fixed.
-8. Batch turns place the seen-reaction by backwards-scan (parity with
-   continuation receipts); the first-output flip race settles to exactly one terminal
-   reaction.
-9. Typing resumes after stall recovery; never shows during a stall (invariant kept).
-10. Deletions land: three lifetime reaction-dedupe registries, the unreachable
-    undispatched-stall rollback, and the unused multipart alias map. The Discord
-    active/tombstone map collapse is DEFERRED (grill-locked) with a ledger trigger:
-    the next bug traced to the dual-map migration logic reopens it.
+8. Batch turns place the seen-reaction by backwards-scan (parity with continuation
+   receipts). (The "5s flip race" premise was REJECTED by the critique — already
+   serialized and tested; keep an end-state regression only, not a falsifier.)
+9. Typing resumes IMMEDIATELY on the stalled→active transition after a successful
+   visible delivery (not on the next heartbeat tick — the critique corrected the
+   defect from "permanent stop" to "up-to-4s lag"); never shows during a stall.
+10. Deletions land for the two PROVEN-dead paths only: the unreachable
+    undispatched-stall `lastDesired` rollback sub-branch and the unused multipart
+    alias map. The three reaction-dedupe registries are DEFERRED (critique: they are
+    live request-suppression caches, not dead state) with a ledger trigger: stateful
+    tests prove duplicate add/remove calls change no visible state and violate no
+    request ceiling (D-0044). The Discord active/tombstone map collapse stays
+    DEFERRED (D-0043).
 11. Liveness suites assert final provider-visible state through a shared stateful fake
     provider (rendered card text, reaction set, single-card, no-duplicate,
     concurrency ceiling), with failure/latency/restart falsifiers; one flow-level
@@ -179,9 +191,10 @@ Order the work so the reshape lands first and the point-fixes land ON the new sh
 3. **Provider fixes on the new shape**: Telegram (replace-only ambiguity, flip flag,
    topic typing), Slack (restart stale-and-repost), Discord (thread-reaction fallback
    removal), batch backwards-scan, flip-race settlement.
-4. **Deletions**: dedupe registries, unreachable rollback, alias map — each with a
-   test proving the behavior it guarded still holds. (Tombstone-map collapse
-   deferred; ledger row with trigger.)
+4. **Deletions**: the unreachable `lastDesired` rollback sub-branch and the unused
+   alias map — each with a test proving the behavior it guarded still holds.
+   (Reaction-dedupe registries and tombstone-map collapse both deferred; ledger rows
+   with triggers.)
 5. **Test hardening**: shared stateful fake provider; falsifiers per fix (red on
    LIVE-1 tree, green here); flow-level chain test; two-account tests.
 
