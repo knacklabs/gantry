@@ -4,6 +4,7 @@ import {
   MessageDeliveryResult,
   MessageSendOptions,
   PermissionApprovalRequest,
+  ProgressUpdateOptions,
   StreamingChunkOptions,
 } from '../../domain/types.js';
 import { stripInternalTagsPreserveWhitespace } from '../../messaging/router.js';
@@ -29,14 +30,12 @@ import { RuntimeSecretConversationMembershipValidator } from '../../channels/con
 import type { AppId } from '../../domain/app/app.js';
 import {
   asAgentTodoSurface,
-  asMessageReactionSink,
   asPermissionApprovalSurface,
   asProgressSink,
   asRichInteractionSurface,
   asContentCanvasSurface,
   asStreamingSink,
   asStreamingStateSink,
-  asTypingSink,
   asUserQuestionSurface,
 } from './channel-capability-ports.js';
 import {
@@ -77,6 +76,7 @@ import { createChannelMessageActionRouter } from './channel-message-action-route
 import { createChannelProgressSender } from './channel-progress-sender.js';
 import { hydrateChannelConversationContext } from './channel-wiring-conversation-context.js';
 import { createChannelWiringStreamReset } from './channel-wiring-stream-reset.js';
+import { createChannelWiringLiveUx } from './channel-wiring-live-ux.js';
 import {
   connectProviderAccountChannels,
   type BoundProviderAccountChannel,
@@ -87,7 +87,6 @@ import { syncChannelGroups } from './channel-wiring-group-sync.js';
 import { fetchHistoricalAttachmentFromChannel } from './channel-wiring-historical-attachments.js';
 import { createChannelAttachmentDeletionHandler } from './channel-wiring-attachment-deletion.js';
 const PROVIDER_INBOUND_LEASE_PREFIX = 'runtime:provider-inbound';
-type AccountOpts = { providerAccountId?: string };
 type BoundChannel = BoundProviderAccountChannel['channel'];
 export function createChannelWiring(
   app: RuntimeApp,
@@ -153,6 +152,9 @@ export function createChannelWiring(
     asStreamingStateSink,
     asPermissionApprovalSurface,
     asUserQuestionSurface,
+  });
+  const { setTyping, addReaction, removeReaction } = createChannelWiringLiveUx({
+    findBoundChannel,
   });
   const isControlApproverAllowed = (input: {
     providerId: string;
@@ -309,6 +311,15 @@ export function createChannelWiring(
   ): boolean {
     const channel = findBoundChannel(jid, options?.providerAccountId);
     return channel ? asProgressSink(channel) !== undefined : false;
+  }
+  function progressCardIdentity(
+    jid: string,
+    options?: ProgressUpdateOptions,
+  ): string | undefined {
+    const channel = findBoundChannel(jid, options?.providerAccountId);
+    return channel
+      ? asProgressSink(channel)?.progressCardIdentity?.(jid, options)
+      : undefined;
   }
   async function sendMessage(
     jid: string,
@@ -679,25 +690,6 @@ export function createChannelWiring(
     if (!sink) return false;
     return sink.sendStreamingChunk(jid, text, options);
   }
-  async function setTyping(jid: string, isTyping: boolean, opts?: AccountOpts) {
-    const channel = findBoundChannel(jid, opts?.providerAccountId);
-    if (!channel) return;
-    const typingSink = asTypingSink(channel);
-    if (!typingSink) return;
-    await typingSink.setTyping(jid, isTyping);
-  }
-  async function addReaction(
-    jid: string,
-    ref: string,
-    emoji: string,
-    opts?: AccountOpts,
-  ) {
-    const channel = findBoundChannel(jid, opts?.providerAccountId);
-    if (!channel) return;
-    const reactionSink = asMessageReactionSink(channel);
-    if (!reactionSink) return;
-    await reactionSink.addReaction(jid, ref, emoji);
-  }
   async function disconnectChannels(): Promise<void> {
     const drained = await persistenceQueue.waitForIdle(5_000);
     if (!drained) {
@@ -746,8 +738,10 @@ export function createChannelWiring(
     sendStreamingChunk,
     resetStreaming: streamReset.resetStreaming,
     setTyping,
+    progressCardIdentity,
     sendProgressUpdate,
     addReaction,
+    removeReaction,
     syncGroups: (force) => syncChannelGroups(connectedChannels, force),
     requestPermissionApproval,
     cancelPermissionApproval: requestPermissionApproval.cancel,

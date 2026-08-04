@@ -4,6 +4,17 @@
 
 - `apps/core/src/` contains the runtime, routing, session, memory, and storage code for Gantry.
 
+## Ambient liveness: user-visible behaviors and their flow tests
+
+- Truthful typing: `apps/core/test/unit/runtime/group-processing.test.ts` — `calls setTyping true before and false after agent run`; `apps/core/test/unit/channels/discord.test.ts` — `posts typing to the Discord thread and ignores typing false`; `apps/core/test/unit/channels/slack.test.ts` — `does not expose Slack as typing-capable`.
+- Single 180-second stall notice: `apps/core/test/unit/runtime/group-processing.test.ts` — `edits the existing card once after 180s of silence, gates typing, and re-arms on output`; `apps/core/test/unit/runtime/group-progress-heartbeats.test.ts` — `keeps the stall claim held and typing suppressed when the notice rejects` and `releases a definitive false without typing and retries after one stall interval`.
+- Seen-to-running reaction flips and first-output cleanup: `apps/core/test/unit/bootstrap/live-reaction-lifecycle.test.ts` — `flips seen to running after five seconds and restores seen on first output`; adapter removal/re-add contracts are `removes Discord reactions and permits the same reaction to be re-added` in `apps/core/test/unit/channels/discord.test.ts`, `removes Slack reactions and permits the same reaction to be re-added` in `apps/core/test/unit/channels/slack.test.ts`, and `clears every Telegram reaction dedupe key when removing one reaction` in `apps/core/test/unit/channels/telegram.test.ts`.
+- Non-blocking continuation receipts at the loop seam: `apps/core/test/unit/runtime/message-loop.test.ts` — `acknowledges the newest provider message when continuation acceptance is %s` and `re-enqueues immediately when a continuation receipt never settles`; `apps/core/test/unit/bootstrap/live-recovery-coordinator.test.ts` — `finishes direct recovery routing when its continuation receipt never settles`.
+- Same-card retry status (`retrying n/max`): `apps/core/test/unit/runtime/group-processing.test.ts` — `keeps the failing progress-card generation for retry count %i` and `treats maxRetries zero as terminal on the initial failure`; `apps/core/test/unit/runtime/group-progress-channel-sender.test.ts` — `keeps a dispatched retry status repairable after its sender retires`.
+- Terminal Done wins: `apps/core/test/unit/runtime/group-progress-channel-sender.test.ts` — `keeps a stalled edit before terminal Done for the same card`, `drops an obsolete pre-dispatch stall link and advances terminal Done after the bound`, and `restores a failed terminal desired payload after an older stall lands late`.
+
+Maintenance: update this map whenever ambient-liveness flow tests are renamed or moved so the behavior contract continues to point at the exact exercising tests.
+
 ## Rules
 
 - Keep runtime imports aligned with the split domains under `apps/core/src/` rather than rebuilding root wrapper modules.
@@ -169,3 +180,35 @@
 - Runtime exception logging must preserve redacted `Error` type, message, code, cause, and stack details; never let structured runtime logs collapse thrown errors to `{}`.
 - Scheduler terminal completion surfaces must redact provider resume handles before side effects. Apply redaction before writing `completeJobRun` summaries, `pause_reason`, lifecycle/runtime event summaries, and terminal scheduler notifications.
 - Runtime live group output must use bounded user-visible accumulators for provider-visible delivery, redact provider resume handles after full-segment buffering, before channel formatting/streaming/fallback delivery, and before appending transcript summaries. Do not retain or join unbounded raw streamed deltas for provider-visible output.
+
+## LIVE-1 Ambient-Liveness Behavior-to-Test Map
+
+- Three-minute stall heartbeat: replace only the active progress card with
+  `Still working`, suppress typing while stalled, and re-arm after output.
+  - `runtime/group-processing.test.ts`: `edits the existing card once after 180s of silence, gates typing, and re-arms on output`
+  - `runtime/group-processing.test.ts`: `holds the stall latch and typing suppression when the replace-only edit rejects`
+  - `runtime/group-progress-heartbeats.test.ts`: `releases a definitive false without typing and retries after one stall interval`
+- Discord typing sink: POST typing to the routed Discord thread; `false` is a
+  no-op because Discord typing expires rather than being explicitly cleared.
+  - `channels/discord.test.ts`: `posts typing to the Discord thread and ignores typing false`
+  - `runtime/group-processing.test.ts`: `calls setTyping true before and false after agent run`
+- Seen-to-running reaction lifecycle: after five seconds remove `seen` and add
+  `running`; on first visible output remove `running` and restore `seen`.
+  - `bootstrap/live-reaction-lifecycle.test.ts`: `flips seen to running after five seconds and restores seen on first output`
+  - `bootstrap/live-reaction-lifecycle.test.ts`: `terminal cleanup before output leaves seen and never adds running`
+  - `bootstrap/live-reaction-lifecycle.test.ts`: `serializes timer and output cleanup when removal is already in flight`
+- Continuation receipts: acknowledge the newest real provider message through
+  the shared loop seam, regardless of whether the active turn accepts it.
+  - `runtime/message-loop.test.ts`: `acknowledges the newest provider message when continuation acceptance is %s`
+  - `runtime/message-loop.test.ts`: `does not acknowledge a synthetic continuation reference`
+  - `bootstrap/live-recovery-coordinator.test.ts`: `acknowledges direct-route continuations for %s outcomes`
+- Same-card retry status: keep the failing card generation and render
+  `retrying n/max`; `maxRetries: 0` is terminal on the initial failure.
+  - `runtime/group-processing.test.ts`: `keeps the failing progress-card generation for retry count %i`
+  - `runtime/group-processing.test.ts`: `treats maxRetries zero as terminal on the initial failure`
+  - `runtime/group-queue.test.ts`: `threads retry numbering and the configured maximum through every attempt`
+- Teams typing and reactions remain deferred by decision 0033 until a real
+  Teams client is available; this map records no Teams runtime coverage.
+
+Maintenance: when a liveness flow test above moves or is renamed, update this
+map in the same change — it is the durable index of the user-visible contract.

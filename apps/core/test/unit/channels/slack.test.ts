@@ -125,6 +125,7 @@ vi.mock('@slack/bolt', () => ({
       },
       reactions: {
         add: vi.fn().mockResolvedValue({ ok: true }),
+        remove: vi.fn().mockResolvedValue({ ok: true }),
       },
       apiCall: vi.fn().mockResolvedValue({ ok: false }),
       views: {
@@ -995,6 +996,26 @@ describe('Slack channel', () => {
       timestamp: '1710000000.000100',
       name: 'eyes',
     });
+  });
+
+  it('removes Slack reactions and permits the same reaction to be re-added', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect({ inbound: false });
+
+    await channel.addReaction('sl:C1234567890', '1710000000.000100', 'seen');
+    await channel.removeReaction('sl:C1234567890', '1710000000.000100', 'seen');
+    await channel.addReaction('sl:C1234567890', '1710000000.000100', 'seen');
+
+    expect(appRef.current.client.reactions.remove).toHaveBeenCalledWith({
+      channel: 'C1234567890',
+      timestamp: '1710000000.000100',
+      name: 'eyes',
+    });
+    expect(appRef.current.client.reactions.add).toHaveBeenCalledTimes(2);
   });
 
   it('persists standalone metadata for Slack group discovery without a message', async () => {
@@ -5446,6 +5467,25 @@ describe('Slack channel', () => {
       replaceOnly: true,
     });
 
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('reports a replace-only Slack update without a card handle as not landed', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+
+    const landed = await channel.sendProgressUpdate(
+      'sl:C1234567890',
+      'Still working',
+      { replaceOnly: true },
+    );
+
+    expect(landed).toBe(false);
     expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
     expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
   });

@@ -2,6 +2,28 @@ import type { FinalProgressState } from './progress-updates.js';
 
 type GroupTurnRunResult = 'success' | 'error' | 'stopped';
 
+export function detachTerminalCleanup(
+  cleanup: (() => Promise<void> | void) | undefined,
+): void {
+  if (!cleanup) return;
+  void (async () => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.resolve().then(cleanup),
+        new Promise<void>((resolve) => {
+          timeout = setTimeout(resolve, 2_000);
+          timeout.unref?.();
+        }),
+      ]);
+    } catch {
+      // Reaction cleanup is best-effort and must never block terminal delivery.
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  })();
+}
+
 export async function handleFailure(input: {
   outputSentToUser: boolean;
   acknowledgeFailedTurn?: boolean;

@@ -37,6 +37,8 @@ export function createGroupOutputBuffer(input: {
     settlement: DeliverySettlement,
     options: { streamed: boolean; terminal: boolean },
   ) => void;
+  onVisibleDeliveryStart?: () => Promise<void> | void;
+  onVisibleDeliveryFinish?: (delivered: boolean) => Promise<void> | void;
   resetStreamedTranscriptDeliveryStatus?: () => void;
   /** A generation finished having delivered nothing to the user. */
   onGenerationUndelivered?: (text: string) => void;
@@ -63,6 +65,33 @@ export function createGroupOutputBuffer(input: {
   let pendingOutputRawChars = 0;
   let pendingOutputHasParts = false;
 
+  const runVisibleDelivery = async (
+    attempt: () => Promise<DeliverySettlement>,
+    options: { streamed: boolean; terminal: boolean },
+  ): Promise<DeliverySettlement> => {
+    await Promise.resolve(input.onVisibleDeliveryStart?.()).catch((err) =>
+      input.log.warn(
+        { err, group: input.groupName },
+        'Visible output progress ordering failed',
+      ),
+    );
+    let settlement: DeliverySettlement = 'not_delivered';
+    try {
+      settlement = await attempt();
+      input.applyDeliverySettlement(settlement, options);
+      return settlement;
+    } finally {
+      await Promise.resolve(
+        input.onVisibleDeliveryFinish?.(settlement !== 'not_delivered'),
+      ).catch((err) =>
+        input.log.warn(
+          { err, group: input.groupName },
+          'Visible output completion hook failed',
+        ),
+      );
+    }
+  };
+
   const flushBufferedOutput = async (
     reason: string,
     options: { done?: boolean; terminal?: boolean } = {},
@@ -84,22 +113,25 @@ export function createGroupOutputBuffer(input: {
     );
     if (!text) return false;
     if (input.supportsStreamingChunks) {
-      const settlement = await settleDeliveryAttempt(
+      const settlement = await runVisibleDelivery(
         () =>
-          input.channelRuntime.sendStreamingChunk(
-            input.chatJid,
-            finalStreamDelta,
-            input.buildStreamingOptions({ done }),
-          ),
-        { scope: 'runtime-streaming-output-final', target: input.chatJid },
-      ).catch((err) => {
-        input.log.warn(
-          { err, group: input.groupName, reason },
-          'Failed to send finalized streaming output',
-        );
-        return 'not_delivered' as const;
-      });
-      input.applyDeliverySettlement(settlement, { streamed: true, terminal });
+          settleDeliveryAttempt(
+            () =>
+              input.channelRuntime.sendStreamingChunk(
+                input.chatJid,
+                finalStreamDelta,
+                input.buildStreamingOptions({ done }),
+              ),
+            { scope: 'runtime-streaming-output-final', target: input.chatJid },
+          ).catch((err) => {
+            input.log.warn(
+              { err, group: input.groupName, reason },
+              'Failed to send finalized streaming output',
+            );
+            return 'not_delivered' as const;
+          }),
+        { streamed: true, terminal },
+      );
       // Verbatim, no separator: flush boundaries are a transport detail and
       // can fall mid-word, so appending a newline here would store "hel\nlo"
       // for a reply the user received as "hello".
@@ -146,11 +178,14 @@ export function createGroupOutputBuffer(input: {
       }
     } else {
       const messageOptions = await input.buildMessageOptions();
-      const settlement = await settleDeliveryAttempt(
-        () => input.sendMessageToChannel(text, messageOptions),
-        { scope: 'runtime-output-message-final', target: input.chatJid },
+      await runVisibleDelivery(
+        () =>
+          settleDeliveryAttempt(
+            () => input.sendMessageToChannel(text, messageOptions),
+            { scope: 'runtime-output-message-final', target: input.chatJid },
+          ),
+        { streamed: false, terminal },
       );
-      input.applyDeliverySettlement(settlement, { streamed: false, terminal });
     }
     userVisibleTranscript.append(`${text}\n`);
     return true;
@@ -164,19 +199,19 @@ export function createGroupOutputBuffer(input: {
       if (!input.supportsStreamingChunks) return;
       const safeDelta = streamSanitizer.append(raw);
       if (!safeDelta) return;
-      const settlement = await settleDeliveryAttempt(
+      await runVisibleDelivery(
         () =>
-          input.channelRuntime.sendStreamingChunk(
-            input.chatJid,
-            safeDelta,
-            input.buildStreamingOptions({ done: false }),
+          settleDeliveryAttempt(
+            () =>
+              input.channelRuntime.sendStreamingChunk(
+                input.chatJid,
+                safeDelta,
+                input.buildStreamingOptions({ done: false }),
+              ),
+            { scope: 'runtime-streaming-output-live', target: input.chatJid },
           ),
-        { scope: 'runtime-streaming-output-live', target: input.chatJid },
+        { streamed: true, terminal: false },
       );
-      input.applyDeliverySettlement(settlement, {
-        streamed: true,
-        terminal: false,
-      });
     },
     flushBufferedOutput,
     transcriptSnapshot: () => userVisibleTranscript.snapshot(),

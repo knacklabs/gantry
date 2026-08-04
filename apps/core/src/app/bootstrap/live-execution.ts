@@ -10,6 +10,8 @@ import type {
   AgentTodoRender,
 } from '../../domain/ports/task-lifecycle.js';
 import type { GroupMessageRunContext } from '../../runtime/group-queue-types.js';
+import { createLiveReactionLifecycle } from './live-reaction-lifecycle.js';
+import { projectLiveRetryContext } from './live-retry-context.js';
 import type { GroupProcessOptions } from '../../runtime/group-processing-types.js';
 import type { RunLease } from '../../domain/ports/worker-coordination.js';
 import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
@@ -126,7 +128,13 @@ export function buildLiveAdmissionProcessor(input: {
     jid: string,
     messageRef: string,
     emoji: string,
-    options?: { providerAccountId?: string },
+    options?: { providerAccountId?: string; threadId?: string },
+  ) => Promise<void>;
+  removeReaction?: (
+    jid: string,
+    messageRef: string,
+    emoji: string,
+    options?: { providerAccountId?: string; threadId?: string },
   ) => Promise<void>;
   finalizeAgentTodo?: (
     jid: string,
@@ -135,22 +143,14 @@ export function buildLiveAdmissionProcessor(input: {
       cardKind?: AgentTodoRender['cardKind'];
       status: AgentTodoCardStatus;
     },
-    options?: { providerAccountId?: string },
+    options?: { providerAccountId?: string; threadId?: string },
   ) => Promise<boolean>;
   finalizeBrowserForLiveTurn?: LiveTurnBrowserFinalizer;
   handleActiveControlCommand?: ActiveControlCommandHandler;
 }): (queueJid: string, context?: GroupMessageRunContext) => Promise<boolean> {
-  const {
-    liveTurnAuthority,
-    app,
-    opsRepository,
-    executionAdapter,
-    messageFetchPageSize,
-    timezone,
-    warn,
-    finalizeAgentTodo,
-    finalizeBrowserForLiveTurn,
-  } = input;
+  const { liveTurnAuthority, app, opsRepository, executionAdapter } = input;
+  const { messageFetchPageSize, timezone, warn } = input;
+  const { finalizeAgentTodo, finalizeBrowserForLiveTurn } = input;
 
   const routeScopeActive = (
     scope: LiveTurnScope,
@@ -183,6 +183,7 @@ export function buildLiveAdmissionProcessor(input: {
       routeMessage: liveTurnAuthority!.routeMessage.bind(liveTurnAuthority),
       completeSessionAgentRun:
         opsRepository.completeSessionAgentRun?.bind(opsRepository),
+      addReaction: input.addReaction,
     });
 
   return async (
@@ -192,12 +193,23 @@ export function buildLiveAdmissionProcessor(input: {
     if (!liveTurnAuthority) {
       return app.processGroupMessages(queueJid, {
         queued: true,
-        finalRetry: context?.finalRetry === true,
+        ...projectLiveRetryContext(context),
       });
     }
     const { chatJid, threadId, providerAccountId } =
       parseAgentThreadQueueKey(queueJid);
-    const account = providerAccountId ? { providerAccountId } : undefined;
+    const account =
+      providerAccountId || threadId
+        ? {
+            ...(providerAccountId ? { providerAccountId } : {}),
+            ...(threadId ? { threadId } : {}),
+          }
+        : undefined;
+    const reactionLifecycle = createLiveReactionLifecycle({
+      addReaction: input.addReaction,
+      removeReaction: input.removeReaction,
+      options: account,
+    });
     const finalizeTodo = (
       status: AgentTodoCardStatus,
       message: string,
@@ -303,7 +315,7 @@ export function buildLiveAdmissionProcessor(input: {
       let liveRunResult: 'success' | 'error' | 'stopped' | null = null;
       const success = await app.processGroupMessages(queueJid, {
         queued: true,
-        finalRetry: context?.finalRetry === true,
+        ...projectLiveRetryContext(context),
         existingRunId: liveRunId,
         ...(liveRunFence
           ? {
@@ -315,10 +327,9 @@ export function buildLiveAdmissionProcessor(input: {
         onRunResult: (result) => {
           liveRunResult = result;
         },
-        onFirstProgress: ({ jid, messageRef }) =>
-          input
-            .addReaction?.(jid, messageRef, 'seen', account)
-            .catch(() => undefined),
+        onFirstProgress: reactionLifecycle.onFirstProgress,
+        onFirstVisibleOutput: reactionLifecycle.onFirstVisibleOutput,
+        onTurnTerminal: reactionLifecycle.onTerminal,
         onLiveStopActionToken: async (token) => {
           await liveTurnAuthority.registerStopAliases(queueJid, [token]);
         },

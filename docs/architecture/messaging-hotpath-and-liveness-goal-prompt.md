@@ -61,8 +61,8 @@ shipped/measured/deferred status.
 
 ### Graph-write premise status (LAT-4B, 2026-08-02)
 
-| Slice | Real-Postgres result | What did not improve |
-| --- | --- | --- |
+| Slice                        | Real-Postgres result                                                                                                                                                                                                                                                                         | What did not improve                                                                                                                                                                                                                                                                     |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | LAT-4B graph-write reduction | The audit's ~24-25 baseline was stale (pre-LAT-4A). Corrected: top-level **19 → 15** statements, thread **29 → 16** (first pinned thread measurement). Decision 0096 pins thread recency to the message timestamp; the deleted nested write also stripped `isGroup` on every thread message. | The ~7 CONDITIONAL identity upserts (providers/agents/config/accounts) remain — collapsing them needs the graph-ready receipt (D-0041), which also subsumes a latent fallback-account identity-conflict landmine. Wall-clock latency is not measured; statement counts are the contract. |
 
 ### Durable history premise status
@@ -73,6 +73,28 @@ shipped/measured/deferred status.
 
 ## Part B — Ambient liveness (Fable-ranked, no-clutter-filtered)
 
+**Shipped in LIVE-1 (2026-08-03).** The runtime now uses the existing progress
+card for a replace-only three-minute stall notice, provides thread-aware
+Discord typing, flips seen/running reactions around first delivered visible
+output, acknowledges both continuation routes, and keeps retryable failures on
+the provider card that actually owns the progress handle. First-visible cleanup
+and the sender-level ordering links are bounded at about two seconds. Discord
+provider mutations are strictly exclusive per card key: one mutation runs while
+one queued slot coalesces to the newest desired payload, so provider writes never
+overlap and no stale-message deletion or compensating repair path is needed.
+A queued Discord update acknowledges enqueue without waiting for the current
+provider call. Late sender settlements remain provider-card-fenced and
+replace-only while an earlier sender attempt may still land.
+A rejected send stays ambiguous; only an explicit provider `false` establishes
+that no handle exists and permits a later repair to recreate the missing card.
+Provider-card identity is frozen when each update enters its chain, and
+terminals borrow a pending Discord control identity only from the same or an
+older stop generation. If the bounded identity cache expires first, a terminal
+consults Discord's live control-card state before falling back to its generation
+card. Teams typing and reactions remain deferred until a real client lands
+(D-0042, shared trigger with D-0034); Slack typing remains absent by design;
+wall-clock UX was not measured.
+
 1. **Revive the progress heartbeat as a REPLACE-ONLY card edit.**
    `startGroupProgressHeartbeats` already receives getElapsedMs/
    getLastAgentProgressAt/hasVisibleOutput and ignores all three; progressTimer is
@@ -82,9 +104,10 @@ shipped/measured/deferred status.
    PLAIN "Still working" (NO elapsed text — clutter rule). This also fixes
    stuck-vs-working: stop refreshing Telegram typing when the runner is actually
    stalled so typing stops lying.
-2. **Typing/ack parity for Discord + Teams.** Implement TypingSink on both (single
-   API call each); the 4s refresh loop is already provider-agnostic. Wire Teams'
-   reaction (its addReaction is a no-op, `channels/teams.ts:247`).
+2. **Typing/ack parity for Discord; defer Teams.** Discord implements its
+   thread-aware TypingSink through the provider-agnostic 4s refresh loop. Teams'
+   production SDK client is still a null stub, so its TypingSink and reactions
+   remain deferred to the real-client trigger (D-0042, shared with D-0034).
 3. **Seen→running reaction FLIP on slow spawns.** Both Telegram and Slack already
    MAP a 'running' hourglass reaction that NO caller ever sends
    (`telegram/reactions.ts:5`, `slack/reactions.ts:6`); flip seen→running after
@@ -102,6 +125,9 @@ shipped/measured/deferred status.
    edit, never new messages.
 
 ## Part C — Dead-plumbing deletion (from the Done-in removal + audits)
+
+**Shipped in PR #235 (commit `ba5e73088`, 2026-07-20).** The items below are
+retained as the historical deletion checklist, not open work.
 
 - `elapsed` param `sendFinalProgressUpdate` receives and drops
   (`runtime/progress-updates.ts:20-38`) + the `formatElapsed(activeElapsedMs())`
@@ -518,23 +544,23 @@ measured, and what deliberately did not happen. Primary metric: inbound message
 received → first content-bearing channel delivery. Measurements are
 deterministic operation/statement counts on real Postgres, not wall-clock.
 
-| Phase | Shipped as | Measured result | What did not improve / deferred |
-| --- | --- | --- | --- |
-| LAT-GATE-0 — prerequisite gates | merged pre-program | Gates green before any hot-path edit. | — |
-| LAT-0 — baseline harness | merged | Deterministic S1–S12 scenario harness, named operation counters, Postgres-gated query counting; S11 (500-job) and S12 (5,000-marker IPC) baselines recorded. | Production behavior unchanged by design — this phase measures, it does not speed. |
-| LAT-1 — bounded concurrent remote MCP startup | merged | Remote MCP connect/list runs as a bounded batch; first visible output waits on the slowest batch, not the sum of all servers. | Worker cold-start itself (workspace/sandbox/egress) untouched — deferred to the model-management inline-lane discussion (audit item 6). |
-| LAT-2 — one immutable per-turn access snapshot | merged | Tool bindings, enabled skills, and MCP rows load once per turn; every derived view reads the snapshot. | — |
-| LAT-3A — single memory hydration | merged | `getAgentTurnContext` hydrates exactly once per ordinary turn (was twice: admission + runner), asserted at the real repository seam. | — |
-| LAT-3B — cursor-fenced replay reuse | merged | Admission's validated batch feeds the turn under a cursor fence; the group processor's duplicate window fetch no longer does duplicate work. | The two fetch call sites still exist structurally; the fence makes the second authoritative (audit item 3's ~14-LOC deletion became a fencing fix instead). |
-| LAT-4A — fused inbound-envelope persistence | merged | One inbound Slack envelope persists in **19** sequential statements (from 20) via the insert-vs-update split (`RETURNING (xmax = 0)`); metadata rides the ingress op. | The remaining ~19 are the canonical-graph re-upserts — that is LAT-4B, which is **decision-gated and not started** (the graph-write table in this doc is its input). |
-| LAT-5A — coverage-reporting port | merged (#355, repair #357) | Hydration emits one observation per actual provider request with real cursors/bounds; coverage claims became measurable instead of inferred. | Reporting only — no latency change by design. |
-| GH-352 — thread windows + trigger-only allowlist | merged (#359) | Channel window restored to 50; thread turns carry root + first 10 + latest 39 plus the same-30 channel background; allowlist is trigger-only (`mode:'drop'` removed). | — |
-| LAT-5B — durable history coverage | merged (#367) | Provider-history calls per covered turn: **1 → 0**; guard cost: exactly **+1** SQL statement (1 → 2, single generation-aware read); post-reconnect packet re-hydrates exactly once. Trust requires durable generation + stable local distrust epoch + owned live inbound stream. | First/uncovered and first-post-reconnect packets still pay the provider call and synchronous persist; the 2.5s deadline is a ceiling, not a saving. Multi-process stale-trust window deferred (D-0036, trigger recorded). Telegram excluded (no hydration hook). |
-| LAT-4B — graph-write reduction | **not started** | — | Decision-gated on the keep/kill table below; ~19 statements of stable-identity re-upserts remain the largest un-taken win on the write path. |
-| Phase 6 — skill-artifact caching | **partially superseded** | RACE-1/decision 0066 delivered app/content-addressed refs + read-time hash verification. | Remaining scope (read cache, layout reconciliation, bounded materialization) is measurement-gated and unscheduled. |
-| Phase 7 — direct in-process LLM forwarding | **not started** | — | Decision-gated; the gateway's streaming-audit await (audit item 5) was NOT fixed separately to avoid colliding with the deepagents/SDK audit that owns that hot path. |
-| Phase 9 — warm runtime resources | **not started** | — | Measurement-gated; no measurement has justified it yet. |
-| Part B — ambient liveness | **not shipped in this lane** | — | The replace-only heartbeat card, reaction lifecycle, and dead-plumbing deletions remain open items of this doc; the governing no-clutter principle is enforced today only by the absence of status text. |
+| Phase                                            | Shipped as                 | Measured result                                                                                                                                                                                                                                                                                           | What did not improve / deferred                                                                                                                                                                                                                                  |
+| ------------------------------------------------ | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| LAT-GATE-0 — prerequisite gates                  | merged pre-program         | Gates green before any hot-path edit.                                                                                                                                                                                                                                                                     | —                                                                                                                                                                                                                                                                |
+| LAT-0 — baseline harness                         | merged                     | Deterministic S1–S12 scenario harness, named operation counters, Postgres-gated query counting; S11 (500-job) and S12 (5,000-marker IPC) baselines recorded.                                                                                                                                              | Production behavior unchanged by design — this phase measures, it does not speed.                                                                                                                                                                                |
+| LAT-1 — bounded concurrent remote MCP startup    | merged                     | Remote MCP connect/list runs as a bounded batch; first visible output waits on the slowest batch, not the sum of all servers.                                                                                                                                                                             | Worker cold-start itself (workspace/sandbox/egress) untouched — deferred to the model-management inline-lane discussion (audit item 6).                                                                                                                          |
+| LAT-2 — one immutable per-turn access snapshot   | merged                     | Tool bindings, enabled skills, and MCP rows load once per turn; every derived view reads the snapshot.                                                                                                                                                                                                    | —                                                                                                                                                                                                                                                                |
+| LAT-3A — single memory hydration                 | merged                     | `getAgentTurnContext` hydrates exactly once per ordinary turn (was twice: admission + runner), asserted at the real repository seam.                                                                                                                                                                      | —                                                                                                                                                                                                                                                                |
+| LAT-3B — cursor-fenced replay reuse              | merged                     | Admission's validated batch feeds the turn under a cursor fence; the group processor's duplicate window fetch no longer does duplicate work.                                                                                                                                                              | The two fetch call sites still exist structurally; the fence makes the second authoritative (audit item 3's ~14-LOC deletion became a fencing fix instead).                                                                                                      |
+| LAT-4A — fused inbound-envelope persistence      | merged                     | One inbound Slack envelope persists in **19** sequential statements (from 20) via the insert-vs-update split (`RETURNING (xmax = 0)`); metadata rides the ingress op.                                                                                                                                     | The remaining ~19 are the canonical-graph re-upserts — that is LAT-4B, which is **decision-gated and not started** (the graph-write table in this doc is its input).                                                                                             |
+| LAT-5A — coverage-reporting port                 | merged (#355, repair #357) | Hydration emits one observation per actual provider request with real cursors/bounds; coverage claims became measurable instead of inferred.                                                                                                                                                              | Reporting only — no latency change by design.                                                                                                                                                                                                                    |
+| GH-352 — thread windows + trigger-only allowlist | merged (#359)              | Channel window restored to 50; thread turns carry root + first 10 + latest 39 plus the same-30 channel background; allowlist is trigger-only (`mode:'drop'` removed).                                                                                                                                     | —                                                                                                                                                                                                                                                                |
+| LAT-5B — durable history coverage                | merged (#367)              | Provider-history calls per covered turn: **1 → 0**; guard cost: exactly **+1** SQL statement (1 → 2, single generation-aware read); post-reconnect packet re-hydrates exactly once. Trust requires durable generation + stable local distrust epoch + owned live inbound stream.                          | First/uncovered and first-post-reconnect packets still pay the provider call and synchronous persist; the 2.5s deadline is a ceiling, not a saving. Multi-process stale-trust window deferred (D-0036, trigger recorded). Telegram excluded (no hydration hook). |
+| LAT-4B — graph-write reduction                   | **not started**            | —                                                                                                                                                                                                                                                                                                         | Decision-gated on the keep/kill table below; ~19 statements of stable-identity re-upserts remain the largest un-taken win on the write path.                                                                                                                     |
+| Phase 6 — skill-artifact caching                 | **partially superseded**   | RACE-1/decision 0066 delivered app/content-addressed refs + read-time hash verification.                                                                                                                                                                                                                  | Remaining scope (read cache, layout reconciliation, bounded materialization) is measurement-gated and unscheduled.                                                                                                                                               |
+| Phase 7 — direct in-process LLM forwarding       | **not started**            | —                                                                                                                                                                                                                                                                                                         | Decision-gated; the gateway's streaming-audit await (audit item 5) was NOT fixed separately to avoid colliding with the deepagents/SDK audit that owns that hot path.                                                                                            |
+| Phase 9 — warm runtime resources                 | **not started**            | —                                                                                                                                                                                                                                                                                                         | Measurement-gated; no measurement has justified it yet.                                                                                                                                                                                                          |
+| Part B — ambient liveness                        | shipped in LIVE-1          | Behavioral fake-timer and provider-adapter contracts pin the 180s stall threshold, bounded first-visible-output reaction cleanup, continuation receipts, retry-card numbering, provider-card identity, ambiguity-aware repairs, strict per-card Discord exclusivity, coalescing, and 45s provider aborts. | Teams typing/reactions remain deferred pending a real client (D-0042, shared with D-0034); Slack typing is absent by design; wall-clock UX was not measured.                                                                                                     |
 
 Spun out of this program and shipped through the same lifecycle: the
 conversation-file trust program (FILE-1A #365, FILE-1B #371 — see
@@ -546,5 +572,6 @@ reduced (one hydration, fenced replay, 19-statement envelope, zero
 provider-history calls on covered turns), the measurement harness that proves
 it is durable, and the two largest remaining wins (LAT-4B graph writes,
 Phase 7 forwarding) are explicitly decision-gated rather than silently
-abandoned. Part B never started; the liveness half of this doc is still a
-to-do list, not a changelog.
+abandoned. Part B is now shipped as LIVE-1; its evidence is behavioral rather
+than a wall-clock latency claim, and the remaining Teams/Slack limitations are
+explicit above.

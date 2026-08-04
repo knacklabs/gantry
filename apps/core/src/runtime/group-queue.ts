@@ -528,6 +528,8 @@ export class GroupQueue {
       if (this.processMessagesFn) {
         const success = await this.processMessagesFn(groupJid, {
           finalRetry: state.retryCount >= this.policy.maxRetries,
+          retryCount: state.retryCount,
+          maxRetries: this.policy.maxRetries,
         });
         if (success) state.retryCount = 0;
         else this.scheduleRetry(groupJid, state);

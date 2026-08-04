@@ -542,6 +542,8 @@ export async function startRuntimeServices(
       warn: (context, message) => resolved.logger.warn(context, message),
       addReaction: (jid, messageRef, emoji, options) =>
         channelWiring.addReaction(jid, messageRef, emoji, options),
+      removeReaction: (jid, messageRef, emoji, options) =>
+        channelWiring.removeReaction(jid, messageRef, emoji, options),
       handleActiveControlCommand,
       finalizeAgentTodo: (jid, render, options) =>
         channelWiring.finalizeAgentTodo(jid, render, options),
@@ -1125,8 +1127,10 @@ export async function startRuntimeServices(
       channelWiring.hasChannel(chatJid, options),
     setTyping: (chatJid, isTyping, options) =>
       channelWiring.setTyping(chatJid, isTyping, options),
-    sendProgressUpdate: (chatJid, text, options) =>
-      channelWiring.sendProgressUpdate(chatJid, text, options),
+    sendProgressUpdate: async (chatJid, text, options) =>
+      void (await channelWiring.sendProgressUpdate(chatJid, text, options)),
+    addReaction: (chatJid, messageRef, emoji, options) =>
+      channelWiring.addReaction(chatJid, messageRef, emoji, options),
     queue: liveMessageQueue,
     handleActiveControlCommand,
     opsRepository: resolved.opsRepository,
@@ -1161,8 +1165,8 @@ export async function startRuntimeServices(
                 liveTurns,
                 getConversationJids: () =>
                   Object.keys(app.getConversationRoutes()),
-                sendStatus: (conversationJid, text) =>
-                  channelWiring.sendProgressUpdate(conversationJid, text),
+                sendStatus: async (jid, text) =>
+                  void (await channelWiring.sendProgressUpdate(jid, text)),
                 warn: (context, message) =>
                   resolved.logger.warn(context, message),
               }),

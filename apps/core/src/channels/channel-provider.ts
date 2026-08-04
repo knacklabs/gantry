@@ -4,6 +4,7 @@ import {
   GroupDiscoverySource,
   InteractionSurface,
   MessageReactionSink,
+  MessageReactionRemovalSink,
   MessageSink,
   OnInboundMessage,
   OnChatMetadata,
@@ -130,6 +131,7 @@ export type ChannelAdapter = ChannelLifecyclePort &
       TypingSink &
       ProgressSink &
       MessageReactionSink &
+      MessageReactionRemovalSink &
       GroupDiscoverySource &
       InteractionSurface &
       RichInteractionSurface &

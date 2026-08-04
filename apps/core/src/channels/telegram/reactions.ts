@@ -43,3 +43,34 @@ export async function addTelegramReaction(input: {
     );
   }
 }
+
+export async function removeTelegramReaction(input: {
+  bot: {
+    api: {
+      setMessageReaction(
+        chatId: string,
+        messageId: number,
+        reactions: [],
+      ): Promise<unknown>;
+    };
+  };
+  jid: string;
+  messageRef: string;
+  reactionKeys: Set<string>;
+}): Promise<void> {
+  const numericId = input.jid.replace(/^tg:/, '');
+  const messageId = Number.parseInt(input.messageRef, 10);
+  if (!Number.isFinite(messageId)) return;
+  try {
+    await input.bot.api.setMessageReaction(numericId, messageId, []);
+    const prefix = `${input.jid}:${messageId}:`;
+    for (const key of input.reactionKeys) {
+      if (key.startsWith(prefix)) input.reactionKeys.delete(key);
+    }
+  } catch (err) {
+    logger.debug(
+      { jid: input.jid, messageRef: input.messageRef, err },
+      'Telegram reaction removal failed',
+    );
+  }
+}

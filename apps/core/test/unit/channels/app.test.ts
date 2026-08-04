@@ -200,6 +200,46 @@ describe('app channel', () => {
     );
   });
 
+  it('keeps replace-only stall updates as progress events, never outbound messages', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue({
+      sessionId: 'session-1',
+      threadId: null,
+      responseMode: 'sse',
+      webhookId: null,
+      correlationId: 'corr-stall',
+    });
+    runtimeEvents.publish.mockResolvedValue({ eventId: 5 });
+    const channel = await createAppChannel({} as never);
+    const callsBefore = runtimeEvents.publish.mock.calls.length;
+
+    const landed = await channel.sendProgressUpdate(
+      'app:demo:conversation',
+      'Still working',
+      { replaceOnly: true },
+    );
+
+    expect(landed).toBe(true);
+    const newCalls = runtimeEvents.publish.mock.calls.slice(callsBefore);
+    expect(newCalls).toHaveLength(1);
+    expect(newCalls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        eventType: RUNTIME_EVENT_TYPES.SESSION_PROGRESS,
+        payload: expect.objectContaining({ text: 'Still working' }),
+      }),
+    );
+    expect(newCalls).not.toContainEqual([
+      expect.objectContaining({
+        eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+      }),
+    ]);
+  });
+
   it('publishes rich descriptors as structured ordered events for app clients', async () => {
     controlRepo.getAppSessionByChatJid.mockResolvedValue({
       sessionId: 'session-1',

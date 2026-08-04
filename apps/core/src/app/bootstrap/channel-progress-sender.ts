@@ -17,7 +17,7 @@ export function createChannelProgressSender(input: {
     jid: string,
     text: string,
     options?: ProgressUpdateOptions,
-  ): Promise<void> {
+  ): Promise<boolean> {
     input.messageActionRouter.trackProgress(jid, options);
     const channel = input.findBoundChannel(jid, options?.providerAccountId);
     if (!channel) {
@@ -25,7 +25,7 @@ export function createChannelProgressSender(input: {
         { jid, progressText: text, options },
         'Progress lifecycle channel-wiring skipped without channel',
       );
-      return;
+      return false;
     }
     const sink = asProgressSink(channel);
     if (!sink) {
@@ -33,16 +33,26 @@ export function createChannelProgressSender(input: {
         { jid, progressText: text, options },
         'Progress lifecycle channel-wiring skipped without progress sink',
       );
-      return;
+      return false;
     }
     input.logger.info(
       { jid, progressText: text, options },
       'Progress lifecycle channel-wiring send attempt',
     );
-    await sink.sendProgressUpdate(jid, text, options);
+    let landed: boolean | void;
+    try {
+      landed = await sink.sendProgressUpdate(jid, text, options);
+    } catch (err) {
+      input.logger.info(
+        { err, jid, progressText: text, options },
+        'Progress lifecycle channel-wiring send failed',
+      );
+      throw err;
+    }
     input.logger.info(
       { jid, progressText: text, options },
       'Progress lifecycle channel-wiring send complete',
     );
+    return landed !== false;
   };
 }

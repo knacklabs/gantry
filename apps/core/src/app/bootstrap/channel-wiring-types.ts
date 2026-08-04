@@ -78,7 +78,10 @@ export type RetryTailRecoveryEnqueue = (
   input: RetryTailRecoveryEnqueueInput,
 ) => Promise<void>;
 
-export type ChannelAccountOptions = { providerAccountId?: string };
+export type ChannelAccountOptions = {
+  providerAccountId?: string;
+  threadId?: string;
+};
 export type ChannelStreamResetOptions = ChannelAccountOptions & {
   threadId?: string;
 };
@@ -230,12 +233,22 @@ export interface ChannelWiring {
     isTyping: boolean,
     options?: ChannelAccountOptions,
   ) => Promise<void>;
+  progressCardIdentity?: (
+    jid: string,
+    options?: ProgressUpdateOptions,
+  ) => string | undefined;
   sendProgressUpdate: (
     jid: string,
     text: string,
     options?: ProgressUpdateOptions,
-  ) => Promise<void>;
+  ) => Promise<void | boolean>;
   addReaction: (
+    jid: string,
+    messageRef: string,
+    emoji: string,
+    options?: ChannelAccountOptions,
+  ) => Promise<void>;
+  removeReaction: (
     jid: string,
     messageRef: string,
     emoji: string,

@@ -21,18 +21,26 @@ import { getConfiguredModelProvidersForApp } from '../adapters/storage/postgres/
 import { resolveGroupProcessingRouteContext } from './command-override-route-key.js';
 import { memoryScopeForConversationKind } from './group-run-context.js';
 import {
+  detachTerminalCleanup,
   handleFailure,
   resetGroupStreamingForTurn,
   resolveGroupTurnFinalProgressState,
   shouldSendTurnFinalProgress,
   waitOutput,
 } from './group-processing-flow.js';
+import {
+  createGroupDoneProgressSender,
+  sendGroupFinalProgress,
+} from './group-final-progress-action.js';
 import { groupTurnHasRequiredTrigger } from './group-trigger-policy.js';
 import {
   createResponseProgressSenders,
   startInitialGroupProgress,
-  startGroupProgressHeartbeats,
 } from './group-progress-heartbeats.js';
+import {
+  createGroupTurnTypingSender,
+  startGroupLivenessHeartbeat,
+} from './group-liveness-state.js';
 import { createProgressChannelSender } from './group-progress-channel-sender.js';
 import {
   createGroupAgentRunner,
@@ -60,8 +68,7 @@ let streamingGenerationCounter = 0;
 const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
 const PROVIDER_FAILOVER_EXHAUSTED_MESSAGE =
   "The AI provider is unavailable and your message couldn't be processed after several retries. Please try again shortly.";
-type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
-
+type ProgressHeartbeat = ReturnType<typeof startGroupLivenessHeartbeat>;
 function slackChannelRootThreadId(
   chatJid: string,
   externalMessageId: string | null | undefined,
@@ -147,10 +154,12 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     });
     const { buildMessageOptions, buildStreamingOptions, buildProgressOptions } =
       turnOptions;
-    const setTurnTyping = (isTyping: boolean) =>
-      channelAccount
-        ? deps.channelRuntime.setTyping(chatJid, isTyping, channelAccount)
-        : deps.channelRuntime.setTyping(chatJid, isTyping);
+    const setTurnTyping = createGroupTurnTypingSender({
+      channelRuntime: deps.channelRuntime,
+      chatJid,
+      providerAccountId: group.providerAccountId,
+      activeThreadId,
+    });
     const sendMessageToChannel = async (
       text: string,
       options?: MessageSendOptions,
@@ -163,6 +172,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       channelRuntime: deps.channelRuntime,
       chatJid,
       groupName: group.name,
+      providerAccountId: group.providerAccountId,
+      threadId: activeThreadId,
       finalizingGenerations: finalizingProgressGenerations,
       log: logger,
     });
@@ -225,7 +236,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     });
     if (cmdResult.handled) {
       if (replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
-      return cmdResult.success;
+      return (sendProgressToChannel.retire(), cmdResult.success);
     }
     if (
       !(await groupTurnHasRequiredTrigger({
@@ -244,6 +255,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       deps.setCursor(queueJid, cursorForMessage(latestMessage));
       await deps.saveState();
       if (replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
+      sendProgressToChannel.retire();
       return true;
     }
     await notifyFirstProgress();
@@ -314,22 +326,15 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       await sendControlOnlyProgress();
       await notifyFirstProgress();
     };
-    const sendDoneProgress = async (state: progress.FinalProgressState) => {
-      if (!supportsProgress) return;
-      const generation = progressGeneration;
-      finalizingProgressGenerations.add(generation);
-      await progress.sendFinalProgressUpdate({
-        enabled: true,
-        state,
-        options: buildProgressOptions({ done: true }),
-        send: sendProgressToChannel,
-        onError: (err) =>
-          logger.warn(
-            { err, chatJid, group: group.name },
-            'Progress lifecycle final failed',
-          ),
-      });
-    };
+    const sendDoneProgress = createGroupDoneProgressSender({
+      supportsProgress,
+      pause: () => progressHeartbeat?.pause(),
+      progressGeneration: () => progressGeneration,
+      finalizingGenerations: finalizingProgressGenerations,
+      buildOptions: () => buildProgressOptions({ done: true }),
+      send: sendProgressToChannel,
+      onError: (err) => logger.warn({ err, chatJid }, 'Final progress failed'),
+    });
     let activeGenerationHasOutput = false;
     let sentAnyTurnDoneProgress = false;
     let sentTurnDoneProgressGeneration: number | null = null;
@@ -345,6 +350,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     };
     let userVisibleTurnProgressReady: Promise<void> | null = null;
     const startUserVisibleTurn = async () => {
+      progressHeartbeat?.resetStallEpoch();
       progressGeneration = streamGeneration = streamingGenerationCounter += 1;
       activeGenerationHasOutput = false;
       sentAnyTurnDoneProgress = false;
@@ -396,12 +402,16 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       onSent: notifyFirstProgress,
       log: logger,
     });
-    progressHeartbeat = startGroupProgressHeartbeats({
+    progressHeartbeat = startGroupLivenessHeartbeat({
       supportsProgress,
       isTypingActive: () => typingActive,
       chatJid,
       providerAccountId: group.providerAccountId,
+      activeThreadId,
       groupName: group.name,
+      buildProgressOptions,
+      sendProgressToChannel,
+      onFirstVisibleOutput: options.onFirstVisibleOutput,
       channelRuntime: deps.channelRuntime,
       log: logger,
     });
@@ -416,6 +426,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         typingHeartbeatTimer = null;
       }
       clearBackgroundDemoteTimer();
+      progressHeartbeat?.pause();
       await initialProgress.cancel();
     };
     activeTurnUiCleanupByQueue.set(queueJid, {
@@ -480,6 +491,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     };
     const resumeTurnProgress = async () => {
       if (!progressPaused) return;
+      progressHeartbeat?.resetStallEpoch();
       progressPaused = false;
       clearBackgroundDemoteTimer();
       progressHeartbeat?.resume();
@@ -521,6 +533,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       buildMessageOptions,
       sendMessageToChannel,
       applyDeliverySettlement,
+      onVisibleDeliveryStart: progressHeartbeat.beginVisibleDelivery,
+      onVisibleDeliveryFinish: progressHeartbeat.finishVisibleOutputDelivery,
       getStreamedTranscriptDeliveryStatus: () =>
         streamedTranscriptDeliveryStatus,
       // Persistence is per completed generation, so the accounting has to be
@@ -577,7 +591,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         await sendResponseReceipt();
       }
       if (result.result) {
-        if (!typingActive) await setTypingState(true);
+        if (!typingActive) {
+          await setTypingState(true);
+        }
         activeGenerationHasOutput = true;
         const raw =
           typeof result.result === 'string'
@@ -697,6 +713,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         notifyTurnIdle();
       }
       await cancelTurnUiTimers();
+      detachTerminalCleanup(options.onTurnTerminal);
       unregisterContinuationHandler?.();
       const activeCleanup = activeTurnUiCleanupByQueue.get(queueJid);
       if (activeCleanup?.token === turnUiToken) {
@@ -706,23 +723,14 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     }
     let resultOk = true;
     if (output === 'error' || hadError) {
-      // A provider-infra failure (failover-eligible or missing-provider-session)
-      // is only "exhausted" once the queue has burned all its retries
-      // (options.finalRetry). Before that, a transient 429/502 must keep the
-      // normal rollback -> retry path so the provider gets time to recover;
-      // dropping it on the FIRST error silently loses the user's turn.
+      // Provider infrastructure is exhausted only after the queue has burned
+      // every retry; earlier failures keep the rollback-and-retry path.
       const failoverExhausted =
         options.finalRetry === true &&
         (isFailoverEligibleError(lastAgentError) ||
           isMissingProviderSessionError(lastAgentError));
-      // ponytail: interim guard against silent turn loss. The durable fix is a
-      // dead-letter re-drive of the dropped turn (issue #285). Until then, when
-      // failover is exhausted we stop the replay storm by preserving the cursor
-      // (below) AND surface an error + user-visible notice. We only CONSUME the
-      // turn once the user was actually informed; if the notice fails to deliver
-      // (channel down), we fall through to rollback->retry so the turn isn't
-      // silently dropped. The remaining edge (channel still down after the queue
-      // retry cap is exhausted) is covered by the durable dead-letter re-drive (#285).
+      // ponytail: preserve the cursor only after the user sees the exhausted
+      // notice. A failed notice rolls back; issue #285 owns durable re-drive.
       let failureNoticeDelivered = false;
       if (failoverExhausted && !outputSentToUser) {
         logger.error(
@@ -805,26 +813,25 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         terminal: true,
       });
     }
-    const finalProgressState = resolveGroupTurnFinalProgressState({
+    await sendGroupFinalProgress({
       output,
       hadError,
       sawDeliveryIncomplete,
       sawTerminalDeliveryFailure,
       outputSentToUser,
+      options,
+      awaitingResponseReceipt,
+      sentAnyTurnDoneProgress,
+      activeGenerationHasOutput,
+      sentTurnDoneProgressGeneration,
+      progressGeneration,
+      supportsProgress,
+      buildProgressOptions,
+      sendProgress: sendProgressToChannel,
+      sendDone: sendTrackedDoneProgress,
     });
-    if (
-      shouldSendTurnFinalProgress({
-        finalProgressState,
-        awaitingResponseReceipt,
-        sentAnyTurnDoneProgress,
-        activeGenerationHasOutput,
-        sentTurnDoneProgressGeneration,
-        progressGeneration,
-      })
-    ) {
-      await sendTrackedDoneProgress(finalProgressState);
-    }
     await setTypingState(false);
+    sendProgressToChannel.retire();
     if (resultOk && replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
     options?.onRunResult?.(output);
     return resultOk;
