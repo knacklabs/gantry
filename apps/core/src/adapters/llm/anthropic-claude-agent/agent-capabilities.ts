@@ -17,6 +17,7 @@ import {
   selectedGantryMcpToolNames,
   selectedMemoryIpcActions,
 } from '../../../runner/gantry-mcp-tool-surface.js';
+import { applyProviderAffinity } from '../../../runner/mcp/tool-provider-affinity.js';
 import {
   isBrowserActionMcpToolRule,
   isCanonicalBrowserCapabilityRule,
@@ -133,6 +134,7 @@ function gantryMcpAllowedTools(input: {
   asyncTaskToolsEnabled?: boolean;
   memoryReviewerIsControlApprover?: boolean;
   callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
+  chatJid: string;
 }): string[] {
   const selectedNames = new Set(
     selectedGantryMcpToolNames(input.configuredTools ?? [], {
@@ -140,6 +142,7 @@ function gantryMcpAllowedTools(input: {
       asyncTaskToolsEnabled: input.asyncTaskToolsEnabled === true,
       memoryReviewerIsControlApprover:
         input.memoryReviewerIsControlApprover === true,
+      chatJid: input.chatJid,
     }),
   );
   const defaultAllowedNames = [
@@ -171,6 +174,7 @@ function defaultAllowedTools(input: {
   asyncTaskToolsEnabled?: boolean;
   memoryReviewerIsControlApprover?: boolean;
   callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
+  chatJid: string;
 }): string[] {
   return [...SAFE_NATIVE_SDK_TOOLS, ...gantryMcpAllowedTools(input)];
 }
@@ -231,6 +235,7 @@ const sdkToolsProvider: AgentCapabilityProvider = {
                 memoryReviewerIsControlApprover:
                   ctx.memoryReviewerIsControlApprover,
                 callableAgentManifest: projectedCallableAgentManifest(ctx),
+                chatJid: ctx.chatJid,
               }),
             ]
           : defaultAllowedTools({
@@ -240,6 +245,7 @@ const sdkToolsProvider: AgentCapabilityProvider = {
               memoryReviewerIsControlApprover:
                 ctx.memoryReviewerIsControlApprover,
               callableAgentManifest: projectedCallableAgentManifest(ctx),
+              chatJid: ctx.chatJid,
             }),
       availableTools: baseAvailableTools,
       disallowedTools: UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS,
@@ -320,6 +326,7 @@ const gantryMcpProvider: AgentCapabilityProvider = {
           asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled === true,
           memoryReviewerIsControlApprover:
             ctx.memoryReviewerIsControlApprover === true,
+          chatJid: ctx.chatJid,
         }),
         ...callableAgentManifest.map(callableAgentToolName),
       ]),
@@ -468,14 +475,19 @@ function isRunnerSuppressedFullToolName(toolRule: string): boolean {
 const configuredToolProvider: AgentCapabilityProvider = {
   id: 'configured-tools',
   provide: (ctx) => {
-    const allowedTools = (ctx.configuredAllowedTools ?? [])
-      .flatMap(configuredToolAllowedSdkNames)
-      .filter(
-        (toolName) =>
-          !isRunnerSuppressedFullToolName(toolName) &&
-          (ctx.hideAuthorityTools !== true ||
-            !isHiddenAuthorityFullToolName(toolName)),
-      );
+    const allowedTools = [
+      ...applyProviderAffinity(
+        (ctx.configuredAllowedTools ?? [])
+          .flatMap(configuredToolAllowedSdkNames)
+          .filter(
+            (toolName) =>
+              !isRunnerSuppressedFullToolName(toolName) &&
+              (ctx.hideAuthorityTools !== true ||
+                !isHiddenAuthorityFullToolName(toolName)),
+          ),
+        ctx.chatJid,
+      ),
+    ];
     const availableTools = (ctx.configuredAllowedTools ?? [])
       .flatMap(configuredToolAvailableSdkNames)
       .filter((toolName) => toolName.length > 0);

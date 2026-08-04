@@ -64,6 +64,8 @@ describe('locked tool surface mounting', () => {
       undefined,
       undefined,
       false,
+      undefined,
+      'sl:test',
     );
     for (const toolName of DEFAULT_GANTRY_MCP_TOOL_NAMES) {
       expect(names.has(toolName)).toBe(true);
@@ -264,7 +266,9 @@ describe('locked fail-closed env parsing', () => {
   });
 
   it('full preset still fails open to the default set on corrupt env', () => {
-    const names = parseEnabledGantryMcpToolNames('{not json');
+    const names = parseEnabledGantryMcpToolNames('{not json', {
+      chatJid: 'sl:test',
+    });
     for (const toolName of DEFAULT_GANTRY_MCP_TOOL_NAMES) {
       expect(names.has(toolName)).toBe(true);
     }

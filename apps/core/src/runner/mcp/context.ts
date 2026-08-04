@@ -101,7 +101,7 @@ export const enabledAdminMcpTools = parseEnabledAdminMcpTools(
 );
 export const enabledGantryMcpTools = parseEnabledGantryMcpToolNames(
   process.env.GANTRY_MCP_TOOL_NAMES_JSON,
-  { lockedPreset: lockedAccessPreset },
+  { lockedPreset: lockedAccessPreset, chatJid },
 );
 const asyncTaskToolNameSet = new Set<string>([
   ...ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
