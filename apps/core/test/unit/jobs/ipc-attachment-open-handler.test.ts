@@ -28,6 +28,22 @@ afterEach(() => {
 });
 
 describe('attachment open IPC handler', () => {
+  it('refuses to materialize when the CAS source is a symlink', async () => {
+    const { openMaterializedAttachmentReadOnly } =
+      await import('@core/shared/provider-attachment-materialization.js');
+    const os = await import('node:os');
+    const fsp = await import('node:fs/promises');
+    const pathMod = await import('node:path');
+    const dir = await fsp.mkdtemp(pathMod.join(os.tmpdir(), 'cas-'));
+    const real = pathMod.join(dir, 'real.bin');
+    const link = pathMod.join(dir, 'link.bin');
+    await fsp.writeFile(real, 'secret');
+    await fsp.symlink(real, link);
+    await expect(openMaterializedAttachmentReadOnly(link)).rejects.toThrow();
+    const ok = await openMaterializedAttachmentReadOnly(real);
+    await ok.close();
+    await fsp.rm(dir, { recursive: true, force: true });
+  });
   it('keeps host filesystem errors out of the runner response', async () => {
     const envelope = createIpcAuthEnvelope(sourceAgentFolder);
     responseKeyId = envelope.responseKeyId;

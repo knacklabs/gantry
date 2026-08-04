@@ -7,6 +7,7 @@ import type {
   ResolvableMessageAttachment,
 } from '../../domain/ports/message-attachment-repository.js';
 import {
+  workspaceLocalRegularFile,
   createProviderAttachmentStorageRef,
   isProviderAttachmentStorageRef,
   materializeProviderAttachment,
@@ -92,6 +93,7 @@ export class AttachmentResolver {
     conversationJid: string;
     threadId?: string;
     mode?: 'view' | 'materialize';
+    workspaceRoot?: string;
   }): Promise<AttachmentOpenResult> {
     const abortController = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -157,15 +159,26 @@ export class AttachmentResolver {
       attachment.storageRef &&
       isWorkspaceLocalAttachmentStorageRef(attachment.storageRef)
     ) {
-      return {
-        status: 'already_in_workspace',
-        content: 'Attachment is already in the workspace.',
-        workspaceRelativePath: attachment.storageRef,
-        fileName:
-          attachment.fileName?.trim() ||
-          attachment.storageRef.split('/').at(-1) ||
-          'attachment.bin',
-      };
+      // Short-circuit only when the workspace file actually exists; a stale
+      // or relocated local ref must fall through to provider-fetch recovery
+      // (rows carrying provider_fetch metadata can re-materialize).
+      const existing = input.workspaceRoot
+        ? await workspaceLocalRegularFile(
+            input.workspaceRoot,
+            attachment.storageRef,
+          )
+        : false;
+      if (existing) {
+        return {
+          status: 'already_in_workspace',
+          content: 'Attachment is already in the workspace.',
+          workspaceRelativePath: attachment.storageRef,
+          fileName:
+            attachment.fileName?.trim() ||
+            attachment.storageRef.split('/').at(-1) ||
+            'attachment.bin',
+        };
+      }
     }
     if (
       attachment.storageRef &&

@@ -163,7 +163,10 @@ describe('Gantry DeepAgents facade tools', () => {
     const fileSearch = tools.find((item) => item.name === 'FileSearch');
     const fileRead = tools.find((item) => item.name === 'FileRead');
 
-    for (const description of [fileSearch?.description, fileRead?.description]) {
+    for (const description of [
+      fileSearch?.description,
+      fileRead?.description,
+    ]) {
       expect(description).toContain('attachment_open');
       expect(description).toContain('attachment_materialize');
       expect(description).toContain('quarantine/');

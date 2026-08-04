@@ -1,3 +1,4 @@
+import { openMaterializedAttachmentReadOnly } from '../shared/provider-attachment-materialization.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -72,6 +73,13 @@ async function handleAttachment(
       conversationJid: data.chatJid,
       ...(data.authThreadId ? { threadId: data.authThreadId } : {}),
       mode,
+      ...(mode === 'materialize'
+        ? {
+            workspaceRoot: resolveWorkspaceFolderPath(
+              context.sourceAgentFolder,
+            ),
+          }
+        : {}),
     });
   } catch (error) {
     logger.warn(
@@ -146,7 +154,7 @@ async function respondToMaterialize(
     if (!quarantineStat.isDirectory() || quarantineStat.isSymbolicLink()) {
       throw new Error('Workspace quarantine must be a physical directory');
     }
-    source = await fs.open(result.materializedPath, 'r');
+    source = await openMaterializedAttachmentReadOnly(result.materializedPath);
     const buffer = Buffer.allocUnsafe(64 * 1024);
     const writeResult = await writeInboundAttachment({
       workspaceRoot,
