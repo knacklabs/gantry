@@ -2052,6 +2052,19 @@ def test_hook_denies_variable_hidden_companion_in_unparseable_bash(repo):
     assert "deny" in out and "could not be safely parsed" in out
 
 
+def test_hook_denies_expansion_bearing_companion_launch(repo):
+    """Unexpanded variables can smuggle write flags; deny as unverifiable."""
+    for cmd in (
+        "flag=--write bash -c 'node /x/codex-companion.mjs task \"$flag\" go'",
+        "node /x/codex-companion.mjs task $(cat /tmp/mode) go",
+        "node /x/codex-companion.mjs task `cat /tmp/mode` go",
+    ):
+        code, out = hook(repo, {"tool_name": "Bash",
+                                "permission_mode": "default",
+                                "tool_input": {"command": cmd}})
+        assert "deny" in out, cmd
+
+
 def test_hook_allows_readonly_companion_prompt_mentioning_write_flag(repo):
     """A prompt that merely MENTIONS a write flag is not a write launch."""
     for cmd in (

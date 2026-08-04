@@ -377,7 +377,14 @@ def _companion_write_in(tokens, depth=0):
     return False
 
 
-has_companion_write = _companion_write_in(shell_tokens)
+# Unexpanded $VAR / $(...) / backticks in a companion command could
+# smuggle a write flag past exact-argv matching; the hook cannot see
+# post-expansion argv, so such launches are unverifiable and denied.
+COMPANION_EXPANSION = re.compile(r"\$[A-Za-z_{(]|`")
+has_companion_write = (
+    _companion_write_in(shell_tokens)
+    or (has_companion and COMPANION_EXPANSION.search(command) is not None)
+)
 if tool_name == "Bash" and has_companion and has_companion_write:
     deny("Companion write launches are off-contract. Use "
          "`./forge delegate <task-id>`; it owns the argv launch and records "
