@@ -614,6 +614,25 @@
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
       "order": 36
+    },
+    {
+      "status": "active",
+      "key": "CONTENT-1",
+      "title": "Provider content gaps: honest fallbacks, quick fixes, Slack canvas CRUD",
+      "epic": "provider-content",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "Six verified quick fixes (honest binary fallback guidance, .eml text, Slack snippet delivery, Discord voice-note classification, Telegram location/venue/contact data, Discord embed folding) plus Slack canvas read/create/update behind host-issued handles with split read/write authority. Teams equivalents deferred to TEAMS-1; reading reactions/edits stays backlog.",
+      "acceptance_criteria": [
+        "binary attachments return typed guidance, never truncated base64",
+        "Slack oversized messages deliver as snippet (<=1MB) or .txt file with text-path fallback on provider failure",
+        "canvas create/update/read tools enforce the split-capability trust boundary and IPC bounds per the plan",
+        "TEAMS-1 roadmap entry carries the deferred Teams criteria"
+      ],
+      "source_refs": [
+        "docs/architecture/provider-content-gaps-plan-draft.md"
+      ],
+      "order": 37
     }
   ],
   "epics": [
