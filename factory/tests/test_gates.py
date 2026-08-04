@@ -1155,7 +1155,7 @@ def test_upgrade_migration_promotes_and_refuses_correctly(repo, tmp_path):
         "client_signoff_record": "docs/decisions/0005-client-signoff.md",
     }))
     git(repo, "add", "-A")
-    git(repo, "commit", "-q", "--allow-empty", "-m", "legacy project, unsigned")
+    git(repo, "commit", "-q", "-m", "legacy project, unsigned")
     proc = upgrade_into(repo)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert not signed_off(repo), "an explicitly unsigned project was promoted"
@@ -1167,7 +1167,7 @@ def test_upgrade_migration_promotes_and_refuses_correctly(repo, tmp_path):
     strip_pin(repo)
     (repo / ".factory" / "run.json").unlink()
     git(repo, "add", "-A")
-    git(repo, "commit", "-q", "--allow-empty", "-m", "no run state")
+    git(repo, "commit", "-q", "-m", "no run state")
     proc = upgrade_into(repo)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert not signed_off(repo), "absent run state was treated as prior sign-off"
@@ -1182,7 +1182,7 @@ def test_upgrade_migration_promotes_and_refuses_correctly(repo, tmp_path):
         "client_signoff_record": "docs/decisions/0005-client-signoff.md",
     }))
     git(repo, "add", "-A")
-    git(repo, "commit", "-q", "--allow-empty", "-m", "legacy signed")
+    git(repo, "commit", "-q", "-m", "legacy signed")
     proc = upgrade_into(repo)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert signed_off(repo), "a genuinely signed legacy project was un-signed"
@@ -1991,7 +1991,8 @@ COMPANION_WRITE = (COMPANION + " --write --prompt-file .factory/briefs/T1.md "
 
 
 def test_hook_denies_unbriefed_write_delegation(repo, tmp_path):
-    """Every direct companion command is routed to the canonical executor."""
+    """Every companion WRITE launch is routed to the canonical executor;
+    read-only launches are the rescue exploration lane and pass."""
     start_stage(repo, tmp_path, DELEGATE_TASK, launch=False)
     for mode in ("default", "plan"):
         code, out = hook(repo, {"tool_name": "Bash", "permission_mode": mode,
@@ -1999,7 +2000,7 @@ def test_hook_denies_unbriefed_write_delegation(repo, tmp_path):
         assert "deny" in out and "forge delegate <task-id>" in out, mode
     code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
                             "tool_input": {"command": COMPANION + " 'map it'"}})
-    assert "deny" in out and "forge delegate" in out
+    assert code == 0 and "deny" not in out
 
 
 def test_hook_denies_write_delegation_hidden_by_quoting(repo, tmp_path):
@@ -2051,7 +2052,21 @@ def test_hook_denies_variable_hidden_companion_in_unparseable_bash(repo):
     assert "deny" in out and "could not be safely parsed" in out
 
 
-def test_hook_routes_every_literal_companion_token(repo):
+def test_hook_denies_nested_quoted_companion_write_launch(repo):
+    """A write flag hidden inside a quoted nested shell must still deny."""
+    for cmd in (
+        "bash -c 'node /x/codex-companion.mjs task --full-auto go'",
+        'sh -c "node /x/codex-companion.mjs task '
+        '--dangerously-bypass-approvals-and-sandbox go"',
+        "bash -c 'node /x/codex-companion.mjs task --write go'",
+    ):
+        code, out = hook(repo, {"tool_name": "Bash",
+                                "permission_mode": "default",
+                                "tool_input": {"command": cmd}})
+        assert "deny" in out and "forge delegate" in out, cmd
+
+
+def test_hook_allows_readonly_companion_mentions(repo):
     for command in (
         "rg codex-companion factory",
         "cat /tmp/codex-companion.mjs",
@@ -2059,7 +2074,17 @@ def test_hook_routes_every_literal_companion_token(repo):
     ):
         code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
                                 "tool_input": {"command": command}})
-        assert "deny" in out and "forge delegate" in out, command
+        assert code == 0 and "deny" not in out, command
+
+
+def test_hook_allows_readonly_companion_task_launch(repo):
+    for command in (
+        COMPANION + " --effort xhigh 'explore the sender chain'",
+        "node /x/codex-companion.mjs task-resume-candidate --json",
+    ):
+        code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
+                                "tool_input": {"command": command}})
+        assert code == 0 and "deny" not in out, command
 
 
 def test_hook_routes_absolute_and_quoted_node_companion_invocations(repo):
