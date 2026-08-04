@@ -55,7 +55,7 @@ describe('slack canvas tools', () => {
       'xoxb-test',
       vi.fn(async (url, init) => {
         calls.push({ url: String(url), body: bodyOf(init) });
-        if (String(url).endsWith('/canvases.create')) {
+        if (String(url).endsWith('/conversations.canvases.create')) {
           return json({ ok: true, canvas_id: 'F-CREATED' });
         }
         return json({
@@ -72,7 +72,7 @@ describe('slack canvas tools', () => {
     });
 
     expect(calls[0]).toMatchObject({
-      url: 'https://slack.com/api/canvases.create',
+      url: 'https://slack.com/api/conversations.canvases.create',
       body: {
         channel_id: 'C-HOST',
         title: 'Plan',
@@ -97,7 +97,7 @@ describe('slack canvas tools', () => {
       'xoxb-test',
       vi.fn(async (url) => {
         calls.push(String(url));
-        if (String(url).endsWith('/canvases.create')) {
+        if (String(url).endsWith('/conversations.canvases.create')) {
           return json({
             ok: false,
             error: 'free_team_canvas_tab_already_exists',
@@ -121,7 +121,7 @@ describe('slack canvas tools', () => {
     expect(result.message).toContain('creation was unnecessary');
     expect(result.canvasUpdateHandle).toMatch(/^gantry_canvas_/);
     expect(calls).toEqual([
-      'https://slack.com/api/canvases.create',
+      'https://slack.com/api/conversations.canvases.create',
       'https://slack.com/api/conversations.info',
       'https://slack.com/api/files.info',
     ]);
@@ -131,7 +131,7 @@ describe('slack canvas tools', () => {
     const service = new SlackCanvasService(
       'xoxb-test',
       vi.fn(async (url) =>
-        String(url).endsWith('/canvases.create')
+        String(url).endsWith('/conversations.canvases.create')
           ? json({ ok: true, canvas_id: 'F1' })
           : json({ ok: false, error: 'missing_scope' }),
       ) as typeof fetch,
@@ -317,7 +317,7 @@ describe('slack canvas tools', () => {
     const service = new SlackCanvasService(
       'xoxb-test',
       vi.fn(async (url) => {
-        if (String(url).endsWith('/canvases.create')) {
+        if (String(url).endsWith('/conversations.canvases.create')) {
           return json({ ok: true, canvas_id: 'F1' });
         }
         if (String(url).endsWith('/files.info')) {
@@ -369,7 +369,7 @@ describe('slack canvas tools', () => {
     const service = new SlackCanvasService(
       'xoxb-test',
       vi.fn(async (url) => {
-        if (String(url).endsWith('/canvases.create')) {
+        if (String(url).endsWith('/conversations.canvases.create')) {
           return json({ ok: true, canvas_id: 'F1' });
         }
         if (String(url).endsWith('/files.info')) {

@@ -147,7 +147,7 @@ export class SlackCanvasService implements ContentCanvasSurface {
     let canvasId: string;
     let existing = false;
     try {
-      const response = await this.slackApi('canvases.create', {
+      const response = await this.slackApi('conversations.canvases.create', {
         channel_id: channelId,
         ...(input.title ? { title: input.title } : {}),
         ...(input.markdown !== undefined
@@ -579,7 +579,7 @@ export class SlackCanvasService implements ContentCanvasSurface {
       if (code === 'missing_scope') {
         throw new SlackCanvasProviderError(
           code,
-          method === 'canvases.create' || method === 'canvases.edit'
+          method.endsWith('canvases.create') || method === 'canvases.edit'
             ? WRITE_SCOPE_ERROR
             : method === 'conversations.info'
               ? CHANNEL_SCOPE_ERROR
