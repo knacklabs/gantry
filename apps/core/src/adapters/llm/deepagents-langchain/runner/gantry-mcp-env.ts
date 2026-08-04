@@ -67,6 +67,7 @@ export function buildGantryMcpProjection(
       excludeAuthorityTools: input.hideAuthorityTools,
       memoryReviewerIsControlApprover,
       asyncTaskToolsEnabled,
+      chatJid: env.GANTRY_CHAT_JID,
     },
   );
   // Browser gateway tools (browser_*) are reachable only when the host enabled

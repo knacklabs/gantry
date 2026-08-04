@@ -10,9 +10,11 @@ import {
   formatAgentTodoHeader,
   hasAgentTodoCardHeader,
 } from './agent-todo-render.js';
+import {
+  DISCORD_FILE_MAX_BYTES,
+  DISCORD_MESSAGE_MAX_LENGTH,
+} from './discord-limits.js';
 
-const DISCORD_MESSAGE_MAX_LENGTH = 2000;
-const DISCORD_FILE_MAX_BYTES = 25 * 1024 * 1024;
 const DISCORD_TODO_MAX_LENGTH = 1900;
 
 export type DiscordMessagePoster = (

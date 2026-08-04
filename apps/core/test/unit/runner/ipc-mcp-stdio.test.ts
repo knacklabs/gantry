@@ -159,6 +159,11 @@ function createMcpFixture(): {
     path.resolve('apps/core/src/runner/gantry-mcp-tool-surface.ts'),
     path.join(runnerDir, 'gantry-mcp-tool-surface.ts'),
   );
+  fs.mkdirSync(path.join(runnerDir, 'mcp'), { recursive: true });
+  fs.copyFileSync(
+    path.resolve('apps/core/src/runner/mcp/tool-provider-affinity.ts'),
+    path.join(runnerDir, 'mcp', 'tool-provider-affinity.ts'),
+  );
   symlinkPackage(root, 'zod', 'node_modules/zod');
   symlinkPackage(root, 'cron-parser', 'node_modules/cron-parser');
   copyBuiltContractsPackage(root);

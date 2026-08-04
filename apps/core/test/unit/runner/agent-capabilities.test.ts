@@ -15,6 +15,7 @@ import {
   selectedMemoryIpcActions,
   selectedGantryMcpToolNames,
 } from '@agent-runner-src/gantry-mcp-tool-surface.js';
+import { applyProviderAffinity } from '@core/runner/mcp/tool-provider-affinity.js';
 import {
   callableAgentToolName,
   projectCallableAgentTools,
@@ -26,7 +27,10 @@ const SAFE_DEFAULT_ALLOWED_TOOLS = [
   'WebFetch',
   'ToolSearch',
   'Skill',
-  ...BASELINE_GANTRY_MCP_TOOL_NAMES.map(gantryMcpFullToolName),
+  ...applyProviderAffinity(
+    BASELINE_GANTRY_MCP_TOOL_NAMES.map(gantryMcpFullToolName),
+    'tg:test',
+  ),
 ] as const;
 
 const DEVELOPER_ALLOWED_TOOLS = [
@@ -315,7 +319,7 @@ describe('agent capability composition', () => {
         GANTRY_SELECTED_SKILL_DISPLAYS_JSON: '[]',
         GANTRY_SELECTED_MCP_SERVERS_JSON: '[]',
         GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(
-          selectedGantryMcpToolNames([]),
+          selectedGantryMcpToolNames([], { chatJid: 'tg:team' }),
         ),
         GANTRY_CALLABLE_AGENT_MANIFEST_JSON: '[]',
         GANTRY_MEMORY_IPC_ACTIONS_JSON: JSON.stringify(
@@ -498,12 +502,15 @@ describe('agent capability composition', () => {
     );
     expect(profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON).toBe(
       JSON.stringify(
-        selectedGantryMcpToolNames([
-          'mcp__gantry__settings_desired_state',
-          'mcp__gantry__request_settings_update',
-          'mcp__gantry__service_restart',
-          'mcp__gantry__register_agent',
-        ]),
+        selectedGantryMcpToolNames(
+          [
+            'mcp__gantry__settings_desired_state',
+            'mcp__gantry__request_settings_update',
+            'mcp__gantry__service_restart',
+            'mcp__gantry__register_agent',
+          ],
+          { chatJid: 'tg:main' },
+        ),
       ),
     );
   });
@@ -840,7 +847,10 @@ describe('agent capability composition', () => {
     }
     expect(profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON).toBe(
       JSON.stringify(
-        selectedGantryMcpToolNames([], { asyncTaskToolsEnabled: true }),
+        selectedGantryMcpToolNames([], {
+          asyncTaskToolsEnabled: true,
+          chatJid: 'tg:team',
+        }),
       ),
     );
 

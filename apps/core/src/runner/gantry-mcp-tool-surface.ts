@@ -16,6 +16,7 @@ import {
   type MemoryIpcActionSelectionOptions,
 } from '../shared/memory-ipc-actions.js';
 import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
+import { applyProviderAffinity } from './mcp/tool-provider-affinity.js';
 
 // Authority-changing Gantry tools let an agent request new install/setup/access
 // authority for itself. In the fixed-image worker product mode they are hidden
@@ -75,6 +76,7 @@ export interface GantryMcpToolSelectionOptions extends MemoryIpcActionSelectionO
   // runner sandbox. They are projected only when the host says that executor is
   // available for this run.
   asyncTaskToolsEnabled?: boolean;
+  chatJid?: string;
 }
 
 export function gantryMcpFullToolName(toolName: string): string {
@@ -131,7 +133,7 @@ export function selectedGantryMcpToolNames(
       names.delete(toolName);
     }
   }
-  return [...names].sort();
+  return [...applyProviderAffinity(names, options.chatJid)].sort();
 }
 
 function isBrowserSelected(configuredTools: readonly string[]): boolean {
@@ -163,14 +165,17 @@ function lockedDefaultGantryMcpToolNames(): Set<string> {
 
 export function parseEnabledGantryMcpToolNames(
   raw: string | undefined,
-  options: { lockedPreset?: boolean } = {},
+  options: { lockedPreset?: boolean; chatJid?: string } = {},
 ): Set<string> {
   // For locked agents a malformed/unset env must fail closed to the locked
   // base set, never to the full default set that still carries authority tools.
   const fallback = (): Set<string> =>
-    options.lockedPreset
-      ? lockedDefaultGantryMcpToolNames()
-      : new Set(DEFAULT_GANTRY_MCP_TOOL_NAMES);
+    applyProviderAffinity(
+      options.lockedPreset
+        ? lockedDefaultGantryMcpToolNames()
+        : DEFAULT_GANTRY_MCP_TOOL_NAMES,
+      options.chatJid,
+    );
   const base = (): Set<string> =>
     options.lockedPreset
       ? lockedDefaultGantryMcpToolNames()
@@ -196,7 +201,7 @@ export function parseEnabledGantryMcpToolNames(
       }
       enabled.add(toolName);
     }
-    return enabled;
+    return applyProviderAffinity(enabled, options.chatJid);
   } catch {
     return fallback();
   }

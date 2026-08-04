@@ -719,6 +719,25 @@
       "outcome": "Agents on Slack can now work with canvases: reading a shared canvas returns its text plus safe section handles, and agents can create a channel canvas or edit one section at a time (insert, replace, delete) with a confirmation step before wipe-and-replace. Every edit targets an exact Slack section id captured at read time, so a renamed or deleted section can never be silently overwritten; timeouts, deleted canvases and missing Slack scopes all come back as clear instructions instead of hangs. Slack app installs now list the extra scopes needed (files/canvases) and existing installs keep working with a warning until they are reinstalled. The vendored companion gate also got hardened along the way: the read-only exploration lane is now a provable grammar instead of a text scan."
     },
     {
+      "status": "done",
+      "key": "TOOLS-1",
+      "title": "Provider-aware tool surface: affinity-filtered projection + dynamic per-provider instructions",
+      "value": "Agents only see tools that work on their conversation's provider, and their instructions explain exactly how shared tools behave there (split thresholds, rich-render shapes, option caps). Cleaner tool lists, fewer wasted turns, a declared checklist for future providers.",
+      "acceptance_criteria": [
+        "canvas_* absent from Telegram/Discord/unknown-provider tool surfaces in BOTH the spawn projection and the runner-process parse path; present for Slack incl. jobs-lane spawns",
+        "affinity beats explicit GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON entries",
+        "each provider's compiled system prompt carries its own tool guidance built from imported limit constants, and no other provider's",
+        "docs/architecture/tool-provider-affinity.md records the full tool classification"
+      ],
+      "source_refs": [
+        "docs/architecture/tool-provider-affinity.md"
+      ],
+      "order": 42,
+      "completed_at": "2026-08-04T18:29:57+00:00",
+      "history": ".factory/history/TOOLS-1/",
+      "outcome": "Agents now only see the tools that actually work where they are: Slack agents keep the canvas tools, while Telegram, Discord and other conversations no longer carry three dead tools they could never use \u2014 enforced in both the spawn projection and inside the runner process, and even an operator config entry cannot re-add a tool that cannot function there. Each agent's instructions now also explain, per provider, how its shared tools behave: where long messages split, how rich cards degrade, how many question options fit \u2014 with every number imported from the real code constants so the guidance can never drift. A classification of all 75 tools plus a checklist for wiring future providers landed in docs/architecture."
+    },
+    {
       "status": "pending",
       "key": "CONTENT-2",
       "title": "Physical attachment hand-off for ALL providers: materialize conversation files into the agent workspace",
@@ -736,7 +755,7 @@
         "models with pdfInput/imageInput can be handed the physical file where the runner supports it",
         "materialization verified for a Slack, a Telegram, and a Discord attachment through the same code path (no provider branches)"
       ],
-      "order": 42
+      "order": 43
     }
   ],
   "epics": [
@@ -825,5 +844,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-04T16:10:11+00:00"
+  "updated_at": "2026-08-04T18:29:57+00:00"
 }

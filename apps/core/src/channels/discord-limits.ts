@@ -1,0 +1,2 @@
+export const DISCORD_MESSAGE_MAX_LENGTH = 2000;
+export const DISCORD_FILE_MAX_BYTES = 25 * 1024 * 1024;
