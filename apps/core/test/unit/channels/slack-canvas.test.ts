@@ -27,6 +27,26 @@ function handleFromLine(line: string): string {
 }
 
 describe('slack canvas tools', () => {
+  it('does not treat fence-nested markers or code headings as sections', async () => {
+    const { markdownHeadingLabels } =
+      await import('@core/channels/slack/canvas-markdown.js');
+    const md = [
+      '# Real',
+      '````',
+      '~~~',
+      '# code not a heading',
+      '```',
+      '# still code (shorter close fence)',
+      '````',
+      '## After',
+      '~~~~',
+      '# tilde code',
+      '~~~~',
+      '### Tail',
+    ].join('\n');
+    expect(markdownHeadingLabels(md)).toEqual(['Real', 'After', 'Tail']);
+  });
+
   it('refuses update handles for canvases merely shared into the conversation', async () => {
     const fetcher = vi.fn<typeof fetch>();
     const service = new SlackCanvasService('xoxb-test', fetcher);
