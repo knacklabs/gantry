@@ -43,8 +43,17 @@ describe('slack canvas tools', () => {
       '# tilde code',
       '~~~~',
       '### Tail',
+      '```',
+      '<h1>Fenced Html</h1>',
+      '```',
+      '<h2>Live Html</h2>',
     ].join('\n');
-    expect(markdownHeadingLabels(md)).toEqual(['Real', 'After', 'Tail']);
+    expect(markdownHeadingLabels(md)).toEqual([
+      'Real',
+      'After',
+      'Tail',
+      'Live Html',
+    ]);
   });
 
   it('refuses update handles for canvases merely shared into the conversation', async () => {

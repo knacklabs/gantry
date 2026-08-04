@@ -6,6 +6,7 @@ export function markdownHeadingLabels(markdown: string): string[] {
   // CommonMark: a close fence must use the SAME character as the opener
   // and be at least as long; a ~~~ line inside a ``` block is content.
   let fence: { char: string; length: number } | undefined;
+  const unfenced: string[] = [];
   for (const line of markdown.split(/\r?\n/)) {
     const match = /^\s*(`{3,}|~{3,})\s*(\S*)/.exec(line);
     if (match?.[1]) {
@@ -20,6 +21,7 @@ export function markdownHeadingLabels(markdown: string): string[] {
       }
     }
     if (fence) continue;
+    unfenced.push(line);
     const label = /^#{1,3}\s+(.+?)\s*$/.exec(line)?.[1]?.trim();
     if (label) labels.add(label);
   }
@@ -27,8 +29,10 @@ export function markdownHeadingLabels(markdown: string): string[] {
   // runs (recorded deferral): hedge by also accepting HTML-shaped exports so
   // section targeting works either way. Section binding stays exact because
   // handles bind Slack section ids, not this parse.
+  // Scan only unfenced text: a fenced <h1> snippet is code, and a false
+  // label could bind a destructive handle to an unrelated real section.
   const htmlHeading = /<h([1-3])[^>]*>([\s\S]*?)<\/h\1>/gi;
-  for (const match of markdown.matchAll(htmlHeading)) {
+  for (const match of unfenced.join('\n').matchAll(htmlHeading)) {
     const label = decodeBasicEntities(
       (match[2] ?? '').replace(/<[^>]+>/g, ' '),
     ).trim();
