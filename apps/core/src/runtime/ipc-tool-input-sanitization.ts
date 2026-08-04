@@ -29,6 +29,12 @@ export function redactSensitiveToolInputString(value: string): string {
 
 interface SanitizationState {
   alteredPaths: Set<string>;
+  redactedPaths: Set<string>;
+  // Content-REMOVAL paths (length/depth/entry/key truncation) — distinct from
+  // redaction, which replaces a value in place. A path can be both redacted and
+  // truncated, so this must be tracked independently, not derived by subtraction.
+  truncatedPaths: Set<string>;
+  maxStringLength: number;
 }
 
 function childPath(path: string, key: string | number): string {
@@ -43,14 +49,19 @@ function sanitizeValue(
 ): unknown {
   if (depth > TOOL_INPUT_MAX_DEPTH) {
     state.alteredPaths.add(path);
+    state.truncatedPaths.add(path);
     return '[TRUNCATED_DEPTH]';
   }
   if (typeof value === 'string') {
     const redacted = redactSensitiveToolInputString(value);
-    if (redacted !== value) state.alteredPaths.add(path);
-    if (redacted.length <= TOOL_INPUT_MAX_STRING_LENGTH) return redacted;
+    if (redacted !== value) {
+      state.alteredPaths.add(path);
+      state.redactedPaths.add(path);
+    }
+    if (redacted.length <= state.maxStringLength) return redacted;
     state.alteredPaths.add(path);
-    return `${redacted.slice(0, TOOL_INPUT_MAX_STRING_LENGTH)}...[truncated]`;
+    state.truncatedPaths.add(path);
+    return `${redacted.slice(0, state.maxStringLength)}...[truncated]`;
   }
   if (
     typeof value === 'number' ||
@@ -71,6 +82,7 @@ function sanitizeValue(
       index += 1
     ) {
       state.alteredPaths.add(childPath(path, index));
+      state.truncatedPaths.add(childPath(path, index));
     }
     return kept;
   }
@@ -82,6 +94,7 @@ function sanitizeValue(
       const entryPath = childPath(path, key);
       if (SENSITIVE_TOOL_INPUT_KEY_PATTERN.test(key)) {
         state.alteredPaths.add(entryPath);
+        state.redactedPaths.add(entryPath);
         out[key] = '[REDACTED]';
         continue;
       }
@@ -91,6 +104,7 @@ function sanitizeValue(
       out.__omitted_keys = 'more';
       for (const key of keys.slice(TOOL_INPUT_MAX_KEYS)) {
         state.alteredPaths.add(childPath(path, key));
+        state.truncatedPaths.add(childPath(path, key));
       }
     }
     return out;
@@ -99,24 +113,44 @@ function sanitizeValue(
   return String(value);
 }
 
-export function sanitizeIpcToolInput(value: unknown): {
+export function sanitizeIpcToolInput(
+  value: unknown,
+  maxStringLength = TOOL_INPUT_MAX_STRING_LENGTH,
+): {
   toolInput?: Record<string, unknown>;
   altered: boolean;
   alteredPaths: string[];
+  redactedPaths: string[];
+  truncatedPaths: string[];
 } {
   if (!isPlainObject(value)) {
     const alteredPaths = value === undefined ? [] : ['$'];
-    return { altered: alteredPaths.length > 0, alteredPaths };
+    return {
+      altered: alteredPaths.length > 0,
+      alteredPaths,
+      redactedPaths: [],
+      truncatedPaths: alteredPaths,
+    };
   }
-  const state: SanitizationState = { alteredPaths: new Set() };
+  const state: SanitizationState = {
+    alteredPaths: new Set(),
+    redactedPaths: new Set(),
+    truncatedPaths: new Set(),
+    maxStringLength,
+  };
   const toolInput = sanitizeValue(value, 0, '', state) as Record<
     string,
     unknown
   >;
   const alteredPaths = [...state.alteredPaths];
+  const redactedPaths = [...state.redactedPaths];
   return {
     toolInput,
     altered: alteredPaths.length > 0,
     alteredPaths,
+    redactedPaths,
+    // Only genuine content-removal paths — a redact-only path is NOT truncated,
+    // and a path that is both redacted and truncated still counts as truncated.
+    truncatedPaths: [...state.truncatedPaths],
   };
 }

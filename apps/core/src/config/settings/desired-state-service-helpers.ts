@@ -1,6 +1,11 @@
 import type { AgentId } from '../../domain/agent/agent.js';
+import {
+  agentIdForFolder,
+  folderForAgentId,
+} from '../../domain/agent/agent-folder-id.js';
 import type { AppId } from '../../domain/app/app.js';
 import type {
+  Conversation,
   ConversationId,
   UserId,
 } from '../../domain/conversation/conversation.js';
@@ -21,6 +26,7 @@ import {
 import type {
   ConfiguredRoutingBinding,
   SettingsChangeClassification,
+  StoredAgentBinding,
 } from './desired-state-service-types.js';
 import type {
   RuntimeConfiguredAgent,
@@ -29,16 +35,20 @@ import type {
   RuntimeSettings,
 } from './runtime-settings-types.js';
 import type { AgentConfig } from '../../domain/types.js';
-export {
-  agentIdForFolder,
-  folderForAgentId,
-} from '../../domain/agent/agent-folder-id.js';
+import {
+  findConversationRouteForQueue,
+  makeAgentThreadQueueKey,
+  normalizeThreadQueueId,
+  parseAgentThreadQueueKey,
+} from '../../shared/thread-queue-key.js';
+export { agentIdForFolder, folderForAgentId };
 
 export function configuredRoutingBindingsByAgent(
   settings: RuntimeSettings,
+  existingRoutes: Record<string, StoredAgentBinding> = {},
 ): Map<string, ConfiguredRoutingBinding[]> {
   const result = new Map<string, ConfiguredRoutingBinding[]>();
-  for (const binding of configuredRoutingBindings(settings)) {
+  for (const binding of configuredRoutingBindings(settings, existingRoutes)) {
     const entries = result.get(binding.agentFolder) ?? [];
     entries.push(binding);
     result.set(binding.agentFolder, entries);
@@ -59,33 +69,143 @@ export function configuredAgentConfig(
   return Object.values(config).some(Boolean) ? config : undefined;
 }
 
+export function defaultRequiresTriggerForConversationKind(
+  kind: Conversation['kind'],
+): boolean {
+  return kind !== 'direct';
+}
+
+function canonicalRouteConversationId(
+  jid: string,
+  providerAccountId?: string,
+): string | undefined {
+  const normalizedProviderAccountId = providerAccountId?.trim();
+  if (!normalizedProviderAccountId) return undefined;
+  const { chatJid } = parseAgentThreadQueueKey(jid);
+  return `conversation:${normalizedProviderAccountId}:${chatJid}`;
+}
+
+function configuredRouteConversationId(input: {
+  existingRoutes: Record<string, StoredAgentBinding>;
+  agentFolder: string;
+  jid: string;
+  threadId?: string;
+  providerAccountId?: string;
+}): string | undefined {
+  const existingRoute =
+    findConversationRouteForQueue(
+      input.existingRoutes,
+      makeAgentThreadQueueKey(
+        input.jid,
+        agentIdForFolder(input.agentFolder),
+        input.threadId,
+        input.providerAccountId,
+      ),
+      (route) => agentIdForFolder(route.folder),
+    ) ??
+    findConversationRouteForQueue(
+      input.existingRoutes,
+      makeAgentThreadQueueKey(
+        input.jid,
+        input.agentFolder,
+        input.threadId,
+        input.providerAccountId,
+      ),
+      (route) =>
+        folderForAgentId(agentIdForFolder(route.folder)) ?? route.folder,
+    );
+  // Existing legacy IDs stay authoritative; Phase 8 owns their restamp.
+  return (
+    existingRoute?.conversationId ??
+    canonicalRouteConversationId(input.jid, input.providerAccountId)
+  );
+}
+
+function configuredInstallForAgentThread(
+  conversation: RuntimeConfiguredConversation,
+  agentId: string,
+  threadId?: string,
+): RuntimeConfiguredConversation['installedAgents'][string] | undefined {
+  const normalizedThreadId = normalizeThreadQueueId(threadId);
+  const matchesAgentThread = (
+    install: RuntimeConfiguredConversation['installedAgents'][string],
+  ): boolean =>
+    install.agentId === agentId &&
+    normalizeThreadQueueId(install.threadId) === normalizedThreadId;
+  const installedAgents = conversation.installedAgents ?? {};
+  const directlyKeyedInstall = installedAgents[agentId];
+  if (directlyKeyedInstall && matchesAgentThread(directlyKeyedInstall)) {
+    return directlyKeyedInstall;
+  }
+  return Object.values(installedAgents).find(matchesAgentThread);
+}
+
 export function configuredRoutingBindings(
   settings: RuntimeSettings,
+  existingRoutes: Record<string, StoredAgentBinding> = {},
 ): ConfiguredRoutingBinding[] {
   const byAgentAndJid = new Map<string, ConfiguredRoutingBinding>();
 
   for (const [folder, agent] of Object.entries(settings.agents)) {
     for (const binding of Object.values(agent.bindings)) {
+      const configuredConversationCandidates = Object.entries(
+        settings.conversations,
+      ).filter(([, candidate]) => {
+        if (
+          jidForConfiguredConversation(candidate, settings.providerAccounts) !==
+          binding.jid
+        ) {
+          return false;
+        }
+        if (!binding.providerAccountId) return true;
+        const candidateInstall = configuredInstallForAgentThread(
+          candidate,
+          folder,
+          binding.threadId,
+        );
+        const candidateProviderAccountId =
+          candidateInstall?.providerAccountId ??
+          candidate.providerAccount ??
+          candidate.providerConnection;
+        return candidateProviderAccountId === binding.providerAccountId;
+      });
+      const configuredConversation =
+        configuredConversationCandidates.length === 1
+          ? configuredConversationCandidates[0]
+          : undefined;
+      const configuredInstall = configuredConversation
+        ? configuredInstallForAgentThread(
+            configuredConversation[1],
+            folder,
+            binding.threadId,
+          )
+        : undefined;
+      const providerAccountId =
+        binding.providerAccountId ??
+        configuredInstall?.providerAccountId ??
+        configuredConversation?.[1].providerAccount ??
+        configuredConversation?.[1].providerConnection;
       byAgentAndJid.set(
-        `${folder}\0${binding.providerAccountId ?? ''}\0${binding.jid}\0${binding.threadId ?? ''}`,
+        `${folder}\0${providerAccountId ?? ''}\0${binding.jid}\0${binding.threadId ?? ''}`,
         {
           agentFolder: folder,
+          conversationId: configuredRouteConversationId({
+            existingRoutes,
+            agentFolder: folder,
+            jid: binding.jid,
+            threadId: binding.threadId,
+            providerAccountId,
+          }),
           jid: binding.jid,
           threadId: binding.threadId,
-          providerAccountId: binding.providerAccountId,
+          providerAccountId,
           name: binding.name,
           trigger: binding.trigger,
           addedAt: binding.addedAt,
           requiresTrigger: binding.requiresTrigger,
           model: binding.model,
           permissionMode: binding.permissionMode,
-          conversation: Object.values(settings.conversations).find(
-            (candidate) =>
-              jidForConfiguredConversation(
-                candidate,
-                settings.providerAccounts,
-              ) === binding.jid,
-          ),
+          conversation: configuredConversation?.[1],
         },
       );
     }
@@ -109,6 +229,13 @@ export function configuredRoutingBindings(
       `${binding.agent}\0${providerAccountId ?? ''}\0${jid}\0${binding.threadId ?? ''}`,
       {
         agentFolder: binding.agent,
+        conversationId: configuredRouteConversationId({
+          existingRoutes,
+          agentFolder: binding.agent,
+          jid,
+          threadId: binding.threadId,
+          providerAccountId,
+        }),
         jid,
         installKey: binding.installKey,
         threadId: binding.threadId,
@@ -179,6 +306,23 @@ export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+export function listDbOnlyGroupJids(input: {
+  groups: Record<string, StoredAgentBinding>;
+  chats: Array<{ jid: string; is_group?: number }>;
+  configuredJids: Set<string>;
+}): string[] {
+  return [
+    ...new Set([
+      ...Object.keys(input.groups),
+      ...input.chats
+        .filter((chat) => chat.is_group === 1)
+        .map((chat) => chat.jid),
+    ]),
+  ]
+    .filter((jid) => !input.configuredJids.has(jid))
+    .sort();
+}
+
 export function normalizeUserIds(userIds: string[]): string[] {
   return [
     ...new Set(
@@ -210,6 +354,35 @@ export function normalizeRuntimeSecretRefs(input: {
   );
 }
 
+function conversationTopology(settings: RuntimeSettings): unknown {
+  return Object.fromEntries(
+    Object.entries(settings.conversations ?? {})
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([conversationKey, conversation]) => [
+        conversationKey,
+        {
+          providerAccount:
+            conversation.providerAccount ?? conversation.providerConnection,
+          externalId: conversation.externalId,
+          kind: conversation.kind,
+          installedAgents: Object.fromEntries(
+            Object.entries(conversation.installedAgents ?? {})
+              .sort(([left], [right]) => left.localeCompare(right))
+              .map(([agentKey, install]) => [
+                agentKey,
+                {
+                  agentId: install.agentId,
+                  providerAccountId: install.providerAccountId,
+                  threadId: install.threadId,
+                  status: install.status,
+                },
+              ]),
+          ),
+        },
+      ]),
+  );
+}
+
 export function classifySettingsChanges(
   before: RuntimeSettings,
   after: RuntimeSettings,
@@ -230,12 +403,19 @@ export function classifySettingsChanges(
   if (providerTopologyChanged) {
     restartRequired.push('providers');
   }
-  if (
-    !providerTopologyChanged &&
-    (!jsonEqual(before.conversations, after.conversations) ||
-      !jsonEqual(before.bindings, after.bindings))
-  ) {
-    liveApplied.push('conversation_policies');
+  if (!providerTopologyChanged) {
+    const conversationTopologyChanged = !jsonEqual(
+      conversationTopology(before),
+      conversationTopology(after),
+    );
+    if (conversationTopologyChanged) {
+      restartRequired.push('conversations');
+    } else if (
+      !jsonEqual(before.conversations, after.conversations) ||
+      !jsonEqual(before.bindings, after.bindings)
+    ) {
+      liveApplied.push('conversation_policies');
+    }
   }
   if (!jsonEqual(before.agent, after.agent)) {
     liveApplied.push('agent_defaults');
@@ -248,6 +428,13 @@ export function classifySettingsChanges(
   }
   if (!jsonEqual(before.runtime, after.runtime)) {
     restartRequired.push('runtime');
+  }
+  // Tracing initializes once at boot from authoritative settings.
+  if (!jsonEqual(before.observability, after.observability)) {
+    restartRequired.push('observability');
+  }
+  if (!jsonEqual(before.observer, after.observer)) {
+    restartRequired.push('observer');
   }
 
   return {

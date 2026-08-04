@@ -14,6 +14,7 @@ type ConnectMcpServerInput = {
   description?: string;
   transport: 'http' | 'sse' | 'stdio_template';
   config: Record<string, unknown>;
+  networkHosts?: string[];
   allowedToolPatterns?: string[];
   autoApproveToolPatterns?: string[];
   credentialRefs?: Array<{
@@ -21,7 +22,6 @@ type ConnectMcpServerInput = {
     target: 'env' | 'header';
     key: string;
   }>;
-  networkHosts?: string[];
   sandboxProfileId?: string;
   riskClass?: 'low' | 'medium' | 'high';
   createdBy?: string;
@@ -119,8 +119,8 @@ export function createAgentMcpServersClient(transport: TransportLike) {
       input: {
         appId?: string;
         required?: boolean;
-        permissionPolicyIds?: string[];
         allowedToolPatterns?: string[];
+        permissionPolicyIds?: string[];
       } = {},
     ) =>
       transport.request<Record<string, unknown>>({
@@ -134,8 +134,8 @@ export function createAgentMcpServersClient(transport: TransportLike) {
       input: {
         appId?: string;
         required?: boolean;
-        permissionPolicyIds?: string[];
         allowedToolPatterns?: string[];
+        permissionPolicyIds?: string[];
       },
     ) =>
       transport.request<Record<string, unknown>>({

@@ -114,9 +114,6 @@ export function createResponseProgressSenders(input: {
 export function startGroupProgressHeartbeats(input: {
   supportsProgress: boolean;
   isTypingActive: () => boolean;
-  hasVisibleOutput?: () => boolean;
-  getLastAgentProgressAt: () => number;
-  getElapsedMs: () => number;
   chatJid: string;
   providerAccountId?: string;
   groupName: string;
@@ -127,18 +124,11 @@ export function startGroupProgressHeartbeats(input: {
       options?: { providerAccountId?: string },
     ): Promise<void>;
   };
-  buildProgressOptions: () => ProgressUpdateOptions | undefined;
-  sendProgressToChannel(
-    text: string,
-    options?: ProgressUpdateOptions,
-  ): Promise<void>;
   log: GroupProgressHeartbeatLogger;
 }): {
   typingHeartbeatTimer: ReturnType<typeof setInterval>;
-  progressTimer: ReturnType<typeof setInterval> | null;
   pause(): void;
   resume(): void;
-  reset(): void;
 } {
   let paused = false;
   const typingHeartbeatTimer = setInterval(() => {
@@ -157,13 +147,11 @@ export function startGroupProgressHeartbeats(input: {
   }, TYPING_HEARTBEAT_INTERVAL_MS);
   return {
     typingHeartbeatTimer,
-    progressTimer: null,
     pause: () => {
       paused = true;
     },
     resume: () => {
       paused = false;
     },
-    reset: () => undefined,
   };
 }

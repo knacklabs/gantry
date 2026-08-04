@@ -23,40 +23,6 @@ export interface JobNotificationRoute {
   label: string;
 }
 
-export interface JobAgentTask {
-  observability?: { traceparent: string };
-  responseSchema?: Record<string, unknown>;
-  callerResolvedTools?: {
-    tools: Array<{
-      name: string;
-      description: string;
-      inputSchema: Record<string, unknown>;
-    }>;
-    maxInteractions: number;
-    interactionTimeoutMs: number;
-  };
-  delegatedCompletionGate?: {
-    toolName: string;
-    taskKeys: string[];
-    maxNoProgressContinuations: number;
-  };
-  completionGate?: {
-    toolName: string;
-    maxNoProgressContinuations: number;
-  };
-  executionPolicy: { totalTimeoutMs: number };
-  modelControls?: {
-    effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-    thinking?: { mode: 'off' } | { mode: 'on'; budgetTokens?: number };
-    maxOutputTokens?: number;
-  };
-  requiredSkill?: { name: string; contentHash: string };
-  interactionBudget?: {
-    maxTotal: number;
-    scopes: Record<string, number>;
-  };
-}
-
 export type JobCapabilityRequirementImplementationKind =
   | 'configured_access'
   | 'local_cli'
@@ -110,8 +76,8 @@ export interface JobSetupBlocker {
   requirementType:
     | 'tool'
     | 'semantic_capability'
-    | 'skill'
     | 'browser'
+    | 'skill'
     | 'mcp_server'
     | 'credential'
     | 'local_cli';
@@ -126,46 +92,49 @@ export interface JobSetupState {
   notified_fingerprint?: string | null;
 }
 
-export type JobRecoveryIntentKind =
-  | 'setup_required'
-  | 'missing_capability'
-  | 'permission_denied'
-  | 'permission_timeout';
-
-export type JobRecoveryIntentState =
-  | 'pending'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'suppressed';
-
-export interface JobRecoveryIntent {
-  kind: JobRecoveryIntentKind;
-  state: JobRecoveryIntentState;
-  dedupe_key: string;
-  created_at: string;
-  updated_at: string;
-  source_run_id?: string | null;
-  setup_fingerprint?: string | null;
-  requirement_type?: JobSetupBlocker['requirementType'] | null;
-  requirement_id?: string | null;
-  next_action?: string | null;
-  attempts: number;
-  last_error?: string | null;
+export interface JobAgentTask {
+  observability?: { traceparent: string };
+  responseSchema?: Record<string, unknown>;
+  callerResolvedTools?: {
+    tools: Array<{
+      name: string;
+      description: string;
+      inputSchema: Record<string, unknown>;
+    }>;
+    maxInteractions: number;
+    interactionTimeoutMs: number;
+  };
+  delegatedCompletionGate?: {
+    toolName: string;
+    taskKeys: string[];
+    maxNoProgressContinuations: number;
+  };
+  completionGate?: {
+    toolName: string;
+    maxNoProgressContinuations: number;
+  };
+  executionPolicy: { totalTimeoutMs: number };
+  modelControls?: {
+    effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    thinking?:
+      | { mode: 'off'; budgetTokens?: never }
+      | { mode: 'on'; budgetTokens?: number };
+    maxOutputTokens?: number;
+  };
+  requiredSkill?: { name: string; contentHash: string };
+  interactionBudget?: {
+    maxTotal: number;
+    scopes: Record<string, number>;
+  };
 }
 
 export interface Job {
   id: string;
-  app_id?: string;
   name: string;
   prompt: string;
   model?: string | null;
   schedule_type: JobScheduleType;
   schedule_value: string;
-  schedule_timezone?: string;
-  misfire_policy?: 'coalesce';
-  overlap_policy?: 'skip';
-  schedule_metadata?: { scheduleId: string; generation: number };
   status: JobStatus;
   session_id: string | null;
   thread_id: string | null;
@@ -189,13 +158,13 @@ export interface Job {
   notification_routes?: JobNotificationRoute[];
   access_requirements?: JobAccessRequirement[];
   setup_state?: JobSetupState;
-  recovery_intent?: JobRecoveryIntent | null;
   required_capabilities?: string[];
   agent_task?: JobAgentTask;
 }
 
 export type JobRunStatus =
   | 'running'
+  | 'paused'
   | 'completed'
   | 'failed'
   | 'timeout'

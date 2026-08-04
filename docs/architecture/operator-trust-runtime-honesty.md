@@ -266,8 +266,8 @@ Run focused checks while landing each slice, then run:
 ```bash
 npm run build
 npm test
-python3 .codex/scripts/check_architecture.py
-python3 .codex/scripts/check_task_completion.py
+python3 scripts/check_architecture.py
+python3 .agents/scripts/verify.py
 ```
 
 ## Locked Decisions

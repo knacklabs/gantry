@@ -1,33 +1,41 @@
 import { resolveCoreMessageAttachments } from '../application/core-tools/send-message.js';
+import type { CoreMessageFile } from '../application/core-tools/send-message.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import type { IpcDeps } from './ipc-domain-types.js';
 
-export interface ParsedIpcMessageFile {
-  scope?: string;
-  path: string;
-  version?: number;
-}
+export type ParsedIpcMessageFile = CoreMessageFile;
 
 export function parseIpcMessageFiles(
   rawFiles: unknown,
 ): ParsedIpcMessageFile[] {
   if (!Array.isArray(rawFiles)) return [];
-  return rawFiles
-    .slice(0, 5)
-    .map((entry) => {
-      if (!isPlainObject(entry)) return null;
-      const filePath = toTrimmedString(entry.path, { maxLen: 1024 });
-      if (!filePath) return null;
-      const scope = toTrimmedString(entry.scope, { maxLen: 120 });
-      return {
-        ...(scope ? { scope } : {}),
-        path: filePath,
-        ...(typeof entry.version === 'number'
-          ? { version: Math.floor(entry.version) }
-          : {}),
-      };
-    })
-    .filter((entry): entry is ParsedIpcMessageFile => entry !== null);
+  const files: ParsedIpcMessageFile[] = [];
+  for (const entry of rawFiles.slice(0, 5)) {
+    if (!isPlainObject(entry)) continue;
+    if (
+      entry.source !== undefined &&
+      entry.source !== 'artifact' &&
+      entry.source !== 'workspace'
+    ) {
+      throw new Error('Invalid IPC message file source');
+    }
+    const filePath = toTrimmedString(entry.path, { maxLen: 1024 });
+    if (!filePath) continue;
+    if (entry.source === 'workspace') {
+      files.push({ source: 'workspace', path: filePath });
+      continue;
+    }
+    const scope = toTrimmedString(entry.scope, { maxLen: 120 });
+    files.push({
+      source: 'artifact',
+      ...(scope ? { scope } : {}),
+      path: filePath,
+      ...(typeof entry.version === 'number'
+        ? { version: Math.floor(entry.version) }
+        : {}),
+    });
+  }
+  return files;
 }
 
 export async function appendOwnedFileArtifactDegradeText(input: {

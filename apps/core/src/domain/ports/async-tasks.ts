@@ -20,6 +20,7 @@ export interface AsyncTaskReceipt {
   delegated: 'yes' | 'no';
   subtasks?: string;
   needsAttention: string;
+  callableAgentFollowUp?: { deliveredAt: string };
 }
 
 export type AgentFailureType =
@@ -63,7 +64,6 @@ export interface AsyncTaskRecord {
 
 export interface PublicAsyncTaskDto {
   id: string;
-  taskKey?: string;
   kind: AsyncTaskKind;
   status: AsyncTaskStatus;
   summary?: string | null;
@@ -175,13 +175,13 @@ export interface AsyncTaskClaimInput {
 
 export interface AsyncTaskRepository {
   createTask(input: AsyncTaskCreateInput): Promise<AsyncTaskRecord>;
-  createTaskWithBacklogAdmission?(
+  createTaskWithBacklogAdmission(
     input: AsyncTaskBacklogAdmissionInput,
   ): Promise<AsyncTaskRecord | null>;
-  createTaskWithScopedAdmission?(
+  createTaskWithScopedAdmission(
     input: AsyncTaskScopedAdmissionInput,
   ): Promise<AsyncTaskScopedAdmissionResult>;
-  claimQueuedTask?(input: AsyncTaskClaimInput): Promise<AsyncTaskRecord | null>;
+  claimQueuedTask(input: AsyncTaskClaimInput): Promise<AsyncTaskRecord | null>;
   getTask(taskId: string): Promise<AsyncTaskRecord | null>;
   listTasks(filter: AsyncTaskListFilter): Promise<AsyncTaskRecord[]>;
   countTasksByStatus(
@@ -217,9 +217,6 @@ export function toPublicAsyncTaskDto(
   );
   return {
     id: task.id,
-    ...(typeof task.privateCorrelationJson.taskKey === 'string'
-      ? { taskKey: task.privateCorrelationJson.taskKey }
-      : {}),
     kind: task.kind,
     status: task.status,
     summary: task.summary,
@@ -273,29 +270,18 @@ function publicTerminalChildren(value: unknown): PublicAsyncTaskDto[] {
 
 function receiptLines(receipt: AsyncTaskReceipt | null | undefined): string[] {
   if (!receipt) return [];
-  if (isPureAnswerReceipt(receipt)) return [`Completed: ${receipt.completed}`];
-  const lines = [
-    `Completed: ${receipt.completed}`,
-    `Used: ${receipt.used}`,
-    `Changed: ${receipt.changed}`,
-    `Delegated: ${receipt.delegated}`,
-  ];
+  const lines = [receipt.completed];
+  if (receipt.used !== 'none') lines.push(`I used ${receipt.used}.`);
+  if (receipt.changed !== 'none') lines.push(`I changed ${receipt.changed}.`);
   if (receipt.delegated === 'yes') {
     lines.push(
-      `Subtasks: ${receipt.subtasks ?? '0 completed, 0 failed, 0 cancelled'}`,
+      `I delegated part of the work; ${receipt.subtasks ?? 'no subtask totals were reported'}.`,
     );
   }
-  lines.push(`Needs attention: ${receipt.needsAttention}`);
+  if (receipt.needsAttention !== 'none') {
+    lines.push(`I need your attention: ${receipt.needsAttention}`);
+  }
   return lines;
-}
-
-function isPureAnswerReceipt(receipt: AsyncTaskReceipt): boolean {
-  return (
-    receipt.used === 'none' &&
-    receipt.changed === 'none' &&
-    receipt.delegated === 'no' &&
-    receipt.needsAttention === 'none'
-  );
 }
 
 function publicProgress(

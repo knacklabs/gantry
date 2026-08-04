@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 import {
   Clock,
   nowIso,
@@ -44,6 +46,36 @@ export interface CreateLoggerOptions {
   clock?: Clock;
   context?: Record<string, unknown>;
   redact?: (value: unknown) => unknown;
+}
+
+export interface LogCorrelationContext {
+  runId?: string;
+  appId?: string;
+  agentId?: string;
+  traceId?: string;
+}
+
+const logContextStorage = new AsyncLocalStorage<LogCorrelationContext>();
+
+export function withLogContext<T>(
+  context: LogCorrelationContext,
+  callback: () => T,
+): T {
+  return logContextStorage.run(
+    { ...logContextStorage.getStore(), ...context },
+    callback,
+  );
+}
+
+export function updateLogContext(context: LogCorrelationContext): void {
+  const current = logContextStorage.getStore();
+  if (current) Object.assign(current, context);
+}
+
+export function currentLogContext():
+  | Readonly<LogCorrelationContext>
+  | undefined {
+  return logContextStorage.getStore();
 }
 
 const DEFAULT_REDACT_KEY_PATTERN =
@@ -109,23 +141,32 @@ const SECRET_VALUE_PATTERNS: RegExp[] = [
 const LOGGER_HANDLER_MARK = Symbol.for('gantry.logger.handler');
 
 function sanitizeError(err: Error, depth = 0): Record<string, unknown> {
-  const code = 'code' in err ? err.code : undefined;
-  const cause = 'cause' in err ? err.cause : undefined;
+  const extra: Record<string, unknown> = {};
+  for (const key of [
+    'code',
+    'detail',
+    'constraint',
+    'table',
+    'schema',
+    'column',
+  ]) {
+    const value = (err as unknown as Record<string, unknown>)[key];
+    if (typeof value === 'string' && value.length > 0) {
+      extra[key] = redactString(value);
+    }
+  }
+  const cause = (err as unknown as { cause?: unknown }).cause;
   return {
     type: err.constructor.name,
     message: redactString(err.message),
-    ...(typeof code === 'string' || typeof code === 'number' ? { code } : {}),
-    ...(cause !== undefined
-      ? {
-          cause:
-            depth >= 3
-              ? '[TRUNCATED_DEPTH]'
-              : cause instanceof Error
-                ? sanitizeError(cause, depth + 1)
-                : redactValue(cause, depth + 1),
-        }
-      : {}),
     stack: err.stack ? redactString(err.stack) : undefined,
+    ...extra,
+    ...(cause === undefined
+      ? {}
+      : {
+          cause:
+            depth >= 5 ? '[TRUNCATED_DEPTH]' : redactValue(cause, depth + 1),
+        }),
   };
 }
 
@@ -135,7 +176,7 @@ function defaultRedact(value: unknown): unknown {
 
 function redactValue(value: unknown, depth: number): unknown {
   if (depth > 6) return '[TRUNCATED_DEPTH]';
-  if (value instanceof Error) return sanitizeError(value);
+  if (value instanceof Error) return sanitizeError(value, depth);
   if (typeof value === 'string') return redactString(value);
   if (Array.isArray(value)) {
     return value.map((entry) => redactValue(entry, depth + 1));
@@ -280,6 +321,11 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
       typeof dataOrMsg === 'string'
         ? redactString(dataOrMsg)
         : redactString(msg || '');
+    const activeContext = currentLogContext();
+    const inheritedContext = mergeContexts(
+      mergeContexts(baseContext, activeContext),
+      childContext,
+    );
     const record: LogRecord = {
       timestamp: nowIso(clock),
       level: currentLevel,
@@ -287,17 +333,14 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
       pid: process.pid,
       ...(() => {
         if (typeof dataOrMsg === 'string') {
-          const context = redact(mergeContexts(baseContext, childContext)) as
+          const context = redact(inheritedContext) as
             | Record<string, unknown>
             | undefined;
           return context ? { context } : {};
         }
-        const context = redact(
-          mergeContexts(
-            mergeContexts(baseContext, childContext),
-            redact(dataOrMsg) as Record<string, unknown>,
-          ),
-        ) as Record<string, unknown> | undefined;
+        const context = redact(mergeContexts(inheritedContext, dataOrMsg)) as
+          | Record<string, unknown>
+          | undefined;
         return context ? { context } : {};
       })(),
     };

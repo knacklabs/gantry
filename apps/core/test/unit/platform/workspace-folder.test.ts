@@ -7,22 +7,12 @@ import {
   resolveWorkspaceFolderPath,
   resolveWorkspaceIpcPath,
 } from '@core/platform/workspace-folder.js';
-import { MAX_WORKSPACE_FOLDER_LENGTH } from '@core/platform/workspace-folder-rules.js';
 
 describe('workspace folder validation', () => {
   it('accepts normal workspace folder names', () => {
     expect(isValidWorkspaceFolder('main')).toBe(true);
     expect(isValidWorkspaceFolder('family-chat')).toBe(true);
     expect(isValidWorkspaceFolder('Team_42')).toBe(true);
-  });
-
-  it('accepts exactly 64 characters and rejects longer folders', () => {
-    expect(
-      isValidWorkspaceFolder('a'.repeat(MAX_WORKSPACE_FOLDER_LENGTH)),
-    ).toBe(true);
-    expect(
-      isValidWorkspaceFolder('a'.repeat(MAX_WORKSPACE_FOLDER_LENGTH + 1)),
-    ).toBe(false);
   });
 
   it('rejects traversal and reserved names', () => {

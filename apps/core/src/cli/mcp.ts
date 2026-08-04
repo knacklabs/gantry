@@ -4,7 +4,8 @@ import { controlApiRequest } from './control-api.js';
 
 type ConnectOptions = {
   name?: string;
-  transport?: 'stdio_template';
+  transport?: 'http' | 'sse' | 'stdio_template';
+  url?: string;
   templateId?: string;
   args: string[];
   sandboxProfileId?: string;
@@ -29,6 +30,7 @@ function usage(): string {
   return [
     'Usage:',
     '  gantry mcp connect --name <name> --transport <stdio_template> --template <node-script|npx-package> --sandbox-profile <id> --agent <agentId> [--arg <value>] [--tool <name>] [--credential <name:env:key>] [--network <host:port>]',
+    '  gantry mcp connect --name <name> --transport <http|sse> --url <url> --agent <agentId> [--tool <name>] [--credential <name:header:key>] [--network <host:port>]',
     '  gantry mcp list [--status <active|disabled>]',
     '  gantry mcp show <serverId>',
     '  gantry mcp doctor <serverId> [--agent <agentId>] [--by <admin>]',
@@ -130,10 +132,15 @@ function parseConnectArgs(args: string[]): ConnectOptions | { error: string } {
       options.name = value;
       index += 1;
     } else if (arg === '--transport') {
-      if (value !== 'stdio_template') {
-        return { error: 'Invalid --transport. Use stdio_template.' };
+      if (value !== 'stdio_template' && value !== 'http' && value !== 'sse') {
+        return {
+          error: 'Invalid --transport. Use http, sse, or stdio_template.',
+        };
       }
       options.transport = value;
+      index += 1;
+    } else if (arg === '--url') {
+      options.url = value;
       index += 1;
     } else if (arg === '--template') {
       options.templateId = value;
@@ -187,13 +194,26 @@ function parseConnectArgs(args: string[]): ConnectOptions | { error: string } {
   }
   if (!options.name) return { error: 'Missing --name.' };
   if (!options.transport) return { error: 'Missing --transport.' };
-  if (!options.templateId) return { error: 'Missing --template.' };
-  if (!options.sandboxProfileId) return { error: 'Missing --sandbox-profile.' };
+  if (options.transport === 'stdio_template' && !options.templateId) {
+    return { error: 'Missing --template for stdio_template transport.' };
+  }
+  if (options.transport !== 'stdio_template' && !options.url) {
+    return { error: 'Missing --url for http/sse transport.' };
+  }
+  if (options.transport === 'stdio_template' && !options.sandboxProfileId) {
+    return { error: 'Missing --sandbox-profile for stdio_template transport.' };
+  }
   if (!options.agentId) return { error: 'Missing --agent.' };
   return options;
 }
 
 function transportConfig(input: ConnectOptions): Record<string, unknown> {
+  if (input.transport === 'http' || input.transport === 'sse') {
+    return {
+      transport: input.transport,
+      url: input.url,
+    };
+  }
   return {
     transport: 'stdio_template',
     templateId: input.templateId,

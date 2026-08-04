@@ -3,11 +3,22 @@ import os from 'os';
 import path from 'path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  callableAgentToolName,
+  projectCallableAgentTools,
+} from '@core/application/core-tools/callable-agent-tools.js';
 
 const previousIpcDir = process.env.GANTRY_IPC_DIR;
 const previousAdminTools = process.env.GANTRY_ADMIN_MCP_TOOLS_JSON;
 const previousMcpTools = process.env.GANTRY_MCP_TOOL_NAMES_JSON;
 const previousNoPermissionTools = process.env.GANTRY_NO_PERMISSION_TOOLS;
+const previousCallableAgentManifest =
+  process.env.GANTRY_CALLABLE_AGENT_MANIFEST_JSON;
+const previousAccessPreset = process.env.GANTRY_AGENT_ACCESS_PRESET;
+const previousParentTaskId = process.env.GANTRY_PARENT_TASK_ID;
+const previousAsyncTaskTools = process.env.GANTRY_ASYNC_TASK_TOOLS_ENABLED;
+const previousConfiguredTools =
+  process.env.GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON;
 const tempRoots: string[] = [];
 
 afterEach(() => {
@@ -32,6 +43,16 @@ afterEach(() => {
   } else {
     process.env.GANTRY_NO_PERMISSION_TOOLS = previousNoPermissionTools;
   }
+  for (const [key, value] of [
+    ['GANTRY_CALLABLE_AGENT_MANIFEST_JSON', previousCallableAgentManifest],
+    ['GANTRY_AGENT_ACCESS_PRESET', previousAccessPreset],
+    ['GANTRY_PARENT_TASK_ID', previousParentTaskId],
+    ['GANTRY_ASYNC_TASK_TOOLS_ENABLED', previousAsyncTaskTools],
+    ['GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON', previousConfiguredTools],
+  ] as const) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -44,6 +65,90 @@ function setIpcDir(): void {
 }
 
 describe('MCP server registry handler parity', () => {
+  const callableAgentManifest = projectCallableAgentTools({
+    agents: [
+      {
+        id: 'agent:main_agent',
+        appId: 'default',
+        name: 'Main',
+        status: 'active',
+      },
+      {
+        id: 'agent:reviewer',
+        appId: 'default',
+        name: 'Reviewer',
+        status: 'active',
+      },
+    ] as never,
+    callerAppId: 'default',
+    callerAgentId: 'agent:main_agent',
+    callerFolder: 'main_agent',
+    delegates: ['reviewer'],
+    conversationBoundAgentIds: new Set(['agent:reviewer']),
+    toolPolicyRules: ['AgentDelegation'],
+  });
+  const callableAgentTool = callableAgentToolName(callableAgentManifest[0]!);
+
+  it('registers callable-agent tools in the stdio MCP lane', async () => {
+    setIpcDir();
+    process.env.GANTRY_CALLABLE_AGENT_MANIFEST_JSON = JSON.stringify(
+      callableAgentManifest,
+    );
+    process.env.GANTRY_AGENT_ACCESS_PRESET = 'full';
+    process.env.GANTRY_ASYNC_TASK_TOOLS_ENABLED = '1';
+    process.env.GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON = JSON.stringify([
+      'AgentDelegation',
+    ]);
+    delete process.env.GANTRY_PARENT_TASK_ID;
+    const { createGantryMcpServer } =
+      await import('@core/runner/mcp/server.js');
+
+    const server = createGantryMcpServer() as unknown as {
+      _registeredTools: Record<string, unknown>;
+    };
+    expect(Object.keys(server._registeredTools)).toContain(callableAgentTool);
+  });
+
+  it.each([
+    ['delegated child', { parentTaskId: 'task_parent' }, callableAgentManifest],
+    ['locked mode', { lockedPreset: true }, callableAgentManifest],
+    ['empty allowlist', {}, []],
+  ])(
+    'suppresses callable-agent tools for %s in the stdio MCP lane',
+    async (_name, options, manifest) => {
+      setIpcDir();
+      const { parseCallableAgentManifest } =
+        await import('@core/runner/mcp/server.js');
+
+      expect(
+        parseCallableAgentManifest(JSON.stringify(manifest), {
+          asyncTaskToolsEnabled: true,
+          agentDelegationConfigured: true,
+          ...options,
+        }),
+      ).toEqual([]);
+    },
+  );
+
+  it('keeps valid callable agents when another manifest entry is invalid', async () => {
+    setIpcDir();
+    const { parseCallableAgentManifest } =
+      await import('@core/runner/mcp/server.js');
+
+    expect(
+      parseCallableAgentManifest(
+        JSON.stringify([
+          { ...callableAgentManifest[0], displayName: 'R'.repeat(201) },
+          { ...callableAgentManifest[0], persona: undefined },
+          callableAgentManifest[0],
+        ]),
+        {
+          asyncTaskToolsEnabled: true,
+          agentDelegationConfigured: true,
+        },
+      ),
+    ).toEqual(callableAgentManifest);
+  });
   it('fails boot when an enabled MCP tool has no registered handler', async () => {
     setIpcDir();
     const { assertRegisteredMcpToolHandlers } =

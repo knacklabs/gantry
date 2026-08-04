@@ -1,13 +1,14 @@
 import fs from 'fs';
+import fsp from 'fs/promises';
 import os from 'os';
 import path from 'path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   PROFILE_MIRROR_HEADER,
-  readProfileFileMirror,
   profileMirrorPath,
+  readProfileFileMirror,
   stripProfileMirrorHeader,
   writeProfileFileMirror,
 } from '@core/platform/profile-file-mirror.js';
@@ -23,7 +24,19 @@ describe('profile file mirror', () => {
     return runtimeHome;
   }
 
+  function readRawMirror(input: {
+    runtimeHome: string;
+    agentFolder: string;
+    fileName: string;
+  }): string {
+    const targetPath = profileMirrorPath(input.agentFolder, input.fileName, {
+      runtimeHome: input.runtimeHome,
+    });
+    return fs.readFileSync(targetPath, 'utf-8');
+  }
+
   afterEach(() => {
+    vi.restoreAllMocks();
     for (const dir of tempDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -119,6 +132,245 @@ describe('profile file mirror', () => {
         path.join(runtimeHome, 'agents', 'reserved_agent', 'AGENTS.profile.md'),
       ),
     ).toBe(true);
+  });
+
+  it('serializes a slow v10 before v11 and leaves v11 content', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'concurrent_agent',
+      fileName: 'SOUL.md',
+    };
+    const rename = fsp.rename.bind(fsp);
+    let releaseFirstRename!: () => void;
+    const firstRenameBlocked = new Promise<void>((resolve) => {
+      releaseFirstRename = resolve;
+    });
+    const renameSpy = vi
+      .spyOn(fsp, 'rename')
+      .mockImplementationOnce(async (...args) => {
+        await firstRenameBlocked;
+        await rename(...args);
+      });
+
+    const older = writeProfileFileMirror({
+      ...input,
+      content: '# v10',
+      version: 10,
+    });
+    await vi.waitFor(() => expect(renameSpy).toHaveBeenCalledTimes(1));
+
+    const newer = writeProfileFileMirror({
+      ...input,
+      content: '# v11',
+      version: 11,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(renameSpy).toHaveBeenCalledTimes(1);
+
+    releaseFirstRename();
+    await Promise.all([older, newer]);
+
+    expect(renameSpy).toHaveBeenCalledTimes(2);
+    expect(readRawMirror(input)).toBe(`${PROFILE_MIRROR_HEADER}\n\n# v11`);
+  });
+
+  it('skips v10 issued behind v11 while the target chain is active', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'stale_agent',
+      fileName: 'SOUL.md',
+    };
+    const rename = fsp.rename.bind(fsp);
+    let releaseFirstRename!: () => void;
+    const firstRenameBlocked = new Promise<void>((resolve) => {
+      releaseFirstRename = resolve;
+    });
+    const renameSpy = vi
+      .spyOn(fsp, 'rename')
+      .mockImplementationOnce(async (...args) => {
+        await firstRenameBlocked;
+        await rename(...args);
+      });
+
+    const newer = writeProfileFileMirror({
+      ...input,
+      content: '# v11',
+      version: 11,
+    });
+    await vi.waitFor(() => expect(renameSpy).toHaveBeenCalledTimes(1));
+    const older = writeProfileFileMirror({
+      ...input,
+      content: '# v10',
+      version: 10,
+    });
+
+    releaseFirstRename();
+    await Promise.all([newer, older]);
+
+    expect(renameSpy).toHaveBeenCalledTimes(1);
+    expect(readRawMirror(input)).toBe(`${PROFILE_MIRROR_HEADER}\n\n# v11`);
+  });
+
+  it('forgets the applied version when the target chain drains', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'drained_agent',
+      fileName: 'SOUL.md',
+    };
+
+    await writeProfileFileMirror({ ...input, content: '# v11', version: 11 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await writeProfileFileMirror({ ...input, content: '# v10', version: 10 });
+
+    expect(readRawMirror(input)).toBe(`${PROFILE_MIRROR_HEADER}\n\n# v10`);
+  });
+
+  it('still blocks an older queued write when the newer write fails', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'failed_newer_agent',
+      fileName: 'SOUL.md',
+    };
+    // Establish a v12 mirror, then keep the chain alive for the failing v13.
+    const rename = fsp.rename.bind(fsp);
+    let releaseFirstRename!: () => void;
+    const firstRenameBlocked = new Promise<void>((resolve) => {
+      releaseFirstRename = resolve;
+    });
+    const renameSpy = vi
+      .spyOn(fsp, 'rename')
+      .mockImplementationOnce(async (...args) => {
+        await firstRenameBlocked;
+        await rename(...args);
+      })
+      .mockImplementationOnce(async () => {
+        throw new Error('v13 rename failed');
+      });
+
+    const v12 = writeProfileFileMirror({
+      ...input,
+      content: '# v12',
+      version: 12,
+    });
+    await vi.waitFor(() => expect(renameSpy).toHaveBeenCalledTimes(1));
+    const v13 = writeProfileFileMirror({
+      ...input,
+      content: '# v13',
+      version: 13,
+    });
+    const v10 = writeProfileFileMirror({
+      ...input,
+      content: '# stale v10',
+      version: 10,
+    });
+
+    releaseFirstRename();
+    await v12;
+    await expect(v13).rejects.toThrow('v13 rename failed');
+    await v10;
+
+    // v13 failed, so appliedVersion is still 12 — but v10 must not be allowed
+    // through on the strength of that, or it would regress the mirror.
+    expect(readRawMirror(input)).toBe(`${PROFILE_MIRROR_HEADER}\n\n# v12`);
+  });
+
+  it('allows a versionless call to write while the target chain is active', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'versionless_agent',
+      fileName: 'SOUL.md',
+    };
+    const rename = fsp.rename.bind(fsp);
+    let releaseFirstRename!: () => void;
+    const firstRenameBlocked = new Promise<void>((resolve) => {
+      releaseFirstRename = resolve;
+    });
+    const renameSpy = vi
+      .spyOn(fsp, 'rename')
+      .mockImplementationOnce(async (...args) => {
+        await firstRenameBlocked;
+        await rename(...args);
+      });
+
+    const versioned = writeProfileFileMirror({
+      ...input,
+      content: '# v11',
+      version: 11,
+    });
+    await vi.waitFor(() => expect(renameSpy).toHaveBeenCalledTimes(1));
+    const versionless = writeProfileFileMirror({
+      ...input,
+      content: '# versionless',
+    });
+
+    releaseFirstRename();
+    await Promise.all([versioned, versionless]);
+
+    expect(renameSpy).toHaveBeenCalledTimes(2);
+    expect(readRawMirror(input)).toBe(
+      `${PROFILE_MIRROR_HEADER}\n\n# versionless`,
+    );
+  });
+
+  it('does not record a version when its atomic write fails', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'retry_agent',
+      fileName: 'SOUL.md',
+      content: '# retry v11',
+      version: 11,
+    };
+    const rename = fsp.rename.bind(fsp);
+    let rejectFirstRename!: () => void;
+    const firstRenameBlocked = new Promise<void>((resolve) => {
+      rejectFirstRename = resolve;
+    });
+    const renameSpy = vi
+      .spyOn(fsp, 'rename')
+      .mockImplementationOnce(async () => {
+        await firstRenameBlocked;
+        throw new Error('rename failed');
+      })
+      .mockImplementation(rename);
+
+    const failed = writeProfileFileMirror(input);
+    await vi.waitFor(() => expect(renameSpy).toHaveBeenCalledTimes(1));
+    const retry = writeProfileFileMirror(input);
+
+    rejectFirstRename();
+    await expect(failed).rejects.toThrow('rename failed');
+    await expect(retry).resolves.toBeUndefined();
+
+    expect(renameSpy).toHaveBeenCalledTimes(2);
+    expect(readRawMirror(input)).toBe(
+      `${PROFILE_MIRROR_HEADER}\n\n# retry v11`,
+    );
+  });
+
+  it('writes only the managed header and caller content', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'content_only_agent',
+      fileName: 'SOUL.md',
+    };
+
+    await writeProfileFileMirror({
+      ...input,
+      content: '# visible content',
+      version: 11,
+    });
+
+    const raw = readRawMirror(input);
+    expect(raw).toBe(`${PROFILE_MIRROR_HEADER}\n\n# visible content`);
+    expect(raw).not.toContain('gantry-profile-version');
+    expect(readProfileFileMirror(input)).toBe(raw);
   });
 
   it('rejects symlinked agent mirror directories', async () => {

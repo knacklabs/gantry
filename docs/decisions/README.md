@@ -1,38 +1,66 @@
-# Decision Records
+# Decision Docs
 
-Decision records capture architecture choices that override broader notes when
-the docs disagree.
+The canonical record of explicit product and engineering decisions: approved
+product calls, architecture decisions and overrides, tradeoffs, non-goals,
+forced constraints, and anything that resolves ambiguity in
+`docs/architecture/`. During planning and decomposition these files override
+vague or conflicting architecture guidance.
 
-## Current Decisions
+## Shape
 
-- [Runtime Stack Decision](./0000-runtime-stack.md)
-- [Credential Boundary](./0000-credential-broker-boundary.md)
-- [Agent Runtime Platform](./0001-agent-runtime-platform.md)
-- [Config and Secret Source Boundary](./0001-config-secret-source-boundary.md)
-- [Settings And Runtime Truth](./2026-04-17-settings-runtime-truth.md)
-- [App-Wide Storage Backend Cutover](./2026-04-21-storage-backend-cutover.md)
-- [Canonical Domain Schema Cutover](./2026-04-26-canonical-domain-schema-cutover.md)
-- [Provider Artifact Store](./2026-04-27-provider-session-artifact-store.md)
-- [Claude Runtime Materialization](./2026-04-27-claude-runtime-materialization.md)
-- [Runtime Event Exchange](./2026-04-29-runtime-event-exchange.md)
-- [Browser Capability Boundary](./2026-04-29-browser-capability-boundary.md)
-- [External Ingress vs Outbound Webhooks](./2026-04-30-external-ingress-vs-outbound-webhooks.md)
-- [Model Catalog and Cache Accounting](./2026-05-01-model-catalog-and-cache-accounting.md)
-- [Event Bus Outbox Boundary](./2026-05-12-event-bus-outbox-boundary.md)
-- [Provider-Neutral Agent Execution Adapter](./2026-05-18-provider-neutral-agent-execution-adapter.md)
-- [JSONB Runtime Payload Boundary](./2026-05-18-jsonb-runtime-payload-boundary.md)
-- [Simple Permission And Job Tool Lifecycle](./2026-05-20-simple-permission-and-job-tool-lifecycle.md)
-- [MCP Source Vs Action Capability](./2026-06-02-mcp-source-vs-action-capability.md)
-- [Settings Authority Per Deployment Mode](./2026-06-11-settings-authority.md)
-- [Capability State As Artifacts](./2026-06-11-capability-artifacts.md)
-- [Locked Agent Preset](./2026-06-11-locked-preset.md)
-- [Delivery Vehicle](./2026-06-11-delivery-vehicle.md)
-- [Deployment Modes](./2026-06-11-deployment-modes.md)
-- [Agent Engine Selection](./2026-06-12-agent-engine-selection.md)
-- [Process Roles and Multi-Live Execution](./2026-06-12-process-roles-and-multi-live.md)
-- [Agent Harness Selection](./2026-06-14-agent-harness-selection.md)
-- [Agent Communication Reaction Binding](./2026-06-23-agent-communication-reaction-binding.md)
-- [Agent Communication Reasoning Safety](./2026-06-23-agent-communication-reasoning-safety.md)
-- [Teams Reactions Deferred](./2026-06-23-teams-reactions-deferred.md)
-- [Send Message Files Authority](./2026-06-23-send-message-files-authority.md)
-- [Signed Artifact Links Deferred](./2026-06-23-signed-artifact-links-deferred.md)
+Records are created by the CLI, never by hand:
+
+```bash
+./forge decision new <slug> [--title "..."] [--supersedes <slug>]
+./forge decision link <slug> --story <KEY>     # it governs another story too
+./forge decision accept <slug> --by "<human>"  # after confirmation in chat
+./forge decision list [--active]
+```
+
+`decision new` writes `NNNN-<slug>.md` with the next free number and this
+frontmatter:
+
+```yaml
+status: proposed          # proposed | accepted | superseded
+confirmed_by: ""          # a human's name, filled by `decision accept`
+date: 2026-07-27
+stories: [ENG-1]          # the stories this decision governs ([] = project-level)
+supersedes: 0004-old      # only when replacing a record
+superseded_by: 0016-new   # written on the predecessor when the successor is accepted
+```
+
+Body: `# Title`, then `## Context`, `## Decision`, `## Consequences`.
+
+`stories` is seeded from the active task and appended by `decision link` — it
+is how the board answers "which decisions came out of this feature", so a
+record with an empty list reads as project-level, not as an omission.
+
+## Enforced rules
+
+`check_dual_runtime.py` fails the repo, and the gates refuse, on:
+
+- a status outside `proposed | accepted | superseded`
+- a record with no `stories:` field
+- `accepted` with an empty `confirmed_by` — **agents never self-confirm; a
+  human confirms in chat, and the acceptance commit carries a
+  `Confirmed-by:` trailer**
+- `accepted` whose Context / Decision / Consequences is still boilerplate
+- a `supersedes` / `superseded_by` pointer that resolves to nothing
+- `superseded` with no `superseded_by`
+- an accepted record whose predecessor is not yet superseded — acceptance
+  flips both in one step, so the two never govern the same question at once
+
+`plan save` additionally refuses unless the plan's `decisions_reviewed`
+frontmatter lists exactly the accepted corpus (`./forge decision list
+--active`), and refuses while an open contradiction signal stands.
+
+## Conventions
+
+- one decision per file; decisions are never deleted or edited into
+  irrelevance — supersede them
+- a proposed record is history and context, not governance: only `accepted`
+  records bind planning
+- never bury a decision in a chat transcript or a plan note; if a plan
+  depends on one, record it here first
+- when a decision supersedes an architecture doc, link both and state which
+  one wins

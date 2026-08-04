@@ -1,4 +1,5 @@
 import type { AsyncTaskRecord } from '../domain/ports/async-tasks.js';
+import type { CallableAgentFollowUpMessageRepository } from './async-delegated-agent-follow-up.js';
 import type {
   AsyncCommandLaunchControl,
   AsyncCommandProcessHandle,
@@ -31,7 +32,7 @@ export type PendingAsyncTaskExecution =
   | PendingDelegatedAgentExecution;
 
 export interface AsyncCommandTaskServiceOptions {
-  onDelegatedTaskTerminal?: (task: AsyncTaskRecord) => Promise<void> | void;
+  completionMessageRepository?: CallableAgentFollowUpMessageRepository;
   terminateProcess?: (handle: AsyncCommandProcessHandle) => boolean;
   createRecoveredDelegatedAgentRun?: (
     task: AsyncTaskRecord,

@@ -6,6 +6,13 @@ import {
 
 export type ReviewedMaterializedMcpCapability = MaterializedMcpCapability & {
   reviewedToolNames: string[];
+  // Reviewed full-name patterns (mcp__server__prefix*) from selected
+  // mcp_pattern capability bindings. Pattern matches authorize newly
+  // discovered tools without an exact-list refresh.
+  reviewedToolPatterns?: string[];
+  // Selected capability ids that reviewed action on this server; used to name
+  // the nearest reviewed capability in denials.
+  reviewedCapabilityIds?: string[];
 };
 
 export function isReviewedMcpToolAllowed(
@@ -15,20 +22,13 @@ export function isReviewedMcpToolAllowed(
   const fullToolName = toolName.startsWith('mcp__')
     ? toolName
     : `mcp__${capability.name}__${toolName}`;
-  return capability.reviewedToolNames.includes(fullToolName);
-}
-
-export function exactExternalMcpToolNames(
-  rules: readonly string[] | undefined,
-): string[] {
-  const out = new Set<string>();
-  for (const rule of rules ?? []) {
-    const trimmed = rule.trim();
-    if (/^mcp__(?!gantry__)[A-Za-z0-9_-]+__[A-Za-z0-9_.-]+$/.test(trimmed)) {
-      out.add(trimmed);
-    }
+  if (!reviewedToolNameAllowedBySourceScope(capability, fullToolName)) {
+    return false;
   }
-  return [...out];
+  if (capability.reviewedToolNames.includes(fullToolName)) return true;
+  return (capability.reviewedToolPatterns ?? []).some((pattern) =>
+    mcpToolPatternCovers(pattern, fullToolName),
+  );
 }
 
 export function reviewedToolNameAllowedBySourceScope(

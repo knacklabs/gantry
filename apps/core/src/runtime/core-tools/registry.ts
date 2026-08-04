@@ -13,14 +13,9 @@ import {
   type ToolPolicyDecision,
 } from '../../shared/tool-execution-policy-service.js';
 import type { YoloModeSettings } from '../../shared/yolo-mode-policy.js';
-import {
-  permissionDecisionEventType,
-  permissionDecisionName,
-  permissionTelemetryContext,
-} from '../ipc-permission-telemetry.js';
+import { readWorkspaceMessageAttachment } from '../../platform/workspace-message-attachment.js';
 import { processMemoryRequest } from '../../memory/memory-ipc.js';
 import {
-  runDurablePermissionInteraction,
   runDurableQuestionInteraction,
   type DurableInteractionOperations,
 } from '../../application/interactions/durable-interaction-handler.js';
@@ -29,17 +24,36 @@ import {
   type CoreSendMessageDeps,
 } from '../../application/core-tools/send-message.js';
 import {
-  coreTaskLifecycleResultText,
   type CoreTaskLifecycleBackend,
-  type CoreTaskLifecycleErrorCode,
   type CoreTaskLifecycleName,
+  type CoreTaskLifecycleResult,
 } from '../../application/core-tools/task-lifecycle.js';
 import {
-  coreTaskDescription,
-  type CoreToolInputByName,
-  type CoreToolInputSchema,
-  type CoreToolSchemas,
+  coreTaskLifecycleMcpResult,
+  createCallableAgentToolDefinitions,
+  isCallableAgentToolName,
+  type CallableAgentToolManifestEntry,
+} from '../../application/core-tools/callable-agent-tools.js';
+import type {
+  CoreToolInputByName,
+  CoreToolInputSchema,
+  CoreToolSchemas,
 } from './schemas.js';
+import type {
+  CoreToolDefinition,
+  CoreToolHandlerContext,
+  McpCompatibleToolError,
+  McpCompatibleToolResult,
+} from './contracts.js';
+import { coordinateCoreToolPermission } from './core-tool-permission-coordinator.js';
+import { formatPermissionDeniedMessage } from '../../shared/permission-decision-message.js';
+
+export type {
+  CoreToolDefinition,
+  CoreToolHandlerContext,
+  McpCompatibleToolError,
+  McpCompatibleToolResult,
+} from './contracts.js';
 
 type CoreToolRule =
   | {
@@ -69,38 +83,20 @@ export const CORE_TOOL_NAMES = [
   'task_get',
   'task_list',
   'task_cancel',
-  'task_wait',
   'task_message',
 ] as const;
 export type CoreToolName = (typeof CORE_TOOL_NAMES)[number];
 
-const LOCKED_ACCESS_PRESET_DENY_REASON =
-  'capability not provisioned: this agent runs with a locked access preset and cannot request new tools, skills, MCP servers, or permissions. Provision the capability before the run.';
+const MCP_INVENTORY_TOOL_NAMES = [
+  'mcp_list_tools',
+  'mcp_search_tools',
+  'mcp_describe_tool',
+  'mcp_call_tool',
+] as const;
 
-export interface McpCompatibleToolResult {
-  content: Array<{ type: 'text'; text: string }>;
-  isError?: boolean;
-  error?: McpCompatibleToolError;
-}
-
-export interface McpCompatibleToolError {
-  category: 'transient' | 'validation' | 'business' | 'permission';
-  isRetryable: boolean;
-  message: string;
-}
-
-export interface CoreToolHandlerContext {
-  signal?: AbortSignal;
-}
-
-export interface CoreToolDefinition {
-  name: CoreToolName;
-  description: string;
-  inputSchema: CoreToolInputSchema<Record<string, unknown>>;
-  handler: (
-    input: Record<string, unknown>,
-    context?: CoreToolHandlerContext,
-  ) => Promise<McpCompatibleToolResult>;
+export function inlineCoreToolsMountMcpInventory(): boolean {
+  const mounted = new Set<string>(CORE_TOOL_NAMES);
+  return MCP_INVENTORY_TOOL_NAMES.every((name) => mounted.has(name));
 }
 
 export interface CoreToolRunContext {
@@ -125,6 +121,7 @@ export interface CoreToolRunContext {
   yoloMode?: YoloModeSettings;
   permissionMode: import('../../shared/permission-mode.js').PermissionMode;
   accessPreset?: 'full' | 'locked';
+  fixedImageRestricted?: boolean;
 }
 
 export interface CoreToolRegistryDeps extends CoreSendMessageDeps {
@@ -144,6 +141,11 @@ export interface CoreToolRegistryDeps extends CoreSendMessageDeps {
     interactionBoundary: 'user_interaction';
   }) => Promise<void> | void;
   taskLifecycleBackend?: CoreTaskLifecycleBackend;
+  callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
+  dispatchCallableAgent?: (
+    entry: CallableAgentToolManifestEntry,
+    args: Record<string, unknown>,
+  ) => Promise<CoreTaskLifecycleResult>;
   onPermissionDecision?: (
     request: PermissionApprovalRequest,
     decision: PermissionApprovalDecision,
@@ -195,10 +197,10 @@ export interface CoreToolRegistryDeps extends CoreSendMessageDeps {
 
 export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
   tools: readonly CoreToolDefinition[];
-  byName: Readonly<Record<CoreToolName, CoreToolDefinition>>;
+  byName: Readonly<Record<string, CoreToolDefinition>>;
   get(name: string): CoreToolDefinition | undefined;
   execute(
-    name: CoreToolName,
+    name: string,
     input: unknown,
     context?: CoreToolHandlerContext,
   ): Promise<McpCompatibleToolResult>;
@@ -212,7 +214,10 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
       deps.schemas.send_message,
       async (args) => {
         const result = await sendCoreMessage({
-          deps,
+          deps: {
+            ...deps,
+            readWorkspaceAttachment: readWorkspaceMessageAttachment,
+          },
           context: {
             appId: deps.context.appId,
             sourceAgentFolder: deps.context.sourceAgentFolder,
@@ -297,7 +302,6 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
         task_get: deps.schemas.task_get,
         task_list: deps.schemas.task_list,
         task_cancel: deps.schemas.task_cancel,
-        task_wait: deps.schemas.task_wait,
         task_message: deps.schemas.task_message,
       }) as Array<
         [
@@ -306,7 +310,7 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
         ]
       >
     ).map(([name, schema]) =>
-      define(name, coreTaskDescription(name), schema, async (args) => {
+      define(name, taskDescription(name), schema, async (args) => {
         if (!deps.taskLifecycleBackend) {
           return errorResult(
             'Async task runtime is unavailable.',
@@ -314,27 +318,26 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
             true,
           );
         }
-        const result = await deps.taskLifecycleBackend[name]({ ...args });
-        const text = coreTaskLifecycleResultText(result);
-        return {
-          content: [{ type: 'text', text }],
-          ...(result.ok
-            ? {}
-            : {
-                isError: true,
-                error: taskLifecycleError(result.code, text),
-              }),
-        };
+        return coreTaskLifecycleMcpResult(
+          await deps.taskLifecycleBackend[name]({ ...args }),
+        );
       }),
     ),
+    ...(deps.dispatchCallableAgent
+      ? createCallableAgentToolDefinitions({
+          manifest: deps.callableAgentManifest ?? [],
+          schema: deps.schemas.callable_agent,
+          dispatch: deps.dispatchCallableAgent,
+        })
+      : []),
   ];
   const byName = Object.fromEntries(
     definitions.map((tool) => [tool.name, tool]),
-  ) as Record<CoreToolName, CoreToolDefinition>;
+  ) as Record<string, CoreToolDefinition>;
   return {
     tools: definitions,
     byName,
-    get: (name) => byName[name as CoreToolName],
+    get: (name) => byName[name],
     execute: async (name, input, context) => {
       const tool = byName[name];
       if (!tool)
@@ -348,8 +351,11 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
         );
       }
       if (deps.context.toolRules?.length) {
+        const ruleName = isCallableAgentToolName(name)
+          ? 'AgentDelegation'
+          : name;
         const denial = deps.evaluateToolPreChecks({
-          toolName: name,
+          toolName: ruleName,
           toolInput: parsed.data,
           memoryBlock: deps.context.memoryBlock ?? '',
           yoloMode: deps.context.yoloMode,
@@ -380,7 +386,7 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
                 responseMode: 'none',
                 payload: {
                   phase: 'deny',
-                  tool: name,
+                  tool: ruleName,
                   ok: false,
                   reason: error.message,
                   error,
@@ -396,21 +402,28 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
         }
       }
       const gate = await gateCoreTool(name, parsed.data, deps, id);
-      if (gate) return gate;
+      if (gate?.denied) return gate.denied;
       try {
         const result = await tool.handler(parsed.data, context);
         if (!result.isError) {
-          deps.context.toolSuccessLedger?.recordSuccess(name);
           const gateName = coreToolGateName(name);
+          if (!isCallableAgentToolName(name)) {
+            deps.context.toolSuccessLedger?.recordSuccess(name);
+          }
           if (gateName) deps.context.toolSuccessLedger?.recordSuccess(gateName);
         }
-        return result;
+        return gate?.approvalContext
+          ? withPermissionApprovalContext(result, gate.approvalContext)
+          : result;
       } catch (error) {
-        return errorResult(
+        const result = errorResult(
           error instanceof Error ? error.message : String(error),
           'transient',
           true,
         );
+        return gate?.approvalContext
+          ? withPermissionApprovalContext(result, gate.approvalContext)
+          : result;
       }
     },
   };
@@ -435,11 +448,14 @@ function define<Name extends CoreToolName>(
 }
 
 async function gateCoreTool(
-  name: CoreToolName,
+  name: string,
   args: unknown,
   deps: CoreToolRegistryDeps,
   id: (prefix: string) => string,
-): Promise<McpCompatibleToolResult | null> {
+): Promise<{
+  denied?: McpCompatibleToolResult;
+  approvalContext?: string;
+} | null> {
   const gateName = coreToolGateName(name);
   if (!gateName) return null;
   const precheck = deps.evaluateToolPreChecks({
@@ -450,14 +466,6 @@ async function gateCoreTool(
     toolRules: deps.context.toolRules,
     successLedger: deps.context.toolSuccessLedger,
   });
-  if (precheck) {
-    const error = precheck.error ?? {
-      category: 'permission' as const,
-      isRetryable: false,
-      message: precheck.reason,
-    };
-    return errorResult(error.message, error.category, error.isRetryable);
-  }
   const decision = deps.evaluateToolPolicy({
     classifier: new ToolExecutionClassifier(),
     policy: new ToolExecutionPolicyService(),
@@ -473,10 +481,6 @@ async function gateCoreTool(
     allowedToolRules: deps.context.allowedToolRules ?? [],
     autonomousAllowedToolRules: deps.context.autonomousAllowedToolRules,
   });
-  if (decision.status === 'allow') return null;
-  if (deps.context.accessPreset === 'locked') {
-    return permissionDenied(LOCKED_ACCESS_PRESET_DENY_REASON);
-  }
   // Auto classifier omitted: only ineligible AgentDelegation reaches this seam.
   const request: PermissionApprovalRequest = {
     requestId: id('permission'),
@@ -492,7 +496,7 @@ async function gateCoreTool(
     toolName: gateName,
     displayName: gateName,
     description: 'Start or steer a delegated Gantry task.',
-    decisionReason: decision.reason,
+    decisionReason: precheck?.reason ?? decision.reason,
     closestRule: decision.closestRule,
     toolInput: args as Record<string, unknown>,
     suggestions: [
@@ -505,79 +509,32 @@ async function gateCoreTool(
     ],
     decisionOptions: ['allow_once', 'allow_persistent_rule', 'cancel'],
   };
-  const interaction = await runDurablePermissionInteraction({
+  const coordinatedDecision = await coordinateCoreToolPermission({
     request,
-    sourceAgentFolder: deps.context.sourceAgentFolder,
-    operations: deps.durability,
-    beforePrompt: async () => {
-      await deps.onPermissionPromptStarted?.(request);
-      await publishPermissionEvent(
-        deps,
-        request,
-        RUNTIME_EVENT_TYPES.PERMISSION_REQUESTED,
-        permissionTelemetryContext(request, {
-          sourceAgentFolder: deps.context.sourceAgentFolder,
-          decision: 'requested',
-        }),
-      );
-    },
-    prompt: async () =>
-      deps.requestPermissionApproval?.(request) ?? {
-        approved: false,
-        mode: 'cancel',
-        reason: 'approval surface unavailable',
-      },
-    afterDecision: async (permissionDecision) => {
-      await deps.onPermissionDecision?.(request, permissionDecision);
-      await publishPermissionEvent(
-        deps,
-        request,
-        permissionDecisionEventType(permissionDecision),
-        permissionTelemetryContext(request, {
-          sourceAgentFolder: deps.context.sourceAgentFolder,
-          decision: permissionDecisionName(permissionDecision),
-          decisionMode: permissionDecision.mode,
-          decidedBy: permissionDecision.decidedBy,
-        }),
-      );
-      if (permissionDecision.approved) {
-        await publishPermissionEvent(
-          deps,
-          request,
-          RUNTIME_EVENT_TYPES.PERMISSION_RESUMED,
-          permissionTelemetryContext(request, {
-            sourceAgentFolder: deps.context.sourceAgentFolder,
-            decision: 'resumed',
-            decisionMode: permissionDecision.mode,
-          }),
-        );
-      }
-      await publishPermissionEvent(
-        deps,
-        request,
-        RUNTIME_EVENT_TYPES.PERMISSION_FINAL_OUTCOME,
-        permissionTelemetryContext(request, {
-          sourceAgentFolder: deps.context.sourceAgentFolder,
-          decision: permissionDecisionName(permissionDecision),
-          approved: permissionDecision.approved,
-          decisionMode: permissionDecision.mode,
-        }),
-      );
-      await deps.onPermissionPromptFinished?.(request);
-    },
+    hardDenyReason: precheck?.reason,
+    reviewedRuleDecision: decision,
+    deps,
   });
-  if (!interaction.resolved) {
-    return permissionDenied('durable permission resolution failed');
+  if (!coordinatedDecision.approved && precheck?.error) {
+    return {
+      denied: errorResult(
+        precheck.error.message,
+        precheck.error.category,
+        precheck.error.isRetryable,
+      ),
+    };
   }
-  return interaction.decision.approved
-    ? null
-    : permissionDenied(interaction.decision.reason ?? 'request cancelled');
+  return coordinatedDecision.approved
+    ? {
+        approvalContext: formatPermissionAllowedMessage(coordinatedDecision),
+      }
+    : { denied: permissionDenied(coordinatedDecision) };
 }
 
-function coreToolGateName(name: CoreToolName): 'AgentDelegation' | null {
+function coreToolGateName(name: string): 'AgentDelegation' | null {
   return name === 'delegate_task' ||
-    name === 'task_wait' ||
-    name === 'task_message'
+    name === 'task_message' ||
+    isCallableAgentToolName(name)
     ? 'AgentDelegation'
     : null;
 }
@@ -595,9 +552,16 @@ async function memoryResult(
       payload,
       allowedActions: ['memory_search', 'memory_save'],
       context: {
+        appId: deps.context.appId ?? '',
+        // Canonical agent id, NOT the folder: the memory boundary keys on
+        // `agent:<folder>`, and every sibling call site here uses
+        // deps.context.agentId — a folder here addresses a different namespace
+        // and reads as lost durable memory (review finding, 2026-08-01).
+        agentId:
+          deps.context.agentId ?? `agent:${deps.context.sourceAgentFolder}`,
         chatJid: deps.context.conversationId,
         threadId: deps.context.threadId,
-        userId: deps.context.memoryUserId,
+        personId: deps.context.memoryUserId,
         defaultScope: deps.context.memoryDefaultScope ?? 'group',
       },
     },
@@ -615,29 +579,6 @@ async function memoryResult(
   );
 }
 
-async function publishPermissionEvent(
-  deps: CoreToolRegistryDeps,
-  request: PermissionApprovalRequest,
-  eventType: (typeof RUNTIME_EVENT_TYPES)[keyof typeof RUNTIME_EVENT_TYPES],
-  payload: Record<string, unknown>,
-): Promise<void> {
-  if (!deps.publishRuntimeEvent || !request.appId) return;
-  await deps
-    .publishRuntimeEvent({
-      appId: request.appId as never,
-      agentId: request.agentId as never,
-      runId: request.runId as never,
-      jobId: request.jobId as never,
-      conversationId: request.targetJid as never,
-      threadId: request.threadId as never,
-      eventType,
-      actor: 'permission',
-      correlationId: request.requestId,
-      payload,
-    })
-    .catch(() => undefined);
-}
-
 function formatQuestionAnswers(
   answers: Record<string, string | string[]>,
   answeredBy?: string,
@@ -648,6 +589,21 @@ function formatQuestionAnswers(
   );
   if (answeredBy?.trim()) lines.push(`(answered by ${answeredBy.trim()})`);
   return lines.join('\n') || 'No answer received.';
+}
+
+function taskDescription(name: CoreTaskLifecycleName): string {
+  switch (name) {
+    case 'delegate_task':
+      return 'Start a durable child Gantry agent task.';
+    case 'task_get':
+      return 'Read one durable task.';
+    case 'task_list':
+      return 'List recent durable tasks.';
+    case 'task_cancel':
+      return 'Cancel one running durable task.';
+    case 'task_message':
+      return 'Send a steering message to a delegated task.';
+  }
 }
 
 function textResult(text: string): McpCompatibleToolResult {
@@ -666,23 +622,38 @@ function errorResult(
   };
 }
 
-function permissionDenied(reason: string): McpCompatibleToolResult {
-  return errorResult(`Permission denied: ${reason}`, 'permission', false);
+function permissionDenied(
+  decision: PermissionApprovalDecision,
+): McpCompatibleToolResult {
+  const reason = decision.reason ?? 'request cancelled';
+  return errorResult(
+    formatPermissionDeniedMessage(decision, reason),
+    'permission',
+    false,
+  );
 }
 
-function taskLifecycleError(
-  code: CoreTaskLifecycleErrorCode | undefined,
-  message: string,
-): McpCompatibleToolError {
-  switch (code) {
-    case 'unavailable':
-      return { category: 'transient', isRetryable: true, message };
-    case 'invalid_request':
-      return { category: 'validation', isRetryable: false, message };
-    case 'forbidden':
-      return { category: 'permission', isRetryable: false, message };
-    case 'not_found':
-    default:
-      return { category: 'business', isRetryable: false, message };
+function formatPermissionAllowedMessage(
+  decision: PermissionApprovalDecision,
+): string | undefined {
+  if (
+    decision.decidedBy === 'birthright' ||
+    decision.decidedBy === 'deterministic_read_only'
+  ) {
+    return undefined;
   }
+  if (!decision.decidedBy && !decision.risk_level) return undefined;
+  return formatPermissionDeniedMessage(decision, '')
+    .replace(/^Permission denied/, 'Permission allowed')
+    .replace(/: $/, '');
+}
+
+function withPermissionApprovalContext(
+  result: McpCompatibleToolResult,
+  approvalContext: string,
+): McpCompatibleToolResult {
+  return {
+    ...result,
+    content: [{ type: 'text', text: approvalContext }, ...result.content],
+  };
 }

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildSync } from 'esbuild';
 
-import { schedulerJobConfirmationToken } from '@core/jobs/job-plan-formatter.js';
+import { schedulerJobConfirmationToken } from '@core/shared/scheduler-job-plan.js';
 import { ALL_GANTRY_MCP_TOOL_NAMES } from '@agent-runner-src/gantry-mcp-tool-surface.js';
 
 const MCP_FIXTURE_TIMEOUT_MS = 60_000;
@@ -44,7 +44,7 @@ function symlinkPackage(
   fs.symlinkSync(
     path.isAbsolute(target) ? target : path.join(repoRoot, target),
     packagePath,
-    process.platform === 'win32' ? 'junction' : 'dir',
+    'dir',
   );
 }
 
@@ -92,7 +92,6 @@ function createMcpFixture(): {
     .toString();
   const runnerDir = path.join(root, 'runner');
   const runnerMcpDir = path.join(runnerDir, 'mcp');
-  const jobsDir = path.join(root, 'jobs');
   const channelsDir = path.join(root, 'channels');
   const applicationMcpDir = path.join(root, 'application', 'mcp');
   const sharedDir = path.join(root, 'shared');
@@ -111,7 +110,6 @@ function createMcpFixture(): {
 
   fs.mkdirSync(runnerDir, { recursive: true });
   fs.mkdirSync(runnerMcpDir, { recursive: true });
-  fs.mkdirSync(jobsDir, { recursive: true });
   fs.mkdirSync(channelsDir, { recursive: true });
   fs.mkdirSync(applicationMcpDir, { recursive: true });
   fs.mkdirSync(guidedActionsDir, { recursive: true });
@@ -123,80 +121,12 @@ function createMcpFixture(): {
     JSON.stringify({ type: 'module' }),
   );
   copyDirectory(path.resolve('apps/core/src/runner/mcp'), runnerMcpDir);
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/canonical-json.ts'),
-    path.join(sharedDir, 'canonical-json.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog.ts'),
-    path.join(sharedDir, 'model-catalog.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog-provider-metadata.ts'),
-    path.join(sharedDir, 'model-catalog-provider-metadata.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog-lookup.ts'),
-    path.join(sharedDir, 'model-catalog-lookup.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-provider-registry.ts'),
-    path.join(sharedDir, 'model-provider-registry.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve(
-      'apps/core/src/shared/model-provider-registry-openai-compatible.ts',
-    ),
-    path.join(sharedDir, 'model-provider-registry-openai-compatible.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog-openai-compatible.ts'),
-    path.join(sharedDir, 'model-catalog-openai-compatible.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog-bedrock.ts'),
-    path.join(sharedDir, 'model-catalog-bedrock.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/agent-engine.ts'),
-    path.join(sharedDir, 'agent-engine.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-cache-support.ts'),
-    path.join(sharedDir, 'model-cache-support.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog-format.ts'),
-    path.join(sharedDir, 'model-catalog-format.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-recommendation.ts'),
-    path.join(sharedDir, 'model-recommendation.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-execution-route.ts'),
-    path.join(sharedDir, 'model-execution-route.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog-availability.ts'),
-    path.join(sharedDir, 'model-catalog-availability.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-families.ts'),
-    path.join(sharedDir, 'model-families.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/scheduler-job-plan.ts'),
-    path.join(sharedDir, 'scheduler-job-plan.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/human-format.ts'),
-    path.join(sharedDir, 'human-format.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/operator-error.ts'),
-    path.join(sharedDir, 'operator-error.ts'),
-  );
+  fs.cpSync(path.resolve('apps/core/src/shared'), sharedDir, {
+    recursive: true,
+    // ponytail: whole-tree copy retires the hand-maintained file list that
+    // silently broke whenever a new shared module became runner-reachable
+    filter: (src) => fs.lstatSync(src).isDirectory() || src.endsWith('.ts'),
+  });
   fs.copyFileSync(
     path.resolve(
       'apps/core/src/application/guided-actions/guided-action-model.ts',
@@ -214,64 +144,8 @@ function createMcpFixture(): {
     path.join(applicationMcpDir, 'mcp-tool-output-bounds.ts'),
   );
   fs.copyFileSync(
-    path.resolve('apps/core/src/shared/admin-mcp-tools.ts'),
-    path.join(sharedDir, 'admin-mcp-tools.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/agent-tool-references.ts'),
-    path.join(sharedDir, 'agent-tool-references.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/gantry-tool-facades.ts'),
-    path.join(sharedDir, 'gantry-tool-facades.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/bash-command-parser.ts'),
-    path.join(sharedDir, 'bash-command-parser.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/durable-access-policy.ts'),
-    path.join(sharedDir, 'durable-access-policy.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/sensitive-material.ts'),
-    path.join(sharedDir, 'sensitive-material.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/semantic-capability-ids.ts'),
-    path.join(sharedDir, 'semantic-capability-ids.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/neutral-ca-trust-env.ts'),
-    path.join(sharedDir, 'neutral-ca-trust-env.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/network-host-declaration.ts'),
-    path.join(sharedDir, 'network-host-declaration.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/semantic-capabilities.ts'),
-    path.join(sharedDir, 'semantic-capabilities.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/job-setup-labels.ts'),
-    path.join(sharedDir, 'job-setup-labels.ts'),
-  );
-  fs.copyFileSync(
     path.resolve('apps/core/src/channels/provider-delivery-labels.ts'),
     path.join(channelsDir, 'provider-delivery-labels.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/user-visible-messages.ts'),
-    path.join(sharedDir, 'user-visible-messages.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/path-validation.ts'),
-    path.join(sharedDir, 'path-validation.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/memory-ipc-actions.ts'),
-    path.join(sharedDir, 'memory-ipc-actions.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/runner/memory-timeouts.ts'),
@@ -284,38 +158,6 @@ function createMcpFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/runner/gantry-mcp-tool-surface.ts'),
     path.join(runnerDir, 'gantry-mcp-tool-surface.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/jobs/job-plan-formatter.ts'),
-    path.join(jobsDir, 'job-plan-formatter.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/private-fs.ts'),
-    path.join(sharedDir, 'private-fs.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/live-tool-rules.ts'),
-    path.join(sharedDir, 'live-tool-rules.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/tool-access-view.ts'),
-    path.join(sharedDir, 'tool-access-view.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/capability-guidance.ts'),
-    path.join(sharedDir, 'capability-guidance.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/generated-runtime-paths.ts'),
-    path.join(sharedDir, 'generated-runtime-paths.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/tool-rule-matcher.ts'),
-    path.join(sharedDir, 'tool-rule-matcher.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/time/datetime.ts'),
-    path.join(sharedTimeDir, 'datetime.ts'),
   );
   symlinkPackage(root, 'zod', 'node_modules/zod');
   symlinkPackage(root, 'cron-parser', 'node_modules/cron-parser');
@@ -629,7 +471,13 @@ function cawAtsMcpCapability(mcpTool: string): Record<string, unknown> {
     can: 'Call approved tools on the caw-ats MCP server.',
     cannot: 'Call unapproved MCP tools or receive raw credentials.',
     credentialSource: 'none',
-    implementationBindings: [{ kind: 'mcp_tool', mcpTool }],
+    implementationBindings: [
+      {
+        kind: 'mcp_pattern',
+        mcpServer: 'caw-ats',
+        mcpToolPatterns: [allowedToolPattern],
+      },
+    ],
     source: {
       source: 'mcp',
       serverName: 'caw-ats',
@@ -834,7 +682,6 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
         arguments: { title: 'Bug' },
       },
       {
-        GANTRY_JOB_ID: 'job-1',
         GANTRY_JOB_RUN_ID: 'job-run-1',
         GANTRY_JOB_RUN_LEASE_TOKEN: 'lease-1',
         GANTRY_JOB_RUN_LEASE_FENCING_VERSION: '7',
@@ -853,7 +700,6 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     expect(task).toMatchObject({
       type: 'mcp_call_tool',
       runHandle: 'mcp-test-run',
-      jobId: 'job-1',
       runId: 'job-run-1',
       runLeaseToken: 'lease-1',
       runLeaseFencingVersion: 7,
@@ -862,40 +708,6 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
         toolName: 'create_issue',
         arguments: { title: 'Bug' },
       },
-    });
-  });
-
-  it('includes the scheduled run context on MCP inventory requests', async () => {
-    const fixture = createMcpFixture();
-
-    const result = await runMcpFixture(
-      fixture,
-      'mcp_list_tools',
-      { serverName: 'firecrawl' },
-      {
-        GANTRY_JOB_ID: 'job-1',
-        GANTRY_JOB_RUN_ID: 'job-run-1',
-        GANTRY_JOB_RUN_LEASE_TOKEN: 'lease-1',
-        GANTRY_JOB_RUN_LEASE_FENCING_VERSION: '7',
-      },
-    );
-
-    expect(result.exitCode, result.stderr).toBe(0);
-    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
-    expect(taskFiles).toHaveLength(1);
-    const task = JSON.parse(
-      fs.readFileSync(
-        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
-        'utf-8',
-      ),
-    );
-    expect(task).toMatchObject({
-      type: 'mcp_list_tools',
-      runHandle: 'mcp-test-run',
-      jobId: 'job-1',
-      runId: 'job-run-1',
-      runLeaseToken: 'lease-1',
-      runLeaseFencingVersion: 7,
     });
   });
 
@@ -1040,6 +852,26 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     expect(message.context.providerAccountId).toBe('provider-account:slack:a');
   });
 
+  it('accepts source-less FileArtifact refs in send_message IPC', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'send_message', {
+      text: 'Artifact attached.',
+      files: [{ path: 'reports/status.txt' }],
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const messageFiles = fs.readdirSync(path.join(fixture.ipcDir, 'messages'));
+    expect(messageFiles).toHaveLength(1);
+    const message = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'messages', messageFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(message.files).toEqual([{ path: 'reports/status.txt' }]);
+  });
+
   it('defaults to first-party MCP tools when runner projection is missing', async () => {
     const fixture = createMcpFixture();
 
@@ -1147,7 +979,10 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
         ],
         reason: 'Reuse a posting workflow.',
       },
-      { GANTRY_MEMORY_USER_ID: 'tg:user-1' },
+      {
+        GANTRY_MEMORY_USER_ID: 'tg:user-1',
+        GANTRY_PROVIDER_ACCOUNT_ID: 'provider-account:telegram:main',
+      },
     );
 
     expect(result.exitCode, result.stderr).toBe(0);
@@ -1163,6 +998,7 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
       type: 'request_skill_proposal',
       targetJid: 'tg:team',
       chatJid: 'tg:team',
+      providerAccountId: 'provider-account:telegram:main',
       memoryUserId: 'tg:user-1',
       payload: {
         reason: 'Reuse a posting workflow.',
@@ -1417,7 +1253,7 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
       'selected capabilities: mcp.caw-ats.access',
     );
     expect(record.result.content[0].text).toContain(
-      'use: call a directly mounted reviewed mcp__caw-ats__tool action when available',
+      'use: mcp_list_tools with serverName="caw-ats", mcp_describe_tool for one tool schema if needed, then mcp_call_tool with serverName="caw-ats"',
     );
     expect(record.result.content[0].text).toContain(
       'Do not request the same MCP capability again',
@@ -1559,7 +1395,7 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
       'already selected for this run',
     );
     expect(record.result.content[0].text).toContain(
-      'call a directly mounted reviewed mcp__server__tool action when available',
+      'use mcp_list_tools to inspect the ready source, mcp_describe_tool for one tool schema if needed, then mcp_call_tool',
     );
     const taskDir = path.join(fixture.ipcDir, 'tasks');
     expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
@@ -1590,7 +1426,7 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
       'already selected for this run',
     );
     expect(record.result.content[0].text).toContain(
-      'call a directly mounted reviewed mcp__server__tool action when available',
+      'use mcp_list_tools to inspect the ready source, mcp_describe_tool for one tool schema if needed, then mcp_call_tool',
     );
     const taskDir = path.join(fixture.ipcDir, 'tasks');
     expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
@@ -1631,7 +1467,7 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
       'Selected capabilities: mcp.caw-ats.access',
     );
     expect(record.result.content[0].text).toContain(
-      'Call a directly mounted reviewed mcp__caw-ats__tool action when available',
+      'Use mcp_list_tools with serverName="caw-ats", mcp_describe_tool when schema is needed, then mcp_call_tool',
     );
     const taskDir = path.join(fixture.ipcDir, 'tasks');
     expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
@@ -1683,6 +1519,49 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
         capabilityId: 'acme.records.append',
       },
     });
+  });
+
+  it('submits an MCP capability proposal without letting the agent author its definition', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: {
+        kind: 'mcp_capability',
+        serverName: 'e2e-sum',
+        tools: ['get-sum'],
+        displayName: 'E2E sum read',
+      },
+      reason: 'Add numbers through the reviewed MCP source.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskDir = path.join(fixture.ipcDir, 'tasks');
+    const taskFiles = fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : [];
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(path.join(taskDir, taskFiles[0]), 'utf-8'),
+    );
+    expect(task).toMatchObject({
+      type: 'request_permission',
+      targetJid: 'tg:team',
+      chatJid: 'tg:team',
+      payload: {
+        permissionKind: 'tool',
+        capabilityRequestSource: 'request_access',
+        capabilityProposalKind: 'mcp_capability',
+        mcpServerName: 'e2e-sum',
+        mcpToolPatterns: ['get-sum'],
+        capabilityDisplayName: 'E2E sum read',
+        temporaryOnly: false,
+        reason: 'Add numbers through the reviewed MCP source.',
+      },
+    });
+    expect(JSON.stringify(task.payload)).not.toContain(
+      'semanticCapabilityDefinition',
+    );
+    expect(JSON.stringify(task.payload)).not.toContain(
+      'implementationBindings',
+    );
   });
 
   it('submits request_access exact Gantry tool targets as reviewed permission requests', async () => {

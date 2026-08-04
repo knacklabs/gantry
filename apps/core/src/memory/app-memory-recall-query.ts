@@ -64,9 +64,3 @@ function decodeXmlEntities(value: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&');
 }
-
-export const _testMemoryRecallQuery = {
-  MAX_RECALL_QUERY_CHARS,
-  MAX_RECALL_QUERY_TERMS,
-  cleanRecallQueryText,
-};

@@ -1,4 +1,4 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
@@ -70,4 +70,51 @@ export function isPidOwnedVisibleBrowserProfile(
 ): boolean {
   const state = browserProcessProfileState(pid, profile);
   return state.owned && !state.headless;
+}
+
+async function waitForBrowserProcessExit(
+  session: { pid: number; chromeProcess?: ChildProcess },
+  timeoutMs: number,
+): Promise<boolean> {
+  if (!isPidAlive(session.pid)) return true;
+  const child = session.chromeProcess;
+  if (typeof child?.once === 'function') {
+    const exited = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), timeoutMs);
+      const done = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      child.once('exit', done);
+      child.once('close', done);
+    });
+    if (exited) return true;
+  }
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (!isPidAlive(session.pid)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return !isPidAlive(session.pid);
+}
+
+export async function stopBrowserProcess(session: {
+  pid: number;
+  chromeProcess?: ChildProcess;
+}): Promise<boolean> {
+  try {
+    process.kill(session.pid, 'SIGTERM');
+  } catch {
+    // The process is already stopped.
+  }
+  let exited = await waitForBrowserProcessExit(session, 2_000);
+  if (!exited) {
+    try {
+      process.kill(session.pid, 'SIGKILL');
+    } catch {
+      // The process stopped between the probe and kill.
+    }
+    exited = await waitForBrowserProcessExit(session, 1_000);
+  }
+  return exited;
 }

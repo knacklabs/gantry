@@ -30,14 +30,10 @@ export async function POST(request: Request) {
   const accepted = await client.sessions.sendMessage({
     sessionId: session.sessionId,
     message: `Triage this support ticket:\n${body.ticketText.trim()}`,
-    idempotencyKey: crypto.randomUUID(),
-    continuityMode: 'provider',
     senderId: 'nextjs-workflows-demo',
     senderName: 'Next.js workflows demo',
     response_schema: TRIAGE_SCHEMA as never,
     effort: 'low',
-    max_tool_interactions: 4,
-    interaction_timeout_ms: 90_000,
   });
   const event = await client.sessions.wait(session.sessionId, {
     afterEventId: accepted.acceptedEventId,

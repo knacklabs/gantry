@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ConversationRoute } from '@core/domain/types.js';
+import type { ConversationHistoryCoverageRepository } from '@core/domain/ports/conversation-history-coverage.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 
 function makeGroup(
@@ -40,12 +41,14 @@ async function loadRuntimeApp() {
     getRuntimeSkillArtifactStore: vi.fn(),
     getRuntimeStorage: vi.fn(() => ({})),
     getConfiguredModelProvidersForApp: vi.fn(async () => new Set<string>()),
+    resolveRuntimePersonIdentity: vi.fn(),
   }));
   return import('@core/app/bootstrap/runtime-app.js');
 }
 
 async function loadRuntimeAppWithGroupProcessorSpy() {
   vi.resetModules();
+  const runtimeHistoryCoverage = {};
   const createGroupProcessor = vi.fn(() => ({
     processGroupMessages: vi.fn(async () => true),
   }));
@@ -72,11 +75,24 @@ async function loadRuntimeAppWithGroupProcessorSpy() {
       throw new Error('ops repository should not be used by this test');
     }),
     getRuntimeSkillArtifactStore: vi.fn(),
-    getRuntimeStorage: vi.fn(() => ({})),
+    getRuntimeStorage: vi.fn(() => ({
+      repositories: {
+        conversationHistoryCoverage: runtimeHistoryCoverage,
+      },
+    })),
+    tryAcquireRuntimeAdvisoryLease: vi.fn(),
     getConfiguredModelProvidersForApp: vi.fn(async () => new Set<string>()),
+    resolveRuntimePersonIdentity: vi.fn(),
   }));
   const runtimeApp = await import('@core/app/bootstrap/runtime-app.js');
-  return { ...runtimeApp, createGroupProcessor };
+  const { createChannelWiring } =
+    await import('@core/app/bootstrap/channel-wiring.js');
+  return {
+    ...runtimeApp,
+    createChannelWiring,
+    createGroupProcessor,
+    runtimeHistoryCoverage,
+  };
 }
 
 async function loadRuntimeAppWithPersistedRoutes(
@@ -94,6 +110,7 @@ async function loadRuntimeAppWithPersistedRoutes(
 
   vi.doMock('@core/application/agents/prompt-profile-service.js', () => ({
     PromptProfileService,
+    registerChannelPromptPresentationRenderer: vi.fn(),
   }));
   vi.doMock('@core/platform/profile-file-mirror.js', () => ({
     writeProfileFileMirror,
@@ -121,6 +138,7 @@ async function loadRuntimeAppWithPersistedRoutes(
     getRuntimeStorage: vi.fn(() => ({ fileArtifacts })),
     getRuntimeSkillArtifactStore: vi.fn(),
     getConfiguredModelProvidersForApp: vi.fn(async () => new Set<string>()),
+    resolveRuntimePersonIdentity: vi.fn(),
   }));
   vi.doMock('@core/runtime/group-processing.js', () => ({
     createGroupProcessor: vi.fn(() => ({
@@ -242,6 +260,47 @@ describe('runtime app credential binding', () => {
 
     expect(capturedDeps?.channelRuntime.supportsStreaming('tg:primary')).toBe(
       true,
+    );
+  });
+
+  it('delegates process-local history distrust epoch reads to channel wiring', async () => {
+    const { createRuntimeApp, createGroupProcessor } =
+      await loadRuntimeAppWithGroupProcessorSpy();
+    const app = createRuntimeApp();
+    const capturedDeps = vi.mocked(createGroupProcessor).mock.calls[0]?.[0];
+    const readEpoch = vi.fn(() => ({ current: 3, durable: 2 }));
+
+    app.setHistoryCoverageDistrustEpochReader(readEpoch);
+
+    expect(
+      capturedDeps?.getHistoryCoverageDistrustEpoch('slack-account-1'),
+    ).toEqual({ current: 3, durable: 2 });
+    expect(readEpoch).toHaveBeenCalledWith('slack-account-1');
+  });
+
+  it('uses the channel-wiring override repository for group processing', async () => {
+    const {
+      createRuntimeApp,
+      createChannelWiring,
+      createGroupProcessor,
+      runtimeHistoryCoverage,
+    } = await loadRuntimeAppWithGroupProcessorSpy();
+    const app = createRuntimeApp();
+    const capturedDeps = vi.mocked(createGroupProcessor).mock.calls[0]?.[0];
+    const historyCoverage = {
+      readProviderGeneration: vi.fn(),
+      bumpProviderGeneration: vi.fn(),
+      getCoverage: vi.fn(),
+      upsertCoverage: vi.fn(),
+    } as unknown as ConversationHistoryCoverageRepository;
+
+    createChannelWiring(app, { historyCoverage });
+
+    expect(capturedDeps?.getConversationHistoryCoverageRepository?.()).toBe(
+      historyCoverage,
+    );
+    expect(capturedDeps?.getConversationHistoryCoverageRepository?.()).not.toBe(
+      runtimeHistoryCoverage,
     );
   });
 

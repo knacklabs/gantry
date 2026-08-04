@@ -1,0 +1,8 @@
+import type { ConversationContextHydrationRequest, ConversationContextHydrationResult } from './channel-wiring-types.js';
+interface ChannelConversationContextProvider {
+    hydrateConversationContext?: (request: ConversationContextHydrationRequest) => Promise<ConversationContextHydrationResult>;
+}
+type ConversationContextLookup = (conversationJid: string, providerAccountId?: string) => ChannelConversationContextProvider | undefined;
+type ProviderIdResolver = (conversationJid: string, fallback: string) => string;
+export declare function hydrateChannelConversationContext(request: ConversationContextHydrationRequest, findBoundChannel: ConversationContextLookup, providerIdForJid: ProviderIdResolver): Promise<ConversationContextHydrationResult>;
+export {};

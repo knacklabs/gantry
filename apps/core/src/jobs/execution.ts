@@ -1,9 +1,8 @@
-import { randomUUID } from 'crypto';
 import fs from 'fs';
 // prettier-ignore
 import { ASSISTANT_NAME, getEffectiveModelConfig, getRuntimeSettingsForConfig, getSelectedAgentHarness } from '../config/index.js';
 import type { Job } from '../domain/types.js';
-import { logger } from '../infrastructure/logging/logger.js';
+import { logger, updateLogContext } from '../infrastructure/logging/logger.js';
 // prettier-ignore
 import { getRuntimeControlRepository, getRuntimeEventExchange, getConfiguredModelProvidersForApp, getWorkerCoordinationRepository } from '../adapters/storage/postgres/runtime-store.js';
 import { DEFAULT_JOB_RUNTIME_APP_ID } from '../application/jobs/job-access.js';
@@ -26,9 +25,11 @@ import {
   failRuntimeSessionRun as failSessionRun,
 } from '../runtime/session-resume-runtime.js';
 import {
-  resolveTurnSemanticCapabilities,
-  resolveTurnSelectedMcpServerIds,
-  resolveTurnSelectedSkillContext,
+  loadAgentAccessSnapshot,
+  resolveTurnSemanticCapabilitiesFromSnapshot,
+  resolveTurnSelectedMcpServerIdsFromSnapshot,
+  resolveTurnSelectedSkillContextFromSnapshot,
+  resolveTurnToolPolicyFromSnapshot,
 } from '../runtime/group-run-context.js';
 // prettier-ignore
 import { collectCompactBoundaryMemory, collectJobCompletionMemory } from './compact-memory.js';
@@ -38,10 +39,9 @@ import {
   resolveExecutionContext,
   resolveExecutionMemoryContext,
 } from './execution-context.js';
-import {
-  logMemoryDreamJobFailure,
-  notifySchedulerTerminalRunState,
-} from './execution-notifications.js';
+// prettier-ignore
+import { logMemoryDreamJobFailure, notifySchedulerTerminalRunState } from './execution-notifications.js';
+import type { MemoryReviewCreatedNotification } from './memory-dreaming-job-outcome.js';
 import {
   claimSchedulerRunLease,
   createSchedulerRunLeaseAbort,
@@ -77,6 +77,11 @@ import { completeFailedRunFailsafe } from './run-failsafe.js';
 import { createRunProviderMetadataUpdater } from './run-provider-metadata.js';
 import { hasAsyncTaskRepository } from './async-command-task-helpers.js';
 import { resolveExecutionSkillSelection } from './execution-required-skill.js';
+import { runActiveJobWithLogContext } from './execution-log-context.js';
+import {
+  recordJobAgentRunFailure,
+  requireTerminalSettlement,
+} from './execution-operational-errors.js';
 import type {
   JobTurnContext,
   SchedulerDependencies,
@@ -90,22 +95,46 @@ export async function runJob(
   dispatch?: SchedulerDispatchPayload,
   control?: { abortSignal?: AbortSignal },
 ): Promise<void> {
-  const currentJob = await deps.opsRepository.getJobById(job.id);
-  if (!currentJob || currentJob.status !== 'active') return;
-  const scheduledFor =
-    dispatch?.scheduledFor || currentJob.next_run || nowIso();
-  const runId = dispatch?.runId ?? randomUUID();
+  return runActiveJobWithLogContext({
+    requestedJob: job,
+    dispatch,
+    getJobById: (jobId) => deps.opsRepository.getJobById(jobId),
+    run: ({ job: currentJob, scheduledFor, runId }) =>
+      runActiveJob(
+        currentJob,
+        deps,
+        queueJid,
+        dispatch,
+        control,
+        scheduledFor,
+        runId,
+      ),
+  });
+}
+
+async function runActiveJob(
+  currentJob: Job,
+  deps: SchedulerDependencies,
+  queueJid: string,
+  dispatch: SchedulerDispatchPayload | undefined,
+  control: { abortSignal?: AbortSignal } | undefined,
+  scheduledFor: string,
+  runId: string,
+): Promise<void> {
   const startedAtMs = nowMs();
   const startedAt = toIso(startedAtMs);
-  const runtimeAppId = DEFAULT_JOB_RUNTIME_APP_ID;
+  const eventControl = getRuntimeControlRepository();
+  const preflightAppSession = await resolveAppSessionForJob(
+    currentJob,
+    eventControl,
+  );
+  const runtimeAppId = preflightAppSession?.appId ?? DEFAULT_JOB_RUNTIME_APP_ID;
   const publishRuntimeEvent = createEventPublisher(getRuntimeEventExchange());
   const warn = (context: Record<string, unknown>, message: string): void =>
     logger.warn(context, message);
-  const eventControl = getRuntimeControlRepository();
-  await restoreAppSessionExecutionRoute(currentJob, deps, eventControl);
+  const groups = deps.conversationRoutes();
   const execution = await resolveExecutionContextOrDeadLetter({
-    resolve: () =>
-      resolveExecutionContext(currentJob, deps.conversationRoutes()),
+    resolve: () => resolveExecutionContext(currentJob, groups),
     currentJob,
     deps,
     runId,
@@ -114,7 +143,7 @@ export async function runJob(
     startedAtMs,
     dispatch,
     runtimeAppId,
-    control: eventControl,
+    control: getRuntimeControlRepository(),
     publishRuntimeEvent,
     logger,
   });
@@ -134,10 +163,6 @@ export async function runJob(
     { ...currentJob, model: jobModelForResolution || currentJob.model },
     getEffectiveModelConfig(undefined, jobModelUseKind, execution.group.folder),
     agentHarness,
-  );
-  const preflightAppSession = await resolveAppSessionForJob(
-    currentJob,
-    eventControl,
   );
   const pausedForSetup = await pauseJobForSetupIfNeeded({
     currentJob,
@@ -245,6 +270,7 @@ export async function runJob(
       resultSummaryAccumulator.append(delta);
     };
     let accumulatedUsage: AgentOutput['usage'];
+    let memoryReviewNotification: MemoryReviewCreatedNotification | undefined;
     const startNotified = false;
     try {
       const groupDir = resolveWorkspaceFolderPath(execution.group.folder);
@@ -273,6 +299,7 @@ export async function runJob(
       });
       appendResultSummary(systemOutcome.result);
       error = systemOutcome.error;
+      memoryReviewNotification = systemOutcome.notificationContext;
     } else {
       if (!error) {
         let turnContext: JobTurnContext | undefined;
@@ -319,45 +346,39 @@ export async function runJob(
           const executionAgentId =
             turnContext?.agentId ??
             jobToolPolicy.agentIdForJobWorkspaceKey(execution.group.folder);
-          const [
-            toolPolicy,
-            selectedSkillContext,
-            semanticCapabilities,
-            credentialBroker,
-          ] = await Promise.all([
-            jobToolPolicy.resolveJobToolPolicy({
-              job: currentJob,
-              appId: executionAppId,
-              agentId: executionAgentId,
-              toolRepository: deps.getToolRepository?.(),
-              skillRepository: deps.getSkillRepository?.(),
-              mcpServerRepository: deps.getMcpServerRepository?.(),
-            }),
-            resolveTurnSelectedSkillContext(deps, {
-              appId: executionAppId,
-              agentId: executionAgentId,
-            }),
-            resolveTurnSemanticCapabilities(deps, {
-              appId: executionAppId,
-              agentId: executionAgentId,
-            }),
-            deps.getCredentialBroker?.() ?? Promise.resolve(undefined),
-          ]);
-          const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
-            deps,
-            {
-              appId: executionAppId,
-              agentId: executionAgentId,
-            },
-            toolPolicy.effectiveAllowedTools,
-          );
-          const selectedSkills = await resolveExecutionSkillSelection({
-            requiredSkill: currentJob.agent_task?.requiredSkill,
+          updateLogContext({
             appId: executionAppId,
             agentId: executionAgentId,
-            repository: deps.getSkillRepository?.(),
+          });
+          const snapshotOwner = {
+            appId: executionAppId,
+            agentId: executionAgentId,
+          };
+          const [accessSnapshot, credentialBroker] = await Promise.all([
+            loadAgentAccessSnapshot(deps, snapshotOwner),
+            deps.getCredentialBroker?.() ?? Promise.resolve(undefined),
+          ]);
+          const inheritedToolPolicy =
+            resolveTurnToolPolicyFromSnapshot(accessSnapshot);
+          const toolPolicy: jobToolPolicy.JobToolPolicyResolution = {
+            inheritedTools: inheritedToolPolicy.toolPolicyRules ?? [],
+            effectiveAllowedTools: inheritedToolPolicy.toolPolicyRules ?? [],
+            runtimeAccess: inheritedToolPolicy.runtimeAccess,
+          };
+          const selectedSkillContext =
+            resolveTurnSelectedSkillContextFromSnapshot(accessSnapshot);
+          const selectedSkills = resolveExecutionSkillSelection({
+            requiredSkill: currentJob.agent_task?.requiredSkill,
+            snapshot: accessSnapshot,
             selected: selectedSkillContext,
           });
+          const semanticCapabilities =
+            resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot);
+          const attachedMcpSourceIds =
+            resolveTurnSelectedMcpServerIdsFromSnapshot(accessSnapshot, {
+              conversationId: execution.group.conversationId,
+              threadId: execution.threadId ?? undefined,
+            });
           const toolAccessRequirementPreflight =
             await assertToolAccessRequirementsReadyForRun({
               toolAccessRequirements: splitAccessRequirements(
@@ -375,6 +396,7 @@ export async function runJob(
             agentId: executionAgentId,
             source: 'final_setup',
             runId,
+            accessSnapshot,
             publishRuntimeEvent,
           }));
           const browserPrelaunchSetup = finalReadinessPassed
@@ -382,6 +404,7 @@ export async function runJob(
                 currentJob,
                 executionGroupFolder: execution.group.folder,
                 executionJid: execution.executionJid,
+                executionProviderAccountId: execution.group.providerAccountId,
                 diagnostics,
                 deps,
                 emitJobEvent,
@@ -413,11 +436,13 @@ export async function runJob(
               executionAdapters: deps.executionAdapters,
               runnerSandboxProvider: deps.runnerSandboxProvider,
               asyncTaskRepositoryAvailable: hasAsyncTaskRepository(deps),
+              conversationRoutes: groups,
               skillContext: {
                 appId: executionAppId,
                 agentId: executionAgentId,
               },
             });
+            if (accessSnapshot) runOptions.accessSnapshot = accessSnapshot;
             agentRunId = turnContext?.agentSessionId
               ? await deps.opsRepository.createSessionAgentRun?.({
                   agentSessionId: turnContext.agentSessionId,
@@ -472,7 +497,6 @@ export async function runJob(
                 jobId: currentJob.id,
                 jobName: currentJob.name,
                 runId,
-                ...(currentJob.agent_task?.observability ?? {}),
                 runLeaseToken: leaseContext.lease.leaseToken,
                 runLeaseFencingVersion: leaseContext.lease.fencingVersion,
                 jobModelUseKind,
@@ -510,6 +534,7 @@ export async function runJob(
                       },
                     }
                   : {}),
+                ...(currentJob.agent_task?.observability ?? {}),
                 effort: currentJob.agent_task?.modelControls?.effort,
                 configuredThinking:
                   currentJob.agent_task?.modelControls?.thinking,
@@ -586,6 +611,7 @@ export async function runJob(
               });
               await updateRunProviderMetadata({ force: true });
               if (output.status === 'error') {
+                recordJobAgentRunFailure();
                 if (!error) error = output.error || 'Unknown error';
                 await failRun();
               } else if (output.result && !hasStreamedResult) {
@@ -624,6 +650,7 @@ export async function runJob(
             }
           }
         } catch (err) {
+          recordJobAgentRunFailure();
           error = runLeaseAbort.errorFor(err);
           if (!runLeaseAbort.isAborted()) {
             await updateRunProviderMetadata({ force: true });
@@ -663,59 +690,60 @@ export async function runJob(
       updateJobState: async (jobUpdates, state) => {
         if (deletionGuard.deletedDuringRun) return;
         const finalizeWithLease = deps.opsRepository.finalizeJobRunWithLease;
-        if (!finalizeWithLease) {
-          throw new Error(
-            'Scheduler run lease finalization is unavailable for terminal job write.',
-          );
-        }
-        const finalized = await finalizeWithLease.call(deps.opsRepository, {
-          jobId: currentJob.id,
-          runId,
-          leaseToken: leaseContext.lease.leaseToken,
-          workerInstanceId: leaseContext.lease.workerInstanceId,
-          fencingVersion: leaseContext.lease.fencingVersion,
-          leaseOutcome: error ? 'failed' : 'completed',
-          runStatus: state.runStatus,
-          resultSummary: safeResultSummary
-            ? safeResultSummary.slice(0, 500)
-            : null,
-          errorSummary: state.safeErrorSummary
-            ? state.safeErrorSummary.slice(0, 500)
-            : null,
-          jobUpdates,
-        });
-        if (!finalized) {
-          throw new Error(
-            'Scheduler run lease is no longer active during terminal finalization.',
-          );
-        }
+        await requireTerminalSettlement(
+          finalizeWithLease?.call(deps.opsRepository, {
+            jobId: currentJob.id,
+            runId,
+            leaseToken: leaseContext.lease.leaseToken,
+            workerInstanceId: leaseContext.lease.workerInstanceId,
+            fencingVersion: leaseContext.lease.fencingVersion,
+            leaseOutcome:
+              state.runStatus === 'paused'
+                ? 'released'
+                : error
+                  ? 'failed'
+                  : 'completed',
+            runStatus: state.runStatus,
+            resultSummary: safeResultSummary
+              ? safeResultSummary.slice(0, 500)
+              : null,
+            errorSummary: state.safeErrorSummary
+              ? state.safeErrorSummary.slice(0, 500)
+              : null,
+            jobUpdates,
+            incrementConsecutiveFailures: state.incrementConsecutiveFailures,
+          }),
+          'Scheduler run lease finalization is unavailable for terminal job write.',
+          'Scheduler run lease is no longer active during terminal finalization.',
+        );
         terminalRunRecorded = true;
       },
     });
     if (!terminalRunRecorded && !deletionGuard.deletedDuringRun) {
       const finalizeRunLease = deps.opsRepository.finalizeJobRunLease;
-      if (!finalizeRunLease) {
-        throw new Error(
-          'Scheduler run lease finalization is unavailable for terminal run write.',
-        );
-      }
-      const finalized = await finalizeRunLease.call(deps.opsRepository, {
-        runId,
-        leaseToken: leaseContext.lease.leaseToken,
-        workerInstanceId: leaseContext.lease.workerInstanceId,
-        fencingVersion: leaseContext.lease.fencingVersion,
-        leaseOutcome: error ? 'failed' : 'completed',
-        runStatus,
-        resultSummary: safeResultSummary
-          ? safeResultSummary.slice(0, 500)
-          : null,
-        errorSummary: safeErrorSummary ? safeErrorSummary.slice(0, 500) : null,
-      });
-      if (!finalized) {
-        throw new Error(
-          'Scheduler run lease is no longer active during terminal finalization.',
-        );
-      }
+      await requireTerminalSettlement(
+        finalizeRunLease?.call(deps.opsRepository, {
+          runId,
+          leaseToken: leaseContext.lease.leaseToken,
+          workerInstanceId: leaseContext.lease.workerInstanceId,
+          fencingVersion: leaseContext.lease.fencingVersion,
+          leaseOutcome:
+            runStatus === 'paused'
+              ? 'released'
+              : error
+                ? 'failed'
+                : 'completed',
+          runStatus,
+          resultSummary: safeResultSummary
+            ? safeResultSummary.slice(0, 500)
+            : null,
+          errorSummary: safeErrorSummary
+            ? safeErrorSummary.slice(0, 500)
+            : null,
+        }),
+        'Scheduler run lease finalization is unavailable for terminal run write.',
+        'Scheduler run lease is no longer active during terminal finalization.',
+      );
       terminalRunRecorded = true;
     }
     if (runLeaseAbort.isAborted())
@@ -731,11 +759,13 @@ export async function runJob(
       retry_count: retryCount,
       pause_reason: pauseReason,
       diagnostics: terminalDiagnosticsPayload(diagnostics),
+      ...(structuredResult ? { result: structuredResult } : {}),
     });
     await closeBrowserAfterJobRun({
       currentJob,
       executionGroupFolder: execution?.group.folder,
       executionJid: execution?.executionJid,
+      executionProviderAccountId: execution?.group.providerAccountId,
       diagnostics,
       deps,
       snapshotRunId: runId,
@@ -767,21 +797,19 @@ export async function runJob(
         durationMs: Math.max(0, nowMs() - startedAtMs),
         runShortId,
         sendMessage: deps.sendMessage,
+        ...(memoryReviewNotification ? { memoryReviewNotification } : {}),
       }));
     if (notified) {
-      const markedNotified = await deps.opsRepository.markJobRunNotified(
-        runId,
-        {
+      const markJobRunNotified = deps.opsRepository.markJobRunNotified;
+      await requireTerminalSettlement(
+        markJobRunNotified?.call(deps.opsRepository, runId, {
           leaseToken: leaseContext.lease.leaseToken,
           workerInstanceId: leaseContext.lease.workerInstanceId,
           fencingVersion: leaseContext.lease.fencingVersion,
-        },
+        }),
+        'Scheduler run lease notification finalization is unavailable.',
+        'Scheduler run lease is no longer valid during notification finalization.',
       );
-      if (!markedNotified) {
-        throw new Error(
-          'Scheduler run lease is no longer valid during notification finalization.',
-        );
-      }
     }
     await emitJobEvent(
       runStatus === 'completed'
@@ -841,49 +869,4 @@ export async function runJob(
       });
     }
   }
-}
-
-async function restoreAppSessionExecutionRoute(
-  job: Job,
-  deps: SchedulerDependencies,
-  control: ReturnType<typeof getRuntimeControlRepository>,
-): Promise<void> {
-  if (
-    resolveExecutionContext(job, deps.conversationRoutes()) ||
-    !job.session_id ||
-    !deps.projectConversationRoute
-  ) {
-    return;
-  }
-  const session = await control.getAppSessionById(job.session_id);
-  const context = job.execution_context;
-  const appId = normalizeOptional(job.app_id);
-  const agentId = context
-    ? jobToolPolicy.agentIdForJobWorkspaceKey(context.workspaceKey)
-    : undefined;
-  if (
-    !session ||
-    !context ||
-    !appId ||
-    session.appId !== appId ||
-    normalizeOptional(context.sessionId) !== job.session_id ||
-    session.chatJid !== `app:${session.appId}:${session.conversationId}` ||
-    session.chatJid !== context.conversationJid ||
-    session.workspaceKey !== context.workspaceKey ||
-    session.agentId !== agentId
-  ) {
-    return;
-  }
-  await deps.projectConversationRoute(session.chatJid, {
-    name: `${session.appId}:${session.conversationId}`,
-    folder: session.workspaceKey,
-    trigger: '',
-    added_at: session.updatedAt,
-    requiresTrigger: false,
-  });
-}
-
-function normalizeOptional(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  return value.trim() || undefined;
 }

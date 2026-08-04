@@ -74,7 +74,9 @@ describe('provider conversation live routes', () => {
           conversationId: 'conversation:C1',
           displayName: 'Team Channel',
           status: 'active',
-          memorySubject: {},
+          memorySubject: {
+            route: { configuredConversationId: 'shared_team' },
+          },
           createdAt: '2026-04-24T00:00:00.000Z',
         },
         {
@@ -109,6 +111,7 @@ describe('provider conversation live routes', () => {
     expect(projectConversationRoute).toHaveBeenCalledWith(
       'C1',
       expect.objectContaining({
+        conversationId: 'shared_team',
         providerAccountId: 'provider-account:enabled',
         conversationKind: 'channel',
       }),

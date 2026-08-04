@@ -149,38 +149,6 @@ export const adminOpenApiSchemas: Record<string, JsonSchema> = {
       },
     },
   },
-  ConversationMessageSendRequest: {
-    type: 'object',
-    required: ['idempotencyKey', 'text'],
-    additionalProperties: false,
-    properties: {
-      idempotencyKey: { type: 'string', minLength: 1, maxLength: 200 },
-      text: { type: 'string', minLength: 1, maxLength: 64000 },
-      threadId: { type: 'string', minLength: 1 },
-      adaptiveCard: {
-        type: 'object',
-        required: ['type', 'version', 'body'],
-        additionalProperties: true,
-        properties: {
-          type: { type: 'string', enum: ['AdaptiveCard'] },
-          version: { type: 'string', minLength: 1 },
-          body: { type: 'array', items: { type: 'object' } },
-          actions: { type: 'array', items: { type: 'object' } },
-        },
-      },
-    },
-  },
-  ConversationMessageSendResponse: {
-    type: 'object',
-    required: ['accepted', 'messageId', 'idempotencyKey'],
-    additionalProperties: false,
-    properties: {
-      accepted: { type: 'boolean', enum: [true] },
-      messageId: { type: 'string' },
-      idempotencyKey: { type: 'string' },
-      providerMessageId: { type: 'string' },
-    },
-  },
   ConversationApproversResponse: {
     type: 'object',
     required: ['approvers'],

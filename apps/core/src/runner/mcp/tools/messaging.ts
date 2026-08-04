@@ -7,7 +7,6 @@ import {
   nowIso,
   nowMs,
   nowMs as currentTimeMs,
-  sleep,
 } from '../../../shared/time/datetime.js';
 import {
   ensurePrivateDirSync,
@@ -25,19 +24,25 @@ import {
   MESSAGES_DIR,
   threadId,
   jobId,
+  permissionLane,
   jobRunId,
   jobRunLeaseToken,
   jobRunLeaseFencingVersion,
 } from '../context.js';
-import { truncateText } from '../formatting.js';
-import { hasValidIpcResponseSignature, writeIpcFile } from '../ipc.js';
-import { createSignedIpcRequestEnvelope } from '../signing.js';
+import { writeIpcFile } from '../ipc.js';
+import { createSignedIpcRequestEnvelope } from '../../../shared/ipc-signing.js';
+import {
+  ipcInteractionAuthEnvelopeOptions,
+  type IpcRequestClaimProbe,
+} from '../../../shared/ipc-interaction-lifetime.js';
 import { makeIpcId } from '../ipc-ids.js';
+import {
+  sleepWithAbort,
+  USER_QUESTION_POLL_INTERVAL_MS,
+  USER_QUESTION_TIMEOUT_MS,
+  waitForUserQuestionResponse,
+} from './user-question-response-wait.js';
 
-const USER_QUESTION_TIMEOUT_MS = 5 * 60 * 1000;
-const USER_QUESTION_POLL_INTERVAL_MS = 100;
-const USER_QUESTION_MAX_ANSWER_LENGTH = 500;
-const USER_QUESTION_MAX_ANSWERED_BY_LENGTH = 120;
 const INTERACTION_BOUNDARY_WAIT_MS = 2_000;
 
 const fallbackTextSchema = z
@@ -99,29 +104,6 @@ type RichInteractionKind =
   | 'media'
   | 'progress';
 
-async function sleepWithAbort(
-  ms: number,
-  signal?: AbortSignal,
-): Promise<boolean> {
-  if (!signal) {
-    await sleep(ms);
-    return false;
-  }
-  if (signal.aborted) return true;
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve(false);
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      signal.removeEventListener('abort', onAbort);
-      resolve(true);
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
-}
-
 async function requestUserInteractionBoundary(
   requestId: string,
   signal?: AbortSignal,
@@ -160,6 +142,7 @@ function richInteractionContext(): Record<string, unknown> {
   return {
     ...(appId ? { appId } : {}),
     ...(agentId ? { agentId } : {}),
+    ...(providerAccountId ? { providerAccountId } : {}),
     ...(chatJid ? { chatJid } : {}),
     ...(threadId ? { threadId } : {}),
     ...(jobId ? { jobId } : {}),
@@ -366,7 +349,7 @@ function registerRichInteractionTools(server: McpServer): void {
 
   server.tool(
     'render_progress',
-    'Render progress for a user-visible workflow.',
+    'Render one compact progress line for a user-visible workflow. Repeated calls edit the active line in place; use it before and between meaningful steps of long installs, dependency setup, and renders.',
     {
       title: richTitleSchema,
       value: z.number().min(0).max(100).optional(),
@@ -394,7 +377,10 @@ function registerRichInteractionTools(server: McpServer): void {
   );
 }
 
-export function registerMessagingTools(server: McpServer): void {
+export function registerMessagingTools(
+  server: McpServer,
+  claimProbe?: IpcRequestClaimProbe,
+): void {
   server.tool(
     'send_message',
     "Send a message to the user or group immediately while you're still running. Use this for live progress updates or to send multiple messages. In scheduled jobs, the scheduler sends the completion notification, so do not use this for job results.",
@@ -402,16 +388,37 @@ export function registerMessagingTools(server: McpServer): void {
       text: z.string().describe('The message text to send'),
       files: z
         .array(
-          z.object({
-            scope: z.string().optional().describe('FileArtifact scope'),
-            path: z.string().describe('FileArtifact virtual path'),
-            version: z.number().int().positive().optional(),
-          }),
+          z.union([
+            z
+              .object({
+                source: z
+                  .literal('artifact')
+                  .optional()
+                  .describe("Optional; omitted means 'artifact'"),
+                scope: z.string().optional().describe('FileArtifact scope'),
+                path: z.string().describe('FileArtifact virtual path'),
+                version: z
+                  .number()
+                  .int()
+                  .positive()
+                  .optional()
+                  .describe('FileArtifact version'),
+              })
+              .strict(),
+            z
+              .object({
+                source: z.literal('workspace'),
+                path: z
+                  .string()
+                  .describe('Relative path inside your workspace'),
+              })
+              .strict(),
+          ]),
         )
         .max(5)
         .optional()
         .describe(
-          'Owned FileArtifacts to send with the message. Gantry resolves ownership in the host and degrades safely when the channel cannot attach files.',
+          "Files to send with the message. Omit source (or set it to 'artifact') for an owned FileArtifact. Set source to 'workspace' to read a relative path inside your workspace. Gantry never falls back between sources and degrades safely when the selected file or channel attachment is unavailable.",
         ),
       sender: z
         .string()
@@ -446,15 +453,11 @@ export function registerMessagingTools(server: McpServer): void {
         timestamp: nowIso(),
         files: args.files,
       };
-
       writeIpcFile(MESSAGES_DIR, data);
-
       return { content: [{ type: 'text' as const, text: 'Message sent.' }] };
     },
   );
-
   registerRichInteractionTools(server);
-
   server.tool(
     'ask_user_question',
     'Ask the user a structured multiple-choice question across the active channel. Use when you need the user to pick between discrete options (e.g. which database, which approach, which config). Returns the selected option(s).',
@@ -499,7 +502,6 @@ export function registerMessagingTools(server: McpServer): void {
       const userQuestionResponsesDir = path.join(IPC_DIR, 'user-answers');
       ensurePrivateDirSync(userQuestionRequestsDir);
       ensurePrivateDirSync(userQuestionResponsesDir);
-
       const requestId = makeIpcId('userq');
       const requestPath = path.join(
         userQuestionRequestsDir,
@@ -510,9 +512,7 @@ export function registerMessagingTools(server: McpServer): void {
         `${requestId}.json`,
       );
       const tmpPath = `${requestPath}.tmp`;
-
       await requestUserInteractionBoundary(requestId, context?.signal);
-
       const payload = {
         requestId,
         sourceAgentFolder: workspaceFolder,
@@ -534,129 +534,29 @@ export function registerMessagingTools(server: McpServer): void {
             : {}),
         },
         timestamp: nowIso(),
-        expiresAt: new Date(
-          currentTimeMs() + USER_QUESTION_TIMEOUT_MS,
-        ).toISOString(),
+        permissionLane,
+        ...(permissionLane === 'autonomous'
+          ? {
+              expiresAt: new Date(
+                currentTimeMs() + USER_QUESTION_TIMEOUT_MS,
+              ).toISOString(),
+            }
+          : {}),
       };
-      const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload);
+      // prettier-ignore
+      const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload, ipcInteractionAuthEnvelopeOptions(permissionLane === 'interactive'));
 
       writePrivateFileSync(tmpPath, JSON.stringify(envelope, null, 2));
       fs.renameSync(tmpPath, requestPath);
-
-      const deadline = nowMs() + USER_QUESTION_TIMEOUT_MS;
-      while (nowMs() < deadline) {
-        if (context?.signal?.aborted) {
-          fs.rmSync(requestPath, { force: true });
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: 'Question cancelled. Nothing changed.',
-              },
-            ],
-          };
-        }
-        if (fs.existsSync(responsePath)) {
-          try {
-            const raw = JSON.parse(fs.readFileSync(responsePath, 'utf-8')) as {
-              requestId?: unknown;
-              answers?: Record<string, unknown>;
-              answeredBy?: unknown;
-              signature?: unknown;
-            };
-            fs.unlinkSync(responsePath);
-            const payload: Record<string, unknown> = {
-              requestId,
-              answers:
-                raw?.answers && typeof raw.answers === 'object'
-                  ? raw.answers
-                  : {},
-              ...(typeof raw?.answeredBy === 'string' && raw.answeredBy.trim()
-                ? { answeredBy: raw.answeredBy }
-                : {}),
-            };
-            if (raw.requestId !== requestId) {
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: 'Answer request id mismatch.',
-                  },
-                ],
-              };
-            }
-            if (
-              !hasValidIpcResponseSignature(
-                raw as unknown as Record<string, unknown>,
-                payload,
-              )
-            ) {
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: 'Answer verification failed.',
-                  },
-                ],
-              };
-            }
-            if (raw?.answers && typeof raw.answers === 'object') {
-              const lines: string[] = [];
-              for (const [q, answer] of Object.entries(raw.answers)) {
-                const normalizedAnswer = Array.isArray(answer)
-                  ? answer.map((item) => String(item)).join(', ')
-                  : String(answer);
-                lines.push(
-                  `${q}: ${truncateText(normalizedAnswer, USER_QUESTION_MAX_ANSWER_LENGTH)}`,
-                );
-              }
-              if (typeof raw.answeredBy === 'string' && raw.answeredBy.trim()) {
-                lines.push(
-                  `(answered by ${truncateText(raw.answeredBy.trim(), USER_QUESTION_MAX_ANSWERED_BY_LENGTH)})`,
-                );
-              }
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: lines.join('\n') || 'No answer received.',
-                  },
-                ],
-              };
-            }
-          } catch {
-            return {
-              content: [
-                { type: 'text' as const, text: 'Failed to read answer.' },
-              ],
-            };
-          }
-        }
-        const aborted = await sleepWithAbort(
-          USER_QUESTION_POLL_INTERVAL_MS,
-          context?.signal,
-        );
-        if (aborted) {
-          fs.rmSync(requestPath, { force: true });
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: 'Question cancelled. Nothing changed.',
-              },
-            ],
-          };
-        }
-      }
-      fs.rmSync(requestPath, { force: true });
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: 'Question expired. Please ask again if this is still needed.',
-          },
-        ],
-      };
+      return waitForUserQuestionResponse({
+        requestId,
+        requestPath,
+        responsePath,
+        permissionLane,
+        authExpiresAt: envelope.authExpiresAt,
+        signal: context?.signal,
+        claimProbe,
+      });
     },
   );
 }

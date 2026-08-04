@@ -1,7 +1,7 @@
 import { ChildProcess } from 'child_process';
-import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 import {
   DATA_DIR,
   PERMISSION_APPROVAL_TIMEOUT_MS,
@@ -15,8 +15,9 @@ import {
   getSelectedAgentHarness,
   getSelectedAgentRuntime,
 } from '../config/index.js';
-import { resolveAgentAccessPolicy } from '../config/profiles.js';
 import { logger } from '../infrastructure/logging/logger.js';
+import { runSpawnWithLogContext } from '../infrastructure/observability/spawn-log-context.js';
+import type { SpawnTurnTracker } from '../infrastructure/observability/spawn-turn-tracker.js';
 import { ConversationRoute } from '../domain/types.js';
 import * as host from './agent-spawn-host.js';
 import {
@@ -26,7 +27,6 @@ import {
 import { resolvePackageRootFromSourceDir } from '../platform/package-root.js';
 import {
   computeBrowserIpcAuthToken,
-  createIpcAuthEnvelope,
   computeMemoryIpcAuthToken,
   registerBrowserIpcAuthorization,
   revokeBrowserIpcAuthorization,
@@ -40,14 +40,15 @@ import { executeRunnerProcess } from './agent-spawn-process.js';
 import { applyAgentEgressNoProxyEnv } from '../shared/no-proxy.js';
 import { buildToolNetworkEnv } from '../shared/tool-network-env.js';
 import { closeEgressGateway, ensureEgressGateway } from './egress-gateway.js';
-import { resolveConversationBrowserProfile } from '../shared/browser-profile-scope.js';
 import {
   AgentInput,
   AgentOutput,
   RunAgentOptions,
 } from './agent-spawn-types.js';
 import { selectedMemoryIpcActionsFromToolRules } from '../shared/memory-ipc-actions.js';
-import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
+import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
+import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
+import { conversationBoundAgentIdsForRoute } from '../application/core-tools/callable-agent-tools.js';
 import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
 import {
   attachMcpSourceNetworkHosts,
@@ -62,17 +63,18 @@ import {
   sandboxAllowedNetworkHostsFromRuntimeAccess,
   writeProtectedFilesystemEnv,
 } from './agent-spawn-runtime-policy.js';
-import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import {
   getConfiguredModelProvidersForApp,
   getRuntimeFileArtifactStore,
+  getRuntimeStorage,
 } from '../adapters/storage/postgres/runtime-store.js';
-import { effectiveYoloModeSettings } from '../shared/yolo-mode-policy.js';
 import { formatGeneratedRuntimePathPermissionError } from './generated-runtime-path-error.js';
-import { resolveAgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter-registry.js';
 import { writeRunnerMcpConfigFile } from './agent-spawn-mcp-config.js';
 import { withStdioMcpEgressEnv } from './agent-spawn-mcp-egress-env.js';
-import { createRunnerHostStartupTiming } from './agent-spawn-startup-timing.js';
+import {
+  accessSnapshotForSpawnMcpProjection,
+  resolveSpawnMcpSourceRecords,
+} from './agent-spawn-mcp-source-records.js';
 import { publishRunnerHostStartupDiagnosticFromSpawn } from './agent-spawn-startup-diagnostic.js';
 import { resolveSelectedSkillEnvForSpawn } from './agent-spawn-selected-skill-env.js';
 import { configureSpawnAsyncCommandSandboxPolicy } from './async-command-sandbox-policy.js';
@@ -88,7 +90,6 @@ import {
   protectedWritePathsForOuterSandbox,
   sandboxRuntimeToolProcessEnv,
   sandboxRuntimeToolNetworkEnv,
-  prepareRunnerWorkspace,
   resolveRunnerSandboxStartup,
   uniqueStrings,
   buildRunnerSandboxSpawnInput,
@@ -96,30 +97,50 @@ import {
   buildAndLogRunnerRuntimeDetails,
   type RunnerAgentInput,
 } from './agent-spawn-helpers.js';
+import {
+  prepareAgentSpawn,
+  prepareWorkerAuthorityProjection,
+} from './agent-spawn-preparation.js';
+import { setupPermissionRunRestriction } from './agent-spawn-permission-run-restriction.js';
+import { resolveSpawnExecutionAdapter } from './agent-spawn-execution-adapter.js';
+import {
+  resolveAgentSpawnLogContext,
+  stripIncompleteRunLeaseIdentity,
+} from './agent-spawn-identity.js';
+import { createRunnerTempDirectories } from './agent-spawn-temp-directories.js';
+import {
+  agentPersonasById,
+  projectSpawnRunnerInput,
+} from './agent-spawn-input-projection.js';
+import { createSpawnAgent } from './agent-spawn-entry.js';
 export { writeGroupsSnapshot } from './agent-spawn-snapshots.js';
 export type { AvailableGroup } from './agent-spawn-types.js';
 export type { AgentInput, AgentOutput } from './agent-spawn-types.js';
-export async function spawnAgent(
+export const spawnAgent = createSpawnAgent({
+  runWithLogContext: runSpawnWithLogContext,
+  resolveLogContext: resolveAgentSpawnLogContext,
+  stripIncompleteRunLeaseIdentity,
+  spawnWithContext: spawnAgentWithContext,
+});
+async function spawnAgentWithContext(
   group: ConversationRoute,
   input: AgentInput,
   onProcess: (proc: ChildProcess, runHandle: string) => void,
-  onOutput: ((output: AgentOutput) => Promise<void>) | undefined,
   options: RunAgentOptions,
+  turnTracker: SpawnTurnTracker<AgentOutput>,
 ): Promise<AgentOutput> {
-  const agentRuntime = input.runtime ?? getSelectedAgentRuntime(group.folder);
-  if (agentRuntime === 'inline') {
-    const { runInlineAgent } = await import('./agent-inline.js');
-    return runInlineAgent(group, input, onProcess, onOutput, options);
-  }
-  const startTime = currentTimeMs();
-  const hostStartup = createRunnerHostStartupTiming({ nowMs: currentTimeMs });
-  const { groupDir, processName } = hostStartup.measure('workspacePrepMs', () =>
-    prepareRunnerWorkspace({
-      folder: group.folder,
-      nowMs: currentTimeMs,
-      warn: logger.warn.bind(logger),
-    }),
-  );
+  const preparation = await prepareAgentSpawn({
+    group,
+    agentInput: input,
+    agentRuntime: input.runtime ?? getSelectedAgentRuntime(group.folder),
+    onProcess,
+    onOutput: turnTracker.onOutput,
+    options: { ...options, correlationRunId: turnTracker.correlationId },
+    warn: logger.warn.bind(logger),
+  });
+  if (preparation.kind === 'inline') return preparation.output;
+  const { agentRuntime, startTime, hostStartup, groupDir, processName } =
+    preparation;
   const modelResolutionStarted = hostStartup.start();
   const runtimeSettings = getRuntimeSettingsForConfig();
   const modelConfig = getEffectiveModelConfig(
@@ -171,122 +192,63 @@ export async function spawnAgent(
   }
   const agentIdentifier = group.folder.toLowerCase().replace(/_/g, '-');
   const credentials = host.getHostRuntimeCredentialEnv;
-  const agentAccessPolicy = resolveAgentAccessPolicy(
-    agentSettings?.accessPreset,
-  );
-  const isLockedAgent = agentAccessPolicy.preset === 'locked';
+  const personasByAgentId = agentPersonasById(runtimeSettings.agents);
+  const { accessPreset, hideAuthorityTools, callableAgentManifest } =
+    await prepareWorkerAuthorityProjection({
+      agentInput: input,
+      accessPreset: agentSettings?.accessPreset,
+      delegates: agentSettings?.delegates ?? [],
+      getConversationBoundAgentIds: () =>
+        conversationBoundAgentIdsForRoute({
+          routes: options?.conversationRoutes ?? {},
+          chatJid: input.chatJid,
+          threadId: input.threadId,
+          callerAgentId:
+            input.agentId ?? String(agentIdForFolder(group.folder)),
+          callerProviderAccountId: group.providerAccountId,
+        }),
+      personasByAgentId,
+      workspaceFolder: group.folder,
+      options,
+      getAgentRepository: () => getRuntimeStorage().repositories.agents,
+      warn: logger.warn.bind(logger),
+    });
   const compiledSystemPrompt = await compileSpawnSystemPrompt({
     group,
     agentInput: input,
     appId: input.appId || 'default',
-    accessPreset: agentAccessPolicy.preset,
+    accessPreset: hideAuthorityTools ? 'locked' : accessPreset,
+    mcpInventoryToolsMounted: true,
+    modelIdentity: {
+      alias: resolvedModel.value.modelEntry.displayName,
+      modelId: resolvedModel.value.runnerModel,
+      provider: resolvedModel.value.modelEntry.modelRoute.label,
+    },
     fileArtifactStore: () => getRuntimeFileArtifactStore(),
     measureAsync: (name, fn) => hostStartup.measureAsync(name, fn),
   });
-  const browserProfileName = resolveConversationBrowserProfile({
-    agentId: group.folder,
-    workspaceKey: group.folder,
-    conversationId: input.chatJid,
-  });
-  const trustedToolPolicyRules = input.toolPolicyRules;
-  const browserIpcEnabled = (trustedToolPolicyRules ?? []).some(
-    isCanonicalBrowserCapabilityRule,
-  );
-  const hideAuthorityTools =
-    isLockedAgent ||
-    input.hideAuthorityTools === true ||
-    process.env.GANTRY_NO_PERMISSION_TOOLS === '1';
-  const runnerInput: RunnerAgentInput = {
-    ...input,
-    allowedTools: trustedToolPolicyRules,
-    browserProfileName,
-    hideAuthorityTools,
-    compiledSystemPrompt,
-    yoloMode: effectiveYoloModeSettings(runtimeSettings.permissions.yoloMode),
-  };
+  const { runnerInput, browserIpcEnabled, trustedToolPolicyRules } =
+    projectSpawnRunnerInput({
+      agentInput: input,
+      group,
+      callableAgentManifest,
+      hideAuthorityTools,
+      compiledSystemPrompt,
+      permissions: runtimeSettings.permissions,
+    });
+  // Per-turn browser credential: two concurrent turns for different accounts
+  // get different tokens, which a shared (workspace, chat, thread) key cannot.
+  const browserTurnToken = randomUUID();
+  const browserProfileForRun = runnerInput.browserProfileName ?? '';
+  runnerInput.browserTurnToken = browserTurnToken;
+  const egressSettings = runtimeSettings.permissions.egress;
   const hostRuntime = host.prepareHostRuntimeContext(group);
-  let executionAdapter: NonNullable<RunAgentOptions['executionAdapter']>;
-  try {
-    executionAdapter = resolveAgentExecutionAdapter({
-      executionProviderId: resolvedModel.value.executionProviderId,
-      registry: options?.executionAdapters,
-      fallback: options?.executionAdapter,
-    }) as NonNullable<RunAgentOptions['executionAdapter']>;
-  } catch (err) {
-    return {
-      status: 'error',
-      result: null,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-  if (!executionAdapter) {
-    return {
-      status: 'error',
-      result: null,
-      error:
-        'No LLM execution adapter configured. Runtime bootstrap must provide an AgentExecutionAdapterRegistry.',
-    };
-  }
-  const hostCredentials = await hostStartup.measureAsync(
-    'credentialProjectionMs',
-    () =>
-      credentials(agentIdentifier, options?.credentialBroker, {
-        purpose: 'model_runtime',
-        runContext: input,
-        modelRouteId: resolvedModel.value.modelEntry.modelRoute.id,
-      }),
+  const adapterResolution = resolveSpawnExecutionAdapter(
+    resolvedModel.value.executionProviderId,
+    options,
   );
-  let preparedExecution: Awaited<ReturnType<typeof executionAdapter.prepare>>;
-  try {
-    preparedExecution = await hostStartup.measureAsync('adapterPrepareMs', () =>
-      executionAdapter.prepare({
-        group,
-        input: { ...input, permissionMode: input.permissionMode ?? 'ask' },
-        hostRuntime,
-        groupDir,
-        effectiveModel,
-        effectiveModelEntry: resolvedModel.value.modelEntry,
-        modelCredentialProjection: {
-          env: hostCredentials.env,
-          credentialProviders: hostCredentials.credentialProviders,
-          brokerProfile: hostCredentials.brokerProfile,
-          brokerApplied: hostCredentials.brokerApplied,
-          ...(hostCredentials.brokerAuthMode
-            ? { brokerAuthMode: hostCredentials.brokerAuthMode }
-            : {}),
-          proxy: hostCredentials.proxy,
-        },
-        runtimeStorage: {
-          postgresUrl: STORAGE_POSTGRES_URL,
-          postgresUrlEnv: STORAGE_POSTGRES_URL_ENV,
-          postgresSchema: STORAGE_POSTGRES_SCHEMA,
-        },
-        browserIpcEnabled,
-        packageRootFromRunner: (runnerPath) =>
-          resolvePackageRootFromSourceDir(path.dirname(runnerPath)),
-        options,
-      }),
-    );
-  } catch (err) {
-    await hostCredentials.revoke?.().catch((revokeErr) => {
-      logger.warn(
-        { err: revokeErr },
-        'Failed to revoke model gateway token after LLM runtime materialization failure',
-      );
-    });
-    const errorText = err instanceof Error ? err.message : String(err);
-    const generatedRuntimeError = formatGeneratedRuntimePathPermissionError({
-      runnerLabel: 'LLM runtime materialization',
-      errorText,
-    });
-    return {
-      status: 'error',
-      result: null,
-      error:
-        generatedRuntimeError ??
-        `LLM runtime materialization failed: ${errorText}`,
-    };
-  }
+  if (!adapterResolution.ok) return adapterResolution.output;
+  const { executionAdapter } = adapterResolution;
   let mcpConfigPath: string | undefined;
   let sandboxConfigPath: string | undefined;
   let runnerTempDir: string | undefined;
@@ -294,11 +256,69 @@ export async function spawnAgent(
   let egressGateway:
     | Awaited<ReturnType<typeof ensureEgressGateway>>
     | undefined;
-  const ipcAuth = createIpcAuthEnvelope(group.folder, input.threadId, {
-    appId: input.appId || 'default',
-    agentId: input.agentId,
-  });
+  const { ipcAuth, unregisterPermissionRunRestriction } =
+    setupPermissionRunRestriction(group.folder, input, hideAuthorityTools);
+  let hostCredentials: Awaited<ReturnType<typeof credentials>> | undefined;
+  let preparedExecution:
+    | Awaited<ReturnType<typeof executionAdapter.prepare>>
+    | undefined;
+  let output: AgentOutput | undefined;
   try {
+    const projectedCredentials = await hostStartup.measureAsync(
+      'credentialProjectionMs',
+      () =>
+        credentials(agentIdentifier, options?.credentialBroker, {
+          purpose: 'model_runtime',
+          runId: turnTracker.correlationId as never,
+          runContext: input,
+          modelRouteId: resolvedModel.value.modelEntry.modelRoute.id,
+        }),
+    );
+    hostCredentials = projectedCredentials;
+    try {
+      preparedExecution = await hostStartup.measureAsync(
+        'adapterPrepareMs',
+        () =>
+          executionAdapter.prepare({
+            group,
+            input: { ...input, permissionMode: input.permissionMode ?? 'ask' },
+            hostRuntime,
+            groupDir,
+            effectiveModel,
+            effectiveModelEntry: resolvedModel.value.modelEntry,
+            modelCredentialProjection: {
+              env: projectedCredentials.env,
+              credentialProviders: projectedCredentials.credentialProviders,
+              brokerProfile: projectedCredentials.brokerProfile,
+              brokerApplied: projectedCredentials.brokerApplied,
+              ...(projectedCredentials.brokerAuthMode
+                ? { brokerAuthMode: projectedCredentials.brokerAuthMode }
+                : {}),
+              proxy: projectedCredentials.proxy,
+            },
+            runtimeStorage: {
+              postgresUrl: STORAGE_POSTGRES_URL,
+              postgresUrlEnv: STORAGE_POSTGRES_URL_ENV,
+              postgresSchema: STORAGE_POSTGRES_SCHEMA,
+            },
+            browserIpcEnabled,
+            packageRootFromRunner: (runnerPath) =>
+              resolvePackageRootFromSourceDir(path.dirname(runnerPath)),
+            options,
+          }),
+      );
+    } catch (err) {
+      const errorText = err instanceof Error ? err.message : String(err);
+      const generatedRuntimeError = formatGeneratedRuntimePathPermissionError({
+        runnerLabel: 'LLM runtime materialization',
+        errorText,
+      });
+      const failure =
+        generatedRuntimeError ??
+        `LLM runtime materialization failed: ${errorText}`;
+      output = { status: 'error', result: null, error: failure };
+      return output;
+    }
     const command = process.execPath;
     const args = preparedExecution.runnerArgs;
     const ipcInputDir = getContinuationInputDir(
@@ -318,17 +338,12 @@ export async function spawnAgent(
     let projectedMcpSourceIds: string[] = [];
     let effectiveRuntimeAccess = input.runtimeAccess ?? [];
     await hostStartup.measureAsync('mcpProjectionMs', async () => {
-      const mcpSourceRecords =
-        options?.mcpServerRepository &&
-        options.mcpContext?.appId &&
-        options.mcpContext.agentId &&
-        attachedMcpSourceIds.length > 0
-          ? await options.mcpServerRepository.listMaterializedServersForAgent({
-              appId: options.mcpContext.appId as never,
-              agentId: options.mcpContext.agentId as never,
-              serverIds: attachedMcpSourceIds as never,
-            })
-          : [];
+      const accessSnapshot = accessSnapshotForSpawnMcpProjection(options);
+      const mcpSourceRecords = await resolveSpawnMcpSourceRecords({
+        attachedMcpSourceIds,
+        options,
+        accessSnapshot,
+      });
       selectedMcpServerNames = uniqueStrings([
         ...mcpSourceRecords.map((record) => record.definition.name),
         ...attachedMcpSourceIds.map((sourceId) =>
@@ -362,7 +377,9 @@ export async function spawnAgent(
                 serverIds: projectedMcpSourceIds as never,
                 mcpServers: options.mcpServerRepository,
                 secrets: options.capabilitySecretRepository,
+                accessSnapshot,
               }),
+              accessSnapshot,
             })
           : [];
       effectiveRuntimeAccess = attachMcpSourceNetworkHosts(
@@ -377,11 +394,12 @@ export async function spawnAgent(
     const memoryIpcAllowedActions = selectedMemoryIpcActionsFromToolRules(
       trustedToolPolicyRules ?? [],
       {
+        excludeAuthorityTools: hideAuthorityTools,
         memoryReviewerIsControlApprover: input.memoryReviewerIsControlApprover,
       },
     );
     const upstreamProxyUrl =
-      hostCredentials.proxy?.https || hostCredentials.proxy?.http;
+      projectedCredentials.proxy?.https || projectedCredentials.proxy?.http;
     const runnerInputPatch = preparedExecution.runnerInputPatch ?? {};
     runnerInput.modelCredentialEnv = runnerInputPatch.modelCredentialEnv;
     const checkpointerNetworkHost = databaseNetworkHostFromUrl(
@@ -409,7 +427,7 @@ export async function spawnAgent(
     egressGateway = await hostStartup.measureAsync('egressGatewayMs', () =>
       ensureEgressGateway({
         key: `${runnerAppId}:${input.agentId || group.folder}:${processName}`,
-        settings: getRuntimeSettingsForConfig().permissions.egress,
+        settings: egressSettings,
         principal: {
           appId: runnerAppId,
           conversationId: input.chatJid,
@@ -433,7 +451,7 @@ export async function spawnAgent(
           ? {
               upstreamProxy: {
                 url: upstreamProxyUrl,
-                provider: hostCredentials.brokerProfile,
+                provider: projectedCredentials.brokerProfile,
               },
             }
           : {}),
@@ -450,7 +468,7 @@ export async function spawnAgent(
           proxyUrl: egressGateway.proxyUrl,
           caBundlePath:
             runnerInputPatch.modelCredentialEnv?.NODE_EXTRA_CA_CERTS ??
-            hostCredentials.env.NODE_EXTRA_CA_CERTS,
+            projectedCredentials.env.NODE_EXTRA_CA_CERTS,
           noProxy: {
             NO_PROXY: process.env.NO_PROXY,
             no_proxy: process.env.no_proxy,
@@ -475,17 +493,10 @@ export async function spawnAgent(
       group.folder,
       'extra',
     );
-    if (runnerSandboxProviderId === 'sandbox_runtime') {
-      const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
-      runnerTempDir = path.join('/tmp', `gantry-srt-${suffix}`);
-      fs.mkdirSync(runnerTempDir, { recursive: false, mode: 0o700 });
-      const providerToolTempDirLeaf =
-        preparedExecution.sandboxRuntime?.toolTempDirLeaf;
-      if (providerToolTempDirLeaf) {
-        providerToolTempDir = path.join(runnerTempDir, providerToolTempDirLeaf);
-        fs.mkdirSync(providerToolTempDir, { recursive: true, mode: 0o700 });
-      }
-    }
+    ({ runnerTempDir, providerToolTempDir } = createRunnerTempDirectories({
+      sandboxProviderId: runnerSandboxProviderId,
+      toolTempDirLeaf: preparedExecution.sandboxRuntime?.toolTempDirLeaf,
+    }));
     // DeepAgents model traffic runs inside the runner process. In
     // OpenRouter's sandbox_runtime lane needs the Gantry egress proxy because
     // it uses raw fetch; child tools still receive only sanitized toolNetworkEnv.
@@ -512,8 +523,10 @@ export async function spawnAgent(
       workspaceIpcDir: hostRuntime.workspaceIpcDir,
       ipcInputDir,
       ipcAuthToken: ipcAuth.authToken,
+      browserTurnToken,
       chatJid: input.chatJid,
       providerAccountId: group.providerAccountId,
+      runnerModel: effectiveModel,
       jobId: input.jobId,
       jobName: input.jobName,
       runId: input.runId,
@@ -529,8 +542,10 @@ export async function spawnAgent(
           )
         : undefined,
       memoryIpcAuthToken: computeMemoryIpcAuthToken(group.folder, {
+        appId: runnerAppId,
+        agentId: input.agentId ?? memoryAgentIdForWorkspaceFolder(group.folder),
         chatJid: input.chatJid,
-        userId: input.memoryUserId,
+        personId: input.memoryUserId,
         defaultScope: input.memoryDefaultScope || 'group',
         threadId: input.threadId,
         allowedActions: memoryIpcAllowedActions,
@@ -544,9 +559,10 @@ export async function spawnAgent(
       memoryDefaultScope: input.memoryDefaultScope,
       memoryReviewerIsControlApprover: input.memoryReviewerIsControlApprover,
       hideAuthorityTools,
-      agentAccessPreset: agentAccessPolicy.preset,
+      agentAccessPreset: accessPreset,
       deploymentMode: getDeploymentMode(),
       permissionMode: input.permissionMode ?? 'ask',
+      permissionLane: input.isScheduledJob ? 'autonomous' : 'interactive',
       turnIntentSummary: input.prompt,
       permissionTimeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
       egressProxyUrl: egressGateway.proxyUrl,
@@ -566,13 +582,15 @@ export async function spawnAgent(
       pickSafeHostEnv,
       pickPreparedExecutionEnv,
     });
-    if (
-      options?.runnerSandboxProvider?.enforcing === true &&
-      options.asyncTaskRepositoryAvailable === true
-    ) {
+    if (options?.asyncTaskRepositoryAvailable === true) {
       env.GANTRY_ASYNC_TASK_TOOLS_ENABLED = '1';
     } else {
       delete env.GANTRY_ASYNC_TASK_TOOLS_ENABLED;
+    }
+    if (input.callerResolvedTools) {
+      env.GANTRY_CALLER_RESOLVED_TOOLS_JSON = JSON.stringify(
+        input.callerResolvedTools,
+      );
     }
     applyAgentEgressNoProxyEnv(env, { externalBypass: false });
     hostStartup.finish('runnerEnvMs', runnerEnvStarted);
@@ -588,10 +606,10 @@ export async function spawnAgent(
       ipcInputDir,
       sandboxProviderId: options?.runnerSandboxProvider?.id ?? 'direct',
       sandboxEnforcing: options?.runnerSandboxProvider?.enforcing === true,
-      brokerProfile: hostCredentials.brokerProfile,
-      brokerApplied: hostCredentials.brokerApplied,
+      brokerProfile: projectedCredentials.brokerProfile,
+      brokerApplied: projectedCredentials.brokerApplied,
       mcpServerNames: allMcpCapabilities.map((capability) => capability.name),
-      browserProfileName,
+      browserProfileName: runnerInput.browserProfileName!,
       preparedRuntimeDetails: preparedExecution.runtimeDetails,
       effectiveModel,
       effectiveModelSource,
@@ -664,6 +682,9 @@ export async function spawnAgent(
         workspaceKey: group.folder,
         chatJid: input.chatJid,
         threadId: input.threadId,
+        turnToken: browserTurnToken,
+        browserProfileName: browserProfileForRun,
+        turnQueueKey: input.turnQueueKey,
       });
     }
     sandboxConfigPath = path.join(
@@ -684,15 +705,15 @@ export async function spawnAgent(
       providerAccountId: group.providerAccountId,
       threadId: input.threadId,
       runId: input.runId,
-      correlationId: input.correlationId,
+      correlationRunId: turnTracker.correlationId,
       jobId: input.jobId,
-      callerResolvedTools: input.callerResolvedTools,
       protectedReadPaths: protectedFilesystemDenyReadPaths,
       protectedWritePaths: protectedFilesystemDenyWritePaths,
       gatewayAllowedNetworkHosts:
         sandboxRuntimeNetwork.networkProjection.allowedNetworkHosts,
       fallbackAllowedNetworkHosts: sandboxAllowedNetworkHosts,
       resourceLimits: runtimeSandbox.resourceLimits,
+      callerResolvedTools: input.callerResolvedTools,
     });
     await publishRunnerHostStartupDiagnosticFromSpawn({
       publishRuntimeEvent: options?.publishRuntimeEvent,
@@ -727,18 +748,18 @@ export async function spawnAgent(
         sandboxWarmTemplate,
         egressProxyConfigured: Boolean(egressGateway?.proxyUrl),
         upstreamProxyConfigured: Boolean(upstreamProxyUrl),
-        hostCredentials,
+        hostCredentials: projectedCredentials,
         compiledSystemPrompt,
       },
     });
-    const output = await executeRunnerProcess({
+    output = await executeRunnerProcess({
       group,
       input: runnerInput,
       command,
       args,
       env,
       onProcess,
-      onOutput,
+      onOutput: turnTracker.onOutput,
       options,
       runnerLabel: 'Host agent',
       processName,
@@ -774,26 +795,30 @@ export async function spawnAgent(
     });
     return output;
   } finally {
+    unregisterPermissionRunRestriction();
     cleanupRunnerTempDir(runnerTempDir, logger.warn.bind(logger));
     if (browserIpcEnabled) {
       revokeBrowserIpcAuthorization({
         workspaceKey: group.folder,
         chatJid: input.chatJid,
         threadId: input.threadId,
+        turnToken: browserTurnToken,
       });
     }
     cleanupRunnerMcpConfigFile(mcpConfigPath, logger.warn.bind(logger));
     cleanupRunnerMcpConfigFile(sandboxConfigPath, logger.warn.bind(logger));
     if (egressGateway) await closeEgressGateway(egressGateway);
-    await hostCredentials.revoke?.();
+    await hostCredentials?.revoke?.().catch((revokeErr) => {
+      logger.warn({ err: revokeErr }, 'Model gateway token revoke failed');
+    });
     try {
-      preparedExecution.cleanup();
+      preparedExecution?.cleanup();
     } catch (err) {
       logger.warn(
         {
           err,
           group: group.name,
-          executionProviderId: preparedExecution.providerId,
+          executionProviderId: preparedExecution?.providerId,
         },
         'Failed to clean prepared execution runtime',
       );

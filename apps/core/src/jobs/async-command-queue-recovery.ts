@@ -6,7 +6,6 @@ import type { AsyncCommandLaunchControl } from './async-command-task-service.js'
 import type { PendingAsyncTaskExecution } from './async-command-task-queue-types.js';
 import { failedReceipt } from './async-command-task-receipts.js';
 import { readEncryptedAsyncTaskPayload } from './async-task-execution-payload.js';
-import { notifyAsyncTaskChange } from './async-task-change-waiter.js';
 import type { StartDelegatedAgentTaskInput } from './async-delegated-agent-task.js';
 import { nowIso } from '../shared/time/datetime.js';
 
@@ -35,12 +34,12 @@ export async function recoverQueuedAsyncTasks(input: {
     task: AsyncTaskRecord,
     taskInput: Omit<StartDelegatedAgentTaskInput, 'run'>,
   ) => StartDelegatedAgentTaskInput['run'];
-  onDelegatedTaskTerminal?: (task: AsyncTaskRecord) => Promise<void> | void;
   cancelLinkedChildTasks: (parent: AsyncTaskRecord) => Promise<number>;
   waitForTaskChange?: (
     parent: AsyncTaskRecord,
     options: { signal: AbortSignal; timeoutMs: number },
   ) => Promise<void>;
+  transitionTask: AsyncTaskRepository['transitionTask'];
   limit?: number;
 }): Promise<number> {
   let recovered = await recoverQueuedAsyncCommandTasks(input);
@@ -48,7 +47,6 @@ export async function recoverQueuedAsyncTasks(input: {
     recovered += await recoverQueuedDelegatedAgentTasks({
       ...input,
       createRun: input.createDelegatedRun,
-      onDelegatedTaskTerminal: input.onDelegatedTaskTerminal,
     });
   }
   return recovered;
@@ -56,6 +54,7 @@ export async function recoverQueuedAsyncTasks(input: {
 
 async function recoverQueuedAsyncCommandTasks(input: {
   repository: AsyncTaskRepository;
+  transitionTask: AsyncTaskRepository['transitionTask'];
   pending: Map<string, PendingAsyncTaskExecution>;
   appId: string;
   agentId?: string;
@@ -75,7 +74,7 @@ async function recoverQueuedAsyncCommandTasks(input: {
     const payload =
       readEncryptedAsyncTaskPayload<DurableAsyncCommandPayload>(task);
     if (!isDurableAsyncCommandPayload(payload)) {
-      if (await failUnrecoverableQueuedTask(input.repository, task)) {
+      if (await failUnrecoverableQueuedTask(input.transitionTask, task)) {
         recovered += 1;
       }
       continue;
@@ -94,6 +93,7 @@ async function recoverQueuedAsyncCommandTasks(input: {
 
 async function recoverQueuedDelegatedAgentTasks(input: {
   repository: AsyncTaskRepository;
+  transitionTask: AsyncTaskRepository['transitionTask'];
   pending: Map<string, PendingAsyncTaskExecution>;
   appId: string;
   agentId?: string;
@@ -101,7 +101,6 @@ async function recoverQueuedDelegatedAgentTasks(input: {
     task: AsyncTaskRecord,
     taskInput: Omit<StartDelegatedAgentTaskInput, 'run'>,
   ) => StartDelegatedAgentTaskInput['run'];
-  onDelegatedTaskTerminal?: (task: AsyncTaskRecord) => Promise<void> | void;
   cancelLinkedChildTasks: (parent: AsyncTaskRecord) => Promise<number>;
   waitForTaskChange?: (
     parent: AsyncTaskRecord,
@@ -123,7 +122,7 @@ async function recoverQueuedDelegatedAgentTasks(input: {
     const payload =
       readEncryptedAsyncTaskPayload<DurableDelegatedAgentPayload>(task);
     if (!isDurableDelegatedAgentPayload(payload)) {
-      if (await failUnrecoverableQueuedTask(input.repository, task)) {
+      if (await failUnrecoverableQueuedTask(input.transitionTask, task)) {
         recovered += 1;
       }
       continue;
@@ -150,11 +149,11 @@ async function recoverQueuedDelegatedAgentTasks(input: {
       delegated: {
         taskInput: {
           ...taskInput,
-          onTerminal: input.onDelegatedTaskTerminal,
           run: input.createRun(task, taskInput),
         },
         cancelLinkedChildTasks: input.cancelLinkedChildTasks,
         waitForTaskChange: input.waitForTaskChange,
+        transitionTask: input.transitionTask,
       },
     });
     recovered += 1;
@@ -163,11 +162,11 @@ async function recoverQueuedDelegatedAgentTasks(input: {
 }
 
 async function failUnrecoverableQueuedTask(
-  repository: AsyncTaskRepository,
+  transitionTask: AsyncTaskRepository['transitionTask'],
   task: AsyncTaskRecord,
 ): Promise<boolean> {
   const now = nowIso();
-  const updated = await repository.transitionTask({
+  const updated = await transitionTask({
     taskId: task.id,
     leaseToken: task.leaseToken,
     fencingVersion: task.fencingVersion,
@@ -180,7 +179,6 @@ async function failUnrecoverableQueuedTask(
       'failed before recovery because execution payload is missing or unreadable',
     ),
   });
-  if (updated) notifyAsyncTaskChange(repository);
   return Boolean(updated);
 }
 

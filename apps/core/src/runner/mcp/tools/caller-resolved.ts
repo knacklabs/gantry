@@ -2,7 +2,6 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 import { submitTaskLifecycleRequest } from './task-lifecycle.js';
-import { drainExternalMcpActivity } from './caller-resolved-mcp-audit.js';
 
 type CallerToolConfig = {
   tools: Array<{
@@ -19,15 +18,12 @@ export function callerResolvedToolConfig(
   if (!raw?.trim()) return null;
   try {
     const parsed = JSON.parse(raw) as CallerToolConfig;
-    if (
-      !Array.isArray(parsed.tools) ||
-      parsed.tools.length === 0 ||
-      !Number.isInteger(parsed.interactionTimeoutMs) ||
-      parsed.interactionTimeoutMs < 1
-    ) {
-      return null;
-    }
-    return parsed;
+    return Array.isArray(parsed.tools) &&
+      parsed.tools.length > 0 &&
+      Number.isInteger(parsed.interactionTimeoutMs) &&
+      parsed.interactionTimeoutMs > 0
+      ? parsed
+      : null;
   } catch {
     return null;
   }
@@ -49,11 +45,7 @@ export function registerCallerResolvedTools(server: McpServer): void {
       async (args) =>
         submitTaskLifecycleRequest({
           type: 'caller_resolved_tool',
-          payload: {
-            toolName: definition.name,
-            toolInput: args,
-            mcpActivity: drainExternalMcpActivity(),
-          },
+          payload: { toolName: definition.name, toolInput: args },
           responseTimeoutMs: config.interactionTimeoutMs + 20_000,
           timeoutMessage: 'Caller-resolved tool IPC response timed out.',
           fallbackError: 'Caller-resolved tool failed.',

@@ -1,3 +1,8 @@
+import {
+  isIpAddress,
+  isPrivateNetworkAddress,
+} from './network-host-declaration.js';
+
 export interface EgressSettings {
   denylist: string[];
 }
@@ -56,6 +61,22 @@ export function evaluateEgressDenylist(input: {
     }
   }
   return undefined;
+}
+
+export function evaluateNonPublicEgressAddress(input: {
+  host: string;
+  address: string;
+}): EgressPolicyMatch | undefined {
+  const address = normalizeEgressHost(input.address);
+  if (!isIpAddress(address) || !isPrivateNetworkAddress(address)) {
+    return undefined;
+  }
+  const host = normalizeEgressHost(input.host);
+  return {
+    host,
+    matchedPattern: 'non-public-address',
+    reason: `Host ${host} resolved to non-public address ${address}.`,
+  };
 }
 
 function hostnameGlobMatches(pattern: string, host: string): boolean {

@@ -19,6 +19,7 @@ import {
   type ControlRouteContext,
 } from '../handler-context.js';
 import { readRawBody, recordControlRequestLog, sendError } from '../http.js';
+import type { ApiKeyRecord } from '../auth.js';
 import {
   findUnsupportedLlmRequestField,
   type LlmPassthroughEndpoint,
@@ -44,11 +45,19 @@ const BLOCKED_LOOPBACK_RESPONSE_HEADERS = new Set([
   'connection',
   'set-cookie',
   'transfer-encoding',
-  'x-gantry-model-alias',
-  'x-gantry-model-route',
-  'x-gantry-provider',
-  'x-gantry-request-id',
 ]);
+
+// Local structural shape mirrors RuntimeLlmAdmissionSettings; declared here so
+// the control layer does not import the config-settings module (layer rule).
+type LlmAdmissionLimits = {
+  globalMaxInFlight: number;
+  perAppKeyMaxInFlight: number;
+};
+
+const llmAdmissionState = {
+  globalInFlight: 0,
+  perAppKeyInFlight: new Map<string, number>(),
+};
 
 type ResolvedLlmRequest = {
   endpoint: LlmPassthroughEndpoint;
@@ -57,8 +66,6 @@ type ResolvedLlmRequest = {
   alias: string;
   provider: ModelProviderDefinition;
   tail: string;
-  correlationId?: string;
-  taskType?: string;
 };
 
 export async function handleLlmRoutes(
@@ -85,6 +92,46 @@ export async function handleLlmRoutes(
     return true;
   }
 
+  const limits = (
+    ctx.getEffectiveRuntimeSettings() as unknown as {
+      runtime: { llmAdmission: LlmAdmissionLimits };
+    }
+  ).runtime.llmAdmission;
+  const admissionKey = `${auth.appId}:${auth.kid}`;
+  // Deliberately process-local per decision 0046. SPS-4 owns any future
+  // cluster-wide admission authority.
+  const releaseAdmission = tryAcquireLlmAdmission(admissionKey, limits);
+  if (!releaseAdmission) {
+    sendError(
+      res,
+      429,
+      'TOO_MANY_CONCURRENT_LLM_REQUESTS',
+      'Too many concurrent LLM requests',
+    );
+    return true;
+  }
+  try {
+    return await handleAdmittedLlmRequest(
+      req,
+      res,
+      ctx,
+      pathname,
+      endpoint,
+      auth,
+    );
+  } finally {
+    releaseAdmission();
+  }
+}
+
+async function handleAdmittedLlmRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: ControlRouteContext,
+  pathname: string,
+  endpoint: LlmPassthroughEndpoint,
+  auth: ApiKeyRecord,
+): Promise<boolean> {
   const rawBody = await readRawBody(req, MAX_LLM_BODY_BYTES);
   const resolved = resolveLlmRequest(endpoint, rawBody, res, auth.maxTokens);
   if (!resolved) return true;
@@ -183,10 +230,6 @@ export async function handleLlmRoutes(
       appId: auth.appId,
       modelAlias: resolved.alias,
       modelRouteId: resolved.entry.modelRoute.id,
-      ...(resolved.correlationId
-        ? { correlationId: resolved.correlationId }
-        : {}),
-      ...(resolved.taskType ? { taskType: resolved.taskType } : {}),
       requestBodyBytes: resolved.body.byteLength,
       ...(responseBodyBytes !== undefined ? { responseBodyBytes } : {}),
       ...(clientDisconnected ? { clientDisconnected: true } : {}),
@@ -205,6 +248,45 @@ export async function handleLlmRoutes(
     }
   }
   return true;
+}
+
+function tryAcquireLlmAdmission(
+  key: string,
+  limits: LlmAdmissionLimits,
+): (() => void) | undefined {
+  const keyInFlight = llmAdmissionState.perAppKeyInFlight.get(key) ?? 0;
+  if (
+    llmAdmissionState.globalInFlight >= limits.globalMaxInFlight ||
+    keyInFlight >= limits.perAppKeyMaxInFlight
+  ) {
+    return undefined;
+  }
+
+  // No await may appear between the checks above and these increments. The
+  // JavaScript turn is the synchronization boundary for this process-local gate.
+  llmAdmissionState.globalInFlight += 1;
+  llmAdmissionState.perAppKeyInFlight.set(key, keyInFlight + 1);
+
+  return () => {
+    llmAdmissionState.globalInFlight -= 1;
+    const nextKeyInFlight =
+      (llmAdmissionState.perAppKeyInFlight.get(key) ?? 1) - 1;
+    if (nextKeyInFlight === 0) {
+      llmAdmissionState.perAppKeyInFlight.delete(key);
+    } else {
+      llmAdmissionState.perAppKeyInFlight.set(key, nextKeyInFlight);
+    }
+  };
+}
+
+export function getLlmConcurrencyAdmissionSnapshotForTest(): {
+  globalInFlight: number;
+  perAppKeyInFlight: Record<string, number>;
+} {
+  return {
+    globalInFlight: llmAdmissionState.globalInFlight,
+    perAppKeyInFlight: Object.fromEntries(llmAdmissionState.perAppKeyInFlight),
+  };
 }
 
 function llmEndpointFor(pathname: string): LlmPassthroughEndpoint | undefined {
@@ -249,15 +331,6 @@ function resolveLlmRequest(
     sendError(res, 400, 'INVALID_MODEL', resolution.message);
     return null;
   }
-  if (resolution.alias === resolution.entry.modelRoute.providerModelId) {
-    sendError(
-      res,
-      400,
-      'INVALID_MODEL',
-      'Direct LLM callers must use an application-facing model alias',
-    );
-    return null;
-  }
   const provider = getModelProviderDefinition(resolution.entry.modelRoute.id);
   if (!provider) {
     sendError(res, 400, 'INVALID_MODEL', 'Model provider is not registered');
@@ -268,9 +341,6 @@ function resolveLlmRequest(
     sendError(res, 400, 'INVALID_MODEL', compatibilityError);
     return null;
   }
-  const metadata =
-    endpoint === 'chat_completions' ? stringMetadata(body.metadata) : {};
-  if (endpoint === 'chat_completions') delete body.metadata;
   body.model = resolution.entry.modelRoute.providerModelId;
   return {
     endpoint,
@@ -278,10 +348,6 @@ function resolveLlmRequest(
     entry: resolution.entry,
     alias: resolution.alias,
     provider,
-    ...(metadata.correlation_id
-      ? { correlationId: metadata.correlation_id }
-      : {}),
-    ...(metadata.task_type ? { taskType: metadata.task_type } : {}),
     tail:
       endpoint === 'messages'
         ? '/v1/messages'
@@ -289,15 +355,6 @@ function resolveLlmRequest(
           ? '/v1/messages/count_tokens'
           : chatCompletionsTail(provider),
   };
-}
-
-function stringMetadata(value: unknown): Record<string, string> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).filter(
-      (entry): entry is [string, string] => typeof entry[1] === 'string',
-    ),
-  );
 }
 
 function parseBody(

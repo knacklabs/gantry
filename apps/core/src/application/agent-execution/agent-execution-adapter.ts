@@ -19,6 +19,7 @@ import type { AgentPersona } from '../../shared/agent-persona.js';
 import type { YoloModeSettings } from '../../shared/yolo-mode-policy.js';
 import type { PermissionMode } from '../../shared/permission-mode.js';
 import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
+import type { AgentAccessSnapshot } from './agent-access-snapshot.js';
 
 export type AgentExecutionProviderId = ExecutionProviderId;
 
@@ -56,6 +57,7 @@ export interface AgentExecutionRunInput {
   selectedSkillDisplays?: string[];
   attachedMcpSourceIds?: string[];
   semanticCapabilities?: SemanticCapabilityDefinition[];
+  providerSessionAccessFingerprint?: string;
   isScheduledJob?: boolean;
   jobId?: string;
   jobName?: string;
@@ -78,6 +80,7 @@ export interface AgentExecutionAdapterOptions {
     appId: string;
     agentId: string;
   };
+  accessSnapshot?: AgentAccessSnapshot;
   mcpServerRepository?: McpServerRepository;
   capabilitySecretRepository?: CapabilitySecretRepository;
   mcpContext?: {

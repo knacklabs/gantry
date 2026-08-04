@@ -15,13 +15,8 @@ export type RequestOptions = {
   traceparent?: string;
 };
 
-export type LlmRequestOptions = {
-  traceparent?: string;
-};
-
-export type TraceRequestOptions = {
-  traceparent?: string;
-};
+export type LlmRequestOptions = { traceparent?: string };
+export type TraceRequestOptions = { traceparent?: string };
 
 export type TransportResponse<T> = {
   body: T;
@@ -63,7 +58,7 @@ export type RuntimeEventListResponse = { events: RuntimeEventEnvelope[] };
 export type MemoryContext = {
   appId?: string;
   agentId?: string;
-  userId?: string;
+  personId?: string;
   groupId?: string;
   channelId?: string;
   threadId?: string;
@@ -99,3 +94,21 @@ export type MemoryPatchInput = MemoryContext & {
   confidence?: number;
   isPinned?: boolean;
 };
+
+export type MemoryReviewSubject = {
+  appId?: string;
+  agentId: string;
+  subjectType: 'user' | 'group' | 'channel' | 'common';
+  subjectId: string;
+};
+
+export type MemoryReviewListInput = MemoryReviewSubject & {
+  limit?: number;
+  offset?: number;
+};
+
+export type MemoryReviewDecisionInput = MemoryReviewSubject &
+  (
+    | { decision: 'edit_approve'; editedValue: string; reason?: string }
+    | { decision: 'approve' | 'reject'; editedValue?: string; reason?: string }
+  );

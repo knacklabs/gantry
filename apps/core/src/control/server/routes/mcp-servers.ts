@@ -333,7 +333,6 @@ async function mcpCapabilityDriftDiagnostics(input: {
       approvedTools: string[];
       blockedByCapabilityReview: string[];
       inventoryTruncated?: boolean;
-      inventoryUnavailable?: boolean;
       warning?: string;
     }
   | undefined
@@ -354,47 +353,28 @@ async function mcpCapabilityDriftDiagnostics(input: {
     lookupHostname: defaultHostnameLookup,
     egressDenylist: input.egressDenylist,
   });
-  const policy = await resolveAgentToolRuntimePolicy({
-    repository: storage.repositories.tools,
-    skillRepository: storage.repositories.skills,
-    appId: input.appId,
-    agentId: input.agentId,
-    errorSubject: 'Configured agent tool',
-  });
-  const approvedTools = reviewedExternalMcpToolNamesFromRuntimeAccess(
-    policy.runtimeAccess,
-    { serverNames: [input.server.name] },
-  ).sort();
-  let inventory: Awaited<ReturnType<typeof proxy.listTools>>;
-  try {
-    inventory = await proxy.listTools({
+  const [inventory, policy] = await Promise.all([
+    proxy.listTools({
       appId: input.appId,
       agentId: input.agentId,
       serverName: input.server.name,
       limit: 50,
-    });
-  } catch (error) {
-    if (
-      input.server.transport !== 'stdio_template' ||
-      !(error instanceof ApplicationError) ||
-      error.code !== 'FORBIDDEN'
-    ) {
-      throw error;
-    }
-    return {
+    }),
+    resolveAgentToolRuntimePolicy({
+      repository: storage.repositories.tools,
+      skillRepository: storage.repositories.skills,
+      appId: input.appId,
       agentId: input.agentId,
-      serverName: input.server.name,
-      visibleTools: [],
-      approvedTools,
-      blockedByCapabilityReview: [],
-      inventoryUnavailable: true,
-      warning:
-        'Agent-scoped live inventory is unavailable for stdio_template sources; the reviewed definition is healthy and autonomous execution must be verified by a scheduled canary.',
-    };
-  }
+      errorSubject: 'Configured agent tool',
+    }),
+  ]);
   const visibleTools = inventory.servers.flatMap((server) =>
     server.tools.map((tool) => `mcp__${server.name}__${tool.name}`),
   );
+  const approvedTools = reviewedExternalMcpToolNamesFromRuntimeAccess(
+    policy.runtimeAccess,
+    { serverNames: [input.server.name] },
+  ).sort();
   const approved = new Set(approvedTools);
   const blockedByCapabilityReview = visibleTools
     .filter((tool) => !approved.has(tool))

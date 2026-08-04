@@ -31,6 +31,7 @@ export interface InstallShutdownHandlersOptions {
   closeLiveAdmissionLoop?: (timeoutMs: number) => Promise<void> | void;
   closeLiveTurnAuthority?: () => Promise<void>;
   closeSettingsWatcher?: () => void;
+  closeTracing?: () => Promise<void>;
   /** Release the live-recovery-coordinator lease EARLY so a successor can take over. */
   closeLiveRecoveryCoordinatorLease?: () => Promise<void>;
   /**
@@ -152,6 +153,10 @@ export function installShutdownHandlers(
       'Failed to shutdown live-turn authority during shutdown',
     );
     options.closeSettingsWatcher?.();
+    await runStep(
+      options.closeTracing,
+      'Failed to close tracing during shutdown',
+    );
     await runStep(
       options.closeStorage,
       'Failed to close runtime storage during shutdown',

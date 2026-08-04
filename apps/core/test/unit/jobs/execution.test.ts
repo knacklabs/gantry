@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ConversationRoute, Job } from '@core/domain/types.js';
-import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
+import { currentLogContext } from '@core/infrastructure/logging/logger.js';
+import { getOperationalErrorCount } from '@core/shared/operational-error-counters.js';
 
 const runtimeStoreMock = vi.hoisted(() => ({
   publish: vi.fn(async () => undefined),
@@ -149,6 +150,7 @@ function makeOpsRepository(job: Job) {
     updateAgentRunProviderMetadata: vi.fn(async () => true),
     createJobRun: vi.fn(async () => true),
     updateJob: vi.fn(async () => undefined),
+    markJobSetupNotified: vi.fn(async () => true),
     completeJobRun: vi.fn(async () => undefined),
     finalizeJobRunLease: vi.fn(async (input) => {
       await repo.completeJobRun(
@@ -160,7 +162,13 @@ function makeOpsRepository(job: Job) {
       return true;
     }),
     finalizeJobRunWithLease: vi.fn(async (input) => {
-      await repo.updateJob(input.jobId, input.jobUpdates);
+      if (input.incrementConsecutiveFailures) {
+        await repo.updateJob(input.jobId, input.jobUpdates, {
+          incrementConsecutiveFailures: true,
+        });
+      } else {
+        await repo.updateJob(input.jobId, input.jobUpdates);
+      }
       await repo.completeJobRun(
         input.runId,
         input.runStatus,
@@ -203,6 +211,18 @@ function makeToolRepository(toolNames: string[]) {
         status: 'active',
       })),
     ),
+    listAgentToolAccessSnapshot: vi.fn(async () => ({
+      activeBindings: toolNames.map((toolName) => ({
+        binding: {
+          toolId: toolName,
+          appId: 'default',
+          agentId: 'agent:scheduler_agent',
+          status: 'active',
+        },
+        definition: toolFor(toolName),
+      })),
+      appActiveDefinitions: toolNames.map((toolName) => toolFor(toolName)),
+    })),
     getTool: vi.fn(async (toolId: string) => toolFor(toolId)),
   };
 }
@@ -212,15 +232,16 @@ describe('jobs/execution', () => {
     vi.clearAllMocks();
     runtimeStoreMock.appendRunnerControlEvent.mockResolvedValue('persisted');
     runtimeStoreMock.heartbeatRunLease.mockResolvedValue(true);
-    runtimeStoreMock.getAppSessionById.mockResolvedValue(null);
     handleSystemJobMock.mockResolvedValue('System job completed.');
   });
 
   it('records a failed terminal run when execution throws before normal settlement', async () => {
     const job = makeJob();
+    let observedLogContext: ReturnType<typeof currentLogContext> = undefined;
     const opsRepository = {
       ...makeOpsRepository(job),
       getJobRunById: vi.fn(async () => {
+        observedLogContext = currentLogContext();
         throw new Error('run lookup down');
       }),
     };
@@ -240,6 +261,7 @@ describe('jobs/execution', () => {
           })) as never,
         },
         'tg:scheduler',
+        { runId: 'run-context', scheduledFor: '2026-05-08T00:00:00.000Z' },
       ),
     ).rejects.toThrow('run lookup down');
 
@@ -248,6 +270,47 @@ describe('jobs/execution', () => {
       'failed',
       null,
       'Scheduler run failed before terminal settlement.',
+    );
+    expect(observedLogContext).toEqual({
+      runId: 'run-context',
+      appId: 'default',
+      agentId: 'agent:scheduler_agent',
+    });
+  });
+
+  it('counts a rejecting terminal finalizer exactly once and rethrows', async () => {
+    const job = makeJob();
+    const settlementError = new Error(
+      'terminal settlement database unavailable',
+    );
+    const opsRepository = {
+      ...makeOpsRepository(job),
+      finalizeJobRunWithLease: vi.fn(async () => {
+        throw settlementError;
+      }),
+    };
+    const before = getOperationalErrorCount('jobs', 'terminal_settlement');
+
+    await expect(
+      runJob(
+        job,
+        {
+          conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+          queue: {} as never,
+          onProcess: () => {},
+          sendMessage: vi.fn(async () => undefined) as never,
+          opsRepository: opsRepository as never,
+          runAgent: vi.fn(async () => ({
+            status: 'success',
+            result: 'runtime flow completed',
+          })) as never,
+        },
+        'tg:scheduler',
+      ),
+    ).rejects.toBe(settlementError);
+
+    expect(getOperationalErrorCount('jobs', 'terminal_settlement')).toBe(
+      before + 1,
     );
   });
 
@@ -291,6 +354,7 @@ describe('jobs/execution', () => {
         pause_reason: 'Execution context route not found: tg:missing',
         next_run: null,
       }),
+      { incrementConsecutiveFailures: true },
     );
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:scheduler',
@@ -305,120 +369,6 @@ describe('jobs/execution', () => {
           status: 'dead_lettered',
           delivery_state: 'sent',
         }),
-      }),
-    );
-  });
-
-  it('restores a persisted app-session route before scheduler execution', async () => {
-    const job = makeJob({
-      id: 'system:dreaming:scheduler_agent:abc123',
-      app_id: 'manipal-tender-copilot',
-      prompt: '__system:memory_dream',
-      session_id: 'session-1',
-      execution_context: {
-        conversationJid: 'app:manipal-tender-copilot:scheduled-job',
-        threadId: null,
-        workspaceKey: 'scheduler_agent',
-        sessionId: 'session-1',
-      },
-    });
-    const opsRepository = makeOpsRepository(job);
-    const routes: Record<string, ConversationRoute> = {};
-    const projectConversationRoute = vi.fn(
-      async (jid: string, route: ConversationRoute) => {
-        routes[makeAgentThreadQueueKey(jid, 'agent:scheduler_agent')] = route;
-      },
-    );
-    runtimeStoreMock.getAppSessionById.mockResolvedValue({
-      sessionId: 'session-1',
-      appId: 'manipal-tender-copilot',
-      agentId: 'agent:scheduler_agent',
-      conversationId: 'scheduled-job',
-      chatJid: 'app:manipal-tender-copilot:scheduled-job',
-      workspaceFolder: 'scheduler_agent',
-      workspaceKey: 'scheduler_agent',
-      title: 'Display title is not route identity',
-      defaultResponseMode: 'none',
-      defaultWebhookId: null,
-      createdAt: '2026-05-08T00:00:00.000Z',
-      updatedAt: '2026-05-08T00:00:00.000Z',
-    });
-
-    await runJob(
-      job,
-      {
-        conversationRoutes: () => routes,
-        projectConversationRoute,
-        queue: {} as never,
-        onProcess: () => {},
-        sendMessage: vi.fn(async () => undefined) as never,
-        opsRepository: opsRepository as never,
-        runAgent: vi.fn() as never,
-      },
-      'tg:scheduler',
-    );
-
-    expect(projectConversationRoute).toHaveBeenCalledWith(
-      'app:manipal-tender-copilot:scheduled-job',
-      expect.objectContaining({
-        folder: 'scheduler_agent',
-        name: 'manipal-tender-copilot:scheduled-job',
-      }),
-    );
-    expect(handleSystemJobMock).toHaveBeenCalledOnce();
-    expect(opsRepository.createJobRun).not.toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'dead_lettered' }),
-    );
-  });
-
-  it('does not restore an app-session route owned by another agent', async () => {
-    const job = makeJob({
-      app_id: 'manipal-tender-copilot',
-      session_id: 'session-1',
-      execution_context: {
-        conversationJid: 'app:manipal-tender-copilot:scheduled-job',
-        threadId: null,
-        workspaceKey: 'scheduler_agent',
-        sessionId: 'session-1',
-      },
-    });
-    const opsRepository = makeOpsRepository(job);
-    const projectConversationRoute = vi.fn(async () => undefined);
-    runtimeStoreMock.getAppSessionById.mockResolvedValue({
-      sessionId: 'session-1',
-      appId: 'manipal-tender-copilot',
-      agentId: 'agent:another_agent',
-      conversationId: 'scheduled-job',
-      chatJid: 'app:manipal-tender-copilot:scheduled-job',
-      workspaceFolder: 'scheduler_agent',
-      workspaceKey: 'scheduler_agent',
-      title: 'Scheduled Job',
-      defaultResponseMode: 'none',
-      defaultWebhookId: null,
-      createdAt: '2026-05-08T00:00:00.000Z',
-      updatedAt: '2026-05-08T00:00:00.000Z',
-    });
-
-    await runJob(
-      job,
-      {
-        conversationRoutes: () => ({}),
-        projectConversationRoute,
-        queue: {} as never,
-        onProcess: () => {},
-        sendMessage: vi.fn(async () => undefined) as never,
-        opsRepository: opsRepository as never,
-        runAgent: vi.fn() as never,
-      },
-      'tg:scheduler',
-    );
-
-    expect(projectConversationRoute).not.toHaveBeenCalled();
-    expect(opsRepository.createJobRun).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: 'dead_lettered',
-        error_summary:
-          'Execution context route not found: app:manipal-tender-copilot:scheduled-job',
       }),
     );
   });
@@ -606,6 +556,7 @@ describe('jobs/execution', () => {
     const sendMessage = vi.fn(async () => undefined);
     const error =
       'Tool not on autonomous run allowlist: mcp__gantry__browser_act. Recovery: request_access { "target": { "kind": "capability", "id": "browser.use" }, "temporaryOnly": false }';
+    const before = getOperationalErrorCount('jobs', 'agent_run');
 
     await runJob(
       job,
@@ -633,13 +584,17 @@ describe('jobs/execution', () => {
           state: 'missing_capability',
         }),
       }),
+      { incrementConsecutiveFailures: true },
     );
+    // Autonomous not-on-allowlist denial: the RUN is a dead-end (failed); the
+    // JOB still pauses for setup (asserted above) and notifies the admin.
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),
       'failed',
       null,
       expect.stringContaining('Tool not on autonomous run allowlist'),
     );
+    expect(getOperationalErrorCount('jobs', 'agent_run')).toBe(before + 1);
     const deniedEvent = runtimeStoreMock.publish.mock.calls.find(
       ([event]) => event?.eventType === 'job.tool_denied',
     )?.[0];
@@ -708,7 +663,9 @@ describe('jobs/execution', () => {
         pause_reason: 'Setup required',
         lease_run_id: null,
       }),
+      { incrementConsecutiveFailures: true },
     );
+    // Autonomous dead-end: run failed, job paused for setup (asserted above).
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),
       'failed',
@@ -754,6 +711,7 @@ describe('jobs/execution', () => {
           state: 'missing_capability',
         }),
       }),
+      { incrementConsecutiveFailures: true },
     );
     expect(opsRepository.updateJob).not.toHaveBeenCalledWith(
       job.id,
@@ -908,7 +866,7 @@ describe('jobs/execution', () => {
     }
   });
 
-  it('redacts dead-letter scheduler error summaries, pause reason, and events', async () => {
+  it('keeps safe failure evidence in events and all raw details out of chat', async () => {
     const job = makeJob({
       schedule_type: 'interval',
       schedule_value: '60000',
@@ -918,7 +876,7 @@ describe('jobs/execution', () => {
     const opsRepository = makeOpsRepository(job);
     const sendMessage = vi.fn(async () => undefined);
     const rawError =
-      'failed provider-session:raw-error claude-session-error sessionId=error-inline {"newSessionId":"json-error"}';
+      'RAW_JOB_FAILURE_SENTINEL failed provider-session:raw-error claude-session-error sessionId=error-inline {"newSessionId":"json-error"}';
 
     await runJob(
       job,
@@ -964,8 +922,10 @@ describe('jobs/execution', () => {
     expect(failureMessage).toContain(
       '**⏸️ Paused after failures** · Daily summary',
     );
-    expect(failureMessage).toContain('Needs attention:');
-    expect(failureMessage).toContain('[REDACTED]');
+    expect(failureMessage).toContain('Fix the blocker, then resume the job.');
+    expect(failureMessage).not.toContain('Needs attention:');
+    expect(failureMessage).not.toContain('[REDACTED]');
+    expect(failureMessage).not.toContain('RAW_JOB_FAILURE_SENTINEL');
     expect(failureMessage).not.toContain('provider-session:raw-error');
     expect(failureMessage).not.toContain('claude-session-error');
     expect(failureMessage).not.toContain('error-inline');
@@ -974,6 +934,9 @@ describe('jobs/execution', () => {
     const lifecycleFailureEvent = runtimeStoreMock.publish.mock.calls.find(
       ([event]) => event?.eventType === 'job.failed',
     )?.[0];
+    expect(lifecycleFailureEvent?.payload?.summary).toContain(
+      'RAW_JOB_FAILURE_SENTINEL',
+    );
     expect(lifecycleFailureEvent?.payload?.summary).toContain('[REDACTED]');
     expect(lifecycleFailureEvent?.payload?.summary).not.toContain(
       'provider-session:raw-error',
@@ -1004,6 +967,9 @@ describe('jobs/execution', () => {
     const runFailureEvent = runtimeStoreMock.publish.mock.calls.find(
       ([event]) => event?.eventType === 'job.run.failed',
     )?.[0];
+    expect(runFailureEvent?.payload?.summary).toContain(
+      'RAW_JOB_FAILURE_SENTINEL',
+    );
     expect(runFailureEvent?.payload?.summary).toContain('[REDACTED]');
     expect(runFailureEvent?.payload?.summary).not.toContain(
       'provider-session:raw-error',
@@ -1280,34 +1246,7 @@ describe('jobs/execution', () => {
         onProcess: () => {},
         sendMessage: vi.fn(async () => undefined) as never,
         opsRepository: opsRepository as never,
-        getToolRepository: () =>
-          ({
-            listTools: vi.fn(async () => [
-              {
-                id: 'tool:Browser',
-                appId: 'default',
-                name: 'Browser',
-                kind: 'browser',
-                provider: 'gantry',
-                displayName: 'Browser',
-                category: 'web',
-                risk: 'medium',
-                selectable: true,
-                status: 'active',
-                adapterRef: 'Browser',
-                createdAt: '2026-05-08T00:00:00.000Z',
-                updatedAt: '2026-05-08T00:00:00.000Z',
-              },
-            ]),
-            listAgentToolBindings: vi.fn(async () => [
-              { toolId: 'tool:Browser', status: 'active' },
-            ]),
-            getTool: vi.fn(async () => ({
-              id: 'tool:Browser',
-              appId: 'default',
-              name: 'Browser',
-            })),
-          }) as never,
+        getToolRepository: () => makeToolRepository(['Browser']) as never,
         runAgent: runAgent as never,
       },
       'tg:scheduler',
@@ -1321,61 +1260,6 @@ describe('jobs/execution', () => {
       expect.any(Function),
       expect.any(Function),
       expect.objectContaining({ timeoutMs: 30000 }),
-    );
-  });
-
-  it('projects a root-job completion gate into the shared runner gate', async () => {
-    const job = makeJob({
-      session_id: 'session-1',
-      agent_task: {
-        callerResolvedTools: {
-          tools: [
-            {
-              name: 'load_seeds',
-              description: 'Load source seeds.',
-              inputSchema: { type: 'object' },
-            },
-          ],
-          maxInteractions: 10,
-          interactionTimeoutMs: 90_000,
-        },
-        completionGate: {
-          toolName: 'validate_source_discovery_completion',
-          maxNoProgressContinuations: 2,
-        },
-        executionPolicy: { totalTimeoutMs: 30_000 },
-      },
-    });
-    const runAgent = vi.fn(async () => ({
-      status: 'success',
-      result: 'runtime flow completed',
-    }));
-
-    await runJob(
-      job,
-      {
-        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
-        queue: {} as never,
-        onProcess: () => {},
-        sendMessage: vi.fn(async () => undefined) as never,
-        opsRepository: makeOpsRepository(job) as never,
-        runAgent: runAgent as never,
-      },
-      'tg:scheduler',
-    );
-
-    expect(runAgent).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        delegatedCompletionGate: {
-          toolName: 'validate_source_discovery_completion',
-          maxNoProgressContinuations: 2,
-          interactionTimeoutMs: 90_000,
-        },
-      }),
-      expect.any(Function),
-      expect.any(Function),
-      expect.anything(),
     );
   });
 
@@ -1394,6 +1278,32 @@ describe('jobs/execution', () => {
         { skillId: 'skill:release', status: 'active' },
         { skillId: 'skill:draft', status: 'inactive' },
       ]),
+      listAgentSkillAccessSnapshot: vi.fn(async () => ({
+        activeBindings: [
+          {
+            binding: {
+              appId: 'default',
+              agentId: 'agent:scheduler_agent',
+              skillId: 'skill:release',
+              status: 'active',
+            },
+            definition: {
+              id: 'skill:release',
+              appId: 'default',
+              name: 'release',
+              status: 'installed',
+            },
+          },
+        ],
+        enabledDefinitions: [
+          {
+            id: 'skill:release',
+            appId: 'default',
+            name: 'release',
+            status: 'installed',
+          },
+        ],
+      })),
       getSkill: vi.fn(async (id: string) =>
         id === 'skill:release'
           ? { id, appId: 'default', name: 'release', status: 'installed' }
@@ -1405,6 +1315,40 @@ describe('jobs/execution', () => {
         { serverId: 'mcp:github', status: 'active' },
         { serverId: 'mcp:legacy', status: 'inactive' },
       ]),
+      listAgentMcpAccessSnapshot: vi.fn(async () => ({
+        activeBindings: [
+          {
+            binding: {
+              appId: 'default',
+              agentId: 'agent:scheduler_agent',
+              serverId: 'mcp:github',
+              status: 'active',
+            },
+            definition: {
+              id: 'mcp:github',
+              appId: 'default',
+              name: 'github',
+              status: 'active',
+            },
+          },
+        ],
+        materializedServers: [
+          {
+            binding: {
+              appId: 'default',
+              agentId: 'agent:scheduler_agent',
+              serverId: 'mcp:github',
+              status: 'active',
+            },
+            definition: {
+              id: 'mcp:github',
+              appId: 'default',
+              name: 'github',
+              status: 'active',
+            },
+          },
+        ],
+      })),
       getServer: vi.fn(async (id: string) =>
         id === 'mcp:github'
           ? { id, appId: 'default', name: 'github' }
@@ -1417,6 +1361,7 @@ describe('jobs/execution', () => {
           id: 'tool:github-search',
           appId: 'default',
           name: 'capability:repo.search.repositories',
+          status: 'active',
           inputSchema: {
             format: 'gantry.semantic-capability.v1',
             schema: {
@@ -1429,8 +1374,9 @@ describe('jobs/execution', () => {
               credentialSource: 'none',
               implementationBindings: [
                 {
-                  kind: 'mcp_tool',
-                  mcpTool: 'mcp__github__search_repositories',
+                  kind: 'mcp_pattern',
+                  mcpServer: 'github',
+                  mcpToolPatterns: ['search_repositories'],
                 },
               ],
             },
@@ -1440,9 +1386,25 @@ describe('jobs/execution', () => {
       listAgentToolBindings: vi.fn(async () => [
         { toolId: 'tool:github-search', status: 'active' },
       ]),
-      getTool: vi.fn(async () => ({
+      listAgentToolAccessSnapshot: vi.fn(async () => ({
+        activeBindings: [
+          {
+            binding: {
+              appId: 'default',
+              agentId: 'agent:scheduler_agent',
+              toolId: 'tool:github-search',
+              status: 'active',
+            },
+            definition: await toolRepository.getTool('tool:github-search'),
+          },
+        ],
+        appActiveDefinitions: await toolRepository.listTools(),
+      })),
+      getTool: vi.fn(async (id: string) => ({
+        id,
         appId: 'default',
         name: 'capability:repo.search.repositories',
+        status: 'active',
         inputSchema: {
           format: 'gantry.semantic-capability.v1',
           schema: {
@@ -1455,8 +1417,9 @@ describe('jobs/execution', () => {
             credentialSource: 'none',
             implementationBindings: [
               {
-                kind: 'mcp_tool',
-                mcpTool: 'mcp__github__search_repositories',
+                kind: 'mcp_pattern',
+                mcpServer: 'github',
+                mcpToolPatterns: ['search_repositories'],
               },
             ],
           },
@@ -1500,15 +1463,16 @@ describe('jobs/execution', () => {
       'tg:scheduler',
     );
 
-    expect(skillRepository.listAgentSkillBindings).toHaveBeenCalledWith({
+    expect(skillRepository.listAgentSkillAccessSnapshot).toHaveBeenCalledWith({
       appId: 'default',
       agentId: 'agent:scheduler_agent',
     });
-    expect(mcpServerRepository.listAgentBindings).toHaveBeenCalledWith({
-      appId: 'default',
-      agentId: 'agent:scheduler_agent',
-      limit: 500,
-    });
+    expect(mcpServerRepository.listAgentMcpAccessSnapshot).toHaveBeenCalledWith(
+      {
+        appId: 'default',
+        agentId: 'agent:scheduler_agent',
+      },
+    );
     expect(runAgent).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -1889,33 +1853,75 @@ describe('jobs/execution', () => {
 
     expect(queue.enqueueTask).not.toHaveBeenCalled();
     expect(runAgent).not.toHaveBeenCalled();
-    expect(storedJob.recovery_intent).toBeUndefined();
     expect(storedJob.setup_state).toMatchObject({
       state: 'missing_capability',
     });
   });
 
-  it('pauses after claim when final readiness fails before model spawn', async () => {
+  it('keeps final readiness aligned with the loaded access snapshot', async () => {
     const job = makeJob({
       schedule_type: 'interval',
       schedule_value: '60000',
-      access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
+      access_requirements: [
+        { target: { kind: 'tool_rule', rule: 'Browser' } },
+        { target: { kind: 'mcp_server', server: 'records' } },
+      ],
       next_run: '2026-05-08T00:00:00.000Z',
     });
     const opsRepository = makeOpsRepository(job);
     const toolRepository = makeToolRepository(['Browser']);
-    toolRepository.listAgentToolBindings = vi
-      .fn()
-      .mockResolvedValueOnce([
-        {
-          toolId: 'Browser',
-          appId: 'default',
-          agentId: 'agent:scheduler_agent',
-          status: 'active',
-        },
-      ])
-      .mockResolvedValueOnce([]);
-    const runAgent = vi.fn();
+    const skillRepository = {
+      listEnabledSkillsForAgent: vi.fn(async () => []),
+      listAgentSkillBindings: vi.fn(async () => []),
+      getSkill: vi.fn(async () => null),
+      listAgentSkillAccessSnapshot: vi.fn(async () => ({
+        activeBindings: [],
+        enabledDefinitions: [],
+      })),
+    };
+    const mcpRecord = {
+      binding: {
+        appId: 'default',
+        agentId: 'agent:scheduler_agent',
+        serverId: 'mcp:records',
+        status: 'active',
+      },
+      definition: {
+        id: 'mcp:records',
+        appId: 'default',
+        name: 'records',
+        status: 'active',
+        credentialRefs: [],
+      },
+    };
+    const mcpServerRepository = {
+      listMaterializedServersForAgent: vi.fn(async () => [mcpRecord]),
+      listAgentBindings: vi.fn(async () => []),
+      getServer: vi.fn(async () => null),
+      getServerByName: vi.fn(async () => null),
+      listAgentMcpAccessSnapshot: vi.fn(async () => ({
+        activeBindings: [mcpRecord],
+        materializedServers: [mcpRecord],
+      })),
+    };
+    toolRepository.listAgentToolBindings.mockResolvedValue([
+      {
+        toolId: 'Browser',
+        appId: 'default',
+        agentId: 'agent:scheduler_agent',
+        status: 'active',
+      },
+    ]);
+    toolRepository.getTool.mockResolvedValue({
+      id: 'Browser',
+      appId: 'default',
+      name: 'Browser',
+      status: 'active',
+    });
+    const runAgent = vi.fn(async () => ({
+      status: 'success',
+      result: 'runtime flow completed',
+    }));
 
     await runJob(
       job,
@@ -1926,26 +1932,66 @@ describe('jobs/execution', () => {
         sendMessage: vi.fn(async () => undefined) as never,
         opsRepository: opsRepository as never,
         getToolRepository: () => toolRepository as never,
+        getSkillRepository: () => skillRepository as never,
+        getMcpServerRepository: () => mcpServerRepository as never,
         runAgent: runAgent as never,
       },
       'tg:scheduler',
     );
 
     expect(opsRepository.claimDueJobRunStart).toHaveBeenCalled();
-    expect(runAgent).not.toHaveBeenCalled();
-    expect(opsRepository.updateJob).toHaveBeenCalledWith(
-      job.id,
-      expect.objectContaining({
-        status: 'paused',
-        pause_reason: 'Setup required',
-        next_run: null,
-      }),
+    expect(toolRepository.listAgentToolAccessSnapshot).toHaveBeenCalledOnce();
+    expect(toolRepository.listAgentToolAccessSnapshot).toHaveBeenCalledWith({
+      appId: 'default',
+      agentId: 'agent:scheduler_agent',
+    });
+    expect(skillRepository.listAgentSkillAccessSnapshot).toHaveBeenCalledOnce();
+    expect(skillRepository.listAgentSkillAccessSnapshot).toHaveBeenCalledWith({
+      appId: 'default',
+      agentId: 'agent:scheduler_agent',
+    });
+    expect(
+      mcpServerRepository.listAgentMcpAccessSnapshot,
+    ).toHaveBeenCalledOnce();
+    expect(mcpServerRepository.listAgentMcpAccessSnapshot).toHaveBeenCalledWith(
+      {
+        appId: 'default',
+        agentId: 'agent:scheduler_agent',
+      },
     );
-    expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
-      expect.any(String),
-      'failed',
-      null,
-      expect.stringContaining('Missing tool access requirement before run'),
+    expect(toolRepository.listAgentToolBindings).toHaveBeenCalledTimes(1);
+    expect(toolRepository.getTool).toHaveBeenCalledTimes(1);
+    expect(toolRepository.listTools).not.toHaveBeenCalled();
+    expect(skillRepository.listEnabledSkillsForAgent).toHaveBeenCalledTimes(1);
+    expect(skillRepository.listAgentSkillBindings).not.toHaveBeenCalled();
+    expect(skillRepository.getSkill).not.toHaveBeenCalled();
+    expect(
+      mcpServerRepository.listMaterializedServersForAgent,
+    ).toHaveBeenCalledTimes(1);
+    expect(mcpServerRepository.listAgentBindings).not.toHaveBeenCalled();
+    expect(mcpServerRepository.getServer).not.toHaveBeenCalled();
+    expect(mcpServerRepository.getServerByName).not.toHaveBeenCalled();
+    expect(
+      toolRepository.listAgentToolBindings.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      toolRepository.listAgentToolAccessSnapshot.mock.invocationCallOrder[0]!,
+    );
+    expect(
+      skillRepository.listEnabledSkillsForAgent.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      skillRepository.listAgentSkillAccessSnapshot.mock.invocationCallOrder[0]!,
+    );
+    expect(
+      mcpServerRepository.listMaterializedServersForAgent.mock
+        .invocationCallOrder[0],
+    ).toBeLessThan(
+      mcpServerRepository.listAgentMcpAccessSnapshot.mock
+        .invocationCallOrder[0]!,
+    );
+    expect(runAgent).toHaveBeenCalledOnce();
+    expect(opsRepository.updateJob).not.toHaveBeenCalledWith(
+      job.id,
+      expect.objectContaining({ status: 'paused' }),
     );
   });
 
@@ -2212,7 +2258,7 @@ describe('jobs/execution', () => {
     );
   });
 
-  it('keeps explicit tool denial as terminal error', async () => {
+  it('pauses the run (not terminal error) on an explicit tool denial', async () => {
     const job = makeJob({
       access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
     });
@@ -2226,12 +2272,15 @@ describe('jobs/execution', () => {
           {
             eventType: 'job.tool_activity',
             payload: {
+              // Attended (resumable) denial: no autonomous-allowlist phrase, so
+              // the run pauses for an approver rather than failing as a
+              // dead-end.
               phase: 'permission_wait',
               tool: 'Bash',
               ok: false,
-              reason: 'Tool not on autonomous run allowlist: RunCommand.',
+              reason: 'Awaiting approval to run Bash.',
               recovery_action:
-                'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
+                'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This run requires RunCommand(npm test *) access."}',
             },
           },
           {
@@ -2240,7 +2289,7 @@ describe('jobs/execution', () => {
               phase: 'permission_denied',
               tool: 'Bash',
               ok: false,
-              reason: 'Autonomous permission approval is disabled.',
+              reason: 'Denied by approver.',
             },
           },
         ],
@@ -2265,13 +2314,13 @@ describe('jobs/execution', () => {
 
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),
-      'failed',
+      'paused',
       'blocked',
       expect.stringContaining('Permission denied for Bash'),
     );
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),
-      'failed',
+      'paused',
       'blocked',
       expect.not.stringContaining('post-run usage'),
     );
@@ -2354,10 +2403,11 @@ describe('jobs/execution', () => {
           ],
         }),
       }),
+      { incrementConsecutiveFailures: true },
     );
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),
-      'failed',
+      'paused',
       null,
       expect.stringContaining('Claude Code returned an error result'),
     );

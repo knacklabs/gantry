@@ -34,7 +34,9 @@ export function requestDirect(
     path: `${target.pathname}${target.search}`,
     headers,
   });
-  applyConnectDeadline(upstream, 'Egress gateway HTTP upstream timed out.');
+  upstream.setTimeout(EGRESS_GATEWAY_CONNECT_TIMEOUT_MS, () => {
+    upstream.destroy(new Error('Egress gateway HTTP upstream timed out.'));
+  });
   return upstream;
 }
 
@@ -59,33 +61,12 @@ export function requestViaUpstreamProxy(
     path: proxyTarget.toString(),
     headers,
   });
-  applyConnectDeadline(
-    upstreamRequest,
-    'Egress gateway upstream proxy request timed out.',
-  );
-  return upstreamRequest;
-}
-
-function applyConnectDeadline(
-  request: http.ClientRequest,
-  timeoutMessage: string,
-): void {
-  request.once('socket', (socket) => {
-    if (!socket.connecting) {
-      socket.setTimeout(0);
-      return;
-    }
-    const timeout = setTimeout(() => {
-      request.destroy(new Error(timeoutMessage));
-    }, EGRESS_GATEWAY_CONNECT_TIMEOUT_MS);
-    timeout.unref?.();
-    const clear = () => {
-      clearTimeout(timeout);
-      socket.setTimeout(0);
-    };
-    socket.once('connect', clear);
-    request.once('close', clear);
+  upstreamRequest.setTimeout(EGRESS_GATEWAY_CONNECT_TIMEOUT_MS, () => {
+    upstreamRequest.destroy(
+      new Error('Egress gateway upstream proxy request timed out.'),
+    );
   });
+  return upstreamRequest;
 }
 
 function pinnedProxyUrl(target: URL, connectHost: string): URL {

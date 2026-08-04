@@ -42,10 +42,6 @@ import {
   topLevelAssistantText,
 } from '../runner/sdk-message-output.js';
 import { SteeringDeliveryGate } from '../runner/steering-delivery-gate.js';
-import {
-  CALLER_MCP_SERVER_NAME,
-  createCallerSdkMcpServer,
-} from './caller-mcp-server.js';
 import { createPinnedClaudeMcpProxies } from './remote-mcp-proxy.js';
 
 const CORE_MCP_SERVER_NAME = 'gantry';
@@ -117,7 +113,6 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
   });
   if (input.input.isScheduledJob) prompt.end();
   const toolActivity = createInlineToolActivity(input);
-  let callerInteractionCount = 0;
 
   let remoteMcp:
     | Awaited<ReturnType<typeof createPinnedClaudeMcpProxies>>
@@ -161,14 +156,9 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
         tools: [],
         allowedTools: toolsDisabled
           ? []
-          : [
-              ...input.coreTools.tools.map(
-                ({ name }) => `mcp__${CORE_MCP_SERVER_NAME}__${name}`,
-              ),
-              ...(input.input.callerResolvedTools?.tools ?? []).map(
-                ({ name }) => `mcp__${CALLER_MCP_SERVER_NAME}__${name}`,
-              ),
-            ],
+          : input.coreTools.tools.map(
+              ({ name }) => `mcp__${CORE_MCP_SERVER_NAME}__${name}`,
+            ),
         permissionMode: 'dontAsk',
         hooks: remoteMcpAuditHooks(input, toolActivity),
         canUseTool: async (toolName, toolInput, options) => {
@@ -182,12 +172,8 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
           const isCoreTool = input.coreTools.tools.some(
             ({ name }) => toolName === `mcp__${CORE_MCP_SERVER_NAME}__${name}`,
           );
-          const isCallerTool = input.input.callerResolvedTools?.tools.some(
-            ({ name }) =>
-              toolName === `mcp__${CALLER_MCP_SERVER_NAME}__${name}`,
-          );
           const isRemoteMcpTool = remoteMcpTool(input, toolName)?.allowed;
-          if (isCoreTool || isCallerTool) {
+          if (isCoreTool) {
             return {
               behavior: 'allow',
               updatedInput: toolInput,
@@ -228,15 +214,6 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
                 input,
                 toolActivity,
               ),
-              ...(input.input.callerResolvedTools
-                ? {
-                    [CALLER_MCP_SERVER_NAME]: createCallerSdkMcpServer(
-                      input,
-                      toolActivity,
-                      () => ++callerInteractionCount,
-                    ),
-                  }
-                : {}),
               ...Object.fromEntries(
                 (remoteMcp?.servers ?? []).map((server) => [
                   server.name,
@@ -508,7 +485,6 @@ function remoteMcpAuditHooks(
     startedAt.set(hookInput.tool_use_id, Date.now());
     await toolActivity.start(hookInput.tool_use_id, hookInput.tool_name);
     await input.coreTools.recordThirdPartyMcpToolActivity({
-      toolCallId: hookInput.tool_use_id,
       serverName: tool.serverName,
       toolName: tool.toolName,
       toolInput: hookInput.tool_input,
@@ -525,7 +501,6 @@ function remoteMcpAuditHooks(
     const outcome: 'failure' | 'success' =
       objectRecord(result)?.isError === true ? 'failure' : 'success';
     const activity = {
-      toolCallId: hookInput.tool_use_id,
       serverName: tool.serverName,
       toolName: tool.toolName,
       toolInput: hookInput.tool_input,
@@ -552,7 +527,6 @@ function remoteMcpAuditHooks(
     const tool = remoteMcpTool(input, hookInput.tool_name);
     if (!tool?.allowed) return { continue: true };
     await input.coreTools.recordThirdPartyMcpToolActivity({
-      toolCallId: hookInput.tool_use_id,
       serverName: tool.serverName,
       toolName: tool.toolName,
       toolInput: hookInput.tool_input,

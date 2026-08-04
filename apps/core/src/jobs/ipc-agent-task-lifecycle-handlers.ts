@@ -37,16 +37,14 @@ import {
   buildAsyncCommandEnv,
   runSandboxedAsyncCommand,
 } from './async-command-sandbox-runner.js';
-import { resolveTurnToolPolicy } from '../runtime/group-run-context.js';
+import {
+  loadAgentAccessSnapshot,
+  resolveTurnToolPolicyFromSnapshot,
+} from '../runtime/group-run-context.js';
 import { createCoreTaskLifecycleBackend } from '../application/core-tools/task-lifecycle.js';
 import { delegatedTaskAgentInScope } from './async-command-task-helpers.js';
 import { resolveDelegatedAgentTarget } from './ipc-agent-delegation-target.js';
-import { createCallerResolvedToolHandler } from './ipc-caller-resolved-tool-handler.js';
-import {
-  createDelegatedTaskTerminalPublisher,
-  createInheritedDelegatedAgentRunner,
-} from './ipc-delegated-task-support.js';
-import { createTaskWaitHandler } from './ipc-task-wait-handler.js';
+import { executeResolvedDelegation } from './ipc-delegated-agent-execution.js';
 
 const TODO_STATUSES = new Set([
   'pending',
@@ -55,7 +53,6 @@ const TODO_STATUSES = new Set([
   'blocked',
 ]);
 const MAX_TODO_ITEMS = 50;
-const DEFAULT_DELEGATED_AGENT_TIMEOUT_MS = 30 * 60_000;
 const asyncCommandServices = new WeakMap<
   AsyncTaskRepository,
   AsyncCommandTaskService
@@ -114,7 +111,7 @@ function validateSameConversation(context: TaskContext): string | null {
 function taskService(context: TaskContext): AsyncCommandTaskService | null {
   const repository = context.deps.getAsyncTaskRepository?.();
   const runnerSandboxProvider = context.deps.runnerSandboxProvider;
-  if (!repository || !runnerSandboxProvider?.enforcing) return null;
+  if (!repository || !runnerSandboxProvider) return null;
   const existing = asyncCommandServices.get(repository);
   if (existing) return existing;
   const service = new AsyncCommandTaskService(
@@ -135,8 +132,8 @@ function taskService(context: TaskContext): AsyncCommandTaskService | null {
         }),
     },
     {
-      onDelegatedTaskTerminal: createDelegatedTaskTerminalPublisher(context),
-      prepareRun: async ({ task, allowedNetworkHosts }) => {
+      completionMessageRepository: context.deps.opsRepository,
+      prepareRun: async ({ task }) => {
         const gateway = await ensureEgressGateway({
           key: `${task.appId}:${task.agentId}:${task.id}`,
           settings: context.deps.getEgressSettings?.() ?? { denylist: [] },
@@ -150,9 +147,6 @@ function taskService(context: TaskContext): AsyncCommandTaskService | null {
             ...(task.parentRunId ? { runId: task.parentRunId } : {}),
             ...(task.parentJobId ? { jobId: task.parentJobId } : {}),
           },
-          ...(allowedNetworkHosts && allowedNetworkHosts.length > 0
-            ? { allowedNetworkHosts }
-            : {}),
           ...(context.deps.publishRuntimeEvent
             ? { publishRuntimeEvent: context.deps.publishRuntimeEvent }
             : {}),
@@ -178,13 +172,11 @@ function taskBackend(
     service,
     owner,
     parentTaskId: parent.parentTaskId,
-    parentRunId: context.data.runId ?? null,
-    parentJobId: context.data.jobId ?? null,
     workspaceFolder: context.sourceAgentFolder,
     deliverTaskMessage,
   });
 }
-function taskScope(context: TaskContext): {
+export function taskScope(context: TaskContext): {
   appId: string;
   agentId: string;
   conversationId: string;
@@ -192,35 +184,13 @@ function taskScope(context: TaskContext): {
   threadId?: string | null;
   sandboxPolicy: AsyncCommandSandboxPolicy;
 } | null {
-  const conversationId = toTrimmedString(context.data.chatJid, {
-    maxLen: 255,
-  });
+  const conversationId = validateSameConversation(context);
+  if (!conversationId) return null;
   const sandboxPolicy = readAsyncCommandSandboxPolicy({
     sourceAgentFolder: context.sourceAgentFolder,
     runHandle: context.data.runHandle,
   });
-  if (!conversationId || !sandboxPolicy) return null;
-  const isBoundConversation =
-    context.sourceAgentFolderJids.includes(conversationId);
-  const isCurrentJobConversation = Boolean(
-    context.data.jobId &&
-    context.data.runId &&
-    sandboxPolicy.jobId === context.data.jobId &&
-    sandboxPolicy.runId === context.data.runId &&
-    sandboxPolicy.conversationId === conversationId,
-  );
-  const isCurrentLiveConversation = Boolean(
-    !context.data.jobId &&
-    context.data.runId &&
-    sandboxPolicy.runId === context.data.runId &&
-    sandboxPolicy.conversationId === conversationId,
-  );
-  if (
-    !isBoundConversation &&
-    !isCurrentJobConversation &&
-    !isCurrentLiveConversation
-  )
-    return null;
+  if (!sandboxPolicy) return null;
   const appId = toTrimmedString(context.data.appId, { maxLen: 120 });
   const agentId = toTrimmedString(context.data.agentId, { maxLen: 120 });
   const expectedAgentId = memoryAgentIdForWorkspaceFolder(
@@ -394,9 +364,10 @@ const asyncRunCommandHandler: TaskHandler = async (context) => {
   }
   const result = await service.start({
     ...scopedTaskOwner,
-    parentRunId: context.data.runId ?? null,
+    parentRunId: context.data.jobId ? null : (context.data.runId ?? null),
     parentTaskId: parentTask.parentTaskId,
     parentJobId: context.data.jobId ?? null,
+    parentJobRunId: context.data.jobId ? (context.data.runId ?? null) : null,
     command,
     cwd: resolveWorkspaceFolderPath(context.sourceAgentFolder),
     protectedReadPaths: sandboxPolicy.protectedReadPaths,
@@ -500,17 +471,6 @@ const taskCancelHandler: TaskHandler = async (context) => {
   const tasks = taskBackend(context, service, scopedTaskOwner, parentTask);
   respondTaskLifecycleResult(context, await tasks.task_cancel({ taskId }));
 };
-const taskWaitHandler = createTaskWaitHandler({
-  responder,
-  taskScope,
-  taskService,
-  validateParentTaskScope,
-  taskBackend,
-});
-const callerResolvedToolHandler = createCallerResolvedToolHandler({
-  responder,
-  taskScope,
-});
 const delegateTaskHandler: TaskHandler = async (context) => {
   const { reject } = responder(context);
   const scope = taskScope(context);
@@ -549,34 +509,24 @@ const delegateTaskHandler: TaskHandler = async (context) => {
     trustedProviderAccountId: scope.sandboxPolicy.providerAccountId,
     requestedProviderAccountId: context.data.providerAccountId,
     targetAgentId,
+    callableAgentToolName: payload.callableAgentToolName,
   });
   if (!target.ok) {
     reject(target.message, target.code);
     return;
   }
-  const { group } = target;
-  const sharedResult = await createCoreTaskLifecycleBackend({
+  const sharedResult = await executeResolvedDelegation({
+    context,
     service,
-    owner: { ...scopedTaskOwner, providerAccountId: target.providerAccountId },
-    parentRunId: context.data.runId ?? null,
-    parentJobId: context.data.jobId ?? null,
-    workspaceFolder: group.folder,
-    runDelegatedAgent: await createInheritedDelegatedAgentRunner({
-      context,
-      owner: scopedTaskOwner,
-      target,
-    }),
-  }).delegate_task({
+    owner: scopedTaskOwner,
+    target,
+    trustedProviderAccountId: scope.sandboxPolicy.providerAccountId,
+    trustedJobId: scope.sandboxPolicy.jobId,
+    trustedParentRunId:
+      scope.sandboxPolicy.runId ?? scope.sandboxPolicy.correlationRunId,
+    payload,
     objective,
-    taskKey: toTrimmedString(payload.taskKey, { maxLen: 80 }) ?? undefined,
-    ...(targetAgentId ? { targetAgentId } : {}),
-    context: toTrimmedString(payload.context, { maxLen: 20_000 }) ?? undefined,
-    expectedOutput:
-      toTrimmedString(payload.expectedOutput, { maxLen: 2_000 }) ?? undefined,
-    timeoutMs:
-      typeof payload.timeoutMs === 'number'
-        ? Math.min(payload.timeoutMs, DEFAULT_DELEGATED_AGENT_TIMEOUT_MS)
-        : undefined,
+    requestedTargetAgentId: targetAgentId,
   });
   respondTaskLifecycleResult(context, sharedResult);
 };
@@ -606,7 +556,9 @@ const taskMessageHandler: TaskHandler = async (context) => {
     return;
   }
   const { sandboxPolicy: _sandboxPolicy, ...scopedTaskOwner } = scope;
-  const toolPolicy = await resolveTurnToolPolicy(context.deps, scopedTaskOwner);
+  const toolPolicy = resolveTurnToolPolicyFromSnapshot(
+    await loadAgentAccessSnapshot(context.deps, scopedTaskOwner),
+  );
   if (!toolPolicy.toolPolicyRules?.includes('AgentDelegation')) {
     reject('task_message requires AgentDelegation access.', 'forbidden');
     return;
@@ -641,12 +593,10 @@ const taskMessageHandler: TaskHandler = async (context) => {
 };
 export const agentTaskLifecycleHandlers: Record<string, TaskHandler> = {
   async_run_command: asyncRunCommandHandler,
-  caller_resolved_tool: callerResolvedToolHandler,
   delegate_task: delegateTaskHandler,
   task_cancel: taskCancelHandler,
   task_get: taskGetHandler,
   task_list: taskListHandler,
-  task_wait: taskWaitHandler,
   task_message: taskMessageHandler,
   todo_update: todoUpdateHandler,
 };

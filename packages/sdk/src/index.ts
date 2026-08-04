@@ -1,3 +1,6 @@
+import http from 'node:http';
+import https from 'node:https';
+import { URL } from 'node:url';
 import type {
   ConversationDiscoveryInput,
   ConversationInstallInput,
@@ -11,26 +14,30 @@ import type {
   ClientOptions,
   MemoryContext,
   MemoryPatchInput,
+  MemoryReviewDecisionInput,
+  MemoryReviewListInput,
+  MemoryReviewSubject,
   MemorySaveInput,
   MemorySearchInput,
+  LlmRequestOptions,
   RequestOptions,
   RuntimeEventListResponse,
   RuntimeEventQuery,
   RuntimeEventStreamOptions,
+  SseEvent,
   TraceRequestOptions,
+  TransportResponse,
 } from './types.js';
 import { runtimeEventQuery } from './runtime-event-query.js';
 import type * as OpenApi from './openapi-types.js';
+import { parseSessionSseEvent } from './session-events.js';
 import { createIngressesClient } from './ingresses.js';
 import { querySuffix } from './query-string.js';
+import { createIdentityClient, createPeopleClient } from './people.js';
 export type { RuntimeSettingsResponse } from './settings.js';
 import * as mcpServerClients from './mcp-servers.js';
-import { jobListQuery } from './job-list-query.js';
 import { createModelsClient } from './models.js';
-import { createLlmClient } from './llm.js';
-import { Transport } from './transport.js';
 import type { ReviewedMcpCapabilityManifest } from '@gantry/contracts';
-export type { GantryError } from './transport.js';
 import type {
   CreateJobInput,
   CreateJobResponse,
@@ -41,47 +48,261 @@ import type {
   UpdateJobInput,
 } from './job-model-types.js';
 export type {
-  AgentAdminBoundConversation,
-  AgentAdminResponse,
   AgentAccessDocument,
   AgentAccessSelection,
+  AgentAdminBoundConversation,
+  AgentAdminResponse,
 } from './agents.js';
-export type {
-  CreateJobInput,
-  CreateJobResponse,
-  JobEventRecord,
-  JobHealth,
-  JobHealthState,
-  JobAgentTask,
-  JobKind,
-  JobRecord,
-  JobSetup,
-  JobStatus,
-  JobTriggerWaitResult,
-  ListJobEventsInput,
-  ListJobsInput,
-  ModelRecord,
-  ModelDefaultsPatchRequest,
-  ModelDefaultsResponse,
-  ModelPreviewRequest,
-  ModelPreviewResponse,
-  UpdateJobInput,
-} from './job-model-types.js';
+export type * from './job-model-types.js';
 export type * from './openapi-types.js';
+export type * from './people.js';
+
+export type ResponseMode = 'sse' | 'webhook' | 'both' | 'none';
+export type MemorySubjectType = 'user' | 'group' | 'channel' | 'common';
+export type DreamPhase = 'light' | 'rem' | 'deep' | 'all';
+export type ProcessRole = 'all' | 'control' | 'live-worker' | 'job-worker';
+
+export interface HealthResponse {
+  status: string;
+  processRole: ProcessRole;
+  transport:
+    | { kind: 'tcp'; port: number }
+    | { kind: 'unix'; socketPath: string };
+  features: {
+    sessions: boolean;
+    jobs: boolean;
+    events: boolean;
+    webhooks: boolean;
+  };
+}
+
+export interface GantryError extends Error {
+  code: string;
+  details?: Record<string, unknown> | null;
+  requestId?: string;
+  retryable?: boolean;
+  restartRequired?: boolean;
+  nextAction?: string;
+}
+function toError(input: unknown): GantryError {
+  const fallback = new Error('Gantry request failed') as GantryError;
+  fallback.code = 'UNKNOWN_ERROR';
+  if (
+    input &&
+    typeof input === 'object' &&
+    'error' in input &&
+    input.error &&
+    typeof input.error === 'object'
+  ) {
+    const error = input.error as Record<string, unknown>;
+    const next = new Error(
+      String(error.message || 'Gantry request failed'),
+    ) as GantryError;
+    next.code = String(error.code || 'UNKNOWN_ERROR');
+    next.details =
+      error.details && typeof error.details === 'object'
+        ? (error.details as Record<string, unknown>)
+        : null;
+    next.requestId =
+      typeof error.requestId === 'string' ? error.requestId : undefined;
+    next.retryable =
+      typeof error.retryable === 'boolean' ? error.retryable : undefined;
+    next.restartRequired =
+      typeof error.restartRequired === 'boolean'
+        ? error.restartRequired
+        : undefined;
+    next.nextAction =
+      typeof error.nextAction === 'string' ? error.nextAction : undefined;
+    return next;
+  }
+  return fallback;
+}
+
+function parseJsonBody(raw: string): unknown {
+  if (!raw.trim()) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const error = new Error(
+      'Gantry returned a non-JSON response',
+    ) as GantryError;
+    error.code = 'INVALID_RESPONSE';
+    throw error;
+  }
+}
+
+class Transport {
+  private readonly apiKey: string;
+  private readonly baseUrl: URL;
+  private readonly socketPath?: string;
+  private readonly timeoutMs: number;
+
+  constructor(options: ClientOptions) {
+    this.apiKey = options.apiKey;
+    this.baseUrl = new URL(options.baseUrl || 'http://127.0.0.1:3939');
+    this.socketPath = options.socketPath;
+    this.timeoutMs = options.timeoutMs ?? 60_000;
+  }
+
+  request<T>(options: RequestOptions): Promise<T> {
+    return this.requestWithMetadata<T>(options).then(({ body }) => body);
+  }
+
+  requestWithMetadata<T>(
+    options: RequestOptions,
+  ): Promise<TransportResponse<T>> {
+    const url = new URL(options.path, this.baseUrl);
+    const mod = url.protocol === 'https:' ? https : http;
+    const body =
+      options.body === undefined
+        ? undefined
+        : options.body instanceof Uint8Array
+          ? options.body
+          : JSON.stringify(options.body);
+    const headers: Record<string, string> = {
+      authorization: `Bearer ${this.apiKey}`,
+      accept: options.accept || 'application/json',
+    };
+    if (options.traceparent) headers.traceparent = options.traceparent;
+    if (body) {
+      headers['content-type'] =
+        options.contentType ||
+        (options.body instanceof Uint8Array
+          ? 'application/octet-stream'
+          : 'application/json');
+    }
+    return new Promise<TransportResponse<T>>((resolve, reject) => {
+      const req = mod.request(
+        {
+          protocol: url.protocol,
+          hostname: this.socketPath ? undefined : url.hostname,
+          port: this.socketPath ? undefined : url.port,
+          path: `${url.pathname}${url.search}`,
+          socketPath: this.socketPath,
+          method: options.method,
+          headers,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+          res.on('end', () => {
+            const raw = Buffer.concat(chunks).toString('utf8');
+            let parsed: unknown = {};
+            try {
+              parsed = parseJsonBody(raw);
+            } catch (error) {
+              reject(error);
+              return;
+            }
+            if ((res.statusCode || 500) >= 400) {
+              reject(toError(parsed));
+              return;
+            }
+            const responseHeaders: Record<string, string | undefined> = {};
+            for (const [name, value] of Object.entries(res.headers)) {
+              responseHeaders[name.toLowerCase()] = Array.isArray(value)
+                ? value.join(', ')
+                : value;
+            }
+            resolve({ body: parsed as T, headers: responseHeaders });
+          });
+        },
+      );
+      req.setTimeout(this.timeoutMs, () => {
+        req.destroy(new Error('Gantry request timed out'));
+      });
+      req.on('error', reject);
+      if (options.signal) {
+        options.signal.addEventListener(
+          'abort',
+          () => req.destroy(new Error('Gantry request aborted')),
+          { once: true },
+        );
+      }
+      if (body) req.write(body);
+      req.end();
+    });
+  }
+
+  async *stream(
+    pathname: string,
+    signal?: AbortSignal,
+  ): AsyncIterable<SseEvent> {
+    const url = new URL(pathname, this.baseUrl);
+    const mod = url.protocol === 'https:' ? https : http;
+    const req = mod.request({
+      protocol: url.protocol,
+      hostname: this.socketPath ? undefined : url.hostname,
+      port: this.socketPath ? undefined : url.port,
+      path: `${url.pathname}${url.search}`,
+      socketPath: this.socketPath,
+      method: 'GET',
+      headers: {
+        authorization: `Bearer ${this.apiKey}`,
+        accept: 'text/event-stream',
+      },
+    });
+    if (signal) {
+      signal.addEventListener(
+        'abort',
+        () => req.destroy(new Error('Gantry stream aborted')),
+        { once: true },
+      );
+    }
+    const response = await new Promise<http.IncomingMessage>(
+      (resolve, reject) => {
+        req.on('response', resolve);
+        req.on('error', reject);
+        req.end();
+      },
+    );
+    if ((response.statusCode || 500) >= 400) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of response) {
+        chunks.push(Buffer.from(chunk));
+      }
+      throw toError(parseJsonBody(Buffer.concat(chunks).toString('utf8')));
+    }
+    let buffer = '';
+    for await (const chunk of response) {
+      buffer += chunk.toString();
+      while (true) {
+        const delimiter = buffer.indexOf('\n\n');
+        if (delimiter < 0) break;
+        const block = buffer.slice(0, delimiter);
+        buffer = buffer.slice(delimiter + 2);
+        const lines = block.split('\n');
+        const idLine = lines.find((line) => line.startsWith('id: '));
+        const eventLine = lines.find((line) => line.startsWith('event: '));
+        const dataLine = lines.find((line) => line.startsWith('data: '));
+        if (!idLine || !eventLine || !dataLine) continue;
+        yield parseSessionSseEvent({
+          eventId: Number(idLine.slice(4).trim()),
+          eventType: eventLine.slice(7).trim(),
+          data: JSON.parse(dataLine.slice(6)),
+        });
+      }
+    }
+  }
+}
 
 export class GantryClient {
   private readonly transport: Transport;
   private readonly request = <T>(options: RequestOptions) =>
     this.transport.request<T>(options);
   readonly ingresses: ReturnType<typeof createIngressesClient>;
-  readonly llm: ReturnType<typeof createLlmClient>;
   readonly models: ReturnType<typeof createModelsClient>;
+  readonly identity: ReturnType<typeof createIdentityClient>;
+  readonly people: ReturnType<typeof createPeopleClient>;
+  readonly llm: ReturnType<GantryClient['createLlmClient']>;
 
   constructor(options: ClientOptions) {
     this.transport = new Transport(options);
     this.ingresses = createIngressesClient(this.transport);
-    this.llm = createLlmClient(this.transport);
     this.models = createModelsClient(this.transport);
+    this.identity = createIdentityClient(this.request);
+    this.people = createPeopleClient(this.request);
+    this.llm = this.createLlmClient();
   }
 
   health() {
@@ -100,6 +321,31 @@ export class GantryClient {
 
   readonly settings = createSettingsClient({ request: this.request });
 
+  private createLlmClient() {
+    return {
+      chatCompletions: (
+        input: OpenApi.LlmChatCompletionsRequest,
+        options?: LlmRequestOptions,
+      ) =>
+        this.transport
+          .requestWithMetadata<OpenApi.LlmChatCompletionsResponse>({
+            method: 'POST',
+            path: '/llm/v1/chat/completions',
+            body: input,
+            ...(options?.traceparent
+              ? { traceparent: options.traceparent }
+              : {}),
+          })
+          .then(({ body, headers }) => ({
+            response: body,
+            gantryRequestId: requiredHeader(headers, 'x-gantry-request-id'),
+            modelAlias: requiredHeader(headers, 'x-gantry-model-alias'),
+            modelRoute: requiredHeader(headers, 'x-gantry-model-route'),
+            provider: requiredHeader(headers, 'x-gantry-provider'),
+          })),
+    };
+  }
+
   readonly capabilities = {
     list: () =>
       this.transport.request<OpenApi.ListCapabilitiesResponse>({
@@ -112,7 +358,7 @@ export class GantryClient {
         path: `/v1/capabilities/${encodeURIComponent(capabilityId)}`,
       }),
     register: (capabilityId: string, input: ReviewedMcpCapabilityManifest) =>
-      this.transport.request<OpenApi.PutCapabilityResponse>({
+      this.transport.request<unknown>({
         method: 'PUT',
         path: `/v1/capabilities/${encodeURIComponent(capabilityId)}`,
         body: input,
@@ -135,9 +381,9 @@ export class GantryClient {
     resolveInteraction: (
       sessionId: string,
       interactionId: string,
-      body: OpenApi.ResolveSessionInteractionRequest,
+      body: { idempotencyKey: string; result: unknown; resolvedBy?: string },
     ) =>
-      this.transport.request<OpenApi.SessionInteractionSettlementResponse>({
+      this.transport.request<{ accepted: boolean; idempotent: boolean }>({
         method: 'POST',
         path: `/v1/sessions/${encodeURIComponent(sessionId)}/interactions/${encodeURIComponent(interactionId)}/resolve`,
         body,
@@ -145,24 +391,25 @@ export class GantryClient {
     rejectInteraction: (
       sessionId: string,
       interactionId: string,
-      body: OpenApi.RejectSessionInteractionRequest,
+      body: { idempotencyKey: string; reason?: string; resolvedBy?: string },
     ) =>
-      this.transport.request<OpenApi.SessionInteractionSettlementResponse>({
+      this.transport.request<{ accepted: boolean; idempotent: boolean }>({
         method: 'POST',
         path: `/v1/sessions/${encodeURIComponent(sessionId)}/interactions/${encodeURIComponent(interactionId)}/reject`,
         body,
       }),
-    cancelTurn: (
-      sessionId: string,
-      body: OpenApi.CancelSessionTurnRequest = {},
-    ) =>
-      this.transport.request<OpenApi.CancelSessionTurnResponse>({
+    cancelTurn: (sessionId: string, body: { threadId?: string } = {}) =>
+      this.transport.request<{ cancelled: boolean }>({
         method: 'POST',
         path: `/v1/sessions/${encodeURIComponent(sessionId)}/turns/current/cancel`,
         body,
       }),
     archive: (sessionId: string) =>
-      this.transport.request<OpenApi.ArchiveSessionResponse>({
+      this.transport.request<{
+        archived: true;
+        alreadyArchived: boolean;
+        cancelled: boolean;
+      }>({
         method: 'POST',
         path: `/v1/sessions/${encodeURIComponent(sessionId)}/archive`,
       }),
@@ -213,7 +460,18 @@ export class GantryClient {
     list: (input?: ListJobsInput) =>
       this.transport.request<OpenApi.ListJobsResponse>({
         method: 'GET',
-        path: `/v1/jobs${jobListQuery(input)}`,
+        path: `/v1/jobs${querySuffix({
+          agentId: input?.agentId || undefined,
+          workspaceKey: input?.workspaceKey || undefined,
+          conversationJid: input?.conversationJid || undefined,
+          kind: input?.kind || undefined,
+          limit: input?.limit,
+          status: Array.isArray(input?.status)
+            ? input.status
+            : input?.status
+              ? [input.status]
+              : undefined,
+        })}`,
       }),
     get: (jobId: string) =>
       this.transport.request<JobRecord>({
@@ -282,6 +540,29 @@ export class GantryClient {
       this.transport.request<OpenApi.QueryUsageResponse>({
         method: 'GET',
         path: `/v1/usage${querySuffix(input)}`,
+      }),
+  };
+
+  readonly observer = {
+    status: (input: OpenApi.GetObserverStatusQuery = {}) =>
+      this.transport.request<OpenApi.ObserverStatusResponse>({
+        method: 'GET',
+        path: `/v1/observer/status${querySuffix(input)}`,
+      }),
+    insights: (input: OpenApi.ListObserverInsightsQuery = {}) =>
+      this.transport.request<OpenApi.ObserverInsightListResponse>({
+        method: 'GET',
+        path: `/v1/observer/insights${querySuffix(input)}`,
+      }),
+    preview: (input: OpenApi.PreviewObserverDigestQuery = {}) =>
+      this.transport.request<OpenApi.ObserverDigestPreviewResponse>({
+        method: 'POST',
+        path: `/v1/observer/preview${querySuffix(input)}`,
+      }),
+    deliveries: (input: OpenApi.ListObserverDeliveriesQuery = {}) =>
+      this.transport.request<OpenApi.ObserverDigestDeliveryListResponse>({
+        method: 'GET',
+        path: `/v1/observer/deliveries${querySuffix(input)}`,
       }),
   };
 
@@ -369,15 +650,6 @@ export class GantryClient {
       this.transport.request<OpenApi.ListConversationMessagesResponse>({
         method: 'GET',
         path: `/v1/conversations/${encodeURIComponent(conversationId)}/messages${querySuffix(input)}`,
-      }),
-    send: (
-      conversationId: string,
-      input: OpenApi.SendConversationMessageRequest,
-    ) =>
-      this.transport.request<OpenApi.SendConversationMessageResponse>({
-        method: 'POST',
-        path: `/v1/conversations/${encodeURIComponent(conversationId)}/messages`,
-        body: input,
       }),
   };
 
@@ -507,10 +779,47 @@ export class GantryClient {
           path: `/v1/memory/dreaming/status${querySuffix(input)}`,
         }),
     },
+    reviews: {
+      list: (input: MemoryReviewListInput) =>
+        this.transport.request<OpenApi.ListMemoryReviewsResponse>({
+          method: 'GET',
+          path: `/v1/memory/reviews${querySuffix(input)}`,
+        }),
+      get: (reviewId: string, input: MemoryReviewSubject) =>
+        this.transport.request<OpenApi.GetMemoryReviewResponse>({
+          method: 'GET',
+          path: `/v1/memory/reviews/${encodeURIComponent(reviewId)}${querySuffix(input)}`,
+        }),
+      decide: (reviewId: string, input: MemoryReviewDecisionInput) => {
+        const { decision, editedValue, reason, ...subject } = input;
+        return this.transport.request<OpenApi.DecideMemoryReviewResponse>({
+          method: 'POST',
+          // The subject boundary rides on the query; the body carries only the
+          // decision so reviewer identity stays key-derived server-side.
+          path: `/v1/memory/reviews/${encodeURIComponent(reviewId)}/decision${querySuffix(subject)}`,
+          body: {
+            decision,
+            ...(editedValue === undefined ? {} : { editedValue }),
+            ...(reason === undefined ? {} : { reason }),
+          },
+        });
+      },
+    },
   };
 }
 export const createClient = (options: ClientOptions) =>
   new GantryClient(options);
+
+function requiredHeader(
+  headers: Readonly<Record<string, string | undefined>>,
+  name: string,
+): string {
+  const value = headers[name]?.trim();
+  if (value) return value;
+  const error = new Error(`Gantry response is missing ${name}`) as GantryError;
+  error.code = 'INVALID_RESPONSE';
+  throw error;
+}
 
 export type {
   ConversationMessageIngressTarget,

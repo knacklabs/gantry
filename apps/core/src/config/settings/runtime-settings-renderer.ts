@@ -11,6 +11,8 @@ import {
   DEFAULT_BROWSER_USAGE_WINDOW_MS,
   DEFAULT_EMBED_DIMENSIONS,
   DEFAULT_EMBED_MODEL,
+  DEFAULT_LLM_GLOBAL_MAX_IN_FLIGHT,
+  DEFAULT_LLM_PER_APP_KEY_MAX_IN_FLIGHT,
   DEFAULT_MEMORY_BACKFILL_CRON,
   DEFAULT_MEMORY_BACKFILL_ENABLED,
   DEFAULT_MEMORY_BACKFILL_MAX_ITEMS_PER_RUN,
@@ -43,18 +45,17 @@ import type {
   RuntimeStorageSettings,
 } from './runtime-settings-types.js';
 import {
+  quoteYamlKey,
+  renderAgentDelegatesYaml,
   renderLimitsSettingsYaml,
   renderModelAliasesYaml,
   renderModelFamiliesYaml,
+  renderObserverSettingsYaml,
+  renderObservabilitySettingsYaml,
 } from './runtime-settings-optional-blocks-renderer.js';
 import { resolveConfiguredAgentRuntime } from './runtime-settings-agent-runtime.js';
-
-const SYSTEM_DEFAULT_MODEL_ALIAS = 'opus';
-
-function quoteYamlKey(key: string): string {
-  if (/^[A-Za-z0-9_-]+$/.test(key)) return key;
-  return JSON.stringify(key);
-}
+import { renderProvidersYaml } from './runtime-settings-provider-renderer.js';
+const MODEL = 'opus';
 
 function renderDefaultsYaml(
   lines: string[],
@@ -64,9 +65,7 @@ function renderDefaultsYaml(
   if (agent.name !== DEFAULT_AGENT_NAME) {
     lines.push(`  name: ${quoteYamlString(agent.name)}`);
   }
-  lines.push(
-    `  model: ${quoteYamlString(agent.defaultModel || SYSTEM_DEFAULT_MODEL_ALIAS)}`,
-  );
+  lines.push(`  model: ${quoteYamlString(agent.defaultModel || MODEL)}`);
   if (agent.agentHarness !== 'auto') {
     lines.push(`  agent_harness: ${quoteYamlString(agent.agentHarness)}`);
   }
@@ -194,6 +193,9 @@ function renderPermissionSettingsYaml(
     '  egress:',
     `    denylist: ${JSON.stringify(permissions.egress.denylist)}`,
   );
+  if (permissions.trustedRoots.length > 0) {
+    lines.push(`  trusted_roots: ${JSON.stringify(permissions.trustedRoots)}`);
+  }
   if (permissions.autoMode.model) {
     lines.push(
       '  auto_mode:',
@@ -273,6 +275,7 @@ function renderConfiguredAgentsYaml(
         `    recurring_job_default_model: ${quoteYamlString(agent.recurringJobDefaultModel)}`,
       );
     }
+    renderAgentDelegatesYaml(lines, agent.delegates);
     if (agent.toolRules?.length) {
       lines.push('    tool_rules:');
       for (const rule of agent.toolRules) {
@@ -343,6 +346,9 @@ function renderAgentSourceListYaml(
       lines.push(`            id: ${quoteYamlString(source.id)}`);
     } else {
       lines.push(`          - id: ${quoteYamlString(source.id)}`);
+    }
+    if (source.status !== undefined) {
+      lines.push(`            status: ${source.status}`);
     }
     if (source.version !== undefined) {
       lines.push(`            version: ${quoteYamlString(source.version)}`);
@@ -440,7 +446,7 @@ function renderConversationsYaml(
     lines.push(
       '    sender_policy:',
       `      allow: ${conversation.senderPolicy.allow === '*' ? '"*"' : JSON.stringify(conversation.senderPolicy.allow)}`,
-      `      mode: ${conversation.senderPolicy.mode}`,
+      '      mode: trigger',
     );
     if (conversation.controlApprovers.length > 0) {
       lines.push(
@@ -559,11 +565,16 @@ function isDefaultRuntime(runtime: RuntimeSettings['runtime']): boolean {
     runtime.queue.maxMessageRuns === 3 &&
     runtime.queue.maxJobRuns === 4 &&
     runtime.queue.maxMessageBacklog === 0 &&
+    runtime.queue.maxLiveAdmissionBacklog === 100 &&
     runtime.queue.maxTaskBacklog === 0 &&
     runtime.queue.maxRetries === 5 &&
     runtime.queue.baseRetryMs === 5000 &&
     runtime.queue.drainDeadlineMs === 120000 &&
     runtime.liveTurns.enabled === true &&
+    runtime.llmAdmission.globalMaxInFlight ===
+      DEFAULT_LLM_GLOBAL_MAX_IN_FLIGHT &&
+    runtime.llmAdmission.perAppKeyMaxInFlight ===
+      DEFAULT_LLM_PER_APP_KEY_MAX_IN_FLIGHT &&
     runtime.sandbox.provider === 'direct' &&
     runtime.sandbox.resourceLimits.cpuSeconds === 0 &&
     runtime.sandbox.resourceLimits.memoryMb === 0 &&
@@ -594,6 +605,7 @@ function isDefaultPermissionSettings(
     permissions.yoloMode.denylist.length === 0 &&
     permissions.yoloMode.denylistPaths.length === 0 &&
     permissions.egress.denylist.length === 0 &&
+    permissions.trustedRoots.length === 0 &&
     permissions.autoMode.model === undefined
   );
 }
@@ -651,12 +663,16 @@ function renderRuntimeProcessYaml(
     `    max_message_runs: ${runtime.queue.maxMessageRuns}`,
     `    max_job_runs: ${runtime.queue.maxJobRuns}`,
     `    max_message_backlog: ${runtime.queue.maxMessageBacklog}`,
+    `    max_live_admission_backlog: ${runtime.queue.maxLiveAdmissionBacklog}`,
     `    max_task_backlog: ${runtime.queue.maxTaskBacklog}`,
     `    max_retries: ${runtime.queue.maxRetries}`,
     `    base_retry_ms: ${runtime.queue.baseRetryMs}`,
     `    drain_deadline_ms: ${runtime.queue.drainDeadlineMs}`,
     '  live_turns:',
     `    enabled: ${runtime.liveTurns.enabled ? 'true' : 'false'}`,
+    '  llm_admission:',
+    `    global_max_in_flight: ${runtime.llmAdmission.globalMaxInFlight}`,
+    `    per_app_key_max_in_flight: ${runtime.llmAdmission.perAppKeyMaxInFlight}`,
     '  sandbox:',
     `    provider: ${quoteYamlString(runtime.sandbox.provider)}`,
     '    resource_limits:',
@@ -670,19 +686,6 @@ function renderRuntimeProcessYaml(
     lines.push(`  deployment_mode: ${quoteYamlString(runtime.deploymentMode)}`);
   }
   lines.push(...renderArtifactStoreYamlLines(runtime.artifactStore), '');
-}
-
-function renderProvidersYaml(lines: string[], settings: RuntimeSettings): void {
-  const enabledProviders = Object.entries(settings.providers)
-    .filter(([, provider]) => provider.enabled)
-    .sort(([a], [b]) => a.localeCompare(b));
-  if (enabledProviders.length === 0) return;
-
-  lines.push('providers:');
-  for (const [providerId] of enabledProviders) {
-    lines.push(`  ${quoteYamlKey(providerId)}:`, '    enabled: true');
-  }
-  lines.push('');
 }
 
 export function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
@@ -714,8 +717,9 @@ export function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
     renderPermissionSettingsYaml(lines, settings.permissions);
   }
   renderLimitsSettingsYaml(lines, settings.limits);
+  renderObservabilitySettingsYaml(lines, settings.observability);
+  renderObserverSettingsYaml(lines, settings.observer);
   renderModelFamiliesYaml(lines, settings.modelFamilies);
   renderModelAliasesYaml(lines, settings.modelAliases);
-
   return lines.join('\n');
 }

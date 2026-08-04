@@ -1,5 +1,4 @@
 import { parseBashCommand } from './bash-command-parser.js';
-import { stripHostInjectedEnvPrefix } from './runtime-env-command.js';
 
 export interface YoloModeSettings {
   enabled: boolean;
@@ -99,14 +98,9 @@ function isShellCommandTool(toolName: string): boolean {
   return toolName === 'Bash' || toolName === 'RunCommand';
 }
 
-// Denylist matching must see through host-injected env prefixes: rule
-// matching normalizes them away, so the backstop evaluates both the raw
-// command and its stripped form.
 function shellCommandVariants(toolInput: unknown): string[] {
   const command = commandText(toolInput);
-  if (!command) return [];
-  const stripped = stripHostInjectedEnvPrefix(command).command.trim();
-  return stripped && stripped !== command ? [command, stripped] : [command];
+  return command ? [command] : [];
 }
 
 function extractCommandCandidates(

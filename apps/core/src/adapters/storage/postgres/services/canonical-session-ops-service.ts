@@ -5,13 +5,11 @@ import {
 import type {
   AgentSessionDigestRepository,
   AgentSessionRepository,
-  AgentSessionSummaryRepository,
   ConversationRepository,
 } from '../../../../domain/ports/repositories.js';
 import { makeSessionScopeKey } from '../../../../domain/repositories/ops-repo.js';
 import type {
   AgentSession,
-  AgentSessionSummary,
   ExecutionProviderId,
 } from '../../../../domain/sessions/sessions.js';
 import { providerIdForJid } from '../../../../channels/provider-registry.js';
@@ -48,14 +46,12 @@ export class CanonicalSessionOpsService {
   private readonly hydrateService?: HydrateAgentContextService;
   private readonly continuityJobOps?: CanonicalJobOpsService;
   private readonly conversations?: ConversationRepository;
-  private readonly summaries?: AgentSessionSummaryRepository;
 
   constructor(
     private readonly repository: PostgresCanonicalSessionRepository,
     repositories?: {
       agentSessions: AgentSessionRepository;
       agentSessionDigests?: AgentSessionDigestRepository;
-      agentSessionSummaries?: AgentSessionSummaryRepository;
       conversations?: ConversationRepository;
       loadAppMemoryItems?: (
         input: SessionAppMemoryLoaderInput,
@@ -72,7 +68,6 @@ export class CanonicalSessionOpsService {
   ) {
     this.continuityJobOps = createContinuityJobOps(repository);
     this.conversations = repositories?.conversations;
-    this.summaries = repositories?.agentSessionSummaries;
     if (repositories) {
       this.hydrateService = new HydrateAgentContextService(
         repositories.agentSessions,
@@ -119,23 +114,6 @@ export class CanonicalSessionOpsService {
         },
       );
     }
-  }
-
-  async getLatestAgentSessionSummary(
-    agentSessionId: string,
-  ): Promise<AgentSessionSummary | null> {
-    return (
-      (await this.summaries?.getLatestAgentSessionSummary(
-        agentSessionId as never,
-      )) ?? null
-    );
-  }
-
-  async saveAgentSessionSummary(summary: AgentSessionSummary): Promise<void> {
-    if (!this.summaries) {
-      throw new Error('Agent session summary repository is unavailable');
-    }
-    await this.summaries.saveAgentSessionSummary(summary);
   }
 
   async setSession(

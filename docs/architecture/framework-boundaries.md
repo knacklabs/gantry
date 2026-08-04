@@ -23,7 +23,7 @@ Gantry keeps the core runtime plain TypeScript and Node.js. Framework dependenci
 - Fastify is allowed only in `apps/core/src/adapters/control-http/`.
 - Slack Bolt is allowed only in `apps/core/src/channels/slack/`.
 - Grammy is allowed only in `apps/core/src/channels/telegram/`.
-- Anthropic SDKs are allowed only in approved Anthropic provider adapter paths. The current provider-boundary target is `apps/core/src/adapters/llm/anthropic-claude-agent/`; remaining runner, memory, config, storage, shared catalog, and test references are exact count-based exceptions tracked by `.codex/provider-boundary-exceptions.json`.
+- Anthropic SDKs are allowed only in approved Anthropic provider adapter paths. The current provider-boundary target is `apps/core/src/adapters/llm/anthropic-claude-agent/`; remaining runner, memory, config, storage, shared catalog, and test references are exact count-based exceptions tracked by `scripts/provider-boundary-exceptions.json`.
 - Playwright belongs only behind the browser adapter boundary and must not enter domain, application, or core runtime layers.
 - Sandbox libraries belong only behind the sandbox adapter boundary and must not enter core runtime layers. Docker/cloud sandbox backends are future optional adapters, not required v1 dependencies.
 

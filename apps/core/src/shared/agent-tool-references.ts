@@ -118,6 +118,19 @@ export function isProjectedBrowserMcpToolRule(value: string): boolean {
   );
 }
 
+const REVIEWED_MCP_PATTERN_RULE_RE =
+  /^mcp__(?!gantry__)([a-z][a-z0-9_-]{0,62})__[A-Za-z0-9_.-]+\*$/;
+
+// Runtime rule projected from a reviewed mcp_pattern capability binding
+// (mcp__server__prefix*). Only valid as a projection from a reviewed semantic
+// capability, never as a durable raw grant.
+export function isReviewedMcpPatternRule(value: string): boolean {
+  const rule = value.trim();
+  return (
+    REVIEWED_MCP_PATTERN_RULE_RE.test(rule) && !isBrowserActionMcpToolRule(rule)
+  );
+}
+
 export function isThirdPartyMcpToolRule(value: string): boolean {
   const rule = value.trim();
   const scoped = parseReadableScopedToolRule(rule);

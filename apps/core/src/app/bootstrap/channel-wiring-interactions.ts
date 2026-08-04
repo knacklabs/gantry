@@ -1,8 +1,7 @@
 import {
   RICH_INTERACTION_NATIVE_FALLBACK_TEXT,
-  type PermissionApprovalDecision,
-  type PermissionApprovalRequest,
   type RichInteractionRequest,
+  type UserQuestionCancellation,
   type UserQuestionRequest,
   type UserQuestionResponse,
 } from '../../domain/types.js';
@@ -10,8 +9,7 @@ import type {
   AgentTodoCardStatus,
   AgentTodoRender,
 } from '../../domain/ports/task-lifecycle.js';
-import { formatDuration } from '../../shared/human-format.js';
-import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../shared/permission-timeout.js';
+import { DurableInteractionPersistenceError } from '../../application/interactions/pending-interaction-durability.js';
 
 type ChannelLike = object;
 
@@ -20,18 +18,23 @@ interface ChannelWiringInteractionsLogger {
   error: (dataOrMsg: string | Record<string, unknown>, msg?: string) => void;
 }
 
-interface PermissionApprovalSurfaceLike {
-  requestPermissionApproval: (
-    targetJid: string,
-    request: PermissionApprovalRequest,
-  ) => Promise<PermissionApprovalDecision>;
-}
-
 interface UserQuestionSurfaceLike {
   requestUserAnswer: (
     targetJid: string,
     request: UserQuestionRequest,
+    onPromptDelivered?: (messageId: string, questionIndex?: number) => void,
   ) => Promise<UserQuestionResponse>;
+  questionIndexesForDeliveredPrompt?: (
+    request: UserQuestionRequest,
+    firstQuestionIndex: number,
+  ) => number[];
+  dropPendingInteraction?: (
+    kind: 'permission' | 'question',
+    request: UserQuestionRequest,
+  ) => void;
+  cancelPendingQuestion?: (
+    cancellation: UserQuestionCancellation,
+  ) => Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'>;
 }
 
 interface AgentTodoSurfaceLike {
@@ -67,135 +70,6 @@ export interface AgentTodoRenderer {
   ) => Promise<boolean>;
 }
 
-interface PermissionApprovalTargetResolution {
-  targetJid: string;
-  request: PermissionApprovalRequest;
-}
-
-interface PermissionApprovalTargetBlocked {
-  blockedReason: string;
-}
-
-const permissionTimeoutDecision = (
-  _request: PermissionApprovalRequest,
-): PermissionApprovalDecision => ({
-  approved: false,
-  decidedBy: 'system',
-  reason: `No approval received within ${formatDuration(PERMISSION_APPROVAL_TIMEOUT_MS)}. Retry when an approver is available.`,
-  decisionClassification: 'user_reject',
-});
-
-function resolvePermissionApprovalTarget(
-  request: PermissionApprovalRequest,
-): PermissionApprovalTargetResolution | PermissionApprovalTargetBlocked {
-  const targetJid = request.targetJid;
-  if (!targetJid) {
-    return { blockedReason: 'Permission approval target is missing' };
-  }
-  return { targetJid, request };
-}
-
-export function createPermissionApprovalRequester(input: {
-  findBoundChannel: (
-    jid: string,
-    providerAccountId?: string,
-    request?: PermissionApprovalRequest,
-  ) => ChannelLike | undefined;
-  asPermissionApprovalSurface: (
-    channel: ChannelLike,
-  ) => PermissionApprovalSurfaceLike | undefined;
-  logger: Pick<ChannelWiringInteractionsLogger, 'error'>;
-}): (
-  request: PermissionApprovalRequest,
-) => Promise<PermissionApprovalDecision> {
-  return async (
-    request: PermissionApprovalRequest,
-  ): Promise<PermissionApprovalDecision> => {
-    if (!request.targetJid) {
-      return {
-        approved: false,
-        reason: 'Permission approval target is missing',
-      };
-    }
-
-    const routed = resolvePermissionApprovalTarget(request);
-    if ('blockedReason' in routed) {
-      return { approved: false, reason: routed.blockedReason };
-    }
-    const channel = input.findBoundChannel(
-      routed.targetJid,
-      request.providerAccountId,
-      request,
-    );
-    const approvalSurface = channel
-      ? input.asPermissionApprovalSurface(channel)
-      : undefined;
-    if (!approvalSurface) {
-      return {
-        approved: false,
-        reason: 'Target channel does not support permission approvals',
-      };
-    }
-    try {
-      return await new Promise<PermissionApprovalDecision>((resolve) => {
-        let settled = false;
-        const timer = setTimeout(() => {
-          if (settled) return;
-          settled = true;
-          resolve(permissionTimeoutDecision(request));
-        }, PERMISSION_APPROVAL_TIMEOUT_MS);
-        approvalSurface
-          .requestPermissionApproval(routed.targetJid, routed.request)
-          .then((decision) => {
-            if (settled) {
-              input.logger.error({
-                targetJid: routed.targetJid,
-                requestId: request.requestId,
-                message: 'Late permission approval ignored after timeout',
-              });
-              return;
-            }
-            settled = true;
-            clearTimeout(timer);
-            resolve(decision);
-          })
-          .catch((err: unknown) => {
-            if (settled) {
-              input.logger.error({
-                err,
-                targetJid: routed.targetJid,
-                requestId: request.requestId,
-                message:
-                  'Late permission approval failure ignored after timeout',
-              });
-              return;
-            }
-            settled = true;
-            clearTimeout(timer);
-            input.logger.error({
-              err,
-              targetJid: routed.targetJid,
-              requestId: request.requestId,
-              message: 'Target channel permission approval flow failed',
-            });
-            resolve({
-              approved: false,
-              reason: 'Permission approval flow failed',
-            });
-          });
-      });
-    } catch (err) {
-      input.logger.error({
-        err,
-        targetJid: routed.targetJid,
-        requestId: request.requestId,
-        message: 'Target channel permission approval flow failed',
-      });
-      return { approved: false, reason: 'Permission approval flow failed' };
-    }
-  };
-}
-
 export function createUserQuestionResponder(input: {
   findBoundChannel: (
     jid: string,
@@ -204,25 +78,88 @@ export function createUserQuestionResponder(input: {
   asUserQuestionSurface: (
     channel: ChannelLike,
   ) => UserQuestionSurfaceLike | undefined;
-  logger: ChannelWiringInteractionsLogger;
+  interactionLifecycle: {
+    logger: ChannelWiringInteractionsLogger;
+    resetStreaming?: (
+      jid: string,
+      options?: { providerAccountId?: string; threadId?: string },
+    ) => void;
+  };
 }): {
   requestUserAnswer: (
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;
+  cancelUserQuestion: (
+    cancellation: UserQuestionCancellation,
+  ) => Promise<'settled' | 'queued' | 'not_found'>;
   clear: () => void;
 } {
   const userQuestionResponseCache = new Map<string, UserQuestionResponse>();
+  const cancelledQuestionKeys = new Set<string>();
+  const queuedCancellations = new Map<string, UserQuestionCancellation>();
+  const activeCancellationHandlers = new Map<
+    string,
+    NonNullable<UserQuestionSurfaceLike['cancelPendingQuestion']>
+  >();
+  const activeCancellationTargets = new Map<string, string>();
 
-  async function requestUserAnswer(
+  const questionScopeKey = (
+    request: Pick<
+      UserQuestionRequest,
+      'appId' | 'sourceAgentFolder' | 'requestId'
+    >,
+  ): string =>
+    JSON.stringify([
+      request.appId || 'default',
+      request.sourceAgentFolder,
+      request.requestId,
+    ]);
+
+  async function settleQueuedCancellation(
+    cancellation: UserQuestionCancellation,
+  ): Promise<'settled' | 'queued'> {
+    const key = questionScopeKey(cancellation);
+    const cancel = activeCancellationHandlers.get(key);
+    if (!cancel) return 'queued';
+    const result = await cancel(cancellation);
+    if (result === 'settled' || result === 'already_decided') {
+      queuedCancellations.delete(key);
+      return 'settled';
+    }
+    // The durable IPC directory owns retries; a local timer can race it and cannot survive restart.
+    return 'queued';
+  }
+
+  async function settleQueuedCancellationSafely(
+    cancellation: UserQuestionCancellation,
+  ): Promise<'settled' | 'queued'> {
+    const key = questionScopeKey(cancellation);
+    const targetJid = activeCancellationTargets.get(key);
+    try {
+      return await settleQueuedCancellation(cancellation);
+    } catch (err) {
+      input.interactionLifecycle.logger.error({
+        err,
+        targetJid,
+        requestId: cancellation.requestId,
+        message: 'Target channel user question cancellation failed',
+      });
+      return 'queued';
+    }
+  }
+
+  async function dispatchUserAnswer(
     request: UserQuestionRequest,
+    onPromptDelivered?: (messageId: string, questionIndex?: number) => void,
   ): Promise<UserQuestionResponse> {
+    const key = questionScopeKey(request);
+    if (queuedCancellations.delete(key)) {
+      return { requestId: request.requestId, answers: {} };
+    }
     if (!request.targetJid) {
       return { requestId: request.requestId, answers: {} };
     }
 
-    const requestKey = `${request.targetJid}:${request.requestId}`;
-    const cached = userQuestionResponseCache.get(requestKey);
-    if (cached) return cached;
     const channel = input.findBoundChannel(request.targetJid, request);
     const questionSurface = channel
       ? input.asUserQuestionSurface(channel)
@@ -231,14 +168,49 @@ export function createUserQuestionResponder(input: {
       return { requestId: request.requestId, answers: {} };
     }
     try {
-      const response = await questionSurface.requestUserAnswer(
-        request.targetJid,
-        request,
-      );
-      userQuestionResponseCache.set(requestKey, response);
-      return response;
+      const cancelPendingQuestion = (cancellation: UserQuestionCancellation) =>
+        questionSurface.cancelPendingQuestion?.(cancellation) ??
+        Promise.resolve('not_found' as const);
+      activeCancellationHandlers.set(key, cancelPendingQuestion);
+      activeCancellationTargets.set(key, request.targetJid);
+      try {
+        return await questionSurface.requestUserAnswer(
+          request.targetJid,
+          request,
+          (messageId, questionIndex) => {
+            input.interactionLifecycle.resetStreaming?.(request.targetJid!, {
+              providerAccountId: request.providerAccountId,
+              threadId: request.threadId,
+            });
+            const cancellation = queuedCancellations.get(key);
+            if (cancellation) {
+              void settleQueuedCancellationSafely(cancellation);
+            }
+            if (questionIndex === undefined) {
+              onPromptDelivered?.(messageId);
+              return;
+            }
+            const deliveredIndexes =
+              questionSurface.questionIndexesForDeliveredPrompt?.(
+                request,
+                questionIndex,
+              ) ?? [questionIndex];
+            deliveredIndexes.forEach((index) =>
+              onPromptDelivered?.(messageId, index),
+            );
+          },
+        );
+      } finally {
+        activeCancellationHandlers.delete(key);
+        activeCancellationTargets.delete(key);
+        queuedCancellations.delete(key);
+      }
     } catch (err) {
-      input.logger.error({
+      if (err instanceof DurableInteractionPersistenceError) {
+        questionSurface.dropPendingInteraction?.('question', request);
+        throw err;
+      }
+      input.interactionLifecycle.logger.error({
         err,
         targetJid: request.targetJid,
         requestId: request.requestId,
@@ -248,10 +220,42 @@ export function createUserQuestionResponder(input: {
     }
   }
 
+  async function requestUserAnswer(
+    request: UserQuestionRequest,
+  ): Promise<UserQuestionResponse> {
+    const requestKey = questionScopeKey(request);
+    const cached = userQuestionResponseCache.get(requestKey);
+    if (cached) return cached;
+    const response = await dispatchUserAnswer(request);
+    if (cancelledQuestionKeys.delete(requestKey)) {
+      userQuestionResponseCache.delete(requestKey);
+    } else {
+      userQuestionResponseCache.set(requestKey, response);
+    }
+    return response;
+  }
+
+  async function cancelUserQuestion(
+    cancellation: UserQuestionCancellation,
+  ): Promise<'settled' | 'queued' | 'not_found'> {
+    const key = questionScopeKey(cancellation);
+    queuedCancellations.set(key, cancellation);
+    cancelledQuestionKeys.add(key);
+    userQuestionResponseCache.delete(key);
+    const cancel = activeCancellationHandlers.get(key);
+    if (!cancel) return 'queued';
+    return settleQueuedCancellationSafely(cancellation);
+  }
+
   return {
     requestUserAnswer,
+    cancelUserQuestion,
     clear: () => {
       userQuestionResponseCache.clear();
+      cancelledQuestionKeys.clear();
+      queuedCancellations.clear();
+      activeCancellationHandlers.clear();
+      activeCancellationTargets.clear();
     },
   };
 }

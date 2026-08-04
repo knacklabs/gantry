@@ -6,6 +6,7 @@ import {
   closeRuntimeStorage,
   getRuntimeStorage,
   initializeRuntimeStorage,
+  tryAcquireRuntimeAdvisoryLease,
 } from '../adapters/storage/postgres/runtime-store.js';
 import {
   getDeploymentMode,
@@ -16,8 +17,11 @@ import {
 import {
   importFleetSettingsRevision,
   importWorkstationSettings,
+  type WorkstationSettingsImportOutcome,
 } from '../config/settings/settings-import-service.js';
 import type { AppId } from '../domain/app/app.js';
+
+const leases = { tryAcquire: tryAcquireRuntimeAdvisoryLease };
 
 function usage(): string {
   return [
@@ -37,6 +41,17 @@ interface ImportFlags {
   fleet: boolean;
   expectedRevision?: number;
   note?: string;
+}
+
+export function reportWorkstationSettingsImportOutcome(
+  command: 'settings import' | 'settings export',
+  outcome: WorkstationSettingsImportOutcome,
+): void {
+  const status =
+    outcome.status === 'revision_created'
+      ? `revision_created(${outcome.revision})`
+      : outcome.status;
+  console.log(`${command} outcome: ${status}`);
 }
 
 function parseImportFlags(args: string[]): ImportFlags {
@@ -101,7 +116,7 @@ export async function runSettingsCommand(
 
     if (subcommand === 'export') {
       const exported = await service.exportCurrent(settings);
-      await importWorkstationSettings(
+      const outcome = await importWorkstationSettings(
         {
           runtimeHome,
           ops: storage.ops,
@@ -115,13 +130,15 @@ export async function runSettingsCommand(
             logWarn: (_context, message) => p.log.warn(message),
           },
           revisionMirrorRequired: true,
+          leases,
         },
         exported,
       );
       const agentCount = Object.keys(exported.agents).length;
       p.log.success(
-        `Exported ${agentCount} agent desired-state record(s) to a settings revision and settings.yaml.`,
+        `Exported ${agentCount} agent desired-state record(s) to desired state and settings.yaml.`,
       );
+      reportWorkstationSettingsImportOutcome('settings export', outcome);
       p.log.info(
         'Review settings.yaml before setting desired_state.authoritative=true.',
       );
@@ -198,6 +215,7 @@ async function runImport(
             logWarn: (_context, message) => p.log.warn(message),
           },
           revisionMirrorRequired: true,
+          leases,
           expectedRevision: Number.isInteger(flags.expectedRevision)
             ? flags.expectedRevision
             : null,
@@ -210,11 +228,10 @@ async function runImport(
       );
       return 1;
     }
-    const revisionText =
-      outcome.revision === undefined ? '' : ` ${outcome.revision}`;
     p.log.success(
-      `Imported ${flags.file} into settings revision${revisionText} and settings.yaml.`,
+      `Imported ${flags.file} into desired state and settings.yaml.`,
     );
+    reportWorkstationSettingsImportOutcome('settings import', outcome);
     return 0;
   }
 

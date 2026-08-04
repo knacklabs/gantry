@@ -51,6 +51,14 @@ export async function recordDreamDecision(input: {
   });
 }
 
+export interface RouteMemoryProposalOutcome {
+  action: DreamDecisionAction;
+  /** Set only when a pending review was created (or already exists) for this
+   * proposal, so callers can collect the newly-surfaced review ids without
+   * reverse-parsing the human summary. */
+  reviewId?: string;
+}
+
 export async function routeMemoryProposalToReview(input: {
   db: Db;
   runId: string;
@@ -63,7 +71,7 @@ export async function routeMemoryProposalToReview(input: {
   evidenceIds?: string[];
   reviewRationale: string;
   blockRationale: string;
-}): Promise<DreamDecisionAction> {
+}): Promise<RouteMemoryProposalOutcome> {
   if (input.dryRun) {
     await recordDreamDecision({
       db: input.db,
@@ -76,7 +84,7 @@ export async function routeMemoryProposalToReview(input: {
       ...(input.evidenceIds ? { evidenceIds: input.evidenceIds } : {}),
       applied: false,
     });
-    return 'dry_run';
+    return { action: 'dry_run' };
   }
   let outcome: CreateMemoryReviewOutcome = { status: 'invalid', reviewId: '' };
   const createReview = async (
@@ -122,7 +130,7 @@ export async function routeMemoryProposalToReview(input: {
       ...(input.evidenceIds ? { evidenceIds: input.evidenceIds } : {}),
       applied: false,
     });
-    return 'skip';
+    return { action: 'skip' };
   }
   const reviewId =
     outcome.status === 'created' || outcome.status === 'pending_exists'
@@ -145,5 +153,9 @@ export async function routeMemoryProposalToReview(input: {
     ...(input.evidenceIds ? { evidenceIds: input.evidenceIds } : {}),
     applied: false,
   });
-  return action;
+  // Only a review created THIS run counts as newly-surfaced. A `pending_exists`
+  // outcome (the proposal re-encounters a review that already exists) must NOT
+  // report a reviewId, or every recurring dreaming run would re-announce the
+  // same review until the user resolves it.
+  return outcome.status === 'created' ? { action, reviewId } : { action };
 }

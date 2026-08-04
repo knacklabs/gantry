@@ -1,14 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { SessionInteractionModule } from '@core/application/sessions/session-interaction-module.js';
-import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
+import {
+  SessionInteractionModule,
+  makeAppGroup,
+} from '@core/application/sessions/session-interaction-module.js';
 
 function makeModule(overrides?: {
   control?: Record<string, unknown>;
   ops?: Record<string, unknown>;
   repositories?: Record<string, unknown>;
   runtimeEvents?: Record<string, unknown>;
-  liveAdmissionAppId?: string | null;
   getConfiguredAgentRuntime?: (
     agentFolder: string,
   ) => 'worker' | 'inline' | undefined;
@@ -17,8 +18,9 @@ function makeModule(overrides?: {
     ensureAppSession: vi.fn(async (input) => ({
       sessionId: 'session-1',
       appId: input.appId,
-      agentId: input.agentId ?? null,
+      agentId: 'agent-one',
       conversationId: input.conversationId,
+      canonicalConversationId: `canonical:${input.appId}:${input.conversationId}`,
       conversationJid: input.conversationJid,
       workspaceKey: input.folder,
       defaultResponseMode: input.defaultResponseMode ?? 'sse',
@@ -28,8 +30,9 @@ function makeModule(overrides?: {
     getAppSessionById: vi.fn(async () => ({
       sessionId: 'session-1',
       appId: 'app-one',
-      agentId: 'agent:tender-folder',
+      agentId: 'agent-one',
       conversationId: 'conv-1',
+      canonicalConversationId: 'canonical:app-one:conv-1',
       conversationJid: 'app:app-one:conv-1',
       workspaceKey: 'group',
       defaultResponseMode: 'sse',
@@ -56,100 +59,50 @@ function makeModule(overrides?: {
   const ops = {
     storeChatMetadata: vi.fn(async () => undefined),
     storeMessage: vi.fn(async () => undefined),
-    getMessageThreadIds: vi.fn(async () => [null]),
     ...overrides?.ops,
-  };
-  const repositories = {
-    agents: {
-      getAgent: vi.fn(),
-      listAgents: vi.fn(async () => []),
-    },
-    agentSessions: {
-      getAgentSession: vi.fn(async () => ({
-        id: 'session-1',
-        appId: 'app-one',
-        agentId: 'agent:tender-folder',
-        conversationId: 'conv-1',
-        status: 'active',
-        createdAt: '2026-04-30T00:00:00.000Z',
-        updatedAt: '2026-04-30T00:00:00.000Z',
-      })),
-      saveAgentSession: vi.fn(async () => undefined),
-    },
-    providerSessions: {
-      getLatestProviderSession: vi.fn(async () => null),
-      markProviderSessionStatus: vi.fn(async () => undefined),
-    },
-    messages: {},
-    agentRuns: {},
-    ...overrides?.repositories,
   };
   const module = new SessionInteractionModule({
     control: control as never,
     ops: ops as never,
-    repositories: repositories as never,
+    // The session feeds resolve conversation rows by jid and union them, so
+    // every case needs this port even when it overrides other repositories.
+    repositories: {
+      messages: { listConversationIdsForJid: vi.fn(async () => []) },
+      ...(overrides?.repositories ?? {}),
+      ...(overrides?.repositories &&
+      (overrides.repositories as { messages?: unknown }).messages
+        ? {
+            messages: {
+              listConversationIdsForJid: vi.fn(async () => []),
+              ...(overrides.repositories as { messages: object }).messages,
+            },
+          }
+        : {}),
+    } as never,
     runtimeEvents: runtimeEvents as never,
-    liveAdmissionAppId: overrides?.liveAdmissionAppId,
     getConfiguredAgentRuntime:
       overrides?.getConfiguredAgentRuntime ?? vi.fn(() => 'inline'),
     now: () => '2026-04-30T00:00:00.000Z' as never,
     createId: () => 'id-1',
     stableHash: () => '123456789abc',
   });
-  return { module, control, ops, repositories, runtimeEvents };
+  return { module, control, ops, runtimeEvents };
 }
 
 describe('SessionInteractionModule', () => {
-  it('binds a named app agent and returns its canonical execution context', async () => {
-    const { module, control } = makeModule({
-      repositories: {
-        agents: {
-          listAgents: vi.fn(async () => [
-            {
-              id: 'agent:tender-folder',
-              appId: 'app-one',
-              name: 'Tender Agent',
-              status: 'active',
-            },
-          ]),
-        },
-      },
-    });
-
-    const result = await module.ensureSession({
-      appId: 'app-one',
-      conversationId: 'conv-1',
-      agentName: 'Tender Agent',
-    });
-
-    expect(control.ensureAppSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agentId: 'agent:tender-folder',
-        folder: 'tender-folder',
+  it('marks app-session groups as web_user identity routes with sdk as the system sender sentinel', () => {
+    expect(
+      makeAppGroup({
+        appId: 'app-one',
+        conversationId: 'conv-1',
+        conversationJid: 'app:app-one:conv-1',
+        identityHash: '123456789abc',
+        addedAt: '2026-04-30T00:00:00.000Z',
       }),
-    );
-    expect(result.session).toMatchObject({
-      sessionId: 'session-1',
-      conversationJid: 'app:app-one:conv-1',
-      workspaceKey: 'tender-folder',
+    ).toMatchObject({
+      senderIdentityEvidenceType: 'web_user',
+      systemSenderIds: ['sdk'],
     });
-  });
-
-  it('generates valid bounded workspace folders for long app sessions', async () => {
-    const { module, control } = makeModule();
-
-    await module.ensureSession({
-      appId: 'a'.repeat(64),
-      conversationId: 'b'.repeat(64),
-    });
-
-    expect(control.ensureAppSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        folder: expect.stringMatching(/^app_123456789abc_/),
-      }),
-    );
-    const [{ folder }] = control.ensureAppSession.mock.calls[0]!;
-    expect(folder).toHaveLength(64);
   });
 
   it('rejects non-canonical conversation ids before creating app chat ids', async () => {
@@ -168,13 +121,65 @@ describe('SessionInteractionModule', () => {
     expect(control.ensureAppSession).not.toHaveBeenCalled();
   });
 
+  it('binds an SDK session to one immutable app user assertion', async () => {
+    const { module, control } = makeModule({
+      control: {
+        getAppSessionById: vi.fn(async () => ({
+          sessionId: 'session-1',
+          appId: 'app-one',
+          conversationId: 'conv-1',
+          conversationJid: 'app:app-one:conv-1',
+          workspaceKey: 'group',
+          defaultResponseMode: 'sse',
+          defaultWebhookId: null,
+          appUser: { authorityId: 'web-app', subject: 'user-1' },
+        })),
+      },
+    });
+
+    await module.ensureSession({
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      conversationKind: 'dm',
+      appUser: { authorityId: 'web-app', subject: 'user-1' },
+    });
+    expect(control.ensureAppSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appUser: { authorityId: 'web-app', subject: 'user-1' },
+      }),
+    );
+
+    await expect(
+      module.acceptMessage({
+        appId: 'app-one',
+        sessionId: 'session-1',
+        message: 'hello',
+        senderId: 'user-2',
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'SDK session is bound to a different app user.',
+    });
+
+    // An omitted senderId on a bound session means the bound user.
+    await expect(
+      module.acceptMessage({
+        appId: 'app-one',
+        sessionId: 'session-1',
+        message: 'anonymous message',
+      }),
+    ).resolves.toMatchObject({ accepted: true });
+  });
+
   it('rejects waits for sessions outside the authenticated app', async () => {
     const { module, runtimeEvents } = makeModule({
       control: {
         getAppSessionById: vi.fn(async () => ({
           sessionId: 'session-1',
           appId: 'app-two',
+          agentId: 'agent-two',
           conversationId: 'conv-1',
+          canonicalConversationId: 'canonical:app-two:conv-1',
           conversationJid: 'app:app-two:conv-1',
           workspaceKey: 'group',
           defaultResponseMode: 'sse',
@@ -253,13 +258,8 @@ describe('SessionInteractionModule', () => {
   it('stores accepted SDK messages with durable live admission work', async () => {
     const order: string[] = [];
     const publish = vi.fn();
-    const upsertAppResponseRoute = vi.fn();
-    const publishWithLiveAdmissionMessage = vi.fn(async (event, admission) => {
+    const publishWithLiveAdmissionMessage = vi.fn(async (_event, admission) => {
       order.push('publishAcceptedEventAndStoreAdmission');
-      expect(event).toMatchObject({
-        conversationId: 'app:app-one:conv-1',
-        threadId: 'thread-1',
-      });
       expect(admission).toMatchObject({
         message: {
           chat_jid: 'app:app-one:conv-1',
@@ -273,28 +273,9 @@ describe('SessionInteractionModule', () => {
             thinking: { mode: 'on', budgetTokens: 1024 },
             maxOutputTokens: 4096,
           },
-          appResponseRoute: {
-            sessionId: 'session-1',
-            threadId: 'thread-1',
-            responseMode: 'webhook',
-            webhookId: null,
-            correlationId: 'corr-1',
-          },
         },
         liveAdmission: {
-          appId: 'app-one',
-          agentId: 'agent:tender-folder',
-          agentSessionId: 'session-1',
-          sdkSessionAdmissionRequest: {
-            requestMessageId: expect.any(String),
-            idempotencyKey: 'teams-activity-1',
-            requestFingerprint: '123456789abc',
-            queuePolicy: {
-              maxWaitingMessages: 3,
-              maxQueueWaitMs: 90_000,
-              executionTimeoutMs: 90_000,
-            },
-          },
+          appId: 'default',
           triggerDecision: {
             source: 'sdk_session',
             responseMode: 'webhook',
@@ -303,7 +284,6 @@ describe('SessionInteractionModule', () => {
         },
       });
       return {
-        outcome: 'accepted',
         event: { eventId: 1001 },
         liveAdmissionResult: {
           outcome: 'enqueued',
@@ -313,7 +293,14 @@ describe('SessionInteractionModule', () => {
     });
     const { module, ops } = makeModule({
       control: {
-        upsertAppResponseRoute,
+        upsertAppResponseRoute: vi.fn(async () => {
+          order.push('upsertAppResponseRoute');
+          return {
+            responseMode: 'webhook',
+            webhookId: null,
+            correlationId: 'corr-1',
+          };
+        }),
       },
       ops: {
         notifyLiveAdmissionWorkItem: vi.fn(async () => {
@@ -326,41 +313,38 @@ describe('SessionInteractionModule', () => {
       },
     });
 
-    const accepted = await module.acceptMessage({
-      appId: 'app-one',
-      sessionId: 'session-1',
-      idempotencyKey: 'teams-activity-1',
-      queuePolicy: {
-        maxWaitingMessages: 3,
-        maxQueueWaitMs: 90_000,
-        executionTimeoutMs: 90_000,
+    const accepted = await module.acceptMessage(
+      {
+        appId: 'app-one',
+        sessionId: 'session-1',
+        message: 'hello from sdk',
+        threadId: 'thread-1',
+        responseMode: 'webhook',
+        senderId: 'user-1',
+        senderName: 'User One',
+        correlationId: 'corr-1',
+        responseSchema: {
+          type: 'object',
+          required: ['answer'],
+        },
+        agentControls: {
+          effort: 'high',
+          thinking: { mode: 'on', budgetTokens: 1024 },
+          maxOutputTokens: 4096,
+        },
+        beforeDurableAdmission: async () => {
+          order.push('beforeDurableAdmission');
+        },
       },
-      message: 'hello from sdk',
-      threadId: 'thread-1',
-      responseMode: 'webhook',
-      senderId: 'user-1',
-      senderName: 'User One',
-      correlationId: 'corr-1',
-      responseSchema: {
-        type: 'object',
-        required: ['answer'],
-      },
-      agentControls: {
-        effort: 'high',
-        thinking: { mode: 'on', budgetTokens: 1024 },
-        maxOutputTokens: 4096,
-      },
-      beforeDurableAdmission: async () => {
-        order.push('beforeDurableAdmission');
-      },
-    });
+      'default',
+    );
 
     expect(order).toEqual([
+      'upsertAppResponseRoute',
       'beforeDurableAdmission',
       'publishAcceptedEventAndStoreAdmission',
       'notifyLiveAdmissionWorkItem',
     ]);
-    expect(upsertAppResponseRoute).not.toHaveBeenCalled();
     expect(publish).not.toHaveBeenCalled();
     expect(ops.storeMessage).not.toHaveBeenCalled();
     expect(accepted.enqueue).toEqual({
@@ -369,82 +353,39 @@ describe('SessionInteractionModule', () => {
       queueKey: 'app:app-one:conv-1::thread:thread-1',
       durableAdmissionCreated: true,
     });
-    expect(accepted.replayed).toBe(false);
   });
 
-  it('returns the original SDK receipt without notifying or enqueueing an exact replay', async () => {
+  it('does not notify or report durable work for overloaded admission', async () => {
     const notifyLiveAdmissionWorkItem = vi.fn();
-    const { module, ops } = makeModule({
+    const { module } = makeModule({
       ops: { notifyLiveAdmissionWorkItem },
       runtimeEvents: {
         publishWithLiveAdmissionMessage: vi.fn(async () => ({
-          outcome: 'replayed',
-          messageId: 'original-message',
-          acceptedEventId: 77,
+          event: { eventId: 1001 },
+          liveAdmissionResult: { outcome: 'overloaded' },
         })),
       },
     });
 
-    await expect(
-      module.acceptMessage({
+    const accepted = await module.acceptMessage(
+      {
         appId: 'app-one',
         sessionId: 'session-1',
-        idempotencyKey: 'same-request',
-        queuePolicy: {
-          maxWaitingMessages: 3,
-          maxQueueWaitMs: 90_000,
-          executionTimeoutMs: 90_000,
-        },
         message: 'hello from sdk',
-      }),
-    ).resolves.toMatchObject({
-      accepted: true,
-      replayed: true,
-      messageId: 'original-message',
-      acceptedEventId: 77,
-      enqueue: { durableAdmissionCreated: true },
-    });
-    expect(ops.storeMessage).not.toHaveBeenCalled();
+      },
+      'default',
+    );
+
     expect(notifyLiveAdmissionWorkItem).not.toHaveBeenCalled();
+    expect(accepted.enqueue.durableAdmissionCreated).toBe(false);
   });
 
-  it.each([
-    ['fingerprint_conflict', 'SESSION_IDEMPOTENCY_CONFLICT'],
-    ['capacity_exceeded', 'SESSION_QUEUE_FULL'],
-  ] as const)(
-    'fails SDK admission outcome %s with stable code %s',
-    async (outcome, code) => {
-      const { module } = makeModule({
-        runtimeEvents: {
-          publishWithLiveAdmissionMessage: vi.fn(async () =>
-            outcome === 'capacity_exceeded'
-              ? { outcome, activeAndWaiting: 4, capacity: 4 }
-              : { outcome },
-          ),
-        },
-      });
-
-      await expect(
-        module.acceptMessage({
-          appId: 'app-one',
-          sessionId: 'session-1',
-          idempotencyKey: 'same-request',
-          queuePolicy: {
-            maxWaitingMessages: 3,
-            maxQueueWaitMs: 90_000,
-            executionTimeoutMs: 90_000,
-          },
-          message: 'hello from sdk',
-        }),
-      ).rejects.toMatchObject({ code });
-    },
-  );
-
-  it('accepts and persists response schemas for worker runtimes', async () => {
+  it('rejects response schemas for worker runtimes before persistence or durable admission', async () => {
     const getConfiguredAgentRuntime = vi.fn(() => 'worker' as const);
-    const { module, ops } = makeModule({
+    const publishWithLiveAdmissionMessage = vi.fn();
+    const { module, control, ops, runtimeEvents } = makeModule({
       getConfiguredAgentRuntime,
-      liveAdmissionAppId: null,
+      runtimeEvents: { publishWithLiveAdmissionMessage },
     });
 
     await expect(
@@ -453,143 +394,65 @@ describe('SessionInteractionModule', () => {
         sessionId: 'session-1',
         message: 'hello from sdk',
         responseSchema: { type: 'object' },
-      }),
-    ).resolves.toMatchObject({ accepted: true });
-
-    expect(ops.storeMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ responseSchema: { type: 'object' } }),
-    );
-  });
-
-  it('persists explicit bounded continuity on the accepted message', async () => {
-    const { module, ops } = makeModule({ liveAdmissionAppId: null });
-
-    await module.acceptMessage({
-      appId: 'app-one',
-      sessionId: 'session-1',
-      message: 'bounded turn',
-      continuityMode: 'bounded',
-    });
-
-    expect(ops.storeMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ continuityMode: 'bounded' }),
-    );
-  });
-
-  it('archives the session and expires its provider continuity idempotently', async () => {
-    const saveAgentSession = vi.fn(async () => undefined);
-    const markProviderSessionStatus = vi.fn(async () => undefined);
-    const { module } = makeModule({
-      ops: {
-        getMessageThreadIds: vi.fn(async () => [null, 'thread-one']),
-      },
-      repositories: {
-        agentSessions: {
-          getAgentSession: vi.fn(async () => ({
-            id: 'session-1',
-            appId: 'app-one',
-            agentId: 'agent:tender-folder',
-            conversationId: 'conv-1',
-            status: 'active',
-            createdAt: '2026-04-30T00:00:00.000Z',
-            updatedAt: '2026-04-30T00:00:00.000Z',
-          })),
-          saveAgentSession,
-        },
-        providerSessions: {
-          getLatestProviderSession: vi.fn(async () => ({
-            id: 'provider-session-1',
-            agentSessionId: 'session-1',
-            status: 'active',
-          })),
-          markProviderSessionStatus,
-        },
-      },
-    });
-
-    await expect(
-      module.archiveSession({ appId: 'app-one', sessionId: 'session-1' }),
-    ).resolves.toMatchObject({
-      archived: true,
-      alreadyArchived: false,
-      queueKeys: [
-        'app:app-one:conv-1',
-        'app:app-one:conv-1::thread:thread-one',
-      ],
-    });
-    expect(saveAgentSession).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'archived' }),
-    );
-    expect(markProviderSessionStatus).toHaveBeenCalledWith(
-      'provider-session-1',
-      'expired',
-      '2026-04-30T00:00:00.000Z',
-    );
-  });
-
-  it('rejects new turns for archived sessions', async () => {
-    const { module, ops } = makeModule({
-      repositories: {
-        agentSessions: {
-          getAgentSession: vi.fn(async () => ({
-            id: 'session-1',
-            status: 'archived',
-          })),
-          saveAgentSession: vi.fn(),
-        },
-      },
-    });
-
-    await expect(
-      module.acceptMessage({
-        appId: 'app-one',
-        sessionId: 'session-1',
-        message: 'late message',
       }),
     ).rejects.toMatchObject({
-      code: 'CONFLICT',
-      message: 'Session is archived',
+      code: 'INVALID_REQUEST',
+      message: 'response_schema requires an inline agent runtime',
     });
+
+    expect(getConfiguredAgentRuntime).toHaveBeenCalledWith('group');
+    expect(ops.storeChatMetadata).not.toHaveBeenCalled();
+    expect(control.upsertAppResponseRoute).not.toHaveBeenCalled();
     expect(ops.storeMessage).not.toHaveBeenCalled();
+    expect(publishWithLiveAdmissionMessage).not.toHaveBeenCalled();
+    expect(runtimeEvents.publish).not.toHaveBeenCalled();
   });
 
-  it('accepts response schemas when no settings agent entry resolves', async () => {
+  it('rejects response schemas when no settings agent entry resolves', async () => {
     const getConfiguredAgentRuntime = vi.fn(() => undefined);
-    const { module, ops } = makeModule({
+    const { module, control, ops, runtimeEvents } = makeModule({
       getConfiguredAgentRuntime,
-      liveAdmissionAppId: null,
     });
 
     await expect(
-      module.acceptMessage({
-        appId: 'app-one',
-        sessionId: 'session-1',
-        message: 'hello from sdk',
-        responseSchema: { type: 'object' },
-      }),
-    ).resolves.toMatchObject({ accepted: true });
+      module.acceptMessage(
+        {
+          appId: 'app-one',
+          sessionId: 'session-1',
+          message: 'hello from sdk',
+          responseSchema: { type: 'object' },
+        },
+        null,
+      ),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: 'response_schema requires an inline agent runtime',
+    });
 
-    expect(ops.storeMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ responseSchema: { type: 'object' } }),
-    );
+    expect(getConfiguredAgentRuntime).toHaveBeenCalledWith('group');
+    expect(ops.storeChatMetadata).not.toHaveBeenCalled();
+    expect(control.upsertAppResponseRoute).not.toHaveBeenCalled();
+    expect(ops.storeMessage).not.toHaveBeenCalled();
+    expect(runtimeEvents.publish).not.toHaveBeenCalled();
   });
 
   it('accepts and persists response schemas for inline runtimes', async () => {
     const getConfiguredAgentRuntime = vi.fn(() => 'inline' as const);
-    const { module, ops } = makeModule({
-      getConfiguredAgentRuntime,
-      liveAdmissionAppId: null,
-    });
+    const { module, ops } = makeModule({ getConfiguredAgentRuntime });
 
     await expect(
-      module.acceptMessage({
-        appId: 'app-one',
-        sessionId: 'session-1',
-        message: 'hello from sdk',
-        responseSchema: { type: 'object' },
-      }),
+      module.acceptMessage(
+        {
+          appId: 'app-one',
+          sessionId: 'session-1',
+          message: 'hello from sdk',
+          responseSchema: { type: 'object' },
+        },
+        null,
+      ),
     ).resolves.toMatchObject({ accepted: true });
 
+    expect(getConfiguredAgentRuntime).toHaveBeenCalledWith('group');
     expect(ops.storeMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         responseSchema: { type: 'object' },
@@ -603,16 +466,18 @@ describe('SessionInteractionModule', () => {
       item: {},
     }));
     const { module, ops } = makeModule({
-      liveAdmissionAppId: null,
       ops: { storeMessageWithLiveAdmission },
     });
 
-    const accepted = await module.acceptMessage({
-      appId: 'app-one',
-      sessionId: 'session-1',
-      message: 'hello from sdk',
-      responseSchema: { type: 'object' },
-    });
+    const accepted = await module.acceptMessage(
+      {
+        appId: 'app-one',
+        sessionId: 'session-1',
+        message: 'hello from sdk',
+        responseSchema: { type: 'object' },
+      },
+      null,
+    );
 
     expect(storeMessageWithLiveAdmission).not.toHaveBeenCalled();
     expect(ops.storeMessage).toHaveBeenCalledWith(
@@ -705,7 +570,10 @@ describe('SessionInteractionModule', () => {
     expect(runtimeEvents.subscribe).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: 'app-one',
-        sessionId: 'session-1',
+        // A set, not one id: a jid can map to several conversation rows, and
+        // filtering on the canonical one alone hides events recorded under a
+        // route that predates it.
+        conversationIds: ['canonical:app-one:conv-1'],
         afterEventId: 9,
       }),
     );
@@ -713,49 +581,166 @@ describe('SessionInteractionModule', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('publishes the run and immutable response route selected for the turn', async () => {
-    const route = {
-      sessionId: 'session-1',
-      threadId: 'thread-1',
-      responseMode: 'webhook' as const,
-      webhookId: 'webhook-1',
-      correlationId: 'correlation-1',
+  describe('ensureSession agent targeting', () => {
+    const agent = {
+      id: 'agent:folder-one',
+      appId: 'app-one',
+      name: 'My Agent',
+      status: 'active',
     };
-    const getAppResponseRoute = vi.fn();
-    const publish = vi.fn(async () => ({ eventId: 1002 }));
-    const { module } = makeModule({
-      control: {
-        getAppSessionByChatJid: vi.fn(async () => ({
-          sessionId: 'session-1',
+
+    it('binds the ensured session to the requested agent folder', async () => {
+      const getAgent = vi.fn(async () => agent);
+      const { module, control } = makeModule({
+        repositories: { agents: { getAgent } },
+      });
+
+      const result = await module.ensureSession({
+        appId: 'app-one',
+        agentId: 'agent:folder-one',
+        conversationId: 'conv-1',
+      });
+
+      expect(getAgent).toHaveBeenCalledWith('agent:folder-one');
+      expect(control.ensureAppSession).toHaveBeenCalledWith(
+        expect.objectContaining({
           appId: 'app-one',
+          conversationId: 'conv-1',
           conversationJid: 'app:app-one:conv-1',
-          defaultResponseMode: 'sse',
-          defaultWebhookId: null,
-        })),
-        getAppResponseRoute,
-      },
-      runtimeEvents: { publish },
+          folder: 'folder-one',
+        }),
+      );
+      expect(result.registerGroup.group).toMatchObject({
+        name: 'My Agent',
+        folder: 'folder-one',
+      });
+      expect(result.session.workspaceKey).toBe('folder-one');
     });
 
-    await module.publishOutboundEvent({
-      conversationJid: 'app:app-one:conv-1',
-      eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_STREAMING,
-      payload: { text: 'answer', threadId: 'thread-1' },
-      runId: 'run-1',
-      appResponseRoute: route,
+    it('keeps the synthetic folder when agentId is omitted', async () => {
+      const getAgent = vi.fn();
+      const { module, control } = makeModule({
+        repositories: { agents: { getAgent } },
+      });
+
+      const result = await module.ensureSession({
+        appId: 'app-one',
+        conversationId: 'conv-1',
+      });
+
+      expect(getAgent).not.toHaveBeenCalled();
+      expect(result.registerGroup.group.folder).toBe(
+        'app_123456789abc_app_one_conv_1',
+      );
+      expect(control.ensureAppSession).toHaveBeenCalledWith(
+        expect.objectContaining({ folder: 'app_123456789abc_app_one_conv_1' }),
+      );
     });
 
-    expect(getAppResponseRoute).not.toHaveBeenCalled();
-    expect(publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_STREAMING,
-        sessionId: 'session-1',
-        runId: 'run-1',
-        threadId: 'thread-1',
-        correlationId: 'correlation-1',
-        responseMode: 'webhook',
-        webhookId: 'webhook-1',
-      }),
-    );
+    it('rejects an unknown agentId without creating a session', async () => {
+      const { module, control } = makeModule({
+        repositories: { agents: { getAgent: vi.fn(async () => null) } },
+      });
+
+      await expect(
+        module.ensureSession({
+          appId: 'app-one',
+          agentId: 'agent:missing',
+          conversationId: 'conv-1',
+        }),
+      ).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+        message: 'Agent not found',
+      });
+      expect(control.ensureAppSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects an agent that belongs to another app', async () => {
+      const { module, control } = makeModule({
+        repositories: {
+          agents: {
+            getAgent: vi.fn(async () => ({ ...agent, appId: 'app-two' })),
+          },
+        },
+      });
+
+      await expect(
+        module.ensureSession({
+          appId: 'app-one',
+          agentId: 'agent:folder-one',
+          conversationId: 'conv-1',
+        }),
+      ).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+        message: 'Agent not found',
+      });
+      expect(control.ensureAppSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects an agent that is not active', async () => {
+      const { module, control } = makeModule({
+        repositories: {
+          agents: {
+            getAgent: vi.fn(async () => ({ ...agent, status: 'disabled' })),
+          },
+        },
+      });
+
+      await expect(
+        module.ensureSession({
+          appId: 'app-one',
+          agentId: 'agent:folder-one',
+          conversationId: 'conv-1',
+        }),
+      ).rejects.toMatchObject({
+        code: 'INVALID_REQUEST',
+        message: 'Agent is not active: agent:folder-one',
+      });
+      expect(control.ensureAppSession).not.toHaveBeenCalled();
+    });
+
+    it('archives the session and expires provider continuity idempotently', async () => {
+      const saveAgentSession = vi.fn(async () => undefined);
+      const markProviderSessionStatus = vi.fn(async () => undefined);
+      const { module } = makeModule({
+        ops: { getMessageThreadIds: vi.fn(async () => [null, 'thread-one']) },
+        repositories: {
+          agentSessions: {
+            getAgentSession: vi.fn(async () => ({
+              id: 'session-1',
+              status: 'active',
+              updatedAt: '2026-04-29T00:00:00.000Z',
+            })),
+            saveAgentSession,
+          },
+          providerSessions: {
+            getLatestProviderSession: vi.fn(async () => ({
+              id: 'provider-session-1',
+              status: 'active',
+            })),
+            markProviderSessionStatus,
+          },
+        },
+      });
+
+      await expect(
+        module.archiveSession({ appId: 'app-one', sessionId: 'session-1' }),
+      ).resolves.toEqual({
+        archived: true,
+        alreadyArchived: false,
+        queueKeys: [
+          'app:app-one:conv-1',
+          'app:app-one:conv-1::thread:thread-one',
+        ],
+      });
+      expect(saveAgentSession).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'archived' }),
+      );
+      expect(markProviderSessionStatus).toHaveBeenCalledWith(
+        'provider-session-1',
+        'expired',
+        '2026-04-30T00:00:00.000Z',
+      );
+    });
   });
 });

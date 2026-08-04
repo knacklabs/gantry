@@ -12,7 +12,6 @@ export interface ClaudeSdkToolSearchDecision {
   reason:
     | 'official_auto_threshold'
     | 'gantry_gateway_tool_reference_pass_through'
-    | 'caller_resolved_tools_require_eager_loading'
     | 'non_first_party_base_url_tool_reference_unproven'
     | 'invalid_base_url_tool_reference_unproven'
     | 'no_registered_tools';
@@ -35,7 +34,6 @@ export function decideClaudeSdkToolSearch(input: {
   allowedTools: readonly string[];
   disallowedTools: readonly string[];
   mcpServers: Record<string, unknown>;
-  requireEagerTools?: boolean;
 }): ClaudeSdkToolSearchDecision {
   const availableToolCount = input.availableTools.length;
   const allowedToolCount = input.allowedTools.length;
@@ -67,14 +65,6 @@ export function decideClaudeSdkToolSearch(input: {
     return {
       enableToolSearch: 'false',
       reason: 'no_registered_tools',
-      ...metrics,
-    };
-  }
-
-  if (input.requireEagerTools) {
-    return {
-      enableToolSearch: 'false',
-      reason: 'caller_resolved_tools_require_eager_loading',
       ...metrics,
     };
   }

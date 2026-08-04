@@ -30,7 +30,7 @@ export class ToolchainBakeSender implements ToolchainBakeQueuePort {
     if (this.boss) return;
     const boss = new PgBoss({
       connectionString: this.options.connectionString,
-      schema: this.options.schema ?? 'gantry_pgboss',
+      schema: this.options.schema ?? 'pgboss',
       createSchema: true,
       migrate: true,
       application_name:
@@ -105,7 +105,7 @@ export class ToolchainBakeQueue implements ToolchainBakeQueuePort {
     if (this.boss) return;
     const boss = new PgBoss({
       connectionString: this.options.connectionString,
-      schema: this.options.schema ?? 'gantry_pgboss',
+      schema: this.options.schema ?? 'pgboss',
       createSchema: true,
       migrate: true,
       application_name: this.options.applicationName ?? 'gantry-toolchain-bake',

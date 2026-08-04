@@ -4,31 +4,22 @@ import {
   toGroupMessageCursor,
 } from '../shared/message-cursor.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { MessageSendOptions } from '../domain/types.js';
-import {
-  createSerializedAgentOutputCallbacks,
-  isAgentTurnCompleteMarker,
-} from './agent-output-callbacks.js';
+import { MessageSendOptions, NewMessage } from '../domain/types.js';
+import * as agentOutputCallbacks from './agent-output-callbacks.js';
 import * as progress from './progress-updates.js';
 import { finalizeGroupAgentUserVisibleOutput } from './group-output-finalization.js';
-import { formatMessages } from '../messaging/router.js';
 import type { AgentOutput } from './agent-spawn.js';
 import { handleSessionCommand } from '../session/session-commands.js';
 import type {
   GroupProcessOptions,
   GroupProcessingDeps,
 } from './group-processing-types.js';
-import { getGroupMemoryStatus } from './group-memory-commands.js';
-import { runDreamingForGroup } from './memory-dreaming-runner.js';
 import { settleDeliveryAttempt } from '../jobs/delivery.js';
 import { resolveMemoryUserId } from './session-resume-runtime.js';
 import { firstThreadQueueId } from '../shared/thread-queue-key.js';
-import { formatElapsed } from './time-format.js';
-import { createRuntimeModelStatusAccess } from './model-status-store.js';
 import { getConfiguredModelProvidersForApp } from '../adapters/storage/postgres/runtime-store.js';
 import { resolveGroupProcessingRouteContext } from './command-override-route-key.js';
 import { memoryScopeForConversationKind } from './group-run-context.js';
-import { getGroupBrowserStatus } from './group-browser-status.js';
 import {
   handleFailure,
   resetGroupStreamingForTurn,
@@ -36,11 +27,6 @@ import {
   shouldSendTurnFinalProgress,
   waitOutput,
 } from './group-processing-flow.js';
-import {
-  createAdvanceCursorHandler,
-  createSaveProcedureHandler,
-  createSenderCommandPolicy,
-} from './group-session-command-state.js';
 import { groupTurnHasRequiredTrigger } from './group-trigger-policy.js';
 import {
   createResponseProgressSenders,
@@ -52,8 +38,6 @@ import {
   createGroupAgentRunner,
   type GroupAgentRunResult,
 } from './group-agent-runner.js';
-import { createSessionCommandAgentRunners } from './group-session-command-runner.js';
-import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import {
   isModelAccessAuthFailure,
   sendModelAccessAuthFailureNotice,
@@ -62,11 +46,31 @@ import { createGroupTurnOptionBuilders } from './group-turn-options.js';
 import { collectPendingMessagesSince } from './pending-message-replay.js';
 import { buildGroupProcessingConversationContext } from './group-processing-context.js';
 import { createGroupOutputBuffer } from './group-output-buffer.js';
+import { persistTurnAssistantTranscript } from './group-output-finalization.js';
 import { activeTurnUiCleanupByQueue } from './group-active-turn-cleanup.js';
+import { randomUUID } from 'node:crypto';
+import { nowIso } from '../shared/time/datetime.js';
 import { createGroupProcessingSessionCommandHandlers } from './group-processing-session-command-handlers.js';
+import { createGroupProcessingPersonResolver } from './group-person-identity.js';
+import {
+  isFailoverEligibleError,
+  isMissingProviderSessionError,
+} from './failover-eligibility.js';
 let streamingGenerationCounter = 0;
 const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
+const PROVIDER_FAILOVER_EXHAUSTED_MESSAGE =
+  "The AI provider is unavailable and your message couldn't be processed after several retries. Please try again shortly.";
 type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
+
+function slackChannelRootThreadId(
+  chatJid: string,
+  externalMessageId: string | null | undefined,
+): string | undefined {
+  if (!/^sl:[CG][A-Z0-9]+$/i.test(chatJid)) return undefined;
+  const threadId = externalMessageId?.trim();
+  return /^\d+\.\d+$/.test(threadId ?? '') ? threadId : undefined;
+}
+
 export function createGroupProcessor(deps: GroupProcessingDeps) {
   const collectSessionMemory = deps.collectSessionMemory;
   const ops = () => {
@@ -93,10 +97,11 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     }
     const scopedQueue = options.queued === true || threadId !== undefined;
     const opsRepository = ops();
+    const replayCursor = await deps.getCursor(queueJid);
     const replay = await collectPendingMessagesSince({
       getMessagesSince: opsRepository.getMessagesSince.bind(opsRepository),
       chatJid,
-      sinceCursor: await deps.getCursor(queueJid),
+      sinceCursor: replayCursor,
       pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
       maxMessages: config.MAX_MESSAGES_PER_PROMPT,
       options: {
@@ -108,10 +113,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     });
     const { messages: missedMessages } = replay;
     if (missedMessages.length === 0) return true;
-    if (replay.appResponseRoute) {
-      await deps.activateTurnResponseRoute?.(replay.appResponseRoute);
-    }
     const latestMessage = missedMessages[missedMessages.length - 1];
+    const cursorForMessage = (message: typeof latestMessage) =>
+      encodeGroupMessageCursor(toGroupMessageCursor(message));
     const latestMessageReactionRef =
       latestMessage.external_message_id &&
       !latestMessage.external_message_id.startsWith('external-ingress:')
@@ -120,6 +124,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const activeThreadId = firstThreadQueueId(
       threadId,
       latestMessage.thread_id,
+      slackChannelRootThreadId(chatJid, latestMessage.external_message_id),
     );
     let firstProgressNotified = false;
     const notifyFirstProgress = async () => {
@@ -134,12 +139,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     };
     let streamGeneration = (streamingGenerationCounter += 1);
     let progressGeneration = streamGeneration;
-    let activeRunId = options.existingRunId;
     const turnOptions = createGroupTurnOptionBuilders({
       activeThreadId,
       providerAccountId: group.providerAccountId,
-      runId: () => activeRunId,
-      appResponseRoute: replay.appResponseRoute,
       streamGeneration: () => streamGeneration,
       progressGeneration: () => progressGeneration,
     });
@@ -164,57 +166,46 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       finalizingGenerations: finalizingProgressGenerations,
       log: logger,
     });
-    const memoryUserId =
-      options.memoryContext?.userId ?? resolveMemoryUserId(missedMessages);
     const defaultMemoryScope = memoryScopeForConversationKind(
       group.conversationKind,
     );
-    const modelStatus = createRuntimeModelStatusAccess(
-      group.folder,
-      activeThreadId,
-    );
-    const senderCommandPolicy = createSenderCommandPolicy({
-      chatJid,
+    const rawMemoryUserId =
+      options.memoryContext?.userId ?? resolveMemoryUserId(missedMessages);
+    const resolveActionMemoryUserId = createGroupProcessingPersonResolver({
+      deps,
+      appId: turnAppId,
+      rawUserId: rawMemoryUserId,
       group,
-      triggerPattern: config.getTriggerPattern(group.trigger),
+      messages: missedMessages,
+      chatJid,
+      threadId: activeThreadId,
     });
     const cmdResult = await handleSessionCommand({
       missedMessages,
       groupName: group.name,
       triggerPattern: config.getTriggerPattern(group.trigger),
       timezone: config.TIMEZONE,
-      deps: {
-        sendMessage: (text, options) =>
-          sendMessageToChannel(text, buildMessageOptions(options?.threadId)),
+      deps: createGroupProcessingSessionCommandHandlers({
+        ops,
+        appId: turnAppId,
+        defaultModel: config.getDefaultModelConfig('interactive', group.folder)
+          .model,
+        group,
+        chatJid,
+        threadId: activeThreadId,
+        defaultScope: defaultMemoryScope,
+        memoryUserId: resolveActionMemoryUserId,
+        collectMemory: collectSessionMemory,
+        deps,
+        queueJid,
+        missedMessages,
+        runAgent,
+        processOptions: options,
+        commandOverrideRouteKey,
         setTyping: setTurnTyping,
-        ...createSessionCommandAgentRunners({
-          runAgent,
-          group,
-          chatJid,
-          queueJid,
-          memoryUserId,
-          activeThreadId,
-          missedMessages,
-          existingRunId: options.existingRunId,
-          existingRunLeaseToken: options.existingRunLeaseToken,
-          existingRunLeaseWorkerInstanceId:
-            options.existingRunLeaseWorkerInstanceId,
-          existingRunLeaseFencingVersion:
-            options.existingRunLeaseFencingVersion,
-        }),
-        closeStdin: () => deps.queue.closeStdin(queueJid),
-        compactionScopeKey: queueJid,
-        advanceCursor: createAdvanceCursorHandler({
-          queueJid,
-          setCursor: deps.setCursor,
-          saveState: deps.saveState,
-          warn: (err) =>
-            logger.warn(
-              { group: group.name, err },
-              'Failed to persist session command cursor',
-            ),
-        }),
-        formatMessages,
+        sendMessage: sendMessageToChannel,
+        buildMessageOptions,
+        triggerPattern: config.getTriggerPattern(group.trigger),
         getDefaultModel: () =>
           config.getDefaultModelConfig('interactive', group.folder).model,
         getJobModelDefaults: () => ({
@@ -227,105 +218,36 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           getConfiguredModelProvidersForApp(turnAppId),
         getModelFamilyOrder: () =>
           config.getRuntimeSettingsForConfig().modelFamilies,
-        getGroupModelOverride: () => group.agentConfig?.model,
-        setGroupModelOverride: async (value) =>
-          deps.setGroupModelOverride(commandOverrideRouteKey, value),
-        getModelStatus: modelStatus.getStatus,
-        getBrowserStatus: () => getGroupBrowserStatus({ group, chatJid }),
-        updateModelStatusSelection: modelStatus.updateSelection,
-        getGroupThinkingOverride: () => group.agentConfig?.thinking,
-        setGroupThinkingOverride: (value) =>
-          deps.setGroupThinkingOverride(commandOverrideRouteKey, value),
-        getGroupPermissionModeOverride: () => group.agentConfig?.permissionMode,
         getDefaultPermissionMode: () =>
           config.getSelectedAgentPermissionMode(group.folder),
-        setGroupPermissionModeOverride: (value) =>
-          deps.setGroupPermissionModeOverride(commandOverrideRouteKey, value),
-        ...createGroupProcessingSessionCommandHandlers({
-          ops,
-          appId: turnAppId,
-          defaultModel: config.getDefaultModelConfig(
-            'interactive',
-            group.folder,
-          ).model,
-          group,
-          chatJid,
-          threadId: activeThreadId ?? null,
-          defaultScope: defaultMemoryScope,
-          memoryUserId,
-          collectMemory: collectSessionMemory,
-          deps,
-        }),
-        clearCurrentSession: () =>
-          deps.clearSession(group.folder, activeThreadId, {
-            appId: turnAppId,
-            conversationJid: chatJid,
-            providerAccountId: group.providerAccountId,
-            conversationKind: group.conversationKind,
-            memoryUserId,
-          }),
-        stopCurrentRun: () => deps.queue.stopGroup?.(queueJid) ?? false,
-        runMemoryDreaming: () =>
-          runDreamingForGroup({
-            folder: group.folder,
-            conversationId: chatJid,
-            userId: memoryUserId,
-            activeThreadId,
-            defaultScope: defaultMemoryScope,
-          }),
-        getMemoryStatus: async () => {
-          const memory = config.getRuntimeSettingsForConfig().memory;
-          return getGroupMemoryStatus(
-            {
-              folder: group.folder,
-              conversationId: chatJid,
-              userId: memoryUserId,
-              threadId: activeThreadId,
-              defaultScope: defaultMemoryScope,
-            },
-            {
-              memoryEnabled: memory.enabled,
-              embeddings:
-                memory.enabled &&
-                memory.embeddings.enabled &&
-                memory.embeddings.provider !== 'disabled'
-                  ? 'configured'
-                  : 'disabled',
-            },
-          );
-        },
-        saveProcedure: createSaveProcedureHandler({
-          folder: group.folder,
-          conversationId: chatJid,
-          userId: memoryUserId,
-          defaultScope: defaultMemoryScope,
-          threadId: activeThreadId,
-          isAdminWrite: true,
-        }),
-        ...senderCommandPolicy,
-      },
+        getMemorySettings: () => config.getRuntimeSettingsForConfig().memory,
+      }),
     });
     if (cmdResult.handled) {
       if (replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
       return cmdResult.success;
     }
     if (
-      !groupTurnHasRequiredTrigger({
+      !(await groupTurnHasRequiredTrigger({
         group,
         chatJid,
         triggerPattern: config.getTriggerPattern(group.trigger),
         messages: missedMessages,
-      })
+        continuation: {
+          threadId,
+          hasPriorCursor: replayCursor.trim().length > 0,
+          messageRepository: opsRepository,
+          pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
+        },
+      }))
     ) {
-      deps.setCursor(
-        queueJid,
-        encodeGroupMessageCursor(toGroupMessageCursor(latestMessage)),
-      );
+      deps.setCursor(queueJid, cursorForMessage(latestMessage));
       await deps.saveState();
       if (replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
       return true;
     }
     await notifyFirstProgress();
+    const memoryUserId = await resolveActionMemoryUserId();
     const { prompt, recallQuery } =
       await buildGroupProcessingConversationContext({
         deps,
@@ -333,18 +255,18 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         groupName: group.name,
         agentFolder: group.folder,
         chatJid,
+        conversationId: group.conversationId,
         providerAccountId: group.providerAccountId,
         activeThreadId,
         latestMessage,
         currentMessages: missedMessages,
         timezone: config.TIMEZONE,
-        continuityMode: replay.continuityMode,
       });
     const previousCursor = (await deps.getCursor(queueJid)) || '';
-    const processedCursor = encodeGroupMessageCursor(
-      toGroupMessageCursor(missedMessages[missedMessages.length - 1]),
+    deps.setCursor(
+      queueJid,
+      cursorForMessage(missedMessages[missedMessages.length - 1]),
     );
-    deps.setCursor(queueJid, processedCursor);
     await deps.saveState();
     resetGroupStreamingForTurn({
       chatJid,
@@ -371,25 +293,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       setTurnTyping(isTyping)
     );
     await setTypingState(true);
-    let startedAt = currentTimeMs();
-    let pausedAt: number | null = null;
-    let pausedTotalMs = 0;
-    const activeElapsedMs = () =>
-      currentTimeMs() -
-      startedAt -
-      pausedTotalMs -
-      (pausedAt === null ? 0 : currentTimeMs() - pausedAt);
-    let lastAgentProgressAt = startedAt;
+    let progressPaused = false;
     let typingHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
-    let progressTimer: ReturnType<typeof setInterval> | null = null;
     let progressHeartbeat: ProgressHeartbeat | null = null;
-    const resetActiveElapsed = () => {
-      startedAt = currentTimeMs();
-      pausedAt = null;
-      pausedTotalMs = 0;
-      lastAgentProgressAt = startedAt;
-      progressHeartbeat?.reset();
-    };
     let backgroundDemoteTimer: ReturnType<typeof setTimeout> | null = null;
     let backgroundDemoted = false;
     const turnUiToken = Symbol(queueJid);
@@ -415,7 +321,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       await progress.sendFinalProgressUpdate({
         enabled: true,
         state,
-        elapsed: formatElapsed(activeElapsedMs()),
         options: buildProgressOptions({ done: true }),
         send: sendProgressToChannel,
         onError: (err) =>
@@ -444,7 +349,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       activeGenerationHasOutput = false;
       sentAnyTurnDoneProgress = false;
       sentTurnDoneProgressGeneration = null;
-      resetActiveElapsed();
+      progressPaused = false;
       typingActive = true;
       progressHeartbeat?.resume();
       void setTurnTyping(true).catch((err) =>
@@ -494,18 +399,13 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     progressHeartbeat = startGroupProgressHeartbeats({
       supportsProgress,
       isTypingActive: () => typingActive,
-      hasVisibleOutput: () => activeGenerationHasOutput,
-      getLastAgentProgressAt: () => lastAgentProgressAt,
-      getElapsedMs: activeElapsedMs,
       chatJid,
       providerAccountId: group.providerAccountId,
       groupName: group.name,
       channelRuntime: deps.channelRuntime,
-      buildProgressOptions,
-      sendProgressToChannel,
       log: logger,
     });
-    ({ typingHeartbeatTimer, progressTimer } = progressHeartbeat);
+    typingHeartbeatTimer = progressHeartbeat.typingHeartbeatTimer;
     const unregisterContinuationHandler =
       deps.queue.registerContinuationHandler?.(queueJid, () => {
         void startUserVisibleTurn();
@@ -515,10 +415,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         clearInterval(typingHeartbeatTimer);
         typingHeartbeatTimer = null;
       }
-      if (progressTimer) {
-        clearInterval(progressTimer);
-        progressTimer = null;
-      }
       clearBackgroundDemoteTimer();
       await initialProgress.cancel();
     };
@@ -527,7 +423,15 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       cancel: cancelTurnUiTimers,
     });
     let hadError = false;
+    let lastAgentError: string | undefined;
     let outputSentToUser = false;
+    const undeliveredGenerations: string[] = [];
+    // A turn must leave exactly one durable assistant record. Per-generation
+    // persistence is the primary path; this flag drives the finalization
+    // safety net below so a turn whose output never reached a `done` flush
+    // (transport-specific streaming paths do exist) is not left with the
+    // reply visible to the user but absent from GET /messages.
+    let persistedAnyGeneration = false;
     let streamedTranscriptDeliveryStatus: 'none' | 'sent' | 'partially_sent' =
       'none';
     let sawRawOutput = false;
@@ -557,9 +461,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       clearTimeout(backgroundDemoteTimer);
       backgroundDemoteTimer = null;
     };
-    const pauseActiveElapsed = async () => {
-      if (pausedAt !== null) return;
-      pausedAt = currentTimeMs();
+    const pauseTurnProgress = async () => {
+      if (progressPaused) return;
+      progressPaused = true;
       progressHeartbeat?.pause();
       if (supportsProgress) {
         await sendWaitingForUserResponseProgress();
@@ -574,10 +478,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       }, PERMISSION_BACKGROUND_DEMOTE_MS);
       backgroundDemoteTimer.unref?.();
     };
-    const resumeActiveElapsed = async () => {
-      if (pausedAt === null) return;
-      pausedTotalMs += currentTimeMs() - pausedAt;
-      pausedAt = null;
+    const resumeTurnProgress = async () => {
+      if (!progressPaused) return;
+      progressPaused = false;
       clearBackgroundDemoteTimer();
       progressHeartbeat?.resume();
       if (backgroundDemoted) {
@@ -618,13 +521,50 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       buildMessageOptions,
       sendMessageToChannel,
       applyDeliverySettlement,
+      getStreamedTranscriptDeliveryStatus: () =>
+        streamedTranscriptDeliveryStatus,
+      // Persistence is per completed generation, so the accounting has to be
+      // too: otherwise a delivered generation leaves the status non-'none' and
+      // a later, wholly undelivered one is persisted as if it had been sent.
+      resetStreamedTranscriptDeliveryStatus: () => {
+        streamedTranscriptDeliveryStatus = 'none';
+      },
+      onGenerationUndelivered: (text) => {
+        undeliveredGenerations.push(text);
+      },
+      persistCompletedStreamedGeneration: async (text, deliveryStatus) => {
+        persistedAnyGeneration = true;
+        const timestamp = nowIso();
+        const message: NewMessage = {
+          id: `streamed-outbound:${randomUUID()}`,
+          chat_jid: chatJid,
+          sender: 'gantry',
+          sender_name: 'Gantry',
+          content: text.trim(),
+          timestamp,
+          is_from_me: true,
+          is_bot_message: true,
+          thread_id: activeThreadId,
+          delivery_status: deliveryStatus,
+          // Only claim a delivery time when something was actually delivered.
+          delivered_at: deliveryStatus === 'failed' ? undefined : timestamp,
+        };
+        await ops()
+          .storeMessage(message)
+          .catch((err: unknown) =>
+            logger.warn(
+              { err, group: group.name },
+              'Failed to persist streamed assistant generation',
+            ),
+          );
+      },
       log: logger,
     });
     const finalizeStreamingOutput = outputBuffer.flushBufferedOutput;
     let output: GroupAgentRunResult = 'error';
     const handleAgentOutput = async (result: AgentOutput) => {
-      lastAgentProgressAt = currentTimeMs();
-      const isTurnCompleteMarker = isAgentTurnCompleteMarker(result);
+      const isTurnCompleteMarker =
+        agentOutputCallbacks.isAgentTurnCompleteMarker(result);
       const wasAwaitingResponseReceipt = awaitingResponseReceipt;
       if (
         awaitingResponseReceipt &&
@@ -632,14 +572,12 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         !isTurnCompleteMarker
       ) {
         awaitingResponseReceipt = false;
-        await resumeActiveElapsed();
+        await resumeTurnProgress();
         startNextContentStream();
         await sendResponseReceipt();
       }
       if (result.result) {
-        if (!typingActive) {
-          await setTypingState(true);
-        }
+        if (!typingActive) await setTypingState(true);
         activeGenerationHasOutput = true;
         const raw =
           typeof result.result === 'string'
@@ -656,7 +594,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           done: true,
           terminal: false,
         });
-        await pauseActiveElapsed();
+        await pauseTurnProgress();
         await setTypingState(false);
         awaitingResponseReceipt = true;
         resetIdleTimer();
@@ -688,15 +626,14 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         ) {
           await sendTrackedDoneProgress(markerProgressState);
         }
-        if (typingActive) {
-          await setTypingState(false);
-        }
+        if (typingActive) await setTypingState(false);
         startNextStreamingMessage();
         resetIdleTimer();
       }
       if (result.status === 'error') {
         hadError = true;
-        await resumeActiveElapsed();
+        lastAgentError = result.error;
+        await resumeTurnProgress();
         await finalizeStreamingOutput('error-marker');
         if (!outputSentToUser && isModelAccessAuthFailure(result.error)) {
           applyDeliverySettlement(
@@ -713,12 +650,13 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         await setTypingState(false);
       }
     };
-    const outputCallbacks = createSerializedAgentOutputCallbacks({
-      handle: handleAgentOutput,
-      onError: (err) => {
-        outputCallbackError ??= err;
-      },
-    });
+    const outputCallbacks =
+      agentOutputCallbacks.createSerializedAgentOutputCallbacks({
+        handle: handleAgentOutput,
+        onError: (err) => {
+          outputCallbackError ??= err;
+        },
+      });
     try {
       output = await runAgent(
         group,
@@ -740,16 +678,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             options.existingRunLeaseWorkerInstanceId,
           existingRunLeaseFencingVersion:
             options.existingRunLeaseFencingVersion,
-          onRunCreated: (runId) => {
-            activeRunId = runId;
-          },
           liveStopActionToken: turnOptions.liveStopActionToken,
           responseSchema: replay.responseSchema,
           agentControls: replay.agentControls,
-          callerResolvedTools: replay.callerResolvedTools,
-          continuityMode: replay.continuityMode,
-          timeoutMs: options.timeoutMs,
-          executionDeadlineAtMs: options.executionDeadlineAtMs,
         },
       );
     } finally {
@@ -761,7 +692,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         logger,
       });
       await finalizeStreamingOutput('turn-complete');
-      await resumeActiveElapsed();
+      await resumeTurnProgress();
       if (output === 'success' && pendingIdleBoundary) {
         notifyTurnIdle();
       }
@@ -774,29 +705,87 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       if (idleTimer) clearTimeout(idleTimer);
     }
     let resultOk = true;
-    if (output === 'error' || output === 'timed_out' || hadError) {
+    if (output === 'error' || hadError) {
+      // A provider-infra failure (failover-eligible or missing-provider-session)
+      // is only "exhausted" once the queue has burned all its retries
+      // (options.finalRetry). Before that, a transient 429/502 must keep the
+      // normal rollback -> retry path so the provider gets time to recover;
+      // dropping it on the FIRST error silently loses the user's turn.
+      const failoverExhausted =
+        options.finalRetry === true &&
+        (isFailoverEligibleError(lastAgentError) ||
+          isMissingProviderSessionError(lastAgentError));
+      // ponytail: interim guard against silent turn loss. The durable fix is a
+      // dead-letter re-drive of the dropped turn (issue #285). Until then, when
+      // failover is exhausted we stop the replay storm by preserving the cursor
+      // (below) AND surface an error + user-visible notice. We only CONSUME the
+      // turn once the user was actually informed; if the notice fails to deliver
+      // (channel down), we fall through to rollback->retry so the turn isn't
+      // silently dropped. The remaining edge (channel still down after the queue
+      // retry cap is exhausted) is covered by the durable dead-letter re-drive (#285).
+      let failureNoticeDelivered = false;
+      if (failoverExhausted && !outputSentToUser) {
+        logger.error(
+          { group: group.name, error: lastAgentError },
+          'Provider failover exhausted after retries; dropping turn to stop replay storm, notifying user',
+        );
+        const noticeOptions = buildMessageOptions();
+        const noticeSettlement = await settleDeliveryAttempt(
+          () =>
+            sendMessageToChannel(
+              PROVIDER_FAILOVER_EXHAUSTED_MESSAGE,
+              noticeOptions,
+            ),
+          {
+            scope: 'runtime-provider-failover-exhausted',
+            target: chatJid,
+          },
+        ).catch((err) => {
+          logger.error(
+            { err, group: group.name },
+            'Failed to send provider failover exhausted notice',
+          );
+          return 'not_delivered' as const;
+        });
+        failureNoticeDelivered = noticeSettlement !== 'not_delivered';
+        applyDeliverySettlement(noticeSettlement, {
+          streamed: false,
+          terminal: true,
+        });
+      }
+      const userInformed = outputSentToUser || failureNoticeDelivered;
       resultOk = await handleFailure({
         outputSentToUser,
         groupName: group.name,
         queueJid,
         previousCursor,
-        processedCursor,
         deps,
         acknowledgeFailedTurn:
-          options.finalRetry === true && !deps.queue.isShuttingDown?.(),
+          options.finalRetry === true &&
+          !deps.queue.isShuttingDown?.() &&
+          (!failoverExhausted || userInformed),
+        preserveCursor: failoverExhausted && userInformed,
         logger,
       });
     } else {
-      const finalization = await finalizeGroupAgentUserVisibleOutput({
-        streamedTranscriptDeliveryStatus,
-        boundedTranscript: outputBuffer.transcriptSnapshot(),
+      await persistTurnAssistantTranscript({
+        supportsStreamingChunks,
+        persistedAnyGeneration,
+        transcript: outputBuffer.transcriptSnapshot(),
         chatJid,
         activeThreadId,
         outputSentToUser,
+        groupName: group.name,
+        storeMessage: (message) => ops().storeMessage(message),
+        log: logger,
+      });
+      const finalization = await finalizeGroupAgentUserVisibleOutput({
+        boundedTranscript: outputBuffer.transcriptSnapshot(),
+        outputSentToUser,
+        undeliveredGenerations: undeliveredGenerations.join('\n\n'),
         sawRawOutput,
         groupName: group.name,
         warn: (metadata, message) => logger.warn(metadata, message),
-        storeMessage: (message) => ops().storeMessage(message),
         buildMessageOptions,
         sendMessageToChannel: async (text, options) =>
           settleDeliveryAttempt(() => sendMessageToChannel(text, options), {

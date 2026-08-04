@@ -10,7 +10,6 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { agentRunsPostgres } from './runs.js';
-import { runtimeEventsPostgres } from './events.js';
 
 export const liveTurnsPostgres = pgTable(
   'live_turns',
@@ -147,35 +146,6 @@ export const liveAdmissionWorkItemsPostgres = pgTable(
     senderUserId: text('sender_user_id'),
     senderDisplayName: text('sender_display_name'),
     idempotencyKey: text('idempotency_key').notNull(),
-    // Public NewMessage.id returned by the SDK. messageId is the canonical
-    // messages.id foreign key used by the runtime.
-    requestMessageId: text('request_message_id'),
-    requestFingerprint: text('request_fingerprint'),
-    acceptedEventId: integer('accepted_event_id').references(
-      () => runtimeEventsPostgres.eventId,
-      { onDelete: 'set null' },
-    ),
-    // SDK-session turn lifecycle is deliberately separate from `state`, which
-    // tracks delivery of this durable wakeup to the local runtime queue.
-    turnState: text('turn_state'),
-    queueDeadlineAt: timestamp('queue_deadline_at', {
-      withTimezone: true,
-      mode: 'string',
-    }),
-    executionTimeoutMs: integer('execution_timeout_ms'),
-    executionDeadlineAt: timestamp('execution_deadline_at', {
-      withTimezone: true,
-      mode: 'string',
-    }),
-    turnStartedAt: timestamp('turn_started_at', {
-      withTimezone: true,
-      mode: 'string',
-    }),
-    turnEndedAt: timestamp('turn_ended_at', {
-      withTimezone: true,
-      mode: 'string',
-    }),
-    terminalCode: text('terminal_code'),
     // state is application-constrained to:
     // queued | claimed | deferred | completed | failed | canceled.
     state: text('state').notNull().default('queued'),
@@ -218,6 +188,9 @@ export const liveAdmissionWorkItemsPostgres = pgTable(
     idempotencyUnique: uniqueIndex(
       'uq_live_admission_work_items_idempotency',
     ).on(table.idempotencyKey),
+    activeByAppIdx: index('idx_live_admission_work_items_active_by_app')
+      .on(table.appId)
+      .where(sql`${table.state} IN ('queued', 'claimed', 'deferred')`),
     queuedFifoIdx: index('idx_live_admission_work_items_queued_fifo')
       .on(table.appId, table.createdAt, table.id)
       .where(sql`${table.state} = 'queued'`),
@@ -235,14 +208,6 @@ export const liveAdmissionWorkItemsPostgres = pgTable(
       .on(table.appId, table.claimExpiresAt, table.createdAt, table.id)
       .where(
         sql`${table.state} = 'claimed' AND ${table.claimExpiresAt} IS NOT NULL`,
-      ),
-    sdkSessionTurnIdx: index('idx_live_admission_sdk_session_turns')
-      .on(table.agentSessionId, table.turnState, table.createdAt, table.id)
-      .where(sql`${table.requestFingerprint} IS NOT NULL`),
-    sdkQueueDeadlineIdx: index('idx_live_admission_sdk_queue_deadline')
-      .on(table.queueDeadlineAt, table.createdAt, table.id)
-      .where(
-        sql`${table.turnState} = 'waiting' AND ${table.queueDeadlineAt} IS NOT NULL`,
       ),
   }),
 );

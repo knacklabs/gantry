@@ -6,60 +6,29 @@ import type {
 } from '../../domain/types.js';
 import {
   applyPermissionInteractionDecision,
+  cancelPendingQuestionInteractionIfRunLeaseInactive,
   recordPendingInteractionRequested,
+  releasePermissionInteractionCallback,
   resolvePendingInteractionRecord,
+  resolvePendingInteractionRecordOutcome,
 } from './pending-interaction-durability.js';
+import type { PendingInteractionResolutionOutcome } from './pending-interaction-resolution.js';
+import { durablePermissionRequestSnapshot } from './pending-interaction-permission-envelope.js';
+
+export { durablePermissionRequestSnapshot } from './pending-interaction-permission-envelope.js';
 
 export interface DurableInteractionOperations {
   record: typeof recordPendingInteractionRequested;
   resolve: typeof resolvePendingInteractionRecord;
+  cancelPendingQuestionInteractionIfRunLeaseInactive: typeof cancelPendingQuestionInteractionIfRunLeaseInactive;
 }
 
 const defaultOperations: DurableInteractionOperations = {
   record: recordPendingInteractionRequested,
   resolve: resolvePendingInteractionRecord,
+  cancelPendingQuestionInteractionIfRunLeaseInactive:
+    cancelPendingQuestionInteractionIfRunLeaseInactive,
 };
-
-export function durablePermissionRequestSnapshot(
-  request: PermissionApprovalRequest,
-): Pick<
-  PermissionApprovalRequest,
-  | 'requestId'
-  | 'appId'
-  | 'agentId'
-  | 'sourceAgentFolder'
-  | 'requestFamily'
-  | 'runHandle'
-  | 'jobId'
-  | 'runId'
-  | 'targetJid'
-  | 'threadId'
-  | 'toolName'
-  | 'suggestions'
-  | 'decisionOptions'
-  | 'semanticCapabilityDefinitions'
-> {
-  return {
-    requestId: request.requestId,
-    ...(request.appId ? { appId: request.appId } : {}),
-    ...(request.agentId ? { agentId: request.agentId } : {}),
-    sourceAgentFolder: request.sourceAgentFolder,
-    ...(request.requestFamily ? { requestFamily: request.requestFamily } : {}),
-    ...(request.runHandle ? { runHandle: request.runHandle } : {}),
-    ...(request.jobId ? { jobId: request.jobId } : {}),
-    ...(request.runId ? { runId: request.runId } : {}),
-    ...(request.targetJid ? { targetJid: request.targetJid } : {}),
-    ...(request.threadId ? { threadId: request.threadId } : {}),
-    toolName: request.toolName,
-    ...(request.suggestions ? { suggestions: request.suggestions } : {}),
-    ...(request.decisionOptions
-      ? { decisionOptions: request.decisionOptions }
-      : {}),
-    ...(request.semanticCapabilityDefinitions
-      ? { semanticCapabilityDefinitions: request.semanticCapabilityDefinitions }
-      : {}),
-  };
-}
 
 export async function beginDurablePermissionInteraction(input: {
   request: PermissionApprovalRequest;
@@ -100,18 +69,35 @@ export async function finishDurablePermissionInteraction(input: {
     toolName: input.request.toolName,
     requestId: input.request.requestId,
   });
-  if (!applied) return false;
+  if (!applied) {
+    await releaseDecisionClaim(input.decision);
+    return false;
+  }
   return resolveDurablePermissionInteraction(input);
 }
 
-export function resolveDurablePermissionInteraction(input: {
+export async function resolveDurablePermissionInteraction(input: {
   request: PermissionApprovalRequest;
   sourceAgentFolder: string;
   decision: PermissionApprovalDecision;
   updatedPermissions?: PermissionApprovalDecision['updatedPermissions'];
   operations?: DurableInteractionOperations;
 }): Promise<boolean> {
-  return (input.operations ?? defaultOperations).resolve({
+  let outcome = await resolveDurablePermissionInteractionOutcome(input);
+  if (outcome === 'retryable_error') {
+    outcome = await resolveDurablePermissionInteractionOutcome(input);
+  }
+  return outcome === 'resolved';
+}
+
+export async function resolveDurablePermissionInteractionOutcome(input: {
+  request: PermissionApprovalRequest;
+  sourceAgentFolder: string;
+  decision: PermissionApprovalDecision;
+  updatedPermissions?: PermissionApprovalDecision['updatedPermissions'];
+  operations?: DurableInteractionOperations;
+}): Promise<PendingInteractionResolutionOutcome> {
+  const resolution = {
     kind: 'permission',
     sourceAgentFolder: input.sourceAgentFolder,
     requestId: input.request.requestId,
@@ -126,7 +112,14 @@ export function resolveDurablePermissionInteraction(input: {
       decisionClassification: input.decision.decisionClassification ?? null,
     },
     approverRef: input.decision.decidedBy ?? null,
-  });
+    permissionCallbackClaim: input.decision.permissionCallbackClaim ?? null,
+  } as const;
+  if (input.operations) {
+    return (await input.operations.resolve(resolution))
+      ? 'resolved'
+      : 'rejected';
+  }
+  return resolvePendingInteractionRecordOutcome(resolution);
 }
 
 export async function runDurablePermissionInteraction(input: {
@@ -158,7 +151,12 @@ export async function runDurablePermissionInteraction(input: {
   });
   await input.beforePrompt?.();
   const decision = await input.prompt(input.request);
-  await input.afterDecision?.(decision);
+  try {
+    await input.afterDecision?.(decision);
+  } catch (err) {
+    await releaseDecisionClaim(decision);
+    throw err;
+  }
   const resolved = await finishDurablePermissionInteraction({
     request: input.request,
     sourceAgentFolder: input.sourceAgentFolder,
@@ -169,14 +167,74 @@ export async function runDurablePermissionInteraction(input: {
   return { decision, resolved };
 }
 
+async function releaseDecisionClaim(
+  decision: PermissionApprovalDecision,
+): Promise<void> {
+  if (decision.permissionCallbackClaim) {
+    await releasePermissionInteractionCallback({
+      claim: decision.permissionCallbackClaim,
+    });
+  }
+}
+
 export async function beginDurableQuestionInteraction(input: {
   request: UserQuestionRequest;
   sourceAgentFolder: string;
   payload?: Record<string, unknown>;
   callbackRoute?: Record<string, unknown> | null;
   operations?: DurableInteractionOperations;
-}): Promise<void> {
-  const recorded = await (input.operations ?? defaultOperations).record({
+}): Promise<boolean> {
+  const questionTexts = input.request.questions.map(
+    (question) => question.question,
+  );
+  if (new Set(questionTexts).size !== questionTexts.length) {
+    throw new Error(
+      'ask_user_question requires unique question text; duplicate question labels are not allowed',
+    );
+  }
+  const operations = input.operations ?? defaultOperations;
+  const interactionId = globalThis.crypto.randomUUID();
+  const recorded = await recordQuestionInteraction({
+    ...input,
+    interactionId,
+    operations,
+  });
+  if (!recorded) throw new Error('Question prompt was not durably recorded');
+  if (typeof recorded === 'boolean' || recorded.id === interactionId) {
+    return true;
+  }
+  if (recorded.status === 'pending') {
+    const terminalized =
+      await operations.cancelPendingQuestionInteractionIfRunLeaseInactive({
+        id: recorded.id,
+        resolution: {
+          answers: {},
+          reason:
+            'Runtime restarted while user question was pending; re-ask required.',
+        },
+      });
+    if (!terminalized) return false;
+    const reopened = await recordQuestionInteraction({
+      ...input,
+      interactionId,
+      operations,
+    });
+    if (!reopened) throw new Error('Question prompt was not durably recorded');
+    return typeof reopened !== 'boolean' && reopened.id === interactionId;
+  }
+  return false;
+}
+
+function recordQuestionInteraction(input: {
+  interactionId: string;
+  request: UserQuestionRequest;
+  sourceAgentFolder: string;
+  payload?: Record<string, unknown>;
+  callbackRoute?: Record<string, unknown> | null;
+  operations: DurableInteractionOperations;
+}) {
+  return input.operations.record({
+    interactionId: input.interactionId,
     kind: 'question',
     sourceAgentFolder: input.sourceAgentFolder,
     requestId: input.request.requestId,
@@ -184,14 +242,24 @@ export async function beginDurableQuestionInteraction(input: {
     runId: input.request.runId ?? null,
     runLeaseToken: input.request.runLeaseToken ?? null,
     runLeaseFencingVersion: input.request.runLeaseFencingVersion ?? null,
-    payload: input.payload ?? {
-      sourceAgentFolder: input.sourceAgentFolder,
-      requestId: input.request.requestId,
-      questions: input.request.questions.map((question) => question.question),
-      targetJid: input.request.targetJid ?? null,
-      agentId: input.request.agentId ?? null,
-      jobId: input.request.jobId ?? null,
-      request: input.request,
+    payload: {
+      ...(input.payload ?? {
+        sourceAgentFolder: input.sourceAgentFolder,
+        requestId: input.request.requestId,
+        questions: input.request.questions.map((question) => question.question),
+        targetJid: input.request.targetJid ?? null,
+        agentId: input.request.agentId ?? null,
+        jobId: input.request.jobId ?? null,
+        request: input.request,
+      }),
+      questionRecoveryEnvelope: {
+        version: 1,
+        targetJid: input.request.targetJid ?? null,
+        threadId: input.request.threadId ?? null,
+        request: input.request,
+        selections: [],
+        completedQuestionIndexes: [],
+      },
     },
     callbackRoute:
       input.callbackRoute === undefined
@@ -201,10 +269,9 @@ export async function beginDurableQuestionInteraction(input: {
           }
         : input.callbackRoute,
   });
-  if (!recorded) throw new Error('Question prompt was not durably recorded');
 }
 
-export async function finishDurableQuestionInteraction(input: {
+export function finishDurableQuestionInteraction(input: {
   request: UserQuestionRequest;
   sourceAgentFolder: string;
   response: UserQuestionResponse;
@@ -217,7 +284,7 @@ export async function finishDurableQuestionInteraction(input: {
     appId: input.request.appId ?? null,
     runId: input.request.runId ?? null,
     status: 'resolved',
-    resolution: { answers: input.response.answers || {} },
+    resolution: { answers: input.response.answers },
     approverRef: input.response.answeredBy ?? null,
   });
 }
@@ -229,7 +296,19 @@ export async function runDurableQuestionInteraction(input: {
   beforePrompt?: () => Promise<void> | void;
   operations?: DurableInteractionOperations;
 }): Promise<{ response: UserQuestionResponse; resolved: boolean }> {
-  await beginDurableQuestionInteraction({ ...input, callbackRoute: null });
+  const began = await beginDurableQuestionInteraction({
+    ...input,
+    callbackRoute: null,
+  });
+  if (!began) {
+    return {
+      response: {
+        requestId: input.request.requestId,
+        answers: {},
+      },
+      resolved: false,
+    };
+  }
   await input.beforePrompt?.();
   const response = await input.prompt(input.request);
   const resolved = await finishDurableQuestionInteraction({

@@ -7,9 +7,7 @@ import type { RuntimeEvent } from '../../../domain/events/events.js';
 import type {
   AgentControlOverrides,
   AgentControlThinking,
-  CallerResolvedToolDefinition,
 } from '../../../domain/types.js';
-import type { SdkSessionQueuePolicy } from '../../../domain/ports/live-turns.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
 import { resolveAppScopeAppId } from '../app-identity.js';
 import { isValidControlId } from '../../../shared/control-id.js';
@@ -26,10 +24,16 @@ import {
 import { parseSessionRoute } from '../route-parser.js';
 import {
   acceptMessageForControl,
-  createSessionInteractionModule,
   ensureSessionForControl,
   type SessionEventSubscription,
 } from '../session-interaction-adapter.js';
+import {
+  listSessionPendingInteractions,
+  respondToSessionPermissionInteraction,
+  SESSION_INTERACTION_DECISIONS,
+  type SessionInteractionDecision,
+  type SessionInteractionRespondOutcome,
+} from '../session-interaction-approvals.js';
 import { nowMs as currentTimeMs } from '../../../shared/time/datetime.js';
 import {
   cancelCallerResolvedTools,
@@ -40,7 +44,9 @@ function sendApplicationError(res: ServerResponse, error: unknown): boolean {
   const notFoundCode =
     error instanceof Error && error.message === 'Webhook not found'
       ? 'WEBHOOK_NOT_FOUND'
-      : 'SESSION_NOT_FOUND';
+      : error instanceof Error && error.message === 'Agent not found'
+        ? 'AGENT_NOT_FOUND'
+        : 'SESSION_NOT_FOUND';
   return sendApplicationErrorResponse(res, error, { NOT_FOUND: notFoundCode });
 }
 
@@ -111,12 +117,6 @@ function parseSessionAgentControls(
   body: Record<string, unknown>,
 ): AgentControlOverrides | string {
   const controls: AgentControlOverrides = {};
-  if (body.model_alias !== undefined) {
-    if (typeof body.model_alias !== 'string' || !body.model_alias.trim()) {
-      return 'model_alias must be a non-empty string';
-    }
-    controls.modelAlias = body.model_alias.trim();
-  }
   if (body.effort !== undefined) {
     if (!SESSION_EFFORTS.includes(body.effort as never)) {
       return `effort must be one of ${SESSION_EFFORTS.join(', ')}`;
@@ -139,107 +139,6 @@ function parseSessionAgentControls(
     controls.maxOutputTokens = body.max_output_tokens;
   }
   return controls;
-}
-
-function parseSessionQueuePolicy(
-  value: unknown,
-): SdkSessionQueuePolicy | string | undefined {
-  if (value === undefined) return undefined;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return 'queuePolicy must be an object';
-  }
-  const policy = value as Record<string, unknown>;
-  const maxWaitingMessages = policy.maxWaitingMessages;
-  const maxQueueWaitMs = policy.maxQueueWaitMs;
-  const executionTimeoutMs = policy.executionTimeoutMs;
-  if (
-    !Number.isInteger(maxWaitingMessages) ||
-    (maxWaitingMessages as number) < 0 ||
-    (maxWaitingMessages as number) > 100
-  ) {
-    return 'queuePolicy.maxWaitingMessages must be an integer between 0 and 100';
-  }
-  for (const [name, candidate] of [
-    ['maxQueueWaitMs', maxQueueWaitMs],
-    ['executionTimeoutMs', executionTimeoutMs],
-  ] as const) {
-    if (
-      !Number.isInteger(candidate) ||
-      (candidate as number) < 1_000 ||
-      (candidate as number) > 86_400_000
-    ) {
-      return `queuePolicy.${name} must be an integer between 1000 and 86400000`;
-    }
-  }
-  return {
-    maxWaitingMessages: maxWaitingMessages as number,
-    maxQueueWaitMs: maxQueueWaitMs as number,
-    executionTimeoutMs: executionTimeoutMs as number,
-  };
-}
-
-const CALLER_TOOL_NAME = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
-
-function parseCallerResolvedTools(
-  body: Record<string, unknown>,
-  sessionId: string,
-):
-  | import('../../../domain/types.js').CallerResolvedToolsConfig
-  | string
-  | undefined {
-  if (body.caller_resolved_tools === undefined) return undefined;
-  if (
-    !Array.isArray(body.caller_resolved_tools) ||
-    body.caller_resolved_tools.length === 0
-  ) {
-    return 'caller_resolved_tools must be a non-empty array';
-  }
-  if (body.caller_resolved_tools.length > 16) {
-    return 'caller_resolved_tools supports at most 16 definitions';
-  }
-  const names = new Set<string>();
-  const tools: CallerResolvedToolDefinition[] = [];
-  for (const raw of body.caller_resolved_tools) {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-      return 'each caller-resolved tool must be an object';
-    }
-    const value = raw as Record<string, unknown>;
-    const name = typeof value.name === 'string' ? value.name.trim() : '';
-    const description =
-      typeof value.description === 'string' ? value.description.trim() : '';
-    if (!CALLER_TOOL_NAME.test(name))
-      return `invalid caller-resolved tool name: ${name || '(empty)'}`;
-    if (!description)
-      return `caller-resolved tool ${name} requires a description`;
-    if (names.has(name)) return `duplicate caller-resolved tool name: ${name}`;
-    if (!isJsonSchemaObject(value.input_schema)) {
-      return `caller-resolved tool ${name} requires input_schema`;
-    }
-    const compileFailure = responseSchemaCompileFailure(value.input_schema);
-    if (compileFailure)
-      return `caller-resolved tool ${name}: ${compileFailure}`;
-    names.add(name);
-    tools.push({ name, description, inputSchema: value.input_schema });
-  }
-  const maxInteractions = body.max_tool_interactions ?? 4;
-  if (
-    typeof maxInteractions !== 'number' ||
-    !Number.isInteger(maxInteractions) ||
-    maxInteractions < 1 ||
-    maxInteractions > 4
-  ) {
-    return 'max_tool_interactions must be an integer between 1 and 4';
-  }
-  const interactionTimeoutMs = body.interaction_timeout_ms ?? 90_000;
-  if (
-    typeof interactionTimeoutMs !== 'number' ||
-    !Number.isInteger(interactionTimeoutMs) ||
-    interactionTimeoutMs < 1_000 ||
-    interactionTimeoutMs > 90_000
-  ) {
-    return 'interaction_timeout_ms must be an integer between 1000 and 90000';
-  }
-  return { sessionId, tools, maxInteractions, interactionTimeoutMs };
 }
 
 export async function handleSessionRoutes(
@@ -292,9 +191,11 @@ export async function handleSessionRoutes(
         agentId: body.agentId ?? null,
         agentName: body.agentName ?? null,
         conversationId,
+        conversationKind: body.conversationKind,
         title: body.title ?? null,
         responseMode: body.responseMode,
         webhookId: body.webhookId ?? null,
+        appUser: body.appUser ?? null,
       });
       sendJson(res, 200, {
         sessionId: result.session.sessionId,
@@ -307,6 +208,7 @@ export async function handleSessionRoutes(
           workspaceKey: result.session.workspaceKey,
           sessionId: result.session.sessionId,
         },
+        ...(result.session.appUser ? { appUser: result.session.appUser } : {}),
       });
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
@@ -314,18 +216,18 @@ export async function handleSessionRoutes(
     return true;
   }
 
-  const interactionRoute =
+  const callerInteractionRoute =
     /^\/v1\/sessions\/([^/]+)\/interactions\/([^/]+)\/(resolve|reject)$/.exec(
       pathname,
     );
-  if (interactionRoute && req.method === 'POST') {
+  if (callerInteractionRoute && req.method === 'POST') {
     const auth = authorizeControlRequest(req, res, ctx.keys, [
       'sessions:write',
     ]);
     if (!auth) return true;
-    const sessionId = decodeURIComponent(interactionRoute[1]!);
-    const interactionId = decodeURIComponent(interactionRoute[2]!);
-    const action = interactionRoute[3]!;
+    const sessionId = decodeURIComponent(callerInteractionRoute[1]!);
+    const interactionId = decodeURIComponent(callerInteractionRoute[2]!);
+    const action = callerInteractionRoute[3]!;
     const body = (await readJson(req)) as Record<string, unknown>;
     const idempotencyKey =
       typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : '';
@@ -334,7 +236,7 @@ export async function handleSessionRoutes(
       return true;
     }
     try {
-      await createSessionInteractionModule().getQueueKey({
+      await ctx.sessionInteraction.requireSession({
         appId: auth.appId,
         sessionId,
       });
@@ -363,21 +265,19 @@ export async function handleSessionRoutes(
           'INTERACTION_NOT_FOUND',
           'Interaction is not pending',
         );
-        return true;
-      }
-      if (outcome === 'conflict') {
+      } else if (outcome === 'conflict') {
         sendError(
           res,
           409,
           'INTERACTION_CONFLICT',
           'Interaction was already settled differently',
         );
-        return true;
+      } else {
+        sendJson(res, 200, {
+          accepted: true,
+          idempotent: outcome === 'idempotent',
+        });
       }
-      sendJson(res, 200, {
-        accepted: true,
-        idempotent: outcome === 'idempotent',
-      });
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
     }
@@ -395,37 +295,38 @@ export async function handleSessionRoutes(
     const sessionId = decodeURIComponent(cancelRoute[1]!);
     const body = (await readJson(req)) as Record<string, unknown>;
     try {
-      const queueKey = await createSessionInteractionModule().getQueueKey({
+      const queueKey = await ctx.sessionInteraction.getQueueKey({
         appId: auth.appId,
         sessionId,
         threadId: typeof body.threadId === 'string' ? body.threadId : null,
       });
       const stopped = ctx.app.queue.stopGroup(queueKey);
       const cancelledInteractions = cancelCallerResolvedTools(sessionId);
-      sendJson(res, 200, { cancelled: stopped || cancelledInteractions > 0 });
+      sendJson(res, 200, {
+        cancelled: stopped || cancelledInteractions > 0,
+      });
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
     }
     return true;
   }
 
-  const sessionRoute = parseSessionRoute(pathname);
-  if (sessionRoute?.action === 'archive' && req.method === 'POST') {
+  const archiveRoute = /^\/v1\/sessions\/([^/]+)\/archive$/.exec(pathname);
+  if (archiveRoute && req.method === 'POST') {
     const auth = authorizeControlRequest(req, res, ctx.keys, [
       'sessions:write',
     ]);
     if (!auth) return true;
+    const sessionId = decodeURIComponent(archiveRoute[1]!);
     try {
-      const result = await createSessionInteractionModule().archiveSession({
+      const result = await ctx.sessionInteraction.archiveSession({
         appId: auth.appId,
-        sessionId: sessionRoute.sessionId,
+        sessionId,
       });
       const stopped = result.queueKeys.some((queueKey) =>
         ctx.app.queue.stopGroup(queueKey),
       );
-      const cancelledInteractions = cancelCallerResolvedTools(
-        sessionRoute.sessionId,
-      );
+      const cancelledInteractions = cancelCallerResolvedTools(sessionId);
       sendJson(res, 200, {
         archived: true,
         alreadyArchived: result.alreadyArchived,
@@ -437,11 +338,12 @@ export async function handleSessionRoutes(
     return true;
   }
 
+  const sessionRoute = parseSessionRoute(pathname);
   if (sessionRoute?.action === 'get' && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['sessions:read']);
     if (!auth) return true;
     try {
-      const details = await createSessionInteractionModule().getSessionDetails({
+      const details = await ctx.sessionInteraction.getSessionDetails({
         appId: auth.appId,
         sessionId: sessionRoute.sessionId,
       });
@@ -457,7 +359,7 @@ export async function handleSessionRoutes(
     if (!auth) return true;
     const limit = parseListLimit(url.searchParams.get('limit'));
     try {
-      const result = await createSessionInteractionModule().listMessages({
+      const result = await ctx.sessionInteraction.listMessages({
         appId: auth.appId,
         sessionId: sessionRoute.sessionId,
         limit,
@@ -469,12 +371,65 @@ export async function handleSessionRoutes(
     return true;
   }
 
+  if (sessionRoute?.action === 'interactions' && req.method === 'GET') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['sessions:read']);
+    if (!auth) return true;
+    try {
+      const session = await ctx.sessionInteraction.requireSession({
+        appId: auth.appId,
+        sessionId: sessionRoute.sessionId,
+      });
+      sendJson(res, 200, await listSessionPendingInteractions(session));
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
+    return true;
+  }
+
+  if (sessionRoute?.action === 'interaction-respond' && req.method === 'POST') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, [
+      'approvals:write',
+    ]);
+    if (!auth) return true;
+    const body = (await readJson(req)) as Record<string, unknown>;
+    const decision = body.decision;
+    if (
+      !SESSION_INTERACTION_DECISIONS.includes(
+        decision as SessionInteractionDecision,
+      )
+    ) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        `decision must be one of ${SESSION_INTERACTION_DECISIONS.join(', ')}`,
+      );
+      return true;
+    }
+    try {
+      const session = await ctx.sessionInteraction.requireSession({
+        appId: auth.appId,
+        sessionId: sessionRoute.sessionId,
+      });
+      const outcome = await respondToSessionPermissionInteraction({
+        session,
+        interactionId: sessionRoute.interactionId,
+        decision: decision as SessionInteractionDecision,
+        decidedBy: `api-key:${auth.kid}`,
+      });
+      sendSessionInteractionRespondOutcome(res, outcome);
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
+    return true;
+  }
+
   if (sessionRoute?.action === 'runs' && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['sessions:read']);
     if (!auth) return true;
     const limit = parseListLimit(url.searchParams.get('limit'));
     try {
-      const result = await createSessionInteractionModule().listRuns({
+      const result = await ctx.sessionInteraction.listRuns({
         appId: auth.appId,
         sessionId: sessionRoute.sessionId,
         limit,
@@ -518,52 +473,12 @@ export async function handleSessionRoutes(
       sendError(res, 400, 'INVALID_REQUEST', agentControls);
       return true;
     }
-    const callerResolvedTools = parseCallerResolvedTools(
-      body,
-      sessionRoute.sessionId,
-    );
-    if (typeof callerResolvedTools === 'string') {
-      sendError(res, 400, 'INVALID_REQUEST', callerResolvedTools);
-      return true;
-    }
-    const idempotencyKey =
-      typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : '';
-    if (!idempotencyKey || idempotencyKey.length > 200) {
-      sendError(
-        res,
-        400,
-        'INVALID_REQUEST',
-        'idempotencyKey must contain 1 to 200 characters',
-      );
-      return true;
-    }
-    const queuePolicy = parseSessionQueuePolicy(body.queuePolicy);
-    if (typeof queuePolicy === 'string') {
-      sendError(res, 400, 'INVALID_REQUEST', queuePolicy);
-      return true;
-    }
-    const continuityMode = body.continuityMode;
-    if (
-      continuityMode !== undefined &&
-      continuityMode !== 'provider' &&
-      continuityMode !== 'bounded'
-    ) {
-      sendError(
-        res,
-        400,
-        'INVALID_REQUEST',
-        'continuityMode must be provider or bounded',
-      );
-      return true;
-    }
     try {
       const accepted = await acceptMessageForControl(ctx, {
         appId: auth.appId,
         sessionId: sessionRoute.sessionId,
-        idempotencyKey,
-        queuePolicy,
         message: String(body.message || ''),
-        senderId: typeof body.senderId === 'string' ? body.senderId : 'sdk',
+        senderId: typeof body.senderId === 'string' ? body.senderId : undefined,
         senderName:
           typeof body.senderName === 'string' ? body.senderName : 'SDK',
         threadId: typeof body.threadId === 'string' ? body.threadId : undefined,
@@ -576,12 +491,9 @@ export async function handleSessionRoutes(
           | undefined,
         agentControls:
           Object.keys(agentControls).length > 0 ? agentControls : undefined,
-        callerResolvedTools,
-        continuityMode,
       });
       sendJson(res, 202, {
         accepted: true,
-        replayed: accepted.replayed,
         messageId: accepted.messageId,
         acceptedEventId: accepted.acceptedEventId,
       });
@@ -595,7 +507,7 @@ export async function handleSessionRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['sessions:read']);
     if (!auth) return true;
     const afterEventId = Number(url.searchParams.get('afterEventId') || 0);
-    const module = createSessionInteractionModule();
+    const module = ctx.sessionInteraction;
     let events: RuntimeEvent[];
     try {
       events = await module.listEvents({
@@ -618,10 +530,11 @@ export async function handleSessionRoutes(
         );
         return true;
       }
+      ctx.state.activeStreams += 1;
       const initial = events.length > 0 ? events : [];
       let lastEventId = initial[initial.length - 1]?.eventId;
       let closed = req.destroyed || res.destroyed;
-      let streamActive = false;
+      let streamActive = true;
       let subscription: SessionEventSubscription | undefined;
       const cleanup = () => {
         if (closed && !streamActive && !subscription) return;
@@ -634,6 +547,10 @@ export async function handleSessionRoutes(
       };
       req.once('close', cleanup);
       res.once('close', cleanup);
+      if (closed) {
+        cleanup();
+        return true;
+      }
       try {
         subscription = await module.subscribeEvents({
           appId: auth.appId,
@@ -642,6 +559,7 @@ export async function handleSessionRoutes(
           limit: 100,
         });
       } catch (error) {
+        cleanup();
         if (sendApplicationError(res, error)) return true;
         throw error;
       }
@@ -649,8 +567,6 @@ export async function handleSessionRoutes(
         cleanup();
         return true;
       }
-      ctx.state.activeStreams += 1;
-      streamActive = true;
       res.statusCode = 200;
       res.setHeader('content-type', 'text/event-stream');
       res.setHeader('cache-control', 'no-cache');
@@ -700,13 +616,12 @@ export async function handleSessionRoutes(
     );
     const startedAt = currentTimeMs();
     try {
-      const visible =
-        await createSessionInteractionModule().waitForVisibleEvent({
-          appId: auth.appId,
-          sessionId: sessionRoute.sessionId,
-          afterEventId,
-          timeoutMs: Math.max(0, timeoutMs - (currentTimeMs() - startedAt)),
-        });
+      const visible = await ctx.sessionInteraction.waitForVisibleEvent({
+        appId: auth.appId,
+        sessionId: sessionRoute.sessionId,
+        afterEventId,
+        timeoutMs: Math.max(0, timeoutMs - (currentTimeMs() - startedAt)),
+      });
       sendJson(res, 200, {
         ...serializeSessionEventEnvelope(visible),
         afterEventId: visible.eventId,
@@ -721,6 +636,72 @@ export async function handleSessionRoutes(
   }
 
   return false;
+}
+
+function sendSessionInteractionRespondOutcome(
+  res: ServerResponse,
+  outcome: SessionInteractionRespondOutcome,
+): void {
+  switch (outcome.status) {
+    case 'resolved':
+      sendJson(res, 200, outcome);
+      return;
+    case 'not_found':
+      sendError(
+        res,
+        404,
+        'INTERACTION_NOT_FOUND',
+        'No pending interaction with this id exists for this session.',
+      );
+      return;
+    case 'already_resolved':
+      sendError(
+        res,
+        409,
+        'INTERACTION_ALREADY_RESOLVED',
+        'This interaction was already decided.',
+      );
+      return;
+    case 'question_unsupported':
+      sendError(
+        res,
+        409,
+        'INTERACTION_KIND_UNSUPPORTED',
+        'Question interactions cannot be answered through this API yet; only permission interactions are supported.',
+      );
+      return;
+    case 'batch_unsupported':
+      sendError(
+        res,
+        409,
+        'INTERACTION_BATCH_UNSUPPORTED',
+        'This interaction is part of a batched channel prompt; decide it from the channel that rendered it.',
+      );
+      return;
+    case 'option_unavailable':
+      sendError(
+        res,
+        409,
+        'DECISION_UNAVAILABLE',
+        `This decision is not available for this interaction. Available: ${outcome.options.join(', ') || 'none'}.`,
+      );
+      return;
+    case 'malformed':
+      sendError(
+        res,
+        409,
+        'INTERACTION_MALFORMED',
+        'The pending interaction record is missing its permission request snapshot.',
+      );
+      return;
+    default:
+      sendError(
+        res,
+        503,
+        'INTERACTION_RETRYABLE',
+        'Could not record the decision. Please retry.',
+      );
+  }
 }
 
 async function writeSseEvent(
@@ -762,8 +743,6 @@ function serializeSessionEventEnvelope(event: RuntimeEvent): {
   eventId: RuntimeEvent['eventId'];
   eventType: RuntimeEvent['eventType'];
   sessionId: RuntimeEvent['sessionId'] | null;
-  runId: RuntimeEvent['runId'] | null;
-  conversationId: RuntimeEvent['conversationId'] | null;
   threadId: RuntimeEvent['threadId'] | null;
   correlationId: RuntimeEvent['correlationId'] | null;
   createdAt: RuntimeEvent['createdAt'];
@@ -773,8 +752,6 @@ function serializeSessionEventEnvelope(event: RuntimeEvent): {
     eventId: event.eventId,
     eventType: event.eventType,
     sessionId: event.sessionId ?? null,
-    runId: event.runId ?? null,
-    conversationId: event.conversationId ?? null,
     threadId: event.threadId ?? null,
     correlationId: event.correlationId ?? null,
     createdAt: event.createdAt,

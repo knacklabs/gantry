@@ -15,6 +15,11 @@ import {
   selectedMemoryIpcActions,
   selectedGantryMcpToolNames,
 } from '@agent-runner-src/gantry-mcp-tool-surface.js';
+import {
+  callableAgentToolName,
+  projectCallableAgentTools,
+} from '@core/application/core-tools/callable-agent-tools.js';
+import { CALLABLE_AGENT_RESPONSE_TIMEOUT_MS } from '@core/shared/callable-agent-manifest.js';
 
 const SAFE_DEFAULT_ALLOWED_TOOLS = [
   'WebSearch',
@@ -113,6 +118,98 @@ const DEVELOPER_AVAILABLE_TOOLS = [
 ] as const;
 
 describe('agent capability composition', () => {
+  const callableAgentManifest = projectCallableAgentTools({
+    agents: [
+      {
+        id: 'agent:main_agent',
+        appId: 'default',
+        name: 'Main',
+        status: 'active',
+      },
+      {
+        id: 'agent:reviewer',
+        appId: 'default',
+        name: 'Reviewer',
+        status: 'active',
+      },
+    ] as never,
+    callerAppId: 'default',
+    callerAgentId: 'agent:main_agent',
+    callerFolder: 'main_agent',
+    delegates: ['reviewer'],
+    conversationBoundAgentIds: new Set(['agent:reviewer']),
+    toolPolicyRules: ['AgentDelegation'],
+  });
+  const callableAgentTool = gantryMcpFullToolName(
+    callableAgentToolName(callableAgentManifest[0]!),
+  );
+
+  it('projects callable-agent tools into the Anthropic lane', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:team',
+      workspaceFolder: 'main_agent',
+      configuredAllowedTools: ['AgentDelegation'],
+      callableAgentManifest,
+      asyncTaskToolsEnabled: true,
+      accessPreset: 'full',
+    });
+
+    expect(profile.allowedTools).toContain(callableAgentTool);
+    expect(
+      JSON.parse(
+        String(
+          profile.mcpServers.gantry?.env?.GANTRY_CALLABLE_AGENT_MANIFEST_JSON,
+        ),
+      ),
+    ).toEqual(callableAgentManifest);
+  });
+
+  it('covers callable-agent response waits with the Anthropic MCP timeout', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:team',
+      workspaceFolder: 'main_agent',
+      configuredAllowedTools: ['AgentDelegation'],
+      callableAgentManifest,
+      asyncTaskToolsEnabled: true,
+      accessPreset: 'full',
+    });
+
+    expect(profile.allowedTools).toContain(callableAgentTool);
+    expect(profile.mcpServers.gantry?.timeout).toBeGreaterThan(
+      CALLABLE_AGENT_RESPONSE_TIMEOUT_MS,
+    );
+  });
+
+  it.each([
+    ['delegated child', { parentTaskId: 'task_parent' }],
+    ['locked mode', { accessPreset: 'locked' as const }],
+    ['empty allowlist', { callableAgentManifest: [] }],
+  ])(
+    'suppresses callable-agent tools for %s in the Anthropic lane',
+    (_name, override) => {
+      const profile = composeAgentCapabilities({
+        mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+        chatJid: 'tg:team',
+        workspaceFolder: 'main_agent',
+        configuredAllowedTools: ['AgentDelegation'],
+        callableAgentManifest,
+        asyncTaskToolsEnabled: true,
+        accessPreset: 'full',
+        ...override,
+      });
+
+      expect(profile.allowedTools).not.toContain(callableAgentTool);
+      expect(
+        JSON.parse(
+          String(
+            profile.mcpServers.gantry?.env?.GANTRY_CALLABLE_AGENT_MANIFEST_JSON,
+          ),
+        ),
+      ).toEqual([]);
+    },
+  );
   it('uses exact safe defaults and gantry MCP server wiring', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
@@ -150,18 +247,46 @@ describe('agent capability composition', () => {
     for (const tool of DANGEROUS_DEFAULT_TOOLS) {
       expect(profile.allowedTools).not.toContain(tool);
     }
+    expect(profile.allowedTools).toContain('mcp__gantry__memory_search');
+    expect(profile.allowedTools).toContain('mcp__gantry__memory_save');
+    expect(profile.allowedTools).toContain('mcp__gantry__brain_search');
+    expect(profile.allowedTools).toContain('mcp__gantry__brain_query');
+    expect(profile.allowedTools).toContain('mcp__gantry__brain_write');
     expect(profile.allowedTools).toContain('mcp__gantry__continuity_summary');
+    expect(profile.allowedTools).toContain('mcp__gantry__procedure_save');
     expect(profile.allowedTools).not.toContain(
       'mcp__gantry__memory_review_pending',
     );
     expect(profile.allowedTools).not.toContain(
       'mcp__gantry__memory_review_decision',
     );
-    expect(selectedMemoryIpcActions([])).toContain('continuity_summary');
+    expect(selectedMemoryIpcActions([])).toEqual([
+      'memory_search',
+      'memory_save',
+      'brain_search',
+      'brain_query',
+      'brain_write',
+      'continuity_summary',
+      'procedure_save',
+    ]);
     expect(selectedMemoryIpcActions([])).not.toContain('memory_review_pending');
     expect(selectedMemoryIpcActions([])).not.toContain(
       'memory_review_decision',
     );
+    expect(
+      selectedGantryMcpToolNames(['mcp__gantry__continuity_summary']),
+    ).toContain('continuity_summary');
+    expect(
+      selectedMemoryIpcActions(['mcp__gantry__continuity_summary']),
+    ).toEqual([
+      'memory_search',
+      'memory_save',
+      'brain_search',
+      'brain_query',
+      'brain_write',
+      'continuity_summary',
+      'procedure_save',
+    ]);
     for (const tool of UNAVAILABLE_DEFAULT_TOOLS) {
       expect(profile.allowedTools).not.toContain(tool);
     }
@@ -181,6 +306,7 @@ describe('agent capability composition', () => {
         GANTRY_MEMORY_USER_ID: '5759865942',
         GANTRY_MEMORY_DEFAULT_SCOPE: 'group',
         GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER: '',
+        GANTRY_NO_PERMISSION_TOOLS: '',
         GANTRY_BROWSER_PROFILE_NAME: 'c-team-abc123abc123',
         GANTRY_ADMIN_MCP_TOOLS_JSON: '[]',
         GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON: '[]',
@@ -191,6 +317,7 @@ describe('agent capability composition', () => {
         GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(
           selectedGantryMcpToolNames([]),
         ),
+        GANTRY_CALLABLE_AGENT_MANIFEST_JSON: '[]',
         GANTRY_MEMORY_IPC_ACTIONS_JSON: JSON.stringify(
           selectedMemoryIpcActions([]),
         ),
@@ -230,8 +357,9 @@ describe('agent capability composition', () => {
           credentialSource: 'none',
           implementationBindings: [
             {
-              kind: 'mcp_tool',
-              mcpTool: 'mcp__caw-ats__ats_list_positions',
+              kind: 'mcp_pattern',
+              mcpServer: 'caw-ats',
+              mcpToolPatterns: ['ats_list_positions'],
             },
           ],
           source: {
@@ -725,12 +853,6 @@ describe('agent capability composition', () => {
       parentTaskId: 'task_parent',
       configuredAllowedTools: ['AgentDelegation'],
       asyncTaskToolsEnabled: true,
-      callerResolvedTools: {
-        sessionId: 'session:test',
-        tools: [],
-        maxInteractions: 4,
-        interactionTimeoutMs: 90_000,
-      },
     });
     for (const toolName of DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES) {
       expect(delegatedProfile.allowedTools).toContain(
@@ -739,12 +861,6 @@ describe('agent capability composition', () => {
     }
     expect(delegatedProfile.mcpServers.gantry?.env?.GANTRY_PARENT_TASK_ID).toBe(
       'task_parent',
-    );
-    expect(delegatedProfile.availableTools).toEqual(
-      expect.arrayContaining([
-        gantryMcpFullToolName('delegate_task'),
-        gantryMcpFullToolName('task_wait'),
-      ]),
     );
   });
 
@@ -850,90 +966,6 @@ describe('agent capability composition', () => {
       'mcp__github__search_repositories',
       'mcp__github__issues.create',
     ]);
-  });
-
-  it('hides proxy execution when every selected external MCP action is mounted directly', () => {
-    const firecrawlTools = [
-      'mcp__firecrawl__firecrawl_search',
-      'mcp__firecrawl__firecrawl_scrape',
-      'mcp__firecrawl__firecrawl_map',
-      'mcp__firecrawl__firecrawl_crawl',
-    ];
-    const profile = composeAgentCapabilities({
-      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
-      chatJid: 'app:source-discovery',
-      workspaceFolder: 'source_discovery',
-      isScheduledJob: true,
-      asyncTaskToolsEnabled: true,
-      configuredAllowedTools: firecrawlTools,
-      externalMcpServers: {
-        firecrawl: {
-          type: 'stdio',
-          command: 'node',
-          args: ['firecrawl-mcp.js'],
-        },
-      },
-      externalMcpAllowedTools: firecrawlTools,
-      externalMcpAlwaysAllowedTools: firecrawlTools,
-    });
-
-    expect(profile.allowedTools).toEqual(
-      expect.arrayContaining(firecrawlTools),
-    );
-    expect(profile.allowedTools).not.toContain('mcp__gantry__mcp_call_tool');
-    expect(profile.allowedTools).not.toContain('mcp__gantry__async_mcp_call');
-    expect(profile.disallowedTools).toEqual(
-      expect.arrayContaining([
-        'mcp__gantry__mcp_call_tool',
-        'mcp__gantry__async_mcp_call',
-      ]),
-    );
-    const gantryServer = profile.mcpServers.gantry;
-    expect(gantryServer).toHaveProperty('command');
-    if (!gantryServer || !('command' in gantryServer)) {
-      throw new Error('Expected Gantry stdio server');
-    }
-    expect(
-      JSON.parse(gantryServer.env?.GANTRY_MCP_TOOL_NAMES_JSON ?? '[]'),
-    ).not.toEqual(expect.arrayContaining(['mcp_call_tool', 'async_mcp_call']));
-  });
-
-  it('keeps proxy execution when a selected external MCP action is not mounted directly', () => {
-    const firecrawlTool = 'mcp__firecrawl__firecrawl_search';
-    const profile = composeAgentCapabilities({
-      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
-      chatJid: 'app:mixed-job',
-      workspaceFolder: 'mixed_job',
-      isScheduledJob: true,
-      asyncTaskToolsEnabled: true,
-      configuredAllowedTools: [
-        firecrawlTool,
-        'mcp__github__search_repositories',
-      ],
-      externalMcpServers: {
-        firecrawl: {
-          type: 'stdio',
-          command: 'node',
-          args: ['firecrawl-mcp.js'],
-        },
-      },
-      externalMcpAllowedTools: [firecrawlTool],
-    });
-
-    expect(profile.allowedTools).toContain('mcp__gantry__mcp_call_tool');
-    expect(profile.allowedTools).toContain('mcp__gantry__async_mcp_call');
-    expect(profile.disallowedTools).not.toContain('mcp__gantry__mcp_call_tool');
-    expect(profile.disallowedTools).not.toContain(
-      'mcp__gantry__async_mcp_call',
-    );
-    const gantryServer = profile.mcpServers.gantry;
-    expect(gantryServer).toHaveProperty('command');
-    if (!gantryServer || !('command' in gantryServer)) {
-      throw new Error('Expected Gantry stdio server');
-    }
-    expect(
-      JSON.parse(gantryServer.env?.GANTRY_MCP_TOOL_NAMES_JSON ?? '[]'),
-    ).toEqual(expect.arrayContaining(['mcp_call_tool', 'async_mcp_call']));
   });
 
   it('does not expose remote MCP servers directly to the SDK', () => {

@@ -198,6 +198,11 @@ describe('extractSessionCommand', () => {
       raw: '/permissions auto',
       value: 'auto',
     });
+    expect(extractSessionCommand('/permissions auto_strict', trigger)).toEqual({
+      kind: 'permissions_set',
+      raw: '/permissions auto_strict',
+      value: 'auto_strict',
+    });
     expect(extractSessionCommand('/permissions default', trigger)).toEqual({
       kind: 'permissions_default',
       raw: '/permissions default',
@@ -531,7 +536,7 @@ describe('handleSessionCommand', () => {
     );
     expect(deps.sendMessage).toHaveBeenCalledWith(
       expect.stringContaining(
-        '/gantry permissions <ask|auto>, /permissions <ask|auto>, or !permissions <ask|auto>',
+        '/gantry permissions <ask|auto|auto_strict>, /permissions <ask|auto|auto_strict>, or !permissions <ask|auto|auto_strict>',
       ),
     );
     expect(deps.sendMessage).toHaveBeenCalledWith(
@@ -1533,7 +1538,7 @@ describe('handleSessionCommand', () => {
     }
   });
 
-  it.each(['ask', 'auto'] as const)(
+  it.each(['ask', 'auto', 'auto_strict'] as const)(
     'sets authorized /permissions %s overrides',
     async (permissionMode) => {
       const deps = makeDeps();
@@ -1629,11 +1634,11 @@ describe('handleSessionCommand', () => {
       expect.objectContaining({
         selectionSource: 'session override',
         modelAlias: 'opus',
-        model: expect.objectContaining({ displayName: 'Opus 4.8' }),
+        model: expect.objectContaining({ displayName: 'Opus 5' }),
       }),
     );
     expect(deps.sendMessage).toHaveBeenCalledWith(
-      'Using Opus 4.8 for this session.',
+      'Using Opus 5 for this session.',
     );
   });
 
@@ -1720,11 +1725,11 @@ describe('handleSessionCommand', () => {
       expect.objectContaining({
         selectionSource: 'chat default',
         modelAlias: 'opus',
-        model: expect.objectContaining({ displayName: 'Opus 4.8' }),
+        model: expect.objectContaining({ displayName: 'Opus 5' }),
       }),
     );
     expect(deps.sendMessage).toHaveBeenCalledWith(
-      'Model override cleared. Using default model: Opus 4.8 (Anthropic).',
+      'Model override cleared. Using default model: Opus 5 (Anthropic).',
     );
   });
 
@@ -2209,6 +2214,7 @@ describe('handleSessionCommand', () => {
     const sentMsg = (deps.sendMessage as ReturnType<typeof vi.fn>).mock
       .calls[0][0] as string;
     expect(sentMsg).toContain('Supported model aliases');
+    expect(sentMsg).toContain('Opus 5');
     expect(sentMsg).toContain('Opus 4.8');
     expect(sentMsg).toContain('Kimi K2.6');
     expect(sentMsg).toContain('chat default');

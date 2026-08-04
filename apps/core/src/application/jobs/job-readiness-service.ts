@@ -36,26 +36,24 @@ import {
   parseSemanticCapabilityRule,
   semanticCapabilityRule,
 } from '../../shared/semantic-capability-ids.js';
-import {
-  semanticCapabilityFromToolCatalogItem,
-  type SemanticCapabilityDefinition,
-} from '../../shared/semantic-capabilities.js';
+import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
 import { stableSha256Json } from '../../shared/stable-hash.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import {
+  catalogSemanticCapabilityDefinition,
   capabilityRequirementSetupAction,
   formatCapabilityRequirement,
   localCliCommandTemplatePermissionRule,
 } from './job-capability-requirements.js';
 import { CapabilitySecretService } from '../capability-secrets/capability-secret-service.js';
 import {
-  invalidWorkspaceConfigBlocker,
-  pinnedSkillBlocker,
-} from './job-readiness-blockers.js';
-import {
   formatMissingGantrySecretsMessage,
   humanizeTechnicalIdentifier,
 } from '../../shared/user-visible-messages.js';
+import {
+  assertHostAccessSnapshot,
+  type AgentAccessSnapshot,
+} from '../agent-execution/agent-access-snapshot.js';
 export const SETUP_REQUIRED_PAUSE_REASON = 'Setup required';
 export interface JobReadinessBrowserStatus {
   hasState?: boolean;
@@ -77,6 +75,7 @@ export interface JobReadinessDeps {
   // or omitted inventory means "no image inventory declared" and is not enforced.
   workerImageInventory?: readonly string[];
   clock?: Clock;
+  accessSnapshot?: AgentAccessSnapshot;
 }
 export interface JobReadinessInput extends JobReadinessDeps {
   job: Pick<
@@ -103,7 +102,38 @@ export async function evaluateJobReadiness(
   const appId = input.appId ?? DEFAULT_JOB_RUNTIME_APP_ID;
   const agentId =
     input.agentId ?? agentIdForJobWorkspaceKey(input.job.workspace_key);
+  const accessSnapshot = assertHostAccessSnapshot({
+    accessSnapshot: input.accessSnapshot,
+    appId,
+    agentId,
+    subject: 'Job readiness',
+  });
   const blockers: JobSetupBlocker[] = [];
+
+  const requiredSkill = input.job.agent_task?.requiredSkill;
+  if (requiredSkill) {
+    const skills =
+      (await input.skillRepository?.listEnabledSkillsForAgent({
+        appId: appId as never,
+        agentId: agentId as never,
+      })) ?? [];
+    if (
+      !skills.some(
+        (skill) =>
+          skill.name === requiredSkill.name &&
+          skill.storage?.contentHash === requiredSkill.contentHash,
+      )
+    ) {
+      blockers.push({
+        state: 'missing_capability',
+        requirementType: 'skill',
+        requirementId: requiredSkill.name,
+        message: `This job requires exact skill ${requiredSkill.name}@${requiredSkill.contentHash}.`,
+        nextAction:
+          'Install and bind the exact skill artifact, then recheck the job.',
+      });
+    }
+  }
 
   const invalidWorkspaceBlocker = invalidWorkspaceConfigBlocker(input.job);
   if (invalidWorkspaceBlocker) {
@@ -113,13 +143,6 @@ export async function evaluateJobReadiness(
       previous: input.job.setup_state,
     });
   }
-  const requiredSkillBlocker = await pinnedSkillBlocker({
-    job: input.job,
-    appId,
-    agentId,
-    repository: input.skillRepository,
-  });
-  if (requiredSkillBlocker) blockers.push(requiredSkillBlocker);
   let splitRequirements;
   try {
     splitRequirements = splitAccessRequirements(input.job.access_requirements);
@@ -148,6 +171,7 @@ export async function evaluateJobReadiness(
       agentId,
       toolRepository: input.toolRepository,
       skillRepository: input.skillRepository,
+      accessSnapshot,
     });
   } catch (error) {
     if (!(error instanceof ApplicationError) || error.code !== 'FORBIDDEN') {
@@ -190,6 +214,7 @@ export async function evaluateJobReadiness(
         capabilityId: semanticCapabilityId,
         appId,
         repository: input.toolRepository,
+        accessSnapshot,
       });
       if (!capability) {
         blockers.push(
@@ -235,6 +260,7 @@ export async function evaluateJobReadiness(
             capabilityId: semanticCapabilityId,
             appId,
             repository: input.toolRepository,
+            accessSnapshot,
           }),
           agentId,
           broker: input.credentialBroker,
@@ -250,6 +276,7 @@ export async function evaluateJobReadiness(
         agentId,
         repository: input.mcpServerRepository,
         secrets: input.capabilitySecretRepository,
+        accessSnapshot,
       })),
     );
   } catch (error) {
@@ -274,7 +301,37 @@ export async function evaluateJobReadiness(
       setupState.state === 'ready' ? null : SETUP_REQUIRED_PAUSE_REASON,
   };
 }
-
+function invalidWorkspaceConfigBlocker(
+  job: JobReadinessInput['job'],
+): JobSetupBlocker | null {
+  const workspaceKey =
+    typeof job.workspace_key === 'string' ? job.workspace_key.trim() : '';
+  if (!workspaceKey) {
+    return brokerUnreachableBlocker(
+      'Job workspace is not configured. The job cannot resolve its runtime workspace.',
+    );
+  }
+  const executionContext = job.execution_context as
+    | { workspaceKey?: unknown; conversationJid?: unknown }
+    | null
+    | undefined;
+  if (executionContext) {
+    const ctxWorkspaceKey =
+      typeof executionContext.workspaceKey === 'string'
+        ? executionContext.workspaceKey.trim()
+        : '';
+    const ctxConversationJid =
+      typeof executionContext.conversationJid === 'string'
+        ? executionContext.conversationJid.trim()
+        : '';
+    if (!ctxWorkspaceKey || !ctxConversationJid) {
+      return brokerUnreachableBlocker(
+        'Job execution context is invalid. It is missing a workspace key or conversation install.',
+      );
+    }
+  }
+  return null;
+}
 function brokerUnreachableBlocker(message: string): JobSetupBlocker {
   return {
     state: 'broker_unreachable',
@@ -620,35 +677,17 @@ async function semanticCapabilityCredentialBlocker(input: {
   return null;
 }
 
-async function catalogSemanticCapabilityDefinition(input: {
-  capabilityId: string;
-  appId: string;
-  repository?: ToolCatalogRepository;
-}): Promise<SemanticCapabilityDefinition | undefined> {
-  if (!input.repository || typeof input.repository.listTools !== 'function') {
-    return undefined;
-  }
-  const tools = await input.repository.listTools({
-    appId: input.appId as never,
-    statuses: ['active'],
-  });
-  for (const tool of tools) {
-    const capability = semanticCapabilityFromToolCatalogItem(tool);
-    if (capability?.capabilityId === input.capabilityId) return capability;
-  }
-  return undefined;
-}
-
 async function mcpReadinessBlockers(input: {
   requiredMcpServers: readonly string[];
   appId: string;
   agentId: string;
   repository?: McpServerRepository;
   secrets?: CapabilitySecretRepository;
+  accessSnapshot?: AgentAccessSnapshot;
 }): Promise<JobSetupBlocker[]> {
   const required = input.requiredMcpServers;
   if (required.length === 0) return [];
-  if (!input.repository) {
+  if (!input.repository && !input.accessSnapshot) {
     return required.map((requirement) => ({
       state: 'missing_capability',
       requirementType: 'mcp_server',
@@ -658,10 +697,12 @@ async function mcpReadinessBlockers(input: {
     }));
   }
   const blockers: JobSetupBlocker[] = [];
-  const materialized = await input.repository.listMaterializedServersForAgent({
-    appId: input.appId as never,
-    agentId: input.agentId as never,
-  });
+  const materialized = input.accessSnapshot
+    ? input.accessSnapshot.mcp.materializedServers
+    : await input.repository!.listMaterializedServersForAgent({
+        appId: input.appId as never,
+        agentId: input.agentId as never,
+      });
   for (const requirement of required) {
     const record = materialized.find(
       (candidate) =>
@@ -669,12 +710,14 @@ async function mcpReadinessBlockers(input: {
         candidate.definition.id === requirement,
     );
     if (!record) {
-      const definition = requirement.startsWith('mcp:')
-        ? await input.repository.getServer(requirement as McpServerId)
-        : await input.repository.getServerByName({
-            appId: input.appId as never,
-            name: requirement,
-          });
+      const definition = input.repository
+        ? requirement.startsWith('mcp:')
+          ? await input.repository.getServer(requirement as McpServerId)
+          : await input.repository.getServerByName({
+              appId: input.appId as never,
+              name: requirement,
+            })
+        : null;
       blockers.push({
         state: 'missing_capability',
         requirementType: 'mcp_server',
@@ -726,7 +769,8 @@ function mcpCredentialBlocker(
     requirementType: 'mcp_server',
     requirementId: serverName,
     message: formatMissingGantrySecretsMessage(secretNames),
-    nextAction: `Set ${secretNames.map((name) => `gantry credentials access set ${name}`).join(' and ')}, then resume or recheck the job.`,
+    nextAction:
+      'Add the required credentials in Credential Center, then resume or recheck the job.',
   };
 }
 

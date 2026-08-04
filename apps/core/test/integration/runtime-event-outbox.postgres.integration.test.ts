@@ -283,7 +283,14 @@ maybeDescribe('Postgres runtime event outbox', () => {
           appId,
           payload: { questions: ['Continue?'] },
         }),
-      ).resolves.toBe(true);
+        // With a durability backend configured this returns the created
+        // pending interaction row (boolean `true` only when no backend).
+      ).resolves.toMatchObject({
+        kind: 'question',
+        requestId: 'question:lifecycle-webhook',
+        sourceAgentFolder: 'main_agent',
+        status: 'pending',
+      });
       await publishPendingInteractionRuntimeEvent(
         {
           publishRuntimeEvent: (event) =>

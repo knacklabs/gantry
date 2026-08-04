@@ -10,14 +10,36 @@ import {
   type SettingsDesiredStateOps,
 } from '../config/settings/desired-state-service.js';
 import {
+  applySettingsRevisionWithMcpFenceRecovery,
   importWorkstationSettings,
+  settingsFromRevisionDocument,
+  SettingsRevisionConflictError,
+  SettingsStaleMutationError,
   settingsToRevisionDocument,
   stableJson,
   type SettingsRevisionMirror,
 } from '../config/settings/settings-import-service.js';
+import {
+  addAllMcpSourcesToRuntimeSettings,
+  snapshotConfiguredMcpBindingAuthority,
+} from '../config/settings/restart-sync.js';
+import {
+  capturePendingMcpSourceEdits,
+  restorePendingMcpSourceEdits,
+} from '../config/settings/mcp-source-projection-preservation.js';
 import { invalidateSenderAllowlistCache } from '../platform/sender-allowlist.js';
 import type { AppId } from '../domain/app/app.js';
-import type { SettingsRevisionRepository } from '../domain/ports/fleet-capability-state.js';
+import type { AgentId } from '../domain/agent/agent.js';
+import {
+  McpBindingAuthorityChangedError,
+  type McpBindingAuthorityPrecondition,
+} from '../domain/mcp/mcp-servers.js';
+import type {
+  SettingsRevision,
+  SettingsRevisionRepository,
+} from '../domain/ports/fleet-capability-state.js';
+import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
+import { withSettingsProjectorLease } from '../domain/ports/settings-projector-lease.js';
 
 export interface SettingsReloadWatcherOptions {
   runtimeHome: string;
@@ -27,6 +49,7 @@ export interface SettingsReloadWatcherOptions {
   appId?: AppId;
   settingsRevisions?: SettingsRevisionRepository;
   settingsRevisionPool?: SettingsRevisionMirror['pool'];
+  leases?: RuntimeLeasePort;
   pollIntervalMs?: number;
 }
 
@@ -93,13 +116,22 @@ export function startSettingsReloadWatcher(
 
       let matchesLatestRevision = false;
       let latestRevision = 0;
+      let latestSettingsRevision: SettingsRevision | undefined;
+      let latestMcpBindingPreconditions:
+        | McpBindingAuthorityPrecondition[]
+        | undefined;
+      let latestMcpBindingPreconditionAgentIds: AgentId[] | undefined;
       if (options.settingsRevisions) {
         try {
           const latest =
             await options.settingsRevisions.getLatestSettingsRevision(
               options.appId ?? ('default' as AppId),
             );
+          latestSettingsRevision = latest ?? undefined;
           latestRevision = latest?.revision ?? 0;
+          latestMcpBindingPreconditionAgentIds =
+            latest?.mcpBindingPreconditionAgentIds;
+          latestMcpBindingPreconditions = latest?.mcpBindingPreconditions;
           matchesLatestRevision = latest
             ? stableJson(latest.settingsDocument) ===
               stableJson(settingsToRevisionDocument(settings))
@@ -118,37 +150,104 @@ export function startSettingsReloadWatcher(
       // and reconcile through the single shared import path used by the CLI and
       // control API (ADR-3: one mutation path, no authority fork).
       try {
-        await importWorkstationSettings(
-          {
-            runtimeHome: options.runtimeHome,
-            ops: options.ops,
-            repositories: options.repositories,
-            appId: options.appId,
-            previousSettings: lastGoodSettings,
-            reloadRuntimeState: () => options.app.loadState(),
-            revisionMirror:
-              options.settingsRevisions && !matchesLatestRevision
-                ? {
-                    settingsRevisions: options.settingsRevisions,
-                    pool: options.settingsRevisionPool,
-                    createdBy: 'settings.yaml:auto-import',
-                    logWarn: (context, message) =>
-                      logger.warn(context, message),
-                  }
-                : undefined,
-            revisionMirrorRequired:
-              options.settingsRevisions !== undefined && !matchesLatestRevision,
-            expectedRevision: !matchesLatestRevision
-              ? latestRevision
-              : undefined,
-          },
-          settings,
-        );
+        let settingsToImport = settings;
+        let previousSettingsForImport = lastGoodSettings;
+        if (
+          !matchesLatestRevision &&
+          latestSettingsRevision &&
+          lastGoodSettings
+        ) {
+          const latestSettings = settingsFromRevisionDocument(
+            latestSettingsRevision.settingsDocument,
+          );
+          settingsToImport = rebasePendingSettingsEdits({
+            base: lastGoodSettings,
+            edited: settings,
+            current: latestSettings,
+          });
+          previousSettingsForImport = latestSettings;
+
+          if ((latestMcpBindingPreconditionAgentIds?.length ?? 0) > 0) {
+            const pendingMcpSourceEdits = capturePendingMcpSourceEdits({
+              settings: settingsToImport,
+              agentIds: latestMcpBindingPreconditionAgentIds,
+              bindings: latestMcpBindingPreconditions,
+            });
+            await addAllMcpSourcesToRuntimeSettings({
+              settings: settingsToImport,
+              repositories: options.repositories,
+              appId: options.appId ?? ('default' as AppId),
+            });
+            restorePendingMcpSourceEdits(
+              settingsToImport,
+              pendingMcpSourceEdits,
+            );
+            const currentMcpAuthority =
+              await snapshotConfiguredMcpBindingAuthority({
+                settings: settingsToImport,
+                repositories: options.repositories,
+                appId: options.appId ?? ('default' as AppId),
+                additionalAgentIds: latestMcpBindingPreconditionAgentIds,
+              });
+            latestMcpBindingPreconditionAgentIds = currentMcpAuthority.agentIds;
+            latestMcpBindingPreconditions = currentMcpAuthority.bindings;
+          }
+        }
+        const revisionMirror = options.settingsRevisions
+          ? {
+              settingsRevisions: options.settingsRevisions,
+              pool: options.settingsRevisionPool,
+              createdBy: matchesLatestRevision
+                ? 'settings.yaml:mcp-fence-recovery'
+                : 'settings.yaml:auto-import',
+              logWarn: (context: Record<string, unknown>, message: string) =>
+                logger.warn(context, message),
+            }
+          : undefined;
+        if (matchesLatestRevision && latestSettingsRevision && revisionMirror) {
+          const appId = options.appId ?? ('default' as AppId);
+          await withSettingsProjectorLease(options.leases!, appId, () =>
+            applySettingsRevisionWithMcpFenceRecovery({
+              runtimeHome: options.runtimeHome,
+              ops: options.ops,
+              repositories: options.repositories,
+              appId,
+              revision: latestSettingsRevision,
+              reloadRuntimeState: () => options.app.loadState(),
+              revisionMirror,
+            }),
+          );
+        } else {
+          await importWorkstationSettings(
+            {
+              runtimeHome: options.runtimeHome,
+              ops: options.ops,
+              repositories: options.repositories,
+              appId: options.appId,
+              previousSettings: previousSettingsForImport,
+              reloadRuntimeState: () => options.app.loadState(),
+              revisionMirror,
+              revisionMirrorRequired: options.settingsRevisions !== undefined,
+              expectedRevision: latestRevision,
+              expectedMcpBindingAgentIds: latestMcpBindingPreconditionAgentIds,
+              expectedMcpBindings: latestMcpBindingPreconditions,
+              leases: options.leases,
+            },
+            settingsToImport,
+          );
+        }
       } catch (err) {
         logger.warn(
           { err, filePath },
           'settings.yaml reload failed validation/reconcile; keeping last good settings',
         );
+        if (
+          err instanceof SettingsRevisionConflictError ||
+          err instanceof SettingsStaleMutationError ||
+          err instanceof McpBindingAuthorityChangedError
+        ) {
+          scheduleReloadRetry();
+        }
         return;
       }
 
@@ -214,4 +313,79 @@ function settingsDocumentsMatch(
     stableJson(settingsToRevisionDocument(left)) ===
     stableJson(settingsToRevisionDocument(right))
   );
+}
+
+function rebasePendingSettingsEdits(input: {
+  base: ReturnType<typeof loadRuntimeSettings>;
+  edited: ReturnType<typeof loadRuntimeSettings>;
+  current: ReturnType<typeof loadRuntimeSettings>;
+}): ReturnType<typeof loadRuntimeSettings> {
+  const rebased = rebaseJsonEdits(
+    settingsToRevisionDocument(input.base),
+    settingsToRevisionDocument(input.edited),
+    settingsToRevisionDocument(input.current),
+  );
+  return settingsFromRevisionDocument(rebased as Record<string, unknown>);
+}
+
+function rebaseJsonEdits(
+  base: unknown,
+  edited: unknown,
+  current: unknown,
+  path: string[] = [],
+): unknown {
+  if (stableJson(base) === stableJson(edited)) return structuredClone(current);
+  if (
+    !isPlainRecord(base) ||
+    !isPlainRecord(edited) ||
+    !isPlainRecord(current)
+  ) {
+    if (
+      stableJson(base) !== stableJson(current) &&
+      stableJson(edited) !== stableJson(current)
+    ) {
+      throw settingsRebaseConflict(path);
+    }
+    return structuredClone(edited);
+  }
+
+  const rebased = structuredClone(current);
+  for (const key of new Set([...Object.keys(base), ...Object.keys(edited)])) {
+    if (!(key in edited)) {
+      if (
+        key in current &&
+        stableJson(base[key]) !== stableJson(current[key])
+      ) {
+        throw settingsRebaseConflict([...path, key]);
+      }
+      delete rebased[key];
+      continue;
+    }
+    if (!(key in base)) {
+      if (
+        key in current &&
+        stableJson(edited[key]) !== stableJson(current[key])
+      ) {
+        throw settingsRebaseConflict([...path, key]);
+      }
+      rebased[key] = structuredClone(edited[key]);
+      continue;
+    }
+    if (stableJson(base[key]) === stableJson(edited[key])) continue;
+    rebased[key] = rebaseJsonEdits(base[key], edited[key], rebased[key], [
+      ...path,
+      key,
+    ]);
+  }
+  return rebased;
+}
+
+function settingsRebaseConflict(path: readonly string[]): Error {
+  return new Error(
+    `settings.yaml edit conflicts with a newer settings revision at ${path.join('.') || '<root>'}; reload the current settings and retry the edit.`,
+  );
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }

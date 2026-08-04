@@ -1,4 +1,9 @@
 import type { MessageActionAffordance } from '../../domain/types.js';
+import {
+  morePendingReviewsLabel,
+  type ReviewMessageSide,
+  type ReviewMessageView,
+} from '../../domain/review-message-view.js';
 
 const SLACK_ACTION_VALUE_MAX_BYTES = 2000;
 const SCHEDULER_ACTION_KINDS = new Set<MessageActionAffordance['kind']>([
@@ -17,6 +22,21 @@ function slackActionValue(
   providerAccountId?: string,
 ): string | undefined {
   if (action.kind === 'live_turn_stop') return undefined;
+  // ponytail: observer_feedback rendering lands in a later OBS-RESOLVE task.
+  if (action.kind === 'observer_feedback') return undefined;
+  // brain_dream_review_decision has its own renderer (brain-review-affordances).
+  if (action.kind === 'brain_dream_review_decision') return undefined;
+  if (action.kind === 'memory_review_decision') {
+    const value = JSON.stringify({
+      kind: action.kind,
+      reviewId: action.reviewId,
+      decision: action.decision,
+      ...(providerAccountId ? { providerAccountId } : {}),
+    });
+    return Buffer.byteLength(value, 'utf8') <= SLACK_ACTION_VALUE_MAX_BYTES
+      ? value
+      : undefined;
+  }
   const value = SCHEDULER_ACTION_KINDS.has(action.kind)
     ? JSON.stringify({
         kind: action.kind,
@@ -68,4 +88,97 @@ export function slackMessageActionBlocks(
         },
         actionBlock,
       ];
+}
+
+/**
+ * Escape dynamic snapshot content before embedding it in Slack mrkdwn, so a
+ * captured `<@U123>` or `<https://x|label>` can't become a live mention/link
+ * when the bot republishes it. Mirrors the Telegram HTML escaping.
+ */
+function escapeSlackMrkdwn(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+function slackSideLine(side: ReviewMessageSide): string {
+  const meta = [side.source, side.date]
+    .filter(Boolean)
+    .map((part) => escapeSlackMrkdwn(part as string))
+    .join(' · ');
+  const value = `*${side.label}:* "${escapeSlackMrkdwn(side.value)}"`;
+  return meta ? `${value} — ${meta}` : value;
+}
+
+/**
+ * Compact-structured Block Kit for a memory-review message: a header (title),
+ * a section carrying Topic + each side (value with its "source · date"), a
+ * section for the change + why, a bounded evidence context block (collapsed to
+ * short snippets — never the full text), and an actions block with the three
+ * approve/reject/edit buttons whose value carries {kind, reviewId, decision}.
+ */
+export function slackReviewMessageBlocks(
+  view: ReviewMessageView,
+  options: { providerAccountId?: string } = {},
+): Array<Record<string, unknown>> {
+  const blocks: Array<Record<string, unknown>> = [
+    {
+      type: 'header',
+      text: { type: 'plain_text', text: view.title, emoji: true },
+    },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: [
+          `*Topic:* ${escapeSlackMrkdwn(view.topic)}`,
+          ...view.sides.map(slackSideLine),
+        ].join('\n'),
+      },
+    },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Change →* ${escapeSlackMrkdwn(view.change)}\n*Why:* ${escapeSlackMrkdwn(view.why)}`,
+      },
+    },
+  ];
+  if (view.evidence.length > 0) {
+    blocks.push({
+      type: 'context',
+      elements: view.evidence.map((item) => ({
+        type: 'mrkdwn',
+        text: `📎 ${escapeSlackMrkdwn([item.source, item.date].filter(Boolean).join(' · '))}: ${escapeSlackMrkdwn(item.snippet)}`,
+      })),
+    });
+  }
+  const morePending = morePendingReviewsLabel(view);
+  if (morePending) {
+    blocks.push({
+      type: 'context',
+      elements: [{ type: 'mrkdwn', text: escapeSlackMrkdwn(morePending) }],
+    });
+  }
+  const elements = view.affordances.map((affordance) => ({
+    type: 'button',
+    action_id: 'gantry_message_action',
+    text: {
+      type: 'plain_text',
+      text: truncateSlackButtonLabel(affordance.label),
+    },
+    ...(affordance.decision === 'reject' ? { style: 'danger' as const } : {}),
+    ...(affordance.decision === 'approve' ? { style: 'primary' as const } : {}),
+    value: JSON.stringify({
+      kind: 'memory_review_decision',
+      reviewId: affordance.reviewId,
+      decision: affordance.decision,
+      ...(options.providerAccountId
+        ? { providerAccountId: options.providerAccountId }
+        : {}),
+    }),
+  }));
+  blocks.push({ type: 'actions', elements });
+  return blocks;
 }

@@ -33,14 +33,11 @@ import type { AsyncTaskRepository } from '../domain/ports/async-tasks.js';
 export interface SchedulerDependencies {
   /** Process role; persisted on the worker_instances row at registration. */
   processRole?: ProcessRole;
-  /** Runtime app whose live admissions this process can actually execute. */
-  runtimeAppId?: string;
   hasLiveAdmissionBacklog?: () => Promise<boolean>;
+  sweepTerminalLiveAdmissions?: (
+    cutoffIso: string,
+  ) => Promise<{ deleted: number; more: boolean }>;
   conversationRoutes: () => Record<string, ConversationRoute>;
-  projectConversationRoute?: (
-    jid: string,
-    route: ConversationRoute,
-  ) => Promise<void>;
   queue: GroupQueue;
   onProcess: (
     groupJid: string,

@@ -1,4 +1,5 @@
 import { UserQuestionRequest } from '../../domain/types.js';
+import type { DurableQuestionCallback } from '../../application/interactions/pending-interaction-durability.js';
 
 const SLACK_LIMITS = { buttonText: 75, actionValue: 2000 } as const;
 
@@ -21,27 +22,21 @@ export function encodeSlackActionValue(value: Record<string, unknown>): string {
     return serialized;
   }
   return JSON.stringify({
-    requestId: value.requestId,
-    questionIndex: value.questionIndex,
+    callback: value.callback,
   });
 }
 
 export function parseSlackUserQuestionActionValue(
   rawValue: string | undefined,
-): { requestId: string; questionIndex: number; optionIndex?: number } | null {
+): { callback: DurableQuestionCallback; optionIndex?: number } | null {
   if (!rawValue) return null;
   try {
     const parsed = JSON.parse(rawValue) as {
-      requestId?: unknown;
-      questionIndex?: unknown;
+      callback?: unknown;
       optionIndex?: unknown;
     };
-    if (
-      typeof parsed.requestId !== 'string' ||
-      !Number.isInteger(parsed.questionIndex)
-    ) {
-      return null;
-    }
+    const callback = readDurableQuestionCallback(parsed.callback);
+    if (!callback) return null;
     if (
       parsed.optionIndex !== undefined &&
       !Number.isInteger(parsed.optionIndex)
@@ -49,8 +44,7 @@ export function parseSlackUserQuestionActionValue(
       return null;
     }
     return {
-      requestId: parsed.requestId,
-      questionIndex: parsed.questionIndex as number,
+      callback,
       ...(typeof parsed.optionIndex === 'number'
         ? { optionIndex: parsed.optionIndex as number }
         : {}),
@@ -58,6 +52,30 @@ export function parseSlackUserQuestionActionValue(
   } catch {
     return null;
   }
+}
+
+function readDurableQuestionCallback(
+  value: unknown,
+): DurableQuestionCallback | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const callback = value as Record<string, unknown>;
+  const scope = callback.scope;
+  if (!scope || typeof scope !== 'object' || Array.isArray(scope)) return null;
+  const parsedScope = scope as Record<string, unknown>;
+  if (
+    typeof callback.providerAlias !== 'string' ||
+    !callback.providerAlias ||
+    !Number.isInteger(callback.questionIndex) ||
+    typeof parsedScope.appId !== 'string' ||
+    !parsedScope.appId ||
+    typeof parsedScope.sourceAgentFolder !== 'string' ||
+    !parsedScope.sourceAgentFolder ||
+    typeof parsedScope.interactionId !== 'string' ||
+    !parsedScope.interactionId
+  ) {
+    return null;
+  }
+  return callback as unknown as DurableQuestionCallback;
 }
 
 /** Question + options, without the header (the header gets its own block). */

@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ConversationRoute } from '@core/domain/types.js';
 import { FilesystemRunnerControlPort } from '@core/runtime/filesystem-runner-control-port.js';
 import { isPendingIpcJsonFile } from '@core/runtime/ipc-filesystem.js';
-import { isLongRunningTask } from '@core/runtime/ipc-long-running-task.js';
 import {
   resolveIpcFoldersFromGroups,
   resolveIpcTargetJidForSourceGroup,
@@ -113,11 +112,5 @@ describe('isPendingIpcJsonFile', () => {
     expect(isPendingIpcJsonFile('perm-1.json')).toBe(true);
     expect(isPendingIpcJsonFile('.processing-123-perm-1.json')).toBe(false);
     expect(isPendingIpcJsonFile('perm-1.json.tmp')).toBe(false);
-  });
-});
-
-describe('isLongRunningTask', () => {
-  it('does not block IPC processing while an agent waits for child tasks', () => {
-    expect(isLongRunningTask('task_wait')).toBe(true);
   });
 });

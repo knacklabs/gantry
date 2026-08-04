@@ -11,13 +11,10 @@ vi.mock('@core/runner/mcp/tools/task-lifecycle.js', () => ({
 import { DelegatedCompletionGate } from '@core/runner/delegated-completion-gate.js';
 
 describe('DelegatedCompletionGate', () => {
-  beforeEach(() => {
-    submitTaskLifecycleDataRequest.mockReset();
-  });
+  beforeEach(() => submitTaskLifecycleDataRequest.mockReset());
 
-  it('accepts completion and forwards the fixed gate request', async () => {
+  it('forwards a bounded caller gate request and accepts completion', async () => {
     submitTaskLifecycleDataRequest.mockResolvedValue({
-      taskId: 'gate-1',
       ok: true,
       data: { decision: 'accept', progressToken: 'covered-all' },
     });
@@ -41,9 +38,8 @@ describe('DelegatedCompletionGate', () => {
     });
   });
 
-  it('fails after two consecutive continuation decisions without progress', async () => {
+  it('fails when continuation repeats without progress', async () => {
     submitTaskLifecycleDataRequest.mockResolvedValue({
-      taskId: 'gate-1',
       ok: true,
       data: {
         decision: 'continue',
@@ -57,43 +53,10 @@ describe('DelegatedCompletionGate', () => {
       interactionTimeoutMs: 90_000,
     });
 
-    await expect(gate.check()).resolves.toMatchObject({
-      decision: 'continue',
-    });
-    await expect(gate.check()).resolves.toMatchObject({
-      decision: 'continue',
-    });
+    await expect(gate.check()).resolves.toMatchObject({ decision: 'continue' });
+    await expect(gate.check()).resolves.toMatchObject({ decision: 'continue' });
     await expect(gate.check()).rejects.toThrow(
-      'stopped after 2 consecutive continuations without progress',
+      'repeated continuations without progress',
     );
-  });
-
-  it('resets the no-progress count when the caller progress token changes', async () => {
-    for (const progressToken of ['covered-11', 'covered-11', 'covered-15']) {
-      submitTaskLifecycleDataRequest.mockResolvedValueOnce({
-        taskId: 'gate-1',
-        ok: true,
-        data: {
-          decision: 'continue',
-          progressToken,
-          message: 'Run the next batch.',
-        },
-      });
-    }
-    const gate = new DelegatedCompletionGate({
-      toolName: 'validate_completion',
-      maxNoProgressContinuations: 2,
-      interactionTimeoutMs: 90_000,
-    });
-
-    await expect(gate.check()).resolves.toMatchObject({
-      progressToken: 'covered-11',
-    });
-    await expect(gate.check()).resolves.toMatchObject({
-      progressToken: 'covered-11',
-    });
-    await expect(gate.check()).resolves.toMatchObject({
-      progressToken: 'covered-15',
-    });
   });
 });

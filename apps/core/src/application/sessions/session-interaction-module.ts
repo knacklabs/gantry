@@ -1,10 +1,5 @@
-import type {
-  AgentControlOverrides,
-  AppMessageResponseRoute,
-  CallerResolvedToolsConfig,
-  NewMessage,
-  SessionContinuityMode,
-} from '../../domain/types.js';
+import type { AgentControlOverrides, NewMessage } from '../../domain/types.js';
+import { AgentRunResponseSchema } from '@gantry/contracts';
 import type {
   RuntimeEvent,
   RuntimeEventFilter,
@@ -18,7 +13,6 @@ import type {
   RuntimeMessageRepository,
 } from '../../domain/repositories/ops-repo.js';
 import type { LiveAdmissionWorkItemEnqueueResult } from '../../domain/ports/live-turns.js';
-import type { SdkSessionQueuePolicy } from '../../domain/ports/live-turns.js';
 import type {
   AgentRepository,
   AgentRunRepository,
@@ -26,27 +20,29 @@ import type {
   MessageRepository,
   ProviderSessionRepository,
 } from '../../domain/ports/repositories.js';
+import type { AgentId } from '../../domain/agent/agent.js';
+import { folderForAgentId } from '../../domain/agent/agent-folder-id.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
 import type { AgentRuntime } from '../../shared/agent-runtime.js';
+import type { AppUserAssertion } from '@gantry/contracts';
 import { ApplicationError } from '../common/application-error.js';
 import { isValidControlId } from '../../shared/control-id.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
-import { MAX_WORKSPACE_FOLDER_LENGTH } from '../../shared/workspace-folder-policy.js';
-import { folderForAgentId } from '../../domain/agent/agent-folder-id.js';
-import { canonicalJson } from '../../shared/canonical-json.js';
 
 type ControlResponseMode = Exclude<RuntimeResponseMode, 'sse'> | 'sse';
 
 export type SessionAppRecord = {
   sessionId: string;
   appId: string;
-  agentId?: string | null;
+  agentId: string;
   conversationId: string;
+  canonicalConversationId: string;
   conversationJid: string;
   workspaceKey: string;
   title?: string | null;
   defaultResponseMode: ControlResponseMode;
   defaultWebhookId: string | null;
+  appUser?: AppUserAssertion | null;
 };
 
 export type SessionResponseRouteRecord = {
@@ -61,10 +57,10 @@ export interface SessionControlPort {
     conversationId: string;
     conversationJid: string;
     folder: string;
-    agentId?: string;
     title?: string | null;
     defaultResponseMode?: ControlResponseMode;
     defaultWebhookId?: string | null;
+    appUser?: AppUserAssertion | null;
   }): Promise<SessionAppRecord>;
   getAppSessionById(sessionId: string): Promise<SessionAppRecord | undefined>;
   getAppSessionByChatJid(
@@ -98,7 +94,6 @@ export type SessionInteractionDeps = {
     agentRuns: AgentRunRepository;
   };
   runtimeEvents: RuntimeEventExchange;
-  liveAdmissionAppId?: string | null;
   getConfiguredAgentRuntime?: (agentFolder: string) => AgentRuntime | undefined;
   now: () => IsoTimestamp;
   createId: () => string;
@@ -121,9 +116,11 @@ export class SessionInteractionModule {
     agentId?: string | null;
     agentName?: string | null;
     conversationId: string;
+    conversationKind?: 'dm' | 'channel';
     title?: string | null;
     responseMode?: unknown;
     webhookId?: string | null;
+    appUser?: AppUserAssertion | null;
   }): Promise<{
     session: SessionAppRecord;
     registerGroup: { conversationJid: string; group: AppGroupRegistration };
@@ -142,22 +139,71 @@ export class SessionInteractionModule {
         'appId and conversationId must contain only letters, numbers, dot, underscore, or dash',
       );
     }
+    const conversationKind = input.conversationKind ?? 'channel';
+    if (input.appUser && conversationKind !== 'dm') {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'appUser can only be bound to a direct-message session',
+      );
+    }
     const conversationJid = `app:${input.appId}:${conversationId}`;
-    const selectedAgent = await this.resolveSessionAgent({
-      appId: input.appId,
-      agentId: input.agentId ?? null,
-      agentName: input.agentName ?? null,
-    });
-    const group = makeAppGroup({
+    let group = makeAppGroup({
       appId: input.appId,
       conversationId,
       conversationJid,
+      conversationKind,
       identityHash: this.deps
         .stableHash(`${input.appId}\0${conversationId}`)
         .slice(0, 12),
       addedAt: this.deps.now(),
     });
-    if (selectedAgent) group.folder = selectedAgent.folder;
+    const requestedAgentId = input.agentId?.trim() ?? '';
+    const requestedAgentName = input.agentName?.trim() ?? '';
+    if (requestedAgentId && requestedAgentName) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Specify either agentId or agentName, not both',
+      );
+    }
+    if (requestedAgentId || requestedAgentName) {
+      const matches = requestedAgentId
+        ? [
+            await this.deps.repositories.agents.getAgent(
+              requestedAgentId as AgentId,
+            ),
+          ].filter(Boolean)
+        : (
+            await this.deps.repositories.agents.listAgents(input.appId as never)
+          ).filter((candidate) => candidate.name === requestedAgentName);
+      if (matches.length !== 1) {
+        throw new ApplicationError(
+          'NOT_FOUND',
+          requestedAgentId
+            ? 'Agent not found'
+            : 'Exactly one matching agent is required',
+        );
+      }
+      const agent = matches[0]!;
+      if (!agent || agent.appId !== input.appId) {
+        throw new ApplicationError('NOT_FOUND', 'Agent not found');
+      }
+      if (agent.status !== 'active') {
+        throw new ApplicationError(
+          'INVALID_REQUEST',
+          `Agent is not active: ${requestedAgentId || requestedAgentName}`,
+        );
+      }
+      const agentFolder = folderForAgentId(agent.id);
+      if (!agentFolder) {
+        throw new ApplicationError(
+          'INVALID_REQUEST',
+          'Agent does not have a settings folder.',
+        );
+      }
+      // Bind the session to the requested agent's workspace folder so turns
+      // run with that agent's config and grants instead of a synthetic one.
+      group = { ...group, name: agent.name, folder: agentFolder };
+    }
     const defaultWebhookId = await this.resolveOwnedWebhookId(
       input.appId,
       input.webhookId ?? null,
@@ -167,52 +213,12 @@ export class SessionInteractionModule {
       conversationId,
       conversationJid,
       folder: group.folder,
-      agentId: selectedAgent?.id,
       title: input.title ?? null,
       defaultResponseMode: normalizeResponseMode(input.responseMode, 'sse'),
       defaultWebhookId,
+      appUser: input.appUser ?? null,
     });
     return { session, registerGroup: { conversationJid, group } };
-  }
-
-  private async resolveSessionAgent(input: {
-    appId: string;
-    agentId: string | null;
-    agentName: string | null;
-  }): Promise<{ id: string; folder: string } | null> {
-    const agentId = input.agentId?.trim() ?? '';
-    const agentName = input.agentName?.trim() ?? '';
-    if (agentId && agentName) {
-      throw new ApplicationError(
-        'INVALID_REQUEST',
-        'Specify either agentId or agentName, not both',
-      );
-    }
-    if (!agentId && !agentName) return null;
-    const matches = agentId
-      ? [await this.deps.repositories.agents.getAgent(agentId as never)].filter(
-          Boolean,
-        )
-      : (
-          await this.deps.repositories.agents.listAgents(input.appId as never)
-        ).filter((agent) => agent.name === agentName);
-    if (matches.length !== 1) {
-      throw new ApplicationError(
-        'NOT_FOUND',
-        agentId ? 'Agent not found' : 'Exactly one matching agent is required',
-      );
-    }
-    const agent = matches[0]!;
-    if (String(agent.appId) !== input.appId || agent.status !== 'active') {
-      throw new ApplicationError('NOT_FOUND', 'Active agent not found');
-    }
-    const folder = folderForAgentId(agent.id);
-    if (!folder)
-      throw new ApplicationError(
-        'INVALID_REQUEST',
-        'Agent has no workspace folder',
-      );
-    return { id: String(agent.id), folder };
   }
 
   async getSessionDetails(input: {
@@ -251,10 +257,26 @@ export class SessionInteractionModule {
   }): Promise<{ messages: unknown[] }> {
     const session = await this.requireSession(input);
     if (!session.conversationId) return { messages: [] };
-    const messages = await this.deps.repositories.messages.listRecentMessages({
-      conversationId: session.conversationId as never,
-      limit: input.limit,
-    });
+    // The session stores its SHORT conversation id; canonical message rows
+    // key on conversation-row ids, and one jid can map to several rows until
+    // the Phase-8 restamp — resolve by jid and union.
+    const conversationIds =
+      await this.deps.repositories.messages.listConversationIdsForJid(
+        session.conversationJid,
+      );
+    if (conversationIds.length === 0) return { messages: [] };
+    const lists = await Promise.all(
+      conversationIds.map((conversationId) =>
+        this.deps.repositories.messages.listRecentMessages({
+          conversationId,
+          limit: input.limit,
+        }),
+      ),
+    );
+    const messages = lists
+      .flat()
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
+      .slice(-input.limit);
     return { messages };
   }
 
@@ -264,18 +286,34 @@ export class SessionInteractionModule {
     limit: number;
   }): Promise<{ runs: unknown[] }> {
     const appSession = await this.requireSession(input);
-    const session = await this.deps.repositories.agentSessions.getAgentSession(
-      appSession.sessionId as never,
+    // Resolve by jid and union, exactly as listMessages does. One jid can map
+    // to several conversation rows — the runtime warns
+    // `conversation_route_conversation_id_noncanonical` when a route predates
+    // the canonical id — so asking only for the canonical id silently returns
+    // [] for runs recorded under the older one.
+    const candidates = await this.feedConversationIds(appSession);
+    if (candidates.length === 0) return { runs: [] };
+    const lists = await Promise.all(
+      candidates.map((conversationId) =>
+        this.deps.repositories.agentRuns.listAgentRunsByConversation({
+          appId: appSession.appId as never,
+          conversationId: conversationId as never,
+          limit: input.limit,
+        }),
+      ),
     );
-    if (!session) return { runs: [] };
-    const runs = await this.deps.repositories.agentRuns.listAgentRunsBySession({
-      sessionId: session.id,
-      limit: input.limit,
-    });
-    return { runs };
+    const runs = lists
+      .flat()
+      .sort((a, b) =>
+        (a as { createdAt: string }).createdAt <
+        (b as { createdAt: string }).createdAt
+          ? 1
+          : -1,
+      )
+      .slice(0, input.limit);
+    return { runs: runs.map((run) => AgentRunResponseSchema.parse(run)) };
   }
 
-  /** Verifies app ownership and returns the queue key for cancellation. */
   async getQueueKey(input: {
     appId: string;
     sessionId: string;
@@ -285,234 +323,16 @@ export class SessionInteractionModule {
     return makeSessionQueueKey(session.conversationJid, input.threadId ?? null);
   }
 
-  async acceptMessage(input: {
-    appId: string;
-    sessionId: string;
-    idempotencyKey?: string;
-    queuePolicy?: SdkSessionQueuePolicy;
-    message: string;
-    senderId?: string;
-    senderName?: string;
-    threadId?: string;
-    correlationId?: string | null;
-    responseMode?: unknown;
-    webhookId?: string | null;
-    responseSchema?: Record<string, unknown>;
-    agentControls?: AgentControlOverrides;
-    callerResolvedTools?: CallerResolvedToolsConfig;
-    continuityMode?: SessionContinuityMode;
-    durableLiveAdmission?: boolean;
-    beforeDurableAdmission?: () => Promise<void> | void;
-  }): Promise<{
-    accepted: true;
-    replayed: boolean;
-    messageId: string;
-    acceptedEventId: number;
-    enqueue: SessionQueueIntent;
-  }> {
-    const session = await this.requireSession(input);
-    const agentSession =
-      await this.deps.repositories.agentSessions.getAgentSession(
-        session.sessionId as never,
-      );
-    if (!agentSession) {
-      throw new ApplicationError('NOT_FOUND', 'Session not found');
-    }
-    if (agentSession.status === 'archived') {
-      throw new ApplicationError('CONFLICT', 'Session is archived');
-    }
-    const text = input.message.trim();
-    if (!text) {
-      throw new ApplicationError('INVALID_REQUEST', 'message is required');
-    }
-    const idempotencyKey = input.idempotencyKey?.trim() ?? '';
-    if (idempotencyKey.length > 200) {
-      throw new ApplicationError(
-        'INVALID_REQUEST',
-        'idempotencyKey must contain at most 200 characters',
-      );
-    }
-    const threadId = input.threadId?.trim() || null;
-    const responseMode = normalizeResponseMode(
-      input.responseMode,
-      session.defaultResponseMode,
-    );
-    const webhookId = await this.resolveOwnedWebhookId(
-      input.appId,
-      input.webhookId ?? session.defaultWebhookId,
-    );
-    const requestFingerprint = idempotencyKey
-      ? this.deps.stableHash(
-          canonicalJson({
-            appId: input.appId,
-            sessionId: input.sessionId,
-            message: text,
-            senderId: input.senderId ?? 'sdk',
-            senderName: input.senderName ?? 'SDK',
-            threadId,
-            correlationId: input.correlationId ?? null,
-            responseMode,
-            webhookId,
-            responseSchema: input.responseSchema ?? null,
-            agentControls: input.agentControls ?? null,
-            callerResolvedTools: input.callerResolvedTools ?? null,
-            continuityMode: input.continuityMode ?? 'provider',
-            queuePolicy: input.queuePolicy ?? null,
-          }),
-        )
-      : null;
-    const now = this.deps.now();
-    const messageId = this.deps.createId();
-    const message: NewMessage = {
-      id: messageId,
-      chat_jid: session.conversationJid,
-      provider: 'app',
-      sender: input.senderId ?? 'sdk',
-      sender_name: input.senderName ?? 'SDK',
-      content: text,
-      timestamp: now,
-      is_from_me: false,
-      is_bot_message: false,
-      external_message_id: messageId,
-      thread_id: threadId ?? undefined,
-      responseSchema: input.responseSchema,
-      agentControls: input.agentControls,
-      callerResolvedTools: input.callerResolvedTools,
-      continuityMode: input.continuityMode,
-      appResponseRoute: {
-        sessionId: session.sessionId,
-        threadId,
-        responseMode,
-        webhookId,
-        correlationId: input.correlationId ?? null,
-      },
-    };
-    await this.deps.ops.storeChatMetadata(
-      session.conversationJid,
-      now,
-      session.title ?? session.conversationJid,
-      'app',
-      true,
-    );
-    const acceptedEvent: RuntimeEventPublishInput = {
-      appId: session.appId as never,
-      eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_INBOUND,
-      payload: {
-        messageId,
-        text,
-        threadId,
-      },
-      actor: 'sdk',
-      sessionId: session.sessionId as never,
-      conversationId: session.conversationJid as never,
-      threadId: threadId ? (threadId as never) : undefined,
-      correlationId: input.correlationId ?? null,
-      responseMode,
-      webhookId,
-    };
-    let durableAdmissionCreated = false;
-    let admissionResult: LiveAdmissionWorkItemEnqueueResult | undefined;
-    let accepted: RuntimeEvent;
-    const runtimeEventsWithLiveAdmission = this.deps.runtimeEvents as {
-      publishWithLiveAdmissionMessage?: RuntimeEventExchange['publishWithLiveAdmissionMessage'];
-    };
-    const publishWithLiveAdmissionMessage =
-      runtimeEventsWithLiveAdmission.publishWithLiveAdmissionMessage?.bind(
-        this.deps.runtimeEvents,
-      );
-    const useDurableAdmission =
-      input.durableLiveAdmission !== false &&
-      publishWithLiveAdmissionMessage &&
-      this.deps.liveAdmissionAppId !== null;
-    if (useDurableAdmission) {
-      await input.beforeDurableAdmission?.();
-      const liveAdmissionAppId = this.deps.liveAdmissionAppId ?? session.appId;
-      const result = await publishWithLiveAdmissionMessage(acceptedEvent, {
-        message,
-        liveAdmission: {
-          appId: liveAdmissionAppId,
-          agentId: session.agentId,
-          agentSessionId: session.sessionId,
-          ...(idempotencyKey && requestFingerprint
-            ? {
-                sdkSessionAdmissionRequest: {
-                  requestMessageId: messageId,
-                  idempotencyKey,
-                  requestFingerprint,
-                  queuePolicy: input.queuePolicy,
-                },
-              }
-            : {}),
-          triggerDecision: {
-            source: 'sdk_session',
-            responseMode,
-          },
-          now,
-        },
-      });
-      if (result.outcome === 'replayed') {
-        return {
-          accepted: true,
-          replayed: true,
-          messageId: result.messageId,
-          acceptedEventId: result.acceptedEventId,
-          enqueue: {
-            conversationJid: session.conversationJid,
-            threadId,
-            queueKey: makeSessionQueueKey(session.conversationJid, threadId),
-            durableAdmissionCreated: true,
-          },
-        };
-      }
-      if (result.outcome === 'fingerprint_conflict') {
-        throw new ApplicationError(
-          'SESSION_IDEMPOTENCY_CONFLICT',
-          'The idempotency key was already used for a different session message.',
-        );
-      }
-      if (result.outcome === 'capacity_exceeded') {
-        throw new ApplicationError(
-          'SESSION_QUEUE_FULL',
-          'The private session already has the maximum number of active and waiting messages.',
-        );
-      }
-      accepted = result.event;
-      admissionResult = result.liveAdmissionResult;
-      durableAdmissionCreated = !!admissionResult;
-    } else {
-      await this.deps.ops.storeMessage(message);
-      accepted = await this.deps.runtimeEvents.publish(acceptedEvent);
-    }
-    if (admissionResult) {
-      await this.deps.ops.notifyLiveAdmissionWorkItem?.(admissionResult);
-    }
-    return {
-      accepted: true,
-      replayed: false,
-      messageId,
-      acceptedEventId: accepted.eventId,
-      enqueue: {
-        conversationJid: session.conversationJid,
-        threadId,
-        queueKey: makeSessionQueueKey(session.conversationJid, threadId),
-        durableAdmissionCreated,
-      },
-    };
-  }
-
   async archiveSession(input: { appId: string; sessionId: string }): Promise<{
     archived: true;
     alreadyArchived: boolean;
-    queueKey: string;
     queueKeys: string[];
   }> {
     const appSession = await this.requireSession(input);
     const session = await this.deps.repositories.agentSessions.getAgentSession(
       appSession.sessionId as never,
     );
-    if (!session) {
-      throw new ApplicationError('NOT_FOUND', 'Session not found');
-    }
+    if (!session) throw new ApplicationError('NOT_FOUND', 'Session not found');
     const alreadyArchived = session.status === 'archived';
     const updatedAt = this.deps.now();
     if (!alreadyArchived) {
@@ -536,19 +356,198 @@ export class SessionInteractionModule {
     const threadIds = await this.deps.ops.getMessageThreadIds(
       appSession.conversationJid,
     );
-    const queueKeys = Array.from(
-      new Set([
-        makeSessionQueueKey(appSession.conversationJid),
-        ...threadIds.map((threadId) =>
-          makeSessionQueueKey(appSession.conversationJid, threadId),
-        ),
-      ]),
-    );
     return {
       archived: true,
       alreadyArchived,
-      queueKey: queueKeys[0]!,
-      queueKeys,
+      queueKeys: [
+        ...new Set([
+          makeSessionQueueKey(appSession.conversationJid),
+          ...threadIds.map((threadId) =>
+            makeSessionQueueKey(appSession.conversationJid, threadId),
+          ),
+        ]),
+      ],
+    };
+  }
+
+  async acceptMessage(
+    input: {
+      appId: string;
+      sessionId: string;
+      message: string;
+      senderId?: string;
+      senderName?: string;
+      threadId?: string;
+      correlationId?: string | null;
+      responseMode?: unknown;
+      webhookId?: string | null;
+      responseSchema?: Record<string, unknown>;
+      agentControls?: AgentControlOverrides;
+      durableLiveAdmission?: boolean;
+      beforeDurableAdmission?: () => Promise<void> | void;
+    },
+    liveAdmissionAppId?: string | null,
+  ): Promise<{
+    accepted: true;
+    messageId: string;
+    acceptedEventId: number;
+    enqueue: SessionQueueIntent;
+  }> {
+    const session = await this.requireSession(input);
+    const agentSession = await this.deps.repositories.agentSessions?.getAgentSession(
+      session.sessionId as never,
+    );
+    if (agentSession?.status === 'archived') {
+      throw new ApplicationError('CONFLICT', 'Session is archived');
+    }
+    // Explicit sender ids may not contain ':' — the bound app-user identity
+    // serializes as `<authority>:<subject>` (percent-encoded), and keeping
+    // ':' out of raw sender ids makes that namespace unforgeable from an
+    // unbound session.
+    if (input.senderId !== undefined && input.senderId.includes(':')) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'senderId must not contain ":"',
+      );
+    }
+    // An omitted senderId on a bound session means the bound user; only an
+    // EXPLICIT different sender is a conflict.
+    if (
+      session.appUser &&
+      input.senderId !== undefined &&
+      input.senderId.trim() !== session.appUser.subject
+    ) {
+      throw new ApplicationError(
+        'CONFLICT',
+        'SDK session is bound to a different app user.',
+      );
+    }
+    const text = input.message.trim();
+    if (!text) {
+      throw new ApplicationError('INVALID_REQUEST', 'message is required');
+    }
+    if (
+      input.responseSchema &&
+      this.deps.getConfiguredAgentRuntime?.(session.workspaceKey) !== 'inline'
+    ) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'response_schema requires an inline agent runtime',
+      );
+    }
+    const threadId = input.threadId?.trim() || null;
+    const responseMode = normalizeResponseMode(
+      input.responseMode,
+      session.defaultResponseMode,
+    );
+    const webhookId = await this.resolveOwnedWebhookId(
+      input.appId,
+      input.webhookId ?? session.defaultWebhookId,
+    );
+    const now = this.deps.now();
+    const messageId = this.deps.createId();
+    const message: NewMessage = {
+      id: messageId,
+      chat_jid: session.conversationJid,
+      provider: 'app',
+      // A bound app user is identified by (authorityId, subject): qualify the
+      // sender with BOTH parts percent-encoded so ':' inside either cannot
+      // alias two distinct tuples onto one identity.
+      // sender so equal subjects under different authorities stay different
+      // people — and so a subject literally named 'sdk' can never collide
+      // with the unbound system-sender sentinel.
+      sender: session.appUser
+        ? `${encodeURIComponent(session.appUser.authorityId)}:${encodeURIComponent(session.appUser.subject)}`
+        : (input.senderId ?? 'sdk'),
+      sender_name: input.senderName ?? 'SDK',
+      content: text,
+      timestamp: now,
+      is_from_me: false,
+      is_bot_message: false,
+      external_message_id: messageId,
+      thread_id: threadId ?? undefined,
+      responseSchema: input.responseSchema,
+      agentControls: input.agentControls,
+    };
+    await this.deps.ops.storeChatMetadata(
+      session.conversationJid,
+      now,
+      session.title ?? session.conversationJid,
+      'app',
+      true,
+    );
+    await this.deps.control.upsertAppResponseRoute({
+      sessionId: session.sessionId,
+      threadId,
+      responseMode,
+      webhookId,
+      correlationId: input.correlationId ?? null,
+    });
+    const acceptedEvent: RuntimeEventPublishInput = {
+      appId: session.appId as never,
+      eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_INBOUND,
+      payload: {
+        messageId,
+        text,
+        threadId,
+      },
+      actor: 'sdk',
+      agentId: session.agentId as never,
+      sessionId: session.sessionId as never,
+      conversationId: session.canonicalConversationId as never,
+      threadId: threadId ? (threadId as never) : undefined,
+      correlationId: input.correlationId ?? null,
+      responseMode,
+      webhookId,
+    };
+    let durableAdmissionCreated = false;
+    let admissionResult: LiveAdmissionWorkItemEnqueueResult | undefined;
+    let accepted: RuntimeEvent;
+    const runtimeEventsWithLiveAdmission = this.deps.runtimeEvents as {
+      publishWithLiveAdmissionMessage?: RuntimeEventExchange['publishWithLiveAdmissionMessage'];
+    };
+    const publishWithLiveAdmissionMessage =
+      runtimeEventsWithLiveAdmission.publishWithLiveAdmissionMessage?.bind(
+        this.deps.runtimeEvents,
+      );
+    const useDurableAdmission =
+      input.durableLiveAdmission !== false &&
+      publishWithLiveAdmissionMessage &&
+      liveAdmissionAppId !== null;
+    if (useDurableAdmission) {
+      await input.beforeDurableAdmission?.();
+      const result = await publishWithLiveAdmissionMessage(acceptedEvent, {
+        message,
+        liveAdmission: {
+          appId: liveAdmissionAppId ?? session.appId,
+          triggerDecision: {
+            source: 'sdk_session',
+            responseMode,
+          },
+          now,
+        },
+      });
+      accepted = result.event;
+      admissionResult = result.liveAdmissionResult;
+      durableAdmissionCreated =
+        !!admissionResult && admissionResult.outcome !== 'overloaded';
+    } else {
+      await this.deps.ops.storeMessage(message);
+      accepted = await this.deps.runtimeEvents.publish(acceptedEvent);
+    }
+    if (admissionResult && admissionResult.outcome !== 'overloaded') {
+      await this.deps.ops.notifyLiveAdmissionWorkItem?.(admissionResult);
+    }
+    return {
+      accepted: true,
+      messageId,
+      acceptedEventId: accepted.eventId,
+      enqueue: {
+        conversationJid: session.conversationJid,
+        threadId,
+        queueKey: makeSessionQueueKey(session.conversationJid, threadId),
+        durableAdmissionCreated,
+      },
     };
   }
 
@@ -559,7 +558,10 @@ export class SessionInteractionModule {
     limit?: number;
   }): Promise<RuntimeEvent[]> {
     const session = await this.requireSession(input);
-    return this.deps.runtimeEvents.list(this.eventFilter(session, input));
+    const conversationIds = await this.feedConversationIds(session);
+    return this.deps.runtimeEvents.list(
+      this.eventFilter(session, input, conversationIds),
+    );
   }
 
   async subscribeEvents(input: {
@@ -569,7 +571,10 @@ export class SessionInteractionModule {
     limit?: number;
   }) {
     const session = await this.requireSession(input);
-    return this.deps.runtimeEvents.subscribe(this.eventFilter(session, input));
+    const conversationIds = await this.feedConversationIds(session);
+    return this.deps.runtimeEvents.subscribe(
+      this.eventFilter(session, input, conversationIds),
+    );
   }
 
   async waitForVisibleEvent(input: {
@@ -601,8 +606,6 @@ export class SessionInteractionModule {
     conversationJid: string;
     eventType: RuntimeEventPublishInput['eventType'];
     payload: Record<string, unknown>;
-    runId?: string;
-    appResponseRoute?: AppMessageResponseRoute;
   }): Promise<{ emitted: boolean; eventId?: number }> {
     const session = await this.deps.control.getAppSessionByChatJid(
       input.conversationJid,
@@ -612,29 +615,18 @@ export class SessionInteractionModule {
       typeof input.payload.threadId === 'string'
         ? input.payload.threadId
         : null;
-    if (
-      input.appResponseRoute &&
-      input.appResponseRoute.sessionId !== session.sessionId
-    ) {
-      throw new ApplicationError(
-        'INVALID_REQUEST',
-        'App response route does not match the outbound session',
-      );
-    }
-    const route =
-      input.appResponseRoute ??
-      (await this.deps.control.getAppResponseRoute({
-        sessionId: session.sessionId,
-        threadId,
-      }));
+    const route = await this.deps.control.getAppResponseRoute({
+      sessionId: session.sessionId,
+      threadId,
+    });
     const event = await this.deps.runtimeEvents.publish({
       appId: session.appId as never,
+      agentId: session.agentId as never,
       eventType: input.eventType,
       payload: input.payload,
       actor: 'agent',
       sessionId: session.sessionId as never,
-      ...(input.runId ? { runId: input.runId as never } : {}),
-      conversationId: session.conversationJid as never,
+      conversationId: session.canonicalConversationId as never,
       threadId: threadId ? (threadId as never) : undefined,
       correlationId: route?.correlationId ?? null,
       responseMode: route?.responseMode ?? session.defaultResponseMode,
@@ -643,7 +635,7 @@ export class SessionInteractionModule {
     return { emitted: true, eventId: event.eventId };
   }
 
-  private async requireSession(input: {
+  async requireSession(input: {
     appId: string;
     sessionId: string;
   }): Promise<SessionAppRecord> {
@@ -673,13 +665,26 @@ export class SessionInteractionModule {
     return webhook.webhookId;
   }
 
+  /** Every conversation row this session's jid maps to, canonical first. */
+  private async feedConversationIds(
+    session: SessionAppRecord,
+  ): Promise<string[]> {
+    const rows =
+      await this.deps.repositories.messages.listConversationIdsForJid(
+        session.conversationJid,
+      );
+    const canonical = session.canonicalConversationId as string | undefined;
+    return Array.from(new Set([...(canonical ? [canonical] : []), ...rows]));
+  }
+
   private eventFilter(
     session: SessionAppRecord,
     input: { afterEventId?: number; limit?: number },
+    conversationIds: string[],
   ): RuntimeEventFilter {
     return {
       appId: session.appId as never,
-      sessionId: session.sessionId as never,
+      conversationIds: conversationIds as never,
       afterEventId:
         input.afterEventId && input.afterEventId > 0
           ? (input.afterEventId as never)
@@ -717,19 +722,23 @@ type AppGroupRegistration = {
   trigger: string;
   added_at: string;
   requiresTrigger: boolean;
+  senderIdentityEvidenceType: 'web_user';
+  systemSenderIds: string[];
+  conversationKind?: 'dm' | 'channel';
 };
 
 export function makeAppGroup(input: {
   appId: string;
   conversationId: string;
   conversationJid: string;
+  conversationKind?: 'dm' | 'channel';
   identityHash: string;
   addedAt: string;
 }): AppGroupRegistration {
   const app = sanitizeSegment(input.appId) || 'app';
   const conversation = sanitizeSegment(input.conversationId) || 'session';
   const prefix = `app_${input.identityHash}_`;
-  const remaining = MAX_WORKSPACE_FOLDER_LENGTH - prefix.length;
+  const remaining = 96 - prefix.length;
   const appPart = app.slice(0, Math.max(8, Math.floor(remaining * 0.4)));
   const conversationPart = conversation.slice(
     0,
@@ -737,13 +746,13 @@ export function makeAppGroup(input: {
   );
   return {
     name: `${input.appId}:${input.conversationId}`,
-    folder: `${prefix}${appPart}_${conversationPart}`.slice(
-      0,
-      MAX_WORKSPACE_FOLDER_LENGTH,
-    ),
+    folder: `${prefix}${appPart}_${conversationPart}`.slice(0, 96),
     trigger: '',
     added_at: input.addedAt,
     requiresTrigger: false,
+    senderIdentityEvidenceType: 'web_user',
+    systemSenderIds: ['sdk'],
+    conversationKind: input.conversationKind ?? 'channel',
   };
 }
 

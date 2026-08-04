@@ -1,0 +1,575 @@
+import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
+import * as pgSchema from '../schema/schema.js';
+// prettier-ignore
+import { CANONICAL_APP_ID, PostgresCanonicalGraphRepository, configVersionIdForAgent, jsonb, jsonText, parseJson } from './canonical-graph-repository.postgres.js';
+import { CANONICAL_JOB_EVENT_TYPES } from './canonical-job-event-types.postgres.js';
+import { releaseStaleCanonicalJobLeases } from './canonical-job-lease-release.postgres.js';
+import { insertCanonicalJobRun } from './canonical-job-run-insert.postgres.js';
+import { claimDueCanonicalJobRunStart } from './canonical-job-claim.postgres.js';
+import { settleRunLeaseTx } from './worker-coordination-lease.postgres.js';
+import { updateCanonicalJobRunProviderMetadata } from './canonical-job-run-provider-metadata.postgres.js';
+import { activeRunLeaseFence, settledRunLeaseFence, } from './run-lease-fence.postgres.js';
+const canonicalRunProjection = {
+    id: pgSchema.agentRunsPostgres.id,
+    shortId: pgSchema.agentRunsPostgres.shortId,
+    jobId: pgSchema.agentRunsPostgres.jobId,
+    executionProviderId: pgSchema.agentRunsPostgres.executionProviderId,
+    providerRunId: pgSchema.agentRunsPostgres.providerRunId,
+    providerSessionId: pgSchema.agentRunsPostgres.providerSessionId,
+    workerId: pgSchema.agentRunsPostgres.workerId,
+    leaseOwner: pgSchema.agentRunsPostgres.leaseOwner,
+    leaseExpiresAt: pgSchema.agentRunsPostgres.leaseExpiresAt,
+    status: pgSchema.agentRunsPostgres.status,
+    createdAt: pgSchema.agentRunsPostgres.createdAt,
+    startedAt: pgSchema.agentRunsPostgres.startedAt,
+    endedAt: pgSchema.agentRunsPostgres.endedAt,
+    resultSummary: pgSchema.agentRunsPostgres.resultSummary,
+    errorSummary: pgSchema.agentRunsPostgres.errorSummary,
+    notifiedAt: pgSchema.agentRunsPostgres.notifiedAt,
+};
+function canonicalAgentId(agentId) {
+    const trimmed = agentId.trim();
+    return trimmed.startsWith('agent:') ? trimmed : `agent:${trimmed}`;
+}
+function kindClause(kind, scheduleJson) {
+    if (kind === 'manual') {
+        return sql `${scheduleJson} ->> 'type' = 'manual'`;
+    }
+    if (kind === 'once') {
+        return sql `${scheduleJson} ->> 'type' = 'once'`;
+    }
+    return sql `${scheduleJson} ->> 'type' in ('cron', 'interval')`;
+}
+function ownedByAppClause(jobId, ownerAppId) {
+    return ownerAppId
+        ? sql `exists (
+        select 1
+        from ${pgSchema.canonicalJobsPostgres} owned_job
+        join ${pgSchema.controlHttpSessionsPostgres} app_session
+          on ((owned_job.target_json #>> '{executionContext,sessionId}' is not null and app_session.session_id = owned_job.target_json #>> '{executionContext,sessionId}')
+            or (owned_job.target_json #>> '{executionContext,sessionId}' is null and app_session.external_ref_json->>'chatJid' = owned_job.target_json #>> '{executionContext,conversationJid}'))
+        where owned_job.id = ${jobId}
+          and app_session.app_id = ${ownerAppId}
+      )`
+        : undefined;
+}
+// prettier-ignore
+function canonicalJobSessionJoinClause() { return sql `((${canonicalJobSessionId()} is not null and ${pgSchema.controlHttpSessionsPostgres.sessionId} = ${canonicalJobSessionId()}) or (${canonicalJobSessionId()} is null and ${pgSchema.controlHttpSessionsPostgres.externalRefJson}->>'chatJid' = ${canonicalJobConversationJid()}))`; }
+// prettier-ignore
+function canonicalJobSessionId() { return sql `${pgSchema.canonicalJobsPostgres.targetJson} #>> '{executionContext,sessionId}'`; }
+// prettier-ignore
+function canonicalJobConversationJid() { return sql `${pgSchema.canonicalJobsPostgres.targetJson} #>> '{executionContext,conversationJid}'`; }
+// prettier-ignore
+function canonicalJobWorkspaceKey() { return sql `${pgSchema.canonicalJobsPostgres.targetJson} #>> '{executionContext,workspaceKey}'`; }
+// prettier-ignore
+function canonicalJobThreadId() { return sql `${pgSchema.canonicalJobsPostgres.targetJson} #>> '{executionContext,threadId}'`; }
+function canonicalJobThreadIdNormalized() {
+    return sql `coalesce(${canonicalJobThreadId()}, '')`;
+}
+function canonicalJobNotificationRoutes() {
+    return sql `coalesce(${pgSchema.canonicalJobsPostgres.targetJson} -> 'notificationRoutes', '[]'::jsonb)`;
+}
+function jobRecordFromRow(row) {
+    return {
+        ...row,
+        scheduleJson: jsonText(row.scheduleJson),
+        targetJson: jsonText(row.targetJson),
+    };
+}
+export class PostgresCanonicalJobRepository {
+    db;
+    graph;
+    constructor(db) {
+        this.db = db;
+        this.graph = new PostgresCanonicalGraphRepository(db);
+    }
+    async findJobById(id) {
+        const rows = await this.db
+            .select()
+            .from(pgSchema.canonicalJobsPostgres)
+            .where(eq(pgSchema.canonicalJobsPostgres.id, id))
+            .limit(1);
+        return rows[0] ? jobRecordFromRow(rows[0]) : undefined;
+    }
+    async listJobs(filters) {
+        const query = this.db
+            .select()
+            .from(pgSchema.canonicalJobsPostgres)
+            .$dynamic();
+        const clauses = [
+            filters?.appId
+                ? sql `exists (
+            select 1
+            from ${pgSchema.controlHttpSessionsPostgres} app_session
+            where (
+              (${canonicalJobSessionId()} is not null and app_session.session_id = ${canonicalJobSessionId()})
+              or (${canonicalJobSessionId()} is null and app_session.external_ref_json->>'chatJid' = ${canonicalJobConversationJid()})
+            )
+              and app_session.app_id = ${filters.appId}
+          )`
+                : undefined,
+            filters?.statuses?.length
+                ? inArray(pgSchema.canonicalJobsPostgres.status, filters.statuses)
+                : undefined,
+            filters?.workspaceKey
+                ? sql `${canonicalJobWorkspaceKey()} = ${filters.workspaceKey}`
+                : undefined,
+            filters?.threadId !== undefined
+                ? filters.threadId
+                    ? sql `${canonicalJobThreadIdNormalized()} = ${filters.threadId}`
+                    : sql `${canonicalJobThreadIdNormalized()} = ''`
+                : undefined,
+            filters?.agentId
+                ? sql `(
+            ${pgSchema.canonicalJobsPostgres.agentId} = ${canonicalAgentId(filters.agentId)}
+            or ${canonicalJobWorkspaceKey()} = ${filters.agentId}
+            or ${canonicalJobWorkspaceKey()} = ${canonicalAgentId(filters.agentId)}
+          )`
+                : undefined,
+            filters?.kind
+                ? kindClause(filters.kind, pgSchema.canonicalJobsPostgres.scheduleJson)
+                : undefined,
+            filters?.conversationJid
+                ? sql `${canonicalJobNotificationRoutes()} @> ${JSON.stringify([{ conversationJid: filters.conversationJid }])}::jsonb`
+                : undefined,
+        ].filter(Boolean);
+        const filtered = clauses.length > 0 ? query.where(and(...clauses)) : query;
+        const ordered = filtered.orderBy(desc(pgSchema.canonicalJobsPostgres.updatedAt), desc(pgSchema.canonicalJobsPostgres.createdAt));
+        const rows = filters?.limit
+            ? await ordered.limit(filters.limit)
+            : await ordered;
+        return rows.map(jobRecordFromRow);
+    }
+    async upsertJob(record) {
+        await this.ensureAgentForRecord(record);
+        await this.db
+            .insert(pgSchema.canonicalJobsPostgres)
+            .values({
+            appId: CANONICAL_APP_ID,
+            createdByActorId: 'runtime',
+            createdBySource: 'runtime',
+            ...record,
+            scheduleJson: jsonb(record.scheduleJson),
+            targetJson: jsonb(record.targetJson),
+        })
+            .onConflictDoUpdate({
+            target: pgSchema.canonicalJobsPostgres.id,
+            set: {
+                agentId: record.agentId,
+                name: record.name,
+                prompt: record.prompt,
+                model: record.model,
+                scheduleJson: jsonb(record.scheduleJson),
+                status: record.status,
+                targetJson: jsonb(record.targetJson),
+                silent: record.silent,
+                timeoutMs: record.timeoutMs,
+                maxRetries: record.maxRetries,
+                retryBackoffMs: record.retryBackoffMs,
+                nextRunAt: record.nextRunAt,
+                lastRunAt: record.lastRunAt,
+                leaseRunId: record.leaseRunId,
+                leaseExpiresAt: record.leaseExpiresAt,
+                updatedAt: record.updatedAt,
+            },
+        });
+    }
+    async updateJob(id, record) {
+        await this.ensureAgentForRecord(record);
+        await this.db
+            .update(pgSchema.canonicalJobsPostgres)
+            .set({
+            ...record,
+            scheduleJson: jsonb(record.scheduleJson),
+            targetJson: jsonb(record.targetJson),
+            createdByActorId: 'runtime',
+            createdBySource: 'runtime',
+        })
+            .where(eq(pgSchema.canonicalJobsPostgres.id, id));
+    }
+    async deleteJob(id) {
+        await this.db
+            .delete(pgSchema.canonicalJobsPostgres)
+            .where(eq(pgSchema.canonicalJobsPostgres.id, id));
+    }
+    async claimDueRunStart(input) {
+        return claimDueCanonicalJobRunStart({
+            db: this.db,
+            ...input,
+            insertRun: (run, tx) => this.insertRun(run, tx),
+        });
+    }
+    async settleRunLease(input) {
+        return settleRunLeaseTx(this.db, input);
+    }
+    async releaseStaleLeases(nowIso = currentIso()) {
+        return releaseStaleCanonicalJobLeases(this.db, nowIso);
+    }
+    async insertRun(run, executor = this.db) {
+        const graph = await this.ensureJobRunGraph(run.job_id, executor);
+        return insertCanonicalJobRun({
+            run,
+            executor,
+            graph,
+            nextRunShortId: (jobId) => this.nextRunShortId(jobId, executor),
+        });
+    }
+    async updateRunCompletion(runId, input) {
+        await this.db
+            .update(pgSchema.agentRunsPostgres)
+            .set({
+            status: input.status,
+            endedAt: input.endedAt,
+            resultSummary: input.resultSummary,
+            errorSummary: input.errorSummary,
+        })
+            .where(eq(pgSchema.agentRunsPostgres.id, runId));
+    }
+    async updateRunCompletionWithLease(runId, input) {
+        const now = currentIso();
+        const rows = await this.db
+            .update(pgSchema.agentRunsPostgres)
+            .set({
+            status: input.status,
+            endedAt: input.endedAt,
+            resultSummary: input.resultSummary,
+            errorSummary: input.errorSummary,
+        })
+            .where(and(eq(pgSchema.agentRunsPostgres.id, runId), activeRunLeaseFence({
+            runId,
+            fence: input,
+            now,
+        })))
+            .returning({ id: pgSchema.agentRunsPostgres.id });
+        return rows.length > 0;
+    }
+    async finalizeRunCompletionWithLease(input) {
+        return this.db.transaction(async (tx) => {
+            const now = currentIso();
+            const runs = pgSchema.agentRunsPostgres;
+            const runRows = await tx
+                .update(runs)
+                .set({
+                status: input.runCompletion.status,
+                endedAt: input.runCompletion.endedAt,
+                resultSummary: input.runCompletion.resultSummary,
+                errorSummary: input.runCompletion.errorSummary,
+            })
+                .where(and(eq(runs.id, input.runId), activeRunLeaseFence({
+                runId: input.runId,
+                fence: input,
+                now,
+            })))
+                .returning({ id: runs.id });
+            if (runRows.length === 0)
+                return false;
+            const settled = await settleRunLeaseTx(tx, {
+                runId: input.runId,
+                leaseToken: input.leaseToken,
+                workerInstanceId: input.workerInstanceId,
+                fencingVersion: input.fencingVersion,
+                outcome: input.leaseOutcome,
+            });
+            if (!settled) {
+                throw new Error('Run lease was lost during terminal finalization.');
+            }
+            return true;
+        });
+    }
+    async finalizeRunWithLease(input) {
+        return this.db.transaction(async (tx) => {
+            const now = currentIso();
+            const runs = pgSchema.agentRunsPostgres;
+            const runRows = await tx
+                .update(runs)
+                .set({
+                status: input.runCompletion.status,
+                endedAt: input.runCompletion.endedAt,
+                resultSummary: input.runCompletion.resultSummary,
+                errorSummary: input.runCompletion.errorSummary,
+            })
+                .where(and(eq(runs.id, input.runId), activeRunLeaseFence({
+                runId: input.runId,
+                fence: input,
+                now,
+            })))
+                .returning({ id: runs.id });
+            if (runRows.length === 0)
+                return false;
+            const jobRows = await tx
+                .update(pgSchema.canonicalJobsPostgres)
+                .set({
+                ...(input.jobUpdate.status !== undefined
+                    ? { status: input.jobUpdate.status }
+                    : {}),
+                ...(input.jobUpdate.nextRunAt !== undefined
+                    ? { nextRunAt: input.jobUpdate.nextRunAt }
+                    : {}),
+                ...(input.jobUpdate.lastRunAt !== undefined
+                    ? { lastRunAt: input.jobUpdate.lastRunAt }
+                    : {}),
+                ...(input.jobUpdate.leaseRunId !== undefined
+                    ? { leaseRunId: input.jobUpdate.leaseRunId }
+                    : {}),
+                ...(input.jobUpdate.leaseExpiresAt !== undefined
+                    ? { leaseExpiresAt: input.jobUpdate.leaseExpiresAt }
+                    : {}),
+                ...(input.jobUpdate.targetJsonPatch
+                    ? {
+                        targetJson: sql `${pgSchema.canonicalJobsPostgres.targetJson} || ${jsonb(input.jobUpdate.targetJsonPatch)}`,
+                    }
+                    : {}),
+                updatedAt: input.jobUpdate.updatedAt,
+            })
+                .where(and(eq(pgSchema.canonicalJobsPostgres.id, input.jobId), eq(pgSchema.canonicalJobsPostgres.leaseRunId, input.runId)))
+                .returning({ id: pgSchema.canonicalJobsPostgres.id });
+            if (jobRows.length === 0) {
+                throw new Error('Job lease row was lost during terminal finalization.');
+            }
+            const settled = await settleRunLeaseTx(tx, {
+                runId: input.runId,
+                leaseToken: input.leaseToken,
+                workerInstanceId: input.workerInstanceId,
+                fencingVersion: input.fencingVersion,
+                outcome: input.leaseOutcome,
+            });
+            if (!settled) {
+                throw new Error('Run lease was lost during terminal finalization.');
+            }
+            return true;
+        });
+    }
+    // prettier-ignore
+    async updateRunProviderMetadata(runId, input) {
+        return updateCanonicalJobRunProviderMetadata(this.db, runId, input);
+    }
+    async markRunNotified(runId, notifiedAt, lease) {
+        const now = currentIso();
+        const leaseFence = lease
+            ? settledRunLeaseFence({ runId, fence: lease, now })
+            : undefined;
+        const rows = await this.db
+            .update(pgSchema.agentRunsPostgres)
+            .set({ notifiedAt })
+            .where(leaseFence
+            ? and(eq(pgSchema.agentRunsPostgres.id, runId), leaseFence)
+            : eq(pgSchema.agentRunsPostgres.id, runId))
+            .returning({ id: pgSchema.agentRunsPostgres.id });
+        return rows.length > 0;
+    }
+    async findRunById(runId) {
+        const rows = await this.db
+            .select(canonicalRunProjection)
+            .from(pgSchema.agentRunsPostgres)
+            .where(eq(pgSchema.agentRunsPostgres.id, runId))
+            .limit(1);
+        return rows[0];
+    }
+    async listRuns(jobId, limit = 50, filters) {
+        if (!jobId && filters?.jobIds?.length === 0)
+            return [];
+        if (!jobId && filters?.ownerAppId) {
+            return this.listRunsForOwnerApp(filters.ownerAppId, limit, filters);
+        }
+        const query = this.db
+            .select(canonicalRunProjection)
+            .from(pgSchema.agentRunsPostgres)
+            .$dynamic();
+        const clauses = [
+            jobId ? eq(pgSchema.agentRunsPostgres.jobId, jobId) : undefined,
+            isNull(pgSchema.agentRunsPostgres.sessionId),
+            !jobId && filters?.jobIds?.length
+                ? inArray(pgSchema.agentRunsPostgres.jobId, filters.jobIds)
+                : undefined,
+            !jobId
+                ? ownedByAppClause(pgSchema.agentRunsPostgres.jobId, filters?.ownerAppId)
+                : undefined,
+        ].filter(Boolean);
+        const filtered = clauses.length > 0 ? query.where(and(...clauses)) : query;
+        return filtered
+            .orderBy(sql `${pgSchema.agentRunsPostgres.startedAt} DESC NULLS LAST`, desc(pgSchema.agentRunsPostgres.createdAt))
+            .limit(limit);
+    }
+    async listLatestJobRunsByJobIds(jobIds) {
+        if (jobIds.length === 0)
+            return [];
+        return this.db
+            .selectDistinctOn([pgSchema.agentRunsPostgres.jobId], canonicalRunProjection)
+            .from(pgSchema.agentRunsPostgres)
+            .where(and(inArray(pgSchema.agentRunsPostgres.jobId, jobIds), isNull(pgSchema.agentRunsPostgres.sessionId)))
+            .orderBy(pgSchema.agentRunsPostgres.jobId, sql `${pgSchema.agentRunsPostgres.startedAt} DESC NULLS LAST`, desc(pgSchema.agentRunsPostgres.createdAt));
+    }
+    async listRunsForOwnerApp(ownerAppId, limit, filters) {
+        const clauses = [
+            eq(pgSchema.controlHttpSessionsPostgres.appId, ownerAppId),
+            isNull(pgSchema.agentRunsPostgres.sessionId),
+            filters?.jobIds?.length
+                ? inArray(pgSchema.agentRunsPostgres.jobId, filters.jobIds)
+                : undefined,
+        ].filter(Boolean);
+        const rows = await this.db
+            .select(canonicalRunProjection)
+            .from(pgSchema.controlHttpSessionsPostgres)
+            .innerJoin(pgSchema.canonicalJobsPostgres, canonicalJobSessionJoinClause())
+            .innerJoin(pgSchema.agentRunsPostgres, eq(pgSchema.agentRunsPostgres.jobId, pgSchema.canonicalJobsPostgres.id))
+            .where(and(...clauses))
+            .orderBy(sql `${pgSchema.agentRunsPostgres.startedAt} DESC NULLS LAST`, desc(pgSchema.agentRunsPostgres.createdAt))
+            .limit(limit);
+        return rows;
+    }
+    async listDeadLetterRuns(limit = 50) {
+        return this.db
+            .select(canonicalRunProjection)
+            .from(pgSchema.agentRunsPostgres)
+            .where(and(eq(pgSchema.agentRunsPostgres.status, 'dead_lettered'), isNull(pgSchema.agentRunsPostgres.sessionId)))
+            .orderBy(sql `${pgSchema.agentRunsPostgres.startedAt} DESC NULLS LAST`, desc(pgSchema.agentRunsPostgres.createdAt))
+            .limit(limit);
+    }
+    async findRuntimeEventAppIdForRun(runId) {
+        const rows = await this.db
+            .select({ appId: pgSchema.runtimeEventsPostgres.appId })
+            .from(pgSchema.runtimeEventsPostgres)
+            .where(eq(pgSchema.runtimeEventsPostgres.runId, runId))
+            .orderBy(desc(pgSchema.runtimeEventsPostgres.eventId))
+            .limit(1);
+        return rows[0]?.appId;
+    }
+    async listEvents(limit = 200, filters) {
+        if (!filters?.jobId && filters?.jobIds?.length === 0)
+            return [];
+        if (!filters?.jobId && filters?.ownerAppId) {
+            return this.listEventsForOwnerApp(limit, filters);
+        }
+        const query = this.db
+            .select()
+            .from(pgSchema.runtimeEventsPostgres)
+            .$dynamic();
+        const clauses = [
+            filters?.appId
+                ? eq(pgSchema.runtimeEventsPostgres.appId, filters.appId)
+                : !filters?.jobId && !filters?.jobIds?.length && !filters?.ownerAppId
+                    ? eq(pgSchema.runtimeEventsPostgres.appId, CANONICAL_APP_ID)
+                    : undefined,
+            filters?.runId
+                ? eq(pgSchema.runtimeEventsPostgres.runId, filters.runId)
+                : undefined,
+            filters?.jobId
+                ? eq(pgSchema.runtimeEventsPostgres.jobId, filters.jobId)
+                : undefined,
+            !filters?.jobId && filters?.jobIds?.length
+                ? inArray(pgSchema.runtimeEventsPostgres.jobId, filters.jobIds)
+                : undefined,
+            !filters?.jobId
+                ? ownedByAppClause(pgSchema.runtimeEventsPostgres.jobId, filters?.ownerAppId)
+                : undefined,
+            filters?.eventType
+                ? eq(pgSchema.runtimeEventsPostgres.eventType, filters.eventType)
+                : inArray(pgSchema.runtimeEventsPostgres.eventType, CANONICAL_JOB_EVENT_TYPES),
+            filters?.sinceId !== undefined
+                ? gt(pgSchema.runtimeEventsPostgres.eventId, filters.sinceId)
+                : undefined,
+            filters?.since
+                ? gt(pgSchema.runtimeEventsPostgres.createdAt, filters.since)
+                : undefined,
+        ].filter(Boolean);
+        const filtered = clauses.length > 0 ? query.where(and(...clauses)) : query;
+        const rows = await filtered
+            .orderBy(desc(pgSchema.runtimeEventsPostgres.eventId))
+            .limit(limit);
+        return rows.map((row) => ({
+            id: String(row.eventId),
+            appId: row.appId,
+            runId: row.runId ?? '',
+            jobId: row.jobId ?? '',
+            type: row.eventType,
+            payloadJson: row.payloadJson,
+            createdAt: row.createdAt,
+        }));
+    }
+    async listEventsForOwnerApp(limit, filters) {
+        const clauses = [
+            eq(pgSchema.controlHttpSessionsPostgres.appId, filters.ownerAppId ?? ''),
+            filters.appId
+                ? eq(pgSchema.runtimeEventsPostgres.appId, filters.appId)
+                : undefined,
+            filters.runId
+                ? eq(pgSchema.runtimeEventsPostgres.runId, filters.runId)
+                : undefined,
+            filters.jobIds?.length
+                ? inArray(pgSchema.runtimeEventsPostgres.jobId, filters.jobIds)
+                : undefined,
+            filters.eventType
+                ? eq(pgSchema.runtimeEventsPostgres.eventType, filters.eventType)
+                : inArray(pgSchema.runtimeEventsPostgres.eventType, CANONICAL_JOB_EVENT_TYPES),
+            filters.sinceId !== undefined
+                ? gt(pgSchema.runtimeEventsPostgres.eventId, filters.sinceId)
+                : undefined,
+            filters.since
+                ? gt(pgSchema.runtimeEventsPostgres.createdAt, filters.since)
+                : undefined,
+        ].filter(Boolean);
+        const rows = await this.db
+            .select({
+            eventId: pgSchema.runtimeEventsPostgres.eventId,
+            appId: pgSchema.runtimeEventsPostgres.appId,
+            runId: pgSchema.runtimeEventsPostgres.runId,
+            jobId: pgSchema.runtimeEventsPostgres.jobId,
+            eventType: pgSchema.runtimeEventsPostgres.eventType,
+            payloadJson: pgSchema.runtimeEventsPostgres.payloadJson,
+            createdAt: pgSchema.runtimeEventsPostgres.createdAt,
+        })
+            .from(pgSchema.controlHttpSessionsPostgres)
+            .innerJoin(pgSchema.canonicalJobsPostgres, canonicalJobSessionJoinClause())
+            .innerJoin(pgSchema.runtimeEventsPostgres, eq(pgSchema.runtimeEventsPostgres.jobId, pgSchema.canonicalJobsPostgres.id))
+            .where(and(...clauses))
+            .orderBy(desc(pgSchema.runtimeEventsPostgres.eventId))
+            .limit(limit);
+        return rows.map((row) => ({
+            id: String(row.eventId),
+            appId: row.appId,
+            runId: row.runId ?? '',
+            jobId: row.jobId ?? '',
+            type: row.eventType,
+            payloadJson: row.payloadJson,
+            createdAt: row.createdAt,
+        }));
+    }
+    async ensureJobRunGraph(jobId, executor) {
+        const rows = await executor
+            .select()
+            .from(pgSchema.canonicalJobsPostgres)
+            .where(eq(pgSchema.canonicalJobsPostgres.id, jobId))
+            .limit(1);
+        const row = rows[0];
+        const target = row
+            ? parseJson(row.targetJson, {})
+            : {};
+        const executionContext = target.executionContext &&
+            typeof target.executionContext === 'object' &&
+            !Array.isArray(target.executionContext)
+            ? target.executionContext
+            : undefined;
+        const folder = row
+            ? (executionContext?.workspaceKey ??
+                row.agentId?.replace(/^agent:/, '') ??
+                'system')
+            : 'system';
+        const agentId = await this.graph.ensureAgentExists(folder, folder, executor);
+        return { agentId, configVersionId: configVersionIdForAgent(agentId) };
+    }
+    async nextRunShortId(jobId, executor) {
+        const rows = await executor
+            .select({
+            nextShortId: sql `coalesce(max(${pgSchema.agentRunsPostgres.shortId}), 0) + 1`,
+        })
+            .from(pgSchema.agentRunsPostgres)
+            .where(eq(pgSchema.agentRunsPostgres.jobId, jobId))
+            .limit(1);
+        return Number(rows[0]?.nextShortId ?? 1);
+    }
+    async ensureAgentForRecord(input) {
+        const folder = input.agentId.replace(/^agent:/, '');
+        await this.graph.ensureAgentExists(folder, folder);
+    }
+}

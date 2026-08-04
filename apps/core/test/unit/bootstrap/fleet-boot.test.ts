@@ -7,7 +7,17 @@ const loadState = vi.hoisted(() => ({
   markSettingsLoaded: vi.fn(),
   markSettingsNotLoaded: vi.fn(),
 }));
-const importMock = vi.hoisted(() => ({ importWorkstationSettings: vi.fn() }));
+const importMock = vi.hoisted(() => ({
+  applySettingsRevisionWithMcpFenceRecovery: vi.fn(),
+  importWorkstationSettings: vi.fn(),
+}));
+const lease = vi.hoisted(() => {
+  const release = vi.fn(async () => {});
+  return {
+    release,
+    tryAcquire: vi.fn(async () => ({ release })),
+  };
+});
 const log = vi.hoisted(() => ({
   warn: vi.fn(),
   info: vi.fn(),
@@ -19,6 +29,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeBrowserProfileSnapshotRepository: () => ({}),
   getRuntimeStorage: () => ({
     ops: {},
+    service: { pool: undefined },
     repositories: {
       settingsRevisions: {
         getLatestSettingsRevision: async () => latest.current,
@@ -83,12 +94,18 @@ vi.mock('@core/config/settings/settings-import-service.js', async () => {
   >('@core/config/settings/settings-import-service.js');
   return {
     ...actual,
+    applySettingsRevisionWithMcpFenceRecovery:
+      importMock.applySettingsRevisionWithMcpFenceRecovery,
     importWorkstationSettings: importMock.importWorkstationSettings,
     settingsFromRevisionDocument: () => ({}) as never,
   };
 });
 
-vi.mock('@core/infrastructure/logging/logger.js', () => ({ logger: log }));
+vi.mock('@core/infrastructure/logging/logger.js', () => ({
+  logger: log,
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: vi.fn(),
+}));
 
 import {
   buildBakeOutcomeNotice,
@@ -110,6 +127,7 @@ function revisionRow(revision: number): SettingsRevision {
 }
 
 const fakeApp = { loadState: async () => {} } as never;
+const leases = { tryAcquire: lease.tryAcquire };
 
 function bakeDependency(
   overrides: Partial<RuntimeDependency> = {},
@@ -136,6 +154,14 @@ describe('prepareFleetSettings', () => {
     loadState.markSettingsLoaded.mockClear();
     loadState.markSettingsNotLoaded.mockClear();
     importMock.importWorkstationSettings.mockClear();
+    importMock.applySettingsRevisionWithMcpFenceRecovery.mockReset();
+    importMock.applySettingsRevisionWithMcpFenceRecovery.mockImplementation(
+      async (input: { revision: SettingsRevision }) => ({
+        settings: {} as never,
+        revision: input.revision.revision,
+      }),
+    );
+    lease.tryAcquire.mockClear();
     log.warn.mockClear();
     log.info.mockClear();
     log.error.mockClear();
@@ -147,12 +173,15 @@ describe('prepareFleetSettings', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       app: fakeApp,
+      leases,
     });
 
     expect(result).toEqual({ loaded: false, revision: null });
     expect(loadState.markSettingsNotLoaded).toHaveBeenCalledOnce();
     expect(loadState.markSettingsLoaded).not.toHaveBeenCalled();
-    expect(importMock.importWorkstationSettings).not.toHaveBeenCalled();
+    expect(
+      importMock.applySettingsRevisionWithMcpFenceRecovery,
+    ).not.toHaveBeenCalled();
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         seedCommand: 'gantry settings import --file settings.yaml',
@@ -162,6 +191,16 @@ describe('prepareFleetSettings', () => {
   });
 
   it('applies the latest revision through the shared import path and marks loaded', async () => {
+    const mcpBindingPrecondition = {
+      id: 'agent-mcp-binding:agent:main:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:main',
+      serverId: 'mcp:sum',
+      status: 'active' as const,
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+    };
     latest.current = {
       appId: 'default',
       revision: 9,
@@ -170,16 +209,48 @@ describe('prepareFleetSettings', () => {
       createdBy: 'cli',
       note: null,
       createdAt: '2026-06-11T00:00:00.000Z',
+      mcpBindingPreconditions: [mcpBindingPrecondition] as never,
     };
     const result = await prepareFleetSettings({
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       app: fakeApp,
+      leases,
     });
 
     expect(result).toEqual({ loaded: true, revision: 9 });
-    expect(importMock.importWorkstationSettings).toHaveBeenCalledOnce();
+    expect(
+      importMock.applySettingsRevisionWithMcpFenceRecovery,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        revision: expect.objectContaining({
+          mcpBindingPreconditions: [mcpBindingPrecondition],
+        }),
+      }),
+    );
+    expect(importMock.importWorkstationSettings).not.toHaveBeenCalled();
+    expect(lease.tryAcquire).toHaveBeenCalledWith('settings-projector:default');
     expect(loadState.markSettingsLoaded).toHaveBeenCalledOnce();
+  });
+
+  it('leaves a failed boot projection for forward correction', async () => {
+    latest.current = revisionRow(9);
+    const failure = new Error('projection failed');
+    importMock.applySettingsRevisionWithMcpFenceRecovery.mockRejectedValueOnce(
+      failure,
+    );
+
+    await expect(
+      prepareFleetSettings({
+        appId: 'default' as never,
+        runtimeHome: '/tmp/gantry-fleet',
+        app: fakeApp,
+        leases,
+      }),
+    ).rejects.toBe(failure);
+
+    expect(importMock.importWorkstationSettings).not.toHaveBeenCalled();
+    expect(loadState.markSettingsLoaded).not.toHaveBeenCalled();
   });
 
   it('holds a boot revision that requires a newer settings reader', async () => {
@@ -197,6 +268,7 @@ describe('prepareFleetSettings', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       app: fakeApp,
+      leases,
     });
 
     expect(result).toEqual({ loaded: false, revision: 10 });
@@ -235,20 +307,25 @@ describe('buildBakeOutcomeNotice', () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
-  it('sends the failure notice with the reason (unchanged)', async () => {
+  it('keeps the raw bake failure reason out of the chat notice', async () => {
     const sendMessage = vi.fn(async () => {});
     const notice = buildBakeOutcomeNotice(sendMessage);
+    const rawReason =
+      'RAW_BAKE_FAILURE_SENTINEL: npm install left-pad@1.3.0 failed (exit 1)';
 
     await notice.sendFailureNotice({
       dependency: bakeDependency(),
-      reason: 'npm install failed (exit 1)',
+      reason: rawReason,
     });
 
     expect(sendMessage).toHaveBeenCalledOnce();
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:approvals',
-      'Dependency bake failed: npm install failed (exit 1)',
+      "I couldn't prepare that dependency. I left it unavailable; try again after the setup issue is fixed.",
     );
+    expect(String(sendMessage.mock.calls[0]?.[1])).not.toContain(rawReason);
+    expect(String(sendMessage.mock.calls[0]?.[1])).not.toContain('left-pad');
+    expect(String(sendMessage.mock.calls[0]?.[1])).not.toContain('npm install');
   });
 
   it('logs instead of sending when there is no approval conversation', async () => {
@@ -313,7 +390,9 @@ describe('startFleetSubsystems', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       pool: {} as never,
+      leases,
       sendMessage: async () => {},
+      leases,
       settingsLoaded: false,
       onSettingsReady,
     });
@@ -335,6 +414,7 @@ describe('startFleetSubsystems', () => {
       expect(reconcilerInstances).toHaveLength(1);
       expect(reconcilerInstances[0]?.start).toHaveBeenCalledOnce();
       expect(onSettingsReady).toHaveBeenCalledOnce();
+      expect(onSettingsReady).toHaveBeenCalledWith({});
 
       // Subsequent revisions never double-start.
       latest.current = revisionRow(2);
@@ -354,9 +434,11 @@ describe('startFleetSubsystems', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       pool: {} as never,
+      leases,
       sendMessage: async () => {},
       bakeExecution: true,
       capabilityReconciliation: true,
+      leases,
       settingsLoaded: true,
     });
     try {
@@ -374,9 +456,11 @@ describe('startFleetSubsystems', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       pool: {} as never,
+      leases,
       sendMessage: async () => {},
       bakeExecution: false,
       capabilityReconciliation: true,
+      leases,
       settingsLoaded: true,
     });
     try {
@@ -394,9 +478,11 @@ describe('startFleetSubsystems', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       pool: {} as never,
+      leases,
       sendMessage: async () => {},
       bakeExecution: false,
       capabilityReconciliation: false,
+      leases,
       settingsLoaded: true,
     });
     try {
@@ -416,7 +502,9 @@ describe('startFleetSubsystems', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       pool: {} as never,
+      leases,
       sendMessage: async () => {},
+      leases,
       settingsLoaded: true,
       onSettingsReady,
     });

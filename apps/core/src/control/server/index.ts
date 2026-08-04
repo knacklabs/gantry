@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
 
 import type { RuntimeApp } from '../../app/bootstrap/runtime-app.js';
 import type {
@@ -32,11 +33,14 @@ import {
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
   getRuntimeControlRepository,
+  getRuntimeEventExchange,
   getRuntimeRepositories,
   getRuntimeStorage,
+  tryAcquireRuntimeAdvisoryLease,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import { preflightModelProvider } from '../../adapters/llm/model-provider-preflight.js';
 import type { AppId } from '../../domain/app/app.js';
+import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import { canAccessApp, makeAppGroup } from './app-identity.js';
 import {
   isValidControlId,
@@ -47,7 +51,7 @@ import type {
   ControlRouteContext,
   ControlServerState,
 } from './handler-context.js';
-import { readJson, sendError } from './http.js';
+import { sendError } from './http.js';
 import { createRateLimiter } from './rate-limit.js';
 import { handleAgentRoutes } from './routes/agents.js';
 import { handleBrainRoutes } from './routes/brain.js';
@@ -56,11 +60,13 @@ import { handleCredentialRoutes } from './routes/credentials.js';
 import { handleProviderConversationRoutes } from './routes/provider-conversation-routes.js';
 import { handleExternalIngressRoutes } from './routes/external-ingress.js';
 import { handleGuidedActionRoutes } from './routes/guided-actions.js';
-import { handleJobRoutes } from './routes/jobs.js';
+import { createJobManagementService, handleJobRoutes } from './routes/jobs.js';
 import { handleLlmRoutes } from './routes/llm.js';
 import { handleMemoryRoutes } from './routes/memory.js';
+import { handleObserverRoutes } from './routes/observer.js';
 import { handleMcpServerRoutes } from './routes/mcp-servers.js';
 import { handleModelRoutes } from './routes/models.js';
+import { handlePeopleRoutes } from './routes/people.js';
 import { handleOpenApiRoutes } from './routes/openapi.js';
 import { handleRunRoutes } from './routes/runs.js';
 import { handleRuntimeEventRoutes } from './routes/runtime-events.js';
@@ -78,6 +84,8 @@ import {
 import { isPrivateAddress } from './webhook-target.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import { subscribeWebhookDeliveryReady } from '../../application/runtime-events/webhook-delivery-wakeup.js';
+import { SessionInteractionModule } from '../../application/sessions/session-interaction-module.js';
+import { adaptSessionControlPort } from './session-control-port.js';
 
 export interface ControlServerHandle {
   close: () => Promise<void>;
@@ -146,26 +154,6 @@ function createControlRequestHandler(
     res.on('error', (error) => logControlStreamError(error, pathname));
 
     try {
-      if (pathname === '/channels/teams/messages' && req.method === 'POST') {
-        const body = await readJson(req, 1024 * 1024);
-        const handled = await ctx.handleProviderHttpIngress?.(
-          'teams',
-          req,
-          res,
-          body && typeof body === 'object' && !Array.isArray(body)
-            ? (body as Record<string, unknown>)
-            : {},
-        );
-        if (!handled) {
-          sendControlError(
-            res,
-            503,
-            'UNAVAILABLE',
-            'Microsoft Teams transport is not connected.',
-          );
-        }
-        return;
-      }
       // Ops profile (live-worker, job-worker) serves only operational and
       // read-only diagnostic routes; every admin/mutation route is unmounted and
       // falls through to the 404 fallback below.
@@ -186,7 +174,9 @@ function createControlRequestHandler(
       if (await handleSessionRoutes(req, res, ctx, url, pathname)) return;
       if (await handleProviderConversationRoutes(req, res, ctx, url, pathname))
         return;
+      if (await handlePeopleRoutes(req, res, ctx, url, pathname)) return;
       if (await handleMemoryRoutes(req, res, ctx, url, pathname)) return;
+      if (await handleObserverRoutes(req, res, ctx, url, pathname)) return;
       if (await handleBrainRoutes(req, res, ctx, url, pathname)) return;
       if (await handleCredentialRoutes(req, res, ctx, pathname)) return;
       if (await handleModelRoutes(req, res, ctx, pathname)) return;
@@ -239,12 +229,32 @@ function isLiveIngressRoute(pathname: string): boolean {
   return /^\/webhooks\/[^/]+(?:\/wait)?$/.test(pathname);
 }
 
+function missingControlPort(name: string): never {
+  throw new Error(`${name} was not composed at the app root`);
+}
+
+function unavailableControlAgentSettingsPort(): ControlRouteContext['agentSettings'] {
+  return {
+    decodeRevisionDocument: () => missingControlPort('agentSettings'),
+    defaultSettings: () => missingControlPort('agentSettings'),
+    serializeRevisionDocument: () => missingControlPort('agentSettings'),
+    writeAgentHarnessSetting: async () => missingControlPort('agentSettings'),
+  };
+}
+
+function unavailableControlSettingsImportPort(): ControlRouteContext['settingsImport'] {
+  return {
+    serializeRevisionDocument: () => missingControlPort('settingsImport'),
+    importWorkstation: async () => missingControlPort('settingsImport'),
+    importFleet: async () => missingControlPort('settingsImport'),
+    classifyImportError: () => null,
+  };
+}
+
 export function startControlServer(input: {
   app: RuntimeApp;
   getBrowserStatus?: JobManagementServiceDeps['getBrowserStatus'];
   sendConversationIngressProjection?: ControlRouteContext['sendConversationIngressProjection'];
-  sendConversationMessage?: ControlRouteContext['sendConversationMessage'];
-  handleProviderHttpIngress?: ControlRouteContext['handleProviderHttpIngress'];
   addMessageReaction?: ControlRouteContext['addMessageReaction'];
   /**
    * Which control routes to mount. `'full'` (default) mounts every route, the
@@ -265,8 +275,17 @@ export function startControlServer(input: {
   isSchedulerReady?: () => boolean;
   oldestWaitingLiveAdmissionSeconds?: () => number;
   liveCapacityLimit?: () => number;
-  getChannelTransportHealth?: ControlRouteContext['getChannelTransportHealth'];
+  /** Lifecycle-owned settings that are actually active in this process. */
+  getEffectiveRuntimeSettings?: ControlRouteContext['getEffectiveRuntimeSettings'];
+  getEffectiveMemoryState?: ControlRouteContext['getEffectiveMemoryState'];
+  agentSettings?: ControlRouteContext['agentSettings'];
+  settingsImport?: ControlRouteContext['settingsImport'];
+  resolveObserverStatus?: ControlRouteContext['resolveObserverStatus'];
+  leases?: RuntimeLeasePort;
 }): ControlServerHandle {
+  const leases = input.leases ?? {
+    tryAcquire: tryAcquireRuntimeAdvisoryLease,
+  };
   configureDesiredSettingsStorageProvider(async () => {
     const storage = getRuntimeStorage();
     return {
@@ -274,6 +293,7 @@ export function startControlServer(input: {
       repositories: storage.repositories,
       settingsRevisions: storage.repositories.settingsRevisions,
       pool: storage.service.pool,
+      leases,
     };
   });
   const socketPath =
@@ -332,8 +352,39 @@ export function startControlServer(input: {
     activeTriggerWaits: 0,
   };
   let webhookFlushInFlight = false;
+  let effectiveRuntimeSettings:
+    | ReturnType<typeof getRuntimeSettingsForConfig>
+    | undefined;
+  const getEffectiveRuntimeSettings =
+    input.getEffectiveRuntimeSettings ??
+    (() => (effectiveRuntimeSettings ??= getRuntimeSettingsForConfig()));
+  const sessionInteraction = new SessionInteractionModule({
+    get control() {
+      return adaptSessionControlPort(getRuntimeControlRepository());
+    },
+    get ops() {
+      return getRuntimeRepositories();
+    },
+    get repositories() {
+      return getRuntimeStorage().repositories;
+    },
+    get runtimeEvents() {
+      return getRuntimeEventExchange();
+    },
+    get getConfiguredAgentRuntime() {
+      return getConfiguredAgentRuntime;
+    },
+    now: () => nowIso() as never,
+    createId: randomUUID,
+    stableHash: (input) => createHash('sha256').update(input).digest('hex'),
+  });
   const ctx: ControlRouteContext = {
     app: input.app,
+    sessionInteraction,
+    jobManagement: createJobManagementService({
+      app: input.app,
+      getBrowserStatus: input.getBrowserStatus,
+    }),
     runtimeHome: GANTRY_HOME,
     keys,
     processRole: input.processRole ?? 'all',
@@ -350,7 +401,6 @@ export function startControlServer(input: {
     isSchedulerReady: input.isSchedulerReady,
     oldestWaitingLiveAdmissionSeconds: input.oldestWaitingLiveAdmissionSeconds,
     liveCapacityLimit: input.liveCapacityLimit,
-    getChannelTransportHealth: input.getChannelTransportHealth,
     socketPath,
     port,
     maxConcurrentStreams: 25,
@@ -360,6 +410,20 @@ export function startControlServer(input: {
     triggerRateLimiter: createRateLimiter(),
     getRuntimeSettings: () => getPublicRuntimeSettings(),
     getInternalRuntimeSettings: () => getRuntimeSettingsForConfig(),
+    getEffectiveRuntimeSettings,
+    getEffectiveMemoryState:
+      input.getEffectiveMemoryState ??
+      (() => ({
+        enabled: getEffectiveRuntimeSettings().memory.enabled,
+        dreamingEnabled:
+          getEffectiveRuntimeSettings().memory.dreaming.enabled ?? false,
+      })),
+    agentSettings: input.agentSettings ?? unavailableControlAgentSettingsPort(),
+    settingsImport:
+      input.settingsImport ?? unavailableControlSettingsImportPort(),
+    resolveObserverStatus:
+      input.resolveObserverStatus ??
+      (async () => missingControlPort('resolveObserverStatus')),
     getEgressSettings: () => getRuntimeSettingsForConfig().permissions.egress,
     getDefaultModelConfig,
     getModelDefaults: getRuntimeModelDefaults,
@@ -370,6 +434,7 @@ export function startControlServer(input: {
         providerId,
         chatAlias,
         settings: getRuntimeSettingsForConfig(),
+        modelCredentials: getRuntimeStorage().repositories.modelCredentials,
         appId,
       }),
     getActiveModelCredentialProviderIds: async (appId: AppId) => {
@@ -403,11 +468,9 @@ export function startControlServer(input: {
       });
     },
     sendConversationIngressProjection: input.sendConversationIngressProjection,
-    sendConversationMessage: input.sendConversationMessage,
-    handleProviderHttpIngress: input.handleProviderHttpIngress,
     addMessageReaction: input.addMessageReaction,
     getBrowserStatus: input.getBrowserStatus,
-    syncSettingsFromProjection: (appId: AppId) => {
+    syncSettingsFromProjection: (appId: AppId, overrides) => {
       const storage = getRuntimeStorage();
       return syncRuntimeSettingsFromProjection({
         runtimeHome: GANTRY_HOME,
@@ -417,7 +480,9 @@ export function startControlServer(input: {
         settingsRevisions: storage.repositories.settingsRevisions,
         pool: storage.service?.pool,
         createdBy: 'control-api:projection-sync',
+        leases,
         reloadRuntimeState: () => input.app.loadState(),
+        overrides,
       });
     },
     getSelectedAgentHarness: (agentFolder?: string) =>

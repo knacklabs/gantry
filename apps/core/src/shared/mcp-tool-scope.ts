@@ -40,22 +40,34 @@ export function normalizeMcpToolScope(input: {
   return requested;
 }
 
-export function filterMcpToolNamesBySourceScopes(
-  toolNames: readonly string[],
+export function intersectMcpToolRulesWithSourceScopes(
+  toolRules: readonly string[],
   sources: readonly {
     name: string;
     allowedToolPatterns: readonly string[];
   }[],
 ): string[] {
-  return toolNames.filter((toolName) =>
-    sources.some((source) =>
-      mcpToolNameAllowedBySourceScope({
-        serverName: source.name,
-        fullToolName: toolName,
-        allowedToolPatterns: source.allowedToolPatterns,
-      }),
-    ),
-  );
+  const intersections = new Set<string>();
+  for (const source of sources) {
+    const prefix = `mcp__${source.name}__`;
+    for (const rule of toolRules) {
+      if (!rule.startsWith(prefix)) continue;
+      const authorityPattern = rule.slice(prefix.length);
+      if (!authorityPattern) continue;
+      if (source.allowedToolPatterns.length === 0) {
+        intersections.add(rule);
+        continue;
+      }
+      for (const sourcePattern of source.allowedToolPatterns) {
+        const intersection = intersectMcpToolPatterns(
+          authorityPattern,
+          sourcePattern,
+        );
+        if (intersection) intersections.add(`${prefix}${intersection}`);
+      }
+    }
+  }
+  return [...intersections];
 }
 
 export function mcpToolNameAllowedBySourceScope(input: {
@@ -81,4 +93,13 @@ export function mcpToolPatternCovers(
     pattern === '*' ||
     (pattern.endsWith('*') && candidate.startsWith(pattern.slice(0, -1)))
   );
+}
+
+function intersectMcpToolPatterns(
+  left: string,
+  right: string,
+): string | undefined {
+  if (mcpToolPatternCovers(left, right)) return right;
+  if (mcpToolPatternCovers(right, left)) return left;
+  return undefined;
 }

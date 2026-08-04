@@ -74,7 +74,7 @@ describe('agent-spawn startup diagnostics', () => {
     expect(countJsonStringArray(undefined)).toBe(0);
   });
 
-  it('builds a host startup diagnostic with normalized routing and safe counts', () => {
+  it('builds a host startup diagnostic with payload routing and safe counts', () => {
     const event = buildRunnerHostStartupDiagnosticEvent(baseDiagnostic);
 
     expect(event).toMatchObject({
@@ -82,14 +82,14 @@ describe('agent-spawn startup diagnostics', () => {
       agentId: 'agent-one',
       runId: 'run-one',
       jobId: 'job-one',
-      conversationId: 'conversation:whatsapp:group-one',
-      threadId: 'thread:whatsapp:group-one:reply-one',
       eventType: 'run.startup_diagnostic',
       actor: 'runtime',
       responseMode: 'none',
       payload: {
         provider: 'host',
         diagnostic: 'host_startup_projection',
+        conversationJid: 'whatsapp:group-one',
+        threadId: 'reply-one',
         agentEngine: 'deepagents',
         executionProviderId: 'deepagents:langchain',
         selectedSkillSourceCount: 3,
@@ -101,9 +101,28 @@ describe('agent-spawn startup diagnostics', () => {
         },
       },
     });
+    expect(event).not.toHaveProperty('conversationId');
+    expect(event).not.toHaveProperty('threadId');
     expect(JSON.stringify(event)).not.toContain('/tmp/');
     expect(JSON.stringify(event)).not.toContain('API_KEY');
     expect(JSON.stringify(event)).not.toContain('http://127.0.0.1');
+  });
+
+  it('keeps canonical conversation and thread ids in FK fields', () => {
+    const event = buildRunnerHostStartupDiagnosticEvent({
+      ...baseDiagnostic,
+      conversationId: 'conversation:slack_default:sl:C123',
+      threadId: 'thread:slack_default:sl:C123:1710000000.000100',
+    });
+
+    expect(event).toMatchObject({
+      conversationId: 'conversation:slack_default:sl:C123',
+      threadId: 'thread:slack_default:sl:C123:1710000000.000100',
+      payload: expect.objectContaining({
+        conversationJid: 'conversation:slack_default:sl:C123',
+        threadId: 'thread:slack_default:sl:C123:1710000000.000100',
+      }),
+    });
   });
 
   it('does not fail the run when diagnostic persistence fails', async () => {

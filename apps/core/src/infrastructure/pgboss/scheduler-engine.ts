@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { PgBoss, type Job as PgBossJob } from 'pg-boss';
 
 import {
@@ -38,12 +38,16 @@ import {
   schedulerDeliveryPriorityForJob,
 } from './scheduler-admission.js';
 import { recoverExpiredWorkerLeases } from './scheduler-worker-recovery.js';
+import { pgBossGroupId, pgBossJobKey, pgBossSendId } from './pgboss-keys.js';
+import { sweepTerminalLiveAdmissionsIfDue } from './live-admission-retention.js';
 import type {
   SchedulerDependencies,
   SchedulerDispatchPayload,
 } from '../../jobs/types.js';
-import { schedulerJobStaleness } from '../../shared/scheduler-job-staleness.js';
-import { schedulerScheduleSignature } from './scheduler-signature.js';
+import {
+  schedulerJobStaleness,
+  staleOnceRequeueBucket,
+} from '../../shared/scheduler-job-staleness.js';
 import {
   nowMs as currentTimeMs,
   parseIso,
@@ -52,7 +56,7 @@ import {
 
 const SCHEDULER_QUEUE = 'gantry.jobs';
 const SCHEDULER_QUEUE_DEAD_LETTER = 'gantry.jobs.dead_letter';
-const PGBOSS_KEY_PREFIX = 'gantry';
+const STALE_ONCE_REENQUEUE_THROTTLE_MS = 60_000;
 export const SCHEDULER_MAINTENANCE_SYNC_INTERVAL_MS = 60_000;
 
 interface PgBossSchedulerCallbacks {
@@ -73,35 +77,6 @@ interface PgBossSchedulerCallbacks {
     jobs: readonly Job[],
     deps: SchedulerDependencies,
   ) => Promise<void>;
-}
-
-function pgBossKey(kind: string, value: string): string {
-  return `${PGBOSS_KEY_PREFIX}.${kind}.${Buffer.from(value).toString('base64url')}`;
-}
-
-function pgBossGroupId(workspaceKey: string): string {
-  return pgBossKey('group', workspaceKey);
-}
-
-function pgBossJobKey(jobId: string): string {
-  return pgBossKey('job', jobId);
-}
-
-function pgBossSendId(jobId: string, slot: string): string {
-  const bytes = createHash('sha256')
-    .update(`${PGBOSS_KEY_PREFIX}:send:${jobId}:${slot}`)
-    .digest()
-    .subarray(0, 16);
-  bytes[6] = (bytes[6] & 0x0f) | 0x50;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = bytes.toString('hex');
-  return [
-    hex.slice(0, 8),
-    hex.slice(8, 12),
-    hex.slice(12, 16),
-    hex.slice(16, 20),
-    hex.slice(20, 32),
-  ].join('-');
 }
 
 function scheduleSlotForJob(job: Job): string {
@@ -133,6 +108,7 @@ export class PgBossSchedulerEngine {
   private readonly scheduleSignatures = new Map<string, string>();
   private maintenanceTimer: ReturnType<typeof setInterval> | null = null;
   private starvationAlerter: CapabilityStarvationAlerter | null = null;
+  private lastLiveAdmissionRetentionSweepAt: number | null = null;
 
   constructor(
     private readonly deps: SchedulerDependencies,
@@ -145,7 +121,7 @@ export class PgBossSchedulerEngine {
     }
     const boss = new PgBoss({
       connectionString: STORAGE_POSTGRES_URL,
-      schema: 'gantry_pgboss',
+      schema: 'pgboss',
       createSchema: true,
       migrate: true,
       schedule: true,
@@ -272,6 +248,7 @@ export class PgBossSchedulerEngine {
   private async syncAllJobs(): Promise<void> {
     const boss = this.requireBoss();
     await this.callbacks.registerSystemJobs(this.deps);
+    await this.sweepTerminalLiveAdmissionsIfDue();
     await this.recoverExpiredWorkerLeases();
     const released = await this.deps.opsRepository.releaseStaleJobLeases();
     if (released.length > 0) {
@@ -303,6 +280,15 @@ export class PgBossSchedulerEngine {
     for (const jobId of this.scheduleSignatures.keys()) {
       if (!liveJobIds.has(jobId)) await this.clearDeletedJob(boss, jobId);
     }
+  }
+
+  private async sweepTerminalLiveAdmissionsIfDue(): Promise<void> {
+    this.lastLiveAdmissionRetentionSweepAt =
+      await sweepTerminalLiveAdmissionsIfDue({
+        sweep: this.deps.sweepTerminalLiveAdmissions,
+        lastSweepAt: this.lastLiveAdmissionRetentionSweepAt,
+        now: currentTimeMs(),
+      });
   }
 
   private async scanCapabilityStarvation(jobs: readonly Job[]): Promise<void> {
@@ -375,7 +361,7 @@ export class PgBossSchedulerEngine {
 
   private async syncJob(boss: PgBoss, job: Job): Promise<void> {
     const nowMs = currentTimeMs();
-    const signature = schedulerScheduleSignature(job, nowMs, TIMEZONE);
+    const signature = this.scheduleSignature(job, nowMs);
     if (this.scheduleSignatures.get(job.id) === signature) return;
     await this.clearBossSchedule(boss, job.id);
     if (job.status !== 'active') {
@@ -408,7 +394,7 @@ export class PgBossSchedulerEngine {
         { jobId: job.id },
         {
           key: pgBossJobKey(job.id),
-          tz: job.schedule_timezone ?? TIMEZONE,
+          tz: TIMEZONE,
           group: { id: pgBossGroupId(job.workspace_key) },
           singletonKey: pgBossJobKey(job.id),
           retryLimit: 0,
@@ -441,6 +427,23 @@ export class PgBossSchedulerEngine {
         priority: schedulerDeliveryPriorityForJob(job),
       },
     );
+  }
+
+  private scheduleSignature(job: Job, nowMs: number): string {
+    return JSON.stringify({
+      id: job.id,
+      status: job.status,
+      scheduleType: job.schedule_type,
+      scheduleValue: job.schedule_value,
+      nextRun: job.schedule_type === 'cron' ? null : job.next_run,
+      staleOnceRequeueBucket: staleOnceRequeueBucket(
+        job,
+        nowMs,
+        STALE_ONCE_REENQUEUE_THROTTLE_MS,
+      ),
+      workspaceKey: job.workspace_key,
+      admissionPriority: schedulerDeliveryPriorityForJob(job),
+    });
   }
 
   private async clearDeletedJob(boss: PgBoss, jobId: string): Promise<void> {

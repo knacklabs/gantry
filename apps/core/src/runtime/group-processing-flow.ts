@@ -1,14 +1,14 @@
 import type { FinalProgressState } from './progress-updates.js';
 
-type GroupTurnRunResult = 'success' | 'error' | 'stopped' | 'timed_out';
+type GroupTurnRunResult = 'success' | 'error' | 'stopped';
 
 export async function handleFailure(input: {
   outputSentToUser: boolean;
   acknowledgeFailedTurn?: boolean;
+  preserveCursor?: boolean;
   groupName: string;
   queueJid: string;
   previousCursor: string;
-  processedCursor: string;
   deps: {
     setCursor: (chatJid: string, timestamp: string) => void;
     saveState: () => Promise<void> | void;
@@ -25,11 +25,18 @@ export async function handleFailure(input: {
     return true;
   }
   if (input.acknowledgeFailedTurn) {
-    input.deps.setCursor(input.queueJid, input.processedCursor);
     await input.deps.saveState();
     input.logger.warn(
       { group: input.groupName },
       'Agent error on final retry, preserving message cursor to prevent stale replay',
+    );
+    return true;
+  }
+  if (input.preserveCursor) {
+    await input.deps.saveState();
+    input.logger.warn(
+      { group: input.groupName },
+      'Agent infrastructure error, preserving message cursor to prevent stale replay',
     );
     return true;
   }
@@ -94,7 +101,7 @@ export function resolveGroupTurnFinalProgressState(input: {
   outputSentToUser: boolean;
 }): FinalProgressState {
   if (input.output === 'stopped') return 'stopped';
-  if (input.output === 'error' || input.output === 'timed_out') return 'failed';
+  if (input.output === 'error') return 'failed';
   if (input.hadError && !input.outputSentToUser) return 'failed';
   if (
     input.sawDeliveryIncomplete ||

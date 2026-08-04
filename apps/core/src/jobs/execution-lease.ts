@@ -230,6 +230,7 @@ async function failClaimedRunAfterControlEvidenceFailure(input: {
             resultSummary: null,
             errorSummary,
             jobUpdates,
+            incrementConsecutiveFailures: true,
           },
         );
       if (!finalized) {
@@ -260,7 +261,13 @@ async function failClaimedRunAfterControlEvidenceFailure(input: {
           'Failed to finalize scheduler run after runner-control evidence failure',
         );
       }
-      await input.deps.opsRepository.updateJob(input.currentJob.id, jobUpdates);
+      await input.deps.opsRepository.updateJob(
+        input.currentJob.id,
+        jobUpdates,
+        {
+          incrementConsecutiveFailures: true,
+        },
+      );
       return;
     }
     if (input.deps.opsRepository.settleJobRunLease) {
@@ -277,7 +284,13 @@ async function failClaimedRunAfterControlEvidenceFailure(input: {
           'Failed to settle scheduler run after runner-control evidence failure',
         );
       }
-      await input.deps.opsRepository.updateJob(input.currentJob.id, jobUpdates);
+      await input.deps.opsRepository.updateJob(
+        input.currentJob.id,
+        jobUpdates,
+        {
+          incrementConsecutiveFailures: true,
+        },
+      );
     }
   } catch (err) {
     input.warn(

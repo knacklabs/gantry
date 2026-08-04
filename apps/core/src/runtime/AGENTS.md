@@ -23,14 +23,15 @@
   failures. Every accepted client, direct upstream, and upstream-proxy socket
   must have an error listener before piping so routine `ECONNRESET` events do
   not escape as uncaught exceptions and trigger launchd restarts.
-- Egress HTTP connection deadlines apply only until the upstream socket
-  connects. Clear socket timeouts after connection so long-running model and
-  tool response streams remain bounded by their owning run deadline instead of
-  an unrelated transport-idle timeout.
 - Thread/topic ids on live permission prompts are routing scope. Persisted
   `Always allow` grants and selected capability runtime projection must use the
   parent conversation identity. Thread/topic ids may choose approval delivery
   and audit metadata, but must not create another permission scope.
+- Personal memory hydration is DM-only (spec person-identity-aliases,
+  ID-1 decision 8). Live channel/group turns still resolve a real sender id to
+  a canonical `personId` for participant attribution and audit evidence, but
+  that resolution never hydrates personal memory outside a direct
+  conversation; conversation memory remains keyed by conversation scope.
 - Generated `.llm-runtime` access failures are adapter-state failures. Surface
   actionable `.llm-runtime` guidance instead of returning raw `EACCES` as a
   generic runner-exited error.

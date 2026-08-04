@@ -144,6 +144,34 @@ conversation's approvers unless a future product flow explicitly narrows them.
 Runtime queue keys may include agent and Provider Account ids, but those keys
 are not provider addresses and must not appear in public setup UX.
 
+### Guided setup for another conversation
+
+After the first setup is complete, run:
+
+```bash
+gantry setup
+```
+
+Choose **Add conversation to existing agent**. The flow:
+
+1. selects an existing agent;
+2. selects one active Provider Account already owned by that agent;
+3. discovers a conversation, with a manual conversation-ID fallback;
+4. validates the conversation approvers as members;
+5. reviews sender policy, trigger behavior, and memory scope; and
+6. saves one additional canonical conversation install.
+
+The flow reuses the Provider Account's existing `runtime_secret_refs`. It does
+not ask for provider tokens, rename secret references, or overwrite another
+agent or conversation. Canceling before the final confirmation writes nothing.
+After a successful install, run `gantry restart` so the new conversation
+topology is active.
+
+Use this flow repeatedly when the same agent should respond in several Slack,
+Teams, Telegram, or Discord conversations. Each conversation keeps its own
+approvers and sender policy, while the Provider Account and its credentials are
+shared by reference.
+
 ## CLI, API, And Agent Tool Usage
 
 All admin surfaces should converge on the same desired-state services:

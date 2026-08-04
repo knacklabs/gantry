@@ -130,30 +130,26 @@ async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
         toolSuccessLedger,
         emit,
         log,
-        // Long-running tool calls mark heartbeat activity so the scheduled run's
-        // lease stays alive instead of being flagged idle mid-tool.
         onToolStart: (toolName) => heartbeat.recordToolActivity(toolName),
       });
-      const completionDecision = await completionGate?.check();
-      const continuedByFollowup = completionDecision?.decision === 'continue';
-      // The single terminal frame (usage/contextUsage) is emitted by the caller
-      // so there is exactly one terminal marker per turn.
+      const decision = await completionGate?.check();
+      const continued = decision?.decision === 'continue';
       emit({
         status: 'success',
         result: turn.terminalResult,
         newSessionId: diagnosticSessionId,
-        ...(continuedByFollowup ? { continuedByFollowup: true } : {}),
+        ...(continued ? { continuedByFollowup: true } : {}),
         ...(turn.terminalUsage ? { usage: turn.terminalUsage } : {}),
         ...(turn.terminalContextUsage
           ? { contextUsage: turn.terminalContextUsage }
           : {}),
         ...runtimeEventsForTurn(turn),
       });
-      if (!continuedByFollowup) break;
+      if (!continued) break;
       turnInput = {
         ...agentInput,
         prompt: [
-          completionDecision.message,
+          decision.message,
           'Previous completion attempt:',
           turn.terminalResult ?? '(no prior result)',
         ].join('\n\n'),

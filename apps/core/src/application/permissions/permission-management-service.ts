@@ -1,5 +1,6 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
+import type { McpBindingAuthorityPrecondition } from '../../domain/mcp/mcp-servers.js';
 import type {
   McpServerRepository,
   PermissionRepository,
@@ -18,6 +19,7 @@ import { ensureAgentToolCatalogItem } from '../../domain/tools/agent-tool-catalo
 import { skillActionSource } from '../../domain/skills/skill-action-permissions.js';
 import {
   expandSemanticCapabilityPermissionRules,
+  sameMcpCapabilityProposalAuthority,
   semanticCapabilityRuntimeRules,
   semanticCapabilityFromToolCatalogItem,
   type SemanticCapabilityDefinition,
@@ -31,11 +33,13 @@ import {
   ensureMcpSourceBindingsForRules,
   rollbackAppliedMcpSourceBindings,
   type AppliedMcpSourceBinding,
+  withMcpCapabilityProposalSourceLocks,
 } from './mcp-capability-source-bindings.js';
 import { permissionDecisionExpiresAt } from './permission-decision-expiry.js';
 import {
   adminMcpToolIdForFullName,
-  isAdminMcpToolFullName,
+  isDurableGantryMcpToolFullName,
+  isKnownGantryMcpToolFullName,
 } from '../../shared/admin-mcp-tools.js';
 import {
   displayToolReference,
@@ -60,7 +64,12 @@ import { nowIso } from '../../shared/time/datetime.js';
 type MirrorAgentToolRulesToSettings = (
   sourceAgentFolder: string,
   rules: string[],
-  options?: { appId?: string; mode?: 'add' | 'remove' },
+  options?: {
+    appId?: string;
+    mode?: 'add' | 'remove';
+    expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+    mcpCapabilityGrantToken?: string;
+  },
 ) => Promise<void> | void;
 
 export interface PersistentPermissionGrantInput {
@@ -153,6 +162,31 @@ export class PermissionManagementService {
       });
     }
 
+    return withMcpCapabilityProposalSourceLocks({
+      appId: input.appId,
+      agentId: input.agentId,
+      mcpServerRepository: input.mcpServerRepository,
+      rules: allowedRules,
+      semanticCapabilityDefinitions: trustedSemanticCapabilityDefinitions,
+      operation: () =>
+        this.applyPersistentToolRuleGrantUnderSourceLock(input, {
+          allowedRules,
+          trustedSemanticCapabilityDefinitions,
+        }),
+    });
+  }
+
+  private async applyPersistentToolRuleGrantUnderSourceLock(
+    input: PersistentPermissionGrantInput,
+    plan: {
+      allowedRules: string[];
+      trustedSemanticCapabilityDefinitions?: Record<
+        string,
+        SemanticCapabilityDefinition
+      >;
+    },
+  ): Promise<string[]> {
+    const { allowedRules, trustedSemanticCapabilityDefinitions } = plan;
     const timestamp = this.clock.now();
     const savedBindings: AgentToolBinding[] = [];
     const activatedMcpBindings: AppliedMcpSourceBinding[] = [];
@@ -169,26 +203,40 @@ export class PermissionManagementService {
         .map((binding) => binding.toolId),
     );
     try {
+      const ensuredMcpSources = await ensureMcpSourceBindingsForRules({
+        appId: input.appId,
+        agentId: input.agentId,
+        mcpServerRepository: input.mcpServerRepository,
+        rules: allowedRules,
+        semanticCapabilityDefinitions: trustedSemanticCapabilityDefinitions,
+        timestamp,
+      });
+      activatedMcpBindings.push(...ensuredMcpSources.applied);
       for (const allowedRule of allowedRules) {
-        const adminMcpTool = adminMcpToolFullNameFromRule(allowedRule);
-        let toolId = (
-          isCanonicalBrowserCapabilityRule(allowedRule)
-            ? 'tool:Browser'
-            : adminMcpTool
-              ? adminMcpToolIdForFullName(adminMcpTool)
-              : persistentPermissionToolId(input.appId, allowedRule)
-        ) as AgentToolBinding['toolId'];
-        if (adminMcpTool || isCanonicalBrowserCapabilityRule(allowedRule)) {
+        const gantryMcpTool = gantryMcpToolFullNameFromRule(allowedRule);
+        let toolId: AgentToolBinding['toolId'];
+        if (gantryMcpTool) {
+          const tool = await ensureAgentToolCatalogItem({
+            repository: input.toolRepository,
+            appId: input.appId,
+            reference: gantryMcpTool,
+            now: timestamp,
+            description:
+              'Persistent Gantry tool approved from permission management.',
+            adapterRef: 'permission/request_permission',
+            semanticCapabilityDefinitions: trustedSemanticCapabilityDefinitions,
+          });
+          toolId = tool.id;
+        } else if (isCanonicalBrowserCapabilityRule(allowedRule)) {
+          toolId = 'tool:Browser' as AgentToolBinding['toolId'];
           const existing =
             (await input.toolRepository.getTool(toolId)) ??
-            (isCanonicalBrowserCapabilityRule(allowedRule)
-              ? (
-                  await input.toolRepository.listTools({
-                    appId: input.appId,
-                    statuses: ['active'],
-                  })
-                ).find((tool) => tool.id === toolId)
-              : null);
+            (
+              await input.toolRepository.listTools({
+                appId: input.appId,
+                statuses: ['active'],
+              })
+            ).find((tool) => tool.id === toolId);
           if (
             !existing ||
             existing.appId !== input.appId ||
@@ -227,20 +275,19 @@ export class PermissionManagementService {
           savedBindings.push(binding);
         }
       }
-      activatedMcpBindings.push(
-        ...(await ensureMcpSourceBindingsForRules({
-          appId: input.appId,
-          agentId: input.agentId,
-          mcpServerRepository: input.mcpServerRepository,
-          rules: allowedRules,
-          semanticCapabilityDefinitions: trustedSemanticCapabilityDefinitions,
-          timestamp,
-        })),
-      );
+      const grantToken = input.requestId ?? globalThis.crypto.randomUUID();
       await input.mirrorAgentToolRulesToSettings(
         input.sourceAgentFolder,
         allowedRules,
-        { appId: input.appId },
+        {
+          appId: input.appId,
+          ...(ensuredMcpSources.proposalBindingSnapshots.length > 0
+            ? {
+                expectedMcpBindings: ensuredMcpSources.proposalBindingSnapshots,
+                mcpCapabilityGrantToken: grantToken,
+              }
+            : {}),
+        },
       );
     } catch (err) {
       await Promise.allSettled(
@@ -463,7 +510,6 @@ export class PermissionManagementService {
     await input.permissionRepository.saveDecision(decision);
   }
 }
-
 export function validatePersistentRule(
   allowedRule: string,
   options: {
@@ -478,10 +524,10 @@ export function validatePersistentRule(
     allowUnknownSemanticCapability: false,
   });
   if (!validation.ok) throw new Error(validation.reason);
-  const adminMcpTool = adminMcpToolFullNameFromRule(allowedRule);
-  if (adminMcpTool && adminMcpTool !== allowedRule) {
+  const gantryMcpTool = gantryMcpToolFullNameFromRule(allowedRule);
+  if (gantryMcpTool && gantryMcpTool !== allowedRule) {
     throw new Error(
-      'Persistent Gantry admin MCP tool grants must request the exact tool name without a scoped rule.',
+      'Persistent Gantry MCP tool grants must request the exact tool name without a scoped rule.',
     );
   }
 }
@@ -531,6 +577,11 @@ function assertNoRequestCapabilityDefinitionConflicts(input: {
     if (
       stableSha256Json(catalogDefinition) ===
       stableSha256Json(requestDefinition)
+    ) {
+      continue;
+    }
+    if (
+      sameMcpCapabilityProposalAuthority(catalogDefinition, requestDefinition)
     ) {
       continue;
     }
@@ -590,11 +641,11 @@ function persistentPermissionGrantAuditMetadata(input: {
     : {};
 }
 
-function adminMcpToolFullNameFromRule(allowedRule: string): string | null {
+function gantryMcpToolFullNameFromRule(allowedRule: string): string | null {
   const trimmed = allowedRule.trim();
   const scoped = parseReadableScopedToolRule(trimmed);
   const toolName = scoped ? scoped.toolName : trimmed;
-  return isAdminMcpToolFullName(toolName) ? toolName : null;
+  return isDurableGantryMcpToolFullName(toolName) ? toolName : null;
 }
 
 function persistentPermissionBindingId(
@@ -680,7 +731,7 @@ function expandedRevocationLiveRules(input: {
 function candidateToolIdsForRule(appId: AppId, rule: string): Set<ToolId> {
   const out = new Set<ToolId>();
   if (isCanonicalBrowserCapabilityRule(rule)) out.add('tool:Browser' as ToolId);
-  if (isAdminMcpToolFullName(rule)) {
+  if (isKnownGantryMcpToolFullName(rule)) {
     out.add(adminMcpToolIdForFullName(rule) as ToolId);
   }
   const semanticCapabilityId = parseSemanticCapabilityRule(rule);

@@ -66,26 +66,6 @@ describe('Claude SDK ToolSearch decision', () => {
     });
   });
 
-  it('eagerly loads tools for caller-resolved jobs', () => {
-    const decision = decideClaudeSdkToolSearch({
-      sdkEnv: {
-        [baseUrlEnvKey]: 'http://127.0.0.1:18789/anthropic',
-        [apiKeyEnvKey]: 'gtw_run_scoped_token',
-      },
-      availableTools: ['ToolSearch', 'mcp__gantry__search_tender_evidence'],
-      allowedTools: ['mcp__gantry__search_tender_evidence'],
-      disallowedTools: [],
-      mcpServers: { gantry: { command: 'node' } },
-      requireEagerTools: true,
-    });
-
-    expect(decision).toMatchObject({
-      enableToolSearch: 'false',
-      reason: 'caller_resolved_tools_require_eager_loading',
-      anthropicBaseUrlKind: 'gantry_loopback',
-    });
-  });
-
   it('keeps arbitrary loopback proxies disabled without a Gantry gateway token', () => {
     const decision = decideClaudeSdkToolSearch({
       sdkEnv: { [baseUrlEnvKey]: 'http://127.0.0.1:18789/anthropic' },

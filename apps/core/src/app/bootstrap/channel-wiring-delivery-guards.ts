@@ -31,11 +31,6 @@ export function createRecoveryDispatchPermit(
     itemId: input.itemId,
     destinationJid: input.destinationJid,
     canonicalText: input.canonicalText,
-    ...(input.sourceMessageId
-      ? { sourceMessageId: input.sourceMessageId }
-      : {}),
-    ...(input.attemptCount ? { attemptCount: input.attemptCount } : {}),
-    ...(input.terminalFailure ? { terminalFailure: true } : {}),
     ...(input.threadId ? { threadId: input.threadId } : {}),
   };
   Object.defineProperty(permit, RECOVERY_DISPATCH_PERMIT_RUNTIME_BRAND, {

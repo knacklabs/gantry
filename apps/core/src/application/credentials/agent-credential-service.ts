@@ -35,6 +35,8 @@ export type AgentCredentialInjectionInput =
       threadId?: ConversationThreadId;
       modelCredentialProviderId?: ModelCredentialProvider;
       modelRouteId?: ModelRouteId;
+      modelBatchRequestCount?: number;
+      modelBatchId?: string;
       agentIdentifier?: string;
       broker: AgentCredentialBroker;
     }
@@ -57,6 +59,8 @@ function brokerBindingFor(input: {
   threadId?: ConversationThreadId;
   modelCredentialProviderId?: ModelCredentialProvider;
   modelRouteId?: ModelRouteId;
+  modelBatchRequestCount?: number;
+  modelBatchId?: string;
   agentIdentifier?: string;
 }): AgentCredentialBrokerBinding {
   const purpose = input.purpose ?? 'model_runtime';
@@ -84,6 +88,12 @@ function brokerBindingFor(input: {
       : {}),
     ...('modelRouteId' in input && input.modelRouteId
       ? { modelRouteId: input.modelRouteId }
+      : {}),
+    ...('modelBatchRequestCount' in input && input.modelBatchRequestCount
+      ? { modelBatchRequestCount: input.modelBatchRequestCount }
+      : {}),
+    ...('modelBatchId' in input && input.modelBatchId
+      ? { modelBatchId: input.modelBatchId }
       : {}),
     ...(purpose === 'tool_capability'
       ? { agentIdentifier: input.agentIdentifier }
@@ -135,7 +145,7 @@ export async function getAgentCredentialInjection(
     }
     const purpose = input.purpose ?? 'model_runtime';
     const suffix =
-      purpose === 'model_runtime'
+      purpose === 'model_runtime' || purpose === 'model_batch'
         ? ` for ${MODEL_RUNTIME_CREDENTIAL_NAME}`
         : input.agentIdentifier
           ? ` for agent ${input.agentIdentifier}`

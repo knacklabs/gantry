@@ -6,6 +6,8 @@ const validateRuntimePreflightWithStorage = vi.fn(async () => ({ ok: true }));
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
   installGlobalErrorHandlers: vi.fn(),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: vi.fn(),
 }));
 vi.mock('@core/app/bootstrap/runtime-app.js', () => ({
   getDefaultRuntimeApp: vi.fn(() => ({
@@ -34,6 +36,8 @@ vi.mock('@core/app/bootstrap/channel-wiring.js', () => ({
 vi.mock('@core/app/bootstrap/startup.js', () => ({
   runStartup: vi.fn(async () => ({
     runtimeSettings: { runtime: { liveTurns: { enabled: true } } },
+    initTracingFromSettings: vi.fn(),
+    closeTracing: vi.fn(async () => {}),
   })),
 }));
 vi.mock('@core/app/bootstrap/runtime-services.js', () => ({
@@ -55,6 +59,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeControlRepository: vi.fn(),
   getRuntimeEventExchange: vi.fn(() => ({ publish: vi.fn() })),
   getRuntimeSkillArtifactStore: vi.fn(),
+  resolveRuntimePersonIdentity: vi.fn(),
   getRuntimeStorage: vi.fn(() => ({
     ops: {},
     repositories: { capabilitySecrets: {} },
@@ -81,9 +86,11 @@ vi.mock('@core/config/index.js', () => ({
   getDeploymentMode: vi.fn(() => 'workstation'),
   getRuntimeQueueConfig: vi.fn(() => ({ drainDeadlineMs: 1 })),
   loadRuntimeSettings: vi.fn(),
+  createGroupJoinOnboardingCoordinator: vi.fn(() => ({})),
 }));
 vi.mock('@core/runtime/browser-capability.js', () => ({
   getBrowserStatus: vi.fn(),
+  registerBrowserProfileLockLeasePort: vi.fn(),
 }));
 vi.mock('@core/runtime/settings-reload-watcher.js', () => ({
   startSettingsReloadWatcher: vi.fn(() => ({ close: vi.fn() })),

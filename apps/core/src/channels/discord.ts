@@ -1,11 +1,13 @@
 import {
   MessageDeliveryResult,
   MessageSendOptions,
+  PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
   RichInteractionRequest,
   StreamingChunkOptions,
+  UserQuestionCancellation,
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../domain/types.js';
@@ -25,13 +27,16 @@ import {
   splitDiscordText,
 } from './discord-delivery.js';
 import { sendDiscordProgressUpdate } from './discord-progress.js';
-import { DiscordGatewayConnection } from './discord-gateway.js';
+import {
+  connectDiscordGateway,
+  DiscordGatewayConnection,
+} from './discord-gateway.js';
 import { agentTodoStopActions } from './agent-todo-render.js';
 import { CHANNEL_STREAM_UPDATE_INTERVAL_MS } from './channel-provider.js';
 import { getProviderRuntimeSecret } from './provider-runtime-secrets.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
+import { findConversationRoutesForChat } from '../shared/thread-queue-key.js';
 import type {
-  DiscordInteraction,
   DiscordMessageCreate,
   DiscordUser,
   WebSocketFactory,
@@ -40,17 +45,27 @@ import type {
 import {
   discordMessageAttachments,
   hydrateDiscordConversationContext,
+  isDiscordDurableIngressMessage,
   resolveDiscordConversationContext,
   type DiscordConversationContextCache,
 } from './discord-conversation-context.js';
+import { deliverLiveDiscordMessage } from './discord-live-attachment-capture.js';
 import { DiscordInteractionHandler } from './discord-interactions.js';
+import {
+  discordHeaders,
+  discordReactionEmoji,
+  requestDiscordJson,
+  userName,
+} from './discord-http-helpers.js';
+import { createDiscordHistoricalAttachmentFetcher } from './discord-historical-attachment-fetcher.js';
+import { StreamResetEpochs } from './stream-reset-epochs.js';
+import { resolveInboundConversationIdentity } from './inbound-conversation-identity.js';
+import { routeDiscordGatewayDispatch } from './discord-gateway-dispatch.js';
 
 export const DISCORD_JID_PREFIX = 'dc:';
 
 const DISCORD_API_ROOT = 'https://discord.com/api/v10';
 const DISCORD_GATEWAY_INTENTS = (1 << 0) | (1 << 9) | (1 << 12) | (1 << 15);
-const DISCORD_RETRY_DELAY_FALLBACK_MS = 1000;
-const DISCORD_RETRY_DELAY_MAX_MS = 5000;
 const DISCORD_MESSAGE_CHANNEL_CACHE_TTL_MS = 10 * 60 * 1000;
 const DISCORD_MESSAGE_CHANNEL_CACHE_MAX_ENTRIES = 5000;
 
@@ -72,62 +87,12 @@ export function discordChannelIdFromJid(jid: string): string | null {
   return normalized ? normalized.slice(DISCORD_JID_PREFIX.length) : null;
 }
 
-function discordHeaders(token: string): Record<string, string> {
-  return {
-    authorization: `Bot ${token}`,
-    accept: 'application/json',
-    'content-type': 'application/json',
-  };
-}
-
-function discordReactionEmoji(emoji: string): string {
-  if (emoji === 'seen') return '👀';
-  if (emoji === 'running') return '⏳';
-  return emoji;
-}
-
-function discordRateLimitRetryDelayMs(response: Response): number | null {
-  if (response.status !== 429) return null;
-  const retryAfter =
-    response.headers.get('retry-after') ??
-    response.headers.get('x-ratelimit-reset-after');
-  if (retryAfter) {
-    const seconds = Number.parseFloat(retryAfter);
-    if (Number.isFinite(seconds) && seconds > 0) {
-      return Math.min(
-        DISCORD_RETRY_DELAY_MAX_MS,
-        Math.max(1, Math.round(seconds * 1000)),
-      );
-    }
-  }
-  const resetSeconds = Number.parseFloat(
-    response.headers.get('x-ratelimit-reset') ?? '',
-  );
-  if (Number.isFinite(resetSeconds) && resetSeconds > 0) {
-    const delayMs = resetSeconds * 1000 - Date.now();
-    if (delayMs > 0) {
-      return Math.min(DISCORD_RETRY_DELAY_MAX_MS, Math.round(delayMs));
-    }
-  }
-  return DISCORD_RETRY_DELAY_FALLBACK_MS;
-}
-
-async function waitDiscordRetryDelay(delayMs: number): Promise<void> {
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, delayMs);
-    timer.unref?.();
-  });
-}
-
-function userName(user: DiscordUser | undefined, fallback = 'unknown'): string {
-  return user?.username || user?.id || fallback;
-}
-
 function websocketFactory(url: string): WebSocketLike {
   return new WebSocket(url) as unknown as WebSocketLike;
 }
 
 export class DiscordChannel implements ChannelAdapter {
+  readonly reportsHistoryCoverageInboundLiveness = true;
   name = 'discord';
   private gateway: DiscordGatewayConnection | null = null;
   private botUserId = '';
@@ -143,6 +108,7 @@ export class DiscordChannel implements ChannelAdapter {
   >();
   private readonly streamGenerationByJid = new Map<string, number>();
   private readonly sealedStreamGenerationByJid = new Map<string, number>();
+  private readonly streamResetEpochs = new StreamResetEpochs();
   private pendingTodos = new Map<
     string,
     { channelId: string; messageId: string }
@@ -155,6 +121,9 @@ export class DiscordChannel implements ChannelAdapter {
   private readonly channelContextCache: DiscordConversationContextCache =
     new Map();
   private readonly interactions: DiscordInteractionHandler;
+  readonly fetchHistoricalAttachment: ReturnType<
+    typeof createDiscordHistoricalAttachmentFetcher
+  >;
 
   constructor(
     private readonly botToken: string,
@@ -162,6 +131,8 @@ export class DiscordChannel implements ChannelAdapter {
     private readonly opts: ChannelOpts,
     private readonly createWebSocket: WebSocketFactory = websocketFactory,
   ) {
+    this.fetchHistoricalAttachment =
+      createDiscordHistoricalAttachmentFetcher(botToken);
     this.interactions = new DiscordInteractionHandler({
       botToken,
       applicationId,
@@ -177,16 +148,18 @@ export class DiscordChannel implements ChannelAdapter {
     return jid.trim().startsWith(DISCORD_JID_PREFIX);
   }
 
-  async connect(options: { inbound?: boolean } = {}): Promise<void> {
-    if (options.inbound === false) return;
-    this.gateway = new DiscordGatewayConnection({
+  async connect(
+    options: { inbound?: boolean; interactionCallbacks?: boolean } = {},
+  ): Promise<void> {
+    this.gateway = await connectDiscordGateway({
       botToken: this.botToken,
       apiRoot: DISCORD_API_ROOT,
       intents: DISCORD_GATEWAY_INTENTS,
       createWebSocket: this.createWebSocket,
+      channelOpts: this.opts,
+      options,
       onDispatch: (payload) => this.handleGatewayDispatch(payload),
     });
-    await this.gateway.connect();
   }
 
   isConnected(): boolean {
@@ -194,7 +167,7 @@ export class DiscordChannel implements ChannelAdapter {
   }
 
   async disconnect(): Promise<void> {
-    this.interactions.clearPendingInteractions();
+    await this.interactions.clearPendingInteractions();
     this.gateway?.disconnect();
     this.gateway = null;
   }
@@ -309,6 +282,7 @@ export class DiscordChannel implements ChannelAdapter {
     if (!channelId) return false;
     if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return false;
     const key = `${jid}\n${options.threadId ?? ''}`;
+    const streamEpoch = this.streamResetEpochs.current(key);
     let state = this.activeStreams.get(key);
     if (!state) {
       state = { channelId, rawBuffer: '', lastFlushAt: 0 };
@@ -316,7 +290,7 @@ export class DiscordChannel implements ChannelAdapter {
     }
     if (text) state.rawBuffer += text;
     if (!state.rawBuffer.trim() && options.done) {
-      this.activeStreams.delete(key);
+      this.streamResetEpochs.deleteState(key, this.activeStreams);
       this.markStreamingGenerationDone(jid, options.generation);
       return false;
     }
@@ -341,19 +315,23 @@ export class DiscordChannel implements ChannelAdapter {
         const posted = await this.postMessage(state.channelId, body);
         state.messageId = posted.id;
       }
+      if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return true;
       state.lastFlushAt = now;
       if (options.done) {
         const overflowParts = parts.slice(1).filter((part) => part.length > 0);
-        if (overflowParts.length > 0) {
+        if (overflowParts.length > 0)
           await postDiscordMessageParts({
             channelId: state.channelId,
             parts: overflowParts,
             post: (target, body) => this.postMessage(target, body),
+            shouldContinue: () =>
+              this.streamResetEpochs.isCurrent(key, streamEpoch),
           });
-        }
-        this.activeStreams.delete(key);
+        if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return true;
+        this.streamResetEpochs.deleteState(key, this.activeStreams);
         this.markStreamingGenerationDone(jid, options.generation);
       } else {
+        if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return true;
         this.activeStreams.set(key, state);
       }
       return true;
@@ -368,17 +346,24 @@ export class DiscordChannel implements ChannelAdapter {
     }
   }
 
-  resetStreaming(jid: string): void {
+  resetStreaming(jid: string, options?: { threadId?: string }): void {
+    if (options) {
+      const key = `${jid}\n${options.threadId ?? ''}`;
+      this.streamResetEpochs.bump(key);
+      this.streamResetEpochs.deleteState(key, this.activeStreams);
+      return;
+    }
+    this.streamResetEpochs.bumpMatching(this.activeStreams.keys(), `${jid}\n`);
     this.sealStreamingGenerationOnReset(jid);
     this.clearStreamingStateForJid(jid);
   }
 
   private clearStreamingStateForJid(jid: string): void {
     for (const key of this.activeStreams.keys()) {
-      if (key.startsWith(`${jid}\n`)) this.activeStreams.delete(key);
+      if (!key.startsWith(`${jid}\n`)) continue;
+      this.streamResetEpochs.deleteState(key, this.activeStreams);
     }
   }
-
   private shouldAcceptStreamingChunk(
     jid: string,
     generation?: number,
@@ -458,15 +443,40 @@ export class DiscordChannel implements ChannelAdapter {
   async requestPermissionApproval(
     jid: string,
     request: PermissionApprovalRequest,
+    onPromptDelivered?: (messageId: string) => void,
   ): Promise<PermissionApprovalDecision> {
-    return this.interactions.requestPermissionApproval(jid, request);
+    return this.interactions.requestPermissionApproval(
+      jid,
+      request,
+      onPromptDelivered,
+    );
   }
 
   async requestUserAnswer(
     jid: string,
     request: UserQuestionRequest,
+    onPromptDelivered?: (messageId: string) => void,
   ): Promise<UserQuestionResponse> {
-    return this.interactions.requestUserAnswer(jid, request);
+    return this.interactions.requestUserAnswer(jid, request, onPromptDelivered);
+  }
+
+  async cancelPendingPermission(
+    cancellation: PermissionApprovalCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'> {
+    return this.interactions.cancelPendingPermission(cancellation);
+  }
+
+  async cancelPendingQuestion(
+    cancellation: UserQuestionCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'> {
+    return this.interactions.cancelPendingQuestion(cancellation);
+  }
+
+  dropPendingInteraction(
+    kind: 'permission' | 'question',
+    request: PermissionApprovalRequest | UserQuestionRequest,
+  ): void {
+    this.interactions.dropPendingInteraction(kind, request);
   }
 
   private async requestJson<T>(
@@ -475,20 +485,17 @@ export class DiscordChannel implements ChannelAdapter {
     errorMessage: string,
     parseJson = true,
   ): Promise<T> {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const response = await fetch(`${DISCORD_API_ROOT}${path}`, init);
-      if (response.ok) {
-        return parseJson ? ((await response.json()) as T) : (undefined as T);
-      }
-      const retryDelayMs = discordRateLimitRetryDelayMs(response);
-      if (retryDelayMs === null || attempt >= 2) throw new Error(errorMessage);
-      logger.warn(
-        { path, attempt: attempt + 1, retryDelayMs },
-        'Discord REST request rate-limited; retrying',
-      );
-      await waitDiscordRetryDelay(retryDelayMs);
-    }
-    throw new Error(errorMessage);
+    return requestDiscordJson<T>({
+      url: `${DISCORD_API_ROOT}${path}`,
+      init,
+      errorMessage,
+      parseJson,
+      onRetry: (attempt, retryDelayMs) =>
+        logger.warn(
+          { path, attempt, retryDelayMs },
+          'Discord REST request rate-limited; retrying',
+        ),
+    });
   }
 
   private async postJson<T>(path: string, body: unknown): Promise<T> {
@@ -534,29 +541,32 @@ export class DiscordChannel implements ChannelAdapter {
     t?: string | null;
     d?: unknown;
   }) {
-    if (payload.t === 'READY') {
-      const ready = payload.d as { user?: DiscordUser; session_id?: string };
-      this.botUserId = ready.user?.id || '';
-      return;
-    }
-    if (payload.t === 'MESSAGE_CREATE') {
-      await this.handleMessageCreate(payload.d as DiscordMessageCreate);
-      return;
-    }
-    if (payload.t === 'INTERACTION_CREATE') {
-      await this.interactions.handleInteraction(
-        payload.d as DiscordInteraction,
-      );
-    }
+    await routeDiscordGatewayDispatch(payload, {
+      cache: this.channelContextCache,
+      conversationRoutes: this.opts.conversationRoutes?.() ?? {},
+      providerAccountIds:
+        this.opts.inboundProviderAccountIds ??
+        (this.opts.providerAccountId ? [this.opts.providerAccountId] : []),
+      onReady: (ready) => {
+        this.botUserId = ready.user?.id || '';
+      },
+      onMessageCreate: (message) => this.handleMessageCreate(message),
+      onInteraction: (interaction) =>
+        this.interactions.handleInteraction(interaction),
+      onMessageAttachmentsDeleted: this.opts.onMessageAttachmentsDeleted,
+    });
   }
 
   private async handleMessageCreate(message: DiscordMessageCreate) {
-    if (!message.channel_id || !message.id) return;
+    if (!isDiscordDurableIngressMessage(message)) return;
     const author = message.author || message.member?.user;
     if (author?.bot || author?.id === this.botUserId) return;
-    const attachments = discordMessageAttachments(message);
     const context = await this.resolveInteractionConversationContext(
       message.channel_id,
+    );
+    const attachments = discordMessageAttachments(
+      message,
+      context.conversationJid,
     );
     if (context.threadId) {
       this.rememberMessageChannelId(
@@ -565,23 +575,21 @@ export class DiscordChannel implements ChannelAdapter {
         message.channel_id,
       );
     }
-    const metadataArgs = [
+    const matchingRoutes = findConversationRoutesForChat(
+      this.opts.conversationRoutes?.() ?? {},
       context.conversationJid,
-      message.timestamp || new Date().toISOString(),
-      undefined,
-      'discord',
-      true,
-    ] as const;
-    if (this.opts.providerAccountId) {
-      await this.opts.onChatMetadata(...metadataArgs, {
-        providerAccountId: this.opts.providerAccountId,
-      });
-    } else {
-      await this.opts.onChatMetadata(...metadataArgs);
-    }
-    await this.opts.onMessage(context.conversationJid, {
+      context.threadId,
+      this.opts.providerAccountId,
+    );
+    const identity = resolveInboundConversationIdentity({
+      hasRegisteredRoute: matchingRoutes.length > 0,
+      name: matchingRoutes[0]?.[1].name,
+      isGroup: true,
+    });
+    const inboundMessage = {
       id: message.id,
       chat_jid: context.conversationJid,
+      ...identity.messageIdentity,
       provider: 'discord',
       sender: author?.id || 'unknown',
       sender_name: message.member?.nick || userName(author),
@@ -595,6 +603,15 @@ export class DiscordChannel implements ChannelAdapter {
       reply_to_message_content: message.referenced_message?.content,
       reply_to_sender_name: userName(message.referenced_message?.author, ''),
       ...(attachments.length > 0 ? { attachments } : {}),
+    };
+    await deliverLiveDiscordMessage({
+      opts: this.opts,
+      message,
+      conversationJid: context.conversationJid,
+      inboundMessage,
+      attachments,
+      metadataName: identity.messageIdentity.name,
+      needsStandaloneMetadataWrite: identity.needsStandaloneMetadataWrite,
     });
   }
 

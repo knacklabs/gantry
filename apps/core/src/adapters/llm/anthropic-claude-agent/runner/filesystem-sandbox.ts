@@ -1,52 +1,12 @@
-import type { SandboxSettings } from '@anthropic-ai/claude-agent-sdk';
 import fs from 'node:fs';
 import path from 'node:path';
 
 import { log } from './logging.js';
 
-const PROTECTED_FILESYSTEM_PATHS_ENV = 'GANTRY_PROTECTED_FILESYSTEM_PATHS_JSON';
-const PROTECTED_FILESYSTEM_DENY_READ_PATHS_ENV =
-  'GANTRY_PROTECTED_FILESYSTEM_DENY_READ_PATHS_JSON';
-const PROTECTED_FILESYSTEM_DENY_WRITE_PATHS_ENV =
-  'GANTRY_PROTECTED_FILESYSTEM_DENY_WRITE_PATHS_JSON';
 const LOCAL_CLI_CREDENTIAL_DIRS_ENV = 'GANTRY_LOCAL_CLI_CREDENTIAL_DIRS_JSON';
-
-interface BuildSdkFilesystemSandboxOptions {
-  platform?: NodeJS.Platform;
-  denyReadPaths?: readonly string[];
-  denyWritePaths?: readonly string[];
-}
-
-export interface ProtectedFilesystemSandboxPaths {
-  denyRead: string[];
-  denyWrite: string[];
-}
-
-export function readProtectedFilesystemPaths(): string[] {
-  return readPathListEnv(PROTECTED_FILESYSTEM_PATHS_ENV);
-}
-
-export function readProtectedFilesystemSandboxPaths(): ProtectedFilesystemSandboxPaths {
-  const fallback =
-    readOptionalPathListEnv(PROTECTED_FILESYSTEM_PATHS_ENV) ?? [];
-  return {
-    denyRead:
-      readOptionalPathListEnv(PROTECTED_FILESYSTEM_DENY_READ_PATHS_ENV) ??
-      fallback,
-    denyWrite:
-      readOptionalPathListEnv(PROTECTED_FILESYSTEM_DENY_WRITE_PATHS_ENV) ??
-      fallback,
-  };
-}
 
 export function readLocalCliCredentialDirectories(): string[] {
   return readPathListEnv(LOCAL_CLI_CREDENTIAL_DIRS_ENV);
-}
-
-function readOptionalPathListEnv(name: string): string[] | undefined {
-  const raw = process.env[name]?.trim();
-  if (!raw) return undefined;
-  return readPathListEnv(name);
 }
 
 function readPathListEnv(name: string): string[] {
@@ -62,27 +22,6 @@ function readPathListEnv(name: string): string[] {
   }
   if (!Array.isArray(parsed)) throw new Error(`${name} must be a JSON array.`);
   return normalizeFilesystemSandboxPaths(parsed);
-}
-
-export function buildSdkFilesystemSandbox(
-  paths: readonly string[],
-  options: BuildSdkFilesystemSandboxOptions = {},
-): SandboxSettings {
-  const platform = options.platform ?? process.platform;
-  const denyReadPaths = options.denyReadPaths ?? paths;
-  const denyWritePaths = options.denyWritePaths ?? paths;
-  return {
-    enabled: true,
-    failIfUnavailable: true,
-    autoAllowBashIfSandboxed: false,
-    allowUnsandboxedCommands: false,
-    network: { allowLocalBinding: true },
-    ...(platform === 'darwin' ? { enableWeakerNetworkIsolation: true } : {}),
-    filesystem: {
-      denyRead: normalizeFilesystemSandboxPaths(denyReadPaths),
-      denyWrite: normalizeFilesystemSandboxPaths(denyWritePaths),
-    },
-  };
 }
 
 export function normalizeFilesystemSandboxPaths(

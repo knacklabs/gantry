@@ -1,7 +1,11 @@
 import type {
   MessageDeliveryResult,
   MessageActionCallbackInput,
+  OnMemoryReviewMessageAction,
+  OnObserverFeedbackMessageAction,
+  OnBrainDreamReviewMessageAction,
   MessageSendOptions,
+  PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
@@ -9,6 +13,7 @@ import type {
   StreamingChunkOptions,
   UserQuestionRequest,
   UserQuestionResponse,
+  UserQuestionCancellation,
 } from '../../domain/types.js';
 import type { RuntimeSettings } from '../../config/settings/runtime-settings.js';
 import type {
@@ -16,7 +21,6 @@ import type {
   isSenderAllowed,
   loadSenderControlAllowlist,
   loadSenderAllowlist,
-  shouldDropMessage,
   shouldLogDenied,
 } from '../../platform/sender-allowlist.js';
 import type {
@@ -26,6 +30,7 @@ import type {
 import type { Provider } from '../../channels/provider-registry.js';
 import type { logger } from '../../infrastructure/logging/logger.js';
 import type { RuntimeSecretProvider } from '../../domain/ports/runtime-secret-provider.js';
+import type { GroupJoinOnboardingCoordinator } from '../../domain/ports/group-join-onboarding.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
 import type {
@@ -33,11 +38,21 @@ import type {
   AgentTodoRender,
 } from '../../domain/ports/task-lifecycle.js';
 import type {
+  ConversationContextHydrationCoverage,
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 } from '../../channels/channel-provider.js';
 import type { BrainChannelHarvestTap } from '../../brain/brain-channel-harvest.js';
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type {
+  HistoricalAttachmentFetcher,
+  HistoricalAttachmentFetchResult,
+} from '../../domain/ports/historical-attachment-fetcher.js';
+import type { MessageAttachmentRepository } from '../../domain/ports/message-attachment-repository.js';
+import type {
+  ConversationHistoryCoverageRepository,
+  ConversationHistoryDistrustEpoch,
+} from '../../domain/ports/conversation-history-coverage.js';
 
 export type ChannelWiringRepository = RuntimeChatMetadataRepository &
   RuntimeMessageRepository;
@@ -60,26 +75,9 @@ export type RetryTailRecoveryEnqueue = (
 ) => Promise<void>;
 
 export type ChannelAccountOptions = { providerAccountId?: string };
-
-export interface ChannelTransportHealth {
-  providerId: string;
-  configured: boolean;
-  connected: boolean;
-  configuredAccountCount: number;
-  connectedAccountCount: number;
-  authenticatedConversationRegistrationCount: number;
-  authenticatedConversationRegistrationAvailable: boolean;
-}
-
-export interface EventOnlyConversationInput {
-  appId: AppId;
-  conversationId: string;
-  providerAccountId: string;
-  externalConversationId: string;
+export type ChannelStreamResetOptions = ChannelAccountOptions & {
   threadId?: string;
-  providerExternalRef?: Record<string, unknown>;
-  timestamp: string;
-}
+};
 
 export interface DurableOutboundAttemptInput {
   appId: AppId;
@@ -89,12 +87,9 @@ export interface DurableOutboundAttemptInput {
   sourceMessageId: string;
   provider: string;
   canonicalText: string;
-  providerPayload?: unknown;
 }
 
 export interface DurableOutboundAttempt {
-  /** Exact replay of an already-enqueued source message; do not send again. */
-  skipProviderSend?: boolean;
   settleSent: (input: {
     sentAt: string;
     providerMessageId?: string;
@@ -124,9 +119,6 @@ export interface RecoveryDispatchPermitInput {
   itemId: string;
   destinationJid: string;
   canonicalText: string;
-  sourceMessageId?: string;
-  attemptCount?: number;
-  terminalFailure?: boolean;
   threadId?: string;
 }
 
@@ -140,21 +132,24 @@ export interface ChannelWiringDeps {
   opsRepository?: ChannelWiringRepository;
   loadSenderAllowlist: typeof loadSenderAllowlist;
   loadSenderControlAllowlist: typeof loadSenderControlAllowlist;
-  shouldDropMessage: typeof shouldDropMessage;
   isSenderAllowed: typeof isSenderAllowed;
   isSenderControlAllowed: typeof isSenderControlAllowed;
   shouldLogDenied: typeof shouldLogDenied;
   logger: Pick<typeof logger, 'info' | 'warn' | 'debug' | 'error'>;
   runtimeSecrets: RuntimeSecretProvider;
+  groupJoinOnboarding?: GroupJoinOnboardingCoordinator;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<unknown>;
-  ensureEventOnlyConversation?: (
-    input: EventOnlyConversationInput,
-  ) => Promise<void>;
   brainHarvestTap?: BrainChannelHarvestTap;
+  historyCoverage?: ConversationHistoryCoverageRepository;
+  messageAttachments?: MessageAttachmentRepository;
 }
 
 export interface ChannelWiring {
   getRuntimeAppId: () => AppId;
+  normalizeProviderId: (providerId: string) => string;
+  getHistoryCoverageDistrustEpoch: (
+    providerAccountId: string,
+  ) => ConversationHistoryDistrustEpoch;
   describeDestinationJid: (jid: string) => {
     providerId?: string;
     internal: boolean;
@@ -165,14 +160,7 @@ export interface ChannelWiring {
     options?: { providerInbound?: boolean },
   ) => Promise<void>;
   hasConnectedChannels: () => boolean;
-  getChannelTransportHealth: () => ChannelTransportHealth[];
   hasChannel: (jid: string, options?: ChannelAccountOptions) => boolean;
-  handleProviderHttpIngress: (
-    providerId: string,
-    request: IncomingMessage,
-    response: ServerResponse,
-    body: Record<string, unknown>,
-  ) => Promise<boolean>;
   supportsStreaming: (
     jid: string,
     options?: { providerAccountId?: string },
@@ -181,26 +169,21 @@ export interface ChannelWiring {
     jid: string,
     options?: { providerAccountId?: string },
   ) => boolean;
+  fetchHistoricalAttachment: (
+    input: Parameters<
+      HistoricalAttachmentFetcher['fetchHistoricalAttachment']
+    >[0],
+  ) => Promise<HistoricalAttachmentFetchResult>;
+  getMessageAttachmentRepository: () => MessageAttachmentRepository;
   sendMessage: (
     jid: string,
     rawText: string,
     options: {
       durability: 'required' | 'best_effort';
       throwOnMissing?: boolean;
-      sourceMessageId?: string;
       messageOptions?: MessageSendOptions;
     },
   ) => Promise<void>;
-  sendMessageWithReceipt: (
-    jid: string,
-    rawText: string,
-    options: {
-      durability: 'required' | 'best_effort';
-      throwOnMissing?: boolean;
-      sourceMessageId?: string;
-      messageOptions?: MessageSendOptions;
-    },
-  ) => Promise<MessageDeliveryResult | undefined>;
   sendProviderMessage: (
     jid: string,
     rawText: string,
@@ -223,12 +206,21 @@ export interface ChannelWiring {
   setMessageActionHandler: (
     handler: ((input: MessageActionCallbackInput) => Promise<void>) | undefined,
   ) => void;
+  setMemoryReviewMessageActionHandler: (
+    handler: OnMemoryReviewMessageAction | undefined,
+  ) => void;
+  setObserverFeedbackMessageActionHandler: (
+    handler: OnObserverFeedbackMessageAction | undefined,
+  ) => void;
+  setBrainDreamReviewMessageActionHandler: (
+    handler: OnBrainDreamReviewMessageAction | undefined,
+  ) => void;
   sendStreamingChunk: (
     jid: string,
     rawText: string,
     options?: StreamingChunkOptions,
   ) => Promise<boolean>;
-  resetStreaming: (jid: string, options?: ChannelAccountOptions) => void;
+  resetStreaming: (jid: string, options?: ChannelStreamResetOptions) => void;
   setTyping: (
     jid: string,
     isTyping: boolean,
@@ -249,9 +241,15 @@ export interface ChannelWiring {
   requestPermissionApproval: (
     request: PermissionApprovalRequest,
   ) => Promise<PermissionApprovalDecision>;
+  cancelPermissionApproval: (
+    cancellation: PermissionApprovalCancellation,
+  ) => Promise<'settled' | 'queued' | 'not_found'>;
   requestUserAnswer: (
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;
+  cancelUserQuestion: (
+    cancellation: UserQuestionCancellation,
+  ) => Promise<'settled' | 'queued' | 'not_found'>;
   renderAgentTodo: (
     jid: string,
     render: AgentTodoRender,
@@ -286,6 +284,8 @@ export interface ChannelWiring {
 }
 
 export type {
+  ConversationContextHydrationCoverage,
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 };

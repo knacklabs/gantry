@@ -1,5 +1,5 @@
 import { readEnvFile } from './env/file.js';
-import { validateProductionSecurityGate } from './security-posture.js';
+import { validateProductionSecurityGate } from '../shared/security-posture.js';
 import { ensureRuntimeLayout, envFilePath } from './settings/runtime-home.js';
 import {
   ensureRuntimeSettings,

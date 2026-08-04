@@ -1,0 +1,636 @@
+import * as config from '../config/index.js';
+import { encodeGroupMessageCursor, toGroupMessageCursor, } from '../shared/message-cursor.js';
+import { logger } from '../infrastructure/logging/logger.js';
+import { createSerializedAgentOutputCallbacks, isAgentTurnCompleteMarker, } from './agent-output-callbacks.js';
+import * as progress from './progress-updates.js';
+import { finalizeGroupAgentUserVisibleOutput } from './group-output-finalization.js';
+import { handleSessionCommand } from '../session/session-commands.js';
+import { settleDeliveryAttempt } from '../jobs/delivery.js';
+import { resolveMemoryUserId } from './session-resume-runtime.js';
+import { firstThreadQueueId } from '../shared/thread-queue-key.js';
+import { getConfiguredModelProvidersForApp } from '../adapters/storage/postgres/runtime-store.js';
+import { resolveGroupProcessingRouteContext } from './command-override-route-key.js';
+import { memoryScopeForConversationKind } from './group-run-context.js';
+import { handleFailure, resetGroupStreamingForTurn, resolveGroupTurnFinalProgressState, shouldSendTurnFinalProgress, waitOutput, } from './group-processing-flow.js';
+import { groupTurnHasRequiredTrigger } from './group-trigger-policy.js';
+import { createResponseProgressSenders, startInitialGroupProgress, startGroupProgressHeartbeats, } from './group-progress-heartbeats.js';
+import { createProgressChannelSender } from './group-progress-channel-sender.js';
+import { createGroupAgentRunner, } from './group-agent-runner.js';
+import { isModelAccessAuthFailure, sendModelAccessAuthFailureNotice, } from './model-access-auth-failure.js';
+import { createGroupTurnOptionBuilders } from './group-turn-options.js';
+import { collectPendingMessagesSince } from './pending-message-replay.js';
+import { buildGroupProcessingConversationContext } from './group-processing-context.js';
+import { createGroupOutputBuffer } from './group-output-buffer.js';
+import { activeTurnUiCleanupByQueue } from './group-active-turn-cleanup.js';
+import { createGroupProcessingSessionCommandHandlers } from './group-processing-session-command-handlers.js';
+import { isFailoverEligibleError, isMissingProviderSessionError, } from './failover-eligibility.js';
+let streamingGenerationCounter = 0;
+const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
+const PROVIDER_FAILOVER_EXHAUSTED_MESSAGE = "The AI provider is unavailable and your message couldn't be processed after several retries. Please try again shortly.";
+export function createGroupProcessor(deps) {
+    const collectSessionMemory = deps.collectSessionMemory;
+    const ops = () => {
+        const repository = deps.opsRepository ?? deps.getRuntimeRepository?.();
+        if (!repository)
+            throw new Error('Group processor requires runtime repositories');
+        return repository;
+    };
+    const runAgent = createGroupAgentRunner({ deps, ops });
+    async function processGroupMessages(queueJid, options = {}) {
+        const routeContext = resolveGroupProcessingRouteContext(deps, queueJid);
+        if (!routeContext)
+            return true;
+        const { chatJid, threadId, turnAppId, group } = routeContext;
+        const { commandOverrideRouteKey } = routeContext;
+        const channelAccount = group.providerAccountId
+            ? { providerAccountId: group.providerAccountId }
+            : undefined;
+        if (!deps.channelRuntime.hasChannel(chatJid, channelAccount)) {
+            logger.warn({ chatJid }, 'No channel owns JID, skipping messages');
+            return true;
+        }
+        const scopedQueue = options.queued === true || threadId !== undefined;
+        const opsRepository = ops();
+        const replay = await collectPendingMessagesSince({
+            getMessagesSince: opsRepository.getMessagesSince.bind(opsRepository),
+            chatJid,
+            sinceCursor: await deps.getCursor(queueJid),
+            pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
+            maxMessages: config.MAX_MESSAGES_PER_PROMPT,
+            options: {
+                ...(scopedQueue ? { threadId: threadId ?? null } : {}),
+                ...(group.providerAccountId
+                    ? { providerAccountId: group.providerAccountId }
+                    : {}),
+            },
+        });
+        const { messages: missedMessages } = replay;
+        if (missedMessages.length === 0)
+            return true;
+        const latestMessage = missedMessages[missedMessages.length - 1];
+        const latestMessageReactionRef = latestMessage.external_message_id &&
+            !latestMessage.external_message_id.startsWith('external-ingress:')
+            ? latestMessage.external_message_id
+            : null;
+        const activeThreadId = firstThreadQueueId(threadId, latestMessage.thread_id);
+        let firstProgressNotified = false;
+        const notifyFirstProgress = async () => {
+            if (firstProgressNotified || !latestMessageReactionRef)
+                return;
+            firstProgressNotified = true;
+            await options
+                .onFirstProgress?.({
+                jid: chatJid,
+                messageRef: latestMessageReactionRef,
+            })
+                ?.catch(() => undefined);
+        };
+        let streamGeneration = (streamingGenerationCounter += 1);
+        let progressGeneration = streamGeneration;
+        const turnOptions = createGroupTurnOptionBuilders({
+            activeThreadId,
+            providerAccountId: group.providerAccountId,
+            streamGeneration: () => streamGeneration,
+            progressGeneration: () => progressGeneration,
+        });
+        const { buildMessageOptions, buildStreamingOptions, buildProgressOptions } = turnOptions;
+        const setTurnTyping = (isTyping) => channelAccount
+            ? deps.channelRuntime.setTyping(chatJid, isTyping, channelAccount)
+            : deps.channelRuntime.setTyping(chatJid, isTyping);
+        const sendMessageToChannel = async (text, options) => void (await (options
+            ? deps.channelRuntime.sendMessage(chatJid, text, options)
+            : deps.channelRuntime.sendMessage(chatJid, text)));
+        const finalizingProgressGenerations = new Set();
+        const sendProgressToChannel = createProgressChannelSender({
+            channelRuntime: deps.channelRuntime,
+            chatJid,
+            groupName: group.name,
+            finalizingGenerations: finalizingProgressGenerations,
+            log: logger,
+        });
+        const memoryUserId = options.memoryContext?.userId ?? resolveMemoryUserId(missedMessages);
+        const defaultMemoryScope = memoryScopeForConversationKind(group.conversationKind);
+        const cmdResult = await handleSessionCommand({
+            missedMessages,
+            groupName: group.name,
+            triggerPattern: config.getTriggerPattern(group.trigger),
+            timezone: config.TIMEZONE,
+            deps: createGroupProcessingSessionCommandHandlers({
+                ops,
+                appId: turnAppId,
+                defaultModel: config.getDefaultModelConfig('interactive', group.folder)
+                    .model,
+                group,
+                chatJid,
+                threadId: activeThreadId,
+                defaultScope: defaultMemoryScope,
+                memoryUserId,
+                collectMemory: collectSessionMemory,
+                deps,
+                queueJid,
+                missedMessages,
+                runAgent,
+                processOptions: options,
+                commandOverrideRouteKey,
+                setTyping: setTurnTyping,
+                sendMessage: sendMessageToChannel,
+                buildMessageOptions,
+                triggerPattern: config.getTriggerPattern(group.trigger),
+                getDefaultModel: () => config.getDefaultModelConfig('interactive', group.folder).model,
+                getJobModelDefaults: () => ({
+                    oneTime: config.getDefaultModelConfig('oneTimeJob', group.folder)
+                        .model,
+                    recurring: config.getDefaultModelConfig('recurringJob', group.folder)
+                        .model,
+                }),
+                getConfiguredModelProviders: () => getConfiguredModelProvidersForApp(turnAppId),
+                getModelFamilyOrder: () => config.getRuntimeSettingsForConfig().modelFamilies,
+                getDefaultPermissionMode: () => config.getSelectedAgentPermissionMode(group.folder),
+                getMemorySettings: () => config.getRuntimeSettingsForConfig().memory,
+            }),
+        });
+        if (cmdResult.handled) {
+            if (replay.hasMore)
+                deps.queue.enqueueMessageCheck(queueJid);
+            return cmdResult.success;
+        }
+        if (!groupTurnHasRequiredTrigger({
+            group,
+            chatJid,
+            triggerPattern: config.getTriggerPattern(group.trigger),
+            messages: missedMessages,
+        })) {
+            deps.setCursor(queueJid, encodeGroupMessageCursor(toGroupMessageCursor(latestMessage)));
+            await deps.saveState();
+            if (replay.hasMore)
+                deps.queue.enqueueMessageCheck(queueJid);
+            return true;
+        }
+        await notifyFirstProgress();
+        const { prompt, recallQuery } = await buildGroupProcessingConversationContext({
+            deps,
+            repository: opsRepository,
+            groupName: group.name,
+            agentFolder: group.folder,
+            chatJid,
+            providerAccountId: group.providerAccountId,
+            activeThreadId,
+            latestMessage,
+            currentMessages: missedMessages,
+            timezone: config.TIMEZONE,
+        });
+        const previousCursor = (await deps.getCursor(queueJid)) || '';
+        deps.setCursor(queueJid, encodeGroupMessageCursor(toGroupMessageCursor(missedMessages[missedMessages.length - 1])));
+        await deps.saveState();
+        resetGroupStreamingForTurn({
+            chatJid,
+            groupName: group.name,
+            channelRuntime: deps.channelRuntime,
+            providerAccountId: group.providerAccountId,
+            logger,
+        });
+        let idleTimer = null;
+        const resetIdleTimer = () => {
+            if (idleTimer)
+                clearTimeout(idleTimer);
+            idleTimer = setTimeout(() => {
+                logger.debug({ group: group.name }, 'Idle timeout, closing agent runner stdin');
+                deps.queue.closeStdin(queueJid);
+            }, config.IDLE_TIMEOUT);
+        };
+        resetIdleTimer();
+        let typingActive = false;
+        const setTypingState = (isTyping) => ((typingActive = isTyping),
+            setTurnTyping(isTyping));
+        await setTypingState(true);
+        let progressPaused = false;
+        let typingHeartbeatTimer = null;
+        let progressHeartbeat = null;
+        let backgroundDemoteTimer = null;
+        let backgroundDemoted = false;
+        const turnUiToken = Symbol(queueJid);
+        const supportsProgress = deps.channelRuntime.supportsProgress(chatJid, channelAccount);
+        const sendControlOnlyProgress = async () => {
+            if (!supportsProgress)
+                return;
+            await sendProgressToChannel('', {
+                ...buildProgressOptions(),
+                actionOnly: true,
+            }).catch(() => undefined);
+        };
+        const sendRunningProgress = async () => {
+            await sendControlOnlyProgress();
+            await notifyFirstProgress();
+        };
+        const sendDoneProgress = async (state) => {
+            if (!supportsProgress)
+                return;
+            const generation = progressGeneration;
+            finalizingProgressGenerations.add(generation);
+            await progress.sendFinalProgressUpdate({
+                enabled: true,
+                state,
+                options: buildProgressOptions({ done: true }),
+                send: sendProgressToChannel,
+                onError: (err) => logger.warn({ err, chatJid, group: group.name }, 'Progress lifecycle final failed'),
+            });
+        };
+        let activeGenerationHasOutput = false;
+        let sentAnyTurnDoneProgress = false;
+        let sentTurnDoneProgressGeneration = null;
+        const sendTrackedDoneProgress = async (state) => {
+            const generation = progressGeneration;
+            await sendDoneProgress(state);
+            if (supportsProgress) {
+                sentAnyTurnDoneProgress = true;
+                sentTurnDoneProgressGeneration = generation;
+            }
+        };
+        let userVisibleTurnProgressReady = null;
+        const startUserVisibleTurn = async () => {
+            progressGeneration = streamGeneration = streamingGenerationCounter += 1;
+            activeGenerationHasOutput = false;
+            sentAnyTurnDoneProgress = false;
+            sentTurnDoneProgressGeneration = null;
+            progressPaused = false;
+            typingActive = true;
+            progressHeartbeat?.resume();
+            void setTurnTyping(true).catch((err) => logger.warn({ chatJid, err }, 'Failed to set typing indicator'));
+            const progressReady = sendRunningProgress().finally(() => {
+                if (userVisibleTurnProgressReady === progressReady) {
+                    userVisibleTurnProgressReady = null;
+                }
+            });
+            userVisibleTurnProgressReady = progressReady;
+            await progressReady;
+        };
+        const sendWaitingForUserResponseProgress = async () => {
+            if (!supportsProgress)
+                return;
+            await sendProgressToChannel('Waiting for your input.', buildProgressOptions({ replaceOnly: true })).catch(() => undefined);
+        };
+        const { sendResponseReceipt } = createResponseProgressSenders({
+            supportsProgress,
+            activeThreadId,
+            progressGeneration: () => progressGeneration,
+            buildMessageOptions,
+            sendMessageToChannel,
+            sendProgressToChannel,
+        });
+        await options
+            .onLiveStopActionToken?.(turnOptions.liveStopActionToken)
+            ?.catch((err) => logger.warn({ err, chatJid, group: group.name }, 'Failed to register live Stop action token before progress render'));
+        void activeTurnUiCleanupByQueue.get(queueJid)?.cancel();
+        activeTurnUiCleanupByQueue.delete(queueJid);
+        const initialProgress = startInitialGroupProgress({
+            supportsProgress,
+            groupName: group.name,
+            buildProgressOptions,
+            sendProgressToChannel,
+            onSent: notifyFirstProgress,
+            log: logger,
+        });
+        progressHeartbeat = startGroupProgressHeartbeats({
+            supportsProgress,
+            isTypingActive: () => typingActive,
+            chatJid,
+            providerAccountId: group.providerAccountId,
+            groupName: group.name,
+            channelRuntime: deps.channelRuntime,
+            log: logger,
+        });
+        typingHeartbeatTimer = progressHeartbeat.typingHeartbeatTimer;
+        const unregisterContinuationHandler = deps.queue.registerContinuationHandler?.(queueJid, () => {
+            void startUserVisibleTurn();
+        });
+        const cancelTurnUiTimers = async () => {
+            if (typingHeartbeatTimer) {
+                clearInterval(typingHeartbeatTimer);
+                typingHeartbeatTimer = null;
+            }
+            clearBackgroundDemoteTimer();
+            await initialProgress.cancel();
+        };
+        activeTurnUiCleanupByQueue.set(queueJid, {
+            token: turnUiToken,
+            cancel: cancelTurnUiTimers,
+        });
+        let hadError = false;
+        let lastAgentError;
+        let outputSentToUser = false;
+        let streamedTranscriptDeliveryStatus = 'none';
+        let sawRawOutput = false;
+        let pendingIdleBoundary = false;
+        let sawDeliveryIncomplete = false;
+        let sawTerminalDeliveryFailure = false;
+        let awaitingResponseReceipt = false;
+        let outputCallbackError;
+        const supportsStreamingChunks = deps.channelRuntime.supportsStreaming(chatJid, channelAccount);
+        const startNextStreamingMessage = () => {
+            progressGeneration = streamGeneration = streamingGenerationCounter += 1;
+            activeGenerationHasOutput = false;
+        };
+        const startNextContentStream = () => {
+            streamGeneration = streamingGenerationCounter += 1;
+            activeGenerationHasOutput = false;
+        };
+        const notifyTurnIdle = () => {
+            deps.queue.notifyIdle(queueJid);
+            pendingIdleBoundary = false;
+        };
+        const clearBackgroundDemoteTimer = () => {
+            if (!backgroundDemoteTimer)
+                return;
+            clearTimeout(backgroundDemoteTimer);
+            backgroundDemoteTimer = null;
+        };
+        const pauseTurnProgress = async () => {
+            if (progressPaused)
+                return;
+            progressPaused = true;
+            progressHeartbeat?.pause();
+            if (supportsProgress) {
+                await sendWaitingForUserResponseProgress();
+            }
+            clearBackgroundDemoteTimer();
+            backgroundDemoteTimer = setTimeout(() => {
+                backgroundDemoted = true;
+                void sendProgressToChannel('Running in background...', buildProgressOptions({ done: true, replaceOnly: true })).catch(() => undefined);
+            }, PERMISSION_BACKGROUND_DEMOTE_MS);
+            backgroundDemoteTimer.unref?.();
+        };
+        const resumeTurnProgress = async () => {
+            if (!progressPaused)
+                return;
+            progressPaused = false;
+            clearBackgroundDemoteTimer();
+            progressHeartbeat?.resume();
+            if (backgroundDemoted) {
+                startNextStreamingMessage();
+                progressGeneration = streamGeneration;
+                backgroundDemoted = false;
+            }
+        };
+        const applyDeliverySettlement = (settlement, options) => {
+            if (settlement === 'not_delivered') {
+                if (options.terminal) {
+                    sawTerminalDeliveryFailure = true;
+                    if (options.streamed && streamedTranscriptDeliveryStatus === 'sent') {
+                        streamedTranscriptDeliveryStatus = 'partially_sent';
+                    }
+                }
+                return;
+            }
+            outputSentToUser = true;
+            if (options.streamed) {
+                if (settlement === 'delivery_incomplete') {
+                    streamedTranscriptDeliveryStatus = 'partially_sent';
+                }
+                else if (streamedTranscriptDeliveryStatus === 'none') {
+                    streamedTranscriptDeliveryStatus = 'sent';
+                }
+            }
+            if (settlement === 'delivery_incomplete')
+                sawDeliveryIncomplete = true;
+        };
+        const outputBuffer = createGroupOutputBuffer({
+            channelRuntime: deps.channelRuntime,
+            chatJid,
+            groupName: group.name,
+            supportsStreamingChunks,
+            buildStreamingOptions,
+            buildMessageOptions,
+            sendMessageToChannel,
+            applyDeliverySettlement,
+            log: logger,
+        });
+        const finalizeStreamingOutput = outputBuffer.flushBufferedOutput;
+        let output = 'error';
+        const handleAgentOutput = async (result) => {
+            const isTurnCompleteMarker = isAgentTurnCompleteMarker(result);
+            const wasAwaitingResponseReceipt = awaitingResponseReceipt;
+            if (awaitingResponseReceipt &&
+                !result.interactionBoundary &&
+                !isTurnCompleteMarker) {
+                awaitingResponseReceipt = false;
+                await resumeTurnProgress();
+                startNextContentStream();
+                await sendResponseReceipt();
+            }
+            if (result.result) {
+                if (!typingActive) {
+                    await setTypingState(true);
+                }
+                activeGenerationHasOutput = true;
+                const raw = typeof result.result === 'string'
+                    ? result.result
+                    : JSON.stringify(result.result);
+                sawRawOutput = true;
+                pendingIdleBoundary = true;
+                await outputBuffer.appendRawOutput(raw);
+                resetIdleTimer();
+            }
+            if (result.interactionBoundary) {
+                pendingIdleBoundary = true;
+                await finalizeStreamingOutput('interaction-boundary', {
+                    done: true,
+                    terminal: false,
+                });
+                await pauseTurnProgress();
+                await setTypingState(false);
+                awaitingResponseReceipt = true;
+                resetIdleTimer();
+            }
+            if (isTurnCompleteMarker) {
+                await finalizeStreamingOutput('success-marker');
+                if (result.continuedByFollowup) {
+                    startNextContentStream();
+                    resetIdleTimer();
+                    return;
+                }
+                const markerProgressState = resolveGroupTurnFinalProgressState({
+                    output: 'success',
+                    hadError,
+                    sawDeliveryIncomplete,
+                    sawTerminalDeliveryFailure,
+                    outputSentToUser,
+                });
+                if (shouldSendTurnFinalProgress({
+                    finalProgressState: markerProgressState,
+                    awaitingResponseReceipt: wasAwaitingResponseReceipt || awaitingResponseReceipt,
+                    sentAnyTurnDoneProgress,
+                    activeGenerationHasOutput,
+                    sentTurnDoneProgressGeneration,
+                    progressGeneration,
+                })) {
+                    await sendTrackedDoneProgress(markerProgressState);
+                }
+                if (typingActive) {
+                    await setTypingState(false);
+                }
+                startNextStreamingMessage();
+                resetIdleTimer();
+            }
+            if (result.status === 'error') {
+                hadError = true;
+                lastAgentError = result.error;
+                await resumeTurnProgress();
+                await finalizeStreamingOutput('error-marker');
+                if (!outputSentToUser && isModelAccessAuthFailure(result.error)) {
+                    applyDeliverySettlement(await sendModelAccessAuthFailureNotice({
+                        chatJid,
+                        groupName: group.name,
+                        messageOptions: await buildMessageOptions(),
+                        sendMessageToChannel,
+                        warn: (metadata, message) => logger.warn(metadata, message),
+                    }), { streamed: false, terminal: true });
+                }
+                await setTypingState(false);
+            }
+        };
+        const outputCallbacks = createSerializedAgentOutputCallbacks({
+            handle: handleAgentOutput,
+            onError: (err) => {
+                outputCallbackError ??= err;
+            },
+        });
+        try {
+            output = await runAgent(group, prompt, chatJid, queueJid, outputCallbacks.enqueue, {
+                memoryContext: {
+                    source: 'message',
+                    userId: memoryUserId,
+                    threadId: activeThreadId,
+                    recallQuery,
+                },
+                turnMessages: missedMessages,
+                existingRunId: options.existingRunId,
+                existingRunLeaseToken: options.existingRunLeaseToken,
+                existingRunLeaseWorkerInstanceId: options.existingRunLeaseWorkerInstanceId,
+                existingRunLeaseFencingVersion: options.existingRunLeaseFencingVersion,
+                liveStopActionToken: turnOptions.liveStopActionToken,
+                responseSchema: replay.responseSchema,
+                agentControls: replay.agentControls,
+            });
+        }
+        finally {
+            hadError = await waitOutput({
+                wait: outputCallbacks.wait,
+                getError: () => outputCallbackError,
+                hadError,
+                groupName: group.name,
+                logger,
+            });
+            await finalizeStreamingOutput('turn-complete');
+            await resumeTurnProgress();
+            if (output === 'success' && pendingIdleBoundary) {
+                notifyTurnIdle();
+            }
+            await cancelTurnUiTimers();
+            unregisterContinuationHandler?.();
+            const activeCleanup = activeTurnUiCleanupByQueue.get(queueJid);
+            if (activeCleanup?.token === turnUiToken) {
+                activeTurnUiCleanupByQueue.delete(queueJid);
+            }
+            if (idleTimer)
+                clearTimeout(idleTimer);
+        }
+        let resultOk = true;
+        if (output === 'error' || hadError) {
+            // A provider-infra failure (failover-eligible or missing-provider-session)
+            // is only "exhausted" once the queue has burned all its retries
+            // (options.finalRetry). Before that, a transient 429/502 must keep the
+            // normal rollback -> retry path so the provider gets time to recover;
+            // dropping it on the FIRST error silently loses the user's turn.
+            const failoverExhausted = options.finalRetry === true &&
+                (isFailoverEligibleError(lastAgentError) ||
+                    isMissingProviderSessionError(lastAgentError));
+            // ponytail: interim guard against silent turn loss. The durable fix is a
+            // dead-letter re-drive of the dropped turn (issue #285). Until then, when
+            // failover is exhausted we stop the replay storm by preserving the cursor
+            // (below) AND surface an error + user-visible notice. We only CONSUME the
+            // turn once the user was actually informed; if the notice fails to deliver
+            // (channel down), we fall through to rollback->retry so the turn isn't
+            // silently dropped. The remaining edge (channel still down after the queue
+            // retry cap is exhausted) is covered by the durable dead-letter re-drive (#285).
+            let failureNoticeDelivered = false;
+            if (failoverExhausted && !outputSentToUser) {
+                logger.error({ group: group.name, error: lastAgentError }, 'Provider failover exhausted after retries; dropping turn to stop replay storm, notifying user');
+                const noticeOptions = buildMessageOptions();
+                const noticeSettlement = await settleDeliveryAttempt(() => sendMessageToChannel(PROVIDER_FAILOVER_EXHAUSTED_MESSAGE, noticeOptions), {
+                    scope: 'runtime-provider-failover-exhausted',
+                    target: chatJid,
+                }).catch((err) => {
+                    logger.error({ err, group: group.name }, 'Failed to send provider failover exhausted notice');
+                    return 'not_delivered';
+                });
+                failureNoticeDelivered = noticeSettlement !== 'not_delivered';
+                applyDeliverySettlement(noticeSettlement, {
+                    streamed: false,
+                    terminal: true,
+                });
+            }
+            const userInformed = outputSentToUser || failureNoticeDelivered;
+            resultOk = await handleFailure({
+                outputSentToUser,
+                groupName: group.name,
+                queueJid,
+                previousCursor,
+                deps,
+                acknowledgeFailedTurn: options.finalRetry === true &&
+                    !deps.queue.isShuttingDown?.() &&
+                    (!failoverExhausted || userInformed),
+                preserveCursor: failoverExhausted && userInformed,
+                logger,
+            });
+        }
+        else {
+            const finalization = await finalizeGroupAgentUserVisibleOutput({
+                streamedTranscriptDeliveryStatus,
+                boundedTranscript: outputBuffer.transcriptSnapshot(),
+                chatJid,
+                activeThreadId,
+                outputSentToUser,
+                sawRawOutput,
+                groupName: group.name,
+                warn: (metadata, message) => logger.warn(metadata, message),
+                storeMessage: (message) => ops().storeMessage(message),
+                buildMessageOptions,
+                sendMessageToChannel: async (text, options) => settleDeliveryAttempt(() => sendMessageToChannel(text, options), {
+                    scope: 'runtime-final-output-fallback',
+                    target: chatJid,
+                }).catch((err) => {
+                    logger.warn({ err, group: group.name }, 'Failed to settle fallback output delivery');
+                    return 'not_delivered';
+                }),
+            });
+            outputSentToUser = finalization.outputSentToUser;
+            applyDeliverySettlement(finalization.terminalSettlement, {
+                streamed: false,
+                terminal: true,
+            });
+        }
+        const finalProgressState = resolveGroupTurnFinalProgressState({
+            output,
+            hadError,
+            sawDeliveryIncomplete,
+            sawTerminalDeliveryFailure,
+            outputSentToUser,
+        });
+        if (shouldSendTurnFinalProgress({
+            finalProgressState,
+            awaitingResponseReceipt,
+            sentAnyTurnDoneProgress,
+            activeGenerationHasOutput,
+            sentTurnDoneProgressGeneration,
+            progressGeneration,
+        })) {
+            await sendTrackedDoneProgress(finalProgressState);
+        }
+        await setTypingState(false);
+        if (resultOk && replay.hasMore)
+            deps.queue.enqueueMessageCheck(queueJid);
+        options?.onRunResult?.(output);
+        return resultOk;
+    }
+    return { processGroupMessages };
+}

@@ -4,7 +4,6 @@ import {
 } from './pending-interaction-durability.js';
 
 const COMPLETED_TTL_MS = 5 * 60_000;
-
 type Resolution =
   | { status: 'resolved'; result: unknown }
   | { status: 'rejected' | 'cancelled'; error: string };
@@ -13,7 +12,6 @@ interface PendingCallerTool {
   readonly appId: string;
   readonly runId?: string;
   readonly sourceAgentFolder: string;
-  readonly sessionId: string;
   readonly interactionId: string;
   readonly resolve: (resolution: Resolution) => void;
   readonly timer: NodeJS.Timeout;
@@ -24,19 +22,9 @@ const completed = new Map<
   string,
   { idempotencyKey: string; expiresAt: number }
 >();
+const key = (sessionId: string, interactionId: string) =>
+  `${sessionId}:${interactionId}`;
 
-function key(sessionId: string, interactionId: string): string {
-  return `${sessionId}:${interactionId}`;
-}
-
-function pruneCompleted(): void {
-  const now = Date.now();
-  for (const [entryKey, entry] of completed) {
-    if (entry.expiresAt <= now) completed.delete(entryKey);
-  }
-}
-
-/** Records and waits for a domain-neutral tool result supplied through the SDK. */
 export async function requestCallerResolvedTool(input: {
   appId: string;
   runId?: string;
@@ -63,18 +51,16 @@ export async function requestCallerResolvedTool(input: {
       appId: input.appId,
       runId: input.runId,
       sourceAgentFolder: input.sourceAgentFolder,
-      sessionId: input.sessionId,
       interactionId: input.interactionId,
       resolve,
       timer,
     });
   });
-  const abort = () => {
+  const abort = () =>
     pending.get(entryKey)?.resolve({
       status: 'cancelled',
       error: 'Caller tool interaction cancelled.',
     });
-  };
   input.signal.addEventListener('abort', abort, { once: true });
   try {
     await recordPendingInteractionRequested({
@@ -104,7 +90,6 @@ export async function requestCallerResolvedTool(input: {
   }
 }
 
-/** Resolves or rejects a waiting caller tool exactly once per idempotency key. */
 export async function settleCallerResolvedTool(input: {
   appId: string;
   sessionId: string;
@@ -113,13 +98,17 @@ export async function settleCallerResolvedTool(input: {
   resolution: Resolution;
   approverRef?: string | null;
 }): Promise<'resolved' | 'idempotent' | 'not_found' | 'conflict'> {
-  pruneCompleted();
+  const now = Date.now();
+  for (const [entryKey, entry] of completed) {
+    if (entry.expiresAt <= now) completed.delete(entryKey);
+  }
   const entryKey = key(input.sessionId, input.interactionId);
   const previous = completed.get(entryKey);
-  if (previous)
+  if (previous) {
     return previous.idempotencyKey === input.idempotencyKey
       ? 'idempotent'
       : 'conflict';
+  }
   const active = pending.get(entryKey);
   if (!active || active.appId !== input.appId) return 'not_found';
   const persisted = await resolvePendingInteractionRecord({
@@ -135,20 +124,22 @@ export async function settleCallerResolvedTool(input: {
   if (!persisted) return 'conflict';
   completed.set(entryKey, {
     idempotencyKey: input.idempotencyKey,
-    expiresAt: Date.now() + COMPLETED_TTL_MS,
+    expiresAt: now + COMPLETED_TTL_MS,
   });
   clearTimeout(active.timer);
   active.resolve(input.resolution);
   return 'resolved';
 }
 
-/** Cancels every currently waiting interaction for a session. */
 export function cancelCallerResolvedTools(sessionId: string): number {
-  let count = 0;
-  for (const active of pending.values()) {
-    if (active.sessionId !== sessionId) continue;
-    active.resolve({ status: 'cancelled', error: 'Session turn cancelled.' });
-    count += 1;
+  let cancelled = 0;
+  for (const [entryKey, active] of pending) {
+    if (!entryKey.startsWith(`${sessionId}:`)) continue;
+    active.resolve({
+      status: 'cancelled',
+      error: 'Caller tool interaction cancelled.',
+    });
+    cancelled += 1;
   }
-  return count;
+  return cancelled;
 }

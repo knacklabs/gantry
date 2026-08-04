@@ -9,6 +9,7 @@ import {
   type ModelCatalogEntry,
   resolveModelSelection,
 } from '@core/shared/model-catalog.js';
+import { hashSkillBundle } from '@core/shared/skill-artifact-helpers.js';
 import fs from 'fs';
 
 const mockMaterializeClaudeRuntime = vi.hoisted(() =>
@@ -79,6 +80,22 @@ function catalogEntry(alias: string): ModelCatalogEntry {
   return resolved.entry;
 }
 
+const installedSkillBundle = {
+  assets: [
+    {
+      path: 'SKILL.md',
+      content: Buffer.from(`---
+name: release-writer
+description: Use this skill for release notes.
+---
+
+# Release Writer
+`),
+      contentType: 'text/markdown',
+    },
+  ],
+};
+
 function installedSkill(): SkillCatalogItem {
   return {
     id: 'skill:release' as never,
@@ -93,7 +110,7 @@ function installedSkill(): SkillCatalogItem {
     storage: {
       storageType: 'local-filesystem',
       storageRef: 'skill-release',
-      contentHash: 'sha256:release',
+      contentHash: hashSkillBundle(installedSkillBundle),
       sizeBytes: 1,
     },
     createdAt: '2026-06-16T00:00:00.000Z',
@@ -227,21 +244,7 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
       listEnabledSkillsForAgent: vi.fn(async () => [installedSkill()]),
     } as Partial<SkillCatalogRepository> as SkillCatalogRepository;
     const artifacts = {
-      getSkillArtifact: vi.fn(async () => ({
-        assets: [
-          {
-            path: 'SKILL.md',
-            content: Buffer.from(`---
-name: release-writer
-description: Use this skill for release notes.
----
-
-# Release Writer
-`),
-            contentType: 'text/markdown',
-          },
-        ],
-      })),
+      getSkillArtifact: vi.fn(async () => installedSkillBundle),
     } as Partial<SkillArtifactStore> as SkillArtifactStore;
     const adapter = new AnthropicClaudeAgentExecutionAdapter();
 
@@ -275,7 +278,7 @@ description: Use this skill for release notes.
         id: 'skill:release',
         name: 'release-writer',
         sourceType: 'artifact',
-        contentHash: 'sha256:release',
+        contentHash: hashSkillBundle(installedSkillBundle),
         enabled: true,
       },
     ]);
@@ -283,6 +286,53 @@ description: Use this skill for release notes.
       appId: 'app:test',
       agentId: 'agent:test',
     });
+    expect(artifacts.getSkillArtifact).toHaveBeenCalledWith('skill-release');
+  });
+
+  it('uses snapshot skill rows for Claude artifact projection without rereading enabled skills', async () => {
+    mockMaterializeClaudeRuntime.mockClear();
+    const repo = {
+      listEnabledSkillsForAgent: vi.fn(async () => {
+        throw new Error('unexpected enabled skill read');
+      }),
+    } as Partial<SkillCatalogRepository> as SkillCatalogRepository;
+    const artifacts = {
+      getSkillArtifact: vi.fn(async () => installedSkillBundle),
+    } as Partial<SkillArtifactStore> as SkillArtifactStore;
+    const adapter = new AnthropicClaudeAgentExecutionAdapter();
+
+    await adapter.prepare(
+      prepareInput({
+        input: {
+          prompt: 'hello',
+          chatJid: 'tg:test',
+          attachedSkillSourceIds: ['skill:release'],
+        },
+        options: {
+          skillRepository: repo,
+          skillArtifactStore: artifacts,
+          skillContext: {
+            appId: 'app:test',
+            agentId: 'agent:test',
+          },
+          accessSnapshot: {
+            appId: 'app:test',
+            agentId: 'agent:test',
+            tools: { activeBindings: [], appActiveDefinitions: [] },
+            skills: {
+              activeBindings: [],
+              enabledDefinitions: [installedSkill()],
+            },
+            mcp: { activeBindings: [], materializedServers: [] },
+          },
+        },
+      }),
+    );
+
+    const skillSource =
+      mockMaterializeClaudeRuntime.mock.calls[0]?.[0].skillSource;
+    await skillSource.listSkills({ enabledSkillIds: ['skill:release'] });
+    expect(repo.listEnabledSkillsForAgent).not.toHaveBeenCalled();
     expect(artifacts.getSkillArtifact).toHaveBeenCalledWith('skill-release');
   });
 

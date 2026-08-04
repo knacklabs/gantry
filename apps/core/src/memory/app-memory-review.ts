@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
@@ -27,7 +27,6 @@ import {
 import type {
   AppMemoryItem,
   DeleteAppMemoryInput,
-  DreamingRunStatus,
   MemoryLifecycleProposal,
   MemoryReviewDecisionInput,
   MemoryReviewEvidenceSnippet,
@@ -156,12 +155,16 @@ export async function listPendingMemoryReviews(input: {
     },
   )) as MemoryReviewRow[];
   const reviews = rows.map(toMemoryReview);
-  const itemsById = await itemMapForReviews(
+  // Snapshotted reviews render per-review from their own frozen artifact
+  // (inside withProposedChanges); only rows without a valid snapshot need this
+  // shared live re-query.
+  const legacy = reviews.filter((review) => !review.reviewSnapshot);
+  const legacyItems = await itemMapForReviews(
     input.db,
-    reviews,
+    legacy,
     input.statementTimeoutMs,
   );
-  return withProposedChanges(reviews, itemsById);
+  return withProposedChanges(reviews, legacyItems);
 }
 export async function listPendingMemoryReviewPage(input: {
   db: Db;
@@ -186,10 +189,13 @@ export async function listPendingMemoryReviewPage(input: {
   });
   const returnedCount = reviews.length;
   const nextOffset = offset + returnedCount;
-  const evidenceById = await evidenceMapForReviews(
+  // Live evidence only for legacy rows; snapshotted reviews resolve their own
+  // evidence per-review inside toMemoryReviewDisplayPage.
+  const legacy = reviews.filter((review) => !review.reviewSnapshot);
+  const legacyEvidenceById = await evidenceMapForReviews(
     input.db,
     input.subject,
-    reviews,
+    legacy,
     input.statementTimeoutMs,
   );
   return {
@@ -203,7 +209,7 @@ export async function listPendingMemoryReviewPage(input: {
       limit,
       offset,
       nextOffset: nextOffset < totalCount ? nextOffset : null,
-      evidenceById,
+      legacyEvidenceById,
     }),
     totalCount,
     returnedCount,
@@ -213,6 +219,11 @@ export async function listPendingMemoryReviewPage(input: {
     nextOffset: nextOffset < totalCount ? nextOffset : null,
   };
 }
+export {
+  getMemoryReviewDetail,
+  getMemoryReviewWithinAgentBoundary,
+} from './app-memory-review-lookup.js';
+
 export async function decideMemoryReview(input: {
   db: Db;
   subject: NormalizedMemorySubject;
@@ -225,6 +236,7 @@ export async function decideMemoryReview(input: {
   const reviewerFields = {
     decision: input.decision.decision,
     reviewerId: input.decision.reviewerId ?? null,
+    decisionSource: input.decision.decisionSource ?? null,
     editedValue: input.decision.editedValue ?? null,
     editedReason: input.decision.editedReason ?? null,
     updatedAt: now,

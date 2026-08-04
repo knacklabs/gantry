@@ -29,7 +29,7 @@ export function formatSessionCommandsHelp(): string {
     '',
     'Permissions',
     '/gantry permissions, /permissions, or !permissions - Show the current permission mode.',
-    '/gantry permissions <ask|auto>, /permissions <ask|auto>, or !permissions <ask|auto> - Set the permission mode for this conversation.',
+    '/gantry permissions <ask|auto|auto_strict>, /permissions <ask|auto|auto_strict>, or !permissions <ask|auto|auto_strict> - Set the permission mode for this conversation.',
     '/gantry permissions default, /permissions default, or !permissions default - Clear the permission mode override.',
     '',
     'Memory',

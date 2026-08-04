@@ -57,6 +57,8 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
       .replace(/\bprovider-session:[A-Za-z0-9._:-]+\b/g, '[REDACTED]')
       .replace(/\bxox[baprs]-[A-Za-z0-9-]+\b/g, '[REDACTED]')
       .replace(/\b\d{6,12}:[A-Za-z0-9_-]{20,}\b/g, '[REDACTED]'),
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: vi.fn(),
 }));
 
 vi.mock('fs', async () => {
@@ -1093,13 +1095,13 @@ describe('executeRunnerProcess', () => {
           appId: 'default',
           agentId: 'agent:test',
           runId: 'agent-run:test-visible',
-          conversationId: 'test@g.us',
           eventType: 'run.startup_diagnostic',
           actor: 'runtime',
           responseMode: 'none',
           payload: expect.objectContaining({
             provider: 'host',
             diagnostic: 'runner_process_timing',
+            conversationJid: 'test@g.us',
             sandbox: {
               provider: 'direct',
               enforcing: false,
@@ -1124,6 +1126,12 @@ describe('executeRunnerProcess', () => {
       );
       expect(publishRuntimeEvent.mock.calls[0]?.[0]).not.toHaveProperty(
         'sessionId',
+      );
+      expect(publishRuntimeEvent.mock.calls[0]?.[0]).not.toHaveProperty(
+        'conversationId',
+      );
+      expect(publishRuntimeEvent.mock.calls[0]?.[0]).not.toHaveProperty(
+        'threadId',
       );
       expect(JSON.stringify(publishRuntimeEvent.mock.calls)).not.toContain(
         'provider-resume-id',

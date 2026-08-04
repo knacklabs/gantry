@@ -1,6 +1,6 @@
 {
   "name": "@gantry/sdk",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Node.js SDK for the Gantry runtime control API: sessions, jobs, agents, memory, webhooks, and ingress signing.",
   "author": "Gantry Contributors",
   "license": "MIT",
@@ -36,6 +36,9 @@
   ],
   "engines": {
     "node": ">=24 <26"
+  },
+  "dependencies": {
+    "@gantry/contracts": "3.0.0"
   },
   "publishConfig": {
     "access": "public"

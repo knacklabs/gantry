@@ -4,15 +4,15 @@ import type { AppId } from '../../../src/domain/app/app.js';
 import { parseRuntimeEventFilter } from '../../../src/control/server/routes/runtime-events.js';
 
 describe('runtime event route', () => {
-  it('builds an app-scoped durable replay filter', () => {
-    const filter = parseRuntimeEventFilter(
-      new URL(
-        'http://gantry/v1/runtime-events?afterEventId=42&jobId=job-1&eventType=job.run.completed,job.run.failed',
+  it('always builds an app-scoped durable replay filter', () => {
+    expect(
+      parseRuntimeEventFilter(
+        new URL(
+          'http://gantry/v1/runtime-events?afterEventId=42&jobId=job-1&eventType=job.run.completed,job.run.failed',
+        ),
+        'manipal-tender-copilot' as AppId,
       ),
-      'manipal-tender-copilot' as AppId,
-    );
-
-    expect(filter).toEqual({
+    ).toEqual({
       appId: 'manipal-tender-copilot',
       afterEventId: 42,
       limit: 100,

@@ -1,12 +1,13 @@
 import {
+  DATA_DIR,
   DEFAULT_TRIGGER,
-  MAX_MESSAGES_PER_PROMPT,
   MESSAGE_FETCH_PAGE_SIZE,
   TIMEZONE,
   getCredentialBrokerRuntimeConfig,
   getDeploymentMode,
   getRuntimeSettingsForConfig,
 } from '../../config/index.js';
+import path from 'node:path';
 import { agentIdForFolder } from '../../config/settings/desired-state-service-helpers.js';
 import {
   createAgentToolRuleSettingsMirror,
@@ -17,7 +18,7 @@ import {
   toGroupMessageCursor,
 } from '../../shared/message-cursor.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-import type { MessageSendOptions, NewMessage } from '../../domain/types.js';
+import type { MessageSendOptions } from '../../domain/types.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
 import { writeGroupsSnapshot } from '../../runtime/agent-spawn.js';
 import { startIpcWatcher, type IpcDeps } from '../../runtime/ipc.js';
@@ -39,6 +40,7 @@ import type {
   LiveTurnCoordinationRepository,
 } from '../../domain/ports/live-turns.js';
 import type {
+  AgentRepository,
   CapabilitySecretRepository,
   McpServerRepository,
   OutboundDeliveryRepository,
@@ -60,6 +62,15 @@ import {
 } from '../../domain/messages/partial-delivery.js';
 import { isAmbiguousDurableDeliveryError } from '../../domain/messages/durable-delivery.js';
 import { startOutboundDeliveryRecoveryLoop } from '../../jobs/outbound-delivery-recovery.js';
+import {
+  setObserverDigestGateway,
+  setBrainReviewNotifyGateway,
+  recoverPendingBrainReviewNotifications,
+} from '../../jobs/system-jobs.js';
+import {
+  brainReviewOutboundProfile,
+  brainReviewNotifyGatewayFor,
+} from './brain-review-notify-gateway.js';
 // prettier-ignore
 import {
   closeBrowser,
@@ -69,6 +80,8 @@ import {
 import type { OutboundDeliveryProfile } from '../../domain/outbound-delivery/planner.js';
 import {
   LIVE_SEND_PROFILE_ID,
+  OBSERVER_DIGEST_PROFILE_ID,
+  BRAIN_REVIEW_PROFILE_ID,
   RETRY_TAIL_PROFILE_ID,
   canonicalThreadIdFor,
   normalizeDestinationHintAgainstCanonical,
@@ -86,6 +99,9 @@ import {
   sendActiveCompactionQueuedReceipt,
 } from './runtime-services-active-compact.js';
 import { registerRuntimeLiveStopMessageAction } from './runtime-live-stop-message-action.js';
+import { registerRuntimeMemoryReviewMessageAction } from './runtime-memory-review-message-action.js';
+import { registerRuntimeObserverFeedbackMessageAction } from './runtime-observer-feedback-wiring.js';
+import { registerRuntimeBrainDreamReviewMessageAction } from './runtime-brain-review-wiring.js';
 import { nowIso, nowMs, toIso } from '../../shared/time/datetime.js';
 import { LiveTurnAuthority } from '../../runtime/live-turn-authority.js';
 import type { LiveTurnRecoveryLoop } from '../../runtime/live-turn-recovery.js';
@@ -102,7 +118,23 @@ import {
   startAsyncTaskRecoveryLoop,
 } from './runtime-services-async-task-recovery.js';
 import { wireInlineAgentLoopTools } from './inline-agent-loop-tools.js';
+import { createGroupSnapshotSync } from './runtime-services-group-snapshot-sync.js';
+import type { GroupProcessingDeps } from '../../runtime/group-processing-types.js';
+import { createAttachmentOpen } from './attachment-resolver-wiring.js';
+import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
+import { createProviderAttachmentMaterializer } from '../../shared/provider-attachment-materialization.js';
 export { stopAsyncTaskRecoveryLoop } from './runtime-services-async-task-recovery.js';
+
+export function createRuntimeProviderAttachmentMaterializer(app: RuntimeApp) {
+  return createProviderAttachmentMaterializer({
+    materializationRoot: path.join(DATA_DIR, 'provider-attachments'),
+    workspaceRoots: () =>
+      Object.values(app.getConversationRoutes()).map((route) =>
+        resolveWorkspaceFolderPath(route.folder),
+      ),
+  });
+}
+
 type RuntimeBootstrapRepository = RuntimeAppRepository & RuntimeJobRepository;
 type LiveTurnCommandWakeupSourceFactory = () =>
   | LiveTurnCommandWakeupSource
@@ -113,7 +145,8 @@ type RuntimeDependencyRepositoryFactory = () =>
 type RuntimeStorageDep =
   | 'getAsyncTaskRepository'
   | 'getFileArtifactStore'
-  | 'getPermissionPromotionRepository';
+  | 'getPermissionPromotionRepository'
+  | 'getPermissionDecisionMemoryRepository';
 interface Deps extends Pick<IpcDeps, RuntimeStorageDep> {
   startSchedulerLoop: typeof startSchedulerLoop;
   startIpcWatcher: typeof startIpcWatcher;
@@ -123,7 +156,9 @@ interface Deps extends Pick<IpcDeps, RuntimeStorageDep> {
   logger: Pick<typeof logger, 'info' | 'warn' | 'fatal'>;
   mcpHostnameLookup?: HostnameLookup;
   collectSessionMemory: SessionMemoryCollector;
+  resolvePersonIdentity?: GroupProcessingDeps['resolvePersonIdentity'];
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
+  getAgentRepository?: () => AgentRepository | undefined;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;
   getCapabilitySecretRepository?: () => CapabilitySecretRepository | undefined;
@@ -133,6 +168,7 @@ interface Deps extends Pick<IpcDeps, RuntimeStorageDep> {
   getToolRepository: () => ToolCatalogRepository;
   getPermissionRepository?: () => PermissionRepository;
   settingsRepositories?: AgentToolRuleSettingsRepositories;
+  leases?: import('../../domain/ports/runtime-lease.js').RuntimeLeasePort;
   getOutboundDeliveryRepository?: () => OutboundDeliveryRepository | undefined;
   getWorkerCoordinationRepository?: () =>
     | WorkerCoordinationRepository
@@ -187,42 +223,6 @@ function makeDefaultDeps(): RuntimeServicesDefaults {
     publishBrowserJobActivity: undefined,
     closeBrowserToolBackends: undefined,
     exit: (code: number) => process.exit(code),
-  };
-}
-function createGroupSnapshotSync(app: RuntimeApp, deps: Deps): () => void {
-  let syncInFlight: Promise<void> | undefined;
-  let syncDirty = false;
-  const runSync = async () => {
-    do {
-      syncDirty = false;
-      const [conversationRoutes, availableGroups] = [
-        app.getConversationRoutes(),
-        await app.getAvailableGroups(),
-      ];
-      const registeredJids = new Set(Object.keys(conversationRoutes));
-      await Promise.all(
-        Object.values(conversationRoutes).map((group) =>
-          deps.writeGroupsSnapshot(
-            group.folder,
-            availableGroups,
-            registeredJids,
-          ),
-        ),
-      );
-    } while (syncDirty);
-  };
-  return () => {
-    if (syncInFlight) {
-      syncDirty = true;
-      return;
-    }
-    syncInFlight = runSync()
-      .catch((err) =>
-        deps.logger.warn({ err }, 'Failed to write group snapshots'),
-      )
-      .finally(() => {
-        syncInFlight = undefined;
-      });
   };
 }
 let activeLiveTurnRecoveryLoop: LiveTurnRecoveryLoop | undefined;
@@ -342,6 +342,7 @@ export async function startRuntimeServices(
         ? 'locked'
         : 'full',
     getPermissionRuntimeSettings: getRuntimeSettingsForConfig,
+    getAgentRepository: resolved.getAgentRepository,
     getMcpServerRepository: resolved.getMcpServerRepository,
     publishRuntimeEvent: resolved.publishRuntimeEvent,
     warn: (context, message) => resolved.logger.warn(context, message),
@@ -376,9 +377,7 @@ export async function startRuntimeServices(
   const startScheduler = () =>
     resolved.startSchedulerLoop({
       processRole,
-      runtimeAppId: String(channelWiring.getRuntimeAppId()),
       conversationRoutes: () => app.getConversationRoutes(),
-      projectConversationRoute: app.projectConversationRoute,
       queue: app.queue,
       onProcess: (groupJid, proc, runHandle, workspaceFolder, stopAliasJids) =>
         app.queue.registerProcess(
@@ -427,6 +426,7 @@ export async function startRuntimeServices(
     opsRepository: resolved.opsRepository,
     repositories: resolved.settingsRepositories,
     reloadRuntimeState: () => app.loadState(),
+    leases: resolved.leases,
   });
   configurePendingInteractionPermissionPersistence({
     opsRepository: resolved.opsRepository,
@@ -441,61 +441,80 @@ export async function startRuntimeServices(
     getBrowserStatus,
     publishRuntimeEvent: resolved.publishRuntimeEvent,
   });
-  resolved.startIpcWatcher({
-    sendMessage: (jid, text, options) =>
-      channelWiring.sendMessage(jid, text, {
-        durability: 'required',
-        throwOnMissing: true,
-        ...(options ? { messageOptions: options } : {}),
+  const startIpcWatcher = () =>
+    resolved.startIpcWatcher({
+      sendMessage: (jid, text, options) =>
+        channelWiring.sendMessage(jid, text, {
+          durability: 'required',
+          throwOnMissing: true,
+          ...(options ? { messageOptions: options } : {}),
+        }),
+      conversationRoutes: () => app.getConversationRoutes(),
+      registerGroup: app.registerGroup,
+      syncGroups: (force: boolean) => channelWiring.syncGroups(force),
+      getAvailableGroups: app.getAvailableGroups,
+      writeGroupsSnapshot: (folder, availableGroups, registeredJids) =>
+        resolved.writeGroupsSnapshot(folder, availableGroups, registeredJids),
+      onSchedulerChanged,
+      opsRepository: resolved.opsRepository,
+      getToolRepository: resolved.getToolRepository,
+      getAgentRepository: resolved.getAgentRepository,
+      getSkillRepository: resolved.getSkillRepository,
+      getAsyncTaskRepository: resolved.getAsyncTaskRepository,
+      getMcpServerRepository: resolved.getMcpServerRepository,
+      getCapabilitySecretRepository: resolved.getCapabilitySecretRepository,
+      getSkillArtifactStore: resolved.getSkillArtifactStore,
+      openAttachment: createAttachmentOpen({
+        getRepository: channelWiring.getMessageAttachmentRepository,
+        fetcher: {
+          fetchHistoricalAttachment: channelWiring.fetchHistoricalAttachment,
+        },
+        materializationRoot: path.join(DATA_DIR, 'provider-attachments'),
+        workspaceRoots: () =>
+          Object.values(app.getConversationRoutes()).map((route) =>
+            resolveWorkspaceFolderPath(route.folder),
+          ),
       }),
-    conversationRoutes: () => app.getConversationRoutes(),
-    registerGroup: app.registerGroup,
-    syncGroups: (force: boolean) => channelWiring.syncGroups(force),
-    getAvailableGroups: app.getAvailableGroups,
-    writeGroupsSnapshot: (folder, availableGroups, registeredJids) =>
-      resolved.writeGroupsSnapshot(folder, availableGroups, registeredJids),
-    onSchedulerChanged,
-    opsRepository: resolved.opsRepository,
-    getToolRepository: resolved.getToolRepository,
-    getSkillRepository: resolved.getSkillRepository,
-    getAsyncTaskRepository: resolved.getAsyncTaskRepository,
-    getMcpServerRepository: resolved.getMcpServerRepository,
-    getCapabilitySecretRepository: resolved.getCapabilitySecretRepository,
-    getSkillArtifactStore: resolved.getSkillArtifactStore,
-    getMcpDnsValidationCache: resolved.getMcpDnsValidationCache,
-    executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
-    executionAdapters: resolved.executionAdapters ?? app.executionAdapters,
-    runnerSandboxProvider: resolved.runnerSandboxProvider,
-    runApprovedCommand: resolved.runApprovedCommand,
-    getPermissionRepository: resolved.getPermissionRepository,
-    getPermissionPromotionRepository: resolved.getPermissionPromotionRepository,
-    publishRuntimeEvent: resolved.publishRuntimeEvent,
-    getPermissionRuntimeSettings: getRuntimeSettingsForConfig,
-    getPermissionMessageRepository: () => resolved.opsRepository,
-    subscribeRuntimeEvents: resolved.subscribeRuntimeEvents,
-    getEgressSettings: () => getRuntimeSettingsForConfig().permissions.egress,
-    mirrorAgentToolRulesToSettings,
-    reloadRuntimeState: () => app.loadState(),
-    getCredentialBroker: app.getCredentialBroker,
-    getCredentialBrokerProfile: () => getCredentialBrokerRuntimeConfig().mode,
-    callBrowserTool: resolved.callBrowserTool,
-    publishBrowserJobActivity: resolved.publishBrowserJobActivity,
-    getBrowserStatus,
-    closeBrowserToolBackends: resolved.closeBrowserToolBackends,
-    getBrowserUsageSettings: () => getRuntimeSettingsForConfig().browser.usage,
-    requestPermissionApproval: inlineInteractions.requestPermissionApproval,
-    isControlApproverAllowed: channelWiring.isControlApproverAllowed,
-    requestUserAnswer: inlineInteractions.requestUserAnswer,
-    renderAgentTodo: (jid, render, options) =>
-      liveTurnsEnabled && liveExecution
-        ? channelWiring.renderAgentTodo(jid, render, options)
-        : Promise.resolve(false),
-    renderRichInteraction: (jid, request, options) =>
-      liveTurnsEnabled && liveExecution
-        ? channelWiring.renderRichInteraction(jid, request, options)
-        : Promise.resolve(false),
-    mcpHostnameLookup: resolved.mcpHostnameLookup,
-  });
+      getMcpDnsValidationCache: resolved.getMcpDnsValidationCache,
+      executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+      executionAdapters: resolved.executionAdapters ?? app.executionAdapters,
+      runnerSandboxProvider: resolved.runnerSandboxProvider,
+      runApprovedCommand: resolved.runApprovedCommand,
+      getPermissionRepository: resolved.getPermissionRepository,
+      getPermissionPromotionRepository:
+        resolved.getPermissionPromotionRepository,
+      getPermissionDecisionMemoryRepository:
+        resolved.getPermissionDecisionMemoryRepository,
+      publishRuntimeEvent: resolved.publishRuntimeEvent,
+      getPermissionRuntimeSettings: getRuntimeSettingsForConfig,
+      getPermissionMessageRepository: () => resolved.opsRepository,
+      subscribeRuntimeEvents: resolved.subscribeRuntimeEvents,
+      getEgressSettings: () => getRuntimeSettingsForConfig().permissions.egress,
+      mirrorAgentToolRulesToSettings,
+      reloadRuntimeState: () => app.loadState(),
+      getCredentialBroker: app.getCredentialBroker,
+      getCredentialBrokerProfile: () => getCredentialBrokerRuntimeConfig().mode,
+      callBrowserTool: resolved.callBrowserTool,
+      publishBrowserJobActivity: resolved.publishBrowserJobActivity,
+      getBrowserStatus,
+      closeBrowserToolBackends: resolved.closeBrowserToolBackends,
+      getBrowserUsageSettings: () =>
+        getRuntimeSettingsForConfig().browser.usage,
+      requestPermissionApproval: inlineInteractions.requestPermissionApproval,
+      cancelPermissionApproval: channelWiring.cancelPermissionApproval,
+      cancelUserQuestion: channelWiring.cancelUserQuestion,
+      isControlApproverAllowed: channelWiring.isControlApproverAllowed,
+      requestUserAnswer: inlineInteractions.requestUserAnswer,
+      renderAgentTodo: (jid, render, options) =>
+        liveTurnsEnabled && liveExecution
+          ? channelWiring.renderAgentTodo(jid, render, options)
+          : Promise.resolve(false),
+      renderRichInteraction: (jid, request, options) =>
+        liveTurnsEnabled && liveExecution
+          ? channelWiring.renderRichInteraction(jid, request, options)
+          : Promise.resolve(false),
+      mcpHostnameLookup: resolved.mcpHostnameLookup,
+    });
   syncGroupSnapshots();
   app.queue.setLiveTurnRunnerRegistrar(
     liveTurnAuthority
@@ -510,14 +529,12 @@ export async function startRuntimeServices(
       opsRepository: resolved.opsRepository,
       executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
       messageFetchPageSize: MESSAGE_FETCH_PAGE_SIZE,
-      maxMessagesPerPrompt: MAX_MESSAGES_PER_PROMPT,
       timezone: TIMEZONE,
       enqueueMessageCheck: app.queue.enqueueMessageCheck.bind(app.queue),
       warn: (context, message) => resolved.logger.warn(context, message),
       addReaction: (jid, messageRef, emoji, options) =>
         channelWiring.addReaction(jid, messageRef, emoji, options),
-      handleActiveControlCommand: (args) =>
-        handleActiveControlCommand?.(args) ?? Promise.resolve(false),
+      handleActiveControlCommand,
       finalizeAgentTodo: (jid, render, options) =>
         channelWiring.finalizeAgentTodo(jid, render, options),
       finalizeBrowserForLiveTurn: buildLiveTurnBrowserFinalizer({
@@ -602,23 +619,16 @@ export async function startRuntimeServices(
     },
   };
   registerRuntimeLiveStopMessageAction(channelWiring, app, liveMessageQueue);
-  const handleActiveControlCommand: ActiveControlCommandHandler = async ({
+  registerRuntimeMemoryReviewMessageAction(channelWiring, app);
+  registerRuntimeObserverFeedbackMessageAction(channelWiring);
+  registerRuntimeBrainDreamReviewMessageAction(channelWiring);
+  async function handleActiveControlCommand({
     chatJid,
     queueJid,
     group,
     command,
     message,
-  }: {
-    chatJid: string;
-    queueJid: string;
-    group: {
-      folder: string;
-      conversationKind?: 'dm' | 'channel';
-      providerAccountId?: string;
-    };
-    command: { kind: string };
-    message: NewMessage;
-  }): Promise<boolean> => {
+  }: Parameters<ActiveControlCommandHandler>[0]): Promise<boolean> {
     if (
       command.kind !== 'stop' &&
       command.kind !== 'new' &&
@@ -665,6 +675,10 @@ export async function startRuntimeServices(
         collectSessionMemory: resolved.collectSessionMemory,
         logger: resolved.logger,
         group,
+        appId: channelWiring.getRuntimeAppId(),
+        resolvePersonIdentity: resolved.resolvePersonIdentity,
+        normalizeProviderId: channelWiring.normalizeProviderId,
+        publishRuntimeEvent: resolved.publishRuntimeEvent,
         executionAdapter: app.executionAdapter,
         chatJid,
         queueJid,
@@ -692,22 +706,12 @@ export async function startRuntimeServices(
       providerAccountId: group.providerAccountId,
     });
     return true;
-  };
+  }
   const outboundDeliveryRepository = resolved.getOutboundDeliveryRepository?.();
   if (outboundDeliveryRepository) {
     const liveSendProfile: OutboundDeliveryProfile = {
       profileId: LIVE_SEND_PROFILE_ID,
       plan: (input) => {
-        const providerPayload =
-          input.metadata && typeof input.metadata === 'object'
-            ? input.metadata.providerPayload
-            : undefined;
-        if (providerPayload) {
-          return {
-            parts: [{ canonicalText: input.text, providerPayload }],
-            canonicalFinalText: input.text,
-          };
-        }
         const segments = splitLiveSendProfileText(input.text);
         return {
           parts: segments.map((segment) => ({
@@ -737,6 +741,30 @@ export async function startRuntimeServices(
         };
       },
     };
+    // Observer digest: single-part send whose native view (Task 4) rides in the
+    // item providerPayload so the recovery dispatch can render native buttons.
+    const observerDigestProfile: OutboundDeliveryProfile = {
+      profileId: OBSERVER_DIGEST_PROFILE_ID,
+      plan: (input) => {
+        const observerDigestView =
+          input.metadata &&
+          typeof input.metadata === 'object' &&
+          'observerDigestView' in input.metadata
+            ? (input.metadata.observerDigestView as unknown)
+            : undefined;
+        return {
+          parts: [
+            {
+              canonicalText: input.text,
+              ...(observerDigestView !== undefined
+                ? { providerPayload: { observerDigestView } }
+                : {}),
+            },
+          ],
+          canonicalFinalText: input.text,
+        };
+      },
+    };
     const outboundDeliveryService = new OutboundDeliveryService({
       repository: outboundDeliveryRepository,
       profiles: {
@@ -745,12 +773,66 @@ export async function startRuntimeServices(
             ? retryTailProfile
             : profileId === LIVE_SEND_PROFILE_ID
               ? liveSendProfile
-              : undefined,
+              : profileId === OBSERVER_DIGEST_PROFILE_ID
+                ? observerDigestProfile
+                : profileId === BRAIN_REVIEW_PROFILE_ID
+                  ? brainReviewOutboundProfile
+                  : undefined,
       },
       now: () => nowIso(),
       createId: () => randomUUID(),
       hashSha256Hex: (value: string) =>
         createHash('sha256').update(value, 'utf8').digest('hex'),
+    });
+    // Observer digest durable send: enqueue under the shared live-send profile (idempotent on the per-day key); the recovery loop below sends, `durablySent` settles it.
+    setObserverDigestGateway({
+      enqueue: async (input) => {
+        const target = resolveDurableOutboundTarget({
+          defaultAppId: input.appId,
+          jid: input.conversationJid,
+          providerAccountId: input.providerAccountId,
+        });
+        const result = await outboundDeliveryService.enqueue({
+          appId: target.appId as never,
+          conversationId: target.conversationId as never,
+          threadId: canonicalThreadIdFor({
+            jid: input.conversationJid,
+            threadId: input.threadId ?? undefined,
+            providerAccountId: input.providerAccountId,
+          }) as never,
+          profileId: OBSERVER_DIGEST_PROFILE_ID,
+          idempotencyKey: input.idempotencyKey,
+          text: input.text,
+          metadata: {
+            destinationJid: input.conversationJid,
+            observerDigest: true,
+            // Carried into the item providerPayload by observerDigestProfile so
+            // the recovery dispatch renders native per-insight feedback buttons.
+            ...(input.observerDigestView
+              ? { observerDigestView: input.observerDigestView }
+              : {}),
+          },
+        });
+        return {
+          outboundDeliveryId: result.delivery.id,
+          durablySent: result.delivery.status === 'sent',
+        };
+      },
+    });
+    // Brain destructive-proposal review notification (shared profile + enqueue
+    // closure, also used by the CLI re-notify command).
+    setBrainReviewNotifyGateway(
+      brainReviewNotifyGatewayFor(outboundDeliveryService),
+    );
+    // One-shot recovery: re-enqueue any pending review whose owner-DM
+    // notification was lost (transient owner-resolve/enqueue failure leaves the
+    // review orphaned — pending but with no outbound record). Idempotent, best
+    // effort; the outbound recovery loop then sends. Fire-and-forget.
+    void recoverPendingBrainReviewNotifications().catch((err) => {
+      logger.warn(
+        { error: err instanceof Error ? err.message : String(err) },
+        'brain review notification recovery pass failed',
+      );
     });
     channelWiring.setDurableOutboundAttemptFactory(async (input) => {
       const target = resolveDurableOutboundTarget({
@@ -774,7 +856,6 @@ export async function startRuntimeServices(
           sourceProvider: input.provider,
           destinationJid: input.chatJid,
           destinationThreadId: input.threadId,
-          providerPayload: input.providerPayload,
         },
         initialClaim: {
           claimToken: `claim:live-send:${input.sourceMessageId}`,
@@ -782,15 +863,7 @@ export async function startRuntimeServices(
         },
       });
       const claimedItems = started.claimedItems;
-      if (!started.created) {
-        return {
-          skipProviderSend: true,
-          settleSent: async () => undefined,
-          settleFailed: async () => undefined,
-          settlePartiallyDelivered: async () => undefined,
-        };
-      }
-      if (!claimedItems || claimedItems.length === 0) {
+      if (!started.created || !claimedItems || claimedItems.length === 0) {
         throw new Error(
           `Durable outbound immediate send claim was not created for ${input.sourceMessageId}.`,
         );
@@ -951,27 +1024,20 @@ export async function startRuntimeServices(
               'Outbound delivery channel for canonical destination is unavailable.',
           } as const;
         }
-        const sourceMessageId = sourceMessageIdFromDeliveryIdempotencyKey(
-          claimed.delivery.idempotencyKey,
-        );
         const recoveryPermit = channelWiring.createRecoveryDispatchPermit({
           deliveryId: claimed.delivery.id,
           itemId: claimed.item.id,
           destinationJid,
           canonicalText: claimed.item.canonicalText,
-          ...(sourceMessageId ? { sourceMessageId } : {}),
-          ...(Number.isSafeInteger(claimed.item.attemptCount) &&
-          claimed.item.attemptCount > 0
-            ? {
-                attemptCount: claimed.item.attemptCount,
-                ...(claimed.item.attemptCount >= 4
-                  ? { terminalFailure: true }
-                  : {}),
-              }
-            : {}),
           ...(destinationThreadId ? { threadId: destinationThreadId } : {}),
         });
         try {
+          const observerDigestView = payload?.observerDigestView as
+            | MessageSendOptions['observerDigestView']
+            | undefined;
+          const brainReviewView = payload?.brainReviewView as
+            | MessageSendOptions['brainReviewView']
+            | undefined;
           const deliveryResult = await channelWiring.sendProviderMessage(
             destinationJid,
             claimed.item.canonicalText,
@@ -980,20 +1046,11 @@ export async function startRuntimeServices(
               throwOnMissing: true,
               messageOptions: {
                 ...destinationAccount,
-                ...(destination.providerData
-                  ? { providerData: destination.providerData }
-                  : {}),
-                ...(payload?.adaptiveCard
-                  ? {
-                      adaptiveCard: payload.adaptiveCard as Record<
-                        string,
-                        unknown
-                      >,
-                    }
-                  : {}),
                 ...(destinationThreadId
                   ? { threadId: destinationThreadId }
                   : {}),
+                ...(observerDigestView ? { observerDigestView } : {}),
+                ...(brainReviewView ? { brainReviewView } : {}),
               },
             },
           );
@@ -1034,6 +1091,7 @@ export async function startRuntimeServices(
       warn: (meta, message) => resolved.logger.warn(meta, message),
     });
   }
+  startIpcWatcher();
   if (jobExecution) await startScheduler();
   else {
     markRoleHasNoJobExecution();
@@ -1112,27 +1170,4 @@ export async function startRuntimeServices(
     info: (obj, msg) => resolved.logger.info(obj as never, msg as never),
     warn: (context, message) => resolved.logger.warn(context, message),
   });
-}
-
-function sourceMessageIdFromDeliveryIdempotencyKey(
-  idempotencyKey: string | undefined,
-): string | undefined {
-  if (!idempotencyKey) return undefined;
-  const livePrefix = 'live-send:';
-  if (idempotencyKey.startsWith(livePrefix)) {
-    return idempotencyKey.slice(livePrefix.length) || undefined;
-  }
-  const retryPrefix = 'retry-tail:';
-  if (!idempotencyKey.startsWith(retryPrefix)) return undefined;
-  const fingerprintSeparator = idempotencyKey.length - 25;
-  if (
-    fingerprintSeparator <= retryPrefix.length ||
-    idempotencyKey[fingerprintSeparator] !== ':' ||
-    !/^[0-9a-f]{24}$/.test(idempotencyKey.slice(fingerprintSeparator + 1))
-  ) {
-    return undefined;
-  }
-  return (
-    idempotencyKey.slice(retryPrefix.length, fingerprintSeparator) || undefined
-  );
 }

@@ -31,6 +31,7 @@ import {
 } from '../platform/profile-file-mirror.js';
 import { planRuntimeSecretInput } from './runtime-secret-ref-prompt.js';
 import { providerAccountIdForAgent } from './provider-utils.js';
+import { runtimeSecretNameForAgent } from '../domain/provider/provider-runtime-secret-keys.js';
 
 type TeamsChannelChoice =
   | { type: 'selected'; channel: TeamsDiscoveredChannel }
@@ -54,6 +55,7 @@ export async function registerTeamsMainGroup(options: {
   chatJid: string;
   displayName: string;
   agentId?: string;
+  runtimeSecretRefs?: Record<string, string>;
 }): Promise<{ folder: string; groupName: string }> {
   ensureRuntimeLayout(options.runtimeHome);
   const db = await openRuntimeGroupDb(options.runtimeHome);
@@ -87,10 +89,9 @@ export async function registerTeamsMainGroup(options: {
       requiresTrigger: false,
       agentConfig: existingGroup?.agentConfig,
     };
-    await db.setConversationRoute(options.chatJid, route);
     const settings = loadRuntimeSettings(options.runtimeHome);
     const previousSettings = structuredClone(settings);
-    ensureConfiguredConversationBinding(settings, {
+    const binding = ensureConfiguredConversationBinding(settings, {
       agentId: folder,
       agentName: groupName,
       agentFolder: folder,
@@ -99,11 +100,22 @@ export async function registerTeamsMainGroup(options: {
       trigger: route.trigger,
       requiresTrigger: false,
     });
+    if (options.runtimeSecretRefs) {
+      settings.providerAccounts[binding.providerConnectionId] = {
+        ...settings.providerAccounts[binding.providerConnectionId],
+        runtimeSecretRefs: {
+          ...settings.providerAccounts[binding.providerConnectionId]
+            ?.runtimeSecretRefs,
+          ...options.runtimeSecretRefs,
+        },
+      };
+    }
     await writeDesiredRuntimeSettings({
       runtimeHome: options.runtimeHome,
       settings,
       previousSettings,
     });
+    await db.setConversationRoute(options.chatJid, route);
 
     await new PromptProfileService({
       fileArtifactStore: () => db.getFileArtifactStore(),
@@ -234,11 +246,12 @@ export async function runTeamsConnectCommand(
 ): Promise<number> {
   ensureRuntimeLayout(runtimeHome);
   const requestedAgentDisplayName = requestedAgentName?.trim();
+  const credentialOwnerId = requestedAgentId?.trim() || DEFAULT_AGENT_FOLDER;
   p.note(
     [
       'Create or reuse a Microsoft Entra app for Teams Graph discovery.',
       'Grant Microsoft Graph application permissions for reading Teams and channels, then complete tenant admin consent.',
-      'This setup registers a Teams channel for Gantry. The Microsoft Teams transport receives activities on /channels/teams/messages.',
+      'This setup registers a Teams channel for Gantry. Live Teams message transport still requires a TeamsSdkClient adapter.',
       'Docs: https://learn.microsoft.com/en-us/graph/teams-concept-overview',
     ].join('\n'),
     'Teams app setup',
@@ -288,7 +301,7 @@ export async function runTeamsConnectCommand(
 
   const clientIdSecret = await planRuntimeSecretInput({
     runtimeHome,
-    name: 'TEAMS_CLIENT_ID',
+    name: runtimeSecretNameForAgent('teams', credentialOwnerId, 'CLIENT_ID'),
     value: credentials.clientId,
     actor: 'cli:teams-connect',
     label: 'Teams client ID',
@@ -299,7 +312,11 @@ export async function runTeamsConnectCommand(
   }
   const clientSecretRef = await planRuntimeSecretInput({
     runtimeHome,
-    name: 'TEAMS_CLIENT_SECRET',
+    name: runtimeSecretNameForAgent(
+      'teams',
+      credentialOwnerId,
+      'CLIENT_SECRET',
+    ),
     value: credentials.clientSecret,
     actor: 'cli:teams-connect',
     label: 'Teams client secret',
@@ -310,7 +327,7 @@ export async function runTeamsConnectCommand(
   }
   const tenantIdSecret = await planRuntimeSecretInput({
     runtimeHome,
-    name: 'TEAMS_TENANT_ID',
+    name: runtimeSecretNameForAgent('teams', credentialOwnerId, 'TENANT_ID'),
     value: credentials.tenantId,
     actor: 'cli:teams-connect',
     label: 'Teams tenant ID',
@@ -359,6 +376,11 @@ export async function runTeamsConnectCommand(
       if (verified.nextAction) p.log.info(verified.nextAction);
       return 1;
     }
+    await Promise.all([
+      clientIdSecret.persist(),
+      clientSecretRef.persist(),
+      tenantIdSecret.persist(),
+    ]);
     const registered = await registerTeamsMainGroup({
       runtimeHome,
       chatJid: verified.chatJid,
@@ -367,6 +389,11 @@ export async function runTeamsConnectCommand(
         requestedAgentDisplayName ||
         currentSettings.agent.name,
       agentId: requestedAgentId,
+      runtimeSecretRefs: {
+        client_id: clientIdSecret.ref,
+        client_secret: clientSecretRef.ref,
+        tenant_id: tenantIdSecret.ref,
+      },
     });
     registeredFolder = registered.folder;
     conversationRouteName = registered.groupName;
@@ -377,11 +404,13 @@ export async function runTeamsConnectCommand(
     );
   }
 
-  await Promise.all([
-    clientIdSecret.persist(),
-    clientSecretRef.persist(),
-    tenantIdSecret.persist(),
-  ]);
+  if (channelChoice.type !== 'selected') {
+    await Promise.all([
+      clientIdSecret.persist(),
+      clientSecretRef.persist(),
+      tenantIdSecret.persist(),
+    ]);
+  }
   const settings = loadRuntimeSettings(runtimeHome);
   const previousSettings = structuredClone(settings);
   settings.providers.teams.enabled = true;

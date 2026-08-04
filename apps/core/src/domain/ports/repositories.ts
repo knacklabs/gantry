@@ -55,6 +55,7 @@ import type {
 import type {
   AgentMcpServerBinding,
   MaterializedMcpServer,
+  McpBindingAuthorityPrecondition,
   McpServerAuditEvent,
   McpServerDefinition,
   McpServerId,
@@ -106,12 +107,34 @@ export interface AgentRepository {
   getAgent(id: AgentId): Promise<Agent | null>;
   listAgents(appId: AppId): Promise<Agent[]>;
   saveAgent(agent: Agent): Promise<void>;
+  assertMcpBindingAuthorityPreconditions?(input: {
+    appId: AppId;
+    expectedMcpBindingAgentIds?: AgentId[];
+    expectedMcpBindings: McpBindingAuthorityPrecondition[];
+  }): Promise<void>;
+  replaceAgentCapabilityBindingsBatch?(input: {
+    appId: AppId;
+    agents: Agent[];
+    replacements: Array<{
+      agentId: AgentId;
+      toolBindings: AgentToolBinding[];
+      skillBindings: AgentSkillBinding[];
+      mcpBindings: AgentMcpServerBinding[];
+      preserveExistingMcpPolicy?: boolean;
+      updatedAt: string;
+    }>;
+    expectedMcpBindingAgentIds: AgentId[];
+    expectedMcpBindings: McpBindingAuthorityPrecondition[];
+  }): Promise<void>;
   replaceAgentCapabilityBindings(input: {
     appId: AppId;
     agentId: AgentId;
     toolBindings: AgentToolBinding[];
     skillBindings: AgentSkillBinding[];
     mcpBindings: AgentMcpServerBinding[];
+    expectedMcpBindingAgentIds?: AgentId[];
+    expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+    preserveExistingMcpPolicy?: boolean;
     updatedAt: string;
   }): Promise<void>;
   replaceAgentAccess(input: {
@@ -247,6 +270,12 @@ export interface MessageRepository {
     after?: string;
     limit?: number;
   }): Promise<Message[]>;
+  /**
+   * All conversation row ids for a chat jid. One jid can map to multiple rows
+   * (legacy-shaped plus account-qualified) until the Phase-8 restamp; readers
+   * that only know the jid must union across them.
+   */
+  listConversationIdsForJid(jid: string): Promise<ConversationId[]>;
 }
 
 export interface AgentSessionRepository {
@@ -307,6 +336,11 @@ export interface AgentRunRepository {
   saveAgentRun(run: AgentRun): Promise<void>;
   listAgentRunsBySession(input: {
     sessionId: AgentSessionId;
+    limit?: number;
+  }): Promise<AgentRun[]>;
+  listAgentRunsByConversation(input: {
+    appId: string;
+    conversationId: string;
     limit?: number;
   }): Promise<AgentRun[]>;
 }
@@ -381,6 +415,7 @@ export interface ToolCatalogRepository {
     statuses?: ToolCatalogItem['status'][];
   }): Promise<ToolCatalogItem[]>;
   saveTool(item: ToolCatalogItem): Promise<void>;
+  saveToolIfAbsent?(item: ToolCatalogItem): Promise<ToolCatalogItem>;
   saveAgentToolBinding(binding: AgentToolBinding): Promise<void>;
   disableAgentToolBinding(input: {
     appId: AppId;
@@ -392,6 +427,10 @@ export interface ToolCatalogRepository {
     appId: AppId;
     agentId: AgentId;
   }): Promise<AgentToolBinding[]>;
+  listAgentToolAccessSnapshot(input: {
+    appId: AppId;
+    agentId: AgentId;
+  }): Promise<AgentToolAccessSnapshot>;
   listAgentToolBindingsForAgents(input: {
     appId: AppId;
     agentIds: readonly AgentId[];
@@ -410,6 +449,14 @@ export interface ToolCatalogRepository {
     appId: AppId;
     agentIds: readonly AgentId[];
   }): Promise<AgentToolSource[]>;
+}
+
+export interface AgentToolAccessSnapshot {
+  activeBindings: ReadonlyArray<{
+    binding: AgentToolBinding;
+    definition: ToolCatalogItem | null;
+  }>;
+  appActiveDefinitions: readonly ToolCatalogItem[];
 }
 
 export interface SkillCatalogRepository {
@@ -431,6 +478,10 @@ export interface SkillCatalogRepository {
     appId: AppId;
     agentId: AgentId;
   }): Promise<AgentSkillBinding[]>;
+  listAgentSkillAccessSnapshot(input: {
+    appId: AppId;
+    agentId: AgentId;
+  }): Promise<AgentSkillAccessSnapshot>;
   listAgentSkillBindingsForAgents(input: {
     appId: AppId;
     agentIds: readonly AgentId[];
@@ -439,6 +490,14 @@ export interface SkillCatalogRepository {
     appId: AppId;
     agentId: AgentId;
   }): Promise<SkillCatalogItem[]>;
+}
+
+export interface AgentSkillAccessSnapshot {
+  activeBindings: ReadonlyArray<{
+    binding: AgentSkillBinding;
+    definition: SkillCatalogItem | null;
+  }>;
+  enabledDefinitions: readonly SkillCatalogItem[];
 }
 
 export interface CapabilitySecretRepository {
@@ -486,6 +545,15 @@ export interface ModelCredentialRepository {
 }
 
 export interface McpServerRepository {
+  withMcpCapabilityApprovalLock?<T>(input: {
+    appId: AppId;
+    serverNames: readonly string[];
+    operation: () => Promise<T>;
+  }): Promise<T>;
+  withMcpCapabilityAuthorizationLock?<T>(input: {
+    appId: AppId;
+    operation: () => Promise<T>;
+  }): Promise<T>;
   getServer(id: McpServerId): Promise<McpServerDefinition | null>;
   getServerByName(input: {
     appId: AppId;
@@ -504,6 +572,11 @@ export interface McpServerRepository {
     expectedStatus: McpServerDefinition['status'];
     next: McpServerDefinition;
   }): Promise<McpServerDefinition | null>;
+  getAgentBinding(input: {
+    appId: AppId;
+    agentId: AgentId;
+    serverId: McpServerId;
+  }): Promise<AgentMcpServerBinding | null>;
   saveAgentBinding(binding: AgentMcpServerBinding): Promise<void>;
   disableAgentBinding(input: {
     appId: AppId;
@@ -517,6 +590,10 @@ export interface McpServerRepository {
     limit?: number;
     cursor?: string;
   }): Promise<AgentMcpServerBinding[]>;
+  listAgentMcpAccessSnapshot(input: {
+    appId: AppId;
+    agentId: AgentId;
+  }): Promise<AgentMcpAccessSnapshot>;
   listAgentBindingsForAgents(input: {
     appId: AppId;
     agentIds: readonly AgentId[];
@@ -534,6 +611,14 @@ export interface McpServerRepository {
     limit?: number;
     cursor?: string;
   }): Promise<McpServerAuditEvent[]>;
+}
+
+export interface AgentMcpAccessSnapshot {
+  activeBindings: ReadonlyArray<{
+    binding: AgentMcpServerBinding;
+    definition: McpServerDefinition | null;
+  }>;
+  materializedServers: readonly MaterializedMcpServer[];
 }
 
 export interface PermissionRepository {

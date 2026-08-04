@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const defaultSlackPermissionApproverIds = vi.hoisted(() => new Set<string>());
 const currentControlAllowlist = vi.hoisted(() => ({
@@ -31,25 +33,50 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
     warn: vi.fn(),
     error: vi.fn(),
   },
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: vi.fn(),
 }));
+
+const slackWorkspace = vi.hoisted(() => ({ root: '' }));
 
 vi.mock('@core/platform/workspace-folder.js', () => ({
   resolveWorkspaceFolderPath: vi.fn(
-    (folder: string) => `/tmp/test-groups/${folder}`,
+    (folder: string) => `${slackWorkspace.root}/${folder}`,
   ),
 }));
 
 const appRef = vi.hoisted(() => ({ current: null as any }));
+const socketReceiverRef = vi.hoisted(() => ({ current: null as any }));
 
 vi.mock('@slack/bolt', () => ({
+  SocketModeReceiver: class MockSocketModeReceiver {
+    private listeners = new Map<string, Array<() => void>>();
+    client = {
+      on: (event: string, listener: () => void) => {
+        const listeners = this.listeners.get(event) ?? [];
+        listeners.push(listener);
+        this.listeners.set(event, listeners);
+      },
+    };
+
+    constructor(_options: unknown) {
+      socketReceiverRef.current = this;
+    }
+
+    emit(event: string) {
+      for (const listener of this.listeners.get(event) ?? []) listener();
+    }
+  },
   App: class MockSlackApp {
     options: any;
     eventHandlers = new Map<string, ((args: any) => Promise<void>)[]>();
     commandHandlers = new Map<string, (args: any) => Promise<void>>();
     shortcutHandlers = new Map<string, (args: any) => Promise<void>>();
-    actionHandlers = new Map<string, (args: any) => Promise<void>>();
+    actionHandlers = new Map<string | RegExp, (args: any) => Promise<void>>();
     viewHandlers = new Map<string, (args: any) => Promise<void>>();
     errorHandler: ((err: Error) => Promise<void>) | null = null;
+    middleware: Array<(args: { next: () => Promise<void> }) => Promise<void>> =
+      [];
 
     client = {
       auth: {
@@ -80,9 +107,21 @@ vi.mock('@slack/bolt', () => ({
           .fn()
           .mockResolvedValue({ ok: true, ts: '1710000000.100200' }),
         update: vi.fn().mockResolvedValue({ ok: true }),
+        delete: vi.fn().mockResolvedValue({ ok: true }),
         postEphemeral: vi
           .fn()
           .mockResolvedValue({ ok: true, message_ts: '1710000000.100201' }),
+      },
+      files: {
+        getUploadURLExternal: vi.fn().mockResolvedValue({
+          ok: true,
+          upload_url: 'https://files.slack.com/upload/v1/test',
+          file_id: 'F123',
+        }),
+        completeUploadExternal: vi.fn().mockResolvedValue({
+          ok: true,
+          files: [{ id: 'F123', title: 'report.txt' }],
+        }),
       },
       reactions: {
         add: vi.fn().mockResolvedValue({ ok: true }),
@@ -113,7 +152,7 @@ vi.mock('@slack/bolt', () => ({
       this.shortcutHandlers.set(name, handler);
     }
 
-    action(name: string, handler: (args: any) => Promise<void>) {
+    action(name: string | RegExp, handler: (args: any) => Promise<void>) {
       this.actionHandlers.set(name, handler);
     }
 
@@ -125,22 +164,46 @@ vi.mock('@slack/bolt', () => ({
       this.errorHandler = handler;
     }
 
+    use(handler: (args: { next: () => Promise<void> }) => Promise<void>) {
+      this.middleware.push(handler);
+    }
+
     async start() {}
 
     async stop() {}
   },
 }));
 
-import { createSlackChannel, SlackChannel } from '@core/channels/slack.js';
-import { configurePendingInteractionDurability } from '@core/application/interactions/pending-interaction-durability.js';
+import {
+  createSlackChannel,
+  SlackChannel,
+} from '@core/channels/slack/channel-adapter.js';
+import {
+  bindPendingPermissionInteractionMessage,
+  configurePendingInteractionDurability,
+} from '@core/application/interactions/pending-interaction-durability.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
 import { slackRateLimitRetryDelayMs } from '@core/channels/slack/channel-retry-delay.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
+import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import {
   buildPermissionPromptContentBlocks,
   buildPermissionReceiptBlocks,
 } from '@core/channels/slack/permission-blocks.js';
 import { SLACK_PERMISSION_DECISION_ACTION_IDS } from '@core/channels/slack/permission-action-id.js';
+import { writeSlackAttachmentResponse } from '@core/channels/slack/attachment-download.js';
+import {
+  SLACK_SOCKET_MODE_CONNECTED_EVENT,
+  SLACK_SOCKET_MODE_DISCONNECTED_EVENT,
+  SLACK_SOCKET_MODE_RECONNECT_EVENT,
+} from '@core/channels/slack/channel-connect.js';
+import { asTypingSink } from '@core/app/bootstrap/channel-capability-ports.js';
+import type {
+  PermissionApprovalRequest,
+  PermissionCallbackClaim,
+  PermissionCallbackClaimReference,
+  PermissionCallbackScope,
+} from '@core/domain/types.js';
 
 function createOpts(
   controlAllowlist = {
@@ -175,6 +238,14 @@ function createOpts(
           externalId: 'C123',
           kind: 'channel',
           displayName: 'test',
+          senderPolicy: { allow: '*', mode: 'trigger' },
+          controlApprovers: controlAllowlist.default,
+        },
+        slack_long_test_conversation: {
+          providerConnection: 'slack_default',
+          externalId: 'C1234567890',
+          kind: 'channel',
+          displayName: 'test-long',
           senderPolicy: { allow: '*', mode: 'trigger' },
           controlApprovers: controlAllowlist.default,
         },
@@ -220,8 +291,424 @@ function createOptsWithApproverHook(
 }
 
 async function flushSlackPromptRegistration(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let index = 0; index < 8; index += 1) await Promise.resolve();
+}
+
+async function updatePendingInteractionPayload(
+  interactions: Array<{
+    idempotencyKey: string;
+    payload: Record<string, unknown>;
+  }>,
+  input: {
+    idempotencyKey: string;
+    update: (
+      payload: Record<string, unknown>,
+    ) => Record<string, unknown> | null;
+  },
+): Promise<boolean> {
+  const interaction = interactions.find(
+    (candidate) => candidate.idempotencyKey === input.idempotencyKey,
+  );
+  if (!interaction) return false;
+  const payload = input.update(interaction.payload);
+  if (!payload) return false;
+  interaction.payload = payload;
+  return true;
+}
+
+function configureSlackPermissionRequest(request: PermissionApprovalRequest) {
+  const appId = request.appId || 'default';
+  const requestIds = request.permissionBatch?.requestIds || [request.requestId];
+  const interactions = requestIds.map((requestId) => ({
+    id: `pending-${request.sourceAgentFolder}-${requestId}`,
+    appId,
+    runId: 'run-1',
+    sourceAgentFolder: request.sourceAgentFolder,
+    requestId,
+    runLeaseToken: null,
+    runLeaseFencingVersion: null,
+    envelopeId: null as string | null,
+    memberIndex: null as number | null,
+    kind: 'permission' as const,
+    status: 'pending' as const,
+    payload: {
+      requestId,
+      sourceAgentFolder: request.sourceAgentFolder,
+      request: { ...request, requestId },
+      targetJid: request.targetJid,
+      decisionPolicy: request.decisionPolicy,
+    } as Record<string, unknown>,
+    callbackRoute: null,
+    idempotencyKey: `${appId}:permission:${request.sourceAgentFolder}:${requestId}`,
+    approverRef: null,
+    resolution: null,
+    createdAt: '2026-07-16T00:00:00.000Z',
+    expiresAt: '2099-07-17T00:00:00.000Z',
+    resolvedAt: null,
+  }));
+  const prompts: Array<{
+    prompt: {
+      id: string;
+      parentEnvelopeId: string | null;
+      appId: string;
+      sourceAgentFolder: string;
+      interactionId: string;
+      matchKind: 'individual' | 'batch';
+      memberCount: number;
+      envelope: any;
+      fullView: Record<string, unknown> | null;
+      externalPromptProvider: string | null;
+      externalPromptConversationId: string | null;
+      externalPromptMessageId: string | null;
+      externalPromptThreadId: string | null;
+      providerAliases: string[];
+      claim: PermissionCallbackClaim | null;
+      settlementState:
+        | 'open'
+        | 'claimed'
+        | 'settled'
+        | 'review_each_expired'
+        | 'superseded';
+      settledAt: string | null;
+      createdAt: string;
+      updatedAt: string;
+    };
+    members: typeof interactions;
+  }> = [];
+  const groupForScope = (
+    scope: PermissionCallbackScope,
+    includeTerminalSettlement = false,
+  ) =>
+    [...prompts]
+      .reverse()
+      .find(
+        ({ prompt }) =>
+          prompt.appId === scope.appId &&
+          prompt.sourceAgentFolder === scope.sourceAgentFolder &&
+          prompt.interactionId === scope.interactionId &&
+          (includeTerminalSettlement ||
+            prompt.settlementState === 'open' ||
+            prompt.settlementState === 'claimed'),
+      ) ?? null;
+  const repository = {
+    findPendingInteractionByIdempotencyKey: vi.fn(
+      async ({ idempotencyKey }: { idempotencyKey: string }) =>
+        interactions.find(
+          (interaction) => interaction.idempotencyKey === idempotencyKey,
+        ) ?? null,
+    ),
+    findPendingInteractionByRequest: vi.fn(
+      async (input: {
+        appId: string;
+        kind: 'permission' | 'question';
+        sourceAgentFolder?: string;
+        requestId: string;
+      }) =>
+        interactions.find(
+          (interaction) =>
+            interaction.appId === input.appId &&
+            interaction.kind === input.kind &&
+            interaction.requestId === input.requestId &&
+            (!input.sourceAgentFolder ||
+              interaction.sourceAgentFolder === input.sourceAgentFolder),
+        ) ?? null,
+    ),
+    bindPendingPermissionPrompt: vi.fn(async (input: any) => {
+      const members = input.members.map(
+        (member: {
+          idempotencyKey: string;
+          requestId: string;
+          index: number;
+        }) =>
+          interactions.find(
+            (interaction) =>
+              interaction.appId === input.appId &&
+              interaction.sourceAgentFolder === input.sourceAgentFolder &&
+              interaction.requestId === member.requestId &&
+              interaction.idempotencyKey === member.idempotencyKey &&
+              interaction.status === 'pending',
+          ),
+      );
+      if (
+        members.some(
+          (member: (typeof interactions)[number] | undefined) => !member,
+        )
+      ) {
+        return null;
+      }
+      for (const existing of prompts) {
+        if (
+          existing.prompt.appId === input.appId &&
+          existing.prompt.sourceAgentFolder === input.sourceAgentFolder &&
+          existing.prompt.interactionId === input.interactionId &&
+          (existing.prompt.settlementState === 'open' ||
+            existing.prompt.settlementState === 'claimed')
+        ) {
+          existing.prompt.settlementState = 'superseded';
+        }
+      }
+      const group = {
+        prompt: {
+          id: input.id,
+          parentEnvelopeId: null,
+          appId: input.appId,
+          sourceAgentFolder: input.sourceAgentFolder,
+          interactionId: input.interactionId,
+          matchKind: input.matchKind,
+          memberCount: members.length,
+          envelope: input.envelope,
+          fullView: input.fullView ?? null,
+          externalPromptProvider: input.externalPromptProvider ?? null,
+          externalPromptConversationId:
+            input.externalPromptConversationId ?? null,
+          externalPromptMessageId: input.externalPromptMessageId ?? null,
+          externalPromptThreadId: input.externalPromptThreadId ?? null,
+          providerAliases: [...input.providerAliases],
+          claim: null,
+          settlementState: 'open' as const,
+          settledAt: null,
+          createdAt: input.now ?? '2026-07-16T00:00:00.000Z',
+          updatedAt: input.now ?? '2026-07-16T00:00:00.000Z',
+        },
+        members: members as typeof interactions,
+      };
+      for (const member of input.members) {
+        const interaction = interactions.find(
+          (candidate) => candidate.idempotencyKey === member.idempotencyKey,
+        )!;
+        interaction.envelopeId = input.id;
+        interaction.memberIndex = member.index;
+      }
+      prompts.push(group);
+      return group;
+    }),
+    findPendingPermissionPrompt: vi.fn(
+      async ({
+        scope,
+        includeTerminalSettlement,
+      }: {
+        scope: PermissionCallbackScope;
+        includeTerminalSettlement?: boolean;
+      }) => groupForScope(scope, includeTerminalSettlement),
+    ),
+    findPendingPermissionPromptByMember: vi.fn(
+      async (input: {
+        appId: string;
+        sourceAgentFolder: string;
+        requestId: string;
+      }) =>
+        [...prompts]
+          .reverse()
+          .find(
+            (group) =>
+              group.prompt.appId === input.appId &&
+              group.prompt.sourceAgentFolder === input.sourceAgentFolder &&
+              group.members.some(
+                (member) => member.requestId === input.requestId,
+              ),
+          ) ?? null,
+    ),
+    findPendingPermissionPromptByMessage: vi.fn(
+      async (input: {
+        appId: string;
+        provider: string;
+        conversationId: string;
+        externalMessageId: string;
+        threadId?: string | null;
+      }) =>
+        prompts.find(
+          ({ prompt }) =>
+            prompt.appId === input.appId &&
+            prompt.externalPromptProvider === input.provider &&
+            prompt.externalPromptConversationId === input.conversationId &&
+            prompt.externalPromptMessageId === input.externalMessageId &&
+            prompt.externalPromptThreadId === (input.threadId ?? null),
+        ) ?? null,
+    ),
+    claimPendingPermissionCallback: vi.fn(
+      async ({ claim }: { claim: PermissionCallbackClaim }) => {
+        const group = groupForScope(claim.scope);
+        if (
+          !group ||
+          group.prompt.claim ||
+          group.prompt.matchKind !== claim.match.kind ||
+          (claim.match.providerAliases[0] &&
+            !group.prompt.providerAliases.includes(
+              claim.match.providerAliases[0],
+            ))
+        ) {
+          return null;
+        }
+        group.prompt.claim = claim;
+        group.prompt.settlementState = 'claimed';
+        group.prompt.updatedAt = claim.intent.decidedAt;
+        return group;
+      },
+    ),
+    releasePendingPermissionCallback: vi.fn(
+      async ({ claim }: { claim: PermissionCallbackClaimReference }) => {
+        const group = groupForScope(claim.scope, true);
+        if (group?.prompt.claim?.id !== claim.id) return false;
+        group.prompt.claim = null;
+        group.prompt.settlementState = 'open';
+        return true;
+      },
+    ),
+    settlePendingPermissionCallback: vi.fn(
+      async ({ claim }: { claim: PermissionCallbackClaimReference }) => {
+        const group = groupForScope(claim.scope, true);
+        if (group?.prompt.claim?.id !== claim.id) return false;
+        group.prompt.settlementState = 'settled';
+        group.prompt.settledAt = new Date().toISOString();
+        return true;
+      },
+    ),
+    expirePendingPermissionReviewEach: vi.fn(
+      async ({
+        claim,
+        now,
+      }: {
+        claim: PermissionCallbackClaimReference;
+        now: string;
+      }) => {
+        const group = groupForScope(claim.scope, true);
+        const stored = group?.prompt.claim;
+        if (
+          !group ||
+          stored?.id !== claim.id ||
+          stored.match.kind !== 'batch' ||
+          stored.intent.mode !== 'allow_persistent_rule'
+        ) {
+          return null;
+        }
+        group.prompt.settlementState = 'review_each_expired';
+        group.prompt.settledAt = now;
+        group.prompt.updatedAt = now;
+        return group;
+      },
+    ),
+    resolvePendingInteraction: vi.fn(async (input: any) => {
+      const interaction = interactions.find(
+        (candidate) => candidate.idempotencyKey === input.idempotencyKey,
+      );
+      if (!interaction) return false;
+      if (interaction.status !== 'pending') return true;
+      interaction.status = input.status;
+      interaction.approverRef = input.approverRef ?? null;
+      interaction.resolution = input.resolution;
+      interaction.resolvedAt = input.now ?? new Date().toISOString();
+      return true;
+    }),
+  };
+  configurePendingInteractionDurability({ repository: repository as never });
+  return repository;
+}
+
+function requestSlackPermissionApproval(
+  channel: SlackChannel,
+  jid: string,
+  request: PermissionApprovalRequest,
+  onPromptDelivered?: (messageId: string) => void,
+) {
+  configureSlackPermissionRequest(request);
+  return channel.requestPermissionApproval(jid, request, onPromptDelivered);
+}
+
+function requestSlackUserAnswer(
+  channel: SlackChannel,
+  jid: string,
+  request: import('@core/domain/types.js').UserQuestionRequest,
+) {
+  const appId = request.appId || 'default';
+  const interaction = {
+    appId,
+    kind: 'question' as const,
+    status: 'pending' as const,
+    payload: {
+      requestId: request.requestId,
+      sourceAgentFolder: request.sourceAgentFolder,
+      targetJid: request.targetJid || jid,
+      request,
+      questionRecoveryEnvelope: {
+        version: 1,
+        targetJid: request.targetJid || jid,
+        threadId: request.threadId ?? null,
+        request,
+        selections: [],
+        completedQuestionIndexes: [],
+      },
+    } as Record<string, unknown>,
+    idempotencyKey: `${appId}:question:${request.sourceAgentFolder}:${request.requestId}`,
+  };
+  const repository = {
+    listPendingInteractions: vi.fn(async () => [interaction]),
+    findPendingInteractionByRequest: vi.fn(async () => interaction),
+    findPendingInteractionByIdempotencyKey: vi.fn(async () => interaction),
+    updatePendingInteractionPayload: vi.fn((input) =>
+      updatePendingInteractionPayload([interaction], input),
+    ),
+    resolvePendingInteraction: vi.fn(async () => true),
+  };
+  configurePendingInteractionDurability({ repository: repository as never });
+  const response = channel.requestUserAnswer(jid, request);
+  return Object.assign(response, { interaction, repository });
+}
+
+function latestSlackPermissionActionValue(actionId: string) {
+  const promptCall = vi
+    .mocked(appRef.current.client.chat.postMessage)
+    .mock.calls.at(-1)?.[0];
+  const blocks = promptCall?.blocks as Array<{
+    type?: string;
+    elements?: Array<{ action_id?: string; value?: string }>;
+  }>;
+  const value = blocks
+    ?.flatMap((block) => block.elements || [])
+    .find((element) => element.action_id === actionId)?.value;
+  if (!value) throw new Error(`Missing Slack action ${actionId}`);
+  return JSON.parse(value) as Record<string, unknown>;
+}
+
+function latestSlackUserQuestionActionValue(
+  actionId: string,
+  optionIndex?: number,
+) {
+  const blocks = vi
+    .mocked(appRef.current.client.chat.postMessage)
+    .mock.calls.at(-1)?.[0]?.blocks as Array<{
+    elements?: Array<{ action_id?: string; value?: string }>;
+  }>;
+  const values = blocks
+    ?.flatMap((block) => block.elements || [])
+    .filter(
+      (element) =>
+        element.value &&
+        (element.action_id === actionId ||
+          (optionIndex !== undefined &&
+            element.action_id === `${actionId}_${optionIndex}`)),
+    )
+    .map((element) => JSON.parse(element.value!) as Record<string, unknown>);
+  const value =
+    optionIndex === undefined
+      ? values?.[0]
+      : values?.find((candidate) => candidate.optionIndex === optionIndex);
+  if (!value) throw new Error(`Missing Slack user-question action ${actionId}`);
+  return value;
+}
+
+function slackActionHandler(
+  actionId: string,
+): ((args: any) => Promise<void>) | undefined {
+  for (const [registeredActionId, handler] of appRef.current.actionHandlers) {
+    if (
+      registeredActionId === actionId ||
+      (registeredActionId instanceof RegExp &&
+        registeredActionId.test(actionId))
+    ) {
+      return handler;
+    }
+  }
+  return undefined;
 }
 
 describe('Slack channel', () => {
@@ -232,14 +719,20 @@ describe('Slack channel', () => {
     savedGantryHome = process.env.GANTRY_HOME;
     delete process.env.GANTRY_HOME;
     defaultSlackPermissionApproverIds.clear();
+    slackWorkspace.root = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'slack-channel-'),
+    );
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     if (savedGantryHome === undefined) delete process.env.GANTRY_HOME;
     else process.env.GANTRY_HOME = savedGantryHome;
     configurePendingInteractionDurability(null);
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    fs.rmSync(slackWorkspace.root, { recursive: true, force: true });
   });
 
   it('createSlackChannel returns null when tokens are missing', async () => {
@@ -271,6 +764,220 @@ describe('Slack channel', () => {
     }
   });
 
+  it('does not expose Slack as typing-capable', () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+
+    expect(asTypingSink(channel)).toBeUndefined();
+  });
+
+  it('distrusts Slack history on socket close and successful reconnect without delivery middleware', async () => {
+    const order: string[] = [];
+    const distrustHistoryCoverage = vi.fn(() => {
+      order.push('distrust');
+    });
+    const setHistoryCoverageInboundActive = vi.fn();
+    const channelOpts = {
+      ...createOptsWithApproverHook([]),
+      inboundProviderAccountIds: ['slack-one', 'slack-two'],
+      distrustHistoryCoverage,
+      setHistoryCoverageInboundActive,
+    };
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      channelOpts as any,
+    );
+    await channel.connect();
+
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_CONNECTED_EVENT);
+    expect(distrustHistoryCoverage).not.toHaveBeenCalled();
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_RECONNECT_EVENT);
+    order.push('transport down');
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_CONNECTED_EVENT);
+    order.push('delivery remains unblocked');
+
+    expect(distrustHistoryCoverage).toHaveBeenCalledTimes(2);
+    expect(distrustHistoryCoverage).toHaveBeenNthCalledWith(1, [
+      'slack-one',
+      'slack-two',
+    ]);
+    expect(distrustHistoryCoverage).toHaveBeenNthCalledWith(2, [
+      'slack-one',
+      'slack-two',
+    ]);
+    expect(appRef.current.middleware).toHaveLength(0);
+    expect(setHistoryCoverageInboundActive.mock.calls).toEqual([
+      [['slack-one', 'slack-two'], true],
+      [['slack-one', 'slack-two'], false],
+      [['slack-one', 'slack-two'], true],
+    ]);
+    expect(order).toEqual([
+      'distrust',
+      'transport down',
+      'distrust',
+      'delivery remains unblocked',
+    ]);
+  });
+
+  it('never marks an interaction-only Slack socket inbound-live', async () => {
+    const distrustHistoryCoverage = vi.fn();
+    const setHistoryCoverageInboundActive = vi.fn();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...createOpts(),
+      distrustHistoryCoverage,
+      setHistoryCoverageInboundActive,
+    } as any);
+
+    await channel.connect({ inbound: false, interactionCallbacks: true });
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_CONNECTED_EVENT);
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_RECONNECT_EVENT);
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_DISCONNECTED_EVENT);
+
+    expect(setHistoryCoverageInboundActive).not.toHaveBeenCalled();
+    expect(distrustHistoryCoverage).not.toHaveBeenCalled();
+  });
+
+  it('clears Slack inbound liveness before a clean channel disconnect', async () => {
+    const order: string[] = [];
+    const distrustHistoryCoverage = vi.fn(() => order.push('distrust'));
+    const setHistoryCoverageInboundActive = vi.fn(
+      (_providerAccountIds: readonly string[], active: boolean) =>
+        order.push(active ? 'active' : 'inactive'),
+    );
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...createOpts(),
+      distrustHistoryCoverage,
+      setHistoryCoverageInboundActive,
+    } as any);
+    await channel.connect();
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_CONNECTED_EVENT);
+    order.length = 0;
+
+    await channel.disconnect();
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_CONNECTED_EVENT);
+
+    expect(order).toEqual(['inactive', 'distrust']);
+  });
+
+  it('clears Slack inbound liveness on terminal disconnect and re-fences later activation', async () => {
+    const order: string[] = [];
+    const distrustHistoryCoverage = vi.fn(() => order.push('distrust'));
+    const setHistoryCoverageInboundActive = vi.fn(
+      (_providerAccountIds: readonly string[], active: boolean) =>
+        order.push(active ? 'active' : 'inactive'),
+    );
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...createOpts(),
+      distrustHistoryCoverage,
+      setHistoryCoverageInboundActive,
+    } as any);
+    await channel.connect();
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_CONNECTED_EVENT);
+    order.length = 0;
+
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_DISCONNECTED_EVENT);
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_CONNECTED_EVENT);
+
+    expect(order).toEqual(['inactive', 'distrust', 'distrust', 'active']);
+  });
+
+  it('distrusts Slack history when Bolt swallows a rejected live dispatch', async () => {
+    const distrustHistoryCoverage = vi.fn();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...createOpts(),
+      providerAccountId: 'slack-one',
+      distrustHistoryCoverage,
+      onMessage: vi.fn(async () => {
+        throw new Error('persistence rejected');
+      }),
+    } as any);
+    await channel.connect();
+    const handler = appRef.current.eventHandlers.get('message')?.[0];
+    expect(handler).toBeDefined();
+
+    try {
+      await handler!({
+        event: {
+          channel: 'D123',
+          ts: '1710000000.000100',
+          user: 'U123',
+          text: 'hello',
+        },
+      });
+    } catch (err) {
+      await appRef.current.errorHandler(err as Error);
+    }
+
+    expect(distrustHistoryCoverage).toHaveBeenCalledWith(['slack-one']);
+  });
+
+  it('does not distrust history for an interaction-only Slack handler failure', async () => {
+    const distrustHistoryCoverage = vi.fn();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...createOpts(),
+      providerAccountId: 'slack-one',
+      distrustHistoryCoverage,
+    } as any);
+    await channel.connect({ inbound: false, interactionCallbacks: true });
+
+    await appRef.current.errorHandler(new Error('interaction rejected'));
+
+    expect(distrustHistoryCoverage).not.toHaveBeenCalled();
+  });
+
+  it('does not register Slack deletion routing on an interaction-only connection', async () => {
+    const onMessageAttachmentsDeleted = vi.fn(async () => undefined);
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...createOpts(),
+      onMessageAttachmentsDeleted,
+    } as any);
+
+    await channel.connect({ inbound: false, interactionCallbacks: true });
+
+    expect(appRef.current.eventHandlers.get('message')).toBeUndefined();
+    expect(onMessageAttachmentsDeleted).not.toHaveBeenCalled();
+  });
+
+  it('routes Slack deletion callback failures through the Bolt error path', async () => {
+    const callbackError = new Error('tombstone rejected');
+    const onMessageAttachmentsDeleted = vi.fn(async () => {
+      throw callbackError;
+    });
+    const distrustHistoryCoverage = vi.fn();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...createOpts(),
+      providerAccountId: 'slack-one',
+      onMessageAttachmentsDeleted,
+      distrustHistoryCoverage,
+    } as any);
+    await channel.connect();
+    const handler = appRef.current.eventHandlers.get('message')?.[0];
+
+    try {
+      await handler!({
+        event: {
+          subtype: 'message_deleted',
+          channel: 'C123',
+          ts: 'event-ts',
+          deleted_ts: 'deleted-ts',
+        },
+      });
+    } catch (err) {
+      await appRef.current.errorHandler(err as Error);
+    }
+
+    expect(onMessageAttachmentsDeleted).toHaveBeenCalledOnce();
+    expect(distrustHistoryCoverage).toHaveBeenCalledWith(['slack-one']);
+    expect(logger.error).toHaveBeenCalledWith(
+      { err: callbackError },
+      'Slack app error',
+    );
+  });
+
   it('adds Slack reactions idempotently', async () => {
     const channel = new SlackChannel(
       'xoxb-token',
@@ -290,7 +997,29 @@ describe('Slack channel', () => {
     });
   });
 
-  it('records metadata only for unregistered Slack conversations', async () => {
+  it('persists standalone metadata for Slack group discovery without a message', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    appRef.current.client.conversations.list.mockResolvedValueOnce({
+      channels: [{ id: 'C_DISCOVERED', name: 'discovered-team' }],
+      response_metadata: { next_cursor: '' },
+    });
+
+    await channel.syncGroups(true);
+
+    expect(opts.onChatMetadata).toHaveBeenCalledWith(
+      'sl:C_DISCOVERED',
+      expect.any(String),
+      'discovered-team',
+      'slack',
+      true,
+      { providerAccountId: 'slack_default' },
+    );
+    expect(opts.onMessage).not.toHaveBeenCalled();
+  });
+
+  it('persists standalone metadata for unregistered Slack group messages', async () => {
     const opts = createOpts();
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
     await channel.connect();
@@ -315,6 +1044,45 @@ describe('Slack channel', () => {
       { providerAccountId: 'slack_default' },
     );
     expect(opts.onMessage).not.toHaveBeenCalled();
+  });
+
+  it('rate-limits unregistered Slack conversation drop logs per chat', async () => {
+    let now = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const handler = appRef.current.eventHandlers.get('message')?.[0];
+    expect(handler).toBeDefined();
+    const event = {
+      channel: 'C987654321',
+      ts: '1710000000.000100',
+      user: 'U123',
+      text: 'hello',
+    };
+
+    await handler!({ event });
+    await handler!({ event });
+
+    const dropLogs = () =>
+      vi
+        .mocked(logger.info)
+        .mock.calls.filter(
+          ([, message]) =>
+            message === 'Message from unregistered Slack conversation',
+        );
+    expect(dropLogs()).toHaveLength(1);
+    expect(dropLogs()[0]?.[0]).toEqual(
+      expect.objectContaining({
+        provider: 'slack',
+        chatId: 'C987654321',
+      }),
+    );
+
+    now += 60_000;
+    await handler!({ event });
+
+    expect(dropLogs()).toHaveLength(2);
   });
 
   it('delivers unregistered Slack DMs to the shared persistence policy', async () => {
@@ -373,10 +1141,13 @@ describe('Slack channel', () => {
       },
     });
 
+    expect(opts.onChatMetadata).not.toHaveBeenCalled();
     expect(opts.onMessage).toHaveBeenCalledWith(
       'sl:C123',
       expect.objectContaining({
         chat_jid: 'sl:C123',
+        name: 'ops',
+        isGroup: true,
         sender: 'U123',
         sender_name: 'Alice',
         content: 'hello',
@@ -412,7 +1183,7 @@ describe('Slack channel', () => {
       expect.objectContaining({
         chat_jid: 'sl:C123',
         content: '@Ops list projects',
-        thread_id: '1710000000.000100',
+        thread_id: undefined,
       }),
     );
   });
@@ -488,7 +1259,7 @@ describe('Slack channel', () => {
       expect.objectContaining({
         content: '@Ops list projects',
         providerAccountId: 'slack_default',
-        thread_id: '1710000000.000100',
+        thread_id: undefined,
       }),
     );
   });
@@ -543,13 +1314,6 @@ describe('Slack channel', () => {
         providerAccountId: 'slack_beta',
       },
     });
-    const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
-    vi.spyOn(fs, 'lstatSync').mockReturnValue({
-      isDirectory: () => true,
-      isSymbolicLink: () => false,
-    } as any);
-    vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
-    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -587,20 +1351,20 @@ describe('Slack channel', () => {
         attachments: [
           expect.objectContaining({
             externalId: 'F123',
-            storageRef: 'attachments/report.pdf',
+            storageRef: expect.stringMatching(
+              /^attachments\/[a-f0-9]{16}-report\.pdf$/,
+            ),
           }),
         ],
       }),
     );
-    expect(mkdirSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_sales/attachments',
-      { recursive: true, mode: 0o700 },
-    );
-    expect(writeSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_sales/attachments/report.pdf',
-      expect.any(Buffer),
-      { mode: 0o600 },
-    );
+    const storageRef =
+      opts.onMessage.mock.calls[0][1].attachments[0].storageRef;
+    expect(
+      fs.readFileSync(
+        path.join(slackWorkspace.root, 'slack_sales', ...storageRef.split('/')),
+      ),
+    ).toEqual(Buffer.alloc(8));
   });
 
   it('leaves ambiguous shared Slack inbound messages unscoped for account fanout', async () => {
@@ -752,7 +1516,7 @@ describe('Slack channel', () => {
     );
   });
 
-  it('starts a Slack thread for top-level multi-agent messages with one trigger', async () => {
+  it('keeps top-level multi-agent mentions in channel scope', async () => {
     const opts = createOpts();
     opts.conversationRoutes.mockReturnValue({
       [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
@@ -789,7 +1553,7 @@ describe('Slack channel', () => {
       expect.objectContaining({
         chat_jid: 'sl:C123',
         content: '@Ops status',
-        thread_id: '1710000000.000100',
+        thread_id: undefined,
       }),
     );
   });
@@ -872,7 +1636,7 @@ describe('Slack channel', () => {
       expect.objectContaining({
         chat_jid: 'sl:C123',
         content: '@Ops status',
-        thread_id: '1710000000.000100',
+        thread_id: undefined,
       }),
     );
   });
@@ -913,6 +1677,35 @@ describe('Slack channel', () => {
         external_message_id: 'trigger-1',
       }),
     );
+  });
+
+  it('persists standalone metadata for unrouted Slack slash commands without a message', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handler = appRef.current.commandHandlers.get('/gantry');
+    expect(handler).toBeDefined();
+    await handler!({
+      ack: vi.fn(),
+      command: {
+        channel_id: 'C_UNROUTED',
+        user_id: 'U123',
+        user_name: 'alice',
+        text: 'status',
+        trigger_id: 'trigger-unrouted',
+      },
+    });
+
+    expect(opts.onChatMetadata).toHaveBeenCalledWith(
+      'sl:C_UNROUTED',
+      expect.any(String),
+      'ops',
+      'slack',
+      true,
+      { providerAccountId: 'slack_default' },
+    );
+    expect(opts.onMessage).not.toHaveBeenCalled();
   });
 
   it('delivers /gantry slash commands for a single agent-qualified route', async () => {
@@ -1086,7 +1879,7 @@ describe('Slack channel', () => {
     expect(opts.onMessage).not.toHaveBeenCalled();
   });
 
-  it('normalizes top-level Slack channel messages as their own thread root', async () => {
+  it('keeps top-level Slack channel messages in channel scope', async () => {
     const opts = createOpts();
     opts.conversationRoutes.mockReturnValue({
       [makeAgentThreadQueueKey('sl:C123', null, null, 'slack_default')]: {
@@ -1111,7 +1904,7 @@ describe('Slack channel', () => {
       'sl:C123',
       expect.objectContaining({
         external_message_id: '1710000000.000100',
-        thread_id: '1710000000.000100',
+        thread_id: undefined,
         content: '@Ops list projects',
         reply_to_message_id: undefined,
       }),
@@ -1157,6 +1950,52 @@ describe('Slack channel', () => {
       2,
       'sl:C123',
       expect.objectContaining({ content: '<@U_OTHER> !new' }),
+    );
+  });
+
+  it('strips only the leading Slack bot invocation and preserves the rest of the message', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', null, null, 'slack_default')]: {
+        folder: 'slack_ops',
+        name: 'Ops',
+        trigger: '@Gantry',
+      },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('app_mention') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000300',
+        thread_ts: '1710000000.000100',
+        user: 'U123',
+        text: 'yes <@U_BOT> you can request permission',
+      },
+    });
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000400',
+        user: 'U123',
+        text: '<@U_BOT>: deploy  now',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenNthCalledWith(
+      1,
+      'sl:C123',
+      expect.objectContaining({
+        content: 'yes <@U_BOT> you can request permission',
+        thread_id: '1710000000.000100',
+      }),
+    );
+    expect(opts.onMessage).toHaveBeenNthCalledWith(
+      2,
+      'sl:C123',
+      expect.objectContaining({ content: '@Gantry deploy  now' }),
     );
   });
 
@@ -1245,6 +2084,91 @@ describe('Slack channel', () => {
     });
   });
 
+  it('reports non-exhausted Slack channel coverage when history has more pages', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    appRef.current.client.conversations.history.mockResolvedValueOnce({
+      ok: true,
+      has_more: true,
+      messages: [
+        {
+          channel: 'C123',
+          ts: '1710000000.000100',
+          user: 'U123',
+          text: 'first',
+        },
+        {
+          channel: 'C123',
+          ts: '1710000001.000200',
+          user: 'U123',
+          text: 'second',
+        },
+      ],
+    });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:00:02.000Z',
+        external_message_id: '1710000002.000300',
+      },
+      limits: { channelMessages: 1, threadMessages: 50 },
+    });
+
+    expect(result.messages).toEqual([
+      {
+        id: '1710000000.000100',
+        chat_jid: 'sl:C123',
+        provider: 'slack',
+        sender: 'U123',
+        sender_name: 'Alice',
+        content: 'first',
+        timestamp: '2024-03-09T16:00:00.000Z',
+        is_from_me: false,
+        is_bot_message: false,
+        external_message_id: '1710000000.000100',
+        thread_id: undefined,
+        reply_to_message_id: undefined,
+      },
+    ]);
+    expect(result.coverage).toEqual({
+      requestedLatestMessage: {
+        externalMessageId: '1710000002.000300',
+        timestamp: '2024-03-09T16:00:02.000Z',
+      },
+      scope: 'channel',
+      requests: [
+        {
+          role: 'channel',
+          limit: 1,
+          effectiveBounds: { cursor: '1710000002.000300' },
+          rawMessageCount: 2,
+          pagination: {
+            kind: 'server_confirmed',
+            hasMore: true,
+            hadCursor: false,
+          },
+        },
+      ],
+      completeness: { kind: 'server_confirmed', exhausted: false },
+      deliveredMessageCount: 1,
+      threadRoot: 'not_applicable',
+    });
+    expect(
+      result.messages?.map(({ external_message_id, content }) => ({
+        external_message_id,
+        content,
+      })),
+    ).toEqual([
+      {
+        external_message_id: '1710000000.000100',
+        content: 'first',
+      },
+    ]);
+  });
+
   it('hydrates edited top-level Slack history messages with current text', async () => {
     const opts = createOpts();
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
@@ -1316,12 +2240,12 @@ describe('Slack channel', () => {
       thread_id: '1710000000.000100',
     };
 
-    await channel.hydrateConversationContext({
+    const channelResult = await channel.hydrateConversationContext({
       conversationJid: 'sl:C123',
       latestMessage,
       limits: { channelMessages: 5, threadMessages: 5 },
     });
-    await channel.hydrateConversationContext({
+    const threadResult = await channel.hydrateConversationContext({
       conversationJid: 'sl:C123',
       threadId: '1710000000.000100',
       latestMessage,
@@ -1338,6 +2262,12 @@ describe('Slack channel', () => {
     expect(repliesLatest).toMatch(/^\d+\.\d+$/);
     expect(historyLatest).not.toBe('trigger-1');
     expect(repliesLatest).not.toBe('trigger-1');
+    expect(channelResult.coverage?.requests[0]?.effectiveBounds).toEqual({
+      cursor: '1710000002.123000',
+    });
+    expect(threadResult.coverage?.requests[0]?.effectiveBounds).toEqual({
+      cursor: '1710000002.123000',
+    });
   });
 
   it('hydrates Slack bot_message history and only marks configured self messages', async () => {
@@ -1444,6 +2374,36 @@ describe('Slack channel', () => {
     });
 
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result.messages?.[0]?.attachments).toEqual([
+      {
+        id: 'slack-file:F_IMAGE',
+        kind: 'image',
+        contentType: 'image/png',
+        sizeBytes: 4096,
+        externalId: 'F_IMAGE',
+        file_name: 'screen.png',
+        provider_fetch: {
+          provider: 'slack',
+          kind: 'file_id',
+          id: 'F_IMAGE',
+        },
+      },
+    ]);
+    expect(result.messages?.[1]?.attachments).toEqual([
+      {
+        id: 'slack-file:F_FILE',
+        kind: 'file',
+        contentType: 'application/pdf',
+        sizeBytes: 8192,
+        externalId: 'F_FILE',
+        file_name: 'report.pdf',
+        provider_fetch: {
+          provider: 'slack',
+          kind: 'file_id',
+          id: 'F_FILE',
+        },
+      },
+    ]);
     expect(result.messages).toEqual([
       expect.objectContaining({
         content: 'Attachment: screen.png',
@@ -1575,6 +2535,286 @@ describe('Slack channel', () => {
     ]);
   });
 
+  it('reports exhausted Slack thread coverage from a single full-range replies page', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    appRef.current.client.conversations.replies.mockResolvedValueOnce({
+      ok: true,
+      has_more: false,
+      messages: [
+        {
+          channel: 'C123',
+          ts: '1710000000.000100',
+          thread_ts: '1710000000.000100',
+          user: 'U123',
+          text: 'root',
+        },
+        {
+          channel: 'C123',
+          ts: '1710000001.000200',
+          thread_ts: '1710000000.000100',
+          user: 'U456',
+          text: 'reply',
+        },
+      ],
+    });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      threadId: '1710000000.000100',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:00:02.000Z',
+        external_message_id: '1710000002.000300',
+        thread_id: '1710000000.000100',
+      },
+      limits: { channelMessages: 30, threadMessages: 2 },
+    });
+
+    expect(result.messages).toEqual([
+      {
+        id: '1710000000.000100',
+        chat_jid: 'sl:C123',
+        provider: 'slack',
+        sender: 'U123',
+        sender_name: 'Alice',
+        content: 'root',
+        timestamp: '2024-03-09T16:00:00.000Z',
+        is_from_me: false,
+        is_bot_message: false,
+        external_message_id: '1710000000.000100',
+        thread_id: '1710000000.000100',
+        reply_to_message_id: undefined,
+      },
+      {
+        id: '1710000001.000200',
+        chat_jid: 'sl:C123',
+        provider: 'slack',
+        sender: 'U456',
+        sender_name: 'Alice',
+        content: 'reply',
+        timestamp: '2024-03-09T16:00:01.000Z',
+        is_from_me: false,
+        is_bot_message: false,
+        external_message_id: '1710000001.000200',
+        thread_id: '1710000000.000100',
+        reply_to_message_id: '1710000000.000100',
+      },
+    ]);
+    expect(result.coverage).toEqual({
+      requestedLatestMessage: {
+        externalMessageId: '1710000002.000300',
+        timestamp: '2024-03-09T16:00:02.000Z',
+      },
+      scope: 'thread',
+      requests: [
+        {
+          role: 'thread',
+          limit: 2,
+          effectiveBounds: { cursor: '1710000002.000300' },
+          rawMessageCount: 2,
+          pagination: {
+            kind: 'server_confirmed',
+            hasMore: false,
+            hadCursor: false,
+          },
+        },
+      ],
+      completeness: { kind: 'server_confirmed', exhausted: true },
+      deliveredMessageCount: 2,
+      threadRoot: 'included',
+    });
+  });
+
+  it('keeps Slack thread coverage non-exhausted when only the tail cursor is blank', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    appRef.current.client.conversations.replies
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          {
+            channel: 'C123',
+            ts: '1710000000.000100',
+            thread_ts: '1710000000.000100',
+            user: 'U123',
+            text: 'root',
+          },
+          ...Array.from({ length: 10 }, (_, index) => ({
+            channel: 'C123',
+            ts: `17100000${String(index + 1).padStart(2, '0')}.000200`,
+            thread_ts: '1710000000.000100',
+            user: 'U456',
+            text: `early reply ${index + 1}`,
+          })),
+        ],
+        response_metadata: { next_cursor: 'thread-page-2' },
+      })
+      // Default (not Once): the tail loop widens its lookback across several
+      // sparse attempts; every attempt sees the same blank-cursor tail page so
+      // the FINAL tail response still carries the blank cursor the naive
+      // metadata-merge read would mistake for exhaustion.
+      .mockResolvedValue({
+        ok: true,
+        messages: [
+          {
+            channel: 'C123',
+            ts: '1710000011.000300',
+            thread_ts: '1710000000.000100',
+            user: 'U789',
+            text: 'tail reply',
+          },
+        ],
+        response_metadata: { next_cursor: '' },
+      });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      threadId: '1710000000.000100',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:00:12.000Z',
+        external_message_id: '1710000012.000400',
+        thread_id: '1710000000.000100',
+      },
+      limits: { channelMessages: 30, threadMessages: 50 },
+    });
+
+    expect(
+      result.messages?.map((message) => message.external_message_id),
+    ).toEqual([
+      '1710000000.000100',
+      ...Array.from(
+        { length: 10 },
+        (_, index) => `17100000${String(index + 1).padStart(2, '0')}.000200`,
+      ),
+      '1710000011.000300',
+    ]);
+    expect(result.coverage?.completeness).toEqual({
+      kind: 'server_confirmed',
+      exhausted: false,
+    });
+    const requests = result.coverage?.requests ?? [];
+    expect(requests[0]).toEqual({
+      role: 'thread',
+      limit: 50,
+      effectiveBounds: { cursor: '1710000012.000400' },
+      rawMessageCount: 11,
+      pagination: {
+        kind: 'server_confirmed',
+        hasMore: false,
+        hadCursor: true,
+      },
+    });
+    // The widening tail loop makes several sparse attempts; each is its own
+    // observation. None of them may influence exhaustion — that is decided by
+    // the full-range request above, whose cursor is still usable.
+    expect(requests.length).toBeGreaterThan(1);
+    for (const tail of requests.slice(1)) {
+      expect(tail).toMatchObject({
+        role: 'thread_tail',
+        limit: 49,
+        rawMessageCount: 1,
+        pagination: {
+          kind: 'server_confirmed',
+          hasMore: false,
+          hadCursor: false,
+        },
+      });
+      expect(tail.effectiveBounds.cursor).toBe('1710000012.000400');
+      expect(tail.effectiveBounds.oldest).toBeDefined();
+    }
+  });
+
+  it('reports a missing Slack thread root when normalization filters it out', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    appRef.current.client.conversations.replies.mockResolvedValueOnce({
+      ok: true,
+      messages: [
+        {
+          channel: 'C123',
+          ts: '1710000000.000100',
+          thread_ts: '1710000000.000100',
+          user: 'U123',
+          text: 'unsupported root event',
+          subtype: 'channel_join',
+        },
+        {
+          channel: 'C123',
+          ts: '1710000001.000200',
+          thread_ts: '1710000000.000100',
+          user: 'U456',
+          text: 'reply',
+        },
+      ],
+    });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      threadId: '1710000000.000100',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:00:02.000Z',
+        external_message_id: '1710000002.000300',
+        thread_id: '1710000000.000100',
+      },
+      limits: { channelMessages: 30, threadMessages: 2 },
+    });
+
+    expect(result.messages).toEqual([
+      {
+        id: '1710000001.000200',
+        chat_jid: 'sl:C123',
+        provider: 'slack',
+        sender: 'U456',
+        sender_name: 'Alice',
+        content: 'reply',
+        timestamp: '2024-03-09T16:00:01.000Z',
+        is_from_me: false,
+        is_bot_message: false,
+        external_message_id: '1710000001.000200',
+        thread_id: '1710000000.000100',
+        reply_to_message_id: '1710000000.000100',
+      },
+    ]);
+    expect(result.coverage?.threadRoot).toBe('missing');
+    expect(result.coverage?.deliveredMessageCount).toBe(1);
+  });
+
+  it('omits Slack coverage when the provider returns an error', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    appRef.current.client.conversations.history.mockResolvedValueOnce({
+      ok: false,
+      error: 'ratelimited',
+      messages: [],
+    });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:00:02.000Z',
+        external_message_id: '1710000002.000300',
+      },
+      limits: { channelMessages: 30, threadMessages: 50 },
+    });
+
+    expect(result).toEqual({
+      providerId: 'slack',
+      attempted: true,
+      failed: true,
+      reason: 'ratelimited',
+      messages: [],
+    });
+    expect(result).not.toHaveProperty('coverage');
+  });
+
   it('hydrates edited Slack thread replies with current text', async () => {
     const opts = createOpts();
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
@@ -1670,10 +2910,28 @@ describe('Slack channel', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
-        messages: [
-          reply(49),
-          ...Array.from({ length: 39 }, (_, index) => reply(index + 51)),
-        ],
+        messages: Array.from({ length: 30 }, (_, index) => reply(index + 41)),
+        response_metadata: { next_cursor: '   ' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 30 }, (_, index) => reply(index + 41)),
+        response_metadata: { next_cursor: '   ' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 30 }, (_, index) => reply(index + 41)),
+        response_metadata: { next_cursor: '   ' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 30 }, (_, index) => reply(index + 41)),
+        response_metadata: { next_cursor: '   ' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 30 }, (_, index) => reply(index + 41)),
+        response_metadata: { next_cursor: '   ' },
       });
 
     const result = await channel.hydrateConversationContext({
@@ -1689,7 +2947,7 @@ describe('Slack channel', () => {
     });
 
     expect(appRef.current.client.conversations.replies).toHaveBeenCalledTimes(
-      2,
+      6,
     );
     expect(appRef.current.client.conversations.replies).toHaveBeenNthCalledWith(
       1,
@@ -1709,7 +2967,7 @@ describe('Slack channel', () => {
         latest: '1710000091.000100',
         inclusive: false,
         oldest: expect.any(String),
-        limit: 39,
+        limit: 88,
       },
     );
     const tailWindowCall =
@@ -1723,11 +2981,11 @@ describe('Slack channel', () => {
       '1710000000.000100',
       ...Array.from(
         { length: 10 },
-        (_, index) => `17100000${String(index + 1).padStart(2, '0')}.000100`,
+        (_, index) => `1710000${String(index + 1).padStart(3, '0')}.000100`,
       ),
       ...Array.from(
         { length: 39 },
-        (_, index) => `1710000${String(index + 51).padStart(3, '0')}.000100`,
+        (_, index) => `1710000${String(index + 32).padStart(3, '0')}.000100`,
       ),
     ]);
     expect(
@@ -1735,11 +2993,533 @@ describe('Slack channel', () => {
     ).toHaveProperty('size', 50);
     expect(result.messages?.at(-1)).toEqual(
       expect.objectContaining({
-        external_message_id: '1710000089.000100',
+        external_message_id: '1710000070.000100',
         thread_id: '1710000000.000100',
         reply_to_message_id: '1710000000.000100',
       }),
     );
+    expect(result.coverage).toMatchObject({
+      completeness: { kind: 'server_confirmed', exhausted: false },
+      deliveredMessageCount: 50,
+      threadRoot: 'included',
+      requests: [
+        {
+          role: 'thread',
+          limit: 50,
+          effectiveBounds: { cursor: '1710000091.000100' },
+          rawMessageCount: 50,
+        },
+        ...Array.from({ length: 5 }, () => ({
+          role: 'thread_tail',
+          limit: 88,
+          effectiveBounds: {
+            cursor: '1710000091.000100',
+            oldest: expect.any(String),
+          },
+          rawMessageCount: 30,
+        })),
+      ],
+    });
+  });
+
+  it('stops Slack thread fetching when a small limit has no latest-reply slots', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    appRef.current.client.conversations.replies.mockResolvedValueOnce({
+      ok: true,
+      messages: [
+        {
+          channel: 'C123',
+          ts: '1710000000.000100',
+          thread_ts: '1710000000.000100',
+          user: 'U123',
+          text: 'root',
+        },
+        ...Array.from({ length: 4 }, (_, index) => ({
+          channel: 'C123',
+          ts: `171000000${index + 1}.000200`,
+          thread_ts: '1710000000.000100',
+          user: 'U456',
+          text: `early reply ${index + 1}`,
+        })),
+      ],
+      response_metadata: { next_cursor: 'thread-page-2' },
+    });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      threadId: '1710000000.000100',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:00:06.000Z',
+        external_message_id: '1710000006.000300',
+        thread_id: '1710000000.000100',
+      },
+      limits: { channelMessages: 30, threadMessages: 5 },
+    });
+
+    expect(appRef.current.client.conversations.replies).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(
+      result.messages?.map((message) => message.external_message_id),
+    ).toEqual([
+      '1710000000.000100',
+      '1710000001.000200',
+      '1710000002.000200',
+      '1710000003.000200',
+      '1710000004.000200',
+    ]);
+  });
+
+  it('keeps Slack thread coverage non-exhausted when a terminated chain skips a middle reply observed in the tail', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const reply = (index: number) => ({
+      channel: 'C123',
+      ts: `1710000${String(index).padStart(3, '0')}.000100`,
+      thread_ts: '1710000000.000100',
+      user: 'U456',
+      text: `reply ${index}`,
+    });
+    appRef.current.client.conversations.replies
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          {
+            channel: 'C123',
+            ts: '1710000000.000100',
+            thread_ts: '1710000000.000100',
+            user: 'U123',
+            text: 'root',
+          },
+          ...Array.from({ length: 5 }, (_, index) => reply(index + 1)),
+        ],
+        response_metadata: { next_cursor: 'thread-page-2' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          ...Array.from({ length: 5 }, (_, index) => reply(index + 7)),
+        ],
+        response_metadata: { next_cursor: '' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 49 }, (_, index) =>
+          reply((index % 11) + 1),
+        ),
+      });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      threadId: '1710000000.000100',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:01:35.000Z',
+        external_message_id: '1710000095.000100',
+        thread_id: '1710000000.000100',
+      },
+      limits: { channelMessages: 30, threadMessages: 50 },
+    });
+
+    expect(appRef.current.client.conversations.replies).toHaveBeenCalledTimes(
+      3,
+    );
+    expect(appRef.current.client.conversations.replies).toHaveBeenNthCalledWith(
+      2,
+      {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        latest: '1710000095.000100',
+        inclusive: false,
+        limit: 50,
+        cursor: 'thread-page-2',
+      },
+    );
+    const tailCall =
+      appRef.current.client.conversations.replies.mock.calls[2]?.[0];
+    expect(tailCall).toEqual({
+      channel: 'C123',
+      ts: '1710000000.000100',
+      latest: '1710000095.000100',
+      oldest: expect.any(String),
+      inclusive: false,
+      limit: 49,
+    });
+    expect(
+      result.messages?.map((message) => message.external_message_id),
+    ).toEqual([
+      '1710000000.000100',
+      ...Array.from(
+        { length: 11 },
+        (_, index) => `1710000${String(index + 1).padStart(3, '0')}.000100`,
+      ),
+    ]);
+    expect(result.coverage).toMatchObject({
+      completeness: { kind: 'server_confirmed', exhausted: false },
+      deliveredMessageCount: 12,
+      requests: [
+        {
+          role: 'thread',
+          limit: 50,
+          effectiveBounds: { cursor: '1710000095.000100' },
+          rawMessageCount: 6,
+          pagination: {
+            kind: 'server_confirmed',
+            hasMore: false,
+            hadCursor: true,
+          },
+        },
+        {
+          role: 'thread',
+          limit: 50,
+          effectiveBounds: { cursor: 'thread-page-2' },
+          rawMessageCount: 5,
+          pagination: {
+            kind: 'server_confirmed',
+            hasMore: false,
+            hadCursor: false,
+          },
+        },
+        {
+          role: 'thread_tail',
+          limit: 49,
+          effectiveBounds: {
+            cursor: '1710000095.000100',
+            oldest: tailCall.oldest,
+          },
+          rawMessageCount: 49,
+        },
+      ],
+    });
+  });
+
+  it('reports exhausted Slack thread coverage when a multi-page chain terminates and the tail stays within its coverage', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const reply = (index: number) => ({
+      channel: 'C123',
+      ts: `1710000${String(index).padStart(3, '0')}.000100`,
+      thread_ts: '1710000000.000100',
+      user: 'U456',
+      text: `reply ${index}`,
+    });
+    appRef.current.client.conversations.replies
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          {
+            channel: 'C123',
+            ts: '1710000000.000100',
+            thread_ts: '1710000000.000100',
+            user: 'U123',
+            text: 'root',
+          },
+          ...Array.from({ length: 5 }, (_, index) => reply(index + 1)),
+        ],
+        response_metadata: { next_cursor: 'thread-page-2' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          ...Array.from({ length: 44 }, (_, index) => reply(index + 6)),
+        ],
+        response_metadata: { next_cursor: '' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 88 }, (_, index) =>
+          reply((index % 49) + 1),
+        ),
+      });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      threadId: '1710000000.000100',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:01:35.000Z',
+        external_message_id: '1710000095.000100',
+        thread_id: '1710000000.000100',
+      },
+      limits: { channelMessages: 30, threadMessages: 50 },
+    });
+
+    expect(appRef.current.client.conversations.replies).toHaveBeenCalledTimes(
+      3,
+    );
+    expect(result.coverage?.requests.slice(0, 2)).toMatchObject([
+      {
+        role: 'thread',
+        pagination: {
+          kind: 'server_confirmed',
+          hasMore: false,
+          hadCursor: true,
+        },
+      },
+      {
+        role: 'thread',
+        pagination: {
+          kind: 'server_confirmed',
+          hasMore: false,
+          hadCursor: false,
+        },
+      },
+    ]);
+    expect(result.coverage?.completeness).toEqual({
+      kind: 'server_confirmed',
+      exhausted: true,
+    });
+  });
+
+  it('keeps Slack thread coverage non-exhausted when an earlier broad tail attempt contains an unseen reply', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const reply = (index: number) => ({
+      channel: 'C123',
+      ts: `1710000${String(index).padStart(3, '0')}.000100`,
+      thread_ts: '1710000000.000100',
+      user: 'U456',
+      text: `reply ${index}`,
+    });
+    appRef.current.client.conversations.replies
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          {
+            channel: 'C123',
+            ts: '1710000000.000100',
+            thread_ts: '1710000000.000100',
+            user: 'U123',
+            text: 'root',
+          },
+          ...Array.from({ length: 5 }, (_, index) => reply(index + 1)),
+        ],
+        response_metadata: { next_cursor: 'thread-page-2' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 44 }, (_, index) => reply(index + 6)),
+        response_metadata: { next_cursor: '' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          {
+            ...reply(50),
+            ts: '1709997000.000100',
+            text: 'unseen broad-tail reply',
+          },
+          ...Array.from({ length: 87 }, (_, index) => reply((index % 49) + 1)),
+        ],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 88 }, (_, index) =>
+          reply((index % 49) + 1),
+        ),
+      });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      threadId: '1710000000.000100',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:01:35.000Z',
+        external_message_id: '1710000095.000100',
+        thread_id: '1710000000.000100',
+      },
+      limits: { channelMessages: 30, threadMessages: 50 },
+    });
+
+    expect(appRef.current.client.conversations.replies).toHaveBeenCalledTimes(
+      4,
+    );
+    const firstTailCall =
+      appRef.current.client.conversations.replies.mock.calls[2]?.[0];
+    const narrowedTailCall =
+      appRef.current.client.conversations.replies.mock.calls[3]?.[0];
+    expect(Number(narrowedTailCall.oldest)).toBeGreaterThan(
+      Number(firstTailCall.oldest),
+    );
+    expect(result.coverage?.completeness).toEqual({
+      kind: 'server_confirmed',
+      exhausted: false,
+    });
+  });
+
+  it('keeps Slack thread coverage non-exhausted when the full-range chain reaches its four-page cap', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const reply = (index: number) => ({
+      channel: 'C123',
+      ts: `1710000${String(index).padStart(3, '0')}.000100`,
+      thread_ts: '1710000000.000100',
+      user: 'U456',
+      text: `reply ${index}`,
+    });
+    appRef.current.client.conversations.replies
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          {
+            channel: 'C123',
+            ts: '1710000000.000100',
+            thread_ts: '1710000000.000100',
+            user: 'U123',
+            text: 'root',
+          },
+          reply(1),
+        ],
+        response_metadata: { next_cursor: 'thread-page-2' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [reply(2)],
+        response_metadata: { next_cursor: 'thread-page-3' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [reply(3)],
+        response_metadata: { next_cursor: 'thread-page-4' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [reply(4)],
+        response_metadata: { next_cursor: 'thread-page-5' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 49 }, (_, index) => reply(index + 41)),
+      });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      threadId: '1710000000.000100',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:01:35.000Z',
+        external_message_id: '1710000095.000100',
+        thread_id: '1710000000.000100',
+      },
+      limits: { channelMessages: 30, threadMessages: 50 },
+    });
+
+    const threadRequests =
+      result.coverage?.requests.filter(({ role }) => role === 'thread') ?? [];
+    expect(threadRequests).toHaveLength(4);
+    expect(
+      threadRequests.map(({ effectiveBounds }) => effectiveBounds.cursor),
+    ).toEqual([
+      '1710000095.000100',
+      'thread-page-2',
+      'thread-page-3',
+      'thread-page-4',
+    ]);
+    expect(threadRequests.at(-1)?.pagination).toEqual({
+      kind: 'server_confirmed',
+      hasMore: false,
+      hadCursor: true,
+    });
+    expect(result.coverage?.completeness).toEqual({
+      kind: 'server_confirmed',
+      exhausted: false,
+    });
+  });
+
+  it('keeps the newest bounded Slack replies when the thread root is unavailable', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    appRef.current.client.conversations.replies.mockResolvedValueOnce({
+      ok: true,
+      messages: Array.from({ length: 12 }, (_, index) => ({
+        channel: 'C123',
+        ts: `171000000${index + 1}.000100`,
+        thread_ts: '1710000000.000100',
+        user: 'U456',
+        text: `reply ${index + 1}`,
+      })),
+    });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      threadId: '1710000000.000100',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:01:31.000Z',
+        external_message_id: '1710000091.000100',
+        thread_id: '1710000000.000100',
+      },
+      limits: { channelMessages: 30, threadMessages: 10 },
+    });
+
+    expect(
+      result.messages?.map((message) => message.external_message_id),
+    ).toEqual(
+      Array.from({ length: 10 }, (_, index) => `171000000${index + 3}.000100`),
+    );
+  });
+
+  it('fetches a full latest-only Slack tail when a paginated thread root is unavailable', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const reply = (index: number) => ({
+      channel: 'C123',
+      ts: `1710000${String(index).padStart(3, '0')}.000100`,
+      thread_ts: '1710000000.000100',
+      user: 'U456',
+      text: `reply ${index}`,
+    });
+    appRef.current.client.conversations.replies
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 50 }, (_, index) => reply(index + 1)),
+        response_metadata: { next_cursor: 'thread-page-2' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 50 }, (_, index) => reply(index + 41)),
+      });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      threadId: '1710000000.000100',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:01:31.000Z',
+        external_message_id: '1710000091.000100',
+        thread_id: '1710000000.000100',
+      },
+      limits: { channelMessages: 30, threadMessages: 50 },
+    });
+
+    expect(appRef.current.client.conversations.replies).toHaveBeenCalledTimes(
+      2,
+    );
+    expect(appRef.current.client.conversations.replies).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ limit: 50 }),
+    );
+    expect(
+      result.messages?.map((message) => message.external_message_id),
+    ).toEqual(
+      Array.from(
+        { length: 50 },
+        (_, index) => `1710000${String(index + 41).padStart(3, '0')}.000100`,
+      ),
+    );
+    expect(
+      new Set(result.messages?.map((message) => message.external_message_id)),
+    ).toHaveProperty('size', 50);
+    expect(result.coverage?.deliveredMessageCount).toBe(50);
   });
 
   it('narrows dense Slack thread tail windows before selecting latest replies', async () => {
@@ -1770,12 +3550,12 @@ describe('Slack channel', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
-        messages: Array.from({ length: 39 }, (_, index) => reply(index + 11)),
+        messages: Array.from({ length: 88 }, (_, index) => reply(index + 3)),
         response_metadata: { next_cursor: 'dense-tail-page' },
       })
       .mockResolvedValueOnce({
         ok: true,
-        messages: Array.from({ length: 39 }, (_, index) => reply(index + 52)),
+        messages: Array.from({ length: 88 }, (_, index) => reply(index + 3)),
       });
 
     const result = await channel.hydrateConversationContext({
@@ -1806,13 +3586,33 @@ describe('Slack channel', () => {
       '1710000000.000100',
       ...Array.from(
         { length: 10 },
-        (_, index) => `17100000${String(index + 1).padStart(2, '0')}.000100`,
+        (_, index) => `1710000${String(index + 1).padStart(3, '0')}.000100`,
       ),
       ...Array.from(
         { length: 39 },
         (_, index) => `1710000${String(index + 52).padStart(3, '0')}.000100`,
       ),
     ]);
+    expect(result.coverage?.requests.slice(1)).toEqual([
+      expect.objectContaining({
+        role: 'thread_tail',
+        effectiveBounds: {
+          cursor: '1710000091.000100',
+          oldest: firstTailCall.oldest,
+        },
+      }),
+      expect.objectContaining({
+        role: 'thread_tail',
+        effectiveBounds: {
+          cursor: '1710000091.000100',
+          oldest: narrowedTailCall.oldest,
+        },
+      }),
+    ]);
+    expect(result.coverage?.completeness).toEqual({
+      kind: 'server_confirmed',
+      exhausted: false,
+    });
   });
 
   it('caps Slack thread tail window retries', async () => {
@@ -1929,13 +3729,6 @@ describe('Slack channel', () => {
           providerAccountId: 'slack_default',
         },
     });
-    const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
-    vi.spyOn(fs, 'lstatSync').mockReturnValue({
-      isDirectory: () => true,
-      isSymbolicLink: () => false,
-    } as any);
-    vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
-    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -1973,20 +3766,155 @@ describe('Slack channel', () => {
         attachments: [
           expect.objectContaining({
             externalId: 'F123',
-            storageRef: 'attachments/report.pdf',
+            storageRef: expect.stringMatching(
+              /^attachments\/[a-f0-9]{16}-report\.pdf$/,
+            ),
           }),
         ],
       }),
     );
     expect(opts.onMessage.mock.calls[0][1].content).not.toContain('/tmp/');
-    expect(mkdirSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_ops/attachments',
-      { recursive: true, mode: 0o700 },
+    const storageRef =
+      opts.onMessage.mock.calls[0][1].attachments[0].storageRef;
+    expect(opts.onMessage.mock.calls[0][1].attachments[0]).toEqual({
+      id: 'slack-file:F123',
+      kind: 'file',
+      contentType: 'application/pdf',
+      externalId: 'F123',
+      file_name: 'report.pdf',
+      provider_fetch: {
+        provider: 'slack',
+        kind: 'file_id',
+        id: 'F123',
+      },
+      storageRef,
+    });
+    expect(
+      fs.readFileSync(
+        path.join(slackWorkspace.root, 'slack_ops', ...storageRef.split('/')),
+      ),
+    ).toEqual(Buffer.alloc(8));
+  });
+
+  it('does not expose a gantry attachment ref when Slack download fails', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
+        {
+          folder: 'slack_ops',
+          name: 'Ops',
+          providerAccountId: 'slack_default',
+        },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        headers: { get: () => null },
+      }),
     );
-    expect(writeSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_ops/attachments/report.pdf',
-      expect.any(Buffer),
-      { mode: 0o600 },
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: 'see file',
+        files: [
+          {
+            id: 'F123',
+            name: 'Scout_Agent_Skills.md',
+            mimetype: 'text/markdown',
+            url_private_download: 'https://files.slack.test/skills.md',
+          },
+        ],
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        content:
+          'see file\nAttachment: Scout_Agent_Skills.md (download unavailable: slack_http_403)',
+        attachments: [
+          expect.objectContaining({
+            externalId: 'F123',
+            contentType: 'text/markdown',
+          }),
+        ],
+      }),
+    );
+    expect(opts.onMessage.mock.calls[0][1].attachments[0]).not.toHaveProperty(
+      'storageRef',
+    );
+  });
+
+  it('does not expose a gantry attachment ref when Slack returns an HTML page', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
+        {
+          folder: 'slack_ops',
+          name: 'Ops',
+          providerAccountId: 'slack_default',
+        },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: {
+          get: (name: string) =>
+            name.toLowerCase() === 'content-type'
+              ? 'text/html; charset=utf-8'
+              : null,
+        },
+        arrayBuffer: vi
+          .fn()
+          .mockResolvedValue(Buffer.from('<html>Sign in to Slack</html>')),
+      }),
+    );
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: 'see file',
+        files: [
+          {
+            id: 'F123',
+            name: 'Scout_Agent_Skills.md',
+            mimetype: 'text/markdown',
+            url_private_download: 'https://files.slack.test/skills.md',
+          },
+        ],
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        content:
+          'see file\nAttachment: Scout_Agent_Skills.md (download unavailable: slack_html_response)',
+        attachments: [
+          expect.objectContaining({
+            externalId: 'F123',
+            contentType: 'text/markdown',
+          }),
+        ],
+      }),
+    );
+    expect(opts.onMessage.mock.calls[0][1].attachments[0]).not.toHaveProperty(
+      'storageRef',
     );
   });
 
@@ -2125,13 +4053,6 @@ describe('Slack channel', () => {
         providerAccountId: 'slack_default',
       },
     });
-    const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
-    vi.spyOn(fs, 'lstatSync').mockReturnValue({
-      isDirectory: () => true,
-      isSymbolicLink: () => false,
-    } as any);
-    vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
-    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -2163,19 +4084,23 @@ describe('Slack channel', () => {
     });
 
     const message = opts.onMessage.mock.calls[0][1];
-    expect(message.thread_id).toBe('1710000000.000100');
+    expect(message.thread_id).toBeUndefined();
     expect(message.attachments[0]).toEqual(
-      expect.objectContaining({ storageRef: 'attachments/report.pdf' }),
+      expect.objectContaining({
+        storageRef: expect.stringMatching(
+          /^attachments\/[a-f0-9]{16}-report\.pdf$/,
+        ),
+      }),
     );
-    expect(mkdirSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_ops/attachments',
-      { recursive: true, mode: 0o700 },
-    );
-    expect(writeSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_ops/attachments/report.pdf',
-      expect.any(Buffer),
-      { mode: 0o600 },
-    );
+    expect(
+      fs.readFileSync(
+        path.join(
+          slackWorkspace.root,
+          'slack_ops',
+          ...message.attachments[0].storageRef.split('/'),
+        ),
+      ),
+    ).toEqual(Buffer.alloc(8));
   });
 
   it('does not download Slack attachments for multiple exact thread route folders', async () => {
@@ -2306,13 +4231,6 @@ describe('Slack channel', () => {
         providerAccountId: 'slack_default',
       },
     });
-    const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
-    vi.spyOn(fs, 'lstatSync').mockReturnValue({
-      isDirectory: () => true,
-      isSymbolicLink: () => false,
-    } as any);
-    vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
-    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -2349,106 +4267,80 @@ describe('Slack channel', () => {
       expect.objectContaining({
         thread_id: '1710000000.000111',
         attachments: [
-          expect.objectContaining({ storageRef: 'attachments/report.pdf' }),
+          expect.objectContaining({
+            storageRef: expect.stringMatching(
+              /^attachments\/[a-f0-9]{16}-report\.pdf$/,
+            ),
+          }),
         ],
       }),
     );
-    expect(mkdirSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_thread/attachments',
-      { recursive: true, mode: 0o700 },
-    );
-    expect(writeSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_thread/attachments/report.pdf',
-      expect.any(Buffer),
-      { mode: 0o600 },
-    );
+    const storageRef =
+      opts.onMessage.mock.calls[0][1].attachments[0].storageRef;
+    expect(
+      fs.readFileSync(
+        path.join(
+          slackWorkspace.root,
+          'slack_thread',
+          ...storageRef.split('/'),
+        ),
+      ),
+    ).toEqual(Buffer.alloc(8));
   });
 
-  it('resets Slack attachment file mode when overwriting buffered downloads', async () => {
-    class TestSlackChannel extends SlackChannel {
-      write(response: Response, destPath: string) {
-        return this.writeFetchResponseToFile(response, destPath);
-      }
-    }
-    vi.spyOn(fs, 'lstatSync').mockReturnValue({
-      isSymbolicLink: () => false,
-    } as any);
-    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
-    const chmodSpy = vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
-    const channel = new TestSlackChannel(
-      'xoxb-token',
-      'xapp-token',
-      createOpts() as any,
-    );
+  it('writes buffered Slack downloads through the real writer', async () => {
+    const workspaceRoot = path.join(slackWorkspace.root, 'slack_buffered');
+    fs.mkdirSync(path.join(workspaceRoot, 'attachments'), { recursive: true });
 
     await expect(
-      channel.write(
+      writeSlackAttachmentResponse(
         {
           headers: { get: () => null },
           body: null,
           arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
         } as unknown as Response,
-        '/tmp/test-groups/slack_ops/attachments/report.pdf',
+        workspaceRoot,
+        'attachments/report.pdf',
       ),
     ).resolves.toBe(true);
 
-    expect(writeSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_ops/attachments/report.pdf',
-      expect.any(Buffer),
-      { mode: 0o600 },
+    const attachmentPath = path.join(
+      workspaceRoot,
+      'attachments',
+      'report.pdf',
     );
-    expect(chmodSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_ops/attachments/report.pdf',
-      0o600,
-    );
+    expect(fs.readFileSync(attachmentPath)).toEqual(Buffer.from([1, 2, 3]));
+    expect(fs.statSync(attachmentPath).mode & 0o777).toBe(0o600);
   });
 
-  it('resets Slack attachment file mode when overwriting streamed downloads', async () => {
-    class TestSlackChannel extends SlackChannel {
-      write(response: Response, destPath: string) {
-        return this.writeFetchResponseToFile(response, destPath);
-      }
-    }
-    vi.spyOn(fs, 'lstatSync').mockReturnValue({
-      isSymbolicLink: () => false,
-    } as any);
-    const openSpy = vi.spyOn(fs, 'openSync').mockReturnValue(123);
-    const writeSpy = vi.spyOn(fs, 'writeSync').mockReturnValue(2);
-    const closeSpy = vi.spyOn(fs, 'closeSync').mockReturnValue(undefined);
-    const chmodSpy = vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
+  it('writes streamed Slack downloads through the real writer', async () => {
+    const workspaceRoot = path.join(slackWorkspace.root, 'slack_streamed');
+    fs.mkdirSync(path.join(workspaceRoot, 'attachments'), { recursive: true });
     const reader = {
       read: vi
         .fn()
         .mockResolvedValueOnce({ done: false, value: new Uint8Array([1, 2]) })
         .mockResolvedValueOnce({ done: true }),
     };
-    const channel = new TestSlackChannel(
-      'xoxb-token',
-      'xapp-token',
-      createOpts() as any,
-    );
 
     await expect(
-      channel.write(
+      writeSlackAttachmentResponse(
         {
           headers: { get: () => null },
           body: { getReader: () => reader },
         } as unknown as Response,
-        '/tmp/test-groups/slack_ops/attachments/report.pdf',
+        workspaceRoot,
+        'attachments/report.pdf',
       ),
     ).resolves.toBe(true);
 
-    expect(openSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_ops/attachments/report.pdf',
-      'w',
-      0o600,
+    const attachmentPath = path.join(
+      workspaceRoot,
+      'attachments',
+      'report.pdf',
     );
-    expect(writeSpy).toHaveBeenCalledWith(123, expect.any(Buffer));
-    expect(closeSpy).toHaveBeenCalledWith(123);
-    expect(chmodSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_ops/attachments/report.pdf',
-      0o600,
-    );
+    expect(fs.readFileSync(attachmentPath)).toEqual(Buffer.from([1, 2]));
+    expect(fs.statSync(attachmentPath).mode & 0o777).toBe(0o600);
   });
 
   it('sends threaded Slack messages with thread_ts', async () => {
@@ -2472,6 +4364,126 @@ describe('Slack channel', () => {
     );
   });
 
+  it('uploads outbound file content through the Slack external upload flow', async () => {
+    const uploadFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal('fetch', uploadFetch);
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+
+    await channel.sendMessage('sl:C1234567890', 'Rendered.', {
+      threadId: '1710000000.000111',
+      files: [
+        {
+          filename: 'clip.mp4',
+          contentType: 'video/mp4',
+          sizeBytes: 4,
+          content: new Uint8Array([0, 1, 2, 3]),
+        },
+      ],
+    });
+
+    expect(
+      appRef.current.client.files.getUploadURLExternal,
+    ).toHaveBeenCalledWith({ filename: 'clip.mp4', length: 4 });
+    expect(uploadFetch).toHaveBeenCalledWith(
+      'https://files.slack.com/upload/v1/test',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream' },
+      }),
+    );
+    expect(
+      Buffer.from(uploadFetch.mock.calls[0]?.[1]?.body as Uint8Array),
+    ).toEqual(Buffer.from([0, 1, 2, 3]));
+    expect(
+      appRef.current.client.files.completeUploadExternal,
+    ).toHaveBeenCalledWith({
+      files: [{ id: 'F123', title: 'clip.mp4' }],
+      channel_id: 'C1234567890',
+      thread_ts: '1710000000.000111',
+    });
+  });
+
+  it('posts a visible per-file fallback when Slack upload fails', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    vi.mocked(
+      appRef.current.client.files.getUploadURLExternal,
+    ).mockRejectedValueOnce(new Error('upload unavailable'));
+
+    const result = await channel.sendMessage('sl:C1234567890', 'Rendered.', {
+      files: [
+        {
+          filename: 'clip.mp4',
+          contentType: 'video/mp4',
+          sizeBytes: 4,
+          content: new Uint8Array([0, 1, 2, 3]),
+        },
+      ],
+    });
+
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(2);
+    expect(appRef.current.client.chat.postMessage).toHaveBeenNthCalledWith(2, {
+      channel: 'C1234567890',
+      text: 'Attachment unavailable in Slack: clip.mp4 upload failed.',
+    });
+    expect(result).toMatchObject({
+      warnings: ['slack.attachment_upload_failed'],
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jid: 'sl:C1234567890',
+        path: 'clip.mp4',
+        reason: 'clip.mp4 upload failed.',
+      }),
+      'Slack attachment upload failed',
+    );
+  });
+
+  it('fails delivery when both Slack upload and visible fallback fail', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    vi.mocked(
+      appRef.current.client.files.getUploadURLExternal,
+    ).mockRejectedValueOnce(new Error('upload unavailable'));
+    vi.mocked(appRef.current.client.chat.postMessage)
+      .mockResolvedValueOnce({ ok: true, ts: '1710000000.100200' })
+      .mockRejectedValue(new Error('fallback unavailable'));
+
+    await expect(
+      channel.sendMessage('sl:C1234567890', 'Rendered.', {
+        files: [
+          {
+            filename: 'clip.mp4',
+            contentType: 'video/mp4',
+            sizeBytes: 4,
+            content: new Uint8Array([0, 1, 2, 3]),
+          },
+        ],
+      }),
+    ).rejects.toThrow('fallback unavailable');
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jid: 'sl:C1234567890',
+        path: 'clip.mp4',
+        error: expect.objectContaining({ message: 'fallback unavailable' }),
+      }),
+      'Slack attachment fallback message failed',
+    );
+  });
+
   it('renders Slack todo plans inside their source thread', async () => {
     const channel = new SlackChannel(
       'xoxb-token',
@@ -2492,7 +4504,6 @@ describe('Slack channel', () => {
       summary: 'Thread one',
       headline: 'Searching the web',
       status: 'running',
-      elapsed: '2m 14s',
       stop: { label: 'Stop', actionToken: 'stop-token-1' },
       items: [{ id: 'a', title: 'A', status: 'pending' }],
     });
@@ -2517,7 +4528,7 @@ describe('Slack channel', () => {
       }),
     );
     expect(JSON.stringify(postMessage.mock.calls[0]?.[0])).toContain(
-      '⏳ Searching the web · 2m 14s',
+      '⏳ Searching the web',
     );
     expect(JSON.stringify(postMessage.mock.calls[0]?.[0])).not.toContain(
       'stop-token-1',
@@ -2606,6 +4617,110 @@ describe('Slack channel', () => {
       runId: 'run-1',
     });
     expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
+  });
+
+  async function invokeSlackReviewAction(
+    outcome: {
+      state: string;
+      receipt: string;
+      replacementText?: string;
+      clearActions?: boolean;
+    },
+    decision: 'approve' | 'reject' | 'edit' = 'approve',
+  ) {
+    const onMessageAction = vi.fn(async () => outcome);
+    const opts = {
+      ...createOptsWithApproverHook(['U_APPROVER']),
+      onMessageAction,
+    };
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const actionHandler = appRef.current.actionHandlers.get(
+      'gantry_message_action',
+    );
+    const ack = vi.fn();
+    await actionHandler({
+      ack,
+      action: {
+        value: JSON.stringify({
+          kind: 'memory_review_decision',
+          reviewId: 'mrv_abc',
+          decision,
+        }),
+      },
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U_APPROVER' },
+        message: { ts: '1710000000.100201', thread_ts: '1710000000.000111' },
+      },
+    });
+    return { ack, onMessageAction };
+  }
+
+  it('rebuilds the shared Slack message as a receipt with no buttons on applied', async () => {
+    const { ack, onMessageAction } = await invokeSlackReviewAction({
+      state: 'applied',
+      receipt: 'Memory review approved.',
+    });
+    expect(ack).toHaveBeenCalled();
+    expect(onMessageAction).toHaveBeenCalledWith({
+      kind: 'memory_review_decision',
+      conversationJid: 'sl:C1234567890',
+      providerAccountId: 'slack_default',
+      threadId: '1710000000.000111',
+      userId: 'U_APPROVER',
+      reviewId: 'mrv_abc',
+      decision: 'approve',
+      label: '',
+    });
+    const call = appRef.current.client.chat.update.mock.calls[0]?.[0];
+    expect(call).toMatchObject({
+      channel: 'C1234567890',
+      ts: '1710000000.100201',
+      text: 'Memory review approved.',
+    });
+    // Blocks are rebuilt (receipt section) with no actions block — buttons gone.
+    expect(call.blocks).toEqual([
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: 'Memory review approved.' },
+      },
+    ]);
+    expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
+  });
+
+  it('delivers the reply-command ephemerally and leaves the shared Slack message intact on edit', async () => {
+    await invokeSlackReviewAction(
+      {
+        state: 'needs_input',
+        receipt: 'Reply to edit this review.',
+        replacementText: 'edit memory review mrv_abc: ',
+      },
+      'edit',
+    );
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+    const ephemeral =
+      appRef.current.client.chat.postEphemeral.mock.calls[0]?.[0];
+    expect(ephemeral).toMatchObject({
+      channel: 'C1234567890',
+      user: 'U_APPROVER',
+    });
+    expect(ephemeral.text).toContain('edit memory review mrv_abc:');
+  });
+
+  it('delivers a denial ephemerally and leaves the shared Slack message intact', async () => {
+    await invokeSlackReviewAction(
+      { state: 'denied', receipt: 'Not authorized to decide this review.' },
+      'approve',
+    );
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+    const ephemeral =
+      appRef.current.client.chat.postEphemeral.mock.calls[0]?.[0];
+    expect(ephemeral).toMatchObject({
+      channel: 'C1234567890',
+      user: 'U_APPROVER',
+      text: 'Not authorized to decide this review.',
+    });
   });
 
   it('does not render Slack live stop action buttons', async () => {
@@ -2858,7 +4973,7 @@ describe('Slack channel', () => {
       ok: true,
     });
 
-    await channel.sendProgressUpdate('sl:C1234567890', 'Done in 1s.', {
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done.', {
       done: true,
       replaceOnly: true,
       threadId: '1710000000.000111',
@@ -3203,20 +5318,20 @@ describe('Slack channel', () => {
     await channel.connect();
 
     await channel.sendProgressUpdate('sl:C1234567890', 'Working on it...');
-    await channel.sendProgressUpdate('sl:C1234567890', 'Done in 1s.', {
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done.', {
       done: true,
       replaceOnly: true,
     });
     expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
       channel: 'C1234567890',
       ts: '1710000000.100200',
-      text: 'Done in 1s.',
+      text: 'Done.',
       blocks: [],
     });
     appRef.current.client.chat.postMessage.mockClear();
     appRef.current.client.chat.update.mockClear();
 
-    await channel.sendProgressUpdate('sl:C1234567890', 'Done in 2s.', {
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done.', {
       done: true,
       replaceOnly: true,
     });
@@ -3234,7 +5349,7 @@ describe('Slack channel', () => {
     await channel.connect();
 
     await channel.sendProgressUpdate('sl:C1234567890', 'Working on it...');
-    await channel.sendProgressUpdate('sl:C1234567890', 'Done in 10s.', {
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done.', {
       done: true,
     });
 
@@ -3247,7 +5362,7 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
       channel: 'C1234567890',
       ts: '1710000000.100200',
-      text: 'Done in 10s.',
+      text: 'Done.',
       blocks: [],
     });
 
@@ -3271,7 +5386,7 @@ describe('Slack channel', () => {
     await channel.sendProgressUpdate('sl:C1234567890', 'Working on it...', {
       generation: 1,
     });
-    await channel.sendProgressUpdate('sl:C1234567890', 'Done in 10s.', {
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done.', {
       done: true,
       generation: 1,
     });
@@ -3305,14 +5420,14 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(2);
     expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
 
-    await channel.sendProgressUpdate('sl:C1234567890', 'Done in old turn.', {
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done.', {
       done: true,
       replaceOnly: true,
       generation: 1,
     });
     expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
 
-    await channel.sendProgressUpdate('sl:C1234567890', 'Done in new turn.', {
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done.', {
       done: true,
       replaceOnly: true,
       generation: 3,
@@ -3320,7 +5435,7 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
       channel: 'C1234567890',
       ts: '1710000000.100200',
-      text: 'Done in new turn.',
+      text: 'Done.',
       blocks: [],
     });
   });
@@ -3503,7 +5618,7 @@ describe('Slack channel', () => {
     );
     await channel.connect();
 
-    const approvalPromise = channel.requestPermissionApproval('sl:C123', {
+    const approvalPromise = requestSlackPermissionApproval(channel, 'sl:C123', {
       requestId: 'perm-cmd',
       sourceAgentFolder: 'slack_main',
       targetJid: 'sl:C123',
@@ -3514,15 +5629,21 @@ describe('Slack channel', () => {
       },
     });
     await flushSlackPromptRegistration();
-
-    const postCall = vi
+    const privateDetailsCall = vi
       .mocked(appRef.current.client.chat.postEphemeral)
       .mock.calls.at(-1)?.[0];
-    expect(postCall?.thread_ts).toBe('1711111111.000100');
-    expect(postCall?.user).toBe('U_APPROVER');
-    expect(postCall?.text).toContain(
+    expect(privateDetailsCall?.user).toBe('U_APPROVER');
+    expect(privateDetailsCall?.thread_ts).toBe('1711111111.000100');
+    expect(privateDetailsCall?.text).toContain(
       'Approval applies to the parent conversation.',
     );
+    expect(JSON.stringify(privateDetailsCall?.blocks || [])).not.toContain(
+      'git status --short',
+    );
+    const postCall = vi
+      .mocked(appRef.current.client.chat.postMessage)
+      .mock.calls.at(-1)?.[0];
+    expect(postCall?.thread_ts).toBe('1711111111.000100');
     expect(JSON.stringify(postCall?.blocks || [])).not.toContain(
       'git status --short',
     );
@@ -3550,9 +5671,9 @@ describe('Slack channel', () => {
         user: { id: 'U_APPROVER' },
       },
       action: {
-        value: JSON.stringify({
-          requestId: 'perm-cmd',
-        }),
+        value: JSON.stringify(
+          latestSlackPermissionActionValue('gantry_perm_full_view'),
+        ),
       },
     });
     expect(appRef.current.client.views.open).toHaveBeenCalledWith(
@@ -3573,54 +5694,50 @@ describe('Slack channel', () => {
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision_allow_once',
     );
+    const respond = vi.fn().mockResolvedValue({});
     await actionHandler?.({
       ack: vi.fn().mockResolvedValue(undefined),
-      body: { user: { id: 'U_APPROVER', name: 'Approver' } },
+      respond,
+      body: {
+        response_url: 'https://hooks.slack.test/actions/perm-cmd',
+        user: { id: 'U_APPROVER', name: 'Approver' },
+      },
       action: {
-        value: JSON.stringify({
-          requestId: 'perm-cmd',
-          decision: 'allow_once',
-        }),
+        value: JSON.stringify(
+          latestSlackPermissionActionValue('gantry_perm_decision_allow_once'),
+        ),
       },
     });
 
     await expect(approvalPromise).resolves.toEqual(
       expect.objectContaining({ approved: true }),
     );
+    expect(respond).toHaveBeenCalledWith({ delete_original: true });
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C123' }),
+    );
   });
 
   it('opens durable Slack permission full-view payloads after channel restart', async () => {
-    configurePendingInteractionDurability({
-      repository: {
-        listPendingInteractions: vi.fn(async () => [
-          {
-            id: 'pending-slack-full-view',
-            appId: 'default',
-            runId: 'run-1',
-            kind: 'permission',
-            status: 'pending',
-            payload: {
-              requestId: 'perm-durable-full-view',
-              sourceAgentFolder: 'slack_main',
-              conversationId: 'sl:C123',
-              decisionPolicy: 'same_channel',
-              permissionFullView: {
-                label: 'View full command',
-                title: 'Full command',
-                filename: 'permission-command.txt',
-                content: 'git status --short',
-              },
-            },
-            callbackRoute: null,
-            idempotencyKey: 'permission:slack_main:perm-durable-full-view',
-            approverRef: null,
-            resolution: null,
-            createdAt: '2026-06-23T00:00:00.000Z',
-            expiresAt: '2026-06-24T00:00:00.000Z',
-            resolvedAt: null,
-          },
-        ]),
-      } as never,
+    const request: PermissionApprovalRequest = {
+      requestId: 'perm-durable-full-view',
+      sourceAgentFolder: 'slack_main',
+      targetJid: 'sl:C123',
+      decisionPolicy: 'same_channel' as const,
+      toolName: 'Bash',
+    };
+    configureSlackPermissionRequest(request);
+    await bindPendingPermissionInteractionMessage({
+      request,
+      decisionOptions: ['allow_once', 'cancel'],
+      callbackId: 'slack-full-view-alias',
+      fullView: {
+        label: 'View full command',
+        title: 'Full command',
+        filename: 'permission-command.txt',
+        content: 'git status --short',
+      },
     });
     const channel = new SlackChannel(
       'xoxb-token',
@@ -3641,7 +5758,15 @@ describe('Slack channel', () => {
       },
       action: {
         value: JSON.stringify({
-          requestId: 'perm-durable-full-view',
+          callback: {
+            providerAlias: 'slack-full-view-alias',
+            scope: {
+              appId: 'default',
+              sourceAgentFolder: 'slack_main',
+              interactionId: 'perm-durable-full-view',
+            },
+            matchKind: 'individual',
+          },
         }),
       },
     });
@@ -3662,7 +5787,880 @@ describe('Slack channel', () => {
     );
   });
 
-  it('falls back to a channel approval prompt when Slack private prompts fail', async () => {
+  it('replaces an approved Slack permission card through response_url when removal fails', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    const respond = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('delete_original failed'))
+      .mockResolvedValueOnce({});
+
+    const approvalPromise = requestSlackPermissionApproval(channel, 'sl:C123', {
+      requestId: 'perm-delete-fallback',
+      sourceAgentFolder: 'slack_main',
+      toolName: 'Bash',
+    });
+    await flushSlackPromptRegistration();
+    await appRef.current.actionHandlers.get(
+      'gantry_perm_decision_allow_once',
+    )?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond,
+      body: {
+        channel: { id: 'C123' },
+        response_url: 'https://hooks.slack.test/actions/perm-delete-fallback',
+        user: { id: 'U_APPROVER', name: 'Approver' },
+      },
+      action: {
+        value: JSON.stringify(
+          latestSlackPermissionActionValue('gantry_perm_decision_allow_once'),
+        ),
+      },
+    });
+
+    await expect(approvalPromise).resolves.toMatchObject({ approved: true });
+    expect(respond).toHaveBeenNthCalledWith(1, { delete_original: true });
+    expect(respond).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        replace_original: true,
+        text: expect.stringContaining('Allowed once:'),
+      }),
+    );
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C123' }),
+    );
+  });
+
+  it('routes recovered Slack clicks through application orchestrator transport hooks', async () => {
+    const opts = createOptsWithApproverHook(['U_APPROVER']);
+    const runtimeSettings = opts.runtimeSettings;
+    opts.runtimeSettings = () => {
+      const settings = runtimeSettings();
+      settings.bindings.slack_long_test_binding = {
+        ...settings.bindings.slack_test_binding,
+        conversation: 'slack_long_test_conversation',
+      };
+      return settings;
+    };
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const requests: PermissionApprovalRequest[] = ['one', 'two'].map(
+      (suffix) => ({
+        requestId: `perm-recovered-${suffix}`,
+        sourceAgentFolder: 'slack_main',
+        targetJid: 'sl:C123',
+        toolName: 'Bash',
+        decisionOptions: ['allow_once', 'cancel'],
+      }),
+    );
+    const batch = createPermissionBatchRequest(requests, [
+      '1. Command',
+      '2. Command',
+    ]);
+    batch.approvalContextJid = 'sl:C1234567890';
+    const repository = configureSlackPermissionRequest(batch);
+    const providerAlias = 'slack-recovered-batch';
+    await bindPendingPermissionInteractionMessage({
+      request: batch,
+      decisionOptions: ['allow_persistent_rule', 'cancel'],
+      callbackId: providerAlias,
+    });
+    const respond = vi.fn().mockResolvedValue({});
+    const action = {
+      callback: {
+        providerAlias,
+        scope: {
+          appId: 'default',
+          sourceAgentFolder: 'slack_main',
+          interactionId: batch.requestId,
+        },
+        matchKind: 'batch',
+      },
+      decision: 'allow_once',
+    };
+
+    await appRef.current.actionHandlers.get(
+      'gantry_perm_decision_allow_once',
+    )?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond,
+      body: {
+        channel: { id: 'C123' },
+        user: { id: 'U_APPROVER', name: 'Approver' },
+      },
+      action: { value: JSON.stringify(action) },
+    });
+    expect(repository.claimPendingPermissionCallback).not.toHaveBeenCalled();
+
+    await appRef.current.actionHandlers.get(
+      'gantry_perm_decision_allow_persistent_rule',
+    )?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond,
+      body: {
+        channel: { id: 'C123' },
+        response_url: 'https://hooks.slack.test/actions/recovered-batch',
+        user: { id: 'U_APPROVER', name: 'Approver' },
+      },
+      action: {
+        value: JSON.stringify({
+          ...action,
+          decision: 'allow_persistent_rule',
+        }),
+      },
+    });
+
+    expect(respond).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replace_original: true,
+        text: expect.stringMatching(/cancel|denied/i),
+      }),
+    );
+    expect(repository.claimPendingPermissionCallback).toHaveBeenCalledOnce();
+    expect(repository.expirePendingPermissionReviewEach).toHaveBeenCalledOnce();
+    expect(opts.isControlApproverAllowed).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationJid: 'sl:C1234567890' }),
+    );
+  });
+
+  it('terminalizes a recovered Slack batch with the durable callback id', async () => {
+    const opts = createOptsWithApproverHook(['U_APPROVER']);
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const requests: PermissionApprovalRequest[] = ['one', 'two'].map(
+      (suffix) => ({
+        requestId: `perm-terminalize-${suffix}`,
+        sourceAgentFolder: 'slack_main',
+        targetJid: 'sl:C123',
+        toolName: 'Bash',
+        decisionOptions: ['allow_once', 'cancel'],
+      }),
+    );
+    const batch = createPermissionBatchRequest(requests, [
+      '1. Command',
+      '2. Command',
+    ]);
+    const repository = configureSlackPermissionRequest(batch);
+    const providerAlias = 'slack-terminalize-batch';
+    await bindPendingPermissionInteractionMessage({
+      request: batch,
+      decisionOptions: ['allow_persistent_rule', 'cancel'],
+      callbackId: providerAlias,
+    });
+    const terminalize = vi
+      .spyOn(channel as any, 'terminalizePermissionPrompt')
+      .mockResolvedValue(true);
+
+    await appRef.current.actionHandlers.get(
+      'gantry_perm_decision_allow_persistent_rule',
+    )?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond: vi.fn().mockResolvedValue({}),
+      body: {
+        channel: { id: 'C123' },
+        response_url: 'https://hooks.slack.test/actions/terminalize-batch',
+        user: { id: 'U_APPROVER', name: 'Approver' },
+      },
+      action: {
+        value: JSON.stringify({
+          callback: {
+            providerAlias,
+            scope: {
+              appId: 'default',
+              sourceAgentFolder: 'slack_main',
+              interactionId: batch.requestId,
+            },
+            matchKind: 'batch',
+          },
+          decision: 'allow_persistent_rule',
+        }),
+      },
+    });
+
+    expect(terminalize).toHaveBeenCalledWith(
+      batch.requestId,
+      expect.any(Object),
+      expect.any(String),
+      expect.any(Function),
+    );
+  });
+
+  it('resolves every Slack permission waiter on disconnect after a retryable durable claim', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    const first = requestSlackPermissionApproval(channel, 'sl:C123', {
+      requestId: 'perm-disconnect-first',
+      sourceAgentFolder: 'slack_main',
+      toolName: 'Bash',
+    });
+    await flushSlackPromptRegistration();
+    const second = requestSlackPermissionApproval(channel, 'sl:C123', {
+      requestId: 'perm-disconnect-retryable',
+      sourceAgentFolder: 'slack_main',
+      toolName: 'Bash',
+    });
+    await flushSlackPromptRegistration();
+    const repository = configureSlackPermissionRequest({
+      requestId: 'perm-disconnect-retryable',
+      sourceAgentFolder: 'slack_main',
+      toolName: 'Bash',
+    });
+    repository.claimPendingPermissionCallback.mockRejectedValue(
+      new Error('database unavailable'),
+    );
+
+    await appRef.current.actionHandlers.get('gantry_perm_decision_cancel')?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond: vi.fn().mockResolvedValue({}),
+      body: {
+        channel: { id: 'C123' },
+        response_url: 'https://hooks.slack.test/actions/retryable',
+        user: { id: 'U_APPROVER', name: 'Approver' },
+      },
+      action: {
+        value: JSON.stringify(
+          latestSlackPermissionActionValue('gantry_perm_decision_cancel'),
+        ),
+      },
+    });
+    await channel.disconnect();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({
+        approved: false,
+        mode: 'cancel',
+        decidedBy: 'system',
+        reason: 'Slack channel disconnected',
+      }),
+      expect.objectContaining({
+        approved: false,
+        mode: 'cancel',
+        decidedBy: 'system',
+        reason: 'Slack channel disconnected',
+      }),
+    ]);
+  });
+
+  it('preserves a Slack permission waiter owned by an in-flight winner on disconnect', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    const request: PermissionApprovalRequest = {
+      requestId: 'perm-disconnect-winner',
+      sourceAgentFolder: 'slack_main',
+      toolName: 'Bash',
+    };
+    const repository = configureSlackPermissionRequest(request);
+    const approval = channel.requestPermissionApproval('sl:C123', request);
+    await flushSlackPromptRegistration();
+    const scope = {
+      appId: 'default',
+      sourceAgentFolder: 'slack_main',
+      interactionId: request.requestId,
+    };
+    const group = await repository.findPendingPermissionPrompt({ scope });
+    group!.prompt.claim = {
+      id: 'holder',
+      scope,
+      intent: {
+        mode: 'allow_once',
+        approverRef: 'owner',
+        decidedAt: '2026-07-17T00:00:00.000Z',
+      },
+      match: {
+        kind: 'individual',
+        canonicalId: request.requestId,
+        providerAliases: [],
+      },
+    };
+    group!.prompt.settlementState = 'claimed';
+    repository.claimPendingPermissionCallback.mockResolvedValue(null);
+    let resolved = false;
+    void approval.then(() => {
+      resolved = true;
+    });
+
+    await channel.disconnect();
+    await Promise.resolve();
+
+    expect(resolved).toBe(false);
+    const prompts = (channel as any).pendingPermissionPrompts as Map<
+      string,
+      any
+    >;
+    expect(prompts.size).toBe(1);
+    const pending = prompts.values().next().value;
+    clearTimeout(pending.timer);
+    pending.resolve({ approved: true, mode: 'allow_once', decidedBy: 'owner' });
+    prompts.clear();
+    await approval;
+  });
+
+  it('resolves an ownerless Slack permission waiter on disconnect', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    const request: PermissionApprovalRequest = {
+      requestId: 'perm-disconnect-ownerless',
+      sourceAgentFolder: 'slack_main',
+      toolName: 'Bash',
+    };
+    const approval = requestSlackPermissionApproval(
+      channel,
+      'sl:C123',
+      request,
+    );
+    await flushSlackPromptRegistration();
+    configurePendingInteractionDurability({
+      repository: {
+        claimPendingPermissionCallback: vi.fn(async () => null),
+        findPendingPermissionPrompt: vi.fn(async () => null),
+      } as never,
+    });
+
+    await channel.disconnect();
+
+    await expect(approval).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'system',
+      reason: 'Slack channel disconnected',
+    });
+    expect((channel as any).pendingPermissionPrompts.size).toBe(0);
+  });
+
+  it('drops matching Slack permission and question waiters without resolving them', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    const permissionRequest: PermissionApprovalRequest = {
+      requestId: 'permission-drop-shadow',
+      sourceAgentFolder: 'slack_main',
+      toolName: 'Bash',
+    };
+    const questionRequest = {
+      requestId: 'question-drop-shadow',
+      sourceAgentFolder: 'slack_main',
+      questions: [
+        {
+          header: 'Continue',
+          question: 'Continue?',
+          multiSelect: false,
+          options: [{ label: 'Yes', description: 'Continue' }],
+        },
+      ],
+    };
+    const approval = requestSlackPermissionApproval(
+      channel,
+      'sl:C123',
+      permissionRequest,
+    );
+    await flushSlackPromptRegistration();
+    const answer = requestSlackUserAnswer(
+      channel,
+      'sl:C1234567890',
+      questionRequest,
+    );
+    await flushSlackPromptRegistration();
+    expect((channel as any).pendingPermissionPrompts.size).toBe(1);
+    expect((channel as any).pendingUserQuestions.size).toBe(1);
+    let approvalResolved = 0;
+    let answerResolved = 0;
+    void approval.then(() => {
+      approvalResolved += 1;
+    });
+    void answer.then(() => {
+      answerResolved += 1;
+    });
+
+    channel.dropPendingInteraction('permission', permissionRequest);
+    channel.dropPendingInteraction('question', questionRequest);
+    await Promise.resolve();
+
+    expect((channel as any).pendingPermissionPrompts.size).toBe(0);
+    expect((channel as any).pendingUserQuestions.size).toBe(0);
+    expect(approvalResolved).toBe(0);
+    expect(answerResolved).toBe(0);
+    await channel.disconnect();
+  });
+
+  it('claims an individual Slack permission once and resolves after terminalization', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_FIRST', 'U_SECOND']) as any,
+    );
+    await channel.connect();
+    const request = {
+      requestId: 'perm-individual-race',
+      sourceAgentFolder: 'slack_main',
+      toolName: 'Bash',
+    };
+    const raceRepository = configureSlackPermissionRequest(request);
+    const approvalPromise = channel.requestPermissionApproval(
+      'sl:C123',
+      request,
+    );
+    const resolved = vi.fn();
+    void approvalPromise.then(resolved);
+    await vi.waitFor(() =>
+      expect(raceRepository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(
+        2,
+      ),
+    );
+
+    let finishTerminalization!: () => void;
+    const terminalization = new Promise<void>((resolve) => {
+      finishTerminalization = resolve;
+    });
+    const firstRespond = vi.fn(async () => terminalization);
+    const firstClick = appRef.current.actionHandlers.get(
+      'gantry_perm_decision_allow_once',
+    )?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond: firstRespond,
+      body: {
+        response_url: 'https://hooks.slack.test/actions/first',
+        user: { id: 'U_FIRST', name: 'First Approver' },
+      },
+      action: {
+        value: JSON.stringify(
+          latestSlackPermissionActionValue('gantry_perm_decision_allow_once'),
+        ),
+      },
+    });
+    await vi.waitFor(() =>
+      expect(firstRespond).toHaveBeenCalledWith({ delete_original: true }),
+    );
+
+    const secondRespond = vi.fn().mockResolvedValue({});
+    await appRef.current.actionHandlers.get('gantry_perm_decision_cancel')?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond: secondRespond,
+      body: {
+        response_url: 'https://hooks.slack.test/actions/second',
+        user: { id: 'U_SECOND', name: 'Second Approver' },
+      },
+      action: {
+        value: JSON.stringify(
+          latestSlackPermissionActionValue('gantry_perm_decision_cancel'),
+        ),
+      },
+    });
+
+    expect(secondRespond).toHaveBeenCalledWith({
+      replace_original: true,
+      text: 'This permission request was already decided.',
+    });
+    expect(resolved).not.toHaveBeenCalled();
+    finishTerminalization();
+    await firstClick;
+    await expect(approvalPromise).resolves.toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'U_FIRST',
+    });
+    expect(raceRepository.claimPendingPermissionCallback).toHaveBeenCalledTimes(
+      2,
+    );
+  });
+
+  it('settles a runner-cancelled Slack prompt and rejects a later persistent approval', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    const request = {
+      requestId: 'perm-runner-cancelled',
+      appId: 'default',
+      sourceAgentFolder: 'slack_main',
+      targetJid: 'sl:C123',
+      toolName: 'Bash',
+      decisionOptions: ['allow_persistent_rule', 'cancel'] as const,
+    };
+    const repository = configureSlackPermissionRequest(request);
+    const approvalPromise = channel.requestPermissionApproval(
+      'sl:C123',
+      request,
+    );
+    await vi.waitFor(() =>
+      expect(repository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(2),
+    );
+    const persistentAction = latestSlackPermissionActionValue(
+      'gantry_perm_decision_allow_persistent_rule',
+    );
+
+    await expect(
+      channel.cancelPendingPermission({
+        requestId: request.requestId,
+        appId: request.appId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Permission request cancelled.',
+      }),
+    ).resolves.toBe('settled');
+    await expect(approvalPromise).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'runtime',
+      reason: 'Permission request cancelled.',
+    });
+
+    const respond = vi.fn().mockResolvedValue({});
+    await appRef.current.actionHandlers.get(
+      'gantry_perm_decision_allow_persistent_rule',
+    )?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond,
+      body: {
+        channel: { id: 'C123' },
+        response_url: 'https://hooks.slack.test/actions/late-persistent',
+        user: { id: 'U_APPROVER', name: 'Approver' },
+      },
+      action: { value: JSON.stringify(persistentAction) },
+    });
+
+    expect(respond).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replace_original: true,
+        text: expect.stringMatching(/^Canceled:/),
+      }),
+    );
+    expect(repository.claimPendingPermissionCallback).toHaveBeenCalledOnce();
+    expect(repository.claimPendingPermissionCallback).toHaveBeenCalledWith({
+      claim: expect.objectContaining({
+        intent: expect.objectContaining({ mode: 'cancel' }),
+      }),
+    });
+  });
+
+  it('preserves the winner when timeout fires after another callback claimed', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_FIRST']) as any,
+    );
+    await channel.connect();
+    const request = {
+      requestId: 'perm-timeout-claim-race',
+      sourceAgentFolder: 'slack_main',
+      toolName: 'Bash',
+      permissionLane: 'autonomous' as const,
+    };
+    const raceRepository = configureSlackPermissionRequest(request);
+    const approvalPromise = channel.requestPermissionApproval(
+      'sl:C123',
+      request,
+    );
+    const resolved = vi.fn();
+    void approvalPromise.then(resolved);
+    await vi.waitFor(() =>
+      expect(raceRepository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(
+        2,
+      ),
+    );
+
+    let finishTerminalization!: () => void;
+    const terminalization = new Promise<void>((resolve) => {
+      finishTerminalization = resolve;
+    });
+    const respond = vi.fn(async () => terminalization);
+    const winner = appRef.current.actionHandlers.get(
+      'gantry_perm_decision_allow_once',
+    )?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond,
+      body: {
+        response_url: 'https://hooks.slack.test/actions/winner',
+        user: { id: 'U_FIRST', name: 'First Approver' },
+      },
+      action: {
+        value: JSON.stringify(
+          latestSlackPermissionActionValue('gantry_perm_decision_allow_once'),
+        ),
+      },
+    });
+    await vi.waitFor(() =>
+      expect(respond).toHaveBeenCalledWith({ delete_original: true }),
+    );
+
+    await vi.advanceTimersByTimeAsync(300_000);
+
+    expect(resolved).not.toHaveBeenCalled();
+    expect((channel as any).pendingPermissionPrompts.size).toBe(1);
+    finishTerminalization();
+    await winner;
+    await expect(approvalPromise).resolves.toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'U_FIRST',
+    });
+    expect(raceRepository.claimPendingPermissionCallback).toHaveBeenCalledTimes(
+      2,
+    );
+    vi.useRealTimers();
+  });
+
+  it('allows an authorized approver whose display name is System', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_SYSTEM']) as any,
+    );
+    await channel.connect();
+    const request = {
+      requestId: 'perm-reserved-display-name',
+      sourceAgentFolder: 'slack_main',
+      toolName: 'Bash',
+    };
+    const repository = configureSlackPermissionRequest(request);
+    const approvalPromise = channel.requestPermissionApproval(
+      'sl:C123',
+      request,
+    );
+    await vi.waitFor(() =>
+      expect(repository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(2),
+    );
+
+    await appRef.current.actionHandlers.get(
+      'gantry_perm_decision_allow_once',
+    )?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond: vi.fn().mockResolvedValue({}),
+      body: {
+        response_url: 'https://hooks.slack.test/actions/system-display',
+        user: { id: 'U_SYSTEM', name: 'System' },
+      },
+      action: {
+        value: JSON.stringify(
+          latestSlackPermissionActionValue('gantry_perm_decision_allow_once'),
+        ),
+      },
+    });
+
+    await expect(approvalPromise).resolves.toMatchObject({
+      approved: true,
+      decidedBy: 'U_SYSTEM',
+    });
+    expect(repository.claimPendingPermissionCallback).toHaveBeenCalledWith({
+      claim: expect.objectContaining({
+        intent: expect.objectContaining({ approverRef: 'U_SYSTEM' }),
+      }),
+    });
+  });
+
+  it('leaves a Slack permission card stale without response_url and posts no receipt', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    const approvalPromise = requestSlackPermissionApproval(channel, 'sl:C123', {
+      requestId: 'perm-no-response-url',
+      sourceAgentFolder: 'slack_main',
+      toolName: 'Bash',
+      toolInput: { command: 'cat /private/customer.txt' },
+    });
+    await flushSlackPromptRegistration();
+    const respond = vi.fn().mockResolvedValue({});
+    const actionValue = latestSlackPermissionActionValue(
+      'gantry_perm_decision_cancel',
+    );
+
+    await appRef.current.actionHandlers.get('gantry_perm_decision_cancel')?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond,
+      body: {
+        channel: { id: 'C123' },
+        user: { id: 'U_APPROVER', name: 'Approver' },
+      },
+      action: {
+        value: JSON.stringify(actionValue),
+      },
+    });
+
+    let settled = false;
+    void approvalPromise.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(respond).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.delete).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C123' }),
+    );
+
+    const retryRespond = vi.fn().mockResolvedValue({});
+    await appRef.current.actionHandlers.get('gantry_perm_decision_cancel')?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond: retryRespond,
+      body: {
+        channel: { id: 'C123' },
+        response_url: 'https://hooks.slack.test/actions/retry',
+        user: { id: 'U_APPROVER', name: 'Approver' },
+      },
+      action: { value: JSON.stringify(actionValue) },
+    });
+    await expect(approvalPromise).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+    });
+  });
+
+  it('keeps identical Slack request ids scoped to the authorized agent', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    const firstRequest = {
+      requestId: 'shared-request-id',
+      sourceAgentFolder: 'agent_one',
+      targetJid: 'sl:C123',
+      toolName: 'Bash',
+    };
+    const firstRepository = configureSlackPermissionRequest(firstRequest);
+    const firstApproval = channel.requestPermissionApproval(
+      'sl:C123',
+      firstRequest,
+    );
+    await flushSlackPromptRegistration();
+    const firstValue = latestSlackPermissionActionValue(
+      'gantry_perm_decision_allow_once',
+    );
+
+    const secondRequest = {
+      ...firstRequest,
+      sourceAgentFolder: 'agent_two',
+    };
+    const secondRepository = configureSlackPermissionRequest(secondRequest);
+    const secondApproval = channel.requestPermissionApproval(
+      'sl:C123',
+      secondRequest,
+    );
+    await flushSlackPromptRegistration();
+    const secondValue = latestSlackPermissionActionValue(
+      'gantry_perm_decision_cancel',
+    );
+    configurePendingInteractionDurability({
+      repository: {
+        findPendingPermissionPrompt: vi.fn(async (input) => {
+          const first =
+            await firstRepository.findPendingPermissionPrompt(input);
+          return (
+            first ?? (await secondRepository.findPendingPermissionPrompt(input))
+          );
+        }),
+        findPendingInteractionByIdempotencyKey: vi.fn(async (input) => {
+          const first =
+            await firstRepository.findPendingInteractionByIdempotencyKey(input);
+          return (
+            first ??
+            (await secondRepository.findPendingInteractionByIdempotencyKey(
+              input,
+            ))
+          );
+        }),
+        claimPendingPermissionCallback: vi.fn(async (input) => {
+          const first =
+            await firstRepository.claimPendingPermissionCallback(input);
+          return (
+            first ??
+            (await secondRepository.claimPendingPermissionCallback(input))
+          );
+        }),
+        releasePendingPermissionCallback: vi.fn(async (input) => {
+          const first =
+            await firstRepository.releasePendingPermissionCallback(input);
+          return (
+            first ||
+            (await secondRepository.releasePendingPermissionCallback(input))
+          );
+        }),
+        settlePendingPermissionCallback: vi.fn(async (input) => {
+          const first =
+            await firstRepository.settlePendingPermissionCallback(input);
+          return (
+            first ||
+            (await secondRepository.settlePendingPermissionCallback(input))
+          );
+        }),
+        resolvePendingInteraction: vi.fn(async (input) => {
+          const first = await firstRepository.resolvePendingInteraction(input);
+          return (
+            first || (await secondRepository.resolvePendingInteraction(input))
+          );
+        }),
+        findPendingPermissionPromptByMember: vi.fn(async (input) => {
+          const first =
+            await firstRepository.findPendingPermissionPromptByMember(input);
+          return (
+            first ??
+            (await secondRepository.findPendingPermissionPromptByMember(input))
+          );
+        }),
+      } as never,
+    });
+
+    await appRef.current.actionHandlers.get(
+      'gantry_perm_decision_allow_once',
+    )?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond: vi.fn().mockResolvedValue({}),
+      body: {
+        channel: { id: 'C123' },
+        response_url: 'https://hooks.slack.test/actions/agent-one',
+        user: { id: 'U_APPROVER', name: 'Approver' },
+      },
+      action: { value: JSON.stringify(firstValue) },
+    });
+    await expect(firstApproval).resolves.toMatchObject({ approved: true });
+    let secondSettled = false;
+    void secondApproval.then(() => {
+      secondSettled = true;
+    });
+    await Promise.resolve();
+    expect(secondSettled).toBe(false);
+
+    await appRef.current.actionHandlers.get('gantry_perm_decision_cancel')?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond: vi.fn().mockResolvedValue({}),
+      body: {
+        channel: { id: 'C123' },
+        response_url: 'https://hooks.slack.test/actions/agent-two',
+        user: { id: 'U_APPROVER', name: 'Approver' },
+      },
+      action: { value: JSON.stringify(secondValue) },
+    });
+    await expect(secondApproval).resolves.toMatchObject({ approved: false });
+  });
+
+  it('posts a durable, neutral Slack approval card and private details to approvers', async () => {
     defaultSlackPermissionApproverIds.add('U_APPROVER');
     const channel = new SlackChannel(
       'xoxb-token',
@@ -3670,39 +6668,182 @@ describe('Slack channel', () => {
       createOptsWithApproverHook(['U_APPROVER']) as any,
     );
     await channel.connect();
-    vi.mocked(appRef.current.client.chat.postEphemeral).mockRejectedValue(
-      new Error('user_not_in_channel'),
-    );
-
-    const approvalPromise = channel.requestPermissionApproval('sl:C123', {
-      requestId: 'perm-private-fallback',
+    const approvalPromise = requestSlackPermissionApproval(channel, 'sl:C123', {
+      requestId: 'perm-channel-prompt',
       sourceAgentFolder: 'slack_main',
       toolName: 'Bash',
     });
     await flushSlackPromptRegistration();
 
+    expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C123', user: 'U_APPROVER' }),
+    );
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: 'C123' }),
+      expect.objectContaining({
+        channel: 'C123',
+        text: 'Approval required from a configured approver. Only configured approvers can decide this action.',
+        blocks: expect.arrayContaining([
+          expect.objectContaining({ type: 'actions' }),
+        ]),
+      }),
     );
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision_allow_once',
     );
+    const respond = vi.fn().mockResolvedValue({});
     await actionHandler?.({
       ack: vi.fn().mockResolvedValue(undefined),
+      respond,
       body: {
         channel: { id: 'C123' },
+        response_url: 'https://hooks.slack.test/actions/private-prompt',
         user: { id: 'U_APPROVER', name: 'Approver' },
       },
       action: {
-        value: JSON.stringify({
-          requestId: 'perm-private-fallback',
-          decision: 'allow_once',
-        }),
+        value: JSON.stringify(
+          latestSlackPermissionActionValue('gantry_perm_decision_allow_once'),
+        ),
       },
     });
     await expect(approvalPromise).resolves.toEqual(
       expect.objectContaining({ approved: true }),
     );
+  });
+
+  it('posts a visible Slack notice when no approver can receive a permission prompt', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook([]) as any,
+    );
+    await channel.connect();
+
+    const approvalPromise = requestSlackPermissionApproval(channel, 'sl:C123', {
+      requestId: 'perm-no-approver',
+      sourceAgentFolder: 'slack_main',
+      toolName: 'request_skill_install',
+      title: 'Install skill for this agent',
+    });
+    await flushSlackPromptRegistration();
+
+    await expect(approvalPromise).resolves.toMatchObject({ approved: false });
+    expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'C123',
+        text: expect.stringContaining('no configured approvers'),
+      }),
+    );
+  });
+
+  it('fails closed when a Slack permission batch cannot be bound durably', async () => {
+    vi.useFakeTimers();
+    configurePendingInteractionDurability({
+      repository: {
+        bindPendingPermissionPrompt: vi.fn(async () => null),
+      } as never,
+    });
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    const onPromptDelivered = vi.fn();
+    const batch = createPermissionBatchRequest(
+      [
+        {
+          requestId: 'perm-bind-1',
+          sourceAgentFolder: 'slack_main',
+          targetJid: 'sl:C123',
+          toolName: 'Bash',
+        },
+        {
+          requestId: 'perm-bind-2',
+          sourceAgentFolder: 'slack_main',
+          targetJid: 'sl:C123',
+          toolName: 'Write',
+        },
+      ],
+      ['1. Command', '2. File action'],
+    );
+
+    const approvalPromise = channel.requestPermissionApproval(
+      'sl:C123',
+      batch,
+      onPromptDelivered,
+    );
+    await flushSlackPromptRegistration();
+    await vi.runAllTimersAsync();
+
+    await expect(approvalPromise).resolves.toMatchObject({ approved: false });
+    expect(onPromptDelivered).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('clears a live Slack batch prompt when its post-send binding is already resolved', async () => {
+    const requests = ['perm-bind-1', 'perm-bind-2'].map((requestId) => ({
+      id: `pending-${requestId}`,
+      appId: 'default',
+      runId: 'run-1',
+      kind: 'permission' as const,
+      status: 'pending' as const,
+      payload: {
+        sourceAgentFolder: 'slack_main',
+        requestId,
+        request: {
+          requestId,
+          sourceAgentFolder: 'slack_main',
+          targetJid: 'sl:C123',
+          runId: 'run-1',
+          toolName: 'Bash',
+        },
+      },
+      callbackRoute: null,
+      idempotencyKey: `default:permission:slack_main:${requestId}`,
+      approverRef: null,
+      resolution: null,
+      createdAt: '2026-07-16T00:00:00.000Z',
+      expiresAt: '2099-07-17T00:00:00.000Z',
+      resolvedAt: null,
+    }));
+    const bindPendingPermissionPrompt = vi
+      .fn()
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce(null);
+    configurePendingInteractionDurability({
+      repository: {
+        bindPendingPermissionPrompt,
+      } as never,
+    });
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    const onPromptDelivered = vi.fn();
+    const batch = createPermissionBatchRequest(
+      requests.map((entry) => ({
+        requestId: String(entry.payload.requestId),
+        sourceAgentFolder: 'slack_main',
+        targetJid: 'sl:C123',
+        runId: 'run-1',
+        toolName: 'Bash',
+      })),
+      ['1. Command', '2. File action'],
+    );
+
+    await expect(
+      channel.requestPermissionApproval('sl:C123', batch, onPromptDelivered),
+    ).resolves.toMatchObject({ approved: false });
+
+    expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledOnce();
+    expect(bindPendingPermissionPrompt).toHaveBeenCalledTimes(2);
+    expect(onPromptDelivered).not.toHaveBeenCalled();
+    expect((channel as any).pendingPermissionPrompts.size).toBe(0);
   });
 
   it('escapes permission metadata before rendering Slack mrkdwn blocks', () => {
@@ -3735,7 +6876,8 @@ describe('Slack channel', () => {
     );
     await channel.connect();
 
-    const approvalPromise = channel.requestPermissionApproval(
+    const approvalPromise = requestSlackPermissionApproval(
+      channel,
       'sl:C1234567890',
       {
         requestId: 'perm-no-approver',
@@ -3749,17 +6891,19 @@ describe('Slack channel', () => {
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
     );
+    const respond = vi.fn().mockResolvedValue({});
     await actionHandler?.({
       ack: vi.fn().mockResolvedValue(undefined),
+      respond,
       body: {
         channel: { id: 'C1234567890' },
+        response_url: 'https://hooks.slack.test/actions/channel-allowlist',
         user: { id: 'U_ANY', name: 'Any User' },
       },
       action: {
-        value: JSON.stringify({
-          requestId: 'perm-no-approver',
-          decision: 'allow_once',
-        }),
+        value: JSON.stringify(
+          latestSlackPermissionActionValue('gantry_perm_decision_allow_once'),
+        ),
       },
     });
 
@@ -3777,7 +6921,7 @@ describe('Slack channel', () => {
     );
   });
 
-  it('sends Slack approval prompts only to approvers on this provider account', async () => {
+  it('scopes Slack private permission details to this account approvers', async () => {
     const base = createOpts({ default: [], agents: {} });
     const channel = new SlackChannel('xoxb-token', 'xapp-token', {
       ...base,
@@ -3809,19 +6953,22 @@ describe('Slack channel', () => {
     } as any);
     await channel.connect();
 
-    const approvalPromise = channel.requestPermissionApproval('sl:C123', {
+    const approvalPromise = requestSlackPermissionApproval(channel, 'sl:C123', {
       requestId: 'perm-provider-account-scope',
       sourceAgentFolder: 'slack_main',
       toolName: 'Bash',
     });
     await flushSlackPromptRegistration();
 
-    const privatePromptUsers =
-      appRef.current.client.chat.postEphemeral.mock.calls
-        .map((call) => call[0]?.user)
-        .filter(Boolean);
-    expect(privatePromptUsers).toEqual(['U_THIS_ACCOUNT']);
-    expect(privatePromptUsers).not.toContain('U_OTHER_ACCOUNT');
+    expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C123', user: 'U_THIS_ACCOUNT' }),
+    );
+    expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalledWith(
+      expect.objectContaining({ user: 'U_OTHER_ACCOUNT' }),
+    );
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C123' }),
+    );
 
     await channel.disconnect();
     await expect(approvalPromise).resolves.toEqual(
@@ -3837,7 +6984,8 @@ describe('Slack channel', () => {
     );
     await channel.connect();
 
-    const approvalPromise = channel.requestPermissionApproval(
+    const approvalPromise = requestSlackPermissionApproval(
+      channel,
       'sl:C1234567890',
       {
         requestId: 'perm-origin-feedback',
@@ -3857,10 +7005,9 @@ describe('Slack channel', () => {
         user: { id: 'U_ANY', name: 'Any User' },
       },
       action: {
-        value: JSON.stringify({
-          requestId: 'perm-origin-feedback',
-          decision: 'allow_once',
-        }),
+        value: JSON.stringify(
+          latestSlackPermissionActionValue('gantry_perm_decision_allow_once'),
+        ),
       },
     });
 
@@ -3881,13 +7028,13 @@ describe('Slack channel', () => {
   it('authorizes Slack permission decisions through conversation approver hook', async () => {
     const isControlApproverAllowed = vi.fn(async () => true);
     const channel = new SlackChannel('xoxb-token', 'xapp-token', {
-      ...createOpts({ default: [], agents: {} }),
-      providerAccountId: 'slack_alpha',
+      ...createOpts({ default: ['U_CHANNEL_ADMIN'], agents: {} }),
       isControlApproverAllowed,
     } as any);
     await channel.connect();
 
-    const approvalPromise = channel.requestPermissionApproval(
+    const approvalPromise = requestSlackPermissionApproval(
+      channel,
       'sl:C1234567890',
       {
         requestId: 'perm-channel-allowlist',
@@ -3909,25 +7056,26 @@ describe('Slack channel', () => {
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
     );
+    const respond = vi.fn().mockResolvedValue({});
     await actionHandler?.({
       ack: vi.fn().mockResolvedValue(undefined),
+      respond,
       body: {
         channel: { id: 'C1234567890' },
+        response_url: 'https://hooks.slack.test/actions/channel-allowlist',
         user: { id: 'U_CHANNEL_ADMIN', name: 'ChannelAdmin' },
       },
       action: {
-        value: JSON.stringify({
-          requestId: 'perm-channel-allowlist',
-          decision: 'allow_once',
-          providerAccountId: 'slack_beta',
-        }),
+        value: JSON.stringify(
+          latestSlackPermissionActionValue('gantry_perm_decision_allow_once'),
+        ),
       },
     });
 
     await expect(approvalPromise).resolves.toEqual(
       expect.objectContaining({
         approved: true,
-        decidedBy: 'ChannelAdmin',
+        decidedBy: 'U_CHANNEL_ADMIN',
       }),
     );
     expect(isControlApproverAllowed).toHaveBeenCalledWith(
@@ -3943,12 +7091,13 @@ describe('Slack channel', () => {
   it('authorizes Slack same-channel decisions from block action container channel', async () => {
     const isControlApproverAllowed = vi.fn(async () => true);
     const channel = new SlackChannel('xoxb-token', 'xapp-token', {
-      ...createOpts({ default: [], agents: {} }),
+      ...createOpts({ default: ['U_CHANNEL_ADMIN'], agents: {} }),
       isControlApproverAllowed,
     } as any);
     await channel.connect();
 
-    const approvalPromise = channel.requestPermissionApproval(
+    const approvalPromise = requestSlackPermissionApproval(
+      channel,
       'sl:C1234567890',
       {
         requestId: 'perm-container-channel',
@@ -3962,24 +7111,26 @@ describe('Slack channel', () => {
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
     );
+    const respond = vi.fn().mockResolvedValue({});
     await actionHandler?.({
       ack: vi.fn().mockResolvedValue(undefined),
+      respond,
       body: {
         container: { channel_id: 'C1234567890' },
+        response_url: 'https://hooks.slack.test/actions/container-channel',
         user: { id: 'U_CHANNEL_ADMIN', name: 'ChannelAdmin' },
       },
       action: {
-        value: JSON.stringify({
-          requestId: 'perm-container-channel',
-          decision: 'allow_once',
-        }),
+        value: JSON.stringify(
+          latestSlackPermissionActionValue('gantry_perm_decision_allow_once'),
+        ),
       },
     });
 
     await expect(approvalPromise).resolves.toEqual(
       expect.objectContaining({
         approved: true,
-        decidedBy: 'ChannelAdmin',
+        decidedBy: 'U_CHANNEL_ADMIN',
       }),
     );
     expect(isControlApproverAllowed).toHaveBeenCalledWith(
@@ -3989,18 +7140,21 @@ describe('Slack channel', () => {
         userId: 'U_CHANNEL_ADMIN',
       }),
     );
-    expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledWith(
+      expect.objectContaining({ user: 'U_CHANNEL_ADMIN' }),
+    );
   });
 
   it('fails closed when Slack same-channel callbacks omit channel context', async () => {
     const isControlApproverAllowed = vi.fn(async () => true);
     const channel = new SlackChannel('xoxb-token', 'xapp-token', {
-      ...createOpts({ default: [], agents: {} }),
+      ...createOpts({ default: ['U_CHANNEL_ADMIN'], agents: {} }),
       isControlApproverAllowed,
     } as any);
     await channel.connect();
 
-    const approvalPromise = channel.requestPermissionApproval(
+    const approvalPromise = requestSlackPermissionApproval(
+      channel,
       'sl:C1234567890',
       {
         requestId: 'perm-missing-channel',
@@ -4020,10 +7174,9 @@ describe('Slack channel', () => {
         user: { id: 'U_CHANNEL_ADMIN', name: 'ChannelAdmin' },
       },
       action: {
-        value: JSON.stringify({
-          requestId: 'perm-missing-channel',
-          decision: 'allow_once',
-        }),
+        value: JSON.stringify(
+          latestSlackPermissionActionValue('gantry_perm_decision_allow_once'),
+        ),
       },
     });
 
@@ -4047,7 +7200,7 @@ describe('Slack channel', () => {
       'xoxb-token',
       'xapp-token',
       createOpts({
-        default: [],
+        default: ['U_OTHER'],
         agents: {
           agent_one: ['U_APPROVER'],
           agent_two: ['U_OTHER'],
@@ -4056,7 +7209,8 @@ describe('Slack channel', () => {
     );
     await channel.connect();
 
-    const approvalPromise = channel.requestPermissionApproval(
+    const approvalPromise = requestSlackPermissionApproval(
+      channel,
       'sl:C1234567890',
       {
         requestId: 'perm-agent-scope',
@@ -4073,10 +7227,9 @@ describe('Slack channel', () => {
       ack: vi.fn().mockResolvedValue(undefined),
       body: { user: { id: 'U_APPROVER', name: 'Wrong Agent Approver' } },
       action: {
-        value: JSON.stringify({
-          requestId: 'perm-agent-scope',
-          decision: 'allow_once',
-        }),
+        value: JSON.stringify(
+          latestSlackPermissionActionValue('gantry_perm_decision_allow_once'),
+        ),
       },
     });
 
@@ -4104,7 +7257,8 @@ describe('Slack channel', () => {
     );
     await channel.connect();
 
-    const approvalPromise = channel.requestPermissionApproval(
+    const approvalPromise = requestSlackPermissionApproval(
+      channel,
       'sl:C1234567890',
       {
         requestId: 'perm-revoked',
@@ -4122,10 +7276,9 @@ describe('Slack channel', () => {
       ack: vi.fn().mockResolvedValue(undefined),
       body: { user: { id: 'U_REVOKED', name: 'Revoked Approver' } },
       action: {
-        value: JSON.stringify({
-          requestId: 'perm-revoked',
-          decision: 'allow_once',
-        }),
+        value: JSON.stringify(
+          latestSlackPermissionActionValue('gantry_perm_decision_allow_once'),
+        ),
       },
     });
 
@@ -4151,7 +7304,7 @@ describe('Slack channel', () => {
     );
     await channel.connect();
 
-    const answerPromise = channel.requestUserAnswer('sl:C1234567890', {
+    const answerPromise = requestSlackUserAnswer(channel, 'sl:C1234567890', {
       requestId: 'userq-1',
       sourceAgentFolder: 'slack_main',
       threadId: '1711111111.000200',
@@ -4177,10 +7330,20 @@ describe('Slack channel', () => {
     expect(postCall?.text).toContain('Preferred option?');
     expect(postCall?.text).not.toContain('Source: slack_main');
     expect(postCall?.text).not.toContain('Thread: 1711111111.000200');
-
-    const actionHandler = appRef.current.actionHandlers.get(
-      'gantry_userq_select',
+    const actionBlock = (postCall?.blocks as any[])?.find(
+      (block) => block.type === 'actions',
     );
+    const actionIds = actionBlock?.elements?.map(
+      (element: any) => element.action_id,
+    );
+    expect(new Set(actionIds).size).toBe(actionIds?.length);
+    expect(actionIds).toEqual([
+      'gantry_userq_select_0',
+      'gantry_userq_select_1',
+      'gantry_userq_other',
+    ]);
+
+    const actionHandler = slackActionHandler('gantry_userq_select_1');
     expect(actionHandler).toBeTypeOf('function');
     const ack = vi.fn().mockResolvedValue(undefined);
     await actionHandler?.({
@@ -4190,11 +7353,9 @@ describe('Slack channel', () => {
         user: { id: 'U123', name: 'Alice' },
       },
       action: {
-        value: JSON.stringify({
-          requestId: 'userq-1',
-          questionIndex: 0,
-          optionIndex: 1,
-        }),
+        value: JSON.stringify(
+          latestSlackUserQuestionActionValue('gantry_userq_select', 1),
+        ),
       },
     });
 
@@ -4202,6 +7363,83 @@ describe('Slack channel', () => {
     expect(ack).toHaveBeenCalledTimes(1);
     expect(answer.answers).toEqual({ 'Preferred option?': 'Beta' });
     expect(answer.answeredBy).toBe('Alice');
+  });
+
+  it('settles a runner-cancelled Slack question and rejects a late answer', async () => {
+    defaultSlackPermissionApproverIds.add('U123');
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+    const request = {
+      requestId: 'userq-runner-cancelled',
+      sourceAgentFolder: 'slack_main',
+      targetJid: 'sl:C1234567890',
+      questions: [
+        {
+          header: 'Continue',
+          question: 'Continue?',
+          options: [
+            { label: 'Yes', description: 'Proceed' },
+            { label: 'No', description: 'Wait' },
+          ],
+          multiSelect: false,
+        },
+      ],
+    };
+    const answerPromise = requestSlackUserAnswer(
+      channel,
+      'sl:C1234567890',
+      request,
+    );
+    await flushSlackPromptRegistration();
+    const lateAction = latestSlackUserQuestionActionValue(
+      'gantry_userq_select',
+      0,
+    );
+
+    await expect(
+      channel.cancelPendingQuestion({
+        requestId: request.requestId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Question cancelled. Nothing changed.',
+      }),
+    ).resolves.toBe('settled');
+    await expect(answerPromise).resolves.toEqual({
+      requestId: request.requestId,
+      answers: {},
+    });
+    expect(
+      answerPromise.repository.resolvePendingInteraction,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'cancelled',
+        resolution: {
+          answers: {},
+          reason: 'Question cancelled. Nothing changed.',
+        },
+      }),
+    );
+    expect(appRef.current.client.chat.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining('Question cancelled'),
+      }),
+    );
+
+    const actionHandler = slackActionHandler('gantry_userq_select_0');
+    await actionHandler?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U123', name: 'Alice' },
+      },
+      action: { value: JSON.stringify(lateAction) },
+    });
+    expect(
+      answerPromise.repository.resolvePendingInteraction,
+    ).toHaveBeenCalledTimes(1);
   });
 
   it('resolves Slack user question from the Other free-text modal', async () => {
@@ -4213,7 +7451,7 @@ describe('Slack channel', () => {
     );
     await channel.connect();
 
-    const answerPromise = channel.requestUserAnswer('sl:C1234567890', {
+    const answerPromise = requestSlackUserAnswer(channel, 'sl:C1234567890', {
       requestId: 'userq-other-1',
       sourceAgentFolder: 'slack_main',
       questions: [
@@ -4242,7 +7480,9 @@ describe('Slack channel', () => {
         trigger_id: 'trigger-123',
       },
       action: {
-        value: JSON.stringify({ requestId: 'userq-other-1', questionIndex: 0 }),
+        value: JSON.stringify(
+          latestSlackUserQuestionActionValue('gantry_userq_other'),
+        ),
       },
     });
     expect(appRef.current.client.views.open).toHaveBeenCalledTimes(1);
@@ -4288,7 +7528,7 @@ describe('Slack channel', () => {
     );
     await channel.connect();
 
-    const answerPromise = channel.requestUserAnswer('sl:C1234567890', {
+    const answerPromise = requestSlackUserAnswer(channel, 'sl:C1234567890', {
       requestId: 'userq-auth-1',
       sourceAgentFolder: 'slack_main',
       questions: [
@@ -4305,9 +7545,7 @@ describe('Slack channel', () => {
     });
     await flushSlackPromptRegistration();
 
-    const actionHandler = appRef.current.actionHandlers.get(
-      'gantry_userq_select',
-    );
+    const actionHandler = slackActionHandler('gantry_userq_select_1');
     expect(actionHandler).toBeTypeOf('function');
 
     await actionHandler?.({
@@ -4317,11 +7555,9 @@ describe('Slack channel', () => {
         user: { id: 'U_OTHER', name: 'Not Allowed' },
       },
       action: {
-        value: JSON.stringify({
-          requestId: 'userq-auth-1',
-          questionIndex: 0,
-          optionIndex: 1,
-        }),
+        value: JSON.stringify(
+          latestSlackUserQuestionActionValue('gantry_userq_select', 1),
+        ),
       },
     });
 
@@ -4339,11 +7575,9 @@ describe('Slack channel', () => {
         user: { id: 'U_APPROVER', name: 'Allowed' },
       },
       action: {
-        value: JSON.stringify({
-          requestId: 'userq-auth-1',
-          questionIndex: 0,
-          optionIndex: 0,
-        }),
+        value: JSON.stringify(
+          latestSlackUserQuestionActionValue('gantry_userq_select', 0),
+        ),
       },
     });
 
@@ -4361,7 +7595,7 @@ describe('Slack channel', () => {
     );
     await channel.connect();
 
-    const answerPromise = channel.requestUserAnswer('sl:C1234567890', {
+    const answerPromise = requestSlackUserAnswer(channel, 'sl:C1234567890', {
       requestId: 'userq-2',
       sourceAgentFolder: 'slack_main',
       questions: [
@@ -4379,9 +7613,7 @@ describe('Slack channel', () => {
     });
     await flushSlackPromptRegistration();
 
-    const selectHandler = appRef.current.actionHandlers.get(
-      'gantry_userq_select',
-    );
+    const selectHandler = slackActionHandler('gantry_userq_select_0');
     const doneHandler = appRef.current.actionHandlers.get('gantry_userq_done');
     expect(selectHandler).toBeTypeOf('function');
     expect(doneHandler).toBeTypeOf('function');
@@ -4393,11 +7625,9 @@ describe('Slack channel', () => {
         user: { id: 'U123', name: 'Alice' },
       },
       action: {
-        value: JSON.stringify({
-          requestId: 'userq-2',
-          questionIndex: 0,
-          optionIndex: 0,
-        }),
+        value: JSON.stringify(
+          latestSlackUserQuestionActionValue('gantry_userq_select', 0),
+        ),
       },
     });
     await selectHandler?.({
@@ -4407,11 +7637,9 @@ describe('Slack channel', () => {
         user: { id: 'U123', name: 'Alice' },
       },
       action: {
-        value: JSON.stringify({
-          requestId: 'userq-2',
-          questionIndex: 0,
-          optionIndex: 2,
-        }),
+        value: JSON.stringify(
+          latestSlackUserQuestionActionValue('gantry_userq_select', 2),
+        ),
       },
     });
     await doneHandler?.({
@@ -4421,16 +7649,49 @@ describe('Slack channel', () => {
         user: { id: 'U123', name: 'Alice' },
       },
       action: {
-        value: JSON.stringify({
-          requestId: 'userq-2',
-          questionIndex: 0,
-        }),
+        value: JSON.stringify(
+          latestSlackUserQuestionActionValue('gantry_userq_done'),
+        ),
       },
     });
 
     const answer = await answerPromise;
     expect(answer.answers).toEqual({ 'Select options': ['Alpha', 'Gamma'] });
     expect(answer.answeredBy).toBe('Alice');
+  });
+
+  it('propagates Slack post-send permission persistence failure and retains the waiter', async () => {
+    defaultSlackPermissionApproverIds.add('U_APPROVER');
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    const request = {
+      requestId: 'perm-post-send-persist-failure',
+      sourceAgentFolder: 'slack_main',
+      targetJid: 'sl:C123',
+      toolName: 'Bash',
+    };
+    const repository = configureSlackPermissionRequest(request);
+    const persist = repository.bindPendingPermissionPrompt;
+    const original = persist.getMockImplementation()!;
+    let calls = 0;
+    persist.mockImplementation(async (input) => {
+      calls += 1;
+      if (calls === 2) throw new Error('write failed');
+      return await original(input);
+    });
+
+    await expect(
+      channel.requestPermissionApproval('sl:C123', request),
+    ).rejects.toMatchObject({ name: 'DurableInteractionPersistenceError' });
+    expect((channel as any).pendingPermissionPrompts.size).toBe(1);
+    for (const pending of (channel as any).pendingPermissionPrompts.values()) {
+      clearTimeout(pending.timer);
+    }
+    (channel as any).pendingPermissionPrompts.clear();
   });
 
   it('returns empty Slack user-question answers when prompt times out', async () => {
@@ -4442,7 +7703,7 @@ describe('Slack channel', () => {
     );
     await channel.connect();
 
-    const answerPromise = channel.requestUserAnswer('sl:C1234567890', {
+    const answerPromise = requestSlackUserAnswer(channel, 'sl:C1234567890', {
       requestId: 'userq-timeout',
       sourceAgentFolder: 'slack_main',
       questions: [
@@ -4461,7 +7722,54 @@ describe('Slack channel', () => {
     await vi.advanceTimersByTimeAsync(300000);
     const answer = await answerPromise;
     expect(answer.answers).toEqual({});
+    expect(
+      answerPromise.interaction.payload.questionRecoveryEnvelope,
+    ).toMatchObject({
+      completedQuestionIndexes: [0],
+    });
     vi.useRealTimers();
+  });
+
+  it('does not schedule an interactive sentinel Slack question timer', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS', '0');
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+
+    const answer = requestSlackUserAnswer(channel, 'sl:C1234567890', {
+      requestId: 'userq-interactive-no-timeout',
+      sourceAgentFolder: 'slack_main',
+      permissionLane: 'interactive',
+      questions: [
+        {
+          header: 'Continue',
+          question: 'Continue?',
+          options: [{ label: 'Yes', description: 'Proceed' }],
+          multiSelect: false,
+        },
+      ],
+    } as import('@core/domain/types.js').UserQuestionRequest & {
+      permissionLane: 'interactive';
+    });
+    await flushSlackPromptRegistration();
+
+    const questions = (channel as any).pendingUserQuestions as Map<string, any>;
+    const pending = [...questions.values()][0];
+    expect(pending.timer).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+    expect(questions.size).toBe(1);
+
+    questions.clear();
+    pending.resolve({ selected: 'Yes', answeredBy: 'Alice' });
+    await expect(answer).resolves.toMatchObject({
+      answers: { 'Continue?': 'Yes' },
+      answeredBy: 'Alice',
+    });
+    await channel.disconnect();
   });
 
   it('cleans up pending Slack user-question prompts on disconnect', async () => {
@@ -4472,7 +7780,7 @@ describe('Slack channel', () => {
     );
     await channel.connect();
 
-    const answerPromise = channel.requestUserAnswer('sl:C1234567890', {
+    const answerPromise = requestSlackUserAnswer(channel, 'sl:C1234567890', {
       requestId: 'userq-disconnect',
       sourceAgentFolder: 'slack_main',
       questions: [
@@ -4518,7 +7826,9 @@ describe('Slack channel', () => {
       },
     );
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'hello');
+    await channel.sendStreamingChunk('sl:C1234567890', 'hello', {
+      threadId: '1710000000.111222',
+    });
 
     const apiCallCalls = vi.mocked(appRef.current.client.apiCall).mock.calls;
     const startCalls = apiCallCalls.filter(
@@ -4529,6 +7839,26 @@ describe('Slack channel', () => {
     );
     expect(startCalls).toHaveLength(1);
     expect(appendCalls).toHaveLength(0);
+  });
+
+  it('falls back to a regular message rather than starting a root-channel native stream', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    await channel.sendStreamingChunk('sl:C1234567890', 'hello');
+
+    expect(vi.mocked(appRef.current.client.apiCall)).not.toHaveBeenCalledWith(
+      'chat.startStream',
+      expect.anything(),
+    );
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith({
+      channel: 'C1234567890',
+      text: 'hello',
+    });
   });
 
   it('splits native Slack stream append payloads to <=12000 chars', async () => {
@@ -4556,9 +7886,12 @@ describe('Slack channel', () => {
 
     const nowSpy = vi.spyOn(Date, 'now');
     nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
-    await channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050));
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed', { threadId });
+    await channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050), {
+      threadId,
+    });
 
     const appendCalls = vi
       .mocked(appRef.current.client.apiCall)
@@ -4602,10 +7935,14 @@ describe('Slack channel', () => {
     try {
       const nowSpy = vi.spyOn(Date, 'now');
       nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+      const threadId = '1710000000.000100';
 
-      await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+      await channel.sendStreamingChunk('sl:C1234567890', 'seed', {
+        threadId,
+      });
       const flushPromise = channel.sendStreamingChunk('sl:C1234567890', 'x', {
         done: true,
+        threadId,
       });
 
       await Promise.resolve();
@@ -4666,14 +8003,16 @@ describe('Slack channel', () => {
 
     const nowSpy = vi.spyOn(Date, 'now');
     nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed', { threadId });
 
     const delivered = await channel.sendStreamingChunk(
       'sl:C1234567890',
       'x'.repeat(13050),
       {
         done: true,
+        threadId,
       },
     );
 
@@ -4697,6 +8036,85 @@ describe('Slack channel', () => {
       expect.objectContaining({
         channel: 'C1234567890',
         ts: '1710000000.222333',
+      }),
+    );
+  });
+
+  it('does not let a reset partial fallback seal the replacement Slack stream', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    let startCount = 0;
+    let oldAppendCount = 0;
+    vi.mocked(appRef.current.client.apiCall).mockImplementation(
+      async (method: string, payload: Record<string, unknown>) => {
+        if (method === 'chat.startStream') {
+          startCount += 1;
+          return {
+            ok: true,
+            stream_ts:
+              startCount === 1 ? 'old-stream-ts' : 'replacement-stream-ts',
+          };
+        }
+        if (method === 'chat.appendStream') {
+          if (payload.ts === 'old-stream-ts') {
+            oldAppendCount += 1;
+            return oldAppendCount === 1
+              ? { ok: true }
+              : { ok: false, error: 'append_failed' };
+          }
+          return { ok: true };
+        }
+        if (method === 'chat.stopStream') return { ok: true };
+        return { ok: false };
+      },
+    );
+    let resolveFallback: ((value: { ok: boolean; ts: string }) => void) | null =
+      null;
+    vi.mocked(appRef.current.client.chat.postMessage).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFallback = resolve;
+        }),
+    );
+    const jid = 'sl:C1234567890';
+    const threadId = '1710000000.111222';
+    await channel.sendStreamingChunk(jid, 'seed', {
+      threadId,
+      generation: 3,
+    });
+
+    const oldFinal = channel.sendStreamingChunk(jid, 'x'.repeat(13050), {
+      threadId,
+      generation: 3,
+      done: true,
+    });
+    await vi.waitFor(() =>
+      expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(1),
+    );
+    channel.resetStreaming(jid, { threadId });
+    await channel.sendStreamingChunk(jid, 'new', {
+      threadId,
+      generation: 3,
+    });
+
+    resolveFallback?.({ ok: true, ts: 'fallback-message-ts' });
+    await oldFinal;
+    await channel.sendStreamingChunk(jid, ' tail', {
+      threadId,
+      generation: 3,
+      done: true,
+    });
+
+    expect(appRef.current.client.apiCall).toHaveBeenCalledWith(
+      'chat.appendStream',
+      expect.objectContaining({
+        ts: 'replacement-stream-ts',
+        markdown_text: ' tail',
       }),
     );
   });
@@ -4726,8 +8144,9 @@ describe('Slack channel', () => {
 
     const nowSpy = vi.spyOn(Date, 'now');
     nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed', { threadId });
 
     const delta = 'snake_case *literal* ~literal~';
     const delivered = await channel.sendStreamingChunk(
@@ -4735,6 +8154,7 @@ describe('Slack channel', () => {
       delta,
       {
         done: true,
+        threadId,
       },
     );
 
@@ -4786,12 +8206,14 @@ describe('Slack channel', () => {
 
     const nowSpy = vi.spyOn(Date, 'now');
     nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed', { threadId });
 
     await expect(
       channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050), {
         done: true,
+        threadId,
       }),
     ).rejects.toMatchObject({
       name: 'PartialSlackNativeStreamAppendDeliveryError',
@@ -4844,11 +8266,14 @@ describe('Slack channel', () => {
       .mockReturnValueOnce(1000)
       .mockReturnValueOnce(2200)
       .mockReturnValueOnce(3400);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed', { threadId });
 
     await expect(
-      channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050)),
+      channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050), {
+        threadId,
+      }),
     ).rejects.toMatchObject({
       name: 'PartialSlackNativeStreamAppendDeliveryError',
       partialMessageDelivery: true,
@@ -4859,6 +8284,7 @@ describe('Slack channel', () => {
 
     await channel.sendStreamingChunk('sl:C1234567890', 'y', {
       done: true,
+      threadId,
     });
 
     const appendCalls = vi
@@ -4903,10 +8329,11 @@ describe('Slack channel', () => {
       .mockReturnValueOnce(1000)
       .mockReturnValueOnce(1200)
       .mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'A');
-    await channel.sendStreamingChunk('sl:C1234567890', 'B');
-    await channel.sendStreamingChunk('sl:C1234567890', 'C');
+    await channel.sendStreamingChunk('sl:C1234567890', 'A', { threadId });
+    await channel.sendStreamingChunk('sl:C1234567890', 'B', { threadId });
+    await channel.sendStreamingChunk('sl:C1234567890', 'C', { threadId });
 
     const apiCallCalls = vi.mocked(appRef.current.client.apiCall).mock.calls;
     const startCalls = apiCallCalls.filter(
@@ -4945,9 +8372,12 @@ describe('Slack channel', () => {
 
     const nowSpy = vi.spyOn(Date, 'now');
     nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'Hello');
-    await channel.sendStreamingChunk('sl:C1234567890', ' world');
+    await channel.sendStreamingChunk('sl:C1234567890', 'Hello', { threadId });
+    await channel.sendStreamingChunk('sl:C1234567890', ' world', {
+      threadId,
+    });
 
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -4986,6 +8416,39 @@ describe('Slack channel', () => {
         text: 'x'.repeat(500),
       }),
     );
+  });
+
+  it('stops Slack fallback parts when the stream epoch changes mid-send', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+    vi.mocked(appRef.current.client.apiCall).mockResolvedValue({ ok: false });
+    let resolveFirst!: (value: { ok: boolean; ts: string }) => void;
+    vi.mocked(appRef.current.client.chat.postMessage).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFirst = resolve;
+        }),
+    );
+    const jid = 'sl:C1234567890';
+    const threadId = '1710000000.111222';
+
+    const delivery = channel.sendStreamingChunk(jid, 'x'.repeat(4500), {
+      done: true,
+      generation: 1,
+      threadId,
+    });
+    await vi.waitFor(() =>
+      expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(1),
+    );
+    channel.resetStreaming(jid, { threadId });
+    resolveFirst({ ok: true, ts: 'first-fallback-ts' });
+    await delivery;
+
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(1);
   });
 
   it('uses snippet fallback hook for very large Slack stream fallback output when configured', async () => {
@@ -5028,6 +8491,179 @@ describe('Slack channel', () => {
         reason: 'stream_output_too_large',
       }),
     ]);
+    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('skips Slack snippet fallback when a targeted reset lands during native failure', async () => {
+    class SlackChannelWithStreamSnippetFallback extends SlackChannel {
+      fallbackCalls: Array<Record<string, unknown>> = [];
+
+      protected override async sendSnippetFallback(input: {
+        channelId: string;
+        text: string;
+        threadId?: string;
+        reason: string;
+      }) {
+        this.fallbackCalls.push(input);
+        return {
+          fallbackArtifactId: 'slack-stream-artifact-reset',
+          externalMessageId: '1710000000.889000',
+        };
+      }
+    }
+    const channel = new SlackChannelWithStreamSnippetFallback(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+    let resolveAppend!: (value: { ok: boolean; error: string }) => void;
+    vi.mocked(appRef.current.client.apiCall).mockImplementation(
+      async (method: string) => {
+        if (method === 'chat.startStream') {
+          return { ok: true, stream_ts: 'reset-native-stream' };
+        }
+        if (method === 'chat.appendStream') {
+          return new Promise((resolve) => {
+            resolveAppend = resolve;
+          });
+        }
+        if (method === 'chat.stopStream') return { ok: true };
+        return { ok: false };
+      },
+    );
+    const jid = 'sl:C1234567890';
+    const threadId = '1710000000.111222';
+    await channel.sendStreamingChunk(jid, 'seed', { threadId });
+
+    const delivery = channel.sendStreamingChunk(jid, 'x'.repeat(20_000), {
+      done: true,
+      threadId,
+    });
+    await vi.waitFor(() => expect(resolveAppend).toBeTypeOf('function'));
+    channel.resetStreaming(jid, { threadId });
+    resolveAppend({ ok: false, error: 'append failed' });
+
+    await expect(delivery).resolves.toBe(false);
+    expect(channel.fallbackCalls).toEqual([]);
+    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('skips catch-path Slack snippet fallback when reset lands during a partial native failure', async () => {
+    class SlackChannelWithStreamSnippetFallback extends SlackChannel {
+      fallbackCalls: Array<Record<string, unknown>> = [];
+
+      protected override async sendSnippetFallback(input: {
+        channelId: string;
+        text: string;
+        threadId?: string;
+        reason: string;
+      }) {
+        this.fallbackCalls.push(input);
+        return {
+          fallbackArtifactId: 'slack-stream-artifact-partial-reset',
+          externalMessageId: '1710000000.889001',
+        };
+      }
+    }
+    const channel = new SlackChannelWithStreamSnippetFallback(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+    let appendCount = 0;
+    let resolveSecondAppend!: (value: { ok: boolean; error: string }) => void;
+    vi.mocked(appRef.current.client.apiCall).mockImplementation(
+      async (method: string) => {
+        if (method === 'chat.startStream') {
+          return { ok: true, stream_ts: 'reset-partial-native-stream' };
+        }
+        if (method === 'chat.appendStream') {
+          appendCount += 1;
+          if (appendCount === 1) return { ok: true };
+          return new Promise((resolve) => {
+            resolveSecondAppend = resolve;
+          });
+        }
+        if (method === 'chat.stopStream') return { ok: true };
+        return { ok: false };
+      },
+    );
+    const jid = 'sl:C1234567890';
+    const threadId = '1710000000.111223';
+    await channel.sendStreamingChunk(jid, 'seed', { threadId });
+
+    const delivery = channel.sendStreamingChunk(jid, 'x'.repeat(40_000), {
+      done: true,
+      threadId,
+    });
+    await vi.waitFor(() => expect(resolveSecondAppend).toBeTypeOf('function'));
+    channel.resetStreaming(jid, { threadId });
+    resolveSecondAppend({ ok: false, error: 'append failed' });
+
+    await expect(delivery).resolves.toBe(false);
+    expect(channel.fallbackCalls).toEqual([]);
+    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not accept a Slack snippet fallback that finishes after a targeted reset', async () => {
+    class SlackChannelWithDeferredSnippetFallback extends SlackChannel {
+      fallbackCalls: Array<Record<string, unknown>> = [];
+      resolveFallback!: (value: {
+        fallbackArtifactId: string;
+        externalMessageId: string;
+      }) => void;
+
+      protected override async sendSnippetFallback(input: {
+        channelId: string;
+        text: string;
+        threadId?: string;
+        reason: string;
+      }) {
+        this.fallbackCalls.push(input);
+        return new Promise<{
+          fallbackArtifactId: string;
+          externalMessageId: string;
+        }>((resolve) => {
+          this.resolveFallback = resolve;
+        });
+      }
+    }
+    const channel = new SlackChannelWithDeferredSnippetFallback(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+    vi.mocked(appRef.current.client.apiCall).mockImplementation(
+      async (method: string) => {
+        if (method === 'chat.startStream') {
+          return { ok: true, stream_ts: 'deferred-snippet-native-stream' };
+        }
+        if (method === 'chat.appendStream') {
+          return { ok: false, error: 'append failed' };
+        }
+        if (method === 'chat.stopStream') return { ok: true };
+        return { ok: false };
+      },
+    );
+    const jid = 'sl:C1234567890';
+    const threadId = '1710000000.111224';
+    await channel.sendStreamingChunk(jid, 'seed', { threadId });
+
+    const delivery = channel.sendStreamingChunk(jid, 'x'.repeat(20_000), {
+      done: true,
+      threadId,
+    });
+    await vi.waitFor(() => expect(channel.fallbackCalls).toHaveLength(1));
+    channel.resetStreaming(jid, { threadId });
+    channel.resolveFallback({
+      fallbackArtifactId: 'slack-stream-artifact-after-reset',
+      externalMessageId: '1710000000.889002',
+    });
+
+    await expect(delivery).resolves.toBe(false);
     expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
   });
 
@@ -5176,8 +8812,10 @@ describe('Slack channel', () => {
       },
     );
 
+    const threadId = '1710000000.000100';
     await channel.sendStreamingChunk('sl:C1234567890', 'old', {
       generation: 1,
+      threadId,
     });
 
     channel.resetStreaming('sl:C1234567890');
@@ -5186,12 +8824,14 @@ describe('Slack channel', () => {
 
     await channel.sendStreamingChunk('sl:C1234567890', 'stale', {
       generation: 1,
+      threadId,
     });
 
     expect(vi.mocked(appRef.current.client.apiCall)).not.toHaveBeenCalled();
 
     await channel.sendStreamingChunk('sl:C1234567890', 'fresh', {
       generation: 2,
+      threadId,
     });
 
     expect(vi.mocked(appRef.current.client.apiCall)).toHaveBeenCalledWith(
@@ -5203,8 +8843,205 @@ describe('Slack channel', () => {
     );
   });
 
+  it('does not restore a targeted Slack stream after an in-flight send', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+    let resolveFirstStart!: (result: {
+      ok: boolean;
+      stream_ts: string;
+    }) => void;
+    const firstStart = new Promise<{ ok: boolean; stream_ts: string }>(
+      (resolve) => {
+        resolveFirstStart = resolve;
+      },
+    );
+    let startCount = 0;
+    vi.mocked(appRef.current.client.apiCall).mockImplementation(
+      async (method: string) => {
+        if (method === 'chat.startStream') {
+          startCount += 1;
+          return startCount === 1
+            ? firstStart
+            : { ok: true, stream_ts: '1710000000.444555' };
+        }
+        if (method === 'chat.appendStream' || method === 'chat.stopStream') {
+          return { ok: true };
+        }
+        return { ok: false };
+      },
+    );
+
+    const inFlight = channel.sendStreamingChunk('sl:C1234567890', 'old', {
+      threadId: '1710000000.111222',
+    });
+    await vi.waitFor(() => expect(startCount).toBe(1));
+    channel.resetStreaming('sl:C1234567890', {
+      threadId: '1710000000.111222',
+    });
+    resolveFirstStart({ ok: true, stream_ts: '1710000000.222333' });
+    await inFlight;
+
+    expect(vi.mocked(appRef.current.client.apiCall)).toHaveBeenCalledWith(
+      'chat.stopStream',
+      { channel: 'C1234567890', ts: '1710000000.222333' },
+    );
+
+    await channel.sendStreamingChunk('sl:C1234567890', 'new', {
+      threadId: '1710000000.111222',
+    });
+
+    expect(
+      vi
+        .mocked(appRef.current.client.apiCall)
+        .mock.calls.filter(([method]) => method === 'chat.startStream'),
+    ).toEqual([
+      ['chat.startStream', expect.objectContaining({ markdown_text: 'old' })],
+      ['chat.startStream', expect.objectContaining({ markdown_text: 'new' })],
+    ]);
+  });
+
+  it('resolves an ephemeral Slack permission prompt on timeout without message mutation', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+
+    const decisionPromise = requestSlackPermissionApproval(
+      channel,
+      'sl:C1234567890',
+      {
+        requestId: 'req-timeout',
+        sourceAgentFolder: 'test',
+        toolName: 'shell',
+        permissionLane: 'autonomous',
+      },
+    );
+    await flushSlackPromptRegistration();
+
+    await vi.advanceTimersByTimeAsync(300000);
+    await expect(decisionPromise).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'system',
+      reason: 'timed out',
+    });
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.delete).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('does not schedule an interactive sentinel Slack permission timer', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS', '0');
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+
+    const approval = requestSlackPermissionApproval(channel, 'sl:C1234567890', {
+      requestId: 'req-interactive-no-timeout',
+      sourceAgentFolder: 'test',
+      toolName: 'shell',
+      permissionLane: 'interactive',
+    });
+    await flushSlackPromptRegistration();
+
+    const prompts = (channel as any).pendingPermissionPrompts as Map<
+      string,
+      any
+    >;
+    const pending = [...prompts.values()][0];
+    expect(pending.timer).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+    expect(prompts.size).toBe(1);
+
+    prompts.clear();
+    pending.resolve({ approved: false, mode: 'cancel', decidedBy: 'system' });
+    await approval;
+    await channel.disconnect();
+  });
+
+  it('uses the supplied finite timeout for a lane-less Slack permission', async () => {
+    vi.useFakeTimers();
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+
+    const approval = requestSlackPermissionApproval(channel, 'sl:C1234567890', {
+      requestId: 'req-lane-less-fallback',
+      sourceAgentFolder: 'test',
+      toolName: 'shell',
+    });
+    await flushSlackPromptRegistration();
+
+    const prompts = (channel as any).pendingPermissionPrompts as Map<
+      string,
+      any
+    >;
+    const pending = [...prompts.values()][0];
+    expect(pending.timer).toBeDefined();
+
+    clearTimeout(pending.timer);
+    prompts.clear();
+    pending.resolve({ approved: false, mode: 'cancel', decidedBy: 'system' });
+    await approval;
+    await channel.disconnect();
+  });
+
+  it('resolves the Slack waiter after retryable timeout claims exhaust bounded retries', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    const request = {
+      requestId: 'req-timeout-retryable',
+      sourceAgentFolder: 'test',
+      toolName: 'shell',
+      permissionLane: 'autonomous' as const,
+    };
+    const repository = configureSlackPermissionRequest(request);
+    repository.claimPendingPermissionCallback.mockRejectedValue(
+      new Error('postgres unavailable'),
+    );
+
+    const decisionPromise = channel.requestPermissionApproval(
+      'sl:C1234567890',
+      request,
+    );
+    await flushSlackPromptRegistration();
+    await vi.advanceTimersByTimeAsync(600_000);
+
+    await expect(decisionPromise).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'system',
+      reason: 'timed out',
+    });
+    expect(repository.claimPendingPermissionCallback).toHaveBeenCalledTimes(3);
+    expect((channel as any).pendingPermissionPrompts.size).toBe(0);
+    vi.useRealTimers();
+  });
+
   it('resolves permission prompt once even if timeout is reached later', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
     defaultSlackPermissionApproverIds.add('U_APPROVER');
     const channel = new SlackChannel(
       'xoxb-token',
@@ -5213,12 +9050,14 @@ describe('Slack channel', () => {
     );
     await channel.connect();
 
-    const decisionPromise = channel.requestPermissionApproval(
+    const decisionPromise = requestSlackPermissionApproval(
+      channel,
       'sl:C1234567890',
       {
         requestId: 'req-1',
         sourceAgentFolder: 'test',
         toolName: 'shell',
+        permissionLane: 'autonomous',
       },
     );
     await flushSlackPromptRegistration();
@@ -5227,25 +9066,29 @@ describe('Slack channel', () => {
       'gantry_perm_decision',
     );
     expect(actionHandler).toBeTypeOf('function');
+    const respond = vi.fn().mockResolvedValue({});
     await actionHandler?.({
       ack: vi.fn().mockResolvedValue(undefined),
-      body: { user: { id: 'U_APPROVER', name: 'Approver' } },
+      respond,
+      body: {
+        response_url: 'https://hooks.slack.test/actions/req-1',
+        user: { id: 'U_APPROVER', name: 'Approver' },
+      },
       action: {
-        value: JSON.stringify({
-          requestId: 'req-1',
-          decision: 'allow_once',
-        }),
+        value: JSON.stringify(
+          latestSlackPermissionActionValue('gantry_perm_decision_allow_once'),
+        ),
       },
     });
 
     const decision = await decisionPromise;
     expect(decision).toEqual(
-      expect.objectContaining({ approved: true, decidedBy: 'Approver' }),
+      expect.objectContaining({ approved: true, decidedBy: 'U_APPROVER' }),
     );
-    expect(appRef.current.client.chat.update).toHaveBeenCalledTimes(1);
+    expect(respond).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(300000);
-    expect(appRef.current.client.chat.update).toHaveBeenCalledTimes(1);
+    expect(respond).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 });

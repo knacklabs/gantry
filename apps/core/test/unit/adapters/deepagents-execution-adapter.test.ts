@@ -22,6 +22,7 @@ import {
   type ModelCatalogEntry,
   resolveModelSelection,
 } from '@core/shared/model-catalog.js';
+import { hashSkillBundle } from '@core/shared/skill-artifact-helpers.js';
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
@@ -72,6 +73,22 @@ function projectionFor(
   };
 }
 
+const installedSkillBundle = {
+  assets: [
+    {
+      path: 'SKILL.md',
+      content: Buffer.from(`---
+name: release-writer
+description: Use this skill for release notes.
+---
+
+# Release Writer
+`),
+      contentType: 'text/markdown',
+    },
+  ],
+};
+
 function installedSkill(): SkillCatalogItem {
   return {
     id: 'skill:release' as never,
@@ -86,7 +103,7 @@ function installedSkill(): SkillCatalogItem {
     storage: {
       storageType: 'local-filesystem',
       storageRef: 'skill-release',
-      contentHash: 'sha256:release',
+      contentHash: hashSkillBundle(installedSkillBundle),
       sizeBytes: 1,
     },
     createdAt: '2026-06-16T00:00:00.000Z',
@@ -102,21 +119,7 @@ function skillRepository(): SkillCatalogRepository {
 
 function skillArtifactStore(): SkillArtifactStore {
   return {
-    getSkillArtifact: vi.fn(async () => ({
-      assets: [
-        {
-          path: 'SKILL.md',
-          content: Buffer.from(`---
-name: release-writer
-description: Use this skill for release notes.
----
-
-# Release Writer
-`),
-          contentType: 'text/markdown',
-        },
-      ],
-    })),
+    getSkillArtifact: vi.fn(async () => installedSkillBundle),
   } as Partial<SkillArtifactStore> as SkillArtifactStore;
 }
 
@@ -213,6 +216,50 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
     expect(prepared.env.GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS).toBeUndefined();
   });
 
+  it('uses snapshot skill rows for DeepAgents projection without rereading enabled skills', async () => {
+    const repo = {
+      listEnabledSkillsForAgent: vi.fn(async () => {
+        throw new Error('unexpected enabled skill read');
+      }),
+    } as Partial<SkillCatalogRepository> as SkillCatalogRepository;
+    const artifacts = skillArtifactStore();
+    const adapter = new DeepAgentsLangChainExecutionAdapter();
+
+    const prepared = await adapter.prepare(
+      prepareInput({
+        input: {
+          prompt: 'hello',
+          chatJid: 'tg:test',
+          attachedSkillSourceIds: ['skill:release'],
+        },
+        options: {
+          skillRepository: repo,
+          skillArtifactStore: artifacts,
+          skillContext: {
+            appId: 'app:test',
+            agentId: 'agent:test',
+          },
+          accessSnapshot: {
+            appId: 'app:test',
+            agentId: 'agent:test',
+            tools: { activeBindings: [], appActiveDefinitions: [] },
+            skills: {
+              activeBindings: [],
+              enabledDefinitions: [installedSkill()],
+            },
+            mcp: { activeBindings: [], materializedServers: [] },
+          },
+        },
+      }),
+    );
+
+    expect(repo.listEnabledSkillsForAgent).not.toHaveBeenCalled();
+    expect(prepared.runnerInputPatch?.deepAgentSkills).toMatchObject({
+      selectedSkillIds: ['skill:release'],
+      skillCount: 1,
+    });
+  });
+
   it('projects prompt cache keys only for provider-declared support', async () => {
     const adapter = new DeepAgentsLangChainExecutionAdapter();
 
@@ -266,7 +313,7 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
     }
   });
 
-  it('uses stable prompt cache keys per conversation thread', async () => {
+  it('uses stable prompt cache keys per conversation thread and access fingerprint', async () => {
     const adapter = new DeepAgentsLangChainExecutionAdapter();
     const entry = catalogEntry('grok');
     const base = {
@@ -274,10 +321,14 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
       chatJid: 'conversation-1',
       isScheduledJob: true,
     };
-    const prepare = (threadId: string) =>
+    const prepare = (threadId: string, accessFingerprint = 'access:v2:first') =>
       adapter.prepare(
         prepareInput({
-          input: { ...base, threadId },
+          input: {
+            ...base,
+            threadId,
+            providerSessionAccessFingerprint: accessFingerprint,
+          },
           effectiveModel: entry.runnerModel,
           effectiveModelEntry: entry,
           modelCredentialProjection: projectionFor('xai'),
@@ -287,12 +338,16 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
     const first = await prepare('thread-a');
     const second = await prepare('thread-a');
     const otherThread = await prepare('thread-b');
+    const otherAccess = await prepare('thread-a', 'access:v2:changed');
 
     expect(first.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY).toBe(
       second.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY,
     );
     expect(first.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY).not.toBe(
       otherThread.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY,
+    );
+    expect(first.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY).not.toBe(
+      otherAccess.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY,
     );
   });
 
@@ -336,8 +391,36 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
     expect(prepared.env.GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS).toBe('400000');
   });
 
-  it('omits the Postgres checkpointer for scheduled jobs', async () => {
+  it.each([
+    ['gpt-terra', 'openai', 'gpt-5.6-terra', '1050000'],
+    ['gpt-luna', 'openai', 'gpt-5.6-luna', '1050000'],
+    ['gpt-sol', 'openai', 'gpt-5.6-sol', '1050000'],
+    ['grok', 'xai', 'grok-4.5', '500000'],
+  ])(
+    'prepares %s through the existing %s DeepAgents route',
+    async (alias, providerId, runnerModel, contextWindow) => {
+      const adapter = new DeepAgentsLangChainExecutionAdapter();
+      const entry = catalogEntry(alias);
+      const prepared = await adapter.prepare(
+        prepareInput({
+          effectiveModel: entry.runnerModel,
+          effectiveModelEntry: entry,
+          modelCredentialProjection: projectionFor(providerId),
+        }),
+      );
+
+      expect(prepared.providerId).toBe('deepagents:langchain');
+      expect(prepared.env.GANTRY_DEEPAGENTS_MODEL_ID).toBe(runnerModel);
+      expect(prepared.env.GANTRY_DEEPAGENTS_MODEL_PROVIDER).toBe(providerId);
+      expect(prepared.env.GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS).toBe(
+        contextWindow,
+      );
+    },
+  );
+
+  it('prepares scheduled OpenAI jobs as ephemeral gateway-only DeepAgents runs', async () => {
     const adapter = new DeepAgentsLangChainExecutionAdapter();
+    const entry = catalogEntry('gpt-terra');
     const prepared = await adapter.prepare(
       prepareInput({
         input: {
@@ -345,9 +428,32 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
           chatJid: 'job:1',
           isScheduledJob: true,
         },
+        effectiveModel: entry.runnerModel,
+        effectiveModelEntry: entry,
+        modelCredentialProjection: {
+          env: Object.fromEntries([
+            [openAiBaseUrlKey(), 'http://127.0.0.1:4567/openai'],
+            [openAiApiKeyKey(), 'gtw_scheduled_openai'],
+            ['UPSTREAM_OPENAI_API_KEY', 'sk-raw-upstream-test'],
+          ]),
+          credentialProviders: {},
+          brokerProfile: 'gantry',
+          brokerApplied: true,
+          brokerAuthMode: 'api_key',
+        },
       }),
     );
 
+    expect(prepared.providerId).toBe('deepagents:langchain');
+    expect(prepared.env.GANTRY_DEEPAGENTS_MODEL_ID).toBe('gpt-5.6-terra');
+    expect(prepared.env.GANTRY_DEEPAGENTS_MODEL_PROVIDER).toBe('openai');
+    expect(prepared.runnerInputPatch?.modelCredentialEnv).toEqual({
+      [openAiBaseUrlKey()]: 'http://127.0.0.1:4567/openai',
+      [openAiApiKeyKey()]: 'gtw_scheduled_openai',
+    });
+    expect(prepared.runnerInputPatch?.modelCredentialEnv).not.toHaveProperty(
+      'UPSTREAM_OPENAI_API_KEY',
+    );
     expect(prepared.runnerInputPatch?.deepAgentCheckpointer).toBeUndefined();
     expect(
       checkpointSetupMock.ensureDeepAgentsCheckpointSchema,

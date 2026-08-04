@@ -1,4 +1,6 @@
 import type {
+  MemoryLlmBatchCapability,
+  MemoryLlmBatchScope,
   MemoryLlmClient,
   MemoryLlmQueryOpts,
 } from '../../domain/ports/memory-llm-client.js';
@@ -42,11 +44,59 @@ export interface RouteAwareMemoryLlmClientDeps {
 export function createRouteAwareMemoryLlmClient(
   deps: RouteAwareMemoryLlmClientDeps,
 ): MemoryLlmClient {
+  const batch = createRouteAwareBatchCapability(deps);
   return {
     isConfigured: () =>
       deps.anthropic.isConfigured() || deps.openai.isConfigured(),
     query: async (opts) => clientForQuery(deps, opts).query(opts),
+    ...(batch ? { batch } : {}),
   };
+}
+
+function createRouteAwareBatchCapability(
+  deps: RouteAwareMemoryLlmClientDeps,
+): MemoryLlmBatchCapability | undefined {
+  if (
+    !deps.anthropic.batch &&
+    !deps.anthropicSingleRequest?.batch &&
+    !deps.openai.batch
+  ) {
+    return undefined;
+  }
+  return {
+    preflightBatch: async (opts) =>
+      batchForScope(deps, opts).preflightBatch(opts),
+    submitBatch: async (opts) => batchForScope(deps, opts).submitBatch(opts),
+    pollBatch: async (opts) => batchForScope(deps, opts).pollBatch(opts),
+    fetchBatchResults: async (opts) =>
+      batchForScope(deps, opts).fetchBatchResults(opts),
+    findBatchByCorrelationId: async (opts) =>
+      batchForScope(deps, opts).findBatchByCorrelationId(opts),
+  };
+}
+
+function batchForScope(
+  deps: RouteAwareMemoryLlmClientDeps,
+  scope: MemoryLlmBatchScope,
+): MemoryLlmBatchCapability {
+  const routeId = resolveProviderRouteId(scope);
+  const provider = routeId ? getModelProviderDefinition(routeId) : undefined;
+  if (provider && !provider.batch) {
+    throw new Error(
+      `Memory model route ${provider.id} does not support provider batches.`,
+    );
+  }
+  const client = isOpenAiCompatibleProvider(scope)
+    ? deps.openai
+    : resolveResponseFamily(scope) === SECONDARY_MEMORY_RESPONSE_FAMILY
+      ? deps.openai
+      : (deps.anthropicSingleRequest ?? deps.anthropic);
+  if (!client.batch) {
+    throw new Error(
+      `Memory model route ${provider?.id ?? 'unknown'} has no chat batch transport.`,
+    );
+  }
+  return client.batch;
 }
 
 function clientForQuery(
@@ -84,7 +134,9 @@ function singleRequestRequested(opts: MemoryLlmQueryOpts): boolean {
 // A memory model is OpenAI-compatible (chat/completions) when its provider runs
 // on the DeepAgents engine, regardless of its nominal response family. This is
 // the lane OpenRouter takes: family 'anthropic', but OpenAI-shaped transport.
-function isOpenAiCompatibleProvider(opts: MemoryLlmQueryOpts): boolean {
+function isOpenAiCompatibleProvider(
+  opts: Pick<MemoryLlmQueryOpts, 'model' | 'modelProfile'>,
+): boolean {
   const routeId = resolveProviderRouteId(opts);
   if (!routeId) return false;
   const provider = getModelProviderDefinition(routeId);
@@ -95,7 +147,9 @@ function isOpenAiCompatibleProvider(opts: MemoryLlmQueryOpts): boolean {
   );
 }
 
-function resolveProviderRouteId(opts: MemoryLlmQueryOpts): string | undefined {
+function resolveProviderRouteId(
+  opts: Pick<MemoryLlmQueryOpts, 'model' | 'modelProfile'>,
+): string | undefined {
   if (opts.modelProfile?.modelRoute) return opts.modelProfile.modelRoute;
   const entry =
     findModelByRunnerModel(opts.model) ??
@@ -103,7 +157,9 @@ function resolveProviderRouteId(opts: MemoryLlmQueryOpts): string | undefined {
   return entry?.modelRoute.id;
 }
 
-function resolveResponseFamily(opts: MemoryLlmQueryOpts): string | undefined {
+function resolveResponseFamily(
+  opts: Pick<MemoryLlmQueryOpts, 'model' | 'modelProfile'>,
+): string | undefined {
   if (opts.modelProfile?.responseFamily) {
     return opts.modelProfile.responseFamily;
   }

@@ -10,7 +10,6 @@ import type {
   RuntimeEvent,
   RuntimeEventPublishInput,
 } from '../../domain/events/events.js';
-import type { LiveAdmissionMessagePublishResult } from '../runtime-events/runtime-event-exchange.js';
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 import type {
   RuntimeChatMetadataRepository,
@@ -59,7 +58,10 @@ export class ConversationMessageIngressModule {
               now?: string;
             };
           },
-        ): Promise<LiveAdmissionMessagePublishResult>;
+        ): Promise<{
+          event: RuntimeEvent;
+          liveAdmissionResult: LiveAdmissionWorkItemEnqueueResult | undefined;
+        }>;
       };
       messageReactions?: {
         addReaction(
@@ -244,19 +246,15 @@ export class ConversationMessageIngressModule {
             },
           },
         );
-      if (result.outcome !== 'accepted') {
-        throw new Error(
-          'External conversation admission returned an SDK-only outcome.',
-        );
-      }
       accepted = result.event;
       admissionResult = result.liveAdmissionResult;
-      durableAdmissionCreated = !!admissionResult;
+      durableAdmissionCreated =
+        !!admissionResult && admissionResult.outcome !== 'overloaded';
     } else {
       await this.deps.ops.storeMessage(message);
       accepted = await this.deps.runtimeEvents.publish(acceptedEvent);
     }
-    if (admissionResult) {
+    if (admissionResult && admissionResult.outcome !== 'overloaded') {
       await this.deps.ops.notifyLiveAdmissionWorkItem?.(admissionResult);
     }
     const messageRef = input.messageRef?.trim();

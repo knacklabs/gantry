@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   SettingsRevision,
@@ -7,6 +7,26 @@ import type {
 import type { SettingsRevisionWakeupSource } from '@core/config/settings/settings-revision-notify.js';
 
 const applied: number[] = [];
+const applySettingsRevisionWithMcpFenceRecovery = vi.hoisted(() => vi.fn());
+const importSettings = vi.hoisted(() => vi.fn());
+const leaseState = vi.hoisted(() => {
+  let held = false;
+  const tryAcquire = vi.fn(async () => {
+    if (held) return undefined;
+    held = true;
+    return {
+      release: async () => {
+        held = false;
+      },
+    };
+  });
+  return {
+    reset: () => {
+      held = false;
+    },
+    tryAcquire,
+  };
+});
 
 vi.mock('@core/config/settings/settings-import-service.js', async () => {
   const actual = await vi.importActual<
@@ -14,17 +34,32 @@ vi.mock('@core/config/settings/settings-import-service.js', async () => {
   >('@core/config/settings/settings-import-service.js');
   return {
     ...actual,
-    importWorkstationSettings: vi.fn(async () => {
-      applied.push(Date.now());
-    }),
-    settingsFromRevisionDocument: vi.fn(() => ({}) as never),
+    applySettingsRevisionWithMcpFenceRecovery:
+      applySettingsRevisionWithMcpFenceRecovery.mockImplementation(
+        async (input: { revision: SettingsRevision }) => {
+          await importSettings(
+            {
+              expectedMcpBindings: input.revision.mcpBindingPreconditions,
+            },
+            {},
+          );
+          return {
+            settings: {} as never,
+            revision: input.revision.revision,
+          };
+        },
+      ),
+    importWorkstationSettings: importSettings,
   };
 });
 
-const loadState = vi.hoisted(() => ({ markSettingsLoaded: vi.fn() }));
+const loadState = vi.hoisted(() => ({
+  markSettingsLoaded: vi.fn(),
+  markSettingsNotLoaded: vi.fn(),
+}));
 vi.mock('@core/runtime/settings-load-state.js', () => ({
   markSettingsLoaded: loadState.markSettingsLoaded,
-  markSettingsNotLoaded: vi.fn(),
+  markSettingsNotLoaded: loadState.markSettingsNotLoaded,
   areSettingsLoaded: () => true,
 }));
 
@@ -66,7 +101,7 @@ function revision(
   return {
     appId: 'default',
     revision: revisionNumber,
-    settingsDocument: { agent: { name: 'Ada' } },
+    settingsDocument: { revision: revisionNumber },
     minReaderVersion,
     createdBy: 'test',
     note: null,
@@ -81,12 +116,14 @@ function makeListener(
     readerVersion: number;
     onSkewAlert: (alert: unknown) => void;
     onFirstRevisionApplied: () => Promise<void> | void;
+    logWarn: (context: Record<string, unknown>, message: string) => void;
   }> = {},
 ) {
   return new SettingsRevisionListener({
     appId: 'default' as never,
     runtimeHome: '/tmp/gantry-listener-test',
     settingsRevisions: repo,
+    leases: { tryAcquire: leaseState.tryAcquire },
     ops: {} as never,
     repositories: {} as never,
     wakeupSource: wakeup,
@@ -94,6 +131,7 @@ function makeListener(
     readerVersion: overrides.readerVersion ?? 1,
     onSkewAlert: overrides.onSkewAlert,
     onFirstRevisionApplied: overrides.onFirstRevisionApplied,
+    logWarn: overrides.logWarn,
     // Never auto-fire the interval; tests drive passes explicitly.
     setIntervalFn: (() => 0 as never) as typeof setInterval,
     clearIntervalFn: (() => {}) as typeof clearInterval,
@@ -101,6 +139,39 @@ function makeListener(
 }
 
 describe('SettingsRevisionListener', () => {
+  beforeEach(() => {
+    applied.length = 0;
+    leaseState.reset();
+    leaseState.tryAcquire.mockClear();
+    loadState.markSettingsLoaded.mockClear();
+    loadState.markSettingsNotLoaded.mockClear();
+    importSettings.mockReset();
+    importSettings.mockImplementation(
+      async (_deps: unknown, settings: { revision?: number }) => {
+        applied.push(settings.revision ?? -1);
+      },
+    );
+    applySettingsRevisionWithMcpFenceRecovery.mockReset();
+    applySettingsRevisionWithMcpFenceRecovery.mockImplementation(
+      async (input: { revision: SettingsRevision }) => {
+        const settings = input.revision.settingsDocument as {
+          revision?: number;
+        };
+        await importSettings(
+          {
+            projectionAuthority: 'revision',
+            expectedMcpBindings: input.revision.mcpBindingPreconditions,
+          },
+          settings,
+        );
+        return {
+          settings: settings as never,
+          revision: input.revision.revision,
+        };
+      },
+    );
+  });
+
   it('applies a new revision and marks settings loaded on first apply', async () => {
     applied.length = 0;
     loadState.markSettingsLoaded.mockClear();
@@ -111,8 +182,54 @@ describe('SettingsRevisionListener', () => {
 
     expect(result).toEqual({ result: 'applied', revision: 1 });
     expect(applied).toHaveLength(1);
+    expect(importSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ projectionAuthority: 'revision' }),
+      expect.anything(),
+    );
     expect(loadState.markSettingsLoaded).toHaveBeenCalledOnce();
     expect(listener.getAppliedRevision()).toBe(1);
+  });
+
+  it('replays the durable MCP source fence with the revision', async () => {
+    applied.length = 0;
+    importSettings.mockClear();
+    const expectedMcpBinding = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+    } as const;
+    const row = revision(1, 1);
+    row.mcpBindingPreconditions = [expectedMcpBinding as never];
+    const listener = makeListener(makeRepo([row]), new FakeWakeupSource());
+
+    await listener.applyLatest();
+
+    expect(importSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedMcpBindings: [expectedMcpBinding],
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('advances to the successor revision returned by MCP fence recovery', async () => {
+    applied.length = 0;
+    const row = revision(1, 1);
+    applySettingsRevisionWithMcpFenceRecovery.mockResolvedValueOnce({
+      settings: {} as never,
+      revision: 2,
+    });
+    const listener = makeListener(makeRepo([row]), new FakeWakeupSource());
+
+    const result = await listener.applyLatest();
+
+    expect(result).toEqual({ result: 'applied', revision: 2 });
+    expect(listener.getAppliedRevision()).toBe(2);
   });
 
   it('holds the last-applied revision and alerts on reader-version skew', async () => {
@@ -169,33 +286,45 @@ describe('SettingsRevisionListener', () => {
     expect(onFirstRevisionApplied).not.toHaveBeenCalled();
   });
 
-  it('keeps the applied revision when the first-revision hook throws', async () => {
+  it('retries a failed first-revision hook before marking settings loaded', async () => {
     applied.length = 0;
+    const failure = new Error('held service failed to start');
+    const deferredStarts: string[] = [];
+    const onFirstRevisionApplied = vi
+      .fn()
+      .mockRejectedValueOnce(failure)
+      .mockImplementationOnce(async () => {
+        deferredStarts.push('started');
+      });
     const warn = vi.fn();
     const listener = new SettingsRevisionListener({
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-listener-test',
       settingsRevisions: makeRepo([revision(1, 1)]),
+      leases: { tryAcquire: leaseState.tryAcquire },
       ops: {} as never,
       repositories: {} as never,
       wakeupSource: new FakeWakeupSource(),
       reloadRuntimeState: async () => {},
       readerVersion: 1,
-      onFirstRevisionApplied: () => {
-        throw new Error('held service failed to start');
-      },
+      onFirstRevisionApplied,
       logWarn: warn,
       setIntervalFn: (() => 0 as never) as typeof setInterval,
       clearIntervalFn: (() => {}) as typeof clearInterval,
     });
 
-    const result = await listener.applyLatest();
+    listener.wake();
 
-    expect(result).toEqual({ result: 'applied', revision: 1 });
+    await vi.waitFor(() => expect(listener.getAppliedRevision()).toBe(1));
+    expect(onFirstRevisionApplied).toHaveBeenCalledTimes(2);
+    expect(deferredStarts).toEqual(['started']);
+    expect(importSettings).toHaveBeenCalledTimes(2);
+    expect(loadState.markSettingsNotLoaded).toHaveBeenCalledOnce();
+    expect(loadState.markSettingsLoaded).toHaveBeenCalledOnce();
     expect(listener.getAppliedRevision()).toBe(1);
     expect(warn).toHaveBeenCalledWith(
-      expect.objectContaining({ revision: 1 }),
-      expect.stringContaining('First-revision start hook failed'),
+      { err: failure },
+      'Settings revision apply failed',
     );
   });
 
@@ -216,6 +345,104 @@ describe('SettingsRevisionListener', () => {
 
     expect(result).toEqual({ result: 'applied', revision: 2 });
     expect(listener.getAppliedRevision()).toBe(2);
+  });
+
+  it('serializes concurrent projectors for the same app', async () => {
+    let activeApplies = 0;
+    let maxActiveApplies = 0;
+    importSettings.mockImplementation(async () => {
+      activeApplies += 1;
+      maxActiveApplies = Math.max(maxActiveApplies, activeApplies);
+      await new Promise((resolve) => setImmediate(resolve));
+      activeApplies -= 1;
+    });
+    const repo = makeRepo([revision(1, 1)]);
+    const first = makeListener(repo, new FakeWakeupSource());
+    const second = makeListener(repo, new FakeWakeupSource());
+
+    await Promise.all([first.applyLatest(), second.applyLatest()]);
+
+    expect(maxActiveApplies).toBe(1);
+    expect(leaseState.tryAcquire).toHaveBeenCalledWith(
+      'settings-projector:default',
+    );
+  });
+
+  it('skips a stale target and applies the current head under the lease', async () => {
+    const target = revision(10, 1);
+    const head = revision(11, 1);
+    const repo = makeRepo([target]);
+    repo.getLatestSettingsRevision = vi
+      .fn()
+      .mockResolvedValueOnce(target)
+      .mockResolvedValueOnce(head);
+    const listener = makeListener(repo, new FakeWakeupSource());
+
+    const result = await listener.applyLatest();
+
+    expect(result).toEqual({ result: 'applied', revision: 11 });
+    expect(applied).toEqual([11]);
+    expect(listener.getAppliedRevision()).toBe(11);
+  });
+
+  it('re-wakes once after a transient projection failure', async () => {
+    const failure = new Error('projection failed');
+    importSettings
+      .mockRejectedValueOnce(failure)
+      .mockImplementationOnce(
+        async (_deps: unknown, settings: { revision?: number }) => {
+          applied.push(settings.revision ?? -1);
+        },
+      );
+    const logWarn = vi.fn();
+    const listener = makeListener(
+      makeRepo([revision(1, 1)]),
+      new FakeWakeupSource(),
+      { logWarn },
+    );
+
+    listener.wake();
+
+    await vi.waitFor(() => expect(listener.getAppliedRevision()).toBe(1));
+    expect(importSettings).toHaveBeenCalledTimes(2);
+    expect(logWarn).toHaveBeenCalledWith(
+      { err: failure },
+      'Settings revision apply failed',
+    );
+  });
+
+  it('marks settings not loaded after a failed apply and loaded after recovery', async () => {
+    const rows = [revision(1, 1)];
+    const listener = makeListener(makeRepo(rows), new FakeWakeupSource());
+    await listener.applyLatest();
+
+    rows.push(revision(2, 1));
+    const failure = new Error('projection failed');
+    let finishRetry!: () => void;
+    importSettings.mockRejectedValueOnce(failure).mockImplementationOnce(
+      (_deps: unknown, settings: { revision?: number }) =>
+        new Promise<void>((resolve) => {
+          finishRetry = () => {
+            applied.push(settings.revision ?? -1);
+            resolve();
+          };
+        }),
+    );
+
+    listener.wake();
+
+    await vi.waitFor(() =>
+      expect(loadState.markSettingsNotLoaded).toHaveBeenCalledOnce(),
+    );
+    expect(loadState.markSettingsLoaded).toHaveBeenCalledOnce();
+
+    finishRetry();
+
+    await vi.waitFor(() => expect(listener.getAppliedRevision()).toBe(2));
+    expect(loadState.markSettingsLoaded).toHaveBeenCalledTimes(2);
+    expect(
+      loadState.markSettingsNotLoaded.mock.invocationCallOrder[0],
+    ).toBeLessThan(loadState.markSettingsLoaded.mock.invocationCallOrder[1]!);
   });
 
   it('is a no-op when the latest revision is already applied', async () => {

@@ -324,17 +324,9 @@ async function handleCapabilityCredentialRoute(
     }
     const body = rawBody as Record<string, unknown>;
     const unknown = unknownKeys(body, ['value', 'allowedCapabilityIds']);
-    if (unknown.length > 0) {
-      sendError(
-        res,
-        400,
-        'INVALID_REQUEST',
-        `Unsupported request field(s): ${unknown.join(', ')}.`,
-      );
-      return true;
-    }
     const allowedCapabilityIds = body.allowedCapabilityIds;
     if (
+      unknown.length > 0 ||
       typeof body.value !== 'string' ||
       !body.value ||
       body.value.length > 65_536 ||

@@ -24,7 +24,7 @@ describe('evaluatePostgresStorageCapabilities', () => {
       textSearchReason: 'pg_search or pg_trgm extension is not installed',
       jobQueue: false,
       jobQueueReason:
-        'pg-boss schema is not initialized (expected table gantry_pgboss.version)',
+        'pg-boss schema is not initialized (expected table pgboss.version)',
       runtimeEvents: false,
       runtimeEventsReason:
         'runtime_events indexes are missing: idx_runtime_events_app_cursor',
@@ -36,7 +36,7 @@ describe('evaluatePostgresStorageCapabilities', () => {
     expect(failure?.details).toEqual([
       'pgvector extension is not installed',
       'pg_search or pg_trgm extension is not installed',
-      'pg-boss schema is not initialized (expected table gantry_pgboss.version)',
+      'pg-boss schema is not initialized (expected table pgboss.version)',
       'runtime_events indexes are missing: idx_runtime_events_app_cursor',
       'event_bus_outbox runtime-event uniqueness constraint is missing: event_bus_outbox_runtime_event_id_key',
     ]);

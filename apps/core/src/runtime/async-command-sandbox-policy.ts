@@ -8,13 +8,13 @@ export interface AsyncCommandSandboxPolicy {
   providerAccountId?: string | null;
   threadId?: string | null;
   runId?: string;
-  correlationId?: string | null;
+  correlationRunId?: string;
   jobId?: string;
-  callerResolvedTools?: CallerResolvedToolsConfig;
   protectedReadPaths: readonly string[];
   protectedWritePaths: readonly string[];
   allowedNetworkHosts: readonly string[];
   resourceLimits: RunnerSandboxResourceLimits;
+  callerResolvedTools?: CallerResolvedToolsConfig;
 }
 
 const policies = new Map<string, AsyncCommandSandboxPolicy>();
@@ -47,13 +47,13 @@ export function registerSpawnAsyncCommandSandboxPolicy(input: {
   providerAccountId?: string | null;
   threadId?: string | null;
   runId?: string;
-  correlationId?: string | null;
+  correlationRunId?: string;
   jobId?: string;
-  callerResolvedTools?: CallerResolvedToolsConfig;
   protectedReadPaths: readonly string[];
   protectedWritePaths: readonly string[];
   allowedNetworkHosts: readonly string[];
   resourceLimits: RunnerSandboxResourceLimits;
+  callerResolvedTools?: CallerResolvedToolsConfig;
 }): void {
   registerAsyncCommandSandboxPolicy({
     sourceAgentFolder: input.sourceAgentFolder,
@@ -65,13 +65,13 @@ export function registerSpawnAsyncCommandSandboxPolicy(input: {
       providerAccountId: input.providerAccountId ?? null,
       threadId: input.threadId ?? null,
       runId: input.runId,
-      correlationId: input.correlationId ?? null,
+      correlationRunId: input.correlationRunId,
       jobId: input.jobId,
-      callerResolvedTools: input.callerResolvedTools,
       protectedReadPaths: input.protectedReadPaths,
       protectedWritePaths: input.protectedWritePaths,
       allowedNetworkHosts: input.allowedNetworkHosts,
       resourceLimits: input.resourceLimits,
+      callerResolvedTools: input.callerResolvedTools,
     },
   });
 }
@@ -86,14 +86,14 @@ export function configureSpawnAsyncCommandSandboxPolicy(input: {
   providerAccountId?: string | null;
   threadId?: string | null;
   runId?: string;
-  correlationId?: string | null;
+  correlationRunId?: string;
   jobId?: string;
-  callerResolvedTools?: CallerResolvedToolsConfig;
   protectedReadPaths: readonly string[];
   protectedWritePaths: readonly string[];
   gatewayAllowedNetworkHosts?: readonly string[];
   fallbackAllowedNetworkHosts: readonly string[];
   resourceLimits: RunnerSandboxResourceLimits;
+  callerResolvedTools?: CallerResolvedToolsConfig;
 }): readonly string[] {
   const allowedNetworkHosts =
     input.gatewayAllowedNetworkHosts ?? input.fallbackAllowedNetworkHosts;
@@ -111,13 +111,13 @@ export function configureSpawnAsyncCommandSandboxPolicy(input: {
     providerAccountId: input.providerAccountId,
     threadId: input.threadId,
     runId: input.runId,
-    correlationId: input.correlationId,
+    correlationRunId: input.correlationRunId,
     jobId: input.jobId,
-    callerResolvedTools: input.callerResolvedTools,
     protectedReadPaths: input.protectedReadPaths,
     protectedWritePaths: input.protectedWritePaths,
     allowedNetworkHosts,
     resourceLimits: input.resourceLimits,
+    callerResolvedTools: input.callerResolvedTools,
   });
   return allowedNetworkHosts;
 }

@@ -9,6 +9,7 @@ import {
   startOutboundDeliveryRecoveryLoop,
   stopOutboundDeliveryRecoveryLoop,
 } from '@core/jobs/outbound-delivery-recovery.js';
+import { getOperationalErrorCount } from '@core/shared/operational-error-counters.js';
 
 function makeClaimedItem(overrides: Partial<ClaimedOutboundDeliveryItem> = {}) {
   const itemId =
@@ -458,6 +459,7 @@ describe('runBoundedOutboundDeliveryRecovery', () => {
         claims: [[claimed], []],
       });
 
+    const before = getOperationalErrorCount('delivery', 'outbound_dispatch');
     const result = await runBoundedOutboundDeliveryRecovery({
       service,
       appId: 'app:test' as never,
@@ -472,6 +474,9 @@ describe('runBoundedOutboundDeliveryRecovery', () => {
 
     expect(result.sent).toBe(0);
     expect(result.failed).toBe(1);
+    expect(getOperationalErrorCount('delivery', 'outbound_dispatch')).toBe(
+      before + 1,
+    );
     expect(markDeliveryItemSent).not.toHaveBeenCalled();
     expect(markDeliveryItemFailed).toHaveBeenCalledWith(
       expect.objectContaining({

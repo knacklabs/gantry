@@ -1,4 +1,19 @@
-type ZodFactory = Record<string, (...args: any[]) => any>;
+import {
+  createCallableAgentToolSchema,
+  type CallableAgentToolInput,
+} from '../../application/core-tools/callable-agent-tools.js';
+import type { CoreMessageFile } from '../../application/core-tools/send-message.js';
+
+interface ZodFactory {
+  object(shape: Record<string, unknown>): any;
+  string(): any;
+  number(): any;
+  boolean(): any;
+  array(schema: unknown): any;
+  enum(values: readonly string[]): any;
+  literal(value: string): any;
+  union(options: readonly unknown[]): any;
+}
 
 export interface CoreToolInputSchema<Output> {
   safeParse(
@@ -11,7 +26,7 @@ export interface CoreToolInputSchema<Output> {
 export type CoreToolInputByName = {
   send_message: {
     text: string;
-    files?: Array<{ scope?: string; path: string; version?: number }>;
+    files?: CoreMessageFile[];
     sender?: string;
   };
   ask_user_question: {
@@ -36,7 +51,6 @@ export type CoreToolInputByName = {
     source?: string;
   };
   delegate_task: {
-    taskKey?: string;
     objective: string;
     context?: string;
     expectedOutput?: string;
@@ -46,37 +60,14 @@ export type CoreToolInputByName = {
   task_get: { taskId: string };
   task_list: Record<string, never>;
   task_cancel: { taskId: string };
-  task_wait: { taskIds: string[]; timeoutMs: number };
   task_message: { taskId: string; message: string };
 };
-
-export function coreTaskDescription(
-  name: Exclude<
-    keyof CoreToolInputByName,
-    'send_message' | 'ask_user_question' | 'memory_search' | 'memory_save'
-  >,
-): string {
-  switch (name) {
-    case 'delegate_task':
-      return 'Start a durable child Gantry agent task.';
-    case 'task_get':
-      return 'Read one durable task.';
-    case 'task_list':
-      return 'List recent durable tasks.';
-    case 'task_cancel':
-      return 'Cancel one running durable task.';
-    case 'task_wait':
-      return 'Suspend until selected durable tasks reach terminal states.';
-    case 'task_message':
-      return 'Send a steering message to a delegated task.';
-  }
-}
 
 export type CoreToolSchemas = {
   [Name in keyof CoreToolInputByName]: CoreToolInputSchema<
     CoreToolInputByName[Name]
   >;
-};
+} & { callable_agent: CoreToolInputSchema<CallableAgentToolInput> };
 
 export function createCoreToolSchemas(z: ZodFactory): CoreToolSchemas {
   const taskIdSchema = z.object({ taskId: z.string().min(1).max(160) });
@@ -85,11 +76,22 @@ export function createCoreToolSchemas(z: ZodFactory): CoreToolSchemas {
       text: z.string(),
       files: z
         .array(
-          z.object({
-            scope: z.string().optional(),
-            path: z.string(),
-            version: z.number().int().positive().optional(),
-          }),
+          z.union([
+            z
+              .object({
+                source: z.literal('artifact').optional(),
+                scope: z.string().optional(),
+                path: z.string(),
+                version: z.number().int().positive().optional(),
+              })
+              .strict(),
+            z
+              .object({
+                source: z.literal('workspace'),
+                path: z.string(),
+              })
+              .strict(),
+          ]),
         )
         .max(5)
         .optional(),
@@ -133,7 +135,6 @@ export function createCoreToolSchemas(z: ZodFactory): CoreToolSchemas {
       source: z.string().optional(),
     }),
     delegate_task: z.object({
-      taskKey: z.string().min(1).max(80).optional(),
       objective: z.string().min(1).max(10_000),
       context: z.string().max(20_000).optional(),
       expectedOutput: z.string().max(2_000).optional(),
@@ -145,17 +146,10 @@ export function createCoreToolSchemas(z: ZodFactory): CoreToolSchemas {
         .max(30 * 60_000)
         .optional(),
     }),
+    callable_agent: createCallableAgentToolSchema(z),
     task_get: taskIdSchema,
     task_list: z.object({}),
     task_cancel: taskIdSchema,
-    task_wait: z.object({
-      taskIds: z.array(z.string().min(1).max(160)).min(1).max(64),
-      timeoutMs: z
-        .number()
-        .int()
-        .positive()
-        .max(30 * 60_000),
-    }),
     task_message: z.object({
       taskId: z.string().min(1).max(160),
       message: z.string().min(1).max(10_000),

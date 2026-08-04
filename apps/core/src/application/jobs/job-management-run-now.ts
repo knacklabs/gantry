@@ -100,7 +100,6 @@ export async function runSchedulerJobNowFromMcp(
       pause_reason: null,
       next_run: null,
       setup_state: readiness.setupState,
-      recovery_intent: null,
       lease_run_id: null,
       lease_expires_at: null,
     });

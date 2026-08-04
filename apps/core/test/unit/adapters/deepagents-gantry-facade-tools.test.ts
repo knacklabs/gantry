@@ -104,7 +104,9 @@ function readdirEntryName(entry: unknown): string {
 
 describe('Gantry DeepAgents facade tools', () => {
   beforeEach(() => {
-    requestPermissionApprovalViaIpc.mockReset();
+    requestPermissionApprovalViaIpc
+      .mockReset()
+      .mockResolvedValue({ approved: true });
   });
 
   afterEach(() => {
@@ -155,14 +157,14 @@ describe('Gantry DeepAgents facade tools', () => {
     expect(webRead?.schema).not.toHaveProperty('schema');
   });
 
-  it('reads files when FileRead authority is selected without prompting', async () => {
+  it('reads files when the host coordinator approves FileRead authority', async () => {
     const root = makeRoot();
     fs.writeFileSync(path.join(root, 'notes.txt'), 'hello facade', 'utf-8');
     const result = await invoke(makeTools(root, ['FileRead']), 'FileRead', {
       path: 'notes.txt',
     });
     expect(result).toBe('hello facade');
-    expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+    expect(requestPermissionApprovalViaIpc).toHaveBeenCalledTimes(1);
   });
 
   it('reads only a bounded prefix of oversized files', async () => {
@@ -179,7 +181,7 @@ describe('Gantry DeepAgents facade tools', () => {
     expect(result).toContain('x'.repeat(100));
     expect(result).toContain('[truncated 11 bytes before decoding]');
     expect(result).not.toContain('TAIL_MARKER');
-    expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+    expect(requestPermissionApprovalViaIpc).toHaveBeenCalledTimes(1);
   });
 
   it('uses the public facade name in permission IPC when approval is required', async () => {
@@ -196,6 +198,32 @@ describe('Gantry DeepAgents facade tools', () => {
       agentFolder: 'main_agent',
       toolInput: { path: 'notes.txt' },
     });
+  });
+
+  it.each([
+    ['FileRead', { path: 'media/attachments/resume.pdf' }],
+    ['FileRead', { path: './provider-attachments/report.pdf' }],
+    ['FileSearch', { mode: 'path', query: '/media/attachments/' }],
+  ])(
+    'redirects conversation attachment %s calls before permission IPC',
+    async (toolName, input) => {
+      const root = makeRoot();
+      const result = await invoke(makeTools(root), toolName, input);
+
+      expect(result).toContain('Use attachment_open');
+      expect(result).toContain('attachment_ids');
+      expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps ordinary workspace reads on the permission path', async () => {
+    const root = makeRoot();
+    fs.writeFileSync(path.join(root, 'docs.pdf'), 'workspace data', 'utf-8');
+
+    await expect(
+      invoke(makeTools(root), 'FileRead', { path: 'docs.pdf' }),
+    ).resolves.toBe('workspace data');
+    expect(requestPermissionApprovalViaIpc).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -441,7 +469,7 @@ describe('Gantry DeepAgents facade tools', () => {
           expect.stringContaining('https://duckduckgo.com/html/?q=example'),
         ]),
       );
-      expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+      expect(requestPermissionApprovalViaIpc).toHaveBeenCalledTimes(2);
     } finally {
       await proxy.close();
     }

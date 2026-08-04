@@ -84,6 +84,44 @@ describe('startDeepAgentJobHeartbeat', () => {
     expect(payload.lastTool).toBe('mcp__gantry__file');
   });
 
+  it('canonicalizes callable-agent tool activity to AgentDelegation', () => {
+    const frames: RunnerOutputFrame[] = [];
+    const heartbeat = startDeepAgentJobHeartbeat({
+      agentInput: {
+        ...SCHEDULED_INPUT,
+        callableAgentManifest: [
+          {
+            toolName: 'reviewer_hash',
+            targetAgentId: 'agent:reviewer',
+            displayName: 'Reviewer',
+            persona: 'research',
+          },
+        ],
+      },
+      writeFrame: (frame) => frames.push(frame),
+      getSessionId: () => undefined,
+    });
+    heartbeat.recordToolActivity('delegate_to_reviewer_hash');
+
+    vi.advanceTimersByTime(15_000);
+    heartbeat.recordToolActivity('delegate_to_cleanup');
+    vi.advanceTimersByTime(15_000);
+    heartbeat.stop();
+
+    const callablePayload = frames[0].runtimeEvents?.[0]?.payload as Record<
+      string,
+      unknown
+    >;
+    expect(callablePayload.currentTool).toBe('AgentDelegation');
+    expect(callablePayload.lastTool).toBe('AgentDelegation');
+    const thirdPartyPayload = frames[1].runtimeEvents?.[0]?.payload as Record<
+      string,
+      unknown
+    >;
+    expect(thirdPartyPayload.currentTool).toBe('delegate_to_cleanup');
+    expect(thirdPartyPayload.lastTool).toBe('delegate_to_cleanup');
+  });
+
   it('counts pending permission requests for the run from the IPC dir', () => {
     const requestsDir = path.join(
       ipcDir,

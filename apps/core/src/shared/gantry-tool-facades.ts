@@ -18,15 +18,23 @@ const GANTRY_FACADE_EXACT_TOOL_NAME_SET = new Set<string>(
 );
 const GANTRY_DELEGATION_TOOL_NAME_SET = new Set([
   'delegate_task',
-  'task_wait',
   'task_message',
 ]);
 
-export function canonicalGantryToolRuleName(toolName: string): string {
-  const canonicalToolName = toolName.startsWith('mcp__gantry__')
+export function canonicalGantryToolRuleName(
+  toolName: string,
+  context?: { callableAgentToolNames?: ReadonlySet<string> },
+): string {
+  const gantryNamespaced = toolName.startsWith('mcp__gantry__');
+  const canonicalToolName = gantryNamespaced
     ? toolName.slice('mcp__gantry__'.length)
     : toolName;
-  return GANTRY_DELEGATION_TOOL_NAME_SET.has(canonicalToolName)
+  const manifestCallable =
+    context?.callableAgentToolNames?.has(toolName) === true ||
+    context?.callableAgentToolNames?.has(canonicalToolName) === true;
+  return GANTRY_DELEGATION_TOOL_NAME_SET.has(canonicalToolName) ||
+    (canonicalToolName.startsWith('delegate_to_') &&
+      (gantryNamespaced || manifestCallable))
     ? 'AgentDelegation'
     : canonicalToolName;
 }

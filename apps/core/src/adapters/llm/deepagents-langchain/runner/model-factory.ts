@@ -6,6 +6,7 @@ import type {
   AgentControlThinking,
 } from '../../../../domain/types.js';
 import { GantryChatOpenRouter } from './gantry-chat-openrouter.js';
+import { GantryChatGemini } from './gantry-chat-gemini.js';
 
 // Builds the LangChain chat-model instance the DeepAgents graph runs on. Model
 // construction is PROVIDER-DRIVEN, not env-sniffing: the host projects the
@@ -126,6 +127,19 @@ export async function buildRunnerModel(input: {
         : {}),
     });
     return { model, endpointFamily: 'openrouter', modelId: input.modelId };
+  }
+
+  if (provider === 'gemini') {
+    const model = new GantryChatGemini({
+      model: input.modelId,
+      apiKey,
+      configuration: { baseURL },
+      disableStreaming: true,
+      streamUsage: false,
+      ...(maxOutputTokens !== undefined ? { maxTokens: maxOutputTokens } : {}),
+      ...(maxInputTokens !== undefined ? { profile: { maxInputTokens } } : {}),
+    });
+    return { model, endpointFamily: 'openai', modelId: input.modelId };
   }
 
   if (INIT_CHAT_MODEL_PROVIDERS.has(provider)) {

@@ -270,6 +270,9 @@ export function evaluateNeutralToolPolicy(input: {
   context: NeutralToolGateContext;
   allowedToolRules: readonly string[];
   autonomousAllowedToolRules?: readonly string[];
+  // Locked-preset / fixed-image agents hide the capability request tools;
+  // recovery guidance must not instruct calling them.
+  capabilityRequestToolsHidden?: boolean;
 }): ToolPolicyDecision {
   const request = buildAgentToolExecutionRequest(
     input.classifier,
@@ -282,10 +285,12 @@ export function evaluateNeutralToolPolicy(input: {
       request,
       autonomousAllowedToolRules:
         input.autonomousAllowedToolRules ?? input.allowedToolRules,
+      capabilityRequestToolsHidden: input.capabilityRequestToolsHidden,
     });
   }
   return input.policy.evaluate({
     request,
     allowedToolRules: input.allowedToolRules,
+    capabilityRequestToolsHidden: input.capabilityRequestToolsHidden,
   });
 }

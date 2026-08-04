@@ -15,7 +15,7 @@ export type AgentAdminBoundConversation = {
   displayName?: string;
   senderPolicy?: {
     allow: '*' | string[];
-    mode: 'trigger' | 'drop';
+    mode: 'trigger';
   };
   requiresTrigger?: boolean;
   trigger?: string;
@@ -54,14 +54,9 @@ export type AgentProfileFileContentResponse = {
 };
 
 export type AgentAccessSelection = { id: string; version: string };
-
 export type AgentAccessDocument = {
   agentId: string;
-  sources: {
-    skills: unknown[];
-    mcpServers: unknown[];
-    tools: unknown[];
-  };
+  sources: { skills: unknown[]; mcpServers: unknown[]; tools: unknown[] };
   selections: AgentAccessSelection[];
   toolAccess?: unknown;
   summary?: unknown;
@@ -85,6 +80,20 @@ export function createAgentAdminClient(transport: TransportLike) {
       transport.request<AgentAdminResponse>({
         method: 'GET',
         path: `/v1/agents/${encodeURIComponent(agentId)}/admin`,
+      }),
+    getDelegates: (agentId: string) =>
+      transport.request<OpenApi.GetAgentDelegatesResponse>({
+        method: 'GET',
+        path: `/v1/agents/${encodeURIComponent(agentId)}/delegates`,
+      }),
+    replaceDelegates: (
+      agentId: string,
+      body: OpenApi.ReplaceAgentDelegatesRequest,
+    ) =>
+      transport.request<OpenApi.ReplaceAgentDelegatesResponse>({
+        method: 'PUT',
+        path: `/v1/agents/${encodeURIComponent(agentId)}/delegates`,
+        body,
       }),
     listProfileFiles: (agentId: string) =>
       transport.request<AgentProfileFilesResponse>({

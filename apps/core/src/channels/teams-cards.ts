@@ -1,14 +1,32 @@
 import type {
+  MemoryReviewActionDecision,
   MessageActionAffordance,
   PermissionApprovalRequest,
+  PermissionCallbackScope,
   UserQuestionRequest,
 } from '../domain/types.js';
+import type {
+  BrainDreamReviewActionDecision,
+  ObserverFeedbackAction,
+} from '../domain/message-actions.js';
+import type { BrainReviewCardView } from '../domain/brain-review-card.js';
+import type {
+  ObserverDigestInsightView,
+  ObserverDigestMessageView,
+} from '../domain/observer-digest-view.js';
+import {
+  morePendingReviewsLabel,
+  type ReviewMessageSide,
+  type ReviewMessageView,
+} from '../domain/review-message-view.js';
 import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
+import type { DurableQuestionCallback } from '../application/interactions/pending-interaction-durability.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import {
   agentTodoLines,
   agentTodoStopActions,
   countCompletedAgentTodos,
+  formatAgentProgressLine,
   formatAgentTodoHeader,
   hasAgentTodoCardHeader,
 } from './agent-todo-render.js';
@@ -22,7 +40,7 @@ import {
 
 export const TEAMS_ADAPTIVE_CARD_CONTENT_TYPE =
   'application/vnd.microsoft.card.adaptive';
-const GENERIC_ATTACHMENT_UNAVAILABLE_LINE = '- Attachment unavailable.';
+const GENERIC_ATTACHMENT_UNAVAILABLE_LINE = '- Attachment unavailable';
 const TEAMS_ATTACHMENT_UNAVAILABLE_LINE =
   '- Attachment unavailable in Teams until signed artifact links are added.';
 
@@ -33,11 +51,12 @@ export interface TeamsAdaptiveCardAction {
   data:
     | {
         action: 'permission_decision';
-        requestId: string;
+        callback: {
+          providerAlias: string;
+          scope: PermissionCallbackScope;
+          matchKind: 'individual' | 'batch';
+        };
         decision: string;
-        sourceAgentFolder: string;
-        targetJid?: string;
-        threadId?: string;
       }
     | {
         action: 'message_action';
@@ -52,6 +71,31 @@ export interface TeamsAdaptiveCardAction {
         jobId: string;
         targetJid: string;
         threadId?: string;
+      }
+    | {
+        action: 'message_action';
+        kind: 'memory_review_decision';
+        reviewId: string;
+        decision: MemoryReviewActionDecision;
+        targetJid: string;
+        threadId?: string;
+      }
+    | {
+        action: 'message_action';
+        kind: 'observer_feedback';
+        insightId: string;
+        feedback: ObserverFeedbackAction;
+        localDay: string;
+        targetJid: string;
+        threadId?: string;
+      }
+    | {
+        action: 'message_action';
+        kind: 'brain_dream_review_decision';
+        reviewId: string;
+        decision: BrainDreamReviewActionDecision;
+        targetJid: string;
+        threadId?: string;
       };
 }
 
@@ -60,8 +104,7 @@ export interface TeamsAdaptiveCardSubmitAction {
   title: string;
   data: {
     action: 'gantry_userq';
-    requestId: string;
-    sourceAgentFolder: string;
+    callback: DurableQuestionCallback;
     targetJid?: string;
     threadId?: string;
   };
@@ -86,18 +129,26 @@ export interface TeamsAdaptiveCardDescriptorPayload {
 
 export function formatTeamsAttachmentUnavailableCopy(
   text: string,
-  filesUnavailable = false,
+  filesPresent = false,
 ): string {
   let inAttachments = false;
   return text
     .split('\n')
     .map((line) => {
-      if (line === 'Attachments:') inAttachments = true;
+      if (line === 'Attachments:') {
+        inAttachments = true;
+        return line;
+      }
       if (
-        line === GENERIC_ATTACHMENT_UNAVAILABLE_LINE ||
-        (filesUnavailable && inAttachments && line.startsWith('- '))
+        inAttachments &&
+        ((filesPresent && line.startsWith('- ')) ||
+          line === GENERIC_ATTACHMENT_UNAVAILABLE_LINE ||
+          line.startsWith(`${GENERIC_ATTACHMENT_UNAVAILABLE_LINE}: `))
       ) {
         return TEAMS_ATTACHMENT_UNAVAILABLE_LINE;
+      }
+      if (inAttachments && line !== '' && !line.startsWith('- ')) {
+        inAttachments = false;
       }
       return line;
     })
@@ -106,6 +157,17 @@ export function formatTeamsAttachmentUnavailableCopy(
 
 export function buildTeamsApprovalAdaptiveCard(
   request: PermissionApprovalRequest,
+  callback = {
+    providerAlias: globalThis.crypto.randomUUID(),
+    scope: {
+      appId: request.appId || 'default',
+      sourceAgentFolder: request.sourceAgentFolder,
+      interactionId: request.requestId,
+    },
+    matchKind: request.permissionBatch
+      ? ('batch' as const)
+      : ('individual' as const),
+  },
 ): TeamsAdaptiveCardPayload {
   const promptText = formatPermissionPromptText(
     request,
@@ -134,11 +196,8 @@ export function buildTeamsApprovalAdaptiveCard(
           : 'gantry.permission.allow',
       data: {
         action: 'permission_decision',
-        requestId: request.requestId,
+        callback,
         decision: mode,
-        sourceAgentFolder: request.sourceAgentFolder,
-        targetJid: request.targetJid,
-        threadId: request.threadId,
       },
     })),
   };
@@ -161,6 +220,21 @@ export function buildTeamsAgentTodoCard(
   render: AgentTodoRender,
   targetJid = '',
 ): TeamsAdaptiveCardPayload {
+  if (render.cardKind === 'progress') {
+    return {
+      $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+      type: 'AdaptiveCard',
+      version: '1.5',
+      body: [
+        {
+          type: 'TextBlock',
+          text: formatAgentProgressLine(render),
+          wrap: true,
+        },
+      ],
+      actions: [],
+    };
+  }
   const title = formatAgentTodoHeader(render);
   const heading = hasAgentTodoCardHeader(render) ? title : `📋 ${title}`;
   const done = countCompletedAgentTodos(render);
@@ -268,9 +342,12 @@ export function buildTeamsMessageCard(options: {
 
 export function buildTeamsUserQuestionCard(
   request: UserQuestionRequest,
+  callback: DurableQuestionCallback,
+  startIndex = 0,
 ): TeamsAdaptiveCardPayload {
   const body: Array<Record<string, unknown>> = [];
   request.questions.forEach((question, qi) => {
+    if (qi < startIndex) return;
     if (question.header?.trim()) {
       body.push({
         type: 'TextBlock',
@@ -313,8 +390,7 @@ export function buildTeamsUserQuestionCard(
         title: 'Submit',
         data: {
           action: 'gantry_userq',
-          requestId: request.requestId,
-          sourceAgentFolder: request.sourceAgentFolder,
+          callback,
           ...(request.targetJid ? { targetJid: request.targetJid } : {}),
           ...(request.threadId ? { threadId: request.threadId } : {}),
         },
@@ -331,6 +407,275 @@ export function buildTeamsUserQuestionReceiptCard(
     type: 'AdaptiveCard',
     version: '1.5',
     body: [{ type: 'TextBlock', text, wrap: true }],
+    actions: [],
+  };
+}
+
+// A memory-review outcome (receipt) is just a text-only card with no actions —
+// identical in shape to the user-question receipt, so reuse it.
+export const buildTeamsReviewReceiptCard = buildTeamsUserQuestionReceiptCard;
+
+/**
+ * Neutralize dynamic snapshot text before embedding it in an Adaptive Card
+ * TextBlock (Teams renders a markdown subset). Backslash-escaping the link
+ * syntax `[ ] ( )`, the code backtick, and the angle brackets means captured
+ * memory can't inject a live link, code span, or a `<at>` mention. Mirrors the
+ * intent of the Slack mrkdwn / Telegram HTML escaping in T5. Emphasis chars
+ * (`_`/`*`) are intentionally left alone so common keys like `coffee_order`
+ * render cleanly — they carry no injection risk.
+ */
+function escapeTeamsCardText(value: string): string {
+  return value.replace(/[\\<>[\]()`]/g, '\\$&');
+}
+
+function teamsSideFact(side: ReviewMessageSide): {
+  title: string;
+  value: string;
+} {
+  const meta = [side.source, side.date]
+    .filter(Boolean)
+    .map((part) => escapeTeamsCardText(part as string))
+    .join(' · ');
+  const value = `"${escapeTeamsCardText(side.value)}"`;
+  return {
+    title: escapeTeamsCardText(side.label),
+    value: meta ? `${value} — ${meta}` : value,
+  };
+}
+
+/**
+ * Compact-structured Adaptive Card for a memory-review message. Mirrors the
+ * Slack/Telegram T5 renderers from the same provider-neutral ReviewMessageView:
+ *   - title TextBlock
+ *   - FactSet: Topic + each side (value with its "source · date") so a reviewer
+ *     sees WHAT the conflict is (both sides + recency) at a glance
+ *   - Change/Why container so they see WHAT will change plainly
+ *   - bounded evidence (already capped/truncated in the view) as a small subtle
+ *     container — never the full text
+ *   - three Action.Execute buttons carrying the memory_review_decision payload
+ *     + targetJid so inbound validation rejects foreign-chat callbacks
+ * All snapshot-sourced values are escaped for the TextBlock markdown subset.
+ */
+export function teamsReviewCard(
+  view: ReviewMessageView,
+  options: { targetJid: string; threadId?: string },
+): TeamsAdaptiveCardPayload {
+  const body: Array<Record<string, unknown>> = [
+    {
+      type: 'TextBlock',
+      size: 'Medium',
+      weight: 'Bolder',
+      text: escapeTeamsCardText(view.title),
+      wrap: true,
+    },
+    {
+      type: 'FactSet',
+      facts: [
+        { title: 'Topic', value: escapeTeamsCardText(view.topic) },
+        ...view.sides.map(teamsSideFact),
+      ],
+    },
+    {
+      type: 'Container',
+      items: [
+        {
+          type: 'TextBlock',
+          text: `**Change →** ${escapeTeamsCardText(view.change)}`,
+          wrap: true,
+        },
+        {
+          type: 'TextBlock',
+          text: `**Why:** ${escapeTeamsCardText(view.why)}`,
+          wrap: true,
+          isSubtle: true,
+        },
+      ],
+    },
+  ];
+  if (view.evidence.length > 0) {
+    // ponytail: bounded subtle container; the view already caps to 3 short
+    // snippets, so no ToggleVisibility needed — add one if evidence grows.
+    body.push({
+      type: 'Container',
+      items: view.evidence.map((item) => ({
+        type: 'TextBlock',
+        size: 'Small',
+        isSubtle: true,
+        wrap: true,
+        text: `📎 ${escapeTeamsCardText([item.source, item.date].filter(Boolean).join(' · '))}: ${escapeTeamsCardText(item.snippet)}`,
+      })),
+    });
+  }
+  const morePending = morePendingReviewsLabel(view);
+  if (morePending) {
+    body.push({
+      type: 'TextBlock',
+      size: 'Small',
+      isSubtle: true,
+      wrap: true,
+      text: escapeTeamsCardText(morePending),
+    });
+  }
+  return {
+    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+    type: 'AdaptiveCard',
+    version: '1.5',
+    body,
+    actions: view.affordances.map((affordance) => ({
+      type: 'Action.Execute',
+      title: affordance.label,
+      verb: 'gantry.memory.review',
+      data: {
+        action: 'message_action',
+        kind: 'memory_review_decision',
+        reviewId: affordance.reviewId,
+        decision: affordance.decision,
+        targetJid: options.targetJid,
+        ...(options.threadId ? { threadId: options.threadId } : {}),
+      },
+    })),
+  };
+}
+
+/**
+ * Compact-structured Adaptive Card for a brain-dream destructive-review. Mirrors
+ * teamsReviewCard: a bold "what will change" headline TextBlock + optional detail
+ * lines (rewrite before→after) + two Action.Execute buttons (Approve/Reject)
+ * carrying the brain_dream_review_decision payload + targetJid so inbound
+ * validation rejects foreign-chat callbacks. Every snapshot-sourced value is
+ * escaped for the TextBlock markdown subset.
+ */
+export function teamsBrainReviewCard(
+  view: BrainReviewCardView,
+  options: { targetJid: string; threadId?: string },
+): TeamsAdaptiveCardPayload {
+  const body: Array<Record<string, unknown>> = [
+    {
+      type: 'TextBlock',
+      size: 'Medium',
+      weight: 'Bolder',
+      text: escapeTeamsCardText(view.headline),
+      wrap: true,
+    },
+    ...view.details.map((line) => ({
+      type: 'TextBlock',
+      size: 'Small',
+      isSubtle: true,
+      wrap: true,
+      text: escapeTeamsCardText(line),
+    })),
+  ];
+  return {
+    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+    type: 'AdaptiveCard',
+    version: '1.5',
+    body,
+    actions: view.buttons.map((button) => ({
+      type: 'Action.Execute',
+      title: button.label,
+      verb: 'gantry.brain.review',
+      data: {
+        action: 'message_action',
+        kind: 'brain_dream_review_decision',
+        reviewId: view.reviewId,
+        decision: button.decision,
+        targetJid: options.targetJid,
+        ...(options.threadId ? { threadId: options.threadId } : {}),
+      },
+    })),
+  };
+}
+
+function teamsObserverInsightContainer(
+  insight: ObserverDigestInsightView,
+  options: { targetJid: string; threadId?: string },
+): Record<string, unknown> {
+  const items: Array<Record<string, unknown>> = [
+    {
+      type: 'TextBlock',
+      weight: 'Bolder',
+      wrap: true,
+      text: escapeTeamsCardText(insight.title),
+    },
+    {
+      type: 'TextBlock',
+      wrap: true,
+      text: escapeTeamsCardText(insight.summary),
+    },
+    {
+      type: 'TextBlock',
+      size: 'Small',
+      isSubtle: true,
+      wrap: true,
+      text: escapeTeamsCardText(insight.type),
+    },
+  ];
+  if (insight.stateMarker) {
+    items.push({
+      type: 'TextBlock',
+      size: 'Small',
+      isSubtle: true,
+      wrap: true,
+      text: escapeTeamsCardText(insight.stateMarker),
+    });
+  }
+  // Buttons live in an ActionSet INSIDE this insight's container (not the
+  // card-level actions array) so each 4-button group sits beneath its own
+  // insight — otherwise Teams renders one flat footer of identical-looking
+  // buttons with no insight attribution, and >6 trips the primary-action cap.
+  if (insight.affordances.length > 0) {
+    items.push({
+      type: 'ActionSet',
+      actions: insight.affordances.map((affordance) => ({
+        type: 'Action.Execute',
+        title: affordance.label,
+        verb: 'gantry.observer.feedback',
+        data: {
+          action: 'message_action',
+          kind: 'observer_feedback',
+          insightId: affordance.insightId,
+          feedback: affordance.action,
+          localDay: affordance.localDay,
+          targetJid: options.targetJid,
+          ...(options.threadId ? { threadId: options.threadId } : {}),
+        },
+      })),
+    });
+  }
+  return { type: 'Container', items };
+}
+
+/**
+ * Adaptive Card for one observer digest: a header, then per insight a container
+ * (title + summary + type, plus a state marker once acted) holding its own four
+ * Action.Execute `observer_feedback` buttons as an ActionSet — carrying
+ * insightId + feedback + targetJid (so inbound validation rejects foreign-chat
+ * callbacks). Up to 3 insight groups ride one card; a settled insight
+ * contributes no ActionSet, so the others stay actionable. Same renderer serves
+ * the initial send and the rebuild.
+ */
+export function teamsObserverDigestCard(
+  view: ObserverDigestMessageView,
+  options: { targetJid: string; threadId?: string },
+): TeamsAdaptiveCardPayload {
+  const body: Array<Record<string, unknown>> = [
+    {
+      type: 'TextBlock',
+      size: 'Medium',
+      weight: 'Bolder',
+      wrap: true,
+      text: `Observer digest — ${escapeTeamsCardText(view.localDay)}`,
+    },
+    ...view.insights.map((insight) =>
+      teamsObserverInsightContainer(insight, options),
+    ),
+  ];
+  return {
+    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+    type: 'AdaptiveCard',
+    version: '1.5',
+    body,
+    // Buttons live in per-insight ActionSets in `body`, not here.
     actions: [],
   };
 }

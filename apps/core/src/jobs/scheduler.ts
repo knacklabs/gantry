@@ -16,7 +16,6 @@ import {
 import {
   STORAGE_POSTGRES_SCHEMA,
   STORAGE_POSTGRES_URL,
-  TIMEZONE,
 } from '../config/index.js';
 import {
   configureRunSlotBackend,
@@ -29,7 +28,7 @@ import {
 import { sweepCompletedOneTimeJobs } from './cleanup.js';
 import { runJob } from './execution.js';
 import { computeNextJobRun } from './schedule-math.js';
-import { createRuntimeJobSchedulePlanner } from './job-schedule-planner.js';
+import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
 import { notifyReleasedStaleJobLeases } from './stale-lease-terminal.js';
 import {
   _setMemoryMaintenanceQueueForTests,
@@ -40,12 +39,9 @@ import type {
   SchedulerDependencies,
   SchedulerDispatchPayload,
 } from './types.js';
-import { DEFAULT_JOB_RUNTIME_APP_ID } from '../application/jobs/job-access.js';
 
 let activeSchedulerEngine: PgBossSchedulerEngine | null = null;
 let schedulerRunning = false;
-export const runtimeJobSchedulePlanner =
-  createRuntimeJobSchedulePlanner(TIMEZONE);
 
 /**
  * Factory for the ephemeral send-only pg-boss client used by non-executing
@@ -96,19 +92,9 @@ export function schedulerNotReadyReason(): string | undefined {
 
 export type { SchedulerDependencies, SchedulerDispatchPayload };
 export { computeNextJobRun, registerSystemJobs, runJob };
+export { runtimeJobSchedulePlanner };
 export { sweepCompletedOneTimeJobs };
 export { _setMemoryMaintenanceQueueForTests };
-
-export async function runSchedulerTick(
-  deps: SchedulerDependencies,
-): Promise<void> {
-  deps = {
-    ...deps,
-    opsRepository: deps.opsRepository ?? getRuntimeRepositories(),
-  };
-  await registerSystemJobs(deps);
-  activeSchedulerEngine?.requestSync();
-}
 
 export function requestSchedulerSync(jobId?: string): void {
   activeSchedulerEngine?.requestSync(jobId);
@@ -149,7 +135,7 @@ async function enqueueJobTriggerFromNonExecutingRole(
   //     clear "pg-boss is not installed" / "requires migrations" error if the
   //     schema is absent rather than silently migrating, and Bam.start() (block
   //     monitor) is skipped. A control/worker process always boots after a
-  //     job-worker has migrated the gantry_pgboss schema, so migration here is never
+  //     job-worker has migrated the pgboss schema, so migration here is never
   //     needed; if it ever is, failing loudly is correct.
   // Manager.start() still runs (required for send()), creating one queueCache
   // interval that boss.stop() clears in the finally below, so the process exits
@@ -157,7 +143,7 @@ async function enqueueJobTriggerFromNonExecutingRole(
   // is only consulted on the migrate path, which is disabled.
   const boss = sendOnlyPgBossFactory({
     connectionString: STORAGE_POSTGRES_URL,
-    schema: 'gantry_pgboss',
+    schema: 'pgboss',
     migrate: false,
     schedule: false,
     supervise: false,
@@ -190,10 +176,12 @@ export async function startSchedulerLoop(
     ...deps,
     opsRepository: deps.opsRepository ?? getRuntimeRepositories(),
     hasLiveAdmissionBacklog:
-      deps.hasLiveAdmissionBacklog ??
-      (() =>
-        hasQueuedLiveAdmissionWork(
-          deps.runtimeAppId ?? DEFAULT_JOB_RUNTIME_APP_ID,
+      deps.hasLiveAdmissionBacklog ?? hasQueuedLiveAdmissionWork,
+    sweepTerminalLiveAdmissions:
+      deps.sweepTerminalLiveAdmissions ??
+      ((cutoffIso: string) =>
+        getRuntimeStorage().repositories.liveTurns.deleteExpiredTerminalLiveAdmissionWorkItems(
+          cutoffIso,
         )),
   };
   const warn = (context: Record<string, unknown>, message: string): void =>
@@ -244,32 +232,26 @@ export async function startSchedulerLoop(
   }
 }
 
-async function hasQueuedLiveAdmissionWork(appId: string): Promise<boolean> {
+async function hasQueuedLiveAdmissionWork(): Promise<boolean> {
   const result = await getRuntimeStorage().service.pool.query<{
     waiting: boolean;
   }>(
     `SELECT EXISTS (
        SELECT 1 FROM live_admission_work_items
-       WHERE app_id = $1
-         AND (
-           state = 'queued'
-           OR (
+       WHERE state = 'queued'
+          OR (
             state = 'deferred'
             AND (defer_until IS NULL OR defer_until <= now())
-           )
           )
        LIMIT 1
      ) AS waiting`,
-    [appId],
   );
   return result.rows[0]?.waiting === true;
 }
 
 /** @internal test hook */
-export async function _hasQueuedLiveAdmissionWorkForTests(
-  appId = DEFAULT_JOB_RUNTIME_APP_ID,
-): Promise<boolean> {
-  return hasQueuedLiveAdmissionWork(appId);
+export async function _hasQueuedLiveAdmissionWorkForTests(): Promise<boolean> {
+  return hasQueuedLiveAdmissionWork();
 }
 
 export async function stopSchedulerLoop(): Promise<void> {

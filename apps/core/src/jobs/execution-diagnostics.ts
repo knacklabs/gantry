@@ -8,7 +8,6 @@ import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-reference
 export const FORWARDED_RUNNER_EVENT_TYPES = new Set<RuntimeEventType>([
   RUNTIME_EVENT_TYPES.JOB_HEARTBEAT,
   RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
-  RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
   RUNTIME_EVENT_TYPES.TASK_STARTED,
   RUNTIME_EVENT_TYPES.TASK_PROGRESS,
   RUNTIME_EVENT_TYPES.TASK_UPDATED,
@@ -177,7 +176,14 @@ export function updateDiagnosticsFromRuntimeEvent(
         stringValue(payload.recovery_action) ?? matchingWait?.recoveryAction,
     };
   }
-  if (phase === 'permission_allowed' && tool && mode === 'allow_once') {
+  const decidedBy =
+    stringValue(payload.decidedBy) ?? stringValue(payload.decided_by);
+  if (
+    phase === 'permission_allowed' &&
+    tool &&
+    mode === 'allow_once' &&
+    decidedBy !== 'reviewed_rule'
+  ) {
     const matchingWait =
       diagnostics.lastPermissionWait?.toolName === tool
         ? diagnostics.lastPermissionWait

@@ -15,7 +15,6 @@ import {
 import {
   ActiveProgressState,
   ActiveStreamState,
-  PendingPermissionPrompt,
   PendingUserQuestionState,
 } from './channel-state.js';
 import {
@@ -23,7 +22,12 @@ import {
   splitSlackTextByCodeUnits,
 } from './text-limits.js';
 import { nowIso } from '../../shared/time/datetime.js';
-import { slackMessageActionBlocks } from './message-action-affordances.js';
+import {
+  slackMessageActionBlocks,
+  slackReviewMessageBlocks,
+} from './message-action-affordances.js';
+import { slackObserverDigestBlocks } from './observer-digest-affordances.js';
+import { slackBrainReviewBlocks } from './brain-review-affordances.js';
 import { slackThreadTsFromThreadId } from './thread-ts.js';
 import {
   handleSlackThreadProgressStatus,
@@ -33,6 +37,7 @@ import {
   clampSlackRetryDelayMs,
   slackRateLimitRetryDelayMs,
 } from './channel-retry-delay.js';
+import { uploadSlackAttachments } from './file-delivery.js';
 type SlackPostMessagePayload = {
   channel: string;
   text: string;
@@ -43,6 +48,27 @@ type SlackDeliveryLogger = {
   warn(metadata: Record<string, unknown>, message: string): void;
 };
 function slackActionBlocks(text: string, options: MessageSendOptions) {
+  if (options.observerDigestView) {
+    return slackObserverDigestBlocks(options.observerDigestView, {
+      ...(options.providerAccountId
+        ? { providerAccountId: options.providerAccountId }
+        : {}),
+    });
+  }
+  if (options.reviewMessageView) {
+    return slackReviewMessageBlocks(options.reviewMessageView, {
+      ...(options.providerAccountId
+        ? { providerAccountId: options.providerAccountId }
+        : {}),
+    });
+  }
+  if (options.brainReviewView) {
+    return slackBrainReviewBlocks(options.brainReviewView, {
+      ...(options.providerAccountId
+        ? { providerAccountId: options.providerAccountId }
+        : {}),
+    });
+  }
   return options.actionAffordances
     ? slackMessageActionBlocks(text, options.actionAffordances, {
         providerAccountId: options.providerAccountId,
@@ -238,6 +264,18 @@ export async function sendSlackMessage(input: {
     }
   }
 
+  await uploadSlackAttachments({
+    app: input.app,
+    jid: input.jid,
+    channelId: input.channelId,
+    threadTs,
+    files: input.options.files,
+    warnings,
+    externalMessageIds,
+    log: input.log,
+    postSlackMessageWithRetry,
+  });
+
   return {
     ...(externalMessageIds[0]
       ? { externalMessageId: externalMessageIds[0] }
@@ -255,6 +293,7 @@ export async function sendSlackFallbackStreamParts(input: {
   state: ActiveStreamState;
   fallbackParts: string[];
   log: SlackDeliveryLogger;
+  shouldContinue: () => boolean;
 }): Promise<void> {
   if (!input.app) throw new Error('Slack app not initialized');
   const threadTs = slackThreadTsFromThreadId(input.state.threadId);
@@ -281,6 +320,7 @@ export async function sendSlackFallbackStreamParts(input: {
   ) {
     const part = input.fallbackParts[partIndex];
     if (!part) continue;
+    if (!input.shouldContinue()) return;
     try {
       const existingTs = input.state.fallbackMessageTs[partIndex];
       if (existingTs) {
@@ -621,29 +661,6 @@ export async function sendSlackProgressUpdate(input: {
     'Progress lifecycle slack edited existing message',
   );
 }
-
-export async function waitForSlackUserQuestionSelection(input: {
-  pendingKey: string;
-  pendingState: PendingUserQuestionState;
-  pendingUserQuestions: Map<string, PendingUserQuestionState>;
-  timeoutMs: number;
-  finalizeTimedOut: (pending: PendingUserQuestionState) => Promise<void>;
-}): Promise<{ selected: string | string[]; answeredBy?: string }> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      const timedOut = input.pendingUserQuestions.get(input.pendingKey);
-      if (!timedOut) return;
-      void input.finalizeTimedOut(timedOut);
-    }, input.timeoutMs);
-
-    input.pendingUserQuestions.set(input.pendingKey, {
-      ...input.pendingState,
-      timer,
-      resolve,
-    });
-  });
-}
-
 export function loadPersistedSlackProgress(
   botToken: string,
   activeProgress: Map<string, ActiveProgressState>,
@@ -673,20 +690,9 @@ export function persistSlackProgress(
   );
 }
 
-export function resolveSlackDisconnectPrompts(input: {
-  pendingPermissionPrompts: Map<string, PendingPermissionPrompt>;
+export function resolveSlackDisconnectQuestions(input: {
   pendingUserQuestions: Map<string, PendingUserQuestionState>;
 }): void {
-  for (const [requestId, pending] of input.pendingPermissionPrompts.entries()) {
-    clearTimeout(pending.timer);
-    pending.resolve({
-      approved: false,
-      decidedBy: 'system',
-      reason: 'Slack channel disconnected',
-    });
-    input.pendingPermissionPrompts.delete(requestId);
-  }
-
   for (const [key, pending] of input.pendingUserQuestions.entries()) {
     if (pending.timer) clearTimeout(pending.timer);
     pending.resolve({
@@ -703,12 +709,10 @@ export async function disconnectSlackDelivery(input: {
   streamGenerationByJid: Map<string, number>;
   sealedStreamGenerationByJid: Map<string, number>;
   activeProgress: Map<string, ActiveProgressState>;
-  pendingPermissionPrompts: Map<string, PendingPermissionPrompt>;
   pendingUserQuestions: Map<string, PendingUserQuestionState>;
   stopNativeStream: (channelId: string, streamTs: string) => Promise<boolean>;
 }): Promise<App | null> {
-  resolveSlackDisconnectPrompts({
-    pendingPermissionPrompts: input.pendingPermissionPrompts,
+  resolveSlackDisconnectQuestions({
     pendingUserQuestions: input.pendingUserQuestions,
   });
 

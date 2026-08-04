@@ -5,21 +5,44 @@ import { SkillService } from '../application/skills/skill-service.js';
 import type { AgentId } from '../domain/agent/agent.js';
 import type { AppId } from '../domain/app/app.js';
 import type { PatternCandidateRepository } from '../domain/ports/pattern-candidates.js';
-import type { SkillCatalogItem } from '../domain/skills/skills.js';
-import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import {
-  formatAvailableNowMessage,
-  formatNotApprovedMessage,
-} from '../shared/user-visible-messages.js';
+  materializedSkillDirectoryNameFor,
+  type SkillCatalogItem,
+} from '../domain/skills/skills.js';
+import { formatNotApprovedMessage } from '../shared/user-visible-messages.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import type { TaskHandler } from './ipc-types.js';
+import {
+  resolveTaskAgentId,
+  validateSameChannelApprovalTarget,
+} from './ipc-skill-request-context.js';
 import { startSkillPermissionReview } from './ipc-skill-permission-review.js';
 import {
   formatArgvForDisplay,
   skillInstallCommandDisplayName,
 } from './skill-install-display.js';
+import {
+  boundedSkillInstallFailureReason,
+  collectInstalledSkillAssets,
+  discoverInstalledSkillRoots,
+  installedSkillContext,
+  reportUnattemptedSkillRoots,
+  rollbackFreshInstallBinding,
+  rollbackInstalledSkillReplacement,
+  safeInstallerEnv,
+  withSkillMaterializationLock,
+  snapshotInstalledSkill,
+  skillInstallCommandReceipt,
+  skillNameForReceipt,
+  type ApprovedCommandSkillInstallResult,
+} from './skill-install-assets.js';
+import { skillMaterializationLockKey } from '../shared/skill-install-lock.js';
 import { parseSkillPackageAssets } from './skill-package-ipc.js';
 import { claimPatternCandidateForSkillProposal } from './pattern-candidate-skill-proposal.js';
+import {
+  redactCommandOutput,
+  sanitizedStringList,
+} from './skill-install-command-sanitization.js';
 const pendingSkillInstallCommandReviews = new Set<string>();
 const pendingSkillPackageReviews = new Set<string>();
 
@@ -188,14 +211,16 @@ async function completeSkillInstallCommandReview(input: {
 }) {
   const { context } = input;
   const { data, deps, sourceAgentFolder } = context;
+  const agentId = resolveTaskAgentId(data, sourceAgentFolder);
   try {
     const decision = await deps.requestPermissionApproval({
       requestId: `skill-install-command-${globalThis.crypto.randomUUID()}`,
       appId: data.appId as never,
-      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
+      agentId,
       sourceAgentFolder,
       targetJid: input.targetJid,
       threadId: data.authThreadId,
+      providerAccountId: data.providerAccountId,
       decisionPolicy: 'same_channel',
       decisionOptions: ['allow_once', 'cancel'],
       toolName: 'request_skill_install',
@@ -237,7 +262,7 @@ async function completeSkillInstallCommandReview(input: {
       await deps.sendMessage(
         input.targetJid,
         message,
-        data.authThreadId ? { threadId: data.authThreadId } : undefined,
+        skillInstallMessageOptions(data),
       );
       return;
     }
@@ -247,7 +272,7 @@ async function completeSkillInstallCommandReview(input: {
     }
     const installed = await installSkillFromApprovedCommand({
       appId: data.appId as never,
-      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
+      agentId,
       sourceAgentFolder,
       installCommandArgv: input.installCommandArgv,
       requiredEnvVars: sanitizedStringList(
@@ -258,33 +283,21 @@ async function completeSkillInstallCommandReview(input: {
       runApprovedCommand,
       installedBy: decision.decidedBy,
     });
-    const message = skillInstallCommandSuccessMessage(
-      installed.skill.name,
-      installed.requiredEnvVars,
-    );
-    await deps.sendMessage(
-      input.targetJid,
-      message,
-      data.authThreadId ? { threadId: data.authThreadId } : undefined,
-    );
+    const message = skillInstallCommandReceipt(installed);
+    if (installed.skills.length > 0) {
+      await deps.sendMessage(
+        input.targetJid,
+        skillInstallCommandReceipt({ ...installed, failed: [] }),
+        skillInstallMessageOptions(data),
+      );
+    }
+    if (installed.installed.length === 0) {
+      input.responder.reject(message, 'skill_install_failed');
+      return;
+    }
     input.responder.acceptData(
       message,
-      {
-        type: 'installed_skill_context',
-        activation: 'current_and_future_sessions',
-        skill: {
-          id: installed.skill.id,
-          name: installed.skill.name,
-          description: installed.skill.description,
-          requiredEnvVars: installed.requiredEnvVars,
-        },
-        requiredEnvVars: installed.requiredEnvVars,
-        files: installed.assets.map((asset) => ({
-          path: asset.path,
-          ...(asset.contentType ? { contentType: asset.contentType } : {}),
-          content: Buffer.from(asset.content).toString('utf-8'),
-        })),
-      },
+      installedSkillContext(installed.installed),
       'skill_installed',
     );
     getRuntimeDeps().logInfo(
@@ -296,9 +309,15 @@ async function completeSkillInstallCommandReview(input: {
         toolName: 'request_skill_install',
         displayName: input.displayName,
         commandSummary: input.commandSummary,
-        skillId: installed.skill.id,
-        skillName: installed.skill.name,
-        requiredEnvVars: installed.requiredEnvVars,
+        skillIds: installed.skills.map((skill) => skill.id),
+        skillNames: installed.skills.map((skill) => skill.name),
+        failedSkills: installed.failed,
+        skippedBeyondLimit: installed.skippedBeyondLimit,
+        requiredEnvVars: [
+          ...new Set(
+            installed.skills.flatMap((skill) => skill.requiredEnvVars ?? []),
+          ),
+        ],
       },
       'Skill install completed',
     );
@@ -307,18 +326,9 @@ async function completeSkillInstallCommandReview(input: {
       { err, sourceAgentFolder, toolName: 'request_skill_install' },
       'Skill install command review failed',
     );
-    const message = formatNotApprovedMessage({
-      action: 'install',
-      noun: 'skill',
-      name: input.displayName,
-      reason: err instanceof Error ? err.message : 'permission review failed',
-    });
+    const message =
+      'The skill could not be installed. Explain this in plain language and say you can try again after the setup issue is fixed.';
     input.responder.reject(message, 'permission_review_failed');
-    await deps.sendMessage(
-      input.targetJid,
-      message,
-      data.authThreadId ? { threadId: data.authThreadId } : undefined,
-    );
   } finally {
     pendingSkillInstallCommandReviews.delete(input.pendingKey);
   }
@@ -342,6 +352,7 @@ const requestSkillPackageHandler = async (
     );
     return;
   }
+  const agentId = resolveTaskAgentId(data, sourceAgentFolder);
   const reason = toTrimmedString(payload.reason, { maxLen: 2000 }) || '';
   if (!reason) {
     reject('Missing required field: reason.', 'invalid_request');
@@ -376,7 +387,7 @@ const requestSkillPackageHandler = async (
 
   const pendingKey = [
     data.appId,
-    sourceAgentFolder,
+    agentId,
     requestedTargetJid,
     data.authThreadId || '',
     input.requestToolName,
@@ -429,14 +440,16 @@ const requestSkillPackageHandler = async (
     startSkillPermissionReview({
       deps,
       responder: { acceptData, reject },
+      logError: getRuntimeDeps().logError,
       service,
       syncApprovedCapabilitySettings:
         getRuntimeDeps().syncApprovedCapabilitySettings,
       appId: data.appId as never,
-      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
+      agentId,
       sourceAgentFolder,
       targetJid: requestedTargetJid,
       threadId: data.authThreadId,
+      providerAccountId: data.providerAccountId,
       skill: {
         name: parsed.metadata.name ?? input.fallbackName ?? 'requested-skill',
         description: parsed.metadata.description,
@@ -465,48 +478,26 @@ const requestSkillPackageHandler = async (
     });
   } catch (err) {
     pendingSkillPackageReviews.delete(pendingKey);
+    getRuntimeDeps().logError(
+      { err, sourceAgentFolder, toolName: input.requestToolName },
+      `${input.requestKind} request failed`,
+    );
     reject(
-      err instanceof Error
-        ? err.message
-        : `${input.requestKind} request failed.`,
+      'The skill request could not be completed. Explain this in plain language and say you can try again after the setup issue is fixed.',
       'invalid_request',
     );
   }
 };
 
-function validateSameChannelApprovalTarget(input: {
-  data: Parameters<TaskHandler>[0]['data'];
-  sourceAgentFolderJids: string[];
-  requestKind: string;
-  reject: (error: string, code?: string, details?: string[]) => void;
-}): string | null {
-  const requestedTargetJid = toTrimmedString(input.data.chatJid, {
-    maxLen: 512,
-  });
-  const targetOverride = toTrimmedString(
-    input.data.targetJid || input.data.jid,
-    {
-      maxLen: 512,
-    },
-  );
-  if (targetOverride && targetOverride !== requestedTargetJid) {
-    input.reject(
-      `${input.requestKind} requests must use the originating chat as the approval target.`,
-      'forbidden',
-    );
-    return null;
-  }
-  if (
-    !requestedTargetJid ||
-    !input.sourceAgentFolderJids.includes(requestedTargetJid)
-  ) {
-    input.reject(
-      `${input.requestKind} requests must include the originating chat for this agent.`,
-      'forbidden',
-    );
-    return null;
-  }
-  return requestedTargetJid;
+function skillInstallMessageOptions(data: Parameters<TaskHandler>[0]['data']) {
+  return data.authThreadId || data.providerAccountId
+    ? {
+        ...(data.authThreadId ? { threadId: data.authThreadId } : {}),
+        ...(data.providerAccountId
+          ? { providerAccountId: data.providerAccountId }
+          : {}),
+      }
+    : undefined;
 }
 
 function skillPackageParseError(
@@ -526,11 +517,7 @@ async function installSkillFromApprovedCommand(input: {
   requiredEnvVars: string[];
   runApprovedCommand: ApprovedCommandRunner;
   installedBy: string;
-}): Promise<{
-  skill: SkillCatalogItem;
-  assets: Array<{ path: string; contentType?: string; content: Uint8Array }>;
-  requiredEnvVars: string[];
-}> {
+}): Promise<ApprovedCommandSkillInstallResult> {
   const storage = getRuntimeDeps().getStorage();
   const stagingDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'gantry-skill-install-'),
@@ -543,148 +530,199 @@ async function installSkillFromApprovedCommand(input: {
       timeoutMs: 120_000,
       redactOutput: redactCommandOutput,
     });
-    const assets = collectInstalledSkillAssets(stagingDir);
+    const discovery = discoverInstalledSkillRoots(stagingDir);
     const service = new SkillService(
       storage.repositories.skills,
       storage.skillArtifacts,
     );
-    const installed = await service.installSkill({
-      appId: input.appId,
-      agentId: input.agentId,
-      fallbackName: 'installed-skill',
-      createdBy: input.installedBy,
-      requiredEnvVars: input.requiredEnvVars,
-      assets,
-    });
-    try {
-      await service.bindSkillToAgent({
-        appId: input.appId,
-        agentId: input.agentId,
-        skillId: installed.id,
-      });
-      await getRuntimeDeps().syncApprovedCapabilitySettings(input.appId);
-      return {
-        skill: installed,
-        assets,
-        requiredEnvVars: installed.requiredEnvVars ?? [],
-      };
-    } catch (err) {
-      await service.rollbackInstalledSkillBinding({
-        appId: input.appId,
-        agentId: input.agentId,
-        skillId: installed.id,
-      });
-      throw err;
+    const result: ApprovedCommandSkillInstallResult = {
+      skills: [],
+      failed: [],
+      skippedBeyondLimit: discovery.skippedBeyondLimit,
+      installed: [],
+    };
+    const installedMaterializationKeys = new Set<string>();
+    for (const root of discovery.roots) {
+      let name = root === stagingDir ? 'installed-skill' : path.basename(root);
+      try {
+        const assets = collectInstalledSkillAssets(root);
+        name = skillNameForReceipt(assets, name);
+        const materializationKey = skillMaterializationLockKey(
+          input.appId,
+          materializedSkillDirectoryNameFor(name),
+        );
+        if (installedMaterializationKeys.has(materializationKey)) {
+          throw new Error(`Duplicate skill name: ${name}.`);
+        }
+        // Install-time collision validation (trace defect 3): fail this
+        // skill's install honestly instead of blowing up the next spawn.
+        const collision = await service.installMaterializationCollisionForAgent(
+          {
+            appId: input.appId,
+            agentId: input.agentId,
+            name,
+          },
+        );
+        if (collision) {
+          throw new Error(collision);
+        }
+        // One critical section per key: snapshot→install→bind→reread→sync,
+        // and on failure the compensating rollback — a queued same-name
+        // writer must never observe a failed intermediate state.
+        const outcome = await withSkillMaterializationLock(
+          materializationKey,
+          async (): Promise<
+            | { kind: 'installed'; skill: SkillCatalogItem }
+            | {
+                kind: 'failed';
+                failedName: string;
+                reason: string;
+                stopAfterFailure: boolean;
+              }
+          > => {
+            let skill: SkillCatalogItem | undefined;
+            let syncAttempted = false;
+            const previousSkill = await snapshotInstalledSkill({
+              appId: input.appId,
+              agentId: input.agentId,
+              name,
+              skills: storage.repositories.skills,
+              artifacts: storage.skillArtifacts,
+            });
+            try {
+              skill = await service.installSkill({
+                appId: input.appId,
+                agentId: input.agentId,
+                fallbackName: name,
+                createdBy: input.installedBy,
+                requiredEnvVars: input.requiredEnvVars,
+                assets,
+              });
+              // Re-read the persisted row BEFORE binding: if the bind fails,
+              // compensation must compare against what storage actually
+              // returns (drivers can normalize fields on read).
+              skill =
+                (await storage.repositories.skills.getSkill(skill.id)) ?? skill;
+              await service.bindSkillToAgent({
+                appId: input.appId,
+                agentId: input.agentId,
+                skillId: skill.id,
+              });
+              syncAttempted = true;
+              await getRuntimeDeps().syncApprovedCapabilitySettings(
+                input.appId,
+              );
+              return { kind: 'installed', skill };
+            } catch (err) {
+              const reason = boundedSkillInstallFailureReason(err);
+              if (previousSkill) {
+                const rollback = await rollbackInstalledSkillReplacement({
+                  reason,
+                  snapshot: previousSkill,
+                  attemptedAssets: assets,
+                  skills: storage.repositories.skills,
+                  artifacts: storage.skillArtifacts,
+                  syncAfterRestore: () =>
+                    getRuntimeDeps().syncApprovedCapabilitySettings(
+                      input.appId,
+                    ),
+                });
+                return {
+                  kind: 'failed',
+                  failedName: skill?.name ?? name,
+                  reason: rollback.reason,
+                  stopAfterFailure: rollback.stopAfterFailure,
+                };
+              }
+              if (skill) {
+                const installedSkill = skill;
+                const cleanup = await rollbackFreshInstallBinding({
+                  reason,
+                  syncAttempted,
+                  rollbackBinding: () =>
+                    service.rollbackInstalledSkillBinding({
+                      appId: input.appId,
+                      agentId: input.agentId,
+                      skillId: installedSkill.id,
+                    }),
+                  isBindingActive: async () =>
+                    (
+                      await service.resolveLocalSkillsForAgent({
+                        appId: input.appId,
+                        agentId: input.agentId,
+                      })
+                    ).some(
+                      (activeSkill) => activeSkill.id === installedSkill.id,
+                    ),
+                  sync: () =>
+                    getRuntimeDeps().syncApprovedCapabilitySettings(
+                      input.appId,
+                    ),
+                });
+                if (cleanup.keepAsInstalled) {
+                  return { kind: 'installed', skill: installedSkill };
+                }
+                return {
+                  kind: 'failed',
+                  failedName: installedSkill.name,
+                  reason: cleanup.reason,
+                  stopAfterFailure: cleanup.stopAfterFailure,
+                };
+              }
+              return {
+                kind: 'failed',
+                failedName: name,
+                reason,
+                stopAfterFailure: false,
+              };
+            }
+          },
+        );
+        if (outcome.kind === 'installed') {
+          installedMaterializationKeys.add(materializationKey);
+          result.skills.push(outcome.skill);
+          result.installed.push({ skill: outcome.skill, assets });
+          continue;
+        }
+        const reason = outcome.reason;
+        result.failed.push({
+          name: outcome.failedName,
+          reason,
+        });
+        getRuntimeDeps().logError(
+          {
+            appId: input.appId,
+            agentId: input.agentId,
+            skillName: outcome.failedName ?? name,
+            reason,
+          },
+          'Skill install failed for skill',
+        );
+        if (outcome.stopAfterFailure) {
+          reportUnattemptedSkillRoots(result, discovery.roots, root);
+          break;
+        }
+      } catch (err) {
+        // Errors outside the critical section (asset collection, duplicate
+        // names, snapshot failure) have no partial state to compensate.
+        const reason = boundedSkillInstallFailureReason(err);
+        result.failed.push({
+          name,
+          reason,
+        });
+        getRuntimeDeps().logError(
+          {
+            appId: input.appId,
+            agentId: input.agentId,
+            skillName: name,
+            reason,
+          },
+          'Skill install failed for skill',
+        );
+      }
     }
+    return result;
   } finally {
     fs.rmSync(stagingDir, { recursive: true, force: true });
   }
-}
-
-function collectInstalledSkillAssets(
-  stagingDir: string,
-): Array<{ path: string; contentType?: string; content: Uint8Array }> {
-  const skillMdPath = findSkillMarkdown(stagingDir);
-  if (!skillMdPath) {
-    throw new Error('Installer command did not produce a SKILL.md file.');
-  }
-  const root = path.dirname(skillMdPath);
-  const assets: Array<{
-    path: string;
-    contentType?: string;
-    content: Uint8Array;
-  }> = [];
-  let totalBytes = 0;
-  for (const filePath of listPackageFiles(root)) {
-    const rel = path.relative(root, filePath).split(path.sep).join('/');
-    const stat = fs.statSync(filePath);
-    totalBytes += stat.size;
-    if (assets.length >= 50) break;
-    if (totalBytes > 1_000_000) {
-      throw new Error('Installed skill package is larger than 1 MB.');
-    }
-    assets.push({
-      path: rel,
-      content: fs.readFileSync(filePath),
-    });
-  }
-  if (!assets.some((asset) => asset.path === 'SKILL.md')) {
-    throw new Error('Installed skill package must include SKILL.md.');
-  }
-  return assets;
-}
-
-function findSkillMarkdown(root: string): string | null {
-  const candidates = listPackageFiles(root)
-    .filter((filePath) => path.basename(filePath) === 'SKILL.md')
-    .sort((left, right) => left.length - right.length);
-  return candidates[0] ?? null;
-}
-
-function listPackageFiles(root: string): string[] {
-  const output: string[] = [];
-  const ignored = new Set(['.git', 'node_modules', '.DS_Store']);
-  const visit = (dir: string) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (ignored.has(entry.name)) continue;
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        visit(fullPath);
-      } else if (entry.isFile()) {
-        output.push(fullPath);
-      }
-    }
-  };
-  visit(root);
-  return output.sort();
-}
-
-function safeInstallerEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const keys = [
-    'PATH',
-    'HOME',
-    'TMPDIR',
-    'TMP',
-    'TEMP',
-    'LANG',
-    'LC_ALL',
-    'LC_CTYPE',
-    'TERM',
-  ];
-  const env: NodeJS.ProcessEnv = {};
-  for (const key of keys) {
-    const value = source[key];
-    if (typeof value === 'string' && value.length > 0) env[key] = value;
-  }
-  return env;
-}
-
-function skillInstallCommandSuccessMessage(
-  skillName: string,
-  requiredEnvVars: readonly string[],
-): string {
-  return formatAvailableNowMessage({
-    action: 'Installed',
-    noun: 'skill',
-    name: skillName,
-    requiredEnvVars,
-  });
-}
-
-function redactCommandOutput(value: string): string {
-  return value.replace(
-    /[A-Za-z0-9_=-]*(TOKEN|SECRET|PASSWORD|API_KEY)[A-Za-z0-9_=-]*/gi,
-    '<redacted>',
-  );
-}
-
-function sanitizedStringList(values: unknown[]): string[] {
-  return [
-    ...new Set(
-      values
-        .slice(0, 50)
-        .map((item) => toTrimmedString(item, { maxLen: 512 }))
-        .filter((item): item is string => Boolean(item)),
-    ),
-  ];
 }

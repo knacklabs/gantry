@@ -4,6 +4,65 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('Postgres migration journal', () => {
+  it('uses native timestamp-prefixed Drizzle migration tooling', () => {
+    const config = fs.readFileSync(
+      path.resolve('drizzle.postgres.config.ts'),
+      'utf8',
+    );
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.resolve('package.json'), 'utf8'),
+    ) as { scripts: Record<string, string> };
+
+    expect(config).toContain(
+      "schema: './apps/core/src/adapters/storage/postgres/schema/schema.ts'",
+    );
+    expect(config).toContain(
+      "out: './apps/core/src/adapters/storage/postgres/schema/migrations'",
+    );
+    expect(config).toContain("prefix: 'timestamp'");
+    expect(config).not.toContain('dbCredentials');
+    expect(packageJson.scripts).toMatchObject({
+      'db:migrations:generate':
+        'drizzle-kit generate --config drizzle.postgres.config.ts',
+      'db:migrations:custom':
+        'drizzle-kit generate --config drizzle.postgres.config.ts --custom',
+      'db:migrations:check':
+        'drizzle-kit check --config drizzle.postgres.config.ts',
+    });
+  });
+
+  it('baselines generated migrations without changing the database', () => {
+    const migrationsDir = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations',
+    );
+    const journal = JSON.parse(
+      fs.readFileSync(path.join(migrationsDir, 'meta/_journal.json'), 'utf8'),
+    ) as { entries: Array<{ tag: string }> };
+    const baseline = journal.entries.find((entry) =>
+      entry.tag.endsWith('_schema_generation_baseline'),
+    );
+
+    expect(baseline?.tag).toMatch(/^\d{14}_schema_generation_baseline$/);
+    expect(
+      fs
+        .readFileSync(path.join(migrationsDir, `${baseline?.tag}.sql`), 'utf8')
+        .trim(),
+    ).toBe(
+      '-- Schema-generation baseline: historical migrations already applied this DDL.',
+    );
+    const snapshot = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          migrationsDir,
+          'meta',
+          `${baseline?.tag.slice(0, 14)}_snapshot.json`,
+        ),
+        'utf8',
+      ),
+    ) as { tables: Record<string, unknown> };
+    expect(Object.keys(snapshot.tables)).toHaveLength(103);
+  });
+
   it('has a SQL file for every journal entry', () => {
     const journalPath = path.resolve(
       'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
@@ -21,6 +80,128 @@ describe('Postgres migration journal', () => {
         ),
       ).toBe(true);
     }
+  });
+
+  it('registers the job coordination column cutover', () => {
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20260803084102_job_coordination_columns.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration).toContain(
+      "RAISE NOTICE 'dropping % residual job recovery intent(s) from the retired flow', residual",
+    );
+    expect(migration).toContain(
+      'ADD COLUMN "consecutive_failures" integer DEFAULT 0 NOT NULL',
+    );
+    expect(migration).toContain(
+      'ADD COLUMN "max_consecutive_failures" integer',
+    );
+    expect(migration).toContain('ADD COLUMN "pause_reason" text');
+    expect(migration).toContain('ADD COLUMN "setup_state" jsonb');
+    expect(migration).toContain(
+      "(target_json ->> 'consecutiveFailures')::integer",
+    );
+    expect(migration).toContain(
+      "(target_json ->> 'consecutive_failures')::integer",
+    );
+    expect(migration).toContain(
+      "(target_json ->> 'maxConsecutiveFailures')::integer",
+    );
+    expect(migration).toContain(
+      "(target_json ->> 'max_consecutive_failures')::integer",
+    );
+    expect(migration).toContain("target_json ->> 'pauseReason'");
+    expect(migration).toContain("target_json ->> 'pause_reason'");
+    expect(migration).toContain("target_json -> 'setupState'");
+    expect(migration).toContain("target_json -> 'setup_state'");
+    expect(migration).toContain("- 'consecutiveFailures'");
+    expect(migration).toContain("- 'consecutive_failures'");
+    expect(migration).toContain("- 'maxConsecutiveFailures'");
+    expect(migration).toContain("- 'max_consecutive_failures'");
+    expect(migration).toContain("- 'pauseReason'");
+    expect(migration).toContain("- 'pause_reason'");
+    expect(migration).toContain("- 'setupState'");
+    expect(migration).toContain("- 'setup_state'");
+    expect(migration).toContain("- 'recoveryIntent'");
+    expect(migration).toContain("- 'recovery_intent'");
+  });
+
+  it('registers the generated identity primary-key repair', () => {
+    const migrationsDir = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations',
+    );
+    const journal = JSON.parse(
+      fs.readFileSync(path.join(migrationsDir, 'meta/_journal.json'), 'utf8'),
+    ) as { entries: Array<{ idx: number; tag: string }> };
+    expect(
+      journal.entries.find(
+        (entry) => entry.tag === '0104_runtime_events_identity_repair',
+      ),
+    ).toMatchObject({ idx: 104 });
+
+    const migration = fs.readFileSync(
+      path.join(migrationsDir, '0104_runtime_events_identity_repair.sql'),
+      'utf8',
+    );
+    expect(migration).toContain(
+      'AS identity_primary_keys(table_name, column_name)',
+    );
+    expect(migration).toContain("('runtime_events', 'event_id')");
+    expect(migration).toContain("('message_parts', 'id')");
+    expect(migration).toContain("('memory_recall_events', 'id')");
+    expect(migration).toContain(
+      'ALTER TABLE %s ALTER COLUMN %I ADD GENERATED ALWAYS AS IDENTITY',
+    );
+    expect(migration).toContain('COALESCE(MAX(%I), 0) + 1');
+  });
+
+  it('registers the permission prompt relational cutover', () => {
+    const migrationsDir = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations',
+    );
+    const journal = JSON.parse(
+      fs.readFileSync(path.join(migrationsDir, 'meta/_journal.json'), 'utf8'),
+    ) as { entries: Array<{ idx: number; tag: string }> };
+    expect(
+      journal.entries.find(
+        (entry) => entry.tag === '0103_permission_durable_storage_cutover',
+      ),
+    ).toMatchObject({ idx: 103 });
+
+    const migration = fs.readFileSync(
+      path.join(migrationsDir, '0103_permission_durable_storage_cutover.sql'),
+      'utf8',
+    );
+    expect(migration).toContain('CREATE TABLE "permission_prompts"');
+    expect(migration).toContain(
+      'DELETE FROM "pending_interactions" WHERE "kind" = \'permission\'',
+    );
+    expect(migration).toContain('"run_lease_token" text');
+    expect(migration).toContain('"run_lease_fencing_version" integer');
+    expect(migration).not.toContain('"public".');
+
+    const snapshot = JSON.parse(
+      fs.readFileSync(
+        path.join(migrationsDir, 'meta/0103_snapshot.json'),
+        'utf8',
+      ),
+    ) as {
+      tables: Record<string, { columns: Record<string, unknown> }>;
+    };
+    expect(snapshot.tables['public.permission_prompts']).toBeDefined();
+    expect(
+      snapshot.tables['public.pending_interactions']?.columns,
+    ).toMatchObject({
+      envelope_id: expect.any(Object),
+      member_index: expect.any(Object),
+      source_agent_folder: expect.any(Object),
+      request_id: expect.any(Object),
+      run_lease_token: expect.any(Object),
+      run_lease_fencing_version: expect.any(Object),
+    });
   });
 
   it('registers the semantic memory vectors migration and schema', () => {
@@ -686,6 +867,54 @@ describe('Postgres migration journal', () => {
     );
     expect(schema).toContain('table.messageId');
     expect(schema).toContain('table.id');
+
+    const attachmentMetadata = journal.entries.find(
+      (entry) => entry.tag === '0117_message_attachment_metadata',
+    );
+    expect(attachmentMetadata).toMatchObject({ idx: 117 });
+
+    const metadataMigration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0117_message_attachment_metadata.sql',
+      ),
+      'utf8',
+    );
+    expect(metadataMigration).toContain(
+      '"message_attachments" ADD COLUMN IF NOT EXISTS "file_name" text',
+    );
+    expect(metadataMigration).toContain(
+      '"message_attachments" ADD COLUMN IF NOT EXISTS "provider_fetch_json" jsonb',
+    );
+    expect(metadataMigration).toContain(
+      '"message_attachments" ADD COLUMN IF NOT EXISTS "deleted_at" timestamp with time zone',
+    );
+    expect(metadataMigration).toContain(
+      'SET "provider_fetch_json" = jsonb_build_object(',
+    );
+    expect(metadataMigration).toContain("'provider', 'slack'");
+    expect(metadataMigration).toContain("'kind', 'file_id'");
+    expect(metadataMigration).toContain('message."provider" = \'slack\'');
+    expect(metadataMigration).toContain(
+      'attachment."provider_fetch_json" IS NULL',
+    );
+    expect(metadataMigration).toContain(
+      "attachment.\"external_ref_json\"->>'kind' = 'message_attachment'",
+    );
+    expect(metadataMigration).toContain("'message-attachment:external:'");
+    expect(metadataMigration).toContain("'message-attachment:index:'");
+    expect(metadataMigration).toContain('row_number() OVER (');
+    expect(metadataMigration).toContain('generate_series(');
+    expect(metadataMigration).toContain('available.occurrence_ordinal');
+    expect(
+      metadataMigration,
+      'migration 0117 must assign each rewrite its collision-free target ID',
+    ).toContain('SET target_id = available.candidate_id');
+    expect(metadataMigration).toContain(
+      "jsonb_build_object('kind', 'message_attachment_index')",
+    );
+    expect(schema).toContain("fileName: text('file_name')");
+    expect(schema).toContain("providerFetchJson: jsonb('provider_fetch_json')");
+    expect(schema).toContain("deletedAt: timestamp('deleted_at'");
   });
 
   it('registers scope-key and digest scope columns/indexes without legacy backfill', () => {
@@ -1560,43 +1789,6 @@ describe('Postgres migration journal', () => {
     expect(schema).toContain('idx_live_admission_work_items_claimed_expired');
   });
 
-  it('registers SDK-session admission receipt lifecycle columns and indexes', () => {
-    const journalPath = path.resolve(
-      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
-    );
-    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
-      entries: Array<{ idx: number; tag: string }>;
-    };
-    expect(
-      journal.entries.find(
-        (entry) => entry.tag === '0102_sdk_session_message_admission',
-      ),
-    ).toMatchObject({ idx: 102 });
-
-    const migration = fs.readFileSync(
-      path.resolve(
-        'apps/core/src/adapters/storage/postgres/schema/migrations/0102_sdk_session_message_admission.sql',
-      ),
-      'utf8',
-    );
-    for (const column of [
-      'request_message_id',
-      'request_fingerprint',
-      'accepted_event_id',
-      'turn_state',
-      'queue_deadline_at',
-      'execution_timeout_ms',
-      'execution_deadline_at',
-      'turn_started_at',
-      'turn_ended_at',
-      'terminal_code',
-    ]) {
-      expect(migration).toContain(`"${column}"`);
-    }
-    expect(migration).toContain('idx_live_admission_sdk_session_turns');
-    expect(migration).toContain('idx_live_admission_sdk_queue_deadline');
-  });
-
   it('registers live turn recoverable sweep index migration and schema', () => {
     const journalPath = path.resolve(
       'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
@@ -1670,18 +1862,74 @@ describe('Postgres migration journal', () => {
     );
   });
 
-  it('keeps the permission-promotion denied migration compatible with older journals', () => {
+  it('registers durable Telegram group join onboarding migration', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    const entry = journal.entries.find(
+      (item) => item.tag === '0102_group_join_onboarding',
+    );
+    expect(entry).toMatchObject({ idx: 102 });
+
     const migration = fs.readFileSync(
       path.resolve(
-        'apps/core/src/adapters/storage/postgres/schema/migrations/0099_permission_promotion_denied_at.sql',
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0102_group_join_onboarding.sql',
       ),
       'utf8',
     );
+    expect(migration).toContain('CREATE TABLE "group_join_onboarding"');
+    expect(migration).toContain('"status" text DEFAULT \'prompted\' NOT NULL');
+    expect(migration).toContain('"group_join_onboarding_status_check"');
+    expect(migration).toContain('"group_join_onboarding_provider_chat_unique"');
+  });
+
+  it('keeps durable conversation history coverage migration and schema in sync', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    expect(
+      journal.entries.find(
+        (entry) => entry.tag === '20260801013511_conversation_history_coverage',
+      ),
+    ).toMatchObject({ idx: 121 });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20260801013511_conversation_history_coverage.sql',
+      ),
+      'utf8',
+    );
+    expect(migration).toContain('CREATE TABLE "conversation_history_coverage"');
     expect(migration).toContain(
-      'CREATE TABLE IF NOT EXISTS permission_promotion_counters',
+      'FOREIGN KEY ("conversation_id") REFERENCES "conversations"("id") ON DELETE cascade',
     );
     expect(migration).toContain(
-      'ADD COLUMN IF NOT EXISTS denied_at timestamptz',
+      'FOREIGN KEY ("provider_account_id") REFERENCES "provider_accounts"("id") ON DELETE cascade',
     );
+    expect(migration).toContain('"uniq_conversation_history_coverage_scope"');
+    expect(migration).toContain(
+      'UNIQUE NULLS NOT DISTINCT("provider_account_id","conversation_id","scope_kind","scope_id")',
+    );
+    expect(migration).toContain('NULLS NOT DISTINCT');
+    expect(migration).toContain('"conversation_history_coverage_scope_check"');
+
+    const schema = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/conversation-history-coverage.ts',
+      ),
+      'utf8',
+    );
+    expect(schema).toContain(
+      "unique('uniq_conversation_history_coverage_scope')",
+    );
+    expect(schema).toContain('table.providerAccountId');
+    expect(schema).toContain('.nullsNotDistinct()');
+    expect(schema).toContain("'conversation_history_coverage_scope_check'");
   });
 });

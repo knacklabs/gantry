@@ -32,6 +32,23 @@ afterEach(() => {
 });
 
 describe('scheduler MCP tools', () => {
+  it('accepts only scheduler job workloads for model recommendations', async () => {
+    const { schedulerModelRecommendationSchema } =
+      await import('../../../../src/runner/mcp/tools/scheduler-model-recommendation-schema.js');
+
+    expect(
+      schedulerModelRecommendationSchema.workload.safeParse('one_time_job')
+        .success,
+    ).toBe(true);
+    expect(
+      schedulerModelRecommendationSchema.workload.safeParse('recurring_job')
+        .success,
+    ).toBe(true);
+    expect(
+      schedulerModelRecommendationSchema.workload.safeParse('chat').success,
+    ).toBe(false);
+  });
+
   it('exposes supported job model aliases through scheduler_list_models', async () => {
     const ipcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-tools-'));
     tempRoots.push(ipcDir);
@@ -61,12 +78,23 @@ describe('scheduler MCP tools', () => {
     const response = await tools.get('scheduler_list_models')!();
     const text = response.content[0].text;
 
-    expect(text).toContain('Opus 4.8');
+    expect(text).toContain('Opus 5');
+    expect(text).toContain('opus | Opus 5');
+    expect(text).toContain('opus-5 | Opus 5');
     expect(text).toContain('opus-4.8 | Opus 4.8');
     expect(text).toContain('Kimi K2.6');
     expect(text).toContain('kimi-2.6 | Kimi K2.6');
     expect(text).toContain('GLM 5.2');
     expect(text).toContain('glm-5.2 | GLM 5.2');
+    expect(text).toContain('grok | Grok 4.5');
+    expect(text).toContain('grok-4.3 | Grok 4.3');
+    expect(text).toContain('gpt | GPT-5.5');
+    expect(text).toContain('gpt-5.4 | GPT-5.4');
+    expect(text).toContain('gpt-mini | GPT-5.4 mini');
+    expect(text).toContain('gpt-terra | GPT-5.6 Terra');
+    expect(text).toContain('gpt-luna | GPT-5.6 Luna');
+    expect(text).toContain('gpt-sol | GPT-5.6 Sol');
+    expect(text).toContain('Base cost (in/out per 1M)');
     expect(text).toContain('Response family');
 
     const recommended = await tools.get('scheduler_list_models')!({
@@ -111,6 +139,7 @@ describe('scheduler MCP tools', () => {
     const response = await tools.get('scheduler_list_models')!();
     expect(formatModelCatalog).toHaveBeenCalledTimes(1);
     expect(formatModelCatalog).toHaveBeenCalledWith({
+      workloads: ['one_time_job', 'recurring_job'],
       recommendation: undefined,
     });
     expect(response.content[0].text).toBe('mocked model catalog output');
@@ -566,7 +595,7 @@ describe('scheduler MCP tools', () => {
     const { registerSchedulerTools } =
       await import('../../../../src/runner/mcp/tools/scheduler.js');
     const { schedulerJobConfirmationToken } =
-      await import('../../../../src/jobs/job-plan-formatter.js');
+      await import('../../../../src/shared/scheduler-job-plan.js');
     const tools = new Map<
       string,
       (

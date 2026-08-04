@@ -6,10 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { configurePendingInteractionDurability } from '@core/application/interactions/pending-interaction-durability.js';
 import type {
+  AsyncTaskBacklogAdmissionInput,
+  AsyncTaskClaimInput,
   AsyncTaskCreateInput,
   AsyncTaskListFilter,
   AsyncTaskRecord,
   AsyncTaskRepository,
+  AsyncTaskScopedAdmissionInput,
+  AsyncTaskScopedAdmissionResult,
   AsyncTaskStatusCount,
   AsyncTaskTransitionInput,
 } from '@core/domain/ports/async-tasks.js';
@@ -67,6 +71,66 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
     };
     this.tasks.set(task.id, task);
     return task;
+  }
+
+  async createTaskWithBacklogAdmission(
+    input: AsyncTaskBacklogAdmissionInput,
+  ): Promise<AsyncTaskRecord | null> {
+    const backlog = [...this.tasks.values()].filter(
+      (task) =>
+        task.appId === input.task.appId &&
+        task.kind === input.task.kind &&
+        input.statuses.includes(task.status),
+    );
+    if (
+      backlog.length >= input.maxBacklogPerApp ||
+      backlog.filter((task) => task.agentId === input.task.agentId).length >=
+        input.maxBacklogPerAgent
+    ) {
+      return null;
+    }
+    return this.createTask(input.task);
+  }
+
+  async createTaskWithScopedAdmission(
+    input: AsyncTaskScopedAdmissionInput,
+  ): Promise<AsyncTaskScopedAdmissionResult> {
+    return {
+      task: await this.createTask(input.task),
+      admitted: true,
+      staleTasks: [],
+    };
+  }
+
+  async claimQueuedTask(
+    input: AsyncTaskClaimInput,
+  ): Promise<AsyncTaskRecord | null> {
+    const current = this.tasks.get(input.taskId);
+    if (!current || current.status !== 'queued') return null;
+    const running = [...this.tasks.values()].filter(
+      (task) =>
+        task.appId === current.appId &&
+        task.kind === current.kind &&
+        task.status === 'running',
+    );
+    if (
+      running.length >= input.maxRunningPerApp ||
+      running.filter((task) => task.agentId === current.agentId).length >=
+        input.maxRunningPerAgent
+    ) {
+      return null;
+    }
+    const claimed: AsyncTaskRecord = {
+      ...current,
+      status: 'running',
+      leaseToken: input.leaseToken,
+      fencingVersion: current.fencingVersion + 1,
+      heartbeatAt: input.now,
+      startedAt: input.now,
+      updatedAt: input.now,
+    };
+    this.tasks.set(claimed.id, claimed);
+    return claimed;
   }
 
   async getTask(taskId: string): Promise<AsyncTaskRecord | null> {
@@ -269,157 +333,6 @@ describe('MCP IPC tool handlers', () => {
     expect(callTool).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: 'agent:signed' }),
     );
-  });
-
-  it('allows scheduled MCP calls for a host-attested synthetic conversation', async () => {
-    const callTool = vi.fn(async () => ({}));
-    const createProxy = vi.fn(async () => ({
-      callTool,
-      describeTool: vi.fn(),
-      listTools: vi.fn(),
-    }));
-    configurePendingInteractionDurability({
-      repository: {
-        getActiveRunLease: vi.fn(async () => ({
-          runId: 'job-run-1',
-          leaseToken: 'lease-1',
-          fencingVersion: 1,
-        })),
-      } as never,
-    });
-    registerAsyncTaskPolicy({
-      runHandle: 'job-run-handle-1',
-      conversationId: 'app:test:scheduled-source-discovery',
-      runId: 'job-run-1',
-      jobId: 'job-1',
-    });
-    const { mcpCallToolHandler } = createMcpToolHandlers(createProxy as never);
-
-    await mcpCallToolHandler({
-      data: {
-        type: 'mcp_call_tool',
-        appId: 'app:test',
-        agentId: 'agent:signed',
-        chatJid: 'app:test:scheduled-source-discovery',
-        targetJid: 'app:test:scheduled-source-discovery',
-        jobId: 'job-1',
-        runId: 'job-run-1',
-        runHandle: 'job-run-handle-1',
-        runLeaseToken: 'lease-1',
-        runLeaseFencingVersion: 1,
-        payload: {
-          serverName: 'firecrawl',
-          toolName: 'firecrawl_search',
-          arguments: { query: 'tenders' },
-        },
-      },
-      sourceAgentFolder: 'main_agent',
-      deps: {} as never,
-      conversationBindings: {},
-      sourceAgentFolderJids: [],
-    });
-
-    expect(callTool).toHaveBeenCalledWith(
-      expect.objectContaining({
-        serverName: 'firecrawl',
-        toolName: 'firecrawl_search',
-      }),
-    );
-  });
-
-  it('rejects scheduled MCP calls when the signed request drifts from host policy', async () => {
-    const callTool = vi.fn(async () => ({}));
-    const createProxy = vi.fn(async () => ({
-      callTool,
-      describeTool: vi.fn(),
-      listTools: vi.fn(),
-    }));
-    registerAsyncTaskPolicy({
-      runHandle: 'job-run-handle-2',
-      conversationId: 'app:test:scheduled-source-discovery',
-      runId: 'job-run-2',
-      jobId: 'job-2',
-    });
-    const { mcpCallToolHandler } = createMcpToolHandlers(createProxy as never);
-
-    await mcpCallToolHandler({
-      data: {
-        type: 'mcp_call_tool',
-        appId: 'app:test',
-        agentId: 'agent:signed',
-        chatJid: 'app:test:different-job',
-        targetJid: 'app:test:different-job',
-        jobId: 'job-2',
-        runId: 'job-run-2',
-        runHandle: 'job-run-handle-2',
-        runLeaseToken: 'lease-2',
-        runLeaseFencingVersion: 1,
-        payload: {
-          serverName: 'firecrawl',
-          toolName: 'firecrawl_search',
-          arguments: { query: 'tenders' },
-        },
-      },
-      sourceAgentFolder: 'main_agent',
-      deps: {} as never,
-      conversationBindings: {},
-      sourceAgentFolderJids: [],
-    });
-
-    expect(createProxy).not.toHaveBeenCalled();
-    expect(callTool).not.toHaveBeenCalled();
-  });
-
-  it('rejects scheduled MCP calls when the host-attested run lease is stale', async () => {
-    const callTool = vi.fn(async () => ({}));
-    const createProxy = vi.fn(async () => ({
-      callTool,
-      describeTool: vi.fn(),
-      listTools: vi.fn(),
-    }));
-    configurePendingInteractionDurability({
-      repository: {
-        getActiveRunLease: vi.fn(async () => ({
-          runId: 'job-run-3',
-          leaseToken: 'new-lease',
-          fencingVersion: 2,
-        })),
-      } as never,
-    });
-    registerAsyncTaskPolicy({
-      runHandle: 'job-run-handle-3',
-      conversationId: 'app:test:scheduled-source-discovery',
-      runId: 'job-run-3',
-      jobId: 'job-3',
-    });
-    const { mcpCallToolHandler } = createMcpToolHandlers(createProxy as never);
-
-    await mcpCallToolHandler({
-      data: {
-        type: 'mcp_call_tool',
-        appId: 'app:test',
-        agentId: 'agent:signed',
-        chatJid: 'app:test:scheduled-source-discovery',
-        targetJid: 'app:test:scheduled-source-discovery',
-        jobId: 'job-3',
-        runId: 'job-run-3',
-        runHandle: 'job-run-handle-3',
-        runLeaseToken: 'old-lease',
-        runLeaseFencingVersion: 1,
-        payload: {
-          serverName: 'firecrawl',
-          toolName: 'firecrawl_search',
-          arguments: { query: 'tenders' },
-        },
-      },
-      sourceAgentFolder: 'main_agent',
-      deps: {} as never,
-      conversationBindings: {},
-      sourceAgentFolderJids: [],
-    });
-
-    expect(createProxy).not.toHaveBeenCalled();
-    expect(callTool).not.toHaveBeenCalled();
   });
 
   it('rejects side-effecting MCP calls when the run lease is stale', async () => {
@@ -841,7 +754,6 @@ describe('MCP IPC tool handlers', () => {
     );
     registerAsyncTaskPolicy({
       runHandle: 'job-run-handle-1',
-      conversationId: 'app:test:scheduled-source-discovery',
       runId: 'job-run-1',
       jobId: 'job-1',
     });
@@ -851,8 +763,8 @@ describe('MCP IPC tool handlers', () => {
         type: 'async_mcp_call',
         appId: 'app:test',
         agentId: 'agent:signed',
-        chatJid: 'app:test:scheduled-source-discovery',
-        targetJid: 'app:test:scheduled-source-discovery',
+        chatJid: 'sl:C123',
+        targetJid: 'sl:C123',
         jobId: 'job-1',
         runId: 'job-run-1',
         runHandle: 'job-run-handle-1',
@@ -867,16 +779,16 @@ describe('MCP IPC tool handlers', () => {
       sourceAgentFolder: 'main_agent',
       deps: asyncRuntimeDeps(repository),
       conversationBindings: {},
-      sourceAgentFolderJids: [],
+      sourceAgentFolderJids: ['sl:C123'],
     });
 
     const task = [...repository.tasks.values()].find(
       (candidate) => candidate.kind === 'mcp_tool_call',
     );
     expect(task).toMatchObject({
-      parentRunId: 'job-run-1',
+      parentRunId: null,
       parentJobId: 'job-1',
-      parentJobRunId: null,
+      parentJobRunId: 'job-run-1',
     });
   });
 });

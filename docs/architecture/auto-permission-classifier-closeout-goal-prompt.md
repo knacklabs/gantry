@@ -1,5 +1,9 @@
 # Goal: Auto-Permission Classifier Closeout (fix the feature for good)
 
+> **Historical goal record.** Later permission-engine and UX work superseded
+> this closeout plan. Use `capability-management.md` and the Current shipped
+> contract in `permission-engine-redesign-goal-prompt.md` for current behavior.
+
 Companion to `docs/architecture/auto-permission-mode-goal-prompt.md` (the
 feature contract, Stages A–F shipped). This goal closes the remaining defects
 found in live smoke on 2026-07-12 so the feature delivers its core promise:

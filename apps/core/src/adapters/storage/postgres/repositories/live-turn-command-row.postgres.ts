@@ -2,16 +2,19 @@ import { and, eq, notInArray, sql } from 'drizzle-orm';
 
 import type {
   LiveTurnCommand,
+  LiveTurnCommandAppendInput,
   LiveTurnCommandAppendResult,
   LiveTurnCommandNotifier,
-  LiveTurnCommandRepository,
   LiveTurnCommandStatus,
   LiveTurnCommandType,
 } from '../../../../domain/ports/live-turns.js';
 import { LIVE_TURN_TERMINAL_STATES } from '../../../../domain/ports/live-turns.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
-import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import type {
+  CanonicalDb,
+  CanonicalExecutor,
+} from './canonical-graph-repository.postgres.js';
 import { isUniqueViolation } from './worker-coordination-lease.postgres.js';
 
 export type LiveTurnCommandRow =
@@ -60,14 +63,10 @@ export async function findLiveTurnCommandByIdempotencyKey(
 
 const TERMINAL_STATES = [...LIVE_TURN_TERMINAL_STATES];
 
-export type AppendLiveTurnCommandInput = Parameters<
-  LiveTurnCommandRepository['appendLiveTurnCommand']
->[0];
-
 export async function appendLiveTurnCommand(
   db: CanonicalDb,
   commandNotifier: LiveTurnCommandNotifier | undefined,
-  input: AppendLiveTurnCommandInput,
+  input: LiveTurnCommandAppendInput,
 ): Promise<LiveTurnCommandAppendResult> {
   const now = input.now ?? currentIso();
   const existing = await findLiveTurnCommandByIdempotencyKey(db, input);
@@ -78,49 +77,8 @@ export async function appendLiveTurnCommand(
     });
   }
   try {
-    const result: LiveTurnCommandAppendResult = await db.transaction(
-      async (tx) => {
-        const turns = pgSchema.liveTurnsPostgres;
-        // Row-locking sequence allocation keeps concurrent append order stable.
-        const turn = (
-          await tx
-            .update(turns)
-            .set({
-              nextCommandSeq: sql`${turns.nextCommandSeq} + 1`,
-              updatedAt: now,
-            })
-            .where(
-              and(
-                eq(turns.id, input.liveTurnId),
-                notInArray(turns.state, TERMINAL_STATES),
-              ),
-            )
-            .returning({
-              nextCommandSeq: turns.nextCommandSeq,
-              scopeKey: turns.scopeKey,
-              fencingVersion: turns.fencingVersion,
-            })
-        )[0];
-        if (!turn) return { outcome: 'rejected', command: null };
-        const row: LiveTurnCommandRow = {
-          id: input.id,
-          liveTurnId: input.liveTurnId,
-          scopeKey: turn.scopeKey,
-          commandType: input.commandType,
-          seq: turn.nextCommandSeq - 1,
-          idempotencyKey: input.idempotencyKey,
-          payloadJson: input.payload ?? {},
-          status: 'pending',
-          fencingVersion: turn.fencingVersion,
-          createdByWorkerId: input.createdByWorkerId ?? null,
-          appliedByWorkerId: null,
-          rejectedReason: null,
-          createdAt: now,
-          appliedAt: null,
-        };
-        await tx.insert(pgSchema.liveTurnCommandsPostgres).values(row);
-        return { outcome: 'appended', command: toLiveTurnCommand(row) };
-      },
+    const result = await db.transaction((tx) =>
+      appendLiveTurnCommandInTransaction(tx, input, now),
     );
     return notifyLiveTurnCommand(commandNotifier, result);
   } catch (err) {
@@ -132,6 +90,53 @@ export async function appendLiveTurnCommand(
       command: winner,
     });
   }
+}
+
+export async function appendLiveTurnCommandInTransaction(
+  db: CanonicalExecutor,
+  input: LiveTurnCommandAppendInput,
+  now = input.now ?? currentIso(),
+): Promise<LiveTurnCommandAppendResult> {
+  const turns = pgSchema.liveTurnsPostgres;
+  // Row-locking sequence allocation keeps concurrent append order stable.
+  const turn = (
+    await db
+      .update(turns)
+      .set({
+        nextCommandSeq: sql`${turns.nextCommandSeq} + 1`,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(turns.id, input.liveTurnId),
+          notInArray(turns.state, TERMINAL_STATES),
+        ),
+      )
+      .returning({
+        nextCommandSeq: turns.nextCommandSeq,
+        scopeKey: turns.scopeKey,
+        fencingVersion: turns.fencingVersion,
+      })
+  )[0];
+  if (!turn) return { outcome: 'rejected', command: null };
+  const row: LiveTurnCommandRow = {
+    id: input.id,
+    liveTurnId: input.liveTurnId,
+    scopeKey: turn.scopeKey,
+    commandType: input.commandType,
+    seq: turn.nextCommandSeq - 1,
+    idempotencyKey: input.idempotencyKey,
+    payloadJson: input.payload ?? {},
+    status: 'pending',
+    fencingVersion: turn.fencingVersion,
+    createdByWorkerId: input.createdByWorkerId ?? null,
+    appliedByWorkerId: null,
+    rejectedReason: null,
+    createdAt: now,
+    appliedAt: null,
+  };
+  await db.insert(pgSchema.liveTurnCommandsPostgres).values(row);
+  return { outcome: 'appended', command: toLiveTurnCommand(row) };
 }
 
 async function notifyLiveTurnCommand(

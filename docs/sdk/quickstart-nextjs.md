@@ -92,8 +92,8 @@ on the server.
 ## Structured workflow step
 
 Sessions also work as typed pipeline steps, no chat UI involved: send
-`response_schema` and a compatible agent engine must return JSON matching it.
-Gantry validates the structured result before emitting the outbound message.
+`response_schema` and the inline-runtime agent must return JSON matching it
+(validated with one corrective retry server-side).
 
 ```ts
 // app/api/triage/route.ts
@@ -110,10 +110,7 @@ export async function POST(req: Request) {
       type: 'object',
       required: ['category', 'priority', 'summary'],
       properties: {
-        category: {
-          type: 'string',
-          enum: ['billing', 'bug', 'account', 'other'],
-        },
+        category: { type: 'string', enum: ['billing', 'bug', 'account', 'other'] },
         priority: { type: 'string', enum: ['p0', 'p1', 'p2'] },
         summary: { type: 'string' },
       },
@@ -158,7 +155,7 @@ talk to through this app) should be provisioned with
 `agents.<id>.access.preset: locked` in settings, so it physically cannot
 enumerate or invoke any `request_*`/`admin_*`/`settings_*` tool and works only
 with capabilities an operator pre-provisioned. See
-[Locked Preset](../decisions/2026-06-11-locked-preset.md) and
+[Locked Preset](../decisions/0024-locked-preset.md) and
 [Agent Internals For SDK Consumers](./agent-internals.md#locked-access-preset).
 The preset is set on the agent, not in SDK calls — your client code is unchanged.
 

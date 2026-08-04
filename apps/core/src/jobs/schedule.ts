@@ -7,7 +7,6 @@ interface ScheduleValidationInput {
   schedule_type: string;
   schedule_value: string;
   next_run?: string | null;
-  schedule_timezone?: string;
 }
 
 export function validateScheduleConfig(
@@ -32,9 +31,7 @@ export function validateScheduleConfig(
 
   if (scheduleType === 'cron') {
     try {
-      CronExpressionParser.parse(job.schedule_value, {
-        tz: job.schedule_timezone ?? TIMEZONE,
-      });
+      CronExpressionParser.parse(job.schedule_value, { tz: TIMEZONE });
       return null;
     } catch {
       return `Invalid cron schedule_value: ${job.schedule_value}`;

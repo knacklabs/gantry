@@ -1,10 +1,7 @@
-import type {
-  AppMessageResponseRoute,
-  NewMessage,
-  ConversationRoute,
-} from '../domain/types.js';
+import type { NewMessage, ConversationRoute } from '../domain/types.js';
 import type { RuntimeAgentSessionRepository } from '../domain/repositories/ops-repo.js';
 import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
+import type { SkillCatalogItem } from '../domain/skills/skills.js';
 import { selectedSkillDisplay } from '../domain/skills/skill-identity.js';
 import type {
   CapabilitySecretRepository,
@@ -357,6 +354,7 @@ export function buildRuntimeRunOptions(input: {
   executionAdapters?: RunAgentOptions['executionAdapters'];
   runnerSandboxProvider: RunAgentOptions['runnerSandboxProvider'];
   asyncTaskRepositoryAvailable?: boolean;
+  conversationRoutes?: Record<string, ConversationRoute>;
   skillContext?: {
     appId: string;
     agentId: string;
@@ -420,6 +418,9 @@ export function buildRuntimeRunOptions(input: {
     ...(input.asyncTaskRepositoryAvailable
       ? { asyncTaskRepositoryAvailable: true }
       : {}),
+    ...(input.conversationRoutes
+      ? { conversationRoutes: input.conversationRoutes }
+      : {}),
   };
   return options;
 }
@@ -436,7 +437,6 @@ export async function completeSuccessfulRuntimeSessionRun(input: {
   agentSessionResetAt?: string | null;
   providerSessionId?: string;
   runId?: string;
-  appResponseRoute?: AppMessageResponseRoute;
   result?: string | null;
 }): Promise<void> {
   if (input.runId) {
@@ -444,9 +444,6 @@ export async function completeSuccessfulRuntimeSessionRun(input: {
       await input.ops.completeSessionAgentRun?.({
         runId: input.runId,
         status: 'completed',
-        ...(input.appResponseRoute
-          ? { appResponseRoute: input.appResponseRoute }
-          : {}),
         resultSummary: summarizeRuntimeResultForPersistence(input.result),
       });
     } catch (err) {
@@ -471,7 +468,6 @@ export async function completeSuccessfulRuntimeSessionRun(input: {
 export async function completeFailedRuntimeSessionRun(input: {
   ops: RuntimeAgentSessionRepository;
   runId?: string;
-  appResponseRoute?: AppMessageResponseRoute;
   errorSummary: string;
 }): Promise<void> {
   if (!input.runId) return;
@@ -479,9 +475,6 @@ export async function completeFailedRuntimeSessionRun(input: {
     await input.ops.completeSessionAgentRun?.({
       runId: input.runId,
       status: 'failed',
-      ...(input.appResponseRoute
-        ? { appResponseRoute: input.appResponseRoute }
-        : {}),
       // Error summaries can carry secrets (gateway tokens, API keys, URLs with
       // credentials) lifted from upstream error bodies; run the full secret
       // redaction before the provider-session redaction + truncation so nothing
@@ -510,21 +503,9 @@ export async function failRuntimeSessionRun(
   });
 }
 
-export async function buildApprovedSkillContextBlock(input: {
-  skillRepository?: SkillCatalogRepository;
-  skillArtifactStore?: SkillArtifactStore;
-  turnContext?: {
-    appId: string;
-    agentId: string;
-  };
-}): Promise<string> {
-  if (!input.skillRepository || !input.turnContext) {
-    return '';
-  }
-  const skills = await input.skillRepository.listEnabledSkillsForAgent({
-    appId: input.turnContext.appId as never,
-    agentId: input.turnContext.agentId as never,
-  });
+export function buildApprovedSkillContextBlockFromSkills(
+  skills: readonly SkillCatalogItem[],
+): string {
   if (skills.length === 0) return '';
   const sections: string[] = [
     '[[INSTALLED_SKILLS_AVAILABLE_THIS_SESSION]]',

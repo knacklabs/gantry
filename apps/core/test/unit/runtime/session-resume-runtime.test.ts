@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeAgentSessionRepository } from '@core/domain/repositories/ops-repo.js';
-import type { SkillArtifactStore } from '@core/domain/ports/skill-artifact-store.js';
-import type { SkillCatalogRepository } from '@core/domain/ports/repositories.js';
 import { createGroupAgentRunner } from '@core/runtime/group-agent-runner.js';
+import { currentLogContext } from '@core/infrastructure/logging/logger.js';
 import { buildProviderSessionAccessFingerprint } from '@core/runtime/provider-session-access-fingerprint.js';
+import { stableSha256Json } from '@core/shared/stable-hash.js';
 import {
-  buildApprovedSkillContextBlock,
+  buildApprovedSkillContextBlockFromSkills,
   createRuntimeResultSummaryAccumulator,
   completeSuccessfulRuntimeSessionRun,
   completeFailedRuntimeSessionRun,
@@ -14,207 +14,76 @@ import {
   truncateRuntimeResultSummary,
 } from '@core/runtime/session-resume-runtime.js';
 
+const EMPTY_ACCESS_FINGERPRINT = buildProviderSessionAccessFingerprint({
+  accessPreset: 'full',
+  capabilityCatalogDigest: stableSha256Json({
+    schemaVersion: 1,
+    readyActions: [],
+    installedSkills: [],
+    connectedMcpSources: [],
+  }),
+});
+
+function createCompactionPathRunner(input: {
+  getAgentTurnContext: ReturnType<typeof vi.fn>;
+  getContextMessagesSince?: ReturnType<typeof vi.fn>;
+  markProviderSessionDeltaReplay?: ReturnType<typeof vi.fn>;
+  expireProviderSession?: ReturnType<typeof vi.fn>;
+}) {
+  const runAgent = vi.fn(
+    async (
+      _group: unknown,
+      _input: { memoryContextBlock?: string },
+      _register?: unknown,
+      _onOutput?: unknown,
+    ) => ({ status: 'success', result: 'ok' }),
+  );
+  const executionProviderId = ['anth', 'ropic:claude-agent-sdk'].join('');
+  const runner = createGroupAgentRunner({
+    deps: {
+      channelRuntime: {
+        hasChannel: () => true,
+        supportsStreaming: () => false,
+        supportsProgress: () => false,
+        sendMessage: async () => {},
+        sendStreamingChunk: async () => false,
+        resetStreaming: () => {},
+        setTyping: async () => {},
+        sendProgressUpdate: async () => {},
+      },
+      queue: {
+        enqueueMessageCheck: () => false,
+        closeStdin: () => {},
+        notifyIdle: () => {},
+        registerProcess: () => {},
+      },
+      getGroup: () => undefined,
+      clearSession: async () => {},
+      getCursor: () => '',
+      setCursor: () => {},
+      saveState: async () => {},
+      setGroupModelOverride: async () => {},
+      setGroupThinkingOverride: async () => {},
+      setGroupPermissionModeOverride: async () => {},
+      getAvailableGroups: () => [],
+      getRegisteredJids: () => new Set(),
+      runAgent: runAgent as never,
+      runnerSandboxProvider: { id: 'direct', enforcing: true } as never,
+      executionAdapter: { id: executionProviderId } as never,
+      getSelectedAgentHarness: () => 'auto',
+    },
+    ops: () =>
+      ({
+        getAgentTurnContext: input.getAgentTurnContext,
+        getContextMessagesSince: input.getContextMessagesSince,
+        markProviderSessionDeltaReplay: input.markProviderSessionDeltaReplay,
+        expireProviderSession: input.expireProviderSession,
+      }) as never,
+  });
+  return { runner, runAgent, executionProviderId };
+}
+
 describe('session-resume-runtime', () => {
-  it('recomputes one absolute execution deadline before a provider-session retry', async () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
-    const accessFingerprint = buildProviderSessionAccessFingerprint({});
-    const expireProviderSession = vi.fn(async () => undefined);
-    const runAgent = vi
-      .fn()
-      .mockImplementationOnce(async () => {
-        now.mockReturnValue(1_500);
-        return {
-          status: 'error',
-          result: null,
-          error: 'No provider session found',
-        };
-      })
-      .mockResolvedValueOnce({ status: 'success', result: 'ok' });
-    const runner = createGroupAgentRunner({
-      deps: {
-        channelRuntime: {
-          hasChannel: () => true,
-          supportsStreaming: () => false,
-          supportsProgress: () => false,
-          sendMessage: async () => {},
-          sendStreamingChunk: async () => false,
-          resetStreaming: () => {},
-          setTyping: async () => {},
-          sendProgressUpdate: async () => {},
-        },
-        queue: {
-          enqueueMessageCheck: () => false,
-          closeStdin: () => {},
-          notifyIdle: () => {},
-          registerProcess: () => {},
-        },
-        getGroup: () => undefined,
-        clearSession: async () => {},
-        getCursor: () => '',
-        setCursor: () => {},
-        saveState: async () => {},
-        setGroupModelOverride: async () => {},
-        setGroupThinkingOverride: async () => {},
-        setGroupPermissionModeOverride: async () => {},
-        getAvailableGroups: () => [],
-        getRegisteredJids: () => new Set(),
-        runAgent: runAgent as never,
-        runnerSandboxProvider: { id: 'direct', enforcing: true } as never,
-        executionAdapter: {
-          id: ['anth', 'ropic:claude-agent-sdk'].join(''),
-          isMissingProviderSessionError: (error?: string) =>
-            error === 'No provider session found',
-        } as never,
-        getSelectedAgentHarness: () => 'auto',
-      },
-      ops: () =>
-        ({
-          getAgentTurnContext: vi.fn(async () => ({
-            appId: 'default',
-            agentId: 'agent:main_agent',
-            agentSessionId: 'agent-session:main',
-            providerSessionId: 'provider-session:1',
-            externalSessionId: 'provider-session:1',
-            providerSessionAccessFingerprint: accessFingerprint,
-          })),
-          expireProviderSession,
-        }) as never,
-    });
-
-    try {
-      await expect(
-        runner(
-          {
-            name: 'Main',
-            folder: 'main_agent',
-            added_at: new Date(0).toISOString(),
-          },
-          'hello',
-          'tg:chat',
-          'tg:chat',
-          undefined,
-          { executionDeadlineAtMs: 2_000 },
-        ),
-      ).resolves.toBe('success');
-    } finally {
-      now.mockRestore();
-    }
-
-    expect(runAgent).toHaveBeenCalledTimes(2);
-    expect(runAgent.mock.calls[0]?.[4]).toMatchObject({ timeoutMs: 1_000 });
-    expect(runAgent.mock.calls[1]?.[4]).toMatchObject({ timeoutMs: 500 });
-  });
-
-  it('uses bounded summaries without resuming or persisting a provider session', async () => {
-    const getAgentTurnContext = vi.fn(async () => ({
-      appId: 'app-one',
-      agentId: 'agent:main_agent',
-      agentSessionId: 'agent-session:main',
-      providerSessionId: 'provider-session:old',
-      externalSessionId: 'provider-session:old',
-    }));
-    const saveAgentSessionSummary = vi.fn(async () => undefined);
-    const setSession = vi.fn(async () => undefined);
-    const runAgent = vi.fn(async () => ({
-      status: 'success',
-      result: 'The accepted current answer.',
-      newSessionId: 'provider-session:new',
-    }));
-    const opsRepository = {
-      getAgentTurnContext,
-      getLatestAgentSessionSummary: vi.fn(async () => ({
-        id: 'agent-session-summary:agent-session:main',
-        appId: 'app-one',
-        agentSessionId: 'agent-session:main',
-        summary: 'Latest accepted answer:\nThe earlier answer.',
-        source: 'extractive',
-        messageCount: 2,
-        runCount: 2,
-        createdAt: new Date(0).toISOString(),
-      })),
-      saveAgentSessionSummary,
-      setSession,
-    };
-    const runner = createGroupAgentRunner({
-      deps: {
-        channelRuntime: {
-          hasChannel: () => true,
-          supportsStreaming: () => false,
-          supportsProgress: () => false,
-          sendMessage: async () => {},
-          sendStreamingChunk: async () => false,
-          resetStreaming: () => {},
-          setTyping: async () => {},
-          sendProgressUpdate: async () => {},
-        },
-        queue: {
-          enqueueMessageCheck: () => false,
-          closeStdin: () => {},
-          notifyIdle: () => {},
-          registerProcess: () => {},
-        },
-        getGroup: () => undefined,
-        clearSession: async () => {},
-        getCursor: () => '',
-        setCursor: () => {},
-        saveState: async () => {},
-        setGroupModelOverride: async () => {},
-        setGroupThinkingOverride: async () => {},
-        setGroupPermissionModeOverride: async () => {},
-        getAvailableGroups: () => [],
-        getRegisteredJids: () => new Set(),
-        runAgent: runAgent as never,
-        runnerSandboxProvider: { id: 'direct', enforcing: true } as never,
-        executionAdapter: {
-          id: ['anth', 'ropic:claude-agent-sdk'].join(''),
-        } as never,
-        getSelectedAgentHarness: () => 'auto',
-      },
-      ops: () => opsRepository as never,
-    });
-
-    await expect(
-      runner(
-        {
-          name: 'Main',
-          folder: 'main_agent',
-          added_at: new Date(0).toISOString(),
-        },
-        'current question',
-        'tg:chat',
-        'tg:chat',
-        undefined,
-        {
-          continuityMode: 'bounded',
-          turnMessages: [
-            {
-              canonicalMessageId: 'message:current',
-              content: 'current question',
-            },
-          ],
-        },
-      ),
-    ).resolves.toBe('success');
-
-    expect(getAgentTurnContext).toHaveBeenCalledWith(
-      expect.objectContaining({ hydrateMemory: false }),
-    );
-    expect(runAgent.mock.calls[0]?.[1]).not.toHaveProperty('sessionId');
-    expect(runAgent.mock.calls[0]?.[1].memoryContextBlock).toContain(
-      '<bounded_session_summary',
-    );
-    expect(setSession).not.toHaveBeenCalled();
-    expect(saveAgentSessionSummary).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'agent-session-summary:agent-session:main',
-        summary: expect.stringContaining('The accepted current answer.'),
-        messageCount: 3,
-        runCount: 3,
-        toMessageId: 'message:current',
-      }),
-    );
-  });
-
   it('publishes one durable usage event per live-turn usage event id', async () => {
     const usage = {
       model: 'sonnet',
@@ -229,7 +98,18 @@ describe('session-resume-runtime', () => {
       at: '2026-07-11T00:00:00.000Z',
     } as const;
     const publishRuntimeEvent = vi.fn(async () => undefined);
-    const runAgent = vi.fn(async (_group, _input, _register, onOutput) => {
+    const liveRoutes = {
+      'tg:chat': {
+        name: 'Main',
+        folder: 'main_agent',
+        trigger: '@gantry',
+        added_at: new Date(0).toISOString(),
+        conversationId: 'conversation:live',
+      },
+    };
+    let observedLogContext: ReturnType<typeof currentLogContext> = undefined;
+    const runAgent = vi.fn(async (_group, input, _register, onOutput) => {
+      observedLogContext = currentLogContext();
       await onOutput?.({
         status: 'success',
         result: null,
@@ -262,6 +142,7 @@ describe('session-resume-runtime', () => {
           notifyIdle: () => {},
           registerProcess: () => {},
         },
+        getConversationRoutes: () => liveRoutes,
         getGroup: () => undefined,
         clearSession: async () => {},
         getCursor: () => '',
@@ -304,6 +185,9 @@ describe('session-resume-runtime', () => {
         'tg:chat',
       ),
     ).resolves.toBe('success');
+    expect(runAgent.mock.calls[0]?.[4]).toMatchObject({
+      conversationRoutes: liveRoutes,
+    });
 
     const usageEvents = publishRuntimeEvent.mock.calls
       .map(([event]) => event)
@@ -321,17 +205,28 @@ describe('session-resume-runtime', () => {
         }),
       }),
     ]);
+    expect(runAgent.mock.calls[0]?.[1]).not.toHaveProperty('runId');
+    expect(runAgent.mock.calls[0]?.[4]).toMatchObject({
+      correlationRunId: 'run:live-turn-1',
+    });
+    expect(observedLogContext).toEqual({
+      runId: 'run:live-turn-1',
+      appId: 'app-one',
+      agentId: 'agent:main_agent',
+    });
   });
 
   it('runs maintenance-locked provider sessions without resume or head writes', async () => {
     const setSession = vi.fn();
-    const getAgentTurnContext = vi.fn(async () => ({
-      appId: 'default',
-      agentId: 'agent:main_agent',
-      agentSessionId: 'agent-session:main',
-      latestProviderSessionLocked: true,
-      lockedProviderSessionId: 'provider-session:locked',
-    }));
+    const getAgentTurnContext = vi.fn(
+      async (_input: { hydrateMemory?: boolean }) => ({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        agentSessionId: 'agent-session:main',
+        latestProviderSessionLocked: true,
+        lockedProviderSessionId: 'provider-session:locked',
+      }),
+    );
     const runAgent = vi.fn(async (_group, input, _register, onOutput) => {
       await onOutput?.({
         status: 'success',
@@ -406,9 +301,352 @@ describe('session-resume-runtime', () => {
     expect(setSession).not.toHaveBeenCalled();
   });
 
+  it('uses the provisional memory block with one hydration for a maintenance session', async () => {
+    const provisionalBlock =
+      '<gantry_memory_context>LAT-3A maintenance provisional</gantry_memory_context>';
+    const getAgentTurnContext = vi.fn(
+      async (_input: { hydrateMemory?: boolean }) => ({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        agentSessionId: 'agent-session:maintenance',
+        agentSessionResetAt: 'T1',
+        memoryContextBlock: provisionalBlock,
+      }),
+    );
+    const { runner, runAgent } = createCompactionPathRunner({
+      getAgentTurnContext,
+    });
+
+    await expect(
+      runner(
+        {
+          name: 'Main',
+          folder: 'main_agent',
+          added_at: new Date(0).toISOString(),
+        },
+        'hello',
+        'tg:chat',
+        'tg:chat',
+        undefined,
+        {
+          maintenanceProviderSession: {
+            providerSessionId: 'provider-session:maintenance',
+            externalSessionId: 'provider-session:maintenance',
+          },
+        },
+      ),
+    ).resolves.toBe('success');
+
+    expect(getAgentTurnContext).toHaveBeenCalledTimes(1);
+    expect(
+      getAgentTurnContext.mock.calls.filter(
+        ([input]) => input.hydrateMemory !== false,
+      ),
+    ).toHaveLength(1);
+    expect(runAgent.mock.calls[0][1].memoryContextBlock).toContain(
+      provisionalBlock,
+    );
+  });
+
+  it('carries the provisional memory block with one hydration when no delta is pending', async () => {
+    const provisionalBlock =
+      '<gantry_memory_context>LAT-3A ordinary provisional</gantry_memory_context>';
+    const laterBlock =
+      '<gantry_memory_context>LAT-3A ordinary non-hydrating read</gantry_memory_context>';
+    const getAgentTurnContext = vi
+      .fn()
+      .mockResolvedValueOnce({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        agentSessionId: 'agent-session:ordinary',
+        agentSessionResetAt: 'T1',
+        memoryContextBlock: provisionalBlock,
+      })
+      .mockResolvedValueOnce({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        agentSessionId: 'agent-session:ordinary',
+        agentSessionResetAt: 'T1',
+        memoryContextBlock: laterBlock,
+      });
+    const { runner, runAgent } = createCompactionPathRunner({
+      getAgentTurnContext,
+    });
+
+    await expect(
+      runner(
+        {
+          name: 'Main',
+          folder: 'main_agent',
+          added_at: new Date(0).toISOString(),
+        },
+        'hello',
+        'tg:chat',
+        'tg:chat',
+      ),
+    ).resolves.toBe('success');
+
+    expect(getAgentTurnContext).toHaveBeenCalledTimes(2);
+    expect(
+      getAgentTurnContext.mock.calls.filter(
+        ([input]) => input.hydrateMemory !== false,
+      ),
+    ).toHaveLength(1);
+    const modelMemoryBlock = runAgent.mock.calls[0][1]
+      .memoryContextBlock as string;
+    expect(modelMemoryBlock).toContain(provisionalBlock);
+    expect(modelMemoryBlock).not.toContain(laterBlock);
+  });
+
+  it.each([
+    {
+      label: 'too stale',
+      lockedAt: '2000-01-01T00:00:00.000Z',
+      messages: [],
+      reason: 'stale',
+    },
+    {
+      label: 'too large',
+      lockedAt: new Date().toISOString(),
+      messages: Array.from({ length: 51 }, (_, index) => ({
+        id: `delta-${index}`,
+      })),
+      reason: 'too_large',
+    },
+  ])(
+    'carries the provisional memory block with one hydration when the delta is $label',
+    async ({ lockedAt, messages, reason }) => {
+      const provisionalBlock =
+        '<gantry_memory_context>LAT-3A degraded provisional</gantry_memory_context>';
+      const laterBlock =
+        '<gantry_memory_context>LAT-3A degraded non-hydrating read</gantry_memory_context>';
+      const getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValueOnce({
+          appId: 'default',
+          agentId: 'agent:main_agent',
+          agentSessionId: 'agent-session:degraded',
+          agentSessionResetAt: 'T1',
+          latestProviderSessionReady: true,
+          readyProviderSessionId: 'provider-session:ready',
+          readyExternalSessionId: 'provider-session:ready',
+          compactionDeltaReplay: {
+            status: 'pending',
+            baseCursor: 'cursor:base',
+            lockedAt,
+          },
+          memoryContextBlock: provisionalBlock,
+        })
+        .mockResolvedValueOnce({
+          appId: 'default',
+          agentId: 'agent:main_agent',
+          agentSessionId: 'agent-session:degraded',
+          agentSessionResetAt: 'T1',
+          memoryContextBlock: laterBlock,
+        });
+      const getContextMessagesSince = vi.fn(async () => messages);
+      const markProviderSessionDeltaReplay = vi.fn(async () => undefined);
+      const expireProviderSession = vi.fn(async () => undefined);
+      const { runner, runAgent } = createCompactionPathRunner({
+        getAgentTurnContext,
+        getContextMessagesSince,
+        markProviderSessionDeltaReplay,
+        expireProviderSession,
+      });
+
+      await expect(
+        runner(
+          {
+            name: 'Main',
+            folder: 'main_agent',
+            added_at: new Date(0).toISOString(),
+          },
+          'hello',
+          'tg:chat',
+          'tg:chat',
+        ),
+      ).resolves.toBe('success');
+
+      expect(getAgentTurnContext).toHaveBeenCalledTimes(2);
+      expect(
+        getAgentTurnContext.mock.calls.filter(
+          ([input]) => input.hydrateMemory !== false,
+        ),
+      ).toHaveLength(1);
+      const modelMemoryBlock = runAgent.mock.calls[0][1]
+        .memoryContextBlock as string;
+      expect(modelMemoryBlock).toContain(provisionalBlock);
+      expect(modelMemoryBlock).not.toContain(laterBlock);
+      expect(markProviderSessionDeltaReplay).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'degraded', reason }),
+      );
+      expect(expireProviderSession).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('drops pending-delta replay when the session resets before the model call', async () => {
+    const provisionalBlock =
+      '<gantry_memory_context>LAT-3A pending replay before reset</gantry_memory_context>';
+    const revalidationBlock =
+      '<gantry_memory_context>LAT-3A pending replay non-hydrating revalidation</gantry_memory_context>';
+    const resetBlock =
+      '<gantry_memory_context>LAT-3A pending replay after reset</gantry_memory_context>';
+    const getAgentTurnContext = vi
+      .fn()
+      .mockResolvedValueOnce({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        agentSessionId: 'S1',
+        agentSessionResetAt: 'T1',
+        latestProviderSessionReady: true,
+        readyProviderSessionId: 'provider-session:ready',
+        readyExternalSessionId: 'provider-session:ready',
+        compactionDeltaReplay: {
+          status: 'pending',
+          baseCursor: 'cursor:base',
+          lockedAt: new Date().toISOString(),
+        },
+        memoryContextBlock: provisionalBlock,
+      })
+      .mockResolvedValueOnce({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        agentSessionId: 'S1',
+        agentSessionResetAt: 'T2',
+        memoryContextBlock: revalidationBlock,
+      })
+      .mockResolvedValueOnce({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        agentSessionId: 'S1',
+        agentSessionResetAt: 'T2',
+        memoryContextBlock: resetBlock,
+      });
+    const getContextMessagesSince = vi.fn(async () => [
+      {
+        id: '2',
+        chat_jid: 'tg:chat',
+        sender: 'user-1',
+        content: 'pending replay message',
+        timestamp: '2026-04-28T00:00:02.000Z',
+        is_from_me: false,
+      },
+    ]);
+    const { runner, runAgent } = createCompactionPathRunner({
+      getAgentTurnContext,
+      getContextMessagesSince,
+    });
+
+    await expect(
+      runner(
+        {
+          name: 'Main',
+          folder: 'main_agent',
+          added_at: new Date(0).toISOString(),
+        },
+        'hello',
+        'tg:chat',
+        'tg:chat',
+      ),
+    ).resolves.toBe('success');
+
+    const modelMemoryBlock = runAgent.mock.calls[0][1]
+      .memoryContextBlock as string;
+    expect(modelMemoryBlock).toContain(resetBlock);
+    expect(modelMemoryBlock).not.toContain(provisionalBlock);
+    expect(modelMemoryBlock).not.toContain('<gantry_compaction_delta>');
+    expect(getAgentTurnContext.mock.calls[1][0].hydrateMemory).toBe(false);
+    expect(getAgentTurnContext.mock.calls[2][0].hydrateMemory).toBe(true);
+  });
+
+  it('keeps pending-delta replay with one hydration when the session identity matches', async () => {
+    const provisionalBlock =
+      '<gantry_memory_context>LAT-3A pending replay matching provisional</gantry_memory_context>';
+    const revalidationBlock =
+      '<gantry_memory_context>LAT-3A pending replay matching revalidation</gantry_memory_context>';
+    const markAppliedBlock =
+      '<gantry_memory_context>LAT-3A pending replay matching mark applied</gantry_memory_context>';
+    const getAgentTurnContext = vi
+      .fn()
+      .mockResolvedValueOnce({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        agentSessionId: 'S1',
+        agentSessionResetAt: 'T1',
+        latestProviderSessionReady: true,
+        readyProviderSessionId: 'provider-session:ready',
+        readyExternalSessionId: 'provider-session:ready',
+        compactionDeltaReplay: {
+          status: 'pending',
+          baseCursor: 'cursor:base',
+          lockedAt: new Date().toISOString(),
+        },
+        memoryContextBlock: provisionalBlock,
+      })
+      .mockResolvedValueOnce({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        agentSessionId: 'S1',
+        agentSessionResetAt: 'T1',
+        memoryContextBlock: revalidationBlock,
+      })
+      .mockResolvedValueOnce({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        agentSessionId: 'S1',
+        agentSessionResetAt: 'T1',
+        providerSessionId: 'provider-session:ready',
+        externalSessionId: 'provider-session:ready',
+        memoryContextBlock: markAppliedBlock,
+      });
+    const getContextMessagesSince = vi.fn(async () => [
+      {
+        id: '2',
+        chat_jid: 'tg:chat',
+        sender: 'user-1',
+        content: 'pending replay message',
+        timestamp: '2026-04-28T00:00:02.000Z',
+        is_from_me: false,
+      },
+    ]);
+    const { runner, runAgent } = createCompactionPathRunner({
+      getAgentTurnContext,
+      getContextMessagesSince,
+    });
+
+    await expect(
+      runner(
+        {
+          name: 'Main',
+          folder: 'main_agent',
+          added_at: new Date(0).toISOString(),
+        },
+        'hello',
+        'tg:chat',
+        'tg:chat',
+      ),
+    ).resolves.toBe('success');
+
+    const modelMemoryBlock = runAgent.mock.calls[0][1]
+      .memoryContextBlock as string;
+    expect(modelMemoryBlock).toContain(provisionalBlock);
+    expect(modelMemoryBlock).toContain('<gantry_compaction_delta>');
+    expect(modelMemoryBlock).not.toContain(revalidationBlock);
+    expect(modelMemoryBlock).not.toContain(markAppliedBlock);
+    expect(
+      getAgentTurnContext.mock.calls.filter(
+        ([input]) => input.hydrateMemory !== false,
+      ),
+    ).toHaveLength(1);
+  });
+
   it('injects compacted-session transcript delta before resumed turn', async () => {
     const markProviderSessionDeltaReplay = vi.fn();
-    const accessFingerprint = buildProviderSessionAccessFingerprint({});
+    const accessFingerprint = EMPTY_ACCESS_FINGERPRINT;
+    const provisionalBlock =
+      '<gantry_memory_context>LAT-3A replay provisional</gantry_memory_context>';
+    const promotedBlock =
+      '<gantry_memory_context>LAT-3A replay mark-applied read</gantry_memory_context>';
     const getAgentTurnContext = vi.fn(async (input) =>
       input.promoteReadyProviderSession
         ? {
@@ -423,6 +661,7 @@ describe('session-resume-runtime', () => {
               baseCursor: 'cursor:base',
               lockedAt: new Date().toISOString(),
             },
+            memoryContextBlock: promotedBlock,
           }
         : {
             appId: 'default',
@@ -437,6 +676,7 @@ describe('session-resume-runtime', () => {
               baseCursor: 'cursor:base',
               lockedAt: new Date().toISOString(),
             },
+            memoryContextBlock: provisionalBlock,
           },
     );
     const getContextMessagesSince = vi.fn(async () => [
@@ -457,7 +697,14 @@ describe('session-resume-runtime', () => {
         is_from_me: true,
       },
     ]);
-    const runAgent = vi.fn(async () => ({ status: 'success', result: 'ok' }));
+    const runAgent = vi.fn(
+      async (
+        _group: unknown,
+        _input: { sessionId?: string; memoryContextBlock?: string },
+        _register?: unknown,
+        _onOutput?: unknown,
+      ) => ({ status: 'success', result: 'ok' }),
+    );
     const defaultProviderId = ['anth', 'ropic:claude-agent-sdk'].join('');
     const runner = createGroupAgentRunner({
       deps: {
@@ -527,6 +774,24 @@ describe('session-resume-runtime', () => {
     expect(runAgent.mock.calls[0][1].memoryContextBlock).toContain(
       'overlap answer',
     );
+    expect(runAgent.mock.calls[0][1].memoryContextBlock).toContain(
+      provisionalBlock,
+    );
+    expect(runAgent.mock.calls[0][1].memoryContextBlock).not.toContain(
+      promotedBlock,
+    );
+    expect(getAgentTurnContext).toHaveBeenCalledTimes(3);
+    expect(
+      getAgentTurnContext.mock.calls.filter(
+        ([input]) => input.hydrateMemory !== false,
+      ),
+    ).toHaveLength(1);
+    expect(getAgentTurnContext.mock.calls[2]?.[0]).toEqual(
+      expect.objectContaining({
+        promoteReadyProviderSession: true,
+        hydrateMemory: false,
+      }),
+    );
     expect(markProviderSessionDeltaReplay).toHaveBeenCalledWith({
       providerSessionId: 'provider-session:ready',
       agentSessionId: 'agent-session:main',
@@ -539,7 +804,7 @@ describe('session-resume-runtime', () => {
 
   it('keeps compacted-session delta replay pending when the first resumed turn fails', async () => {
     const markProviderSessionDeltaReplay = vi.fn();
-    const accessFingerprint = buildProviderSessionAccessFingerprint({});
+    const accessFingerprint = EMPTY_ACCESS_FINGERPRINT;
     const getAgentTurnContext = vi.fn(async (input) =>
       input.promoteReadyProviderSession
         ? {
@@ -729,65 +994,30 @@ describe('session-resume-runtime', () => {
     expect(runAgent).not.toHaveBeenCalled();
   });
 
-  it('renders installed skill metadata without reading full skill artifacts', async () => {
-    const skillRepository = {
-      listEnabledSkillsForAgent: vi.fn(async () => [
-        {
-          id: 'skill:release-writer',
-          appId: 'app-one',
-          agentId: 'agent-one',
-          name: 'release-writer',
-          description: 'Use for drafting release notes.',
-          source: 'admin_uploaded',
-          status: 'installed',
-          promptRefs: [],
-          toolIds: [],
-          workflowRefs: [],
-          storage: {
-            storageType: 'local-filesystem',
-            storageRef: 'skills/release-writer',
-            contentHash: 'sha256-frontmatter-revision',
-            sizeBytes: 1024,
-          },
-          createdAt: new Date(0).toISOString(),
-          updatedAt: new Date(0).toISOString(),
-        },
-      ]),
-    } as unknown as SkillCatalogRepository;
-    const skillArtifactStore = {
-      getSkillArtifact: vi.fn(async () => ({
-        assets: [
-          {
-            path: 'SKILL.md',
-            content: Buffer.from(
-              [
-                '---',
-                'name: release-writer',
-                'description: Use for drafting release notes.',
-                '---',
-                '# Release Writer',
-                'FULL BODY INSTRUCTIONS MUST NOT BE INJECTED',
-              ].join('\n'),
-            ),
-          },
-        ],
-      })),
-    } as unknown as SkillArtifactStore;
-
-    const block = await buildApprovedSkillContextBlock({
-      skillRepository,
-      skillArtifactStore,
-      turnContext: {
+  it('renders installed skill metadata without full skill artifacts', () => {
+    const block = buildApprovedSkillContextBlockFromSkills([
+      {
+        id: 'skill:release-writer',
         appId: 'app-one',
         agentId: 'agent-one',
+        name: 'release-writer',
+        description: 'Use for drafting release notes.',
+        source: 'admin_uploaded',
+        status: 'installed',
+        promptRefs: [],
+        toolIds: [],
+        workflowRefs: [],
+        storage: {
+          storageType: 'local-filesystem',
+          storageRef: 'skills/release-writer',
+          contentHash: 'sha256-frontmatter-revision',
+          sizeBytes: 1024,
+        },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
       },
-    });
+    ]);
 
-    expect(skillRepository.listEnabledSkillsForAgent).toHaveBeenCalledWith({
-      appId: 'app-one',
-      agentId: 'agent-one',
-    });
-    expect(skillArtifactStore.getSkillArtifact).not.toHaveBeenCalled();
     expect(block).toContain('[[INSTALLED_SKILLS_AVAILABLE_THIS_SESSION]]');
     expect(block).toContain('release-writer (skill:release-writer)');
     expect(block).toContain('description: Use for drafting release notes.');

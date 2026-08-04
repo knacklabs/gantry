@@ -88,68 +88,6 @@ describe('job tool policy', () => {
     });
   });
 
-  it('projects an explicitly required bound MCP server into scheduled-job access', async () => {
-    const mcpServerRepository = {
-      listMaterializedServersForAgent: async () => [
-        {
-          definition: {
-            id: 'mcp:firecrawl',
-            name: 'firecrawl',
-            displayName: 'Firecrawl',
-            allowedToolPatterns: ['firecrawl_search', 'firecrawl_scrape'],
-            autoApproveToolPatterns: ['firecrawl_search', 'firecrawl_scrape'],
-            credentialRefs: [
-              {
-                name: 'FIRECRAWL_API_KEY',
-                target: 'env',
-                key: 'FIRECRAWL_API_KEY',
-              },
-            ],
-            networkHosts: ['api.firecrawl.dev:443'],
-          },
-          binding: {
-            allowedToolPatterns: ['firecrawl_search', 'firecrawl_scrape'],
-          },
-        },
-      ],
-    } as never;
-
-    await expect(
-      resolveJobToolPolicy({
-        job: makeJob({
-          access_requirements: [
-            {
-              target: { kind: 'mcp_server', server: 'firecrawl' },
-              reason: 'Discover sources.',
-            },
-          ],
-        }),
-        appId: 'default',
-        agentId: 'agent:team',
-        toolRepository: toolRepositoryFor([]),
-        mcpServerRepository,
-      }),
-    ).resolves.toMatchObject({
-      effectiveAllowedTools: [
-        'mcp__firecrawl__firecrawl_search',
-        'mcp__firecrawl__firecrawl_scrape',
-      ],
-      runtimeAccess: [
-        {
-          selectedCapabilityId: 'mcp:firecrawl',
-          sourceType: 'mcp_server',
-          reviewedServerId: 'mcp:firecrawl',
-          allowedTools: [
-            'mcp__firecrawl__firecrawl_search',
-            'mcp__firecrawl__firecrawl_scrape',
-          ],
-          credentialRefs: ['FIRECRAWL_API_KEY'],
-          networkHosts: ['api.firecrawl.dev:443'],
-        },
-      ],
-    });
-  });
-
   it('rejects stale inherited host-private browser MCP rules from agent tool bindings', async () => {
     await expect(
       resolveJobToolPolicy({

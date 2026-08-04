@@ -7,7 +7,7 @@ import {
   type InlineAgentLoopLane,
   type InlineAgentLoopLaneInput,
 } from '../../runtime/agent-inline.js';
-import { createInlineCoreTools } from './inline-agent-loop-tools.js';
+import { createInlineCoreToolsForRun } from './inline-agent-loop-tools.js';
 
 export function resolveRuntimeDefaultAdapters(input: {
   executionAdapter?: AgentExecutionAdapter;
@@ -50,7 +50,7 @@ export function resolveRuntimeDefaultAdapters(input: {
       databaseUrl: input.databaseUrl,
       databaseSchema: input.databaseSchema,
       createCoreTools: (laneInput: never, support: never) =>
-        createInlineCoreTools(
+        createInlineCoreToolsForRun(
           laneInput as unknown as InlineAgentLoopLaneInput,
           support as never,
         ) as never,

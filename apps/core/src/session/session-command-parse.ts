@@ -29,10 +29,12 @@ export type SessionCommand =
 function parsePermissionsCommand(text: string): SessionCommand | null {
   if (text === '/permissions')
     return { kind: 'permissions_show', raw: '/permissions' };
-  const value = text.match(/^\/permissions\s+(ask|auto|default)$/)?.[1];
+  const value = text.match(
+    /^\/permissions\s+(ask|auto|auto_strict|default)$/,
+  )?.[1];
   if (value === 'default')
     return { kind: 'permissions_default', raw: '/permissions default' };
-  return value === 'ask' || value === 'auto'
+  return value === 'ask' || value === 'auto' || value === 'auto_strict'
     ? { kind: 'permissions_set', raw: `/permissions ${value}`, value }
     : null;
 }

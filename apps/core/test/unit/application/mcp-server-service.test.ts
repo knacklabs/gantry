@@ -67,6 +67,15 @@ class MemoryMcpRepository implements McpServerRepository {
     this.bindings.set(`${binding.agentId}:${binding.serverId}`, binding);
   }
 
+  async getAgentBinding(input: {
+    appId: string;
+    agentId: string;
+    serverId: McpServerId;
+  }): Promise<AgentMcpServerBinding | null> {
+    const binding = this.bindings.get(`${input.agentId}:${input.serverId}`);
+    return binding?.appId === input.appId ? binding : null;
+  }
+
   async disableAgentBinding(input: {
     appId: string;
     agentId: string;
@@ -92,6 +101,25 @@ class MemoryMcpRepository implements McpServerRepository {
       (binding) =>
         binding.appId === input.appId && binding.agentId === input.agentId,
     );
+  }
+
+  async listAgentMcpAccessSnapshot(input: { appId: string; agentId: string }) {
+    const activeBindings = (await this.listAgentBindings(input)).filter(
+      (binding) => binding.status === 'active',
+    );
+    const rows = activeBindings.map((binding) => ({
+      binding,
+      definition: this.servers.get(binding.serverId) ?? null,
+    }));
+    return {
+      activeBindings: rows,
+      materializedServers: rows.flatMap((row) =>
+        row.definition?.appId === input.appId &&
+        row.definition.status === 'active'
+          ? [{ binding: row.binding, definition: row.definition }]
+          : [],
+      ),
+    };
   }
 
   async listAgentBindingsForAgents(input: {
@@ -340,8 +368,8 @@ describe('McpServerService', () => {
     ).rejects.toThrow(/not within the reviewed tools/);
   });
 
-  it('preserves the existing required flag when rebinding without one', async () => {
-    const { service } = serviceWithRepo();
+  it('preserves the complete existing authority row when rebinding', async () => {
+    const { repo, service } = serviceWithRepo();
     const server = await service.connectServer({
       appId: 'app:one' as never,
       name: 'github',
@@ -358,6 +386,12 @@ describe('McpServerService', () => {
       required: true,
       permissionPolicyIds: ['permission-policy:one' as never],
     });
+    const bindingKey = `agent:one:${server.id}`;
+    repo.bindings.set(bindingKey, {
+      ...repo.bindings.get(bindingKey)!,
+      conversationId: 'conversation:review' as never,
+      threadId: 'thread:review:topic' as never,
+    });
     const rebound = await service.bindToAgent({
       appId: 'app:one' as never,
       agentId: 'agent:one' as never,
@@ -367,6 +401,8 @@ describe('McpServerService', () => {
 
     expect(rebound.required).toBe(true);
     expect(rebound.permissionPolicyIds).toEqual(['permission-policy:two']);
+    expect(rebound.conversationId).toBe('conversation:review');
+    expect(rebound.threadId).toBe('thread:review:topic');
   });
 
   it('skips selected MCP projection when its credential ref is missing', async () => {
@@ -405,10 +441,11 @@ describe('McpServerService', () => {
           eventType: 'startup_failure',
           serverId: server.id,
           agentId: 'agent:one',
-          reason: expect.stringContaining('GITHUB_TOKEN'),
+          reason: expect.stringContaining('Credential Center'),
         }),
       ]),
     );
+    expect(JSON.stringify(repo.auditEvents)).not.toContain('GITHUB_TOKEN');
   });
 
   it('fails required remote MCP materialization when DNS validation times out', async () => {
@@ -460,6 +497,64 @@ describe('McpServerService', () => {
     ).rejects.toThrow(/Required MCP server failed to materialize: github/);
   });
 
+  it('fails closed when snapshot MCP config belongs to another agent', async () => {
+    const { service } = serviceWithRepo();
+    const serverId = 'mcp:github' as McpServerId;
+
+    await expect(
+      service.materializeForAgent({
+        appId: 'app:one' as never,
+        agentId: 'agent:one' as never,
+        accessSnapshot: {
+          appId: 'app:one',
+          agentId: 'agent:one',
+          tools: { activeBindings: [], appActiveDefinitions: [] },
+          skills: { activeBindings: [], enabledDefinitions: [] },
+          mcp: {
+            activeBindings: [],
+            materializedServers: [
+              {
+                definition: {
+                  id: serverId,
+                  appId: 'app:one',
+                  name: 'github',
+                  status: 'active',
+                  transport: 'http',
+                  config: {
+                    transport: 'http',
+                    url: 'https://mcp.example.test/github',
+                  },
+                  allowedToolPatterns: ['search_*'],
+                  autoApproveToolPatterns: [],
+                  credentialRefs: [],
+                  networkHosts: ['mcp.example.test:443'],
+                  createdSource: 'admin',
+                  riskClass: 'medium',
+                  createdAt: '2026-06-02T00:00:00.000Z',
+                  updatedAt: '2026-06-02T00:00:00.000Z',
+                },
+                binding: {
+                  id: 'mcp-binding:one' as never,
+                  appId: 'app:one',
+                  agentId: 'agent:other',
+                  serverId,
+                  status: 'active',
+                  required: false,
+                  allowedToolPatterns: [],
+                  permissionPolicyIds: [],
+                  createdAt: '2026-06-02T00:00:00.000Z',
+                  updatedAt: '2026-06-02T00:00:00.000Z',
+                },
+              },
+            ],
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      'MCP materialization MCP materialized snapshot row owner mismatch.',
+    );
+  });
+
   it('rolls back a newly connected server so failed approvals are retryable', async () => {
     const { repo, service } = serviceWithRepo();
     const server = await service.connectServer({
@@ -469,6 +564,11 @@ describe('McpServerService', () => {
         transport: 'http',
         url: 'https://mcp.example.test/github',
       },
+      allowedToolPatterns: ['search_*', 'read_*'],
+      credentialRefs: [
+        { name: 'GITHUB_TOKEN', target: 'env', key: 'GITHUB_TOKEN' },
+        { name: 'TENANT', target: 'header', key: 'x-tenant' },
+      ],
     });
     await service.bindToAgent({
       appId: 'app:one' as never,
@@ -493,9 +593,43 @@ describe('McpServerService', () => {
         transport: 'http',
         url: 'https://mcp.example.test/github',
       },
+      allowedToolPatterns: ['read_*', 'search_*', 'search_*'],
+      credentialRefs: [
+        { name: 'TENANT', target: 'header', key: 'x-tenant' },
+        { name: 'GITHUB_TOKEN', target: 'env', key: 'GITHUB_TOKEN' },
+      ],
     });
     expect(reconnected.id).toBe(server.id);
     expect(reconnected.status).toBe('active');
+  });
+
+  it('requires a new name when replacing a disabled server definition', async () => {
+    const { service } = serviceWithRepo();
+    const server = await service.connectServer({
+      appId: 'app:one' as never,
+      name: 'github',
+      transportConfig: {
+        transport: 'http',
+        url: 'https://mcp.example.test/github',
+      },
+      allowedToolPatterns: ['search_*'],
+    });
+    await service.disableServer({
+      appId: 'app:one' as never,
+      serverId: server.id,
+    });
+
+    await expect(
+      service.connectServer({
+        appId: 'app:one' as never,
+        name: 'github',
+        transportConfig: {
+          transport: 'http',
+          url: 'https://replacement.example.test/github',
+        },
+        allowedToolPatterns: ['search_*'],
+      }),
+    ).rejects.toThrow('Connect the replacement under a new name');
   });
 
   it('rejects duplicate current definitions by normalized name', async () => {

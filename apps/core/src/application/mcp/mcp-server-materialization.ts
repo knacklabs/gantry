@@ -18,6 +18,10 @@ export type SdkMcpServerConfig =
   | { type: 'sse'; url: string; headers?: Record<string, string> };
 
 export interface MaterializedMcpCapability {
+  appId: string;
+  agentId: string;
+  conversationId?: string;
+  threadId?: string;
   name: string;
   serverId: string;
   bindingId: string;
@@ -65,6 +69,10 @@ export function materializeMcpRecord(
       ...credentialValues.headers,
     };
     return {
+      appId: record.definition.appId,
+      agentId: record.binding.agentId,
+      conversationId: record.binding.conversationId,
+      threadId: record.binding.threadId,
       name: record.definition.name,
       serverId: record.definition.id,
       bindingId: record.binding.id,
@@ -103,6 +111,10 @@ export function materializeMcpRecord(
       ? template.args
       : [...template.args, ...(config.args ?? [])];
   return {
+    appId: record.definition.appId,
+    agentId: record.binding.agentId,
+    conversationId: record.binding.conversationId,
+    threadId: record.binding.threadId,
     name: record.definition.name,
     serverId: record.definition.id,
     bindingId: record.binding.id,

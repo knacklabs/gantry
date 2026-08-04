@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  handleFailure,
-  resolveGroupTurnFinalProgressState,
-} from '@core/runtime/group-processing-flow.js';
+import { handleFailure } from '@core/runtime/group-processing-flow.js';
 
 function makeInput(
   overrides: Partial<Parameters<typeof handleFailure>[0]> = {},
@@ -13,7 +10,6 @@ function makeInput(
     groupName: 'Main Agent',
     queueJid: 'sl:C1234567890',
     previousCursor: 'prev-cursor',
-    processedCursor: 'processed-cursor',
     deps: {
       setCursor: vi.fn(),
       saveState: vi.fn(),
@@ -45,14 +41,26 @@ describe('handleFailure', () => {
 
     await expect(handleFailure(input)).resolves.toBe(true);
 
-    expect(input.deps.setCursor).toHaveBeenCalledWith(
-      'sl:C1234567890',
-      'processed-cursor',
-    );
+    expect(input.deps.setCursor).not.toHaveBeenCalled();
     expect(input.deps.saveState).toHaveBeenCalledTimes(1);
     expect(input.logger.warn).toHaveBeenCalledWith(
       { group: 'Main Agent' },
       'Agent error on final retry, preserving message cursor to prevent stale replay',
+    );
+  });
+
+  it('preserves the cursor for infrastructure failures that should not replay the Slack message', async () => {
+    const input = makeInput({
+      preserveCursor: true,
+    });
+
+    await expect(handleFailure(input)).resolves.toBe(true);
+
+    expect(input.deps.setCursor).not.toHaveBeenCalled();
+    expect(input.deps.saveState).toHaveBeenCalledTimes(1);
+    expect(input.logger.warn).toHaveBeenCalledWith(
+      { group: 'Main Agent' },
+      'Agent infrastructure error, preserving message cursor to prevent stale replay',
     );
   });
 
@@ -104,19 +112,5 @@ describe('handleFailure', () => {
       'prev-thread-cursor',
     );
     expect(input.deps.saveState).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('resolveGroupTurnFinalProgressState', () => {
-  it('renders a typed execution timeout as failed progress', () => {
-    expect(
-      resolveGroupTurnFinalProgressState({
-        output: 'timed_out',
-        hadError: false,
-        sawDeliveryIncomplete: false,
-        sawTerminalDeliveryFailure: false,
-        outputSentToUser: false,
-      }),
-    ).toBe('failed');
   });
 });

@@ -13,7 +13,6 @@ describe('CanonicalJobOpsService', () => {
 
     await service.upsertJob({
       id: 'job-1',
-      app_id: 'app-one',
       name: 'Job',
       prompt: 'Run',
       schedule_type: 'interval',
@@ -33,14 +32,20 @@ describe('CanonicalJobOpsService', () => {
         },
       ],
       access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
+      agent_task: {
+        responseSchema: {
+          type: 'object',
+          properties: { recipeVersion: { type: 'string' } },
+          required: ['recipeVersion'],
+        },
+        executionPolicy: { totalTimeoutMs: 120_000 },
+      },
       workspace_key: '',
     });
 
     const stored = vi.mocked(repository.upsertJob).mock.calls[0]?.[0] as {
-      appId: string;
       targetJson: string;
     };
-    expect(stored.appId).toBe('app-one');
     const target = JSON.parse(stored.targetJson) as Record<string, unknown>;
     expect(target.capabilityPolicy).toBeUndefined();
     expect(target.executionContext).toEqual({
@@ -60,50 +65,13 @@ describe('CanonicalJobOpsService', () => {
     expect(target.accessRequirements).toEqual([
       { target: { kind: 'tool_rule', rule: 'Browser' } },
     ]);
-  });
-
-  it('round-trips recurring cron schedule semantics through upsert', async () => {
-    let stored:
-      | Parameters<PostgresCanonicalJobRepository['upsertJob']>[0]
-      | undefined;
-    const repository = {
-      findJobById: vi.fn(async () => stored ?? null),
-      upsertJob: vi.fn(
-        async (
-          record: Parameters<PostgresCanonicalJobRepository['upsertJob']>[0],
-        ) => {
-          stored = record;
-        },
-      ),
-    } as unknown as PostgresCanonicalJobRepository;
-    const service = new CanonicalJobOpsService(repository);
-
-    await service.upsertJob({
-      id: 'job-cron',
-      name: 'Recurring job',
-      prompt: 'Run discovery',
-      schedule_type: 'cron',
-      schedule_value: '0 9 * * *',
-      schedule_timezone: 'Asia/Kolkata',
-      misfire_policy: 'coalesce',
-      overlap_policy: 'skip',
-      schedule_metadata: { scheduleId: 'source-discovery', generation: 3 },
-      execution_context: {
-        conversationJid: 'app:session-1',
-        threadId: null,
-        workspaceKey: 'agent_one',
-        sessionId: 'session-1',
+    expect(target.agentTask).toEqual({
+      responseSchema: {
+        type: 'object',
+        properties: { recipeVersion: { type: 'string' } },
+        required: ['recipeVersion'],
       },
-      workspace_key: 'agent_one',
-    });
-
-    await expect(service.getJobById('job-cron')).resolves.toMatchObject({
-      schedule_type: 'cron',
-      schedule_value: '0 9 * * *',
-      schedule_timezone: 'Asia/Kolkata',
-      misfire_policy: 'coalesce',
-      overlap_policy: 'skip',
-      schedule_metadata: { scheduleId: 'source-discovery', generation: 3 },
+      executionPolicy: { totalTimeoutMs: 120_000 },
     });
   });
 
@@ -152,7 +120,6 @@ describe('CanonicalJobOpsService', () => {
     const repository = {
       findJobById: vi.fn(async () => ({
         id: 'job-1',
-        appId: 'app-one',
         agentId: 'agent:agent_one',
         name: 'Job',
         prompt: 'Run',
@@ -193,7 +160,6 @@ describe('CanonicalJobOpsService', () => {
 
     await expect(service.getJobById('job-1')).resolves.toMatchObject({
       session_id: 'session-1',
-      app_id: 'app-one',
       thread_id: null,
       workspace_key: 'agent_one',
       execution_context: {
@@ -213,7 +179,7 @@ describe('CanonicalJobOpsService', () => {
     });
   });
 
-  it('round-trips job recovery intent through target metadata', async () => {
+  it('stores coordination state outside target metadata', async () => {
     const repository = {
       findJobById: vi.fn(async () => null),
       upsertJob: vi.fn(async () => undefined),
@@ -239,33 +205,28 @@ describe('CanonicalJobOpsService', () => {
         },
       ],
       workspace_key: 'agent_one',
-      recovery_intent: {
-        kind: 'permission_denied',
-        state: 'pending',
-        dedupe_key: 'dedupe-1',
-        created_at: '2026-04-24T00:00:00.000Z',
-        updated_at: '2026-04-24T00:00:01.000Z',
-        source_run_id: 'run-1',
-        setup_fingerprint: 'fingerprint-1',
-        requirement_type: 'tool',
-        requirement_id: 'RunCommand',
-        next_action:
-          'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
-        attempts: 0,
-        last_error: null,
+      consecutive_failures: 2,
+      max_consecutive_failures: 7,
+      pause_reason: 'Setup required',
+      setup_state: {
+        state: 'missing_capability',
+        checked_at: '2026-04-24T00:00:00.000Z',
+        fingerprint: 'fingerprint-1',
+        blockers: [],
       },
     });
 
     const stored = vi.mocked(repository.upsertJob).mock.calls[0]?.[0] as {
       targetJson: string;
     };
-    expect(JSON.parse(stored.targetJson)).toMatchObject({
-      recoveryIntent: {
-        kind: 'permission_denied',
-        state: 'pending',
-        dedupe_key: 'dedupe-1',
-        requirement_id: 'RunCommand',
-      },
+    expect(JSON.parse(stored.targetJson)).not.toHaveProperty(
+      'consecutiveFailures',
+    );
+    expect(vi.mocked(repository.upsertJob).mock.calls[0]?.[1]).toMatchObject({
+      consecutiveFailures: 2,
+      maxConsecutiveFailures: 7,
+      pauseReason: 'Setup required',
+      setupState: { fingerprint: 'fingerprint-1' },
     });
   });
 

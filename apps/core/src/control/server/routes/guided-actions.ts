@@ -19,7 +19,6 @@ import {
   type GuidedActionType,
 } from '../../../application/guided-actions/guided-action-model.js';
 import type { AppId } from '../../../domain/app/app.js';
-import { createJobManagementService } from './jobs.js';
 
 const GUIDED_ACTION_TYPES = new Set<string>(
   Object.keys(GUIDED_ACTION_DESCRIPTORS),
@@ -115,7 +114,7 @@ export async function handleGuidedActionRoutes(
         return true;
       }
       try {
-        const result = await createJobManagementService(ctx).resumeJob({
+        const result = await ctx.jobManagement.resumeJob({
           jobId,
           appId: key.appId as AppId,
         });

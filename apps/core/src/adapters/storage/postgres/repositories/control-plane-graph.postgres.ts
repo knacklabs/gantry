@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
@@ -26,13 +26,13 @@ export async function ensureControlGraph(
     externalConversationId: string;
     externalConversationRef: string;
     agentFolder: string;
-    agentId?: string;
     title?: string | null;
   },
 ) {
   const now = currentIso();
   const appId = input.appId;
-  const agentId = input.agentId ?? agentIdForFolder(input.agentFolder);
+  const agentId = agentIdForFolder(input.agentFolder);
+  const configId = `config:${agentId}:1`;
   const providerAccountId = controlInstallationId(appId);
   const conversationId = controlConversationId(
     appId,
@@ -66,26 +66,44 @@ export async function ensureControlGraph(
       updatedAt: now,
     })
     .onConflictDoNothing();
-  if (!input.agentId) {
-    await db
-      .insert(pgSchema.agentsPostgres)
-      .values({
-        id: agentId,
-        appId,
-        name: input.agentFolder || 'default',
-        status: 'active',
-        createdAt: now,
+  await db
+    .insert(pgSchema.agentsPostgres)
+    .values({
+      id: agentId,
+      appId,
+      name: input.agentFolder || 'default',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: pgSchema.agentsPostgres.id,
+      // Do not overwrite name on conflict: synthetic agents already have
+      // name === folder, and sessions ensured against a real onboarded agent
+      // must not clobber its human-assigned name.
+      set: {
         updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: pgSchema.agentsPostgres.id,
-        set: {
-          name: input.agentFolder || 'default',
-          updatedAt: now,
-        },
-      });
-  }
-  await ensureAppScopedAgentConfig(db, { appId, agentId, now });
+      },
+    });
+  await db
+    .insert(pgSchema.agentConfigVersionsPostgres)
+    .values({
+      id: configId,
+      appId,
+      agentId,
+      version: 1,
+      promptProfileRef: 'runtime-default',
+      llmProfileId: DEFAULT_LLM_PROFILE_ID,
+      createdAt: now,
+    })
+    .onConflictDoNothing();
+  await db
+    .update(pgSchema.agentsPostgres)
+    .set({
+      currentConfigVersionId: sql`coalesce(${pgSchema.agentsPostgres.currentConfigVersionId}, ${configId})`,
+      updatedAt: now,
+    })
+    .where(eq(pgSchema.agentsPostgres.id, agentId));
   await db
     .insert(pgSchema.providersPostgres)
     .values({
@@ -149,95 +167,4 @@ export async function ensureControlGraph(
       },
     });
   return { agentId, conversationId };
-}
-
-async function ensureAppScopedAgentConfig(
-  db: CanonicalExecutor,
-  input: { appId: string; agentId: string; now: string },
-): Promise<void> {
-  const [agent] = await db
-    .select({
-      currentConfigVersionId: pgSchema.agentsPostgres.currentConfigVersionId,
-    })
-    .from(pgSchema.agentsPostgres)
-    .where(
-      and(
-        eq(pgSchema.agentsPostgres.id, input.agentId),
-        eq(pgSchema.agentsPostgres.appId, input.appId),
-      ),
-    )
-    .limit(1);
-  if (!agent) {
-    throw new Error(
-      `Agent ${input.agentId} does not belong to app ${input.appId}.`,
-    );
-  }
-
-  const configs = await db
-    .select({
-      id: pgSchema.agentConfigVersionsPostgres.id,
-      appId: pgSchema.agentConfigVersionsPostgres.appId,
-      version: pgSchema.agentConfigVersionsPostgres.version,
-    })
-    .from(pgSchema.agentConfigVersionsPostgres)
-    .where(eq(pgSchema.agentConfigVersionsPostgres.agentId, input.agentId))
-    .orderBy(desc(pgSchema.agentConfigVersionsPostgres.version));
-  if (
-    configs.some(
-      (config) =>
-        config.id === agent.currentConfigVersionId &&
-        config.appId === input.appId,
-    )
-  ) {
-    return;
-  }
-
-  let config = configs.find((candidate) => candidate.appId === input.appId);
-  if (!config) {
-    const version = (configs[0]?.version ?? 0) + 1;
-    const id = `config:${input.agentId}:${version}`;
-    await db
-      .insert(pgSchema.agentConfigVersionsPostgres)
-      .values({
-        id,
-        appId: input.appId,
-        agentId: input.agentId,
-        version,
-        promptProfileRef: 'runtime-default',
-        llmProfileId: DEFAULT_LLM_PROFILE_ID,
-        createdAt: input.now,
-      })
-      .onConflictDoNothing();
-    const [created] = await db
-      .select({
-        id: pgSchema.agentConfigVersionsPostgres.id,
-        appId: pgSchema.agentConfigVersionsPostgres.appId,
-        version: pgSchema.agentConfigVersionsPostgres.version,
-      })
-      .from(pgSchema.agentConfigVersionsPostgres)
-      .where(
-        and(
-          eq(pgSchema.agentConfigVersionsPostgres.agentId, input.agentId),
-          eq(pgSchema.agentConfigVersionsPostgres.appId, input.appId),
-          eq(pgSchema.agentConfigVersionsPostgres.version, version),
-        ),
-      )
-      .limit(1);
-    if (!created) {
-      throw new Error(
-        `Unable to create an app-scoped configuration for agent ${input.agentId}.`,
-      );
-    }
-    config = created;
-  }
-
-  await db
-    .update(pgSchema.agentsPostgres)
-    .set({ currentConfigVersionId: config.id, updatedAt: input.now })
-    .where(
-      and(
-        eq(pgSchema.agentsPostgres.id, input.agentId),
-        eq(pgSchema.agentsPostgres.appId, input.appId),
-      ),
-    );
 }

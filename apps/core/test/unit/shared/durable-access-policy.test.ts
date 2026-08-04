@@ -1,11 +1,25 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  DURABLE_ACCESS_RULE_REJECTION_REASON,
+  BROWSER_PROJECTED_MCP_RULE_REJECTION_REASON,
+  PROJECTED_BROWSER_MCP_TOOL_NAMES,
+} from '@core/shared/agent-tool-references.js';
+import {
+  AUTHORITY_CHANGING_GANTRY_MCP_TOOL_REJECTION_REASON,
+  DECISION_ACTOR_GANTRY_MCP_TOOL_REJECTION_REASON,
+  DELEGATION_DISPATCHER_REJECTION_REASON,
+  DURABLE_GRANT_EXCLUDED_DISPATCHER_REJECTION_REASON,
   formatDurableAccessRulesForUser,
   isDurableAccessRuleAllowed,
   validateDurableAccessRule,
 } from '@core/shared/durable-access-policy.js';
+import {
+  AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES,
+  DECISION_ACTOR_GANTRY_MCP_TOOL_NAMES,
+  DELEGATION_DISPATCHERS,
+  DURABLE_GRANT_EXCLUDED_DISPATCHERS,
+  GRANTABLE_EXACT_GANTRY_MCP_TOOL_NAMES,
+} from '@core/shared/admin-mcp-tools.js';
 import type { SemanticCapabilityDefinition } from '@core/shared/semantic-capabilities.js';
 
 const skillActionDefinition: SemanticCapabilityDefinition = {
@@ -69,17 +83,182 @@ describe('durable access policy', () => {
     ).toEqual({ ok: true });
   });
 
-  it('rejects exact third-party MCP tools', () => {
-    expect(validateDurableAccessRule('mcp__github__get_issue')).toEqual({
+  it('allows scheduler resume as a durable access rule', () => {
+    expect(
+      validateDurableAccessRule('mcp__gantry__scheduler_resume_job'),
+    ).toEqual({ ok: true });
+  });
+
+  it('allows every canonical Gantry tool except durable exclusions and runtime projections', () => {
+    for (const toolName of GRANTABLE_EXACT_GANTRY_MCP_TOOL_NAMES) {
+      expect(
+        validateDurableAccessRule(`mcp__gantry__${toolName}`),
+        toolName,
+      ).toEqual({ ok: true });
+    }
+  });
+
+  it('rejects async_run_command with the dispatcher reason', () => {
+    expect(validateDurableAccessRule('mcp__gantry__async_run_command')).toEqual(
+      {
+        ok: false,
+        reason: DURABLE_GRANT_EXCLUDED_DISPATCHER_REJECTION_REASON,
+      },
+    );
+  });
+
+  it('rejects every durable-grant-excluded dispatcher by the shared constant', () => {
+    for (const toolName of DURABLE_GRANT_EXCLUDED_DISPATCHERS) {
+      expect(validateDurableAccessRule(`mcp__gantry__${toolName}`)).toEqual({
+        ok: false,
+        reason: DURABLE_GRANT_EXCLUDED_DISPATCHER_REJECTION_REASON,
+      });
+    }
+  });
+
+  it('rejects delegation dispatchers as durable access rules', () => {
+    for (const toolName of DELEGATION_DISPATCHERS) {
+      expect(
+        validateDurableAccessRule(`mcp__gantry__${toolName}`),
+        toolName,
+      ).toEqual({
+        ok: false,
+        reason: DELEGATION_DISPATCHER_REJECTION_REASON,
+      });
+    }
+  });
+
+  it('rejects scoped forms of excluded Gantry tools by the underlying exact name', () => {
+    expect(
+      validateDurableAccessRule('mcp__gantry__request_access(capability:test)'),
+    ).toEqual({
       ok: false,
-      reason: DURABLE_ACCESS_RULE_REJECTION_REASON,
+      reason: AUTHORITY_CHANGING_GANTRY_MCP_TOOL_REJECTION_REASON,
     });
   });
 
-  it('rejects non-admin Gantry MCP tools as durable access rules', () => {
+  it('rejects a fabricated Gantry tool name', () => {
     expect(
-      validateDurableAccessRule('mcp__gantry__send_message'),
+      validateDurableAccessRule('mcp__gantry__does_not_exist'),
     ).toMatchObject({ ok: false });
+  });
+
+  it('rejects a typo of a canonical Gantry tool name', () => {
+    expect(
+      validateDurableAccessRule('mcp__gantry__scheduler_resume_jobb'),
+    ).toMatchObject({ ok: false });
+  });
+
+  it('rejects every authority-changing Gantry tool by the shared constant', () => {
+    for (const toolName of AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES) {
+      expect(
+        validateDurableAccessRule(`mcp__gantry__${toolName}`),
+        toolName,
+      ).toEqual({
+        ok: false,
+        reason: AUTHORITY_CHANGING_GANTRY_MCP_TOOL_REJECTION_REASON,
+      });
+    }
+  });
+
+  it('rejects authority, config, topology, and restart mutations outside the request family', () => {
+    for (const toolName of [
+      'admin_permission_revoke',
+      'register_agent',
+      'request_settings_update',
+      'service_restart',
+    ]) {
+      expect(
+        validateDurableAccessRule(`mcp__gantry__${toolName}`),
+        toolName,
+      ).toEqual({
+        ok: false,
+        reason: AUTHORITY_CHANGING_GANTRY_MCP_TOOL_REJECTION_REASON,
+      });
+    }
+  });
+
+  it('rejects tools that record durable user consent or review decisions', () => {
+    for (const toolName of DECISION_ACTOR_GANTRY_MCP_TOOL_NAMES) {
+      expect(
+        validateDurableAccessRule(`mcp__gantry__${toolName}`),
+        toolName,
+      ).toEqual({
+        ok: false,
+        reason: DECISION_ACTOR_GANTRY_MCP_TOOL_REJECTION_REASON,
+      });
+    }
+  });
+
+  it('keeps read-only admin and settings tools grantable', () => {
+    for (const toolName of [
+      'admin_permission_list',
+      'guided_action_preview',
+      'settings_desired_state',
+    ]) {
+      expect(
+        validateDurableAccessRule(`mcp__gantry__${toolName}`),
+        toolName,
+      ).toEqual({ ok: true });
+    }
+  });
+
+  it('keeps reads, scheduler job CRUD, memory writes, and task cancellation grantable', () => {
+    for (const toolName of [
+      'task_get',
+      'task_list',
+      'task_cancel',
+      'scheduler_get_job',
+      'scheduler_list_jobs',
+      'scheduler_upsert_job',
+      'scheduler_update_job',
+      'scheduler_delete_job',
+      'scheduler_pause_job',
+      'scheduler_resume_job',
+      'memory_search',
+      'memory_save',
+      'memory_patch',
+      'memory_demote',
+      'memory_dream',
+      'memory_consolidate',
+      'brain_write',
+    ]) {
+      expect(
+        validateDurableAccessRule(`mcp__gantry__${toolName}`),
+        toolName,
+      ).toEqual({ ok: true });
+    }
+  });
+
+  it('rejects projected Gantry browser tools in favor of canonical Browser', () => {
+    for (const toolName of PROJECTED_BROWSER_MCP_TOOL_NAMES) {
+      expect(validateDurableAccessRule(toolName), toolName).toEqual({
+        ok: false,
+        reason: BROWSER_PROJECTED_MCP_RULE_REJECTION_REASON,
+      });
+    }
+  });
+
+  it('renders readable names for newly durable Gantry tools', () => {
+    expect(
+      formatDurableAccessRulesForUser([
+        'mcp__gantry__scheduler_resume_job',
+        'mcp__gantry__task_cancel',
+        'mcp__gantry__memory_patch',
+      ]),
+    ).toBe('Scheduler Resume Job, Task Cancel, Memory Patch');
+  });
+
+  it('rejects arbitrary non-Gantry tool names', () => {
+    for (const toolName of [
+      'mcp__github__get_issue',
+      'mcp__other__tool',
+      'random string',
+    ]) {
+      expect(validateDurableAccessRule(toolName), toolName).toMatchObject({
+        ok: false,
+      });
+    }
   });
 
   it('still rejects scoped non-command Gantry facade rules', () => {
@@ -169,6 +348,13 @@ describe('durable access policy', () => {
       ok: false,
       reason:
         'Persistent RunCommand rules cannot reference generated runtime paths; use a reviewed stable capability or let Gantry-owned runtime scratch reads stay internal.',
+    });
+  });
+
+  it('rejects non-exact scheduler wildcard rules as durable access rules', () => {
+    expect(validateDurableAccessRule('mcp__gantry__scheduler_*')).toEqual({
+      ok: false,
+      reason: 'Wildcard persistent tool grants are not supported.',
     });
   });
 

@@ -12,7 +12,6 @@ import type {
 
 type NewMessageAttachment = NonNullable<NewMessage['attachments']>[number];
 type AgentControls = NonNullable<NewMessage['agentControls']>;
-type AppMessageResponseRoute = NonNullable<NewMessage['appResponseRoute']>;
 
 function hasCursorBoundary(cursor: { timestamp: string }): boolean {
   return cursor.timestamp.trim().length > 0;
@@ -52,10 +51,29 @@ function toStringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
+function toIsoTimestamp(value: unknown): string | undefined {
+  const timestamp = toStringValue(value);
+  if (!timestamp) return undefined;
+  const ms = Date.parse(timestamp);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : timestamp;
+}
+
+function toProviderFetch(
+  value: unknown,
+): NewMessageAttachment['provider_fetch'] | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const provider = toStringValue(record.provider);
+  const kind = toStringValue(record.kind);
+  const id = toStringValue(record.id);
+  return provider && kind && id ? { ...record, provider, kind, id } : undefined;
+}
+
 function agentControlsFromExternalRef(
   ref: Record<string, unknown>,
 ): AgentControls | undefined {
-  const modelAlias = toStringValue(ref.model_alias);
   const effort = ['low', 'medium', 'high', 'xhigh', 'max'].includes(
     String(ref.effort),
   )
@@ -92,39 +110,13 @@ function agentControlsFromExternalRef(
     ref.max_output_tokens > 0
       ? ref.max_output_tokens
       : undefined;
-  return modelAlias || effort || thinking || maxOutputTokens
+  return effort || thinking || maxOutputTokens
     ? {
-        ...(modelAlias ? { modelAlias } : {}),
         ...(effort ? { effort } : {}),
         ...(thinking ? { thinking } : {}),
         ...(maxOutputTokens ? { maxOutputTokens } : {}),
       }
     : undefined;
-}
-
-function appResponseRouteFromExternalRef(
-  ref: Record<string, unknown>,
-): AppMessageResponseRoute | undefined {
-  const raw = ref.app_response_route;
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const value = raw as Record<string, unknown>;
-  if (
-    typeof value.sessionId !== 'string' ||
-    value.sessionId.length === 0 ||
-    (value.threadId !== null && typeof value.threadId !== 'string') ||
-    !['sse', 'webhook', 'both', 'none'].includes(String(value.responseMode)) ||
-    (value.webhookId !== null && typeof value.webhookId !== 'string') ||
-    (value.correlationId !== null && typeof value.correlationId !== 'string')
-  ) {
-    return undefined;
-  }
-  return {
-    sessionId: value.sessionId,
-    threadId: value.threadId as string | null,
-    responseMode: value.responseMode as AppMessageResponseRoute['responseMode'],
-    webhookId: value.webhookId as string | null,
-    correlationId: value.correlationId as string | null,
-  };
 }
 
 function toAttachmentKind(
@@ -148,7 +140,10 @@ function mapAttachment(value: unknown): NewMessageAttachment | undefined {
     typeof record.sizeBytes === 'number' && Number.isFinite(record.sizeBytes)
       ? record.sizeBytes
       : undefined;
+  const providerFetch = toProviderFetch(record.provider_fetch);
+  const deletedAt = toIsoTimestamp(record.deleted_at);
   return {
+    ...(toStringValue(record.id) ? { id: toStringValue(record.id) } : {}),
     kind,
     ...(toStringValue(record.contentType)
       ? { contentType: toStringValue(record.contentType) }
@@ -160,6 +155,11 @@ function mapAttachment(value: unknown): NewMessageAttachment | undefined {
     ...(toStringValue(record.storageRef)
       ? { storageRef: toStringValue(record.storageRef) }
       : {}),
+    ...(toStringValue(record.file_name)
+      ? { file_name: toStringValue(record.file_name) }
+      : {}),
+    ...(providerFetch ? { provider_fetch: providerFetch } : {}),
+    ...(deletedAt ? { deleted_at: deletedAt } : {}),
   };
 }
 
@@ -186,7 +186,7 @@ export class CanonicalMessageOpsService {
     const result = await this.repository.saveMessage(msg, {
       liveAdmission: admission,
     });
-    if (result) {
+    if (result && result.outcome !== 'overloaded') {
       await this.notifyLiveAdmissionWorkItem(result);
     }
     return result;
@@ -195,6 +195,7 @@ export class CanonicalMessageOpsService {
   async notifyLiveAdmissionWorkItem(
     result: LiveAdmissionWorkItemEnqueueResult,
   ): Promise<void> {
+    if (result.outcome === 'overloaded') return;
     await this.liveAdmissionNotifier?.notifyLiveAdmissionWorkItem({
       appId: result.item.appId,
       workItemId: result.item.id,
@@ -356,16 +357,8 @@ export class CanonicalMessageOpsService {
       (externalRef.provider_account_id as string | undefined);
     const responseSchema = externalRef.response_schema;
     const agentControls = agentControlsFromExternalRef(externalRef);
-    const callerResolvedTools = externalRef.caller_resolved_tools;
-    const appResponseRoute = appResponseRouteFromExternalRef(externalRef);
-    const continuityMode =
-      externalRef.continuity_mode === 'bounded' ||
-      externalRef.continuity_mode === 'provider'
-        ? externalRef.continuity_mode
-        : undefined;
     return {
       id: ref.id || row.id,
-      canonicalMessageId: row.id,
       chat_jid: chatJid,
       sender: row.sender_user_id || ref.sender || '',
       sender_name: row.sender_display_name || ref.sender_name || '',
@@ -385,17 +378,6 @@ export class CanonicalMessageOpsService {
         ? { responseSchema: responseSchema as Record<string, unknown> }
         : {}),
       ...(agentControls ? { agentControls } : {}),
-      ...(appResponseRoute ? { appResponseRoute } : {}),
-      ...(continuityMode ? { continuityMode } : {}),
-      ...(callerResolvedTools &&
-      typeof callerResolvedTools === 'object' &&
-      !Array.isArray(callerResolvedTools)
-        ? {
-            callerResolvedTools: callerResolvedTools as NonNullable<
-              NewMessage['callerResolvedTools']
-            >,
-          }
-        : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
       delivery_status:
         ref.delivery_status ??

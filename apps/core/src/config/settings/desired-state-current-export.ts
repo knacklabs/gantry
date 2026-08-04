@@ -1,5 +1,8 @@
 import type { AppId } from '../../domain/app/app.js';
-import type { Conversation } from '../../domain/conversation/conversation.js';
+import type {
+  Conversation,
+  ConversationThread,
+} from '../../domain/conversation/conversation.js';
 import type { ProviderAccount } from '../../domain/provider/provider.js';
 import {
   configuredBindingId,
@@ -21,6 +24,7 @@ import {
   groupByAgentId,
   groupByConversationId,
   storedConversationKey,
+  defaultRequiresTriggerForConversationKind,
 } from './desired-state-service-helpers.js';
 import type { SettingsDesiredStateServiceDeps } from './desired-state-service-types.js';
 import type {
@@ -31,6 +35,11 @@ import type {
   RuntimeProviderSettings,
   RuntimeSettings,
 } from './runtime-settings-types.js';
+
+// Keep projection sync below small Supavisor session-pool limits. A settings
+// change must inspect every stored conversation's threads, but it must not open
+// one database query per conversation at the same time.
+const CONVERSATION_THREAD_EXPORT_BATCH_SIZE = 4;
 
 export async function exportCurrentDesiredState(input: {
   deps: SettingsDesiredStateServiceDeps;
@@ -46,30 +55,24 @@ export async function exportCurrentDesiredState(input: {
   const bindings: Record<string, RuntimeConfiguredBinding> = {};
 
   const storedAgents = await deps.repositories.agents.listAgents(appId);
-  const storedProviderAccounts = deps.repositories.providerAccounts
-    ?.listProviderAccounts
-    ? await deps.repositories.providerAccounts.listProviderAccounts(appId)
-    : [];
-  const providerAccountIds = new Set(
-    storedProviderAccounts.map((account) => String(account.id)),
-  );
-  const groupEntries = Object.entries(groups).filter(([jid, group]) =>
-    routeBelongsToApp({
-      appId,
-      jid,
-      providerAccountId: group.providerAccountId,
-      providerAccountIds,
-    }),
-  );
   const activeStoredAgents = storedAgents.filter(
     (agent) => agent.status === 'active',
   );
   const agentIds = [
     ...new Set([
-      ...groupEntries.map(([, group]) => agentIdForFolder(group.folder)),
       ...activeStoredAgents.map((agent) => agent.id),
+      ...Object.keys(settings.agents).map(agentIdForFolder),
+      ...Object.values(settings.bindings).map((binding) =>
+        agentIdForFolder(binding.agent),
+      ),
     ]),
   ];
+  const groupEntries =
+    agentIds.length === 0
+      ? Object.entries(groups)
+      : Object.entries(groups).filter(([, group]) =>
+          agentIds.includes(agentIdForFolder(group.folder)),
+        );
   const [
     toolBindingRows,
     toolSourceRows,
@@ -77,6 +80,7 @@ export async function exportCurrentDesiredState(input: {
     mcpBindingRows,
     toolCatalogRows,
     skillCatalogRows,
+    storedProviderAccounts,
     storedConversationBindings,
     storedConversations,
   ] = await Promise.all([
@@ -107,6 +111,9 @@ export async function exportCurrentDesiredState(input: {
       appId,
       statuses: ['installed'],
     }),
+    deps.repositories.providerAccounts?.listProviderAccounts
+      ? deps.repositories.providerAccounts.listProviderAccounts(appId)
+      : Promise.resolve([]),
     deps.repositories.providerAccounts?.listConversationInstalls
       ? deps.repositories.providerAccounts.listConversationInstalls(appId)
       : Promise.resolve([]),
@@ -135,18 +142,24 @@ export async function exportCurrentDesiredState(input: {
   }
   const publicThreadIdsByCanonicalId = new Map<string, string>();
   if (typeof deps.repositories.conversations?.listThreads === 'function') {
-    const storedThreads = await Promise.all(
-      storedConversations.map((conversation) =>
-        deps.repositories.conversations!.listThreads(conversation.id),
+    const storedThreads = await listConversationThreadsInBatches(
+      storedConversations,
+      deps.repositories.conversations.listThreads.bind(
+        deps.repositories.conversations,
       ),
     );
-    for (const thread of storedThreads.flat()) {
+    for (const thread of storedThreads) {
       const publicThreadId = thread.externalRef?.value?.trim();
       if (publicThreadId) {
         publicThreadIdsByCanonicalId.set(thread.id, publicThreadId);
       }
     }
   }
+  const conversationIdsWithActiveInstalls = new Set(
+    storedConversationBindings
+      .filter((binding) => binding.status === 'active')
+      .map((binding) => String(binding.conversationId)),
+  );
   const storedApproversByConversation = groupByConversationId(
     deps.repositories.conversations
       ? await deps.repositories.conversations.listConversationApproversForConversations(
@@ -154,25 +167,28 @@ export async function exportCurrentDesiredState(input: {
         )
       : [],
   );
-  const installedConversationIds = new Set(
-    storedConversationBindings
-      .filter((binding) => binding.status === 'active')
-      .map((binding) => binding.conversationId),
-  );
 
   for (const connection of storedProviderAccounts.filter(
-    (connection) => !isInternalAppControlProviderAccount(connection),
+    (connection) =>
+      !isInternalAppControlProviderAccount(connection) &&
+      !isCanonicalFallbackProviderAccount(connection),
   )) {
     const providerId = connection.providerId as string;
     const agentFolder =
       folderForAgentId(connection.agentId) ?? String(connection.agentId);
     const connectionId = connection.id as string;
+    const storedSecretRefs = runtimeSecretRefsForConnection(connection);
     providerAccounts[connectionId] = {
       agentId: agentFolder,
       provider: providerId,
       label: connection.label,
       status: connection.status,
-      runtimeSecretRefs: runtimeSecretRefsForConnection(connection),
+      // Secret refs may live only in settings.yaml (env-ref setups); an
+      // empty DB projection must not strip them or the export fails its
+      // own validation for enabled providers.
+      runtimeSecretRefs: Object.keys(storedSecretRefs).length
+        ? storedSecretRefs
+        : (settings.providerAccounts[connectionId]?.runtimeSecretRefs ?? {}),
       externalIdentityRef: connection.externalIdentityRef,
       config: Object.fromEntries(
         Object.entries(connection.config).filter(
@@ -207,17 +223,27 @@ export async function exportCurrentDesiredState(input: {
         conversations,
       );
     const existingConversation = settings.conversations[conversationId];
-    const storedApprovers = (
-      storedApproversByConversation.get(conversation.id) ?? []
-    ).map((approver) => approver.externalUserId);
+    const storedApproverRows =
+      storedApproversByConversation.get(conversation.id) ?? [];
+    const storedApprovers = storedApproverRows
+      .map((approver) => approver.externalUserId)
+      .filter((externalUserId) => externalUserId.length > 0);
+    // An observed chat the user never configured — no settings entry, no
+    // approvers, no active install — is not an operating surface; exporting
+    // it would demand approver config for a chat no agent works in.
     if (
-      connection.config?.inbound_mode === 'event_only' &&
       !existingConversation &&
       storedApprovers.length === 0 &&
-      !installedConversationIds.has(conversation.id)
+      !conversationIdsWithActiveInstalls.has(String(conversation.id))
     ) {
       continue;
     }
+    // Stored approver rows are authoritative, but approvers configured
+    // directly in settings.yaml may have no stored rows — fall back to the
+    // existing entry so the export never strips them and fails validation.
+    const controlApprovers = storedApproverRows.length
+      ? storedApprovers
+      : (existingConversation?.controlApprovers ?? []);
     conversations[conversationId] = {
       providerConnection: providerAccountId,
       providerAccount: providerAccountId,
@@ -233,10 +259,10 @@ export async function exportCurrentDesiredState(input: {
         allow: '*',
         mode: 'trigger',
       },
-      controlApprovers: [...new Set(storedApprovers)].sort((a, b) =>
+      controlApprovers: [...new Set(controlApprovers)].sort((a, b) =>
         a.localeCompare(b),
       ),
-      installedAgents: existingConversation?.installedAgents ?? {},
+      installedAgents: { ...(existingConversation?.installedAgents ?? {}) },
     };
   }
 
@@ -261,6 +287,7 @@ export async function exportCurrentDesiredState(input: {
       oneTimeJobDefaultModel: existing?.oneTimeJobDefaultModel,
       recurringJobDefaultModel: existing?.recurringJobDefaultModel,
       toolRules: existing?.toolRules,
+      delegates: existing?.delegates ?? [],
       bindings: existing?.bindings ?? {},
       sources: activeSources(
         skillBindingsByAgent.get(agent.id) ?? [],
@@ -306,7 +333,10 @@ export async function exportCurrentDesiredState(input: {
         externalId,
         conversations: settings.conversations,
       });
-    if (!conversationId) continue;
+    // A binding can reference a conversation that no longer exports (its
+    // provider connection is gone). Skip it with its conversation instead
+    // of dereferencing the missing entry and crashing the whole export.
+    if (!conversationId || !conversations[conversationId]) continue;
     const canonicalThreadId =
       typeof binding.threadId === 'string' && binding.threadId.trim()
         ? binding.threadId.trim()
@@ -369,7 +399,8 @@ export async function exportCurrentDesiredState(input: {
           : existingBinding?.model,
       permissionMode:
         routeAgentConfig?.permissionMode === 'ask' ||
-        routeAgentConfig?.permissionMode === 'auto'
+        routeAgentConfig?.permissionMode === 'auto' ||
+        routeAgentConfig?.permissionMode === 'auto_strict'
           ? routeAgentConfig.permissionMode
           : existingBinding?.permissionMode,
     };
@@ -389,17 +420,34 @@ export async function exportCurrentDesiredState(input: {
     };
   }
 
-  const exportedGroups = groupEntries.map(([jid, group]) => {
-    const agentId = agentIdForFolder(group.folder);
-    return {
-      jid,
-      group,
-      toolBindings: toolBindingsByAgent.get(agentId) ?? [],
-      toolSources: toolSourcesByAgent.get(agentId) ?? [],
-      skillBindings: skillBindingsByAgent.get(agentId) ?? [],
-      mcpBindings: mcpBindingsByAgent.get(agentId) ?? [],
-    };
-  });
+  // Composite queue jids ("<chat>::agent:…::provider_account:…") are
+  // live-turn routing keys, not conversations; the base chat exports through
+  // the stored-conversation and install paths. Treating them as groups
+  // manufactures duplicate conversations with mangled external ids.
+  const exportedGroups = groupEntries
+    .filter(([jid]) => !jid.includes('::'))
+    .filter(([, group]) => {
+      const providerAccountId = group.providerAccountId?.trim();
+      return (
+        !providerAccountId ||
+        (!isCanonicalFallbackProviderAccountId(providerAccountId) &&
+          (Object.hasOwn(settings.providerAccounts, providerAccountId) ||
+            storedProviderAccounts.some(
+              (account) => String(account.id) === providerAccountId,
+            )))
+      );
+    })
+    .map(([jid, group]) => {
+      const agentId = agentIdForFolder(group.folder);
+      return {
+        jid,
+        group,
+        toolBindings: toolBindingsByAgent.get(agentId) ?? [],
+        toolSources: toolSourcesByAgent.get(agentId) ?? [],
+        skillBindings: skillBindingsByAgent.get(agentId) ?? [],
+        mcpBindings: mcpBindingsByAgent.get(agentId) ?? [],
+      };
+    });
 
   for (const exported of exportedGroups) {
     const {
@@ -481,7 +529,7 @@ export async function exportCurrentDesiredState(input: {
       controlApprovers: [...new Set(controlApprovers)].sort((a, b) =>
         a.localeCompare(b),
       ),
-      installedAgents: existingConversation?.installedAgents ?? {},
+      installedAgents: { ...(existingConversation?.installedAgents ?? {}) },
     };
     dedupeConfiguredConversation({
       canonicalId: conversationId,
@@ -538,6 +586,7 @@ export async function exportCurrentDesiredState(input: {
       oneTimeJobDefaultModel: existing?.oneTimeJobDefaultModel,
       recurringJobDefaultModel: existing?.recurringJobDefaultModel,
       toolRules: existing?.toolRules,
+      delegates: existing?.delegates ?? [],
       bindings: {
         ...(existing?.bindings ?? {}),
         [bindingId]: {
@@ -574,22 +623,30 @@ export async function exportCurrentDesiredState(input: {
   };
 }
 
-export function routeBelongsToApp(input: {
-  appId: string;
-  jid: string;
-  providerAccountId?: string;
-  providerAccountIds: ReadonlySet<string>;
-}): boolean {
-  if (input.jid.startsWith('app:')) {
-    if (!input.jid.startsWith(`app:${input.appId}:`)) return false;
-    return input.providerAccountId
-      ? input.providerAccountIds.has(input.providerAccountId)
-      : true;
+async function listConversationThreadsInBatches(
+  conversations: readonly Conversation[],
+  listThreads: (
+    conversationId: Conversation['id'],
+  ) => Promise<ConversationThread[]>,
+): Promise<ConversationThread[]> {
+  const threads: ConversationThread[] = [];
+
+  for (
+    let start = 0;
+    start < conversations.length;
+    start += CONVERSATION_THREAD_EXPORT_BATCH_SIZE
+  ) {
+    const batch = conversations.slice(
+      start,
+      start + CONVERSATION_THREAD_EXPORT_BATCH_SIZE,
+    );
+    const batchThreads = await Promise.all(
+      batch.map((conversation) => listThreads(conversation.id)),
+    );
+    threads.push(...batchThreads.flat());
   }
-  if (input.providerAccountId) {
-    return input.providerAccountIds.has(input.providerAccountId);
-  }
-  return input.appId === 'default';
+
+  return threads;
 }
 
 function isInternalAppControlProviderAccount(
@@ -597,6 +654,23 @@ function isInternalAppControlProviderAccount(
 ): boolean {
   const providerId = String(connection.providerId);
   return providerId === 'app' || providerId === 'control-http';
+}
+
+// Canonical message storage mints synthetic `channel-…` account rows when
+// ingestion has no attributed provider account. They are storage plumbing
+// (messages reference them), not user config — exporting them produces
+// enabled provider accounts with no secret refs that fail validation.
+function isCanonicalFallbackProviderAccount(
+  connection: ProviderAccount,
+): boolean {
+  return isCanonicalFallbackProviderAccountId(String(connection.id));
+}
+
+function isCanonicalFallbackProviderAccountId(id: string): boolean {
+  return (
+    id.startsWith('channel-providerAccount:') ||
+    id.startsWith('channel-providerConnection:')
+  );
 }
 
 function runtimeSecretRefsForConnection(
@@ -626,10 +700,4 @@ function publicThreadIdFromCanonical(input: {
   return input.canonicalThreadId.startsWith(prefix)
     ? input.canonicalThreadId.slice(prefix.length)
     : input.canonicalThreadId;
-}
-
-function defaultRequiresTriggerForConversationKind(
-  kind: Conversation['kind'],
-): boolean {
-  return kind !== 'direct';
 }

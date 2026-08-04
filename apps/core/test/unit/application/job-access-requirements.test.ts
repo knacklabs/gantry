@@ -111,6 +111,17 @@ describe('splitAccessRequirements', () => {
     ]);
   });
 
+  it('maps the built-in browser capability to its canonical tool rule', () => {
+    const split = splitAccessRequirements([
+      { target: { kind: 'capability', capabilityId: 'browser.use' } },
+    ]);
+
+    expect(split.toolAccessRequirements).toEqual(['Browser']);
+    expect(split.capabilityRequirements).toEqual([
+      { capabilityId: 'browser.use', reason: 'Required by this job.' },
+    ]);
+  });
+
   it('does NOT re-validate incomplete stored requirements (surfaced as blockers, not throws)', () => {
     expect(() =>
       splitAccessRequirements([

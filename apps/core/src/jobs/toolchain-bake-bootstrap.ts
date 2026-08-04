@@ -72,7 +72,7 @@ export async function startToolchainBakeSubsystem(
   };
   const options: ToolchainBakeQueueOptions = {
     connectionString: STORAGE_POSTGRES_URL,
-    schema: 'gantry_pgboss',
+    schema: 'pgboss',
     applicationName: `gantry-${STORAGE_POSTGRES_SCHEMA}-toolchain-bake`,
     logError: (context, message) => logger.error(context, message),
     logInfo: (context, message) => logger.info(context, message),

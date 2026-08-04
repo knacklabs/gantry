@@ -1,3 +1,9 @@
+import {
+  skillMaterializationLockKey,
+  withSkillMaterializationLock,
+} from '../../../shared/skill-install-lock.js';
+import { readSkillFrontmatterName } from '../../../shared/skill-artifact-helpers.js';
+import { materializedSkillDirectoryNameFor } from '../../../domain/skills/skills.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import {
@@ -83,13 +89,28 @@ export async function handleSkillRoutes(
       }
       const zip = await readRawBody(req, MAX_SKILL_ZIP_BYTES);
       const uploaded = parseSkillZipUpload(zip);
-      const skill = await service().installSkill({
-        appId: auth.appId as AppId,
-        agentId: parsed.data.agentId as AgentId | undefined,
-        createdBy: parsed.data.createdBy,
-        fallbackName: uploaded.fallbackName,
-        assets: uploaded.assets,
-      });
+      const uploadedSkillMarkdown = uploaded.assets.find(
+        (asset) => asset.path === 'SKILL.md',
+      );
+      const uploadedName = uploadedSkillMarkdown
+        ? (readSkillFrontmatterName(
+            Buffer.from(uploadedSkillMarkdown.content).toString('utf-8'),
+          ) ?? uploaded.fallbackName)
+        : uploaded.fallbackName;
+      const skill = await withSkillMaterializationLock(
+        skillMaterializationLockKey(
+          auth.appId,
+          materializedSkillDirectoryNameFor(uploadedName),
+        ),
+        () =>
+          service().installSkill({
+            appId: auth.appId as AppId,
+            agentId: parsed.data.agentId as AgentId | undefined,
+            createdBy: parsed.data.createdBy,
+            fallbackName: uploaded.fallbackName,
+            assets: uploaded.assets,
+          }),
+      );
       sendJson(res, 201, { skill: skillToResponse(skill) });
     } catch (error) {
       sendError(

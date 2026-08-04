@@ -74,6 +74,38 @@ describe('scheduledPermissionSuggestions', () => {
     ]);
   });
 
+  it('offers a persistent suggestion for an exact non-authority Gantry tool', () => {
+    expect(
+      synthesizePermissionSuggestions('mcp__gantry__scheduler_resume_job', {}),
+    ).toEqual([
+      {
+        type: 'addRules',
+        behavior: 'allow',
+        destination: 'session',
+        rules: [{ toolName: 'mcp__gantry__scheduler_resume_job' }],
+      },
+    ]);
+  });
+
+  it('offers grantable admin suggestions but excludes authority-changing admin tools', () => {
+    expect(
+      synthesizePermissionSuggestions('mcp__gantry__admin_permission_list', {}),
+    ).toEqual([
+      {
+        type: 'addRules',
+        behavior: 'allow',
+        destination: 'session',
+        rules: [{ toolName: 'mcp__gantry__admin_permission_list' }],
+      },
+    ]);
+    expect(
+      synthesizePermissionSuggestions(
+        'mcp__gantry__admin_permission_revoke',
+        {},
+      ),
+    ).toBeUndefined();
+  });
+
   it('prefers selected skill action capabilities over raw Bash command suggestions', () => {
     expect(
       scheduledPermissionSuggestions(
@@ -309,6 +341,9 @@ describe('scheduledPermissionSuggestions', () => {
     expect(synthesizePermissionSuggestions('LS', {})).toBeUndefined();
     expect(
       synthesizePermissionSuggestions('mcp__github__search', {}),
+    ).toBeUndefined();
+    expect(
+      synthesizePermissionSuggestions('mcp__gantry__request_access', {}),
     ).toBeUndefined();
     expect(
       scheduledPermissionSuggestions('mcp__github__*', undefined, {}),

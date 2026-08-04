@@ -1,1 +1,0 @@
-export const MAX_WORKSPACE_FOLDER_LENGTH = 64;

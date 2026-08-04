@@ -226,10 +226,7 @@ async function runScheduledQuery(opts: {
       opts.configuredModel,
       opts.configuredThinking,
       opts.configuredEffort,
-      {
-        enableIpcFollowups: Boolean(opts.agentInput.delegatedCompletionGate),
-        persistSdkSession: false,
-      },
+      { enableIpcFollowups: false, persistSdkSession: false },
     );
     if (queryResult.newSessionId) {
       diagnosticSessionId = queryResult.newSessionId;

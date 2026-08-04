@@ -1,7 +1,6 @@
 import type { ChildProcess } from 'child_process';
 
 import type {
-  AppMessageResponseRoute,
   MessageSendOptions,
   ProgressUpdateOptions,
   ConversationRoute,
@@ -9,8 +8,10 @@ import type {
   ThinkingOverride,
 } from '../domain/types.js';
 import type {
+  ConversationContextHydrationCoverage,
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 } from '../domain/ports/conversation-context-hydration.js';
 import type {
   RuntimeAgentSessionRepository,
@@ -40,10 +41,20 @@ import type { PatternCandidateRepository } from '../domain/ports/pattern-candida
 import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 import type { AgentLockStatus } from './proactive-surfacing-gate.js';
 import type { GroupAgentRunResult } from './group-agent-runner.js';
+import type {
+  IdentityResolveInput,
+  IdentityResolveResult,
+} from '../application/identity/person-identity-service.js';
+import type {
+  ConversationHistoryCoverageRepository,
+  ConversationHistoryDistrustEpoch,
+} from '../domain/ports/conversation-history-coverage.js';
 
 export type {
+  ConversationContextHydrationCoverage,
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 };
 
 export type GroupProcessingRepository = RuntimeAgentSessionRepository &
@@ -51,10 +62,6 @@ export type GroupProcessingRepository = RuntimeAgentSessionRepository &
 
 export type GroupProcessOptions = {
   queued?: boolean;
-  /** Optional local duration for non-SDK callers. */
-  timeoutMs?: number;
-  /** Persisted SDK deadline; every provider attempt recomputes its remaining budget. */
-  executionDeadlineAtMs?: number;
   memoryContext?: {
     userId?: string;
     source?: 'message' | 'command';
@@ -149,6 +156,7 @@ export interface GroupProcessingDeps {
     agentId?: string | null,
     providerAccountId?: string | null,
   ) => ConversationRoute | undefined;
+  getConversationRoutes?: () => Record<string, ConversationRoute>;
   clearSession: (
     workspaceFolder: string,
     threadId?: string | null,
@@ -163,9 +171,6 @@ export interface GroupProcessingDeps {
   getCursor: (chatJid: string) => Promise<string> | string;
   setCursor: (chatJid: string, timestamp: string) => void;
   saveState: () => Promise<void> | void;
-  activateTurnResponseRoute?: (
-    route: AppMessageResponseRoute,
-  ) => Promise<void> | void;
   setGroupModelOverride: (
     chatJid: string,
     model: string | undefined,
@@ -216,6 +221,13 @@ export interface GroupProcessingDeps {
   getMcpDnsValidationCache?: () => RemoteMcpDnsValidationCache | undefined;
   getSkillArtifactStore?: () => SkillArtifactStore | undefined;
   collectSessionMemory?: SessionMemoryCollector;
+  normalizeProviderId?: (providerId: string) => string;
+  resolvePersonIdentity?: (
+    input: IdentityResolveInput,
+    auditEventFactory?: (
+      result: IdentityResolveResult,
+    ) => RuntimeEventPublishInput,
+  ) => Promise<IdentityResolveResult>;
   publishRuntimeEvent?: (
     event: RuntimeEventPublishInput,
   ) => Promise<void> | void;
@@ -231,4 +243,10 @@ export interface GroupProcessingDeps {
   getSelectedAgentHarness: (agentFolder?: string) => AgentHarness;
   opsRepository?: GroupProcessingRepository;
   getRuntimeRepository?: () => GroupProcessingRepository;
+  getConversationHistoryCoverageRepository?: () =>
+    | ConversationHistoryCoverageRepository
+    | undefined;
+  getHistoryCoverageDistrustEpoch?: (
+    providerAccountId: string,
+  ) => ConversationHistoryDistrustEpoch | undefined;
 }

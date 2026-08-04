@@ -5,7 +5,6 @@ import {
   TIMEZONE,
 } from '../config/index.js';
 import {
-  decodeGroupMessageCursor,
   encodeGroupMessageCursor,
   toGroupMessageCursor,
 } from '../shared/message-cursor.js';
@@ -25,9 +24,7 @@ import type { LiveAdmissionWorkItem } from '../domain/ports/live-turns.js';
 import { formatMessages } from '../messaging/router.js';
 import {
   isSenderControlAllowed,
-  isTriggerAllowed,
   loadSenderControlAllowlist,
-  loadSenderAllowlist,
 } from '../platform/sender-allowlist.js';
 import {
   extractSessionCommand,
@@ -44,6 +41,7 @@ import {
   collectPendingMessagesSince,
 } from './pending-message-replay.js';
 import { resolveNonSelfSenderIds } from './session-resume-runtime.js';
+import { groupTurnHasRequiredTrigger } from './group-trigger-policy.js';
 
 export interface MessageLoopDeps {
   getConversationRoutes: () => Record<string, ConversationRoute>;
@@ -246,41 +244,6 @@ function saveStateBestEffort(deps: MessageLoopDeps, chatJid: string): void {
   );
 }
 
-async function hasTriggerOwnedThreadRoot(input: {
-  opsRepository: RuntimeMessageRepository &
-    Partial<RuntimeConversationRouteRepository>;
-  chatJid: string;
-  threadId: string;
-  group: ConversationRoute;
-  triggerPattern: RegExp;
-}): Promise<boolean> {
-  const rootCandidates = await input.opsRepository.getMessagesSince(
-    input.chatJid,
-    '',
-    MESSAGE_FETCH_PAGE_SIZE,
-    {
-      threadId: input.threadId,
-      providerAccountId: input.group.providerAccountId,
-    },
-  );
-  if (rootCandidates.length === 0) return false;
-
-  const allowlistCfg = loadSenderAllowlist();
-  return rootCandidates.some(
-    (message) =>
-      message.thread_id === input.threadId &&
-      !message.reply_to_message_id &&
-      input.triggerPattern.test(message.content.trim()) &&
-      (message.is_from_me ||
-        isTriggerAllowed(
-          input.chatJid,
-          message.sender,
-          allowlistCfg,
-          input.group.folder,
-        )),
-  );
-}
-
 async function enqueueMessageCheck(
   deps: MessageLoopDeps,
   queueJid: string,
@@ -299,9 +262,8 @@ async function processQueueMessages(
     cursorAfter: string | null;
     responseSchema?: Record<string, unknown>;
     agentControls?: AgentControlOverrides;
-    callerResolvedTools?: import('../domain/types.js').CallerResolvedToolsConfig;
-    appResponseRoute?: import('../domain/types.js').AppMessageResponseRoute;
   },
+  options: { trustedTriggerBypass?: boolean } = {},
 ): Promise<MessageAdmissionProcessingResult> {
   const opsRepository = resolveMessageRepository(deps);
   const { chatJid, threadId, agentId, providerAccountId } =
@@ -390,34 +352,28 @@ async function processQueueMessages(
   }
   if (
     replay.responseSchema !== undefined ||
-    replay.agentControls !== undefined ||
-    replay.callerResolvedTools !== undefined ||
-    replay.appResponseRoute !== undefined
+    replay.agentControls !== undefined
   ) {
     await deps.queue.closeStdin(queueJid);
     return enqueueMessageCheck(deps, queueJid);
   }
 
-  const needsTrigger = group.requiresTrigger !== false;
+  const needsTrigger =
+    group.requiresTrigger !== false && !options.trustedTriggerBypass;
   if (needsTrigger) {
-    const allowlistCfg = loadSenderAllowlist();
-    const hasTrigger = initialBatch.some(
-      (m) =>
-        triggerPattern.test(m.content.trim()) &&
-        (m.is_from_me ||
-          isTriggerAllowed(chatJid, m.sender, allowlistCfg, group.folder)),
-    );
-    const isContinuationThread =
-      threadId !== undefined &&
-      recoveredCursor.trim().length > 0 &&
-      (await hasTriggerOwnedThreadRoot({
-        opsRepository,
-        chatJid,
+    const hasRequiredTrigger = await groupTurnHasRequiredTrigger({
+      group,
+      chatJid,
+      triggerPattern,
+      messages: initialBatch,
+      continuation: {
         threadId,
-        group,
-        triggerPattern,
-      }));
-    if (!hasTrigger && !isContinuationThread) {
+        hasPriorCursor: recoveredCursor.trim().length > 0,
+        messageRepository: opsRepository,
+        pageSize: MESSAGE_FETCH_PAGE_SIZE,
+      },
+    });
+    if (!hasRequiredTrigger) {
       const lastMessage = initialBatch[initialBatch.length - 1];
       const cursorAfter = replay.cursorAfter
         ? replay.cursorAfter
@@ -505,32 +461,35 @@ export async function processLiveAdmissionWorkItem(
     return 'listener_degraded';
   }
 
-  let recoveredCursor = await deps.getOrRecoverCursor(item.queueJid);
-  if (item.requestFingerprint) {
-    const target = decodeGroupMessageCursor(item.messageCursor);
-    const targetMs = Date.parse(target.timestamp);
-    if (!Number.isFinite(targetMs)) return 'listener_degraded';
-    recoveredCursor = encodeGroupMessageCursor({
-      timestamp: new Date(targetMs - 1).toISOString(),
-      id: '\uffff',
-    });
-    deps.setAgentCursor(item.queueJid, recoveredCursor);
-    await deps.saveState();
-  }
+  const recoveredCursor = await deps.getOrRecoverCursor(item.queueJid);
+  const options = {
+    threadId: threadId ?? null,
+    ...(providerAccountId ? { providerAccountId } : {}),
+  };
   const replay = await collectPendingMessagesSince({
     getMessagesSince: opsRepository.getMessagesSince.bind(opsRepository),
     chatJid,
     sinceCursor: recoveredCursor,
     pageSize: MESSAGE_FETCH_PAGE_SIZE,
     maxMessages: MAX_MESSAGES_PER_PROMPT,
-    options: {
-      threadId: threadId ?? null,
-      ...(providerAccountId ? { providerAccountId } : {}),
-    },
+    options,
   });
   const messages = replay.messages;
-  if (messages.length === 0) return 'completed';
-  return processQueueMessages(deps, item.queueJid, messages, replay);
+  if (messages.length === 0) {
+    logger.warn(
+      {
+        itemId: item.id,
+        queueJid: item.queueJid,
+        filter: { chatJid, ...options },
+      },
+      'Live admission work item matched no messages',
+    );
+    return 'completed';
+  }
+  return processQueueMessages(deps, item.queueJid, messages, replay, {
+    trustedTriggerBypass:
+      item.triggerDecision.source === 'callable_agent_follow_up',
+  });
 }
 
 export async function recoverPendingMessages(

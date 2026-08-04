@@ -6,6 +6,7 @@ import type { HostnameLookup } from '../../domain/network/public-address-policy.
 import type { AgentFailureMetadata } from '../../domain/ports/async-tasks.js';
 import type { SkillArtifactStore } from '../../domain/ports/skill-artifact-store.js';
 import type { SkillCatalogRepository } from '../../domain/ports/repositories.js';
+import type { AgentAccessSnapshot } from '../../application/agent-execution/agent-access-snapshot.js';
 import type {
   AgentControlThinking,
   ConversationRoute,
@@ -59,6 +60,7 @@ export interface AdapterInlineAgentInput {
   memoryContextBlock?: string;
   attachedSkillSourceIds?: string[];
   toolPolicyRules?: string[];
+  providerSessionAccessFingerprint?: string;
   yoloMode?: YoloModeSettings;
   permissionMode: PermissionMode;
   isScheduledJob?: boolean;
@@ -68,8 +70,8 @@ export interface AdapterInlineAgentInput {
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
   responseSchema?: Record<string, unknown>;
-  callerResolvedTools?: import('../../domain/types.js').CallerResolvedToolsConfig;
   disableTools?: boolean;
+  hideAuthorityTools?: boolean;
 }
 
 export interface AdapterInlineControlPort {
@@ -81,6 +83,7 @@ export interface AdapterInlineControlPort {
 
 export interface AdapterInlineAgentLoopLaneInput {
   group: ConversationRoute;
+  correlationRunId?: string;
   input: AdapterInlineAgentInput;
   signal: AbortSignal;
   controlPort: AdapterInlineControlPort;
@@ -91,6 +94,7 @@ export interface AdapterInlineAgentLoopLaneInput {
   skillRepository?: SkillCatalogRepository;
   skillArtifactStore?: SkillArtifactStore;
   skillContext?: { appId: string; agentId: string };
+  accessSnapshot?: AgentAccessSnapshot;
   runtimeDataDir: string;
   maxTurns?: number;
   effort?: InlineAgentEffort;
@@ -119,13 +123,11 @@ export interface InlineCoreToolRegistry {
     context?: { signal?: AbortSignal },
   ): Promise<{ allowed: boolean; reason?: string }>;
   recordThirdPartyMcpToolActivity(input: {
-    toolCallId?: string;
     serverName: string;
     toolName: string;
     toolInput: unknown;
     outcome: 'attempt' | 'success' | 'failure';
     latencyMs: number;
-    result?: unknown;
     error?: unknown;
   }): Promise<void>;
 }
@@ -154,7 +156,7 @@ export function createInlineAgentLoopLaneDispatcher(input: {
   deepAgentsLane: ProviderInlineAgentLoopLane;
   createCoreTools: (
     laneInput: AdapterInlineAgentLoopLaneInput,
-  ) => InlineCoreToolRegistry;
+  ) => InlineCoreToolRegistry | Promise<InlineCoreToolRegistry>;
   getEgressDenylist: () => readonly string[];
 }): AdapterInlineAgentLoopLane {
   return async (laneInput) => {
@@ -169,7 +171,7 @@ export function createInlineAgentLoopLaneDispatcher(input: {
       laneInput.resolvedModel.value.agentEngine === DEFAULT_AGENT_ENGINE
         ? input.claudeLane
         : input.deepAgentsLane;
-    const coreTools = input.createCoreTools(laneInput);
+    const coreTools = await input.createCoreTools(laneInput);
     const egressDenylist = input.getEgressDenylist();
     if (!laneInput.input.responseSchema) {
       return lane({ ...laneInput, coreTools, egressDenylist });

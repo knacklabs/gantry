@@ -32,6 +32,10 @@ import {
   UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS,
 } from './native-sdk-tools.js';
 import type { SemanticCapabilityDefinition } from '../../../shared/semantic-capabilities.js';
+import {
+  callableAgentToolName,
+  type CallableAgentToolManifestEntry,
+} from '../../../shared/callable-agent-manifest.js';
 
 export interface AgentCapabilityContext {
   mcpServerPath: string;
@@ -44,6 +48,7 @@ export interface AgentCapabilityContext {
   runHandle?: string;
   runId?: string;
   parentTaskId?: string;
+  callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
   liveStopActionToken?: string;
@@ -52,6 +57,7 @@ export interface AgentCapabilityContext {
   memoryReviewerIsControlApprover?: boolean;
   persona?: AgentPersona;
   browserProfileName?: string;
+  browserTurnToken?: string;
   configuredAllowedTools?: readonly string[];
   attachedSkillSourceIds?: readonly string[];
   selectedSkillDisplays?: readonly string[];
@@ -122,20 +128,12 @@ const RUNNER_SUPPRESSED_GANTRY_MCP_TOOL_NAME_SET = new Set<string>([
   'memory_dream',
   'memory_consolidate',
 ]);
-const EAGER_CALLER_DELEGATION_TOOL_NAMES = [
-  'delegate_task',
-  'task_wait',
-] as const;
-const MCP_PROXY_EXECUTION_TOOL_NAMES = new Set([
-  'mcp_call_tool',
-  'async_mcp_call',
-]);
 function gantryMcpAllowedTools(input: {
   configuredTools?: readonly string[];
   hideAuthorityTools?: boolean;
   asyncTaskToolsEnabled?: boolean;
   memoryReviewerIsControlApprover?: boolean;
-  suppressMcpProxyExecution?: boolean;
+  callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
 }): string[] {
   const selectedNames = new Set(
     selectedGantryMcpToolNames(input.configuredTools ?? [], {
@@ -158,16 +156,14 @@ function gantryMcpAllowedTools(input: {
       ? DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES
       : []),
   ];
-  return defaultAllowedNames
-    .filter(
-      (toolName) =>
-        selectedNames.has(toolName) &&
-        !(
-          input.suppressMcpProxyExecution === true &&
-          MCP_PROXY_EXECUTION_TOOL_NAMES.has(toolName)
-        ),
-    )
-    .map(gantryMcpFullToolName);
+  return [
+    ...defaultAllowedNames
+      .filter((toolName) => selectedNames.has(toolName))
+      .map(gantryMcpFullToolName),
+    ...(input.callableAgentManifest ?? []).map((entry) =>
+      gantryMcpFullToolName(callableAgentToolName(entry)),
+    ),
+  ];
 }
 
 function defaultAllowedTools(input: {
@@ -175,7 +171,7 @@ function defaultAllowedTools(input: {
   hideAuthorityTools?: boolean;
   asyncTaskToolsEnabled?: boolean;
   memoryReviewerIsControlApprover?: boolean;
-  suppressMcpProxyExecution?: boolean;
+  callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
 }): string[] {
   return [...SAFE_NATIVE_SDK_TOOLS, ...gantryMcpAllowedTools(input)];
 }
@@ -214,22 +210,10 @@ function hasScopeSyntax(toolRule: string): boolean {
   return toolRule.includes('(') || toolRule.includes(')');
 }
 
-function shouldUseDirectExternalMcpOnly(ctx: AgentCapabilityContext): boolean {
-  const selectedExternalTools = (ctx.configuredAllowedTools ?? []).filter(
-    isPublicExternalMcpToolRule,
-  );
-  if (selectedExternalTools.length === 0) return false;
-  const directlyMountedTools = new Set(
-    (ctx.externalMcpAllowedTools ?? []).filter(isPublicExternalMcpToolRule),
-  );
-  return selectedExternalTools.every((tool) => directlyMountedTools.has(tool));
-}
-
 const sdkToolsProvider: AgentCapabilityProvider = {
   id: 'sdk-tools',
   provide: (ctx) => {
     const persona = resolveAgentPersona(ctx.persona);
-    const suppressMcpProxyExecution = shouldUseDirectExternalMcpOnly(ctx);
     const baseAvailableTools = ctx.isScheduledJob
       ? [
           ...(persona === 'developer' ? DEVELOPER_NATIVE_SDK_TOOLS : []),
@@ -247,7 +231,7 @@ const sdkToolsProvider: AgentCapabilityProvider = {
                 asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled,
                 memoryReviewerIsControlApprover:
                   ctx.memoryReviewerIsControlApprover,
-                suppressMcpProxyExecution,
+                callableAgentManifest: projectedCallableAgentManifest(ctx),
               }),
             ]
           : defaultAllowedTools({
@@ -256,15 +240,10 @@ const sdkToolsProvider: AgentCapabilityProvider = {
               asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled,
               memoryReviewerIsControlApprover:
                 ctx.memoryReviewerIsControlApprover,
-              suppressMcpProxyExecution,
+              callableAgentManifest: projectedCallableAgentManifest(ctx),
             }),
       availableTools: baseAvailableTools,
-      disallowedTools: [
-        ...UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS,
-        ...(suppressMcpProxyExecution
-          ? [...MCP_PROXY_EXECUTION_TOOL_NAMES].map(gantryMcpFullToolName)
-          : []),
-      ],
+      disallowedTools: UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS,
     };
   },
 };
@@ -280,28 +259,7 @@ const permissionProvider: AgentCapabilityProvider = {
 const gantryMcpProvider: AgentCapabilityProvider = {
   id: 'gantry-mcp',
   provide: (ctx) => {
-    const suppressMcpProxyExecution = shouldUseDirectExternalMcpOnly(ctx);
-    const selectedGantryTools = selectedGantryMcpToolNames(
-      ctx.configuredAllowedTools ?? [],
-      {
-        excludeAuthorityTools: ctx.hideAuthorityTools === true,
-        asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled === true,
-        memoryReviewerIsControlApprover:
-          ctx.memoryReviewerIsControlApprover === true,
-      },
-    ).filter(
-      (toolName) =>
-        !(
-          suppressMcpProxyExecution &&
-          MCP_PROXY_EXECUTION_TOOL_NAMES.has(toolName)
-        ),
-    );
-    const eagerDelegationTools =
-      ctx.callerResolvedTools &&
-      ctx.asyncTaskToolsEnabled === true &&
-      (ctx.configuredAllowedTools ?? []).includes('AgentDelegation')
-        ? EAGER_CALLER_DELEGATION_TOOL_NAMES.map(gantryMcpFullToolName)
-        : [];
+    const callableAgentManifest = projectedCallableAgentManifest(ctx);
     const env: Record<string, string> = {
       ...(ctx.appId ? { GANTRY_APP_ID: ctx.appId } : {}),
       ...(ctx.agentId ? { GANTRY_AGENT_ID: ctx.agentId } : {}),
@@ -329,10 +287,16 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       GANTRY_MEMORY_DEFAULT_SCOPE: ctx.memoryDefaultScope || 'group',
       GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER:
         ctx.memoryReviewerIsControlApprover ? '1' : '',
+      GANTRY_NO_PERMISSION_TOOLS: ctx.hideAuthorityTools ? '1' : '',
       ...(ctx.asyncTaskToolsEnabled && ctx.memoryBlock
         ? { GANTRY_MEMORY_CONTEXT_BLOCK: ctx.memoryBlock }
         : {}),
       GANTRY_BROWSER_PROFILE_NAME: ctx.browserProfileName || '',
+      // Only present for a turn that actually has a browser credential; an
+      // empty value would just be noise in every other agent's environment.
+      ...(ctx.browserTurnToken
+        ? { GANTRY_BROWSER_TURN_TOKEN: ctx.browserTurnToken }
+        : {}),
       GANTRY_ADMIN_MCP_TOOLS_JSON: JSON.stringify(
         selectedAdminMcpToolNames(ctx.configuredAllowedTools ?? []),
       ),
@@ -351,7 +315,19 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify(
         ctx.semanticCapabilities ?? [],
       ),
-      GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(selectedGantryTools),
+      GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify([
+        ...selectedGantryMcpToolNames(ctx.configuredAllowedTools ?? [], {
+          excludeAuthorityTools: ctx.hideAuthorityTools === true,
+          asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled === true,
+          memoryReviewerIsControlApprover:
+            ctx.memoryReviewerIsControlApprover === true,
+        }),
+        ...callableAgentManifest.map(callableAgentToolName),
+        ...(ctx.callerResolvedTools?.tools ?? []).map((tool) => tool.name),
+      ]),
+      GANTRY_CALLABLE_AGENT_MANIFEST_JSON: JSON.stringify(
+        callableAgentManifest,
+      ),
       ...(ctx.asyncTaskToolsEnabled
         ? { GANTRY_ASYNC_TASK_TOOLS_ENABLED: '1' }
         : {}),
@@ -364,6 +340,8 @@ const gantryMcpProvider: AgentCapabilityProvider = {
         : {}),
       GANTRY_MEMORY_IPC_ACTIONS_JSON: JSON.stringify(
         selectedMemoryIpcActions(ctx.configuredAllowedTools ?? [], {
+          excludeAuthorityTools: ctx.hideAuthorityTools === true,
+          asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled === true,
           memoryReviewerIsControlApprover: ctx.memoryReviewerIsControlApprover,
         }),
       ),
@@ -388,12 +366,9 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       allowedTools: (ctx.callerResolvedTools?.tools ?? []).map(
         (tool) => `mcp__gantry__${tool.name}`,
       ),
-      availableTools: [
-        ...eagerDelegationTools,
-        ...(ctx.callerResolvedTools?.tools ?? []).map(
-          (tool) => `mcp__gantry__${tool.name}`,
-        ),
-      ],
+      availableTools: (ctx.callerResolvedTools?.tools ?? []).map(
+        (tool) => `mcp__gantry__${tool.name}`,
+      ),
       mcpServers: {
         gantry: {
           command: 'node',
@@ -406,6 +381,18 @@ const gantryMcpProvider: AgentCapabilityProvider = {
     };
   },
 };
+
+function projectedCallableAgentManifest(
+  ctx: AgentCapabilityContext,
+): readonly CallableAgentToolManifestEntry[] {
+  return ctx.accessPreset !== 'locked' &&
+    ctx.hideAuthorityTools !== true &&
+    ctx.asyncTaskToolsEnabled === true &&
+    ctx.parentTaskId == null &&
+    (ctx.configuredAllowedTools ?? []).includes('AgentDelegation')
+    ? (ctx.callableAgentManifest ?? [])
+    : [];
+}
 
 function isPublicExternalMcpServerName(name: string): boolean {
   return !isHostPrivateBrowserMcpServerName(name);

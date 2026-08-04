@@ -17,13 +17,31 @@ import { parseSemanticCapabilityDefinitionsRecord } from '../shared/semantic-cap
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import {
   validateBrowserIpcAuthRequest,
+  validateInteractionIpcAuthRequest,
   validateIpcAuthRequest,
   validateMemoryIpcAuthRequest,
 } from './ipc-auth-validation.js';
 import { parseInteractionDescriptor } from './ipc-interaction-descriptor-parsing.js';
+import {
+  parsePermissionCancellationIpcRequest,
+  parsePermissionLifecycle,
+  parseQuestionCancellationIpcRequest,
+} from './ipc-parsing-permission-lifecycle.js';
+export {
+  parsePermissionCancellationIpcRequest,
+  parseQuestionCancellationIpcRequest,
+};
+import { stripShellCommandEnvPrefix } from './ipc-shell-command-prefix.js';
 import { sanitizeIpcToolInput } from './ipc-tool-input-sanitization.js';
+import { PERMISSION_CLASSIFIER_MAX_STRING_LENGTH } from './permission-classifier-prompt.js';
 
 const IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
+const HOST_INJECTED_COMMAND_PREFIX_MAX_LENGTH = 65_536;
+export type ParsedPermissionIpcRequest = PermissionApprovalRequest & {
+  classifierToolInput?: Record<string, unknown>;
+  toolInputRedactedPaths?: string[];
+  toolInputTruncatedPaths?: string[];
+};
 export interface ParsedIpcMessage {
   type: 'message';
   appId?: string;
@@ -43,9 +61,11 @@ export interface ParsedMemoryIpcRequest {
   deadlineAtMs?: number;
   allowedActions: readonly MemoryIpcAction[];
   context?: {
+    appId: string;
+    agentId: string;
     threadId?: string;
     chatJid?: string;
-    userId?: string;
+    personId?: string;
     defaultScope?: 'user' | 'group';
     reviewerIsControlApprover?: boolean;
   };
@@ -57,6 +77,7 @@ export interface ParsedBrowserIpcRequest {
   payload: Record<string, unknown>;
   chatJid: string;
   threadId?: string;
+  browserTurnToken?: string; // per-turn credential issued at spawn
   responseKeyId?: string;
   jobId?: string;
   runId?: string;
@@ -244,13 +265,18 @@ export function parseMemoryIpcRequest(
   if (!isPlainObject(raw)) throw new Error('Invalid memory IPC payload');
   const {
     authThreadId: threadId,
+    appId,
+    agentId,
     chatJid,
     responseKeyId,
-    userId,
+    userId: personId,
     defaultScope,
     reviewerIsControlApprover,
     allowedActions,
   } = validateMemoryIpcAuthRequest(raw, sourceAgentFolder, 'memory IPC');
+  if (!appId) {
+    throw new Error('memory IPC context.appId is required');
+  }
   if (!responseKeyId) {
     throw new Error('memory IPC responseKeyId is required');
   }
@@ -274,6 +300,9 @@ export function parseMemoryIpcRequest(
   }
   const rawExpiresAt = typeof raw.expiresAt === 'string' ? raw.expiresAt : '';
   const deadlineAtMs = Date.parse(rawExpiresAt);
+  if (!agentId) {
+    throw new Error('memory IPC context.agentId is required');
+  }
   return {
     requestId,
     action: action as MemoryIpcAction,
@@ -281,16 +310,20 @@ export function parseMemoryIpcRequest(
     allowedActions,
     ...(responseKeyId ? { responseKeyId } : {}),
     ...(Number.isFinite(deadlineAtMs) ? { deadlineAtMs } : {}),
-    ...(threadId ||
+    ...(appId ||
+    agentId ||
+    threadId ||
     chatJid ||
-    userId ||
+    personId ||
     defaultScope ||
     reviewerIsControlApprover
       ? {
           context: {
+            appId,
+            agentId,
             ...(threadId ? { threadId } : {}),
             ...(chatJid ? { chatJid } : {}),
-            ...(userId ? { userId } : {}),
+            ...(personId ? { personId } : {}),
             ...(defaultScope ? { defaultScope } : {}),
             ...(reviewerIsControlApprover ? { reviewerIsControlApprover } : {}),
           },
@@ -301,13 +334,10 @@ export function parseMemoryIpcRequest(
 export function parsePermissionIpcRequest(
   raw: unknown,
   sourceAgentFolder: string,
-): PermissionApprovalRequest {
+): ParsedPermissionIpcRequest {
   if (!isPlainObject(raw)) throw new Error('Invalid permission IPC payload');
-  const binding = validateIpcAuthRequest(
-    raw,
-    sourceAgentFolder,
-    'permission IPC',
-  );
+  // prettier-ignore
+  const binding = validateInteractionIpcAuthRequest(raw, sourceAgentFolder, 'permission IPC');
   const appId = binding.appId;
   if (!appId) {
     throw new Error('permission IPC context.appId is required');
@@ -394,17 +424,37 @@ export function parsePermissionIpcRequest(
   }
   const targetJid = payloadTargetJid ?? contextTargetJid;
   const subagentType = toTrimmedString(raw.subagentType, { maxLen: 200 });
+  const hostInjectedCommandPrefix = toTrimmedString(
+    raw.hostInjectedCommandPrefix,
+    { maxLen: HOST_INJECTED_COMMAND_PREFIX_MAX_LENGTH },
+  );
+  // The signed runner payload carries the exact prefix it injected. Strip only
+  // that byte-for-byte prefix; legacy producers and mismatches stay unchanged.
+  const decisionToolInput = stripShellCommandEnvPrefix(
+    toolName,
+    raw.toolInput,
+    hostInjectedCommandPrefix,
+  );
   const {
     toolInput,
     altered: toolInputSanitized,
     alteredPaths: toolInputSanitizedPaths,
-  } = sanitizeIpcToolInput(raw.toolInput);
+  } = sanitizeIpcToolInput(decisionToolInput);
+  const {
+    toolInput: classifierToolInput,
+    redactedPaths: toolInputRedactedPaths,
+    truncatedPaths: toolInputTruncatedPaths,
+  } = sanitizeIpcToolInput(
+    decisionToolInput,
+    PERMISSION_CLASSIFIER_MAX_STRING_LENGTH,
+  );
   const suggestions = parsePermissionApprovalUpdates(raw.suggestions);
   const semanticCapabilityDefinitions =
     parseSemanticCapabilityDefinitionsRecord(raw.semanticCapabilityDefinitions);
   const decisionOptions = parsePermissionDecisionOptions(raw.decisionOptions);
   const closestRule = parseClosestPermissionRule(raw.closestRule);
   const interaction = parseInteractionDescriptor(raw.interaction);
+  const permissionLifecycle = parsePermissionLifecycle(raw);
   return {
     requestId,
     appId,
@@ -421,6 +471,7 @@ export function parsePermissionIpcRequest(
     ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
     ...(binding.responseKeyId ? { responseKeyId: binding.responseKeyId } : {}),
     ...(raw.unattended === true ? { unattended: true } : {}),
+    ...permissionLifecycle,
     ...(senderId ? { senderId } : {}),
     ...(intent ? { turnIntentSummary: intent } : {}),
     toolName,
@@ -434,20 +485,25 @@ export function parsePermissionIpcRequest(
     ...(closestRule ? { closestRule } : {}),
     ...(blockedPath ? { blockedPath } : {}),
     ...(toolInput ? { toolInput } : {}),
+    ...(hostInjectedCommandPrefix ? { hostInjectedCommandPrefix } : {}),
     ...(toolInputSanitized ? { toolInputSanitized: true } : {}),
     ...(toolInputSanitizedPaths.length > 0 ? { toolInputSanitizedPaths } : {}),
+    ...(classifierToolInput ? { classifierToolInput } : {}),
+    ...(toolInputRedactedPaths.length > 0 ? { toolInputRedactedPaths } : {}),
+    ...(toolInputTruncatedPaths.length > 0 ? { toolInputTruncatedPaths } : {}),
     ...(semanticCapabilityDefinitions ? { semanticCapabilityDefinitions } : {}),
     ...(suggestions ? { suggestions } : {}),
     ...(decisionOptions ? { decisionOptions } : {}),
     ...(interaction ? { interaction } : {}),
   };
 }
+
 export function parseUserQuestionIpcRequest(
   raw: unknown,
   sourceAgentFolder: string,
 ): UserQuestionRequest {
   if (!isPlainObject(raw)) throw new Error('Invalid user question IPC payload');
-  const binding = validateIpcAuthRequest(
+  const binding = validateInteractionIpcAuthRequest(
     raw,
     sourceAgentFolder,
     'user question IPC',
@@ -588,6 +644,7 @@ export function parseUserQuestionIpcRequest(
     ...(appId ? { appId } : {}),
     ...(agentId ? { agentId } : {}),
     ...(providerAccountId ? { providerAccountId } : {}),
+    ...parsePermissionLifecycle(raw),
     ...(jobId ? { jobId } : {}),
     ...(runId ? { runId } : {}),
     ...(runLeaseToken ? { runLeaseToken } : {}),
@@ -666,6 +723,7 @@ export function parseBrowserIpcRequest(
     throw new Error('browser IPC responseKeyId is required');
   }
   const requestId = toTrimmedString(raw.requestId, { maxLen: 128 });
+  const turnToken = toTrimmedString(raw.browserTurnToken, { maxLen: 128 });
   const rawAction = toTrimmedString(raw.action, { maxLen: 64 });
   if (!requestId || !rawAction) {
     throw new Error('Invalid browser IPC request envelope');
@@ -708,6 +766,7 @@ export function parseBrowserIpcRequest(
     payload,
     chatJid,
     ...(threadId ? { threadId } : {}),
+    ...(turnToken ? { browserTurnToken: turnToken } : {}),
     ...(responseKeyId ? { responseKeyId } : {}),
     ...(jobId ? { jobId } : {}),
     ...(runId ? { runId } : {}),

@@ -1,9 +1,5 @@
 # Postgres Adapter Notes
 
-- Every valid `appId` declared by `GANTRY_CONTROL_API_KEYS_JSON` must have an
-  idempotently seeded `apps` row before app-scoped credentials, MCP servers,
-  skills, sessions, or jobs can be provisioned. The control-key declaration is
-  the bootstrap authority; client applications must not write Gantry tables.
 - Provider session resume lookup must be scoped by the resolved canonical
   `agentId` plus route scope. Route-only keys can leak provider session or
   digest continuity after conversation or thread rebinding.
@@ -57,17 +53,10 @@
   Do not add Compose hostnames to global local-host detection; pass the same
   allowlist through URL validation, runtime config, doctor/readiness checks, and
   migration/storage construction.
-- Gantry's pg-boss tables live in `gantry_pgboss`, not the generic `pgboss`
-  schema. Applications may share the database server and database with Gantry
-  while owning a different pg-boss version in their own schema.
 - Conversation route projection must preserve the canonical conversation kind:
   `direct`/`dm` rows return runtime `conversationKind: "dm"` and group/channel
   rows return `conversationKind: "channel"`. Do not infer DM-vs-group memory
   scope from trigger settings or binding memory-subject blobs.
-- Public message cursors may omit provider-account scope even when canonical
-  message ids include it. Equal-timestamp pagination must exclude the exact
-  provider message id instead of assuming the canonical id can be reconstructed
-  from the public cursor; otherwise the cursor message can replay forever.
 - JSON-shaped runtime payload columns that are queried, indexed, validated, or
   partially updated belong in native `jsonb`. Pass objects/arrays to Drizzle
   `jsonb` columns, keep canonical route/lease/audit/join fields typed, and do
@@ -88,3 +77,11 @@
   cancel, abort propagation, terminal receipts, and restart recovery. Delegated
   agent task rows and provider task id correlation still require a real
   delegated-agent executor and read model.
+- People identity uses the existing `users` table as the canonical person
+  table and `user_aliases` as the alias table. Person merge code may rekey only
+  `memory_items.subject_type = 'user'`; group/channel/conversation memory rows
+  must remain untouched.
+- Exact person alias lookup authority is
+  `appId + provider + providerAccountId? + externalUserId`. Keep
+  `providerAccountId` in route and alias resolution paths when it is known;
+  do not fall back to fuzzy or display-name matching.

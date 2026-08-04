@@ -62,7 +62,6 @@ interface ActiveLiveTurnRegistration {
   turnId: string;
   runId: string;
   scope: LiveTurnScope;
-  pendingMessage: Record<string, unknown> | null;
   fence: LiveTurnLeaseFence;
   pump: LiveTurnCommandPump;
   // One ownership tick: renew lease + slot, then drain the owner inbox.
@@ -138,24 +137,6 @@ export class LiveTurnAuthority {
     return this.active.get(queueJid)?.fence ?? null;
   }
 
-  ownedPendingMessage(queueJid: string): Record<string, unknown> | null {
-    return this.active.get(queueJid)?.pendingMessage ?? null;
-  }
-
-  prepareSdkSessionTurn(messageId: string) {
-    return (
-      this.deps.leaseDeps.liveTurns.prepareSdkSessionTurn?.({ messageId }) ??
-      Promise.resolve(null)
-    );
-  }
-
-  beginSdkSessionTurn(messageId: string) {
-    return (
-      this.deps.leaseDeps.liveTurns.beginSdkSessionTurn?.({ messageId }) ??
-      Promise.resolve(null)
-    );
-  }
-
   /**
    * Admission for a new live message turn. On 'claimed', the caller starts
    * the runner and must call registerLocalRunner + finalize. On
@@ -193,7 +174,6 @@ export class LiveTurnAuthority {
       runId: input.runId,
       scope: input.scope,
       fence,
-      pendingMessage: claim.turn.pendingMessage,
     });
     return { outcome: 'claimed', turn: claim.turn, fence };
   }
@@ -217,7 +197,6 @@ export class LiveTurnAuthority {
         threadId: input.turn.threadId,
       },
       fence: input.fence,
-      pendingMessage: input.turn.pendingMessage,
     });
   }
 
@@ -228,7 +207,6 @@ export class LiveTurnAuthority {
       runId: string;
       scope: LiveTurnScope;
       fence: LiveTurnLeaseFence;
-      pendingMessage: Record<string, unknown> | null;
     },
   ): void {
     const registration: ActiveLiveTurnRegistration = {
@@ -236,7 +214,6 @@ export class LiveTurnAuthority {
       runId: input.runId,
       scope: input.scope,
       fence: input.fence,
-      pendingMessage: input.pendingMessage,
       hooks: null,
       fencedOut: false,
       pump: createLiveTurnCommandPump({

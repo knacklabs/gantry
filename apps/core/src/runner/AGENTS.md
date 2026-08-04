@@ -9,15 +9,6 @@
   wrappers before presenting durable suggestions.
 - Memory IPC auth scope includes reviewer authority. When adding or changing runner boundaries, forward `memoryReviewerIsControlApprover` into the Gantry MCP server environment so memory request signatures match runtime verification.
 - SDK model credential env may include only model gateway/auth material. Bash, browser, hooks, and MCP stdio subprocesses may receive no broker proxies or provider tokens; approved tool networking comes from Gantry's provider-neutral `toolNetworkEnv`.
-- Reviewed local `stdio_template` MCP actions execute through the Claude SDK's
-  native MCP projection and `mcp-stdio-audit` wrapper. Runtime guidance must
-  prefer an exact directly mounted `mcp__server__tool` action when present and
-  reserve `mcp_call_tool` for proxy-capable sources; do not route native stdio
-  through `McpToolProxy` or add a second process runner. When every selected
-  external MCP action is mounted directly, hide and disallow the two proxy
-  execution tools. The audit wrapper must pass the runner's controlled `PATH`
-  explicitly because Claude subprocess scrubbing otherwise leaves bundled
-  installed-package commands unavailable to the wrapper child.
 - Keep Claude SDK Bash/RunCommand calls sandboxed with `sandbox.network.allowLocalBinding` so approved CLIs can use the Gantry loopback egress proxy instead of bypassing the sandbox. In `sandbox_runtime`, `toolNetworkEnv` must carry `CLAUDE_CODE_PROXY_RESOLVES_HOSTS=1`, `GODEBUG=netdns=go`, proxy values, and neutral CA aliases, and the runner must prefix approved Bash/RunCommand tool inputs with those sanitized tool-network values. That keeps Go, Python, curl, Node, MCP stdio, and local CLI tools on the same reviewed egress path. On macOS, also enable `sandbox.enableWeakerNetworkIsolation` so Go-based CLIs such as `gh`, `gcloud`, `terraform`, and business CLIs can reach `com.apple.trustd.agent` for TLS certificate verification. These are sandbox transport settings only; they must not grant durable `RunCommand(...)` authority or expose broker proxy/provider credentials to tools.
 - Reviewed local CLI credential paths use credential-read semantics: the approved CLI must be able to read them through SDK `additionalDirectories`, while the SDK sandbox must deny writes to those paths. Do not add credential directories to `denyRead`.
 - `SandboxNetworkAccess` is a transient SDK callback, not durable capability
@@ -53,10 +44,6 @@
   read/list/cancel, steering via `task_message`, abort propagation, terminal
   receipts, and restart recovery. Dormant unavailable handlers and task rows
   without an executor are not valid.
-- Caller-resolved MCP tools are per-job projections supplied through the typed
-  job contract. Their schemas may be dynamic, but invocation must cross signed
-  host IPC, create a durable interaction, honor the shared job-run budget, and
-  resume only from the app-scoped SDK resolution API.
 - Durable file/web authority uses Gantry-owned facade names such as
   `FileSearch`, `FileRead`, `FileEdit`, `FileWrite`, `WebSearch`, and
   `WebRead`. The selected harness maps those names to provider-native tools

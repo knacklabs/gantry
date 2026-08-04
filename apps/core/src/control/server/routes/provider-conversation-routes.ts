@@ -117,43 +117,6 @@ function parseConversationInstallPatch(
   return conversationInstallPatchFromParsed(appId, conversationId, parsed.data);
 }
 
-function parseConversationMessageSend(raw: unknown): {
-  idempotencyKey: string;
-  text: string;
-  threadId?: string;
-  adaptiveCard?: Record<string, unknown>;
-} | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const record = raw as Record<string, unknown>;
-  const idempotencyKey =
-    typeof record.idempotencyKey === 'string'
-      ? record.idempotencyKey.trim()
-      : '';
-  const text = typeof record.text === 'string' ? record.text.trim() : '';
-  const threadId =
-    typeof record.threadId === 'string' ? record.threadId.trim() : '';
-  if (!idempotencyKey || idempotencyKey.length > 200) return null;
-  if (!text || text.length > 64_000) return null;
-  const adaptiveCard = parseAdaptiveCard(record.adaptiveCard);
-  if (record.adaptiveCard !== undefined && !adaptiveCard) return null;
-  return {
-    idempotencyKey,
-    text,
-    ...(threadId ? { threadId } : {}),
-    ...(adaptiveCard ? { adaptiveCard } : {}),
-  };
-}
-
-function parseAdaptiveCard(raw: unknown): Record<string, unknown> | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const card = raw as Record<string, unknown>;
-  if (card.type !== 'AdaptiveCard') return null;
-  if (typeof card.version !== 'string' || !card.version.trim()) return null;
-  if (!Array.isArray(card.body)) return null;
-  if (card.actions !== undefined && !Array.isArray(card.actions)) return null;
-  return card;
-}
-
 export async function handleProviderConversationRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -260,7 +223,8 @@ export async function handleProviderConversationRoutes(
       return true;
     }
     try {
-      const providerAccount = await services().providerAccounts.update({
+      const providerAccountService = services().providerAccounts;
+      const providerAccount = await providerAccountService.update({
         appId: auth.appId as AppId,
         providerAccountId:
           providerAccountRoute.providerAccountId as ProviderAccountId,
@@ -284,7 +248,17 @@ export async function handleProviderConversationRoutes(
       } else {
         await projectProviderAccountRoutesToRuntime(ctx, providerAccount.id);
       }
-      await ctx.syncSettingsFromProjection(auth.appId as AppId);
+      await ctx.syncSettingsFromProjection(
+        auth.appId as AppId,
+        parsed.data.runtimeSecretRefs === undefined
+          ? undefined
+          : {
+              providerAccount: {
+                id: providerAccount.id,
+                runtimeSecretRefs: parsed.data.runtimeSecretRefs,
+              },
+            },
+      );
       sendJson(res, 200, providerAccountToResponse(providerAccount));
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
@@ -491,52 +465,6 @@ export async function handleProviderConversationRoutes(
     return true;
   }
 
-  if (conversationRoute?.action === 'messages' && req.method === 'POST') {
-    const auth = authorizeControlRequest(req, res, ctx.keys, ['messages:send']);
-    if (!auth) return true;
-    const input = parseConversationMessageSend(await readJson(req));
-    if (!input) {
-      sendError(
-        res,
-        400,
-        'INVALID_REQUEST',
-        'idempotencyKey and text are required; threadId and a valid adaptiveCard are optional.',
-      );
-      return true;
-    }
-    if (!ctx.sendConversationMessage) {
-      sendError(
-        res,
-        503,
-        'UNAVAILABLE',
-        'Conversation delivery is unavailable in this process role.',
-      );
-      return true;
-    }
-    try {
-      await services().conversations.get({
-        appId: auth.appId as AppId,
-        conversationId: conversationRoute.conversationId as ConversationId,
-      });
-      const result = await ctx.sendConversationMessage({
-        appId: auth.appId,
-        conversationId: conversationRoute.conversationId,
-        ...input,
-      });
-      sendJson(res, 202, {
-        accepted: true,
-        messageId: result.messageId,
-        idempotencyKey: input.idempotencyKey,
-        ...(result.providerMessageId
-          ? { providerMessageId: result.providerMessageId }
-          : {}),
-      });
-    } catch (error) {
-      if (!sendApplicationError(res, error)) throw error;
-    }
-    return true;
-  }
-
   const installRoute = parseConversationInstallRoute(pathname);
   if (installRoute?.action === 'list' && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, [
@@ -586,8 +514,8 @@ export async function handleProviderConversationRoutes(
         conversationId: installRoute.conversationId as ConversationId,
         patch,
       });
-      await projectConversationInstallToRuntime(ctx, install);
       await ctx.syncSettingsFromProjection(auth.appId as AppId);
+      await projectConversationInstallToRuntime(ctx, install);
       sendJson(res, 200, conversationInstallToResponse(install));
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
@@ -622,8 +550,8 @@ export async function handleProviderConversationRoutes(
         conversationId: installRoute.conversationId as ConversationId,
         patch,
       });
-      await projectConversationInstallToRuntime(ctx, install);
       await ctx.syncSettingsFromProjection(auth.appId as AppId);
+      await projectConversationInstallToRuntime(ctx, install);
       sendJson(res, 200, conversationInstallToResponse(install));
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;

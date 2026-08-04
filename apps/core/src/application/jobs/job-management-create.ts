@@ -53,11 +53,6 @@ export async function createManagedJob(
     runAt: input.runAt,
     schedule: input.schedule,
   });
-  const recurringSchedulePolicy = normalizeRecurringSchedulePolicy(
-    kind,
-    input.schedule,
-    deps.schedulePlanner.defaultTimezone,
-  );
   const workload = kind === 'recurring' ? 'recurring_job' : 'one_time_job';
   const modelAlias = resolveRequestedJobModel(input.modelAlias, workload);
   const effectiveModelAlias =
@@ -126,13 +121,11 @@ export async function createManagedJob(
   });
   const jobInput: JobUpsertInput = {
     id: jobId,
-    app_id: session.appId,
     name: input.name.trim(),
     prompt: input.prompt.trim(),
     model: modelAlias ?? null,
     schedule_type: schedule.scheduleType,
     schedule_value: schedule.scheduleValue,
-    ...recurringSchedulePolicy,
     status: 'active',
     session_id: session.sessionId,
     thread_id: executionContext.threadId ?? null,
@@ -206,78 +199,4 @@ export async function createManagedJob(
     runtimeContext,
     setupState: readiness.setupState,
   };
-}
-
-function normalizeRecurringSchedulePolicy(
-  kind: CreateManagedJobInput['kind'],
-  schedule: CreateManagedJobInput['schedule'],
-  defaultTimezone: string,
-) {
-  if (kind !== 'recurring') return {};
-  const timezone = String(schedule?.timezone ?? defaultTimezone).trim();
-  if (!isIanaTimezone(timezone)) {
-    throw new ApplicationError(
-      'INVALID_SCHEDULE',
-      'Recurring schedules require a valid IANA timezone.',
-    );
-  }
-  if (
-    schedule?.misfirePolicy !== undefined &&
-    schedule.misfirePolicy !== 'coalesce'
-  ) {
-    throw new ApplicationError(
-      'INVALID_SCHEDULE',
-      'Only the coalesce misfire policy is supported.',
-    );
-  }
-  if (
-    schedule?.overlapPolicy !== undefined &&
-    schedule.overlapPolicy !== 'skip'
-  ) {
-    throw new ApplicationError(
-      'INVALID_SCHEDULE',
-      'Only the skip overlap policy is supported.',
-    );
-  }
-  const metadata = schedule?.metadata;
-  let normalizedMetadata:
-    | { scheduleId: string; generation: number }
-    | undefined;
-  if (metadata !== undefined) {
-    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
-      throw new ApplicationError(
-        'INVALID_SCHEDULE',
-        'Schedule metadata must be an object.',
-      );
-    }
-    const value = metadata as Record<string, unknown>;
-    const scheduleId = String(value.scheduleId ?? '').trim();
-    const generation = value.generation;
-    if (
-      !scheduleId ||
-      !Number.isInteger(generation) ||
-      Number(generation) < 1
-    ) {
-      throw new ApplicationError(
-        'INVALID_SCHEDULE',
-        'Schedule metadata requires scheduleId and a positive generation.',
-      );
-    }
-    normalizedMetadata = { scheduleId, generation: Number(generation) };
-  }
-  return {
-    schedule_timezone: timezone,
-    misfire_policy: 'coalesce' as const,
-    overlap_policy: 'skip' as const,
-    ...(normalizedMetadata ? { schedule_metadata: normalizedMetadata } : {}),
-  };
-}
-
-function isIanaTimezone(value: string): boolean {
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: value }).format();
-    return true;
-  } catch {
-    return false;
-  }
 }

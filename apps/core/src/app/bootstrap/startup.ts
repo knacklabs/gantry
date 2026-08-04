@@ -3,20 +3,32 @@ import path from 'node:path';
 
 import {
   RuntimeSettings,
-  activateRuntimeModelAliases,
   loadRuntimeSettings,
 } from '../../config/settings/runtime-settings.js';
 import {
+  DATA_DIR,
   GANTRY_HOME,
   resolveRuntimeBootstrapStorageConfigFromEnv,
+  readRuntimeSecretEnv,
 } from '../../config/index.js';
 import type { AppId } from '../../domain/app/app.js';
+import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
+import { withSettingsProjectorLease } from '../../domain/ports/settings-projector-lease.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import {
+  initTracing,
+  parseOtlpHeaders,
+  shutdownTracing,
+} from '../../infrastructure/observability/tracing.js';
 import { ensureRuntimeLayoutDirectories } from '../../platform/runtime-layout.js';
-import { initializeRuntimeStorage } from '../../adapters/storage/postgres/runtime-store.js';
+import {
+  initializeRuntimeStorage,
+  tryAcquireRuntimeAdvisoryLease,
+} from '../../adapters/storage/postgres/runtime-store.js';
 import { SettingsDesiredStateService } from '../../config/settings/desired-state-service.js';
 import {
   CURRENT_SETTINGS_READER_VERSION,
+  applySettingsRevisionWithMcpFenceRecovery,
   importWorkstationSettings,
   settingsFromRevisionDocument,
   settingsToRevisionDocument,
@@ -25,6 +37,7 @@ import {
 import { loadSessionAppMemoryItems } from '../../memory/app-memory-session-hydration.js';
 import { RuntimeApp } from './runtime-app.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import { createProviderAttachmentReclaimer } from './attachment-resolver-wiring.js';
 
 interface SettingsImportPreflightFailure {
   summary: string;
@@ -55,10 +68,13 @@ interface StartupDeps {
   formatRuntimePreflightFailure: FormatSettingsImportPreflightFailure;
   logger: Pick<typeof logger, 'info' | 'warn'>;
   settingsAuthority: 'file' | 'revision';
+  leases: RuntimeLeasePort;
 }
 
 export interface StartupResult {
   runtimeSettings: RuntimeSettings;
+  initTracingFromSettings: (settings: RuntimeSettings) => void;
+  closeTracing: () => Promise<void>;
 }
 
 const STARTUP_CREDENTIAL_BINDING_TIMEOUT_MS = 3_000;
@@ -67,7 +83,7 @@ const INTERNAL_DEFAULT_AGENT_JID = 'app:default';
 
 function makeDefaultDeps(): StartupDeps {
   return {
-    appId: 'default' as AppId,
+    appId: (process.env.GANTRY_APP_ID?.trim() || 'default') as AppId,
     ensureRuntimeLayoutDirectories,
     initializeRuntimeStorage,
     loadRuntimeSettings,
@@ -81,6 +97,7 @@ function makeDefaultDeps(): StartupDeps {
       ),
     logger,
     settingsAuthority: 'file',
+    leases: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
   };
 }
 
@@ -92,10 +109,25 @@ export async function runStartup(
     ...makeDefaultDeps(),
     ...deps,
   };
+  const reclaimProviderAttachment = createProviderAttachmentReclaimer({
+    materializationRoot: path.join(DATA_DIR, 'provider-attachments'),
+    workspaceRoots: () => [],
+  });
 
   resolved.ensureRuntimeLayoutDirectories(GANTRY_HOME);
-  let storage = await initializeStartupStorage(resolved);
+  let storage = await initializeStartupStorage(
+    resolved,
+    reclaimProviderAttachment,
+  );
   resolved.logger.info('Database initialized');
+  await storage.repositories?.messageAttachments
+    ?.retryPendingMessageAttachmentDeletions()
+    .catch((err) =>
+      resolved.logger.warn(
+        { err },
+        'Failed to sweep pending message attachment deletions at startup',
+      ),
+    );
   const runtimeSettings = await (async () => {
     if (resolved.settingsAuthority !== 'revision') {
       return resolved.loadRuntimeSettings(GANTRY_HOME);
@@ -111,20 +143,19 @@ export async function runStartup(
       validateSettingsImportPreflight: resolved.validateSettingsImportPreflight,
       formatRuntimePreflightFailure: resolved.formatRuntimePreflightFailure,
       logger: resolved.logger,
+      leases: resolved.leases,
     });
     await closeStartupStorage(storage);
     storage = await resolved.initializeRuntimeStorage({
       loadSessionAppMemoryItems: loadSessionAppMemoryItems,
       runtimeSettings: revisionSettings,
+      reclaimProviderAttachment,
     });
     resolved.logger.info(
       'Database initialized with authoritative settings revision',
     );
     return revisionSettings;
   })();
-  if (runtimeSettings.modelAliases) {
-    activateRuntimeModelAliases(runtimeSettings);
-  }
   if (
     resolved.settingsAuthority === 'file' &&
     runtimeSettings.desiredState &&
@@ -164,8 +195,34 @@ export async function runStartup(
   );
   await waitForCredentialBindings(app, resolved.logger);
 
+  // Deliberately NOT called here: split fleet roles enter runStartup with
+  // settingsAuthority 'file' and only obtain the authoritative revision via
+  // prepareFleetSettings() afterwards. The caller invokes this exactly once
+  // when settings are final so tracing never configures from a stale mirror.
+  const initTracingFromSettings = (settings: RuntimeSettings): void => {
+    try {
+      const tracing = settings.observability.tracing;
+      initTracing({
+        enabled: tracing.enabled,
+        endpoint: tracing.endpoint || undefined,
+        // Managed services (launchd/systemd) pass a minimal process env;
+        // runtime secrets live in GANTRY_HOME/.env (process env still wins).
+        headers: parseOtlpHeaders(
+          readRuntimeSecretEnv('GANTRY_OTEL_TRACES_HEADERS'),
+        ),
+        captureContent: tracing.captureContent,
+        sampleRate: tracing.sampleRate,
+        environment: tracing.environment,
+      });
+    } catch (err) {
+      resolved.logger.warn({ err }, 'Failed to initialize tracing');
+    }
+  };
+
   return {
     runtimeSettings,
+    initTracingFromSettings,
+    closeTracing: shutdownTracing,
   };
 }
 
@@ -178,9 +235,11 @@ async function closeStartupStorage(
 
 async function initializeStartupStorage(
   resolved: StartupDeps,
+  reclaimProviderAttachment: (storageRef: string) => Promise<void>,
 ): ReturnType<typeof initializeRuntimeStorage> {
   const baseOptions = {
     loadSessionAppMemoryItems: loadSessionAppMemoryItems,
+    reclaimProviderAttachment,
   };
   if (resolved.settingsAuthority !== 'revision') {
     return resolved.initializeRuntimeStorage(baseOptions);
@@ -224,6 +283,7 @@ async function loadRevisionAuthoritySettings(input: {
   validateSettingsImportPreflight: ValidateSettingsImportPreflight;
   formatRuntimePreflightFailure: FormatSettingsImportPreflightFailure;
   logger: StartupDeps['logger'];
+  leases: RuntimeLeasePort;
 }): Promise<RuntimeSettings> {
   const appId = input.appId;
   const latest =
@@ -231,49 +291,73 @@ async function loadRevisionAuthoritySettings(input: {
       appId,
     );
   if (latest) {
-    if (latest.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
-      throw new Error(
-        `Settings revision ${latest.revision} requires settings reader version ` +
-          `${latest.minReaderVersion}; this runtime supports ${CURRENT_SETTINGS_READER_VERSION}. ` +
-          'Upgrade Gantry before applying this revision.',
+    return withSettingsProjectorLease(input.leases, appId, async () => {
+      const head =
+        await input.storage.repositories.settingsRevisions.getLatestSettingsRevision(
+          appId,
+        );
+      if (!head) {
+        throw new Error('Settings revision disappeared during startup');
+      }
+      if (head.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
+        throw new Error(
+          `Settings revision ${head.revision} requires settings reader version ` +
+            `${head.minReaderVersion}; this runtime supports ${CURRENT_SETTINGS_READER_VERSION}. ` +
+            'Upgrade Gantry before applying this revision.',
+        );
+      }
+      const settings = settingsFromRevisionDocument(head.settingsDocument);
+      if (input.settingsFileExists(input.runtimeHome)) {
+        let fileSettings: RuntimeSettings | null = null;
+        try {
+          fileSettings = input.loadRuntimeSettings(input.runtimeHome);
+        } catch (err) {
+          input.logger.warn(
+            { err, appId, revision: head.revision },
+            'settings.yaml is invalid; using latest settings revision',
+          );
+        }
+        if (
+          fileSettings &&
+          stableJson(settingsToRevisionDocument(fileSettings)) !==
+            stableJson(head.settingsDocument)
+        ) {
+          input.logger.warn(
+            { appId, revision: head.revision },
+            'settings.yaml differs from latest settings revision; restoring revision-authority mirror',
+          );
+        }
+      }
+      await input.importWorkstationSettings(
+        {
+          runtimeHome: input.runtimeHome,
+          ops: input.storage.ops,
+          repositories: input.storage.repositories,
+          appId,
+          projectionAuthority: 'revision',
+        },
+        settings,
       );
-    }
-    const settings = settingsFromRevisionDocument(latest.settingsDocument);
-    if (input.settingsFileExists(input.runtimeHome)) {
-      let fileSettings: RuntimeSettings | null = null;
-      try {
-        fileSettings = input.loadRuntimeSettings(input.runtimeHome);
-      } catch (err) {
-        input.logger.warn(
-          { err, appId, revision: latest.revision },
-          'settings.yaml is invalid; using latest settings revision',
-        );
-      }
-      if (
-        fileSettings &&
-        stableJson(settingsToRevisionDocument(fileSettings)) !==
-          stableJson(latest.settingsDocument)
-      ) {
-        input.logger.warn(
-          { appId, revision: latest.revision },
-          'settings.yaml differs from latest settings revision; restoring revision-authority mirror',
-        );
-      }
-    }
-    await input.importWorkstationSettings(
-      {
+      const applied = await applySettingsRevisionWithMcpFenceRecovery({
         runtimeHome: input.runtimeHome,
         ops: input.storage.ops,
         repositories: input.storage.repositories,
         appId,
-      },
-      settings,
-    );
-    input.logger.info(
-      { appId, revision: latest.revision },
-      'Loaded workstation settings from settings revision',
-    );
-    return settings;
+        revision: head,
+        revisionMirror: {
+          settingsRevisions: input.storage.repositories.settingsRevisions,
+          pool: input.storage.service.pool,
+          createdBy: 'startup:mcp-fence-recovery',
+          logWarn: (context, message) => input.logger.warn(context, message),
+        },
+        applySettings: input.importWorkstationSettings,
+      });
+      input.logger.info(
+        { appId, revision: applied.revision },
+        'Loaded workstation settings from settings revision',
+      );
+      return applied.settings;
+    });
   }
 
   const settings = input.loadRuntimeSettings(input.runtimeHome);
@@ -300,11 +384,15 @@ async function loadRevisionAuthoritySettings(input: {
       },
       revisionMirrorRequired: true,
       expectedRevision: 0,
+      leases: input.leases,
     },
     settings,
   );
   input.logger.info(
-    { appId, revision: outcome.revision ?? 0 },
+    {
+      appId,
+      revision: outcome.status === 'revision_created' ? outcome.revision : 0,
+    },
     'Seeded workstation settings revision from settings.yaml',
   );
   return settings;

@@ -91,7 +91,11 @@ async function* fakeStructuredLangGraphEvents(): AsyncIterable<LangGraphStreamEv
   };
   yield {
     event: 'on_chain_end',
-    data: { output: { structuredResponse: { answer: 'verified' } } },
+    data: {
+      output: {
+        structuredResponse: { json: '{"answer":"verified"}' },
+      },
+    },
   };
 }
 
@@ -188,13 +192,13 @@ describe('runDeepAgentTurn startup diagnostics', () => {
       appId: 'app-one',
       agentId: 'agent-one',
       runId: 'run-one',
-      conversationId: 'tg:room-one',
       eventType: 'run.startup_diagnostic',
       actor: 'runtime',
       responseMode: 'none',
       payload: {
         provider: 'deepagents',
         diagnostic: 'runner_startup',
+        conversationJid: 'tg:room-one',
         modelProvider: 'openai',
         modelId: 'gpt-test',
         endpointFamily: 'openai',
@@ -209,6 +213,7 @@ describe('runDeepAgentTurn startup diagnostics', () => {
         firstLangGraphEventName: 'on_chat_model_start',
       },
     });
+    expect(diagnostic).not.toHaveProperty('conversationId');
     expect(
       (diagnostic?.payload as { firstLangGraphEventMs?: unknown })
         .firstLangGraphEventMs,
@@ -243,11 +248,9 @@ describe('runDeepAgentTurn startup diagnostics', () => {
     expect(serialized).not.toContain('gtw_secret_token');
   });
 
-  it('returns structured output from the DeepAgents worker without streaming partial text', async () => {
+  it('returns worker structured output without streaming partial text', async () => {
     mocks.buildRunnerModel.mockResolvedValueOnce({
-      model: {
-        profile: { maxInputTokens: 8192, structuredOutput: true },
-      },
+      model: { profile: { maxInputTokens: 8192, structuredOutput: true } },
       endpointFamily: 'openai',
       modelId: 'gpt-test',
     });
@@ -257,15 +260,14 @@ describe('runDeepAgentTurn startup diagnostics', () => {
     const { runDeepAgentTurn } =
       await import('@core/adapters/llm/deepagents-langchain/runner/deep-agent-runner.js');
     const frames: unknown[] = [];
+    const responseSchema = {
+      type: 'object',
+      properties: { answer: { type: 'string' } },
+      required: ['answer'],
+    };
 
     const turn = await runDeepAgentTurn({
-      agentInput: input({
-        responseSchema: {
-          type: 'object',
-          properties: { answer: { type: 'string' } },
-          required: ['answer'],
-        },
-      }),
+      agentInput: input({ responseSchema }),
       provider: 'openai',
       modelId: 'gpt-test',
       newSessionId: 'session-one',
@@ -279,10 +281,6 @@ describe('runDeepAgentTurn startup diagnostics', () => {
     expect(frames).toEqual([]);
     expect(turn.terminalResult).toBe('{"answer":"verified"}');
     expect(turn.text).toBe('{"answer":"verified"}');
-    expect(turn.terminalUsage).toMatchObject({
-      inputTokens: 11,
-      outputTokens: 3,
-    });
   });
 
   it('passes Gantry lifecycle context into DeepAgents stream normalization', async () => {

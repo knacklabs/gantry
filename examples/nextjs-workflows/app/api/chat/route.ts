@@ -17,12 +17,8 @@ export async function POST(request: Request) {
   const accepted = await client.sessions.sendMessage({
     sessionId: session.sessionId,
     message: body.message.trim(),
-    idempotencyKey: crypto.randomUUID(),
-    continuityMode: 'provider',
     senderId: 'nextjs-workflows-demo',
     senderName: 'Next.js workflows demo',
-    max_tool_interactions: 4,
-    interaction_timeout_ms: 90_000,
   });
   const result = await client.sessions.wait(session.sessionId, {
     afterEventId: accepted.acceptedEventId,

@@ -7,19 +7,3 @@
 - Filesystem wake events are not authority. The existing drain, permission,
   session, and SDK query code still decides what each file means and whether it
   can affect the provider stream.
-- Live schema-constrained SDK results carry visible content, so emit a separate
-  empty success frame as the host turn-complete marker. Preserve
-  `continuedByFollowup` on that marker; otherwise the host leaves the valid
-  structured result buffered while the persistent query waits for more input.
-- After a live SDK result, keep the message stream open only when caller input
-  is already buffered for the next turn. Otherwise close the stream so the
-  runner exits and the host can publish `run.completed` for SDK consumers.
-- An opt-in delegated completion gate is caller input at the same result
-  boundary: request its decision before closing, buffer an approved
-  continuation through `SteeringDeliveryGate`, and close normally only after
-  the caller accepts completion.
-- Reviewed local stdio MCP tools execute through the Claude SDK's native MCP
-  path and the existing audit wrapper. For direct-only external MCP runs, do
-  not register or allow the Gantry proxy execution tools. Resolve bundled bare
-  commands against the runtime-local npm bin directory before the runner
-  sandbox scrubs `PATH`; changing only the wrapper environment is too late.

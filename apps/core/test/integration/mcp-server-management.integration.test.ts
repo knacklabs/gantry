@@ -11,7 +11,6 @@ import type {
   McpServerId,
 } from '@core/domain/mcp/mcp-servers.js';
 import type { McpServerRepository } from '@core/domain/ports/repositories.js';
-import type { CapabilitySecretRepository } from '@core/domain/ports/repositories.js';
 import { syncRuntimeSettingsFromProjection } from '@core/config/index.js';
 import { createClient } from '../../../../packages/sdk/src/index.js';
 import { startTestControlServer } from '../harness/control-http-server.js';
@@ -78,6 +77,17 @@ class InMemoryMcpServerRepository implements McpServerRepository {
     );
   }
 
+  async getAgentBinding(input: {
+    appId: AppId;
+    agentId: AgentId;
+    serverId: McpServerId;
+  }) {
+    return (
+      this.bindings.get(`${input.appId}:${input.agentId}:${input.serverId}`) ??
+      null
+    );
+  }
+
   async disableAgentBinding(input: {
     appId: AppId;
     agentId: AgentId;
@@ -110,6 +120,25 @@ class InMemoryMcpServerRepository implements McpServerRepository {
           (!input.cursor || binding.updatedAt < input.cursor),
       )
       .slice(0, input.limit ?? 100);
+  }
+
+  async listAgentMcpAccessSnapshot(input: { appId: AppId; agentId: AgentId }) {
+    const activeBindings = (await this.listAgentBindings(input)).filter(
+      (binding) => binding.status === 'active',
+    );
+    const rows = activeBindings.map((binding) => ({
+      binding,
+      definition: this.servers.get(binding.serverId) ?? null,
+    }));
+    return {
+      activeBindings: rows,
+      materializedServers: rows.flatMap((row) =>
+        row.definition?.appId === input.appId &&
+        row.definition.status === 'active'
+          ? [{ binding: row.binding, definition: row.definition }]
+          : [],
+      ),
+    };
   }
 
   async listAgentBindingsForAgents(input: {
@@ -176,7 +205,6 @@ class InMemoryMcpServerRepository implements McpServerRepository {
 
 const state = vi.hoisted(() => ({
   mcpServers: undefined as unknown as InMemoryMcpServerRepository,
-  capabilitySecrets: undefined as unknown as CapabilitySecretRepository,
 }));
 
 vi.mock('@core/config/index.js', () => ({
@@ -201,6 +229,7 @@ vi.mock('@core/config/index.js', () => ({
 }));
 
 vi.mock('@core/jobs/scheduler.js', () => ({
+  schedulerNotReadyReason: vi.fn(() => undefined),
   enqueueJobTrigger: vi.fn(async () => undefined),
   isJobTriggerQueueReady: vi.fn(() => true),
   isSchedulerReady: vi.fn(() => true),
@@ -233,6 +262,9 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => {
     listAgents: vi.fn(async () => []),
   };
   return {
+    tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+      release: vi.fn(async () => {}),
+    })),
     getRuntimeControlRepository: () => ({
       listDueWebhookDeliveries: vi.fn(async () => []),
       claimDueWebhookDeliveries: vi.fn(async () => []),
@@ -243,11 +275,9 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => {
       storeMessage: vi.fn(async () => undefined),
     }),
     getRuntimeStorage: () => ({
-      runtimeEvents: { publish: vi.fn(async () => undefined) },
       repositories: {
         agents,
         mcpServers: state.mcpServers,
-        capabilitySecrets: state.capabilitySecrets,
         tools: {
           listTools: vi.fn(async () => []),
           listAgentToolBindingsForAgents: vi.fn(async () => []),
@@ -271,37 +301,6 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => {
 
 beforeEach(() => {
   state.mcpServers = new InMemoryMcpServerRepository();
-  const values = new Map<string, { value: string; updatedAt: string }>();
-  state.capabilitySecrets = {
-    getSecret: async ({ appId, name }) => {
-      const stored = values.get(`${appId}:${name}`);
-      return stored
-        ? ({
-            id: `capability-secret:${appId}:${name}`,
-            appId,
-            name,
-            value: stored.value,
-            allowedCapabilityIds: [],
-            createdAt: stored.updatedAt,
-            updatedAt: stored.updatedAt,
-          } as never)
-        : null;
-    },
-    listSecrets: async () => [],
-    upsertSecret: async ({ appId, name, value, now }) => {
-      const updatedAt = now ?? new Date().toISOString();
-      values.set(`${appId}:${name}`, { value, updatedAt });
-      return {
-        id: `capability-secret:${appId}:${name}`,
-        appId,
-        name,
-        allowedCapabilityIds: [],
-        createdAt: updatedAt,
-        updatedAt,
-      } as never;
-    },
-    deleteSecret: async ({ appId, name }) => values.delete(`${appId}:${name}`),
-  };
   vi.clearAllMocks();
 });
 
@@ -326,13 +325,7 @@ describe('MCP server management integration', () => {
     const server = await startTestControlServer({
       token: 'token-mcp',
       appId: 'app-one',
-      scopes: [
-        'mcp:read',
-        'mcp:admin',
-        'agents:admin',
-        'credentials:read',
-        'credentials:admin',
-      ],
+      scopes: ['mcp:read', 'mcp:admin', 'agents:admin'],
     });
     const client = createClient({
       apiKey: server.token,
@@ -341,22 +334,6 @@ describe('MCP server management integration', () => {
     });
 
     try {
-      await expect(
-        client.mcpServers.credentials.set('FIRECRAWL_API_KEY', {
-          value: 'fc-test-secret',
-        }),
-      ).resolves.toEqual({
-        credential: expect.objectContaining({
-          name: 'FIRECRAWL_API_KEY',
-          status: 'ready',
-          fingerprint: expect.stringMatching(/^sha256:/),
-        }),
-      });
-      await expect(
-        client.mcpServers.credentials.get('FIRECRAWL_API_KEY'),
-      ).resolves.toEqual({
-        credential: expect.not.objectContaining({ value: expect.anything() }),
-      });
       const connected = await client.mcpServers.connect(githubConnectInput);
       const definition = (connected as any).server as McpServerDefinition;
       expect(definition).toMatchObject({
@@ -444,11 +421,6 @@ describe('MCP server management integration', () => {
           'disable',
         ]),
       );
-      await expect(
-        client.mcpServers.credentials.unset('FIRECRAWL_API_KEY'),
-      ).resolves.toEqual({
-        credential: expect.objectContaining({ status: 'needs_secret' }),
-      });
     } finally {
       await server.close();
     }

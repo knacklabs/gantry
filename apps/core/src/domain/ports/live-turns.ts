@@ -116,56 +116,6 @@ export type LiveAdmissionWorkItemState =
   | 'failed'
   | 'canceled';
 
-export type SdkSessionTurnState =
-  | 'waiting'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'timed_out'
-  | 'canceled';
-
-export interface SdkSessionQueuePolicy {
-  maxWaitingMessages: number;
-  maxQueueWaitMs: number;
-  executionTimeoutMs: number;
-}
-
-/**
- * Result token from the first half of SDK admission. It is valid only inside
- * the transaction that obtained the per-session advisory lock. The caller
- * must promote it after the canonical message has been saved and before that
- * transaction commits.
- */
-export interface SdkSessionAdmissionPreflight {
-  appId: string;
-  agentSessionId: string;
-  idempotencyKey: string;
-  requestFingerprint: string;
-  turnState: 'waiting' | null;
-  queueDeadlineAt: string | null;
-  executionTimeoutMs: number | null;
-  now: string;
-}
-
-export type SdkSessionAdmissionPreflightResult =
-  | {
-      outcome: 'available';
-      preflight: SdkSessionAdmissionPreflight;
-    }
-  | {
-      outcome: 'replayed';
-      item: LiveAdmissionWorkItem;
-    }
-  | {
-      outcome: 'fingerprint_conflict';
-      item: LiveAdmissionWorkItem;
-    }
-  | {
-      outcome: 'capacity_exceeded';
-      activeAndWaiting: number;
-      capacity: number;
-    };
-
 export const LIVE_ADMISSION_TERMINAL_STATES = [
   'completed',
   'failed',
@@ -185,17 +135,6 @@ export interface LiveAdmissionWorkItem {
   senderUserId: string | null;
   senderDisplayName: string | null;
   idempotencyKey: string;
-  /** Public caller-supplied NewMessage.id; messageId is the canonical DB id. */
-  requestMessageId?: string | null;
-  requestFingerprint?: string | null;
-  acceptedEventId?: number | null;
-  turnState?: SdkSessionTurnState | null;
-  queueDeadlineAt?: string | null;
-  executionTimeoutMs?: number | null;
-  executionDeadlineAt?: string | null;
-  turnStartedAt?: string | null;
-  turnEndedAt?: string | null;
-  terminalCode?: string | null;
   state: LiveAdmissionWorkItemState;
   sourceKind: 'message';
   triggerDecision: Record<string, unknown>;
@@ -213,10 +152,14 @@ export interface LiveAdmissionWorkItem {
   endedAt: string | null;
 }
 
-export interface LiveAdmissionWorkItemEnqueueResult {
-  outcome: 'enqueued' | 'replayed';
-  item: LiveAdmissionWorkItem;
-}
+export type LiveAdmissionWorkItemEnqueueResult =
+  | {
+      outcome: 'enqueued' | 'replayed';
+      item: LiveAdmissionWorkItem;
+    }
+  | {
+      outcome: 'overloaded';
+    };
 
 export interface LiveAdmissionWorkItemNotifier {
   notifyLiveAdmissionWorkItem(input: {
@@ -270,16 +213,6 @@ export interface LiveAdmissionWorkItemRepository {
     senderUserId?: string | null;
     senderDisplayName?: string | null;
     idempotencyKey: string;
-    requestMessageId?: string | null;
-    requestFingerprint?: string | null;
-    acceptedEventId?: number | null;
-    turnState?: SdkSessionTurnState | null;
-    queueDeadlineAt?: string | null;
-    executionTimeoutMs?: number | null;
-    executionDeadlineAt?: string | null;
-    turnStartedAt?: string | null;
-    turnEndedAt?: string | null;
-    terminalCode?: string | null;
     triggerDecision?: Record<string, unknown>;
     now?: string;
   }): Promise<LiveAdmissionWorkItemEnqueueResult>;
@@ -317,86 +250,12 @@ export interface LiveAdmissionWorkItemRepository {
     now?: string;
   }): Promise<boolean>;
   /**
-   * Claim-fenced poison-message settlement for SDK admissions. The work-item
-   * failure, SDK turn rejection, and rejection runtime event/outbox commit in
-   * one transaction.
+   * Deletes terminal work items older than the cutoff in bounded batches.
+   * A provider delivery replayed after retention expires is admitted as new.
    */
-  rejectClaimedSdkSessionAdmission?(input: {
-    id: string;
-    claimToken: string;
-    workerInstanceId: string;
-    code: string;
-    retryable: boolean;
-    now?: string;
-  }): Promise<boolean>;
-  preflightSdkSessionAdmission?(input: {
-    appId: string;
-    agentSessionId: string;
-    idempotencyKey: string;
-    requestFingerprint: string;
-    queuePolicy?: SdkSessionQueuePolicy;
-    now?: string;
-  }): Promise<SdkSessionAdmissionPreflightResult>;
-  promoteSdkSessionAdmission?(input: {
-    id: string;
-    appId: string;
-    agentId?: string | null;
-    agentSessionId: string;
-    conversationId: string;
-    threadId?: string | null;
-    queueJid: string;
-    messageId: string;
-    requestMessageId: string;
-    messageCursor: string;
-    senderUserId?: string | null;
-    senderDisplayName?: string | null;
-    preflight: SdkSessionAdmissionPreflight;
-    triggerDecision?: Record<string, unknown>;
-    now?: string;
-  }): Promise<LiveAdmissionWorkItemEnqueueResult>;
-  linkSdkSessionAcceptedEvent?(input: {
-    id: string;
-    acceptedEventId: number;
-    now?: string;
-  }): Promise<LiveAdmissionWorkItem | null>;
-  /**
-   * Resolve an SDK-backed turn before a live run is created. Expired queue
-   * entries are durably rejected here; ordinary channel messages return null.
-   */
-  prepareSdkSessionTurn?(input: {
-    messageId: string;
-    now?: string;
-  }): Promise<LiveAdmissionWorkItem | null>;
-  /**
-   * Start the persisted execution budget after live-turn ownership is won.
-   * Replays return the existing running or terminal row without extending it.
-   */
-  beginSdkSessionTurn?(input: {
-    messageId: string;
-    now?: string;
-  }): Promise<LiveAdmissionWorkItem | null>;
-  rejectSdkSessionTurn?(input: {
-    messageId: string;
-    state: Extract<SdkSessionTurnState, 'failed' | 'timed_out' | 'canceled'>;
-    phase: 'queue' | 'admission';
-    code: string;
-    retryable: boolean;
-    now?: string;
-  }): Promise<LiveAdmissionWorkItem | null>;
-  markSdkSessionTurnRunning?(input: {
-    messageId: string;
-    executionDeadlineAt: string;
-    now?: string;
-  }): Promise<LiveAdmissionWorkItem | null>;
-  settleSdkSessionTurn?(input: {
-    messageId: string;
-    state: Extract<
-      SdkSessionTurnState,
-      'completed' | 'failed' | 'timed_out' | 'canceled'
-    >;
-    terminalCode?: string | null;
-    now?: string;
-  }): Promise<LiveAdmissionWorkItem | null>;
+  deleteExpiredTerminalLiveAdmissionWorkItems(
+    cutoffIso: string,
+  ): Promise<{ deleted: number; more: boolean }>;
 }
 
 export interface LiveTurnCommandAppendResult {
@@ -546,6 +405,16 @@ export interface LiveTurnRepository {
   } | null>;
 }
 
+export interface LiveTurnCommandAppendInput {
+  id: string;
+  liveTurnId: string;
+  commandType: LiveTurnCommandType;
+  idempotencyKey: string;
+  payload?: Record<string, unknown>;
+  createdByWorkerId?: string | null;
+  now?: string;
+}
+
 export interface LiveTurnCommandRepository {
   /**
    * Append a command to the owner inbox. Sequence numbers are allocated
@@ -554,15 +423,9 @@ export interface LiveTurnCommandRepository {
    * returns the existing command as 'replayed'. Appends against a missing
    * or terminal turn are 'rejected'.
    */
-  appendLiveTurnCommand(input: {
-    id: string;
-    liveTurnId: string;
-    commandType: LiveTurnCommandType;
-    idempotencyKey: string;
-    payload?: Record<string, unknown>;
-    createdByWorkerId?: string | null;
-    now?: string;
-  }): Promise<LiveTurnCommandAppendResult>;
+  appendLiveTurnCommand(
+    input: LiveTurnCommandAppendInput,
+  ): Promise<LiveTurnCommandAppendResult>;
   /** Pending commands in seq order; the owner consumes these. */
   listPendingLiveTurnCommands(input: {
     liveTurnId: string;

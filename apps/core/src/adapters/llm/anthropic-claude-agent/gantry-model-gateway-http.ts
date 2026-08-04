@@ -1,16 +1,83 @@
 import http from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 import type {
   ModelGatewayResolvedUpstream,
   ModelProviderDefinition,
 } from '../../../shared/model-provider-registry.js';
+import { normalizeModelUsage } from '../../../shared/model-usage.js';
+
+export interface GatewayResponsePayload {
+  payload: Record<string, unknown>;
+  requestModel?: string;
+}
+
+// One clone+parse shared by usage extraction, auditing, and span
+// finalization. OK, non-streaming JSON responses only — error bodies are
+// never awaited (a stalling upstream must not hang the proxied call).
+export async function readGatewayResponsePayload(
+  response: Response,
+  requestBody: Buffer,
+): Promise<GatewayResponsePayload | undefined> {
+  if (!response.ok) return undefined;
+  const contentType = response.headers.get('content-type')?.toLowerCase();
+  if (contentType?.includes('text/event-stream')) {
+    return undefined;
+  }
+  let requestModel: string | undefined;
+  /* eslint-disable no-catch-all/no-catch-all -- multipart requests are expected to be non-JSON */
+  try {
+    const request = JSON.parse(requestBody.toString('utf8')) as Record<
+      string,
+      unknown
+    >;
+    if (request.stream === true) return undefined;
+    requestModel =
+      typeof request.model === 'string' ? request.model : undefined;
+  } catch {
+    // Multipart uploads have no JSON request model, but their successful JSON
+    // response still carries authorization-relevant file metadata.
+  }
+  /* eslint-enable no-catch-all/no-catch-all */
+  try {
+    const payload: unknown = await response.clone().json();
+    if (
+      payload === null ||
+      typeof payload !== 'object' ||
+      Array.isArray(payload)
+    ) {
+      return undefined;
+    }
+    return {
+      payload: payload as Record<string, unknown>,
+      requestModel,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function usageFromGatewayPayload(
+  parsed: GatewayResponsePayload | undefined,
+): ReturnType<typeof normalizeModelUsage> {
+  if (!parsed) return undefined;
+  try {
+    return normalizeModelUsage({
+      message: parsed.payload,
+      fallbackModel:
+        typeof parsed.payload.model === 'string'
+          ? parsed.payload.model
+          : parsed.requestModel,
+    });
+  } catch {
+    // Fail-open: malformed-but-successful upstream JSON must still proxy.
+    return undefined;
+  }
+}
 
 export const DEFAULT_LOOPBACK_HOST = '127.0.0.1';
-export const ALLOWED_GATEWAY_METHODS = new Set(['POST']);
-
 const ALLOWED_REQUEST_HEADERS = new Set([
   'accept',
   'anthropic-beta',
@@ -126,15 +193,39 @@ export function shouldForwardGatewayResponseHeader(key: string): boolean {
 export async function pipeUpstreamBody(
   response: Response,
   res: http.ServerResponse,
+  tap?: { transform(chunk: Buffer): Buffer; flush(): Buffer },
 ): Promise<void> {
   if (!response.body) {
     res.end();
     return;
   }
-  await pipeline(
-    Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
-    res,
+  const body = Readable.fromWeb(
+    response.body as Parameters<typeof Readable.fromWeb>[0],
   );
+  if (tap) {
+    await pipeline(
+      body,
+      new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          try {
+            callback(null, tap.transform(chunk));
+          } catch {
+            callback(null, chunk);
+          }
+        },
+        flush(callback) {
+          try {
+            callback(null, tap.flush());
+          } catch {
+            callback();
+          }
+        },
+      }),
+      res,
+    );
+    return;
+  }
+  await pipeline(body, res);
 }
 
 export function readBearerToken(req: http.IncomingMessage): string {

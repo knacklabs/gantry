@@ -2,6 +2,8 @@ import type {
   SkillCatalogRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
+import type { SkillCatalogItem } from '../../domain/skills/skills.js';
+import type { ToolCatalogItem } from '../../domain/tools/tools.js';
 import { skillActionSource } from '../../domain/skills/skill-action-permissions.js';
 import { isGantryMcpWildcardRule } from '../../shared/admin-mcp-tools.js';
 import {
@@ -9,10 +11,12 @@ import {
   BROWSER_PROJECTED_MCP_RULE_REJECTION_REASON,
   isBrowserActionMcpToolRule,
   isProjectedBrowserMcpToolRule,
+  isReviewedMcpPatternRule,
   isThirdPartyMcpToolRule,
   validateReadableAgentToolRule,
 } from '../../shared/agent-tool-references.js';
 import {
+  mcpPatternBindingRuntimeRules,
   projectToolCatalogItemToRuntimeRules,
   semanticCapabilityFromToolCatalogItem,
   type SemanticCapabilityDefinition,
@@ -32,12 +36,21 @@ export interface AgentToolRuntimeRuleResolutionInput {
 export interface AgentToolRuntimePolicy {
   rules: string[];
   runtimeAccess: CapabilityRuntimeAccess[];
+  semanticCapabilities: SemanticCapabilityDefinition[];
   reviewedMcpReadBindings: ReviewedMcpReadBinding[];
 }
 
 export interface ReviewedMcpReadBinding {
   capabilityId: string;
   toolPattern: string;
+}
+
+export interface AgentToolRuntimePolicySnapshotInput {
+  appId: string;
+  errorSubject: string;
+  selectedToolDefinitionsByBinding: readonly (ToolCatalogItem | null)[];
+  activeSkillDefinitions?: readonly SkillCatalogItem[];
+  makeError?: (message: string) => Error;
 }
 
 export function reviewedMcpReadBindingsForRuntimeAccess(input: {
@@ -55,10 +68,9 @@ export function reviewedMcpReadBindingsForRuntimeAccess(input: {
     const capability = readCapabilities.get(access.selectedCapabilityId);
     if (!capability) continue;
     const reviewedPatterns = new Set(
-      capability.implementationBindings
-        .filter((binding) => binding.kind === 'mcp_tool')
-        .map((binding) => binding.mcpTool?.trim())
-        .filter((pattern): pattern is string => Boolean(pattern)),
+      capability.implementationBindings.flatMap((binding) =>
+        mcpPatternBindingRuntimeRules(binding),
+      ),
     );
     for (const toolPattern of access.allowedTools) {
       if (!reviewedPatterns.has(toolPattern)) continue;
@@ -90,10 +102,34 @@ export async function resolveAgentToolRuntimePolicy(
   const tools = await Promise.all(
     activeBindings.map((binding) => input.repository.getTool(binding.toolId)),
   );
-  const activeSkillActionKeys = await activeSkillActionProjectionKeys(input);
+  return projectAgentToolRuntimePolicy({
+    appId: input.appId,
+    errorSubject: input.errorSubject,
+    selectedToolDefinitionsByBinding: tools,
+    activeSkillDefinitions: await activeSkillActionDefinitions(input),
+    makeError: input.makeError,
+  });
+}
+
+export function resolveAgentToolRuntimePolicyFromSnapshot(
+  input: AgentToolRuntimePolicySnapshotInput,
+): AgentToolRuntimePolicy {
+  return projectAgentToolRuntimePolicy(input);
+}
+
+function projectAgentToolRuntimePolicy(input: {
+  appId: string;
+  errorSubject: string;
+  selectedToolDefinitionsByBinding: readonly (ToolCatalogItem | null)[];
+  activeSkillDefinitions?: readonly SkillCatalogItem[];
+  makeError?: (message: string) => Error;
+}): AgentToolRuntimePolicy {
+  const activeSkillActionKeys = input.activeSkillDefinitions
+    ? activeSkillActionProjectionKeysFromSkills(input.activeSkillDefinitions)
+    : undefined;
   const runtimeAccess: CapabilityRuntimeAccess[] = [];
   const semanticCapabilities: SemanticCapabilityDefinition[] = [];
-  const rules = tools.flatMap((tool) => {
+  const rules = input.selectedToolDefinitionsByBinding.flatMap((tool) => {
     if (tool?.appId && tool.appId !== input.appId) return [];
     const name = tool?.name?.trim();
     const capability = semanticCapabilityFromToolCatalogItem({
@@ -144,6 +180,7 @@ export async function resolveAgentToolRuntimePolicy(
   return {
     rules,
     runtimeAccess,
+    semanticCapabilities,
     reviewedMcpReadBindings: reviewedMcpReadBindingsForRuntimeAccess({
       runtimeAccess,
       semanticCapabilities,
@@ -204,15 +241,18 @@ function projectCapabilityRuntimeAccess(
       });
       continue;
     }
-    if (binding.kind === 'mcp_tool' && binding.mcpTool?.trim()) {
-      access.push({
-        ...common,
-        sourceType: 'mcp_server',
-        reviewedServerId: mcpServerIdFromTool(binding.mcpTool) ?? 'unknown',
-        allowedTools: [binding.mcpTool.trim()],
-        credentialRefs: [],
-        networkHosts: [],
-      });
+    if (binding.kind === 'mcp_pattern') {
+      const patternRules = mcpPatternBindingRuntimeRules(binding);
+      if (patternRules.length > 0) {
+        access.push({
+          ...common,
+          sourceType: 'mcp_server',
+          reviewedServerId: binding.mcpServer?.trim() ?? 'unknown',
+          allowedTools: patternRules,
+          credentialRefs: [],
+          networkHosts: [],
+        });
+      }
       continue;
     }
     if (binding.kind === 'tool_rule' && binding.rule?.trim()) {
@@ -332,22 +372,22 @@ function stringList(values: readonly string[] | undefined): string[] {
   return [...out];
 }
 
-function mcpServerIdFromTool(toolName: string): string | undefined {
-  const match = /^mcp__([A-Za-z0-9_-]+)__/.exec(toolName.trim());
-  return match?.[1];
-}
-
-async function activeSkillActionProjectionKeys(
+async function activeSkillActionDefinitions(
   input: AgentToolRuntimeRuleResolutionInput,
-): Promise<Set<string> | undefined> {
+): Promise<SkillCatalogItem[] | undefined> {
   if (!input.skillRepository) return undefined;
   if (!('listEnabledSkillsForAgent' in input.skillRepository)) {
     return undefined;
   }
-  const skills = await input.skillRepository.listEnabledSkillsForAgent({
+  return input.skillRepository.listEnabledSkillsForAgent({
     appId: input.appId as never,
     agentId: input.agentId as never,
   });
+}
+
+function activeSkillActionProjectionKeysFromSkills(
+  skills: readonly SkillCatalogItem[],
+): Set<string> {
   return new Set(
     skills.flatMap((skill) =>
       (skill.actionPermissions ?? []).map((action) =>
@@ -415,6 +455,14 @@ export function validateAgentToolRuntimeRules(input: {
     );
   }
   for (const rule of input.rules) {
+    // Reviewed MCP pattern rules are projections from a reviewed mcp_pattern
+    // capability binding; they are valid at projection time only and stay
+    // rejected as durable raw grants by validateReadableAgentToolRule.
+    if (
+      input.allowProjectedThirdPartyMcpTools &&
+      isReviewedMcpPatternRule(rule)
+    )
+      continue;
     const validation = validateReadableAgentToolRule(rule);
     if (!validation.ok) {
       fail(rule, validation.reason);

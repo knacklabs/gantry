@@ -1,4 +1,5 @@
 import { ChannelOwnershipPort, NewMessage } from '../domain/types.js';
+import { isProviderAttachmentStorageRef } from '../shared/provider-attachment-materialization.js';
 import { formatLocalTime } from '../shared/timezone.js';
 import '../channels/register-builtins.js';
 import { getProvider } from '../channels/provider-registry.js';
@@ -18,7 +19,7 @@ export const CONVERSATION_CONTEXT_RENDER_LIMITS = {
   renderedMessageBytes: 6000,
   renderedContextBytes: 16000,
   attributeBytes: 160,
-  attachmentsPerMessage: 4,
+  attachmentsPerMessage: 12,
 } as const;
 
 interface MessageLineLimits {
@@ -192,6 +193,7 @@ function formatAttachmentLines(
             ? Math.trunc(attachment.sizeBytes!).toString()
             : undefined,
         ],
+        ['gantry_attachment', attachment.id],
         ['gantry_ref', formatGantryAttachmentRef(attachment.storageRef)],
       ]
         .filter(
@@ -251,7 +253,13 @@ function utf8Bytes(value: string): number {
 }
 
 function formatGantryAttachmentRef(storageRef?: string): string | undefined {
-  if (!storageRef?.startsWith('attachments/')) return undefined;
+  if (
+    !storageRef ||
+    isProviderAttachmentStorageRef(storageRef) ||
+    !storageRef.startsWith('attachments/')
+  ) {
+    return undefined;
+  }
   if (storageRef.includes('\\') || storageRef.includes('\0')) {
     return undefined;
   }

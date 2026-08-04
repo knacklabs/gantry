@@ -33,10 +33,13 @@ import type {
 import type { AgentExecutionAdapterRegistry } from '../application/agent-execution/agent-execution-adapter-registry.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import type { RunnerStartupHostPhaseTimings } from './agent-spawn-startup-timing.js';
+import type { AgentAccessSnapshot } from '../application/agent-execution/agent-access-snapshot.js';
 import type {
   RunnerSandboxProvider,
   RunnerSandboxSpawnInput,
 } from '../shared/runner-sandbox-provider.js';
+import type { CallableAgentToolManifestEntry } from '../application/core-tools/callable-agent-tools.js';
+import type { AgentPromptCapabilityCatalog } from '../application/agents/agent-prompt-capability-catalog.js';
 
 export type AgentToolRule =
   | {
@@ -53,7 +56,10 @@ export type AgentToolRule =
     };
 
 export interface AgentInput {
+  /** Exact queue key of this turn; the browser activity marker is keyed by it. */
+  turnQueueKey?: string;
   prompt: string;
+  traceparent?: string;
   appId?: string;
   agentId?: string;
   model?: string;
@@ -66,6 +72,8 @@ export interface AgentInput {
   memoryReviewerIsControlApprover?: boolean;
   persona?: AgentPersona;
   browserProfileName?: string;
+  /** Per-turn browser credential the host maps to this turn's profile. */
+  browserTurnToken?: string;
   toolPolicyRules?: string[];
   toolRules?: AgentToolRule[];
   toolAccessRequirements?: string[];
@@ -73,14 +81,16 @@ export interface AgentInput {
   selectedSkillDisplays?: string[];
   attachedMcpSourceIds?: string[];
   semanticCapabilities?: SemanticCapabilityDefinition[];
+  capabilityCatalog?: AgentPromptCapabilityCatalog;
+  providerSessionAccessFingerprint?: string;
   hideAuthorityTools?: boolean;
   isScheduledJob?: boolean;
   jobId?: string;
   jobName?: string;
   runId?: string;
-  correlationId?: string | null;
-  traceparent?: string;
+  parentRunId?: string;
   parentTaskId?: string;
+  callableAgentManifest?: CallableAgentToolManifestEntry[];
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
   liveStopActionToken?: string;
@@ -136,22 +146,20 @@ export interface AgentOutputProviderSession {
 export interface AgentOutputRuntimeEvent {
   appId?: string;
   agentId?: string;
-  sessionId?: string;
   runId?: string;
   jobId?: string;
   conversationId?: string;
   threadId?: string;
   eventType: string;
   actor?: string;
-  correlationId?: string | null;
   responseMode?: 'sse' | 'webhook' | 'both' | 'none';
-  webhookId?: string | null;
   payload: unknown;
 }
 
 export interface RunAgentOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
+  correlationRunId?: string;
   credentialBroker?: AgentCredentialBroker;
   skillRepository?: SkillCatalogRepository;
   skillArtifactStore?: SkillArtifactStore;
@@ -159,6 +167,7 @@ export interface RunAgentOptions {
     appId: string;
     agentId: string;
   };
+  accessSnapshot?: AgentAccessSnapshot;
   mcpServerRepository?: McpServerRepository;
   capabilitySecretRepository?: CapabilitySecretRepository;
   mcpContext?: {
@@ -174,6 +183,7 @@ export interface RunAgentOptions {
   executionAdapters?: AgentExecutionAdapterRegistry;
   runnerSandboxProvider: RunnerSandboxProvider;
   asyncTaskRepositoryAvailable?: boolean;
+  conversationRoutes?: Record<string, ConversationRoute>;
 }
 
 export interface HostRuntimeContext {

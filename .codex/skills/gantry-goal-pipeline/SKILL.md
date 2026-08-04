@@ -1,3 +1,5 @@
+> **Note (2026-07-22):** the symphony-forge harness (`AGENTS.md`, `./forge next`) now owns the implementation pipeline for new goals (`docs/decisions/0002-symphony-forge-adoption.md`). This skill is retained for in-flight lanes that were built under it.
+
 ---
 name: gantry-goal-pipeline
 description: End-to-end Gantry plan implementation pipeline. Use when the user asks to implement or pursue a plan, goal prompt, feature, fix, refactor, PR update, or "same as the goal" workflow with subagent implementation, ponytail simplicity, no-commentary implementation, autoreview, build, launchctl restart, Knacklabs lead gen smoke, and PR/pipeline closeout.
@@ -14,6 +16,13 @@ subagents, verify, review, restart, smoke test, and publish.
 1. Load and follow `ponytail` before implementation. Prefer the smallest
    correct change, delete obsolete paths for single-cut work, and avoid
    compatibility shims unless the user explicitly asks for them.
+2. Plan validation is mandatory before implementation: when handed a
+   goal-prompt validation task, check the plan against current repo truth —
+   gaps, simpler implementation shapes, stale/incorrect seams and refs,
+   ignored risks — and report findings without modifying anything. No
+   implementation stage starts until the orchestrator has resolved the
+   validation findings in the goal-prompt doc.
+
 2. Claude Code is the orchestrator. Implementation stages go through the
    Codex plugin (`codex:codex-rescue` → companion background task) at
    `--effort xhigh` with write access. The orchestrator owns repo grounding,
@@ -51,7 +60,7 @@ For any non-trivial plan or feature:
 
 1. Ground the plan in current repo truth:
    - Follow the repo `AGENTS.md` mandatory read order.
-   - Run `python3 .codex/scripts/stage_orchestrator.py` when the plan overlaps
+   - Run `python3 .agents/scripts/forge.py next` when the plan overlaps
      an existing phase or goal prompt.
    - Read the relevant code, tests, schemas, and docs before trusting the plan.
 2. Convert the plan into a goal prompt or update the existing goal prompt file
@@ -78,8 +87,18 @@ For any non-trivial plan or feature:
 2. Give each Codex handoff the exact files or surfaces it owns. Do not ask
    Codex to make product decisions.
 3. Require Codex to use existing repo patterns and to keep diffs surgical.
+3a. Record every assumption made because information was missing (ambiguous
+   contract, undocumented behavior, unverifiable external fact) in the plan's
+   assumptions ledger — the file next to the goal prompt with the
+   `-assumptions.md` suffix, under the current stage's section, one table row
+   per assumption: what was assumed, the missing info that forced it, the
+   choice taken, impact if wrong. Leave the `Validated` column empty (the
+   orchestrator fills it). No assumptions → write "None." under the stage
+   heading. Never make a silent product decision: if the assumption changes
+   user-visible behavior, stop and report it as a blocker instead.
 4. After each handoff returns, the orchestrator must inspect the diff, reject
-   overbuilt code, and run the smallest relevant checks.
+   overbuilt code, validate the stage's assumptions-ledger rows against the
+   code, and run the smallest relevant checks.
 5. For single-cut or no-legacy work, search for old active names, imports,
    table names, config keys, routes, docs, and tests before calling the cutover
    complete.
@@ -92,10 +111,10 @@ changes, the default closeout pipeline is:
 ```bash
 npm run build
 npm test
-python3 .codex/scripts/check_architecture.py
-python3 .codex/scripts/check_task_completion.py
-python3 .codex/scripts/validate_artifacts.py --allow-missing-run
-python3 .codex/scripts/verify.py
+python3 scripts/check_architecture.py
+python3 .agents/scripts/verify.py
+python3 .agents/scripts/pr_ready.py
+python3 .agents/scripts/verify.py
 ```
 
 Use disposable Postgres for DB-backed tests when required by repo instructions.
@@ -111,7 +130,7 @@ and returns findings verbatim (user decision 2026-07-11, confirmed working).
 Enablers: `[sandbox_workspace_write] network_access=true` in the OPERATOR's
 `~/.codex/config.toml` (user-level on purpose — repo config must not relax
 egress) and an allow prefix_rule for the helper path in repo
-`.codex/rules/default.rules`. The plugin's native `review` command is not
+`~/.codex/rules/gantry.rules` (operator-level). The plugin's native `review` command is not
 used.
 
 Before starting a new review, check whether one is already running:

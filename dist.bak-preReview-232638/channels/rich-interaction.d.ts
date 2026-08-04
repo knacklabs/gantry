@@ -1,0 +1,21 @@
+import type { InteractionDescriptor, RichInteractionRequest } from '../domain/types.js';
+export declare const RICH_INTERACTION_FALLBACK_COPY = "Rich view unavailable in this conversation. Showing text version.";
+export declare const RICH_INTERACTION_OPEN_FORM_LABEL = "Open form";
+export declare const RICH_INTERACTION_SUBMIT_LABEL = "Submit";
+export declare const RICH_INTERACTION_CANCEL_LABEL = "Cancel";
+export declare const RICH_INTERACTION_REQUIRED_FIELDS_COPY = "Complete the required fields before submitting.";
+export declare const RICH_INTERACTION_SUBMITTED_BY_COPY = "Submitted by";
+type RichDescriptor = InteractionDescriptor & {
+    kind?: string;
+    fallbackText?: string;
+};
+export declare function richDescriptor(input: RichInteractionRequest): RichDescriptor;
+export declare function richFallbackText(input: RichInteractionRequest): string;
+export declare function richSlackEscape(text: string): string;
+export declare function richHtmlEscape(text: string): string;
+export declare function richTruncate(text: string, max: number): string;
+export declare function isRichForm(input: RichInteractionRequest): boolean;
+export declare function richArrayItems(value: unknown): Record<string, unknown>[];
+export declare function richTextLines(input: RichInteractionRequest): string[];
+export declare function richFormFields(input: RichInteractionRequest): Record<string, unknown>[];
+export {};

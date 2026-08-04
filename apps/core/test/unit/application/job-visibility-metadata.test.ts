@@ -234,20 +234,28 @@ describe('job visibility metadata', () => {
   });
 
   it('surfaces latest terminal run health in list metadata', async () => {
+    const listLatestJobRunsByJobIds = vi.fn(
+      async () =>
+        new Map([
+          [
+            'job-1',
+            makeRun({
+              status: 'timeout',
+              result_summary: null,
+              error_summary: 'Scheduler run lease expired before completion.',
+            }),
+          ],
+        ]),
+    );
     const metadata = await buildJobListVisibilityMetadata({
       jobs: [makeJob({ status: 'active' })],
       ops: {
-        listJobRuns: vi.fn(async () => [
-          makeRun({
-            status: 'timeout',
-            result_summary: null,
-            error_summary: 'Scheduler run lease expired before completion.',
-          }),
-        ]),
+        listLatestJobRunsByJobIds,
       } as unknown as RuntimeJobRepository,
       nowMs: Date.parse('2026-04-24T09:10:00.000Z'),
     });
 
+    expect(listLatestJobRunsByJobIds).toHaveBeenCalledWith(['job-1']);
     expect(metadata.get('job-1')?.health).toMatchObject({
       state: 'timed_out',
       latestRunId: 'run-1',
@@ -258,55 +266,24 @@ describe('job visibility metadata', () => {
     });
   });
 
-  it('exposes current agent recovery state for blocked jobs', async () => {
-    const metadata = await buildJobVisibilityMetadata({
-      job: makeJob({
-        recovery_intent: {
-          kind: 'permission_denied',
-          state: 'running',
-          dedupe_key: 'dedupe-1',
-          created_at: '2026-04-24T09:00:00.000Z',
-          updated_at: '2026-04-24T09:01:00.000Z',
-          source_run_id: 'run-1',
-          setup_fingerprint: 'fingerprint-1',
-          requirement_type: 'tool',
-          requirement_id: 'RunCommand',
-          next_action:
-            'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
-          attempts: 1,
-          last_error: null,
-        },
-      }),
-      ops: {
-        listJobRuns: vi.fn(async () => []),
-      } as unknown as RuntimeJobRepository,
-      nowMs: Date.parse('2026-04-24T09:10:00.000Z'),
-    });
-
-    expect(metadata.recovery).toEqual({
-      state: 'running',
-      kind: 'permission_denied',
-      updatedAt: '2026-04-24T09:01:00.000Z',
-      attempts: 1,
-      requirementType: 'tool',
-      requirementId: 'RunCommand',
-      nextAction:
-        'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
-      lastError: null,
-    });
-  });
-
   it('surfaces runtime restart health separately from configured timeouts', async () => {
     const metadata = await buildJobListVisibilityMetadata({
       jobs: [makeJob({ status: 'active' })],
       ops: {
-        listJobRuns: vi.fn(async () => [
-          makeRun({
-            status: 'timeout',
-            result_summary: null,
-            error_summary: 'Scheduler runtime restarted before completion.',
-          }),
-        ]),
+        listLatestJobRunsByJobIds: vi.fn(
+          async () =>
+            new Map([
+              [
+                'job-1',
+                makeRun({
+                  status: 'timeout',
+                  result_summary: null,
+                  error_summary:
+                    'Scheduler runtime restarted before completion.',
+                }),
+              ],
+            ]),
+        ),
       } as unknown as RuntimeJobRepository,
       nowMs: Date.parse('2026-04-24T09:10:00.000Z'),
     });

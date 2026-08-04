@@ -1,5 +1,36 @@
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import type { PermissionMode } from '../shared/permission-mode.js';
+import type { ReviewMessageView } from './review-message-view.js';
+import type { MessageActionAffordance } from './message-actions.js';
+import type { ObserverDigestMessageView } from './observer-digest-view.js';
+import type { BrainReviewCardView } from './brain-review-card.js';
+
+export type {
+  MessageActionAffordanceKind,
+  MemoryReviewActionDecision,
+  BrainDreamReviewActionDecision,
+  MessageActionAffordance,
+  MessageActionCallbackInput,
+  MemoryReviewMessageActionInput,
+  ObserverFeedbackMessageActionInput,
+  BrainDreamReviewMessageActionInput,
+  MessageActionOutcome,
+  OnMessageAction,
+  OnMemoryReviewMessageAction,
+  OnObserverFeedbackMessageAction,
+  OnBrainDreamReviewMessageAction,
+} from './message-actions.js';
+export type {
+  ReviewMessageView,
+  ReviewMessageSide,
+  ReviewMessageEvidence,
+  ReviewMessageAffordance,
+} from './review-message-view.js';
+export type {
+  ObserverDigestMessageView,
+  ObserverDigestInsightView,
+  ObserverFeedbackAffordance,
+} from './observer-digest-view.js';
 
 export type {
   Job,
@@ -11,9 +42,6 @@ export type {
   JobEvent,
   JobExecutionContext,
   JobNotificationRoute,
-  JobRecoveryIntent,
-  JobRecoveryIntentKind,
-  JobRecoveryIntentState,
   JobRun,
   JobRunStatus,
   JobScheduleType,
@@ -45,7 +73,6 @@ export type AgentControlThinking =
 export type AgentControlEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export interface AgentControlOverrides {
-  modelAlias?: string;
   effort?: AgentControlEffort;
   thinking?: AgentControlThinking;
   maxOutputTokens?: number;
@@ -73,6 +100,7 @@ export interface AgentConfig {
 export interface ConversationRoute {
   name: string;
   folder: string;
+  conversationId?: string;
   trigger: string;
   added_at: string;
   agentId?: string;
@@ -80,20 +108,19 @@ export interface ConversationRoute {
   agentConfig?: AgentConfig;
   requiresTrigger?: boolean;
   conversationKind?: 'dm' | 'channel';
+  providerConnectionId?: string;
+  senderIdentityEvidenceType?: 'provider_user' | 'web_user';
+  systemSenderIds?: string[];
 }
 
 export interface NewMessage {
   id: string;
-  /** Canonical persisted message id; `id` remains the provider-facing id. */
-  canonicalMessageId?: string;
   chat_jid: string;
+  name?: string;
+  isGroup?: boolean;
   provider?: string;
   providerAccountId?: string;
   agentId?: string;
-  /** Provider-neutral admission policy selected by the configured account. */
-  admissionMode?: 'agent' | 'event_only';
-  /** Bounded provider context required by the owning application. */
-  providerData?: Record<string, unknown>;
   sender: string;
   sender_name: string;
   content: string;
@@ -114,33 +141,16 @@ export interface NewMessage {
   };
   responseSchema?: Record<string, unknown>;
   agentControls?: AgentControlOverrides;
-  callerResolvedTools?: CallerResolvedToolsConfig;
-  /** Provider continuity policy selected by the SDK caller for this turn. */
-  continuityMode?: SessionContinuityMode;
-  /** Immutable caller response route owned by this accepted app message. */
-  appResponseRoute?: AppMessageResponseRoute;
   attachments?: NewMessageAttachment[];
 }
 
-export type SessionContinuityMode = 'provider' | 'bounded';
-
-/** Durable per-message routing used when an app session turn emits events. */
-export interface AppMessageResponseRoute {
-  sessionId: string;
-  threadId: string | null;
-  responseMode: 'sse' | 'webhook' | 'both' | 'none';
-  webhookId: string | null;
-  correlationId: string | null;
-}
-
-/** A tool whose implementation is supplied by the SDK caller, not Gantry. */
+/** A bounded tool whose implementation is supplied by the SDK caller. */
 export interface CallerResolvedToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
 }
 
-/** Per-turn caller-tool projection kept domain-neutral by the runtime. */
 export interface CallerResolvedToolsConfig {
   sessionId: string;
   tools: CallerResolvedToolDefinition[];
@@ -155,9 +165,26 @@ export interface NewMessageAttachment {
   sizeBytes?: number;
   externalId?: string;
   storageRef?: string;
+  file_name?: string;
+  provider_fetch?: {
+    provider: string;
+    kind: string;
+    id: string;
+    [key: string]: unknown;
+  };
+  deleted_at?: string;
 }
 
 // --- Channel capability ports ---
+export type PermissionRiskLevel = 'low' | 'medium' | 'high' | 'critical';
+export type PermissionRiskCategory =
+  | 'destructive'
+  | 'privileged'
+  | 'secret'
+  | 'network'
+  | 'filesystem'
+  | 'benign';
+
 export interface PermissionApprovalRequest {
   requestId: string;
   appId?: string;
@@ -178,6 +205,8 @@ export interface PermissionApprovalRequest {
   responseKeyId?: string;
   decisionPolicy?: 'control_allowlist' | 'same_channel';
   unattended?: boolean;
+  permissionLane?: 'interactive' | 'autonomous';
+  expiresAt?: string;
   senderId?: string;
   turnIntentSummary?: string;
   toolName: string;
@@ -188,25 +217,83 @@ export interface PermissionApprovalRequest {
   displayName?: string;
   description?: string;
   decisionReason?: string;
+  risk_level?: PermissionRiskLevel;
+  risk_category?: PermissionRiskCategory;
   closestRule?: {
     rule: string;
     reason: string;
   };
   blockedPath?: string;
   toolInput?: Record<string, unknown>;
+  hostInjectedCommandPrefix?: string;
+  /** 16K-limit sanitize of the same input; the permission DECISION layers
+   *  (rails + effect-key) evaluate this fuller view, not the 500-char display
+   *  `toolInput`. Set alongside `toolInput` in ipc-parsing. */
+  classifierToolInput?: Record<string, unknown>;
   toolInputSanitized?: boolean;
   toolInputSanitizedPaths?: string[];
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
   suggestions?: PermissionApprovalUpdate[];
   decisionOptions?: PermissionApprovalDecisionMode[];
+  /** Learned-root ask-once (PERM-2 Task G): the persistent-rule option means
+   *  "remember this folder", so it approves without a tool-rule suggestion. */
+  trustedRootLearn?: boolean;
   promotionHintCount?: number;
   interaction?: InteractionDescriptor;
+  permissionBatch?: {
+    requestIds: string[];
+    rows: string[];
+  };
+}
+
+export interface PermissionApprovalCancellation {
+  requestId: string;
+  appId?: string;
+  sourceAgentFolder: string;
+  threadId?: string;
+  reason?: string;
 }
 
 export type PermissionApprovalDecisionMode =
   | 'allow_once'
   | 'allow_persistent_rule'
   | 'cancel';
+
+export interface PermissionRecoveryEnvelope {
+  version: 1;
+  renderedDecisionOptions: PermissionApprovalDecisionMode[];
+  targetJid: string | null;
+  approvalContextJid: string | null;
+  threadId: string | null;
+  decisionPolicy: PermissionApprovalRequest['decisionPolicy'] | null;
+  renderedRequest: PermissionApprovalRequest;
+}
+
+export interface PermissionCallbackScope {
+  appId: string;
+  sourceAgentFolder: string;
+  interactionId: string;
+}
+
+export interface PermissionCallbackClaimIntent {
+  mode: PermissionApprovalDecisionMode;
+  approverRef: string;
+  decidedAt: string;
+}
+
+export interface PermissionCallbackClaimReference {
+  id: string;
+  scope: PermissionCallbackScope;
+}
+
+export interface PermissionCallbackClaim extends PermissionCallbackClaimReference {
+  intent: PermissionCallbackClaimIntent;
+  match: {
+    kind: 'individual' | 'batch';
+    canonicalId: string;
+    providerAliases: string[];
+  };
+}
 
 export interface PermissionApprovalRuleValue {
   toolName: string;
@@ -238,8 +325,12 @@ export interface PermissionApprovalDecision {
   mode?: PermissionApprovalDecisionMode;
   decidedBy?: string;
   reason?: string;
+  risk_level?: PermissionRiskLevel;
+  risk_category?: PermissionRiskCategory;
   updatedPermissions?: PermissionApprovalUpdate[];
   decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject';
+  batchDecision?: 'review_each';
+  permissionCallbackClaim?: PermissionCallbackClaimReference;
 }
 
 export interface UserQuestionOption {
@@ -261,6 +352,8 @@ export interface UserQuestionRequest {
   appId?: string;
   agentId?: string;
   providerAccountId?: string;
+  permissionLane?: 'interactive' | 'autonomous';
+  expiresAt?: string;
   jobId?: string;
   runId?: string;
   runLeaseToken?: string;
@@ -272,10 +365,27 @@ export interface UserQuestionRequest {
   interaction?: InteractionDescriptor;
 }
 
+export interface QuestionRecoveryEnvelope {
+  version: 1;
+  targetJid: string | null;
+  threadId: string | null;
+  request: UserQuestionRequest;
+  selections: Array<{ questionIndex: number; optionIndexes: number[] }>;
+  completedQuestionIndexes: number[];
+}
+
 export interface UserQuestionResponse {
   requestId: string;
   answers: Record<string, string | string[]>;
   answeredBy?: string;
+}
+
+export interface UserQuestionCancellation {
+  requestId: string;
+  appId?: string;
+  sourceAgentFolder: string;
+  threadId?: string;
+  reason?: string;
 }
 
 export type InteractionSeverity =
@@ -408,8 +518,6 @@ export interface InteractionDescriptor {
 export interface StreamingChunkOptions {
   threadId?: string;
   providerAccountId?: string;
-  runId?: string;
-  appResponseRoute?: AppMessageResponseRoute;
   done?: boolean;
   generation?: number;
 }
@@ -424,57 +532,25 @@ export interface ProgressUpdateOptions {
   actionAffordances?: MessageActionAffordance[];
 }
 
-export type MessageActionAffordanceKind =
-  | 'scheduler_run_now'
-  | 'scheduler_pause_job'
-  | 'live_turn_stop';
-
-export type MessageActionAffordance =
-  | {
-      kind: 'scheduler_run_now' | 'scheduler_pause_job';
-      label: string;
-      jobId: string;
-      runId?: string | null;
-    }
-  | {
-      kind: 'live_turn_stop';
-      label: string;
-      actionToken: string;
-    };
-
-export type MessageActionCallbackInput =
-  | {
-      kind: 'live_turn_stop';
-      conversationJid: string;
-      providerAccountId?: string;
-      threadId?: string;
-      userId?: string;
-      actionToken?: string;
-    }
-  | {
-      kind: 'scheduler_run_now';
-      conversationJid: string;
-      providerAccountId?: string;
-      threadId?: string;
-      userId?: string;
-      jobId: string;
-      runId?: string | null;
-    };
-
-export type OnMessageAction = (
-  input: MessageActionCallbackInput,
-) => Promise<void>;
-
 export interface MessageSendOptions {
   threadId?: string;
   providerAccountId?: string;
   agentId?: string;
-  runId?: string;
-  appResponseRoute?: AppMessageResponseRoute;
   actionAffordances?: MessageActionAffordance[];
   files?: MessageFileAttachment[];
-  providerData?: Record<string, unknown>;
-  adaptiveCard?: Record<string, unknown>;
+  /** When set, channels with native support render this as a compact-structured
+   * memory-review message (per-channel native blocks/card) with the decision
+   * buttons. Channels without native buttons fall back to `text`. */
+  reviewMessageView?: ReviewMessageView;
+  /** When set, channels with native support render the observer digest as one
+   * message of up to 3 insight groups, each with its four `observer_feedback`
+   * buttons. Channels without native buttons fall back to `text`. */
+  observerDigestView?: ObserverDigestMessageView;
+  /** When set, channels with native support render the destructive-proposal
+   * review card (headline + detail) with its Approve/Reject
+   * `brain_dream_review_decision` buttons. Channels without native buttons fall
+   * back to `text`. */
+  brainReviewView?: BrainReviewCardView;
 }
 
 export interface MessageFileAttachment {
@@ -514,10 +590,7 @@ export type OnChatMetadata = (
   name?: string,
   channel?: string,
   isGroup?: boolean,
-  options?: {
-    providerAccountId?: string;
-    externalRef?: Record<string, unknown>;
-  },
+  options?: { providerAccountId?: string },
 ) => Promise<void>;
 
 export interface ChannelLifecyclePort {
@@ -561,7 +634,7 @@ export interface StreamingSink {
 }
 
 export interface StreamingStateSink {
-  resetStreaming(jid: string): void;
+  resetStreaming(jid: string, options?: { threadId?: string }): void;
 }
 
 export interface ProgressSink {
@@ -580,11 +653,27 @@ export interface InteractionSurface {
   requestPermissionApproval(
     jid: string,
     request: PermissionApprovalRequest,
+    onPromptDelivered?: (messageId: string) => void,
   ): Promise<PermissionApprovalDecision>;
   requestUserAnswer(
     jid: string,
     request: UserQuestionRequest,
+    onPromptDelivered?: (messageId: string, questionIndex?: number) => void,
   ): Promise<UserQuestionResponse>;
+  questionIndexesForDeliveredPrompt?(
+    request: UserQuestionRequest,
+    firstQuestionIndex: number,
+  ): number[];
+  dropPendingInteraction?(
+    kind: 'permission' | 'question',
+    request: PermissionApprovalRequest | UserQuestionRequest,
+  ): void;
+  cancelPendingPermission?(
+    request: PermissionApprovalCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'>;
+  cancelPendingQuestion?(
+    request: UserQuestionCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'>;
 }
 
 export interface RichInteractionSurface {

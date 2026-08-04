@@ -9,7 +9,7 @@ import { TaskContext, TaskHandler } from './ipc-types.js';
 import { mapApplicationError } from './ipc-application-error.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
-import { runtimeJobSchedulePlanner } from './scheduler.js';
+import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
 import { resolveCanonicalAppSessionForOrigin } from '../application/jobs/job-management-helpers.js';
 import { normalizeOptional } from '../application/jobs/job-management-access.js';
 import { appIdFromConversationJid } from '../shared/app-conversation-jid.js';
@@ -247,7 +247,6 @@ function publicJobVisibility(metadata: JobVisibilityMetadata) {
     toolAccessRequirements: metadata.toolAccessRequirements,
     requiredMcpServers: metadata.requiredMcpServers,
     setup: metadata.setup,
-    recovery: metadata.recovery,
     health: metadata.health,
     recentRunErrors: metadata.recentRunErrors,
     staleness: metadata.staleness,

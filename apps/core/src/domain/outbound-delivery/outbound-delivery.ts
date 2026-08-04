@@ -86,7 +86,6 @@ export interface OutboundDeliveryResolvedDestination {
   threadId?: string;
   providerId: ProviderId;
   providerAccountId: ProviderAccountId;
-  providerData?: Record<string, unknown>;
 }
 
 export interface ClaimedOutboundDeliveryItem {

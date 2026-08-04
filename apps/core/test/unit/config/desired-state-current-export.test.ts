@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  exportCurrentDesiredState,
-  routeBelongsToApp,
-} from '@core/config/settings/desired-state-current-export.js';
+import { exportCurrentDesiredState } from '@core/config/settings/desired-state-current-export.js';
 import { SettingsDesiredStateService } from '@core/config/settings/desired-state-service.js';
 import {
   createDefaultRuntimeSettings,
@@ -12,43 +9,65 @@ import {
 import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-settings-renderer.js';
 
 describe('exportCurrentDesiredState', () => {
-  it('keeps conversation routes inside the requested app scope', () => {
-    const providerAccountIds = new Set(['account:manipal']);
+  it('loads conversation threads in bounded batches during settings export', async () => {
+    let activeThreadQueries = 0;
+    let maximumActiveThreadQueries = 0;
+    const conversations = Array.from({ length: 17 }, (_, index) => ({
+      id: `conversation:slack:${index}`,
+      providerAccountId: 'slack-default',
+      externalRef: { value: `C${index}` },
+      kind: 'channel',
+      title: `Channel ${index}`,
+      status: 'active',
+    }));
+    const deps = {
+      ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
+      repositories: {
+        agents: { listAgents: vi.fn(async () => []) },
+        tools: {
+          listAgentToolBindingsForAgents: vi.fn(async () => []),
+          listAgentToolSourcesForAgents: vi.fn(async () => []),
+          listTools: vi.fn(async () => []),
+        },
+        skills: {
+          listAgentSkillBindingsForAgents: vi.fn(async () => []),
+          listSkills: vi.fn(async () => []),
+        },
+        mcpServers: { listAgentBindingsForAgents: vi.fn(async () => []) },
+        providerAccounts: {
+          listProviderAccounts: vi.fn(async () => []),
+          listConversationInstalls: vi.fn(async () => []),
+        },
+        conversations: {
+          listConversations: vi.fn(async () => conversations),
+          listThreads: vi.fn(async () => {
+            activeThreadQueries += 1;
+            maximumActiveThreadQueries = Math.max(
+              maximumActiveThreadQueries,
+              activeThreadQueries,
+            );
+            await new Promise((resolve) => setTimeout(resolve, 5));
+            activeThreadQueries -= 1;
+            return [];
+          }),
+          listConversationApproversForConversations: vi.fn(async () => []),
+        },
+      },
+    };
 
-    expect(
-      routeBelongsToApp({
-        appId: 'manipal-tender-copilot',
-        jid: 'app:manipal-tender-copilot:thread-1',
-        providerAccountId: 'account:manipal',
-        providerAccountIds,
-      }),
-    ).toBe(true);
-    expect(
-      routeBelongsToApp({
-        appId: 'manipal-tender-copilot',
-        jid: 'app:manipal-tender-copilot:thread-1',
-        providerAccountId: 'account:default',
-        providerAccountIds,
-      }),
-    ).toBe(false);
-    expect(
-      routeBelongsToApp({
-        appId: 'manipal-tender-copilot',
-        jid: 'app:default:thread-1',
-        providerAccountIds,
-      }),
-    ).toBe(false);
-    expect(
-      routeBelongsToApp({
-        appId: 'manipal-tender-copilot',
-        jid: 'sl:C123',
-        providerAccountId: 'account:manipal',
-        providerAccountIds,
-      }),
-    ).toBe(true);
+    await exportCurrentDesiredState({
+      deps: deps as any,
+      appId: 'app-one' as never,
+      settings: createDefaultRuntimeSettings(),
+    });
+
+    expect(deps.repositories.conversations.listThreads).toHaveBeenCalledTimes(
+      conversations.length,
+    );
+    expect(maximumActiveThreadQueries).toBeLessThanOrEqual(4);
   });
 
-  it('does not export internal routes or unbound event-only conversations to settings', async () => {
+  it('does not export internal app/control approval routes to settings', async () => {
     const settings = {
       providers: {},
       providerAccounts: {},
@@ -109,15 +128,6 @@ describe('exportCurrentDesiredState', () => {
               config: {},
               runtimeSecretRefs: { bot_token: 'env:SLACK_BOT_TOKEN' },
             },
-            {
-              id: 'teams-default',
-              agentId: 'main_agent',
-              providerId: 'teams',
-              label: 'Teams',
-              status: 'active',
-              config: { inbound_mode: 'event_only' },
-              runtimeSecretRefs: { client_id: 'env:TEAMS_CLIENT_ID' },
-            },
           ]),
           listConversationInstalls: vi.fn(async () => []),
         },
@@ -139,16 +149,13 @@ describe('exportCurrentDesiredState', () => {
               title: 'Engineering',
               status: 'active',
             },
+          ]),
+          listConversationApproversForConversations: vi.fn(async () => [
             {
-              id: 'conversation:teams',
-              providerAccountId: 'teams-default',
-              externalRef: { value: '19:runtime-discovered@thread.tacv2' },
-              kind: 'channel',
-              title: 'Runtime-discovered Teams channel',
-              status: 'active',
+              conversationId: 'conversation:slack',
+              externalUserId: 'U1',
             },
           ]),
-          listConversationApproversForConversations: vi.fn(async () => []),
         },
       },
     };
@@ -161,7 +168,6 @@ describe('exportCurrentDesiredState', () => {
 
     expect(exported.providers).toEqual({
       slack: { enabled: true },
-      teams: { enabled: true },
     });
     expect(exported.providerAccounts).toEqual({
       'slack-default': {
@@ -172,15 +178,6 @@ describe('exportCurrentDesiredState', () => {
         runtimeSecretRefs: { bot_token: 'env:SLACK_BOT_TOKEN' },
         externalIdentityRef: undefined,
         config: {},
-      },
-      'teams-default': {
-        agentId: 'main_agent',
-        provider: 'teams',
-        label: 'Teams',
-        status: 'active',
-        runtimeSecretRefs: { client_id: 'env:TEAMS_CLIENT_ID' },
-        externalIdentityRef: undefined,
-        config: { inbound_mode: 'event_only' },
       },
     });
     expect(Object.values(exported.conversations)).toEqual([
@@ -205,6 +202,9 @@ describe('exportCurrentDesiredState', () => {
     permission_mode: auto
     thinking: on
     max_output_tokens: 2048
+    delegates:
+      - analyst
+      - future_agent
     tool_rules:
       - tool: Bash
         action: block
@@ -385,6 +385,7 @@ permissions:
       permissionMode: 'auto',
       thinking: { mode: 'on' },
       maxOutputTokens: 2048,
+      delegates: ['analyst', 'future_agent'],
       toolRules: [{ tool: 'Bash', action: 'block', reason: 'no shell' }],
     });
     expect(exported.permissions.autoMode).toEqual({ model: 'sonnet' });
@@ -404,6 +405,340 @@ permissions:
     ).toBe('main_agent');
     expect(parsed.agents.main_agent.permissionMode).toBe('auto');
     expect(parsed.permissions.autoMode).toEqual({ model: 'sonnet' });
+  });
+
+  it('keeps settings-owned secret refs and approvers the DB projection lacks', async () => {
+    const settings = parseRuntimeSettings('agents: {}\n');
+    settings.providerAccounts = {
+      'slack-default': {
+        agentId: 'main_agent',
+        provider: 'slack',
+        label: 'Slack',
+        runtimeSecretRefs: {
+          bot_token: 'env:SLACK_BOT_TOKEN',
+          app_token: 'env:SLACK_APP_TOKEN',
+        },
+        config: {},
+      },
+    } as never;
+    settings.conversations = {
+      shared_channel: {
+        providerConnection: 'slack-default',
+        providerAccount: 'slack-default',
+        externalId: 'C123',
+        kind: 'channel',
+        displayName: 'Engineering',
+        senderPolicy: { allow: '*', mode: 'trigger' },
+        controlApprovers: ['U1'],
+        installedAgents: {},
+      },
+    } as never;
+    const deps = {
+      ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
+      repositories: {
+        agents: {
+          listAgents: vi.fn(async () => [
+            {
+              id: 'agent:main_agent',
+              name: 'Main',
+              status: 'active',
+              createdAt: '2026-06-01T00:00:00.000Z',
+              updatedAt: '2026-06-01T00:00:00.000Z',
+            },
+          ]),
+        },
+        tools: {
+          listAgentToolBindingsForAgents: vi.fn(async () => []),
+          listAgentToolSourcesForAgents: vi.fn(async () => []),
+          listTools: vi.fn(async () => []),
+        },
+        skills: {
+          listAgentSkillBindingsForAgents: vi.fn(async () => []),
+          listSkills: vi.fn(async () => []),
+        },
+        mcpServers: { listAgentBindingsForAgents: vi.fn(async () => []) },
+        providerAccounts: {
+          // The DB row exists but carries no secret refs — they only live
+          // in settings.yaml as env references.
+          listProviderAccounts: vi.fn(async () => [
+            {
+              id: 'slack-default',
+              agentId: 'agent:main_agent',
+              providerId: 'slack',
+              label: 'Slack',
+              status: 'active',
+              config: {},
+              runtimeSecretRefs: {},
+            },
+          ]),
+          listConversationInstalls: vi.fn(async () => []),
+        },
+        conversations: {
+          listConversations: vi.fn(async () => [
+            {
+              id: 'conversation:slack',
+              providerAccountId: 'slack-default',
+              externalRef: { value: 'C123' },
+              kind: 'channel',
+              title: 'Engineering',
+              status: 'active',
+            },
+          ]),
+          listThreads: vi.fn(async () => []),
+          // No stored approver rows either.
+          listConversationApproversForConversations: vi.fn(async () => []),
+        },
+      },
+    };
+
+    const exported = await exportCurrentDesiredState({
+      deps: deps as any,
+      appId: 'app-one' as never,
+      settings: settings as any,
+    });
+
+    expect(
+      exported.providerAccounts['slack-default']?.runtimeSecretRefs,
+    ).toEqual({
+      bot_token: 'env:SLACK_BOT_TOKEN',
+      app_token: 'env:SLACK_APP_TOKEN',
+    });
+    expect(exported.conversations.shared_channel?.controlApprovers).toEqual([
+      'U1',
+    ]);
+
+    deps.repositories.conversations.listConversationApproversForConversations.mockResolvedValue(
+      [
+        {
+          conversationId: 'conversation:slack',
+          externalUserId: '',
+        },
+      ] as never,
+    );
+    const cleared = await exportCurrentDesiredState({
+      deps: deps as any,
+      appId: 'app-one' as never,
+      settings: settings as any,
+    });
+
+    expect(cleared.conversations.shared_channel?.controlApprovers).toEqual([]);
+  });
+
+  it('never exports canonical fallback channel accounts as provider accounts', async () => {
+    const settings = parseRuntimeSettings('agents: {}\n');
+    const deps = {
+      ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
+      repositories: {
+        agents: { listAgents: vi.fn(async () => []) },
+        tools: {
+          listAgentToolBindingsForAgents: vi.fn(async () => []),
+          listAgentToolSourcesForAgents: vi.fn(async () => []),
+          listTools: vi.fn(async () => []),
+        },
+        skills: {
+          listAgentSkillBindingsForAgents: vi.fn(async () => []),
+          listSkills: vi.fn(async () => []),
+        },
+        mcpServers: { listAgentBindingsForAgents: vi.fn(async () => []) },
+        providerAccounts: {
+          listProviderAccounts: vi.fn(async () => [
+            {
+              id: 'channel-providerAccount:default:telegram',
+              agentId: 'agent:telegram',
+              providerId: 'telegram',
+              label: 'telegram',
+              status: 'active',
+              config: {},
+              runtimeSecretRefs: {},
+            },
+            {
+              id: 'channel-providerConnection:default:slack',
+              agentId: 'agent:main_agent',
+              providerId: 'slack',
+              label: 'slack',
+              status: 'active',
+              config: {},
+              runtimeSecretRefs: {},
+            },
+            {
+              id: 'telegram_default',
+              agentId: 'agent:main_agent',
+              providerId: 'telegram',
+              label: 'telegram',
+              status: 'active',
+              config: {},
+              runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
+            },
+          ]),
+          listConversationInstalls: vi.fn(async () => []),
+        },
+        conversations: {
+          listConversations: vi.fn(async () => []),
+          listThreads: vi.fn(async () => []),
+          listConversationApproversForConversations: vi.fn(async () => []),
+        },
+      },
+    };
+
+    const exported = await exportCurrentDesiredState({
+      deps: deps as any,
+      appId: 'app-one' as never,
+      settings: settings as any,
+    });
+
+    expect(Object.keys(exported.providerAccounts)).toEqual([
+      'telegram_default',
+    ]);
+  });
+
+  it('never exports route-derived canonical fallback channel accounts as desired conversations', async () => {
+    const settings = parseRuntimeSettings('agents: {}\n');
+    const deps = {
+      ops: {
+        getAllConversationRoutes: vi.fn(async () => ({
+          'sl:C0BH9KZSTM1': {
+            name: 'itops',
+            folder: 'itops',
+            conversationId: 'conversation:sl:C0BH9KZSTM1',
+            providerAccountId: 'channel-providerAccount:default:slack',
+            trigger: '@itops',
+            added_at: '2026-07-22T17:00:19.975Z',
+            requiresTrigger: true,
+            conversationKind: 'channel',
+          },
+        })),
+      },
+      repositories: {
+        agents: { listAgents: vi.fn(async () => []) },
+        tools: {
+          listAgentToolBindingsForAgents: vi.fn(async () => []),
+          listAgentToolSourcesForAgents: vi.fn(async () => []),
+          listTools: vi.fn(async () => []),
+        },
+        skills: {
+          listAgentSkillBindingsForAgents: vi.fn(async () => []),
+          listSkills: vi.fn(async () => []),
+        },
+        mcpServers: { listAgentBindingsForAgents: vi.fn(async () => []) },
+        providerAccounts: {
+          listProviderAccounts: vi.fn(async () => [
+            {
+              id: 'channel-providerAccount:default:slack',
+              agentId: 'agent:itops',
+              providerId: 'slack',
+              label: 'Slack fallback',
+              status: 'active',
+              config: {},
+              runtimeSecretRefs: {},
+            },
+          ]),
+          listConversationInstalls: vi.fn(async () => []),
+        },
+        conversations: {
+          listConversations: vi.fn(async () => []),
+          listThreads: vi.fn(async () => []),
+          listConversationApproversForConversations: vi.fn(async () => []),
+        },
+      },
+    };
+
+    const exported = await exportCurrentDesiredState({
+      deps: deps as any,
+      appId: 'app-one' as never,
+      settings: settings as any,
+    });
+
+    expect(exported.providers).toEqual({});
+    expect(exported.providerAccounts).toEqual({});
+    expect(exported.conversations).toEqual({});
+    expect(exported.bindings).toEqual({});
+    expect(exported.agents).toEqual({});
+  });
+
+  it('skips bindings whose conversation lost its provider connection instead of crashing', async () => {
+    const settings = parseRuntimeSettings('agents: {}\n');
+    settings.conversations = {
+      shared_channel: {
+        providerConnection: 'slack-default',
+        providerAccount: 'slack-default',
+        externalId: 'C123',
+        kind: 'channel',
+        displayName: 'Engineering',
+        senderPolicy: { allow: '*', mode: 'trigger' },
+        controlApprovers: [],
+        installedAgents: {},
+      },
+    } as never;
+    const deps = {
+      ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
+      repositories: {
+        agents: {
+          listAgents: vi.fn(async () => [
+            {
+              id: 'agent:main_agent',
+              name: 'Main',
+              status: 'active',
+              createdAt: '2026-06-01T00:00:00.000Z',
+              updatedAt: '2026-06-01T00:00:00.000Z',
+            },
+          ]),
+        },
+        tools: {
+          listAgentToolBindingsForAgents: vi.fn(async () => []),
+          listAgentToolSourcesForAgents: vi.fn(async () => []),
+          listTools: vi.fn(async () => []),
+        },
+        skills: {
+          listAgentSkillBindingsForAgents: vi.fn(async () => []),
+          listSkills: vi.fn(async () => []),
+        },
+        mcpServers: { listAgentBindingsForAgents: vi.fn(async () => []) },
+        providerAccounts: {
+          // The connection behind the conversation is gone entirely.
+          listProviderAccounts: vi.fn(async () => []),
+          listConversationInstalls: vi.fn(async () => [
+            {
+              id: 'conversation-install:main_agent:conversation:slack',
+              appId: 'app-one',
+              agentId: 'agent:main_agent',
+              providerAccountId: 'slack-default',
+              conversationId: 'conversation:slack',
+              displayName: 'Engineering',
+              status: 'active',
+              senderPolicy: 'provider_native',
+              controlPolicy: 'conversation_approvers',
+              memoryScope: 'app',
+              permissionPolicyIds: [],
+              createdAt: '2026-06-01T00:00:00.000Z',
+              updatedAt: '2026-06-01T00:00:00.000Z',
+            },
+          ]),
+        },
+        conversations: {
+          listConversations: vi.fn(async () => [
+            {
+              id: 'conversation:slack',
+              providerAccountId: 'slack-default',
+              externalRef: { value: 'C123' },
+              kind: 'channel',
+              title: 'Engineering',
+              status: 'active',
+            },
+          ]),
+          listThreads: vi.fn(async () => []),
+          listConversationApproversForConversations: vi.fn(async () => []),
+        },
+      },
+    };
+
+    const exported = await exportCurrentDesiredState({
+      deps: deps as any,
+      appId: 'app-one' as never,
+      settings: settings as any,
+    });
+
+    expect(exported.conversations.shared_channel).toBeUndefined();
+    expect(Object.values(exported.bindings)).toEqual([]);
   });
 
   it('keeps disabled provider accounts needed by exported conversations', async () => {
@@ -457,7 +792,12 @@ permissions:
               status: 'active',
             },
           ]),
-          listConversationApproversForConversations: vi.fn(async () => []),
+          listConversationApproversForConversations: vi.fn(async () => [
+            {
+              conversationId: 'conversation:slack-disabled',
+              externalUserId: 'U1',
+            },
+          ]),
         },
       },
     };
@@ -480,7 +820,7 @@ permissions:
     ).not.toThrow();
   });
 
-  it('exports live route bindings as conversation installed agents', async () => {
+  it('exports live route bindings without mutating configured installed agents', async () => {
     const deps = {
       ops: {
         getAllConversationRoutes: vi.fn(async () => ({
@@ -507,18 +847,7 @@ permissions:
         },
         mcpServers: { listAgentBindingsForAgents: vi.fn(async () => []) },
         providerAccounts: {
-          listProviderAccounts: vi.fn(async () => [
-            {
-              id: 'slack_other',
-              appId: 'app-one',
-              agentId: 'agent:main_agent',
-              providerId: 'slack',
-              label: 'Other Slack',
-              status: 'active',
-              config: {},
-              runtimeSecretRefs: {},
-            },
-          ]),
+          listProviderAccounts: vi.fn(async () => []),
           listConversationInstalls: vi.fn(async () => []),
         },
         conversations: {
@@ -538,6 +867,9 @@ permissions:
     effort: low
     thinking: off
     max_output_tokens: 1024
+    delegates:
+      - analyst
+      - future_agent
     tool_rules:
       - tool: Deploy
         action: require_prior
@@ -564,7 +896,7 @@ permissions:
         trigger: '@main',
         added_at: '2026-06-02T00:00:00.000Z',
         requiresTrigger: true,
-        agentConfig: { model: 'opus', permissionMode: 'auto' },
+        agentConfig: { model: 'opus', permissionMode: 'auto_strict' },
       },
     });
 
@@ -584,7 +916,7 @@ permissions:
       trigger: '@main',
       requiresTrigger: true,
       model: 'opus',
-      permissionMode: 'auto',
+      permissionMode: 'auto_strict',
     });
     expect(exported.agents.main_agent?.runtime).toBe('inline');
     expect(exported.agents.main_agent).toMatchObject({
@@ -593,6 +925,7 @@ permissions:
       effort: 'low',
       thinking: { mode: 'off' },
       maxOutputTokens: 1024,
+      delegates: ['analyst', 'future_agent'],
       toolRules: [
         {
           tool: 'Deploy',
@@ -626,9 +959,150 @@ permissions:
     expect(setConversationRoute).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
-        agentConfig: expect.objectContaining({ permissionMode: 'auto' }),
+        agentConfig: expect.objectContaining({ permissionMode: 'auto_strict' }),
       }),
     );
+
+    const appSettings = parseRuntimeSettings('agents: {}\n');
+    appSettings.providerAccounts.app_live = {
+      agentId: 'main_agent',
+      provider: 'app',
+      label: 'App',
+      runtimeSecretRefs: {},
+    };
+    appSettings.providerAccounts.app_settings = {
+      agentId: 'main_agent',
+      provider: 'app',
+      label: 'Settings App',
+      runtimeSecretRefs: {},
+    };
+    appSettings.conversations.app_workspace = {
+      providerConnection: 'app_live',
+      providerAccount: 'app_live',
+      externalId: 'workspace',
+      kind: 'group',
+      displayName: 'Workspace',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['U1'],
+      installedAgents: {
+        main_agent: {
+          agentId: 'main_agent',
+          providerAccountId: 'app_settings',
+        },
+      },
+    } as never;
+    deps.ops.getAllConversationRoutes.mockResolvedValue({
+      'app:workspace': {
+        folder: 'main_agent',
+        name: 'Main',
+        providerAccountId: 'app_live',
+        trigger: '',
+        added_at: '2026-06-02T00:00:00.000Z',
+        requiresTrigger: true,
+      },
+    });
+
+    await exportCurrentDesiredState({
+      deps: deps as any,
+      appId: 'app-one' as never,
+      settings: appSettings,
+    });
+
+    expect(
+      appSettings.conversations.app_workspace.installedAgents.main_agent
+        ?.providerAccountId,
+    ).toBe('app_settings');
+  });
+
+  it('does not export live routes owned by another app agent', async () => {
+    const settings = parseRuntimeSettings(`agents:
+  warden:
+    name: Warden
+`);
+    settings.providerAccounts.slack_warden = {
+      agentId: 'warden',
+      provider: 'slack',
+      label: 'Warden Slack',
+      runtimeSecretRefs: {},
+    };
+    const deps = {
+      ops: {
+        getAllConversationRoutes: vi.fn(async () => ({
+          'sl:CWARDEN': {
+            folder: 'warden',
+            name: 'Warden',
+            providerAccountId: 'slack_warden',
+            trigger: '@Warden',
+            added_at: '2026-07-31T00:00:00.000Z',
+            requiresTrigger: true,
+          },
+          'sl:CTEST': {
+            folder: 'app_test_agent',
+            name: 'Test Agent',
+            providerAccountId: 'slack_other_app_agent',
+            trigger: '@test',
+            added_at: '2026-07-31T00:00:00.000Z',
+            requiresTrigger: true,
+          },
+          'app:foreign': {
+            folder: 'warden',
+            name: 'Warden',
+            providerAccountId: 'control:other-app',
+            trigger: '',
+            added_at: '2026-07-31T00:00:00.000Z',
+            requiresTrigger: false,
+          },
+        })),
+      },
+      repositories: {
+        agents: { listAgents: vi.fn(async () => []) },
+        tools: {
+          listAgentToolBindingsForAgents: vi.fn(async () => []),
+          listAgentToolSourcesForAgents: vi.fn(async () => []),
+          listTools: vi.fn(async () => []),
+        },
+        skills: {
+          listAgentSkillBindingsForAgents: vi.fn(async () => []),
+          listSkills: vi.fn(async () => []),
+        },
+        mcpServers: { listAgentBindingsForAgents: vi.fn(async () => []) },
+        providerAccounts: {
+          listProviderAccounts: vi.fn(async () => [
+            {
+              id: 'slack_warden',
+              agentId: 'agent:warden',
+              providerId: 'slack',
+              label: 'Warden Slack',
+              status: 'active',
+              config: {},
+              runtimeSecretRefs: {},
+            },
+          ]),
+          listConversationInstalls: vi.fn(async () => []),
+        },
+        conversations: {
+          listConversations: vi.fn(async () => []),
+          listConversationApproversForConversations: vi.fn(async () => []),
+        },
+      },
+    };
+
+    const exported = await exportCurrentDesiredState({
+      deps: deps as any,
+      appId: 'default' as never,
+      settings,
+    });
+
+    expect(Object.values(exported.conversations)).toHaveLength(1);
+    expect(Object.values(exported.conversations)[0]).toMatchObject({
+      externalId: 'CWARDEN',
+      providerAccount: 'slack_warden',
+    });
+    expect(exported.agents).toHaveProperty('warden');
+    expect(exported.agents).not.toHaveProperty('app_test_agent');
+    expect(() =>
+      parseRuntimeSettings(renderRuntimeSettingsYaml(exported)),
+    ).not.toThrow();
   });
 
   it('keeps route-less channel installs trigger gated on export', async () => {

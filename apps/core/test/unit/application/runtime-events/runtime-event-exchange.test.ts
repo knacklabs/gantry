@@ -143,7 +143,6 @@ describe('RuntimeEventExchange', () => {
       async (input, admission) => {
         const event = await repository.appendRuntimeEvent(input);
         return {
-          outcome: 'accepted' as const,
           event,
           liveAdmissionResult: {
             outcome: 'enqueued',
@@ -181,54 +180,11 @@ describe('RuntimeEventExchange', () => {
     expect(
       repository.appendRuntimeEventAndStoreLiveAdmission,
     ).toHaveBeenCalledOnce();
-    expect(result.outcome).toBe('accepted');
-    if (result.outcome !== 'accepted') return;
     expect(result.liveAdmissionResult?.item).toMatchObject({
       id: 'admission:message-1',
       state: 'queued',
     });
     expect(notifier.notifiedEvents).toEqual([result.event]);
-  });
-
-  it('does not notify subscribers for an idempotent admission replay', async () => {
-    const repository =
-      new MemoryRuntimeEventRepository() as MemoryRuntimeEventRepository & {
-        appendRuntimeEventAndStoreLiveAdmission: ReturnType<typeof vi.fn>;
-      };
-    repository.appendRuntimeEventAndStoreLiveAdmission = vi.fn(async () => ({
-      outcome: 'replayed' as const,
-      messageId: 'original-message',
-      acceptedEventId: 41,
-    }));
-    const notifier = new InMemoryRuntimeEventNotifier();
-    const exchange = new RuntimeEventExchange(repository, notifier);
-
-    await expect(
-      exchange.publishWithLiveAdmissionMessage(
-        {
-          appId: 'app:test' as never,
-          eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_INBOUND,
-          actor: 'sdk',
-          payload: { text: 'duplicate' },
-        },
-        {
-          message: {
-            id: 'duplicate-message',
-            chat_jid: 'app:test:conversation',
-            sender: 'sdk',
-            sender_name: 'SDK',
-            content: 'duplicate',
-            timestamp: '2026-04-29T00:00:00.000Z',
-          },
-          liveAdmission: { appId: 'default' },
-        },
-      ),
-    ).resolves.toMatchObject({
-      outcome: 'replayed',
-      messageId: 'original-message',
-      acceptedEventId: 41,
-    });
-    expect(notifier.notifiedEvents).toEqual([]);
   });
 
   it('returns the durable event when the live wakeup notifier fails', async () => {
@@ -254,7 +210,7 @@ describe('RuntimeEventExchange', () => {
     expect(repository.events).toHaveLength(1);
   });
 
-  it('canonicalizes provider conversation ids before persistence', async () => {
+  it('moves raw provider conversation ids into payload route context before persistence', async () => {
     const repository = new MemoryRuntimeEventRepository();
     const notifier = new InMemoryRuntimeEventNotifier();
     const exchange = new RuntimeEventExchange(repository, notifier);
@@ -267,16 +223,13 @@ describe('RuntimeEventExchange', () => {
       payload: {},
     });
 
-    expect(event.conversationId).toBe('conversation:tg:-100123');
-    expect(repository.events[0]?.conversationId).toBe(
-      'conversation:tg:-100123',
-    );
-    expect(notifier.notifiedEvents[0]?.conversationId).toBe(
-      'conversation:tg:-100123',
-    );
+    expect(event.conversationId).toBeUndefined();
+    expect(repository.events[0]?.conversationId).toBeUndefined();
+    expect(notifier.notifiedEvents[0]?.conversationId).toBeUndefined();
+    expect(event.payload).toEqual({ conversationJid: 'tg:-100123' });
   });
 
-  it('canonicalizes provider thread ids before persistence', async () => {
+  it('moves raw provider thread ids into payload route context before persistence', async () => {
     const repository = new MemoryRuntimeEventRepository();
     const notifier = new InMemoryRuntimeEventNotifier();
     const exchange = new RuntimeEventExchange(repository, notifier);
@@ -290,12 +243,17 @@ describe('RuntimeEventExchange', () => {
       payload: {},
     });
 
-    expect(event.threadId).toBe('thread:tg:-100123:2771');
-    expect(repository.events[0]?.threadId).toBe('thread:tg:-100123:2771');
-    expect(notifier.notifiedEvents[0]?.threadId).toBe('thread:tg:-100123:2771');
+    expect(event.conversationId).toBeUndefined();
+    expect(event.threadId).toBeUndefined();
+    expect(repository.events[0]?.threadId).toBeUndefined();
+    expect(notifier.notifiedEvents[0]?.threadId).toBeUndefined();
+    expect(event.payload).toEqual({
+      conversationJid: 'tg:-100123',
+      threadId: '2771',
+    });
   });
 
-  it('canonicalizes provider conversation ids in list filters', async () => {
+  it('preserves canonical conversation ids in list filters', async () => {
     const repository = new MemoryRuntimeEventRepository();
     const exchange = new RuntimeEventExchange(
       repository,
@@ -303,7 +261,7 @@ describe('RuntimeEventExchange', () => {
     );
     await exchange.publish({
       appId: 'app:test' as never,
-      conversationId: 'tg:-100123' as never,
+      conversationId: 'conversation:tg:-100123' as never,
       eventType: RUNTIME_EVENT_TYPES.SANDBOX_BLOCKED,
       actor: 'runner',
       payload: {},
@@ -312,12 +270,12 @@ describe('RuntimeEventExchange', () => {
     await expect(
       exchange.list({
         appId: 'app:test' as never,
-        conversationId: 'tg:-100123' as never,
+        conversationId: 'conversation:tg:-100123' as never,
       }),
     ).resolves.toHaveLength(1);
   });
 
-  it('canonicalizes provider thread ids in list filters', async () => {
+  it('preserves canonical thread ids in list filters', async () => {
     const repository = new MemoryRuntimeEventRepository();
     const exchange = new RuntimeEventExchange(
       repository,
@@ -325,8 +283,8 @@ describe('RuntimeEventExchange', () => {
     );
     await exchange.publish({
       appId: 'app:test' as never,
-      conversationId: 'tg:-100123' as never,
-      threadId: '2771' as never,
+      conversationId: 'conversation:tg:-100123' as never,
+      threadId: 'thread:tg:-100123:2771' as never,
       eventType: RUNTIME_EVENT_TYPES.SANDBOX_BLOCKED,
       actor: 'runner',
       payload: {},
@@ -335,8 +293,8 @@ describe('RuntimeEventExchange', () => {
     await expect(
       exchange.list({
         appId: 'app:test' as never,
-        conversationId: 'tg:-100123' as never,
-        threadId: '2771' as never,
+        conversationId: 'conversation:tg:-100123' as never,
+        threadId: 'thread:tg:-100123:2771' as never,
       }),
     ).resolves.toHaveLength(1);
   });

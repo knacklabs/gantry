@@ -144,6 +144,11 @@ export const automationOpenApiSchemas: Record<string, JsonSchema> = {
       runAt: isoDateTime,
       schedule: metadata,
       modelAlias: { type: 'string' },
+      agentTask: {
+        ...metadata,
+        description:
+          'Strictly validated Agent.Tender task contract for structured output, exact skills, bounded caller tools, completion gates, model controls, and execution limits.',
+      },
       dryRun: { type: 'boolean' },
     },
   },

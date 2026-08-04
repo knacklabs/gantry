@@ -1,33 +1,26 @@
-import type { SkillCatalogRepository } from '../domain/ports/repositories.js';
+import type { AgentAccessSnapshot } from '../application/agent-execution/agent-access-snapshot.js';
 import type { Job } from '../domain/types.js';
 
-export async function resolveExecutionSkillSelection(input: {
+export function resolveExecutionSkillSelection(input: {
   requiredSkill?: NonNullable<Job['agent_task']>['requiredSkill'];
-  appId: string;
-  agentId: string;
-  repository?: SkillCatalogRepository;
+  snapshot?: AgentAccessSnapshot;
   selected: { ids?: string[]; displays?: string[] };
-}): Promise<{ ids?: string[]; displays?: string[] }> {
+}): { ids?: string[]; displays?: string[] } {
   const required = input.requiredSkill;
   if (!required) return input.selected;
-  const skill = (
-    (await input.repository?.listEnabledSkillsForAgent({
-      appId: input.appId as never,
-      agentId: input.agentId as never,
-    })) ?? []
-  ).find((candidate) => candidate.name === required.name);
-  if (
-    !skill ||
-    skill.storage?.contentHash !== required.contentHash ||
-    !input.selected.ids?.includes(skill.id)
-  ) {
+  const row = input.snapshot?.skills.activeBindings.find(
+    (candidate) =>
+      candidate.definition?.name === required.name &&
+      candidate.definition.storage?.contentHash === required.contentHash,
+  );
+  if (!row) {
     throw new Error(
       `Required skill ${required.name}@${required.contentHash} is not installed and bound exactly as requested.`,
     );
   }
   return {
-    ids: [skill.id],
-    displays: (input.selected.displays ?? []).filter((display) =>
+    ids: [String(row.binding.skillId)],
+    displays: input.selected.displays?.filter((display) =>
       display.includes(required.name),
     ),
   };

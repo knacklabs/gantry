@@ -3,11 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fixedClock } from '@core/shared/time/datetime.js';
 import {
   createLogger,
+  currentLogContext,
   installGlobalErrorHandlers,
   logger,
   redactString,
   type LogRecord,
   type LogSink,
+  withLogContext,
 } from '@core/infrastructure/logging/logger.js';
 
 describe('logger', () => {
@@ -83,27 +85,54 @@ describe('logger', () => {
     });
   });
 
-  it('preserves error codes and causes while redacting them', () => {
+  it('isolates per-turn context across concurrent async work', async () => {
     const records: LogRecord[] = [];
-    const cause = Object.assign(new Error('socket failed for sk-ant-secret'), {
-      code: 'ECONNRESET',
-    });
-    const error = new Error('fetch failed', { cause });
     const l = createLogger({
+      level: 'debug',
       sink: { write: (record) => records.push(record) },
     });
 
-    l.error({ err: error }, 'gateway failure');
+    await Promise.all([
+      withLogContext(
+        { runId: 'run-a', appId: 'app-a', agentId: 'agent-a' },
+        async () => {
+          await Promise.resolve();
+          l.info('turn a');
+        },
+      ),
+      withLogContext(
+        { runId: 'run-b', appId: 'app-b', agentId: 'agent-b' },
+        async () => {
+          await Promise.resolve();
+          l.info('turn b');
+        },
+      ),
+    ]);
 
-    expect(records[0]?.context?.err).toMatchObject({
-      type: 'Error',
-      message: 'fetch failed',
-      cause: {
-        type: 'Error',
-        message: 'socket failed for [REDACTED]',
-        code: 'ECONNRESET',
-      },
+    expect(records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          context: { runId: 'run-a', appId: 'app-a', agentId: 'agent-a' },
+        }),
+        expect.objectContaining({
+          context: { runId: 'run-b', appId: 'app-b', agentId: 'agent-b' },
+        }),
+      ]),
+    );
+    expect(currentLogContext()).toBeUndefined();
+  });
+
+  it('redacts merged object context once', () => {
+    const redact = vi.fn((value: unknown) => value);
+    const l = createLogger({
+      level: 'debug',
+      sink: { write: () => undefined },
+      redact,
     });
+
+    l.info({ event: 'start' }, 'event');
+
+    expect(redact).toHaveBeenCalledTimes(1);
   });
 
   it('keeps base and child context for string-only log calls', () => {

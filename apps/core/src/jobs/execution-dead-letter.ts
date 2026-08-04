@@ -100,15 +100,19 @@ export async function deadLetterUnresolvedExecutionContext(input: {
     retry_count: retryCount,
     notified_at: null,
   });
-  await input.deps.opsRepository.updateJob(input.currentJob.id, {
-    status: 'dead_lettered',
-    pause_reason: errorSummary,
-    next_run: null,
-    last_run: input.startedAt,
-    consecutive_failures: retryCount,
-    lease_run_id: null,
-    lease_expires_at: null,
-  });
+  await input.deps.opsRepository.updateJob(
+    input.currentJob.id,
+    {
+      status: 'dead_lettered',
+      pause_reason: errorSummary,
+      next_run: null,
+      last_run: input.startedAt,
+      consecutive_failures: retryCount,
+      lease_run_id: null,
+      lease_expires_at: null,
+    },
+    { incrementConsecutiveFailures: true },
+  );
 
   let boundTriggerId: string | undefined;
   let eventAppSession: SchedulerEventAppSession | undefined;

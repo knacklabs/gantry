@@ -1,7 +1,7 @@
 name = "functional-checker"
 description = "Functional QA agent for user-visible behavior, end-to-end flows, and manual-style verification."
 model = "gpt-5.5"
-model_reasoning_effort = "medium"
+model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 nickname_candidates = ["Canary", "Scout", "Journey"]
 developer_instructions = """

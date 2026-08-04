@@ -10,6 +10,7 @@ import type { CapabilityRuntimeAccess } from '../../../../shared/capability-runt
 import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
 import type { GantryAgentPromptMode } from '../../../../runner/gantry-agent-system-prompt.js';
 import type { DeclarativeToolRule } from '../../../../runner/tool-gate-core.js';
+import type { CallableAgentToolManifestEntry } from '../../../../application/core-tools/callable-agent-tools.js';
 
 export interface AgentRunnerInput {
   prompt: string;
@@ -25,6 +26,7 @@ export interface AgentRunnerInput {
   memoryReviewerIsControlApprover?: boolean;
   persona?: AgentPersona;
   browserProfileName?: string;
+  browserTurnToken?: string;
   allowedTools?: string[];
   toolRules?: DeclarativeToolRule[];
   toolAccessRequirements?: string[];
@@ -37,6 +39,7 @@ export interface AgentRunnerInput {
   jobId?: string;
   runId?: string;
   parentTaskId?: string;
+  callableAgentManifest?: CallableAgentToolManifestEntry[];
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
   assistantName?: string;
@@ -44,6 +47,7 @@ export interface AgentRunnerInput {
   compiledSystemPrompt?: string;
   memoryContextBlock?: string;
   yoloMode?: YoloModeSettings;
+  egressDenylist?: string[];
   permissionMode: PermissionMode;
   modelCredentialEnv?: Record<string, string>;
   toolNetworkEnv?: Record<string, string>;
@@ -59,13 +63,13 @@ export interface AgentRunnerInput {
     | { mode: 'off'; budgetTokens?: never }
     | { mode: 'on'; budgetTokens?: number };
   responseSchema?: Record<string, unknown>;
+  maxOutputTokens?: number;
   callerResolvedTools?: import('../../../../domain/types.js').CallerResolvedToolsConfig;
   delegatedCompletionGate?: {
     toolName: string;
     maxNoProgressContinuations: number;
     interactionTimeoutMs: number;
   };
-  maxOutputTokens?: number;
 }
 
 export interface AgentRunnerOutput {
@@ -109,7 +113,6 @@ export interface RunnerCapabilitiesForPermission {
 export interface AgentRunnerRuntimeEventOutput {
   appId?: string;
   agentId?: string;
-  sessionId?: string;
   runId?: string;
   jobId?: string;
   conversationId?: string;
@@ -125,6 +128,14 @@ export interface PermissionDecision {
   mode?: 'allow_once' | 'allow_persistent_rule' | 'cancel';
   decidedBy?: string;
   reason?: string;
+  risk_level?: 'low' | 'medium' | 'high' | 'critical';
+  risk_category?:
+    | 'destructive'
+    | 'privileged'
+    | 'secret'
+    | 'network'
+    | 'filesystem'
+    | 'benign';
   updatedPermissions?: unknown[];
   decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject';
 }

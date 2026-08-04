@@ -9,6 +9,7 @@ import {
   McpServerService,
   type MaterializedMcpCapability,
 } from '../application/mcp/mcp-server-service.js';
+import { assertHostAccessSnapshot } from '../application/agent-execution/agent-access-snapshot.js';
 import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { ensurePrivateDirSync } from '../shared/private-fs.js';
@@ -94,9 +95,11 @@ export interface InlineJobActivity {
 
 export interface InlineAgentLoopLaneInput {
   group: ConversationRoute;
+  correlationRunId?: string;
   input: AgentInput & {
     compiledSystemPrompt: string;
     permissionMode: PermissionMode;
+    disableTools?: boolean;
   };
   signal: AbortSignal;
   controlPort: InMemoryInlineRunnerControlPort;
@@ -107,6 +110,7 @@ export interface InlineAgentLoopLaneInput {
   skillRepository?: RunAgentOptions['skillRepository'];
   skillArtifactStore?: RunAgentOptions['skillArtifactStore'];
   skillContext?: RunAgentOptions['skillContext'];
+  accessSnapshot?: RunAgentOptions['accessSnapshot'];
   runtimeDataDir: string;
   maxTurns?: number;
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -235,6 +239,7 @@ export async function runInlineAgent(
       options.credentialBroker,
       {
         purpose: 'model_runtime',
+        runId: options.correlationRunId as never,
         runContext: input,
         modelRouteId: resolvedModel.value.modelEntry.modelRoute.id,
       },
@@ -435,11 +440,6 @@ async function executeInlineRun(input: {
                   status: 'error',
                   result: null,
                   error: `Inline agent timed out after ${formatDuration(timeoutMs)}`,
-                  failure: {
-                    type: 'timeout',
-                    attemptedAction:
-                      'Execute agent turn within configured timeout',
-                  },
                 }
               : activeRunStopWasRequested(handle)
                 ? {
@@ -461,6 +461,7 @@ async function executeInlineRun(input: {
     .then(() =>
       lane({
         group: input.group,
+        correlationRunId: input.options.correlationRunId,
         input: input.input,
         signal: input.controller.signal,
         controlPort,
@@ -471,6 +472,7 @@ async function executeInlineRun(input: {
         skillRepository: input.options.skillRepository,
         skillArtifactStore: input.options.skillArtifactStore,
         skillContext: input.options.skillContext,
+        accessSnapshot: input.options.accessSnapshot,
         runtimeDataDir: input.runtimeDataDir,
         maxTurns: input.maxTurns,
         effort: input.effort,
@@ -488,15 +490,7 @@ async function executeInlineRun(input: {
 
   try {
     const first = await Promise.race([settledLane, aborted]);
-    if (first.kind === 'aborted' && timedOut) {
-      // A provider lane is expected to honor the abort signal, but the SDK
-      // deadline must not depend on that cooperation. Stop accepting output
-      // immediately and observe the detached lane without awaiting it.
-      active = false;
-      void settledLane;
-    } else if (first.kind === 'aborted') {
-      await settledLane;
-    }
+    if (first.kind === 'aborted') await settledLane;
     await outputChain;
     return outputWithProviderSession(first.output, providerSessionId);
   } finally {
@@ -513,12 +507,25 @@ async function listInlineMcpSourceRecords(
   const serverIds = input.attachedMcpSourceIds ?? [];
   if (
     serverIds.length === 0 ||
-    !options.mcpServerRepository ||
     !options.mcpContext?.appId ||
     !options.mcpContext.agentId
   ) {
     return [];
   }
+  const accessSnapshot = assertHostAccessSnapshot({
+    accessSnapshot: options.accessSnapshot,
+    appId: options.mcpContext.appId,
+    agentId: options.mcpContext.agentId,
+    subject: 'Inline MCP projection',
+  });
+  const snapshotRecords = accessSnapshot?.mcp.materializedServers;
+  if (snapshotRecords) {
+    const selectedServerIds = new Set(serverIds);
+    return snapshotRecords.filter((record) =>
+      selectedServerIds.has(String(record.definition.id)),
+    );
+  }
+  if (!options.mcpServerRepository) return [];
   return options.mcpServerRepository.listMaterializedServersForAgent({
     appId: options.mcpContext.appId as never,
     agentId: options.mcpContext.agentId as never,
@@ -547,6 +554,12 @@ async function materializeInlineMcpServers(
     )
     .map(({ definition }) => definition.id);
   if (serverIds.length === 0) return [];
+  const accessSnapshot = assertHostAccessSnapshot({
+    accessSnapshot: options.accessSnapshot,
+    appId: options.mcpContext.appId,
+    agentId: options.mcpContext.agentId,
+    subject: 'Inline MCP materialization',
+  });
   const credentialEnv = options.capabilitySecretRepository
     ? await resolveMcpCredentialEnvForAgent({
         appId: options.mcpContext.appId as never,
@@ -554,6 +567,7 @@ async function materializeInlineMcpServers(
         serverIds,
         mcpServers: options.mcpServerRepository,
         secrets: options.capabilitySecretRepository,
+        accessSnapshot,
       })
     : {};
   const capabilities = await new McpServerService(
@@ -568,6 +582,7 @@ async function materializeInlineMcpServers(
     agentId: options.mcpContext.agentId as never,
     serverIds,
     credentialEnv,
+    accessSnapshot,
   });
   return capabilities.flatMap((capability) => {
     const allowedToolNames = intersectInlineMcpToolScopes(

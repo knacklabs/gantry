@@ -40,6 +40,47 @@ describe('model provider registry', () => {
     }
   });
 
+  it('routes Terra, Luna, Sol, and Grok 4.5 through existing provider credentials and DeepAgents execution', () => {
+    for (const [runnerModel, providerId] of [
+      ['gpt-5.6-terra', 'openai'],
+      ['gpt-5.6-luna', 'openai'],
+      ['gpt-5.6-sol', 'openai'],
+      ['grok-4.5', 'xai'],
+    ] as const) {
+      const entry = listModelCatalogEntries().find(
+        (candidate) => candidate.runnerModel === runnerModel,
+      );
+      const provider = getModelProviderDefinition(providerId);
+
+      expect(entry).toMatchObject({
+        credentialProfileRef: 'gantry-model-access',
+        modelRoute: { id: providerId, providerModelId: runnerModel },
+      });
+      expect(provider?.executionRoute).toEqual({
+        engine: 'deepagents',
+        executionProviderId: 'deepagents:langchain',
+        supportedCredentialModes: ['api_key'],
+      });
+      expect(provider?.credentialModes.map((mode) => mode.id)).toEqual([
+        'api_key',
+      ]);
+    }
+  });
+
+  it('routes Opus 5 through the existing Anthropic credential profile', () => {
+    const entry = listModelCatalogEntries().find(
+      (candidate) => candidate.runnerModel === 'claude-opus-5',
+    );
+
+    expect(entry).toMatchObject({
+      credentialProfileRef: 'gantry-model-access',
+      modelRoute: {
+        id: 'anthropic',
+        providerModelId: 'claude-opus-5',
+      },
+    });
+  });
+
   it('declares a single provider-derived execution route with credential mode constraints', () => {
     expect(getModelProviderDefinition('anthropic')?.executionRoute).toEqual({
       engine: 'anthropic_sdk',
@@ -102,16 +143,43 @@ describe('model provider registry', () => {
     });
   });
 
-  it('makes OpenAI an executable chat and memory model route', () => {
+  it('declares chat batch capability only for Anthropic and OpenAI', () => {
+    expect(
+      listExecutableModelProviders()
+        .filter((provider) => Boolean(provider.batch))
+        .map((provider) => provider.id),
+    ).toEqual(['anthropic', 'openai']);
+    expect(getModelProviderDefinition('anthropic')?.batch).toEqual({
+      supportedCredentialModes: ['api_key'],
+    });
+    expect(getModelProviderDefinition('openai')?.batch).toEqual({
+      supportedCredentialModes: ['api_key'],
+    });
+    expect(getModelProviderDefinition('openrouter')?.batch).toBeUndefined();
+    expect(getModelProviderDefinition('xai')?.batch).toBeUndefined();
+  });
+
+  it('makes OpenAI an executable chat, job, and memory model route matching the native catalog', () => {
     const openai = getModelProviderDefinition('openai');
+    const nativeOpenAiWorkloads = new Set(
+      listModelCatalogEntries()
+        .filter((entry) => entry.modelRoute.id === 'openai')
+        .map((entry) => JSON.stringify(entry.supportedWorkloads)),
+    );
+
     expect(openai?.executable).toBe(true);
     expect(openai?.modelRoute).toBe(true);
     expect(openai?.supportedWorkloads).toEqual([
       'chat',
+      'one_time_job',
+      'recurring_job',
       'memory_extractor',
       'memory_dreaming',
       'memory_consolidation',
     ]);
+    expect(nativeOpenAiWorkloads).toEqual(
+      new Set([JSON.stringify(openai?.supportedWorkloads)]),
+    );
     expect(openai?.gateway.sdkProjection).toMatchObject({
       baseUrlEnv: 'OPENAI_BASE_URL',
       tokenEnv: 'OPENAI_API_KEY',
@@ -128,6 +196,9 @@ describe('model provider registry', () => {
           mode: 'anthropic_cache_control',
           automatic: false,
           requestControl: 'cache_control_blocks',
+          minimumTokenThresholds: expect.arrayContaining([
+            { modelFamily: 'claude-opus-5', tokens: 512 },
+          ]),
         },
         response: { mode: 'none', enabledByDefault: false },
       },
@@ -160,6 +231,7 @@ describe('model provider registry', () => {
         requestControl: 'provider_automatic_prefix',
         usageFields: {
           readTokens: 'prompt_tokens_details.cached_tokens',
+          writeTokens: 'prompt_tokens_details.cache_write_tokens',
         },
       },
       response: { mode: 'none', enabledByDefault: false },

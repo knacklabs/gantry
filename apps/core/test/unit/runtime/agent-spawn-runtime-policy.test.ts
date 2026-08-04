@@ -29,6 +29,20 @@ function reviewedGithubRuntimeAccess(): CapabilityRuntimeAccess[] {
   ];
 }
 
+function reviewedGithubPatternRuntimeAccess(): CapabilityRuntimeAccess[] {
+  return [
+    {
+      selectedCapabilityId: 'github.search.read',
+      sourceType: 'mcp_server',
+      auditLabel: 'GitHub search read',
+      reviewedServerId: 'github',
+      allowedTools: ['mcp__github__search_*'],
+      credentialRefs: [],
+      networkHosts: [],
+    },
+  ];
+}
+
 function githubMcpRecord(
   transport: 'stdio_template' | 'http' = 'stdio_template',
 ): MaterializedMcpServer {
@@ -68,64 +82,6 @@ function githubMcpRecord(
       allowedToolPatterns: ['issues.*', 'search_*'],
       createdAt: new Date(0).toISOString(),
       updatedAt: new Date(0).toISOString(),
-    },
-  };
-}
-
-const FIRECRAWL_TOOLS = [
-  'mcp__firecrawl__firecrawl_search',
-  'mcp__firecrawl__firecrawl_scrape',
-  'mcp__firecrawl__firecrawl_map',
-  'mcp__firecrawl__firecrawl_crawl',
-] as const;
-
-function reviewedFirecrawlRuntimeAccess(
-  allowedTools: readonly string[] = FIRECRAWL_TOOLS,
-): CapabilityRuntimeAccess[] {
-  return [
-    {
-      selectedCapabilityId: 'source_discovery.firecrawl',
-      sourceType: 'mcp_server',
-      auditLabel: 'Firecrawl source discovery',
-      reviewedServerId: 'firecrawl',
-      allowedTools: [...allowedTools],
-      credentialRefs: [],
-      networkHosts: [],
-    },
-  ];
-}
-
-function firecrawlMcpRecord(
-  allowedToolPatterns: string[] = [
-    'firecrawl_search',
-    'firecrawl_scrape',
-    'firecrawl_map',
-    'firecrawl_crawl',
-  ],
-): MaterializedMcpServer {
-  const record = githubMcpRecord();
-  return {
-    definition: {
-      ...record.definition,
-      id: 'mcp:firecrawl' as never,
-      name: 'firecrawl',
-      config: {
-        transport: 'stdio_template',
-        templateId: 'npx-package',
-        args: ['firecrawl-mcp'],
-      },
-      allowedToolPatterns: [
-        'firecrawl_search',
-        'firecrawl_scrape',
-        'firecrawl_map',
-        'firecrawl_crawl',
-      ],
-    },
-    binding: {
-      ...record.binding,
-      id: 'agent-mcp-binding:firecrawl' as never,
-      serverId: 'mcp:firecrawl' as never,
-      allowedToolPatterns,
     },
   };
 }
@@ -221,52 +177,45 @@ describe('agent spawn runtime policy', () => {
     });
   });
 
-  it('projects only the four exact selected Firecrawl tools through native stdio', () => {
+  it('projects pattern-only MCP authority on the next Anthropic SDK spawn', () => {
     const projection = resolveRunnerMcpProjection(DEFAULT_AGENT_ENGINE, {
-      runtimeAccess: reviewedFirecrawlRuntimeAccess(),
-      mcpSourceRecords: [firecrawlMcpRecord()],
+      runtimeAccess: reviewedGithubPatternRuntimeAccess(),
+      mcpSourceRecords: [githubMcpRecord()],
     });
 
     expect(projection).toEqual({
-      reviewedMcpToolNames: FIRECRAWL_TOOLS,
-      projectedMcpSourceIds: ['mcp:firecrawl'],
+      reviewedMcpToolNames: ['mcp__github__search_*'],
+      projectedMcpSourceIds: ['mcp:github'],
     });
   });
 
-  it('does not project Firecrawl without selected exact current-run bindings', () => {
-    const unselected = resolveRunnerMcpProjection(DEFAULT_AGENT_ENGINE, {
-      runtimeAccess: [],
-      mcpSourceRecords: [firecrawlMcpRecord()],
-    });
-    const wildcardOnly = resolveRunnerMcpProjection(DEFAULT_AGENT_ENGINE, {
-      runtimeAccess: reviewedFirecrawlRuntimeAccess(['mcp__firecrawl__*']),
-      mcpSourceRecords: [firecrawlMcpRecord()],
-    });
+  it('projects only the intersection of capability patterns and source scope', () => {
+    const record = githubMcpRecord();
+    record.binding.allowedToolPatterns = ['search_repositories'];
 
-    expect(unselected).toEqual({
-      reviewedMcpToolNames: [],
-      projectedMcpSourceIds: [],
-    });
-    expect(wildcardOnly).toEqual({
-      reviewedMcpToolNames: [],
-      projectedMcpSourceIds: [],
-    });
-  });
-
-  it('intersects selected Firecrawl tools with the active source binding', () => {
     const projection = resolveRunnerMcpProjection(DEFAULT_AGENT_ENGINE, {
-      runtimeAccess: reviewedFirecrawlRuntimeAccess(),
-      mcpSourceRecords: [
-        firecrawlMcpRecord(['firecrawl_search', 'firecrawl_scrape']),
-      ],
+      runtimeAccess: reviewedGithubPatternRuntimeAccess(),
+      mcpSourceRecords: [record],
     });
 
     expect(projection).toEqual({
-      reviewedMcpToolNames: [
-        'mcp__firecrawl__firecrawl_search',
-        'mcp__firecrawl__firecrawl_scrape',
-      ],
-      projectedMcpSourceIds: ['mcp:firecrawl'],
+      reviewedMcpToolNames: ['mcp__github__search_repositories'],
+      projectedMcpSourceIds: ['mcp:github'],
+    });
+  });
+
+  it('does not project a pattern authority outside the source scope', () => {
+    const record = githubMcpRecord();
+    record.binding.allowedToolPatterns = ['read_*'];
+
+    const projection = resolveRunnerMcpProjection(DEFAULT_AGENT_ENGINE, {
+      runtimeAccess: reviewedGithubPatternRuntimeAccess(),
+      mcpSourceRecords: [record],
+    });
+
+    expect(projection).toEqual({
+      reviewedMcpToolNames: [],
+      projectedMcpSourceIds: [],
     });
   });
 

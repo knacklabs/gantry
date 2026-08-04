@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { CapabilitySecretService } from '@core/application/capability-secrets/capability-secret-service.js';
+import { resolveMcpCredentialEnvForAgent } from '@core/application/capability-secrets/mcp-secret-projection.js';
 import { resolveSelectedSkillEnvForAgent } from '@core/application/capability-secrets/skill-secret-projection.js';
 import type {
   CapabilitySecret,
@@ -192,4 +193,137 @@ describe('CapabilitySecretService', () => {
       env: {},
     });
   });
+
+  it('fails closed when snapshot MCP credentials belong to another app', async () => {
+    const repository = new InMemoryCapabilitySecretRepository();
+
+    await expect(
+      resolveMcpCredentialEnvForAgent({
+        appId: 'default' as never,
+        agentId: 'agent:test' as never,
+        mcpServers: {} as never,
+        secrets: repository,
+        accessSnapshot: {
+          appId: 'default',
+          agentId: 'agent:test',
+          tools: { activeBindings: [], appActiveDefinitions: [] },
+          skills: { activeBindings: [], enabledDefinitions: [] },
+          mcp: {
+            activeBindings: [],
+            materializedServers: [
+              {
+                definition: {
+                  id: 'mcp:github',
+                  appId: 'app:other',
+                  name: 'github',
+                  status: 'active',
+                  transport: 'http',
+                  config: {
+                    transport: 'http',
+                    url: 'https://mcp.example.test/github',
+                  },
+                  allowedToolPatterns: [],
+                  autoApproveToolPatterns: [],
+                  credentialRefs: [
+                    {
+                      name: 'GITHUB_TOKEN',
+                      target: 'env',
+                      key: 'GITHUB_TOKEN',
+                    },
+                  ],
+                  networkHosts: [],
+                  createdSource: 'admin',
+                  riskClass: 'medium',
+                  createdAt: '2026-06-02T00:00:00.000Z',
+                  updatedAt: '2026-06-02T00:00:00.000Z',
+                },
+                binding: {
+                  id: 'binding:github',
+                  appId: 'default',
+                  agentId: 'agent:test',
+                  serverId: 'mcp:github',
+                  status: 'active',
+                  required: false,
+                  permissionPolicyIds: [],
+                  allowedToolPatterns: [],
+                  createdAt: '2026-06-02T00:00:00.000Z',
+                  updatedAt: '2026-06-02T00:00:00.000Z',
+                },
+              },
+            ],
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      'MCP credential projection MCP materialized snapshot row owner mismatch.',
+    );
+  });
+
+  it('does not flatten credentials from an unselected route into selected MCP servers', async () => {
+    const repository = new InMemoryCapabilitySecretRepository();
+    await repository.upsertSecret({
+      appId: 'default' as never,
+      name: 'SHARED_TOKEN',
+      value: 'out-of-route-value',
+      allowedCapabilityIds: ['mcp:outside'],
+    });
+
+    await expect(
+      resolveMcpCredentialEnvForAgent({
+        appId: 'default' as never,
+        agentId: 'agent:test' as never,
+        serverIds: ['mcp:inside' as never],
+        mcpServers: {} as never,
+        secrets: repository,
+        accessSnapshot: {
+          appId: 'default',
+          agentId: 'agent:test',
+          tools: { activeBindings: [], appActiveDefinitions: [] },
+          skills: { activeBindings: [], enabledDefinitions: [] },
+          mcp: {
+            activeBindings: [],
+            materializedServers: [
+              mcpCredentialRecord('outside', 'conversation:outside'),
+              mcpCredentialRecord('inside', 'conversation:inside'),
+            ],
+          },
+        },
+      }),
+    ).resolves.toEqual({});
+  });
 });
+
+function mcpCredentialRecord(name: string, conversationId: string) {
+  const timestamp = '2026-08-02T00:00:00.000Z';
+  return {
+    definition: {
+      id: `mcp:${name}`,
+      appId: 'default',
+      name,
+      status: 'active',
+      transport: 'http',
+      config: { transport: 'http', url: `https://${name}.example.test/mcp` },
+      allowedToolPatterns: ['read_*'],
+      autoApproveToolPatterns: [],
+      credentialRefs: [{ name: 'SHARED_TOKEN', target: 'env', key: 'TOKEN' }],
+      networkHosts: [],
+      createdSource: 'admin',
+      riskClass: 'low',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    binding: {
+      id: `binding:${name}`,
+      appId: 'default',
+      agentId: 'agent:test',
+      serverId: `mcp:${name}`,
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: [],
+      conversationId,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  } as never;
+}

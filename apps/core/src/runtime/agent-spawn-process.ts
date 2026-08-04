@@ -422,10 +422,6 @@ export function executeRunnerProcess(
               status: 'error',
               externalSessionId: providerSessionExternalId,
               error: timeoutLog.error,
-              failure: {
-                type: 'timeout',
-                attemptedAction: 'Execute agent turn within configured timeout',
-              },
             }),
           );
         });

@@ -1,6 +1,10 @@
 import type { JobRun } from '../../../../domain/repositories/domain-types.js';
 import * as pgSchema from '../schema/schema.js';
-import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import {
+  CANONICAL_APP_ID,
+  type CanonicalDb,
+  DEFAULT_LLM_PROFILE_ID,
+} from './canonical-graph-repository.postgres.js';
 
 const JOB_RUN_SHORT_ID_UNIQUE_CONSTRAINT = 'idx_agent_runs_job_short_id_unique';
 const JOB_RUN_INSERT_MAX_ATTEMPTS = 5;
@@ -12,12 +16,7 @@ type CanonicalExecutor =
 export async function insertCanonicalJobRun(input: {
   run: JobRun;
   executor: CanonicalExecutor;
-  graph: {
-    appId: string;
-    agentId: string;
-    configVersionId: string;
-    llmProfileId: string;
-  };
+  graph: { agentId: string; configVersionId: string };
   nextRunShortId: (jobId: string) => Promise<number>;
 }): Promise<boolean> {
   const { run, executor, graph } = input;
@@ -37,11 +36,11 @@ export async function insertCanonicalJobRun(input: {
         .values({
           id: run.run_id,
           shortId: run.short_id,
-          appId: graph.appId,
+          appId: CANONICAL_APP_ID,
           agentId: graph.agentId,
           configVersionId: graph.configVersionId,
           jobId: run.job_id,
-          llmProfileId: graph.llmProfileId,
+          llmProfileId: DEFAULT_LLM_PROFILE_ID,
           executionProviderId: run.execution_provider_id,
           providerRunId: run.provider_run_id ?? null,
           providerSessionId: run.provider_session_id ?? null,

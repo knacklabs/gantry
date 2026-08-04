@@ -4,6 +4,8 @@ import path from 'node:path';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import { nowMs } from '../../../../shared/time/datetime.js';
 import type { RunnerOutputFrame } from '../../../../runner/runner-frame.js';
+import { gantryMcpFullToolName } from '../../../../runner/gantry-mcp-tool-surface.js';
+import { callableAgentToolName } from '../../../../application/core-tools/callable-agent-tools.js';
 import { resolveWorkspaceIpcDir } from './runtime-env.js';
 import type { DeepAgentRunnerInput } from './types.js';
 
@@ -32,6 +34,12 @@ export function startDeepAgentJobHeartbeat(input: {
   getSessionId: () => string | undefined;
 }): DeepAgentJobHeartbeat {
   const { agentInput } = input;
+  const callableAgentToolNames = new Set(
+    (agentInput.callableAgentManifest ?? []).flatMap((entry) => {
+      const name = callableAgentToolName(entry);
+      return [name, gantryMcpFullToolName(name)];
+    }),
+  );
   let lastActivityAtMs = nowMs();
   let currentTool: string | undefined;
   let lastTool: string | undefined;
@@ -53,7 +61,10 @@ export function startDeepAgentJobHeartbeat(input: {
   }
 
   const emitHeartbeat = () => {
-    const pending = readPendingPermissionRequests(agentInput);
+    const pending = readPendingPermissionRequests(
+      agentInput,
+      callableAgentToolNames,
+    );
     input.writeFrame({
       status: 'success',
       result: null,
@@ -90,8 +101,11 @@ export function startDeepAgentJobHeartbeat(input: {
     markActivity,
     recordToolActivity: (toolName) => {
       totalToolCalls += 1;
-      currentTool = toolName;
-      lastTool = toolName;
+      currentTool = canonicalCallableAgentToolName(
+        toolName,
+        callableAgentToolNames,
+      );
+      lastTool = currentTool;
       lastActivityAtMs = nowMs();
     },
     stop: () => clearInterval(timer),
@@ -101,7 +115,10 @@ export function startDeepAgentJobHeartbeat(input: {
 // Counts this run's permission requests still awaiting a response, scanning the
 // neutral permission IPC dirs the DeepAgents runner writes through
 // permission-ipc-client.ts. Best-effort: a missing dir means zero pending.
-function readPendingPermissionRequests(agentInput: DeepAgentRunnerInput): {
+function readPendingPermissionRequests(
+  agentInput: DeepAgentRunnerInput,
+  callableAgentToolNames: ReadonlySet<string>,
+): {
   count: number;
   toolNames: string[];
 } {
@@ -121,6 +138,7 @@ function readPendingPermissionRequests(agentInput: DeepAgentRunnerInput): {
     count += 1;
     const toolName = readRequestToolName(
       path.join(requestsDir, `${base}.json`),
+      callableAgentToolNames,
     );
     if (toolName) toolNames.add(toolName);
   }
@@ -138,7 +156,10 @@ function jsonFileBaseNames(dir: string): string[] {
   }
 }
 
-function readRequestToolName(file: string): string | undefined {
+function readRequestToolName(
+  file: string,
+  callableAgentToolNames: ReadonlySet<string>,
+): string | undefined {
   try {
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     const payload =
@@ -147,8 +168,17 @@ function readRequestToolName(file: string): string | undefined {
         : raw;
     if (!payload || typeof payload !== 'object') return undefined;
     const toolName = (payload as { toolName?: unknown }).toolName;
-    return typeof toolName === 'string' ? toolName : undefined;
+    return typeof toolName === 'string'
+      ? canonicalCallableAgentToolName(toolName, callableAgentToolNames)
+      : undefined;
   } catch {
     return undefined;
   }
+}
+
+function canonicalCallableAgentToolName(
+  toolName: string,
+  callableAgentToolNames: ReadonlySet<string>,
+): string {
+  return callableAgentToolNames.has(toolName) ? 'AgentDelegation' : toolName;
 }

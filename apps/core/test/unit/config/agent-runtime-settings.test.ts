@@ -191,6 +191,19 @@ describe('agent runtime settings', () => {
     });
   });
 
+  it('parses and renders strict auto permission mode', () => {
+    const parsed = parseRuntimeSettings(`agents:
+  main_agent:
+    name: Main
+    permission_mode: auto_strict
+`);
+
+    expect(parsed.agents.main_agent.permissionMode).toBe('auto_strict');
+    expect(renderRuntimeSettingsYaml(parsed)).toContain(
+      'permission_mode: auto_strict',
+    );
+  });
+
   it.each([
     ['max_turns: 0', 'agents.main_agent.max_turns must be a positive integer'],
     ['max_turns: -1', 'agents.main_agent.max_turns must be a positive integer'],
@@ -208,7 +221,7 @@ describe('agent runtime settings', () => {
     ],
     [
       'permission_mode: always',
-      'agents.main_agent.permission_mode must be one of ask or auto',
+      'agents.main_agent.permission_mode must be one of ask, auto, or auto_strict',
     ],
     [
       'effort: extreme',
@@ -331,6 +344,38 @@ describe('agent runtime settings', () => {
 `),
     ).not.toThrow();
   });
+
+  it.each(['xhigh', 'max'])(
+    'rejects Opus 5 effort %s when thinking is off',
+    (effort) => {
+      expect(() =>
+        parseRuntimeSettings(`agents:
+  main_agent:
+    name: Main
+    model: opus
+    effort: ${effort}
+    thinking: off
+`),
+      ).toThrow(
+        `agents.main_agent.effort ${effort} is not supported by model opus when thinking is off; supported levels are low, medium, high.`,
+      );
+    },
+  );
+
+  it.each(['low', 'medium', 'high'])(
+    'accepts Opus 5 effort %s when thinking is off',
+    (effort) => {
+      expect(() =>
+        parseRuntimeSettings(`agents:
+  main_agent:
+    name: Main
+    model: opus
+    effort: ${effort}
+    thinking: off
+`),
+      ).not.toThrow();
+    },
+  );
 
   it('validates controls against explicit job models', () => {
     const agent = {

@@ -85,25 +85,19 @@ export async function handleRuntimeEventRoutes(
       } catch (error) {
         if (closed) return;
         logger.warn({ err: error }, 'Failed streaming app runtime events');
-        await delay(1_000);
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
       }
     }
   })();
   return true;
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export function parseRuntimeEventFilter(
   url: URL,
   appId: AppId,
 ): RuntimeEventFilter | string {
-  const rawCursor = url.searchParams.get('afterEventId') ?? '0';
-  const rawLimit = url.searchParams.get('limit') ?? '100';
-  const afterEventId = Number(rawCursor);
-  const limit = Number(rawLimit);
+  const afterEventId = Number(url.searchParams.get('afterEventId') ?? '0');
+  const limit = Number(url.searchParams.get('limit') ?? '100');
   if (!Number.isSafeInteger(afterEventId) || afterEventId < 0) {
     return 'afterEventId must be a non-negative integer';
   }

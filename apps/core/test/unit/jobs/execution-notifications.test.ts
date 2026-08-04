@@ -6,6 +6,50 @@ import {
   notifySchedulerSetupRequired,
   notifySchedulerTerminalRunState,
 } from '@core/jobs/execution-notifications.js';
+import type { MemoryReviewCreatedNotification } from '@core/jobs/memory-dreaming-job-outcome.js';
+import type { ReviewMessageView } from '@core/memory/review-message-view.js';
+
+function makeReviewView(
+  overrides: Partial<ReviewMessageView> = {},
+): ReviewMessageView {
+  const reviewId = overrides.reviewId ?? 'mrv_abc123';
+  return {
+    reviewId,
+    kind: 'contradiction',
+    title: '🧠 Memory review · conflicting note',
+    topic: 'user.location',
+    sides: [
+      { label: 'Now', value: 'lives in Paris', source: 'chat' },
+      { label: 'New', value: 'lives in Berlin', source: 'chat' },
+    ],
+    change: '"lives in Berlin"',
+    why: 'a newer statement contradicts the stored note',
+    evidence: [{ source: 'chat', snippet: 'I moved to Berlin last week' }],
+    affordances: [
+      { label: 'Approve', decision: 'approve', reviewId },
+      { label: 'Reject', decision: 'reject', reviewId },
+      { label: 'Edit', decision: 'edit', reviewId },
+    ],
+    ...overrides,
+  };
+}
+
+function makeReviewNotification(
+  overrides: Partial<MemoryReviewCreatedNotification> = {},
+): MemoryReviewCreatedNotification {
+  const pendingCount = overrides.pendingCount ?? 1;
+  const morePendingCount = Math.max(0, pendingCount - 1);
+  const reviewMessageView =
+    overrides.reviewMessageView ??
+    makeReviewView(morePendingCount > 0 ? { morePendingCount } : {});
+  return {
+    kind: 'memory_review_created',
+    reviewMessageView,
+    createdReviewIds: [reviewMessageView.reviewId],
+    pendingCount,
+    ...overrides,
+  };
+}
 
 function makeJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -107,7 +151,7 @@ describe('jobs/execution-notifications', () => {
       job: makeJob(),
       runId: 'run-1',
       runStatus: 'failed',
-      summary: 'planned failure',
+      summary: 'RAW_JOB_FAILURE_SENTINEL: planned failure',
       nextRun: null,
       retryCount: 1,
       pauseReason: null,
@@ -121,7 +165,12 @@ describe('jobs/execution-notifications', () => {
       expect.stringContaining('**❌ Failed** · Daily summary'),
       expect.objectContaining({ threadId: 'thread-1' }),
     );
-    expect(String(sendMessage.mock.calls[0]?.[1])).not.toContain('Running');
+    const message = String(sendMessage.mock.calls[0]?.[1]);
+    expect(message).not.toContain('Running');
+    expect(message).not.toContain('RAW_JOB_FAILURE_SENTINEL');
+    expect(message).not.toMatch(
+      /^(?:Completed|Used|Changed|Delegated|Needs attention|Next):/m,
+    );
   });
 
   it('cleans markdown job reports into readable terminal outcomes', async () => {
@@ -144,7 +193,8 @@ describe('jobs/execution-notifications', () => {
     const message = String(sendMessage.mock.calls[0]?.[1]);
     expect(message).toContain('**✅ Completed**');
     expect(message).toContain('· Fixture Lead Maintenance · 6m 22s');
-    expect(message).toContain('Final Job Report Mode: B (fixture lead finder)');
+    expect(message).toContain('Mode: B (fixture lead finder)');
+    expect(message).not.toContain('Final Job Report');
     expect(message).toContain('Added: 2 leads');
     expect(message).not.toContain('##');
     expect(message).not.toContain('*Mode*');
@@ -299,8 +349,9 @@ describe('jobs/execution-notifications', () => {
     const message = String(sendMessage.mock.calls[0]?.[1]);
     expect(message).toContain('Missing Browser access for this job.');
     expect(message).toContain(
-      'Needs attention: Approve the missing access, then retry the job.',
+      'Approve the missing access, then retry the job.',
     );
+    expect(message).not.toContain('Needs attention:');
     expect(message).not.toContain('Diagnostics:');
     expect(message).not.toContain('lastTool=');
     expect(message).not.toContain('pendingPermissions=');
@@ -341,7 +392,8 @@ describe('jobs/execution-notifications', () => {
     });
 
     const message = String(sendMessage.mock.calls[0]?.[1]);
-    expect(message).toContain('Next: Stopped until the job is fixed or rerun.');
+    expect(message).toContain('Stopped until the job is fixed or rerun.');
+    expect(message).not.toContain('Next:');
     expect(message).not.toContain('not-a-date');
   });
 
@@ -366,9 +418,8 @@ describe('jobs/execution-notifications', () => {
     expect(message).toContain('**🔐 Needs permission**');
     expect(message).toContain('· Daily summary');
     expect(message).toContain('Could not use the browser');
-    expect(message).toContain(
-      'Needs attention: Browser access needs approval.',
-    );
+    expect(message).toContain('Browser access needs approval.');
+    expect(message).not.toContain('Needs attention:');
     expect(message).not.toContain('request_permission');
     expect(options).toMatchObject({
       threadId: 'thread-1',
@@ -458,10 +509,14 @@ describe('jobs/execution-notifications', () => {
     const message = String(sendMessage.mock.calls[0]?.[1]);
     expect(message).toContain('**⏱️ Timed out**');
     expect(message).toContain('· Daily summary');
-    expect(message).toContain('Scheduler run lease expired before completion.');
-    expect(message).toContain(
-      'Needs attention: Rerun with a longer job timeout if this work is expected to take more time.',
+    expect(message).toContain("I couldn't finish before the job's time limit.");
+    expect(message).not.toContain(
+      'Scheduler run lease expired before completion.',
     );
+    expect(message).toContain(
+      'Rerun with a longer job timeout if this work is expected to take more time.',
+    );
+    expect(message).not.toContain('Needs attention:');
     expect(message).not.toContain('Narrow the job scope');
     expect(sendMessage.mock.calls[0]?.[2]).toMatchObject({
       actionAffordances: [
@@ -495,9 +550,140 @@ describe('jobs/execution-notifications', () => {
     const message = String(sendMessage.mock.calls[0]?.[1]);
     expect(message).toContain('**✅ Completed**');
     expect(message).toContain('· Fixture Lead Maintenance');
-    expect(message).toContain('Final Job Report Mode: B');
+    expect(message).toContain('Mode: B');
+    expect(message).not.toContain('Final Job Report');
     expect(message).toContain('Added: 0 leads');
     expect(message).not.toContain('Let me load tools');
     expect(message).not.toContain('Now searching');
+  });
+
+  it('sends the review card + 3 decision affordances instead of a bare count', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+
+    const notified = await notifySchedulerTerminalRunState({
+      job: makeMemoryDreamingJob(),
+      runId: 'run-1',
+      runShortId: 9,
+      runStatus: 'completed',
+      summary: 'Memory dreaming needs attention: 1 sent to review.',
+      nextRun: null,
+      retryCount: 0,
+      pauseReason: null,
+      sendMessage,
+      memoryReviewNotification: makeReviewNotification(),
+    });
+
+    expect(notified).toBe(true);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const [jid, text, options] = sendMessage.mock.calls[0] ?? [];
+    expect(jid).toBe('tg:scheduler');
+    // NOT the old bare count.
+    expect(String(text)).not.toContain('memory changes waiting');
+    // Compact-structured content + explicit reply-command fallback.
+    expect(String(text)).toContain('🧠 Memory review · conflicting note');
+    expect(String(text)).toContain('Topic: user.location');
+    expect(String(text)).toContain('edit memory review mrv_abc123');
+    expect(String(text)).toContain('approve mrv_abc123');
+    // Native review view + the three decision buttons for the channel adapters.
+    expect(options).toMatchObject({
+      reviewMessageView: expect.objectContaining({ reviewId: 'mrv_abc123' }),
+      actionAffordances: [
+        {
+          kind: 'memory_review_decision',
+          label: 'Approve',
+          reviewId: 'mrv_abc123',
+          decision: 'approve',
+        },
+        {
+          kind: 'memory_review_decision',
+          label: 'Reject',
+          reviewId: 'mrv_abc123',
+          decision: 'reject',
+        },
+        {
+          kind: 'memory_review_decision',
+          label: 'Edit',
+          reviewId: 'mrv_abc123',
+          decision: 'edit',
+        },
+      ],
+    });
+  });
+
+  it('appends a "+N more pending" line when several reviews are pending', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+
+    await notifySchedulerTerminalRunState({
+      job: makeMemoryDreamingJob(),
+      runId: 'run-1',
+      runStatus: 'completed',
+      summary: 'Memory dreaming needs attention: 3 sent to review.',
+      nextRun: null,
+      retryCount: 0,
+      pauseReason: null,
+      sendMessage,
+      memoryReviewNotification: makeReviewNotification({
+        createdReviewIds: ['mrv_abc123', 'mrv_two', 'mrv_three'],
+        pendingCount: 3,
+      }),
+    });
+
+    const text = String(sendMessage.mock.calls[0]?.[1]);
+    expect(text).toContain('＋2 more pending reviews.');
+  });
+
+  it('bypasses the lifecycle-update path so the review buttons are never swallowed', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const updateLifecycleNotification = vi.fn(async () => 'updated' as const);
+
+    const notified = await notifySchedulerTerminalRunState({
+      job: makeMemoryDreamingJob(),
+      runId: 'run-1',
+      runStatus: 'completed',
+      summary: 'Memory dreaming needs attention: 1 sent to review.',
+      nextRun: null,
+      retryCount: 0,
+      pauseReason: null,
+      sendMessage,
+      updateLifecycleNotification,
+      memoryReviewNotification: makeReviewNotification(),
+    });
+
+    expect(notified).toBe(true);
+    // The edit path would replace an existing progress message with plain text
+    // and drop the buttons — it must not run for a review notification.
+    expect(updateLifecycleNotification).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[2]).toMatchObject({
+      actionAffordances: [
+        expect.objectContaining({ kind: 'memory_review_decision' }),
+        expect.objectContaining({ kind: 'memory_review_decision' }),
+        expect.objectContaining({ kind: 'memory_review_decision' }),
+      ],
+    });
+  });
+
+  it('keeps the concise count summary when no review context is supplied', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+
+    await notifySchedulerTerminalRunState({
+      job: makeMemoryDreamingJob(),
+      runId: 'run-1',
+      runStatus: 'completed',
+      summary: 'Memory dreaming needs attention: 4 sent to review.',
+      nextRun: null,
+      retryCount: 0,
+      pauseReason: null,
+      sendMessage,
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      'tg:scheduler',
+      'Memory job needs review: 4 memory changes waiting.',
+      expect.objectContaining({ actionAffordances: [] }),
+    );
+    expect(sendMessage.mock.calls[0]?.[2]).not.toHaveProperty(
+      'reviewMessageView',
+    );
   });
 });

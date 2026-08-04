@@ -14,6 +14,7 @@ import {
   OPENAI_DAILY_EMBED_LIMIT,
   RUNTIME_MEMORY_DREAMING_ALERTS_ENABLED,
   RUNTIME_MEMORY_DREAMING_ENABLED,
+  getRuntimeSettingsForConfig,
 } from '../config/index.js';
 import type { AppId } from '../domain/app/app.js';
 import type { Job } from '../domain/types.js';
@@ -29,10 +30,7 @@ import {
 import { runEmbeddingBackfill } from '../memory/app-memory-backfill.js';
 import { pollAndImportProviderBatches } from '../memory/app-memory-backfill-provider-batch.js';
 import { createEmbeddingProvider } from '../memory/memory-embeddings.js';
-import type {
-  DreamingRunStatus,
-  NormalizedMemorySubject,
-} from '../memory/memory-types.js';
+import type { DreamingRunStatus } from '../memory/memory-types.js';
 import {
   DEFAULT_MEMORY_APP_ID,
   memoryAgentIdForWorkspaceFolder,
@@ -51,6 +49,13 @@ import {
   setSystemJobRegistrationSignature,
 } from './system-registration-cache.js';
 import {
+  appendPendingReviewContextToError,
+  countPendingReviewsForNotification,
+  emitMemoryReviewCreatedContext,
+  formatMemoryDreamingOutcome,
+  type MemoryReviewCreatedNotification,
+} from './memory-dreaming-job-outcome.js';
+import {
   MEMORY_DREAM_SYSTEM_PROMPT,
   MEMORY_DREAMING_JOB_ID_PREFIX,
   MEMORY_EMBEDDING_BACKFILL_JOB_ID,
@@ -59,9 +64,23 @@ import {
   BRAIN_EMBEDDING_BACKFILL_SYSTEM_PROMPT,
   BRAIN_DREAMING_JOB_ID,
   BRAIN_DREAM_SYSTEM_PROMPT,
+  OBSERVER_DIGEST_SYSTEM_PROMPT,
 } from '../shared/system-job-identity.js';
+import { resolveObserverDeliveryStatus } from '../config/settings/observer-activation.js';
+import {
+  OBSERVER_DIGEST_JOB_ID,
+  observerRegistrationSignatureFields,
+  registerObserverDigestJob,
+  runScheduledObserverDigest,
+  setObserverDigestGateway,
+} from './observer-digest-job.js';
 import { computeNextJobRun } from './schedule-math.js';
+import { preserveOperatorSystemJobEdits } from './system-job-reconcile.js';
 import { buildCanonicalJobLifecycleTarget } from './job-notification-routes.js';
+import { parseAgentThreadQueueKey } from '../shared/thread-queue-key.js';
+import { agentIdForJobWorkspaceKey } from '../application/jobs/job-tool-policy.js';
+import { logger } from '../infrastructure/logging/logger.js';
+import type { ConversationRoute } from '../domain/types.js';
 import type { SchedulerDependencies } from './types.js';
 
 export {
@@ -72,7 +91,6 @@ export {
 } from '../shared/system-job-identity.js';
 const MEMORY_EMBEDDING_BACKFILL_TIMEOUT_MS = 10 * 60 * 1000;
 const BRAIN_DREAMING_TIMEOUT_MS = 10 * 60 * 1000;
-const MEMORY_REVIEW_NOTIFICATION_LOOKUP_TIMEOUT_MS = 2_000;
 
 function embeddingBackfillEnabled(): boolean {
   return MEMORY_BACKFILL_ENABLED && MEMORY_EMBED_PROVIDER !== 'disabled';
@@ -91,12 +109,51 @@ type MemoryMaintenanceQueueLike = {
 let memoryMaintenanceQueue: MemoryMaintenanceQueueLike =
   getMemoryMaintenanceQueue();
 
+export { setObserverDigestGateway };
+export { setBrainReviewNotifyGateway } from '../brain/brain-dream-review-notify.js';
+export { recoverPendingBrainReviewNotifications } from '../brain/brain-runtime.js';
+
 function routeDigest(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 16);
 }
 
 function systemDreamingJobId(input: { folder: string; jid: string }): string {
   return `${MEMORY_DREAMING_JOB_ID_PREFIX}${input.folder}:${routeDigest(input.jid)}`;
+}
+
+// A conversationRoutes() key is a fully-qualified route-registry key
+// (chatJid + agent + provider_account), not a bare conversation JID. The
+// execution resolver expects the BARE chatJid in execution_context and takes
+// the agent from workspace_key + the providerAccountId from the notification
+// route, re-appending the qualifiers itself. Parse the key once here so the
+// stored target honors that contract instead of double-qualifying it.
+function buildSystemJobTargetFromRouteKey(input: {
+  routeKey: string;
+  group: ConversationRoute;
+  label: string;
+}): ReturnType<typeof buildCanonicalJobLifecycleTarget> | null {
+  const parsed = parseAgentThreadQueueKey(input.routeKey);
+  const expectedAgentId = agentIdForJobWorkspaceKey(input.group.folder);
+  const routeProviderAccountId =
+    input.group.providerAccountId?.trim() || undefined;
+  const providerAccountId = parsed.providerAccountId ?? routeProviderAccountId;
+  // Guard against a stale key whose agent/provider no longer match the current
+  // registry route; the resolver would never find such a route.
+  if (parsed.agentId && parsed.agentId !== expectedAgentId) return null;
+  if (
+    parsed.providerAccountId &&
+    routeProviderAccountId &&
+    parsed.providerAccountId !== routeProviderAccountId
+  ) {
+    return null;
+  }
+  return buildCanonicalJobLifecycleTarget({
+    conversationJid: parsed.chatJid,
+    workspaceKey: input.group.folder,
+    threadId: parsed.threadId ?? null,
+    providerAccountId,
+    label: input.label,
+  });
 }
 
 export function memoryDreamingTimeoutForJob(
@@ -109,43 +166,6 @@ export function memoryDreamingTimeoutForJob(
   return Math.max(
     30_000,
     normalizedJobTimeoutMs - MEMORY_DREAM_SYSTEM_JOB_FINALIZATION_GRACE_MS,
-  );
-}
-
-function pendingMemoryReviewLabel(count: number): string {
-  return `${count} pending memory review${count === 1 ? '' : 's'}`;
-}
-
-function pendingMemoryReviewNotice(count: number): string {
-  return `${pendingMemoryReviewLabel(count)} need${count === 1 ? 's' : ''} review`;
-}
-
-async function countPendingReviewsForNotification(input: {
-  memory: AppMemoryService;
-  subject: NormalizedMemorySubject;
-}): Promise<number> {
-  try {
-    const reviews = await input.memory.listPendingReviews(input.subject, {
-      statementTimeoutMs: MEMORY_REVIEW_NOTIFICATION_LOOKUP_TIMEOUT_MS,
-    });
-    return reviews.length;
-  } catch {
-    return 0;
-  }
-}
-
-function appendPendingReviewContextToError(
-  error: unknown,
-  pendingReviews: number,
-): Error {
-  if (pendingReviews <= 0) {
-    return error instanceof Error ? error : new Error(String(error));
-  }
-  const baseMessage =
-    error instanceof Error ? error.message : String(error || 'unknown error');
-  const separator = /[.!?]\s*$/.test(baseMessage) ? ' ' : '. ';
-  return new Error(
-    `${baseMessage}${separator}${pendingMemoryReviewNotice(pendingReviews)}.`,
   );
 }
 
@@ -174,6 +194,9 @@ export async function registerSystemJobs(
   // return so a job kept alive by an unsettled lease is still removed on a
   // later pass once the lease clears.
   const brainSingletonPrimary = registrations[0];
+  const observerDeliveryStatus = resolveObserverDeliveryStatus(
+    getRuntimeSettingsForConfig(),
+  );
   const brainSingletons: Array<{ id: string; keep: boolean }> = [
     {
       id: BRAIN_DREAMING_JOB_ID,
@@ -182,6 +205,10 @@ export async function registerSystemJobs(
     {
       id: BRAIN_EMBEDDING_BACKFILL_JOB_ID,
       keep: Boolean(embeddingBackfillEnabled() && brainSingletonPrimary),
+    },
+    {
+      id: OBSERVER_DIGEST_JOB_ID,
+      keep: Boolean(observerDeliveryStatus.eligible && brainSingletonPrimary),
     },
   ];
   for (const { id, keep } of brainSingletons) {
@@ -202,6 +229,7 @@ export async function registerSystemJobs(
     backfillEnabled: embeddingBackfillEnabled(),
     brainBackfillEnabled: embeddingBackfillEnabled(),
     backfillCron: MEMORY_BACKFILL_CRON,
+    ...observerRegistrationSignatureFields(observerDeliveryStatus),
     routes: registrations
       .map(({ jid, group }) => [
         group.folder,
@@ -220,18 +248,25 @@ export async function registerSystemJobs(
   }
 
   const nowIso = currentIso();
+  let unresolvedTrustedJobs = 0;
   if (RUNTIME_MEMORY_DREAMING_ENABLED) {
     for (const { jid, group } of registrations) {
       const jobId = systemDreamingJobId({ folder: group.folder, jid });
+      // Re-stamp the corrected target even on dead-lettered jobs: the repo
+      // upsert preserves the dead_lettered status (no auto-resume), but a later
+      // operator resume needs the fixed bare-jid target already persisted.
       const existing = await deps.opsRepository.getJobById(jobId);
-      if (existing?.status === 'dead_lettered') {
-        // Dead-lettered jobs are not revived here, but silent must still track
-        // the current alerts setting so a later resume reactivates the job
-        // with the correct value (the resume path itself never re-stamps it).
-        const desiredSilent = !RUNTIME_MEMORY_DREAMING_ALERTS_ENABLED;
-        if (existing.silent !== desiredSilent) {
-          await deps.opsRepository.updateJob(jobId, { silent: desiredSilent });
-        }
+      const target = buildSystemJobTargetFromRouteKey({
+        routeKey: jid,
+        group,
+        label: 'primary',
+      });
+      if (!target) {
+        unresolvedTrustedJobs += 1;
+        logger.warn(
+          { jobId, routeKey: jid, folder: group.folder },
+          'system dreaming job route no longer matches a current registry route; skipping registration',
+        );
         continue;
       }
       const computedNextRun = computeNextJobRun(
@@ -243,12 +278,6 @@ export async function registerSystemJobs(
       );
       const nextRun = existing?.next_run || computedNextRun;
       const desiredStatus = existing?.status === 'paused' ? 'paused' : 'active';
-      const target = buildCanonicalJobLifecycleTarget({
-        conversationJid: jid,
-        workspaceKey: group.folder,
-        threadId: null,
-        label: 'primary',
-      });
 
       const systemJob = {
         id: jobId,
@@ -270,9 +299,7 @@ export async function registerSystemJobs(
         notification_routes: target.notificationRoutes,
       };
       await deps.opsRepository.upsertJob(
-        systemJob as unknown as Parameters<
-          SchedulerDependencies['opsRepository']['upsertJob']
-        >[0],
+        preserveOperatorSystemJobEdits(systemJob, existing),
       );
     }
   }
@@ -282,18 +309,27 @@ export async function registerSystemJobs(
   const primary = registrations[0];
   if (RUNTIME_MEMORY_DREAMING_ENABLED && primary) {
     const existing = await deps.opsRepository.getJobById(BRAIN_DREAMING_JOB_ID);
-    if (existing?.status !== 'dead_lettered') {
+    const target = buildSystemJobTargetFromRouteKey({
+      routeKey: primary.jid,
+      group: primary.group,
+      label: 'primary',
+    });
+    if (!target) {
+      unresolvedTrustedJobs += 1;
+      logger.warn(
+        {
+          jobId: BRAIN_DREAMING_JOB_ID,
+          routeKey: primary.jid,
+          folder: primary.group.folder,
+        },
+        'brain dreaming job route no longer matches a current registry route; skipping registration',
+      );
+    } else {
       const computedNextRun = computeNextJobRun(
         { schedule_type: 'cron', schedule_value: MEMORY_DREAMING_CRON },
         nowIso,
       );
-      const target = buildCanonicalJobLifecycleTarget({
-        conversationJid: primary.jid,
-        workspaceKey: primary.group.folder,
-        threadId: null,
-        label: 'primary',
-      });
-      await deps.opsRepository.upsertJob({
+      const brainDreamingJob = {
         id: BRAIN_DREAMING_JOB_ID,
         name: 'Brain Dreaming',
         prompt: BRAIN_DREAM_SYSTEM_PROMPT,
@@ -311,27 +347,43 @@ export async function registerSystemJobs(
         max_consecutive_failures: 3,
         execution_context: target.executionContext,
         notification_routes: target.notificationRoutes,
-      } as unknown as Parameters<
-        SchedulerDependencies['opsRepository']['upsertJob']
-      >[0]);
+      };
+      await deps.opsRepository.upsertJob(
+        preserveOperatorSystemJobEdits(brainDreamingJob, existing),
+      );
     }
   }
+
+  await registerObserverDigestJob(deps, {
+    observerDeliveryStatus,
+    primary,
+    nowIso,
+  });
 
   if (embeddingBackfillEnabled() && primary) {
     const existing = await deps.opsRepository.getJobById(
       MEMORY_EMBEDDING_BACKFILL_JOB_ID,
     );
-    if (existing?.status !== 'dead_lettered') {
+    const target = buildSystemJobTargetFromRouteKey({
+      routeKey: primary.jid,
+      group: primary.group,
+      label: 'primary',
+    });
+    if (!target) {
+      unresolvedTrustedJobs += 1;
+      logger.warn(
+        {
+          jobId: MEMORY_EMBEDDING_BACKFILL_JOB_ID,
+          routeKey: primary.jid,
+          folder: primary.group.folder,
+        },
+        'memory embedding backfill job route no longer matches a current registry route; skipping registration',
+      );
+    } else {
       const computedNextRun = computeNextJobRun(
         { schedule_type: 'cron', schedule_value: MEMORY_BACKFILL_CRON },
         nowIso,
       );
-      const target = buildCanonicalJobLifecycleTarget({
-        conversationJid: primary.jid,
-        workspaceKey: primary.group.folder,
-        threadId: null,
-        label: 'primary',
-      });
       const backfillJob = {
         id: MEMORY_EMBEDDING_BACKFILL_JOB_ID,
         name: 'Memory Embedding Backfill',
@@ -352,26 +404,34 @@ export async function registerSystemJobs(
         notification_routes: target.notificationRoutes,
       };
       await deps.opsRepository.upsertJob(
-        backfillJob as unknown as Parameters<
-          SchedulerDependencies['opsRepository']['upsertJob']
-        >[0],
+        preserveOperatorSystemJobEdits(backfillJob, existing),
       );
     }
 
     const existingBrain = await deps.opsRepository.getJobById(
       BRAIN_EMBEDDING_BACKFILL_JOB_ID,
     );
-    if (existingBrain?.status !== 'dead_lettered') {
+    const brainTarget = buildSystemJobTargetFromRouteKey({
+      routeKey: primary.jid,
+      group: primary.group,
+      label: 'primary',
+    });
+    if (!brainTarget) {
+      unresolvedTrustedJobs += 1;
+      logger.warn(
+        {
+          jobId: BRAIN_EMBEDDING_BACKFILL_JOB_ID,
+          routeKey: primary.jid,
+          folder: primary.group.folder,
+        },
+        'brain embedding backfill job route no longer matches a current registry route; skipping registration',
+      );
+    } else {
       const computedNextRun = computeNextJobRun(
         { schedule_type: 'cron', schedule_value: MEMORY_BACKFILL_CRON },
         nowIso,
       );
-      const target = buildCanonicalJobLifecycleTarget({
-        conversationJid: primary.jid,
-        workspaceKey: primary.group.folder,
-        threadId: null,
-        label: 'primary',
-      });
+      const target = brainTarget;
       const brainBackfillJob = {
         id: BRAIN_EMBEDDING_BACKFILL_JOB_ID,
         name: 'Brain Embedding Backfill',
@@ -392,11 +452,16 @@ export async function registerSystemJobs(
         notification_routes: target.notificationRoutes,
       };
       await deps.opsRepository.upsertJob(
-        brainBackfillJob as unknown as Parameters<
-          SchedulerDependencies['opsRepository']['upsertJob']
-        >[0],
+        preserveOperatorSystemJobEdits(brainBackfillJob, existingBrain),
       );
     }
+  }
+
+  if (unresolvedTrustedJobs > 0) {
+    logger.warn(
+      { unresolvedTrustedJobs },
+      'one or more trusted system jobs could not be registered against a current registry route',
+    );
   }
 
   setSystemJobRegistrationSignature(deps.opsRepository, registrationSignature);
@@ -431,7 +496,11 @@ export async function handleSystemJob(
     userId?: string;
     threadId?: string | null;
   },
-  options: { signal?: AbortSignal; deadlineAtMs?: number } = {},
+  options: {
+    signal?: AbortSignal;
+    deadlineAtMs?: number;
+    onNotificationContext?: (context: MemoryReviewCreatedNotification) => void;
+  } = {},
 ): Promise<string> {
   if (job.prompt === MEMORY_EMBEDDING_BACKFILL_SYSTEM_PROMPT) {
     return runScheduledEmbeddingBackfill(options.signal);
@@ -441,6 +510,9 @@ export async function handleSystemJob(
   }
   if (job.prompt === BRAIN_DREAM_SYSTEM_PROMPT) {
     return runScheduledBrainDreaming(options.signal);
+  }
+  if (job.prompt === OBSERVER_DIGEST_SYSTEM_PROMPT) {
+    return runScheduledObserverDigest(options.signal);
   }
   if (job.prompt === MEMORY_DREAM_SYSTEM_PROMPT) {
     options.signal?.throwIfAborted();
@@ -500,6 +572,12 @@ export async function handleSystemJob(
           throw new Error('invalid memory maintenance group');
         }
       }
+      await emitMemoryReviewCreatedContext({
+        dreamRun,
+        memory,
+        subject,
+        onNotificationContext: options.onNotificationContext,
+      });
       return formatMemoryDreamingOutcome(dreamRun, queueResult);
     } finally {
       jobDeadline.dispose();
@@ -515,11 +593,20 @@ async function runScheduledBrainDreaming(
   if (!RUNTIME_MEMORY_DREAMING_ENABLED) {
     return 'Brain dreaming is disabled.';
   }
+  const observer = getRuntimeSettingsForConfig().observer;
+  const observerOwnerRecipient = observer.owner?.recipient ?? null;
+  const observerEmissionEnabled =
+    observer.enabled && observerOwnerRecipient !== null;
   const result = await runRuntimeBrainDreamBatch({
     appId: DEFAULT_MEMORY_APP_ID,
     signal,
+    observerEnabled: observerEmissionEnabled,
+    observerOwnerRecipient,
   });
-  return `Brain dreaming complete: ${result.pages} page(s), ${result.applied} applied, ${result.noop} no-op, ${result.rejected} rejected, ${result.proposed} proposed.`;
+  const receipt = `Brain dreaming complete: ${result.pages} page(s), ${result.applied} applied, ${result.noop} no-op, ${result.rejected} rejected, ${result.proposed} proposed.`;
+  return observerEmissionEnabled
+    ? `${receipt} ${result.observer!.message}`
+    : receipt;
 }
 
 async function runScheduledBrainEmbeddingBackfill(
@@ -588,66 +675,6 @@ async function runScheduledEmbeddingBackfill(
     return `Memory embedding batch submitted: ${result.submitted} items queued.${pollNote}`;
   }
   return `Memory embedding backfill ${result.status}: ${result.indexed} indexed, ${result.pending} pending.${pollNote}`;
-}
-
-function numericSummaryValue(
-  summary: unknown,
-  key: string,
-): number | undefined {
-  if (!summary || typeof summary !== 'object' || Array.isArray(summary)) {
-    return undefined;
-  }
-  const value = (summary as Record<string, unknown>)[key];
-  return typeof value === 'number' && Number.isFinite(value)
-    ? Math.max(0, Math.trunc(value))
-    : undefined;
-}
-
-function formatMemoryDreamingOutcome(
-  run: DreamingRunStatus | undefined,
-  queueResult: MemoryMaintenanceQueueEnqueueResult,
-): string {
-  if (queueResult.deduped) {
-    return 'Memory dreaming was already running for this conversation.';
-  }
-  if (!run) {
-    return 'Memory dreaming completed.';
-  }
-  if (run.status === 'failed') {
-    const summary =
-      run.summary && typeof run.summary === 'object'
-        ? (run.summary as Record<string, unknown>)
-        : {};
-    const error = typeof summary.error === 'string' ? summary.error : '';
-    const pendingReviews = numericSummaryValue(summary, 'pendingReviews') ?? 0;
-    const base = error
-      ? `Memory dreaming failed: ${error}${/[.!?]\s*$/.test(error) ? '' : '.'}`
-      : 'Memory dreaming failed.';
-    return appendPendingReviewNotice(base, pendingReviews);
-  }
-  const needsReview = numericSummaryValue(run.summary, 'needsReview') ?? 0;
-  const pendingReviews =
-    numericSummaryValue(run.summary, 'pendingReviews') ?? needsReview;
-  const blocked = numericSummaryValue(run.summary, 'blocked') ?? 0;
-  const issues: string[] = [];
-  if (needsReview > 0) issues.push(`${needsReview} sent to review`);
-  if (pendingReviews > needsReview) {
-    issues.push(pendingMemoryReviewNotice(pendingReviews));
-  }
-  if (blocked > 0) issues.push(`${blocked} blocked`);
-  if (issues.length > 0) {
-    return `Memory dreaming needs attention: ${issues.join(', ')}.`;
-  }
-  return 'Memory dreaming completed.';
-}
-
-function appendPendingReviewNotice(
-  summary: string,
-  pendingReviews: number,
-  alreadyReported = 0,
-) {
-  if (pendingReviews <= alreadyReported) return summary;
-  return `${summary} ${pendingMemoryReviewNotice(pendingReviews)}.`;
 }
 
 export function resetSystemJobStateForTests(): void {

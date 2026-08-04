@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import type { RuntimePermissionSettings } from './runtime-settings-types.js';
 import { validateEgressDenylistPattern } from '../../shared/egress-policy.js';
 import {
@@ -18,6 +20,7 @@ export function parsePermissionSettings(
     egress: {
       denylist: [],
     },
+    trustedRoots: [],
     autoMode: {},
   };
   if (raw === undefined) return defaults;
@@ -26,9 +29,14 @@ export function parsePermissionSettings(
   }
   const map = raw as Record<string, unknown>;
   for (const key of Object.keys(map)) {
-    if (key !== 'yolo_mode' && key !== 'egress' && key !== 'auto_mode') {
+    if (
+      key !== 'yolo_mode' &&
+      key !== 'egress' &&
+      key !== 'trusted_roots' &&
+      key !== 'auto_mode'
+    ) {
       throw new Error(
-        `permissions.${key} is not supported. Configure permissions.yolo_mode.*, permissions.egress.*, or permissions.auto_mode.*.`,
+        `permissions.${key} is not supported. Configure permissions.yolo_mode.*, permissions.egress.*, permissions.trusted_roots, or permissions.auto_mode.*.`,
       );
     }
   }
@@ -107,6 +115,12 @@ export function parsePermissionSettings(
         validateEgressDenylistPattern,
       ),
     },
+    trustedRoots: parseStringArrayValue(
+      map.trusted_roots,
+      'permissions.trusted_roots',
+      defaults.trustedRoots,
+      validateTrustedRoot,
+    ),
     autoMode: {
       model: parseOptionalStringValue(
         autoMode.model,
@@ -114,4 +128,11 @@ export function parsePermissionSettings(
       ),
     },
   };
+}
+
+function validateTrustedRoot(value: string): string {
+  if (!path.isAbsolute(value) || path.normalize(value) !== value) {
+    throw new Error('must be a normalized absolute path');
+  }
+  return value;
 }

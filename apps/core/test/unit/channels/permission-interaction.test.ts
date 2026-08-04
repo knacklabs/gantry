@@ -4,6 +4,7 @@ import {
   buildPermissionPromptParts,
   decisionForMode,
   firstPersistentRule,
+  formatPermissionPromptPartsText,
   formatPermissionPromptText,
   formatPermissionReceiptText,
   normalizePermissionAction,
@@ -11,6 +12,7 @@ import {
   permissionDecisionOptions,
   permissionButtonLabel,
 } from '@core/channels/permission-interaction.js';
+import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 
 function requestWithSuggestions(
@@ -25,6 +27,187 @@ function requestWithSuggestions(
 }
 
 describe('permission interaction', () => {
+  it('labels the generic MCP passthrough as access to any connected server', () => {
+    const text = formatPermissionPromptText(
+      {
+        requestId: 'permission_123',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'mcp__gantry__mcp_call_tool',
+        suggestions: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            destination: 'session',
+            rules: [{ toolName: 'mcp__gantry__mcp_call_tool' }],
+          },
+        ],
+      },
+      60_000,
+    );
+
+    expect(text).toContain('MCP Call Tool (any connected server)');
+  });
+
+  it('renders request risk exactly once in plain-text and structured prompt paths', () => {
+    const request: PermissionApprovalRequest = {
+      ...requestWithSuggestions([]),
+      toolInput: { command: 'rm -rf ./generated' },
+      risk_level: 'high',
+      risk_category: 'destructive',
+    };
+
+    const prompts = [
+      formatPermissionPromptText(request, 60_000),
+      formatPermissionPromptPartsText(
+        buildPermissionPromptParts(request, 60_000),
+      ),
+    ];
+
+    for (const prompt of prompts) {
+      expect(prompt.match(/^Risk:.*$/gm)).toEqual(['Risk: high — destructive']);
+    }
+  });
+
+  it('renders only the risk level when no category was derived', () => {
+    const request: PermissionApprovalRequest = {
+      ...requestWithSuggestions([]),
+      risk_level: 'high',
+    };
+
+    const prompts = [
+      formatPermissionPromptText(request, 60_000),
+      formatPermissionPromptPartsText(
+        buildPermissionPromptParts(request, 60_000),
+      ),
+    ];
+
+    for (const prompt of prompts) {
+      expect(prompt.match(/^Risk:.*$/gm)).toEqual(['Risk: high']);
+      expect(prompt).not.toContain('benign');
+    }
+  });
+
+  it('uses the semantic risk as the category when classifier risk has only a level', () => {
+    const request: PermissionApprovalRequest = {
+      ...requestWithSuggestions([
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'capability:acme.records.append' }],
+        },
+      ]),
+      risk_level: 'high',
+      semanticCapabilityDefinitions: {
+        'acme.records.append': {
+          capabilityId: 'acme.records.append',
+          displayName: 'Acme records append',
+          category: 'acme',
+          risk: 'write',
+          can: 'Append records through reviewed Acme access.',
+          cannot: 'Delete records or change account settings.',
+          credentialSource: 'configured_access',
+          implementationBindings: [
+            { kind: 'tool_rule', rule: 'RunCommand(acme records append *)' },
+          ],
+          preflight: { kind: 'none' },
+        },
+      },
+    };
+
+    const prompts = [
+      formatPermissionPromptText(request, 60_000),
+      formatPermissionPromptPartsText(
+        buildPermissionPromptParts(request, 60_000),
+      ),
+    ];
+
+    for (const prompt of prompts) {
+      expect(prompt.match(/^Risk:.*$/gm)).toEqual(['Risk: high — Write']);
+    }
+  });
+
+  it('renders a compact permission batch with batch actions', () => {
+    const batch = createPermissionBatchRequest(
+      [
+        {
+          ...requestWithSuggestions([]),
+          requestId: 'permission-1',
+          toolInput: { command: 'git status --short' },
+        },
+        {
+          ...requestWithSuggestions([]),
+          requestId: 'permission-2',
+          toolName: 'Write',
+          toolInput: { file_path: 'notes.md' },
+        },
+      ],
+      ['1. Command (git status --short)', '2. File action (notes.md)'],
+    );
+
+    expect(formatPermissionPromptText(batch, 300_000)).toContain(
+      '1. Command (git status --short)',
+    );
+    expect(formatPermissionPromptText(batch, 300_000)).toContain(
+      '2. File action (notes.md)',
+    );
+    expect(
+      permissionDecisionOptions(batch).map((mode) =>
+        permissionButtonLabel(mode, batch),
+      ),
+    ).toEqual(['Allow all', 'Review each', 'Deny all']);
+    expect(decisionForMode(batch, 'allow_persistent_rule', 'Ravi')).toEqual(
+      expect.objectContaining({
+        approved: true,
+        mode: 'allow_persistent_rule',
+        reason: 'review each',
+      }),
+    );
+  });
+
+  it('removes Allow all when the rendered batch omits permission rows', () => {
+    const batch = createPermissionBatchRequest(
+      [
+        { ...requestWithSuggestions([]), requestId: 'permission-1' },
+        { ...requestWithSuggestions([]), requestId: 'permission-2' },
+      ],
+      [`1. ${'a'.repeat(1_500)}`, `2. ${'b'.repeat(1_500)}`],
+    );
+
+    expect(formatPermissionPromptText(batch, 300_000)).toContain(
+      '[additional permission details omitted]',
+    );
+    expect(
+      permissionDecisionOptions(batch).map((mode) =>
+        permissionButtonLabel(mode, batch),
+      ),
+    ).toEqual(['Review each', 'Deny all']);
+  });
+
+  it('reconstructs Review each from a recovered batch callback', () => {
+    const original = requestWithSuggestions([]);
+
+    expect(permissionDecisionOptions(original, 'batch')).toEqual([
+      'allow_once',
+      'allow_persistent_rule',
+      'cancel',
+    ]);
+    const decision = decisionForMode(
+      original,
+      'allow_persistent_rule',
+      'Ravi',
+      'batch',
+    );
+    expect(decision).toMatchObject({
+      approved: true,
+      mode: 'allow_persistent_rule',
+      decisionClassification: 'user_temporary',
+      batchDecision: 'review_each',
+    });
+    expect(
+      formatPermissionReceiptText(original.requestId, original, decision),
+    ).toBe('Reviewing each permission request.');
+  });
+
   it('accepts only current permission action tokens', () => {
     expect(normalizePermissionAction('allow_once')).toBe('allow_once');
     expect(normalizePermissionAction('allow_persistent_rule')).toBe(
@@ -33,6 +216,70 @@ describe('permission interaction', () => {
     expect(normalizePermissionAction('cancel')).toBe('cancel');
     expect(normalizePermissionAction('approve')).toBeNull();
     expect(normalizePermissionAction('deny')).toBeNull();
+  });
+
+  it('labels and settles MCP capability allow-once as granting no access', () => {
+    const request = {
+      requestId: 'permission_mcp_capability',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'request_permission',
+      displayName: 'MCP capability: Sum reads',
+      toolInput: {
+        capabilityProposalKind: 'mcp_capability',
+      },
+    } satisfies PermissionApprovalRequest;
+
+    expect(permissionButtonLabel('allow_once', request)).toBe(
+      'Allow once (no access)',
+    );
+    expect(
+      formatPermissionReceiptText(request.requestId, request, {
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'Ravi',
+      }),
+    ).toBe(
+      'No MCP access granted: MCP Capability: Sum Reads. MCP action authority requires Allow for future; nothing changed.',
+    );
+
+    const recoveredRequest = {
+      ...request,
+      toolInput: undefined,
+      suggestions: [
+        {
+          type: 'addRules' as const,
+          behavior: 'allow' as const,
+          rules: [{ toolName: 'capability:mcp.sum.read.123456789abc' }],
+        },
+      ],
+      semanticCapabilityDefinitions: {
+        'mcp.sum.read.123456789abc': {
+          capabilityId: 'mcp.sum.read.123456789abc',
+          displayName: 'Sum reads',
+          category: 'MCP',
+          risk: 'read' as const,
+          can: 'Read sums.',
+          cannot: 'Call other tools.',
+          credentialSource: 'none' as const,
+          implementationBindings: [],
+          source: { kind: 'mcp_capability_proposal' },
+        },
+      },
+    } satisfies PermissionApprovalRequest;
+    expect(permissionButtonLabel('allow_once', recoveredRequest)).toBe(
+      'Allow once (no access)',
+    );
+    expect(
+      formatPermissionReceiptText(
+        recoveredRequest.requestId,
+        recoveredRequest,
+        {
+          approved: true,
+          mode: 'allow_once',
+          decidedBy: 'Ravi',
+        },
+      ),
+    ).toContain('No MCP access granted');
   });
 
   it('allows persistent approval only when one displayed rule maps to one update', () => {
@@ -190,12 +437,18 @@ describe('permission interaction', () => {
       promotionHintCount: 3,
     } satisfies PermissionApprovalRequest;
     const hint =
-      "You've allowed this 3 times — 'Allow for future' makes it permanent.";
+      "You've allowed me to do this 3 times — want me to stop asking?";
+    const oldHint = "'Allow for future' makes it permanent.";
+    const prompt = formatPermissionPromptText(request, 60_000);
+    const contextLines = buildPermissionPromptParts(
+      request,
+      60_000,
+    ).contextLines;
 
-    expect(formatPermissionPromptText(request, 60_000)).toContain(hint);
-    expect(buildPermissionPromptParts(request, 60_000).contextLines).toContain(
-      hint,
-    );
+    expect(prompt).toContain(hint);
+    expect(contextLines).toContain(hint);
+    expect(prompt).not.toContain(oldHint);
+    expect(contextLines.join('\n')).not.toContain(oldHint);
   });
 
   it('shows profile update proposed content and hash in the approval prompt', () => {
@@ -1337,7 +1590,7 @@ describe('permission interaction', () => {
     expect(receipt).not.toContain('perm-abc-123');
   });
 
-  it('omits sensitive details instead of showing redaction markers in accepted receipts', () => {
+  it('shows the command with the secret span masked in accepted receipts', () => {
     const receipt = formatPermissionReceiptText(
       'perm-abc-123',
       {
@@ -1357,7 +1610,9 @@ describe('permission interaction', () => {
     );
 
     expect(receipt).toContain('Allowed once: Command');
-    expect(receipt).not.toContain('REDACTED');
+    // The secret span is masked but the rest of the command stays visible.
+    expect(receipt).toContain('curl https://api.example.com');
+    expect(receipt).toContain('[REDACTED_SECRET]');
     expect(receipt).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
     expect(receipt).not.toContain('Request ID');
     expect(receipt).not.toContain('perm-abc-123');

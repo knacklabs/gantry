@@ -282,6 +282,16 @@ describe('configured agent tools', () => {
           ],
         },
       ],
+      semanticCapabilities: [
+        expect.objectContaining({
+          capabilityId: 'skill.linkedin-posting.publish',
+          source: expect.objectContaining({
+            kind: 'skill_action',
+            skillId: 'skill:linkedin-posting',
+            actionId: 'publish',
+          }),
+        }),
+      ],
     });
   });
 
@@ -406,6 +416,9 @@ describe('configured agent tools', () => {
             },
           ],
         },
+      ],
+      semanticCapabilities: [
+        expect.objectContaining({ capabilityId: 'acme.invoices.read' }),
       ],
     });
   });

@@ -2,13 +2,37 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   ToolExecutionClassifier,
   ToolExecutionPolicyService,
   evaluateProtectedCapabilityToolUse,
 } from '@core/shared/tool-execution-policy-service.js';
+import type { SemanticCapabilityDefinition } from '@core/shared/semantic-capabilities.js';
+
+function capability(
+  overrides: Partial<SemanticCapabilityDefinition> &
+    Pick<
+      SemanticCapabilityDefinition,
+      'capabilityId' | 'credentialSource' | 'implementationBindings'
+    >,
+): SemanticCapabilityDefinition {
+  return {
+    displayName: overrides.capabilityId,
+    category: 'test',
+    risk: 'write',
+    can: 'do the reviewed thing',
+    cannot: 'do anything else',
+    ...overrides,
+  };
+}
+
+function definitionsById(
+  ...defs: SemanticCapabilityDefinition[]
+): Record<string, SemanticCapabilityDefinition> {
+  return Object.fromEntries(defs.map((def) => [def.capabilityId, def]));
+}
 
 const classifier = new ToolExecutionClassifier();
 const policy = new ToolExecutionPolicyService();
@@ -98,10 +122,10 @@ describe('ToolExecutionPolicyService', () => {
     ).not.toContain('scheduler_grant_tool');
   });
 
-  it('recovers admin tool denials through reviewed capability guidance', () => {
+  it('recovers admin tool denials through exact persistent tool approval', () => {
     const request = classifier.classify({
       origin: 'mcp',
-      toolName: 'mcp__gantry__service_restart',
+      toolName: 'mcp__gantry__settings_desired_state',
       toolInput: {},
       executionMode: 'autonomous',
       runContext: { jobId: 'job-1' },
@@ -112,13 +136,28 @@ describe('ToolExecutionPolicyService', () => {
     ).toEqual(
       expect.objectContaining({
         status: 'deny',
-        recoveryAction: expect.stringContaining('reviewed admin capability'),
+        recoveryAction: expect.stringContaining(
+          '"name": "mcp__gantry__settings_desired_state"',
+        ),
       }),
     );
     expect(
       policy.evaluate({ request, autonomousAllowedToolRules: [] })
         .recoveryAction,
-    ).toContain('exact tool grants are not accepted');
+    ).toContain('exact Gantry tool access');
+  });
+
+  it('does not auto-allow newly durable-grantable exact Gantry tools', () => {
+    const request = classifier.classify({
+      origin: 'mcp',
+      toolName: 'mcp__gantry__scheduler_resume_job',
+      toolInput: { jobId: 'job-1' },
+    });
+
+    expect(policy.evaluate({ request })).toMatchObject({
+      status: 'not_applicable',
+      reason: 'No canonical tool execution policy matched.',
+    });
   });
 
   it('denies protected capability file targets through canonical policy', () => {
@@ -394,6 +433,29 @@ describe('ToolExecutionPolicyService', () => {
     expect(result.recoveryAction).not.toContain('scheduler_grant_tool');
   });
 
+  it('points autonomous scheduler tool denials to exact persistent tool approval', () => {
+    const request = classifier.classify({
+      origin: 'mcp',
+      toolName: 'mcp__gantry__scheduler_run_now',
+      toolInput: { jobId: 'job-1' },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-manager' },
+    });
+
+    const result = policy.evaluate({ request, autonomousAllowedToolRules: [] });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: 'deny',
+        reason: expect.stringContaining(
+          'Tool not on autonomous run allowlist: mcp__gantry__scheduler_run_now.',
+        ),
+        recoveryAction:
+          'request_access { "target": { "kind": "tool", "name": "mcp__gantry__scheduler_run_now" }, "temporaryOnly": false, "reason": "This autonomous run needs exact Gantry tool access." }',
+      }),
+    );
+  });
+
   it('allows autonomous read-only inspection of generated runtime tool results without durable grants', () => {
     const resultPath =
       '/Users/example/gantry/agents/main_agent/.llm-runtime/claude/projects/-Users-example-gantry-agents-main-agent/run-1/tool-results/result.txt';
@@ -440,6 +502,72 @@ describe('ToolExecutionPolicyService', () => {
         status: 'deny',
       });
     }
+  });
+
+  it('allows autonomous MCP calls matching a reviewed pattern rule', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'mcp__github__search_repositories',
+      toolInput: { q: 'gantry' },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-pattern' },
+    });
+
+    expect(
+      policy.evaluate({
+        request,
+        autonomousAllowedToolRules: ['mcp__github__search_*'],
+      }),
+    ).toMatchObject({
+      status: 'allow',
+      matchedRule: 'mcp__github__search_*',
+    });
+  });
+
+  it('gives provision-before-run recovery when capability request tools are hidden', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'mcp__github__create_issue',
+      toolInput: { title: 'Bug' },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-hidden' },
+    });
+
+    const visible = policy.evaluate({
+      request,
+      autonomousAllowedToolRules: [],
+    });
+    expect(visible.status).toBe('deny');
+    expect(visible.recoveryAction).toContain('request_mcp_server');
+
+    const hidden = policy.evaluate({
+      request,
+      autonomousAllowedToolRules: [],
+      capabilityRequestToolsHidden: true,
+    });
+    expect(hidden.status).toBe('deny');
+    expect(hidden.recoveryAction).toContain(
+      'provision a reviewed capability covering mcp__github__create_issue before the run',
+    );
+    expect(hidden.recoveryAction).not.toContain('request_mcp_server');
+    expect(hidden.recoveryAction).not.toContain('request_access');
+  });
+
+  it('gives provision-before-run recovery for protected capability writes when request tools are hidden', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Write',
+      toolInput: { file_path: '/repo/.mcp.json', content: '{}' },
+    });
+
+    const hidden = policy.evaluate({
+      request,
+      capabilityRequestToolsHidden: true,
+    });
+    expect(hidden.status).toBe('deny');
+    expect(hidden.recoveryAction).toContain('provision the reviewed change');
+    expect(hidden.recoveryAction).not.toContain('request_mcp_server');
+    expect(hidden.recoveryAction).not.toContain('request_skill_install');
   });
 
   it('does not suggest durable approval for generated runtime paths', () => {
@@ -641,5 +769,189 @@ describe('ToolExecutionPolicyService', () => {
         reason: expect.stringContaining('npm test -- --runInBand'),
       },
     });
+  });
+});
+
+describe('ToolExecutionPolicyService semantic capability resolution', () => {
+  const sheetsCapability = capability({
+    capabilityId: 'google.sheets.values.update',
+    credentialSource: 'local_cli',
+    implementationBindings: [
+      {
+        kind: 'local_cli',
+        commandTemplates: ['/opt/homebrew/bin/gog sheets values update *'],
+      },
+    ],
+  });
+
+  it('resolves a granted local_cli capability rule to its command bundle without a hand-written RunCommand', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: {
+        command: '/opt/homebrew/bin/gog sheets values update Sheet1 42',
+      },
+    });
+
+    expect(
+      policy.evaluate({
+        request,
+        allowedToolRules: ['capability:google.sheets.values.update'],
+        semanticCapabilityDefinitions: definitionsById(sheetsCapability),
+      }),
+    ).toMatchObject({
+      status: 'allow',
+      reason: 'Allowed by selected capability google.sheets.values.update.',
+      matchedRule: 'RunCommand(/opt/homebrew/bin/gog sheets values update *)',
+    });
+  });
+
+  it('resolves a granted mcp_server capability rule to its reviewed tool names', () => {
+    const mcpCapability = capability({
+      capabilityId: 'github.issues.create',
+      credentialSource: 'configured_access',
+      implementationBindings: [
+        {
+          kind: 'mcp_pattern',
+          mcpServer: 'github',
+          mcpToolPatterns: ['create_issue'],
+        },
+      ],
+    });
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'mcp__github__create_issue',
+      toolInput: { title: 'Bug' },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-mcp' },
+    });
+
+    expect(
+      policy.evaluate({
+        request,
+        autonomousAllowedToolRules: ['capability:github.issues.create'],
+        semanticCapabilityDefinitions: definitionsById(mcpCapability),
+      }),
+    ).toMatchObject({
+      status: 'allow',
+      reason: 'Allowed by selected capability github.issues.create.',
+      matchedRule: 'mcp__github__create_issue',
+    });
+  });
+
+  it('resolves a granted builtin_tool capability rule to its runtime tool authority', () => {
+    const readCapability = capability({
+      capabilityId: 'files.read',
+      credentialSource: 'none',
+      risk: 'read',
+      implementationBindings: [{ kind: 'tool_rule', rule: 'FileRead' }],
+    });
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Read',
+      toolInput: { file_path: '/repo/notes.md' },
+    });
+
+    expect(
+      policy.evaluate({
+        request,
+        allowedToolRules: ['capability:files.read'],
+        semanticCapabilityDefinitions: definitionsById(readCapability),
+      }),
+    ).toMatchObject({
+      status: 'allow',
+      reason: 'Allowed by selected capability files.read.',
+      matchedRule: 'FileRead',
+    });
+  });
+
+  it('does not authorize a tool outside the resolved capability bundle', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: { command: 'curl https://evil.example.com' },
+    });
+
+    expect(
+      policy.evaluate({
+        request,
+        allowedToolRules: ['capability:google.sheets.values.update'],
+        semanticCapabilityDefinitions: definitionsById(sheetsCapability),
+      }),
+    ).toMatchObject({ status: 'not_applicable' });
+  });
+
+  it('skips an unresolvable capability rule without poisoning an unrelated granted tool', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Read',
+      toolInput: { file_path: '/repo/notes.md' },
+    });
+
+    const result = policy.evaluate({
+      request,
+      // The granted capability is present but its definition is not available;
+      // FileRead must still be decided on its own merits.
+      allowedToolRules: ['capability:google.sheets.values.update', 'FileRead'],
+      semanticCapabilityDefinitions: {},
+    });
+    expect(result).toMatchObject({ status: 'allow', matchedRule: 'FileRead' });
+    expect(result.reason).not.toContain('Unsupported autonomous tool rule');
+  });
+
+  it('skips an inherited prototype capability id while resolving an owned definition', () => {
+    const readCapability = capability({
+      capabilityId: 'files.read',
+      credentialSource: 'none',
+      risk: 'read',
+      implementationBindings: [{ kind: 'tool_rule', rule: 'FileRead' }],
+    });
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Read',
+      toolInput: { file_path: '/repo/notes.md' },
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const result = policy.evaluate({
+        request,
+        allowedToolRules: [
+          'capability:constructor',
+          'capability:toString',
+          'capability:files.read',
+        ],
+        semanticCapabilityDefinitions: definitionsById(readCapability),
+      });
+
+      expect(result).toMatchObject({
+        status: 'allow',
+        reason: 'Allowed by selected capability files.read.',
+        matchedRule: 'FileRead',
+      });
+      expect(warn).toHaveBeenCalledWith(
+        '[tool-execution-policy] skipping unresolved capability rule capability:constructor (no reviewed definition available)',
+      );
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('does not turn an unrelated tool into a capability-mismatch deny when a capability rule is unresolvable', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'render_progress',
+      toolInput: {},
+    });
+
+    const result = policy.evaluate({
+      request,
+      allowedToolRules: ['capability:google.sheets.values.update'],
+      semanticCapabilityDefinitions: {},
+    });
+    expect(result.status).toBe('not_applicable');
+    expect(result.reason).not.toContain('Unsupported autonomous tool rule');
+    expect(result.reason).not.toContain('google.sheets.values.update');
   });
 });

@@ -18,8 +18,8 @@
  *  - Host-local singleton/lock + devtools port files: `SingletonLock`,
  *    `SingletonCookie`, `SingletonSocket`, `DevToolsActivePort`.
  *  - Gantry host-local session marker: `browser-session.json`.
- * `profile.json` / `profile.lock` live OUTSIDE `user-data/` so they are never
- * part of the snapshot tree.
+ * `profile.json` lives OUTSIDE `user-data/` so it is never part of the snapshot
+ * tree.
  */
 const EXCLUDED_PATH_SEGMENTS = new Set<string>([
   'Code Cache',

@@ -61,12 +61,7 @@ endpoints on the running runtime:
 - `client.jobs` — `create`, `list`, `get`, `update`, `events`, `delete`, `pause`, `resume`, `trigger`, `wait`
 - `client.runs` — `list`, `get`
 - `client.usage` — `query`
-- `client.models` — `list`, `defaults.get`, `defaults.update`, `preview`, and
-  scoped-admin `credentials.list`, `credentials.set`, `credentials.disable`
-- `client.llm.chatCompletions` — provider-neutral text/image structured
-  generation through a registered model alias. Requires `llm:invoke` and
-  returns safe Gantry request, alias, route, and provider correlation metadata
-  alongside the typed upstream response.
+- `client.models` — `list`, `defaults.get`, `defaults.update`, `preview`
 - `client.agents` — admin read and profile-file read/write plus `skills`, `mcpServers`, `conversationInstalls`
 - `client.skills` — install and list skills
 - `client.mcpServers` — catalog of MCP servers
@@ -78,6 +73,10 @@ endpoints on the running runtime:
 - `client.settings` — read runtime settings, read/update desired state, list revisions
 - `client.ingresses` — manage external ingress configurations
 - `conversationMessageTarget` — build a typed signed-ingress target for an existing Gantry conversation/thread.
+
+Version 0.6.0 also exposes `client.runtimeEvents`, reviewed
+`client.capabilities` registration, agent list/create/access reconciliation,
+caller-interaction settlement, and model-routed `client.llm.chatCompletions`.
 
 ### Generated OpenAPI types
 

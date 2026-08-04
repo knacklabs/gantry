@@ -2,6 +2,7 @@ import {
   listModelCatalogEntries,
   type ModelCatalogEntry,
   type ModelDefaultAliases,
+  type ModelWorkload,
 } from './model-catalog.js';
 import {
   recommendModelAlias,
@@ -20,6 +21,8 @@ import {
 
 export interface ModelCatalogFormatOptions {
   defaults?: ModelDefaultAliases;
+  // Limit rows to models supporting at least one requested workload.
+  workloads?: readonly ModelWorkload[];
   // Provider/route ids with an ACTIVE Model Access credential for the current
   // app. When provided, each row gains an availability badge; when omitted the
   // list renders without badges (graceful degrade — same as before).
@@ -88,8 +91,8 @@ export function formatModelCatalog(
   const { defaults = {}, configuredProviders, familyOrder } = options;
   const hasAvailability = configuredProviders !== undefined;
   const header = hasAvailability
-    ? 'Alias | Model | Response family | Route | Context | Cache | Cost (in/out per 1M) | Availability | Status'
-    : 'Alias | Model | Response family | Route | Context | Cache | Cost (in/out per 1M) | Status';
+    ? 'Alias | Model | Response family | Route | Context | Cache | Base cost (in/out per 1M) | Availability | Status'
+    : 'Alias | Model | Response family | Route | Context | Cache | Base cost (in/out per 1M) | Status';
   const lines = [
     'Supported model aliases',
     header,
@@ -108,7 +111,14 @@ export function formatModelCatalog(
       );
     }
   }
-  for (const entry of listModelCatalogEntries()) {
+  const entries = listModelCatalogEntries().filter(
+    (entry) =>
+      !options.workloads?.length ||
+      options.workloads.some((workload) =>
+        entry.supportedWorkloads.includes(workload),
+      ),
+  );
+  for (const entry of entries) {
     const cacheSupport = resolveModelCacheSupport(entry);
     const contextWindow = formatContextWindow(entry.contextWindowTokens);
     const cost = formatCostPerMillion(entry);

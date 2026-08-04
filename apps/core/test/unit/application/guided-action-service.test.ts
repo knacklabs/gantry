@@ -112,12 +112,10 @@ describe('guided action service', () => {
       }),
     ).toBe(
       [
-        'Done.',
-        '',
-        'Changed: Bound Default Agent to main_dm.',
-        'Saved to: settings.yaml',
-        'Restart required: Yes',
-        'Next action: Restart the runtime.',
+        'Done. Bound Default Agent to main_dm.',
+        'I saved it to settings.yaml.',
+        'A runtime restart is required.',
+        'Restart the runtime.',
       ].join('\n'),
     );
   });

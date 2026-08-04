@@ -22,6 +22,7 @@ import { renderRuntimeSettingsYaml } from './runtime-settings-renderer.js';
 import { modelAliasesToCatalogEntries } from './runtime-settings-model-aliases-parser.js';
 import {
   readRuntimeMemorySettingsSnapshot,
+  readRuntimeObserverSettingsSnapshot,
   readRuntimeStorageSettingsSnapshot,
 } from './runtime-settings-snapshots.js';
 import {
@@ -30,7 +31,6 @@ import {
 } from './runtime-settings-validation.js';
 import type {
   RuntimeSettings,
-  AgentRuntime,
   RuntimeSettingsValidationResult,
 } from './runtime-settings-types.js';
 import { validateReadableAgentToolRule } from '../../shared/agent-tool-references.js';
@@ -56,6 +56,10 @@ export {
   noteRestartRequired,
   writeDesiredRuntimeSettings,
 } from './desired-settings-writer.js';
+export {
+  applyConversationInstallToSettings,
+  hasConversationInstallInSettings,
+} from './conversation-install-settings.js';
 
 const DEFAULT_PROVIDER_ACCOUNT_IDS: Record<string, string> = {
   app: 'app_default',
@@ -90,6 +94,7 @@ export type {
   RuntimeMemoryLlmModels,
   RuntimeMemorySettings,
   RuntimeMemorySettingsSnapshot,
+  RuntimeObserverSettings,
   AgentRuntime,
   RuntimeSettings,
   RuntimeSettingsValidationFailure,
@@ -107,6 +112,7 @@ export {
   getProviderManagedMemoryDefaults,
   parseRuntimeSettings,
   readRuntimeMemorySettingsSnapshot,
+  readRuntimeObserverSettingsSnapshot,
   readRuntimeStorageSettingsSnapshot,
 };
 
@@ -144,6 +150,7 @@ export function ensureConfiguredAgent(
     folder,
     runtime: 'worker',
     persona: input.persona ?? 'developer',
+    delegates: [],
     bindings: {},
     sources: { skills: [], mcpServers: [], tools: [] },
     capabilities: [],
@@ -462,9 +469,15 @@ export function ensureConfiguredConversationBinding(
 
 function stripProviderPrefix(jid: string, providerId: string): string {
   const provider = getProvider(providerId);
-  return provider && jid.startsWith(provider.jidPrefix)
-    ? jid.slice(provider.jidPrefix.length)
-    : jid;
+  if (!provider) return jid;
+  if (jid.startsWith(provider.jidPrefix)) {
+    return jid.slice(provider.jidPrefix.length);
+  }
+  const providerLabelPrefix = `${provider.id}:`;
+  if (jid.startsWith(providerLabelPrefix)) {
+    return jid.slice(providerLabelPrefix.length);
+  }
+  return jid;
 }
 
 function configuredConversationId(input: {

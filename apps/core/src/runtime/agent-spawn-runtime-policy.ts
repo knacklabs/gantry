@@ -7,12 +7,13 @@ import type { EgressNetworkAttribution } from './egress-gateway.js';
 import type { AgentInput } from './agent-spawn-types.js';
 import {
   reviewedExternalMcpToolNamesFromRuntimeAccess,
+  reviewedExternalMcpToolPatternsFromRuntimeAccess,
   type CapabilityRuntimeAccess,
 } from '../shared/capability-runtime-access.js';
 import { DEEPAGENTS_ENGINE, type AgentEngine } from '../shared/agent-engine.js';
 import { listExecutableModelProviders } from '../shared/model-provider-registry.js';
 import {
-  filterMcpToolNamesBySourceScopes,
+  intersectMcpToolRulesWithSourceScopes,
   reviewedMcpToolPatterns,
 } from '../shared/mcp-tool-scope.js';
 
@@ -116,6 +117,19 @@ export function validateRunnerAllowedTools(
     });
     if (unreviewedExternalMcpTool) {
       return `Configured agent tool ${unreviewedExternalMcpTool} is invalid. Third-party MCP tool names must be projected from a reviewed semantic capability.`;
+    }
+    const reviewedExternalMcpPatterns = new Set(
+      reviewedExternalMcpToolPatternsFromRuntimeAccess(runtimeAccess),
+    );
+    const unreviewedExternalMcpPattern = rules.find((rule) => {
+      const trimmed = rule.trim();
+      return (
+        /^mcp__(?!gantry__)[A-Za-z0-9_-]+__[A-Za-z0-9_.-]+\*$/.test(trimmed) &&
+        !reviewedExternalMcpPatterns.has(trimmed)
+      );
+    });
+    if (unreviewedExternalMcpPattern) {
+      return `Configured agent tool ${unreviewedExternalMcpPattern} is invalid. Third-party MCP tool patterns must be projected from a reviewed semantic capability.`;
     }
     validateAgentToolRuntimeRules({
       rules,
@@ -258,12 +272,11 @@ export function resolveRunnerMcpProjection(
           : reviewedMcpToolPatterns(definition),
     }),
   );
-  const sourceScopedReviewedMcpToolNames = filterMcpToolNamesBySourceScopes(
-    reviewedExternalMcpToolNamesFromRuntimeAccess(input.runtimeAccess, {
-      serverNames: mcpSourceScopes.map((scope) => scope.name),
-    }),
-    mcpSourceScopes,
-  );
+  const sourceScopedReviewedMcpToolNames =
+    intersectMcpToolRulesWithSourceScopes(
+      reviewedExternalMcpToolPatternsFromRuntimeAccess(input.runtimeAccess),
+      mcpSourceScopes,
+    );
   const reviewedMcpServerNames = new Set(
     sourceScopedReviewedMcpToolNames.flatMap((toolName) => {
       const match = /^mcp__([A-Za-z0-9_-]+)__/.exec(toolName.trim());

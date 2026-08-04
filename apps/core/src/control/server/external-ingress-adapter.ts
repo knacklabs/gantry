@@ -23,7 +23,6 @@ import {
   makeThreadQueueKey,
   parseAgentThreadQueueKey,
 } from '../../shared/thread-queue-key.js';
-import { SessionInteractionModule } from '../../application/sessions/session-interaction-module.js';
 import {
   getRuntimeControlRepository,
   getRuntimeEventExchange,
@@ -36,8 +35,6 @@ import {
   TRIGGER_RATE_LIMIT_PER_APP,
   TRIGGER_RATE_LIMIT_PER_JOB,
 } from './rate-limit.js';
-import { adaptSessionControlPort } from './session-control-port.js';
-import { createJobManagementService } from './routes/jobs.js';
 
 export function hasRouteForConversation(
   routes: Record<string, unknown>,
@@ -136,16 +133,6 @@ export function createExternalIngressModule(
   const control = getRuntimeControlRepository();
   const liveAdmissionAppId =
     ctx.liveTurnsEnabled === false ? null : DEFAULT_JOB_RUNTIME_APP_ID;
-  const sessions = new SessionInteractionModule({
-    control: adaptSessionControlPort(control),
-    ops: getRuntimeRepositories(),
-    repositories: getRuntimeStorage().repositories,
-    runtimeEvents: getRuntimeEventExchange(),
-    liveAdmissionAppId,
-    now: nowIso,
-    createId: randomUUID,
-    stableHash: (input) => createHash('sha256').update(input).digest('hex'),
-  });
   const conversationMessages = new ConversationMessageIngressModule({
     conversations: getRuntimeStorage().repositories.conversations,
     ops: getRuntimeRepositories(),
@@ -184,7 +171,8 @@ export function createExternalIngressModule(
   });
   return new ExternalIngressModule({
     control,
-    sessions,
+    sessions: ctx.sessionInteraction,
+    liveAdmissionAppId,
     registerSessionGroup: (registration) =>
       ctx.app.registerGroup(registration.conversationJid, registration.group),
     conversationMessages,
@@ -193,7 +181,7 @@ export function createExternalIngressModule(
           send: ctx.sendConversationIngressProjection,
         }
       : undefined,
-    jobs: createJobManagementService(ctx),
+    jobs: ctx.jobManagement,
     now: nowIso,
     createSecret: () => randomBytes(32).toString('hex'),
     createInvocationId: randomUUID,

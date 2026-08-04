@@ -21,6 +21,7 @@ export async function closeBrowserAfterJobRun(input: {
   currentJob: Job;
   executionGroupFolder?: string;
   executionJid?: string;
+  executionProviderAccountId?: string;
   diagnostics: JobRunDiagnostics;
   deps: SchedulerDependencies;
   snapshotRunId?: string | null;
@@ -46,6 +47,11 @@ export async function closeBrowserAfterJobRun(input: {
     agentId: input.executionGroupFolder,
     workspaceKey: input.executionGroupFolder,
     conversationId: input.executionJid,
+    // The route CAPTURED at execution start, not a fresh lookup: routes are
+    // mutable, so re-resolving here would let a mid-run reassignment send
+    // cleanup to a different profile than prelaunch opened — closing the wrong
+    // browser and leaking the one the job actually launched.
+    providerAccountId: input.executionProviderAccountId ?? null,
   });
   const startedAt = nowMs();
 
@@ -68,13 +74,23 @@ export async function closeBrowserAfterJobRun(input: {
       isBrowserProfileSyncEnabled()
     ) {
       const profile = getProfile(profileName);
-      if (profile) {
+      const closedGeneration = (
+        closed as { leaseGeneration?: number } | undefined
+      )?.leaseGeneration;
+      if (profile && closedGeneration === undefined) {
+        input.logger.warn(
+          { jobId: input.currentJob.id, profileName },
+          'Skipped job browser snapshot: no lease generation provenance',
+        );
+      } else if (profile) {
         await snapshotBrowserProfile({
           profileName,
           profileDir: profile.dir,
           userDataDir: profile.userDataDir,
           snapshotRunId: input.snapshotRunId ?? null,
           snapshotFencingVersion: input.snapshotFencingVersion ?? 0,
+          // Bound to the session just closed, not re-read from shared state.
+          snapshotLeaseGeneration: closedGeneration,
         });
       }
     }

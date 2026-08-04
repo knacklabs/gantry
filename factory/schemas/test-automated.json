@@ -1,0 +1,24 @@
+{
+  "artifact": "test-automated",
+  "phase": "testing",
+  "recorded_by": "record_test_from_json.py --kind automated",
+  "generated_by": ["implementer"],
+  "required": {
+    "generated_by": "str",
+    "status": "str",
+    "summary": "str",
+    "blocking_findings": "list",
+    "commands_run": "list"
+  },
+  "optional": {
+    "tests_added_or_updated": "list",
+    "pass_fail_summary": "str",
+    "remaining_gaps": "list",
+    "reviewed_scope": "list",
+    "skills_used": "list"
+  },
+  "required_skills": {
+    "user_facing": ["emil-design-eng", "frontend-design"]
+  },
+  "required_skills_note": "when the recorded decomposition has user_facing: true, the recorder refuses this artifact unless skills_used attests every required skill — load them, do the work with them, list them. Advisory skills (apple-design, animation-vocabulary) also belong in skills_used when used."
+}

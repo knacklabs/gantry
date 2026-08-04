@@ -31,11 +31,16 @@ export const postgresMigrationsFolder = path.join(
 );
 const PGCRYPTO_EXTENSION_LOCK_NAMESPACE = 1_340_193_180;
 const PGCRYPTO_EXTENSION_LOCK_KEY = 1;
-const RUNTIME_POSTGRES_POOL_MAX = 20;
+const DEFAULT_RUNTIME_POSTGRES_POOL_MAX = 20;
 // Cross-instance "run gantry migrations" lock. One identity serializes every
 // explicit migrator using PostgresStorageService.migrate().
 export const RUNTIME_MIGRATION_LOCK_NAMESPACE = 1_340_193_180;
 export const RUNTIME_MIGRATION_LOCK_KEY = 2;
+export const GENERATED_ALWAYS_IDENTITY_PRIMARY_KEYS = [
+  { tableName: 'runtime_events', columnName: 'event_id' },
+  { tableName: 'message_parts', columnName: 'id' },
+  { tableName: 'memory_recall_events', columnName: 'id' },
+] as const;
 
 interface LatestPostgresMigration {
   createdAt: number;
@@ -83,6 +88,18 @@ export function quotePostgresIdentifier(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
 
+export function resolveRuntimePostgresPoolMax(
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const raw = env.GANTRY_POSTGRES_POOL_MAX?.trim();
+  if (!raw) return DEFAULT_RUNTIME_POSTGRES_POOL_MAX;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error('GANTRY_POSTGRES_POOL_MAX must be a positive integer.');
+  }
+  return parsed;
+}
+
 function readLatestPostgresMigration(): LatestPostgresMigration {
   const latest = readMigrationFiles({
     migrationsFolder: postgresMigrationsFolder,
@@ -124,14 +141,14 @@ export function resolvePostgresPoolConfig(
     return {
       connectionString,
       options: searchPathOptions,
-      max: RUNTIME_POSTGRES_POOL_MAX,
+      max: resolveRuntimePostgresPoolMax(),
       ssl: { rejectUnauthorized: true },
     };
   }
   return {
     connectionString,
     options: searchPathOptions,
-    max: RUNTIME_POSTGRES_POOL_MAX,
+    max: resolveRuntimePostgresPoolMax(),
   };
 }
 
@@ -301,7 +318,7 @@ export class PostgresStorageService implements StorageService {
     );
     const boss = new PgBoss({
       connectionString: poolConfig.connectionString,
-      schema: 'gantry_pgboss',
+      schema: 'pgboss',
       createSchema: true,
       migrate: true,
       schedule: false,
@@ -319,6 +336,7 @@ export class PostgresStorageService implements StorageService {
       has_text_search: boolean;
       has_job_queue: boolean;
       has_runtime_events_table: boolean;
+      missing_generated_identity_primary_keys: string[] | null;
       has_event_bus_outbox_table: boolean;
       has_event_bus_outbox_runtime_event_unique: boolean;
       missing_runtime_event_indexes: string[] | null;
@@ -345,6 +363,11 @@ export class PostgresStorageService implements StorageService {
         current_schema_name AS (
           SELECT $1::text AS schema_name
         ),
+        required_identity_primary_keys(table_name, column_name) AS (
+          SELECT identity_key."tableName", identity_key."columnName"
+          FROM jsonb_to_recordset($2::jsonb)
+            AS identity_key("tableName" text, "columnName" text)
+        ),
         event_tables AS (
           SELECT
             to_regclass(format('%I.%I', $1::text, 'runtime_events')) AS runtime_events_oid,
@@ -353,8 +376,29 @@ export class PostgresStorageService implements StorageService {
         SELECT
           EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'vector') AS has_vector,
           EXISTS(SELECT 1 FROM pg_extension WHERE extname IN ('pg_trgm', 'pg_search')) AS has_text_search,
-          (to_regclass('gantry_pgboss.version') IS NOT NULL) AS has_job_queue,
+          (to_regclass('pgboss.version') IS NOT NULL) AS has_job_queue,
           ((SELECT runtime_events_oid FROM event_tables) IS NOT NULL) AS has_runtime_events_table,
+          ARRAY(
+            SELECT format('%s.%s', required.table_name, required.column_name)
+            FROM required_identity_primary_keys required
+            CROSS JOIN current_schema_name csn
+            LEFT JOIN pg_namespace n
+              ON n.nspname = csn.schema_name
+            LEFT JOIN pg_class c
+              ON c.relnamespace = n.oid
+             AND c.relname = required.table_name
+             AND c.relkind IN ('r', 'p')
+            LEFT JOIN pg_attribute a
+              ON a.attrelid = c.oid
+             AND a.attname = required.column_name
+             AND NOT a.attisdropped
+            LEFT JOIN pg_attrdef d
+              ON d.adrelid = a.attrelid
+             AND d.adnum = a.attnum
+            WHERE a.attnum IS NULL
+               OR (a.attidentity = '' AND d.adbin IS NULL)
+            ORDER BY required.table_name, required.column_name
+          ) AS missing_generated_identity_primary_keys,
           ((SELECT event_bus_outbox_oid FROM event_tables) IS NOT NULL) AS has_event_bus_outbox_table,
           EXISTS(
             SELECT 1
@@ -389,13 +433,22 @@ export class PostgresStorageService implements StorageService {
             )
             ORDER BY r.index_name
           ) AS missing_event_bus_outbox_indexes`,
-      [this.schemaName],
+      [this.schemaName, JSON.stringify(GENERATED_ALWAYS_IDENTITY_PRIMARY_KEYS)],
     );
     const row = caps.rows[0];
     const hasVector = Boolean(row?.has_vector);
     const hasTextSearch = Boolean(row?.has_text_search);
     const hasJobQueue = Boolean(row?.has_job_queue);
     const hasRuntimeEventsTable = Boolean(row?.has_runtime_events_table);
+    const missingGeneratedIdentityPrimaryKeys =
+      row?.missing_generated_identity_primary_keys ?? [];
+    const missingGeneratedIdentityDiagnostics =
+      missingGeneratedIdentityPrimaryKeys
+        .filter(
+          (identityKey) =>
+            hasRuntimeEventsTable || identityKey !== 'runtime_events.event_id',
+        )
+        .map((identityKey) => `${identityKey} identity/default is missing`);
     const hasEventBusOutboxTable = Boolean(row?.has_event_bus_outbox_table);
     const hasEventBusOutboxRuntimeEventUnique = Boolean(
       row?.has_event_bus_outbox_runtime_event_unique,
@@ -404,7 +457,9 @@ export class PostgresStorageService implements StorageService {
     const missingEventBusOutboxIndexes =
       row?.missing_event_bus_outbox_indexes ?? [];
     const hasRuntimeEvents =
-      hasRuntimeEventsTable && missingRuntimeEventIndexes.length === 0;
+      hasRuntimeEventsTable &&
+      missingGeneratedIdentityPrimaryKeys.length === 0 &&
+      missingRuntimeEventIndexes.length === 0;
     const hasEventBusOutbox =
       hasEventBusOutboxTable &&
       hasEventBusOutboxRuntimeEventUnique &&
@@ -422,7 +477,7 @@ export class PostgresStorageService implements StorageService {
       jobQueue: hasJobQueue,
       jobQueueReason: hasJobQueue
         ? undefined
-        : 'pg-boss schema is not initialized (expected table gantry_pgboss.version)',
+        : 'pg-boss schema is not initialized (expected table pgboss.version)',
       runtimeEvents: hasRuntimeEvents,
       runtimeEventsReason: hasRuntimeEvents
         ? undefined
@@ -430,6 +485,7 @@ export class PostgresStorageService implements StorageService {
             hasRuntimeEventsTable
               ? undefined
               : 'runtime_events table is missing',
+            ...missingGeneratedIdentityDiagnostics,
             hasRuntimeEventsTable && missingRuntimeEventIndexes.length
               ? `runtime_events indexes are missing: ${missingRuntimeEventIndexes.join(', ')}`
               : undefined,

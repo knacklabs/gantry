@@ -159,6 +159,108 @@ describe('app memory session hydration scope', () => {
     ]);
   });
 
+  it('normalizes provider-account canonical conversation ids to live channel memory subjects', async () => {
+    const service = installMemoryServiceRows([
+      {
+        id: 'memory-slack-channel',
+        appId: 'default',
+        agentId: 'agent:a',
+        subjectType: 'channel',
+        subjectId: 'conversation:sl:C123',
+        channelId: 'conversation:sl:C123',
+        kind: 'decision',
+        key: 'decision:slack-channel',
+        value:
+          'Slack channel memory remains visible after provider account scoping.',
+      },
+    ]);
+
+    const items = await loadBoundaryExtractionAppMemoryItems({
+      session: {
+        id: 'session:slack-provider-account' as never,
+        appId: 'default' as never,
+        agentId: 'agent:a' as never,
+        conversationId: 'conversation:slack_default:sl:C123' as never,
+        threadId: 'thread:slack_default:sl:C123:1783507744.385419' as never,
+        userId: 'agent:a' as never,
+        status: 'active',
+        createdAt: '2026-01-01T00:00:00.000Z' as never,
+        updatedAt: '2026-01-01T00:00:00.000Z' as never,
+      },
+      defaultScope: 'group',
+      limit: 10,
+    });
+
+    expect(service.listForHydrationReadOnly).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'default',
+        agentId: 'agent:a',
+        channelId: 'conversation:sl:C123',
+        subjectTypes: ['channel'],
+        includeCommon: false,
+        limit: 10,
+      }),
+    );
+    expect(items).toEqual([
+      {
+        id: 'memory-slack-channel',
+        key: 'decision:slack-channel',
+        value:
+          'Slack channel memory remains visible after provider account scoping.',
+      },
+    ]);
+  });
+
+  it('normalizes provider-account marker canonical ids without provider-specific prefixes', async () => {
+    const service = installMemoryServiceRows([
+      {
+        id: 'memory-provider-account-channel',
+        appId: 'default',
+        agentId: 'agent:a',
+        subjectType: 'channel',
+        subjectId: 'conversation:chat:room',
+        channelId: 'conversation:chat:room',
+        kind: 'decision',
+        key: 'decision:provider-account-channel',
+        value: 'Provider-account marker ids share the live channel subject.',
+      },
+    ]);
+
+    const items = await loadBoundaryExtractionAppMemoryItems({
+      session: {
+        id: 'session:provider-account-marker' as never,
+        appId: 'default' as never,
+        agentId: 'agent:a' as never,
+        conversationId:
+          'conversation:channel-providerAccount:default:chat:chat:room' as never,
+        userId: 'agent:a' as never,
+        status: 'active',
+        createdAt: '2026-01-01T00:00:00.000Z' as never,
+        updatedAt: '2026-01-01T00:00:00.000Z' as never,
+      },
+      defaultScope: 'group',
+      limit: 10,
+    });
+
+    expect(service.listForHydrationReadOnly).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'default',
+        agentId: 'agent:a',
+        channelId: 'conversation:chat:room',
+        subjectTypes: ['channel'],
+        includeCommon: false,
+        limit: 10,
+      }),
+    );
+    expect(items).toEqual([
+      {
+        id: 'memory-provider-account-channel',
+        key: 'decision:provider-account-channel',
+        value: 'Provider-account marker ids share the live channel subject.',
+      },
+    ]);
+  });
+
   it('uses the parent conversation from encoded session scopes for app-memory hydration', async () => {
     const session = {
       id: 'session:teams-thread' as never,

@@ -16,6 +16,7 @@ import type { ControlRouteContext } from '../handler-context.js';
 interface RuntimeConversationRouteState {
   name: string;
   folder: string;
+  conversationId: string;
   providerAccountId: string;
   trigger: string;
   added_at: string;
@@ -170,14 +171,24 @@ function routeStateForConversationInstall(input: {
   const folder = folderForAgentId(input.agent.id) ?? String(input.agent.id);
   const route = (
     input.install.memorySubject as {
-      route?: { trigger?: unknown; requiresTrigger?: unknown };
+      route?: {
+        configuredConversationId?: unknown;
+        trigger?: unknown;
+        requiresTrigger?: unknown;
+      };
     }
   ).route;
+  const configuredConversationId = route?.configuredConversationId;
   const configuredTrigger = route?.trigger;
   const fallbackTrigger = `@${(input.agent.name || folder).trim() || 'agent'}`;
   return {
     name: input.install.displayName || input.agent.name,
     folder,
+    conversationId:
+      typeof configuredConversationId === 'string' &&
+      configuredConversationId.trim()
+        ? configuredConversationId.trim()
+        : input.conversation.id,
     providerAccountId: input.install.providerAccountId,
     trigger:
       typeof configuredTrigger === 'string' && configuredTrigger.trim()

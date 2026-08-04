@@ -13,7 +13,6 @@ export interface GroupAddOptions {
 
 export interface GroupRemoveOptions {
   selector?: string;
-  deleteFolder: boolean;
   assumeYes: boolean;
 }
 
@@ -66,9 +65,12 @@ function parseAllowArg(raw: string): '*' | string[] | null {
 
 function parseModeArg(raw: string): ChatAllowlistEntry['mode'] | null {
   const trimmed = raw.trim().toLowerCase();
-  if (trimmed === 'trigger' || trimmed === 'drop') return trimmed;
+  if (trimmed === 'trigger') return trimmed;
   return null;
 }
+
+const TRIGGER_ONLY_MODE_ERROR =
+  'Invalid value for --mode. Sender policies are trigger-only; use trigger.';
 
 export function parseGroupAddArgs(
   args: string[],
@@ -169,16 +171,11 @@ export function parseGroupRemoveArgs(
   args: string[],
 ): GroupRemoveOptions | { error: string } {
   const options: GroupRemoveOptions = {
-    deleteFolder: false,
     assumeYes: false,
   };
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
-    if (arg === '--delete-folder') {
-      options.deleteFolder = true;
-      continue;
-    }
     if (arg === '--yes' || arg === '-y') {
       options.assumeYes = true;
       continue;
@@ -196,8 +193,7 @@ export function parseGroupRemoveArgs(
 
   if (!options.selector) {
     return {
-      error:
-        'Missing agent selector. Usage: gantry agent remove <jid|folder> [--delete-folder]',
+      error: 'Missing agent selector. Usage: gantry agent remove <jid|folder>',
     };
   }
 
@@ -293,7 +289,7 @@ export function parseGroupPolicyArgs(
       const parsed = parseModeArg(raw);
       if (!parsed) {
         return {
-          error: 'Invalid value for --mode. Use trigger or drop.',
+          error: TRIGGER_ONLY_MODE_ERROR,
         };
       }
       options.mode = parsed;
@@ -304,7 +300,7 @@ export function parseGroupPolicyArgs(
       const parsed = parseModeArg(arg.slice('--mode='.length));
       if (!parsed) {
         return {
-          error: 'Invalid value for --mode. Use trigger or drop.',
+          error: TRIGGER_ONLY_MODE_ERROR,
         };
       }
       options.mode = parsed;
@@ -323,7 +319,7 @@ export function parseGroupPolicyArgs(
   if (!options.selector) {
     return {
       error:
-        'Missing agent selector. Usage: gantry agent policy <jid|folder> --allow <...> [--mode trigger|drop] or --clear',
+        'Missing agent selector. Usage: gantry agent policy <jid|folder> --allow <...> [--mode trigger] or --clear',
     };
   }
   if (
@@ -398,7 +394,7 @@ export function parseGroupPolicyDefaultArgs(
       const parsed = parseModeArg(args[i + 1] || '');
       if (!parsed) {
         return {
-          error: 'Invalid value for --mode. Use trigger or drop.',
+          error: TRIGGER_ONLY_MODE_ERROR,
         };
       }
       options.mode = parsed;
@@ -409,7 +405,7 @@ export function parseGroupPolicyDefaultArgs(
       const parsed = parseModeArg(arg.slice('--mode='.length));
       if (!parsed) {
         return {
-          error: 'Invalid value for --mode. Use trigger or drop.',
+          error: TRIGGER_ONLY_MODE_ERROR,
         };
       }
       options.mode = parsed;

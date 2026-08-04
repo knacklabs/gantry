@@ -7,7 +7,6 @@ import { nowIso as runtimeNowIso } from '../../shared/time/datetime.js';
 import { resolveAppScopeAppId as applicationResolveAppScopeAppId } from '../../application/app-scope/resolve-app-scope.js';
 import type { AppSessionRecord as JobAppSessionRecord } from '../../application/jobs/job-management-types.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
-import { MAX_WORKSPACE_FOLDER_LENGTH } from '../../shared/workspace-folder-policy.js';
 import {
   modelUseKindForJobSchedule,
   resolveJobModel,
@@ -40,7 +39,7 @@ export function makeAppGroup(input: {
     .digest('hex')
     .slice(0, 12);
   const prefix = `app_${identityHash}_`;
-  const remaining = MAX_WORKSPACE_FOLDER_LENGTH - prefix.length;
+  const remaining = 96 - prefix.length;
   const appPart = app.slice(0, Math.max(8, Math.floor(remaining * 0.4)));
   const conversationPart = conversation.slice(
     0,
@@ -48,10 +47,7 @@ export function makeAppGroup(input: {
   );
   return {
     name: `${input.appId}:${input.conversationId}`,
-    folder: `${prefix}${appPart}_${conversationPart}`.slice(
-      0,
-      MAX_WORKSPACE_FOLDER_LENGTH,
-    ),
+    folder: `${prefix}${appPart}_${conversationPart}`.slice(0, 96),
     trigger: '',
     added_at: nowIso(),
     requiresTrigger: false,
@@ -137,10 +133,6 @@ export function mapManualJobToStored(
         : {
             type: job.schedule_type,
             value: job.schedule_value,
-            timezone: job.schedule_timezone,
-            misfirePolicy: job.misfire_policy,
-            overlapPolicy: job.overlap_policy,
-            metadata: job.schedule_metadata,
           },
     executionContext: {
       conversationJid: metadata.executionContext.conversationJid,
@@ -155,7 +147,6 @@ export function mapManualJobToStored(
     nextActionLabel: metadata.nextActionLabel,
     accessRequirements: job.access_requirements ?? [],
     setup: metadata.setup,
-    recovery: metadata.recovery,
     nextRun: job.next_run,
     lastRun: job.last_run,
     staleness: metadata.staleness,

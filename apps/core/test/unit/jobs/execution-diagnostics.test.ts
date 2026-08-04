@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import {
@@ -84,6 +84,54 @@ describe('execution diagnostics', () => {
           'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
       },
     ]);
+  });
+
+  it('keeps explicit human and user allow_once approvals transient', () => {
+    for (const decidedBy of ['human', 'user:approver']) {
+      const diagnostics = createJobRunDiagnostics();
+
+      updateDiagnosticsFromRuntimeEvent(
+        diagnostics,
+        RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        {
+          phase: 'permission_allowed',
+          tool: 'Bash',
+          mode: 'allow_once',
+          decidedBy,
+          ok: true,
+        },
+      );
+
+      expect(diagnostics.transientPermissionApprovals).toEqual([
+        {
+          toolName: 'Bash',
+          mode: 'allow_once',
+        },
+      ]);
+    }
+  });
+
+  it('does not classify reviewed-rule allow_once approvals as transient', () => {
+    for (const provenance of [
+      { decidedBy: 'reviewed_rule' },
+      { decided_by: 'reviewed_rule' },
+    ]) {
+      const diagnostics = createJobRunDiagnostics();
+
+      updateDiagnosticsFromRuntimeEvent(
+        diagnostics,
+        RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        {
+          phase: 'permission_allowed',
+          tool: 'Bash',
+          mode: 'allow_once',
+          ok: true,
+          ...provenance,
+        },
+      );
+
+      expect(diagnostics.transientPermissionApprovals).toEqual([]);
+    }
   });
 
   it('aggregates startup diagnostics with sanitized count and timing fields', () => {
@@ -187,32 +235,5 @@ describe('execution diagnostics', () => {
         availableToolCount: 11,
       },
     ]);
-  });
-
-  it('forwards native MCP audit receipts into scheduled job events', async () => {
-    const diagnostics = createJobRunDiagnostics();
-    const emitJobEvent = vi.fn();
-    const payload = {
-      toolCallId: 'tool-call-1',
-      serverName: 'firecrawl',
-      toolName: 'firecrawl_search',
-      resultClass: 'success',
-    };
-
-    await forwardRunnerRuntimeEvents({
-      events: [
-        {
-          eventType: RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
-          payload,
-        },
-      ],
-      diagnostics,
-      emitJobEvent,
-    });
-
-    expect(emitJobEvent).toHaveBeenCalledWith(
-      RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
-      payload,
-    );
   });
 });

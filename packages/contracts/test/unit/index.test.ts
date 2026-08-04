@@ -6,8 +6,10 @@ import type {
 
 import {
   AgentCapabilitiesResponseSchema,
+  AgentDelegatesResponseSchema,
   AgentHarnessSchema,
   AgentResponseSchema,
+  ReplaceAgentDelegatesRequestSchema,
   UpdateAgentRequestSchema,
   ConversationInstallRequestSchema,
   ConversationInstallListResponseSchema,
@@ -53,7 +55,7 @@ import {
   ToolCatalogKindSchema,
   ToolCatalogProviderToolNameSchema,
   UpdateJobRequestSchema,
-  UserAliasResponseSchema,
+  PersonAliasResponseSchema,
   createCursorPageResponseSchema,
   createPageResponseSchema,
 } from '@contracts-src/index.js';
@@ -153,6 +155,7 @@ describe('contracts package', () => {
     const agent = {
       name: 'Main',
       folder: 'main_agent',
+      delegates: ['researcher', 'future_agent'],
       bindings: {},
       sources: { skills: [], mcpServers: [], tools: [] },
       capabilities: [],
@@ -163,7 +166,7 @@ describe('contracts package', () => {
         maxTurns: 12,
         maxRunTokens: 8192,
         effort: 'xhigh',
-        permissionMode: 'auto',
+        permissionMode: 'auto_strict',
         thinking: { mode: 'on', budgetTokens: 4096 },
         maxOutputTokens: 2048,
         toolRules: [
@@ -185,9 +188,10 @@ describe('contracts package', () => {
       maxTurns: 12,
       maxRunTokens: 8192,
       effort: 'xhigh',
-      permissionMode: 'auto',
+      permissionMode: 'auto_strict',
       thinking: { mode: 'on', budgetTokens: 4096 },
       maxOutputTokens: 2048,
+      delegates: ['researcher', 'future_agent'],
       toolRules: expect.arrayContaining([
         expect.objectContaining({ action: 'block' }),
         expect.objectContaining({ action: 'require_prior' }),
@@ -208,6 +212,10 @@ describe('contracts package', () => {
     expectInvalid(RuntimeSettingsConfiguredAgentSchema, {
       ...agent,
       maxOutputTokens: 0,
+    });
+    expectInvalid(RuntimeSettingsConfiguredAgentSchema, {
+      ...agent,
+      delegates: ['researcher', 42],
     });
     expectInvalid(RuntimeSettingsConfiguredAgentSchema, {
       ...agent,
@@ -596,9 +604,10 @@ describe('contracts package', () => {
             relationshipMode: 'organization',
             model: 'sonnet',
             agentHarness: 'deepagents',
-            permissionMode: 'auto',
+            permissionMode: 'auto_strict',
             oneTimeJobDefaultModel: 'inherit',
             recurringJobDefaultModel: 'inherit',
+            delegates: ['researcher', 'future_agent'],
             bindings: {
               main_agent_shared_channel: {
                 jid: 'slack:C123',
@@ -609,6 +618,7 @@ describe('contracts package', () => {
                 trigger: '@main',
                 addedAt: iso,
                 requiresTrigger: true,
+                permissionMode: 'auto_strict',
               },
             },
             sources: { skills: [], mcpServers: [], tools: [] },
@@ -644,6 +654,7 @@ describe('contracts package', () => {
                 memoryScope: 'conversation',
                 trigger: '@main',
                 requiresTrigger: true,
+                permissionMode: 'auto_strict',
               },
             },
           },
@@ -659,6 +670,7 @@ describe('contracts package', () => {
             addedAt: iso,
             requiresTrigger: true,
             memoryScope: 'conversation',
+            permissionMode: 'auto_strict',
           },
         },
         conversationInstalls: {
@@ -672,14 +684,17 @@ describe('contracts package', () => {
             memoryScope: 'conversation',
             trigger: '@main',
             requiresTrigger: true,
+            permissionMode: 'auto_strict',
           },
         },
         memory: { enabled: true, dreaming: { enabled: false } },
+        observer: { enabled: false },
         runtime: {
           queue: {
             maxMessageRuns: 1,
             maxJobRuns: 1,
             maxMessageBacklog: 0,
+            maxLiveAdmissionBacklog: 100,
             maxTaskBacklog: 0,
             maxRetries: 0,
             baseRetryMs: 0,
@@ -720,8 +735,30 @@ describe('contracts package', () => {
     );
     expect(parsed.settings.agent.agentHarness).toBe('auto');
     expect(parsed.settings.agents.main_agent?.agentHarness).toBe('deepagents');
-    expect(parsed.settings.agents.main_agent?.permissionMode).toBe('auto');
+    expect(parsed.settings.agents.main_agent?.permissionMode).toBe(
+      'auto_strict',
+    );
+    expect(parsed.settings.agents.main_agent?.delegates).toEqual([
+      'researcher',
+      'future_agent',
+    ]);
+    expect(
+      parsed.settings.agents.main_agent?.bindings.main_agent_shared_channel
+        ?.permissionMode,
+    ).toBe('auto_strict');
+    expect(
+      parsed.settings.conversations.shared_channel?.installedAgents.main_agent
+        ?.permissionMode,
+    ).toBe('auto_strict');
+    expect(
+      parsed.settings.bindings.main_agent_shared_channel?.permissionMode,
+    ).toBe('auto_strict');
+    expect(
+      parsed.settings.conversationInstalls.main_agent_shared_channel
+        ?.permissionMode,
+    ).toBe('auto_strict');
     expect(parsed.settings.permissions.autoMode).toEqual({ model: 'sonnet' });
+    expect(parsed.settings.observer).toEqual({ enabled: false });
     expectInvalid(RuntimeSettingsResponseSchema, {
       settings: {
         ...parsed.settings,
@@ -848,6 +885,57 @@ describe('contracts package', () => {
     ).toEqual({ agentHarness: 'anthropic_sdk' });
     expect(UpdateAgentRequestSchema.parse({ status: 'active' })).toEqual({
       status: 'active',
+    });
+    expect(
+      ReplaceAgentDelegatesRequestSchema.parse({
+        delegates: [' researcher '],
+        expectedRevision: 4,
+      }),
+    ).toEqual({ delegates: ['researcher'], expectedRevision: 4 });
+    expect(
+      AgentDelegatesResponseSchema.parse({
+        agentId: 'agent:orchestrator',
+        revision: 4,
+        delegates: ['researcher'],
+        resolved: [
+          {
+            ref: 'researcher',
+            agentId: 'agent:researcher',
+            toolName: 'delegate_to_researcher_abcd',
+            displayName: 'Researcher',
+            persona: 'research',
+          },
+        ],
+      }),
+    ).toMatchObject({
+      agentId: 'agent:orchestrator',
+      delegates: ['researcher'],
+      resolved: [{ persona: 'research' }],
+    });
+    expectInvalid(ReplaceAgentDelegatesRequestSchema, {
+      delegates: ['researcher'],
+      unexpected: true,
+    });
+    expectInvalid(ReplaceAgentDelegatesRequestSchema, { delegates: [''] });
+    expectInvalid(ReplaceAgentDelegatesRequestSchema, {
+      delegates: ['x'.repeat(161)],
+    });
+    expectInvalid(ReplaceAgentDelegatesRequestSchema, {
+      delegates: Array.from({ length: 101 }, (_, index) => `agent-${index}`),
+    });
+    expectInvalid(AgentDelegatesResponseSchema, {
+      agentId: 'agent:orchestrator',
+      revision: 4,
+      delegates: [],
+      resolved: [
+        {
+          ref: 'researcher',
+          agentId: 'agent:researcher',
+          toolName: 'delegate_to_researcher_abcd',
+          displayName: 'Researcher',
+          persona: 'finance',
+        },
+      ],
     });
     expectInvalid(CreateAgentRequestSchema, { appId: 'app-1', name: '' });
     const forbiddenAgentRequestFields = [
@@ -991,31 +1079,6 @@ describe('contracts package', () => {
           providerAccountId: 'provider-account:app-one',
         }),
       ],
-    });
-    const agentTask = {
-      observability: {
-        traceparent:
-          '00-0123456789abcdef0123456789abcdef-0123456789abcdef-01',
-      },
-      responseSchema: { type: 'object' as const, properties: {} },
-      executionPolicy: { totalTimeoutMs: 30_000 },
-    };
-    expect(
-      CreateJobRequestSchema.parse({ ...sdkCreatePayload, agentTask }),
-    ).toMatchObject({ agentTask });
-    expectInvalid(CreateJobRequestSchema, {
-      ...sdkCreatePayload,
-      agentTask: {
-        ...agentTask,
-        observability: { traceparent: 'not-a-traceparent' },
-      },
-    });
-    expectInvalid(CreateJobRequestSchema, {
-      ...sdkCreatePayload,
-      agentTask: {
-        responseSchema: { oneOf: [{ type: 'object' }] },
-        executionPolicy: { totalTimeoutMs: 30_000 },
-      },
     });
     expectInvalid(CreateJobRequestSchema, {
       name: '',
@@ -1554,13 +1617,14 @@ describe('contracts package', () => {
       ],
     ).toBeUndefined();
     expect(
-      UserAliasResponseSchema.parse({
+      PersonAliasResponseSchema.parse({
         id: 'alias-1',
         appId: 'app-1',
-        userId: 'user-1',
+        personId: 'person-1',
         provider: 'slack',
         providerAccountId: 'provider-account-1',
         externalUserId: 'U123',
+        verificationStatus: 'unverified',
         createdAt: iso,
         updatedAt: iso,
       }),
@@ -1699,5 +1763,82 @@ describe('contracts package', () => {
     if (Object.keys(invalid).length > 0) {
       expectInvalid(StreamEventSchema, invalid);
     }
+  });
+});
+
+describe('Agent.Tender job task contract', () => {
+  it('accepts bounded model-agnostic recipe execution controls', () => {
+    const parsed = CreateJobRequestSchema.parse({
+      name: 'Create website recipe',
+      prompt: 'Inspect the website and return the recipe.',
+      executionContext: {
+        conversationJid: 'app:manipal:recipe-1',
+        threadId: null,
+        workspaceKey: 'agent:agent-tender',
+        sessionId: 'session-1',
+      },
+      agentTask: {
+        responseSchema: {
+          type: 'object',
+          properties: { recipe: { type: 'object' } },
+          required: ['recipe'],
+        },
+        executionPolicy: { totalTimeoutMs: 120_000 },
+        modelControls: { effort: 'high', maxOutputTokens: 8_000 },
+        requiredSkill: { name: 'website-recipe', contentHash: 'sha256:recipe' },
+      },
+    });
+    expect(parsed.agentTask?.responseSchema?.type).toBe('object');
+  });
+
+  it('rejects unknown executable controls and unbounded timeouts', () => {
+    expectInvalid(CreateJobRequestSchema, {
+      name: 'Unsafe recipe',
+      prompt: 'Run arbitrary website instructions.',
+      executionContext: {
+        conversationJid: 'app:manipal:recipe-2',
+        threadId: null,
+        workspaceKey: 'agent:agent-tender',
+        sessionId: 'session-2',
+      },
+      agentTask: {
+        responseSchema: { type: 'object' },
+        executionPolicy: { totalTimeoutMs: 24 * 60 * 60_000 },
+        arbitraryJavaScript: 'process.exit()',
+      },
+    });
+  });
+
+  it('accepts an object-only result union and rejects mixed scalar unions', () => {
+    const request = {
+      name: 'Create website recipe',
+      prompt: 'Return one typed recipe outcome.',
+      executionContext: {
+        conversationJid: 'app:manipal:recipe-union',
+        threadId: null,
+        workspaceKey: 'agent:agent-tender',
+        sessionId: 'session-union',
+      },
+      agentTask: {
+        executionPolicy: { totalTimeoutMs: 120_000 },
+        responseSchema: {
+          oneOf: [
+            { type: 'object', properties: { status: { const: 'ready' } } },
+            { type: 'object', properties: { status: { const: 'blocked' } } },
+          ],
+        },
+      },
+    };
+
+    expect(CreateJobRequestSchema.parse(request).agentTask).toBeDefined();
+    expectInvalid(CreateJobRequestSchema, {
+      ...request,
+      agentTask: {
+        ...request.agentTask,
+        responseSchema: {
+          oneOf: [{ type: 'object' }, { type: 'string' }],
+        },
+      },
+    });
   });
 });

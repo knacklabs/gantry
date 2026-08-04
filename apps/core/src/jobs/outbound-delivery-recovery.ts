@@ -9,6 +9,7 @@ import type {
   OutboundDelivery,
 } from '../domain/outbound-delivery/outbound-delivery.js';
 import { nowIso } from '../shared/time/datetime.js';
+import { incrementOperationalError } from '../shared/operational-error-counters.js';
 
 export interface OutboundDeliveryPartialRetryTail {
   canonicalText: string;
@@ -93,6 +94,7 @@ export async function runBoundedOutboundDeliveryRecovery(
         partialAt: inputSettle.partialAt,
       });
       if (!ambiguous.applied) {
+        incrementOperationalError('delivery', 'ambiguous_settlement');
         input.warn?.(
           {
             deliveryId: inputSettle.claimed.delivery.id,
@@ -105,6 +107,7 @@ export async function runBoundedOutboundDeliveryRecovery(
       failed += 1;
       return true;
     } catch (err) {
+      incrementOperationalError('delivery', 'ambiguous_settlement');
       input.warn?.(
         {
           err,
@@ -158,9 +161,12 @@ export async function runBoundedOutboundDeliveryRecovery(
       }
 
       let dispatchResult: OutboundDeliveryDispatchResult;
+      let dispatchThrew = false;
       try {
         dispatchResult = await input.dispatch(claimedItem);
       } catch (err) {
+        dispatchThrew = true;
+        incrementOperationalError('delivery', 'outbound_dispatch');
         if (isPartialMessageDeliveryError(err)) {
           const partialMetadata = getPartialMessageDeliveryMetadata(err);
           dispatchResult = {
@@ -193,6 +199,10 @@ export async function runBoundedOutboundDeliveryRecovery(
         }
       }
 
+      if (dispatchResult.status === 'failed' && !dispatchThrew) {
+        incrementOperationalError('delivery', 'outbound_dispatch');
+      }
+
       if (dispatchResult.status === 'sent') {
         let settledError: string | null = null;
         try {
@@ -211,9 +221,11 @@ export async function runBoundedOutboundDeliveryRecovery(
             sent += 1;
             continue;
           }
+          incrementOperationalError('delivery', 'sent_settlement');
           settledError =
             'Outbound delivery dispatch succeeded but sent settlement was not applied.';
         } catch (err) {
+          incrementOperationalError('delivery', 'sent_settlement');
           settledError =
             err instanceof Error
               ? err.message
@@ -258,6 +270,7 @@ export async function runBoundedOutboundDeliveryRecovery(
             failed += 1;
             continue;
           }
+          incrementOperationalError('delivery', 'partial_settlement');
           await settleAmbiguousNonRetryable({
             claimed: claimedItem,
             claimToken,
@@ -267,6 +280,7 @@ export async function runBoundedOutboundDeliveryRecovery(
               'Outbound delivery partial retry-tail settlement was not applied',
           });
         } catch (err) {
+          incrementOperationalError('delivery', 'partial_settlement');
           input.warn?.(
             {
               err,

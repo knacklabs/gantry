@@ -30,6 +30,12 @@ export type HealthResponse = JsonResponse<'getHealth', 200>;
 export type DoctorResponse = JsonResponse<'getDoctor', 200>;
 export type ProcessRole = HealthResponse['processRole'];
 
+export type ListAgentsResponse = JsonResponse<'listAgents', 200>;
+export type CreateAgentRequest = JsonRequest<'createAgent'>;
+export type CreateAgentResponse = JsonResponse<'createAgent', 201>;
+export type ListCapabilitiesResponse = JsonResponse<'listCapabilities', 200>;
+export type GetCapabilityResponse = JsonResponse<'getCapability', 200>;
+
 export type LlmMessagesRequest = JsonRequest<'invokeLlmMessages'>;
 export type LlmMessagesResponse = JsonResponse<'invokeLlmMessages', 200>;
 export type LlmMessagesCountTokensRequest =
@@ -61,17 +67,6 @@ export type SendSessionMessageResponse = JsonResponse<
 export type SendSessionMessageInput = SendSessionMessageRequest & {
   sessionId: string;
 };
-export type ResolveSessionInteractionRequest =
-  JsonRequest<'resolveSessionInteraction'>;
-export type RejectSessionInteractionRequest =
-  JsonRequest<'rejectSessionInteraction'>;
-export type SessionInteractionSettlementResponse = JsonResponse<
-  'resolveSessionInteraction',
-  200
->;
-export type CancelSessionTurnRequest = JsonRequest<'cancelSessionTurn'>;
-export type CancelSessionTurnResponse = JsonResponse<'cancelSessionTurn', 200>;
-export type ArchiveSessionResponse = JsonResponse<'archiveSession', 200>;
 export type ListSessionEventsQuery = Query<'listOrStreamSessionEvents'>;
 export type ListSessionEventsResponse = JsonResponse<
   'listOrStreamSessionEvents',
@@ -94,20 +89,6 @@ export type PauseJobResponse = JsonResponse<'pauseJob', 200>;
 export type ResumeJobResponse = JsonResponse<'resumeJob', 200>;
 export type TriggerJobResponse = JsonResponse<'triggerJob', 202>;
 
-export type ListModelCredentialsResponse = JsonResponse<
-  'listModelCredentials',
-  200
->;
-export type PutModelCredentialRequest = JsonRequest<'putModelCredential'>;
-export type ModelCredentialMutationResponse = JsonResponse<
-  'putModelCredential',
-  200
->;
-export type DisableModelCredentialResponse = JsonResponse<
-  'disableModelCredential',
-  200
->;
-
 export type ListRunsQuery = Query<'listRuns'>;
 export type ListRunsResponse = JsonResponse<'listRuns', 200>;
 export type GetRunResponse = JsonResponse<'getRun', 200>;
@@ -115,13 +96,25 @@ export type GetRunResponse = JsonResponse<'getRun', 200>;
 export type QueryUsageQuery = Query<'queryUsage'>;
 export type QueryUsageResponse = JsonResponse<'queryUsage', 200>;
 
+export type GetObserverStatusQuery = Query<'getObserverStatus'>;
+export type ObserverStatusResponse = JsonResponse<'getObserverStatus', 200>;
+export type ListObserverInsightsQuery = Query<'listObserverInsights'>;
+export type ObserverInsightListResponse = JsonResponse<
+  'listObserverInsights',
+  200
+>;
+export type PreviewObserverDigestQuery = Query<'previewObserverDigest'>;
+export type ObserverDigestPreviewResponse = JsonResponse<
+  'previewObserverDigest',
+  200
+>;
+export type ListObserverDeliveriesQuery = Query<'listObserverDeliveries'>;
+export type ObserverDigestDeliveryListResponse = JsonResponse<
+  'listObserverDeliveries',
+  200
+>;
+
 export type ListProvidersResponse = JsonResponse<'listProviders', 200>;
-export type ListCapabilitiesResponse = JsonResponse<'listCapabilities', 200>;
-export type GetCapabilityResponse = JsonResponse<'getCapability', 200>;
-export type PutCapabilityResponse = JsonResponse<'putCapability', 200>;
-export type ListAgentsResponse = JsonResponse<'listAgents', 200>;
-export type CreateAgentRequest = JsonRequest<'createAgent'>;
-export type CreateAgentResponse = JsonResponse<'createAgent', 201>;
 export type CreateProviderAccountResponse = JsonResponse<
   'createProviderAccount',
   201
@@ -165,12 +158,6 @@ export type ListConversationMessagesResponse = JsonResponse<
   'listConversationMessages',
   200
 >;
-export type SendConversationMessageRequest =
-  JsonRequest<'sendConversationMessage'>;
-export type SendConversationMessageResponse = JsonResponse<
-  'sendConversationMessage',
-  202
->;
 
 export type ListConversationInstallsResponse = JsonResponse<
   'listConversationInstalls',
@@ -188,6 +175,13 @@ export type DisableConversationInstallQuery =
   Query<'disableConversationInstall'>;
 export type DisableConversationInstallResponse = JsonResponse<
   'disableConversationInstall',
+  200
+>;
+
+export type GetAgentDelegatesResponse = JsonResponse<'getAgentDelegates', 200>;
+export type ReplaceAgentDelegatesRequest = JsonRequest<'replaceAgentDelegates'>;
+export type ReplaceAgentDelegatesResponse = JsonResponse<
+  'replaceAgentDelegates',
   200
 >;
 
@@ -212,6 +206,15 @@ export type SearchMemoryResponse = JsonResponse<'searchMemory', 200>;
 export type ListMemoryResponse = JsonResponse<'listMemory', 200>;
 export type PatchMemoryResponse = JsonResponse<'patchMemory', 200>;
 export type DeleteMemoryResponse = JsonResponse<'deleteMemory', 200>;
+export type ListMemoryReviewsQuery = Query<'listMemoryReviews'>;
+export type ListMemoryReviewsResponse = JsonResponse<'listMemoryReviews', 200>;
+export type GetMemoryReviewQuery = Query<'getMemoryReview'>;
+export type GetMemoryReviewResponse = JsonResponse<'getMemoryReview', 200>;
+export type DecideMemoryReviewRequest = JsonRequest<'decideMemoryReview'>;
+export type DecideMemoryReviewResponse = JsonResponse<
+  'decideMemoryReview',
+  200
+>;
 export type TriggerMemoryDreamingRequest = JsonRequest<'triggerMemoryDreaming'>;
 export type MemorySubjectType = NonNullable<
   TriggerMemoryDreamingRequest['subjectType']

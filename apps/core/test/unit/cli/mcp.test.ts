@@ -144,6 +144,106 @@ describe('mcp CLI', () => {
     );
   });
 
+  it('connects HTTP MCP servers through the control API', async () => {
+    const note = vi.fn();
+    vi.doMock('@clack/prompts', () => ({
+      note,
+      log: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), success: vi.fn() },
+    }));
+    const seen: Array<{ method?: string; url?: string; body: unknown }> = [];
+    const port = await listen((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      req.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf-8');
+        seen.push({
+          method: req.method,
+          url: req.url,
+          body: body ? JSON.parse(body) : undefined,
+        });
+        if (req.method === 'POST' && req.url === '/v1/mcp-servers') {
+          res.writeHead(201, { 'content-type': 'application/json' });
+          res.end(
+            JSON.stringify({ server: { id: 'mcp:caw-ats', status: 'active' } }),
+          );
+          return;
+        }
+        if (
+          req.method === 'PUT' &&
+          req.url === '/v1/agents/agent%3Amain/mcp-servers/mcp%3Acaw-ats'
+        ) {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ binding: { status: 'active' } }));
+          return;
+        }
+        res.writeHead(404, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'unexpected route' } }));
+      });
+    });
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'cli-test',
+        token: 'test-key',
+        appId: 'default',
+        scopes: ['mcp:admin'],
+      },
+    ]);
+    process.env.GANTRY_CONTROL_PORT = String(port);
+
+    const { runMcpCommand } = await import('@core/cli/mcp.js');
+    const code = await runMcpCommand(makeTempDir(), [
+      'connect',
+      '--name',
+      'caw-ats',
+      '--transport',
+      'http',
+      '--url',
+      'https://ats-dev.caw.tech/mcp',
+      '--agent',
+      'main',
+      '--tool',
+      'ats_*',
+      '--credential',
+      'caw_ats_mcp_auth:header:Authorization',
+      '--network',
+      'ats-dev.caw.tech:443',
+    ]);
+
+    expect(code).toBe(0);
+    expect(seen).toEqual([
+      {
+        method: 'POST',
+        url: '/v1/mcp-servers',
+        body: expect.objectContaining({
+          name: 'caw-ats',
+          transport: 'http',
+          config: {
+            transport: 'http',
+            url: 'https://ats-dev.caw.tech/mcp',
+          },
+          allowedToolPatterns: ['ats_*'],
+          credentialRefs: [
+            {
+              name: 'caw_ats_mcp_auth',
+              target: 'header',
+              key: 'Authorization',
+            },
+          ],
+          networkHosts: ['ats-dev.caw.tech:443'],
+        }),
+      },
+      {
+        method: 'PUT',
+        url: '/v1/agents/agent%3Amain/mcp-servers/mcp%3Acaw-ats',
+        body: { permissionPolicyIds: [] },
+      },
+    ]);
+    expect(note).toHaveBeenCalledWith(
+      expect.stringContaining('server: mcp:caw-ats'),
+      'MCP Connected',
+    );
+  });
+
   it('uses the configured control base URL instead of the local socket', async () => {
     const note = vi.fn();
     vi.doMock('@clack/prompts', () => ({

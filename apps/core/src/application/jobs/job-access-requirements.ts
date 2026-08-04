@@ -173,7 +173,9 @@ export function splitAccessRequirements(
     toolAccessRequirements: normalizeToolAccessRequirements([
       ...toolRules,
       ...capabilityRequirements.map((requirement) =>
-        semanticCapabilityRule(requirement.capabilityId),
+        requirement.capabilityId === 'browser.use'
+          ? 'Browser'
+          : semanticCapabilityRule(requirement.capabilityId),
       ),
     ]),
     capabilityRequirements,

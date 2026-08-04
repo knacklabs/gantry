@@ -5,7 +5,7 @@ import { TaskHandler, TaskContext } from './ipc-types.js';
 import { invalidateSystemJobRegistrationSignature } from './system-registration-cache.js';
 import { createTaskResponder } from './ipc-shared.js';
 import { mapApplicationError } from './ipc-application-error.js';
-import { runtimeJobSchedulePlanner } from './scheduler.js';
+import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
 import {
   getDefaultModelConfig,
   getSelectedAgentHarness,
@@ -20,7 +20,7 @@ import {
   formatSchedulerJobPlan,
   schedulerJobConfirmationToken,
   type SchedulerJobPlanInput,
-} from './job-plan-formatter.js';
+} from '../shared/scheduler-job-plan.js';
 
 type SchedulerCreateScheduleType = Exclude<JobScheduleType, 'manual'>;
 

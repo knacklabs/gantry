@@ -21,6 +21,23 @@ export function normalizeRuntimeEventConversationId(
   return `${CANONICAL_CONVERSATION_PREFIX}${trimmed}` as ConversationId;
 }
 
+export function isRuntimeEventConversationFkId(
+  conversationId: string | undefined,
+): conversationId is ConversationId {
+  const trimmed = conversationId?.trim();
+  return (
+    trimmed !== undefined &&
+    (trimmed.startsWith(CANONICAL_CONVERSATION_PREFIX) ||
+      trimmed.startsWith(CONTROL_CONVERSATION_PREFIX))
+  );
+}
+
+export function isRuntimeEventThreadFkId(
+  threadId: string | undefined,
+): threadId is ConversationThreadId {
+  return threadId?.trim().startsWith(CANONICAL_THREAD_PREFIX) === true;
+}
+
 export function normalizeRuntimeEventThreadId(input: {
   conversationId: ConversationId | undefined;
   threadId: ConversationThreadId | undefined;
@@ -33,12 +50,6 @@ export function normalizeRuntimeEventThreadId(input: {
   const conversationId = normalizeRuntimeEventConversationId(
     input.conversationId,
   )?.trim();
-  const controlMatch = conversationId?.match(
-    /^control:([^:]+):conversation:(.+)$/,
-  );
-  if (controlMatch) {
-    return `${CANONICAL_THREAD_PREFIX}app:${controlMatch[1]}:${controlMatch[2]}:${threadId}` as ConversationThreadId;
-  }
   if (!conversationId?.startsWith(CANONICAL_CONVERSATION_PREFIX)) {
     return threadId as ConversationThreadId;
   }

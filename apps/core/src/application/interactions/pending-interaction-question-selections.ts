@@ -1,10 +1,12 @@
-export const QUESTION_SELECTIONS_PAYLOAD_KEY = 'questionSelections';
-
 export function questionSelectionsFromPayload(
   payload: Record<string, unknown> | undefined,
 ): Map<number, Set<number>> {
   const selections = new Map<number, Set<number>>();
-  const raw = payload?.[QUESTION_SELECTIONS_PAYLOAD_KEY];
+  const envelope = payload?.questionRecoveryEnvelope;
+  const raw =
+    envelope && typeof envelope === 'object' && !Array.isArray(envelope)
+      ? (envelope as Record<string, unknown>).selections
+      : null;
   if (!Array.isArray(raw)) return selections;
   for (const item of raw) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
@@ -27,7 +29,7 @@ export function questionSelectionsFromPayload(
 
 export function serializeQuestionSelections(
   selections: Map<number, Set<number>>,
-): Record<string, unknown>[] {
+): Array<{ questionIndex: number; optionIndexes: number[] }> {
   return [...selections.entries()]
     .sort(([a], [b]) => a - b)
     .map(([questionIndex, optionIndexes]) => ({

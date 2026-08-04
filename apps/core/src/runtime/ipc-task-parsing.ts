@@ -4,6 +4,8 @@ import { normalizeAccessRequirementsInput } from '../application/jobs/job-access
 import { resolveModelSelectionForWorkload } from '../shared/model-catalog.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import { validateIpcAuthRequest } from './ipc-auth-validation.js';
+import { computeAttachmentIpcAuthToken } from './ipc-auth.js';
+import { verifyAttachmentOpenProof } from '../shared/attachment-open-auth-proof.js';
 
 function toOptionalStringArray(
   value: unknown,
@@ -341,6 +343,13 @@ export function parseTaskIpcData(
   }
   const type = toTrimmedString(raw.type, { maxLen: 80 });
   if (!type) throw new Error('IPC task type is required');
+  if (type === 'attachment_open') {
+    validateAttachmentOpenConversationProof(
+      raw,
+      sourceAgentFolder,
+      threadBinding,
+    );
+  }
   assertNoUnsupportedSchedulerJobTaskFields(raw, type);
   const parsed: TaskIpcData = { type };
   const taskId = toTrimmedString(raw.taskId, { maxLen: 128 });
@@ -450,6 +459,9 @@ export function parseTaskIpcData(
   if (threadBinding.agentId) {
     parsed.agentId = threadBinding.agentId;
   }
+  if (threadBinding.providerAccountId) {
+    parsed.providerAccountId = threadBinding.providerAccountId;
+  }
   if (threadBinding.responseKeyId) {
     parsed.responseKeyId = threadBinding.responseKeyId;
   }
@@ -506,4 +518,49 @@ export function parseTaskIpcData(
   if (numericFields.limit !== undefined)
     parsed.limit = Math.round(numericFields.limit);
   return parsed;
+}
+
+function validateAttachmentOpenConversationProof(
+  raw: Record<string, unknown>,
+  sourceAgentFolder: string,
+  binding: ReturnType<typeof validateIpcAuthRequest>,
+): void {
+  const payload = isPlainObject(raw.payload) ? raw.payload : {};
+  const attachmentId = toTrimmedString(payload.attachmentId, { maxLen: 512 });
+  const conversationProof = toTrimmedString(payload.conversationProof, {
+    maxLen: 128,
+  });
+  const chatJid = toTrimmedString(raw.chatJid, { maxLen: 255 });
+  const taskId = toTrimmedString(raw.taskId, { maxLen: 128 });
+  if (
+    !attachmentId ||
+    !conversationProof ||
+    !chatJid ||
+    !taskId ||
+    !binding.appId ||
+    !binding.providerAccountId
+  ) {
+    throw new Error('Invalid attachment open conversation proof');
+  }
+  const authToken = computeAttachmentIpcAuthToken(sourceAgentFolder, {
+    chatJid,
+    threadId: binding.authThreadId,
+    appId: binding.appId,
+    agentId: binding.agentId,
+    providerAccountId: binding.providerAccountId,
+  });
+  if (
+    !verifyAttachmentOpenProof(
+      authToken,
+      {
+        attachmentId,
+        chatJid,
+        taskId,
+        ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
+      },
+      conversationProof,
+    )
+  ) {
+    throw new Error('Invalid attachment open conversation proof');
+  }
 }

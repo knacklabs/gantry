@@ -2,12 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import { parseRuntimeSettingsObject } from '../../../config/settings/runtime-settings-parser.js';
-import {
-  importFleetSettingsRevision,
-  importWorkstationSettings,
-  SettingsRevisionConflictError,
-  settingsFromRevisionDocument,
-} from '../../../config/settings/settings-import-service.js';
+import type { RuntimeSettings } from '../../../config/settings/runtime-settings-types.js';
 import type { AppId } from '../../../domain/app/app.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
 import type { RuntimeDeploymentMode } from '../../../shared/runtime-deployment-mode.js';
@@ -16,6 +11,19 @@ import {
   type ControlRouteContext,
 } from '../handler-context.js';
 import { readJson, sendError, sendJson } from '../http.js';
+
+// observability.tracing is private in v1: the exporter endpoint pairs with
+// the GANTRY_OTEL_TRACES_HEADERS secret, so exposing it read/write here
+// would let an agents:admin caller redirect authenticated telemetry to a
+// server it controls. The block persists in durable revisions but is
+// stripped from reads and preserved server-side across writes; changing it
+// requires the filesystem surfaces (settings.yaml / CLI --file).
+function omitObservability<T extends Record<string, unknown>>(
+  document: T,
+): Record<string, unknown> {
+  const { observability: _observability, ...rest } = document;
+  return rest;
+}
 
 export async function handleSettingsRoutes(
   req: IncomingMessage,
@@ -35,7 +43,11 @@ export async function handleSettingsRoutes(
     if (!authorizeControlRequest(req, res, ctx.keys, ['agents:admin'])) {
       return true;
     }
-    sendJson(res, 200, { settings: ctx.getRuntimeSettings() });
+    sendJson(res, 200, {
+      settings: omitObservability(
+        ctx.getRuntimeSettings() as unknown as Record<string, unknown>,
+      ),
+    });
     return true;
   }
 
@@ -70,6 +82,10 @@ async function handleDesiredState(
   req: IncomingMessage,
   res: ServerResponse,
   ctx: ControlRouteContext,
+  write?: {
+    key: { appId: string; kid: string };
+    body: unknown;
+  },
 ): Promise<boolean> {
   if (req.method === 'GET') {
     const key = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
@@ -86,7 +102,9 @@ async function handleDesiredState(
     sendJson(res, 200, {
       revision: latest.revision,
       minReaderVersion: latest.minReaderVersion,
-      settings: latest.settingsDocument,
+      settings: omitObservability(
+        latest.settingsDocument as Record<string, unknown>,
+      ),
       createdBy: latest.createdBy,
       note: latest.note,
       updatedAt: latest.createdAt,
@@ -95,10 +113,12 @@ async function handleDesiredState(
   }
 
   if (req.method === 'PUT' || req.method === 'POST') {
-    const key = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
+    const key =
+      write?.key ??
+      authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
     if (!key) return true;
     const appId = key.appId as AppId;
-    const body = (await readJson(req)) as {
+    const body = (write ? write.body : await readJson(req)) as {
       settings?: unknown;
       expectedRevision?: unknown;
       note?: unknown;
@@ -129,137 +149,196 @@ async function handleDesiredState(
       );
       return true;
     }
-    // Decode the inbound typed document through the shared settings parser so a
-    // structurally invalid document surfaces the same document-path-level error
-    // the file/CLI surface produces (one validation path). YAML never reaches
-    // this surface — it is the CLI `--file` edge only.
-    let parsed;
-    try {
-      parsed = parseRuntimeSettingsObject(
-        body.settings as Record<string, unknown>,
-      );
-    } catch (err) {
-      sendError(
-        res,
-        400,
-        'INVALID_SETTINGS',
-        err instanceof Error
-          ? err.message
-          : 'settings document failed to parse.',
-      );
-      return true;
-    }
+    const callerGuard =
+      typeof body.expectedRevision === 'number' ? body.expectedRevision : null;
+    const note = typeof body.note === 'string' ? body.note : null;
     const storage = getRuntimeStorage();
-    if (currentDeploymentMode(ctx) === 'workstation') {
-      let revision = 0;
-      try {
-        const outcome = await importWorkstationSettings(
-          {
-            runtimeHome: ctx.runtimeHome,
-            ops: storage.ops,
-            repositories: storage.repositories,
-            appId,
-            previousSettings: ctx.getInternalRuntimeSettings() as never,
-            reloadRuntimeState: () => ctx.app.loadState(),
-            revisionMirror: {
-              settingsRevisions: storage.repositories.settingsRevisions,
-              pool: storage.service.pool,
-              createdBy: `control-api:${key.kid}`,
-              note: typeof body.note === 'string' ? body.note : null,
-              logWarn: (context, message) => logger.warn(context, message),
-            },
-            revisionMirrorRequired: true,
-            expectedRevision:
-              typeof body.expectedRevision === 'number'
-                ? body.expectedRevision
-                : null,
-          },
-          parsed,
+    const isWorkstation = currentDeploymentMode(ctx) === 'workstation';
+    // Preserve the server-side observability block across writes: this
+    // surface can neither read nor set it (see omitObservability above).
+    // Preservation requires a read-merge-append bound to the head we merged
+    // from (an unconditional append could silently revert a concurrent
+    // observability change, including the FIRST enable). Callers who supplied
+    // expectedRevision keep the documented 409; callers who omitted it keep
+    // their unconditional semantics via a bounded server-side retry.
+    for (let attempt = 0; ; attempt += 1) {
+      const head =
+        await storage.repositories.settingsRevisions.getLatestSettingsRevision(
+          appId,
         );
-        revision =
-          outcome.revision ??
-          (
-            await storage.repositories.settingsRevisions.getLatestSettingsRevision(
-              appId,
-            )
-          )?.revision ??
-          0;
+      const preservedObservability =
+        (head?.settingsDocument as Record<string, unknown> | undefined)
+          ?.observability ??
+        (head
+          ? undefined
+          : ctx.settingsImport.serializeRevisionDocument(
+              ctx.getInternalRuntimeSettings() as RuntimeSettings,
+            ).observability);
+      const inboundDocument = {
+        ...omitObservability(body.settings as Record<string, unknown>),
+        ...(preservedObservability !== undefined
+          ? { observability: preservedObservability }
+          : {}),
+      };
+      // 0 = "expect no head". Every attempt is fenced to the head it merged
+      // from — dropping the fence on any attempt could silently revert a
+      // concurrent change to the private observability block, which API
+      // callers cannot even see. Unguarded writers get generous fresh-head
+      // retries; contention that survives them earns an honest 409.
+      const lastAttempt = attempt >= 4;
+      const effectiveExpectedRevision = callerGuard ?? head?.revision ?? 0;
+      // Decode the inbound typed document through the shared settings parser
+      // so a structurally invalid document surfaces the same
+      // document-path-level error the file/CLI surface produces (one
+      // validation path). YAML never reaches this surface — it is the CLI
+      // `--file` edge only.
+      let parsed;
+      try {
+        parsed = parseRuntimeSettingsObject(inboundDocument);
       } catch (err) {
-        if (err instanceof SettingsRevisionConflictError) {
-          sendError(
-            res,
-            409,
-            'REVISION_CONFLICT',
-            `expectedRevision ${err.expectedRevision} does not match the current revision ${err.actualRevision}.`,
-            {
-              expectedRevision: err.expectedRevision,
-              actualRevision: err.actualRevision,
-            },
-          );
-          return true;
-        }
         sendError(
           res,
           400,
           'INVALID_SETTINGS',
           err instanceof Error
             ? err.message
-            : 'Settings document failed validation.',
+            : 'settings document failed to parse.',
         );
         return true;
       }
-      sendJson(res, 200, { revision });
-      return true;
-    }
-    const outcome = await importFleetSettingsRevision(
-      {
-        runtimeHome: ctx.runtimeHome,
-        ops: getRuntimeStorage().ops,
-        repositories: storage.repositories,
-        appId,
-        settingsRevisions: storage.repositories.settingsRevisions,
-        pool: storage.service.pool,
-        createdBy: `control-api:${key.kid}`,
-      },
-      parsed,
-      {
-        expectedRevision:
-          typeof body.expectedRevision === 'number'
-            ? body.expectedRevision
-            : null,
-        note: typeof body.note === 'string' ? body.note : null,
-      },
-    );
-    if (outcome.status === 'invalid') {
-      sendError(
-        res,
-        400,
-        'INVALID_SETTINGS',
-        'Settings document failed validation.',
-        { errors: outcome.errors },
-      );
-      return true;
-    }
-    if (outcome.status === 'conflict') {
-      sendError(
-        res,
-        409,
-        'REVISION_CONFLICT',
-        `expectedRevision ${outcome.expectedRevision} does not match the current revision ${outcome.actualRevision}.`,
+      if (isWorkstation) {
+        let revision = 0;
+        try {
+          const outcome = await ctx.settingsImport.importWorkstation(
+            {
+              runtimeHome: ctx.runtimeHome,
+              ops: storage.ops,
+              repositories: storage.repositories,
+              appId,
+              previousSettings: ctx.getInternalRuntimeSettings() as never,
+              reloadRuntimeState: () => ctx.app.loadState(),
+              revisionMirror: {
+                settingsRevisions: storage.repositories.settingsRevisions,
+                pool: storage.service.pool,
+                createdBy: `control-api:${key.kid}`,
+                note,
+                logWarn: (context: Record<string, unknown>, message: string) =>
+                  logger.warn(context, message),
+              },
+              revisionMirrorRequired: true,
+              expectedRevision: effectiveExpectedRevision,
+            },
+            parsed,
+          );
+          revision =
+            outcome.status === 'revision_created'
+              ? outcome.revision
+              : ((
+                  await storage.repositories.settingsRevisions.getLatestSettingsRevision(
+                    appId,
+                  )
+                )?.revision ?? 0);
+        } catch (err) {
+          const importError = ctx.settingsImport.classifyImportError(err);
+          // A concurrent winner can make the in-memory previousSettings stale
+          // before reload completes — retryable for unguarded writers, same
+          // as a CAS conflict.
+          if (
+            importError?.kind === 'stale' &&
+            callerGuard === null &&
+            !lastAttempt
+          ) {
+            continue;
+          }
+          if (importError?.kind === 'conflict') {
+            if (callerGuard === null && !lastAttempt) continue;
+            sendError(
+              res,
+              409,
+              'REVISION_CONFLICT',
+              `expectedRevision ${importError.expectedRevision} does not match the current revision ${importError.actualRevision}.`,
+              {
+                expectedRevision: importError.expectedRevision,
+                actualRevision: importError.actualRevision,
+              },
+            );
+            return true;
+          }
+          sendError(
+            res,
+            400,
+            'INVALID_SETTINGS',
+            err instanceof Error
+              ? err.message
+              : 'Settings document failed validation.',
+          );
+          return true;
+        }
+        sendJson(res, 200, { revision });
+        return true;
+      }
+      const outcome = await ctx.settingsImport.importFleet(
         {
-          expectedRevision: outcome.expectedRevision,
-          actualRevision: outcome.actualRevision,
+          runtimeHome: ctx.runtimeHome,
+          ops: getRuntimeStorage().ops,
+          repositories: storage.repositories,
+          appId,
+          settingsRevisions: storage.repositories.settingsRevisions,
+          pool: storage.service.pool,
+          createdBy: `control-api:${key.kid}`,
+        },
+        parsed,
+        {
+          expectedRevision: effectiveExpectedRevision,
+          note,
         },
       );
+      if (outcome.status === 'invalid') {
+        sendError(
+          res,
+          400,
+          'INVALID_SETTINGS',
+          'Settings document failed validation.',
+          { errors: outcome.errors },
+        );
+        return true;
+      }
+      if (outcome.status === 'conflict') {
+        if (callerGuard === null && !lastAttempt) continue;
+        sendError(
+          res,
+          409,
+          'REVISION_CONFLICT',
+          `expectedRevision ${outcome.expectedRevision} does not match the current revision ${outcome.actualRevision}.`,
+          {
+            expectedRevision: outcome.expectedRevision,
+            actualRevision: outcome.actualRevision,
+          },
+        );
+        return true;
+      }
+      sendJson(res, 200, { revision: outcome.revision });
       return true;
     }
-    sendJson(res, 200, { revision: outcome.revision });
-    return true;
   }
 
   res.setHeader('Allow', 'GET, PUT, POST');
   sendError(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
   return true;
+}
+
+export function writeControlDesiredState(input: {
+  res: ServerResponse;
+  ctx: ControlRouteContext;
+  key: { appId: string; kid: string };
+  body: unknown;
+}): Promise<boolean> {
+  return handleDesiredState(
+    { method: 'PUT' } as IncomingMessage,
+    input.res,
+    input.ctx,
+    { key: input.key, body: input.body },
+  );
 }
 
 function currentDeploymentMode(
@@ -298,7 +377,3 @@ async function handleRevisionsList(
   });
   return true;
 }
-
-// Re-exported so route tests can assert the document round-trip path used by
-// the worker listener matches the API write path.
-export { settingsFromRevisionDocument };

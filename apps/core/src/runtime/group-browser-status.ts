@@ -14,6 +14,7 @@ interface BrowserStatusGroup {
   name: string;
   folder: string;
   conversationKind?: 'dm' | 'channel';
+  providerAccountId?: string;
 }
 
 export async function getGroupBrowserStatus(input: {
@@ -24,6 +25,7 @@ export async function getGroupBrowserStatus(input: {
     agentId: input.group.folder,
     workspaceKey: input.group.folder,
     conversationId: input.chatJid,
+    providerAccountId: input.group.providerAccountId ?? null,
   });
   const status = await getBrowserStatus(profileName);
   const profile = getProfile(profileName);

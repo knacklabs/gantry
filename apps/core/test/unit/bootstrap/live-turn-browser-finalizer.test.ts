@@ -25,7 +25,7 @@ describe('live-turn-browser-finalizer', () => {
   });
 
   it('selects the agent-specific route when finalizing a multi-agent queue key', async () => {
-    const closeBrowserSession = vi.fn(async () => undefined);
+    const closeBrowserSession = vi.fn(async () => ({ leaseGeneration: 1 }));
     const closeBrowserToolBackends = vi.fn(async () => undefined);
     const queueJid = makeAgentThreadQueueKey('sl:C123', 'agent:alpha');
     const alphaRoute = makeAgentThreadQueueKey('sl:C123', 'agent:alpha');
@@ -66,8 +66,39 @@ describe('live-turn-browser-finalizer', () => {
     );
   });
 
+  it('skips the snapshot when the close result carries no generation', async () => {
+    // "Unknown provenance" must not collapse into generation 0: the repository
+    // ACCEPTS 0 while the durable counter is still 0, which would let a stale
+    // pre-upgrade directory overwrite a real snapshot.
+    const closeBrowserSession = vi.fn(async () => ({}));
+    const warn = vi.fn();
+    const queueJid = makeAgentThreadQueueKey('sl:C900', 'agent:alpha');
+    const finalizer = buildLiveTurnBrowserFinalizer({
+      getConversationRoutes: () => ({ [queueJid]: { folder: 'alpha' } }),
+      closeBrowserSession,
+      closeBrowserToolBackends: vi.fn(async () => undefined),
+      warn,
+    });
+
+    consumeBrowserProfileActivityMock.mockReturnValue(true);
+    isBrowserProfileSyncEnabledMock.mockReturnValue(true);
+    getProfileMock.mockReturnValue({
+      dir: '/tmp/profile',
+      userDataDir: '/tmp/user-data',
+    });
+
+    await finalizer({ queueJid, runId: 'run-9', fencingVersion: 1 });
+
+    expect(closeBrowserSession).toHaveBeenCalled();
+    expect(snapshotBrowserProfileMock).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('no lease generation provenance'),
+    );
+  });
+
   it('selects a legacy bare route that matches the queue agent by folder', async () => {
-    const closeBrowserSession = vi.fn(async () => undefined);
+    const closeBrowserSession = vi.fn(async () => ({ leaseGeneration: 1 }));
     const closeBrowserToolBackends = vi.fn(async () => undefined);
     const queueJid = makeAgentThreadQueueKey('sl:C123', 'agent:alpha');
 
@@ -102,7 +133,7 @@ describe('live-turn-browser-finalizer', () => {
   });
 
   it('does not match a legacy bare route for a sibling folder', async () => {
-    const closeBrowserSession = vi.fn(async () => undefined);
+    const closeBrowserSession = vi.fn(async () => ({ leaseGeneration: 1 }));
     const closeBrowserToolBackends = vi.fn(async () => undefined);
     const queueJid = makeAgentThreadQueueKey('sl:C123', 'agent:alpha');
 
@@ -124,7 +155,7 @@ describe('live-turn-browser-finalizer', () => {
   });
 
   it('does not fall back to a sibling route when the agent-specific route is missing', async () => {
-    const closeBrowserSession = vi.fn(async () => undefined);
+    const closeBrowserSession = vi.fn(async () => ({ leaseGeneration: 1 }));
     const closeBrowserToolBackends = vi.fn(async () => undefined);
     const queueJid = makeAgentThreadQueueKey('sl:C123', 'agent:alpha');
     const betaRoute = makeAgentThreadQueueKey('sl:C123', 'agent:beta');

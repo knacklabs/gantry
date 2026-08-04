@@ -7,6 +7,7 @@ import { logger } from '../infrastructure/logging/logger.js';
 import { TaskContext, TaskHandler } from './ipc-types.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import { mapApplicationError } from './ipc-application-error.js';
+import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
 import { invalidateSystemJobRegistrationSignature } from './system-registration-cache.js';
 import { resolveRequestedJobModelPatch } from '../application/jobs/job-model-selection.js';
 import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
@@ -15,7 +16,6 @@ import { getRuntimeEventExchange } from '../adapters/storage/postgres/runtime-st
 import {
   enqueueJobTrigger,
   isJobTriggerQueueReady,
-  runtimeJobSchedulePlanner,
   schedulerNotReadyReason,
 } from './scheduler.js';
 import {

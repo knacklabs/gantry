@@ -79,46 +79,6 @@ const modelCredentialStatusRequired = [
 ];
 
 export const modelCredentialSchemas: Record<string, JsonSchema> = {
-  CapabilityCredentialWriteRequest: {
-    type: 'object',
-    required: ['value'],
-    additionalProperties: false,
-    properties: {
-      value: {
-        type: 'string',
-        minLength: 1,
-        maxLength: 65_536,
-        writeOnly: true,
-      },
-      allowedCapabilityIds: {
-        ...stringArray,
-        maxItems: 100,
-      },
-    },
-  },
-  CapabilityCredentialResponse: {
-    type: 'object',
-    required: ['credential'],
-    properties: {
-      credential: {
-        type: 'object',
-        required: [
-          'name',
-          'status',
-          'fingerprint',
-          'allowedCapabilityIds',
-          'updatedAt',
-        ],
-        properties: {
-          name: { type: 'string' },
-          status: { type: 'string', enum: ['ready', 'needs_secret'] },
-          fingerprint: { type: ['string', 'null'] },
-          allowedCapabilityIds: stringArray,
-          updatedAt: { oneOf: [isoDateTime, { type: 'null' }] },
-        },
-      },
-    },
-  },
   ModelCredentialStatus: {
     type: 'object',
     required: modelCredentialStatusRequired,

@@ -6,12 +6,9 @@ import {
 } from '@core/application/interactions/caller-resolved-tool-coordinator.js';
 
 describe('caller-resolved tool coordinator', () => {
-  it('resumes the same tool wait and deduplicates settlement', async () => {
-    let required!: () => void;
-    const emitted = new Promise<void>((resolve) => {
-      required = resolve;
-    });
-    const controller = new AbortController();
+  it('settles the waiting tool exactly once', async () => {
+    let emitted!: () => void;
+    const required = new Promise<void>((resolve) => (emitted = resolve));
     const result = requestCallerResolvedTool({
       appId: 'app',
       runId: 'run-1',
@@ -21,28 +18,24 @@ describe('caller-resolved tool coordinator', () => {
       toolName: 'opaque_tool',
       toolInput: { query: 'value' },
       timeoutMs: 5_000,
-      signal: controller.signal,
-      emitRequired: async () => required(),
+      signal: new AbortController().signal,
+      emitRequired: async () => emitted(),
     });
-    await emitted;
-    await expect(
-      settleCallerResolvedTool({
-        appId: 'app',
-        sessionId: 'session-1',
-        interactionId: 'interaction-1',
-        idempotencyKey: 'delivery-1',
-        resolution: { status: 'resolved', result: { answer: 42 } },
-      }),
-    ).resolves.toBe('resolved');
+    await required;
+
+    const settlement = {
+      appId: 'app',
+      sessionId: 'session-1',
+      interactionId: 'interaction-1',
+      idempotencyKey: 'delivery-1',
+      resolution: { status: 'resolved' as const, result: { answer: 42 } },
+    };
+    await expect(settleCallerResolvedTool(settlement)).resolves.toBe(
+      'resolved',
+    );
     await expect(result).resolves.toEqual({ answer: 42 });
-    await expect(
-      settleCallerResolvedTool({
-        appId: 'app',
-        sessionId: 'session-1',
-        interactionId: 'interaction-1',
-        idempotencyKey: 'delivery-1',
-        resolution: { status: 'resolved', result: { answer: 42 } },
-      }),
-    ).resolves.toBe('idempotent');
+    await expect(settleCallerResolvedTool(settlement)).resolves.toBe(
+      'idempotent',
+    );
   });
 });

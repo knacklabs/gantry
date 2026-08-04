@@ -51,7 +51,7 @@ describe('YOLO-mode denylist policy', () => {
     ).toMatchObject({ kind: 'command', pattern: 'rm -rf /' });
   });
 
-  it('matches through host-injected runtime env prefixes', () => {
+  it('does not pattern-strip model-authored runtime env prefixes', () => {
     expect(
       evaluateYoloModeDenylist({
         settings,
@@ -61,7 +61,7 @@ describe('YOLO-mode denylist policy', () => {
             "GODEBUG=netdns=go HTTP_PROXY='http://127.0.0.1:18790/' HTTPS_PROXY='http://127.0.0.1:18790/' npm run nuke",
         },
       }),
-    ).toMatchObject({ kind: 'command', pattern: 'npm run nuke' });
+    ).toBeUndefined();
   });
 
   it('matches force-push defaults only for main and master', () => {

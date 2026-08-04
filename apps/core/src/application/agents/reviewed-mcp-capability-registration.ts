@@ -33,7 +33,7 @@ export async function registerReviewedMcpCapability(
     now: string;
   },
 ): Promise<ToolCatalogItem> {
-  const { capability } = input;
+  const capability = canonicalReviewedCapability(input.capability);
   const validation = validateSemanticCapabilityDefinition(capability);
   if (!validation.ok) {
     throw new ApplicationError('INVALID_REQUEST', validation.reason);
@@ -41,53 +41,49 @@ export async function registerReviewedMcpCapability(
   if (
     capability.credentialSource !== 'configured_access' ||
     capability.implementationBindings.some(
-      (binding) => binding.kind !== 'mcp_tool',
+      (binding) => binding.kind !== 'mcp_pattern',
     )
   ) {
     throw new ApplicationError(
       'INVALID_REQUEST',
-      'Reviewed MCP capabilities require configured_access and exact mcp_tool bindings.',
+      'Reviewed MCP capabilities require configured_access and exact MCP bindings.',
     );
   }
 
   const reviewedSources = new Map<string, McpServerDefinition>();
   for (const binding of capability.implementationBindings) {
-    const parsed = parseExactMcpTool(binding.mcpTool);
-    if (!parsed) {
-      throw new ApplicationError(
-        'INVALID_REQUEST',
-        `MCP capability binding must name one exact tool without wildcards: ${binding.mcpTool ?? ''}`,
-      );
-    }
+    const serverName = binding.mcpServer!;
     const source =
-      reviewedSources.get(parsed.serverName) ??
+      reviewedSources.get(serverName) ??
       (await input.repositories.mcpServers.getServerByName({
         appId: input.appId,
-        name: parsed.serverName,
+        name: serverName,
       }));
     if (!source || source.appId !== input.appId) {
       throw new ApplicationError(
         'NOT_FOUND',
-        `Active MCP source not found: ${parsed.serverName}`,
+        `Active MCP source not found: ${serverName}`,
       );
     }
     if (!isMcpServerActive(source)) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        `MCP source is not active: ${parsed.serverName}`,
+        `MCP source is not active: ${serverName}`,
       );
     }
-    if (
-      !source.allowedToolPatterns.some((pattern) =>
-        mcpToolPatternCovers(pattern, parsed.toolName),
-      )
-    ) {
-      throw new ApplicationError(
-        'INVALID_REQUEST',
-        `MCP tool ${binding.mcpTool} is not allowed by source ${parsed.serverName}.`,
-      );
+    for (const toolName of binding.mcpToolPatterns ?? []) {
+      if (
+        !source.allowedToolPatterns.some((pattern) =>
+          mcpToolPatternCovers(pattern, toolName),
+        )
+      ) {
+        throw new ApplicationError(
+          'INVALID_REQUEST',
+          `MCP tool mcp__${serverName}__${toolName} is not allowed by source ${serverName}.`,
+        );
+      }
     }
-    reviewedSources.set(parsed.serverName, source);
+    reviewedSources.set(serverName, source);
   }
 
   const existing = (
@@ -130,7 +126,8 @@ export async function registerReviewedMcpCapability(
           capabilityId: capability.capabilityId,
           version: capability.version ?? 'catalog',
           tools: capability.implementationBindings.map(
-            (binding) => binding.mcpTool,
+            (binding) =>
+              `mcp__${binding.mcpServer}__${binding.mcpToolPatterns?.[0]}`,
           ),
         },
         createdAt: input.now as never,
@@ -138,6 +135,31 @@ export async function registerReviewedMcpCapability(
     ),
   );
   return tool;
+}
+
+function canonicalReviewedCapability(
+  capability: SemanticCapabilityDefinition,
+): SemanticCapabilityDefinition {
+  return {
+    ...capability,
+    implementationBindings: capability.implementationBindings.map(
+      (binding) => {
+        if (binding.kind !== 'mcp_tool') return binding;
+        const parsed = parseExactMcpTool(binding.mcpTool);
+        if (!parsed) {
+          throw new ApplicationError(
+            'INVALID_REQUEST',
+            `MCP capability binding must name one exact tool without wildcards: ${binding.mcpTool ?? ''}`,
+          );
+        }
+        return {
+          kind: 'mcp_pattern' as const,
+          mcpServer: parsed.serverName,
+          mcpToolPatterns: [parsed.toolName],
+        };
+      },
+    ),
+  };
 }
 
 function parseExactMcpTool(

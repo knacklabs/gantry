@@ -12,6 +12,11 @@ export const RESERVED_SDK_NATIVE_SKILL_NAMES = [
   'security-review',
   'simplify',
   'update-config',
+  // Provider-native reserved names (Claude adapter). Install-time validation
+  // must reject them too: a skill materializing to one of these directories
+  // passes install but fails the NEXT spawn in the Claude materializer.
+  'claude-api',
+  'claude-in-chrome',
 ] as const;
 
 const RESERVED_SDK_NATIVE_SKILL_NAME_SET = new Set<string>(

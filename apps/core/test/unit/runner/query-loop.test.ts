@@ -1,12 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
 
-const sdk = vi.hoisted(() => ({
-  query: vi.fn(),
-}));
-const runnerOutputs = vi.hoisted(() => [] as Record<string, unknown>[]);
-const claudeSdkPackage = vi.hoisted(() =>
-  ['@anthropic-ai', 'claude-agent-sdk'].join('/'),
-);
+import { describe, expect, it, vi } from 'vitest';
 
 vi.hoisted(() => {
   process.env.GANTRY_WORKSPACE_GROUP_DIR ??= '/tmp';
@@ -15,79 +9,11 @@ vi.hoisted(() => {
   process.env.GANTRY_IPC_INPUT_DIR ??= '/tmp';
 });
 
-vi.mock(claudeSdkPackage, () => ({
-  SYSTEM_PROMPT_DYNAMIC_BOUNDARY: 'dynamic-boundary',
-  query: sdk.query,
-}));
-vi.mock('@core/adapters/llm/anthropic-claude-agent/runner/output.js', () => ({
-  writeOutput: (output: Record<string, unknown>) => runnerOutputs.push(output),
-}));
-
 import { usageEventIdForMessage } from '@core/adapters/llm/anthropic-claude-agent/runner/query-usage-event-id.js';
-import { runQuery } from '@core/adapters/llm/anthropic-claude-agent/runner/query-loop.js';
-import { recordSuccessfulToolUse } from '@core/adapters/llm/anthropic-claude-agent/runner/tool-success-ledger.js';
-import type { AgentRunnerInput } from '@core/adapters/llm/anthropic-claude-agent/runner/types.js';
+import { recordSuccessfulToolUse } from '@core/adapters/llm/anthropic-claude-agent/runner/query-loop.js';
+import { createPermissionApprovalContextChannel } from '@core/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.js';
 import { canonicalGantryToolRuleName } from '@core/shared/gantry-tool-facades.js';
 import { RunScopedToolSuccessLedger } from '@core/runner/tool-gate-core.js';
-
-function runnerInput(
-  overrides: Partial<AgentRunnerInput> = {},
-): AgentRunnerInput {
-  return {
-    prompt: 'ignored',
-    workspaceFolder: 'workspace',
-    chatJid: 'app:test',
-    permissionMode: 'deny',
-    ...overrides,
-  };
-}
-
-beforeEach(() => {
-  runnerOutputs.length = 0;
-});
-
-describe('Claude query loop live structured completion', () => {
-  it('emits a turn-complete marker after a structured result', async () => {
-    sdk.query.mockImplementation(({ prompt }) => ({
-      async *[Symbol.asyncIterator]() {
-        const messages = prompt[Symbol.asyncIterator]();
-        await messages.next();
-        yield {
-          type: 'result',
-          subtype: 'success',
-          structured_output: { answer: 'INR 62,00,000' },
-        };
-        expect(await messages.next()).toEqual({ done: true, value: undefined });
-      },
-    }));
-
-    await runQuery(
-      'prompt',
-      '/tmp/gantry-mcp-server.js',
-      runnerInput({ responseSchema: { type: 'object' } }),
-      {},
-      'claude-test',
-      undefined,
-      undefined,
-      { enableIpcFollowups: true, persistSdkSession: true },
-    );
-
-    const resultIndex = runnerOutputs.findIndex(
-      (output) => output.result === '{"answer":"INR 62,00,000"}',
-    );
-    expect(resultIndex).toBeGreaterThanOrEqual(0);
-    expect(
-      runnerOutputs
-        .slice(resultIndex + 1)
-        .some(
-          (output) =>
-            output.status === 'success' &&
-            output.result === null &&
-            !output.runtimeEventOnly,
-        ),
-    ).toBe(true);
-  });
-});
 
 describe('Claude query loop usage event IDs', () => {
   it('uses stable provider IDs when present', () => {
@@ -106,62 +32,24 @@ describe('Claude query loop usage event IDs', () => {
   });
 });
 
-describe('Claude query loop SDK result failures', () => {
-  it('reports SDK result failures before missing structured output', async () => {
-    sdk.query.mockReturnValue({
-      async *[Symbol.asyncIterator]() {
-        yield {
-          type: 'result',
-          subtype: 'error_max_structured_output_retries',
-          errors: ['Structured output did not match the schema.'],
-        };
-      },
-    });
-
-    await expect(
-      runQuery(
-        'prompt',
-        '/tmp/gantry-mcp-server.js',
-        runnerInput({ responseSchema: { type: 'object' } }),
-        {},
-        'claude-test',
-        undefined,
-        undefined,
-        { enableIpcFollowups: false, persistSdkSession: false },
-      ),
-    ).rejects.toThrow('Structured output did not match the schema.');
-  });
-
-  it('reports SDK success-subtyped error results before missing structured output', async () => {
-    sdk.query.mockReturnValue({
-      async *[Symbol.asyncIterator]() {
-        yield {
-          type: 'result',
-          subtype: 'success',
-          is_error: true,
-          result: 'Provider failed before structured output was produced.',
-        };
-      },
-    });
-
-    await expect(
-      runQuery(
-        'prompt',
-        '/tmp/gantry-mcp-server.js',
-        runnerInput({ responseSchema: { type: 'object' } }),
-        {},
-        'claude-test',
-        undefined,
-        undefined,
-        { enableIpcFollowups: false, persistSdkSession: false },
-      ),
-    ).rejects.toThrow(
-      'Claude SDK returned error result: Provider failed before structured output was produced.',
-    );
-  });
-});
-
 describe('Claude query loop declarative tool names', () => {
+  it('does not pass allowedTools while retaining canUseTool in SDK query options', () => {
+    const source = fs.readFileSync(
+      new URL(
+        '../../../src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    const queryOptions = source.slice(
+      source.indexOf('const sdkQuery = query({'),
+      source.indexOf('const sdkQueryIteratorMs'),
+    );
+
+    expect(queryOptions).not.toMatch(/\n\s*allowedTools:/);
+    expect(queryOptions).toMatch(/\n\s*canUseTool:/);
+  });
+
   it('canonicalizes first-party Gantry MCP names to bare rule names', () => {
     expect(canonicalGantryToolRuleName('mcp__gantry__send_message')).toBe(
       'send_message',
@@ -175,6 +63,20 @@ describe('Claude query loop declarative tool names', () => {
     'task_message',
   ])('canonicalizes %s as AgentDelegation', (toolName) => {
     expect(canonicalGantryToolRuleName(toolName)).toBe('AgentDelegation');
+  });
+
+  it('canonicalizes synthetic delegation only with Gantry or manifest provenance', () => {
+    expect(
+      canonicalGantryToolRuleName('mcp__gantry__delegate_to_reviewer_hash'),
+    ).toBe('AgentDelegation');
+    expect(
+      canonicalGantryToolRuleName('delegate_to_reviewer_hash', {
+        callableAgentToolNames: new Set(['delegate_to_reviewer_hash']),
+      }),
+    ).toBe('AgentDelegation');
+    expect(canonicalGantryToolRuleName('delegate_to_cleanup')).toBe(
+      'delegate_to_cleanup',
+    );
   });
 
   it('keeps non-Gantry MCP names unchanged', () => {
@@ -219,5 +121,115 @@ describe('Claude query loop declarative tool success ledger', () => {
     );
 
     expect(ledger.hasSuccess('send_message')).toBe(true);
+  });
+});
+
+describe('Claude query loop permission approval context', () => {
+  it.each([
+    [
+      'classifier',
+      'Permission allowed (decided by: auto_classifier; risk: low)',
+    ],
+    ['human', 'Permission allowed (decided by: owner)'],
+  ])(
+    'returns %s provenance as model-visible additionalContext',
+    async (_label, provenance) => {
+      const channel = createPermissionApprovalContextChannel();
+      channel.record('tool-use-1', provenance);
+
+      await expect(
+        channel.postToolUse(
+          {
+            hook_event_name: 'PostToolUse',
+            tool_name: 'Bash',
+            tool_input: { command: 'npm test' },
+            tool_response: 'ok',
+            tool_use_id: 'tool-use-1',
+          } as never,
+          'tool-use-1',
+          { signal: new AbortController().signal },
+        ),
+      ).resolves.toEqual({
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          additionalContext: provenance,
+        },
+      });
+    },
+  );
+
+  it('adds no context for a silent birthright allow', async () => {
+    const channel = createPermissionApprovalContextChannel();
+
+    await expect(
+      channel.postToolUse(
+        {
+          hook_event_name: 'PostToolUse',
+          tool_name: 'mcp__gantry__render_table',
+          tool_input: {},
+          tool_response: 'rendered',
+          tool_use_id: 'tool-use-birthright',
+        } as never,
+        'tool-use-birthright',
+        { signal: new AbortController().signal },
+      ),
+    ).resolves.toEqual({ continue: true });
+  });
+
+  it('removes approval context after the matching tool result', async () => {
+    const channel = createPermissionApprovalContextChannel();
+    channel.record(
+      'tool-use-1',
+      'Permission allowed (decided by: auto_classifier; risk: low)',
+    );
+    const hookInput = {
+      hook_event_name: 'PostToolUse',
+      tool_name: 'Bash',
+      tool_input: { command: 'npm test' },
+      tool_response: 'ok',
+      tool_use_id: 'tool-use-1',
+    } as const;
+
+    await channel.postToolUse(hookInput as never, 'tool-use-1', {
+      signal: new AbortController().signal,
+    });
+
+    await expect(
+      channel.postToolUse(hookInput as never, 'tool-use-1', {
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({ continue: true });
+  });
+
+  it('surfaces and consumes approval context when an allowed tool fails', async () => {
+    const channel = createPermissionApprovalContextChannel();
+    const provenance = 'Permission allowed (decided by: owner)';
+    channel.record('tool-use-failed', provenance);
+    const hookInput = {
+      hook_event_name: 'PostToolUseFailure',
+      tool_name: 'Bash',
+      tool_input: { command: 'npm test' },
+      tool_use_id: 'tool-use-failed',
+      error: 'command failed',
+    } as const;
+
+    await expect(
+      channel.postToolUse(hookInput as never, 'tool-use-failed', {
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: 'PostToolUseFailure',
+        additionalContext: provenance,
+      },
+    });
+
+    await expect(
+      channel.postToolUse(hookInput as never, 'tool-use-failed', {
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({ continue: true });
   });
 });

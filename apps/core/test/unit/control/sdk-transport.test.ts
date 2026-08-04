@@ -195,166 +195,6 @@ describe('@gantry/sdk transport', () => {
     ).resolves.toEqual({ sessionId: 'session-1' });
   });
 
-  it('invokes chat completions and preserves Gantry routing metadata', async () => {
-    const port = await listen((req, res) => {
-      const chunks: Buffer[] = [];
-      req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-      req.on('end', () => {
-        expect(req.method).toBe('POST');
-        expect(req.url).toBe('/llm/v1/chat/completions');
-        expect(req.headers.traceparent).toBe(
-          '00-0123456789abcdef0123456789abcdef-0123456789abcdef-01',
-        );
-        expect(
-          JSON.parse(Buffer.concat(chunks).toString('utf8')),
-        ).toMatchObject({
-          model: 'configured-alias',
-          messages: [{ role: 'user', content: 'return json' }],
-        });
-        res.writeHead(200, {
-          'content-type': 'application/json',
-          'x-gantry-request-id': 'gantry-request-1',
-          'x-gantry-model-alias': 'configured-alias',
-          'x-gantry-model-route': 'provider-route',
-          'x-gantry-provider': 'provider',
-        });
-        res.end(
-          JSON.stringify({
-            id: 'response-1',
-            object: 'chat.completion',
-            created: 1,
-            model: 'provider-model',
-            choices: [
-              {
-                index: 0,
-                message: { role: 'assistant', content: '{"ok":true}' },
-                finish_reason: 'stop',
-              },
-            ],
-            usage: {
-              prompt_tokens: 3,
-              completion_tokens: 2,
-              total_tokens: 5,
-            },
-          }),
-        );
-      });
-    });
-    const client = new GantryClient({
-      apiKey: 'test-key',
-      baseUrl: `http://127.0.0.1:${port}`,
-    });
-
-    await expect(
-      client.llm.chatCompletions(
-        {
-          model: 'configured-alias',
-          messages: [{ role: 'user', content: 'return json' }],
-        },
-        {
-          traceparent:
-            '00-0123456789abcdef0123456789abcdef-0123456789abcdef-01',
-        },
-      ),
-    ).resolves.toMatchObject({
-      gantryRequestId: 'gantry-request-1',
-      modelAlias: 'configured-alias',
-      modelRoute: 'provider-route',
-      provider: 'provider',
-      response: {
-        id: 'response-1',
-        model: 'provider-model',
-        usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
-      },
-    });
-  });
-
-  it('sends idempotency and bounded queue policy for a session message', async () => {
-    const port = await listen((req, res) => {
-      const chunks: Buffer[] = [];
-      req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-      req.on('end', () => {
-        expect(req.method).toBe('POST');
-        expect(req.url).toBe('/v1/sessions/session%2F1/messages');
-        expect(JSON.parse(Buffer.concat(chunks).toString('utf8'))).toEqual({
-          message: 'What is the EMD?',
-          idempotencyKey: 'teams-activity-1',
-          queuePolicy: {
-            maxWaitingMessages: 3,
-            maxQueueWaitMs: 90_000,
-            executionTimeoutMs: 90_000,
-          },
-        });
-        res.writeHead(202, { 'content-type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            accepted: true,
-            replayed: false,
-            messageId: 'message-1',
-            acceptedEventId: 42,
-          }),
-        );
-      });
-    });
-    const client = new GantryClient({
-      apiKey: 'test-key',
-      baseUrl: `http://127.0.0.1:${port}`,
-    });
-
-    await expect(
-      client.sessions.sendMessage({
-        sessionId: 'session/1',
-        message: 'What is the EMD?',
-        idempotencyKey: 'teams-activity-1',
-        queuePolicy: {
-          maxWaitingMessages: 3,
-          maxQueueWaitMs: 90_000,
-          executionTimeoutMs: 90_000,
-        },
-      }),
-    ).resolves.toEqual({
-      accepted: true,
-      replayed: false,
-      messageId: 'message-1',
-      acceptedEventId: 42,
-    });
-  });
-
-  it('lists and creates agents through the typed SDK surface', async () => {
-    const requests: string[] = [];
-    const agent = {
-      id: 'agent:tender',
-      appId: 'manipal-tender-copilot',
-      name: 'Manipal Tender Agent',
-      status: 'active',
-      agentHarness: 'claude_agent_sdk',
-      createdAt: '2026-07-17T00:00:00.000Z',
-      updatedAt: '2026-07-17T00:00:00.000Z',
-    };
-    const port = await listen((req, res) => {
-      requests.push(`${req.method} ${req.url}`);
-      res.writeHead(req.method === 'POST' ? 201 : 200, {
-        'content-type': 'application/json',
-      });
-      res.end(
-        JSON.stringify(req.method === 'POST' ? agent : { agents: [agent] }),
-      );
-    });
-    const client = new GantryClient({
-      apiKey: 'test-key',
-      baseUrl: `http://127.0.0.1:${port}`,
-    });
-
-    await expect(client.agents.list()).resolves.toEqual({ agents: [agent] });
-    await expect(
-      client.agents.create({
-        appId: 'manipal-tender-copilot',
-        name: 'Manipal Tender Agent',
-      }),
-    ).resolves.toEqual(agent);
-    expect(requests).toEqual(['GET /v1/agents', 'POST /v1/agents']);
-  });
-
   it('builds the usage query from every typed filter', async () => {
     const client = new GantryClient({
       apiKey: 'test-key',
@@ -386,7 +226,7 @@ describe('@gantry/sdk transport', () => {
     });
   });
 
-  it('builds model credential administration requests', async () => {
+  it('builds observer status and paginated insight requests', async () => {
     const client = new GantryClient({
       apiKey: 'test-key',
       baseUrl: 'http://127.0.0.1:3939',
@@ -397,34 +237,102 @@ describe('@gantry/sdk transport', () => {
           .transport,
         'request',
       )
-      .mockResolvedValue({ providers: [] });
+      .mockResolvedValue({ insights: [], nextCursor: null });
 
-    await client.models.credentials.list();
-    await client.models.credentials.set('anthropic/primary', {
-      authMode: 'api_key',
-      payload: { apiKey: 'secret' },
+    await client.observer.status({ appId: 'app/one' });
+    await client.observer.insights({
+      appId: 'app/one',
+      subject: 'msu_44444444444444444444444444444444',
+      type: 'commitment',
+      state: 'pending',
+      limit: 10,
+      cursor: 'cursor/one',
     });
-    await client.models.credentials.disable('anthropic/primary');
 
-    expect(request.mock.calls).toEqual([
-      [{ method: 'GET', path: '/v1/credentials/models' }],
-      [
-        {
-          method: 'PUT',
-          path: '/v1/credentials/models/anthropic%2Fprimary',
-          body: {
-            authMode: 'api_key',
-            payload: { apiKey: 'secret' },
-          },
-        },
-      ],
-      [
-        {
-          method: 'DELETE',
-          path: '/v1/credentials/models/anthropic%2Fprimary',
-        },
-      ],
-    ]);
+    expect(request).toHaveBeenNthCalledWith(1, {
+      method: 'GET',
+      path: '/v1/observer/status?appId=app%2Fone',
+    });
+    expect(request).toHaveBeenNthCalledWith(2, {
+      method: 'GET',
+      path: '/v1/observer/insights?appId=app%2Fone&subject=msu_44444444444444444444444444444444&type=commitment&state=pending&limit=10&cursor=cursor%2Fone',
+    });
+  });
+
+  it('builds memory-review queue requests', async () => {
+    const client = new GantryClient({
+      apiKey: 'test-key',
+      baseUrl: 'http://127.0.0.1:3939',
+    });
+    const request = vi
+      .spyOn(
+        (client as unknown as { transport: { request: () => unknown } })
+          .transport,
+        'request',
+      )
+      .mockResolvedValue({ review: {} });
+
+    await client.memory.reviews.list({
+      agentId: 'agent/1',
+      subjectType: 'user',
+      subjectId: 'user/9',
+      limit: 5,
+    });
+    await client.memory.reviews.get('rev/1', {
+      agentId: 'agent/1',
+      subjectType: 'user',
+      subjectId: 'user/9',
+    });
+    await client.memory.reviews.decide('rev/1', {
+      agentId: 'agent/1',
+      subjectType: 'user',
+      subjectId: 'user/9',
+      decision: 'edit_approve',
+      editedValue: 'v2',
+      reason: 'why',
+    });
+
+    expect(request).toHaveBeenNthCalledWith(1, {
+      method: 'GET',
+      path: '/v1/memory/reviews?agentId=agent%2F1&subjectType=user&subjectId=user%2F9&limit=5',
+    });
+    expect(request).toHaveBeenNthCalledWith(2, {
+      method: 'GET',
+      path: '/v1/memory/reviews/rev%2F1?agentId=agent%2F1&subjectType=user&subjectId=user%2F9',
+    });
+    // Subject rides on the query; only the decision fields go in the body.
+    expect(request).toHaveBeenNthCalledWith(3, {
+      method: 'POST',
+      path: '/v1/memory/reviews/rev%2F1/decision?agentId=agent%2F1&subjectType=user&subjectId=user%2F9',
+      body: { decision: 'edit_approve', editedValue: 'v2', reason: 'why' },
+    });
+
+    // Compile-time contract: edit_approve without editedValue is a type error
+    // (never executed — checked by tsc). approve without editedValue is fine.
+    const _typeCheck = () => {
+      // @ts-expect-error editedValue is required for an edit_approve decision.
+      client.memory.reviews.decide('rev/1', {
+        agentId: 'agent/1',
+        subjectType: 'user',
+        subjectId: 'user/9',
+        decision: 'edit_approve',
+      });
+      client.memory.reviews.decide('rev/1', {
+        agentId: 'agent/1',
+        subjectType: 'user',
+        subjectId: 'user/9',
+        decision: 'approve',
+      });
+      // approve accepts (server ignores) editedValue — back-compat.
+      client.memory.reviews.decide('rev/1', {
+        agentId: 'agent/1',
+        subjectType: 'user',
+        subjectId: 'user/9',
+        decision: 'approve',
+        editedValue: 'x',
+      });
+    };
+    void _typeCheck;
   });
 
   it('builds ingress management requests', async () => {
@@ -565,11 +473,6 @@ describe('@gantry/sdk transport', () => {
       after: 'message/0',
       limit: 5,
     });
-    await client.conversations.send('conversation/1', {
-      idempotencyKey: 'notice/1',
-      text: 'First notice',
-      threadId: 'thread/1',
-    });
     await client.agents.conversationInstalls.list('agent/1');
     await client.agents.conversationInstalls.enable(
       'agent/1',
@@ -655,15 +558,6 @@ describe('@gantry/sdk transport', () => {
         method: 'GET',
         url: '/v1/conversations/conversation%2F1/messages?threadId=thread%2F1&after=message%2F0&limit=5',
         body: null,
-      },
-      {
-        method: 'POST',
-        url: '/v1/conversations/conversation%2F1/messages',
-        body: {
-          idempotencyKey: 'notice/1',
-          text: 'First notice',
-          threadId: 'thread/1',
-        },
       },
       {
         method: 'GET',

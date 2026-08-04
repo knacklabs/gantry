@@ -74,6 +74,8 @@ export function asyncMcpPrivateCorrelation(input: {
   serverName: string;
   toolName: string;
   arguments: Record<string, unknown>;
+  authorizationConversationId?: string;
+  authorizationThreadId?: string;
 }): Record<string, unknown> {
   const base = {
     ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
@@ -91,6 +93,8 @@ export function asyncMcpPrivateCorrelation(input: {
       serverName: input.serverName,
       toolName: input.toolName,
       arguments: input.arguments,
+      authorizationConversationId: input.authorizationConversationId,
+      authorizationThreadId: input.authorizationThreadId,
     },
   });
 }
@@ -103,14 +107,12 @@ export function asyncDelegatedPrivateCorrelation(input: {
     | 'context'
     | 'expectedOutput'
     | 'objective'
-    | 'taskKey'
     | 'providerAccountId'
     | 'targetAgentId'
     | 'workspaceFolder'
   >;
 }): Record<string, unknown> {
   const base = {
-    taskKey: input.taskInput.taskKey ?? null,
     providerAccountId: input.taskInput.providerAccountId ?? null,
     workspaceFolder: input.taskInput.workspaceFolder,
     targetAgentId: input.taskInput.targetAgentId ?? null,
@@ -122,7 +124,6 @@ export function asyncDelegatedPrivateCorrelation(input: {
     taskId: input.taskId,
     payload: {
       objective: input.taskInput.objective,
-      taskKey: input.taskInput.taskKey,
       context: input.taskInput.context,
       expectedOutput: input.taskInput.expectedOutput,
       providerAccountId: input.taskInput.providerAccountId,

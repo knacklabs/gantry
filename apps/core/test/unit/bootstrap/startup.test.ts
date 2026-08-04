@@ -40,6 +40,41 @@ function makeApp(overrides: Partial<RuntimeApp> = {}): RuntimeApp {
 }
 
 describe('runStartup', () => {
+  it('sweeps pending message attachment deletions before loading app state', async () => {
+    const order: string[] = [];
+    const retryPendingMessageAttachmentDeletions = vi.fn(async () => {
+      order.push('sweep-deletions');
+      return false;
+    });
+    const app = makeApp({
+      loadState: vi.fn(async () => {
+        order.push('load-state');
+      }),
+    });
+
+    await runStartup(app, {
+      ensureRuntimeLayoutDirectories: vi.fn(),
+      initializeRuntimeStorage: vi.fn(async () => ({
+        repositories: {
+          messageAttachments: { retryPendingMessageAttachmentDeletions },
+        },
+      })) as never,
+      loadRuntimeSettings: vi.fn(
+        () =>
+          ({
+            providers: {},
+            storage: {
+              postgres: { urlEnv: 'GANTRY_DATABASE_URL', schema: 'gantry' },
+            },
+            memory: {},
+          }) as never,
+      ),
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(order).toEqual(['sweep-deletions', 'load-state']);
+  });
+
   it('preserves startup order through host runtime startup', async () => {
     const order: string[] = [];
     const app = makeApp({
@@ -323,7 +358,10 @@ describe('runStartup', () => {
     const settingsRevisions = {
       getLatestSettingsRevision: vi.fn(async () => null),
     };
-    const importWorkstationSettings = vi.fn(async () => ({ revision: 1 }));
+    const importWorkstationSettings = vi.fn(async () => ({
+      status: 'revision_created' as const,
+      revision: 1,
+    }));
     const warn = vi.fn();
 
     const result = await runStartup(makeApp(), {
@@ -352,18 +390,57 @@ describe('runStartup', () => {
   });
 
   it('restores the latest revision when settings.yaml differs during revision-authority startup', async () => {
-    const revisionSettings = createDefaultRuntimeSettings();
+    const initialRevisionSettings = createDefaultRuntimeSettings();
+    initialRevisionSettings.agent.name = 'Initial Revision Agent';
+    const revisionSettings = structuredClone(
+      initialRevisionSettings,
+    ) as RuntimeSettings;
     revisionSettings.agent.name = 'Revision Agent';
-    const fileSettings = structuredClone(revisionSettings) as RuntimeSettings;
+    const fileSettings = structuredClone(
+      initialRevisionSettings,
+    ) as RuntimeSettings;
     fileSettings.agent.name = 'File Agent';
-    const latestRevision = {
+    const mcpBindingPrecondition = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+    };
+    const initialRevision = {
       revision: 1,
+      settingsDocument: settingsToRevisionDocument(initialRevisionSettings),
+    };
+    const latestRevision = {
+      revision: 2,
       settingsDocument: settingsToRevisionDocument(revisionSettings),
+      mcpBindingPreconditions: [mcpBindingPrecondition],
     };
+    let leaseHeld = false;
     const settingsRevisions = {
-      getLatestSettingsRevision: vi.fn(async () => latestRevision),
+      getLatestSettingsRevision: vi
+        .fn()
+        .mockResolvedValueOnce(initialRevision)
+        .mockImplementation(async () => {
+          expect(leaseHeld).toBe(true);
+          return latestRevision;
+        }),
     };
-    const importWorkstationSettings = vi.fn(async () => ({}));
+    const tryAcquire = vi.fn(async () => {
+      leaseHeld = true;
+      return {
+        release: vi.fn(async () => {
+          leaseHeld = false;
+        }),
+      };
+    });
+    const importWorkstationSettings = vi.fn(async () => {
+      expect(leaseHeld).toBe(true);
+      return { status: 'applied_no_revision' as const };
+    });
     const warn = vi.fn();
     const initializeRuntimeStorage = vi.fn(
       async () =>
@@ -379,7 +456,7 @@ describe('runStartup', () => {
     );
 
     const result = await runStartup(makeApp(), {
-      appId: 'app-one' as never,
+      appId: 'manipal-tender-copilot',
       ensureRuntimeLayoutDirectories: vi.fn(),
       initializeRuntimeStorage,
       settingsAuthority: 'revision',
@@ -387,21 +464,28 @@ describe('runStartup', () => {
       validateSettingsImportPreflight: vi.fn(() => ({ ok: true })),
       loadRuntimeSettings: vi.fn(() => fileSettings),
       importWorkstationSettings,
+      leases: { tryAcquire },
       logger: { info: vi.fn(), warn },
     });
 
+    expect(settingsRevisions.getLatestSettingsRevision).toHaveBeenCalledWith(
+      'manipal-tender-copilot',
+    );
+    expect(tryAcquire).toHaveBeenCalledWith(
+      'settings-projector:manipal-tender-copilot',
+    );
+    expect(leaseHeld).toBe(false);
     expect(importWorkstationSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ appId: 'app-one' }),
+      expect.objectContaining({
+        expectedMcpBindings: [mcpBindingPrecondition],
+      }),
       expect.objectContaining({
         agent: expect.objectContaining({ name: 'Revision Agent' }),
       }),
     );
     expect(warn).toHaveBeenCalledWith(
-      { appId: 'app-one', revision: 1 },
+      { appId: 'manipal-tender-copilot', revision: 2 },
       'settings.yaml differs from latest settings revision; restoring revision-authority mirror',
-    );
-    expect(settingsRevisions.getLatestSettingsRevision).toHaveBeenCalledWith(
-      'app-one',
     );
     expect(initializeRuntimeStorage).toHaveBeenCalledTimes(2);
     expect(initializeRuntimeStorage).toHaveBeenLastCalledWith(
@@ -420,7 +504,10 @@ describe('runStartup', () => {
     const settingsRevisions = {
       getLatestSettingsRevision: vi.fn(async () => null),
     };
-    const importWorkstationSettings = vi.fn(async () => ({ revision: 1 }));
+    const importWorkstationSettings = vi.fn(async () => ({
+      status: 'revision_created' as const,
+      revision: 1,
+    }));
 
     await expect(
       runStartup(makeApp(), {
@@ -486,6 +573,9 @@ describe('runStartup', () => {
         settingsAuthority: 'revision',
         settingsFileExists: vi.fn(() => true),
         loadRuntimeSettings: vi.fn(() => revisionSettings),
+        leases: {
+          tryAcquire: vi.fn(async () => ({ release: async () => {} })),
+        },
         logger: { info: vi.fn(), warn: vi.fn() },
       }),
     ).rejects.toThrow(
@@ -520,7 +610,10 @@ describe('runStartup', () => {
       await runStartup(makeApp(), {
         ensureRuntimeLayoutDirectories: vi.fn(),
         initializeRuntimeStorage,
-        importWorkstationSettings: vi.fn(async () => ({ revision: 1 })),
+        importWorkstationSettings: vi.fn(async () => ({
+          status: 'revision_created' as const,
+          revision: 1,
+        })),
         settingsAuthority: 'revision',
         settingsFileExists: vi.fn(() => true),
         validateSettingsImportPreflight: vi.fn(() => ({ ok: true })),
@@ -555,7 +648,9 @@ describe('runStartup', () => {
     const settingsRevisions = {
       getLatestSettingsRevision: vi.fn(async () => latestRevision),
     };
-    const importWorkstationSettings = vi.fn(async () => ({}));
+    const importWorkstationSettings = vi.fn(async () => ({
+      status: 'applied_no_revision' as const,
+    }));
     const warn = vi.fn();
     const storageRuntime = {
       ops: {},
@@ -587,6 +682,9 @@ describe('runStartup', () => {
           throw new Error('invalid yaml');
         }),
         importWorkstationSettings,
+        leases: {
+          tryAcquire: vi.fn(async () => ({ release: async () => {} })),
+        },
         logger: { info: vi.fn(), warn },
       });
 

@@ -1,61 +1,82 @@
-import type {
-  McpServerRepository,
-  SkillCatalogRepository,
-  ToolCatalogRepository,
-} from '../../domain/ports/repositories.js';
-import { resolveAgentToolRuntimeRules } from '../agents/agent-tool-runtime-rules.js';
+import type { McpServerRepository } from '../../domain/ports/repositories.js';
+import type { AgentMcpServerBinding } from '../../domain/mcp/mcp-servers.js';
+import type { AgentMcpAccessSnapshot } from '../../domain/ports/repositories.js';
 
-const MCP_TOOL_RULE_PATTERN = /^mcp__([a-z][a-z0-9_-]{0,62})__/;
+const MAX_AUTHORIZED_MCP_BINDINGS = 500;
+const MCP_SERVER_LOOKUP_CONCURRENCY = 10;
 
-export function mcpServerNamesFromToolRules(
-  rules: readonly string[] | undefined,
-): Set<string> {
-  const names = new Set<string>();
-  for (const rule of rules ?? []) {
-    const match = MCP_TOOL_RULE_PATTERN.exec(rule.trim());
-    if (match?.[1]) names.add(match[1]);
-  }
-  return names;
-}
-
+// Discovery is not authorization: every ACTIVE bound MCP server is a projected
+// source (inventory-only connects included), regardless of which mcp__ tool
+// rules are selected. Action stays capability-gated at call time by the
+// reviewed pattern/name checks in mcp-tool-authorization.
 export async function authorizedMcpServerIdsForAgent(input: {
   mcpServers: McpServerRepository;
-  tools: ToolCatalogRepository;
-  skills?: SkillCatalogRepository;
   appId: string;
   agentId: string;
-  allowedTools?: readonly string[];
+  conversationId?: string;
+  threadId?: string;
 }): Promise<string[]> {
-  const allowedTools =
-    input.allowedTools ??
-    (await resolveAgentToolRuntimeRules({
-      repository: input.tools,
-      skillRepository: input.skills,
-      appId: input.appId,
-      agentId: input.agentId,
-      errorSubject: 'Configured agent tool',
-    }));
-  const authorizedServerNames = mcpServerNamesFromToolRules(allowedTools);
-
   const bindings = await input.mcpServers.listAgentBindings({
     appId: input.appId as never,
     agentId: input.agentId as never,
-    limit: 500,
   });
-  const activeBindings = bindings.filter(
-    (binding) => binding.status === 'active',
-  );
-  const servers = await Promise.all(
-    activeBindings.map((binding) =>
-      input.mcpServers.getServer(binding.serverId),
-    ),
-  );
+  const activeBindings = bindings
+    .filter(
+      (binding) =>
+        binding.status === 'active' &&
+        mcpBindingMatchesRouteScope(binding, input),
+    )
+    .slice(0, MAX_AUTHORIZED_MCP_BINDINGS);
+  const servers: Array<Awaited<ReturnType<McpServerRepository['getServer']>>> =
+    [];
+  for (
+    let offset = 0;
+    offset < activeBindings.length;
+    offset += MCP_SERVER_LOOKUP_CONCURRENCY
+  ) {
+    servers.push(
+      ...(await Promise.all(
+        activeBindings
+          .slice(offset, offset + MCP_SERVER_LOOKUP_CONCURRENCY)
+          .map((binding) => input.mcpServers.getServer(binding.serverId)),
+      )),
+    );
+  }
   return activeBindings.flatMap((binding, index) => {
     const server = servers[index];
     if (!server || server.appId !== input.appId) return [];
-    if (authorizedServerNames.size === 0) return [String(binding.serverId)];
-    return authorizedServerNames.has(server.name)
-      ? [String(binding.serverId)]
-      : [];
+    return [String(binding.serverId)];
+  });
+}
+
+export function mcpBindingMatchesRouteScope(
+  binding: Pick<AgentMcpServerBinding, 'conversationId' | 'threadId'>,
+  scope: { conversationId?: string; threadId?: string },
+): boolean {
+  if (binding.threadId !== undefined && binding.conversationId === undefined) {
+    return false;
+  }
+  if (
+    binding.conversationId !== undefined &&
+    binding.conversationId !== scope.conversationId
+  ) {
+    return false;
+  }
+  return binding.threadId === undefined || binding.threadId === scope.threadId;
+}
+
+export function authorizedMcpServerIdsFromSnapshot(input: {
+  appId: string;
+  activeRows: AgentMcpAccessSnapshot['activeBindings'];
+  conversationId?: string;
+  threadId?: string;
+}): string[] {
+  return input.activeRows.flatMap((row) => {
+    const binding = row.binding;
+    if (binding.status !== 'active') return [];
+    if (!mcpBindingMatchesRouteScope(binding, input)) return [];
+    const server = row.definition;
+    if (!server || server.appId !== input.appId) return [];
+    return [String(binding.serverId)];
   });
 }

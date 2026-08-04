@@ -7,11 +7,8 @@ import type {
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 import type { McpServerRepository } from '../../domain/ports/repositories.js';
 import { redactSensitiveText } from '../../shared/sensitive-material.js';
-import { boundedSha256Value } from '../../shared/stable-hash.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import { ApplicationError } from '../common/application-error.js';
-
-export { boundedSha256Value as hashMcpAuditValue };
 
 export type McpToolAuditResultClass =
   | 'attempt'
@@ -47,69 +44,6 @@ export function summarizeMcpToolArgumentPayload(
     keys: [],
     truncated: false,
     approxBytes: approximateJsonBytes(value),
-  };
-}
-
-export function projectMcpEvidence(value: unknown): Array<{
-  path: string;
-  value: string;
-}> {
-  const projected: Array<{ path: string; value: string }> = [];
-  const seen = new Set<unknown>();
-  const visit = (current: unknown, path: string, depth: number) => {
-    if (projected.length >= 64 || depth > 8 || current == null) return;
-    if (typeof current === 'string') {
-      const key = path.split('.').at(-1)?.toLowerCase() ?? '';
-      if (
-        key.includes('url') ||
-        key === 'title' ||
-        key === 'name' ||
-        /^https?:\/\//iu.test(current)
-      ) {
-        projected.push({ path, value: current.slice(0, 2_048) });
-      } else if (
-        current.length <= 1_048_576 &&
-        (current.trimStart().startsWith('{') ||
-          current.trimStart().startsWith('['))
-      ) {
-        try {
-          visit(JSON.parse(current), path, depth + 1);
-        } catch {
-          // Non-JSON tool text is intentionally not retained as evidence.
-        }
-      }
-      return;
-    }
-    if (typeof current !== 'object' || seen.has(current)) return;
-    seen.add(current);
-    if (Array.isArray(current)) {
-      current.forEach((item, index) =>
-        visit(item, `${path}[${index}]`, depth + 1),
-      );
-      return;
-    }
-    for (const [key, nested] of Object.entries(
-      current as Record<string, unknown>,
-    )) {
-      visit(nested, path ? `${path}.${key}` : key, depth + 1);
-      if (projected.length >= 64) break;
-    }
-  };
-  visit(value, '', 0);
-  return projected;
-}
-
-export function mcpToolAuditEvidence(result: unknown) {
-  return {
-    resultHash: boundedSha256Value(result),
-    evidenceProjection: projectMcpEvidence(result),
-  };
-}
-
-export function mcpToolAuditHashes(input: unknown, result?: unknown) {
-  return {
-    inputHash: boundedSha256Value(input),
-    ...(result !== undefined ? mcpToolAuditEvidence(result) : {}),
   };
 }
 

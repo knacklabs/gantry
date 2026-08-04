@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import {
@@ -13,12 +14,14 @@ import {
   GANTRY_HOME,
   createDefaultRuntimeSettings,
   getRuntimeSettingsForConfig,
+  resolveRuntimeStorageConfigForRuntimeHome,
   resolveRuntimeStorageConfig,
   resolveRuntimeStorageConfigFromSettings,
   type RuntimeSettings,
 } from '../../../config/index.js';
 import { LocalFileArtifactBytes } from '../../artifacts/files/local-file-artifact-bytes.js';
 import { LocalSkillArtifactStore } from '../../artifacts/skills/local-skill-artifact-store.js';
+import { RemoteFirstSkillArtifactStore } from '../../artifacts/skills/remote-first-skill-artifact-store.js';
 import { S3SkillArtifactStore } from '../../artifacts/skills/s3-skill-artifact-store.js';
 import { createS3ArtifactClient } from '../../artifacts/skills/s3-artifact-client.js';
 import { LocalBrowserProfileArtifactStore } from '../../artifacts/browser-profiles/local-browser-profile-artifact-store.js';
@@ -81,8 +84,10 @@ export interface StorageRuntime {
 }
 
 export interface StorageRuntimeOptions {
+  runtimeHome?: string;
   storageConfig?: ResolvedStorageConfig;
   runtimeSettings?: RuntimeSettings;
+  reclaimProviderAttachment?: (storageRef: string) => Promise<void>;
   loadSessionAppMemoryItems?: (input: {
     session: AgentSession;
     limit: number;
@@ -97,6 +102,38 @@ export interface StorageRuntimeOptions {
       subject: Record<string, unknown>;
     }>
   >;
+}
+
+export function storageRuntimeOptionsForRuntimeHome(
+  runtimeHome: string,
+  runtimeSettings: RuntimeSettings,
+): StorageRuntimeOptions {
+  return {
+    runtimeHome,
+    runtimeSettings,
+    storageConfig: resolveRuntimeStorageConfigForRuntimeHome(
+      runtimeHome,
+      runtimeSettings,
+    ),
+  };
+}
+
+export function runtimeStorageScopeKey(
+  options: StorageRuntimeOptions = {},
+): string {
+  const runtimeHome =
+    options.runtimeHome ?? (process.env.GANTRY_HOME?.trim() || GANTRY_HOME);
+  const storageConfig =
+    options.storageConfig ??
+    resolveStorageConfigFromSettings(options.runtimeSettings) ??
+    resolveStorageConfigFromRuntime();
+  return createHash('sha256')
+    .update(path.resolve(runtimeHome))
+    .update('\0')
+    .update(storageConfig.postgresUrl ?? '')
+    .update('\0')
+    .update(storageConfig.postgresSchema)
+    .digest('hex');
 }
 
 export function resolveStorageConfigFromRuntime(): ResolvedStorageConfig {
@@ -123,21 +160,23 @@ export function createStorageRuntime(
   const runtimeSettings =
     options.runtimeSettings ?? getRuntimeSettingsForStorageRuntime();
   const sessionSettings = runtimeSettings.agent.sessions;
+  const maxLiveAdmissionBacklog =
+    runtimeSettings.runtime.queue.maxLiveAdmissionBacklog;
   const control = new PostgresControlPlaneRepository(service.db);
   const liveTurnCommandNotifier = new PostgresLiveTurnCommandNotifier(
     service.pool,
   );
-  const runtimeEventNotifier = new PostgresRuntimeEventNotifier(service.pool);
-  const liveAdmissionNotifier = new PostgresLiveAdmissionNotifier(service.pool);
   const repositories = createPostgresDomainRepositories(
     service.db,
     service.pool,
     {
       liveTurnCommandNotifier,
-      runtimeEventNotifier,
-      liveAdmissionNotifier,
+      maxLiveAdmissionBacklog,
+      cleanupProviderAttachment: options.reclaimProviderAttachment,
     },
   );
+  const runtimeEventNotifier = new PostgresRuntimeEventNotifier(service.pool);
+  const liveAdmissionNotifier = new PostgresLiveAdmissionNotifier(service.pool);
   const liveAdmissionWakeupSource = new PostgresLiveAdmissionWakeupSource(
     service.pool,
   );
@@ -154,6 +193,8 @@ export function createStorageRuntime(
     {
       runtimeEvents,
       liveAdmissionNotifier,
+      maxLiveAdmissionBacklog,
+      cleanupProviderAttachment: options.reclaimProviderAttachment,
       sessions: {
         ...sessionSettings,
         loadAppMemoryItems: options.loadSessionAppMemoryItems,
@@ -206,7 +247,10 @@ function createSkillArtifactStore(
       endpoint: artifactStore.endpoint,
       forcePathStyle: artifactStore.forcePathStyle,
     });
-    return new S3SkillArtifactStore(client, bucket);
+    return new RemoteFirstSkillArtifactStore(
+      new S3SkillArtifactStore(client, bucket),
+      new LocalSkillArtifactStore(ARTIFACTS_DIR),
+    );
   }
   return new LocalSkillArtifactStore(ARTIFACTS_DIR);
 }

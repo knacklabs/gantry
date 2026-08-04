@@ -1,7 +1,6 @@
 import { RuntimeSettings } from '../../config/settings/runtime-settings.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
-  GroupDiscoverySource,
   MessageDeliveryResult,
   MessageSendOptions,
   PermissionApprovalRequest,
@@ -13,7 +12,6 @@ import {
   isSenderAllowed,
   loadSenderControlAllowlist,
   loadSenderAllowlist,
-  shouldDropMessage,
   shouldLogDenied,
 } from '../../platform/sender-allowlist.js';
 import {
@@ -21,20 +19,16 @@ import {
   isPartialMessageDeliveryError,
 } from '../../domain/messages/partial-delivery.js';
 import { AmbiguousDurableDeliveryError } from '../../domain/messages/durable-delivery.js';
-import {
-  getRuntimeStorage,
-  getRuntimeRepositories,
-  tryAcquireRuntimeAdvisoryLease,
-} from '../../adapters/storage/postgres/runtime-store.js';
-import { ChannelAdapter } from '../../channels/channel-provider.js';
+// prettier-ignore
+import { getRuntimeRepositories, getRuntimeStorage, tryAcquireRuntimeAdvisoryLease } from '../../adapters/storage/postgres/runtime-store.js';
 import { EnvRuntimeSecretProvider } from '../../adapters/credentials/env-runtime-secret-provider.js';
+import { ConversationHistoryCoverageDistrust } from './conversation-history-coverage-distrust.js';
 import { RuntimeApp } from './runtime-app.js';
 import { ConversationAdministrationService } from '../../application/provider-conversations/conversation-administration-service.js';
 import { RuntimeSecretConversationMembershipValidator } from '../../channels/conversation-membership-validation.js';
 import type { AppId } from '../../domain/app/app.js';
 import {
   asAgentTodoSurface,
-  asGroupDiscoverySource,
   asMessageReactionSink,
   asPermissionApprovalSurface,
   asProgressSink,
@@ -46,6 +40,7 @@ import {
 } from './channel-capability-ports.js';
 import {
   listChannelProviders,
+  normalizeProviderId,
   providerForJid,
   providerIdForJid,
 } from '../../channels/provider-registry.js';
@@ -60,7 +55,6 @@ import { AsyncTaskQueue } from './async-task-queue.js';
 import { createChannelPersistenceHandlers } from './channel-persistence-handlers.js';
 import {
   createAgentTodoRenderer,
-  createPermissionApprovalRequester,
   createRichInteractionRenderer,
   createUserQuestionResponder,
 } from './channel-wiring-interactions.js';
@@ -81,24 +75,29 @@ import {
 import { createChannelMessageActionRouter } from './channel-message-action-router.js';
 import { createChannelProgressSender } from './channel-progress-sender.js';
 import { hydrateChannelConversationContext } from './channel-wiring-conversation-context.js';
+import { createChannelWiringStreamReset } from './channel-wiring-stream-reset.js';
 import {
   connectProviderAccountChannels,
   type BoundProviderAccountChannel,
 } from '../../channels/provider-account-channel-connect.js';
+import { createPermissionApprovalRequester } from '../../channels/permission-approval-requester.js';
 import * as routeProviderAccount from './channel-wiring-route-provider-account.js';
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import { syncChannelGroups } from './channel-wiring-group-sync.js';
+import { fetchHistoricalAttachmentFromChannel } from './channel-wiring-historical-attachments.js';
+import { createChannelAttachmentDeletionHandler } from './channel-wiring-attachment-deletion.js';
 const PROVIDER_INBOUND_LEASE_PREFIX = 'runtime:provider-inbound';
 type AccountOpts = { providerAccountId?: string };
+type BoundChannel = BoundProviderAccountChannel['channel'];
 export function createChannelWiring(
   app: RuntimeApp,
   deps: Partial<ChannelWiringDeps> = {},
 ): ChannelWiring {
+  app.setProviderIdNormalizer?.(normalizeProviderId);
   const resolved: ChannelWiringDeps = {
     appId: 'default' as AppId,
     providerIds: listChannelProviders(),
     loadSenderAllowlist,
     loadSenderControlAllowlist,
-    shouldDropMessage,
     isSenderAllowed,
     isSenderControlAllowed,
     shouldLogDenied,
@@ -113,6 +112,15 @@ export function createChannelWiring(
   const messageActionRouter = createChannelMessageActionRouter();
   const persistenceQueue = new AsyncTaskQueue(4, 5_000);
   const ops = () => resolved.opsRepository ?? getRuntimeRepositories();
+  // prettier-ignore
+  const historyDistrust = new ConversationHistoryCoverageDistrust(() => resolved.historyCoverage ?? getRuntimeStorage().repositories.conversationHistoryCoverage, resolved.logger);
+  if (resolved.historyCoverage)
+    app.setConversationHistoryCoverageRepository(resolved.historyCoverage);
+  if (typeof app.setHistoryCoverageDistrustEpochReader === 'function') {
+    app.setHistoryCoverageDistrustEpochReader((providerAccountId) =>
+      historyDistrust.readEpoch(providerAccountId),
+    );
+  }
   const optionalOps = () => {
     try {
       return ops();
@@ -128,7 +136,7 @@ export function createChannelWiring(
   function findBoundChannel(
     jid: string,
     providerAccountId?: string,
-  ): ChannelAdapter | undefined {
+  ): BoundChannel | undefined {
     // prettier-ignore
     return routeProviderAccount.findBoundChannelForProviderAccount(connectedChannels, jid, providerAccountId);
   }
@@ -139,6 +147,12 @@ export function createChannelWiring(
   ) =>
     // prettier-ignore
     routeProviderAccount.findBoundChannelForRequest(app, connectedChannels, jid, providerAccountId, request);
+  const streamReset = createChannelWiringStreamReset({
+    findBoundChannel,
+    asStreamingStateSink,
+    asPermissionApprovalSurface,
+    asUserQuestionSurface,
+  });
   const isControlApproverAllowed = (input: {
     providerId: string;
     providerAccountId?: string;
@@ -185,26 +199,26 @@ export function createChannelWiring(
     findBoundChannel: (jid, providerAccountId, request) =>
       findBoundChannelForRequest(jid, providerAccountId, request),
     asPermissionApprovalSurface: (channel) =>
-      asPermissionApprovalSurface(channel as ChannelAdapter),
-    logger: resolved.logger,
+      streamReset.asPermissionApprovalSurface(channel as BoundChannel),
+    interactionLifecycle: { logger: resolved.logger },
   });
   const userQuestionResponder = createUserQuestionResponder({
     findBoundChannel: (jid, request) =>
       findBoundChannelForRequest(jid, undefined, request),
     asUserQuestionSurface: (channel) =>
-      asUserQuestionSurface(channel as ChannelAdapter),
-    logger: resolved.logger,
+      streamReset.asUserQuestionSurface(channel as BoundChannel),
+    interactionLifecycle: { logger: resolved.logger },
   });
   const agentTodoRenderer = createAgentTodoRenderer({
     findBoundChannel,
     asAgentTodoSurface: (channel) =>
-      asAgentTodoSurface(channel as ChannelAdapter),
+      asAgentTodoSurface(channel as BoundChannel),
     logger: resolved.logger,
   });
   const richInteractionRenderer = createRichInteractionRenderer({
     findBoundChannel,
     asRichInteractionSurface: (channel) =>
-      asRichInteractionSurface(channel as ChannelAdapter),
+      asRichInteractionSurface(channel as BoundChannel),
     sendMessage: (jid, text, options) =>
       sendMessage(jid, text, {
         durability: 'best_effort',
@@ -228,9 +242,17 @@ export function createChannelWiring(
     conversationRoutes: () => app.getConversationRoutes(),
     runtimeSettings: () => currentRuntimeSettings,
     runtimeLease: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
-    get runtimeSecrets() {
-      return resolved.runtimeSecrets;
-    },
+    distrustHistoryCoverage: historyDistrust.distrust,
+    setHistoryCoverageInboundActive: historyDistrust.setInboundActive,
+    onMessageAttachmentsDeleted: createChannelAttachmentDeletionHandler(
+      resolved.appId,
+      () =>
+        resolved.messageAttachments ??
+        getRuntimeStorage().repositories.messageAttachments,
+      { warn: (context, message) => resolved.logger.warn(context, message) },
+    ),
+    // prettier-ignore
+    get runtimeSecrets() { return resolved.runtimeSecrets; },
     isControlApproverAllowed,
     onMessageAction: messageActionRouter.handle,
   };
@@ -263,78 +285,14 @@ export function createChannelWiring(
       });
     }
   }
-
   const hasConnectedChannels = (): boolean => connectedChannels.length > 0;
-  function getChannelTransportHealth() {
-    return resolved.providerIds
-      .filter((provider) => !provider.internal)
-      .map((provider) => {
-        const enabled = Boolean(
-          currentRuntimeSettings && provider.isEnabled(currentRuntimeSettings),
-        );
-        const configuredAccountCount = enabled
-          ? Object.values(
-              currentRuntimeSettings?.providerAccounts ?? {},
-            ).filter(
-              (account) =>
-                account.provider === provider.id &&
-                account.status !== 'disabled',
-            ).length
-          : 0;
-        const connected = connectedChannels.filter(
-          (candidate) =>
-            candidate.providerId === provider.id &&
-            candidate.channel.isConnected(),
-        );
-        const authenticatedConversationRegistrationCount = connected.reduce(
-          (count, candidate) =>
-            count +
-            (candidate.channel.getOperationalSnapshot?.()
-              .authenticatedConversationRegistrationCount ?? 0),
-          0,
-        );
-        return {
-          providerId: provider.id,
-          configured: enabled && configuredAccountCount > 0,
-          connected: connected.length > 0,
-          configuredAccountCount,
-          connectedAccountCount: connected.length,
-          authenticatedConversationRegistrationCount,
-          authenticatedConversationRegistrationAvailable:
-            authenticatedConversationRegistrationCount > 0,
-        };
-      });
-  }
-  function describeDestinationJid(jid: string) {
-    const provider = providerForJid(jid);
-    return {
-      ...(provider
-        ? { providerId: provider.id, internal: provider.internal === true }
-        : { internal: false }),
-      runtimeAppId: resolved.appId,
-    };
-  }
-
+  const describeDestinationJid = (jid: string) =>
+    routeProviderAccount.describeProviderDestination(
+      providerForJid(jid),
+      resolved.appId,
+    );
   const hasChannel = (jid: string, options?: { providerAccountId?: string }) =>
     findBoundChannel(jid, options?.providerAccountId) !== undefined;
-  async function handleProviderHttpIngress(
-    providerId: string,
-    request: IncomingMessage,
-    response: ServerResponse,
-    body: Record<string, unknown>,
-  ): Promise<boolean> {
-    const bound = connectedChannels.find(
-      (candidate) =>
-        candidate.providerId === providerId &&
-        candidate.interactionCallbacks &&
-        'handleHttpIngress' in candidate.channel &&
-        typeof candidate.channel.handleHttpIngress === 'function',
-    );
-    const handleHttpIngress = bound?.channel.handleHttpIngress;
-    if (!handleHttpIngress) return false;
-    await handleHttpIngress.call(bound.channel, request, response, body);
-    return true;
-  }
   function supportsStreaming(
     jid: string,
     options?: { providerAccountId?: string },
@@ -344,7 +302,6 @@ export function createChannelWiring(
     if (!channel || provider?.canStreamToJid?.(jid) === false) return false;
     return asStreamingSink(channel) !== undefined;
   }
-
   function supportsProgress(
     jid: string,
     options?: { providerAccountId?: string },
@@ -358,26 +315,10 @@ export function createChannelWiring(
     options: {
       durability: 'required' | 'best_effort';
       throwOnMissing?: boolean;
-      sourceMessageId?: string;
       messageOptions?: MessageSendOptions;
     },
   ): Promise<void> {
     await sendProviderMessageInternal(jid, rawText, {
-      ...options,
-      persistence: 'message_row_projection',
-    });
-  }
-  async function sendMessageWithReceipt(
-    jid: string,
-    rawText: string,
-    options: {
-      durability: 'required' | 'best_effort';
-      throwOnMissing?: boolean;
-      sourceMessageId?: string;
-      messageOptions?: MessageSendOptions;
-    },
-  ): Promise<MessageDeliveryResult | undefined> {
-    return sendProviderMessageInternal(jid, rawText, {
       ...options,
       persistence: 'message_row_projection',
     });
@@ -388,7 +329,6 @@ export function createChannelWiring(
     options: {
       permit: RecoveryDispatchPermit;
       throwOnMissing?: boolean;
-      sourceMessageId?: string;
       messageOptions?: MessageSendOptions;
     },
   ): Promise<MessageDeliveryResult | undefined> {
@@ -400,9 +340,6 @@ export function createChannelWiring(
     return sendProviderMessageInternal(jid, rawText, {
       durability: 'best_effort',
       ...options,
-      sourceMessageId: options.permit.sourceMessageId,
-      attemptCount: options.permit.attemptCount,
-      terminalFailure: options.permit.terminalFailure,
       persistence: 'none',
     });
   }
@@ -412,16 +349,17 @@ export function createChannelWiring(
     options: {
       durability: 'required' | 'best_effort';
       throwOnMissing?: boolean;
-      sourceMessageId?: string;
-      attemptCount?: number;
-      terminalFailure?: boolean;
       messageOptions?: MessageSendOptions;
       persistence: 'message_row_projection' | 'none';
     },
   ): Promise<MessageDeliveryResult | undefined> {
-    const channel = findBoundChannel(
+    const channel = findBoundChannelForRequest(
       jid,
       options.messageOptions?.providerAccountId,
+      {
+        threadId: options.messageOptions?.threadId,
+        agentId: options.messageOptions?.agentId,
+      },
     );
     if (!channel) {
       if (options.throwOnMissing) {
@@ -442,8 +380,6 @@ export function createChannelWiring(
           (bound) => bound.channel === channel && bound.channel.ownsJid(jid),
         )?.providerAccountId,
       appId: resolved.appId,
-      messageId: options.sourceMessageId,
-      attemptCount: options.attemptCount,
       publishRuntimeEvent: resolved.publishRuntimeEvent,
       logger: resolved.logger,
     });
@@ -455,7 +391,6 @@ export function createChannelWiring(
       baseMessage,
       publishEvent: publishConversationOutboundEvent,
     } = projection;
-
     let durableAttempt:
       | Awaited<ReturnType<DurableOutboundAttemptFactory>>
       | undefined;
@@ -474,9 +409,6 @@ export function createChannelWiring(
           sourceMessageId: messageId,
           provider,
           canonicalText: formatted,
-          providerPayload: options.messageOptions?.adaptiveCard
-            ? { adaptiveCard: options.messageOptions.adaptiveCard }
-            : undefined,
         });
       } catch (err) {
         throw new Error(
@@ -485,9 +417,6 @@ export function createChannelWiring(
         );
       }
     }
-
-    if (durableAttempt?.skipProviderSend) return;
-
     let outboundOps = (() => {
       if (options.persistence !== 'message_row_projection') return undefined;
       return optionalOps();
@@ -613,9 +542,6 @@ export function createChannelWiring(
       await publishConversationOutboundEvent({
         deliveryStatus: partial ? 'partially_sent' : 'failed',
         error: sanitizeDeliveryError(err, provider),
-        terminal: partial
-          ? sanitizedRetryTail === undefined
-          : options.terminalFailure === true,
       });
       throw thrownError;
     }
@@ -752,13 +678,6 @@ export function createChannelWiring(
     if (!sink) return false;
     return sink.sendStreamingChunk(jid, text, options);
   }
-
-  function resetStreaming(jid: string, opts?: AccountOpts): void {
-    const channel = findBoundChannel(jid, opts?.providerAccountId);
-    if (!channel) return;
-    const stateSink = asStreamingStateSink(channel);
-    stateSink?.resetStreaming(jid);
-  }
   async function setTyping(jid: string, isTyping: boolean, opts?: AccountOpts) {
     const channel = findBoundChannel(jid, opts?.providerAccountId);
     if (!channel) return;
@@ -777,12 +696,6 @@ export function createChannelWiring(
     const reactionSink = asMessageReactionSink(channel);
     if (!reactionSink) return;
     await reactionSink.addReaction(jid, ref, emoji);
-  }
-  async function syncGroups(force: boolean): Promise<void> {
-    const syncSources = connectedChannels
-      .map((bound) => asGroupDiscoverySource(bound.channel))
-      .filter((source): source is GroupDiscoverySource => source !== undefined);
-    await Promise.all(syncSources.map((source) => source.syncGroups(force)));
   }
   async function disconnectChannels(): Promise<void> {
     const drained = await persistenceQueue.waitForIdle(5_000);
@@ -803,32 +716,42 @@ export function createChannelWiring(
   }
   return {
     getRuntimeAppId: () => resolved.appId,
-    setRuntimeSecrets: (provider) => {
-      resolved.runtimeSecrets = provider;
-    },
+    normalizeProviderId,
+    getHistoryCoverageDistrustEpoch: (id) => historyDistrust.readEpoch(id),
+    // prettier-ignore
+    setRuntimeSecrets: (provider) => { resolved.runtimeSecrets = provider; },
     describeDestinationJid,
     connectEnabledChannels,
     hasConnectedChannels,
-    getChannelTransportHealth,
     hasChannel,
-    handleProviderHttpIngress,
     supportsStreaming,
     supportsProgress,
+    fetchHistoricalAttachment: (input) =>
+      fetchHistoricalAttachmentFromChannel(input, findBoundChannel),
+    getMessageAttachmentRepository: () =>
+      getRuntimeStorage().repositories.messageAttachments,
     sendMessage,
-    sendMessageWithReceipt,
     sendProviderMessage,
     createRecoveryDispatchPermit,
     setRetryTailRecoveryEnqueue,
     setDurableOutboundAttemptFactory,
     setMessageActionHandler: messageActionRouter.set,
+    setMemoryReviewMessageActionHandler:
+      messageActionRouter.setMemoryReviewHandler,
+    setObserverFeedbackMessageActionHandler:
+      messageActionRouter.setObserverFeedbackHandler,
+    setBrainDreamReviewMessageActionHandler:
+      messageActionRouter.setBrainDreamReviewHandler,
     sendStreamingChunk,
-    resetStreaming,
+    resetStreaming: streamReset.resetStreaming,
     setTyping,
     sendProgressUpdate,
     addReaction,
-    syncGroups,
+    syncGroups: (force) => syncChannelGroups(connectedChannels, force),
     requestPermissionApproval,
+    cancelPermissionApproval: requestPermissionApproval.cancel,
     requestUserAnswer: userQuestionResponder.requestUserAnswer,
+    cancelUserQuestion: userQuestionResponder.cancelUserQuestion,
     renderAgentTodo: agentTodoRenderer,
     renderRichInteraction: richInteractionRenderer,
     hydrateConversationContext: (request) =>

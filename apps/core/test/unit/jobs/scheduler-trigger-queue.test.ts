@@ -135,38 +135,16 @@ describe('isJobTriggerQueueReady truth table', () => {
     expect(isJobTriggerQueueReady()).toBe(false);
   });
 
-  it('counts same-app queued and due-deferred live admission rows as interactive backlog', async () => {
+  it('counts queued and due-deferred live admission rows as interactive backlog', async () => {
     runtimeStoreMocks.poolQuery.mockResolvedValueOnce({
       rows: [{ waiting: true }],
     });
 
-    await expect(
-      _hasQueuedLiveAdmissionWorkForTests('manipal-tender-copilot'),
-    ).resolves.toBe(true);
+    await expect(_hasQueuedLiveAdmissionWorkForTests()).resolves.toBe(true);
 
     expect(String(runtimeStoreMocks.poolQuery.mock.calls[0]?.[0])).toContain(
       'defer_until IS NULL OR defer_until <= now()',
     );
-    expect(String(runtimeStoreMocks.poolQuery.mock.calls[0]?.[0])).toContain(
-      'app_id = $1',
-    );
-    expect(runtimeStoreMocks.poolQuery.mock.calls[0]?.[1]).toEqual([
-      'manipal-tender-copilot',
-    ]);
-  });
-
-  it("does not count another app's queued live admission as local interactive backlog", async () => {
-    runtimeStoreMocks.poolQuery.mockResolvedValueOnce({
-      rows: [{ waiting: false }],
-    });
-
-    await expect(
-      _hasQueuedLiveAdmissionWorkForTests('manipal-tender-copilot'),
-    ).resolves.toBe(false);
-
-    expect(runtimeStoreMocks.poolQuery.mock.calls[0]?.[1]).toEqual([
-      'manipal-tender-copilot',
-    ]);
   });
 });
 

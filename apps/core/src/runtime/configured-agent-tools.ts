@@ -7,10 +7,12 @@ import {
   resolveAgentToolRuntimeRules,
 } from '../application/agents/agent-tool-runtime-rules.js';
 import type { CapabilityRuntimeAccess } from '../shared/capability-runtime-access.js';
+import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 
 export interface ConfiguredAgentToolPolicy {
   toolPolicyRules: string[] | undefined;
   runtimeAccess: CapabilityRuntimeAccess[];
+  semanticCapabilities: SemanticCapabilityDefinition[];
 }
 
 export async function resolveConfiguredAllowedTools(input: {
@@ -39,6 +41,7 @@ export async function resolveConfiguredToolPolicy(input: {
     return {
       toolPolicyRules: undefined,
       runtimeAccess: [],
+      semanticCapabilities: [],
     };
   }
   const policy = await resolveAgentToolRuntimePolicy({
@@ -51,5 +54,6 @@ export async function resolveConfiguredToolPolicy(input: {
   return {
     toolPolicyRules: policy.rules,
     runtimeAccess: policy.runtimeAccess,
+    semanticCapabilities: policy.semanticCapabilities,
   };
 }

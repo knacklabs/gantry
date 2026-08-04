@@ -13,7 +13,7 @@ visible Telegram topic behavior.
 ## Quick Start
 
 ```bash
-node .codex/scripts/agent_chat_test.mjs --fresh "Ask a short status question and reply in one sentence."
+node scripts/agent_chat_test.mjs --fresh "Ask a short status question and reply in one sentence."
 ```
 
 The script sends through Gantry's app/session Control API. This exercises the
@@ -30,7 +30,7 @@ session events without direct Postgres writes.
    ```
 2. Send a focused test message:
    ```bash
-   node .codex/scripts/agent_chat_test.mjs --fresh "Use the LinkedIn posting skill to draft a harmless test post, then stop before publishing."
+   node scripts/agent_chat_test.mjs --fresh "Use the LinkedIn posting skill to draft a harmless test post, then stop before publishing."
    ```
 3. Read the script output:
    - `Session` identifies the app session used for the test.

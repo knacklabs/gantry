@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Job, ConversationRoute } from '@core/domain/types.js';
+import { resolveExecutionContext } from '@core/jobs/execution-context.js';
+import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 
 function makeJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -47,6 +49,14 @@ async function loadSystemJobs(
   triggerDreaming = vi.fn(),
   listPendingReviews = vi.fn(async () => []),
   configOverrides: Record<string, unknown> = {},
+  runBrainDreamBatch = vi.fn(async () => ({
+    runId: 'brain-1',
+    pages: 0,
+    applied: 0,
+    noop: 0,
+    rejected: 0,
+    proposed: 0,
+  })),
 ) {
   vi.resetModules();
   vi.doMock('@core/config/index.js', () => ({
@@ -54,6 +64,9 @@ async function loadSystemJobs(
     MEMORY_MAINTENANCE_MAX_PENDING: 5_000,
     RUNTIME_MEMORY_DREAMING_ENABLED: true,
     RUNTIME_MEMORY_DREAMING_ALERTS_ENABLED: false,
+    getRuntimeSettingsForConfig: vi.fn(() => ({
+      observer: { enabled: false },
+    })),
     TIMEZONE: 'UTC',
     MEMORY_BACKFILL_ENABLED: false,
     MEMORY_BACKFILL_CRON: '45 3 * * *',
@@ -71,6 +84,10 @@ async function loadSystemJobs(
     AppMemoryService: {
       getInstance: () => ({ triggerDreaming, listPendingReviews }),
     },
+  }));
+  vi.doMock('@core/brain/brain-runtime.js', () => ({
+    createRuntimeBrainService: vi.fn(() => ({})),
+    runRuntimeBrainDreamBatch: runBrainDreamBatch,
   }));
   return import('@core/jobs/system-jobs.js');
 }
@@ -165,13 +182,13 @@ describe('system memory dreaming jobs', () => {
     expect(deleteJob).not.toHaveBeenCalled();
   });
 
-  it('re-stamps silent on dead-lettered dreaming jobs without reviving them', async () => {
+  it('re-stamps the corrected target on dead-lettered dreaming jobs (repo preserves the dead-letter status)', async () => {
     const { registerSystemJobs } = await loadSystemJobs();
-    const upsertJob = vi.fn().mockResolvedValue({ created: true });
+    const upsertJob = vi.fn().mockResolvedValue({ created: false });
     const updateJob = vi.fn(async () => undefined);
     const getJobById = vi.fn(async (id: string) =>
       id.startsWith('system:dreaming:')
-        ? makeJob({ id, status: 'dead_lettered', silent: false })
+        ? makeJob({ id, status: 'dead_lettered', silent: true })
         : undefined,
     );
     const getAllJobs = vi.fn(async () => []);
@@ -190,16 +207,132 @@ describe('system memory dreaming jobs', () => {
       },
     } as never);
 
-    expect(updateJob).toHaveBeenCalledTimes(1);
-    expect(updateJob).toHaveBeenCalledWith(
-      expect.stringMatching(/^system:dreaming:/),
-      { silent: true },
+    // A dead-lettered job is no longer skipped: registration re-stamps the
+    // corrected bare-jid target so a later operator resume works. The repo
+    // upsert preserves the dead_lettered status, so this is not a revival —
+    // no auto-resume happens here.
+    const dreamUpserts = upsertJob.mock.calls.filter(
+      (call) => call[0].prompt === '__system:memory_dream',
     );
-    expect(
-      upsertJob.mock.calls.filter(
-        (call) => call[0].prompt === '__system:memory_dream',
-      ),
-    ).toHaveLength(0);
+    expect(dreamUpserts).toHaveLength(1);
+    expect(dreamUpserts[0]?.[0].execution_context).toEqual({
+      conversationJid: 'sl:C123',
+      threadId: null,
+      workspaceKey: 'agent',
+      sessionId: null,
+    });
+    expect(dreamUpserts[0]?.[0].silent).toBe(true);
+    expect(updateJob).not.toHaveBeenCalled();
+  });
+
+  it('preserves operator-edited name/schedule/silent across restart while re-stamping runtime-owned fields', async () => {
+    const { registerSystemJobs } = await loadSystemJobs();
+    const upsertJob = vi.fn().mockResolvedValue({ created: false });
+    // Operator has renamed, rescheduled, and muted the existing system job.
+    const getJobById = vi.fn(async (id: string) =>
+      id.startsWith('system:dreaming:')
+        ? makeJob({
+            id,
+            name: 'Operator Renamed Dreaming',
+            schedule_value: '0 4 * * *',
+            // next_run already tracks the edited (daily 04:00) schedule, not the
+            // code default ('* * * * *' -> next minute).
+            next_run: '2026-06-01T04:00:00.000Z',
+            silent: true,
+          })
+        : undefined,
+    );
+
+    await registerSystemJobs({
+      conversationRoutes: () => ({
+        'sl:C123': makeRoute({ folder: 'agent', conversationKind: 'channel' }),
+      }),
+      opsRepository: {
+        getJobById,
+        getAllJobs: vi.fn(async () => []),
+        deleteJob: vi.fn(async () => undefined),
+        upsertJob,
+      },
+    } as never);
+
+    const dreamUpsert = upsertJob.mock.calls.find(
+      (call) => call[0].prompt === '__system:memory_dream',
+    )?.[0];
+    expect(dreamUpsert).toBeDefined();
+    // Operator-editable fields carried forward from the existing row.
+    expect(dreamUpsert.name).toBe('Operator Renamed Dreaming');
+    expect(dreamUpsert.schedule_value).toBe('0 4 * * *');
+    expect(dreamUpsert.silent).toBe(true);
+    // next_run stays consistent with the preserved schedule (not recomputed
+    // from the hardcoded '* * * * *' default).
+    expect(dreamUpsert.next_run).toBe('2026-06-01T04:00:00.000Z');
+    // Runtime-owned fields still re-stamped from code.
+    expect(dreamUpsert.prompt).toBe('__system:memory_dream');
+    expect(dreamUpsert.execution_context).toEqual({
+      conversationJid: 'sl:C123',
+      threadId: null,
+      workspaceKey: 'agent',
+      sessionId: null,
+    });
+  });
+
+  it('stores a bare execution jid + provider account for a fully-qualified route key and resolves without dead-lettering', async () => {
+    const { registerSystemJobs } = await loadSystemJobs();
+    // The binding loader collapses the bare, agent-qualified, and
+    // provider-qualified aliases down to this single fully-qualified route key
+    // (see canonical-binding-repository.test.ts). conversationRoutes() hands
+    // that key to the registrar verbatim.
+    const routeKey = makeAgentThreadQueueKey(
+      'tg:5759865942',
+      'agent:main_agent',
+      null,
+      'telegram_default',
+    );
+    const route = makeRoute({
+      folder: 'main_agent',
+      conversationKind: 'channel',
+      providerAccountId: 'telegram_default',
+    });
+    const routes = { [routeKey]: route };
+    const upsertJob = vi.fn().mockResolvedValue({ created: true });
+    const getJobById = vi.fn().mockResolvedValue(undefined);
+
+    await registerSystemJobs({
+      conversationRoutes: () => routes,
+      opsRepository: {
+        getJobById,
+        getAllJobs: vi.fn(async () => []),
+        deleteJob: vi.fn(async () => undefined),
+        upsertJob,
+      },
+    } as never);
+
+    const dreamUpsert = upsertJob.mock.calls.find(
+      (call) => call[0].prompt === '__system:memory_dream',
+    )?.[0];
+    expect(dreamUpsert).toBeDefined();
+    // Bare chatJid in execution_context, provider account carried on the route.
+    expect(dreamUpsert.execution_context).toEqual({
+      conversationJid: 'tg:5759865942',
+      threadId: null,
+      workspaceKey: 'main_agent',
+      sessionId: null,
+    });
+    expect(dreamUpsert.notification_routes).toEqual([
+      {
+        conversationJid: 'tg:5759865942',
+        threadId: null,
+        providerAccountId: 'telegram_default',
+        label: 'primary',
+      },
+    ]);
+
+    // The stored target resolves back to the kept fully-qualified route; a
+    // non-null result means the scheduler would run it, not dead-letter it.
+    const resolved = resolveExecutionContext(dreamUpsert as Job, routes);
+    expect(resolved).not.toBeNull();
+    expect(resolved?.executionJid).toBe('tg:5759865942');
+    expect(resolved?.group).toBe(route);
   });
 
   it('registers per-conversation dreaming jobs non-silent when dreaming alerts are enabled', async () => {
@@ -639,6 +772,198 @@ describe('system memory dreaming jobs', () => {
       }),
       { statementTimeoutMs: 2_000 },
     );
+  });
+
+  it('keeps the scheduled brain receipt exact while observer is off', async () => {
+    const runBrainDreamBatch = vi.fn(async () => ({
+      runId: 'brain-1',
+      pages: 2,
+      applied: 1,
+      noop: 2,
+      rejected: 3,
+      proposed: 4,
+    }));
+    const { handleSystemJob } = await loadSystemJobs(
+      undefined,
+      undefined,
+      {},
+      runBrainDreamBatch,
+    );
+
+    await expect(
+      handleSystemJob(
+        makeJob({
+          id: 'system:brain-dreaming',
+          name: 'Brain Dreaming',
+          prompt: '__system:brain_dream',
+        }),
+        { folder: 'agent' },
+      ),
+    ).resolves.toBe(
+      'Brain dreaming complete: 2 page(s), 1 applied, 2 no-op, 3 rejected, 4 proposed.',
+    );
+    expect(runBrainDreamBatch).toHaveBeenCalledWith({
+      appId: 'default',
+      signal: undefined,
+      observerEnabled: false,
+      observerOwnerRecipient: null,
+    });
+  });
+
+  it('keeps ordinary brain dreaming active when observer owner configuration is missing', async () => {
+    const runBrainDreamBatch = vi.fn(async () => ({
+      runId: 'brain-1',
+      pages: 0,
+      applied: 0,
+      noop: 0,
+      rejected: 0,
+      proposed: 0,
+    }));
+    const { handleSystemJob } = await loadSystemJobs(
+      undefined,
+      undefined,
+      {
+        getRuntimeSettingsForConfig: vi.fn(() => ({
+          observer: { enabled: true },
+        })),
+      },
+      runBrainDreamBatch,
+    );
+
+    await expect(
+      handleSystemJob(
+        makeJob({
+          id: 'system:brain-dreaming',
+          name: 'Brain Dreaming',
+          prompt: '__system:brain_dream',
+        }),
+        { folder: 'agent' },
+      ),
+    ).resolves.toBe(
+      'Brain dreaming complete: 0 page(s), 0 applied, 0 no-op, 0 rejected, 0 proposed.',
+    );
+    expect(runBrainDreamBatch).toHaveBeenCalledWith({
+      appId: 'default',
+      signal: undefined,
+      observerEnabled: false,
+      observerOwnerRecipient: null,
+    });
+  });
+
+  it('appends the observer emission receipt only while observer is enabled', async () => {
+    const runBrainDreamBatch = vi.fn(async () => ({
+      runId: 'brain-1',
+      pages: 1,
+      applied: 0,
+      noop: 0,
+      rejected: 0,
+      proposed: 0,
+      observer: {
+        persisted: 1,
+        deduplicated: 0,
+        filtered: 0,
+        message:
+          'Insight emission complete: 1 persisted, 0 deduplicated, 0 filtered.',
+      },
+    }));
+    const { handleSystemJob } = await loadSystemJobs(
+      undefined,
+      undefined,
+      {
+        getRuntimeSettingsForConfig: vi.fn(() => ({
+          observer: {
+            enabled: true,
+            owner: { recipient: 'owner-1', conversation: 'owner-dm' },
+          },
+        })),
+      },
+      runBrainDreamBatch,
+    );
+
+    await expect(
+      handleSystemJob(
+        makeJob({
+          id: 'system:brain-dreaming',
+          name: 'Brain Dreaming',
+          prompt: '__system:brain_dream',
+        }),
+        { folder: 'agent' },
+      ),
+    ).resolves.toBe(
+      'Brain dreaming complete: 1 page(s), 0 applied, 0 no-op, 0 rejected, 0 proposed. Insight emission complete: 1 persisted, 0 deduplicated, 0 filtered.',
+    );
+    expect(runBrainDreamBatch).toHaveBeenCalledWith({
+      appId: 'default',
+      signal: undefined,
+      observerEnabled: true,
+      observerOwnerRecipient: 'owner-1',
+    });
+  });
+
+  it('reads observer settings for each scheduled run without reimporting', async () => {
+    let observer: {
+      enabled: boolean;
+      owner?: { recipient: string; conversation: string };
+    } = { enabled: false };
+    const getRuntimeSettingsForConfig = vi.fn(() => ({ observer }));
+    const runBrainDreamBatch = vi.fn(async () => ({
+      runId: 'brain-1',
+      pages: 0,
+      applied: 0,
+      noop: 0,
+      rejected: 0,
+      proposed: 0,
+      observer: {
+        persisted: 0,
+        deduplicated: 0,
+        filtered: 0,
+        message:
+          'Insight emission complete: 0 persisted, 0 deduplicated, 0 filtered.',
+      },
+    }));
+    const { handleSystemJob } = await loadSystemJobs(
+      undefined,
+      undefined,
+      { getRuntimeSettingsForConfig },
+      runBrainDreamBatch,
+    );
+    const job = makeJob({
+      id: 'system:brain-dreaming',
+      name: 'Brain Dreaming',
+      prompt: '__system:brain_dream',
+    });
+
+    await expect(handleSystemJob(job, { folder: 'agent' })).resolves.toBe(
+      'Brain dreaming complete: 0 page(s), 0 applied, 0 no-op, 0 rejected, 0 proposed.',
+    );
+
+    observer = {
+      enabled: true,
+      owner: { recipient: 'owner-2', conversation: 'owner-dm' },
+    };
+    await expect(handleSystemJob(job, { folder: 'agent' })).resolves.toBe(
+      'Brain dreaming complete: 0 page(s), 0 applied, 0 no-op, 0 rejected, 0 proposed. Insight emission complete: 0 persisted, 0 deduplicated, 0 filtered.',
+    );
+
+    expect(getRuntimeSettingsForConfig).toHaveBeenCalledTimes(2);
+    expect(runBrainDreamBatch.mock.calls).toEqual([
+      [
+        {
+          appId: 'default',
+          signal: undefined,
+          observerEnabled: false,
+          observerOwnerRecipient: null,
+        },
+      ],
+      [
+        {
+          appId: 'default',
+          signal: undefined,
+          observerEnabled: true,
+          observerOwnerRecipient: 'owner-2',
+        },
+      ],
+    ]);
   });
 
   it('runs scheduled DM dreaming against user subject without thread scope', async () => {

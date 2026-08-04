@@ -1,0 +1,25 @@
+{
+  "artifact": "event",
+  "phase": "any",
+  "recorded_by": "forge_cli.events.append_event (called by the scripts that change state)",
+  "generated_by": [
+    "orchestrator",
+    "planner-high",
+    "implementer",
+    "docs-decomposer",
+    "autoreview",
+    "functional-checker",
+    "griller",
+    "human"
+  ],
+  "required": {
+    "event": "str",
+    "generated_by": "str",
+    "at": "str"
+  },
+  "optional": {
+    "story": "str",
+    "detail": "str"
+  },
+  "kind_note": "One line per state transition in .factory/events.jsonl — the story timeline the mutable run.json cannot hold. `generated_by` is required and allowlist-pinned: in a repo whose authors are mostly agents, a timeline that cannot say WHO moved a story answers nothing. `story` is absent for discovery events (spec save/confirm, roadmap derive), which are project-level. Story-scoped lines archive to .factory/history/<issue>/events.jsonl at ship."
+}

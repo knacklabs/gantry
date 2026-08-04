@@ -1,9 +1,23 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const durabilityMocks = vi.hoisted(() => ({
-  bindPendingPermissionInteractionMessage: vi.fn(),
+  DurableInteractionPersistenceError: class DurableInteractionPersistenceError extends Error {
+    constructor(message: string, cause?: unknown) {
+      super(message, cause === undefined ? undefined : { cause });
+      this.name = 'DurableInteractionPersistenceError';
+    }
+  },
+  bindPendingPermissionInteractionMessage: vi.fn(async () => true),
+  claimPermissionInteractionCallback: vi.fn(async (input: any) => ({
+    status: 'claimed',
+    claim: input.recoveredClaim ?? { id: 'claim-1', scope: input.scope },
+    ...(input.recoveredClaim ? { persistedClaim: input.recoveredClaim } : {}),
+  })),
+  findDurablePermissionInteractionByPromptMessage: vi.fn(),
   findDurablePermissionInteractionByRequestId: vi.fn(),
-  findDurableQuestionInteractionByRequestId: vi.fn(),
+  recoverDurablePermissionDecision: vi.fn(),
+  recordDurableQuestionAnswerProgress: vi.fn(async () => true),
+  releasePermissionInteractionCallback: vi.fn(async () => true),
   resolveDurablePermissionInteractionByRequestId: vi.fn(),
   resolveDurableQuestionInteractionByRequestId: vi.fn(),
 }));
@@ -17,8 +31,23 @@ import {
   createDiscordChannel,
   DiscordChannel,
 } from '@core/channels/discord.js';
-import { parsePermissionCustomId } from '@core/channels/discord-components.js';
-import type { ChannelOpts } from '@core/channels/channel-provider.js';
+import { DiscordGatewayConnection } from '@core/channels/discord-gateway.js';
+import {
+  parsePermissionCustomId,
+  permissionCustomId,
+} from '@core/channels/discord-components.js';
+import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
+import {
+  consume as consumeDiscordPermissionPrompt,
+  pending as pendingDiscordPermissionPrompt,
+  settle as settleDiscordPermissionPrompt,
+} from '@core/channels/discord-permission-prompt-settlement.js';
+import {
+  InboundMessageDeliveryError,
+  type ChannelOpts,
+} from '@core/channels/channel-provider.js';
+import { DISCORD_LIVE_ATTACHMENT_DEADLINE_MS } from '@core/channels/discord-live-attachment-capture.js';
+import { logger } from '@core/infrastructure/logging/logger.js';
 
 class FakeWebSocket {
   onopen: (() => void) | null = null;
@@ -50,6 +79,22 @@ function opts(overrides: Partial<ChannelOpts> = {}): ChannelOpts {
   };
 }
 
+function deletionOpts(overrides: Partial<ChannelOpts> = {}): ChannelOpts {
+  return opts({
+    providerAccountId: 'discord-default',
+    conversationRoutes: () => ({
+      'dc:channel-1': {
+        name: 'Discord deletion route',
+        folder: 'main_agent',
+        trigger: '@Main',
+        added_at: '2026-08-01T00:00:00.000Z',
+        providerAccountId: 'discord-default',
+      },
+    }),
+    ...overrides,
+  });
+}
+
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), {
     status: 200,
@@ -57,15 +102,60 @@ function jsonResponse(body: unknown) {
   });
 }
 
+function discordPermissionCallback(
+  interactionId: string,
+  providerAlias = `alias-${interactionId}`,
+) {
+  return {
+    providerAlias,
+    scope: {
+      appId: 'default',
+      sourceAgentFolder: 'main_agent',
+      interactionId,
+    },
+    matchKind: interactionId.startsWith('batch:')
+      ? ('batch' as const)
+      : ('individual' as const),
+  };
+}
+
+function latestDiscordPermissionAlias(): string {
+  return durabilityMocks.bindPendingPermissionInteractionMessage.mock.calls.at(
+    -1,
+  )?.[0].callbackId;
+}
+
 describe('DiscordChannel', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     durabilityMocks.findDurablePermissionInteractionByRequestId.mockReset();
-    durabilityMocks.findDurableQuestionInteractionByRequestId.mockReset();
     durabilityMocks.bindPendingPermissionInteractionMessage.mockReset();
+    durabilityMocks.bindPendingPermissionInteractionMessage.mockResolvedValue(
+      true,
+    );
+    durabilityMocks.findDurablePermissionInteractionByPromptMessage.mockReset();
+    durabilityMocks.recoverDurablePermissionDecision.mockReset();
+    durabilityMocks.claimPermissionInteractionCallback
+      .mockReset()
+      .mockImplementation(async (input: any) => ({
+        status: 'claimed',
+        claim: input.recoveredClaim ?? { id: 'claim-1', scope: input.scope },
+        ...(input.recoveredClaim
+          ? { persistedClaim: input.recoveredClaim }
+          : {}),
+      }));
+    durabilityMocks.releasePermissionInteractionCallback
+      .mockReset()
+      .mockResolvedValue(true);
+    durabilityMocks.recordDurableQuestionAnswerProgress
+      .mockReset()
+      .mockResolvedValue(true);
     durabilityMocks.resolveDurablePermissionInteractionByRequestId.mockReset();
-    durabilityMocks.resolveDurableQuestionInteractionByRequestId.mockReset();
+    durabilityMocks.resolveDurableQuestionInteractionByRequestId
+      .mockReset()
+      .mockResolvedValue(true);
   });
 
   it('creates the runtime channel from configured runtime secret refs', async () => {
@@ -360,26 +450,24 @@ describe('DiscordChannel', () => {
     await channel.renderAgentTodo('dc:channel-1', {
       headline: 'Searching the web',
       status: 'running',
-      elapsed: '2m 14s',
       stop: { label: 'Stop', actionToken: 'stop-token-1' },
       items: [{ id: '1', title: 'First', status: 'pending' }],
     });
     await channel.renderAgentTodo('dc:channel-1', {
       headline: 'Done',
       status: 'done',
-      elapsed: '2m 20s',
       stop: { label: 'Stop', actionToken: 'stale-stop-token' },
       items: [{ id: '1', title: 'First', status: 'completed' }],
     });
 
     const posted = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
-    expect(posted.content).toContain('⏳ Searching the web · 2m 14s');
+    expect(posted.content).toContain('⏳ Searching the web');
     expect(JSON.stringify(posted.components)).toContain('stop-token-1');
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       'https://discord.com/api/v10/channels/channel-1/messages/todo-1',
     );
     const updated = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
-    expect(updated.content).toContain('✅ Done · 2m 20s');
+    expect(updated.content).toContain('✅ Done');
     expect(updated.components).toEqual([]);
   });
 
@@ -654,6 +742,100 @@ describe('DiscordChannel', () => {
     fetchMock.mockRestore();
   });
 
+  it('resets only the targeted Discord thread stream', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ id: 'stream-a' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'stream-b' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'stream-a-2' }))
+      .mockResolvedValue(new Response('{}', { status: 200 }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    try {
+      await channel.sendStreamingChunk('dc:channel-1', 'A', {
+        threadId: 'thread-a',
+      });
+      await channel.sendStreamingChunk('dc:channel-1', 'B', {
+        threadId: 'thread-b',
+      });
+
+      channel.resetStreaming('dc:channel-1', { threadId: 'thread-a' });
+      await vi.advanceTimersByTimeAsync(1200);
+      await channel.sendStreamingChunk('dc:channel-1', 'A2', {
+        threadId: 'thread-a',
+      });
+      await channel.sendStreamingChunk('dc:channel-1', 'B2', {
+        threadId: 'thread-b',
+      });
+
+      expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+        'https://discord.com/api/v10/channels/thread-a/messages',
+        'https://discord.com/api/v10/channels/thread-b/messages',
+        'https://discord.com/api/v10/channels/thread-a/messages',
+        'https://discord.com/api/v10/channels/thread-b/messages/stream-b',
+      ]);
+    } finally {
+      vi.useRealTimers();
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('does not restore a targeted Discord stream after an in-flight send', async () => {
+    let resolveFirstSend!: (response: Response) => void;
+    const firstSend = new Promise<Response>((resolve) => {
+      resolveFirstSend = resolve;
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(async () => firstSend)
+      .mockImplementation(async () => jsonResponse({ id: 'stream-new' }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    const inFlight = channel.sendStreamingChunk('dc:channel-1', 'old', {
+      threadId: 'thread-a',
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    channel.resetStreaming('dc:channel-1', { threadId: 'thread-a' });
+    resolveFirstSend(jsonResponse({ id: 'stream-old' }));
+    await inFlight;
+
+    await channel.sendStreamingChunk('dc:channel-1', 'new', {
+      threadId: 'thread-a',
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      'https://discord.com/api/v10/channels/thread-a/messages',
+      'https://discord.com/api/v10/channels/thread-a/messages',
+    ]);
+  });
+
+  it('stops Discord overflow sends when the stream resets between parts', async () => {
+    let channel!: DiscordChannel;
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => {
+        if (fetchMock.mock.calls.length === 2)
+          channel.resetStreaming('dc:channel-1');
+        return jsonResponse({ id: `stream-${fetchMock.mock.calls.length}` });
+      });
+    channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await expect(
+      channel.sendStreamingChunk('dc:channel-1', 'a'.repeat(8000), {
+        done: true,
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      'https://discord.com/api/v10/channels/channel-1/messages',
+      'https://discord.com/api/v10/channels/channel-1/messages',
+    ]);
+  });
+
   it('reports final Discord streaming overflow failure for retry', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
@@ -764,6 +946,66 @@ describe('DiscordChannel', () => {
     vi.restoreAllMocks();
   });
 
+  it('covers the registered Discord paired-message shape at the adapter seam', async () => {
+    let socket!: FakeWebSocket;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      jsonResponse({ url: 'wss://gateway.discord.test' }),
+    );
+    const onMessage = vi.fn();
+    const onChatMetadata = vi.fn();
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        providerAccountId: 'discord_default',
+        conversationRoutes: () => ({
+          'dc:channel-1': {
+            name: 'Discord Latency',
+            folder: 'main_agent',
+            trigger: '@Main',
+            added_at: '2026-07-29T00:00:00.000Z',
+            providerAccountId: 'discord_default',
+          },
+        }),
+        onMessage,
+        onChatMetadata,
+      }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    socket.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+    socket.receive({ op: 0, t: 'READY', s: 1, d: { user: { id: 'bot-1' } } });
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_CREATE',
+      s: 2,
+      d: {
+        id: 'message-2',
+        channel_id: 'channel-1',
+        content: 'hello',
+        timestamp: '2026-07-29T00:00:00.000Z',
+        author: { id: 'user-1', username: 'Ravi' },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onChatMetadata).not.toHaveBeenCalled();
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(onMessage).toHaveBeenCalledWith(
+      'dc:channel-1',
+      expect.objectContaining({
+        name: 'Discord Latency',
+        isGroup: true,
+      }),
+    );
+    await channel.disconnect();
+    vi.restoreAllMocks();
+  });
+
   it('routes live Discord attachment-only messages with metadata only', async () => {
     let socket!: FakeWebSocket;
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
@@ -799,12 +1041,22 @@ describe('DiscordChannel', () => {
             filename: 'screen.png',
             content_type: 'image/png',
             size: 4096,
+            url: 'https://cdn.discordapp.com/attachments/private/image',
           },
           {
             id: 'attachment-file',
             filename: 'report.pdf',
             content_type: 'application/pdf',
             size: 8192,
+            url: 'https://cdn.discordapp.com/attachments/private/file',
+          },
+          {
+            id: 'attachment-ephemeral',
+            filename: 'secret.txt',
+            content_type: 'text/plain',
+            size: 12,
+            url: 'https://cdn.discordapp.com/attachments/private/ephemeral',
+            ephemeral: true,
           },
         ],
       },
@@ -822,6 +1074,14 @@ describe('DiscordChannel', () => {
             contentType: 'image/png',
             sizeBytes: 4096,
             externalId: 'attachment-image',
+            file_name: 'screen.png',
+            provider_fetch: {
+              provider: 'discord',
+              kind: 'attachment_id',
+              id: 'attachment-image',
+              channelId: 'channel-1',
+              messageId: 'message-2',
+            },
           },
           {
             id: 'discord-attachment:attachment-file',
@@ -829,15 +1089,410 @@ describe('DiscordChannel', () => {
             contentType: 'application/pdf',
             sizeBytes: 8192,
             externalId: 'attachment-file',
+            file_name: 'report.pdf',
+            provider_fetch: {
+              provider: 'discord',
+              kind: 'attachment_id',
+              id: 'attachment-file',
+              channelId: 'channel-1',
+              messageId: 'message-2',
+            },
           },
         ],
       }),
     );
     const delivered = onMessage.mock.calls[0]?.[1];
-    expect(delivered.attachments[0]).not.toHaveProperty('filename');
+    expect(delivered.attachments).toHaveLength(2);
     expect(delivered.attachments[0]).not.toHaveProperty('url');
     await channel.disconnect();
     vi.restoreAllMocks();
+  });
+
+  it('admits the route before attachment network I/O or materialization', async () => {
+    let socket!: FakeWebSocket;
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () =>
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      );
+    const ensureMessageRoute = vi.fn(async () => false);
+    const materializeProviderAttachment = vi.fn();
+    const onMessage = vi.fn();
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        ensureMessageRoute,
+        materializeProviderAttachment,
+        onMessage,
+      }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    socket.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+    socket.receive({ op: 0, t: 'READY', s: 1, d: { user: { id: 'bot-1' } } });
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_CREATE',
+      s: 2,
+      d: {
+        id: 'message-unconfigured',
+        channel_id: 'channel-1',
+        author: { id: 'user-1' },
+        attachments: [
+          {
+            id: 'attachment-1',
+            filename: 'private.txt',
+            url: 'https://cdn.discordapp.com/attachments/private/file',
+          },
+        ],
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(ensureMessageRoute).toHaveBeenCalledOnce();
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).startsWith('https://cdn.discordapp.com/'),
+      ),
+    ).toHaveLength(0);
+    expect(materializeProviderAttachment).not.toHaveBeenCalled();
+    expect(onMessage).not.toHaveBeenCalled();
+    await channel.disconnect();
+  });
+
+  it('keeps partial live capture metadata and reclaims captures after delivery rejection', async () => {
+    let socket!: FakeWebSocket;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/gateway/bot')) {
+        return jsonResponse({ url: 'wss://gateway.discord.test' });
+      }
+      if (url.endsWith('/success')) return new Response('captured bytes');
+      return new Response('unreachable', { status: 403 });
+    });
+    const reclaim = vi.fn(async () => undefined);
+    const materializeProviderAttachment = vi.fn(async () => ({
+      storageRef: 'provider-attachments/captured.txt',
+      reclaim,
+    }));
+    const onMessage = vi.fn(async () => {
+      throw new Error('persistence rejected');
+    });
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        ensureMessageRoute: vi.fn(async () => true),
+        materializeProviderAttachment,
+        onMessage,
+      }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    socket.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+    socket.receive({ op: 0, t: 'READY', s: 1, d: { user: { id: 'bot-1' } } });
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_CREATE',
+      s: 2,
+      d: {
+        id: 'message-2',
+        channel_id: 'channel-1',
+        author: { id: 'user-1' },
+        attachments: [
+          {
+            id: 'success',
+            filename: 'captured.txt',
+            url: 'https://cdn.discordapp.com/attachments/private/success',
+          },
+          {
+            id: 'failed',
+            filename: 'failed.txt',
+            url: 'https://cdn.discordapp.com/attachments/private/failed',
+          },
+        ],
+      },
+    });
+
+    await vi.waitFor(() => expect(reclaim).toHaveBeenCalledOnce());
+    expect(onMessage).toHaveBeenCalledWith(
+      'dc:channel-1',
+      expect.objectContaining({
+        attachments: [
+          expect.objectContaining({
+            externalId: 'success',
+            storageRef: 'provider-attachments/captured.txt',
+          }),
+          expect.objectContaining({ externalId: 'failed' }),
+        ],
+      }),
+    );
+    expect(onMessage.mock.calls[0]?.[1].attachments?.[1]).not.toHaveProperty(
+      'storageRef',
+    );
+    await channel.disconnect();
+  });
+
+  it('bounds a stalled live CDN body while persisting metadata and capturing its sibling', async () => {
+    let socket!: FakeWebSocket;
+    let stalledSignal: AbortSignal | undefined;
+    const stalledCancel = vi.fn();
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/gateway/bot')) {
+        return jsonResponse({ url: 'wss://gateway.discord.test' });
+      }
+      if (url.endsWith('/stalled')) {
+        stalledSignal = init?.signal ?? undefined;
+        return new Response(
+          new ReadableStream<Uint8Array>({ pull() {}, cancel: stalledCancel }),
+        );
+      }
+      return new Response('sibling bytes');
+    });
+    const materializeProviderAttachment = vi.fn(
+      async ({ fileName, content }) => {
+        let bytes = 0;
+        for (;;) {
+          const chunk = await content.read();
+          if (chunk.done) break;
+          bytes += chunk.value?.byteLength ?? 0;
+        }
+        if (bytes === 0) throw new Error('empty aborted capture');
+        return {
+          storageRef: `provider-attachments/${fileName}`,
+          reclaim: vi.fn(async () => undefined),
+        };
+      },
+    );
+    const onMessage = vi.fn(async () => 'stored' as const);
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        ensureMessageRoute: vi.fn(async () => true),
+        materializeProviderAttachment,
+        onMessage,
+      }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    socket.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+    socket.receive({ op: 0, t: 'READY', s: 1, d: { user: { id: 'bot-1' } } });
+    vi.useFakeTimers();
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_CREATE',
+      s: 2,
+      d: {
+        id: 'message-stalled-live-file',
+        channel_id: 'channel-1',
+        author: { id: 'user-1' },
+        attachments: [
+          {
+            id: 'stalled',
+            filename: 'stalled.txt',
+            url: 'https://cdn.discordapp.com/attachments/private/stalled',
+          },
+          {
+            id: 'sibling',
+            filename: 'sibling.txt',
+            url: 'https://cdn.discordapp.com/attachments/private/sibling',
+          },
+        ],
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(DISCORD_LIVE_ATTACHMENT_DEADLINE_MS);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(stalledSignal?.aborted).toBe(true);
+    expect(stalledCancel).toHaveBeenCalledOnce();
+    expect(onMessage).toHaveBeenCalledWith(
+      'dc:channel-1',
+      expect.objectContaining({
+        attachments: [
+          expect.objectContaining({ externalId: 'stalled' }),
+          expect.objectContaining({
+            externalId: 'sibling',
+            storageRef: 'provider-attachments/sibling.txt',
+          }),
+        ],
+      }),
+    );
+    expect(onMessage.mock.calls[0]?.[1].attachments?.[0]).not.toHaveProperty(
+      'storageRef',
+    );
+    await channel.disconnect();
+  });
+
+  it.each([
+    ['stored', 0],
+    ['dropped', 1],
+    [new InboundMessageDeliveryError([new Error('target rejected')], true), 0],
+  ] as const)(
+    '%s delivery acknowledgment controls live attachment ownership',
+    async (deliveryResult, expectedReclaims) => {
+      let socket!: FakeWebSocket;
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+        String(input).endsWith('/gateway/bot')
+          ? jsonResponse({ url: 'wss://gateway.discord.test' })
+          : new Response('captured bytes'),
+      );
+      const reclaim = vi.fn(async () => undefined);
+      const channel = new DiscordChannel(
+        'bot-token',
+        'app-id',
+        opts({
+          ensureMessageRoute: vi.fn(async () => true),
+          materializeProviderAttachment: vi.fn(async () => ({
+            storageRef: 'provider-attachments/captured.txt',
+            reclaim,
+          })),
+          onMessage: vi.fn(async () => {
+            if (deliveryResult instanceof Error) throw deliveryResult;
+            return deliveryResult;
+          }),
+        }),
+        (url) => {
+          socket = new FakeWebSocket(url);
+          return socket;
+        },
+      );
+
+      await channel.connect();
+      socket.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+      socket.receive({
+        op: 0,
+        t: 'READY',
+        s: 1,
+        d: { user: { id: 'bot-1' } },
+      });
+      socket.receive({
+        op: 0,
+        t: 'MESSAGE_CREATE',
+        s: 2,
+        d: {
+          id: `message-${deliveryResult}`,
+          channel_id: 'channel-1',
+          author: { id: 'user-1' },
+          attachments: [
+            {
+              id: 'attachment-1',
+              filename: 'captured.txt',
+              url: 'https://cdn.discordapp.com/attachments/private/file',
+            },
+          ],
+        },
+      });
+
+      if (expectedReclaims > 0) {
+        await vi.waitFor(() =>
+          expect(reclaim).toHaveBeenCalledTimes(expectedReclaims),
+        );
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(reclaim).not.toHaveBeenCalled();
+      }
+      await channel.disconnect();
+    },
+  );
+
+  it('drops live ephemeral Discord messages before metadata or message ingress', async () => {
+    let socket!: FakeWebSocket;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      jsonResponse({ url: 'wss://gateway.discord.test' }),
+    );
+    const onMessage = vi.fn();
+    const onChatMetadata = vi.fn();
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({ onMessage, onChatMetadata }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    socket.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+    socket.receive({ op: 0, t: 'READY', s: 1, d: { user: { id: 'bot-1' } } });
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_CREATE',
+      s: 2,
+      d: {
+        id: 'ephemeral-message',
+        channel_id: 'channel-1',
+        flags: 64,
+        content: 'secret text',
+        author: { id: 'user-1', username: 'Ravi' },
+        attachments: [
+          {
+            id: 'secret-file',
+            filename: 'secret.txt',
+            url: 'https://cdn.discordapp.com/attachments/private/secret',
+          },
+        ],
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onChatMetadata).not.toHaveBeenCalled();
+    expect(onMessage).not.toHaveBeenCalled();
+    await channel.disconnect();
+  });
+
+  it('does not distrust history coverage when Discord attachment capture is unreachable', async () => {
+    const distrustHistoryCoverage = vi.fn();
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        new Response(JSON.stringify({ code: 50001 }), { status: 403 }),
+      );
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        providerAccountId: 'discord-default',
+        distrustHistoryCoverage,
+      }),
+    );
+
+    await expect(
+      channel.fetchHistoricalAttachment({
+        conversationJid: 'dc:channel-1',
+        identity: {
+          provider: 'discord',
+          kind: 'attachment_id',
+          id: 'attachment-1',
+          channelId: 'channel-1',
+          messageId: 'message-1',
+        },
+      }),
+    ).resolves.toEqual({ status: 'unreachable', reason: 'auth' });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/channel-1/messages/message-1',
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: 'Bot bot-token' }),
+      }),
+    );
+    expect(distrustHistoryCoverage).not.toHaveBeenCalled();
   });
 
   it('normalizes Discord thread channel events to the parent conversation', async () => {
@@ -901,6 +1556,13 @@ describe('DiscordChannel', () => {
         content: 'thread reply',
         timestamp: '2026-06-22T00:00:00.000Z',
         author: { id: 'user-1', username: 'Ravi' },
+        attachments: [
+          {
+            id: 'thread-attachment',
+            filename: 'thread.txt',
+            url: 'https://cdn.discordapp.com/attachments/private/thread',
+          },
+        ],
       },
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -918,6 +1580,16 @@ describe('DiscordChannel', () => {
         chat_jid: 'dc:parent-1',
         thread_id: 'thread-1',
         external_message_id: 'message-2',
+        attachments: [
+          expect.objectContaining({
+            provider_fetch: expect.objectContaining({
+              id: 'thread-attachment',
+              channelId: 'thread-1',
+              messageId: 'message-2',
+              parentChannelId: 'parent-1',
+            }),
+          }),
+        ],
       }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
@@ -1011,6 +1683,7 @@ describe('DiscordChannel', () => {
                   filename: 'screen.png',
                   content_type: 'image/png',
                   size: 4096,
+                  url: 'https://cdn.discordapp.com/attachments/private/image',
                 },
               ],
             },
@@ -1026,6 +1699,7 @@ describe('DiscordChannel', () => {
                   filename: 'report.pdf',
                   content_type: 'application/pdf',
                   size: 8192,
+                  url: 'https://cdn.discordapp.com/attachments/private/file',
                 },
               ],
             },
@@ -1066,6 +1740,14 @@ describe('DiscordChannel', () => {
             contentType: 'application/pdf',
             sizeBytes: 8192,
             externalId: 'att-file',
+            file_name: 'report.pdf',
+            provider_fetch: {
+              provider: 'discord',
+              kind: 'attachment_id',
+              id: 'att-file',
+              channelId: 'channel-1',
+              messageId: 'message-2',
+            },
           }),
         ],
       }),
@@ -1078,11 +1760,120 @@ describe('DiscordChannel', () => {
             contentType: 'image/png',
             sizeBytes: 4096,
             externalId: 'att-image',
+            file_name: 'screen.png',
+            provider_fetch: {
+              provider: 'discord',
+              kind: 'attachment_id',
+              id: 'att-image',
+              channelId: 'channel-1',
+              messageId: 'message-3',
+            },
           }),
         ],
       }),
     ]);
+    expect(result.coverage).toEqual({
+      requestedLatestMessage: {
+        externalMessageId: 'message-4',
+        timestamp: '2026-06-22T00:00:04.000Z',
+      },
+      scope: 'channel',
+      requests: [
+        {
+          role: 'channel',
+          limit: 3,
+          effectiveBounds: { cursor: 'message-4' },
+          rawMessageCount: 3,
+          pagination: { kind: 'request_bounded' },
+        },
+      ],
+      completeness: { kind: 'request_bounded' },
+      deliveredMessageCount: 2,
+      threadRoot: 'not_applicable',
+    });
+    expect(
+      result.messages?.map(({ external_message_id, content }) => ({
+        external_message_id,
+        content,
+      })),
+    ).toEqual([
+      { external_message_id: 'message-2', content: 'report attached' },
+      { external_message_id: 'message-3', content: '' },
+    ]);
     fetchMock.mockRestore();
+  });
+
+  it('drops ephemeral Discord messages and attachments from hydrated context', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.includes('/messages?')) {
+          return jsonResponse([
+            {
+              id: 'message-ephemeral',
+              channel_id: 'channel-1',
+              flags: 64,
+              content: 'secret text',
+              timestamp: '2026-06-22T00:00:02.000Z',
+              author: { id: 'user-1', username: 'Ravi' },
+              attachments: [
+                {
+                  id: 'secret-file',
+                  filename: 'secret.txt',
+                  url: 'https://cdn.discordapp.com/attachments/private/secret',
+                },
+              ],
+            },
+            {
+              id: 'message-durable',
+              channel_id: 'channel-1',
+              content: 'durable text',
+              timestamp: '2026-06-22T00:00:01.000Z',
+              author: { id: 'user-2', username: 'Maya' },
+              attachments: [
+                {
+                  id: 'durable-file',
+                  filename: 'durable.txt',
+                  url: 'https://cdn.discordapp.com/attachments/private/durable',
+                },
+                {
+                  id: 'ephemeral-file',
+                  filename: 'ephemeral.txt',
+                  url: 'https://cdn.discordapp.com/attachments/private/ephemeral',
+                  ephemeral: true,
+                },
+              ],
+            },
+          ]);
+        }
+        if (url === 'https://discord.com/api/v10/channels/channel-1') {
+          return jsonResponse({ id: 'channel-1', type: 0 });
+        }
+        return new Response('{}', { status: 404 });
+      });
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'dc:channel-1',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2026-06-22T00:00:03.000Z',
+        external_message_id: 'message-3',
+      },
+      limits: { channelMessages: 3, threadMessages: 50 },
+    });
+
+    expect(result.messages).toEqual([
+      expect.objectContaining({
+        external_message_id: 'message-durable',
+        content: 'durable text',
+        attachments: [expect.objectContaining({ externalId: 'durable-file' })],
+      }),
+    ]);
+    expect(result.coverage).toEqual(
+      expect.objectContaining({ deliveredMessageCount: 1 }),
+    );
   });
 
   it('only marks configured Discord self bot history as bot messages', async () => {
@@ -1440,6 +2231,199 @@ describe('DiscordChannel', () => {
         }),
       ]),
     );
+    expect(result.coverage).toEqual({
+      requestedLatestMessage: {
+        externalMessageId: 'message-100',
+        timestamp: '2026-06-22T00:01:40.000Z',
+      },
+      scope: 'thread',
+      requests: [
+        {
+          role: 'thread',
+          limit: 39,
+          effectiveBounds: { cursor: 'message-100' },
+          rawMessageCount: 39,
+          pagination: { kind: 'request_bounded' },
+        },
+        {
+          role: 'thread_root',
+          limit: 1,
+          effectiveBounds: {},
+          rawMessageCount: 1,
+          pagination: { kind: 'request_bounded' },
+        },
+        {
+          role: 'thread_first_replies',
+          limit: 10,
+          effectiveBounds: { cursor: 'thread-1' },
+          rawMessageCount: 10,
+          pagination: { kind: 'request_bounded' },
+        },
+      ],
+      completeness: { kind: 'request_bounded' },
+      deliveredMessageCount: 50,
+      threadRoot: 'included',
+    });
+    fetchMock.mockRestore();
+  });
+
+  it('omits Discord coverage when the first-replies request fails', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (
+          url ===
+          'https://discord.com/api/v10/channels/thread-1/messages?limit=39&before=message-100'
+        ) {
+          return jsonResponse([
+            {
+              id: 'message-99',
+              channel_id: 'thread-1',
+              content: 'latest reply',
+              timestamp: '2026-06-22T00:01:39.000Z',
+              author: { id: 'user-2', username: 'Maya' },
+            },
+          ]);
+        }
+        if (
+          url ===
+          'https://discord.com/api/v10/channels/thread-1/messages/thread-1'
+        ) {
+          return jsonResponse({
+            id: 'thread-1',
+            channel_id: 'thread-1',
+            content: 'thread starter',
+            timestamp: '2026-06-22T00:00:01.000Z',
+            author: { id: 'user-1', username: 'Ravi' },
+          });
+        }
+        if (
+          url ===
+          'https://discord.com/api/v10/channels/thread-1/messages?after=thread-1&limit=10'
+        ) {
+          return new Response('{}', { status: 500 });
+        }
+        if (url === 'https://discord.com/api/v10/channels/thread-1') {
+          return jsonResponse({
+            id: 'thread-1',
+            type: 11,
+            parent_id: 'parent-1',
+          });
+        }
+        return new Response('{}', { status: 404 });
+      });
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'dc:parent-1',
+      threadId: 'thread-1',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2026-06-22T00:01:40.000Z',
+        external_message_id: 'message-100',
+        thread_id: 'thread-1',
+      },
+      limits: { channelMessages: 30, threadMessages: 50 },
+    });
+
+    expect(
+      result.messages?.map((message) => message.external_message_id),
+    ).toEqual(['thread-1', 'message-99']);
+    expect(result).not.toHaveProperty('coverage');
+    fetchMock.mockRestore();
+  });
+
+  it('reports missing when the Discord thread root is filtered by normalization', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (
+          url ===
+          'https://discord.com/api/v10/channels/thread-1/messages?limit=2&before=message-3'
+        ) {
+          return jsonResponse([
+            {
+              id: 'message-2',
+              channel_id: 'thread-1',
+              content: 'kept reply',
+              timestamp: '2026-06-22T00:00:02.000Z',
+              author: { id: 'user-2', username: 'Maya' },
+            },
+            {
+              id: 'message-empty',
+              channel_id: 'thread-1',
+              content: '   ',
+              timestamp: '2026-06-22T00:00:01.000Z',
+              author: { id: 'user-3', username: 'Isha' },
+            },
+          ]);
+        }
+        if (
+          url ===
+          'https://discord.com/api/v10/channels/thread-1/messages/thread-1'
+        ) {
+          return jsonResponse({
+            id: 'thread-1',
+            channel_id: 'thread-1',
+            content: '   ',
+            timestamp: '2026-06-22T00:00:00.000Z',
+            author: { id: 'user-root', username: 'Root' },
+          });
+        }
+        if (url === 'https://discord.com/api/v10/channels/thread-1') {
+          return jsonResponse({
+            id: 'thread-1',
+            type: 11,
+            parent_id: 'parent-1',
+          });
+        }
+        return new Response('{}', { status: 404 });
+      });
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'dc:parent-1',
+      threadId: 'thread-1',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2026-06-22T00:00:03.000Z',
+        external_message_id: 'message-3',
+        thread_id: 'thread-1',
+      },
+      limits: { channelMessages: 30, threadMessages: 2 },
+    });
+
+    expect(result.messages).toEqual([
+      expect.objectContaining({ external_message_id: 'message-2' }),
+    ]);
+    expect(result.coverage).toEqual({
+      requestedLatestMessage: {
+        externalMessageId: 'message-3',
+        timestamp: '2026-06-22T00:00:03.000Z',
+      },
+      scope: 'thread',
+      requests: [
+        {
+          role: 'thread',
+          limit: 2,
+          effectiveBounds: { cursor: 'message-3' },
+          rawMessageCount: 2,
+          pagination: { kind: 'request_bounded' },
+        },
+        {
+          role: 'thread_root',
+          limit: 1,
+          effectiveBounds: {},
+          rawMessageCount: 1,
+          pagination: { kind: 'request_bounded' },
+        },
+      ],
+      completeness: { kind: 'request_bounded' },
+      deliveredMessageCount: 1,
+      threadRoot: 'missing',
+    });
     fetchMock.mockRestore();
   });
 
@@ -1500,6 +2484,50 @@ describe('DiscordChannel', () => {
         thread_id: 'thread-1',
       }),
     ]);
+    expect(result.coverage?.requests).toEqual([
+      {
+        role: 'thread',
+        limit: 2,
+        effectiveBounds: { cursor: 'message-3' },
+        rawMessageCount: 1,
+        pagination: { kind: 'request_bounded' },
+      },
+      {
+        role: 'thread_root',
+        limit: 1,
+        effectiveBounds: {},
+        rawMessageCount: 0,
+        pagination: { kind: 'request_bounded' },
+      },
+    ]);
+    expect(result.coverage?.threadRoot).toBe('missing');
+    fetchMock.mockRestore();
+  });
+
+  it('omits Discord coverage when the history request fails', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 500 }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'dc:channel-1',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2026-06-22T00:00:04.000Z',
+        external_message_id: 'message-4',
+      },
+      limits: { channelMessages: 3, threadMessages: 50 },
+    });
+
+    expect(result).toEqual({
+      providerId: 'discord',
+      attempted: true,
+      failed: true,
+      reason: 'provider_error',
+      messages: [],
+    });
+    expect(result).not.toHaveProperty('coverage');
     fetchMock.mockRestore();
   });
 
@@ -1599,11 +2627,23 @@ describe('DiscordChannel', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
       jsonResponse({ url: 'wss://gateway.discord.test' }),
     );
-    const channel = new DiscordChannel('bot-token', 'app-id', opts(), (url) => {
-      const socket = new FakeWebSocket(url);
-      sockets.push(socket);
-      return socket;
-    });
+    const distrustHistoryCoverage = vi.fn();
+    const setHistoryCoverageInboundActive = vi.fn();
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        providerAccountId: 'discord-one',
+        inboundProviderAccountIds: ['discord-one', 'discord-two'],
+        distrustHistoryCoverage,
+        setHistoryCoverageInboundActive,
+      }),
+      (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+    );
 
     await channel.connect();
     sockets[0]!.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
@@ -1616,14 +2656,405 @@ describe('DiscordChannel', () => {
     sockets[0]!.close();
     await vi.advanceTimersByTimeAsync(1_000);
     sockets[1]!.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+    sockets[1]!.receive({ op: 0, t: 'RESUMED', s: 4, d: {} });
 
     expect(sockets).toHaveLength(2);
+    expect(distrustHistoryCoverage).toHaveBeenCalledTimes(2);
+    expect(distrustHistoryCoverage).toHaveBeenCalledWith([
+      'discord-one',
+      'discord-two',
+    ]);
+    expect(setHistoryCoverageInboundActive.mock.calls).toEqual([
+      [['discord-one', 'discord-two'], true],
+      [['discord-one', 'discord-two'], false],
+      [['discord-one', 'discord-two'], true],
+    ]);
     expect(JSON.parse(sockets[1]!.sent[1] || '{}')).toEqual({
       op: 6,
       d: { token: 'bot-token', session_id: 'session-1', seq: 3 },
     });
     channel.disconnect();
   });
+
+  it('distrusts Discord history before failed reconnect discovery', async () => {
+    vi.useFakeTimers();
+    const sockets: FakeWebSocket[] = [];
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockResolvedValueOnce(new Response('{}', { status: 500 }));
+    const distrustHistoryCoverage = vi.fn();
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        providerAccountId: 'discord-one',
+        distrustHistoryCoverage,
+      }),
+      (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    sockets[0]!.close();
+    expect(distrustHistoryCoverage).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sockets).toHaveLength(1);
+    channel.disconnect();
+  });
+
+  it('distrusts Discord history before a rejected live dispatch is swallowed', async () => {
+    let socket!: FakeWebSocket;
+    const order: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ url: 'wss://gateway.discord.test' }),
+    );
+    const gateway = new DiscordGatewayConnection({
+      botToken: 'bot-token',
+      apiRoot: 'https://discord.com/api/v10',
+      intents: 1,
+      inboundEnabled: true,
+      interactionCallbacksEnabled: true,
+      createWebSocket: (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+      onDispatch: vi.fn(async () => {
+        order.push('dispatch');
+        throw new Error('persistence rejected');
+      }),
+      onDispatchFailure: () => order.push('distrust'),
+    });
+
+    await gateway.connect();
+    socket.receive({ op: 0, t: 'MESSAGE_CREATE', s: 1, d: { id: 'm-1' } });
+
+    await vi.waitFor(() => expect(order).toEqual(['dispatch', 'distrust']));
+    gateway.disconnect();
+  });
+
+  it('keeps Discord inbound inactive when READY was queued before disconnect', async () => {
+    let socket!: FakeWebSocket;
+    const setInboundActive = vi.fn();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ url: 'wss://gateway.discord.test' }),
+    );
+    const gateway = new DiscordGatewayConnection({
+      botToken: 'bot-token',
+      apiRoot: 'https://discord.com/api/v10',
+      intents: 1,
+      inboundEnabled: true,
+      interactionCallbacksEnabled: true,
+      createWebSocket: (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+      onInboundStateChange: setInboundActive,
+      onDispatch: vi.fn(async () => undefined),
+    });
+
+    await gateway.connect();
+    const queuedMessage = socket.onmessage;
+    gateway.disconnect();
+    queuedMessage?.({
+      data: JSON.stringify({
+        op: 0,
+        t: 'READY',
+        s: 1,
+        d: { session_id: 'session-1' },
+      }),
+    });
+
+    await vi.waitFor(() => expect(setInboundActive).toHaveBeenCalledOnce());
+    expect(setInboundActive).toHaveBeenCalledWith(false);
+    expect(socket.onmessage).toBeNull();
+    expect(socket.onclose).toBeNull();
+  });
+
+  it('does not mark an interaction-only Discord gateway inbound-active', async () => {
+    let socket!: FakeWebSocket;
+    const setHistoryCoverageInboundActive = vi.fn();
+    const distrustHistoryCoverage = vi.fn();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ url: 'wss://gateway.discord.test' }),
+    );
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        providerAccountId: 'discord-one',
+        setHistoryCoverageInboundActive,
+        distrustHistoryCoverage,
+      }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect({ inbound: false, interactionCallbacks: true });
+    socket.receive({
+      op: 0,
+      t: 'READY',
+      s: 1,
+      d: { user: { id: 'bot-1' }, session_id: 'session-1' },
+    });
+
+    await vi.waitFor(() => expect(channel.isConnected()).toBe(true));
+    expect(setHistoryCoverageInboundActive).not.toHaveBeenCalled();
+    expect(distrustHistoryCoverage).not.toHaveBeenCalled();
+    await channel.disconnect();
+  });
+
+  it('ignores Discord deletion events on an interaction-only gateway', async () => {
+    let socket!: FakeWebSocket;
+    const onMessageAttachmentsDeleted = vi.fn(async () => undefined);
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ url: 'wss://gateway.discord.test' }));
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      deletionOpts({ onMessageAttachmentsDeleted }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect({ inbound: false, interactionCallbacks: true });
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_DELETE',
+      d: { id: 'message-1', channel_id: 'channel-1' },
+    });
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_DELETE_BULK',
+      d: { ids: ['message-1', 'message-2'], channel_id: 'channel-1' },
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(onMessageAttachmentsDeleted).not.toHaveBeenCalled();
+    await channel.disconnect();
+  });
+
+  it('routes one scoped callback for single and deduplicated bulk Discord deletions', async () => {
+    let socket!: FakeWebSocket;
+    const onMessageAttachmentsDeleted = vi.fn(async () => undefined);
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: 'channel-1', type: 0 }));
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      deletionOpts({ onMessageAttachmentsDeleted }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_DELETE',
+      d: { id: 'message-2', channel_id: 'channel-1' },
+    });
+    await vi.waitFor(() =>
+      expect(onMessageAttachmentsDeleted).toHaveBeenCalledOnce(),
+    );
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_DELETE_BULK',
+      d: {
+        ids: ['message-3', 'message-1', 'message-3'],
+        channel_id: 'channel-1',
+      },
+    });
+    await vi.waitFor(() =>
+      expect(onMessageAttachmentsDeleted).toHaveBeenCalledTimes(2),
+    );
+
+    expect(onMessageAttachmentsDeleted).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        providerId: 'discord',
+        channelId: 'dc:channel-1',
+        externalMessageIds: ['message-2'],
+      }),
+    );
+    expect(onMessageAttachmentsDeleted).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        providerId: 'discord',
+        channelId: 'dc:channel-1',
+        externalMessageIds: ['message-1', 'message-3'],
+      }),
+    );
+    await channel.disconnect();
+  });
+
+  it('fails and logs Discord deletion dispatch when the callback rejects', async () => {
+    let socket!: FakeWebSocket;
+    const callbackError = new Error('tombstone rejected');
+    const onMessageAttachmentsDeleted = vi.fn(async () => {
+      throw callbackError;
+    });
+    const distrustHistoryCoverage = vi.fn();
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: 'channel-1', type: 0 }));
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      deletionOpts({ onMessageAttachmentsDeleted, distrustHistoryCoverage }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_DELETE',
+      d: { id: 'message-1', channel_id: 'channel-1' },
+    });
+
+    await vi.waitFor(() => expect(distrustHistoryCoverage).toHaveBeenCalled());
+    expect(onMessageAttachmentsDeleted).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      { err: callbackError },
+      'Discord gateway message handling failed',
+    );
+    await channel.disconnect();
+  });
+
+  it('persists admitted raw deletion dispatch without a thread-parent lookup', async () => {
+    let socket!: FakeWebSocket;
+    const onMessageAttachmentsDeleted = vi.fn(async () => undefined);
+    const distrustHistoryCoverage = vi.fn();
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      );
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      deletionOpts({ onMessageAttachmentsDeleted, distrustHistoryCoverage }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_DELETE',
+      d: { id: 'message-1', channel_id: 'channel-1' },
+    });
+
+    await vi.waitFor(() =>
+      expect(onMessageAttachmentsDeleted).toHaveBeenCalledOnce(),
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(onMessageAttachmentsDeleted).toHaveBeenCalledWith(
+      expect.objectContaining({ channelId: 'dc:channel-1' }),
+    );
+    expect(distrustHistoryCoverage).not.toHaveBeenCalled();
+    await channel.disconnect();
+  });
+
+  it('defers unconfigured-channel admission to the durable stored-message check', async () => {
+    let socket!: FakeWebSocket;
+    const onMessageAttachmentsDeleted = vi.fn(async () => undefined);
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      );
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      deletionOpts({ onMessageAttachmentsDeleted }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_DELETE',
+      d: { id: 'message-1', channel_id: 'unconfigured-channel' },
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(onMessageAttachmentsDeleted).toHaveBeenCalledWith({
+      providerId: 'discord',
+      providerAccountIds: ['discord-default'],
+      channelId: 'unconfigured-channel',
+      fallbackConversationJid: 'dc:unconfigured-channel',
+      requireStoredMessageMatch: true,
+      externalMessageIds: ['message-1'],
+      deletedAt: expect.any(String),
+    });
+    await channel.disconnect();
+  });
+
+  it.each([7, 9])(
+    'distrusts Discord history immediately on gateway opcode %i',
+    async (opcode) => {
+      vi.useFakeTimers();
+      let socket!: FakeWebSocket;
+      const order: string[] = [];
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      );
+      const distrustHistoryCoverage = vi.fn(() => order.push('distrust'));
+      const channel = new DiscordChannel(
+        'bot-token',
+        'app-id',
+        opts({
+          providerAccountId: 'discord-one',
+          distrustHistoryCoverage,
+        }),
+        (url) => {
+          socket = new FakeWebSocket(url);
+          socket.close = vi.fn(() => order.push('close'));
+          return socket;
+        },
+      );
+
+      await channel.connect();
+      socket.receive({ op: opcode, d: opcode === 9 ? false : null });
+
+      expect(distrustHistoryCoverage).toHaveBeenCalledOnce();
+      expect(order).toEqual(['distrust', 'close']);
+      await vi.advanceTimersByTimeAsync(1_000);
+      socket.receive({ op: 0, t: 'READY', s: 1, d: { session_id: 'next' } });
+
+      expect(distrustHistoryCoverage).toHaveBeenCalledTimes(2);
+      expect(order).toEqual(['distrust', 'close', 'distrust']);
+      channel.disconnect();
+    },
+  );
 
   it('routes /gantry slash interactions and live Stop button interactions', async () => {
     let socket!: FakeWebSocket;
@@ -1884,13 +3315,21 @@ describe('DiscordChannel', () => {
     );
 
     await channel.connect();
-    const approval = channel.requestPermissionApproval('dc:channel-1', {
-      requestId: 'permission-1',
-      sourceAgentFolder: 'main_agent',
-      toolName: 'RunCommand',
-      targetJid: 'dc:channel-1',
-    });
+    const onPromptDelivered = vi.fn();
+    const approval = channel.requestPermissionApproval(
+      'dc:channel-1',
+      {
+        requestId: 'permission-1',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'RunCommand',
+        targetJid: 'dc:channel-1',
+        approvalContextJid: 'dc:approval-context',
+      },
+      onPromptDelivered,
+    );
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onPromptDelivered).toHaveBeenCalledOnce();
+    expect(onPromptDelivered).toHaveBeenCalledWith('message-1');
     socket.receive({
       op: 0,
       t: 'INTERACTION_CREATE',
@@ -1899,7 +3338,12 @@ describe('DiscordChannel', () => {
         token: 'token-1',
         type: 3,
         channel_id: 'channel-1',
-        data: { custom_id: 'gantry:perm:permission-1:allow_once' },
+        data: {
+          custom_id: permissionCustomId(
+            latestDiscordPermissionAlias(),
+            'allow_once',
+          ),
+        },
         member: { user: { id: 'user-1', username: 'Ravi' } },
       },
     });
@@ -1911,13 +3355,1124 @@ describe('DiscordChannel', () => {
     });
     expect(isControlApproverAllowed).toHaveBeenCalledWith({
       providerId: 'discord',
-      conversationJid: 'dc:channel-1',
+      conversationJid: 'dc:approval-context',
       userId: 'user-1',
       sourceAgentFolder: 'main_agent',
       decisionPolicy: 'same_channel',
     });
     await channel.disconnect();
     vi.restoreAllMocks();
+  });
+
+  it('resolves a local approval on disconnect when its durable cancel claim is retryable', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
+    durabilityMocks.claimPermissionInteractionCallback.mockResolvedValue({
+      status: 'retryable',
+    });
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts(),
+      (url) => new FakeWebSocket(url),
+    );
+
+    await channel.connect();
+    const approval = channel.requestPermissionApproval('dc:channel-1', {
+      requestId: 'permission-disconnect-retryable',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      targetJid: 'dc:channel-1',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await channel.disconnect();
+
+    await expect(approval).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'system',
+      reason: 'channel disconnected',
+    });
+  });
+
+  it('resolves an ownerless Discord permission waiter on disconnect', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
+    durabilityMocks.claimPermissionInteractionCallback.mockResolvedValue({
+      status: 'already_decided',
+      ownerless: true,
+    });
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts(),
+      (url) => new FakeWebSocket(url),
+    );
+
+    await channel.connect();
+    const approval = channel.requestPermissionApproval('dc:channel-1', {
+      requestId: 'permission-disconnect-ownerless',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      targetJid: 'dc:channel-1',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await channel.disconnect();
+
+    await expect(approval).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'system',
+      reason: 'channel disconnected',
+    });
+    expect((channel as any).interactions.pendingPermissions.size).toBe(0);
+  });
+
+  it('preserves a Discord permission waiter owned by an in-flight winner on disconnect', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
+    durabilityMocks.claimPermissionInteractionCallback.mockResolvedValue({
+      status: 'already_decided',
+    });
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts(),
+      (url) => new FakeWebSocket(url),
+    );
+    await channel.connect();
+    const approval = channel.requestPermissionApproval('dc:channel-1', {
+      requestId: 'permission-disconnect-winner',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      targetJid: 'dc:channel-1',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    let resolved = false;
+    void approval.then(() => {
+      resolved = true;
+    });
+
+    await channel.disconnect();
+    await Promise.resolve();
+
+    expect(resolved).toBe(false);
+    const prompts = (channel as any).interactions.pendingPermissions as Map<
+      string,
+      any
+    >;
+    expect(prompts.size).toBe(1);
+    const pending = prompts.values().next().value;
+    clearTimeout(pending.timeout);
+    pending.resolve({ approved: true, mode: 'allow_once', decidedBy: 'owner' });
+    prompts.clear();
+    await approval;
+  });
+
+  it('drops matching Discord permission and question waiters without resolving them', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts(),
+      (url) => new FakeWebSocket(url),
+    );
+    await channel.connect();
+    const permissionRequest = {
+      requestId: 'permission-drop-shadow',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      targetJid: 'dc:channel-1',
+    };
+    const questionRequest = {
+      requestId: 'question-drop-shadow',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'dc:channel-1',
+      questions: [
+        {
+          question: 'Continue?',
+          multiSelect: false,
+          options: [{ label: 'Yes', description: 'Continue' }],
+        },
+      ],
+    };
+    const approval = channel.requestPermissionApproval(
+      'dc:channel-1',
+      permissionRequest,
+    );
+    const answer = channel.requestUserAnswer('dc:channel-1', questionRequest);
+    let resolved = 0;
+    void approval.then(() => {
+      resolved += 1;
+    });
+    void answer.then(() => {
+      resolved += 1;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    channel.dropPendingInteraction('permission', permissionRequest);
+    channel.dropPendingInteraction('question', questionRequest);
+    await Promise.resolve();
+
+    expect((channel as any).interactions.pendingPermissions.size).toBe(0);
+    expect((channel as any).interactions.pendingQuestions.size).toBe(0);
+    expect(resolved).toBe(0);
+    await channel.disconnect();
+  });
+
+  it('preserves partial Discord question answers on disconnect', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts(),
+      (url) => new FakeWebSocket(url),
+    );
+    await channel.connect();
+    const answer = channel.requestUserAnswer('dc:channel-1', {
+      requestId: 'question-disconnect-partial',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'dc:channel-1',
+      questions: [
+        {
+          question: 'First?',
+          multiSelect: false,
+          options: [{ label: 'Yes', description: 'Continue' }],
+        },
+        {
+          question: 'Second?',
+          multiSelect: false,
+          options: [{ label: 'No', description: 'Stop' }],
+        },
+      ],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const pending = [
+      ...(channel as any).interactions.pendingQuestions.values(),
+    ][0];
+    pending.answers['First?'] = 'Yes';
+    pending.finalizedQuestions.add(0);
+
+    await channel.disconnect();
+
+    await expect(answer).resolves.toEqual({
+      requestId: 'question-disconnect-partial',
+      answers: { 'First?': 'Yes' },
+    });
+  });
+
+  it('keeps approvals pending at the shared no-timeout boundary', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS', '0');
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts(),
+      (url) => new FakeWebSocket(url),
+    );
+
+    await channel.connect();
+    const approval = channel.requestPermissionApproval('dc:channel-1', {
+      requestId: 'permission-shared-timeout',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      targetJid: 'dc:channel-1',
+      permissionLane: 'interactive',
+    });
+    let settled = false;
+    void approval.then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+    expect(settled).toBe(false);
+    expect((channel as any).interactions.pendingPermissions.size).toBe(1);
+    const pending = [
+      ...(channel as any).interactions.pendingPermissions.values(),
+    ][0];
+    expect(pending.timeout).toBeUndefined();
+
+    await channel.disconnect();
+    await expect(approval).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      reason: 'channel disconnected',
+    });
+  });
+
+  it('settles an autonomous Discord permission using its lane timeout without a job id', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '10000');
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts(),
+      (url) => new FakeWebSocket(url),
+    );
+
+    await channel.connect();
+    const approval = channel.requestPermissionApproval('dc:channel-1', {
+      requestId: 'permission-autonomous-lane-timeout',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      targetJid: 'dc:channel-1',
+      permissionLane: 'autonomous',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const pending = [
+      ...(channel as any).interactions.pendingPermissions.values(),
+    ][0];
+    expect(pending.timeout).toBeDefined();
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect((channel as any).interactions.pendingPermissions.size).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(approval).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'system',
+      reason: 'timed out',
+    });
+    expect((channel as any).interactions.pendingPermissions.size).toBe(0);
+    await channel.disconnect();
+  });
+
+  it('prefers a Discord permission expiry and recomputes its remaining delay after delivery', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T00:00:00.000Z'));
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockImplementation(async (_input, init) => {
+        if (init?.method === 'POST') {
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, 30_000);
+          });
+        }
+        return jsonResponse({ id: 'message-expiring' });
+      });
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts(),
+      (url) => new FakeWebSocket(url),
+    );
+
+    await channel.connect();
+    const request = {
+      requestId: 'permission-explicit-expiry',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      targetJid: 'dc:channel-1',
+      expiresAt: '2026-07-17T00:01:00.000Z',
+    };
+    const approval = channel.requestPermissionApproval('dc:channel-1', request);
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect((channel as any).interactions.pendingPermissions.size).toBe(1);
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect((channel as any).interactions.pendingPermissions.size).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(approval).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'system',
+      reason: 'timed out',
+    });
+    expect((channel as any).interactions.pendingPermissions.size).toBe(0);
+    await channel.disconnect();
+  });
+
+  it('does not start timeout claim retries for a no-timeout Discord waiter', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS', '0');
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
+    durabilityMocks.claimPermissionInteractionCallback.mockResolvedValue({
+      status: 'retryable',
+    });
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts(),
+      (url) => new FakeWebSocket(url),
+    );
+
+    await channel.connect();
+    const approval = channel.requestPermissionApproval('dc:channel-1', {
+      requestId: 'permission-timeout-retryable',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      targetJid: 'dc:channel-1',
+      permissionLane: 'interactive',
+    });
+    await vi.advanceTimersByTimeAsync(600_000);
+
+    expect(
+      durabilityMocks.claimPermissionInteractionCallback,
+    ).not.toHaveBeenCalled();
+    expect((channel as any).interactions.pendingPermissions.size).toBe(1);
+
+    await channel.disconnect();
+    await expect(approval).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'system',
+      reason: 'channel disconnected',
+    });
+    expect(
+      durabilityMocks.claimPermissionInteractionCallback,
+    ).toHaveBeenCalledTimes(1);
+    expect((channel as any).interactions.pendingPermissions.size).toBe(0);
+  });
+
+  it('does not schedule an interactive sentinel Discord question timer', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts(),
+      (url) => new FakeWebSocket(url),
+    );
+
+    await channel.connect();
+    const answer = channel.requestUserAnswer('dc:channel-1', {
+      requestId: 'question-interactive-no-timeout',
+      sourceAgentFolder: 'main_agent',
+      questions: [
+        {
+          question: 'Continue?',
+          header: 'Continue',
+          options: [{ label: 'Yes', description: 'Proceed' }],
+          multiSelect: false,
+        },
+      ],
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const pending = [
+      ...(channel as any).interactions.pendingQuestions.values(),
+    ][0];
+    expect(pending.timeout).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+    expect((channel as any).interactions.pendingQuestions.size).toBe(1);
+
+    await channel.disconnect();
+    await expect(answer).resolves.toEqual({
+      requestId: 'question-interactive-no-timeout',
+      answers: {},
+    });
+  });
+
+  it('preserves earlier Discord answers when a later question times out', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '600000');
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts(),
+      (url) => new FakeWebSocket(url),
+    );
+
+    await channel.connect();
+    const answer = channel.requestUserAnswer('dc:channel-1', {
+      requestId: 'question-unrelated-timeout',
+      sourceAgentFolder: 'main_agent',
+      permissionLane: 'autonomous',
+      questions: [
+        {
+          question: 'First?',
+          header: 'First',
+          options: [{ label: 'Yes', description: 'Continue' }],
+          multiSelect: false,
+        },
+        {
+          question: 'Second?',
+          header: 'Second',
+          options: [{ label: 'No', description: 'Stop' }],
+          multiSelect: false,
+        },
+      ],
+    } as import('@core/domain/types.js').UserQuestionRequest & {
+      permissionLane: 'autonomous';
+    });
+    let settled = false;
+    void answer.then(() => {
+      settled = true;
+    });
+    durabilityMocks.recordDurableQuestionAnswerProgress.mockImplementation(
+      async () => {
+        expect(settled).toBe(false);
+        return true;
+      },
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    const pending = [
+      ...(channel as any).interactions.pendingQuestions.values(),
+    ][0];
+    pending.answers['First?'] = 'Yes';
+    pending.finalizedQuestions.add(0);
+
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000 - 1);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(answer).resolves.toEqual({
+      requestId: 'question-unrelated-timeout',
+      answers: { 'First?': 'Yes', 'Second?': '' },
+    });
+    expect(
+      durabilityMocks.recordDurableQuestionAnswerProgress,
+    ).toHaveBeenCalledWith({
+      requestId: 'question-unrelated-timeout',
+      appId: undefined,
+      sourceAgentFolder: 'main_agent',
+      answers: { 'Second?': '' },
+      completedQuestionIndexes: [1],
+    });
+    await channel.disconnect();
+  });
+
+  it('rejects a Discord timeout when completion cannot be persisted', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '600000');
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
+    durabilityMocks.recordDurableQuestionAnswerProgress.mockRejectedValueOnce(
+      new Error('database unavailable'),
+    );
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts(),
+      (url) => new FakeWebSocket(url),
+    );
+
+    await channel.connect();
+    const answer = channel.requestUserAnswer('dc:channel-1', {
+      requestId: 'question-timeout-persistence-failure',
+      sourceAgentFolder: 'main_agent',
+      permissionLane: 'autonomous',
+      questions: [
+        {
+          question: 'Continue?',
+          multiSelect: false,
+          options: [{ label: 'Yes', description: 'Continue' }],
+        },
+      ],
+    } as import('@core/domain/types.js').UserQuestionRequest & {
+      permissionLane: 'autonomous';
+    });
+    const rejection = answer.catch((err) => err);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+    await expect(rejection).resolves.toBeInstanceOf(
+      durabilityMocks.DurableInteractionPersistenceError,
+    );
+    expect((channel as any).interactions.pendingQuestions.size).toBe(1);
+    await channel.disconnect();
+  });
+
+  it('keeps colliding Discord request ids scoped to the authorized agent', async () => {
+    let socket!: FakeWebSocket;
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({ isControlApproverAllowed: vi.fn(async () => true) }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+    await channel.connect();
+    const first = channel.requestPermissionApproval('dc:channel-1', {
+      requestId: 'shared-request',
+      sourceAgentFolder: 'agent-a',
+      targetJid: 'dc:channel-1',
+      toolName: 'RunCommand',
+    });
+    await vi.waitFor(() =>
+      expect(
+        durabilityMocks.bindPendingPermissionInteractionMessage,
+      ).toHaveBeenCalledTimes(2),
+    );
+    const firstAlias = latestDiscordPermissionAlias();
+    const second = channel.requestPermissionApproval('dc:channel-1', {
+      requestId: 'shared-request',
+      sourceAgentFolder: 'agent-b',
+      targetJid: 'dc:channel-1',
+      toolName: 'RunCommand',
+    });
+    await vi.waitFor(() =>
+      expect(
+        durabilityMocks.bindPendingPermissionInteractionMessage,
+      ).toHaveBeenCalledTimes(4),
+    );
+    const secondAlias = latestDiscordPermissionAlias();
+    let secondSettled = false;
+    void second.then(() => {
+      secondSettled = true;
+    });
+    const click = (providerAlias: string, mode: 'allow_once' | 'cancel') =>
+      socket.receive({
+        op: 0,
+        t: 'INTERACTION_CREATE',
+        d: {
+          id: `interaction-${providerAlias}`,
+          token: `token-${providerAlias}`,
+          type: 3,
+          channel_id: 'channel-1',
+          data: { custom_id: permissionCustomId(providerAlias, mode) },
+          member: { user: { id: 'user-1', username: 'Ravi' } },
+        },
+      });
+
+    click(firstAlias, 'allow_once');
+    await expect(first).resolves.toMatchObject({ approved: true });
+    expect(secondSettled).toBe(false);
+    click(secondAlias, 'cancel');
+    await expect(second).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+    });
+    await channel.disconnect();
+  });
+
+  it('deletes an approved Discord batch prompt before Review each settles', async () => {
+    let socket!: FakeWebSocket;
+    durabilityMocks.bindPendingPermissionInteractionMessage.mockResolvedValue(
+      true,
+    );
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: 'batch-message-1' }))
+      .mockResolvedValue(jsonResponse({}));
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({ isControlApproverAllowed: vi.fn(async () => true) }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+    const batchRequest = createPermissionBatchRequest(
+      [
+        {
+          requestId: 'permission-1',
+          sourceAgentFolder: 'main_agent',
+          targetJid: 'dc:channel-1',
+          toolName: 'RunCommand',
+        },
+        {
+          requestId: 'permission-2',
+          sourceAgentFolder: 'main_agent',
+          targetJid: 'dc:channel-1',
+          toolName: 'RunCommand',
+        },
+      ],
+      ['1. Command (git status)', '2. Command (git diff)'],
+    );
+
+    await channel.connect();
+    const approval = channel.requestPermissionApproval(
+      'dc:channel-1',
+      batchRequest,
+    );
+    await vi.waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://discord.com/api/v10/channels/channel-1/messages',
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    );
+    socket.receive({
+      op: 0,
+      t: 'INTERACTION_CREATE',
+      d: {
+        id: 'interaction-review',
+        token: 'token-review',
+        type: 3,
+        channel_id: 'channel-1',
+        data: {
+          custom_id: permissionCustomId(
+            latestDiscordPermissionAlias(),
+            'allow_persistent_rule',
+          ),
+        },
+        member: { user: { id: 'user-1', username: 'Ravi' } },
+      },
+    });
+
+    await expect(approval).resolves.toMatchObject({
+      approved: true,
+      batchDecision: 'review_each',
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/channel-1/messages/batch-message-1',
+      expect.objectContaining({
+        method: 'DELETE',
+      }),
+    );
+    await channel.disconnect();
+  });
+
+  it('clears a live Discord batch prompt when its post-send binding is already resolved', async () => {
+    durabilityMocks.bindPendingPermissionInteractionMessage
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ id: 'batch-message-1' }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const batch = createPermissionBatchRequest(
+      [
+        {
+          requestId: 'permission-1',
+          sourceAgentFolder: 'main_agent',
+          targetJid: 'dc:channel-1',
+          toolName: 'RunCommand',
+        },
+        {
+          requestId: 'permission-2',
+          sourceAgentFolder: 'main_agent',
+          targetJid: 'dc:channel-1',
+          toolName: 'RunCommand',
+        },
+      ],
+      ['1. Command', '2. File action'],
+    );
+    const onPromptDelivered = vi.fn();
+
+    await expect(
+      channel.requestPermissionApproval(
+        'dc:channel-1',
+        batch,
+        onPromptDelivered,
+      ),
+    ).resolves.toMatchObject({ approved: false, mode: 'cancel' });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(
+      durabilityMocks.bindPendingPermissionInteractionMessage,
+    ).toHaveBeenCalledTimes(2);
+    expect(onPromptDelivered).not.toHaveBeenCalled();
+    expect((channel as any).interactions.pendingPermissions.size).toBe(0);
+  });
+
+  it('propagates a typed Discord post-send binding failure and retains the live waiter', async () => {
+    const persistenceError =
+      new durabilityMocks.DurableInteractionPersistenceError('binding failed');
+    durabilityMocks.bindPendingPermissionInteractionMessage
+      .mockResolvedValueOnce(true)
+      .mockRejectedValueOnce(persistenceError);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ id: 'permission-message-1' }),
+    );
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await expect(
+      channel.requestPermissionApproval('dc:channel-1', {
+        requestId: 'permission-post-send-persistence-failure',
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'dc:channel-1',
+        toolName: 'RunCommand',
+      }),
+    ).rejects.toBe(persistenceError);
+
+    expect((channel as any).interactions.pendingPermissions.size).toBe(1);
+    await channel.disconnect();
+  });
+
+  it('binds chunked Discord prompts to the final message for restart recovery', async () => {
+    durabilityMocks.bindPendingPermissionInteractionMessage
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ id: 'batch-message-1' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'batch-message-2' }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const batch = createPermissionBatchRequest(
+      [
+        {
+          requestId: 'permission-chunked',
+          sourceAgentFolder: 'main_agent',
+          targetJid: 'dc:channel-1',
+          toolName: 'RunCommand',
+        },
+      ],
+      [`1. ${'x'.repeat(2100)}`],
+    );
+
+    await expect(
+      channel.requestPermissionApproval('dc:channel-1', batch),
+    ).resolves.toMatchObject({ approved: false, mode: 'cancel' });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      durabilityMocks.bindPendingPermissionInteractionMessage,
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({ externalMessageId: 'batch-message-2' }),
+    );
+  });
+
+  it('replaces an approved Discord prompt before releasing after delete failure', async () => {
+    let finishPatch!: () => void;
+    const patchResponse = new Promise<Response>((resolve) => {
+      finishPatch = () => resolve(jsonResponse({}));
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 500 }))
+      .mockImplementationOnce(async () => patchResponse);
+    const resolve = vi.fn();
+    const decision = { approved: true, mode: 'allow_once' } as const;
+    const timeout = setTimeout(() => undefined, 60_000);
+    const request = {
+      requestId: 'permission-1',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'dc:channel-1',
+      toolName: 'RunCommand',
+      toolInput: { command: 'git status' },
+    };
+    const pending = pendingDiscordPermissionPrompt(
+      discordPermissionCallback(request.requestId),
+      request,
+      { externalMessageId: 'message-1' },
+      'channel-1',
+      resolve,
+      timeout,
+    );
+    const pendingPermissions = new Map([
+      [pending.callback.providerAlias, pending],
+    ]);
+
+    const settlement = settleDiscordPermissionPrompt(
+      pendingPermissions,
+      pending.callback.providerAlias,
+      decision,
+      { botToken: 'bot-token' },
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://discord.com/api/v10/channels/channel-1/messages/message-1',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          content:
+            'Allowed once: Command (git status). The agent will continue this request.',
+          components: [],
+        }),
+      }),
+    );
+    expect(resolve).not.toHaveBeenCalled();
+
+    finishPatch();
+    await expect(settlement).resolves.toBe(true);
+    expect(resolve).toHaveBeenCalledWith(decision);
+  });
+
+  it('does not release a Discord decision when delete and fallback update fail', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 500 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 500 }));
+    const resolve = vi.fn();
+    const timeout = setTimeout(() => undefined, 60_000);
+    const request = {
+      requestId: 'permission-terminalization-failure',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'dc:channel-1',
+      toolName: 'RunCommand',
+    };
+    const pending = pendingDiscordPermissionPrompt(
+      discordPermissionCallback(request.requestId),
+      request,
+      { externalMessageId: 'message-1' },
+      'channel-1',
+      resolve,
+      timeout,
+    );
+    const pendingPermissions = new Map([
+      [pending.callback.providerAlias, pending],
+    ]);
+
+    await expect(
+      settleDiscordPermissionPrompt(
+        pendingPermissions,
+        pending.callback.providerAlias,
+        { approved: true, mode: 'allow_once' },
+        { botToken: 'bot-token' },
+      ),
+    ).resolves.toBe(false);
+
+    expect(resolve).not.toHaveBeenCalled();
+    expect(pendingPermissions.get(pending.callback.providerAlias)).toBe(
+      pending,
+    );
+    clearTimeout(timeout);
+  });
+
+  it('releases the durable claim after failed settlement so a retry click succeeds', async () => {
+    let socket!: FakeWebSocket;
+    let deleteAttempts = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/gateway/bot')) {
+        return jsonResponse({ url: 'wss://gateway.discord.test' });
+      }
+      if (url.endsWith('/channels/channel-1/messages')) {
+        return jsonResponse({ id: 'message-1' });
+      }
+      if (url.includes('/interactions/')) return jsonResponse({});
+      if (url.endsWith('/channels/channel-1/messages/message-1')) {
+        if (init?.method === 'DELETE') {
+          deleteAttempts += 1;
+          return new Response('{}', {
+            status: deleteAttempts === 1 ? 500 : 200,
+          });
+        }
+        if (init?.method === 'PATCH') {
+          return new Response('{}', { status: 500 });
+        }
+      }
+      return jsonResponse({});
+    });
+    let heldClaim: { id: string; scope: any } | null = null;
+    durabilityMocks.claimPermissionInteractionCallback.mockImplementation(
+      async (input: any) => {
+        if (heldClaim) return { status: 'already_decided' };
+        heldClaim = { id: `claim-${deleteAttempts}`, scope: input.scope };
+        return { status: 'claimed', claim: heldClaim };
+      },
+    );
+    durabilityMocks.releasePermissionInteractionCallback.mockImplementation(
+      async () => {
+        heldClaim = null;
+        return true;
+      },
+    );
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({ isControlApproverAllowed: vi.fn(async () => true) }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    const onPromptDelivered = vi.fn();
+    const approval = channel.requestPermissionApproval(
+      'dc:channel-1',
+      {
+        requestId: 'permission-retry',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'RunCommand',
+        targetJid: 'dc:channel-1',
+      },
+      onPromptDelivered,
+    );
+    await vi.waitFor(() => expect(onPromptDelivered).toHaveBeenCalledOnce());
+
+    const click = (id: string) =>
+      socket.receive({
+        op: 0,
+        t: 'INTERACTION_CREATE',
+        d: {
+          id,
+          token: `${id}-token`,
+          type: 3,
+          channel_id: 'channel-1',
+          data: {
+            custom_id: permissionCustomId(
+              latestDiscordPermissionAlias(),
+              'allow_once',
+            ),
+          },
+          member: { user: { id: 'user-1', username: 'Ravi' } },
+        },
+      });
+
+    click('interaction-first');
+    await vi.waitFor(() =>
+      expect(
+        durabilityMocks.releasePermissionInteractionCallback,
+      ).toHaveBeenCalledWith({
+        claim: expect.objectContaining({
+          scope: expect.objectContaining({
+            interactionId: 'permission-retry',
+          }),
+        }),
+      }),
+    );
+    click('interaction-retry');
+
+    await expect(approval).resolves.toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+    });
+    expect(
+      durabilityMocks.claimPermissionInteractionCallback,
+    ).toHaveBeenCalledTimes(2);
+    expect(deleteAttempts).toBe(2);
+    await channel.disconnect();
+  });
+
+  it('settles the final component-bearing message for chunked batch prompts', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({}));
+    const batchRequest = createPermissionBatchRequest(
+      [
+        {
+          requestId: 'permission-1',
+          sourceAgentFolder: 'main_agent',
+          targetJid: 'dc:channel-1',
+          toolName: 'RunCommand',
+        },
+        {
+          requestId: 'permission-2',
+          sourceAgentFolder: 'main_agent',
+          targetJid: 'dc:channel-1',
+          toolName: 'RunCommand',
+        },
+      ],
+      ['1. Command (git status)', '2. Command (git diff)'],
+    );
+    const timeout = setTimeout(() => undefined, 60_000);
+    const pending = pendingDiscordPermissionPrompt(
+      discordPermissionCallback(batchRequest.requestId),
+      batchRequest,
+      {
+        externalMessageId: 'batch-message-1',
+        externalMessageIds: ['batch-message-1', 'batch-message-2'],
+      },
+      'channel-1',
+      vi.fn(),
+      timeout,
+    );
+
+    await expect(
+      consumeDiscordPermissionPrompt(
+        pending,
+        { botToken: 'bot-token' },
+        { approved: false, mode: 'cancel' },
+      ),
+    ).resolves.toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/channel-1/messages/batch-message-2',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          content: 'Canceled: Review 2 permission requests. Nothing changed.',
+          components: [],
+        }),
+      }),
+    );
+    clearTimeout(timeout);
+  });
+
+  it('edits a timed-out Discord prompt to a minimal receipt', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({}));
+    const timeout = setTimeout(() => undefined, 60_000);
+    const pending = pendingDiscordPermissionPrompt(
+      discordPermissionCallback('permission-timeout'),
+      {
+        requestId: 'permission-timeout',
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'dc:channel-1',
+        toolName: 'RunCommand',
+      },
+      { externalMessageId: 'message-timeout' },
+      'channel-1',
+      vi.fn(),
+      timeout,
+    );
+
+    await consumeDiscordPermissionPrompt(
+      pending,
+      { botToken: 'bot-token' },
+      {
+        approved: false,
+        mode: 'cancel',
+        reason: 'timed out',
+      },
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/channel-1/messages/message-timeout',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          content: 'Permission request timed out.',
+          components: [],
+        }),
+      }),
+    );
+    clearTimeout(timeout);
   });
 
   it('shows Discord full permission payload only in an ephemeral interaction response', async () => {
@@ -1947,6 +4502,7 @@ describe('DiscordChannel', () => {
       toolName: 'RunCommand',
       toolInput: { command },
       targetJid: 'dc:channel-1',
+      approvalContextJid: 'dc:approval-context',
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -1961,12 +4517,13 @@ describe('DiscordChannel', () => {
         components: Array<{ label: string; custom_id: string }>;
       }>;
     };
+    const providerAlias = latestDiscordPermissionAlias();
     expect(promptBody.content).not.toContain(command);
     expect(promptBody.components.flatMap((row) => row.components)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           label: 'View full command',
-          custom_id: 'gantry:perm_full:permission-1',
+          custom_id: `gantry:perm_full:${providerAlias}`,
         }),
       ]),
     );
@@ -1979,7 +4536,7 @@ describe('DiscordChannel', () => {
         token: 'token-full-view',
         type: 3,
         channel_id: 'channel-1',
-        data: { custom_id: 'gantry:perm_full:permission-1' },
+        data: { custom_id: `gantry:perm_full:${providerAlias}` },
         member: { user: { id: 'user-1', username: 'Ravi' } },
       },
     });
@@ -2001,6 +4558,13 @@ describe('DiscordChannel', () => {
         },
       },
     );
+    expect(isControlApproverAllowed).toHaveBeenCalledWith({
+      providerId: 'discord',
+      conversationJid: 'dc:approval-context',
+      userId: 'user-1',
+      sourceAgentFolder: 'main_agent',
+      decisionPolicy: 'same_channel',
+    });
 
     await channel.disconnect();
     await expect(approval).resolves.toMatchObject({
@@ -2031,6 +4595,17 @@ describe('DiscordChannel', () => {
         },
       },
     );
+    durabilityMocks.findDurablePermissionInteractionByPromptMessage.mockResolvedValue(
+      {
+        scope: {
+          appId: 'default',
+          sourceAgentFolder: 'main_agent',
+          interactionId: 'permission-1',
+        },
+        providerAlias: 'alias-permission-1',
+        matchKind: 'individual',
+      },
+    );
     const channel = new DiscordChannel(
       'bot-token',
       'app-id',
@@ -2050,7 +4625,8 @@ describe('DiscordChannel', () => {
         token: 'token-full-view',
         type: 3,
         channel_id: 'channel-1',
-        data: { custom_id: 'gantry:perm_full:permission-1' },
+        message: { id: 'message-1' },
+        data: { custom_id: 'gantry:perm_full:alias-permission-1' },
         member: { user: { id: 'user-1', username: 'Ravi' } },
       },
     });
@@ -2084,6 +4660,9 @@ describe('DiscordChannel', () => {
   });
 
   it('resolves user questions from authorized Discord button clicks', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValueOnce(
+      'question-question-1-0',
+    );
     let socket!: FakeWebSocket;
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
@@ -2101,23 +4680,29 @@ describe('DiscordChannel', () => {
     );
 
     await channel.connect();
-    const answer = channel.requestUserAnswer('dc:channel-1', {
-      requestId: 'question-1',
-      sourceAgentFolder: 'main_agent',
-      targetJid: 'dc:channel-1',
-      questions: [
-        {
-          header: 'mode',
-          question: 'Choose mode',
-          multiSelect: false,
-          options: [
-            { label: 'Fast', description: 'Use the fast path' },
-            { label: 'Careful', description: 'Use the careful path' },
-          ],
-        },
-      ],
-    });
+    const onPromptDelivered = vi.fn();
+    const answer = channel.requestUserAnswer(
+      'dc:channel-1',
+      {
+        requestId: 'question-1',
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'dc:channel-1',
+        questions: [
+          {
+            header: 'mode',
+            question: 'Choose mode',
+            multiSelect: false,
+            options: [
+              { label: 'Fast', description: 'Use the fast path' },
+              { label: 'Careful', description: 'Use the careful path' },
+            ],
+          },
+        ],
+      },
+      onPromptDelivered,
+    );
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onPromptDelivered).toHaveBeenCalledWith('message-1', 0);
     socket.receive({
       op: 0,
       t: 'INTERACTION_CREATE',
@@ -2126,7 +4711,7 @@ describe('DiscordChannel', () => {
         token: 'token-1',
         type: 3,
         channel_id: 'channel-1',
-        data: { custom_id: 'gantry:q:question-1:0:1' },
+        data: { custom_id: 'gantry:q:question-question-1-0:1' },
         member: { user: { id: 'user-1', username: 'Ravi' } },
       },
     });
@@ -2141,6 +4726,9 @@ describe('DiscordChannel', () => {
   });
 
   it('waits for every Discord question before resolving answers', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID')
+      .mockReturnValueOnce('question-question-1-0')
+      .mockReturnValueOnce('question-question-1-1');
     let socket!: FakeWebSocket;
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
@@ -2186,7 +4774,7 @@ describe('DiscordChannel', () => {
         token: 'token-1',
         type: 3,
         channel_id: 'channel-1',
-        data: { custom_id: 'gantry:q:question-1:0:0' },
+        data: { custom_id: 'gantry:q:question-question-1-0:0' },
         member: { user: { id: 'user-1', username: 'Ravi' } },
       },
     });
@@ -2199,7 +4787,7 @@ describe('DiscordChannel', () => {
         token: 'token-2',
         type: 3,
         channel_id: 'channel-1',
-        data: { custom_id: 'gantry:q:question-1:1:0' },
+        data: { custom_id: 'gantry:q:question-question-1-1:0' },
         member: { user: { id: 'user-1', username: 'Ravi' } },
       },
     });
@@ -2214,13 +4802,35 @@ describe('DiscordChannel', () => {
   });
 
   it('resolves Discord multi-select questions only after Done', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValueOnce(
+      'question-question-multi-0',
+    );
     let socket!: FakeWebSocket;
-    vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(
-        jsonResponse({ url: 'wss://gateway.discord.test' }),
-      )
-      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
-    const channel = new DiscordChannel(
+    const events: string[] = [];
+    const localSelectionsBeforePersistence: Array<string[] | undefined> = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === 'https://discord.com/api/v10/gateway/bot') {
+        return jsonResponse({ url: 'wss://gateway.discord.test' });
+      }
+      const interactionId = /\/interactions\/(interaction-\d+)\//.exec(
+        url,
+      )?.[1];
+      if (interactionId) events.push(`ack:${interactionId}`);
+      return jsonResponse({ id: 'message-1' });
+    });
+    let channel!: DiscordChannel;
+    durabilityMocks.resolveDurableQuestionInteractionByRequestId.mockImplementation(
+      async (input: { optionIndex?: number }) => {
+        const pending = [
+          ...(channel as any).interactions.pendingQuestions.values(),
+        ][0];
+        localSelectionsBeforePersistence.push(pending.answers['Which checks?']);
+        events.push(`persist:${input.optionIndex}`);
+        return true;
+      },
+    );
+    channel = new DiscordChannel(
       'bot-token',
       'app-id',
       opts({ isControlApproverAllowed: vi.fn(async () => true) }),
@@ -2256,7 +4866,7 @@ describe('DiscordChannel', () => {
         token: 'token-1',
         type: 3,
         channel_id: 'channel-1',
-        data: { custom_id: 'gantry:q:question-multi:0:0' },
+        data: { custom_id: 'gantry:q:question-question-multi-0:0' },
         member: { user: { id: 'user-1', username: 'Ravi' } },
       },
     });
@@ -2269,7 +4879,7 @@ describe('DiscordChannel', () => {
         token: 'token-2',
         type: 3,
         channel_id: 'channel-1',
-        data: { custom_id: 'gantry:q:question-multi:0:1' },
+        data: { custom_id: 'gantry:q:question-question-multi-0:1' },
         member: { user: { id: 'user-1', username: 'Ravi' } },
       },
     });
@@ -2282,7 +4892,7 @@ describe('DiscordChannel', () => {
         token: 'token-3',
         type: 3,
         channel_id: 'channel-1',
-        data: { custom_id: 'gantry:q:question-multi:0:-1' },
+        data: { custom_id: 'gantry:q:question-question-multi-0:-1' },
         member: { user: { id: 'user-1', username: 'Ravi' } },
       },
     });
@@ -2292,31 +4902,116 @@ describe('DiscordChannel', () => {
       answers: { 'Which checks?': ['Unit', 'Typecheck'] },
       answeredBy: 'user-1',
     });
+    expect(localSelectionsBeforePersistence).toEqual([undefined, ['Unit']]);
+    expect(events.indexOf('persist:0')).toBeLessThan(
+      events.indexOf('ack:interaction-1'),
+    );
+    expect(events.indexOf('persist:1')).toBeLessThan(
+      events.indexOf('ack:interaction-2'),
+    );
     await channel.disconnect();
     vi.restoreAllMocks();
   });
 
-  it('resolves permission buttons through durable state after restart', async () => {
+  it('routes recovered Discord clicks through application orchestrator transport hooks', async () => {
     let socket!: FakeWebSocket;
-    vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(
-        jsonResponse({ url: 'wss://gateway.discord.test' }),
-      )
-      .mockResolvedValue(jsonResponse({}));
-    durabilityMocks.findDurablePermissionInteractionByRequestId.mockResolvedValue(
-      {
+    let acked = false;
+    const events: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === 'https://discord.com/api/v10/gateway/bot') {
+        return jsonResponse({ url: 'wss://gateway.discord.test' });
+      }
+      if (url.includes('/interactions/')) {
+        events.push('ack');
+        acked = true;
+      }
+      if (url === 'https://discord.com/api/v10/channels/thread-1') {
+        events.push('context');
+        return jsonResponse({
+          id: 'thread-1',
+          type: 11,
+          parent_id: 'parent-1',
+        });
+      }
+      return jsonResponse({});
+    });
+    const durable = {
+      requestId: 'batch:permission-1:2',
+      batchCallbackId: 'batch:permission-1:2',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'dc:parent-1',
+      approvalContextJid: 'dc:parent-1',
+      threadId: 'thread-1',
+      decisionPolicy: 'same_channel',
+      decisionOptions: ['allow_persistent_rule', 'cancel'],
+      request: {
+        requestId: 'permission-1',
         sourceAgentFolder: 'main_agent',
-        targetJid: 'dc:channel-1',
+        targetJid: 'dc:parent-1',
         decisionPolicy: 'same_channel',
+        toolName: 'Bash',
+      },
+      claim: {
+        id: 'review-each-expired',
+        scope: {
+          appId: 'default',
+          sourceAgentFolder: 'main_agent',
+          interactionId: 'batch:permission-1:2',
+        },
+        intent: {
+          mode: 'cancel',
+          approverRef: 'system',
+          decidedAt: '2026-07-19T00:00:00.000Z',
+        },
+        match: {
+          kind: 'batch',
+          canonicalId: 'batch:permission-1:2',
+          providerAliases: ['alias-batch'],
+        },
+      },
+    } as any;
+    durabilityMocks.recoverDurablePermissionDecision.mockImplementation(
+      async (hooks: any) => {
+        expect(acked).toBe(true);
+        events.push('orchestrator');
+        expect(hooks.locator).toEqual({
+          kind: 'message',
+          appId: 'default',
+          provider: 'discord',
+          conversationId: 'parent-1',
+          externalMessageId: 'message-1',
+          threadId: 'thread-1',
+          providerAlias: 'alias-batch',
+        });
+        expect(hooks.surfaceJid).toBe('dc:parent-1');
+        await expect(hooks.authorize(durable)).resolves.toBe(true);
+        await expect(
+          hooks.terminalize({
+            status: 'resolved',
+            request: durable.request,
+            context: durable,
+            decision: {
+              approved: false,
+              mode: 'cancel',
+              decidedBy: 'system',
+              reason: 'canceled',
+              permissionCallbackClaim: {
+                id: durable.claim.id,
+                scope: durable.claim.scope,
+              },
+            },
+          }),
+        ).resolves.toBe(true);
+        await hooks.feedback('Decision recorded.');
+        return 'resolved';
       },
     );
-    durabilityMocks.resolveDurablePermissionInteractionByRequestId.mockResolvedValue(
-      true,
-    );
+    const isControlApproverAllowed = vi.fn(async () => true);
     const channel = new DiscordChannel(
       'bot-token',
       'app-id',
-      opts({ isControlApproverAllowed: vi.fn(async () => true) }),
+      opts({ isControlApproverAllowed }),
       (url) => {
         socket = new FakeWebSocket(url);
         return socket;
@@ -2331,76 +5026,48 @@ describe('DiscordChannel', () => {
         id: 'interaction-1',
         token: 'token-1',
         type: 3,
-        channel_id: 'channel-1',
-        data: { custom_id: 'gantry:perm:permission-1:allow_once' },
+        channel_id: 'thread-1',
+        message: { id: 'message-1' },
+        data: {
+          custom_id: permissionCustomId('alias-batch', 'allow_persistent_rule'),
+        },
         member: { user: { id: 'user-1', username: 'Ravi' } },
       },
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(
-      durabilityMocks.resolveDurablePermissionInteractionByRequestId,
-    ).toHaveBeenCalledWith({
-      requestId: 'permission-1',
-      mode: 'allow_once',
-      approverRef: 'user-1',
-      reason: 'resolved via Discord after channel restart',
+      durabilityMocks.recoverDurablePermissionDecision,
+    ).toHaveBeenCalledOnce();
+    expect(isControlApproverAllowed).toHaveBeenCalledWith({
+      providerId: 'discord',
+      conversationJid: 'dc:parent-1',
+      threadId: 'thread-1',
+      userId: 'user-1',
+      sourceAgentFolder: 'main_agent',
+      decisionPolicy: 'same_channel',
     });
-    await channel.disconnect();
-    vi.restoreAllMocks();
-  });
-
-  it('resolves question buttons through durable state after restart', async () => {
-    let socket!: FakeWebSocket;
-    vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(
-        jsonResponse({ url: 'wss://gateway.discord.test' }),
-      )
-      .mockResolvedValue(jsonResponse({}));
-    durabilityMocks.findDurableQuestionInteractionByRequestId.mockResolvedValue(
-      {
-        sourceAgentFolder: 'main_agent',
-        targetJid: 'dc:channel-1',
-        request: null,
-      },
+    expect(events.slice(0, 3)).toEqual(['ack', 'context', 'orchestrator']);
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/thread-1/messages/message-1',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          content: 'Canceled: exact command access. Nothing changed.',
+          components: [],
+        }),
+      }),
     );
-    durabilityMocks.resolveDurableQuestionInteractionByRequestId.mockResolvedValue(
-      true,
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/webhooks/app-id/token-1/messages/@original',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          content: 'Decision recorded.',
+          allowed_mentions: { parse: [] },
+        }),
+      }),
     );
-    const channel = new DiscordChannel(
-      'bot-token',
-      'app-id',
-      opts({ isControlApproverAllowed: vi.fn(async () => true) }),
-      (url) => {
-        socket = new FakeWebSocket(url);
-        return socket;
-      },
-    );
-
-    await channel.connect();
-    socket.receive({
-      op: 0,
-      t: 'INTERACTION_CREATE',
-      d: {
-        id: 'interaction-1',
-        token: 'token-1',
-        type: 3,
-        channel_id: 'channel-1',
-        data: { custom_id: 'gantry:q:question-1:0:1' },
-        member: { user: { id: 'user-1', username: 'Ravi' } },
-      },
-    });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(
-      durabilityMocks.resolveDurableQuestionInteractionByRequestId,
-    ).toHaveBeenCalledWith({
-      requestId: 'question-1',
-      questionIndex: 0,
-      optionIndex: 1,
-      finalize: true,
-      answeredBy: 'user-1',
-    });
     await channel.disconnect();
     vi.restoreAllMocks();
   });

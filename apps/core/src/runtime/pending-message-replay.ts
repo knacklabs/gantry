@@ -19,9 +19,6 @@ export interface PendingMessageReplay {
   cursorAfter: string | null;
   responseSchema?: Record<string, unknown>;
   agentControls?: AgentControlOverrides;
-  callerResolvedTools?: import('../domain/types.js').CallerResolvedToolsConfig;
-  appResponseRoute?: import('../domain/types.js').AppMessageResponseRoute;
-  continuityMode?: import('../domain/types.js').SessionContinuityMode;
 }
 
 export async function collectPendingMessagesSince(input: {
@@ -84,10 +81,7 @@ function selectPendingMessageBatch(
   const firstControlled = messages.findIndex(
     (message) =>
       message.responseSchema !== undefined ||
-      message.agentControls !== undefined ||
-      message.callerResolvedTools !== undefined ||
-      message.appResponseRoute !== undefined ||
-      message.continuityMode !== undefined,
+      message.agentControls !== undefined,
   );
   if (firstControlled < 0) {
     return { messages, hasMore, cursorAfter: messagesCursor(messages) };
@@ -99,9 +93,6 @@ function selectPendingMessageBatch(
     cursorAfter: messagesCursor(selected),
     responseSchema: messages[firstControlled]!.responseSchema,
     agentControls: messages[firstControlled]!.agentControls,
-    callerResolvedTools: messages[firstControlled]!.callerResolvedTools,
-    appResponseRoute: messages[firstControlled]!.appResponseRoute,
-    continuityMode: messages[firstControlled]!.continuityMode,
   };
 }
 

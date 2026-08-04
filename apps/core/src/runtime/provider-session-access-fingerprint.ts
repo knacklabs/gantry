@@ -4,18 +4,21 @@ import type { CapabilityRuntimeAccess } from '../shared/capability-runtime-acces
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 
 export interface ProviderSessionAccessFingerprintInput {
+  accessPreset: 'full' | 'locked';
   toolPolicyRules?: readonly string[];
   runtimeAccess?: readonly CapabilityRuntimeAccess[];
   attachedSkillSourceIds?: readonly string[];
   attachedMcpSourceIds?: readonly string[];
   semanticCapabilities?: readonly SemanticCapabilityDefinition[];
+  capabilityCatalogDigest?: string;
 }
 
 export function buildProviderSessionAccessFingerprint(
   input: ProviderSessionAccessFingerprintInput,
 ): string {
   const payload = {
-    version: 1,
+    version: 2,
+    accessPreset: input.accessPreset,
     toolPolicyRules: sortedUnique(input.toolPolicyRules),
     attachedSkillSourceIds: sortedUnique(input.attachedSkillSourceIds),
     attachedMcpSourceIds: sortedUnique(input.attachedMcpSourceIds),
@@ -23,8 +26,9 @@ export function buildProviderSessionAccessFingerprint(
     semanticCapabilities: normalizeSemanticCapabilities(
       input.semanticCapabilities,
     ),
+    capabilityCatalogDigest: input.capabilityCatalogDigest?.trim() || null,
   };
-  return `provider-session-access:v1:${createHash('sha256')
+  return `provider-session-access:v2:${createHash('sha256')
     .update(JSON.stringify(payload))
     .digest('hex')}`;
 }

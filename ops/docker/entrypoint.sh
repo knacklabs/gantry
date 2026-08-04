@@ -100,7 +100,6 @@ bootstrap_settings_if_missing() {
 load_or_create_rehearsal_secrets() {
   secret_file="${GANTRY_FLEET_REHEARSAL_SECRETS_FILE:-/var/lib/gantry/fleet-rehearsal-secrets.env}"
   lock_dir="${secret_file}.lock"
-  configured_control_api_keys_json="${GANTRY_CONTROL_API_KEYS_JSON:-}"
   mkdir -p "$(dirname "$secret_file")"
 
   while ! mkdir "$lock_dir" 2>/dev/null; do
@@ -127,10 +126,6 @@ load_or_create_rehearsal_secrets() {
     } >"$secret_file"
     # shellcheck disable=SC1090
     . "$secret_file"
-  fi
-
-  if [ -n "$configured_control_api_keys_json" ]; then
-    GANTRY_CONTROL_API_KEYS_JSON="$configured_control_api_keys_json"
   fi
 
   rmdir "$lock_dir"

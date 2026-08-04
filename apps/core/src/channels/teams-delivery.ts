@@ -96,6 +96,7 @@ export async function sendTeamsTextMessage(
   conversationId: string,
   text: string,
   options: MessageSendOptions = {},
+  shouldContinue: () => boolean = () => true,
 ): Promise<MessageDeliveryResult | void> {
   const initialParts = splitTeamsTextByByteBudget(
     text,
@@ -119,19 +120,13 @@ export async function sendTeamsTextMessage(
   let deliveredParts = 0;
   let index = 0;
   while (index < queue.length) {
+    if (!shouldContinue()) break;
     const part = queue[index];
     try {
       const sent = await sdkClient.sendMessage({
         conversationId,
         text: part,
         ...(options.threadId ? { threadId: options.threadId } : {}),
-        ...(options.providerData?.microsoftConversationReference &&
-        typeof options.providerData.microsoftConversationReference === 'object'
-          ? {
-              conversationReference: options.providerData
-                .microsoftConversationReference as Record<string, unknown>,
-            }
-          : {}),
       });
       if (sent.externalMessageId) {
         externalMessageIds.push(sent.externalMessageId);

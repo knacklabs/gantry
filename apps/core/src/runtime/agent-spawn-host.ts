@@ -46,11 +46,15 @@ import {
   HostRuntimeContext,
 } from './agent-spawn-types.js';
 import { resolveSpawnModel } from './agent-spawn-model-resolution.js';
-import { compileSpawnSystemPrompt } from './agent-spawn-prompt.js';
+import {
+  compileSpawnSystemPrompt,
+  resolveSpawnPromptAccessPreset,
+} from './agent-spawn-prompt.js';
 import {
   getConfiguredModelProvidersForApp,
   getRuntimeFileArtifactStore,
 } from '../adapters/storage/postgres/runtime-store.js';
+import { inlineCoreToolsMountMcpInventory } from './core-tools/registry.js';
 
 export interface HostRuntimeCredentialEnvOptions {
   purpose?: AgentCredentialPurpose;
@@ -161,14 +165,26 @@ export async function prepareInlineAgentHostContext(
     modelFamilyOrder: runtimeSettings.modelFamilies,
     listConfiguredProviders: getConfiguredModelProvidersForApp,
   });
+  const configuredAccessPreset = resolveAgentAccessPolicy(
+    runtimeSettings.agents?.[group.folder]?.accessPreset,
+  ).preset;
+  const promptAccessPreset = resolveSpawnPromptAccessPreset(
+    configuredAccessPreset,
+    input.hideAuthorityTools === true ||
+      process.env.GANTRY_NO_PERMISSION_TOOLS === '1',
+  );
   const compiledSystemPrompt = resolvedModel.ok
     ? await compileSpawnSystemPrompt({
         group,
         agentInput: input,
         appId: input.appId || 'default',
-        accessPreset: resolveAgentAccessPolicy(
-          runtimeSettings.agents?.[group.folder]?.accessPreset,
-        ).preset,
+        accessPreset: promptAccessPreset,
+        mcpInventoryToolsMounted: inlineCoreToolsMountMcpInventory(),
+        modelIdentity: {
+          alias: resolvedModel.value.modelEntry.displayName,
+          modelId: resolvedModel.value.runnerModel,
+          provider: resolvedModel.value.modelEntry.modelRoute.label,
+        },
         fileArtifactStore: () => getRuntimeFileArtifactStore(),
         measureAsync: async (_name, fn) => fn(),
       })
@@ -213,14 +229,12 @@ export async function getHostRuntimeCredentialEnv(
 }> {
   const brokerConfig = getCredentialBrokerRuntimeConfig();
   const purpose = options.purpose ?? 'model_runtime';
-  const apiRequestId = `model-runtime:${randomUUID()}`;
   const runId =
     options.runId ??
     (options.runContext?.runId as AgentRunId | undefined) ??
     (`credential-run:${randomUUID()}` as AgentRunId);
   const bindingOptions = {
     purpose,
-    apiRequestId,
     appId: options.appId ?? (options.runContext?.appId as never),
     agentId: options.agentId ?? (options.runContext?.agentId as never),
     runId,

@@ -149,14 +149,7 @@ export interface JobRecord {
   schedule:
     | null
     | { type: 'once'; runAt: string }
-    | {
-        type: 'cron' | 'interval';
-        value: string;
-        timezone?: string;
-        misfirePolicy?: 'coalesce';
-        overlapPolicy?: 'skip';
-        metadata?: { scheduleId: string; generation: number };
-      };
+    | { type: 'cron' | 'interval'; value: string };
   executionContext: JobExecutionContext;
   notificationRoutes: JobNotificationRoute[];
   ownerLabel?: string;
@@ -384,14 +377,7 @@ export interface CreateJobInput {
   accessRequirements?: JobAccessRequirement[];
   kind?: JobKind;
   runAt?: string;
-  schedule?: {
-    type: 'cron' | 'interval';
-    value: string;
-    timezone?: string;
-    misfirePolicy?: 'coalesce';
-    overlapPolicy?: 'skip';
-    metadata?: { scheduleId: string; generation: number };
-  };
+  schedule?: { type: 'cron' | 'interval'; value: string };
   modelAlias?: string;
   agentTask?: JobAgentTask;
   dryRun?: boolean;

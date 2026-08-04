@@ -15,7 +15,7 @@ Use this skill when a task changes tool execution, permission decisions, risky a
 4. Use `capability-lifecycle` when the change affects durable capability selection, visible attached sources, global inventory, Browser grants, local CLI capabilities, or agent-reviewed access changes.
 5. Fail closed on missing, malformed, or late permission responses.
 6. Add or update permission, sandbox, browser, or IPC tests for changed behavior.
-7. Run `python3 .codex/scripts/check_architecture.py` and `python3 .codex/scripts/check_task_completion.py` before final handoff when possible.
+7. Run `python3 scripts/check_architecture.py` before final handoff when possible.
 
 ## Evidence To Provide
 

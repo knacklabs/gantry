@@ -5,6 +5,12 @@ import { isHostPrivateBrowserMcpServerName } from '../../../../shared/agent-tool
 
 let externalMcpServerEgressEnv: Record<string, string> = {};
 
+const TERMINAL_MCP_SERVER_FAILURE_STATUSES = new Set([
+  'failed',
+  'needs-auth',
+  'disabled',
+]);
+
 export function readExternalMcpServers(): Record<string, McpServerConfig> {
   const configPath = process.env.GANTRY_MCP_CONFIG_FILE?.trim();
   if (configPath) {
@@ -76,7 +82,10 @@ export function assertRequiredMcpServerReady(message: unknown): void {
   }
 
   const status = String(gantryServer.status ?? '').toLowerCase();
-  if (status !== 'connected') {
+  // Claude emits init once and may snapshot an alwaysLoad stdio server before
+  // its handshake completes. The SDK's timeout gates turn-one availability, so
+  // polling here would duplicate that wait; only known terminal states fail.
+  if (TERMINAL_MCP_SERVER_FAILURE_STATUSES.has(status)) {
     throw new Error(`Required Gantry MCP server is not ready: ${status}`);
   }
 }

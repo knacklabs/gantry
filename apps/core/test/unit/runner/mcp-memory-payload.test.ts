@@ -30,6 +30,16 @@ describe('memory MCP payload helpers', () => {
         { memoryDefaultScope: 'group', memoryUserId: 'u-1' },
       ),
     ).toMatchObject({ scope: 'group' });
+    expect(
+      buildMemorySavePayload(
+        {
+          key: 'preference:style',
+          value: 'A sender prefers verbose replies.',
+          scope: 'user',
+        },
+        { memoryDefaultScope: 'group', memoryUserId: 'u-1' },
+      ),
+    ).toMatchObject({ scope: 'group' });
   });
 
   it('defaults procedure_save to the same conversation scope as memory_save', () => {
@@ -79,6 +89,7 @@ describe('memory MCP tool schema', () => {
 
       const memorySaveSchema = schemas.get('memory_save');
       expect(memorySaveSchema).toBeDefined();
+      expect(memorySaveSchema?.scope).toBeUndefined();
       const kindSchema = memorySaveSchema?.kind as
         | { unwrap: () => { options: string[] } }
         | undefined;
@@ -92,6 +103,7 @@ describe('memory MCP tool schema', () => {
       expect(kindSchema?.unwrap().options).not.toContain('context');
       expect(kindSchema?.unwrap().options).not.toContain('recent_work');
       expect(schemas.has('procedure_save')).toBe(true);
+      expect(schemas.get('procedure_save')?.scope).toBeUndefined();
       expect(schemas.has('procedure_patch')).toBe(true);
       expect(schemas.has('memory_demote')).toBe(true);
       expect(schemas.has('continuity_summary')).toBe(true);

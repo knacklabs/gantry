@@ -14,18 +14,27 @@ import {
 import { asyncTaskChangeWaiterFor } from '@core/jobs/async-task-change-waiter.js';
 import type { StartDelegatedAgentTaskInput } from '@core/jobs/async-delegated-agent-task.js';
 import type {
+  AsyncTaskBacklogAdmissionInput,
+  AsyncTaskClaimInput,
   AsyncTaskCreateInput,
   AsyncTaskListFilter,
   AsyncTaskRecord,
   AsyncTaskRepository,
+  AsyncTaskScopedAdmissionInput,
+  AsyncTaskScopedAdmissionResult,
   AsyncTaskStatusCount,
   AsyncTaskTransitionInput,
 } from '@core/domain/ports/async-tasks.js';
 import { isAsyncTaskTerminal } from '@core/domain/ports/async-tasks.js';
+import {
+  exerciseAsyncTaskRepositoryContract,
+  expectAsyncTaskRepositoryContract,
+} from '../../harness/async-task-repository-contract.js';
 
 class MemoryAsyncTaskRepository implements AsyncTaskRepository {
   readonly tasks = new Map<string, AsyncTaskRecord>();
   readonly listFilters: AsyncTaskListFilter[] = [];
+  private backlogAdmissionTail: Promise<void> = Promise.resolve();
 
   async createTask(input: AsyncTaskCreateInput): Promise<AsyncTaskRecord> {
     const task: AsyncTaskRecord = {
@@ -50,6 +59,87 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
     };
     this.tasks.set(task.id, task);
     return task;
+  }
+
+  async createTaskWithBacklogAdmission(
+    input: AsyncTaskBacklogAdmissionInput,
+  ): Promise<AsyncTaskRecord | null> {
+    let releaseAdmission: () => void = () => undefined;
+    const previousAdmission = this.backlogAdmissionTail;
+    this.backlogAdmissionTail = new Promise<void>(
+      (resolve) => (releaseAdmission = resolve),
+    );
+
+    await previousAdmission;
+    try {
+      const backlog = backlogForAdmission(this.tasks, input);
+      const agentBacklog = backlog.filter(
+        (task) => task.agentId === input.task.agentId,
+      );
+      await yieldAtAdmissionSeam();
+      if (
+        backlog.length >= input.maxBacklogPerApp ||
+        agentBacklog.length >= input.maxBacklogPerAgent
+      ) {
+        return null;
+      }
+      return this.createTask(input.task);
+    } finally {
+      releaseAdmission();
+    }
+  }
+
+  async createTaskWithScopedAdmission(
+    input: AsyncTaskScopedAdmissionInput,
+  ): Promise<AsyncTaskScopedAdmissionResult> {
+    const existing = [...this.tasks.values()].find(
+      (task) =>
+        task.appId === input.task.appId &&
+        task.agentId === input.task.agentId &&
+        task.kind === input.task.kind &&
+        task.conversationId === (input.task.conversationId ?? null) &&
+        task.threadId === (input.task.threadId ?? null) &&
+        input.activeStatuses.includes(task.status),
+    );
+    if (existing) {
+      return { task: existing, admitted: false, staleTasks: [] };
+    }
+    return {
+      task: await this.createTask(input.task),
+      admitted: true,
+      staleTasks: [],
+    };
+  }
+
+  async claimQueuedTask(
+    input: AsyncTaskClaimInput,
+  ): Promise<AsyncTaskRecord | null> {
+    const current = this.tasks.get(input.taskId);
+    if (!current || current.status !== 'queued') return null;
+    const running = [...this.tasks.values()].filter(
+      (task) =>
+        task.appId === current.appId &&
+        task.kind === current.kind &&
+        task.status === 'running',
+    );
+    if (
+      running.length >= input.maxRunningPerApp ||
+      running.filter((task) => task.agentId === current.agentId).length >=
+        input.maxRunningPerAgent
+    ) {
+      return null;
+    }
+    const claimed: AsyncTaskRecord = {
+      ...current,
+      status: 'running',
+      leaseToken: input.leaseToken,
+      fencingVersion: current.fencingVersion + 1,
+      heartbeatAt: input.now,
+      startedAt: input.now,
+      updatedAt: input.now,
+    };
+    this.tasks.set(claimed.id, claimed);
+    return claimed;
   }
 
   async getTask(taskId: string): Promise<AsyncTaskRecord | null> {
@@ -135,6 +225,25 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
   }
 }
 
+class NonAtomicAdmissionRepository extends MemoryAsyncTaskRepository {
+  override async createTaskWithBacklogAdmission(
+    input: AsyncTaskBacklogAdmissionInput,
+  ): Promise<AsyncTaskRecord | null> {
+    const backlog = backlogForAdmission(this.tasks, input);
+    const agentBacklog = backlog.filter(
+      (task) => task.agentId === input.task.agentId,
+    );
+    await yieldAtAdmissionSeam();
+    if (
+      backlog.length >= input.maxBacklogPerApp ||
+      agentBacklog.length >= input.maxBacklogPerAgent
+    ) {
+      return null;
+    }
+    return this.createTask(input.task);
+  }
+}
+
 function baseInput(overrides: Record<string, unknown> = {}) {
   return {
     appId: 'app-1',
@@ -214,41 +323,6 @@ describe('AsyncCommandTaskService', () => {
     expect(repository.listFilters.at(-1)).toMatchObject({
       providerAccountId: 'slack-one',
       limit: 1,
-    });
-  });
-
-  it('returns durable terminal task state from task_wait without polling a model', async () => {
-    const repository = new MemoryAsyncTaskRepository();
-    const service = new AsyncCommandTaskService(repository, {
-      run: async () => ({}),
-    });
-    await repository.createTask({
-      id: 'task-research-complete',
-      appId: 'app-1',
-      agentId: 'agent-1',
-      conversationId: 'conversation-1',
-      kind: 'delegated_agent',
-      status: 'completed',
-      admissionClass: 'agent',
-      authoritySnapshotJson: {},
-      privateCorrelationJson: { taskKey: 'research_bid_commercial' },
-      leaseToken: 'lease-1',
-      fencingVersion: 1,
-      now: new Date().toISOString(),
-    });
-
-    await expect(
-      service.wait({
-        taskIds: ['task-research-complete'],
-        appId: 'app-1',
-        agentId: 'agent-1',
-        conversationId: 'conversation-1',
-        timeoutMs: 100,
-      }),
-    ).resolves.toMatchObject({
-      ok: true,
-      timedOut: false,
-      tasks: [{ id: 'task-research-complete', status: 'completed' }],
     });
   });
 
@@ -391,13 +465,7 @@ describe('AsyncCommandTaskService', () => {
       id: started.task.id,
       status: 'cancelled',
       allowedActions: ['get', 'list'],
-      receiptLines: [
-        'Completed: cancelled',
-        'Used: RunCommand',
-        'Changed: none',
-        'Delegated: no',
-        'Needs attention: none',
-      ],
+      receiptLines: ['cancelled', 'I used RunCommand.'],
     });
     expect(JSON.stringify(dto)).not.toContain('leaseToken');
     expect(JSON.stringify(dto)).not.toContain('privateCorrelationJson');
@@ -481,6 +549,46 @@ describe('AsyncCommandTaskService', () => {
         (task) => task.kind === 'async_command',
       ),
     ).toHaveLength(32);
+  });
+
+  it('satisfies the async task repository concurrency contract', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+
+    await expectAsyncTaskRepositoryContract({ repository });
+  });
+
+  it('a non-atomic admission over-admits, proving the concurrency check has teeth', async () => {
+    const repository = new NonAtomicAdmissionRepository();
+    const evidence = await exerciseAsyncTaskRepositoryContract({ repository });
+
+    expect(evidence.admissions.filter(Boolean)).toHaveLength(2);
+    expect(evidence.backlog).toHaveLength(4);
+    await expect(
+      expectAsyncTaskRepositoryContract({
+        repository: new NonAtomicAdmissionRepository(),
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('claims queued commands through the atomic repository operation', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const claimQueuedTask = vi.spyOn(repository, 'claimQueuedTask');
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => new Promise(() => undefined),
+    });
+
+    const result = await service.start(baseInput());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    await waitForStatus(repository, result.task.id, 'running');
+    expect(claimQueuedTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: result.task.id,
+        maxRunningPerApp: 4,
+        maxRunningPerAgent: 2,
+      }),
+    );
   });
 
   it('rejects delegated agent admission when the per-agent backlog is full', async () => {
@@ -1529,115 +1637,6 @@ describe('AsyncCommandTaskService', () => {
     }
   });
 
-  it('publishes a terminal receipt only after delegated task state is durable', async () => {
-    const repository = new MemoryAsyncTaskRepository();
-    const onDelegatedTaskTerminal = vi.fn();
-    const service = new AsyncCommandTaskService(
-      repository,
-      { run: async () => ({}) },
-      { onDelegatedTaskTerminal },
-    );
-    const started = await service.startDelegatedAgent({
-      appId: 'app-1',
-      agentId: 'agent-1',
-      conversationId: 'conversation-1',
-      parentJobId: 'job-1',
-      parentJobRunId: 'run-1',
-      taskKey: 'research-workstream',
-      objective: 'Research evidence',
-      workspaceFolder: 'main_agent',
-      run: async () => ({ outputSummary: 'done' }),
-    });
-    expect(started.ok).toBe(true);
-    if (!started.ok) return;
-
-    await waitForStatus(repository, started.task.id, 'completed');
-    expect(onDelegatedTaskTerminal).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: started.task.id,
-        parentJobId: 'job-1',
-        parentJobRunId: 'run-1',
-        status: 'completed',
-        privateCorrelationJson: expect.objectContaining({
-          taskKey: 'research-workstream',
-        }),
-      }),
-    );
-  });
-
-  it('preserves a complete delegated result through task_wait while keeping its receipt bounded', async () => {
-    const repository = new MemoryAsyncTaskRepository();
-    const service = new AsyncCommandTaskService(repository, {
-      run: async () => ({}),
-    });
-    const citationId = 'evidence_search_chunk_701d788e6845';
-    const delegatedResult = `${'research '.repeat(140)}${citationId}`;
-    expect(delegatedResult.indexOf(citationId)).toBeGreaterThan(1_000);
-
-    const started = await service.startDelegatedAgent({
-      appId: 'app-1',
-      agentId: 'agent-1',
-      conversationId: 'conversation-1',
-      objective: 'Return complete cited research',
-      workspaceFolder: 'main_agent',
-      run: async () => ({ outputSummary: delegatedResult }),
-    });
-    expect(started.ok).toBe(true);
-    if (!started.ok) return;
-
-    await waitForStatus(repository, started.task.id, 'completed');
-    const waited = await service.wait({
-      taskIds: [started.task.id],
-      appId: 'app-1',
-      agentId: 'agent-1',
-      conversationId: 'conversation-1',
-      timeoutMs: 100,
-    });
-
-    expect(waited).toMatchObject({
-      ok: true,
-      timedOut: false,
-      tasks: [{ outputSummary: delegatedResult }],
-    });
-    expect(waited.tasks?.[0]?.outputSummary).toContain(citationId);
-    expect(
-      repository.tasks.get(started.task.id)?.receiptJson?.completed,
-    ).not.toContain(citationId);
-  });
-
-  it('preserves a complete command result through task_wait while keeping its receipt bounded', async () => {
-    const repository = new MemoryAsyncTaskRepository();
-    const citationId = 'evidence_search_chunk_701d788e6845';
-    const commandResult = `${'command output '.repeat(90)}${citationId}`;
-    expect(commandResult.indexOf(citationId)).toBeGreaterThan(1_000);
-    const service = new AsyncCommandTaskService(repository, {
-      run: async () => ({ outputSummary: commandResult }),
-    });
-
-    const started = await service.start(baseInput());
-    expect(started.ok).toBe(true);
-    if (!started.ok) return;
-
-    await waitForStatus(repository, started.task.id, 'completed');
-    const waited = await service.wait({
-      taskIds: [started.task.id],
-      appId: 'app-1',
-      agentId: 'agent-1',
-      conversationId: 'conversation-1',
-      timeoutMs: 100,
-    });
-
-    expect(waited).toMatchObject({
-      ok: true,
-      timedOut: false,
-      tasks: [{ outputSummary: commandResult }],
-    });
-    expect(waited.tasks?.[0]?.outputSummary).toContain(citationId);
-    expect(
-      repository.tasks.get(started.task.id)?.receiptJson?.completed,
-    ).not.toContain(citationId);
-  });
-
   it('wakes delegated task waits when async MCP child tasks finish', async () => {
     const repository = new MemoryAsyncTaskRepository();
     const service = new AsyncCommandTaskService(repository, {
@@ -1689,6 +1688,7 @@ describe('AsyncCommandTaskService', () => {
     if (!started.ok) return;
 
     await waitForStatus(repository, started.task.id, 'running');
+    await vi.waitFor(() => expect(callTool).toHaveBeenCalledOnce());
     resolveMcp();
 
     await waitForStatus(repository, started.task.id, 'completed');
@@ -2077,6 +2077,223 @@ describe('AsyncCommandTaskService', () => {
     });
   });
 
+  it('keeps delegated work running after a completion wait expires and stores a lossless task_get result', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const fullResult = 'x'.repeat(1_500);
+    let releaseRun!: () => void;
+    const runGate = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => ({}),
+    });
+    const started = await service.startDelegatedAgent({
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      objective: 'Produce a long result',
+      workspaceFolder: 'main_agent',
+      run: async ({ signal }) => {
+        await runGate;
+        if (signal.aborted) throw new Error('unexpected abort');
+        return { outputSummary: fullResult };
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    await expect(started.completion.wait(1)).resolves.toBeNull();
+    await waitForStatus(repository, started.task.id, 'running');
+    expect(repository.tasks.get(started.task.id)?.status).toBe('running');
+
+    releaseRun();
+    await expect(started.completion.wait(1_000)).resolves.toEqual({
+      taskId: started.task.id,
+      status: 'completed',
+      result: fullResult,
+    });
+    await expect(
+      service.getScoped({
+        taskId: started.task.id,
+        appId: 'app-1',
+        agentId: 'agent-1',
+        conversationId: 'conversation-1',
+      }),
+    ).resolves.toMatchObject({
+      id: started.task.id,
+      status: 'completed',
+      outputSummary: fullResult,
+    });
+    await expect(
+      service.list({
+        appId: 'app-1',
+        agentId: 'agent-1',
+        conversationId: 'conversation-1',
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: started.task.id,
+        outputSummary: `${'x'.repeat(1_000)}...`,
+      }),
+    ]);
+  });
+
+  it('durably re-wakes the orchestrator after the callable sync waiter is gone', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const storeMessageWithLiveAdmission = vi.fn(async () => ({}) as never);
+    let releaseRun!: () => void;
+    const runGate = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    const service = new AsyncCommandTaskService(
+      repository,
+      { run: async () => ({}) },
+      {
+        completionMessageRepository: { storeMessageWithLiveAdmission },
+      },
+    );
+    const started = await service.startDelegatedAgent({
+      appId: 'app-1',
+      agentId: 'agent-orchestrator',
+      conversationId: 'conversation-1',
+      providerAccountId: 'slack-one',
+      threadId: 'thread-1',
+      objective: 'Finish after the sync wait',
+      authorityToolName: 'AgentDelegation',
+      workspaceFolder: 'main_agent',
+      run: async () => {
+        await runGate;
+        return { outputSummary: 'late callable result' };
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    await expect(started.completion.wait(1)).resolves.toBeNull();
+    await service.markDelegatedTaskAsyncFallback({
+      taskId: started.task.id,
+      appId: 'app-1',
+      agentId: 'agent-orchestrator',
+      conversationId: 'conversation-1',
+      providerAccountId: 'slack-one',
+      threadId: 'thread-1',
+    });
+    releaseRun();
+    await waitForStatus(repository, started.task.id, 'completed');
+    await vi.waitFor(() => {
+      expect(storeMessageWithLiveAdmission).toHaveBeenCalledOnce();
+    });
+
+    expect(storeMessageWithLiveAdmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: `callable-agent-follow-up:${started.task.id}`,
+        chat_jid: 'conversation-1',
+        agentId: 'agent-orchestrator',
+        providerAccountId: 'slack-one',
+        thread_id: 'thread-1',
+        content: expect.stringContaining('late callable result'),
+      }),
+      expect.objectContaining({
+        appId: 'app-1',
+        agentId: 'agent-orchestrator',
+        providerAccountId: 'slack-one',
+        triggerDecision: expect.objectContaining({
+          source: 'callable_agent_follow_up',
+          taskId: started.task.id,
+        }),
+      }),
+    );
+  });
+
+  it('does not enqueue a callable follow-up when completion returns synchronously', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const storeMessageWithLiveAdmission = vi.fn(async () => ({}) as never);
+    const service = new AsyncCommandTaskService(
+      repository,
+      { run: async () => ({}) },
+      {
+        completionMessageRepository: { storeMessageWithLiveAdmission },
+      },
+    );
+    const started = await service.startDelegatedAgent({
+      appId: 'app-1',
+      agentId: 'agent-orchestrator',
+      conversationId: 'conversation-1',
+      objective: 'Finish inside the sync wait',
+      authorityToolName: 'AgentDelegation',
+      workspaceFolder: 'main_agent',
+      run: async () => ({ outputSummary: 'inline callable result' }),
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    await expect(started.completion.wait(1_000)).resolves.toEqual({
+      taskId: started.task.id,
+      status: 'completed',
+      result: 'inline callable result',
+    });
+    await waitForStatus(repository, started.task.id, 'completed');
+    expect(storeMessageWithLiveAdmission).not.toHaveBeenCalled();
+  });
+
+  it('recovers a pending callable follow-up after restart without an in-memory waiter', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    await repository.createTask({
+      id: 'task-restart-follow-up',
+      appId: 'app-1',
+      agentId: 'agent-orchestrator',
+      conversationId: 'conversation-1',
+      kind: 'delegated_agent',
+      status: 'completed',
+      admissionClass: 'task',
+      authoritySnapshotJson: { toolName: 'AgentDelegation' },
+      privateCorrelationJson: {
+        providerAccountId: 'slack-one',
+        callableAgentFollowUp: { pendingAt: '2024-01-01T00:00:00.000Z' },
+      },
+      leaseToken: 'lease-restart-follow-up',
+      fencingVersion: 1,
+      now: '2024-01-01T00:00:01.000Z',
+    });
+    const terminal = repository.tasks.get('task-restart-follow-up')!;
+    repository.tasks.set(terminal.id, {
+      ...terminal,
+      outputSummary: 'result recovered after restart',
+      receiptJson: {
+        completed: 'result recovered after restart',
+        used: 'Gantry agent run',
+        changed: 'none',
+        delegated: 'yes',
+        needsAttention: 'none',
+      },
+    });
+    const storeMessageWithLiveAdmission = vi.fn(async () => ({}) as never);
+    const restartedService = new AsyncCommandTaskService(
+      repository,
+      { run: async () => ({}) },
+      {
+        completionMessageRepository: { storeMessageWithLiveAdmission },
+      },
+    );
+
+    await expect(
+      restartedService.recoverPendingDelegatedAgentFollowUps({
+        appId: 'app-1',
+      }),
+    ).resolves.toBe(1);
+    await expect(
+      restartedService.recoverPendingDelegatedAgentFollowUps({
+        appId: 'app-1',
+      }),
+    ).resolves.toBe(0);
+    expect(storeMessageWithLiveAdmission).toHaveBeenCalledOnce();
+    expect(
+      repository.tasks.get('task-restart-follow-up')?.receiptJson,
+    ).toMatchObject({
+      callableAgentFollowUp: { deliveredAt: expect.any(String) },
+    });
+  });
+
   it('starts delegated agent tasks and records steering messages', async () => {
     vi.stubEnv(
       'SECRET_ENCRYPTION_KEY',
@@ -2163,12 +2380,9 @@ describe('AsyncCommandTaskService', () => {
     release();
     await waitForStatus(repository, started.task.id, 'completed');
     expect((await service.get(started.task.id))?.receiptLines).toEqual([
-      'Completed: docs reviewed',
-      'Used: Gantry agent run',
-      'Changed: none',
-      'Delegated: yes',
-      'Subtasks: 1 completed, 0 failed, 0 cancelled',
-      'Needs attention: none',
+      'docs reviewed',
+      'I used Gantry agent run.',
+      'I delegated part of the work; 1 completed, 0 failed, 0 cancelled.',
     ]);
   });
 
@@ -2490,6 +2704,22 @@ describe('AsyncCommandTaskService', () => {
     });
   });
 });
+
+function backlogForAdmission(
+  tasks: Map<string, AsyncTaskRecord>,
+  input: AsyncTaskBacklogAdmissionInput,
+): AsyncTaskRecord[] {
+  return [...tasks.values()].filter(
+    (task) =>
+      task.appId === input.task.appId &&
+      task.kind === input.task.kind &&
+      input.statuses.includes(task.status),
+  );
+}
+
+function yieldAtAdmissionSeam(): Promise<void> {
+  return Promise.resolve();
+}
 
 async function waitForStatus(
   repository: MemoryAsyncTaskRepository,

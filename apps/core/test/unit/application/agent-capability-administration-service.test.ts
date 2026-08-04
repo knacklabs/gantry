@@ -1,138 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { AgentCapabilityAdministrationService } from '@core/application/agents/agent-capability-administration-service.js';
+import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
 
 describe('AgentCapabilityAdministrationService', () => {
-  it('registers one reviewed capability with four exact MCP bindings idempotently', async () => {
-    const state = createState();
-    const service = new AgentCapabilityAdministrationService(
-      state.repositories,
-      { now: () => '2026-05-01T00:00:00.000Z' },
-    );
-    const capability = reviewedCapability([
-      'mcp__one__read_search',
-      'mcp__one__read_scrape',
-      'mcp__one__read_map',
-      'mcp__one__read_crawl',
-    ]);
-
-    const first = await service.registerReviewedMcpCapability({
-      appId: 'app:one' as never,
-      capability,
-    });
-    const second = await service.registerReviewedMcpCapability({
-      appId: 'app:one' as never,
-      capability,
-    });
-
-    expect(second).toEqual(first);
-    expect(first).toMatchObject({
-      id: 'tool:capability:source_discovery.test',
-      appId: 'app:one',
-      name: 'capability:source_discovery.test',
-      status: 'active',
-      selectable: true,
-    });
-    expect(state.mcpAuditEvents).toHaveLength(1);
-    expect(state.mcpAuditEvents[0]).toMatchObject({
-      eventType: 'capability_register',
-      serverId: 'mcp:one',
-      metadata: {
-        capabilityId: 'source_discovery.test',
-        tools: capability.implementationBindings.map(
-          (binding) => binding.mcpTool,
-        ),
-      },
-    });
-
-    const access = await service.replaceAccessDocument({
-      appId: 'app:one' as never,
-      agentId: 'agent:one' as never,
-      sources: {
-        skills: [],
-        mcpServers: [{ id: 'mcp:one', tools: ['read_*'] }],
-        tools: [],
-      },
-      capabilities: [{ id: 'source_discovery.test', version: '1.0.0' }],
-    });
-    expect(access.capabilities).toContainEqual({
-      id: 'source_discovery.test',
-      version: '1.0.0',
-    });
-  });
-
-  it('rejects immutable manifest drift and wildcard bindings', async () => {
-    const state = createState();
-    const service = new AgentCapabilityAdministrationService(
-      state.repositories,
-      { now: () => '2026-05-01T00:00:00.000Z' },
-    );
-    const capability = reviewedCapability(['mcp__one__read_search']);
-    await service.registerReviewedMcpCapability({
-      appId: 'app:one' as never,
-      capability,
-    });
-
-    await expect(
-      service.registerReviewedMcpCapability({
-        appId: 'app:one' as never,
-        capability: { ...capability, can: 'Changed authority.' },
-      }),
-    ).rejects.toMatchObject({ code: 'CONFLICT' });
-    await expect(
-      service.registerReviewedMcpCapability({
-        appId: 'app:one' as never,
-        capability: reviewedCapability(['mcp__one__read_*']),
-      }),
-    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
-  });
-
-  it('rejects missing, inactive, cross-application, and unreviewed MCP sources', async () => {
-    const cases = [
-      {
-        binding: 'mcp__missing__read_search',
-        code: 'NOT_FOUND',
-      },
-      {
-        binding: 'mcp__one__delete_all',
-        code: 'INVALID_REQUEST',
-      },
-    ] as const;
-    for (const testCase of cases) {
-      const state = createState();
-      const service = new AgentCapabilityAdministrationService(
-        state.repositories,
-      );
-      await expect(
-        service.registerReviewedMcpCapability({
-          appId: 'app:one' as never,
-          capability: reviewedCapability([testCase.binding]),
-        }),
-      ).rejects.toMatchObject({ code: testCase.code });
-    }
-
-    const inactiveState = createState();
-    inactiveState.mcpServers.get('mcp:one').status = 'disabled';
-    await expect(
-      new AgentCapabilityAdministrationService(
-        inactiveState.repositories,
-      ).registerReviewedMcpCapability({
-        appId: 'app:one' as never,
-        capability: reviewedCapability(['mcp__one__read_search']),
-      }),
-    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
-
-    const otherAppState = createState();
-    await expect(
-      new AgentCapabilityAdministrationService(
-        otherAppState.repositories,
-      ).registerReviewedMcpCapability({
-        appId: 'app:two' as never,
-        capability: reviewedCapability(['mcp__one__read_search']),
-      }),
-    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
-  });
-
   it('replaces capabilities and sources through separate agent-owned views', async () => {
     const state = createState();
     const service = new AgentCapabilityAdministrationService(
@@ -243,37 +114,6 @@ describe('AgentCapabilityAdministrationService', () => {
     ]);
   });
 
-  it('materializes app-scoped Gantry facade tools from access selections', async () => {
-    const state = createState();
-    const service = new AgentCapabilityAdministrationService(
-      state.repositories,
-      { now: () => '2026-05-01T00:00:00.000Z' },
-    );
-
-    const response = await service.replaceAccessDocument({
-      appId: 'app:one' as never,
-      agentId: 'agent:one' as never,
-      sources: { skills: [], mcpServers: [], tools: [] },
-      capabilities: [{ id: 'AgentDelegation', version: 'builtin' }],
-    });
-
-    expect(response.capabilities).toEqual([
-      { id: 'AgentDelegation', version: 'builtin' },
-    ]);
-    expect(state.toolBindings).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          appId: 'app:one',
-          toolId: expect.stringMatching(/^tool:permission-rule:/),
-          status: 'active',
-        }),
-      ]),
-    );
-    expect(
-      [...state.tools.values()].find((tool) => tool.name === 'AgentDelegation'),
-    ).toMatchObject({ appId: 'app:one', selectable: true });
-  });
-
   it('round-trips scoped MCP source tools through the full access document', async () => {
     const state = createState();
     const service = new AgentCapabilityAdministrationService(
@@ -301,6 +141,78 @@ describe('AgentCapabilityAdministrationService', () => {
           serverId: 'mcp:one',
           status: 'active',
           allowedToolPatterns: ['read_*'],
+        }),
+      ]),
+    );
+  });
+
+  it('persists an independently reviewed catalog capability with its MCP source', async () => {
+    const state = createState();
+    state.tools.set('tool:capability:itops.operations.manage', {
+      id: 'tool:capability:itops.operations.manage',
+      appId: 'app:one',
+      name: 'capability:itops.operations.manage',
+      kind: 'host',
+      provider: 'gantry',
+      displayName: 'IT Ops operations',
+      category: 'productivity',
+      risk: 'high',
+      selectable: true,
+      status: 'active',
+      adapterRef: 'capability/itops.operations.manage',
+      inputSchema: semanticCapabilityInputSchema({
+        capabilityId: 'itops.operations.manage',
+        version: '1',
+        displayName: 'IT Ops operations',
+        category: 'itops',
+        risk: 'write',
+        can: 'Use the reviewed IT Ops MCP operations.',
+        cannot: 'Use newly exposed MCP operations until they are reviewed.',
+        credentialSource: 'configured_access',
+        implementationBindings: [
+          {
+            kind: 'mcp_pattern',
+            mcpServer: 'itops',
+            mcpToolPatterns: ['itops_list_*'],
+          },
+        ],
+      }),
+      createdAt: '2026-04-30T00:00:00.000Z',
+      updatedAt: '2026-04-30T00:00:00.000Z',
+    });
+    const service = new AgentCapabilityAdministrationService(
+      state.repositories,
+      { now: () => '2026-05-01T00:00:00.000Z' },
+    );
+
+    const response = await service.replaceAccessDocument({
+      appId: 'app:one' as never,
+      agentId: 'agent:one' as never,
+      sources: {
+        skills: [],
+        mcpServers: [{ id: 'mcp:one', tools: ['itops_*'] }],
+        tools: [],
+      },
+      capabilities: [{ id: 'itops.operations.manage', version: '1' }],
+    });
+
+    expect(response.capabilities).toEqual([
+      { id: 'itops.operations.manage', version: '1' },
+    ]);
+    expect(state.toolBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolId: 'tool:capability:itops.operations.manage',
+          status: 'active',
+        }),
+      ]),
+    );
+    expect(state.mcpBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          serverId: 'mcp:one',
+          allowedToolPatterns: ['itops_*'],
+          status: 'active',
         }),
       ]),
     );
@@ -728,7 +640,7 @@ function createState() {
         riskClass: 'medium',
         transport: 'stdio_template',
         config: { transport: 'stdio_template', templateId: 'node-script' },
-        allowedToolPatterns: ['read_*', 'write_*'],
+        allowedToolPatterns: ['read_*', 'write_*', 'itops_*'],
         autoApproveToolPatterns: [],
         credentialRefs: [],
         createdAt: now,
@@ -772,7 +684,6 @@ function createState() {
       updatedAt: now,
     },
   ];
-  const mcpAuditEvents: any[] = [];
   const replaceCapabilityBindings = async (input: any) => {
     for (const binding of toolBindings) {
       if (
@@ -845,8 +756,6 @@ function createState() {
     toolSources,
     skillBindings,
     mcpBindings,
-    mcpServers,
-    mcpAuditEvents,
     repositories: {
       agents: {
         getAgent: async () => ({
@@ -915,10 +824,6 @@ function createState() {
       },
       mcpServers: {
         getServer: async (id: string) => mcpServers.get(id) ?? null,
-        getServerByName: async ({ appId, name }: any) =>
-          Array.from(mcpServers.values()).find(
-            (server) => server.appId === appId && server.name === name,
-          ) ?? null,
         listServers: async () => Array.from(mcpServers.values()),
         listAgentBindings: async () => mcpBindings,
         saveAgentBinding: async (binding: any) => {
@@ -935,27 +840,7 @@ function createState() {
           binding.updatedAt = updatedAt;
           return binding;
         },
-        appendAuditEvent: async (event: any) => {
-          mcpAuditEvents.push(event);
-        },
       },
     } as never,
-  };
-}
-
-function reviewedCapability(mcpTools: string[]) {
-  return {
-    capabilityId: 'source_discovery.test',
-    version: '1.0.0',
-    displayName: 'Source discovery test',
-    category: 'source_discovery',
-    risk: 'read' as const,
-    can: 'Read public source-discovery evidence.',
-    cannot: 'Authenticate, submit forms, upload, or modify remote data.',
-    credentialSource: 'configured_access' as const,
-    implementationBindings: mcpTools.map((mcpTool) => ({
-      kind: 'mcp_tool' as const,
-      mcpTool,
-    })),
   };
 }

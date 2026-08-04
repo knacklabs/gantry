@@ -22,10 +22,8 @@ import { DelegatedCompletionGate } from '../../../../runner/delegated-completion
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import {
-  buildSdkFilesystemSandbox,
   normalizeFilesystemSandboxPaths,
   readLocalCliCredentialDirectories,
-  readProtectedFilesystemSandboxPaths,
 } from './filesystem-sandbox.js';
 import { createSafetyPreToolUseHook } from './protected-capability-hook.js';
 import {
@@ -61,13 +59,15 @@ import { logUsage } from './usage-logging.js';
 import { readContextUsage } from './context-usage.js';
 import {
   hasTopLevelAssistantContent,
-  sdkResultFailureMessage,
   sdkResultText,
   sdkStructuredOutputOptions,
   shouldPrefixVisibleBoundary,
   topLevelAssistantText,
 } from './sdk-message-output.js';
-import { createCanUseToolCallback } from './tool-permission-gate.js';
+import {
+  createCanUseToolCallback,
+  createPermissionApprovalContextChannel,
+} from './tool-permission-gate.js';
 import {
   decideClaudeSdkToolSearch,
   toolSearchStartupRuntimeEvent,
@@ -81,12 +81,9 @@ import {
 } from '../../../../runner/tool-gate-core.js';
 import { canonicalGantryToolRuleName } from '../../../../shared/gantry-tool-facades.js';
 import { emitJobToolActivity } from './tool-permission-events.js';
-import {
-  createExternalMcpAuditHook,
-  flushExternalMcpAudit,
-  prepareExternalMcpStdioAudit,
-} from './mcp-stdio-audit.js';
-import { recordSuccessfulToolUse } from './tool-success-ledger.js';
+import { recordSuccessfulToolUse } from './query-tool-success-ledger.js';
+
+export { recordSuccessfulToolUse } from './query-tool-success-ledger.js';
 
 interface RunQueryOptions {
   enableIpcFollowups?: boolean;
@@ -127,6 +124,7 @@ export async function runQuery(
   const toolSuccessLedger = agentInput.toolRules?.length
     ? new RunScopedToolSuccessLedger()
     : undefined;
+  const permissionApprovalContext = createPermissionApprovalContextChannel();
   const declarativePreToolUse = toolSuccessLedger
     ? async (hookInput: {
         hook_event_name: string;
@@ -180,9 +178,6 @@ export async function runQuery(
     log(`Piping IPC message at turn boundary (${text.length} chars)`);
     stream.pushContent(text);
   });
-  const completionGate = agentInput.delegatedCompletionGate
-    ? new DelegatedCompletionGate(agentInput.delegatedCompletionGate)
-    : undefined;
   const emitInteractionBoundary = () => {
     writeOutput({
       status: 'success',
@@ -257,19 +252,13 @@ export async function runQuery(
   const additionalDirectories = [
     ...new Set([...extraDirs, ...localCliCredentialDirectories]),
   ].sort();
-  const protectedFilesystemPaths = readProtectedFilesystemSandboxPaths();
-  const protectedFilesystemDenyReadPaths = protectedFilesystemPaths.denyRead;
-  const protectedFilesystemDenyWritePaths = [
-    ...protectedFilesystemPaths.denyWrite,
-    ...localCliCredentialDirectories,
-  ];
-  const sdkFilesystemSandbox =
-    process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
-      ? undefined
-      : buildSdkFilesystemSandbox(protectedFilesystemDenyWritePaths, {
-          denyReadPaths: protectedFilesystemDenyReadPaths,
-          denyWritePaths: protectedFilesystemDenyWritePaths,
-        });
+  // Two-axis model (decision 0040): `direct` = authorization is the whole control
+  // (permission engine + classifier + host-side credential/protected-path rail);
+  // no inner SDK Seatbelt, so Chromium's Mach-port register (and the whole class)
+  // runs. `sandbox_runtime` confinement is the runner OS sandbox
+  // (runner-sandbox-provider), which is applied out-of-band — this SDK-level
+  // filesystem Seatbelt is never the confinement layer, so it is dropped.
+  const sdkFilesystemSandbox = undefined;
   const workspaceFolder = agentInput.workspaceFolder;
   const enabledSdkSkills = readClaudeSdkSkillNamesFromEnv();
   const isolatedSdkEnv: Record<string, string | undefined> = {
@@ -295,6 +284,7 @@ export async function runQuery(
     runHandle: process.env.GANTRY_AGENT_RUN_HANDLE,
     runId: agentInput.runId,
     parentTaskId: agentInput.parentTaskId,
+    callableAgentManifest: agentInput.callableAgentManifest,
     runLeaseToken: agentInput.runLeaseToken,
     runLeaseFencingVersion: agentInput.runLeaseFencingVersion,
     liveStopActionToken: process.env.GANTRY_LIVE_STOP_ACTION_TOKEN,
@@ -303,6 +293,7 @@ export async function runQuery(
     memoryReviewerIsControlApprover: agentInput.memoryReviewerIsControlApprover,
     persona: agentInput.persona,
     browserProfileName: agentInput.browserProfileName,
+    browserTurnToken: agentInput.browserTurnToken,
     configuredAllowedTools: agentInput.allowedTools,
     attachedSkillSourceIds: agentInput.attachedSkillSourceIds,
     selectedSkillDisplays: agentInput.selectedSkillDisplays,
@@ -325,23 +316,20 @@ export async function runQuery(
     isScheduledJob: agentInput.isScheduledJob,
     callerResolvedTools: agentInput.callerResolvedTools,
   });
-  const auditedMcp = prepareExternalMcpStdioAudit({
-    mcpServers: capabilities.mcpServers,
-    workspaceDir: WORKSPACE_GROUP_DIR,
-    runId: queryRunId,
-  });
+  const completionGate = agentInput.delegatedCompletionGate
+    ? new DelegatedCompletionGate(agentInput.delegatedCompletionGate)
+    : undefined;
   const sdkQueryPreparedMs = elapsedMs();
   log(
     `SDK query prepared in ${sdkQueryPreparedMs}ms ` +
-      `(tools=${capabilities.availableTools.length} mcpServers=${Object.keys(auditedMcp.mcpServers).length})`,
+      `(tools=${capabilities.availableTools.length} mcpServers=${Object.keys(capabilities.mcpServers ?? {}).length})`,
   );
   const toolSearchDecision = decideClaudeSdkToolSearch({
     sdkEnv: isolatedSdkEnv,
     availableTools: capabilities.availableTools,
     allowedTools: capabilities.allowedTools,
     disallowedTools: capabilities.disallowedTools,
-    mcpServers: auditedMcp.mcpServers,
-    requireEagerTools: Boolean(agentInput.callerResolvedTools),
+    mcpServers: capabilities.mcpServers,
   });
   isolatedSdkEnv.ENABLE_TOOL_SEARCH = toolSearchDecision.enableToolSearch;
   log(
@@ -349,6 +337,20 @@ export async function runQuery(
       `(reason=${toolSearchDecision.reason} tools=${toolSearchDecision.availableToolCount} ` +
       `mcpServers=${toolSearchDecision.mcpServerCount} bytes=${toolSearchDecision.serializedToolConfigBytes})`,
   );
+  const postToolUseHook = async (
+    hookInput: HookInput,
+    toolUseID: string | undefined,
+    hookOptions: { signal: AbortSignal },
+  ) => {
+    if (hookInput.hook_event_name === 'PostToolUse' && toolSuccessLedger) {
+      recordSuccessfulToolUse(hookInput, toolSuccessLedger);
+    }
+    return permissionApprovalContext.postToolUse(
+      hookInput,
+      toolUseID,
+      hookOptions,
+    );
+  };
   const sdkQuery = query({
     prompt: stream,
     options: {
@@ -371,9 +373,11 @@ export async function runQuery(
       },
       skills: enabledSdkSkills,
       tools: [...capabilities.availableTools],
-      allowedTools: [...capabilities.allowedTools],
       disallowedTools: [...capabilities.disallowedTools],
       env: isolatedSdkEnv,
+      // Without this the subprocess's own stderr is lost and startup failures
+      // surface only as "Claude Code process exited with code 1".
+      stderr: (data: string) => log(`[claude-code stderr] ${data}`),
       ...(claudeCodeExecutable
         ? { pathToClaudeCodeExecutable: claudeCodeExecutable }
         : {}),
@@ -389,7 +393,6 @@ export async function runQuery(
         PreToolUse: [
           {
             hooks: [
-              createExternalMcpAuditHook(auditedMcp, 'PreToolUse'),
               createSafetyPreToolUseHook(
                 memoryBlock,
                 agentInput.toolNetworkEnv ?? {},
@@ -401,26 +404,12 @@ export async function runQuery(
         ],
         PostToolUse: [
           {
-            hooks: [
-              createExternalMcpAuditHook(auditedMcp, 'PostToolUse'),
-              ...(toolSuccessLedger
-                ? [
-                    async (hookInput: HookInput) => {
-                      if (hookInput.hook_event_name === 'PostToolUse') {
-                        recordSuccessfulToolUse(hookInput, toolSuccessLedger);
-                      }
-                      return { continue: true as const };
-                    },
-                  ]
-                : []),
-            ],
+            hooks: [postToolUseHook],
           },
         ],
         PostToolUseFailure: [
           {
-            hooks: [
-              createExternalMcpAuditHook(auditedMcp, 'PostToolUseFailure'),
-            ],
+            hooks: [postToolUseHook],
           },
         ],
       },
@@ -436,9 +425,12 @@ export async function runQuery(
         emitInteractionBoundary,
         recordToolActivity: (toolName) =>
           heartbeat.recordToolActivity(toolName),
+        recordPermissionApprovalContext: permissionApprovalContext.record,
       }),
-      settingSources: [],
-      mcpServers: auditedMcp.mcpServers,
+      // Load only the per-run CLAUDE_CONFIG_DIR settings so Claude discovers
+      // Gantry-materialized skills without reading workspace configuration.
+      settingSources: ['user'],
+      mcpServers: capabilities.mcpServers,
       strictMcpConfig: true,
       includePartialMessages: true,
     },
@@ -485,12 +477,18 @@ export async function runQuery(
     for await (const message of sdkQuery) {
       messageCount++;
       heartbeat.markActivity();
-      flushExternalMcpAudit(auditedMcp, agentInput);
       const msgType =
         message.type === 'system'
           ? `system/${(message as { subtype?: string }).subtype}`
           : message.type;
-      log(`[msg #${messageCount}] type=${msgType}`);
+      // api_retry/auth errors carry the reason in the payload; without it a
+      // failing turn logs an undiagnosable retry loop.
+      const errorDetail = (
+        message as { error?: unknown; error_status?: unknown }
+      ).error_status
+        ? ` error_status=${String((message as { error_status?: unknown }).error_status)} error=${String((message as { error?: unknown }).error ?? '')}`
+        : '';
+      log(`[msg #${messageCount}] type=${msgType}${errorDetail}`);
       if (!firstSdkMessageLogged) {
         firstSdkMessageLogged = true;
         firstSdkEventMs = elapsedMs();
@@ -617,17 +615,7 @@ export async function runQuery(
           firstResultMs = elapsedMs();
           log(`First SDK result after ${firstResultMs}ms`);
         }
-        const sdkFrameFailure = !agentInput.responseSchema
-          ? sdkResultFailureMessage(message)
-          : null;
-        const textResult = sdkResultText(message, agentInput.responseSchema, {
-          allowErrorResultText: !agentInput.responseSchema,
-        });
-        if (sdkFrameFailure && textResult?.trim()) {
-          log(
-            `Claude SDK result carried error flag but non-empty plain-text output was preserved: ${sdkFrameFailure}`,
-          );
-        }
+        const textResult = sdkResultText(message, agentInput.responseSchema);
         const emittedVisibleText =
           sawPartialTextSinceLastResult || sawStructuredTextSinceLastResult;
         const canUseResultFallback =
@@ -637,14 +625,14 @@ export async function runQuery(
         }
         const loggedResultText = canUseResultFallback ? textResult : null;
         log(
-          `Result #${resultCount}: subtype=${message.subtype} resultTextLength=${loggedResultText?.length ?? 0}`,
+          `Result #${resultCount}: subtype=${message.subtype}${loggedResultText ? ` text=${loggedResultText.slice(0, 200)}` : ''}`,
         );
         logUsage(message);
         const usage = normalizeModelUsage({
           message,
           fallbackModel: configuredModel,
         });
-        const contextUsage = await readContextUsage(sdkQuery);
+        const contextUsagePromise = readContextUsage(sdkQuery);
         const completionDecision = await completionGate?.check();
         if (completionDecision?.decision === 'continue') {
           steeringGate.accept(completionDecision.message);
@@ -656,7 +644,6 @@ export async function runQuery(
           newSessionId,
           ...(primeToolAttempts.length > 0 ? { primeToolAttempts } : {}),
           ...(continuedByFollowup ? { continuedByFollowup: true } : {}),
-          ...(contextUsage ? { contextUsage } : {}),
           ...(usage
             ? {
                 usage,
@@ -670,31 +657,25 @@ export async function runQuery(
             : {}),
         });
         emitStartupTimingDiagnostic();
-        if (enableIpcFollowups && textResult && canUseResultFallback) {
-          writeOutput({
-            status: 'success',
-            result: null,
-            newSessionId,
-            ...(continuedByFollowup ? { continuedByFollowup: true } : {}),
-          });
-        }
         sawPartialTextSinceLastResult = false;
         sawAssistantContentSinceLastResult = false;
         sawStructuredTextSinceLastResult = false;
         visibleTextSinceLastResult = '';
         pendingStructuredToPartialBoundary = false;
-        if (continuedByFollowup) {
-          steeringGate.markTurnBoundary();
-        } else if (enableIpcFollowups) {
-          ipcPolling = false;
-          steeringGate.close();
-          stream.end();
+        steeringGate.markTurnBoundary();
+        const contextUsage = await contextUsagePromise;
+        if (contextUsage) {
+          writeOutput({
+            status: 'success',
+            result: null,
+            newSessionId,
+            runtimeEventOnly: true,
+            contextUsage,
+          });
         }
       }
     }
   } finally {
-    flushExternalMcpAudit(auditedMcp, agentInput);
-    auditedMcp.cleanup();
     ipcPolling = false;
     runtimeSignalPump.stop();
     heartbeat.stop();

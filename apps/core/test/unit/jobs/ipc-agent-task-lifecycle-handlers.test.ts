@@ -7,18 +7,66 @@ import { PassThrough } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
+  AsyncTaskBacklogAdmissionInput,
+  AsyncTaskClaimInput,
   AsyncTaskCreateInput,
   AsyncTaskListFilter,
   AsyncTaskRecord,
   AsyncTaskRepository,
+  AsyncTaskScopedAdmissionInput,
+  AsyncTaskScopedAdmissionResult,
   AsyncTaskStatusCount,
   AsyncTaskTransitionInput,
 } from '@core/domain/ports/async-tasks.js';
 import { isAsyncTaskTerminal } from '@core/domain/ports/async-tasks.js';
+import { DEFAULT_ASYNC_RESOURCE_LIMITS } from '@core/jobs/async-command-sandbox-runner.js';
 import { readEncryptedAsyncTaskPayload } from '@core/jobs/async-task-execution-payload.js';
 import type { RunnerSandboxProvider } from '@core/shared/runner-sandbox-provider.js';
+import {
+  callableAgentToolName,
+  projectCallableAgentTools,
+} from '@core/application/core-tools/callable-agent-tools.js';
 
 const runtimeHomes: string[] = [];
+
+function toolRepositoryForRules(
+  rules:
+    | readonly string[]
+    | ((input: { agentId: string }) => readonly string[]),
+) {
+  const listAgentToolAccessSnapshot = vi.fn(
+    async (input: { agentId: string }) => {
+      const names = typeof rules === 'function' ? rules(input) : rules;
+      return {
+        activeBindings: names.map((name, index) => ({
+          binding: {
+            status: 'active',
+            toolId: `tool:${index}`,
+          },
+          definition: {
+            appId: 'app:test',
+            name,
+          },
+        })),
+        appActiveDefinitions: [],
+      };
+    },
+  );
+  return {
+    listAgentToolAccessSnapshot,
+    listTools: async () => [],
+    listAgentToolBindings: async (input: { agentId: string }) =>
+      (await listAgentToolAccessSnapshot(input)).activeBindings.map(
+        (row) => row.binding,
+      ),
+    getTool: async (toolId: string) => {
+      const index = Number(toolId.split(':').at(-1) ?? 0);
+      const names =
+        typeof rules === 'function' ? rules({ agentId: '' }) : rules;
+      return { appId: 'app:test', name: names[index] ?? names[0] };
+    },
+  };
+}
 
 class MemoryAsyncTaskRepository implements AsyncTaskRepository {
   readonly tasks = new Map<string, AsyncTaskRecord>();
@@ -46,6 +94,66 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
     };
     this.tasks.set(task.id, task);
     return task;
+  }
+
+  async createTaskWithBacklogAdmission(
+    input: AsyncTaskBacklogAdmissionInput,
+  ): Promise<AsyncTaskRecord | null> {
+    const backlog = [...this.tasks.values()].filter(
+      (task) =>
+        task.appId === input.task.appId &&
+        task.kind === input.task.kind &&
+        input.statuses.includes(task.status),
+    );
+    if (
+      backlog.length >= input.maxBacklogPerApp ||
+      backlog.filter((task) => task.agentId === input.task.agentId).length >=
+        input.maxBacklogPerAgent
+    ) {
+      return null;
+    }
+    return this.createTask(input.task);
+  }
+
+  async createTaskWithScopedAdmission(
+    input: AsyncTaskScopedAdmissionInput,
+  ): Promise<AsyncTaskScopedAdmissionResult> {
+    return {
+      task: await this.createTask(input.task),
+      admitted: true,
+      staleTasks: [],
+    };
+  }
+
+  async claimQueuedTask(
+    input: AsyncTaskClaimInput,
+  ): Promise<AsyncTaskRecord | null> {
+    const current = this.tasks.get(input.taskId);
+    if (!current || current.status !== 'queued') return null;
+    const running = [...this.tasks.values()].filter(
+      (task) =>
+        task.appId === current.appId &&
+        task.kind === current.kind &&
+        task.status === 'running',
+    );
+    if (
+      running.length >= input.maxRunningPerApp ||
+      running.filter((task) => task.agentId === current.agentId).length >=
+        input.maxRunningPerAgent
+    ) {
+      return null;
+    }
+    const claimed: AsyncTaskRecord = {
+      ...current,
+      status: 'running',
+      leaseToken: input.leaseToken,
+      fencingVersion: current.fencingVersion + 1,
+      heartbeatAt: input.now,
+      startedAt: input.now,
+      updatedAt: input.now,
+    };
+    this.tasks.set(claimed.id, claimed);
+    return claimed;
   }
 
   async getTask(taskId: string): Promise<AsyncTaskRecord | null> {
@@ -218,7 +326,6 @@ function contextFor(input: {
   liveStopActionToken?: string;
   deps?: Record<string, unknown>;
   conversationBindings?: Record<string, unknown>;
-  sourceAgentFolderJids?: string[];
 }) {
   return {
     data: {
@@ -235,7 +342,7 @@ function contextFor(input: {
       ...(input.deps ?? {}),
     },
     conversationBindings: input.conversationBindings ?? {},
-    sourceAgentFolderJids: input.sourceAgentFolderJids ?? ['sl:C123'],
+    sourceAgentFolderJids: ['sl:C123'],
   } as never;
 }
 
@@ -383,7 +490,7 @@ describe('agent task lifecycle IPC handlers', () => {
     });
   });
 
-  it('resolves a declared caller tool for a live session run', async () => {
+  it('provides task lifecycle service without an enforcing sandbox', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-task-ipc-'),
     );
@@ -393,7 +500,7 @@ describe('agent task lifecycle IPC handlers', () => {
       taskData,
       registerAsyncCommandSandboxPolicy,
     } = await loadTaskLifecycleHandlers(runtimeHome);
-    const publishRuntimeEvent = vi.fn(async () => undefined);
+    const repository = new MemoryAsyncTaskRepository();
     registerAsyncCommandSandboxPolicy({
       sourceAgentFolder: 'main_agent',
       runHandle: 'run-1',
@@ -403,82 +510,30 @@ describe('agent task lifecycle IPC handlers', () => {
         conversationId: 'sl:C123',
         threadId: 'thread-1',
         runId: 'run-id-1',
-        correlationId: 'chat-turn-1',
-        callerResolvedTools: {
-          sessionId: 'session-1',
-          maxInteractions: 4,
-          interactionTimeoutMs: 5_000,
-          tools: [
-            {
-              name: 'get_tender_metadata',
-              description: 'Read tender metadata.',
-              inputSchema: { type: 'object' },
-            },
-          ],
-        },
         protectedReadPaths: [],
         protectedWritePaths: [],
         allowedNetworkHosts: [],
-        resourceLimits: {
-          cpuSeconds: 300,
-          memoryMb: 1024,
-          maxProcesses: 64,
-        },
+        resourceLimits: DEFAULT_ASYNC_RESOURCE_LIMITS,
       },
     });
 
-    const handled = agentTaskLifecycleHandlers.caller_resolved_tool(
+    await agentTaskLifecycleHandlers.task_list(
       contextFor({
-        data: taskData('caller-live', 'caller_resolved_tool', {
-          toolName: 'get_tender_metadata',
-          toolInput: { tenderId: 'tender-1' },
-        }),
+        data: taskData('direct-task-list', 'task_list'),
         deps: {
-          publishRuntimeEvent,
+          getAsyncTaskRepository: () => repository,
+          runnerSandboxProvider: {
+            id: 'direct',
+            enforcing: false,
+            start: vi.fn(),
+          },
         },
-        sourceAgentFolderJids: ['app:session-1:agent:main_agent'],
       }),
     );
-    await vi.waitFor(() => {
-      expect(publishRuntimeEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          sessionId: 'session-1',
-          runId: 'run-id-1',
-          correlationId: 'chat-turn-1',
-          eventType: 'interaction.pending',
-          payload: expect.objectContaining({
-            interactionType: 'caller_resolved_tool',
-            toolName: 'get_tender_metadata',
-            input: { tenderId: 'tender-1' },
-          }),
-        }),
-      );
-    });
-    const requiredEvent = publishRuntimeEvent.mock.calls.find(
-      ([event]) => event.eventType === 'interaction.pending',
-    )?.[0];
-    const interactionId = requiredEvent?.payload.interactionId;
-    expect(interactionId).toEqual(expect.any(String));
-    const { settleCallerResolvedTool } =
-      await import('@core/application/interactions/caller-resolved-tool-coordinator.js');
-    await expect(
-      settleCallerResolvedTool({
-        appId: 'app:test',
-        sessionId: 'session-1',
-        interactionId,
-        idempotencyKey: 'caller-live-resolution',
-        resolution: {
-          status: 'resolved',
-          result: { emd: 'INR 62,00,000' },
-        },
-      }),
-    ).resolves.toBe('resolved');
-    await handled;
 
-    expect(readResponse(runtimeHome, 'caller-live')).toMatchObject({
+    expect(readResponse(runtimeHome, 'direct-task-list')).toMatchObject({
       ok: true,
-      message: 'Caller-resolved tool completed.',
-      data: { emd: 'INR 62,00,000' },
+      data: { tasks: [] },
     });
   });
 
@@ -496,15 +551,7 @@ describe('agent task lifecycle IPC handlers', () => {
     const deps = {
       getAsyncTaskRepository: () => repository,
       getToolRepository: () =>
-        ({
-          listAgentToolBindings: async () => [
-            { status: 'active', toolId: 'tool:permission-rule:test' },
-          ],
-          getTool: async () => ({
-            appId: 'app:test',
-            name: 'RunCommand(echo *)',
-          }),
-        }) as never,
+        toolRepositoryForRules(['RunCommand(echo *)']) as never,
       runnerSandboxProvider: fakeEnforcingSandboxProvider({
         onStart: (options) => {
           expect(options).toMatchObject({
@@ -743,15 +790,7 @@ describe('agent task lifecycle IPC handlers', () => {
     const deps = {
       getAsyncTaskRepository: () => repository,
       getToolRepository: () =>
-        ({
-          listAgentToolBindings: async () => [
-            { status: 'active', toolId: 'tool:delegation' },
-          ],
-          getTool: async () => ({
-            appId: 'app:test',
-            name: 'AgentDelegation',
-          }),
-        }) as never,
+        toolRepositoryForRules(['AgentDelegation']) as never,
       runnerSandboxProvider: fakeEnforcingSandboxProvider(),
     };
     registerAsyncCommandSandboxPolicy({
@@ -865,7 +904,7 @@ describe('agent task lifecycle IPC handlers', () => {
     expect(repository.tasks.get(child.id)?.status).toBe('cancelled');
   });
 
-  it('stores a scheduled agent run in the agent-run parent column', async () => {
+  it('stores scheduled job run ids in the job-run parent column', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-task-ipc-'),
     );
@@ -879,15 +918,7 @@ describe('agent task lifecycle IPC handlers', () => {
     const deps = {
       getAsyncTaskRepository: () => repository,
       getToolRepository: () =>
-        ({
-          listAgentToolBindings: async () => [
-            { status: 'active', toolId: 'tool:permission-rule:test' },
-          ],
-          getTool: async () => ({
-            appId: 'app:test',
-            name: 'RunCommand(echo *)',
-          }),
-        }) as never,
+        toolRepositoryForRules(['RunCommand(echo *)']) as never,
       runnerSandboxProvider: fakeEnforcingSandboxProvider(),
     };
     registerAsyncCommandSandboxPolicy({
@@ -926,9 +957,9 @@ describe('agent task lifecycle IPC handlers', () => {
 
     const taskId = await waitForStatus(repository, 'running');
     expect(repository.tasks.get(taskId)).toMatchObject({
-      parentRunId: 'job-run-1',
+      parentRunId: null,
       parentJobId: 'job-1',
-      parentJobRunId: null,
+      parentJobRunId: 'job-run-1',
     });
     await agentTaskLifecycleHandlers.task_cancel(
       contextFor({
@@ -953,7 +984,36 @@ describe('agent task lifecycle IPC handlers', () => {
       registerAsyncCommandSandboxPolicy,
     } = await loadTaskLifecycleHandlers(runtimeHome);
     const repository = new MemoryAsyncTaskRepository();
-    const publishRuntimeEvent = vi.fn(async () => undefined);
+    const callableAgents = [
+      {
+        id: 'agent:main_agent',
+        appId: 'app:test',
+        name: 'Main',
+        status: 'active',
+      },
+      {
+        id: 'agent:reviewer',
+        appId: 'app:test',
+        name: 'Reviewer',
+        status: 'active',
+      },
+    ] as never;
+    let configuredDelegates = ['reviewer'];
+    const syntheticToolName = callableAgentToolName(
+      projectCallableAgentTools({
+        agents: callableAgents,
+        callerAppId: 'app:test',
+        callerAgentId: 'agent:main_agent',
+        callerFolder: 'main_agent',
+        delegates: ['reviewer'],
+        conversationBoundAgentIds: new Set(['agent:reviewer']),
+        toolPolicyRules: ['AgentDelegation'],
+      })[0]!,
+    );
+    let reviewerFileReadActive = true;
+    const sendMessage = vi.fn(async () => {
+      reviewerFileReadActive = false;
+    });
     const runAgent = vi.fn(
       async (group, input, onProcess, onOutput, options) => {
         const child = new EventEmitter() as EventEmitter & {
@@ -972,16 +1032,16 @@ describe('agent task lifecycle IPC handlers', () => {
           status: 'success',
           result: 'halfway',
         });
-        await onOutput?.({
-          status: 'success',
-          result: ' done',
-        });
         expect(input.prompt).toContain('Objective: Research lead sources');
         expect(group.folder).toBe('reviewer');
+        expect(group.providerAccountId).toBe('slack-two');
         expect(input.agentId).toBe('agent:reviewer');
         expect(input.workspaceFolder).toBe('reviewer');
+        if (sendMessage.mock.calls.length > 0) {
+          expect(input.toolPolicyRules).not.toContain('FileRead');
+        }
         expect(options?.asyncTaskRepositoryAvailable).toBe(true);
-        return { status: 'success', result: null };
+        return { status: 'success', result: 'delegated done' };
       },
     );
     const deps = {
@@ -989,38 +1049,67 @@ describe('agent task lifecycle IPC handlers', () => {
       getToolRepository: () =>
         ({
           listTools: async () => [],
-          listAgentToolBindings: async () => [
+          listAgentToolBindings: async (query: { agentId: string }) => [
             { status: 'active', toolId: 'tool:delegation' },
+            ...(query.agentId === 'agent:reviewer' && reviewerFileReadActive
+              ? [{ status: 'active', toolId: 'tool:file-read' }]
+              : []),
           ],
-          getTool: async () => ({
+          listAgentToolAccessSnapshot: async (query: { agentId: string }) => {
+            const rows = [
+              {
+                binding: { status: 'active', toolId: 'tool:delegation' },
+                definition: { appId: 'app:test', name: 'AgentDelegation' },
+              },
+              ...(query.agentId === 'agent:reviewer' && reviewerFileReadActive
+                ? [
+                    {
+                      binding: {
+                        status: 'active',
+                        toolId: 'tool:file-read',
+                      },
+                      definition: { appId: 'app:test', name: 'FileRead' },
+                    },
+                  ]
+                : []),
+            ];
+            return { activeBindings: rows, appActiveDefinitions: [] };
+          },
+          getTool: async (toolId: string) => ({
             appId: 'app:test',
-            name: 'AgentDelegation',
+            name: toolId === 'tool:file-read' ? 'FileRead' : 'AgentDelegation',
           }),
         }) as never,
       runnerSandboxProvider: fakeEnforcingSandboxProvider(),
+      getAgentRepository: () =>
+        ({ listAgents: async () => callableAgents }) as never,
+      getPermissionRuntimeSettings: () =>
+        ({
+          agents: { main_agent: { delegates: configuredDelegates } },
+        }) as never,
+      sendMessage,
       runAgent,
-      publishRuntimeEvent,
-      opsRepository: { getJobById: async () => null } as never,
+    };
+    const interactiveSandboxPolicy = {
+      appId: 'app:test',
+      agentId: 'agent:main_agent',
+      conversationId: 'sl:C123',
+      providerAccountId: 'slack-one',
+      threadId: 'thread-1',
+      correlationRunId: 'turn-correlation-1',
+      protectedReadPaths: [],
+      protectedWritePaths: [],
+      allowedNetworkHosts: [],
+      resourceLimits: {
+        cpuSeconds: 300,
+        memoryMb: 1024,
+        maxProcesses: 64,
+      },
     };
     registerAsyncCommandSandboxPolicy({
       sourceAgentFolder: 'main_agent',
       runHandle: 'run-1',
-      policy: {
-        appId: 'app:test',
-        agentId: 'agent:main_agent',
-        conversationId: 'sl:C123',
-        providerAccountId: 'slack-one',
-        threadId: 'thread-1',
-        runId: 'run-id-1',
-        protectedReadPaths: [],
-        protectedWritePaths: [],
-        allowedNetworkHosts: [],
-        resourceLimits: {
-          cpuSeconds: 300,
-          memoryMb: 1024,
-          maxProcesses: 64,
-        },
-      },
+      policy: interactiveSandboxPolicy,
     });
 
     const conversationBindings = {
@@ -1029,6 +1118,7 @@ describe('agent task lifecycle IPC handlers', () => {
         name: 'Lead gen',
         folder: 'main_agent',
         providerAccountId: 'slack-one',
+        conversationId: 'conversation:shared',
         isRegistered: true,
       },
       'sl:C123::thread:thread-1::agent:agent%3Areviewer': {
@@ -1036,7 +1126,8 @@ describe('agent task lifecycle IPC handlers', () => {
         name: 'Reviewer',
         folder: 'reviewer',
         agentId: 'agent:reviewer',
-        providerAccountId: 'slack-one',
+        providerAccountId: 'slack-two',
+        conversationId: 'conversation:other',
         isRegistered: true,
       },
     };
@@ -1063,12 +1154,55 @@ describe('agent task lifecycle IPC handlers', () => {
     await agentTaskLifecycleHandlers.delegate_task(
       contextFor({
         data: {
+          ...taskData('delegate-other-conversation', 'delegate_task', {
+            objective: 'Research lead sources',
+            targetAgentId: 'agent:reviewer',
+          }),
+          providerAccountId: 'slack-one',
+        },
+        deps,
+        conversationBindings,
+      }),
+    );
+    expect(
+      readResponse(runtimeHome, 'delegate-other-conversation'),
+    ).toMatchObject({ ok: false, code: 'not_found' });
+    expect(repository.tasks.size).toBe(0);
+    conversationBindings[
+      'sl:C123::thread:thread-1::agent:agent%3Areviewer'
+    ].conversationId = 'conversation:shared';
+
+    configuredDelegates = [];
+    await agentTaskLifecycleHandlers.delegate_task(
+      contextFor({
+        data: {
+          ...taskData('delegate-not-allowlisted', 'delegate_task', {
+            objective: 'Research lead sources',
+            targetAgentId: 'agent:reviewer',
+          }),
+          providerAccountId: 'slack-one',
+        },
+        deps,
+        conversationBindings,
+      }),
+    );
+    expect(readResponse(runtimeHome, 'delegate-not-allowlisted')).toMatchObject(
+      {
+        ok: false,
+        code: 'forbidden',
+      },
+    );
+    expect(repository.tasks.size).toBe(0);
+    configuredDelegates = ['reviewer'];
+
+    await agentTaskLifecycleHandlers.delegate_task(
+      contextFor({
+        data: {
           ...taskData('delegate-start', 'delegate_task', {
             objective: 'Research lead sources',
             targetAgentId: 'agent:reviewer',
           }),
           providerAccountId: 'slack-one',
-          jobId: 'job-1',
         },
         deps,
         conversationBindings,
@@ -1084,10 +1218,9 @@ describe('agent task lifecycle IPC handlers', () => {
     expect(repository.tasks.get(taskId!)?.privateCorrelationJson).toMatchObject(
       { targetAgentId: 'agent:reviewer', workspaceFolder: 'reviewer' },
     );
-    expect(repository.tasks.get(taskId!)).toMatchObject({
-      parentRunId: 'run-id-1',
-      parentJobId: 'job-1',
-      parentJobRunId: null,
+    expect(repository.tasks.get(taskId!)?.authoritySnapshotJson).toEqual({
+      toolName: 'delegate_task',
+      maxDepth: 1,
     });
     expect(
       readEncryptedAsyncTaskPayload<{ providerAccountId?: string }>(
@@ -1095,14 +1228,131 @@ describe('agent task lifecycle IPC handlers', () => {
       ),
     ).toMatchObject({ providerAccountId: 'slack-one' });
     await waitForStatus(repository, 'completed');
-    expect(repository.tasks.get(taskId!)?.outputSummary).toBe('halfway done');
-    expect(publishRuntimeEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        runId: 'run-id-1',
-        jobId: 'job-1',
-        eventType: 'task.updated',
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    const { runId: runnerSuppliedRunId, ...syntheticDelegationData } = taskData(
+      'delegate-synthetic',
+      'delegate_task',
+      {
+        objective: 'Research lead sources',
+        targetAgentId: 'agent:reviewer',
+        callableAgentToolName: syntheticToolName,
+        syncWaitTimeoutMs: 60_000,
+      },
+    );
+    expect(runnerSuppliedRunId).toBe('run-id-1');
+    await agentTaskLifecycleHandlers.delegate_task(
+      contextFor({
+        data: {
+          ...syntheticDelegationData,
+          providerAccountId: 'slack-one',
+        },
+        deps,
+        conversationBindings,
       }),
     );
+    expect(
+      [...repository.tasks.values()].find(
+        (task) => task.authoritySnapshotJson.toolName === 'AgentDelegation',
+      )?.authoritySnapshotJson,
+    ).toEqual({ toolName: 'AgentDelegation', maxDepth: 1 });
+    expect(readResponse(runtimeHome, 'delegate-synthetic')).toMatchObject({
+      ok: true,
+      data: { status: 'completed' },
+    });
+    expect(runAgent).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ parentRunId: 'turn-correlation-1' }),
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Object),
+    );
+    expect(runAgent.mock.lastCall?.[4]).toMatchObject({
+      accessSnapshot: {
+        appId: 'app:test',
+        agentId: 'agent:reviewer',
+      },
+    });
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+    expect(sendMessage).toHaveBeenNthCalledWith(
+      1,
+      'sl:C123',
+      'Checking with the Reviewer agent about: Research lead sources…',
+      {
+        threadId: 'thread-1',
+        providerAccountId: 'slack-one',
+        files: undefined,
+      },
+    );
+    expect(sendMessage).toHaveBeenNthCalledWith(
+      2,
+      'sl:C123',
+      'Reviewer responded.',
+      {
+        threadId: 'thread-1',
+        providerAccountId: 'slack-one',
+        files: undefined,
+      },
+    );
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+    expect(sendMessage.mock.calls.map((call) => call[1])).toEqual([
+      'Checking with the Reviewer agent about: Research lead sources…',
+      'Reviewer responded.',
+    ]);
+
+    sendMessage.mockClear();
+    await agentTaskLifecycleHandlers.delegate_task(
+      contextFor({
+        data: {
+          ...taskData('delegate-synthetic-spoofed-job', 'delegate_task', {
+            objective: 'Research lead sources',
+            targetAgentId: 'agent:reviewer',
+            callableAgentToolName: syntheticToolName,
+            syncWaitTimeoutMs: 60_000,
+          }),
+          providerAccountId: 'slack-one',
+          jobId: 'spoofed-job',
+        },
+        deps,
+        conversationBindings,
+      }),
+    );
+    expect(
+      readResponse(runtimeHome, 'delegate-synthetic-spoofed-job'),
+    ).toMatchObject({ ok: true, data: { status: 'completed' } });
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+
+    sendMessage.mockClear();
+    registerAsyncCommandSandboxPolicy({
+      sourceAgentFolder: 'main_agent',
+      runHandle: 'run-1',
+      policy: { ...interactiveSandboxPolicy, jobId: 'job-1' },
+    });
+    await agentTaskLifecycleHandlers.delegate_task(
+      contextFor({
+        data: {
+          ...taskData('delegate-synthetic-scheduled', 'delegate_task', {
+            objective: 'Research lead sources',
+            targetAgentId: 'agent:reviewer',
+            callableAgentToolName: syntheticToolName,
+            syncWaitTimeoutMs: 60_000,
+          }),
+          providerAccountId: 'slack-one',
+          jobId: 'job-1',
+        },
+        deps,
+        conversationBindings,
+      }),
+    );
+    expect(
+      readResponse(runtimeHome, 'delegate-synthetic-scheduled'),
+    ).toMatchObject({ ok: true, data: { status: 'completed' } });
+    expect(sendMessage).not.toHaveBeenCalled();
+    registerAsyncCommandSandboxPolicy({
+      sourceAgentFolder: 'main_agent',
+      runHandle: 'run-1',
+      policy: interactiveSandboxPolicy,
+    });
 
     runAgent.mockImplementationOnce(
       async (_group, _input, _onProcess, onOutput) => {
@@ -1233,16 +1483,7 @@ describe('agent task lifecycle IPC handlers', () => {
     const deps = {
       getAsyncTaskRepository: () => repository,
       getToolRepository: () =>
-        ({
-          listTools: async () => [],
-          listAgentToolBindings: async () => [
-            { status: 'active', toolId: 'tool:delegation' },
-          ],
-          getTool: async () => ({
-            appId: 'app:test',
-            name: 'AgentDelegation',
-          }),
-        }) as never,
+        toolRepositoryForRules(['AgentDelegation']) as never,
       runnerSandboxProvider: fakeEnforcingSandboxProvider(),
       runAgent,
     };
@@ -1323,15 +1564,7 @@ describe('agent task lifecycle IPC handlers', () => {
     const deps = {
       getAsyncTaskRepository: () => repository,
       getToolRepository: () =>
-        ({
-          listAgentToolBindings: async () => [
-            { status: 'active', toolId: 'tool:permission-rule:test' },
-          ],
-          getTool: async () => ({
-            appId: 'app:test',
-            name: 'RunCommand(echo *)',
-          }),
-        }) as never,
+        toolRepositoryForRules(['RunCommand(echo *)']) as never,
       runnerSandboxProvider: fakeEnforcingSandboxProvider(),
     };
     registerAsyncCommandSandboxPolicy({
@@ -1401,13 +1634,10 @@ describe('agent task lifecycle IPC handlers', () => {
       fencingVersion: 1,
       now: new Date().toISOString(),
     });
+    const toolRepository = toolRepositoryForRules([]);
     const deps = {
       getAsyncTaskRepository: () => repository,
-      getToolRepository: () =>
-        ({
-          listTools: async () => [],
-          listAgentToolBindings: async () => [],
-        }) as never,
+      getToolRepository: () => toolRepository as never,
       runnerSandboxProvider: fakeEnforcingSandboxProvider(),
     };
     registerAsyncCommandSandboxPolicy({
@@ -1444,6 +1674,10 @@ describe('agent task lifecycle IPC handlers', () => {
       ok: false,
       code: 'forbidden',
       error: 'task_message requires AgentDelegation access.',
+    });
+    expect(toolRepository.listAgentToolAccessSnapshot).toHaveBeenCalledWith({
+      appId: 'app:test',
+      agentId: 'agent:main_agent',
     });
     expect(
       repository.tasks.get('task_delegate')?.privateCorrelationJson,

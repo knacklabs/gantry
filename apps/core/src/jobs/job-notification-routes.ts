@@ -80,6 +80,7 @@ export function buildCanonicalJobLifecycleTarget(input: {
   threadId?: string | null;
   workspaceKey: string;
   sessionId?: string | null;
+  providerAccountId?: string | null;
   label?: string;
 }): {
   executionContext: JobExecutionContext;
@@ -93,6 +94,7 @@ export function buildCanonicalJobLifecycleTarget(input: {
     );
   }
   const threadId = normalizeOptional(input.threadId) ?? null;
+  const providerAccountId = normalizeOptional(input.providerAccountId);
   const executionContext: JobExecutionContext = {
     conversationJid,
     threadId,
@@ -105,16 +107,11 @@ export function buildCanonicalJobLifecycleTarget(input: {
       {
         conversationJid,
         threadId,
+        ...(providerAccountId ? { providerAccountId } : {}),
         label: normalizeOptional(input.label) ?? 'Primary',
       },
     ],
   };
-}
-
-export function notificationRouteKey(
-  route: Pick<NormalizedJobNotificationRoute, 'conversationJid' | 'threadId'>,
-): string {
-  return `${route.conversationJid}\u0000${route.threadId ?? ''}`;
 }
 
 function normalizeRoutes(

@@ -1,6 +1,8 @@
-import fs from 'fs';
-
-import { PRIVATE_FILE_MODE } from '../shared/private-fs.js';
+import {
+  createInboundAttachmentStorageRef,
+  writeInboundAttachment,
+  type InboundAttachmentReader,
+} from '../shared/inbound-attachment-writer.js';
 import { logger } from '../infrastructure/logging/logger.js';
 
 export const TELEGRAM_MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024;
@@ -17,8 +19,9 @@ export interface TelegramDownloadResponse {
 
 export async function writeTelegramFetchResponseToFile(
   response: TelegramDownloadResponse,
-  destPath: string,
-): Promise<boolean> {
+  workspaceRoot: string,
+  filename: string,
+): Promise<string | null> {
   const declaredLength = Number(response.headers?.get('content-length'));
   if (
     Number.isFinite(declaredLength) &&
@@ -31,9 +34,10 @@ export async function writeTelegramFetchResponseToFile(
       },
       'Telegram file exceeds max allowed size',
     );
-    return false;
+    return null;
   }
 
+  const storageRef = createInboundAttachmentStorageRef(filename);
   const reader = response.body?.getReader?.();
   if (!reader) {
     if (!response.arrayBuffer) {
@@ -48,47 +52,32 @@ export async function writeTelegramFetchResponseToFile(
         },
         'Telegram file exceeds max allowed size',
       );
-      return false;
+      return null;
     }
-    await fs.promises.writeFile(destPath, buffer, { mode: PRIVATE_FILE_MODE });
-    return true;
+    await writeInboundAttachment({
+      workspaceRoot,
+      workspaceRelativePath: storageRef,
+      content: buffer,
+      maxBytes: TELEGRAM_MAX_DOWNLOAD_BYTES,
+    });
+    return storageRef;
   }
 
-  const file = await fs.promises.open(destPath, 'w', PRIVATE_FILE_MODE);
-  let totalBytes = 0;
-  let shouldCleanup = false;
-  try {
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      const value = chunk.value;
-      if (!value || value.byteLength === 0) continue;
-      totalBytes += value.byteLength;
-      if (totalBytes > TELEGRAM_MAX_DOWNLOAD_BYTES) {
-        shouldCleanup = true;
-        logger.warn(
-          {
-            bytes: totalBytes,
-            maxBytes: TELEGRAM_MAX_DOWNLOAD_BYTES,
-          },
-          'Telegram file exceeds max allowed size',
-        );
-        return false;
-      }
-      await file.write(Buffer.from(value));
-    }
-    return true;
-  } catch (err) {
-    shouldCleanup = true;
-    throw err;
-  } finally {
-    await file.close();
-    if (shouldCleanup) {
-      try {
-        await fs.promises.unlink(destPath);
-      } catch {
-        // ignore cleanup errors
-      }
-    }
+  const result = await writeInboundAttachment({
+    workspaceRoot,
+    workspaceRelativePath: storageRef,
+    content: reader as InboundAttachmentReader,
+    maxBytes: TELEGRAM_MAX_DOWNLOAD_BYTES,
+  });
+  if (result.status === 'too-large') {
+    logger.warn(
+      {
+        bytes: result.bytes,
+        maxBytes: TELEGRAM_MAX_DOWNLOAD_BYTES,
+      },
+      'Telegram file exceeds max allowed size',
+    );
+    return null;
   }
+  return storageRef;
 }

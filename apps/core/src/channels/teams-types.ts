@@ -4,11 +4,12 @@ import { getProviderRuntimeSecret } from './provider-runtime-secrets.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionCallbackScope,
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../domain/types.js';
 import type { TeamsAdaptiveCardPayload } from './teams-cards.js';
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { DurableQuestionCallback } from '../application/interactions/pending-interaction-durability.js';
 
 export const TEAMS_JID_PREFIX = 'teams:';
 
@@ -38,8 +39,6 @@ export interface TeamsInboundMessage {
   conversationName?: string;
   conversationType?: string;
   attachments?: TeamsMessageAttachment[];
-  conversationReference?: Record<string, unknown>;
-  providerData?: Record<string, unknown>;
 }
 
 export interface TeamsMessageAttachment {
@@ -78,21 +77,19 @@ export interface TeamsSdkOutboundMessage {
   conversationId: string;
   text: string;
   threadId?: string;
-  conversationReference?: Record<string, unknown>;
 }
 
 export interface TeamsSdkAdaptiveCardMessage {
   conversationId: string;
-  card: TeamsAdaptiveCardPayload | Record<string, unknown>;
+  card: TeamsAdaptiveCardPayload;
   threadId?: string;
   streamType?: 'informative' | 'streaming';
-  conversationReference?: Record<string, unknown>;
 }
 
 export interface TeamsSdkAdaptiveCardUpdate {
   conversationId: string;
   messageId: string;
-  card: TeamsAdaptiveCardPayload | Record<string, unknown>;
+  card: TeamsAdaptiveCardPayload;
   threadId?: string;
   streamType?: 'informative' | 'streaming';
 }
@@ -116,12 +113,6 @@ export interface TeamsSdkClient {
   updateAdaptiveCard?(
     input: TeamsSdkAdaptiveCardUpdate,
   ): Promise<TeamsSdkSendResult>;
-  handleHttpIngress?(
-    request: IncomingMessage,
-    response: ServerResponse,
-    body: Record<string, unknown>,
-  ): Promise<void>;
-  getAuthenticatedConversationRegistrationCount?(): number;
 }
 
 export interface TeamsChannelDependencies {
@@ -137,10 +128,13 @@ export type TeamsChannelOpts = Pick<
   | 'onMessageAction'
   | 'providerAccountId'
   | 'agentId'
+  | 'conversationRoutes'
 >;
 
 export interface PendingTeamsPermissionPrompt {
+  callback: TeamsPermissionCallback;
   conversationId: string;
+  messageId?: string;
   sourceAgentFolder: string;
   decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
   approvalContextJid?: string;
@@ -151,7 +145,14 @@ export interface PendingTeamsPermissionPrompt {
   settled: boolean;
 }
 
+export interface TeamsPermissionCallback {
+  providerAlias: string;
+  scope: PermissionCallbackScope;
+  matchKind: 'individual' | 'batch';
+}
+
 export interface PendingTeamsUserQuestion {
+  callback: DurableQuestionCallback;
   conversationId: string;
   sourceAgentFolder: string;
   request: UserQuestionRequest;

@@ -20,11 +20,14 @@ import {
 import {
   getControlEnvValue,
   getConfiguredAgentRuntime,
+  syncRuntimeSettingsFromProjection,
 } from '@core/config/index.js';
 import { signExternalIngressRequest } from '@core/application/external-ingress/signature.js';
 import { preflightModelProvider } from '@core/adapters/llm/model-provider-preflight.js';
 import { listSlackRecentChats } from '@core/cli/slack-chat-discovery.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
+import { SessionInteractionModule } from '@core/application/sessions/session-interaction-module.js';
+import { adaptSessionControlPort } from '@core/control/server/session-control-port.js';
 
 vi.mock('@core/adapters/llm/model-provider-preflight.js', () => ({
   preflightModelProvider: vi.fn(async () => ({
@@ -45,6 +48,9 @@ vi.mock('@core/cli/slack-chat-discovery.js', () => ({
 const mockedPreflightModelProvider = vi.mocked(preflightModelProvider);
 const mockedGetControlEnvValue = vi.mocked(getControlEnvValue);
 const mockedGetConfiguredAgentRuntime = vi.mocked(getConfiguredAgentRuntime);
+const mockedSyncRuntimeSettingsFromProjection = vi.mocked(
+  syncRuntimeSettingsFromProjection,
+);
 const mockedListSlackRecentChats = vi.mocked(listSlackRecentChats);
 
 vi.mock('@core/config/index.js', async () => {
@@ -324,6 +330,8 @@ const domainRepositories = {
   },
   messages: {
     listMessages: vi.fn(async () => []),
+    // The session feeds resolve conversation rows by jid and union them.
+    listConversationIdsForJid: vi.fn(async () => []),
   },
   capabilitySecrets: {
     getSecret: vi.fn(async () => null),
@@ -368,6 +376,9 @@ const ingressSignatureCrypto = {
 };
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+  tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+    release: vi.fn(async () => {}),
+  })),
   getRuntimeControlRepository: () => controlRepo,
   getRuntimeEventExchange: () => runtimeEvents,
   getRuntimeRepositories: () => opsRepo,
@@ -387,7 +398,10 @@ import {
   _testControlServer,
   startControlServer,
 } from '@core/control/server/index.js';
-import { _testSessionRoutes } from '@core/control/server/routes/sessions.js';
+import {
+  _testSessionRoutes,
+  handleSessionRoutes,
+} from '@core/control/server/routes/sessions.js';
 
 async function reservePort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {
@@ -460,6 +474,80 @@ async function requestWithRetry(
   throw lastError instanceof Error
     ? lastError
     : new Error('Control server did not start in time');
+}
+
+function createSessionEventStreamRouteHarness() {
+  const token = 'token-events-sse-limit';
+  const state = {
+    activeStreams: 0,
+    activeWaits: 0,
+    activeTriggerWaits: 0,
+  };
+  const sessionInteraction = new SessionInteractionModule({
+    control: adaptSessionControlPort(controlRepo as never),
+    ops: opsRepo as never,
+    repositories: domainRepositories as never,
+    runtimeEvents: runtimeEvents as never,
+    now: () => '2026-08-03T00:00:00.000Z' as never,
+    createId: () => 'session-event-stream-test',
+    stableHash: (input) => createHash('sha256').update(input).digest('hex'),
+  });
+  const ctx = {
+    keys: [
+      {
+        kid: 'k',
+        tokenHash: createHash('sha256').update(token).digest(),
+        scopes: new Set(['sessions:read']),
+        appId: 'app-one',
+      },
+    ],
+    maxConcurrentStreams: 25,
+    state,
+    sessionInteraction,
+  } as any;
+  const url = new URL(
+    'http://localhost/v1/sessions/session-1/events?afterEventId=0',
+  );
+
+  const request = () => {
+    const req = new EventEmitter() as EventEmitter & {
+      method: string;
+      headers: Record<string, string>;
+      destroyed: boolean;
+    };
+    req.method = 'GET';
+    req.headers = {
+      accept: 'text/event-stream',
+      authorization: `Bearer ${token}`,
+    };
+    req.destroyed = false;
+
+    const res = new EventEmitter() as EventEmitter & {
+      destroyed: boolean;
+      statusCode: number;
+      body: string;
+      setHeader: ReturnType<typeof vi.fn>;
+      write: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    };
+    res.destroyed = false;
+    res.statusCode = 0;
+    res.body = '';
+    res.setHeader = vi.fn();
+    res.write = vi.fn(() => true);
+    res.end = vi.fn((body = '') => {
+      res.body += String(body);
+    });
+
+    return {
+      req,
+      res,
+      run: () =>
+        handleSessionRoutes(req as never, res as never, ctx, url, url.pathname),
+    };
+  };
+
+  return { request, state };
 }
 
 function signIngressRequest(input: {
@@ -1009,8 +1097,8 @@ describe('control server auth key parsing', () => {
     expect(first.folder).not.toBe(second.folder);
     expect(first.folder).toMatch(/^app_[a-f0-9]{12}_/);
     expect(second.folder).toMatch(/^app_[a-f0-9]{12}_/);
-    expect(first.folder.length).toBeLessThanOrEqual(64);
-    expect(second.folder.length).toBeLessThanOrEqual(64);
+    expect(first.folder.length).toBeLessThanOrEqual(96);
+    expect(second.folder.length).toBeLessThanOrEqual(96);
   });
 });
 
@@ -1157,8 +1245,115 @@ describe('control server runtime hardening', () => {
       );
       expect(response.status).toBe(200);
       const body = await response.json();
+      const nativeOpenAiModels = body.models.filter(
+        (model: { modelRoute?: { id?: string } }) =>
+          model.modelRoute?.id === 'openai',
+      );
+      expect(
+        nativeOpenAiModels.map(
+          (model: { aliases: string[] }) => model.aliases[0],
+        ),
+      ).toEqual([
+        'gpt',
+        'gpt-5.4',
+        'gpt-mini',
+        'gpt-terra',
+        'gpt-luna',
+        'gpt-sol',
+      ]);
+      for (const model of nativeOpenAiModels as Array<{
+        aliases: string[];
+        supportedWorkloads: string[];
+      }>) {
+        expect(model.supportedWorkloads, model.aliases[0]).toEqual([
+          'chat',
+          'one_time_job',
+          'recurring_job',
+          'memory_extractor',
+          'memory_dreaming',
+          'memory_consolidation',
+        ]);
+      }
       expect(body.models).toEqual(
         expect.arrayContaining([
+          expect.objectContaining({
+            displayName: 'GPT-5.6 Terra',
+            aliases: ['gpt-terra', 'gpt-5.6-terra'],
+            supportedWorkloads: [
+              'chat',
+              'one_time_job',
+              'recurring_job',
+              'memory_extractor',
+              'memory_dreaming',
+              'memory_consolidation',
+            ],
+            inputUsdPerMillionTokens: 2.5,
+            outputUsdPerMillionTokens: 15,
+          }),
+          expect.objectContaining({
+            displayName: 'GPT-5.6 Luna',
+            aliases: ['gpt-luna', 'gpt-5.6-luna'],
+            supportedWorkloads: [
+              'chat',
+              'one_time_job',
+              'recurring_job',
+              'memory_extractor',
+              'memory_dreaming',
+              'memory_consolidation',
+            ],
+            inputUsdPerMillionTokens: 1,
+            outputUsdPerMillionTokens: 6,
+          }),
+          expect.objectContaining({
+            displayName: 'GPT-5.6 Sol',
+            aliases: ['gpt-sol', 'gpt-5.6-sol'],
+            supportedWorkloads: [
+              'chat',
+              'one_time_job',
+              'recurring_job',
+              'memory_extractor',
+              'memory_dreaming',
+              'memory_consolidation',
+            ],
+            inputUsdPerMillionTokens: 5,
+            outputUsdPerMillionTokens: 30,
+          }),
+          expect.objectContaining({
+            displayName: 'Opus 5',
+            aliases: ['opus', 'opus-5'],
+            supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
+            inputUsdPerMillionTokens: 5,
+            outputUsdPerMillionTokens: 25,
+            cacheSupport: expect.objectContaining({
+              prompt: expect.objectContaining({
+                minimumTokenThresholds: expect.arrayContaining([
+                  {
+                    modelFamily: 'claude-opus-5',
+                    tokens: 512,
+                  },
+                ]),
+              }),
+            }),
+          }),
+          expect.objectContaining({
+            displayName: 'Opus 4.8',
+            aliases: ['opus-4.8'],
+          }),
+          expect.objectContaining({
+            displayName: 'Grok 4.5',
+            aliases: ['grok', 'grok-4.5'],
+            supportedWorkloads: expect.arrayContaining([
+              'chat',
+              'one_time_job',
+              'recurring_job',
+            ]),
+            inputUsdPerMillionTokens: 2,
+            outputUsdPerMillionTokens: 6,
+          }),
+          expect.objectContaining({
+            displayName: 'Grok 4.3',
+            aliases: ['grok-4.3'],
+          }),
           expect.objectContaining({
             displayName: 'Kimi K2.6',
             aliases: expect.arrayContaining(['kimi', 'kimi-k2.6']),
@@ -2673,7 +2868,7 @@ describe('control server runtime hardening', () => {
     }
   });
 
-  it('projects thread-scoped conversation installs to the live route table', async () => {
+  it('syncs desired settings before projecting thread-scoped conversation installs', async () => {
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);
     process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
@@ -2740,6 +2935,9 @@ describe('control server runtime hardening', () => {
       );
 
       expect(response.status).toBe(200);
+      expect(
+        mockedSyncRuntimeSettingsFromProjection.mock.invocationCallOrder[0],
+      ).toBeLessThan(app.projectConversationRoute.mock.invocationCallOrder[0]);
       expect(app.projectConversationRoute).toHaveBeenCalledWith(
         makeAgentThreadQueueKey('sl:C123', undefined, '171.222'),
         expect.objectContaining({
@@ -2748,6 +2946,71 @@ describe('control server runtime hardening', () => {
           conversationKind: 'channel',
         }),
       );
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('does not project a conversation install when desired settings sync fails', async () => {
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'conversation-admin-token',
+        scopes: ['agents:admin', 'conversations:admin'],
+        appId: 'app-one',
+      },
+    ]);
+    domainRepositories.providerAccounts.getProviderAccount.mockResolvedValue({
+      id: 'slack-one',
+      appId: 'app-one',
+      agentId: 'agent-1',
+      providerId: 'slack',
+      label: 'Slack',
+      status: 'active',
+      config: {},
+      runtimeSecretRefs: {},
+      createdAt: '2026-04-24T00:00:00.000Z',
+      updatedAt: '2026-04-24T00:00:00.000Z',
+    });
+    domainRepositories.conversations.getConversation.mockResolvedValue({
+      id: 'conversation-1',
+      appId: 'app-one',
+      providerAccountId: 'slack-one',
+      externalRef: { kind: 'conversation', value: 'C123' },
+      kind: 'channel',
+      title: 'Engineering',
+      status: 'active',
+      createdAt: '2026-04-24T00:00:00.000Z',
+      updatedAt: '2026-04-24T00:00:00.000Z',
+    });
+    mockedSyncRuntimeSettingsFromProjection.mockRejectedValueOnce(
+      new Error('settings sync failed'),
+    );
+    const app = {
+      projectConversationRoute: vi.fn(async () => undefined),
+      registerGroup: vi.fn(),
+      queue: { enqueueMessageCheck: vi.fn() },
+    };
+    const handle = startControlServer({ app: app as any });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/agents/agent-1/conversation-installs/conversation-1`,
+        'conversation-admin-token',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ providerAccountId: 'slack-one' }),
+        },
+      );
+
+      expect(response.status).toBe(500);
+      expect(mockedSyncRuntimeSettingsFromProjection).toHaveBeenCalledWith(
+        expect.objectContaining({ appId: 'app-one' }),
+      );
+      expect(app.projectConversationRoute).not.toHaveBeenCalled();
     } finally {
       await handle.close();
     }
@@ -2939,6 +3202,158 @@ describe('control server runtime hardening', () => {
     }
   });
 
+  it('keeps an explicit runtime secret ref clear authoritative during settings export', async () => {
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'providers-admin-token',
+        scopes: ['providers:admin'],
+        appId: 'app-one',
+      },
+    ]);
+    const providerAccount = {
+      id: 'slack-one',
+      appId: 'app-one',
+      agentId: 'agent-1',
+      providerId: 'slack',
+      label: 'Slack',
+      status: 'active' as const,
+      config: { workspace: 'T1' },
+      runtimeSecretRefs: { bot_token: 'env:SLACK_BOT_TOKEN' },
+      createdAt: '2026-04-24T00:00:00.000Z',
+      updatedAt: '2026-04-24T00:00:00.000Z',
+    };
+    domainRepositories.providerAccounts.getProviderAccount.mockResolvedValue(
+      providerAccount,
+    );
+    domainRepositories.providerAccounts.updateProviderAccount.mockResolvedValue(
+      {
+        ...providerAccount,
+        runtimeSecretRefs: {},
+      },
+    );
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/provider-accounts/slack-one`,
+        'providers-admin-token',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ runtimeSecretRefs: {} }),
+        },
+      );
+
+      expect(response.status).toBe(200);
+      expect(
+        domainRepositories.providerAccounts.updateProviderAccount,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          patch: expect.objectContaining({
+            runtimeSecretRefs: {},
+          }),
+        }),
+      );
+      expect(mockedSyncRuntimeSettingsFromProjection).toHaveBeenCalledWith(
+        expect.objectContaining({
+          overrides: {
+            providerAccount: {
+              id: 'slack-one',
+              runtimeSecretRefs: {},
+            },
+          },
+        }),
+      );
+      expect(await response.json()).toMatchObject({
+        config: { workspace: 'T1' },
+        runtimeSecretRefs: {},
+      });
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('persists a direct-conversation approver clear through the repository', async () => {
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'conversations-admin-token',
+        scopes: ['conversations:admin'],
+        appId: 'app-one',
+      },
+    ]);
+    const providerAccount = {
+      id: 'slack-one',
+      appId: 'app-one',
+      agentId: 'agent-1',
+      providerId: 'slack',
+      label: 'Slack',
+      status: 'active' as const,
+      config: {},
+      runtimeSecretRefs: {},
+      createdAt: '2026-04-24T00:00:00.000Z',
+      updatedAt: '2026-04-24T00:00:00.000Z',
+    };
+    domainRepositories.providerAccounts.getProviderAccount.mockResolvedValue(
+      providerAccount,
+    );
+    domainRepositories.conversations.getConversation.mockResolvedValue({
+      id: 'conversation-1',
+      appId: 'app-one',
+      providerAccountId: 'slack-one',
+      externalRef: { kind: 'conversation', value: 'D123' },
+      kind: 'direct',
+      title: 'Direct message',
+      status: 'active',
+      createdAt: '2026-04-24T00:00:00.000Z',
+      updatedAt: '2026-04-24T00:00:00.000Z',
+    });
+    domainRepositories.conversations.replaceConversationApprovers.mockResolvedValue(
+      [],
+    );
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/conversations/conversation-1/approvers`,
+        'conversations-admin-token',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ userIds: [] }),
+        },
+      );
+
+      expect(response.status).toBe(200);
+      expect(
+        domainRepositories.conversations.replaceConversationApprovers,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: 'app-one',
+          conversationId: 'conversation-1',
+          externalUserIds: [],
+        }),
+      );
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('rejects raw channel secrets in providerAccount config', async () => {
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);
@@ -3051,16 +3466,6 @@ describe('control server runtime hardening', () => {
       tokenScopes: ['conversations:read'],
     },
     {
-      name: 'messages:send',
-      path: '/v1/conversations/conversation-1/messages',
-      tokenScopes: ['messages:read'],
-      init: {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ idempotencyKey: 'notice-1', text: 'hello' }),
-      },
-    },
-    {
       name: 'conversations:read for install list',
       path: '/v1/agents/agent-1/conversation-installs',
       tokenScopes: ['agents:admin'],
@@ -3169,82 +3574,6 @@ describe('control server runtime hardening', () => {
         messages: [
           { id: 'message-1', parts: [{ payload: { text: 'hello' } }] },
         ],
-      });
-    } finally {
-      await handle.close();
-    }
-  });
-
-  it('durably sends a conversation message with messages:send scope', async () => {
-    const port = await reservePort();
-    process.env.GANTRY_CONTROL_PORT = String(port);
-    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
-      {
-        kid: 'k',
-        token: 'messages-send-token',
-        scopes: ['messages:send'],
-        appId: 'app-one',
-      },
-    ]);
-    domainRepositories.conversations.getConversation.mockResolvedValue({
-      id: 'conversation-1',
-      appId: 'app-one',
-      providerAccountId: 'providerAccount-1',
-      kind: 'channel',
-      title: 'engineering',
-      status: 'active',
-      createdAt: new Date(0).toISOString(),
-      updatedAt: new Date(0).toISOString(),
-    });
-    const sendConversationMessage = vi.fn().mockResolvedValue({
-      messageId: 'outbound:api:one',
-      providerMessageId: 'teams-message-1',
-    });
-    const handle = startControlServer({
-      app: {
-        registerGroup: vi.fn(),
-        queue: { enqueueMessageCheck: vi.fn() },
-      } as any,
-      sendConversationMessage,
-    });
-
-    try {
-      const response = await requestWithRetry(
-        `http://127.0.0.1:${port}/v1/conversations/conversation-1/messages`,
-        'messages-send-token',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            idempotencyKey: 'notice-1',
-            text: 'First notice',
-            threadId: 'thread-1',
-            adaptiveCard: {
-              type: 'AdaptiveCard',
-              version: '1.5',
-              body: [{ type: 'TextBlock', text: 'First notice' }],
-            },
-          }),
-        },
-      );
-      expect(response.status).toBe(202);
-      await expect(response.json()).resolves.toEqual({
-        accepted: true,
-        messageId: 'outbound:api:one',
-        providerMessageId: 'teams-message-1',
-        idempotencyKey: 'notice-1',
-      });
-      expect(sendConversationMessage).toHaveBeenCalledWith({
-        appId: 'app-one',
-        conversationId: 'conversation-1',
-        idempotencyKey: 'notice-1',
-        text: 'First notice',
-        threadId: 'thread-1',
-        adaptiveCard: {
-          type: 'AdaptiveCard',
-          version: '1.5',
-          body: [{ type: 'TextBlock', text: 'First notice' }],
-        },
       });
     } finally {
       await handle.close();
@@ -3417,68 +3746,6 @@ describe('control server runtime hardening', () => {
       expect(memoryService.patch).not.toHaveBeenCalled();
       expect(memoryService.delete).not.toHaveBeenCalled();
       expect(memoryService.triggerDreaming).not.toHaveBeenCalled();
-    } finally {
-      await handle.close();
-    }
-  });
-
-  it('returns canonical context for an app-owned named agent', async () => {
-    const port = await reservePort();
-    process.env.GANTRY_CONTROL_PORT = String(port);
-    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
-      {
-        kid: 'k',
-        token: 'token-named-agent',
-        scopes: ['sessions:write'],
-        appId: 'app-one',
-      },
-    ]);
-    domainRepositories.agents.listAgents.mockResolvedValue([
-      {
-        id: 'agent:tender-folder',
-        appId: 'app-one',
-        name: 'Tender Agent',
-        status: 'active',
-        createdAt: new Date(0).toISOString(),
-        updatedAt: new Date(0).toISOString(),
-      },
-    ] as never);
-    const app = {
-      registerGroup: vi.fn(),
-      queue: { enqueueMessageCheck: vi.fn() },
-    };
-    const handle = startControlServer({ app: app as any });
-
-    try {
-      const response = await requestWithRetry(
-        `http://127.0.0.1:${port}/v1/sessions/ensure`,
-        'token-named-agent',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            conversationId: 'conv-named-agent',
-            agentName: 'Tender Agent',
-          }),
-        },
-      );
-
-      expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toMatchObject({
-        sessionId: 'session-1',
-        executionContext: {
-          conversationJid: 'app:app-one:conv-named-agent',
-          threadId: null,
-          workspaceKey: 'tender-folder',
-          sessionId: 'session-1',
-        },
-      });
-      expect(controlRepo.ensureAppSession).toHaveBeenCalledWith(
-        expect.objectContaining({
-          agentId: 'agent:tender-folder',
-          workspaceFolder: 'tender-folder',
-        }),
-      );
     } finally {
       await handle.close();
     }
@@ -3660,69 +3927,6 @@ describe('control server runtime hardening', () => {
     }
   });
 
-  it('requires session message idempotency and validates queue policy', async () => {
-    const port = await reservePort();
-    process.env.GANTRY_CONTROL_PORT = String(port);
-    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
-      {
-        kid: 'k',
-        token: 'token-message-admission-contract',
-        scopes: ['sessions:write'],
-        appId: 'app-one',
-      },
-    ]);
-    const handle = startControlServer({
-      app: { registerGroup: vi.fn(), queue: { enqueueMessageCheck: vi.fn() } },
-    } as any);
-
-    try {
-      const missingKey = await requestWithRetry(
-        `http://127.0.0.1:${port}/v1/sessions/session-1/messages`,
-        'token-message-admission-contract',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ message: 'hello' }),
-        },
-      );
-      expect(missingKey.status).toBe(400);
-      await expect(missingKey.json()).resolves.toMatchObject({
-        error: {
-          code: 'INVALID_REQUEST',
-          message: 'idempotencyKey must contain 1 to 200 characters',
-        },
-      });
-
-      const invalidPolicy = await requestWithRetry(
-        `http://127.0.0.1:${port}/v1/sessions/session-1/messages`,
-        'token-message-admission-contract',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            message: 'hello',
-            idempotencyKey: 'activity-1',
-            queuePolicy: {
-              maxWaitingMessages: 3,
-              maxQueueWaitMs: 999,
-              executionTimeoutMs: 90_000,
-            },
-          }),
-        },
-      );
-      expect(invalidPolicy.status).toBe(400);
-      await expect(invalidPolicy.json()).resolves.toMatchObject({
-        error: {
-          code: 'INVALID_REQUEST',
-          message: expect.stringContaining('queuePolicy.maxQueueWaitMs'),
-        },
-      });
-      expect(controlRepo.getAppSessionById).not.toHaveBeenCalled();
-    } finally {
-      await handle.close();
-    }
-  });
-
   it('rejects session messages when webhook id is not owned by the app', async () => {
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);
@@ -3760,7 +3964,6 @@ describe('control server runtime hardening', () => {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             message: 'hello',
-            idempotencyKey: 'webhook-ownership-check',
             webhookId: 'foreign-webhook',
           }),
         },
@@ -3804,7 +4007,6 @@ describe('control server runtime hardening', () => {
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
               message: 'hello',
-              idempotencyKey: `schema-object-${Object.keys(responseSchema).join('-') || 'empty'}`,
               response_schema: responseSchema,
             }),
           },
@@ -4136,12 +4338,6 @@ describe('control server runtime hardening', () => {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             message: 'hello from sdk',
-            idempotencyKey: 'teams-activity-corr-1',
-            queuePolicy: {
-              maxWaitingMessages: 3,
-              maxQueueWaitMs: 90_000,
-              executionTimeoutMs: 90_000,
-            },
             threadId: 'thread-1',
             correlationId: 'corr-1',
             responseMode: 'sse',
@@ -4160,7 +4356,6 @@ describe('control server runtime hardening', () => {
       expect(body).toEqual(
         expect.objectContaining({
           accepted: true,
-          replayed: false,
           messageId: expect.any(String),
           acceptedEventId: 1001,
         }),
@@ -4188,19 +4383,18 @@ describe('control server runtime hardening', () => {
             thinking: { mode: 'on', budgetTokens: 2048 },
             maxOutputTokens: 4096,
           },
-          appResponseRoute: {
-            sessionId: 'session-1',
-            threadId: 'thread-1',
-            responseMode: 'sse',
-            webhookId: null,
-            correlationId: 'corr-1',
-          },
         }),
       );
       expect(mockedGetConfiguredAgentRuntime).toHaveBeenCalledWith(
         'app_app_one_conv_1',
       );
-      expect(controlRepo.upsertAppResponseRoute).not.toHaveBeenCalled();
+      expect(controlRepo.upsertAppResponseRoute).toHaveBeenCalledWith({
+        sessionId: 'session-1',
+        threadId: 'thread-1',
+        responseMode: 'sse',
+        webhookId: null,
+        correlationId: 'corr-1',
+      });
       expect(runtimeEvents.publish).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: 'session.message.inbound',
@@ -4244,8 +4438,6 @@ describe('control server runtime hardening', () => {
         eventId: 21,
         appId: 'app-one',
         sessionId: 'session-1',
-        runId: 'run-21',
-        conversationId: 'conversation-1',
         threadId: 'thread-1',
         correlationId: 'corr-1',
         eventType: 'session.message.outbound',
@@ -4270,8 +4462,6 @@ describe('control server runtime hardening', () => {
             eventId: 21,
             eventType: 'session.message.outbound',
             sessionId: 'session-1',
-            runId: 'run-21',
-            conversationId: 'conversation-1',
             threadId: 'thread-1',
             correlationId: 'corr-1',
             createdAt: '2026-05-08T00:00:02.000Z',
@@ -4310,8 +4500,6 @@ describe('control server runtime hardening', () => {
         eventId: 22,
         appId: 'app-one',
         sessionId: 'session-1',
-        runId: 'run-22',
-        conversationId: 'conversation-1',
         threadId: 'thread-1',
         correlationId: 'corr-sse',
         eventType: 'session.message.outbound',
@@ -4358,8 +4546,6 @@ describe('control server runtime hardening', () => {
         eventId: 22,
         eventType: 'session.message.outbound',
         sessionId: 'session-1',
-        runId: 'run-22',
-        conversationId: 'conversation-1',
         threadId: 'thread-1',
         correlationId: 'corr-sse',
         createdAt: '2026-05-08T00:00:03.000Z',
@@ -4369,6 +4555,134 @@ describe('control server runtime hardening', () => {
     } finally {
       await handle.close();
     }
+  });
+
+  it('reserves at most 25 SSE permits while subscription setup is blocked', async () => {
+    controlRepo.getAppSessionById.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'app:app-one:conv-1',
+      workspaceKey: 'app_app_one_conv_1',
+      title: 'Conversation',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    let releaseSetup!: () => void;
+    const setupBarrier = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+    runtimeEvents.subscribe.mockImplementation(async () => {
+      await setupBarrier;
+      return {
+        next: vi.fn(() => new Promise<never[]>(() => undefined)),
+        close: vi.fn(),
+      };
+    });
+    const harness = createSessionEventStreamRouteHarness();
+    const requests = Array.from({ length: 26 }, () => harness.request());
+    const pending = requests.map((request) => request.run());
+
+    await vi.waitFor(() => {
+      expect(runtimeEvents.subscribe).toHaveBeenCalledTimes(25);
+    });
+
+    expect(harness.state.activeStreams).toBe(25);
+    expect(requests.filter(({ res }) => res.statusCode === 429)).toHaveLength(
+      1,
+    );
+    expect(
+      JSON.parse(requests.find(({ res }) => res.statusCode === 429)!.res.body),
+    ).toMatchObject({ error: { code: 'TOO_MANY_STREAMS' } });
+
+    releaseSetup();
+    await Promise.all(pending);
+
+    expect(requests.filter(({ res }) => res.statusCode === 200)).toHaveLength(
+      25,
+    );
+    for (const { req, res } of requests) {
+      req.emit('close');
+      res.emit('close');
+    }
+    expect(harness.state.activeStreams).toBe(0);
+  });
+
+  it('releases the SSE permit when subscription setup rejects', async () => {
+    controlRepo.getAppSessionById.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'app:app-one:conv-1',
+      workspaceKey: 'app_app_one_conv_1',
+      title: 'Conversation',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    runtimeEvents.subscribe.mockRejectedValue(new Error('setup failed'));
+    const harness = createSessionEventStreamRouteHarness();
+    harness.state.activeStreams = 1;
+    const request = harness.request();
+
+    await expect(request.run()).rejects.toThrow('setup failed');
+
+    expect(harness.state.activeStreams).toBe(1);
+    request.req.emit('close');
+    request.res.emit('close');
+    expect(harness.state.activeStreams).toBe(1);
+  });
+
+  it('releases one SSE permit when the client disconnects during setup', async () => {
+    controlRepo.getAppSessionById.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'app:app-one:conv-1',
+      workspaceKey: 'app_app_one_conv_1',
+      title: 'Conversation',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    let releaseSetup!: () => void;
+    const setupBarrier = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+    const close = vi.fn();
+    runtimeEvents.subscribe.mockImplementation(async () => {
+      await setupBarrier;
+      return {
+        next: vi.fn(() => new Promise<never[]>(() => undefined)),
+        close,
+      };
+    });
+    const harness = createSessionEventStreamRouteHarness();
+    harness.state.activeStreams = 1;
+    const request = harness.request();
+    const pending = request.run();
+
+    await vi.waitFor(() => {
+      expect(runtimeEvents.subscribe).toHaveBeenCalledTimes(1);
+    });
+    expect(harness.state.activeStreams).toBe(2);
+
+    request.req.destroyed = true;
+    request.res.destroyed = true;
+    request.req.emit('close');
+    request.res.emit('close');
+    expect(harness.state.activeStreams).toBe(1);
+
+    releaseSetup();
+    await pending;
+
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(harness.state.activeStreams).toBe(1);
+
+    const alreadyClosed = harness.request();
+    alreadyClosed.req.destroyed = true;
+    await alreadyClosed.run();
+
+    expect(runtimeEvents.subscribe).toHaveBeenCalledTimes(1);
+    expect(harness.state.activeStreams).toBe(1);
   });
 
   it('waits over the full session cursor while returning only visible events', async () => {

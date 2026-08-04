@@ -1,13 +1,16 @@
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
+  PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionCallbackScope,
 } from '../../domain/types.js';
 import {
+  claimPermissionInteractionCallback,
   findDurablePermissionInteractionByRequestId,
-  findDurableQuestionInteractionByRequestId,
-  resolveDurablePermissionInteractionByRequestId,
-  resolveDurableQuestionInteractionByRequestId,
+  recoverDurablePermissionDecision,
+  releasePermissionInteractionCallback,
+  samePermissionCallbackLocator,
 } from '../../application/interactions/pending-interaction-durability.js';
 import {
   buildPermissionPromptFullView,
@@ -23,13 +26,41 @@ import {
 } from './permission-blocks.js';
 import { registerSlackRichFormHandlers } from './rich-interaction.js';
 import { SLACK_PERMISSION_DECISION_ACTION_IDS } from './permission-action-id.js';
+import {
+  pendingPermissionAliasesForCancellation,
+  RUNNER_CANCELLED_PERMISSION_REASON,
+} from '../interaction-settlement.js';
 import { registerSlackMessageActionHandler } from './channel-message-action-handler.js';
 import { registerSlackUtilityHandlers } from './channel-utility-handlers.js';
 import {
   ingestSlackMessage as ingestSlackMessageEvent,
   ingestSlackSlashCommand as ingestSlackSlashCommandEvent,
 } from './channel-message-ingest.js';
+import { registerSlackUserQuestionHandlers } from './user-question-interactions.js';
 export abstract class SlackChannelInteractions extends SlackChannelState {
+  async cancelPendingPermission(
+    cancellation: PermissionApprovalCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'> {
+    const aliases = pendingPermissionAliasesForCancellation(
+      this.pendingPermissionPrompts,
+      cancellation,
+    );
+    if (aliases.length === 0) return 'not_found';
+    for (const providerAlias of aliases) {
+      const result = await this.claimAndResolvePermissionPrompt(
+        providerAlias,
+        'cancel',
+        'runtime',
+        undefined,
+        cancellation.reason ?? RUNNER_CANCELLED_PERMISSION_REASON,
+        true,
+      );
+      if (result === 'settled') return 'settled';
+      if (result === 'retryable') return 'retryable';
+    }
+    return 'already_decided';
+  }
+
   protected async ingestSlackSlashCommand(command: {
     channel_id?: string;
     user_id?: string;
@@ -47,13 +78,9 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         this.isLikelyGroupConversation(channelId),
     });
   }
-  protected async ingestSlackMessage(
-    event: SlackMessageLike,
-    options: { forceOwnedTopLevel?: boolean } = {},
-  ): Promise<void> {
+  protected async ingestSlackMessage(event: SlackMessageLike): Promise<void> {
     await ingestSlackMessageEvent({
       event,
-      options,
       opts: this.opts,
       botUserId: this.botUserId,
       resolveChannelName: (channelId) => this.resolveChannelName(channelId),
@@ -88,33 +115,151 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
     return false;
   }
   protected async resolvePermissionPrompt(
-    requestId: string,
+    providerAlias: string,
     decision: PermissionApprovalDecision,
-  ): Promise<void> {
-    const pending = this.pendingPermissionPrompts.get(requestId);
-    if (!pending || pending.settled) return;
-    pending.settled = true;
-    this.pendingPermissionPrompts.delete(requestId);
-    clearTimeout(pending.timer);
-    pending.resolve(decision);
-    if (!this.app) return;
+    respond?: (payload: Record<string, unknown>) => Promise<unknown>,
+    settleInternally = false,
+  ): Promise<boolean> {
+    const pending = this.pendingPermissionPrompts.get(providerAlias);
+    if (!pending || pending.settled) return false;
     const text = formatPermissionReceiptText(
-      requestId,
+      pending.request.requestId,
       pending.request,
       decision,
     );
+    if (
+      !settleInternally &&
+      !(await this.terminalizePermissionPrompt(
+        pending.request.requestId,
+        decision,
+        text,
+        respond,
+      ))
+    ) {
+      return false;
+    }
+    pending.settled = true;
+    clearTimeout(pending.timer);
+    this.pendingPermissionPrompts.delete(providerAlias);
+    pending.resolve(decision);
+    return true;
+  }
+  protected async timeoutPermissionPrompt(
+    providerAlias: string,
+    retryWindowMs: number,
+  ): Promise<void> {
+    let result = await this.claimAndResolvePermissionPrompt(
+      providerAlias,
+      'cancel',
+      'system',
+      undefined,
+      'timed out',
+      true,
+    );
+    if (result === 'settled') return;
+    if (result === 'already_decided') return;
+    if (result === 'retryable') {
+      const firstDelay = Math.floor(retryWindowMs / 3);
+      for (const delayMs of [firstDelay, retryWindowMs - firstDelay]) {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, delayMs);
+          timer.unref?.();
+        });
+        if (!this.pendingPermissionPrompts.has(providerAlias)) return;
+        result = await this.claimAndResolvePermissionPrompt(
+          providerAlias,
+          'cancel',
+          'system',
+          undefined,
+          'timed out',
+          true,
+        );
+        if (result !== 'retryable') break;
+      }
+    }
+    if (result === 'already_decided') return;
+    if (!this.pendingPermissionPrompts.has(providerAlias)) return;
+    await this.resolvePermissionPrompt(
+      providerAlias,
+      {
+        approved: false,
+        mode: 'cancel',
+        decidedBy: 'system',
+        reason: 'timed out',
+      },
+      undefined,
+      true,
+    );
+  }
+  protected async claimAndResolvePermissionPrompt(
+    providerAlias: string,
+    mode: NonNullable<PermissionApprovalDecision['mode']>,
+    approverRef: string,
+    respond?: (payload: Record<string, unknown>) => Promise<unknown>,
+    reason?: string,
+    settleInternally = false,
+  ): Promise<'settled' | 'already_decided' | 'ownerless' | 'retryable'> {
+    const pending = this.pendingPermissionPrompts.get(providerAlias);
+    if (!pending || pending.settled) return 'already_decided';
+    const claimed = await claimPermissionInteractionCallback({
+      scope: pending.callback.scope,
+      mode,
+      approverRef,
+      matchKind: pending.callback.matchKind,
+      providerAlias,
+    });
+    if (claimed.status === 'already_decided')
+      return claimed.ownerless ? 'ownerless' : 'already_decided';
+    if (claimed.status === 'retryable') return 'retryable';
+    const decision = {
+      ...decisionForMode(pending.request, mode, approverRef),
+      ...(reason ? { reason } : {}),
+      permissionCallbackClaim: claimed.claim,
+    };
+    if (
+      await this.resolvePermissionPrompt(
+        providerAlias,
+        decision,
+        respond,
+        settleInternally,
+      )
+    ) {
+      return 'settled';
+    }
+    await releasePermissionInteractionCallback({ claim: claimed.claim });
+    return 'retryable';
+  }
+  private async terminalizePermissionPrompt(
+    requestId: string,
+    decision: PermissionApprovalDecision,
+    text: string,
+    respond?: (payload: Record<string, unknown>) => Promise<unknown>,
+  ): Promise<boolean> {
+    if (!respond) return false;
+    if (decision.approved && decision.mode !== 'cancel') {
+      try {
+        await respond({ delete_original: true });
+        return true;
+      } catch (err) {
+        logger.debug(
+          { requestId, err },
+          'Failed to delete approved Slack permission prompt via response URL; replacing with fallback receipt',
+        );
+      }
+    }
     try {
-      await this.app.client.chat.update({
-        channel: pending.channelId,
-        ts: pending.messageTs,
+      await respond({
+        replace_original: true,
         text,
         blocks: buildPermissionReceiptBlocks(text) as any,
       });
+      return true;
     } catch (err) {
       logger.debug(
         { requestId, err },
-        'Failed to update Slack permission approval message',
+        'Failed to replace Slack permission prompt via response URL',
       );
+      return false;
     }
   }
   protected registerBoltHandlers(options: { inbound?: boolean } = {}): void {
@@ -124,9 +269,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         await this.ingestSlackMessage(args.event as SlackMessageLike);
       });
       this.app.event('app_mention', async (args: any) => {
-        await this.ingestSlackMessage(args.event as SlackMessageLike, {
-          forceOwnedTopLevel: true,
-        });
+        await this.ingestSlackMessage(args.event as SlackMessageLike);
       });
       this.app.command('/gantry', async (args: any) => {
         await args.ack();
@@ -140,6 +283,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         channel?: { id?: string };
         container?: { channel_id?: string };
         message?: { channel?: string };
+        response_url?: string;
         user?: { id?: string; name?: string; username?: string };
       };
       const action = args.action as { value?: string };
@@ -147,68 +291,102 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       if (!action.value || !userId) return;
       let payload:
         | {
-            requestId: string;
+            callback?: unknown;
             decision: string;
             providerAccountId?: string;
           }
         | undefined;
       try {
         payload = JSON.parse(action.value) as {
-          requestId: string;
+          callback?: unknown;
           decision: string;
           providerAccountId?: string;
         };
       } catch {
         return;
       }
-      if (!payload?.requestId) return;
+      const callback = readSlackPermissionCallback(payload?.callback);
+      if (!payload || !callback) return;
       const callbackProviderAccountId =
         typeof payload.providerAccountId === 'string'
           ? payload.providerAccountId
           : this.opts.providerAccountId;
       const mode = normalizePermissionAction(payload.decision);
       if (!mode) return;
-      const pending = this.pendingPermissionPrompts.get(payload.requestId);
-      const decidedBy =
-        body.user?.name || body.user?.username || body.user?.id || 'unknown';
+      const pending = this.pendingPermissionPrompts.get(callback.providerAlias);
+      const respond =
+        body.response_url && typeof args.respond === 'function'
+          ? args.respond
+          : undefined;
       if (!pending) {
-        const durable = await findDurablePermissionInteractionByRequestId({
-          requestId: payload.requestId,
-        });
         const callbackChannelId =
           body.channel?.id ||
           body.container?.channel_id ||
           body.message?.channel ||
           '';
-        if (!durable || durable.targetJid !== `sl:${callbackChannelId}`) return;
-        const allowed = await this.canDecidePermission(
-          userId,
-          durable.sourceAgentFolder,
-          durable.decisionPolicy as PermissionApprovalRequest['decisionPolicy'],
-          durable.targetJid,
-          durable.threadId ?? undefined,
-          callbackProviderAccountId,
-        );
-        if (!allowed) return;
-        const resolved = await resolveDurablePermissionInteractionByRequestId({
-          requestId: payload.requestId,
-          mode,
-          approverRef: decidedBy,
-          reason: `resolved via Slack after channel restart`,
-        });
-        if (!resolved) {
-          try {
+        const recovery = await recoverDurablePermissionDecision({
+          locator: {
+            kind: 'scope',
+            scope: callback.scope,
+            matchKind: callback.matchKind,
+            providerAlias: callback.providerAlias,
+          },
+          surfaceJid: `sl:${callbackChannelId}`,
+          incomingMode: mode,
+          incomingApprover: userId,
+          authorize: (durable) =>
+            this.canDecidePermission(
+              userId,
+              durable.sourceAgentFolder,
+              durable.decisionPolicy as PermissionApprovalRequest['decisionPolicy'],
+              durable.approvalContextJid ?? '',
+              durable.threadId ?? undefined,
+              callbackProviderAccountId,
+            ),
+          terminalize: (receipt) => {
+            const request =
+              receipt.status === 'resolved'
+                ? (receipt.request as PermissionApprovalRequest | null)
+                : null;
+            const text =
+              receipt.status === 'expired'
+                ? receipt.text
+                : request
+                  ? formatPermissionReceiptText(
+                      request.requestId,
+                      request,
+                      receipt.decision,
+                    )
+                  : receipt.text!;
+            return this.terminalizePermissionPrompt(
+              receipt.status === 'resolved'
+                ? receipt.context.requestId
+                : callback.scope.interactionId,
+              receipt.decision,
+              text,
+              respond,
+            );
+          },
+          feedback: async (text) => {
             await this.app?.client.chat.postEphemeral({
               channel: callbackChannelId,
               user: userId,
-              text: 'This approval request is no longer active. Retry the request.',
+              text,
             });
-          } catch {
-            // ignore
-          }
+          },
+        });
+        if (
+          (recovery === 'already_decided' || recovery === 'inactive') &&
+          respond
+        ) {
+          await respond({
+            replace_original: true,
+            text: 'This permission request was already decided.',
+          });
         }
         return;
       }
+      if (!samePermissionCallbackLocator(pending.callback, callback)) return;
       if (!permissionDecisionOptions(pending.request).includes(mode)) {
         return;
       }
@@ -253,8 +431,18 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         }
         return;
       }
-      const decision = decisionForMode(pending.request, mode, decidedBy);
-      await this.resolvePermissionPrompt(payload.requestId, decision);
+      const result = await this.claimAndResolvePermissionPrompt(
+        callback.providerAlias,
+        mode,
+        userId,
+        respond,
+      );
+      if (result === 'already_decided' || result === 'ownerless') {
+        await respond?.({
+          replace_original: true,
+          text: 'This permission request was already decided.',
+        });
+      }
     };
     for (const actionId of SLACK_PERMISSION_DECISION_ACTION_IDS) {
       this.app.action(actionId, handlePermissionDecision);
@@ -272,16 +460,17 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       const userId = body.user?.id || '';
       const triggerId = body.trigger_id;
       if (!action.value || !userId || !triggerId) return;
-      let payload: { requestId?: string; providerAccountId?: string } = {};
+      let payload: { callback?: unknown; providerAccountId?: string } = {};
       try {
         payload = JSON.parse(action.value) as {
-          requestId?: string;
+          callback?: unknown;
           providerAccountId?: string;
         };
       } catch {
         return;
       }
-      if (!payload.requestId) return;
+      const callback = readSlackPermissionCallback(payload.callback);
+      if (!callback) return;
       const callbackProviderAccountId =
         typeof payload.providerAccountId === 'string'
           ? payload.providerAccountId
@@ -291,9 +480,10 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         body.container?.channel_id ||
         body.message?.channel ||
         '';
-      const pending = this.pendingPermissionPrompts.get(payload.requestId);
+      const pending = this.pendingPermissionPrompts.get(callback.providerAlias);
       let fullView: ReturnType<typeof buildPermissionPromptFullView>;
       if (pending && !pending.settled) {
+        if (!samePermissionCallbackLocator(pending.callback, callback)) return;
         if (
           !(await this.canDecidePermission(
             userId,
@@ -318,7 +508,8 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         fullView = buildPermissionPromptFullView(pending.request);
       } else {
         const durable = await findDurablePermissionInteractionByRequestId({
-          requestId: payload.requestId,
+          scope: callback.scope,
+          providerAlias: callback.providerAlias,
         });
         if (!durable || durable.targetJid !== `sl:${callbackChannelId}`) return;
         if (
@@ -326,7 +517,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
             userId,
             durable.sourceAgentFolder,
             durable.decisionPolicy as PermissionApprovalRequest['decisionPolicy'],
-            durable.targetJid,
+            durable.approvalContextJid ?? '',
             durable.threadId ?? undefined,
             callbackProviderAccountId,
           ))
@@ -363,291 +554,21 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         logger.debug({ err }, 'Failed to open Slack permission full view');
       }
     });
-    this.app.action('gantry_userq_select', async (args: any) => {
-      await args.ack();
-      const action = args.action as { value?: string };
-      const body = args.body as {
-        channel?: { id?: string };
-        user?: { id?: string; name?: string; username?: string };
-      };
-      const parsed = this.parseUserQuestionActionValue(action.value);
-      if (!parsed || parsed.optionIndex === undefined) return;
-      const key = this.pendingUserQuestionKey(
-        parsed.requestId,
-        parsed.questionIndex,
-      );
-      const pending = this.pendingUserQuestions.get(key);
-      const callbackChannelId = body.channel?.id || '';
-      const userId = body.user?.id || '';
-      if (!userId) return;
-      const answeredBy =
-        body.user?.name || body.user?.username || body.user?.id || 'unknown';
-      if (!pending) {
-        const durable = await findDurableQuestionInteractionByRequestId({
-          requestId: parsed.requestId,
-        });
-        if (!durable || durable.targetJid !== `sl:${callbackChannelId}`) return;
-        const allowed = await this.canDecidePermission(
+    registerSlackUserQuestionHandlers({
+      app: this.app,
+      pendingUserQuestions: this.pendingUserQuestions,
+      parseActionValue: (value) => this.parseUserQuestionActionValue(value),
+      pendingKey: (callback) => this.pendingUserQuestionKey(callback),
+      canAnswer: (userId, sourceAgentFolder, conversationJid) =>
+        this.canDecidePermission(
           userId,
-          durable.sourceAgentFolder,
+          sourceAgentFolder,
           undefined,
-          durable.targetJid,
-        );
-        if (!allowed) return;
-        await resolveDurableQuestionInteractionByRequestId({
-          requestId: parsed.requestId,
-          questionIndex: parsed.questionIndex,
-          optionIndex: parsed.optionIndex,
-          finalize: false,
-          answeredBy,
-        });
-        return;
-      }
-      if (pending.settled) return;
-      if (!callbackChannelId || callbackChannelId !== pending.channelId) return;
-      if (
-        !(await this.canDecidePermission(
-          userId,
-          pending.sourceAgentFolder,
-          undefined,
-          `sl:${pending.channelId}`,
-        ))
-      ) {
-        try {
-          await this.app?.client.chat.postEphemeral({
-            channel: pending.channelId,
-            user: userId,
-            text: 'You are not allowed to answer this prompt.',
-          });
-        } catch {
-          // ignore
-        }
-        return;
-      }
-      if (
-        parsed.optionIndex < 0 ||
-        parsed.optionIndex >= pending.question.options.length
-      ) {
-        return;
-      }
-      if (!pending.question.multiSelect) {
-        const label =
-          pending.question.options[parsed.optionIndex]?.label?.trim() || '';
-        await this.finalizeUserQuestionPrompt(pending, label, answeredBy);
-        return;
-      }
-      if (pending.selectedOptionIndexes.has(parsed.optionIndex)) {
-        pending.selectedOptionIndexes.delete(parsed.optionIndex);
-      } else {
-        pending.selectedOptionIndexes.add(parsed.optionIndex);
-      }
-      await this.refreshUserQuestionPrompt(pending);
-    });
-    this.app.action('gantry_userq_done', async (args: any) => {
-      await args.ack();
-      const action = args.action as { value?: string };
-      const body = args.body as {
-        channel?: { id?: string };
-        user?: { id?: string; name?: string; username?: string };
-      };
-      const parsed = this.parseUserQuestionActionValue(action.value);
-      if (!parsed) return;
-      const key = this.pendingUserQuestionKey(
-        parsed.requestId,
-        parsed.questionIndex,
-      );
-      const pending = this.pendingUserQuestions.get(key);
-      const callbackChannelId = body.channel?.id || '';
-      const userId = body.user?.id || '';
-      if (!userId) return;
-      const answeredBy =
-        body.user?.name || body.user?.username || body.user?.id || 'unknown';
-      if (!pending) {
-        const durable = await findDurableQuestionInteractionByRequestId({
-          requestId: parsed.requestId,
-        });
-        if (!durable || durable.targetJid !== `sl:${callbackChannelId}`) return;
-        const allowed = await this.canDecidePermission(
-          userId,
-          durable.sourceAgentFolder,
-          undefined,
-          durable.targetJid,
-        );
-        if (!allowed) return;
-        await resolveDurableQuestionInteractionByRequestId({
-          requestId: parsed.requestId,
-          questionIndex: parsed.questionIndex,
-          finalize: true,
-          answeredBy,
-        });
-        return;
-      }
-      if (pending.settled || !pending.question.multiSelect) return;
-      if (!callbackChannelId || callbackChannelId !== pending.channelId) return;
-      if (
-        !(await this.canDecidePermission(
-          userId,
-          pending.sourceAgentFolder,
-          undefined,
-          `sl:${pending.channelId}`,
-        ))
-      ) {
-        try {
-          await this.app?.client.chat.postEphemeral({
-            channel: pending.channelId,
-            user: userId,
-            text: 'You are not allowed to answer this prompt.',
-          });
-        } catch {
-          // ignore
-        }
-        return;
-      }
-      const selectedLabels = Array.from(pending.selectedOptionIndexes)
-        .sort((a, b) => a - b)
-        .map((index) => pending.question.options[index]?.label || '')
-        .map((label) => label.trim())
-        .filter((label) => label.length > 0)
-        .slice(0, pending.question.options.length);
-      await this.finalizeUserQuestionPrompt(
-        pending,
-        selectedLabels,
-        answeredBy,
-      );
-    });
-    this.app.action('gantry_userq_other', async (args: any) => {
-      await args.ack();
-      const action = args.action as { value?: string };
-      const body = args.body as {
-        channel?: { id?: string };
-        user?: { id?: string };
-        trigger_id?: string;
-      };
-      const parsed = this.parseUserQuestionActionValue(action.value);
-      if (!parsed) return;
-      const triggerId = body.trigger_id;
-      if (!triggerId) return;
-      const key = this.pendingUserQuestionKey(
-        parsed.requestId,
-        parsed.questionIndex,
-      );
-      const pending = this.pendingUserQuestions.get(key);
-      const callbackChannelId = body.channel?.id || '';
-      const userId = body.user?.id || '';
-      if (!userId) return;
-      if (!pending || pending.settled) return;
-      if (!callbackChannelId || callbackChannelId !== pending.channelId) return;
-      if (
-        !(await this.canDecidePermission(
-          userId,
-          pending.sourceAgentFolder,
-          undefined,
-          `sl:${pending.channelId}`,
-        ))
-      ) {
-        try {
-          await this.app?.client.chat.postEphemeral({
-            channel: pending.channelId,
-            user: userId,
-            text: 'You are not allowed to answer this prompt.',
-          });
-        } catch {
-          // ignore
-        }
-        return;
-      }
-      try {
-        await this.app?.client.views.open({
-          trigger_id: triggerId,
-          view: {
-            type: 'modal',
-            callback_id: 'gantry_userq_other_modal',
-            private_metadata: JSON.stringify({
-              requestId: parsed.requestId,
-              questionIndex: parsed.questionIndex,
-              channelId: pending.channelId,
-            }),
-            title: { type: 'plain_text', text: 'Your answer' },
-            submit: { type: 'plain_text', text: 'Submit' },
-            close: { type: 'plain_text', text: 'Cancel' },
-            blocks: [
-              {
-                type: 'input',
-                block_id: 'gantry_userq_other_block',
-                label: {
-                  type: 'plain_text',
-                  text: (pending.question.header || 'Your answer').slice(
-                    0,
-                    150,
-                  ),
-                },
-                element: {
-                  type: 'plain_text_input',
-                  action_id: 'gantry_userq_other_input',
-                  multiline: true,
-                  max_length: 3000,
-                  placeholder: {
-                    type: 'plain_text',
-                    text: 'Type your answer',
-                  },
-                },
-              },
-            ],
-          },
-        });
-      } catch (err) {
-        logger.debug({ err }, 'Failed to open Slack user-question Other modal');
-      }
-    });
-    this.app.view('gantry_userq_other_modal', async (args: any) => {
-      await args.ack();
-      const body = args.body as {
-        user?: { id?: string; name?: string; username?: string };
-      };
-      const view = args.view as {
-        private_metadata?: string;
-        state?: {
-          values?: Record<string, Record<string, { value?: string }>>;
-        };
-      };
-      let meta: {
-        requestId?: string;
-        questionIndex?: number;
-        channelId?: string;
-      } = {};
-      try {
-        meta = JSON.parse(view.private_metadata || '{}');
-      } catch {
-        return;
-      }
-      if (!meta.requestId || meta.questionIndex === undefined) return;
-      const text = (
-        view.state?.values?.['gantry_userq_other_block']?.[
-          'gantry_userq_other_input'
-        ]?.value || ''
-      ).trim();
-      if (!text) return;
-      const key = this.pendingUserQuestionKey(
-        meta.requestId,
-        meta.questionIndex,
-      );
-      const pending = this.pendingUserQuestions.get(key);
-      if (!pending || pending.settled) return;
-      const userId = body.user?.id || '';
-      const answeredBy =
-        body.user?.name || body.user?.username || body.user?.id || 'unknown';
-      if (
-        userId &&
-        !(await this.canDecidePermission(
-          userId,
-          pending.sourceAgentFolder,
-          undefined,
-          `sl:${pending.channelId}`,
-        ))
-      ) {
-        return;
-      }
-      await this.finalizeUserQuestionPrompt(pending, text, answeredBy);
+          conversationJid,
+        ),
+      refreshPrompt: (pending) => this.refreshUserQuestionPrompt(pending),
+      finalizePrompt: (pending, selection, answeredBy) =>
+        this.finalizeUserQuestionPrompt(pending, selection, answeredBy),
     });
     registerSlackRichFormHandlers({
       app: this.app,
@@ -655,4 +576,42 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
     });
     registerSlackMessageActionHandler(this.app, this.opts);
   }
+}
+
+type SlackPermissionCallback = {
+  providerAlias: string;
+  scope: PermissionCallbackScope;
+  matchKind: 'individual' | 'batch';
+};
+
+function readSlackPermissionCallback(
+  value: unknown,
+): SlackPermissionCallback | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  const scope = candidate.scope;
+  if (!scope || typeof scope !== 'object' || Array.isArray(scope)) return null;
+  const parsedScope = scope as Record<string, unknown>;
+  if (
+    typeof candidate.providerAlias !== 'string' ||
+    !candidate.providerAlias ||
+    (candidate.matchKind !== 'individual' && candidate.matchKind !== 'batch') ||
+    typeof parsedScope.appId !== 'string' ||
+    !parsedScope.appId ||
+    typeof parsedScope.sourceAgentFolder !== 'string' ||
+    !parsedScope.sourceAgentFolder ||
+    typeof parsedScope.interactionId !== 'string' ||
+    !parsedScope.interactionId
+  ) {
+    return null;
+  }
+  return {
+    providerAlias: candidate.providerAlias,
+    scope: {
+      appId: parsedScope.appId,
+      sourceAgentFolder: parsedScope.sourceAgentFolder,
+      interactionId: parsedScope.interactionId,
+    },
+    matchKind: candidate.matchKind,
+  };
 }

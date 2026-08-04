@@ -10,7 +10,10 @@ import type {
   AsyncTaskRepository,
 } from '../../domain/ports/async-tasks.js';
 import type { ConversationRoute } from '../../domain/types.js';
-import type { RuntimeAgentSessionRepository } from '../../domain/repositories/ops-repo.js';
+import type {
+  RuntimeAgentSessionRepository,
+  RuntimeMessageRepository,
+} from '../../domain/repositories/ops-repo.js';
 import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
 import { AsyncCommandTaskService } from '../../jobs/async-command-task-service.js';
 import { nowIso } from '../../shared/time/datetime.js';
@@ -39,7 +42,8 @@ const activeProcesses = new Map<
 type DelegatedRunRepository = Pick<
   RuntimeAgentSessionRepository,
   'getAgentTurnContext' | 'createSessionAgentRun' | 'completeSessionAgentRun'
->;
+> &
+  Pick<RuntimeMessageRepository, 'storeMessageWithLiveAdmission'>;
 
 type DelegatedRunAccess = Pick<
   AgentInput,
@@ -49,10 +53,12 @@ type DelegatedRunAccess = Pick<
   | 'selectedSkillDisplays'
   | 'attachedMcpSourceIds'
   | 'semanticCapabilities'
->;
+> &
+  Pick<RunAgentOptions, 'accessSnapshot'>;
 
 export function createInlineAgentTaskLifecycle(input: {
   laneInput: InlineAgentLoopLaneInput;
+  authorityToolName?: 'AgentDelegation';
   repository?: AsyncTaskRepository;
   runRepository?: DelegatedRunRepository;
   getConversationRoutes(): Record<string, ConversationRoute>;
@@ -61,11 +67,14 @@ export function createInlineAgentTaskLifecycle(input: {
     chatJid: string,
   ): Promise<ExecutionProviderId>;
   resolveRunAccess(agentId: string): Promise<DelegatedRunAccess>;
-  buildRunOptions(agentId: string): Promise<RunAgentOptions>;
+  buildRunOptions(
+    agentId: string,
+    runAccess: DelegatedRunAccess,
+  ): Promise<RunAgentOptions>;
 }): CoreTaskLifecycleBackend | undefined {
   const run = input.laneInput.input;
   if (!input.repository || !run.appId || !run.agentId) return undefined;
-  const service = taskService(input.repository);
+  const service = taskService(input.repository, input.runRepository);
   const owner = {
     appId: run.appId,
     agentId: run.agentId,
@@ -76,21 +85,38 @@ export function createInlineAgentTaskLifecycle(input: {
   return createCoreTaskLifecycleBackend({
     service,
     owner,
+    authorityToolName: input.authorityToolName,
+    enableDelegatedAsyncFollowUp: Boolean(
+      input.authorityToolName === 'AgentDelegation' && !run.jobId,
+    ),
     parentTaskId: run.parentTaskId,
-    parentRunId: run.jobId ? null : run.runId,
+    parentRunId: run.jobId
+      ? null
+      : (input.laneInput.correlationRunId ?? run.runId),
     workspaceFolder: input.laneInput.group.folder,
     ...(run.parentTaskId
       ? {}
       : {
           runDelegatedAgent: async (delegated) => {
+            const routes = input.getConversationRoutes();
+            const callerConversationId = resolveConversationRoute(
+              routes,
+              owner.conversationId,
+              owner.threadId,
+              owner.agentId,
+              input.laneInput.group.providerAccountId,
+            )?.conversationId;
             const targetGroup = delegated.targetAgentId
-              ? resolveConversationRoute(
-                  input.getConversationRoutes(),
-                  owner.conversationId,
-                  owner.threadId,
-                  delegated.targetAgentId,
-                  input.laneInput.group.providerAccountId,
-                )
+              ? callerConversationId
+                ? resolveConversationRoute(
+                    routes,
+                    owner.conversationId,
+                    owner.threadId,
+                    delegated.targetAgentId,
+                    undefined,
+                    callerConversationId,
+                  )
+                : undefined
               : input.laneInput.group;
             if (!targetGroup) {
               throw new Error(
@@ -123,7 +149,7 @@ export function createInlineAgentTaskLifecycle(input: {
             }
             // AgentDelegation authorizes a bound-agent handoff; the child then
             // runs only with the target agent's selected authority.
-            const runAccess = sameAgent
+            const runAccess: DelegatedRunAccess = sameAgent
               ? {
                   toolPolicyRules: run.toolPolicyRules,
                   runtimeAccess: run.runtimeAccess,
@@ -131,8 +157,11 @@ export function createInlineAgentTaskLifecycle(input: {
                   selectedSkillDisplays: run.selectedSkillDisplays,
                   attachedMcpSourceIds: run.attachedMcpSourceIds,
                   semanticCapabilities: run.semanticCapabilities,
+                  accessSnapshot: input.laneInput.accessSnapshot,
                 }
               : await input.resolveRunAccess(targetAgentId);
+            const { accessSnapshot: _accessSnapshot, ...agentRunAccess } =
+              runAccess;
             const childRunId = turnContext?.agentSessionId
               ? await input.runRepository?.createSessionAgentRun?.({
                   agentSessionId: turnContext.agentSessionId,
@@ -154,10 +183,14 @@ export function createInlineAgentTaskLifecycle(input: {
                   threadId: owner.threadId ?? undefined,
                   workspaceFolder: targetGroup.folder,
                   parentTaskId: delegated.task.id,
+                  parentRunId:
+                    input.laneInput.correlationRunId ??
+                    delegated.task.parentRunId ??
+                    undefined,
                   ...(childRunId ? { runId: childRunId } : {}),
                   persona: targetGroup.agentConfig?.persona,
                   thinking: targetGroup.agentConfig?.thinking,
-                  ...runAccess,
+                  ...agentRunAccess,
                   ...(sameAgent ? { yoloMode: run.yoloMode } : {}),
                 },
                 (process) => {
@@ -184,7 +217,8 @@ export function createInlineAgentTaskLifecycle(input: {
                   await delegated.onProgress?.(agentOutput.result);
                 },
                 {
-                  ...(await input.buildRunOptions(targetAgentId)),
+                  ...(await input.buildRunOptions(targetAgentId, runAccess)),
+                  conversationRoutes: input.getConversationRoutes(),
                   timeoutMs:
                     delegated.timeoutMs ?? DEFAULT_DELEGATED_AGENT_TIMEOUT_MS,
                   signal: delegated.signal,
@@ -234,14 +268,24 @@ async function completeDelegatedRun(
   await repository?.completeSessionAgentRun?.({ runId, ...result });
 }
 
-function taskService(repository: AsyncTaskRepository): AsyncCommandTaskService {
+function taskService(
+  repository: AsyncTaskRepository,
+  completionMessageRepository?: Pick<
+    RuntimeMessageRepository,
+    'storeMessageWithLiveAdmission'
+  >,
+): AsyncCommandTaskService {
   const existing = services.get(repository);
   if (existing) return existing;
-  const service = new AsyncCommandTaskService(repository, {
-    run: async () => {
-      throw new Error('Inline core tools do not expose async commands.');
+  const service = new AsyncCommandTaskService(
+    repository,
+    {
+      run: async () => {
+        throw new Error('Inline core tools do not expose async commands.');
+      },
     },
-  });
+    { completionMessageRepository },
+  );
   services.set(repository, service);
   return service;
 }

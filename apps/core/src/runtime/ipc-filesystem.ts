@@ -11,12 +11,19 @@ import {
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import { IPC_WORKSPACE_SUBDIRS } from './agent-spawn-layout.js';
 
+const IPC_ERROR_ARCHIVE_TTL_MS = 30 * 24 * 60 * 60_000;
+const IPC_ERROR_ARCHIVE_SWEEP_INTERVAL_MS = 60_000;
+const IPC_ERROR_ARCHIVE_MAX_ENTRIES = 500;
+const IPC_ERROR_ARCHIVE_NAME_MAX_BYTES = 255;
+const IPC_ERROR_ARCHIVE_NAME_PATTERN =
+  /^(\d+)-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}-.+$/i;
+let lastIpcErrorArchiveSweepAt = 0;
+let ipcErrorArchivesSinceLastCompletedSweep = 0;
+
 interface IpcRootLockDetails {
   pid?: number;
   startedAt?: string;
 }
-
-const CURRENT_PROCESS_STARTED_AT_MS = Date.now() - process.uptime() * 1000;
 
 export function isTrustedDirectory(dirPath: string): boolean {
   try {
@@ -72,14 +79,12 @@ export function archiveIpcErrorFile(
   sourceAgentFolder: string,
   filename: string,
   claimedPath: string,
+  lane = path.basename(path.dirname(claimedPath)),
 ): void {
   const errorDir = path.join(ipcBaseDir, 'errors');
   ensurePrivateDirSync(errorDir);
   try {
-    fs.renameSync(
-      claimedPath,
-      path.join(errorDir, `${sourceAgentFolder}-${filename}`),
-    );
+    fs.renameSync(claimedPath, path.join(errorDir, archiveFilename()));
   } catch (err) {
     const code =
       err && typeof err === 'object' && 'code' in err
@@ -87,6 +92,77 @@ export function archiveIpcErrorFile(
         : '';
     if (code !== 'ENOENT') {
       throw err;
+    }
+    return;
+  }
+  ipcErrorArchivesSinceLastCompletedSweep += 1;
+
+  try {
+    pruneExpiredIpcErrorArchives(errorDir);
+  } catch (err) {
+    logger.warn({ err, errorDir }, 'Failed to prune IPC error archives');
+  }
+
+  function archiveFilename(): string {
+    const prefix = `${nowMs()}-${randomUUID()}-`;
+    const tail = Buffer.from(
+      `${sourceAgentFolder}-${lane}-${path.basename(filename)}`,
+    );
+    let tailEnd = Math.min(
+      tail.length,
+      IPC_ERROR_ARCHIVE_NAME_MAX_BYTES - Buffer.byteLength(prefix),
+    );
+    while (tailEnd > 0 && (tail[tailEnd]! & 0xc0) === 0x80) tailEnd -= 1;
+    return `${prefix}${tail.subarray(0, tailEnd).toString('utf8')}`;
+  }
+}
+
+function pruneExpiredIpcErrorArchives(errorDir: string): void {
+  const sweptAt = nowMs();
+  if (
+    ipcErrorArchivesSinceLastCompletedSweep < IPC_ERROR_ARCHIVE_MAX_ENTRIES &&
+    sweptAt - lastIpcErrorArchiveSweepAt < IPC_ERROR_ARCHIVE_SWEEP_INTERVAL_MS
+  ) {
+    return;
+  }
+  lastIpcErrorArchiveSweepAt = sweptAt;
+
+  const cutoff = sweptAt - IPC_ERROR_ARCHIVE_TTL_MS;
+  const retainedArchives: Array<{ archivedAt: number; name: string }> = [];
+  for (const entry of fs.readdirSync(errorDir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const match = IPC_ERROR_ARCHIVE_NAME_PATTERN.exec(entry.name);
+    if (!match) continue;
+    const archivedAt = Number(match[1]);
+    if (archivedAt >= cutoff) {
+      retainedArchives.push({ archivedAt, name: entry.name });
+      continue;
+    }
+    removeArchive(entry.name);
+  }
+
+  retainedArchives.sort(
+    (left, right) =>
+      left.archivedAt - right.archivedAt || left.name.localeCompare(right.name),
+  );
+  const excess = retainedArchives.length - IPC_ERROR_ARCHIVE_MAX_ENTRIES;
+  for (const archive of retainedArchives.slice(0, Math.max(0, excess))) {
+    removeArchive(archive.name);
+  }
+  ipcErrorArchivesSinceLastCompletedSweep = Math.min(
+    retainedArchives.length,
+    IPC_ERROR_ARCHIVE_MAX_ENTRIES,
+  );
+
+  function removeArchive(name: string): void {
+    try {
+      fs.rmSync(path.join(errorDir, name));
+    } catch (err) {
+      const code =
+        err && typeof err === 'object' && 'code' in err
+          ? String((err as { code?: string }).code)
+          : '';
+      if (code !== 'ENOENT') throw err;
     }
   }
 }
@@ -138,20 +214,30 @@ export function recoverStaleIpcRootLock(
       recoveryReason: 'invalid_or_missing_pid',
     };
   }
-  const lockStartedAtMs = details.startedAt
-    ? Date.parse(details.startedAt)
-    : Number.NaN;
-  const reusedPid =
-    details.pid === process.pid &&
-    Number.isFinite(lockStartedAtMs) &&
-    lockStartedAtMs < CURRENT_PROCESS_STARTED_AT_MS - 1000;
-  if (details.pid === process.pid && !reusedPid) {
-    return { ...details, recovered: false, recoveryReason: 'same_process' };
+  if (details.pid === process.pid) {
+    const lockStartedAt = details.startedAt
+      ? Date.parse(details.startedAt)
+      : Number.NaN;
+    const processStartedAt = Date.now() - process.uptime() * 1_000;
+    if (
+      !Number.isFinite(lockStartedAt) ||
+      lockStartedAt >= processStartedAt - 1_000
+    ) {
+      return { ...details, recovered: false, recoveryReason: 'same_process' };
+    }
+    return removeStaleIpcRootLock(lockPath, details, 'pid_reused');
   }
-  if (!reusedPid && isProcessAlive(details.pid)) {
+  if (isProcessAlive(details.pid)) {
     return { ...details, recovered: false, recoveryReason: 'pid_alive' };
   }
-  const recoveryReason = reusedPid ? 'pid_reused' : 'pid_not_running';
+  return removeStaleIpcRootLock(lockPath, details, 'pid_not_running');
+}
+
+function removeStaleIpcRootLock(
+  lockPath: string,
+  details: IpcRootLockDetails,
+  recoveryReason: 'pid_not_running' | 'pid_reused',
+): IpcRootLockDetails & { recovered: boolean; recoveryReason: string } {
   try {
     fs.rmSync(lockPath, { force: true });
     return { ...details, recovered: true, recoveryReason };

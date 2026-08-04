@@ -1,16 +1,22 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage-service.js';
-import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
-import { nowMs, toIso } from '@core/shared/time/datetime.js';
-import {
-  linkSdkSessionAcceptedEventWithExecutor,
-  markSdkSessionTurnRunningWithExecutor,
-  preflightSdkSessionAdmissionWithExecutor,
-  promoteSdkSessionAdmissionWithExecutor,
-  settleSdkSessionTurnWithExecutor,
-} from '@core/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.js';
+import { PostgresCanonicalMessageRepository } from '@core/adapters/storage/postgres/repositories/canonical-message-repository.postgres.js';
 import { PostgresLiveTurnRepository } from '@core/adapters/storage/postgres/repositories/live-turn-repository.postgres.js';
+import { CanonicalMessageOpsService } from '@core/adapters/storage/postgres/services/canonical-message-ops-service.js';
+import {
+  DEFAULT_AGENT_ID,
+  DEFAULT_APP_ID,
+} from '@core/adapters/storage/postgres/seeds.js';
+import type { AgentId } from '@core/domain/agent/agent.js';
+import type { AppId } from '@core/domain/app/app.js';
+import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
+import type {
+  ProviderAccountId,
+  ProviderId,
+} from '@core/domain/provider/provider.js';
+import { parseAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
+import { nowMs, toIso } from '@core/shared/time/datetime.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -45,41 +51,6 @@ maybeDescribe('live admission work items (Postgres)', () => {
   afterAll(async () => {
     await runtime?.cleanup();
   });
-
-  async function registerSdkSessionScope(input: {
-    appId: string;
-    agentSessionId: string;
-    conversationId: string;
-  }): Promise<void> {
-    const createdAt = toIso(nowMs());
-    const agentId = `agent:${input.appId}:sdk-test`;
-    await runtime.service.pool.query(
-      `INSERT INTO apps (id, slug, name, status, created_at, updated_at)
-       VALUES ($1, $1, $1, 'active', $2, $2)`,
-      [input.appId, createdAt],
-    );
-    await runtime.service.pool.query(
-      `INSERT INTO agents (id, app_id, name, status, created_at, updated_at)
-       VALUES ($1, $2, $1, 'active', $3, $3)`,
-      [agentId, input.appId, createdAt],
-    );
-    await runtime.service.pool.query(
-      `INSERT INTO conversations (
-         id, app_id, provider_account_id, external_ref_json, kind, status,
-         created_at, updated_at
-       ) VALUES ($1, $2, 'provider:sdk-test', '{}', 'direct', 'active', $3, $3)`,
-      [input.conversationId, input.appId, createdAt],
-    );
-    await runtime.repositories.agentSessions.saveAgentSession({
-      id: input.agentSessionId as never,
-      appId: input.appId as never,
-      agentId: agentId as never,
-      conversationId: input.conversationId as never,
-      status: 'active',
-      createdAt,
-      updatedAt: createdAt,
-    });
-  }
 
   it('deduplicates provider delivery by idempotency key', async () => {
     const first = await liveTurns.enqueueLiveAdmissionWorkItem({
@@ -132,479 +103,220 @@ maybeDescribe('live admission work items (Postgres)', () => {
     });
   });
 
-  it('reserves and replays one fingerprinted SDK-session turn with stable ids', async () => {
-    const sdkBase = {
-      id: 'sdk-admission-1',
-      appId: 'sdk-admission-app',
-      agentSessionId: 'sdk-admission-session',
-      conversationId: 'app:sdk-admission-app:conversation',
-      threadId: 'thread-1',
-      queueJid: 'app:sdk-admission-app:conversation::thread-1',
-      messageId: 'message:app:sdk-admission-app:conversation:sdk-message-1',
-      requestMessageId: 'sdk-message-1',
-      messageCursor: '2026-07-20T00:00:00.000Z::sdk-message-1',
-      idempotencyKey: 'teams-activity-1',
-      requestFingerprint: 'fingerprint-1',
-      queuePolicy: {
-        maxWaitingMessages: 3,
-        maxQueueWaitMs: 90_000,
-        executionTimeoutMs: 90_000,
-      },
-      now: '2026-07-20T00:00:00.000Z',
-    };
-    const reserved = await runtime.service.db.transaction(async (tx) => {
-      const preflight = await preflightSdkSessionAdmissionWithExecutor(tx, {
-        appId: sdkBase.appId,
-        agentSessionId: sdkBase.agentSessionId,
-        idempotencyKey: sdkBase.idempotencyKey,
-        requestFingerprint: sdkBase.requestFingerprint,
-        queuePolicy: sdkBase.queuePolicy,
-        now: sdkBase.now,
-      });
-      expect(preflight.outcome).toBe('available');
-      if (preflight.outcome !== 'available')
-        throw new Error('expected preflight');
-      return promoteSdkSessionAdmissionWithExecutor(tx, {
-        ...sdkBase,
-        preflight: preflight.preflight,
-      });
-    });
-    expect(reserved).toMatchObject({
-      outcome: 'enqueued',
-      item: {
-        id: 'sdk-admission-1',
-        messageId: 'message:app:sdk-admission-app:conversation:sdk-message-1',
-        requestMessageId: 'sdk-message-1',
-        requestFingerprint: 'fingerprint-1',
-        turnState: 'waiting',
-        queueDeadlineAt: '2026-07-20T00:01:30.000Z',
-        executionTimeoutMs: 90_000,
-      },
-    });
-
-    const event = await runtime.storageRuntime.runtimeEvents.publish({
-      appId: 'default' as never,
-      eventType: RUNTIME_EVENT_TYPES.WEBHOOK_TEST,
-      actor: 'test',
-      payload: { source: 'sdk-session-admission-test' },
-    });
-    const linked = await runtime.service.db.transaction((tx) =>
-      linkSdkSessionAcceptedEventWithExecutor(tx, {
-        id: 'sdk-admission-1',
-        acceptedEventId: event.eventId,
-      }),
+  it('atomically caps concurrent active admissions per app', async () => {
+    const cap = 3;
+    const appId = 'app-cap-flood';
+    const cappedLiveTurns = new PostgresLiveTurnRepository(
+      runtime.service.db,
+      undefined,
+      cap,
     );
-    expect(linked?.acceptedEventId).toBe(event.eventId);
-
-    const replay = await runtime.service.db.transaction((tx) =>
-      preflightSdkSessionAdmissionWithExecutor(tx, {
-        appId: sdkBase.appId,
-        agentSessionId: sdkBase.agentSessionId,
-        idempotencyKey: sdkBase.idempotencyKey,
-        requestFingerprint: sdkBase.requestFingerprint,
-        queuePolicy: sdkBase.queuePolicy,
-      }),
+    const results = await Promise.all(
+      Array.from({ length: 12 }, (_, index) =>
+        cappedLiveTurns.enqueueLiveAdmissionWorkItem({
+          id: `admission-cap-flood-${index}`,
+          ...base,
+          appId,
+          messageId: `message:cap-flood:${index}`,
+          messageCursor: `2026-06-16T00:00:00.000Z::cap-flood-${index}`,
+          idempotencyKey: `telegram:delivery:cap-flood-${index}`,
+        }),
+      ),
     );
+
+    expect(
+      results.filter((result) => result.outcome === 'enqueued'),
+    ).toHaveLength(cap);
+    expect(
+      results.filter((result) => result.outcome === 'overloaded'),
+    ).toHaveLength(12 - cap);
+
+    const tableName = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('live_admission_work_items')}`;
+    const { rows } = await runtime.service.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+       FROM ${tableName}
+       WHERE app_id = $1
+         AND state IN ('queued', 'claimed', 'deferred')`,
+      [appId],
+    );
+    expect(Number(rows[0]?.count ?? 0)).toBe(cap);
+  });
+
+  it('replays duplicates at capacity and frees capacity only for terminal rows', async () => {
+    const cap = 2;
+    const appId = 'app-cap-replay';
+    const cappedLiveTurns = new PostgresLiveTurnRepository(
+      runtime.service.db,
+      undefined,
+      cap,
+    );
+    const inputs = [0, 1].map((index) => ({
+      id: `admission-cap-replay-${index}`,
+      ...base,
+      appId,
+      messageId: `message:cap-replay:${index}`,
+      messageCursor: `2026-06-16T00:00:00.000Z::cap-replay-${index}`,
+      idempotencyKey: `telegram:delivery:cap-replay-${index}`,
+    }));
+    await Promise.all(
+      inputs.map((input) =>
+        cappedLiveTurns.enqueueLiveAdmissionWorkItem(input),
+      ),
+    );
+
+    const replay = await cappedLiveTurns.enqueueLiveAdmissionWorkItem({
+      ...inputs[0],
+      id: 'admission-cap-replay-duplicate-id',
+    });
     expect(replay).toMatchObject({
       outcome: 'replayed',
-      item: {
-        id: 'sdk-admission-1',
-        requestMessageId: 'sdk-message-1',
-        acceptedEventId: event.eventId,
-      },
+      item: { id: inputs[0].id },
     });
-
-    const conflict = await runtime.service.db.transaction((tx) =>
-      preflightSdkSessionAdmissionWithExecutor(tx, {
-        appId: sdkBase.appId,
-        agentSessionId: sdkBase.agentSessionId,
-        idempotencyKey: sdkBase.idempotencyKey,
-        requestFingerprint: 'fingerprint-changed',
-        queuePolicy: sdkBase.queuePolicy,
-      }),
-    );
-    expect(conflict.outcome).toBe('fingerprint_conflict');
-  });
-
-  it('atomically caps an SDK session at one active plus three waiting turns', async () => {
-    const appId = 'sdk-cap-app';
-    const agentSessionId = 'sdk-cap-session';
-    const reserve = (ordinal: number) =>
-      runtime.service.db.transaction(async (tx) => {
-        const now = `2026-07-20T00:00:0${ordinal}.000Z`;
-        const preflight = await preflightSdkSessionAdmissionWithExecutor(tx, {
-          appId,
-          agentSessionId,
-          idempotencyKey: `teams-activity-${ordinal}`,
-          requestFingerprint: `fingerprint-${ordinal}`,
-          queuePolicy: {
-            maxWaitingMessages: 3,
-            maxQueueWaitMs: 90_000,
-            executionTimeoutMs: 90_000,
-          },
-          now,
-        });
-        if (preflight.outcome !== 'available') return preflight;
-        const promoted = await promoteSdkSessionAdmissionWithExecutor(tx, {
-          id: `sdk-cap-admission-${ordinal}`,
-          appId,
-          agentSessionId,
-          conversationId: `app:${appId}:conversation`,
-          queueJid: `app:${appId}:conversation`,
-          messageId: `message:app:${appId}:conversation:sdk-cap-message-${ordinal}`,
-          requestMessageId: `sdk-cap-message-${ordinal}`,
-          messageCursor: `${now}::sdk-cap-message-${ordinal}`,
-          preflight: preflight.preflight,
-          now,
-        });
-        return { outcome: 'promoted' as const, item: promoted.item };
-      });
-
-    const concurrent = await Promise.all([1, 2, 3, 4, 5].map(reserve));
-    expect(
-      concurrent.filter((result) => result.outcome === 'promoted'),
-    ).toHaveLength(4);
-    expect(
-      concurrent.filter((result) => result.outcome === 'capacity_exceeded'),
-    ).toEqual([
-      { outcome: 'capacity_exceeded', activeAndWaiting: 4, capacity: 4 },
-    ]);
-
-    const running = await runtime.service.db.transaction((tx) =>
-      markSdkSessionTurnRunningWithExecutor(tx, {
-        messageId: 'message:app:sdk-cap-app:conversation:sdk-cap-message-1',
-        executionDeadlineAt: '2026-07-20T00:01:31.000Z',
-        now: '2026-07-20T00:00:01.000Z',
-      }),
-    );
-    expect(running?.turnState).toBe('running');
-    const settled = await runtime.service.db.transaction((tx) =>
-      settleSdkSessionTurnWithExecutor(tx, {
-        messageId: 'message:app:sdk-cap-app:conversation:sdk-cap-message-1',
-        state: 'completed',
-        terminalCode: 'completed',
-        now: '2026-07-20T00:00:02.000Z',
-      }),
-    );
-    expect(settled).toMatchObject({
-      turnState: 'completed',
-      terminalCode: 'completed',
-    });
-    await expect(reserve(6)).resolves.toMatchObject({ outcome: 'promoted' });
-  });
-
-  it('releases the next SDK turn after the prior admission is terminal even if its turn state is stale', async () => {
-    const appId = 'sdk-serialized-app';
-    const agentSessionId = 'sdk-serialized-session';
-    const conversationId = 'conversation:sdk-serialized';
-    await registerSdkSessionScope({ appId, agentSessionId, conversationId });
-    const now = toIso(nowMs());
-    const reserve = async (ordinal: number) => {
-      const messageId = `message:app:default:serialized-${ordinal}`;
-      const result = await runtime.service.db.transaction(async (tx) => {
-        const preflight = await preflightSdkSessionAdmissionWithExecutor(tx, {
-          appId,
-          agentSessionId,
-          idempotencyKey: `serialized-${ordinal}`,
-          requestFingerprint: `serialized-fingerprint-${ordinal}`,
-          queuePolicy: {
-            maxWaitingMessages: 3,
-            maxQueueWaitMs: 90_000,
-            executionTimeoutMs: 90_000,
-          },
-          now: toIso(Date.parse(now) + ordinal),
-        });
-        if (preflight.outcome !== 'available') {
-          throw new Error('Expected serialized SDK preflight');
-        }
-        return promoteSdkSessionAdmissionWithExecutor(tx, {
-          id: `sdk-serialized-admission-${ordinal}`,
-          appId,
-          agentSessionId,
-          conversationId,
-          queueJid: conversationId,
-          messageId,
-          requestMessageId: `serialized-${ordinal}`,
-          messageCursor: `${toIso(Date.parse(now) + ordinal)}::serialized-${ordinal}`,
-          preflight: preflight.preflight,
-        });
-      });
-      const accepted = await runtime.storageRuntime.runtimeEvents.publish({
-        appId: appId as never,
-        sessionId: agentSessionId as never,
-        eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_INBOUND,
-        actor: 'sdk',
-        correlationId: `serialized-correlation-${ordinal}`,
-        responseMode: 'sse',
-        payload: { messageId: `serialized-${ordinal}` },
-      });
-      await runtime.service.db.transaction((tx) =>
-        linkSdkSessionAcceptedEventWithExecutor(tx, {
-          id: result.item.id,
-          acceptedEventId: accepted.eventId,
-        }),
-      );
-      return result.item;
-    };
-
-    const first = await reserve(1);
-    const second = await reserve(2);
-    const claimed = await liveTurns.claimLiveAdmissionWorkItems({
-      appId,
-      workerInstanceId: 'sdk-serialized-worker-1',
-      claimToken: 'sdk-serialized-claim-1',
-      claimExpiresAt: toIso(nowMs() + 60_000),
-      limit: 100,
-    });
-    const serializedClaims = claimed.filter(
-      (item) => item.agentSessionId === agentSessionId,
-    );
-    expect(serializedClaims.map((item) => item.id)).toEqual([first.id]);
-    await liveTurns.settleLiveAdmissionWorkItem({
-      id: first.id,
-      workerInstanceId: 'sdk-serialized-worker-1',
-      claimToken: 'sdk-serialized-claim-1',
-      state: 'completed',
-    });
-    const released = await liveTurns.claimLiveAdmissionWorkItems({
-      appId,
-      workerInstanceId: 'sdk-serialized-worker-2',
-      claimToken: 'sdk-serialized-claim-2',
-      claimExpiresAt: toIso(nowMs() + 60_000),
-      limit: 100,
-    });
-    expect(released.map((item) => item.id)).toContain(second.id);
-    await liveTurns.settleLiveAdmissionWorkItem({
-      id: second.id,
-      workerInstanceId: 'sdk-serialized-worker-2',
-      claimToken: 'sdk-serialized-claim-2',
-      state: 'completed',
-    });
-  });
-
-  it('durably rejects an expired SDK queue entry with a typed event', async () => {
-    const appId = 'sdk-queue-expired-app';
-    const agentSessionId = 'sdk-queue-expired-session';
-    const conversationId = 'conversation:sdk-queue-expired';
-    await registerSdkSessionScope({ appId, agentSessionId, conversationId });
-    const messageId = 'message:app:default:queue-expired';
-    const acceptedAt = toIso(nowMs() - 120_000);
-    const reserved = await runtime.service.db.transaction(async (tx) => {
-      const preflight = await preflightSdkSessionAdmissionWithExecutor(tx, {
-        appId,
-        agentSessionId,
-        idempotencyKey: 'sdk-queue-expired',
-        requestFingerprint: 'sdk-queue-expired-fingerprint',
-        queuePolicy: {
-          maxWaitingMessages: 3,
-          maxQueueWaitMs: 1_000,
-          executionTimeoutMs: 90_000,
-        },
-        now: acceptedAt,
-      });
-      if (preflight.outcome !== 'available') {
-        throw new Error('Expected expired SDK preflight');
-      }
-      return promoteSdkSessionAdmissionWithExecutor(tx, {
-        id: 'sdk-queue-expired-admission',
-        appId,
-        agentSessionId,
-        conversationId,
-        queueJid: conversationId,
-        messageId,
-        requestMessageId: 'sdk-queue-expired',
-        messageCursor: `${acceptedAt}::sdk-queue-expired`,
-        preflight: preflight.preflight,
-      });
-    });
-    const accepted = await runtime.storageRuntime.runtimeEvents.publish({
-      appId: appId as never,
-      sessionId: agentSessionId as never,
-      eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_INBOUND,
-      actor: 'sdk',
-      correlationId: 'sdk-queue-expired-correlation',
-      responseMode: 'sse',
-      payload: { messageId: 'sdk-queue-expired' },
-    });
-    await runtime.service.db.transaction((tx) =>
-      linkSdkSessionAcceptedEventWithExecutor(tx, {
-        id: reserved.item.id,
-        acceptedEventId: accepted.eventId,
-      }),
-    );
-
     await expect(
-      liveTurns.prepareSdkSessionTurn?.({ messageId }),
-    ).resolves.toMatchObject({
-      turnState: 'timed_out',
-      terminalCode: 'queue_wait_timeout',
-    });
-    const events = await runtime.repositories.runtimeEvents.listRuntimeEvents({
-      appId: appId as never,
-      sessionId: agentSessionId as never,
-      eventTypes: [RUNTIME_EVENT_TYPES.SESSION_MESSAGE_REJECTED],
-    });
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        correlationId: 'sdk-queue-expired-correlation',
-        payload: expect.objectContaining({
-          messageId: 'sdk-queue-expired',
-          canonicalMessageId: messageId,
-          phase: 'queue',
-          code: 'queue_wait_timeout',
-          retryable: true,
-        }),
+      cappedLiveTurns.enqueueLiveAdmissionWorkItem({
+        ...inputs[0],
+        id: 'admission-cap-replay-overloaded',
+        messageId: 'message:cap-replay:overloaded',
+        messageCursor: '2026-06-16T00:00:00.000Z::cap-replay-overloaded',
+        idempotencyKey: 'telegram:delivery:cap-replay-overloaded',
       }),
-    );
-  });
+    ).resolves.toEqual({ outcome: 'overloaded' });
 
-  it('atomically rejects a claimed SDK admission and rolls back on event failure', async () => {
-    const appId = 'sdk-admission-rejection-app';
-    const agentSessionId = 'sdk-admission-rejection-session';
-    const conversationId = 'conversation:sdk-admission-rejection';
-    const messageId = 'message:app:default:admission-rejection';
-    const itemId = 'sdk-admission-rejection-item';
-    const claimToken = 'sdk-admission-rejection-claim';
-    const workerInstanceId = 'sdk-admission-rejection-worker';
-    const acceptedAt = toIso(nowMs());
-    await registerSdkSessionScope({ appId, agentSessionId, conversationId });
-    const reserved = await runtime.service.db.transaction(async (tx) => {
-      const preflight = await preflightSdkSessionAdmissionWithExecutor(tx, {
-        appId,
-        agentSessionId,
-        idempotencyKey: 'sdk-admission-rejection',
-        requestFingerprint: 'sdk-admission-rejection-fingerprint',
-        queuePolicy: {
-          maxWaitingMessages: 3,
-          maxQueueWaitMs: 90_000,
-          executionTimeoutMs: 90_000,
-        },
-        now: acceptedAt,
-      });
-      if (preflight.outcome !== 'available') {
-        throw new Error('Expected SDK admission rejection preflight');
-      }
-      return promoteSdkSessionAdmissionWithExecutor(tx, {
-        id: itemId,
-        appId,
-        agentSessionId,
-        conversationId,
-        queueJid: conversationId,
-        messageId,
-        requestMessageId: 'sdk-admission-rejection',
-        messageCursor: `${acceptedAt}::sdk-admission-rejection`,
-        preflight: preflight.preflight,
-      });
-    });
-    const accepted = await runtime.storageRuntime.runtimeEvents.publish({
-      appId: appId as never,
-      sessionId: agentSessionId as never,
-      conversationId: conversationId as never,
-      eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_INBOUND,
-      actor: 'sdk',
-      correlationId: 'sdk-admission-rejection-correlation',
-      responseMode: 'sse',
-      payload: { messageId: 'sdk-admission-rejection' },
-    });
-    await runtime.service.db.transaction((tx) =>
-      linkSdkSessionAcceptedEventWithExecutor(tx, {
-        id: reserved.item.id,
-        acceptedEventId: accepted.eventId,
-      }),
-    );
-    await liveTurns.claimLiveAdmissionWorkItems({
+    const [claimed] = await cappedLiveTurns.claimLiveAdmissionWorkItems({
       appId,
-      workerInstanceId,
-      claimToken,
+      workerInstanceId: 'worker-cap-replay',
+      claimToken: 'claim-token-cap-replay',
       claimExpiresAt: toIso(nowMs() + 60_000),
       limit: 1,
     });
+    await cappedLiveTurns.settleLiveAdmissionWorkItem({
+      id: claimed.id,
+      workerInstanceId: 'worker-cap-replay',
+      claimToken: 'claim-token-cap-replay',
+      state: 'completed',
+    });
+    await expect(
+      cappedLiveTurns.enqueueLiveAdmissionWorkItem({
+        ...inputs[0],
+        id: 'admission-cap-replay-after-terminal',
+        messageId: 'message:cap-replay:after-terminal',
+        messageCursor: '2026-06-16T00:00:00.000Z::cap-replay-after-terminal',
+        idempotencyKey: 'telegram:delivery:cap-replay-after-terminal',
+      }),
+    ).resolves.toMatchObject({ outcome: 'enqueued' });
+  });
 
-    const eventFailure = new Error('SDK admission rejection event failed');
-    const failingLiveTurns = new PostgresLiveTurnRepository(
-      runtime.service.db,
-      undefined,
-      {
-        appendRuntimeEventWithExecutor: async () => {
-          throw eventFailure;
-        },
-      } as never,
+  it('deletes only expired terminal work items', async () => {
+    const appId = 'app-terminal-retention';
+    const oldAt = '2026-07-03T00:00:00.000Z';
+    const recentAt = '2026-07-05T00:00:00.000Z';
+    const cutoff = '2026-07-04T00:00:00.000Z';
+    const rows = [
+      ['retention-old-completed', 'completed', oldAt, oldAt],
+      ['retention-old-failed', 'failed', oldAt, oldAt],
+      ['retention-old-canceled', 'canceled', oldAt, null],
+      ['retention-old-queued', 'queued', oldAt, null],
+      ['retention-old-claimed', 'claimed', oldAt, null],
+      ['retention-old-deferred', 'deferred', oldAt, null],
+      ['retention-recent-completed', 'completed', recentAt, recentAt],
+      ['retention-recent-failed', 'failed', recentAt, recentAt],
+      ['retention-recent-canceled', 'canceled', recentAt, recentAt],
+    ] as const;
+    await Promise.all(
+      rows.map(([id], index) =>
+        liveTurns.enqueueLiveAdmissionWorkItem({
+          id,
+          ...base,
+          appId,
+          messageId: `message:retention:${index}`,
+          messageCursor: `2026-08-03T00:00:00.000Z::retention-${index}`,
+          idempotencyKey: `telegram:delivery:retention-${index}`,
+        }),
+      ),
     );
+    const tableName = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('live_admission_work_items')}`;
+    await Promise.all(
+      rows.map(([id, state, updatedAt, endedAt]) =>
+        runtime.service.pool.query(
+          `UPDATE ${tableName}
+           SET state = $2, updated_at = $3, ended_at = $4
+           WHERE id = $1`,
+          [id, state, updatedAt, endedAt],
+        ),
+      ),
+    );
+
     await expect(
-      failingLiveTurns.rejectClaimedSdkSessionAdmission({
-        id: itemId,
-        claimToken,
-        workerInstanceId,
-        code: 'admission_failed',
-        retryable: true,
-      }),
-    ).rejects.toThrow(eventFailure);
-    const rolledBack = await runtime.service.pool.query<{
-      state: string;
-      turn_state: string;
-    }>(
-      `SELECT state, turn_state FROM live_admission_work_items WHERE id = $1`,
-      [itemId],
+      liveTurns.deleteExpiredTerminalLiveAdmissionWorkItems(cutoff),
+    ).resolves.toEqual({ deleted: 3, more: false });
+
+    const remaining = await runtime.service.pool.query<{ id: string }>(
+      `SELECT id FROM ${tableName} WHERE app_id = $1 ORDER BY id`,
+      [appId],
     );
-    expect(rolledBack.rows[0]).toEqual({
-      state: 'claimed',
-      turn_state: 'waiting',
+    expect(remaining.rows.map(({ id }) => id)).toEqual([
+      'retention-old-claimed',
+      'retention-old-deferred',
+      'retention-old-queued',
+      'retention-recent-canceled',
+      'retention-recent-completed',
+      'retention-recent-failed',
+    ]);
+  });
+
+  it('persists an overloaded canonical message without a work row or wakeup', async () => {
+    const notifyLiveAdmissionWorkItem = vi.fn(async () => undefined);
+    const messages = new CanonicalMessageOpsService(
+      new PostgresCanonicalMessageRepository(runtime.service.db, 1),
+      { notifyLiveAdmissionWorkItem },
+    );
+    const appId = 'app-overloaded-canonical-message';
+    const makeMessage = (index: number) => ({
+      id: `msg-overloaded-${index}`,
+      chat_jid: 'tg:overloaded-canonical-message',
+      provider: 'telegram',
+      sender: 'user-overloaded',
+      sender_name: 'Overloaded User',
+      content: `canonical message ${index}`,
+      timestamp: `2026-06-16T00:00:0${index}.000Z`,
+      is_from_me: false,
+      is_bot_message: false,
     });
 
     await expect(
-      liveTurns.rejectClaimedSdkSessionAdmission?.({
-        id: itemId,
-        claimToken,
-        workerInstanceId,
-        code: 'admission_failed',
-        retryable: true,
-      }),
-    ).resolves.toBe(true);
-    const settled = await runtime.service.pool.query<{
-      state: string;
-      turn_state: string;
-      terminal_code: string;
-    }>(
-      `SELECT state, turn_state, terminal_code FROM live_admission_work_items WHERE id = $1`,
-      [itemId],
-    );
-    expect(settled.rows[0]).toEqual({
-      state: 'failed',
-      turn_state: 'failed',
-      terminal_code: 'admission_failed',
-    });
-    const events = await runtime.repositories.runtimeEvents.listRuntimeEvents({
-      appId: appId as never,
-      sessionId: agentSessionId as never,
-      eventTypes: [RUNTIME_EVENT_TYPES.SESSION_MESSAGE_REJECTED],
-    });
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({
-      correlationId: 'sdk-admission-rejection-correlation',
-      payload: expect.objectContaining({
-        messageId: 'sdk-admission-rejection',
-        canonicalMessageId: messageId,
-        phase: 'admission',
-        code: 'admission_failed',
-        retryable: true,
-      }),
-    });
+      messages.storeMessageWithLiveAdmission(makeMessage(1), { appId }),
+    ).resolves.toMatchObject({ outcome: 'enqueued' });
     await expect(
-      liveTurns.rejectClaimedSdkSessionAdmission?.({
-        id: itemId,
-        claimToken,
-        workerInstanceId,
-        code: 'admission_failed',
-        retryable: true,
-      }),
-    ).resolves.toBe(false);
-    await expect(
-      runtime.repositories.runtimeEvents.listRuntimeEvents({
-        appId: appId as never,
-        sessionId: agentSessionId as never,
-        eventTypes: [RUNTIME_EVENT_TYPES.SESSION_MESSAGE_REJECTED],
-      }),
-    ).resolves.toHaveLength(1);
+      messages.storeMessageWithLiveAdmission(makeMessage(2), { appId }),
+    ).resolves.toEqual({ outcome: 'overloaded' });
+    expect(notifyLiveAdmissionWorkItem).toHaveBeenCalledTimes(1);
+
+    const workItemsTable = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('live_admission_work_items')}`;
+    const messagesTable = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('messages')}`;
+    const [workItems, canonicalMessages] = await Promise.all([
+      runtime.service.pool.query<{ count: string }>(
+        `SELECT count(*)::text AS count
+         FROM ${workItemsTable}
+         WHERE app_id = $1`,
+        [appId],
+      ),
+      runtime.service.pool.query<{ count: string }>(
+        `SELECT count(*)::text AS count
+         FROM ${messagesTable}
+         WHERE external_message_id = ANY($1::text[])`,
+        [['msg-overloaded-1', 'msg-overloaded-2']],
+      ),
+    ]);
+    expect(Number(workItems.rows[0]?.count ?? 0)).toBe(1);
+    expect(Number(canonicalMessages.rows[0]?.count ?? 0)).toBe(2);
   });
 
   it('claims due rows in durable FIFO order without prompt text payloads', async () => {
@@ -893,14 +605,16 @@ maybeDescribe('live admission work items (Postgres)', () => {
       'admission-lock-due-2',
     ];
     for (const [index, id] of ids.entries()) {
-      await liveTurns.enqueueLiveAdmissionWorkItem({
-        id,
-        ...base,
-        messageId: `message:tg:live-admission:${id}`,
-        messageCursor: `2026-06-16T00:00:10.000Z::${id}`,
-        idempotencyKey: `telegram:delivery:${id}`,
-        now: toIso(Date.parse(createdAt) + index),
-      });
+      await expect(
+        liveTurns.enqueueLiveAdmissionWorkItem({
+          id,
+          ...base,
+          messageId: `message:tg:live-admission:${id}`,
+          messageCursor: `2026-06-16T00:00:10.000Z::${id}`,
+          idempotencyKey: `telegram:delivery:${id}`,
+          now: toIso(Date.parse(createdAt) + index),
+        }),
+      ).resolves.toMatchObject({ outcome: 'enqueued', item: { id } });
     }
     await runtime.service.pool.query(
       `UPDATE ${quotePostgresIdentifier(
@@ -924,14 +638,16 @@ maybeDescribe('live admission work items (Postgres)', () => {
         `WITH queued AS (
            SELECT id, created_at
            FROM ${tableName}
-           WHERE state = 'queued'
+           WHERE app_id = $3
+             AND state = 'queued'
            ORDER BY created_at ASC, id ASC
            LIMIT $2
          ),
          due_deferred AS (
            SELECT id, created_at
            FROM ${tableName}
-           WHERE state = 'deferred'
+           WHERE app_id = $3
+             AND state = 'deferred'
              AND defer_until <= $1
            ORDER BY defer_until ASC, created_at ASC, id ASC
            LIMIT $2
@@ -952,7 +668,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
          ORDER BY candidates.created_at ASC, candidates.id ASC
          LIMIT $2
          FOR UPDATE SKIP LOCKED`,
-        [now, 1],
+        [now, 1, base.appId],
       );
       expect(first.rows.map((row) => row.id)).toEqual([
         'admission-lock-queued',
@@ -1117,8 +833,13 @@ maybeDescribe('live admission work items (Postgres)', () => {
       agentId: 'agent:atomic_agent',
       conversationId: 'tg:live-admission-atomic',
       threadId: null,
-      queueJid: expect.stringContaining('tg:live-admission-atomic'),
-      messageId: expect.stringMatching(/^message:/),
+      // Provider-account-scoped queue key + message id (provider accounts
+      // replaced provider connections; unset accounts fall back to
+      // channel-providerAccount:<app>:<provider>).
+      queueJid:
+        'tg:live-admission-atomic::agent:agent%3Aatomic_agent::provider_account:channel-providerAccount%3Adefault%3Atelegram',
+      messageId:
+        'message:channel-providerAccount:default:telegram:tg:live-admission-atomic:msg-atomic-1',
       senderUserId: 'user-atomic',
       senderDisplayName: 'Atomic User',
       state: 'queued',
@@ -1129,9 +850,49 @@ maybeDescribe('live admission work items (Postgres)', () => {
     });
     expect(JSON.stringify(result?.item)).not.toContain('sensitive prompt body');
 
+    const admissionFilter = parseAgentThreadQueueKey(
+      result?.item.queueJid ?? '',
+    );
+    const providerAccountId = admissionFilter.providerAccountId;
+    expect(providerAccountId).toBe('channel-providerAccount:default:telegram');
+    expect(result?.item.messageId).toBe(
+      `message:${providerAccountId}:${message.chat_jid}:${message.id}`,
+    );
+
+    const conversationsTable = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('conversations')}`;
+    const messagesTable = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('messages')}`;
+    const { rows: identities } = await runtime.service.pool.query<{
+      conversation_id: string;
+      conversation_provider_account_id: string;
+      message_id: string;
+      message_provider_account_id: string;
+    }>(
+      `SELECT c.id AS conversation_id,
+              c.provider_account_id AS conversation_provider_account_id,
+              m.id AS message_id,
+              m.provider_account_id AS message_provider_account_id
+       FROM ${messagesTable} m
+       JOIN ${conversationsTable} c ON c.id = m.conversation_id
+       WHERE m.id = $1`,
+      [result?.item.messageId],
+    );
+    expect(identities).toEqual([
+      {
+        conversation_id: `conversation:${providerAccountId}:${message.chat_jid}`,
+        conversation_provider_account_id: providerAccountId,
+        message_id: result?.item.messageId,
+        message_provider_account_id: providerAccountId,
+      },
+    ]);
+
     await expect(
-      runtime.ops.getMessagesSince('tg:live-admission-atomic', '', 10, {
-        threadId: null,
+      runtime.ops.getMessagesSince(admissionFilter.chatJid, '', 10, {
+        threadId: admissionFilter.threadId ?? null,
+        providerAccountId,
       }),
     ).resolves.toMatchObject([
       {
@@ -1161,66 +922,168 @@ maybeDescribe('live admission work items (Postgres)', () => {
     expect(claimed.map((item) => item.id)).toContain(result?.item.id);
   });
 
-  it('does not replay an app message at its public cursor boundary', async () => {
-    const chatJid = 'app:cursor-regression:conversation';
-    const first = await runtime.ops.storeMessageWithLiveAdmission?.(
-      {
-        id: 'app-cursor-message-1',
-        chat_jid: chatJid,
-        provider: 'app',
-        sender: 'user-app-cursor',
-        sender_name: 'App Cursor User',
-        content: 'first controlled message',
-        timestamp: '2026-06-16T00:00:04.000Z',
-        is_from_me: false,
-        is_bot_message: false,
+  it('reuses an existing installation account for a providerless follow-up', async () => {
+    const chatJid = 'tg:live-admission-existing-install';
+    const providerAccountId = 'telegram-install-existing' as ProviderAccountId;
+    await runtime.repositories.providerAccounts.saveProviderAccount({
+      id: providerAccountId,
+      appId: DEFAULT_APP_ID as AppId,
+      agentId: DEFAULT_AGENT_ID as AgentId,
+      providerId: 'telegram' as ProviderId,
+      externalIdentityRef: {
+        kind: 'provider_account',
+        value: 'telegram-install-existing',
       },
-      {
-        appId: 'default',
-        agentId: 'app_cursor_agent',
-        triggerDecision: { source: 'sdk_session' },
-      },
+      label: 'Existing Telegram installation',
+      status: 'active',
+      config: {},
+      runtimeSecretRefs: {},
+      createdAt: '2026-06-16T00:00:02.000Z',
+      updatedAt: '2026-06-16T00:00:02.000Z',
+    });
+    await runtime.ops.storeMessage({
+      id: 'msg-install-seed',
+      chat_jid: chatJid,
+      provider: 'telegram',
+      providerAccountId,
+      sender: 'user-install',
+      sender_name: 'Install User',
+      content: 'seed with installation account',
+      timestamp: '2026-06-16T00:00:02.100Z',
+      is_from_me: false,
+      is_bot_message: false,
+    });
+
+    const followUp = {
+      id: 'msg-install-follow-up',
+      chat_jid: chatJid,
+      provider: 'telegram',
+      sender: 'user-install',
+      sender_name: 'Install User',
+      content: 'providerless follow-up',
+      timestamp: '2026-06-16T00:00:02.200Z',
+      is_from_me: false,
+      is_bot_message: false,
+    };
+    const result = await runtime.ops.storeMessageWithLiveAdmission?.(followUp, {
+      appId: 'default',
+      agentId: 'install_agent',
+      triggerDecision: { requiresTrigger: false },
+    });
+
+    expect(result?.outcome).toBe('enqueued');
+    const admissionFilter = parseAgentThreadQueueKey(
+      result?.item.queueJid ?? '',
     );
-    expect(first?.item.messageCursor).toBeTruthy();
-
-    await expect(
-      runtime.ops.getMessagesSince(
-        chatJid,
-        first?.item.messageCursor ?? '',
-        10,
-        { threadId: null },
-      ),
-    ).resolves.toEqual([]);
-
-    await runtime.ops.storeMessageWithLiveAdmission?.(
-      {
-        id: 'app-cursor-message-2',
-        chat_jid: chatJid,
-        provider: 'app',
-        sender: 'user-app-cursor',
-        sender_name: 'App Cursor User',
-        content: 'second controlled message',
-        timestamp: '2026-06-16T00:00:05.000Z',
-        is_from_me: false,
-        is_bot_message: false,
-      },
-      {
-        appId: 'default',
-        agentId: 'app_cursor_agent',
-        triggerDecision: { source: 'sdk_session' },
-      },
+    expect(admissionFilter.providerAccountId).toBe(providerAccountId);
+    expect(result?.item.messageId).toBe(
+      `message:${providerAccountId}:${chatJid}:${followUp.id}`,
     );
 
-    await expect(
-      runtime.ops.getMessagesSince(
-        chatJid,
-        first?.item.messageCursor ?? '',
-        10,
-        { threadId: null },
-      ),
-    ).resolves.toMatchObject([
-      { id: 'app-cursor-message-2', content: 'second controlled message' },
+    const conversationsTable = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('conversations')}`;
+    const messagesTable = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('messages')}`;
+    const { rows: conversations } = await runtime.service.pool.query<{
+      id: string;
+      provider_account_id: string;
+    }>(
+      `SELECT id, provider_account_id
+       FROM ${conversationsTable}
+       WHERE external_ref_json::jsonb->>'jid' = $1
+       ORDER BY id`,
+      [chatJid],
+    );
+    expect(conversations).toEqual([
+      {
+        id: `conversation:${providerAccountId}:${chatJid}`,
+        provider_account_id: providerAccountId,
+      },
     ]);
+
+    const { rows: messages } = await runtime.service.pool.query<{
+      conversation_id: string;
+      provider_account_id: string;
+    }>(
+      `SELECT conversation_id, provider_account_id
+       FROM ${messagesTable}
+       WHERE id = $1`,
+      [result?.item.messageId],
+    );
+    expect(messages).toEqual([
+      {
+        conversation_id: `conversation:${providerAccountId}:${chatJid}`,
+        provider_account_id: providerAccountId,
+      },
+    ]);
+
+    await expect(
+      runtime.ops.getMessagesSince(admissionFilter.chatJid, '', 10, {
+        threadId: admissionFilter.threadId ?? null,
+        providerAccountId: admissionFilter.providerAccountId,
+      }),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: followUp.id,
+          content: followUp.content,
+        }),
+      ]),
+    );
+  });
+
+  it('unions message reads across every conversation row for a jid', async () => {
+    const chatJid = 'app:default:session-read-union';
+    // Sessions path creates a legacy-shaped row; a later providerless
+    // admission creates the account-qualified twin. Readers that only know
+    // the jid (GET /v1/sessions/{id}/messages) must see messages from BOTH
+    // until the Phase-8 restamp collapses them.
+    await runtime.ops.storeChatMetadata(
+      chatJid,
+      '2026-06-16T00:00:04.000Z',
+      'Session Read Union',
+      'app',
+    );
+    const result = await runtime.ops.storeMessageWithLiveAdmission?.(
+      {
+        id: 'msg-session-read-union',
+        chat_jid: chatJid,
+        sender: 'api',
+        sender_name: 'API',
+        content: 'hello across rows',
+        timestamp: '2026-06-16T00:00:04.100Z',
+        is_from_me: false,
+        is_bot_message: false,
+      },
+      {
+        appId: 'default',
+        agentId: 'main_agent',
+        triggerDecision: { requiresTrigger: false },
+      },
+    );
+    expect(result?.outcome).toBe('enqueued');
+
+    const conversationIds =
+      await runtime.repositories.messages.listConversationIdsForJid(chatJid);
+    expect(conversationIds.length).toBeGreaterThanOrEqual(1);
+    const lists = await Promise.all(
+      conversationIds.map((conversationId) =>
+        runtime.repositories.messages.listRecentMessages({
+          conversationId,
+          limit: 10,
+        }),
+      ),
+    );
+    const union = lists.flat();
+    expect(
+      union.some((message) =>
+        message.parts.some(
+          (part) => part.kind === 'text' && part.text === 'hello across rows',
+        ),
+      ),
+    ).toBe(true);
   });
 
   it('stores accepted runtime event and live admission atomically', async () => {
@@ -1270,7 +1133,8 @@ maybeDescribe('live admission work items (Postgres)', () => {
     });
     expect(result.liveAdmissionResult?.item).toMatchObject({
       state: 'queued',
-      messageId: expect.stringMatching(/^message:/),
+      messageId:
+        'message:channel-providerAccount:default:telegram:tg:live-admission-event-atomic:msg-event-admission-1',
     });
     await expect(
       runtime.ops.getMessagesSince('tg:live-admission-event-atomic', '', 10, {

@@ -1,0 +1,13 @@
+import { GroupDiscoverySource, InteractionSurface, MessageReactionSink, ProgressSink, RichInteractionSurface, StreamingSink, StreamingStateSink, TypingSink } from '../../domain/types.js';
+import { ChannelAdapter } from '../../channels/channel-provider.js';
+import type { AgentTodoSink } from '../../domain/ports/task-lifecycle.js';
+export declare function asTypingSink(channel: ChannelAdapter): TypingSink | undefined;
+export declare function asStreamingSink(channel: ChannelAdapter): StreamingSink | undefined;
+export declare function asStreamingStateSink(channel: ChannelAdapter): StreamingStateSink | undefined;
+export declare function asProgressSink(channel: ChannelAdapter): ProgressSink | undefined;
+export declare function asMessageReactionSink(channel: ChannelAdapter): MessageReactionSink | undefined;
+export declare function asGroupDiscoverySource(channel: ChannelAdapter): GroupDiscoverySource | undefined;
+export declare function asPermissionApprovalSurface(channel: ChannelAdapter): Pick<InteractionSurface, 'requestPermissionApproval' | 'dropPendingInteraction' | 'cancelPendingPermission'> | undefined;
+export declare function asUserQuestionSurface(channel: ChannelAdapter): Pick<InteractionSurface, 'requestUserAnswer' | 'questionIndexesForDeliveredPrompt' | 'dropPendingInteraction' | 'cancelPendingQuestion'> | undefined;
+export declare function asRichInteractionSurface(channel: ChannelAdapter): RichInteractionSurface | undefined;
+export declare function asAgentTodoSurface(channel: ChannelAdapter): AgentTodoSink | undefined;

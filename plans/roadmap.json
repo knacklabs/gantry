@@ -1,0 +1,744 @@
+{
+  "items": [
+    {
+      "status": "done",
+      "key": "PAY-1",
+      "title": "Architecture gate paydown \u2014 check:architecture exit 0",
+      "epic": "harness-hygiene",
+      "skill": "backend",
+      "order": 1,
+      "story": "First story through the harness. Five failing sections inventoried in the goal-prompt: file-size splits (genai-spans worst), dangling doc refs, layer-import caps, provider-boundary tokens in tests, provider literals in prompt-profile-service.",
+      "acceptance_criteria": [
+        "npm run check:architecture exits 0",
+        "python3 factory/scripts/verify.py passes end to end",
+        "npm run typecheck and npm test green; no test deleted",
+        "no public API/contract change; contracts package diff empty",
+        "any remaining architecture exception carries an expiry/ratchet note"
+      ],
+      "completed_at": "2026-07-22T17:32:45+00:00",
+      "history": ".factory/history/PAY-1/"
+    },
+    {
+      "status": "done",
+      "key": "PERM-1",
+      "title": "Permission engine: git deterministic-gate slice",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "order": 2,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "story": "Slice #1 of the hardened goal-prompt: deterministic rails precede any cache/classifier allow; git operations in trusted roots stop prompting.",
+      "acceptance_criteria": [
+        "git clone/pull/fetch/status in trusted roots produce zero permission prompts in live runs",
+        "hard-deny/locked/fixed-image restrictions resolve BEFORE any cache or classifier allow",
+        "RunCommand telemetry records the command text (closes the RCA blind spot)",
+        "goal-prompt slice-1 acceptance list satisfied with tests pinning the ordering invariant"
+      ],
+      "completed_at": "2026-07-23T07:39:30+00:00",
+      "history": ".factory/history/PERM-1/"
+    },
+    {
+      "status": "active",
+      "key": "PERM-2",
+      "title": "Permission engine: decision coordinator build (remainder)",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "order": 3,
+      "depends_on": [
+        "PERM-1"
+      ],
+      "story": "Async host-side decision coordinator (cache -> classifier -> human) per the plan-validation-hardened goal-prompt; parse-fail and interpreter-with-string leaves always ask.",
+      "acceptance_criteria": [
+        "single authority path: every lane reaches the coordinator via authenticated IPC on rule-miss",
+        "deterministic ask-floors re-run on every cache hit; never cached away",
+        "classifier verdicts cached with schema-enforced shape; ask-once behavior demonstrated live",
+        "goal-prompt acceptance criteria satisfied incl. its folded validation gaps"
+      ]
+    },
+    {
+      "status": "done",
+      "key": "OBS-1",
+      "title": "Observer: land staged S2 emission + S3a batch-core",
+      "epic": "observer",
+      "skill": "backend",
+      "order": 4,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "story": "Verify, one autoreview pass, and merge the rescued WIP branches feature/observer-s2-emission (e055dc14a) and feature/observer-s3-batch (a51a4909d) \u2014 the staged work was uncommitted tmp diffs until rescued 2026-07-22; exclude scratch docs from the review diff without deleting the design record.",
+      "acceptance_criteria": [
+        "S2 floor (conf>=0.6, evidence>=1, dedup cosine>=0.86) merged behind observer.enabled default-off",
+        "S3a gateway batch endpoints + prefer-orphan state machine merged with its 7 autoreview fixes",
+        "API/SDK/E2E coverage per stage as in the goal-prompt",
+        "goals-index rows recomputed on close"
+      ],
+      "completed_at": "2026-07-23T03:18:19+00:00",
+      "history": ".factory/history/OBS-1/"
+    },
+    {
+      "status": "pending",
+      "key": "OBS-2",
+      "title": "Observer S3b: xAI Grok + Kimi batch transports",
+      "epic": "observer",
+      "skill": "backend",
+      "order": 5,
+      "depends_on": [
+        "OBS-1"
+      ],
+      "acceptance_criteria": [
+        "both transports fill the same declared-capability slot as the Anthropic batch path",
+        "transport selection is config-driven; no provider literals outside adapters",
+        "hermetic tests cover both transports"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "OBS-3",
+      "title": "Observer S4: digest delivery",
+      "epic": "observer",
+      "skill": "backend",
+      "order": 6,
+      "depends_on": [
+        "OBS-2"
+      ],
+      "acceptance_criteria": [
+        "staging -> settlement -> freshness revalidation -> delivery pipeline per goal-prompt",
+        "evidence permalinks + feedback capture + delivery artifact recorded",
+        "at most one digest per day, owner-private routing enforced"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "OBS-4",
+      "title": "Observer S5: setup wizard + preview + cold-start backfill",
+      "epic": "observer",
+      "skill": "backend",
+      "order": 7,
+      "depends_on": [
+        "OBS-3"
+      ],
+      "acceptance_criteria": [
+        "gantry observer setup wizard step (extends apps/core/src/cli/setup-flow.ts)",
+        "preview + status surfaces work without enabling delivery",
+        "cold-start backfill bounded and idempotent"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "E2E-1",
+      "title": "E2E: reconcile the test-matrix tracker",
+      "epic": "agent-e2e-gate",
+      "skill": "backend",
+      "order": 8,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "story": "Matrix doc is behind reality (PRs #256-#261 added tests without flipping rows). Reconciling fires deferral D-0002 (persona/topology harness re-draft). Also reconcile feature/agent-e2e-haiku-turn: 15 commits, +382/-11 real diff vs main beyond merged #246 \u2014 salvage or discard with a citation.",
+      "acceptance_criteria": [
+        "every matrix row states its true status with PR/test citations",
+        "gap list of genuinely-uncovered rows produced",
+        "D-0002 resolved: persona-harness scope re-drafted or explicitly re-deferred",
+        "feature/agent-e2e-haiku-turn dispositioned: salvaged into a row or discarded with rationale"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "E2E-2",
+      "title": "E2E: remaining matrix rows",
+      "epic": "agent-e2e-gate",
+      "skill": "backend",
+      "order": 9,
+      "depends_on": [
+        "E2E-1"
+      ],
+      "acceptance_criteria": [
+        "packaged boot/restart, haiku model gate, all-tools coverage, security/recovery rows implemented per reconciled gap list",
+        "rows flip with citations per the standing merge-bar discipline"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "E2E-3",
+      "title": "E2E: flip agent-e2e-gate to a required check",
+      "epic": "agent-e2e-gate",
+      "skill": "backend",
+      "order": 10,
+      "depends_on": [
+        "E2E-2"
+      ],
+      "acceptance_criteria": [
+        "agent-e2e-gate is a required status check on main",
+        "full matrix green at flip time"
+      ]
+    },
+    {
+      "status": "done",
+      "key": "CAP-1",
+      "title": "Close out the capability-authoring lane",
+      "epic": "capability-search",
+      "skill": "backend",
+      "order": 11,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "story": "Rescued WIP snapshot feature/capability-authoring @ 13ae2e698 (source of record). Imported WITHOUT a goal-prompt as a closeout exception (epics grill 2026-07-22): finishing in-flight work, not a new goal. Verify, one autoreview pass, merge; it edits mcp-tool-proxy.ts so nothing else may touch that file concurrently.",
+      "acceptance_criteria": [
+        "branch verified (typecheck + unit + relevant integration) and reviewed via one autoreview pass",
+        "merged to main or explicitly split/reverted with a decision note",
+        "mcp-tool-proxy.ts conflict window closed"
+      ],
+      "completed_at": "2026-08-02T19:08:22+00:00",
+      "outcome": "Merged via PR #376. Agents can author MCP capabilities; approval cards are host-derived and fail-closed (agent input is not risk authority). Formal review fixed 12 findings incl. 3 security Highs (principal-required approvals, route-scoped credentials, tenant-scoped MCP client caches). mcp-tool-proxy conflict window closed."
+    },
+    {
+      "status": "pending",
+      "key": "CAP-2",
+      "title": "MCP hybrid search",
+      "epic": "capability-search",
+      "skill": "backend",
+      "order": 12,
+      "depends_on": [
+        "CAP-1"
+      ],
+      "acceptance_criteria": [
+        "FTS ranking + light stemming on mcp_search_tools",
+        "opt-in semantic layer reusing memory embedding provider + cache, degrading to FTS",
+        "grill-locked goal-prompt acceptance list satisfied"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "PONY-1",
+      "title": "Ponytail Phase-8 offline cutover",
+      "epic": "ponytail",
+      "skill": "backend",
+      "order": 13,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "story": "Phases 1-7 committed on feature/ponytail-audit through 9ffa146c2 (93-table baseline + Phase-8 runbook); post-Phase-7 in-flight diff rescued as e4104edc8. HARD GATE: executes ONLY on the user's explicit cutover go, behind a fully green ship gate + required e2e rows; any red = STOP.",
+      "acceptance_criteria": [
+        "explicit user cutover go recorded before execution",
+        "fresh-green full gate + required e2e rows at cutover time",
+        "offline restamp/reset executed per the Phase-8 runbook with rollback verified available",
+        "post-restart runtime smoke green",
+        "lane merged to main"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "OTEL-1",
+      "title": "OTel permission/decision spans",
+      "epic": "observability",
+      "skill": "backend",
+      "order": 14,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "story": "Completes the observability taxonomy shipped in #220 (base) and #262 (tool-execution spans). Reconciled 2026-07-22: not started; no lane work exists.",
+      "acceptance_criteria": [
+        "permission/decision spans per otel-permission-spans-goal-prompt.md",
+        "span taxonomy verified against the full agent/LLM/tool/MCP scope note on #262",
+        "hermetic tests cover the new spans"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "DUR-1",
+      "title": "Durable-work primitive",
+      "epic": "post-cutover",
+      "skill": "backend",
+      "order": 15,
+      "depends_on": [
+        "PONY-1"
+      ],
+      "story": "Starts after the Ponytail cutover lands (it refactors jobs/interactions state the cutover moves). Fires deferral D-0001 (data retention) at start.",
+      "acceptance_criteria": [
+        "goal-prompt acceptance list satisfied",
+        "D-0001 resolved: retention scoped into this lane or re-deferred with a new trigger"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "MDL-1",
+      "title": "Model management: unify then UX",
+      "epic": "post-cutover",
+      "skill": "backend",
+      "order": 16,
+      "depends_on": [
+        "PONY-1"
+      ],
+      "story": "Starts after the Ponytail lane closes (shares the settings parser/renderer surface). Folds status-cost-cache-visibility UX remainder.",
+      "acceptance_criteria": [
+        "model-management goal-prompt acceptance list satisfied",
+        "status/cost/cache UX remainder folded in or explicitly re-scoped"
+      ]
+    },
+    {
+      "status": "done",
+      "key": "CO-1",
+      "title": "Jobs recovery-intent -> columns + CAS",
+      "epic": "coordination-hardening",
+      "skill": "backend",
+      "order": 17,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "acceptance_criteria": [
+        "audit item B1 implemented: recovery intent as columns with compare-and-set transitions",
+        "no JSON-blob state machine remains for recovery intent",
+        "concurrent-recovery test pins the CAS invariant"
+      ],
+      "completed_at": "2026-08-03T00:00:00+00:00",
+      "history": ".factory/history/CO-1/",
+      "outcome": "Merged PR #380 per decision 0104 reframe: dead recovery-intent machinery deleted; live coordination fields (failure counter, pause reason, setup state) promoted to race-safe columns with in-DB increments and fingerprint-guarded writes; validated live (migration backfill + full lifecycle on the production runtime). Net -286 lines."
+    },
+    {
+      "status": "pending",
+      "key": "CO-2",
+      "title": "Coordination hardening batch (locks, TOCTOU, serializer)",
+      "epic": "coordination-hardening",
+      "skill": "backend",
+      "order": 18,
+      "depends_on": [
+        "CO-1"
+      ],
+      "acceptance_criteria": [
+        "audit item B2 implemented: advisory locks, TOCTOU fallback, serializer unify",
+        "each fix carries a regression test"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "CO-3",
+      "title": "desired-state-current-export rewrite",
+      "epic": "coordination-hardening",
+      "skill": "backend",
+      "order": 19,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "acceptance_criteria": [
+        "audit Group C implemented: schema-driven merge, fail-loud on unknown fields",
+        "round-trip export/import test green"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "ART-1",
+      "title": "S3/MinIO file-artifact bytes",
+      "epic": "artifact-store",
+      "skill": "backend",
+      "order": 20,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "story": "LOW PRIORITY (live uses local backend). Protocol decided: pending-row + upload + verified commit + TTL janitor. feature/s3-file-artifacts holds one [HOLD] stage-1 commit built commit-first BEFORE the protocol decision \u2014 rework to the decided protocol, do not merge as-is.",
+      "acceptance_criteria": [
+        "goal-prompt protocol implemented with verified-commit semantics",
+        "TTL janitor covered by tests",
+        "local backend remains the default"
+      ]
+    },
+    {
+      "key": "SEC-1",
+      "title": "Audit paydown: security blockers (CI runner isolation, inbound attachment writers, LLM concurrency admission)",
+      "order": 21,
+      "status": "done",
+      "epic": "Audit paydown 2026-07",
+      "skill": "backend",
+      "completed_at": "2026-07-24T11:42:10+00:00",
+      "history": ".factory/history/SEC-1/"
+    },
+    {
+      "key": "PERF-1",
+      "title": "Audit paydown: performance fixes (IPC replay scan, jobs N+1, SSE permit race, live-admission caps)",
+      "order": 22,
+      "status": "done",
+      "epic": "Audit paydown 2026-07",
+      "skill": "backend",
+      "completed_at": "2026-07-24T15:06:25+00:00",
+      "history": ".factory/history/PERF-1/"
+    },
+    {
+      "key": "SIMP-1",
+      "title": "Audit paydown: simplifications (queue defaults, control service construction, test consolidation)",
+      "order": 23,
+      "status": "pending",
+      "epic": "Audit paydown 2026-07",
+      "skill": "backend"
+    },
+    {
+      "key": "SPS-4",
+      "title": "Audit paydown: architecture decisions (cluster rate-limit authority, mandatory durable coordination, LLM loopback collapse, live-admission retention)",
+      "order": 24,
+      "status": "pending",
+      "epic": "Audit paydown 2026-07",
+      "skill": "backend"
+    },
+    {
+      "key": "LAT-5B",
+      "title": "Durable conversation history coverage",
+      "story": "As a teammate chatting with the agent, my turns in fully-synced conversations respond without waiting on redundant provider history fetches, so the agent feels immediate once it has everything.",
+      "acceptance_criteria": [
+        "A conversation attested complete (server-confirmed exhausted, current provider generation) makes zero provider hydration calls and skips the deadline wait; reconnects un-trust coverage fail-safe; request_bounded never promotes"
+      ],
+      "order": 25,
+      "status": "done",
+      "kind": "feature",
+      "origin": "adhoc",
+      "spec": "docs/specs/lat-5b-durable-history-coverage.md",
+      "completed_at": "2026-08-01T01:08:57+00:00",
+      "history": ".factory/history/LAT-5B/",
+      "outcome": "Agent conversations on Slack and Discord now remember, durably in Postgres, what history they have already stored. Once a channel or thread is fully persisted, later turns skip the provider history call (measured 1 to 0 calls, for exactly one extra SQL statement), so replies start faster. The record is trusted only while a live inbound stream is delivering: reconnects, dropped sockets, outbound-only accounts, interaction-only sockets, failed dispatches and account rebinds all invalidate it, and the next turn re-fetches from the provider so nothing said while the agent was away is silently skipped. Telegram is unchanged. Known residual: a brief multi-process stale-trust window, deferred as D-0036."
+    },
+    {
+      "key": "ID-1",
+      "title": "Identity management phases 2-3: reconcile, harden, land",
+      "story": "As an operator, I can resolve any sender to one app-scoped person across Slack/Telegram/Teams/app (and later OIDC/WhatsApp/email/phone), so the agent knows it is the same human and personal memory stays with the person while conversation memory stays with the room.",
+      "acceptance_criteria": [
+        "PR 217 reconciled with main; its 7 migrations converted to the timestamped scheme with no drizzle drift",
+        "Contact aliases normalised at write time (email lowercase, phone E.164) with a collision-safe backfill",
+        "mergePeople gains a faithful unmerge restoring from person_merge_audit",
+        "verified is system-attested only and unsettable via the People API",
+        "Decision-8 boundary/invariant tests pass with reverted-guard negative controls; agents-as-service-kind invariants pinned"
+      ],
+      "order": 26,
+      "status": "done",
+      "epic": "identity",
+      "skill": "backend",
+      "origin": "adhoc",
+      "spec": "docs/specs/person-identity-aliases.md",
+      "completed_at": "2026-08-02T10:24:13+00:00",
+      "outcome": "Merged via PR #373 (supersedes #217, credits Suraj). One canonical person per app with provider-neutral exact-match aliases; personal memory DM-only; audited merge with single-use all-or-nothing unmerge; People API + SDK incl. unmerge; boundaries pinned by revert-proven tests; 22 review rounds, ~50 fixes."
+    },
+    {
+      "status": "done",
+      "key": "SEC-2",
+      "title": "Inbound attachments: one atomic O_NOFOLLOW writer for Telegram + Slack",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "High audit finding: Telegram (fs.writeFile / open(path,'w')) and Slack (lstat-then-open race) attachment writers can follow a symlink out of the workspace and truncate a service-account-writable file. Create one shared hardened writer: O_CREAT|O_EXCL|O_NOFOLLOW into a verified attachment dir, validate the descriptor + containment, stream in, then atomically publish without replacing an existing target (or use generated immutable storage names + original name as metadata). Reuse the descriptor-containment pattern already in workspace-message-attachment.ts (currently a reader). NOTE: Implementation exists unlanded in myclaw-SEC2 worktree (979264eb8): platform no-follow-fs + private-file-writer + Telegram/Slack wiring.",
+      "acceptance_criteria": [
+        "every inbound channel attachment write goes through one shared O_NOFOLLOW descriptor-based writer",
+        "real-filesystem adversarial tests: existing final-file symlink, final-file swap during open, ancestor swap, hard links, streaming + buffered paths; the outside target is never truncated or unlinked",
+        "no check-then-open race remains (atomic create-if-absent)"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 27,
+      "completed_at": "2026-07-24T00:00:00+00:00",
+      "outcome": "Superseded: SEC-1 (PR #280) shipped shared/inbound-attachment-writer.ts \u2014 O_CREAT|O_EXCL|O_NOFOLLOW(_ANY) open, atomic rename finalize, size caps, sanitized storage refs \u2014 wired into Telegram, Slack, AND the Discord materialization path the Jul-23 lane implementation never covered. Verified by content 2026-08-03; the parallel worktree implementation was discarded."
+    },
+    {
+      "status": "done",
+      "key": "SEC-3",
+      "title": "LLM passthrough: race-free concurrency admission + fewer body copies",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "High audit finding: /llm/v1/* has a per-minute counter but no concurrency semaphore, and buffers \u226416 MiB bodies several times (public read -> parse -> reserialize -> loopback -> gateway read). Acquire a race-free global and per-app/key concurrency permit BEFORE reading the body; reject excess before consuming bodies; release in one finally covering disconnect/parse/setup/provider failures. Reduce the body limit unless 16 MiB is justified. (Loopback collapse is the separate SIMP-3.)",
+      "acceptance_criteria": [
+        "a global and per-app/key concurrency permit is acquired before body read; excess requests are rejected before body consumption",
+        "the permit is released in a single finally covering disconnect, parse failure, setup failure, provider failure, and streamed cleanup",
+        "barrier test: with upstream held, more-than-cap requests prove only the allowed number begin body consumption; RSS and open sockets measured under concurrent max-size requests"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 28,
+      "outcome": "Shipped in SEC-1 / PR #280 (race-free LLM concurrency admission).",
+      "completed_at": "2026-08-03T00:00:00+00:00"
+    },
+    {
+      "status": "done",
+      "key": "PERF-2",
+      "title": "Jobs: batch the latest-run projection (kill the list N+1)",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "High audit finding: GET /v1/jobs runs loadLatestRunsByJobId = Promise.all of one listJobRuns(job.id,1) per job (up to 500 concurrent). Add one batch repository method returning the latest run for all requested job IDs via DISTINCT ON (job_id) or a window function; build the visibility metadata synchronously from two maps. Subsumes the audit's simplification #4.",
+      "acceptance_criteria": [
+        "a 500-job list issues a constant, small number of SQL queries (instrumented)",
+        "latest-run ordering, health/staleness, error summaries, app filtering, and the public response schema are unchanged",
+        "load test: concurrent list requests hold pool wait time and p95/p99 within target"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 29,
+      "outcome": "Shipped on main as buildJobListVisibilityMetadata / listLatestJobRunsByJobIds (single batched query).",
+      "completed_at": "2026-08-03T00:00:00+00:00"
+    },
+    {
+      "status": "done",
+      "key": "PERF-3",
+      "title": "SSE: reserve the stream permit before subscription setup",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "Medium audit finding (TOCTOU): the session event-stream cap is checked before activeStreams is incremented after an await, so >25 concurrent setups all pass. Reserve/increment a token synchronously immediately after the check, before the first await; release it in one idempotent cleanup on setup failure/disconnect/close/normal end (mirror the sibling wait route). NOTE: overlaps CO-2 (coordination hardening TOCTOU batch) \u2014 land it there or here, not twice.",
+      "acceptance_criteria": [
+        "the stream permit is reserved synchronously before the first await",
+        "barrier test: 26 concurrent requests admit exactly 25; the rest get 429 TOO_MANY_STREAMS; permits returned once on failure/disconnect",
+        "reconciled with CO-2 so the TOCTOU fix is not duplicated"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 30,
+      "outcome": "Shipped in PERF-1 (c156cf9dd): SSE stream permits reserved before subscription setup.",
+      "completed_at": "2026-08-03T00:00:00+00:00"
+    },
+    {
+      "status": "done",
+      "key": "SEC-4",
+      "title": "Rate limits: cluster-authoritative store or declared singleton (decision required)",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "Medium audit finding: control + gateway rate limiters are per-process in-memory Maps, so the effective limit multiplies by replica count and resets on restart. Architecture decision required: enforce counters through one shared atomic store (Postgres/Redis) OR make the service singleton and reject horizontally-scaled config; document per-process vs cluster-wide for each limit. Record a decision before implementing.",
+      "acceptance_criteria": [
+        "a decision record chooses shared-store vs declared-singleton and is accepted",
+        "two live replicas accept a combined count equal to the configured cluster limit (if shared-store) OR horizontally-scaled config is rejected (if singleton)",
+        "each limit documented as per-process or cluster-wide"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 31,
+      "completed_at": "2026-08-03T00:00:00+00:00",
+      "outcome": "Decided by record 0099: runtime is single-instance-authoritative for rate limits; cluster store deferred behind an explicit multi-instance revisit trigger. No code."
+    },
+    {
+      "status": "done",
+      "key": "PERF-4",
+      "title": "Live-admission: admission caps + terminal retention (decision required)",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "Medium audit finding: the durable live-admission table has no per-app/per-conversation admission cap at insert and no terminal retention (rows with identity metadata accumulate forever). Add atomic admission limits at the insert transaction returning an explicit overloaded/deferred outcome; define terminal retention with an ended_at index and a bounded purge/archival job. Architecture decision required and its retention half overlaps DUR-1 / deferral D-0001 \u2014 reconcile so retention is defined once.",
+      "acceptance_criteria": [
+        "atomic per-app (and optionally per-conversation) admission cap; overload returns an explicit outcome; exact replay still returns the existing item",
+        "terminal retention defined with an ended_at-based index and a bounded purge that never removes active/deferred/recently-completed items",
+        "retention ownership reconciled with DUR-1 / D-0001 (defined once)"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 32,
+      "notes": "Decision 0103 accepted 2026-08-03: 30-day TTL sweep of terminal rows via existing maintenance machinery. Remaining work is the sweep job + test.",
+      "completed_at": "2026-08-03T00:00:00+00:00",
+      "history": ".factory/history/PERF-4/",
+      "outcome": "Merged PR #378: 30-day TTL sweep of terminal live-admission rows (bounded advisory-locked batches from scheduler maintenance, 6h cadence, retry-on-failure). Completes PERF-4 with the earlier caps half."
+    },
+    {
+      "status": "done",
+      "key": "CI-1",
+      "title": "Make check:architecture a required CI gate",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "Medium audit finding: check:architecture is a documented ratchet but absent from CI. PAY-1 already restored a green baseline (exit 0). Add the command as a required CI step; add a fixture/controlled mutation per rule class proving CI fails on one additional violation; baseline any accepted debt with exact path/count entries. Sequence with E2E-3 (the same make-a-green-checker-required move).",
+      "acceptance_criteria": [
+        "check:architecture runs in ci.yml and a clean HEAD passes it",
+        "a controlled mutation per rule class proves CI fails on one added violation",
+        "expired/over-budget exceptions fail the gate"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 33,
+      "completed_at": "2026-08-03T00:00:00+00:00",
+      "outcome": "Branch protection enabled on main: the ci check (unit + integration + postgres + structural gates incl. check:architecture) is REQUIRED before merge; force-pushes and deletions blocked; enforce_admins off so the harness ledger keeps direct-push access."
+    },
+    {
+      "status": "done",
+      "key": "SIMP-2",
+      "title": "Construct control application services once in the composition root",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "refactor",
+      "story": "Audit simplification: createJobManagementService and createSessionInteractionModule are rebuilt per route from global getters. Build them once in the control-server composition root and pass through ControlRouteContext; keep live settings getters behind explicit getters so settings-reload behavior is unchanged.",
+      "acceptance_criteria": [
+        "job and session services constructed once and injected via ControlRouteContext",
+        "live values (settings reload, app identity, credential broker, clocks, event exchange) still read live",
+        "route tests pass before and after settings reload and runtime-store init"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 34,
+      "completed_at": "2026-08-03T04:30:48+00:00",
+      "outcome": "Merged PR #377: JobManagementService and SessionInteractionModule constructed once in the control composition root; live deps via getters; liveAdmissionAppId is a method argument."
+    },
+    {
+      "status": "pending",
+      "key": "SIMP-3",
+      "title": "Collapse the direct-LLM loopback HTTP hop into one in-process service",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "refactor",
+      "story": "Audit simplification (pairs with SEC-3): the direct API path serializes and buffers the same request through two in-process HTTP layers (public route -> loopback -> model gateway). Extract provider forwarding into one in-process application operation used directly by the public route; keep the loopback HTTP adapter only for child runners that need an HTTP endpoint. Do after SEC-3's concurrency admission lands.",
+      "acceptance_criteria": [
+        "the direct API path no longer makes a loopback HTTP hop; one body reader and one serialize/deserialize cycle removed",
+        "provider credential isolation, per-app/route audit, provider path confinement, streaming, cancellation, rate limits, and child-runner gateway support unchanged",
+        "contract test: identical provider URL/headers/body/frames/usage/errors/cancellation before and after"
+      ],
+      "depends_on": [
+        "SEC-3"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 35
+    },
+    {
+      "status": "pending",
+      "key": "SIMP-4",
+      "title": "Make durable coordination mandatory; remove process-local fallbacks",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "refactor",
+      "story": "Audit simplification: AsyncTaskRepository atomic admission/claim are optional, and session compaction falls back to a process-global Set when the durable method is absent \u2014 two coordination systems with different guarantees. Make atomic admission/claim required for production repositories; the in-memory test repository implements the same atomic semantics. Removes createTaskWithLocalAdmission, optional-method probing, and the global compaction dedup set. Overlaps DUR-1 \u2014 fold in unless it lands sooner as standalone cleanup.",
+      "acceptance_criteria": [
+        "atomic admission/claim required; local count/create and global compaction-dedup fallbacks removed",
+        "per-app/per-agent backlog caps, compaction dedup, stale-task recovery, fencing, and restart-safe records unchanged",
+        "concurrent admission tests pass against Postgres and the in-memory repository (two workers, restart, stale tasks, cap boundaries)",
+        "reconciled with DUR-1 (not implemented twice)"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 36
+    },
+    {
+      "status": "active",
+      "key": "CONTENT-1",
+      "title": "Provider content gaps: honest fallbacks, quick fixes, Slack canvas CRUD",
+      "epic": "provider-content",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "Six verified quick fixes (honest binary fallback guidance, .eml text, Slack snippet delivery, Discord voice-note classification, Telegram location/venue/contact data, Discord embed folding) plus Slack canvas read/create/update behind host-issued handles with split read/write authority. Teams equivalents deferred to TEAMS-1; reading reactions/edits stays backlog.",
+      "acceptance_criteria": [
+        "binary attachments return typed guidance, never truncated base64",
+        "Slack oversized messages deliver as snippet (<=1MB) or .txt file with text-path fallback on provider failure",
+        "canvas create/update/read tools enforce the split-capability trust boundary and IPC bounds per the plan",
+        "TEAMS-1 roadmap entry carries the deferred Teams criteria"
+      ],
+      "source_refs": [
+        "docs/architecture/provider-content-gaps-plan-draft.md"
+      ],
+      "order": 37
+    },
+    {
+      "status": "pending",
+      "key": "CONTENT-2",
+      "title": "Physical attachment hand-off: materialize conversation files into the agent workspace",
+      "epic": "provider-content",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [
+        "CONTENT-1"
+      ],
+      "story": "An attachment_materialize tool copies a conversation-scoped attachment (host-issued ref, signed proof \u2014 the attachment_open trust model) into a quarantined subdirectory of the agent's CURRENT workspace, size-capped, on explicit request, so agents can process files with any tool (scripts over CSVs, proper conversions, native model PDF/image reads, re-upload of results). Requires its own decision record: crossing the deliberate workspace/attachment-store isolation, with the quarantine contract (dedicated dir, never auto-read into context, prompt guidance that contents are untrusted data not instructions). Generalizes the native-PDF hand-off follow-up recorded during PR #379.",
+      "acceptance_criteria": [
+        "decision record for the workspace-boundary crossing and quarantine contract, accepted before implementation",
+        "attachment_materialize mints only from conversation-scoped host-issued refs; size-capped; writes only inside the quarantine dir via the hardened writer",
+        "quarantined files are reachable by agent tools but never auto-ingested into context; prompt guidance marks them untrusted data",
+        "models with pdfInput/imageInput can be handed the physical file where the runner supports it"
+      ],
+      "order": 38
+    }
+  ],
+  "epics": [
+    {
+      "id": "harness-hygiene",
+      "title": "Harness hygiene",
+      "objective": "Green deterministic gates so every story verifies honestly",
+      "source_refs": [
+        "docs/architecture/architecture-debt-paydown-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "permission-engine",
+      "title": "Permission engine redesign",
+      "objective": "Deterministic rails + host-side decision coordinator; ask only on genuine risk",
+      "source_refs": [
+        "docs/architecture/permission-engine-redesign-goal-prompt.md",
+        "docs/architecture/git-permission-rca.md"
+      ]
+    },
+    {
+      "id": "observer",
+      "title": "Curious Observer program",
+      "objective": "Harvest -> nightly dream -> value floor + batch judge -> daily private digest",
+      "source_refs": [
+        "docs/architecture/proactive-observer-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "agent-e2e-gate",
+      "title": "Agent E2E CI merge gate",
+      "objective": "Packaged real-runtime E2E matrix as the merge bar",
+      "source_refs": [
+        "docs/architecture/agent-e2e-ci-merge-gate-goal-prompt.md",
+        "docs/architecture/agent-e2e-test-matrix.md"
+      ]
+    },
+    {
+      "id": "capability-search",
+      "title": "Capability authoring + MCP hybrid search",
+      "objective": "Agents author capabilities; tool search gains FTS + optional semantic layer",
+      "source_refs": [
+        "docs/architecture/mcp-hybrid-search-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "ponytail",
+      "title": "Ponytail cutover",
+      "objective": "Land the phased re-derive: Phase-8 offline cutover, gated on explicit user go",
+      "source_refs": [
+        "docs/architecture/ponytail-audit-2026-07-16.md"
+      ]
+    },
+    {
+      "id": "observability",
+      "title": "OTel observability remainder",
+      "objective": "Permission/decision spans completing the shipped #220/#262 taxonomy",
+      "source_refs": [
+        "docs/architecture/otel-permission-spans-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "post-cutover",
+      "title": "Post-Ponytail-cutover lanes",
+      "objective": "Durable-work primitive and model management, gated on the user-authorized cutover",
+      "source_refs": [
+        "docs/architecture/durable-work-primitive-goal-prompt.md",
+        "docs/architecture/model-management-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "coordination-hardening",
+      "title": "Coordination hardening",
+      "objective": "Retire coordination-representation audit findings (B1/B2/C)",
+      "source_refs": [
+        "docs/architecture/coordination-representation-audit-2026-07-18.md"
+      ]
+    },
+    {
+      "id": "artifact-store",
+      "title": "Artifact store S3 bytes",
+      "objective": "S3/MinIO file-artifact bytes with verified commit + TTL janitor",
+      "source_refs": [
+        "docs/architecture/artifact-store-s3-goal-prompt.md"
+      ]
+    }
+  ],
+  "generated_by": "human",
+  "updated_at": "2026-08-03T09:45:48+00:00"
+}

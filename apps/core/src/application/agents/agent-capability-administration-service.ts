@@ -31,21 +31,25 @@ import type {
 } from '../../domain/tools/tools.js';
 import {
   displayToolReference,
+  isGantryFacadeExactToolRule,
   validateReadableAgentToolRule,
 } from '../../shared/agent-tool-references.js';
+import { validateDurableAccessRule } from '../../shared/durable-access-policy.js';
 import { ensureAgentToolCatalogItem } from '../../domain/tools/agent-tool-catalog-references.js';
 import {
   buildConfiguredAgentToolAccess,
   buildRequestableAdminToolAccess,
   type AgentToolAccessView,
 } from '../../shared/tool-access-view.js';
-import { adminMcpToolNameFromFullName } from '../../shared/admin-mcp-tools.js';
+import {
+  adminMcpToolNameFromFullName,
+  isAdminMcpToolFullName,
+} from '../../shared/admin-mcp-tools.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import {
   buildSelectedCapabilities,
-  catalogSemanticCapabilityDefinitions,
   canonicalToolReferenceForView,
-  resolveSelectedToolReferences,
+  semanticCapabilityDefinitionsForAccess,
   skillActionDefinitionsForAgent,
   skillActionDefinitionsForBindings,
 } from './agent-capability-skill-actions.js';
@@ -230,21 +234,18 @@ export class AgentCapabilityAdministrationService {
       );
     }
     const now = this.clock.now();
-    const [catalogDefinitions, skillDefinitions] = await Promise.all([
-      catalogSemanticCapabilityDefinitions({
-        appId: input.appId,
-        toolRepository: this.repositories.tools,
-      }),
-      skillActionDefinitionsForAgent({
+    const existingSkillBindings =
+      await this.repositories.skills.listAgentSkillBindings({
         appId: input.appId,
         agentId: input.agentId,
+      });
+    const semanticCapabilityDefinitions =
+      await semanticCapabilityDefinitionsForAccess({
+        appId: input.appId,
+        skillBindings: existingSkillBindings,
         skillRepository: this.repositories.skills,
-      }),
-    ]);
-    const semanticCapabilityDefinitions = {
-      ...catalogDefinitions,
-      ...skillDefinitions,
-    };
+        toolRepository: this.repositories.tools,
+      });
     const selectedToolReferences = resolveSelectedToolReferences(
       input.capabilities,
       semanticCapabilityDefinitions,
@@ -630,6 +631,48 @@ function assertUniqueSkillMaterializationKeys(
   throw new ApplicationError(
     'CONFLICT',
     formatSkillMaterializationCollision(collision),
+  );
+}
+
+function capabilitySelectionToToolReference(capabilityId: string): string {
+  const id = capabilityId.trim();
+  if (id === 'browser.use') return 'Browser';
+  if (id.startsWith('RunCommand(')) return id;
+  if (isAdminMcpToolFullName(id) || isGantryFacadeExactToolRule(id)) return id;
+  return `capability:${id}`;
+}
+
+/**
+ * Validate selections structurally and resolve them to canonical tool
+ * references. Throws ApplicationError('INVALID_REQUEST') on any malformed
+ * selection. Source-independent — safe to call before persisting sources.
+ */
+function resolveSelectedToolReferences(
+  capabilities: ReadonlyArray<{ id: string; version: string }>,
+  semanticCapabilityDefinitions: Awaited<
+    ReturnType<typeof skillActionDefinitionsForAgent>
+  >,
+): string[] {
+  return unique(
+    capabilities.flatMap((capability) => {
+      const reference = capabilitySelectionToToolReference(capability.id);
+      const validation = validateDurableAccessRule(reference, {
+        semanticCapabilityDefinitions,
+      });
+      if (!validation.ok) {
+        throw new ApplicationError('INVALID_REQUEST', validation.reason);
+      }
+      const canonical = canonicalToolReferenceForView(reference, {
+        semanticCapabilityDefinitions,
+      });
+      if (canonical.length === 0) {
+        throw new ApplicationError(
+          'INVALID_REQUEST',
+          `Capability selection ${capability.id} is not a durable access rule.`,
+        );
+      }
+      return canonical;
+    }),
   );
 }
 

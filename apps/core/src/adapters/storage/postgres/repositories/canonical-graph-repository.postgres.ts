@@ -1,14 +1,19 @@
-import { asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import type { ChatInfo } from '../../../../domain/repositories/domain-types.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import {
+  fallbackProviderAccountId,
   normalizeProviderId,
   providerIdForJid as resolveProviderIdForJid,
 } from '../../../../channels/provider-registry.js';
 import { agentIdForFolder as canonicalAgentIdForFolder } from '../../../../domain/agent/agent-folder-id.js';
 import * as pgSchema from '../schema/schema.js';
+import {
+  lockPersonAliasKey,
+  stableId,
+} from './person-identity-mappers.postgres.js';
 
 export const CANONICAL_APP_ID = 'default';
 export const DEFAULT_LLM_PROFILE_ID = 'llm:default';
@@ -65,6 +70,44 @@ export function threadIdFor(
   return providerAccountId
     ? `thread:${providerAccountId}:${chatJid}:${normalized}`
     : `thread:${chatJid}:${normalized}`;
+}
+
+export function canonicalProviderThreadForIds<
+  AppId extends string,
+  ConversationId extends string,
+>(input: {
+  appId: AppId;
+  conversationId: ConversationId | null | undefined;
+  threadId: string | null | undefined;
+}): {
+  id: string;
+  appId: AppId;
+  conversationId: ConversationId;
+  externalRefJson: string;
+} | null {
+  if (!input.conversationId || !input.threadId) return null;
+  const conversationPrefix = 'conversation:';
+  if (!input.conversationId.startsWith(conversationPrefix)) return null;
+  const providerJid = input.conversationId
+    .slice(conversationPrefix.length)
+    .trim();
+  if (!providerJid) return null;
+  const threadPrefix = `thread:${providerJid}:`;
+  if (!input.threadId.startsWith(threadPrefix)) return null;
+  const externalThreadId = input.threadId.slice(threadPrefix.length).trim();
+  if (!externalThreadId) return null;
+  return {
+    id: input.threadId,
+    appId: input.appId,
+    conversationId: input.conversationId,
+    externalRefJson: json({
+      kind: 'conversation_thread',
+      value: externalThreadId,
+      jid: providerJid,
+      threadId: externalThreadId,
+      externalThreadId,
+    }),
+  };
 }
 
 export function json(value: unknown): string {
@@ -129,7 +172,6 @@ export class PostgresCanonicalGraphRepository {
     name: string = folder,
     executor: CanonicalExecutor = this.db,
   ): Promise<string> {
-    await this.ensureApp(executor);
     const agentId = agentIdForFolder(folder);
     const configVersionId = configVersionIdForAgent(agentId);
     await executor
@@ -207,20 +249,69 @@ export class PostgresCanonicalGraphRepository {
       name?: string | null;
       channel?: string | null;
       agentFolder?: string | null;
+      existingConversationId?: string | null;
       isGroup?: boolean | null;
       timestamp?: string | null;
       providerAccountId?: string | null;
-      externalRef?: Record<string, unknown>;
     } = {},
     executor: CanonicalExecutor = this.db,
   ): Promise<string> {
-    await this.ensureApp(executor);
     const providerId =
       normalizeProviderId(input.channel || providerIdForJid(jid)) || 'app';
     const providerAccountId =
       input.providerAccountId ??
-      `channel-providerAccount:${CANONICAL_APP_ID}:${providerId}`;
-    const conversationId = conversationIdForJid(jid, input.providerAccountId);
+      fallbackProviderAccountId(CANONICAL_APP_ID, providerId);
+    const canonicalConversationId = conversationIdForJid(
+      jid,
+      input.providerAccountId,
+    );
+    const existingConversationId = input.existingConversationId?.trim();
+    let conversationId = canonicalConversationId;
+    if (
+      existingConversationId &&
+      existingConversationId !== canonicalConversationId
+    ) {
+      const c = pgSchema.conversationsPostgres;
+      const rows = await executor
+        .select({
+          appId: c.appId,
+          providerAccountId: c.providerAccountId,
+          externalRefJson: c.externalRefJson,
+        })
+        .from(c)
+        .where(eq(c.id, existingConversationId))
+        .limit(1);
+      const existing = rows[0];
+      if (existing) {
+        const ref = parseJson<Record<string, unknown>>(
+          existing.externalRefJson,
+          {},
+        );
+        const externalConversationId = externalConversationIdForJid(jid);
+        const externalIds = [
+          [ref.jid, jid],
+          [ref.value, externalConversationId],
+          [ref.externalConversationId, externalConversationId],
+        ].filter(([value]) => typeof value === 'string');
+        const matchesRoute =
+          existing.appId === CANONICAL_APP_ID &&
+          existing.providerAccountId === providerAccountId &&
+          externalIds.length > 0 &&
+          externalIds.every(
+            ([value, expected]) => value === expected || value === jid,
+          ) &&
+          (typeof ref.providerId !== 'string' ||
+            normalizeProviderId(ref.providerId) === providerId) &&
+          (typeof ref.providerAccountId !== 'string' ||
+            ref.providerAccountId === providerAccountId);
+        if (!matchesRoute) {
+          throw new Error(
+            `Existing conversation ${existingConversationId} does not match route ${jid} for app ${CANONICAL_APP_ID} and provider account ${providerAccountId}`,
+          );
+        }
+        conversationId = existingConversationId;
+      }
+    }
     const title = input.name || jid;
     const now = input.timestamp || currentIso();
     const hasKnownKind = input.isGroup !== undefined && input.isGroup !== null;
@@ -233,7 +324,6 @@ export class PostgresCanonicalGraphRepository {
       externalConversationId,
       providerAccountId,
       ...(hasKnownKind ? { isGroup: Boolean(input.isGroup) } : {}),
-      ...(input.externalRef ?? {}),
     });
     await executor
       .insert(pgSchema.providersPostgres)
@@ -272,10 +362,7 @@ export class PostgresCanonicalGraphRepository {
         set: {
           ...(input.name ? { title } : {}),
           ...(hasKnownKind ? { kind: input.isGroup ? 'group' : 'direct' } : {}),
-          externalRefJson: sql`(
-            COALESCE(${pgSchema.conversationsPostgres.externalRefJson}::jsonb, '{}'::jsonb)
-            || ${externalRefJson}::jsonb
-          )::text`,
+          externalRefJson,
           updatedAt: sql`GREATEST(${pgSchema.conversationsPostgres.updatedAt}, ${now})`,
         },
       });
@@ -284,9 +371,9 @@ export class PostgresCanonicalGraphRepository {
 
   async ensureThread(
     chatJid: string,
-    threadId?: string | null,
+    threadId: string | null | undefined,
     executor: CanonicalExecutor = this.db,
-    input: { channel?: string | null; providerAccountId?: string | null } = {},
+    input: { conversationId: string; providerAccountId?: string | null },
   ): Promise<string | null> {
     const canonicalThreadId = threadIdFor(
       chatJid,
@@ -294,17 +381,12 @@ export class PostgresCanonicalGraphRepository {
       input.providerAccountId,
     );
     if (!canonicalThreadId) return null;
-    const conversationId = await this.ensureConversation(
-      chatJid,
-      { channel: input.channel, providerAccountId: input.providerAccountId },
-      executor,
-    );
     await executor
       .insert(pgSchema.conversationThreadsPostgres)
       .values({
         id: canonicalThreadId,
         appId: CANONICAL_APP_ID,
-        conversationId,
+        conversationId: input.conversationId,
         externalRefJson: json({
           kind: 'conversation_thread',
           value: threadId,
@@ -326,65 +408,158 @@ export class PostgresCanonicalGraphRepository {
       displayName?: string | null;
       timestamp?: string | null;
     },
-    executor: CanonicalExecutor = this.db,
+    executor?: CanonicalExecutor,
   ): Promise<string | null> {
+    if (!executor) {
+      return this.db.transaction((tx) => this.ensureParticipant(input, tx));
+    }
     const externalUserId = input.externalUserId.trim();
     if (!externalUserId) return null;
-    const safeProvider = input.providerId.replace(/[^a-zA-Z0-9._:-]/g, '_');
-    const safeUser = externalUserId.replace(/[^a-zA-Z0-9._:-]/g, '_');
-    const userId = `user:${CANONICAL_APP_ID}:${safeProvider}:${safeUser}`;
-    const aliasId = `user-alias:${CANONICAL_APP_ID}:${safeProvider}:${input.providerAccountId}:${safeUser}`;
-    const participantId = `participant:${input.conversationId}:${safeUser}`;
+    const providerAccountId = input.providerAccountId.trim();
+    const participantId = stableId('participant', [
+      CANONICAL_APP_ID,
+      input.conversationId,
+      input.providerId,
+      providerAccountId,
+      externalUserId,
+    ]);
     const now = input.timestamp || currentIso();
-    const displayName = input.displayName
-      ? `${input.displayName} (${input.providerId}:${externalUserId})`
-      : `${input.providerId}:${externalUserId}`;
-    await executor
-      .insert(pgSchema.usersPostgres)
-      .values({
-        id: userId,
-        appId: CANONICAL_APP_ID,
-        kind: 'human',
-        displayName,
-        status: 'active',
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: pgSchema.usersPostgres.id,
-        set: {
-          displayName,
-          updatedAt: now,
-        },
-      });
-    await executor
-      .insert(pgSchema.userAliasesPostgres)
-      .values({
-        id: aliasId,
-        appId: CANONICAL_APP_ID,
-        userId,
-        provider: input.providerId,
-        providerAccountId: input.providerAccountId,
+    const aliasKey = {
+      appId: CANONICAL_APP_ID,
+      provider: input.providerId,
+      providerAccountId,
+      externalUserId,
+    };
+    await lockPersonAliasKey(executor, aliasKey);
+    const findActiveAlias = async (lock?: 'share') => {
+      const query = executor
+        .select({ userId: pgSchema.userAliasesPostgres.userId })
+        .from(pgSchema.userAliasesPostgres)
+        .where(
+          and(
+            eq(pgSchema.userAliasesPostgres.appId, CANONICAL_APP_ID),
+            eq(pgSchema.userAliasesPostgres.provider, input.providerId),
+            sql`COALESCE(${pgSchema.userAliasesPostgres.providerAccountId}, '') = ${providerAccountId}`,
+            eq(pgSchema.userAliasesPostgres.externalUserId, externalUserId),
+            isNull(pgSchema.userAliasesPostgres.retiredAt),
+          ),
+        )
+        .limit(1);
+      const [row] = await (lock ? query.for('share') : query);
+      return row;
+    };
+    const existingAlias = await findActiveAlias();
+    let participantUserId = existingAlias?.userId;
+    if (participantUserId && input.displayName) {
+      // Provider-side name changes must keep flowing into people views; the
+      // reuse path previously froze both names at first observation. Person
+      // row FIRST, alias second — merge/unmerge lock in that order, and a
+      // refresh holding the alias while waiting on the person would deadlock.
+      const observedName = input.displayName;
+      const observedAt = currentIso();
+      await executor
+        .update(pgSchema.usersPostgres)
+        .set({ displayName: observedName, updatedAt: observedAt })
+        .where(
+          and(
+            eq(pgSchema.usersPostgres.appId, CANONICAL_APP_ID),
+            eq(pgSchema.usersPostgres.id, participantUserId),
+            sql`${pgSchema.usersPostgres.displayName} IS DISTINCT FROM ${observedName}`,
+          ),
+        );
+      await executor
+        .update(pgSchema.userAliasesPostgres)
+        .set({ displayName: observedName, updatedAt: observedAt })
+        .where(
+          and(
+            eq(pgSchema.userAliasesPostgres.appId, CANONICAL_APP_ID),
+            eq(pgSchema.userAliasesPostgres.provider, input.providerId),
+            sql`COALESCE(${pgSchema.userAliasesPostgres.providerAccountId}, '') = ${providerAccountId}`,
+            eq(pgSchema.userAliasesPostgres.externalUserId, externalUserId),
+            isNull(pgSchema.userAliasesPostgres.retiredAt),
+            sql`${pgSchema.userAliasesPostgres.displayName} IS DISTINCT FROM ${observedName}`,
+          ),
+        );
+    }
+    if (participantUserId) {
+      // Settle ownership BEFORE any participant write, under FOR SHARE: it
+      // blocks while a concurrent merge holds the alias row and, once
+      // granted, prevents the alias moving until this transaction commits.
+      // Acquisition order stays person -> alias -> participant, the same as
+      // merge/unmerge, so there is no lock-order cycle in either direction.
+      const settledAlias = await findActiveAlias('share');
+      if (!settledAlias) return null;
+      participantUserId = settledAlias.userId;
+    }
+    if (!participantUserId) {
+      const [retiredAlias] = await executor
+        .select({ id: pgSchema.userAliasesPostgres.id })
+        .from(pgSchema.userAliasesPostgres)
+        .where(
+          and(
+            eq(pgSchema.userAliasesPostgres.appId, CANONICAL_APP_ID),
+            eq(pgSchema.userAliasesPostgres.provider, input.providerId),
+            sql`COALESCE(${pgSchema.userAliasesPostgres.providerAccountId}, '') = ${providerAccountId}`,
+            eq(pgSchema.userAliasesPostgres.externalUserId, externalUserId),
+            isNotNull(pgSchema.userAliasesPostgres.retiredAt),
+          ),
+        )
+        .orderBy(asc(pgSchema.userAliasesPostgres.id));
+      if (retiredAlias) return null;
+      const identityParts = [
+        CANONICAL_APP_ID,
+        input.providerId,
+        providerAccountId,
         externalUserId,
-        displayName: input.displayName ?? externalUserId,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: pgSchema.userAliasesPostgres.id,
-        set: {
-          userId,
-          displayName: input.displayName ?? externalUserId,
+      ];
+      const userId = stableId('person', identityParts);
+      const aliasId = stableId('person-alias', identityParts);
+      const displayName = input.displayName ?? externalUserId;
+      await executor
+        .insert(pgSchema.usersPostgres)
+        .values({
+          id: userId,
+          appId: CANONICAL_APP_ID,
+          kind: 'human',
+          displayName,
+          status: 'active',
+          createdAt: now,
           updatedAt: now,
-        },
-      });
+        })
+        .onConflictDoUpdate({
+          target: pgSchema.usersPostgres.id,
+          set: { displayName, updatedAt: now },
+        });
+      const [insertedAlias] = await executor
+        .insert(pgSchema.userAliasesPostgres)
+        .values({
+          id: aliasId,
+          appId: CANONICAL_APP_ID,
+          userId,
+          provider: input.providerId,
+          providerAccountId,
+          externalUserId,
+          displayName,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing()
+        .returning({ userId: pgSchema.userAliasesPostgres.userId });
+      participantUserId =
+        insertedAlias?.userId ?? (await findActiveAlias())?.userId;
+      if (!participantUserId) {
+        throw new Error('Could not create or resolve an active person alias.');
+      }
+    }
     await executor
       .insert(pgSchema.conversationParticipantsPostgres)
       .values({
         id: participantId,
         appId: CANONICAL_APP_ID,
         conversationId: input.conversationId,
-        userId,
+        provider: input.providerId,
+        providerAccountId,
+        userId: participantUserId,
         externalUserId,
         role: 'member',
         status: 'active',
@@ -392,15 +567,22 @@ export class PostgresCanonicalGraphRepository {
         updatedAt: now,
       })
       .onConflictDoUpdate({
-        target: pgSchema.conversationParticipantsPostgres.id,
+        target: [
+          pgSchema.conversationParticipantsPostgres.appId,
+          pgSchema.conversationParticipantsPostgres.conversationId,
+          pgSchema.conversationParticipantsPostgres.provider,
+          pgSchema.conversationParticipantsPostgres.providerAccountId,
+          pgSchema.conversationParticipantsPostgres.externalUserId,
+        ],
         set: {
-          userId,
+          userId: participantUserId,
           externalUserId,
           status: 'active',
           updatedAt: now,
         },
       });
-    return userId;
+
+    return participantUserId;
   }
 
   async listChats(): Promise<ChatInfo[]> {
@@ -443,6 +625,24 @@ export class PostgresCanonicalGraphRepository {
       .where(eq(pgSchema.conversationsPostgres.id, conversationId))
       .limit(1);
     return rows[0]?.providerAccountId;
+  }
+
+  async findConversationIdForJid(
+    jid: string,
+    executor: CanonicalExecutor = this.db,
+  ): Promise<string | undefined> {
+    const conversations = pgSchema.conversationsPostgres;
+    const rows = await executor
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.appId, CANONICAL_APP_ID),
+          eq(sql<string>`${conversations.externalRefJson}::jsonb->>'jid'`, jid),
+        ),
+      )
+      .limit(1);
+    return rows[0]?.id;
   }
 
   async listConversationIds(): Promise<string[]> {

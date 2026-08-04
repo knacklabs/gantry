@@ -1,19 +1,13 @@
 # @gantry/sdk
 
-## Unreleased
+## 0.6.0
 
-- Added typed `client.llm.chatCompletions()` support with safe request, model
-  alias, route, and provider correlation metadata.
-- Added HTTP status codes to `GantryError` for reliable retry classification.
-
-## 0.5.0
-
-- Added app-owned agent selection and canonical `executionContext` to session
-  ensure responses for direct job handoff.
-- Added typed model credential list, set, and disable operations for scoped
-  deployment reconciliation.
-- Added durable app-scoped runtime event list/stream APIs with cursor replay.
-- Added explicit per-turn model aliases for SDK session messages.
+- Added app-scoped runtime-event list/stream with durable cursors.
+- Added Agent.Tender job task controls for structured output, exact skills,
+  caller-resolved tools, completion gates, budgets, timeouts, and model controls.
+- Added agent reconciliation, access-document replacement, reviewed MCP
+  capability registration, trace propagation, and model-routed chat completions.
+- Kept all 0.4.0 APIs additive and unchanged.
 
 ## 0.4.0
 

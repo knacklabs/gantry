@@ -1,9 +1,11 @@
 import { AvailableGroup, spawnAgent } from './agent-spawn.js';
 import {
   PermissionApprovalDecision,
+  PermissionApprovalCancellation,
   PermissionApprovalRequest,
   RichInteractionRequest,
   ConversationRoute,
+  UserQuestionCancellation,
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../domain/types.js';
@@ -14,6 +16,7 @@ import type {
 import type { HostnameLookup } from '../domain/network/public-address-policy.js';
 import type {
   CapabilitySecretRepository,
+  AgentRepository,
   McpServerRepository,
   PermissionRepository,
   SkillCatalogRepository,
@@ -43,6 +46,8 @@ import type { RemoteMcpDnsValidationCache } from '../application/mcp/mcp-server-
 import type { PermissionClassifierPromptConsultInput } from './permission-classifier.js';
 import type { PermissionMode } from '../shared/permission-mode.js';
 import type { PermissionPromotionRepository } from '../domain/ports/permission-promotion.js';
+import type { PermissionDecisionMemoryRepository } from '../domain/ports/permission-decision-memory.js';
+import type { AttachmentOpenResult } from '../application/attachments/attachment-resolver.js';
 
 export interface IpcDeps {
   sendMessage: (
@@ -66,6 +71,12 @@ export interface IpcDeps {
   requestPermissionApproval: (
     request: PermissionApprovalRequest,
   ) => Promise<PermissionApprovalDecision>;
+  cancelPermissionApproval?: (
+    cancellation: PermissionApprovalCancellation,
+  ) => Promise<'settled' | 'queued' | 'not_found'>;
+  cancelUserQuestion?: (
+    cancellation: UserQuestionCancellation,
+  ) => Promise<'settled' | 'queued' | 'not_found'>;
   isControlApproverAllowed?: (input: {
     conversationJid: string;
     providerAccountId?: string;
@@ -87,8 +98,9 @@ export interface IpcDeps {
     options?: { providerAccountId?: string },
   ) => Promise<boolean>;
   mcpHostnameLookup?: HostnameLookup;
-  opsRepository: RuntimeJobRepository;
+  opsRepository: RuntimeJobRepository & RuntimeMessageRepository;
   getToolRepository?: () => ToolCatalogRepository | undefined;
+  getAgentRepository?: () => AgentRepository | undefined;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
   getAsyncTaskRepository?: () => AsyncTaskRepository | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;
@@ -113,15 +125,36 @@ export interface IpcDeps {
   getPermissionPromotionRepository?: () =>
     | PermissionPromotionRepository
     | undefined;
+  getPermissionDecisionMemoryRepository?: () =>
+    | PermissionDecisionMemoryRepository
+    | undefined;
   getFileArtifactStore?: () => FileArtifactStore | undefined;
+  openAttachment?: (input: {
+    attachmentId: string;
+    appId: string;
+    providerAccountId: string;
+    conversationJid: string;
+    threadId?: string;
+  }) => Promise<AttachmentOpenResult>;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
   classifierConsult?: PermissionClassifierPromptConsultInput['classifierConsult'];
   getPermissionRuntimeSettings?: () => {
     agents: Record<
       string,
-      { permissionMode?: PermissionMode } | null | undefined
+      | {
+          permissionMode?: PermissionMode;
+          delegates?: string[];
+          persona?: string;
+          accessPreset?: 'full' | 'locked';
+          capabilities?: Array<{ id: string }>;
+        }
+      | null
+      | undefined
     >;
-    permissions: { autoMode: { model?: string } };
+    permissions: {
+      autoMode: { model?: string };
+      trustedRoots?: string[];
+    };
     memory: { llm: { models: { extractor: string } } };
   };
   getPermissionMessageRepository?: () => Pick<
@@ -134,7 +167,12 @@ export interface IpcDeps {
   mirrorAgentToolRulesToSettings?: (
     sourceAgentFolder: string,
     rules: string[],
-    options?: { appId?: string; mode?: 'add' | 'remove' },
+    options?: {
+      appId?: string;
+      mode?: 'add' | 'remove';
+      expectedMcpBindings?: import('../domain/mcp/mcp-servers.js').McpBindingAuthorityPrecondition[];
+      mcpCapabilityGrantToken?: string;
+    },
   ) => Promise<void> | void;
   reloadRuntimeState?: () => Promise<void>;
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
@@ -170,6 +208,12 @@ export interface IpcDeps {
 export interface IpcDomainContext {
   sourceAgentFolder: string;
   browserProfileName?: string;
+  /**
+   * Queue key of the turn making this request. Threads of one conversation and
+   * account share a profile, so the activity marker is keyed by turn to stop a
+   * sibling's finalize consuming it.
+   */
+  turnQueueKey?: string;
   ipcBaseDir: string;
   deps: IpcDeps;
 }

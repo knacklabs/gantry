@@ -7,8 +7,9 @@ import { logger } from '../infrastructure/logging/logger.js';
 
 export const isLongRunningTask = (type: string): boolean =>
   type.startsWith('mcp_') ||
+  type === 'attachment_open' ||
   type === 'scheduler_wait_for_events' ||
-  type === 'task_wait';
+  type === 'delegate_task';
 
 export async function processLongRunningTaskIpc(input: {
   data: ReturnType<typeof parseTaskIpcData>;

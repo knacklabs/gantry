@@ -18,6 +18,8 @@ import {
   type DeepAgentsShellFilesystemGuardInput,
 } from './deepagents-shell-filesystem-guard.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
+import { computeAttachmentIpcAuthToken } from './ipc-auth.js';
+import { modelInputModalities } from '../shared/model-catalog.js';
 
 const SANDBOX_RUNTIME_GO_DNS = 'netdns=go';
 // Host env projection for the DeepAgents shell tool. Returns the enable flag the
@@ -44,6 +46,7 @@ export function deepAgentsFilesystemEnabledEnv(
 
 export type RunnerAgentInput = Omit<AgentInput, 'toolPolicyRules'> & {
   allowedTools?: string[];
+  egressDenylist?: string[];
   modelCredentialEnv?: Record<string, string>;
   toolNetworkEnv?: Record<string, string>;
   deepAgentCheckpointer?: {
@@ -69,8 +72,11 @@ export function buildBaseRunnerEnv(input: {
   workspaceIpcDir: string;
   ipcInputDir: string;
   ipcAuthToken: string;
+  /** Per-turn browser credential; adapter-independent so every runner gets it. */
+  browserTurnToken?: string;
   chatJid: string;
   providerAccountId?: string;
+  runnerModel: string;
   jobId?: string;
   jobName?: string;
   runId?: string;
@@ -91,6 +97,7 @@ export function buildBaseRunnerEnv(input: {
   agentAccessPreset: string;
   deploymentMode: string;
   permissionMode: NonNullable<AgentInput['permissionMode']>;
+  permissionLane: 'interactive' | 'autonomous';
   turnIntentSummary: string;
   permissionTimeoutMs: number;
   egressProxyUrl: string;
@@ -124,10 +131,28 @@ export function buildBaseRunnerEnv(input: {
     GANTRY_IPC_DIR: input.workspaceIpcDir,
     GANTRY_IPC_INPUT_DIR: input.ipcInputDir,
     GANTRY_IPC_AUTH_TOKEN: input.ipcAuthToken,
+    GANTRY_ATTACHMENT_IPC_AUTH_TOKEN: computeAttachmentIpcAuthToken(
+      input.workspaceKey,
+      {
+        chatJid: input.chatJid,
+        threadId: input.threadId,
+        appId: input.runnerAppId,
+        agentId: input.agentId,
+        providerAccountId: input.providerAccountId,
+      },
+    ),
+    ...(input.browserTurnToken
+      ? { GANTRY_BROWSER_TURN_TOKEN: input.browserTurnToken }
+      : {}),
     GANTRY_CHAT_JID: input.chatJid,
     ...(input.providerAccountId
       ? { GANTRY_PROVIDER_ACCOUNT_ID: input.providerAccountId }
       : {}),
+    // Comma-joined input modalities of the run's model (e.g. "image,pdf");
+    // empty means text-only, so attachment tooling fails closed to text.
+    GANTRY_MODEL_INPUT_MODALITIES: modelInputModalities(input.runnerModel).join(
+      ',',
+    ),
     ...(input.jobId ? { GANTRY_JOB_ID: input.jobId } : {}),
     ...(input.jobName ? { GANTRY_JOB_NAME: input.jobName } : {}),
     ...(input.runId ? { GANTRY_JOB_RUN_ID: input.runId } : {}),
@@ -164,7 +189,9 @@ export function buildBaseRunnerEnv(input: {
     GANTRY_NO_PERMISSION_TOOLS: input.hideAuthorityTools ? '1' : '',
     GANTRY_AGENT_ACCESS_PRESET: input.agentAccessPreset,
     GANTRY_DEPLOYMENT_MODE: input.deploymentMode,
-    GANTRY_PERMISSION_MODE: input.permissionMode,
+    GANTRY_PERMISSION_MODE:
+      input.permissionMode === 'auto_strict' ? 'auto' : input.permissionMode,
+    GANTRY_PERMISSION_LANE: input.permissionLane,
     GANTRY_TURN_INTENT_SUMMARY: input.turnIntentSummary.slice(0, 1_500),
     GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS: String(input.permissionTimeoutMs),
     GANTRY_PERMISSION_TIMEOUT_MS: String(input.permissionTimeoutMs),

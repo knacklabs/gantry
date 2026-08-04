@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@core/platform/sender-allowlist.js', () => ({
   loadSenderAllowlist: vi.fn(() => ({})),
   loadSenderControlAllowlist: vi.fn(() => ({})),
-  shouldDropMessage: vi.fn(() => false),
   isSenderAllowed: vi.fn(() => true),
   isSenderControlAllowed: vi.fn(() => true),
   shouldLogDenied: vi.fn(() => false),
@@ -33,6 +32,8 @@ const runtimeStoreMock = vi.hoisted(() => ({
 }));
 const runtimeLeaseMock = vi.hoisted(() => ({
   tryAcquire: vi.fn(async () => ({
+    generation: 1,
+    isValid: () => true,
     onLost: vi.fn(),
     release: vi.fn(async () => undefined),
   })),
@@ -51,12 +52,15 @@ import { AsyncTaskQueue } from '@core/app/bootstrap/async-task-queue.js';
 import { createChannelPersistenceHandlers } from '@core/app/bootstrap/channel-persistence-handlers.js';
 import { hydrateChannelConversationContext } from '@core/app/bootstrap/channel-wiring-conversation-context.js';
 import { createChannelWiring } from '@core/app/bootstrap/channel-wiring.js';
+import { createChannelAttachmentDeletionHandler } from '@core/app/bootstrap/channel-wiring-attachment-deletion.js';
 import {
   createAgentTodoRenderer,
-  createPermissionApprovalRequester,
   createRichInteractionRenderer,
+  createUserQuestionResponder,
 } from '@core/app/bootstrap/channel-wiring-interactions.js';
-import { PERMISSION_APPROVAL_TIMEOUT_MS } from '@core/config/index.js';
+import { createPermissionApprovalRequester } from '@core/channels/permission-approval-requester.js';
+import { decisionForMode } from '@core/channels/permission-interaction.js';
+import { DurableInteractionPersistenceError } from '@core/application/interactions/pending-interaction-durability.js';
 import { RuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import { PartialMessageDeliveryError } from '@core/domain/messages/partial-delivery.js';
 import { AmbiguousDurableDeliveryError } from '@core/domain/messages/durable-delivery.js';
@@ -179,6 +183,8 @@ function makeApp(conversationRoutes: Record<string, any> = {}): RuntimeApp {
     getConversationRoutes: vi.fn(() => conversationRoutes),
     setAgentCursor: vi.fn(),
     setChannelRuntime: vi.fn(),
+    setHistoryCoverageDistrustEpochReader: vi.fn(),
+    setConversationHistoryCoverageRepository: vi.fn(),
   };
 }
 
@@ -212,7 +218,650 @@ function makeProvider(
 }
 
 describe('createChannelWiring', () => {
-  it('writes a host-side timeout denial when a channel approval surface wedges', async () => {
+  it('registers its process-local history distrust epoch reader with the runtime app', () => {
+    const app = makeApp();
+    const wiring = createChannelWiring(app);
+    const setReader = vi.mocked(app.setHistoryCoverageDistrustEpochReader);
+
+    expect(setReader).toHaveBeenCalledTimes(1);
+    expect(setReader.mock.calls[0][0]('slack-account-1')).toEqual(
+      wiring.getHistoryCoverageDistrustEpoch('slack-account-1'),
+    );
+  });
+
+  it('registers an override coverage repository with the runtime app', () => {
+    const app = makeApp();
+    const historyCoverage = {
+      readProviderGeneration: vi.fn(),
+      bumpProviderGeneration: vi.fn(),
+      getCoverage: vi.fn(),
+      upsertCoverage: vi.fn(),
+    } as any;
+
+    createChannelWiring(app, { historyCoverage });
+
+    expect(app.setConversationHistoryCoverageRepository).toHaveBeenCalledWith(
+      historyCoverage,
+    );
+  });
+
+  it('maps one provider-neutral deletion callback to one scoped repository call', async () => {
+    let onMessageAttachmentsDeleted: Parameters<
+      Provider['create']
+    >[0]['onMessageAttachmentsDeleted'];
+    const channel = makeChannel({ name: 'slack' });
+    const create = vi.fn<Provider['create']>(async (opts) => {
+      onMessageAttachmentsDeleted = opts.onMessageAttachmentsDeleted;
+      return channel;
+    });
+    const setDeletedAtByMessageExternalIds = vi.fn(async () => ({
+      tombstonedAttachments: [],
+    }));
+    const wiring = createChannelWiring(makeApp(), {
+      appId: 'app-one' as never,
+      providerIds: [makeProvider('slack', create)],
+      messageAttachments: { setDeletedAtByMessageExternalIds } as never,
+    });
+
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({
+        telegram: false,
+        slack: true,
+      }),
+    );
+    await onMessageAttachmentsDeleted?.({
+      providerId: 'slack',
+      channelId: 'C123',
+      externalMessageIds: ['message-1'],
+      deletedAt: '2026-08-01T00:00:00.000Z',
+    });
+
+    expect(setDeletedAtByMessageExternalIds).toHaveBeenCalledOnce();
+    expect(setDeletedAtByMessageExternalIds).toHaveBeenCalledWith({
+      appId: 'app-one',
+      providerId: 'slack',
+      providerAccountIds: ['slack_default'],
+      channelId: 'C123',
+      externalMessageIds: ['message-1'],
+      deletedAt: '2026-08-01T00:00:00.000Z',
+    });
+    await wiring.disconnectChannels();
+  });
+
+  it('rejects a failed durable deletion and coalesces its background retry', async () => {
+    vi.useFakeTimers();
+    try {
+      const failure = new Error('tombstone failed once');
+      const setDeletedAtByMessageExternalIds = vi
+        .fn()
+        .mockRejectedValueOnce(failure)
+        .mockResolvedValue({ tombstonedAttachments: [] });
+      const retryPendingMessageAttachmentDeletions = vi.fn(async () => false);
+      const handler = createChannelAttachmentDeletionHandler(
+        'app-one',
+        () =>
+          ({
+            setDeletedAtByMessageExternalIds,
+            retryPendingMessageAttachmentDeletions,
+          }) as never,
+        { retryDelayMs: 10 },
+      );
+
+      await expect(
+        handler({
+          providerId: 'discord',
+          providerAccountIds: ['discord-one', 'discord-two'],
+          channelId: 'channel-1',
+          externalMessageIds: ['message-1', 'message-2'],
+          deletedAt: '2026-08-01T00:00:00.000Z',
+        }),
+      ).rejects.toBe(failure);
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(retryPendingMessageAttachmentDeletions).toHaveBeenCalledOnce();
+      expect(setDeletedAtByMessageExternalIds).toHaveBeenCalledTimes(2);
+      expect(setDeletedAtByMessageExternalIds).toHaveBeenLastCalledWith({
+        appId: 'app-one',
+        providerId: 'discord',
+        providerAccountIds: ['discord-one', 'discord-two'],
+        channelId: 'channel-1',
+        externalMessageIds: ['message-1', 'message-2'],
+        deletedAt: '2026-08-01T00:00:00.000Z',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('coalesces run permission requests into one live batch prompt', async () => {
+    vi.useFakeTimers();
+    try {
+      const resetStreaming = vi.fn();
+      const requestPermissionApproval = vi.fn(
+        async (
+          _jid: string,
+          request: PermissionApprovalRequest,
+          onPromptDelivered?: (messageId: string) => void,
+        ) => {
+          onPromptDelivered?.('batch-prompt-1');
+          return {
+            approved: true,
+            mode: 'allow_once' as const,
+            decidedBy: 'Ravi',
+          };
+        },
+      );
+      const requester = createPermissionApprovalRequester({
+        findBoundChannel: () => ({}),
+        asPermissionApprovalSurface: () => ({ requestPermissionApproval }),
+        interactionLifecycle: { logger: { error: vi.fn() }, resetStreaming },
+      });
+      const base = {
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'tg:team',
+        runId: 'run-1',
+        decisionPolicy: 'same_channel' as const,
+        toolName: 'Bash',
+        toolInput: { command: 'npm test' },
+      };
+
+      const first = requester({ ...base, requestId: 'permission-1' });
+      const second = requester({ ...base, requestId: 'permission-2' });
+      await vi.advanceTimersByTimeAsync(1500);
+
+      expect(requestPermissionApproval).toHaveBeenCalledOnce();
+      expect(requestPermissionApproval.mock.calls[0]?.[1]).toEqual(
+        expect.objectContaining({
+          title: 'Review 2 permission requests',
+          decisionOptions: ['allow_once', 'allow_persistent_rule', 'cancel'],
+        }),
+      );
+      await expect(Promise.all([first, second])).resolves.toEqual([
+        expect.objectContaining({ approved: true, mode: 'allow_once' }),
+        expect.objectContaining({ approved: true, mode: 'allow_once' }),
+      ]);
+      expect(resetStreaming).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('preserves Review each when a provider overwrites the decision reason', async () => {
+    vi.useFakeTimers();
+    try {
+      const requestPermissionApproval = vi.fn(
+        async (
+          _jid: string,
+          request: PermissionApprovalRequest,
+          onPromptDelivered?: (messageId: string) => void,
+        ) => {
+          onPromptDelivered?.(`prompt-${request.requestId}`);
+          if (request.permissionBatch) {
+            return {
+              ...decisionForMode(request, 'allow_persistent_rule', 'Ravi'),
+              reason: 'persistent rule allowed via Telegram',
+            };
+          }
+          return request.requestId === 'permission-1'
+            ? {
+                approved: true,
+                mode: 'allow_once' as const,
+                decidedBy: 'Ravi',
+              }
+            : {
+                approved: false,
+                mode: 'cancel' as const,
+                decidedBy: 'Ravi',
+              };
+        },
+      );
+      const requester = createPermissionApprovalRequester({
+        findBoundChannel: () => ({}),
+        asPermissionApprovalSurface: () => ({ requestPermissionApproval }),
+        interactionLifecycle: { logger: { error: vi.fn() } },
+      });
+      const base = {
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'tg:team',
+        runId: 'run-1',
+        decisionPolicy: 'same_channel' as const,
+        toolName: 'Bash',
+      };
+
+      const first = requester({ ...base, requestId: 'permission-1' });
+      const second = requester({ ...base, requestId: 'permission-2' });
+      await vi.advanceTimersByTimeAsync(1500);
+
+      await expect(Promise.all([first, second])).resolves.toEqual([
+        expect.objectContaining({ approved: true, mode: 'allow_once' }),
+        expect.objectContaining({ approved: false, mode: 'cancel' }),
+      ]);
+      expect(requestPermissionApproval).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('resets streaming only after interactive prompts are delivered', async () => {
+    const resetPermissionStreaming = vi.fn();
+    const permissionRequester = createPermissionApprovalRequester({
+      findBoundChannel: () => ({}),
+      asPermissionApprovalSurface: () => ({
+        requestPermissionApproval: vi.fn(
+          async (_jid, _request, onPromptDelivered) => {
+            onPromptDelivered?.('permission-prompt-1');
+            return { approved: false, mode: 'cancel' };
+          },
+        ),
+      }),
+      interactionLifecycle: {
+        logger: { error: vi.fn() },
+        resetStreaming: resetPermissionStreaming,
+      },
+    });
+    await permissionRequester({
+      requestId: 'permission-reset',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:team',
+      providerAccountId: 'telegram_alpha',
+      threadId: 'topic-7',
+      toolName: 'Bash',
+    });
+    expect(resetPermissionStreaming).toHaveBeenCalledWith(
+      'tg:team',
+      expect.objectContaining({
+        providerAccountId: 'telegram_alpha',
+        threadId: 'topic-7',
+      }),
+    );
+
+    const resetQuestionStreaming = vi.fn();
+    const responder = createUserQuestionResponder({
+      findBoundChannel: () => ({}),
+      asUserQuestionSurface: () => ({
+        requestUserAnswer: vi.fn(async (_jid, request, onPromptDelivered) => {
+          onPromptDelivered?.('question-prompt-1');
+          return { requestId: request.requestId, answers: {} };
+        }),
+      }),
+      interactionLifecycle: {
+        logger: { debug: vi.fn(), error: vi.fn() },
+        resetStreaming: resetQuestionStreaming,
+      },
+    });
+    await responder.requestUserAnswer({
+      requestId: 'question-reset',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:team',
+      providerAccountId: 'telegram_alpha',
+      threadId: 'topic-9',
+      questions: [],
+    });
+    expect(resetQuestionStreaming).toHaveBeenCalledWith(
+      'tg:team',
+      expect.objectContaining({
+        providerAccountId: 'telegram_alpha',
+        threadId: 'topic-9',
+      }),
+    );
+
+    const missingReset = vi.fn();
+    const missingRequester = createPermissionApprovalRequester({
+      findBoundChannel: () => undefined,
+      asPermissionApprovalSurface: () => undefined,
+      interactionLifecycle: {
+        logger: { error: vi.fn() },
+        resetStreaming: missingReset,
+      },
+    });
+    await missingRequester({
+      requestId: 'permission-missing',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:missing',
+      toolName: 'Bash',
+    });
+    expect(missingReset).not.toHaveBeenCalled();
+  });
+
+  it('routes a claimed question cancellation to the active channel waiter', async () => {
+    let resolveAnswer!: (response: {
+      requestId: string;
+      answers: Record<string, string | string[]>;
+    }) => void;
+    const requestUserAnswer = vi.fn(
+      async (
+        _jid: string,
+        request: UserQuestionRequest,
+        onPromptDelivered?: (messageId: string, questionIndex?: number) => void,
+      ) => {
+        onPromptDelivered?.('question-prompt-1');
+        return new Promise<{
+          requestId: string;
+          answers: Record<string, string | string[]>;
+        }>((resolve) => {
+          resolveAnswer = resolve;
+        });
+      },
+    );
+    const cancelPendingQuestion = vi.fn(async (cancellation) => {
+      resolveAnswer({ requestId: cancellation.requestId, answers: {} });
+      return 'settled' as const;
+    });
+    const responder = createUserQuestionResponder({
+      findBoundChannel: () => ({}),
+      asUserQuestionSurface: () => ({
+        requestUserAnswer,
+        cancelPendingQuestion,
+      }),
+      interactionLifecycle: {
+        logger: { debug: vi.fn(), error: vi.fn() },
+      },
+    });
+    const request: UserQuestionRequest = {
+      requestId: 'question-cancel-active',
+      appId: 'default',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:team',
+      questions: [],
+    };
+    const answer = responder.requestUserAnswer(request);
+
+    await expect(
+      responder.cancelUserQuestion({
+        requestId: request.requestId,
+        appId: request.appId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Question cancelled. Nothing changed.',
+      }),
+    ).resolves.toBe('settled');
+    await expect(answer).resolves.toEqual({
+      requestId: request.requestId,
+      answers: {},
+    });
+    expect(cancelPendingQuestion).toHaveBeenCalledWith({
+      requestId: request.requestId,
+      appId: request.appId,
+      sourceAgentFolder: request.sourceAgentFolder,
+      reason: 'Question cancelled. Nothing changed.',
+    });
+  });
+
+  it('does not dispatch a question that was cancelled before channel delivery', async () => {
+    const requestUserAnswer = vi.fn(
+      async (_jid: string, request: UserQuestionRequest) => ({
+        requestId: request.requestId,
+        answers: { Choice: 'A' },
+      }),
+    );
+    const responder = createUserQuestionResponder({
+      findBoundChannel: () => ({}),
+      asUserQuestionSurface: () => ({ requestUserAnswer }),
+      interactionLifecycle: {
+        logger: { debug: vi.fn(), error: vi.fn() },
+      },
+    });
+    const request: UserQuestionRequest = {
+      requestId: 'question-cancel-before-dispatch',
+      appId: 'default',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:team',
+      questions: [],
+    };
+
+    await expect(
+      responder.cancelUserQuestion({
+        requestId: request.requestId,
+        appId: request.appId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Question cancelled. Nothing changed.',
+      }),
+    ).resolves.toBe('queued');
+    await expect(responder.requestUserAnswer(request)).resolves.toEqual({
+      requestId: request.requestId,
+      answers: {},
+    });
+    expect(requestUserAnswer).not.toHaveBeenCalled();
+  });
+
+  it('settles an aborted question through the normal channel-wiring facade', async () => {
+    let resolveAnswer!: (response: {
+      requestId: string;
+      answers: Record<string, string | string[]>;
+    }) => void;
+    const cancelPendingQuestion = vi.fn(async (cancellation) => {
+      resolveAnswer({ requestId: cancellation.requestId, answers: {} });
+      return 'settled' as const;
+    });
+    const questionChannel = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:group'),
+      requestUserAnswer: vi.fn(
+        async (
+          _jid: string,
+          _request: UserQuestionRequest,
+          onPromptDelivered?: (
+            messageId: string,
+            questionIndex?: number,
+          ) => void,
+        ) => {
+          onPromptDelivered?.('question-prompt-normal-wiring');
+          return new Promise<{
+            requestId: string;
+            answers: Record<string, string | string[]>;
+          }>((resolve) => {
+            resolveAnswer = resolve;
+          });
+        },
+      ),
+      cancelPendingQuestion,
+    });
+    const wiring = createChannelWiring(
+      makeApp({ 'tg:group': { name: 'Group', folder: 'group' } }),
+      {
+        providerIds: [
+          makeProvider(
+            'telegram',
+            vi.fn(() => questionChannel),
+          ),
+        ],
+      },
+    );
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+    const request: UserQuestionRequest = {
+      requestId: 'question-normal-wiring-cancel',
+      appId: 'default',
+      sourceAgentFolder: 'group',
+      targetJid: 'tg:group',
+      questions: [],
+    };
+    const answer = wiring.requestUserAnswer(request);
+
+    await expect(
+      wiring.cancelUserQuestion({
+        requestId: request.requestId,
+        appId: request.appId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Question cancelled. Nothing changed.',
+      }),
+    ).resolves.toBe('settled');
+    await expect(answer).resolves.toEqual({
+      requestId: request.requestId,
+      answers: {},
+    });
+    expect(cancelPendingQuestion).toHaveBeenCalledWith({
+      requestId: request.requestId,
+      appId: request.appId,
+      sourceAgentFolder: request.sourceAgentFolder,
+      reason: 'Question cancelled. Nothing changed.',
+    });
+  });
+
+  it('catches a throwing question handler and leaves retry ownership to the durable directory', async () => {
+    vi.useFakeTimers();
+    const unhandledRejection = vi.fn();
+    process.on('unhandledRejection', unhandledRejection);
+    let resolveAnswer!: (response: {
+      requestId: string;
+      answers: Record<string, string | string[]>;
+    }) => void;
+    const cancellationFailure = new Error('question cancellation unavailable');
+    const cancelPendingQuestion = vi
+      .fn()
+      .mockRejectedValue(cancellationFailure);
+    const logger = { debug: vi.fn(), error: vi.fn() };
+    const responder = createUserQuestionResponder({
+      findBoundChannel: () => ({}),
+      asUserQuestionSurface: () => ({
+        requestUserAnswer: vi.fn(async (_jid, request, onPromptDelivered) => {
+          onPromptDelivered?.('question-prompt-retry');
+          return new Promise<{
+            requestId: string;
+            answers: Record<string, string | string[]>;
+          }>((resolve) => {
+            resolveAnswer = resolve;
+          });
+        }),
+        cancelPendingQuestion,
+      }),
+      interactionLifecycle: { logger },
+    });
+    const request: UserQuestionRequest = {
+      requestId: 'question-cancel-retry',
+      appId: 'default',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:team',
+      questions: [],
+    };
+
+    try {
+      const answer = responder.requestUserAnswer(request);
+      await expect(
+        responder.cancelUserQuestion({
+          requestId: request.requestId,
+          appId: request.appId,
+          sourceAgentFolder: request.sourceAgentFolder,
+          reason: 'Question cancelled.',
+        }),
+      ).resolves.toBe('queued');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          err: cancellationFailure,
+          targetJid: 'tg:team',
+          requestId: request.requestId,
+          message: 'Target channel user question cancellation failed',
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(cancelPendingQuestion).toHaveBeenCalledOnce();
+      resolveAnswer({ requestId: request.requestId, answers: {} });
+      await expect(answer).resolves.toEqual({
+        requestId: request.requestId,
+        answers: {},
+      });
+      await Promise.resolve();
+      expect(unhandledRejection).not.toHaveBeenCalled();
+    } finally {
+      responder.clear();
+      process.off('unhandledRejection', unhandledRejection);
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['retryable', 'queued'],
+    ['not_found', 'queued'],
+    ['settled', 'settled'],
+    ['already_decided', 'settled'],
+  ] as const)(
+    'maps question result %s to %s without starting a local retry',
+    async (channelResult, cancellationResult) => {
+      vi.useFakeTimers();
+      let resolveAnswer!: (response: {
+        requestId: string;
+        answers: Record<string, string | string[]>;
+      }) => void;
+      const cancelPendingQuestion = vi.fn(async () => channelResult);
+      const responder = createUserQuestionResponder({
+        findBoundChannel: () => ({}),
+        asUserQuestionSurface: () => ({
+          requestUserAnswer: vi.fn(async (_jid, request, onPromptDelivered) => {
+            onPromptDelivered?.('question-prompt');
+            return new Promise<{
+              requestId: string;
+              answers: Record<string, string | string[]>;
+            }>((resolve) => {
+              resolveAnswer = resolve;
+            });
+          }),
+          cancelPendingQuestion,
+        }),
+        interactionLifecycle: {
+          logger: { debug: vi.fn(), error: vi.fn() },
+        },
+      });
+      const cancellation = {
+        requestId: `question-${channelResult}`,
+        appId: 'default',
+        sourceAgentFolder: 'main_agent',
+        reason: 'Question cancelled.',
+      };
+      const answer = responder.requestUserAnswer({
+        ...cancellation,
+        targetJid: 'tg:team',
+        questions: [],
+      });
+
+      await expect(responder.cancelUserQuestion(cancellation)).resolves.toBe(
+        cancellationResult,
+      );
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(cancelPendingQuestion).toHaveBeenCalledOnce();
+      resolveAnswer({ requestId: cancellation.requestId, answers: {} });
+      await answer;
+      responder.clear();
+      vi.useRealTimers();
+    },
+  );
+
+  it('drops a shadowing question waiter before rethrowing its persistence error', async () => {
+    const events: string[] = [];
+    const persistenceError = new DurableInteractionPersistenceError(
+      'question prompt delivery was not persisted',
+    );
+    const dropPendingInteraction = vi.fn(() => events.push('drop'));
+    const responder = createUserQuestionResponder({
+      findBoundChannel: () => ({}),
+      asUserQuestionSurface: () => ({
+        requestUserAnswer: vi.fn(async () => {
+          events.push('request');
+          throw persistenceError;
+        }),
+        dropPendingInteraction,
+      }),
+      interactionLifecycle: {
+        logger: { debug: vi.fn(), error: vi.fn() },
+      },
+    });
+    const request: UserQuestionRequest = {
+      requestId: 'question-persistence-failure',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:team',
+      questions: [],
+    };
+
+    const response = responder.requestUserAnswer(request).catch((err) => {
+      events.push('reject');
+      throw err;
+    });
+
+    await expect(response).rejects.toBe(persistenceError);
+    expect(dropPendingInteraction).toHaveBeenCalledWith('question', request);
+    expect(events).toEqual(['request', 'drop', 'reject']);
+  });
+
+  it('does not bypass provider-owned claim settlement when an approval surface remains pending', async () => {
     vi.useFakeTimers();
     try {
       const requestPermissionApproval = createPermissionApprovalRequester({
@@ -220,7 +869,7 @@ describe('createChannelWiring', () => {
         asPermissionApprovalSurface: () => ({
           requestPermissionApproval: vi.fn(() => new Promise(() => undefined)),
         }),
-        logger: { error: vi.fn() },
+        interactionLifecycle: { logger: { error: vi.fn() } },
       });
 
       const decisionPromise = requestPermissionApproval({
@@ -230,14 +879,13 @@ describe('createChannelWiring', () => {
         toolName: 'Bash',
         toolInput: { command: 'npm test' },
       });
-      await vi.advanceTimersByTimeAsync(PERMISSION_APPROVAL_TIMEOUT_MS);
-
-      await expect(decisionPromise).resolves.toMatchObject({
-        approved: false,
-        decidedBy: 'system',
-        decisionClassification: 'user_reject',
-        reason: expect.stringContaining('No approval received within 5 min'),
+      let settled = false;
+      void decisionPromise.finally(() => {
+        settled = true;
       });
+      await vi.runAllTimersAsync();
+
+      expect(settled).toBe(false);
     } finally {
       vi.useRealTimers();
     }
@@ -399,49 +1047,6 @@ describe('createChannelWiring', () => {
 
     expect(wiring.hasConnectedChannels()).toBe(false);
     expect(warn).toHaveBeenCalledOnce();
-    expect(wiring.getChannelTransportHealth()).toEqual([
-      expect.objectContaining({
-        providerId: 'telegram',
-        configured: true,
-        connected: false,
-        configuredAccountCount: 1,
-        connectedAccountCount: 0,
-        authenticatedConversationRegistrationAvailable: false,
-      }),
-    ]);
-  });
-
-  it('reports redacted operational channel counts', async () => {
-    const channel = makeChannel({
-      name: 'slack',
-      getOperationalSnapshot: () => ({
-        authenticatedConversationRegistrationCount: 2,
-      }),
-    });
-    const wiring = createChannelWiring(makeApp(), {
-      providerIds: [
-        makeProvider(
-          'slack',
-          vi.fn(() => channel),
-        ),
-      ],
-    });
-
-    await wiring.connectEnabledChannels(
-      makeRuntimeSettings({ telegram: false, slack: true }),
-    );
-
-    expect(wiring.getChannelTransportHealth()).toEqual([
-      {
-        providerId: 'slack',
-        configured: true,
-        connected: true,
-        configuredAccountCount: 1,
-        connectedAccountCount: 1,
-        authenticatedConversationRegistrationCount: 2,
-        authenticatedConversationRegistrationAvailable: true,
-      },
-    ]);
   });
 
   it('connects channels without inbound messages or callbacks when live turns are disabled', async () => {
@@ -522,6 +1127,25 @@ describe('createChannelWiring', () => {
       inbound: true,
       interactionCallbacks: true,
     });
+  });
+
+  it('uses runtime secret rotations made after channel wiring creation', async () => {
+    const initialSecrets = { getSecret: vi.fn() } as never;
+    const rotatedSecrets = { getSecret: vi.fn() } as never;
+    const create = vi.fn(() => makeChannel());
+    const wiring = createChannelWiring(makeApp(), {
+      providerIds: [makeProvider('slack', create)],
+      runtimeSecrets: initialSecrets,
+    });
+
+    wiring.setRuntimeSecrets(rotatedSecrets);
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: false, slack: true }),
+    );
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ runtimeSecrets: rotatedSecrets }),
+    );
   });
 
   it('derives provider account and agent context for same-channel approval checks', async () => {
@@ -751,6 +1375,8 @@ describe('createChannelWiring', () => {
     const app = makeApp();
     const channel = makeChannel();
     const lease = {
+      generation: 1,
+      isValid: () => true,
       onLost: vi.fn(),
       release: vi.fn(async () => undefined),
     };
@@ -834,7 +1460,7 @@ describe('createChannelWiring', () => {
     ).rejects.toThrow(/runtime transport is not implemented/);
   });
 
-  it('drops disallowed inbound sender before persistence', async () => {
+  it('persists a non-allowed sender on a registered route', async () => {
     const app = makeApp({
       'tg:123': {
         name: 'Main',
@@ -854,7 +1480,6 @@ describe('createChannelWiring', () => {
       ],
       opsRepository: { storeMessage } as any,
       loadSenderAllowlist: vi.fn(() => ({}) as any),
-      shouldDropMessage: vi.fn(() => true),
       isSenderAllowed: vi.fn(() => false),
       shouldLogDenied: vi.fn(() => true),
     });
@@ -874,7 +1499,18 @@ describe('createChannelWiring', () => {
       is_bot_message: false,
     });
 
-    expect(storeMessage).not.toHaveBeenCalled();
+    expect(storeMessage).toHaveBeenCalledWith({
+      agentId: 'agent:main_agent',
+      chat_jid: 'tg:123',
+      content: 'hello',
+      id: 'm1',
+      is_bot_message: false,
+      is_from_me: false,
+      providerAccountId: 'telegram_default',
+      sender: 'user-1',
+      sender_name: 'User',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    });
   });
 
   it('stores normal inbound messages', async () => {
@@ -896,7 +1532,6 @@ describe('createChannelWiring', () => {
         }),
       ],
       opsRepository: { storeMessage } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -949,7 +1584,6 @@ describe('createChannelWiring', () => {
         storeMessage,
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -1023,7 +1657,6 @@ describe('createChannelWiring', () => {
         storeMessage: vi.fn(),
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -1045,8 +1678,26 @@ describe('createChannelWiring', () => {
     expect(
       storeMessageWithLiveAdmission.mock.calls.map((call) => call[1]),
     ).toEqual([
-      expect.objectContaining({ agentId: 'agent:alpha' }),
-      expect.objectContaining({ agentId: 'agent:beta' }),
+      {
+        appId: 'app-one',
+        agentId: 'agent:alpha',
+        providerAccountId: 'telegram_default',
+        triggerDecision: {
+          source: 'channel_persistence',
+          requiresTrigger: false,
+          conversationKind: 'channel',
+        },
+      },
+      {
+        appId: 'app-one',
+        agentId: 'agent:beta',
+        providerAccountId: 'telegram_default',
+        triggerDecision: {
+          source: 'channel_persistence',
+          requiresTrigger: true,
+          conversationKind: 'channel',
+        },
+      },
     ]);
   });
 
@@ -1106,7 +1757,6 @@ describe('createChannelWiring', () => {
         storeMessage: vi.fn(),
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(settings);
@@ -1129,109 +1779,6 @@ describe('createChannelWiring', () => {
     );
   });
 
-  it('publishes event-only provider messages without admitting an agent run', async () => {
-    const app = makeApp({
-      [makeAgentThreadQueueKey(
-        'teams:conversation-1',
-        'agent:tender',
-        undefined,
-        'teams-account-1',
-      )]: {
-        name: 'Tender',
-        folder: 'tender',
-        providerAccountId: 'teams-account-1',
-        agentId: 'agent:tender',
-        trigger: '@TenderBot',
-        added_at: '2026-01-01T00:00:00.000Z',
-        requiresTrigger: true,
-        conversationKind: 'channel',
-      },
-    });
-    const storeMessage = vi.fn(async () => undefined);
-    const storeMessageWithLiveAdmission = vi.fn(async () => undefined);
-    const publishRuntimeEvent = vi.fn(async () => ({ eventId: 1 }));
-    const ensureEventOnlyConversation = vi.fn(async () => undefined);
-    const handlers = createChannelPersistenceHandlers({
-      app,
-      resolved: {
-        appId: 'manipal-tender-copilot',
-        providerIds: [],
-        loadSenderAllowlist: vi.fn(() => ({}) as any),
-        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-        shouldDropMessage: vi.fn(() => false),
-        isSenderAllowed: vi.fn(() => true),
-        isSenderControlAllowed: vi.fn(() => true),
-        shouldLogDenied: vi.fn(() => false),
-        publishRuntimeEvent,
-        ensureEventOnlyConversation,
-        logger: {
-          info: vi.fn(),
-          warn: vi.fn(),
-          debug: vi.fn(),
-          error: vi.fn(),
-        },
-      } as any,
-      ops: () =>
-        ({
-          storeMessage,
-          storeChatMetadata: vi.fn(),
-          storeMessageWithLiveAdmission,
-        }) as any,
-      persistenceQueue: new AsyncTaskQueue(4, 5_000),
-      runtimeSettings: () => ({}) as any,
-    });
-
-    await handlers.onMessage('teams:conversation-1', {
-      id: 'teams-message-1',
-      chat_jid: 'teams:conversation-1',
-      provider: 'teams',
-      providerAccountId: 'teams-account-1',
-      agentId: 'agent:tender',
-      admissionMode: 'event_only',
-      sender: 'aad-user-1',
-      sender_name: 'User',
-      content: '<at>TenderBot</at> status?',
-      timestamp: '2026-01-01T00:00:00.000Z',
-      thread_id: 'root-message-1',
-      providerData: {
-        tenantId: 'tenant-1',
-        channelId: 'channel-1',
-        conversationExternalRef: {
-          microsoftConversationReference: { serviceUrl: 'https://teams.test' },
-        },
-      },
-    });
-
-    expect(storeMessage).toHaveBeenCalledOnce();
-    expect(storeMessageWithLiveAdmission).not.toHaveBeenCalled();
-    expect(ensureEventOnlyConversation).toHaveBeenCalledWith({
-      appId: 'manipal-tender-copilot',
-      conversationId: 'conversation:teams-account-1:teams:conversation-1',
-      providerAccountId: 'teams-account-1',
-      externalConversationId: 'conversation-1',
-      threadId: 'root-message-1',
-      providerExternalRef: {
-        microsoftConversationReference: { serviceUrl: 'https://teams.test' },
-      },
-      timestamp: '2026-01-01T00:00:00.000Z',
-    });
-    expect(publishRuntimeEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        appId: 'manipal-tender-copilot',
-        conversationId: 'conversation:teams-account-1:teams:conversation-1',
-        eventType: 'conversation.message.inbound',
-        payload: expect.objectContaining({
-          externalConversationId: 'conversation-1',
-          threadId: 'root-message-1',
-          providerData: expect.objectContaining({
-            tenantId: 'tenant-1',
-            channelId: 'channel-1',
-          }),
-        }),
-      }),
-    );
-  });
-
   it('does not match key-scoped routes from a different Provider Account when the route payload is unscoped', async () => {
     const app = makeApp({
       [makeAgentThreadQueueKey(
@@ -1250,19 +1797,19 @@ describe('createChannelWiring', () => {
       },
     });
     const storeMessageWithLiveAdmission = vi.fn(async () => undefined);
+    const warn = vi.fn();
     const handlers = createChannelPersistenceHandlers({
       app,
       resolved: {
         providerIds: [],
         loadSenderAllowlist: vi.fn(() => ({}) as any),
         loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-        shouldDropMessage: vi.fn(() => false),
         isSenderAllowed: vi.fn(() => true),
         isSenderControlAllowed: vi.fn(() => true),
         shouldLogDenied: vi.fn(() => false),
         logger: {
           info: vi.fn(),
-          warn: vi.fn(),
+          warn,
           debug: vi.fn(),
           error: vi.fn(),
         },
@@ -1287,6 +1834,14 @@ describe('createChannelWiring', () => {
     });
 
     expect(storeMessageWithLiveAdmission).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatJid: 'sl:C123',
+        providerAccountId: 'slack_alpha',
+        sender: 'U1',
+      }),
+      'Dropping channel message without configured conversation route',
+    );
   });
 
   it('does not match stale unscoped routes when inbound message has a Provider Account', async () => {
@@ -1308,7 +1863,6 @@ describe('createChannelWiring', () => {
         providerIds: [],
         loadSenderAllowlist: vi.fn(() => ({}) as any),
         loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-        shouldDropMessage: vi.fn(() => false),
         isSenderAllowed: vi.fn(() => true),
         isSenderControlAllowed: vi.fn(() => true),
         shouldLogDenied: vi.fn(() => false),
@@ -1376,7 +1930,6 @@ describe('createChannelWiring', () => {
         providerIds: [],
         loadSenderAllowlist: vi.fn(() => ({}) as any),
         loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-        shouldDropMessage: vi.fn(() => false),
         isSenderAllowed: vi.fn(() => true),
         isSenderControlAllowed: vi.fn(() => true),
         shouldLogDenied: vi.fn(() => false),
@@ -1440,7 +1993,30 @@ describe('createChannelWiring', () => {
     expect(findBoundChannel).toHaveBeenCalledWith('sl:C123', 'slack_beta');
   });
 
-  it('routes IPC approval prompts through the run route Provider Account', async () => {
+  it('returns the exact unsupported result without coverage for a hookless channel', async () => {
+    const result = await hydrateChannelConversationContext(
+      {
+        conversationJid: 'tg:-100123',
+        latestMessage: {
+          id: 'current',
+          timestamp: '2026-01-01T00:00:00.000Z',
+        },
+        limits: { channelMessages: 30, threadMessages: 50 },
+      },
+      vi.fn(() => ({})),
+      () => 'telegram',
+    );
+
+    expect(result).toEqual({
+      providerId: 'telegram',
+      attempted: false,
+      skipped: true,
+      reason: 'unsupported',
+    });
+    expect('coverage' in result).toBe(false);
+  });
+
+  it('resets the routed Provider Account channel after an IPC approval prompt', async () => {
     const app = makeApp({
       [makeAgentThreadQueueKey(
         'sl:C123',
@@ -1471,8 +2047,28 @@ describe('createChannelWiring', () => {
         conversationKind: 'channel',
       },
     });
-    const alphaApproval = vi.fn(async () => ({ approved: true }));
-    const betaApproval = vi.fn(async () => ({ approved: false }));
+    const alphaReset = vi.fn();
+    const betaReset = vi.fn();
+    const alphaApproval = vi.fn(
+      async (
+        _jid: string,
+        _request: PermissionApprovalRequest,
+        onPromptDelivered?: (messageId: string) => void,
+      ) => {
+        onPromptDelivered?.('alpha-prompt');
+        return { approved: true };
+      },
+    );
+    const betaApproval = vi.fn(
+      async (
+        _jid: string,
+        _request: PermissionApprovalRequest,
+        onPromptDelivered?: (messageId: string) => void,
+      ) => {
+        onPromptDelivered?.('beta-prompt');
+        return { approved: false };
+      },
+    );
     const settings = makeRuntimeSettings({ telegram: false, slack: true });
     settings.providerAccounts = {
       slack_alpha: {
@@ -1498,6 +2094,8 @@ describe('createChannelWiring', () => {
               opts.providerAccountId === 'slack_alpha'
                 ? alphaApproval
                 : betaApproval,
+            resetStreaming:
+              opts.providerAccountId === 'slack_alpha' ? alphaReset : betaReset,
           }),
         ),
       ],
@@ -1509,11 +2107,16 @@ describe('createChannelWiring', () => {
         requestId: 'req-alpha',
         sourceAgentFolder: 'alpha',
         targetJid: 'sl:C123',
+        threadId: 'thread-1',
         toolName: 'danger-tool',
       }),
     ).resolves.toEqual({ approved: true });
     expect(alphaApproval).toHaveBeenCalledOnce();
     expect(betaApproval).not.toHaveBeenCalled();
+    expect(alphaReset).toHaveBeenCalledWith('sl:C123', {
+      threadId: 'thread-1',
+    });
+    expect(betaReset).not.toHaveBeenCalled();
   });
 
   it('routes live UX methods through the requested Provider Account', async () => {
@@ -1682,7 +2285,16 @@ describe('createChannelWiring', () => {
 
   it('routes permission approvals through explicit Provider Account request context', async () => {
     const app = makeApp({});
-    const alphaApproval = vi.fn(async () => ({ approved: true }));
+    const alphaApproval = vi.fn(
+      async (
+        _jid: string,
+        _request: PermissionApprovalRequest,
+        onPromptDelivered?: (messageId: string) => void,
+      ) => {
+        onPromptDelivered?.('alpha-approval-message');
+        return { approved: true };
+      },
+    );
     const betaApproval = vi.fn(async () => ({ approved: false }));
     const settings = makeRuntimeSettings({ telegram: false, slack: true });
     settings.providerAccounts = {
@@ -1731,9 +2343,16 @@ describe('createChannelWiring', () => {
   it('routes shared-inbound prompts through the callback-capable Provider Account channel', async () => {
     const app = makeApp({});
     const callbackApproval = vi.fn(
-      async (_jid: string, request: PermissionApprovalRequest) => ({
-        approved: request.providerAccountId === 'slack_beta',
-      }),
+      async (
+        _jid: string,
+        request: PermissionApprovalRequest,
+        onPromptDelivered?: (messageId: string) => void,
+      ) => {
+        onPromptDelivered?.('shared-approval-message');
+        return {
+          approved: request.providerAccountId === 'slack_beta',
+        };
+      },
     );
     const callbackQuestion = vi.fn(
       async (_jid: string, request: UserQuestionRequest) => ({
@@ -1805,10 +2424,12 @@ describe('createChannelWiring', () => {
     expect(callbackApproval).toHaveBeenCalledWith(
       'sl:C123',
       expect.objectContaining({ providerAccountId: 'slack_beta' }),
+      expect.any(Function),
     );
     expect(callbackQuestion).toHaveBeenCalledWith(
       'sl:C123',
       expect.objectContaining({ providerAccountId: 'slack_beta' }),
+      expect.any(Function),
     );
     expect(outboundOnlyApproval).not.toHaveBeenCalled();
     expect(outboundOnlyQuestion).not.toHaveBeenCalled();
@@ -1841,7 +2462,6 @@ describe('createChannelWiring', () => {
         storeMessage,
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -1897,7 +2517,6 @@ describe('createChannelWiring', () => {
         storeMessage: vi.fn(),
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -1960,7 +2579,6 @@ describe('createChannelWiring', () => {
         storeMessage: vi.fn(),
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -2008,7 +2626,6 @@ describe('createChannelWiring', () => {
         providerIds: [],
         loadSenderAllowlist: vi.fn(() => ({}) as any),
         loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-        shouldDropMessage: vi.fn(() => false),
         isSenderAllowed: vi.fn(() => true),
         isSenderControlAllowed: vi.fn(() => true),
         shouldLogDenied: vi.fn(() => false),
@@ -2283,20 +2900,16 @@ describe('createChannelWiring', () => {
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: 'default',
-        conversationId: 'conversation:slack_default:sl:C123',
-        threadId: 'thread:slack_default:sl:C123:1700.1',
+        conversationId: 'sl:C123',
+        threadId: '1700.1',
         eventType: 'conversation.message.outbound',
         actor: 'agent',
         responseMode: 'none',
         payload: expect.objectContaining({
           conversationId: 'conversation:slack_default:sl:C123',
           threadId: 'thread:slack_default:sl:C123:1700.1',
-          providerId: 'slack',
-          providerAccountId: 'slack_default',
           direction: 'outbound',
           deliveryStatus: 'sent',
-          attemptCount: 1,
-          terminal: true,
           externalMessageId: '171.123',
           sender: { id: 'gantry', name: 'Gantry' },
           text: 'done',
@@ -2981,7 +3594,12 @@ describe('createChannelWiring', () => {
 
     const approvalChannel = makeChannel({
       ownsJid: vi.fn((jid: string) => jid === 'tg:other'),
-      requestPermissionApproval: vi.fn(async () => ({ approved: true })),
+      requestPermissionApproval: vi.fn(
+        async (_jid, _request, onPromptDelivered) => {
+          onPromptDelivered?.('target-approval-message');
+          return { approved: true };
+        },
+      ),
     });
     const wiring = createChannelWiring(app, {
       providerIds: [
@@ -3020,7 +3638,12 @@ describe('createChannelWiring', () => {
     const app = makeApp({
       'tg:other': { name: 'Other', folder: 'other' },
     });
-    const requestPermissionApproval = vi.fn(async () => ({ approved: true }));
+    const requestPermissionApproval = vi.fn(
+      async (_jid, _request, onPromptDelivered) => {
+        onPromptDelivered?.('outbound-approval-message');
+        return { approved: true };
+      },
+    );
     const requestUserAnswer = vi.fn(async () => ({
       requestId: 'q-outbound-only',
       answers: { Choice: 'A' },
@@ -3072,7 +3695,12 @@ describe('createChannelWiring', () => {
     const app = makeApp({
       'tg:111': { name: 'Alice DM', folder: 'main_agent' },
     });
-    const requestPermissionApproval = vi.fn(async () => ({ approved: true }));
+    const requestPermissionApproval = vi.fn(
+      async (_jid, _request, onPromptDelivered) => {
+        onPromptDelivered?.('direct-approval-message');
+        return { approved: true };
+      },
+    );
 
     const approvalChannel = makeChannel({
       ownsJid: vi.fn((jid: string) => jid.startsWith('tg:')),
@@ -3103,6 +3731,7 @@ describe('createChannelWiring', () => {
       expect.objectContaining({
         targetJid: 'tg:111',
       }),
+      expect.any(Function),
     );
   });
 
@@ -3110,7 +3739,12 @@ describe('createChannelWiring', () => {
     const app = makeApp({
       'tg:222': { name: 'Bob DM', folder: 'main_agent' },
     });
-    const requestPermissionApproval = vi.fn(async () => ({ approved: true }));
+    const requestPermissionApproval = vi.fn(
+      async (_jid, _request, onPromptDelivered) => {
+        onPromptDelivered?.('settings-dm-approval-message');
+        return { approved: true };
+      },
+    );
 
     const approvalChannel = makeChannel({
       ownsJid: vi.fn((jid: string) => jid.startsWith('tg:')),
@@ -3141,6 +3775,7 @@ describe('createChannelWiring', () => {
       expect.objectContaining({
         targetJid: 'tg:222',
       }),
+      expect.any(Function),
     );
   });
 
@@ -3318,6 +3953,7 @@ describe('createChannelWiring', () => {
         sourceAgentFolder: 'group',
         targetJid: 'tg:group',
       }),
+      expect.any(Function),
     );
     expect(questionChannel.sendMessage).not.toHaveBeenCalled();
   });
@@ -3505,7 +4141,6 @@ describe('createChannelPersistenceHandlers conversation-owned direct routes', ()
           providerIds: [],
           loadSenderAllowlist: vi.fn(() => ({}) as any),
           loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-          shouldDropMessage: vi.fn(() => false),
           isSenderAllowed: vi.fn(() => true),
           isSenderControlAllowed: vi.fn(() => true),
           shouldLogDenied: vi.fn(() => false),
@@ -3557,7 +4192,6 @@ describe('createChannelPersistenceHandlers conversation-owned direct routes', ()
         providerIds: [],
         loadSenderAllowlist: vi.fn(() => ({}) as any),
         loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-        shouldDropMessage: vi.fn(() => false),
         isSenderAllowed: vi.fn(() => true),
         isSenderControlAllowed: vi.fn(() => true),
         shouldLogDenied: vi.fn(() => false),

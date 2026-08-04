@@ -68,7 +68,9 @@ async function invoke(
 
 describe('Gantry DeepAgents shell tool', () => {
   beforeEach(() => {
-    requestPermissionApprovalViaIpc.mockReset();
+    requestPermissionApprovalViaIpc
+      .mockReset()
+      .mockResolvedValue({ approved: true });
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -79,10 +81,10 @@ describe('Gantry DeepAgents shell tool', () => {
     expect(makeTool().name).toBe('RunCommand');
   });
 
-  it('executes when a scoped RunCommand rule allows the command — no permission prompt', async () => {
+  it('executes when the host coordinator approves a scoped RunCommand rule', async () => {
     const tool = makeTool({ rules: ['RunCommand(echo *)'] });
     const result = await invoke(tool, 'echo hello-gantry');
-    expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+    expect(requestPermissionApprovalViaIpc).toHaveBeenCalledTimes(1);
     expect(result).toContain('hello-gantry');
     expect(result).toContain('exited with code 0');
   });
@@ -129,9 +131,13 @@ describe('Gantry DeepAgents shell tool', () => {
   });
 
   it('denies hard when the agent runs under a locked access preset (no prompt)', async () => {
+    requestPermissionApprovalViaIpc.mockResolvedValue({
+      approved: false,
+      reason: 'locked access preset',
+    });
     const tool = makeTool({ rules: [], lockedAccessPreset: true });
     const result = await invoke(tool, 'echo locked');
-    expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+    expect(requestPermissionApprovalViaIpc).toHaveBeenCalledTimes(1);
     expect(result).toContain('locked access preset');
     expect(result).not.toContain('exited with code');
   });

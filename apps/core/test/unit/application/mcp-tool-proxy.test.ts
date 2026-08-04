@@ -1,6 +1,5 @@
 import { EventEmitter } from 'node:events';
 import http from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -40,8 +39,10 @@ import {
   assertMcpNetworkHostAllowed,
   clearMcpToolProxyInventoryCache,
   createGuardedMcpFetch,
+  MCP_TOOL_PROXY_CLIENT_ADAPTERS,
   McpToolProxy,
 } from '@core/application/mcp/mcp-tool-proxy.js';
+import { connectMcpToolProxyClient } from '@core/application/mcp/mcp-tool-proxy-connection.js';
 import {
   fetchMcpToolListPages,
   MAX_MCP_REMOTE_TOOL_METADATA_BYTES,
@@ -129,34 +130,23 @@ describe('resolvePinnedPublicMcpAddress', () => {
 
 describe('createGuardedMcpFetch', () => {
   it('allows loopback HTTP MCP fetches without DNS pinning', async () => {
-    const server = http.createServer((_request, response) => {
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end('{"ok":true}');
+    const loopbackFetch = vi.fn(async () => new Response('{"ok":true}'));
+    vi.stubGlobal('fetch', loopbackFetch);
+    const lookupHostname = vi.fn(async () => {
+      throw new Error('loopback MCP fetch should not resolve DNS');
     });
-    await new Promise<void>((resolve) =>
-      server.listen(0, '127.0.0.1', resolve),
-    );
-    try {
-      const address = server.address() as AddressInfo;
-      const lookupHostname = vi.fn(async () => {
-        throw new Error('loopback MCP fetch should not resolve DNS');
-      });
-      const response = await createGuardedMcpFetch({
-        allowLoopbackHttp: true,
-        lookupHostname,
-      })(`http://127.0.0.1:${address.port}/mcp`, {
-        method: 'POST',
-        body: '{}',
-        redirect: 'error',
-      });
+    const response = await createGuardedMcpFetch({
+      allowLoopbackHttp: true,
+      lookupHostname,
+    })('http://127.0.0.1:8123/mcp', {
+      method: 'POST',
+      body: '{}',
+      redirect: 'error',
+    });
 
-      await expect(response.text()).resolves.toBe('{"ok":true}');
-      expect(lookupHostname).not.toHaveBeenCalled();
-    } finally {
-      await new Promise<void>((resolve, reject) =>
-        server.close((err) => (err ? reject(err) : resolve())),
-      );
-    }
+    await expect(response.text()).resolves.toBe('{"ok":true}');
+    expect(loopbackFetch).toHaveBeenCalledOnce();
+    expect(lookupHostname).not.toHaveBeenCalled();
   });
 
   it('rejects loopback pivots for remote-configured MCP transports', async () => {
@@ -602,6 +592,104 @@ describe('McpToolProxy', () => {
     ).rejects.toThrow(/not approved for this agent/);
   });
 
+  it('ranks mcp_search_tools matches and marks reviewed-capability coverage', async () => {
+    vi.useFakeTimers();
+    mcpSdkMocks.client.listTools.mockResolvedValueOnce({
+      tools: [
+        { name: 'create_issue', description: 'Open a GitHub issue' },
+        { name: 'find_code', description: 'search code across repositories' },
+        { name: 'search_repositories', description: 'Find repositories' },
+      ],
+    });
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: patternToolRepository(),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+
+    const result = await proxy.searchTools({
+      appId: 'app-one' as never,
+      agentId: 'agent-one' as never,
+      query: 'search',
+    });
+
+    // Name-prefix match outranks description match; the non-matching tool is
+    // filtered out entirely.
+    expect(result.query).toBe('search');
+    expect(result.total).toBe(2);
+    expect(result.matches.map((match) => match.name)).toEqual([
+      'search_repositories',
+      'find_code',
+    ]);
+    // The reviewed mcp_pattern capability (search_*) covers the first match
+    // only; the other stays inventory-only.
+    expect(result.matches[0]).toMatchObject({
+      serverName: 'github',
+      coveredByReviewedCapability: true,
+      reviewedCapabilityIds: ['github.search.read'],
+    });
+    expect(result.matches[1]).toMatchObject({
+      serverName: 'github',
+      coveredByReviewedCapability: false,
+    });
+    expect(result.matches[1].reviewedCapabilityIds).toBeUndefined();
+  });
+
+  it('matches tokenized search terms across server, tool name, and description', async () => {
+    vi.useFakeTimers();
+    mcpSdkMocks.client.listTools.mockResolvedValueOnce({
+      tools: [
+        { name: 'create_ticket', description: 'Create an issue' },
+        { name: 'create_repository', description: 'Create a repository' },
+      ],
+    });
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: emptyToolRepository(),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+
+    const result = await proxy.searchTools({
+      appId: 'app-one' as never,
+      agentId: 'agent-one' as never,
+      query: 'github create issue',
+    });
+
+    expect(result.matches.map((match) => match.name)).toEqual([
+      'create_ticket',
+    ]);
+  });
+
+  it('marks every mcp_search_tools match inventory-only when no reviewed capability is selected', async () => {
+    vi.useFakeTimers();
+    mcpSdkMocks.client.listTools.mockResolvedValueOnce({
+      tools: [{ name: 'search_repositories', description: 'Find repos' }],
+    });
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: emptyToolRepository(),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+
+    const result = await proxy.searchTools({
+      appId: 'app-one' as never,
+      agentId: 'agent-one' as never,
+      query: 'search',
+      limit: 5,
+    });
+
+    expect(result.limit).toBe(5);
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0]).toMatchObject({
+      name: 'search_repositories',
+      coveredByReviewedCapability: false,
+      callable: false,
+    });
+  });
+
   it('follows remote MCP tools/list pagination for an explicit server refresh', async () => {
     vi.useFakeTimers();
     mcpSdkMocks.client.listTools
@@ -648,12 +736,18 @@ describe('McpToolProxy', () => {
     expect(mcpSdkMocks.client.listTools).toHaveBeenNthCalledWith(
       1,
       {},
-      { timeout: 60_000 },
+      expect.objectContaining({
+        timeout: 60_000,
+        signal: expect.any(AbortSignal),
+      }),
     );
     expect(mcpSdkMocks.client.listTools).toHaveBeenNthCalledWith(
       2,
       { cursor: 'page-2' },
-      { timeout: 60_000 },
+      expect.objectContaining({
+        timeout: 60_000,
+        signal: expect.any(AbortSignal),
+      }),
     );
   });
 
@@ -813,7 +907,7 @@ describe('McpToolProxy', () => {
     expect(mcpSdkMocks.client.listTools).not.toHaveBeenCalled();
   });
 
-  it('does not fan out to every uncached MCP server without an explicit serverName', async () => {
+  it('cold-searches every connected MCP server', async () => {
     vi.useFakeTimers();
     const proxy = new McpToolProxy(multiMcpRepository(['github', 'linear']), {
       tools: emptyToolRepository(),
@@ -821,51 +915,57 @@ describe('McpToolProxy', () => {
         { address: '93.184.216.34', family: 4 as const },
       ]),
     });
+    mcpSdkMocks.client.listTools
+      .mockResolvedValueOnce({
+        tools: [{ name: 'create_issue', description: 'Open an issue' }],
+      })
+      .mockResolvedValueOnce({
+        tools: [{ name: 'search_issues', description: 'Find an issue' }],
+      });
 
     await expect(
-      proxy.listTools({
+      proxy.searchTools({
         appId: 'app-one' as never,
         agentId: 'agent-one' as never,
         query: 'issue',
       }),
     ).resolves.toMatchObject({
       limit: 20,
-      total: 0,
-      deferredServers: ['github', 'linear'],
-      servers: [],
+      total: 2,
+      matches: [
+        { serverName: 'github', name: 'create_issue' },
+        { serverName: 'linear', name: 'search_issues' },
+      ],
     });
-    expect(mcpSdkMocks.client.listTools).not.toHaveBeenCalled();
+    expect(mcpSdkMocks.client.listTools).toHaveBeenCalledTimes(2);
+  });
 
-    mcpSdkMocks.client.listTools.mockResolvedValueOnce({
-      tools: [{ name: 'create_issue', description: 'Open an issue' }],
+  it('returns partial cold-search results when one MCP source fails', async () => {
+    vi.useFakeTimers();
+    const proxy = new McpToolProxy(multiMcpRepository(['github', 'linear']), {
+      tools: emptyToolRepository(),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
     });
+    mcpSdkMocks.client.listTools
+      .mockResolvedValueOnce({
+        tools: [{ name: 'create_issue', description: 'Open an issue' }],
+      })
+      .mockRejectedValueOnce(new Error('linear unavailable'));
+
     await expect(
-      proxy.listTools({
+      proxy.searchTools({
         appId: 'app-one' as never,
         agentId: 'agent-one' as never,
-        serverName: 'github',
         query: 'issue',
       }),
     ).resolves.toMatchObject({
-      serverName: 'github',
-      query: 'issue',
-      total: 1,
-      servers: [{ name: 'github' }],
-    });
-
-    await expect(
-      proxy.listTools({
-        appId: 'app-one' as never,
-        agentId: 'agent-one' as never,
-        query: 'issue',
-      }),
-    ).resolves.toMatchObject({
-      query: 'issue',
       total: 1,
       deferredServers: ['linear'],
-      servers: [{ name: 'github' }],
+      matches: [{ serverName: 'github', name: 'create_issue' }],
     });
-    expect(mcpSdkMocks.client.listTools).toHaveBeenCalledTimes(1);
+    expect(mcpSdkMocks.client.listTools).toHaveBeenCalledTimes(2);
   });
 
   it('reports inventory timing and invalidates the cache when source revision changes', async () => {
@@ -1132,7 +1232,167 @@ describe('McpToolProxy', () => {
     );
   });
 
-  it('honors run-local MCP tool approvals for the current call', async () => {
+  it('authorizes a routed MCP binding only in its conversation and thread', async () => {
+    const proxy = new McpToolProxy(
+      mcpRepository({
+        bindingConversationId: 'conversation:approved',
+        bindingThreadId: 'thread:approved',
+      }),
+      { tools: toolRepository() },
+    );
+
+    await expect(
+      proxy.assertToolAllowed({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        conversationId: 'conversation:other',
+        threadId: 'thread:approved',
+        serverName: 'github',
+        toolName: 'create_issue',
+      }),
+    ).rejects.toThrow(/not approved for this agent/);
+    await expect(
+      proxy.assertToolAllowed({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        conversationId: 'conversation:approved',
+        threadId: 'thread:other',
+        serverName: 'github',
+        toolName: 'create_issue',
+      }),
+    ).rejects.toThrow(/not approved for this agent/);
+    await expect(
+      proxy.assertToolAllowed({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        conversationId: 'conversation:approved',
+        threadId: 'thread:approved',
+        serverName: 'github',
+        toolName: 'create_issue',
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('waits for a failing persistent capability publication before authorizing the call', async () => {
+    const repository = mcpRepository() as any;
+    const authorityLock = serializedMcpCapabilityAuthorityLock();
+    repository.withMcpCapabilityApprovalLock = authorityLock;
+    repository.withMcpCapabilityAuthorizationLock = authorityLock;
+    const tools = toolRepository() as any;
+    const listBindings = tools.listAgentToolBindings.bind(tools);
+    let bindingStatus: 'active' | 'disabled' = 'disabled';
+    tools.listAgentToolBindings = vi.fn(async () =>
+      (await listBindings()).map((binding: Record<string, unknown>) => ({
+        ...binding,
+        status: bindingStatus,
+      })),
+    );
+    let releaseMirror!: () => void;
+    const mirrorGate = new Promise<void>((resolve) => {
+      releaseMirror = resolve;
+    });
+    let publicationStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      publicationStarted = resolve;
+    });
+    const publication = repository.withMcpCapabilityApprovalLock({
+      appId: 'app-one',
+      serverNames: ['github'],
+      operation: async () => {
+        bindingStatus = 'active';
+        publicationStarted();
+        await mirrorGate;
+        bindingStatus = 'disabled';
+        throw new Error('settings mirror failed');
+      },
+    });
+    await started;
+    const proxy = new McpToolProxy(repository, { tools });
+    const call = proxy.callTool({
+      appId: 'app-one' as never,
+      agentId: 'agent-one' as never,
+      serverName: 'github',
+      toolName: 'create_issue',
+    });
+
+    await Promise.resolve();
+    expect(tools.listAgentToolBindings).not.toHaveBeenCalled();
+    expect(mcpSdkMocks.client.callTool).not.toHaveBeenCalled();
+    releaseMirror();
+
+    await expect(publication).rejects.toThrow('settings mirror failed');
+    await expect(call).rejects.toThrow(/not approved for this agent/);
+    expect(mcpSdkMocks.client.callTool).not.toHaveBeenCalled();
+  });
+
+  it('authorizes newly discovered tools matching a reviewed capability pattern without an exact-list refresh', async () => {
+    vi.useFakeTimers();
+    // search_repositories appears only in live server inventory; no reviewed
+    // exact list or live rule names it. The reviewed pattern is the single
+    // action authority.
+    mcpSdkMocks.client.listTools.mockResolvedValueOnce({
+      tools: [{ name: 'search_repositories' }],
+    });
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: patternToolRepository(),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+
+    await expect(
+      proxy.callTool({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'search_repositories',
+        arguments: { q: 'gantry' },
+      }),
+    ).resolves.toEqual({ content: [] });
+    expect(mcpSdkMocks.client.callTool).toHaveBeenCalledWith(
+      { name: 'search_repositories', arguments: { q: 'gantry' } },
+      undefined,
+      { timeout: 60_000 },
+    );
+  });
+
+  it('denies pattern-mismatched calls naming the nearest reviewed capability', async () => {
+    const proxy = new McpToolProxy(mcpRepository(), {
+      tools: patternToolRepository(),
+    });
+
+    await expect(
+      proxy.callTool({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'delete_repository',
+      }),
+    ).rejects.toThrow(
+      'MCP tool is not approved for this agent: mcp__github__delete_repository. ' +
+        'Selected reviewed capability github.search.read does not cover this tool; ' +
+        'a reviewed capability covering it must be provisioned before it can be used.',
+    );
+  });
+
+  it('says no reviewed capability covers the server when none is selected', async () => {
+    const proxy = new McpToolProxy(mcpRepository(), {
+      tools: emptyToolRepository(),
+    });
+
+    await expect(
+      proxy.callTool({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'search_repositories',
+      }),
+    ).rejects.toThrow(
+      'No selected reviewed capability covers MCP server github',
+    );
+  });
+
+  it('honors an exact reviewed MCP pattern for the current call', async () => {
     vi.useFakeTimers();
     const publishRuntimeEvent = vi.fn(async () => undefined);
     const appendAuditEvent = vi.fn(async () => undefined);
@@ -1140,8 +1400,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -1240,8 +1499,7 @@ describe('McpToolProxy', () => {
         }),
     );
     const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
-      tools: emptyToolRepository(),
-      liveToolRules: ['mcp__github__create_issue'],
+      tools: toolRepository(),
       lookupHostname: vi.fn(async () => [
         { address: '93.184.216.34', family: 4 as const },
       ]),
@@ -1271,8 +1529,7 @@ describe('McpToolProxy', () => {
   it('keeps schema discovery on the short proxy timeout for long tool calls', async () => {
     mockCreateIssueToolDetail();
     const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
-      tools: emptyToolRepository(),
-      liveToolRules: ['mcp__github__create_issue'],
+      tools: toolRepository(),
       lookupHostname: vi.fn(async () => [
         { address: '93.184.216.34', family: 4 as const },
       ]),
@@ -1320,8 +1577,7 @@ describe('McpToolProxy', () => {
           }),
       );
     const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
-      tools: emptyToolRepository(),
-      liveToolRules: ['mcp__github__create_issue'],
+      tools: toolRepository(),
       lookupHostname: vi.fn(async () => [
         { address: '93.184.216.34', family: 4 as const },
       ]),
@@ -1360,8 +1616,7 @@ describe('McpToolProxy', () => {
     const publishRuntimeEvent = vi.fn(async () => undefined);
     const appendAuditEvent = vi.fn(async () => undefined);
     const proxy = new McpToolProxy(mcpRepository({ appendAuditEvent }), {
-      tools: emptyToolRepository(),
-      liveToolRules: ['mcp__github__create_issue'],
+      tools: toolRepository(),
       publishRuntimeEvent,
       runHandle: 'run-stdio',
     });
@@ -1420,8 +1675,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -1456,8 +1710,7 @@ describe('McpToolProxy', () => {
     vi.useFakeTimers();
     mockCreateIssueToolDetail();
     const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
-      tools: emptyToolRepository(),
-      liveToolRules: ['mcp__github__create_issue'],
+      tools: toolRepository(),
       lookupHostname: vi.fn(async () => [
         { address: '93.184.216.34', family: 4 as const },
       ]),
@@ -1489,8 +1742,7 @@ describe('McpToolProxy', () => {
     vi.useFakeTimers();
     mockCreateIssueToolDetail();
     const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
-      tools: emptyToolRepository(),
-      liveToolRules: ['mcp__github__create_issue'],
+      tools: toolRepository(),
       lookupHostname: vi.fn(async () => [
         { address: '93.184.216.34', family: 4 as const },
       ]),
@@ -1531,8 +1783,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -1577,8 +1828,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -1636,8 +1886,7 @@ describe('McpToolProxy', () => {
       new Error('upstream token=secret-value failure'),
     );
     const failedProxy = new McpToolProxy(mcpRepository({ remote: true }), {
-      tools: emptyToolRepository(),
-      liveToolRules: ['mcp__github__create_issue'],
+      tools: toolRepository(),
       lookupHostname: vi.fn(async () => [
         { address: '93.184.216.34', family: 4 as const },
       ]),
@@ -1688,8 +1937,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -1741,8 +1989,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -1797,8 +2044,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -1857,8 +2103,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -1911,8 +2156,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -1964,8 +2208,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -2015,33 +2258,77 @@ describe('McpToolProxy', () => {
     );
   });
 
+  it('intersects reviewed MCP patterns with the per-agent source tool scope', async () => {
+    const proxy = new McpToolProxy(
+      mcpRepository({ bindingAllowedToolPatterns: ['read_*'] }),
+      {
+        tools: patternToolRepository(),
+      },
+    );
+
+    await expect(
+      proxy.callTool({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'search_delete',
+      }),
+    ).rejects.toThrow(
+      'MCP tool is not approved for this agent: mcp__github__search_delete',
+    );
+  });
+
   it('revalidates current network policy before reusing cached remote clients', async () => {
     vi.useFakeTimers();
     const denylist: string[] = [];
-    const proxy = new McpToolProxy(mcpRepository(), {
+    mockCreateIssueToolDetail();
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
       tools: toolRepository(),
       egressDenylist: denylist,
       lookupHostname: vi.fn(async () => [
         { address: '93.184.216.34', family: 4 as const },
       ]),
     });
-    const connect = (
-      proxy as unknown as {
-        connect(
-          capability: ReturnType<typeof remoteCapability>,
-        ): Promise<unknown>;
-      }
-    ).connect.bind(proxy);
-    const capability = remoteCapability(['api.github.com:443']);
 
-    await connect(capability);
+    await describeCreateIssue(proxy);
 
-    await expect(connect(remoteCapability([]))).resolves.toBeTruthy();
+    clearMcpToolProxyInventoryCache();
     denylist.push('api.github.com');
-    await expect(connect(capability)).rejects.toThrow(
+    await expect(describeCreateIssue(proxy)).rejects.toThrow(
       /matches the egress denylist/,
     );
     expect(mcpSdkMocks.Client).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reuse a stateful remote client across tenants or routes', async () => {
+    vi.useFakeTimers();
+    const options = {
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    };
+
+    await connectMcpToolProxyClient(
+      remoteCapability({ appId: 'app-one', agentId: 'agent-one' }),
+      options,
+      MCP_TOOL_PROXY_CLIENT_ADAPTERS,
+    );
+    await connectMcpToolProxyClient(
+      remoteCapability({ appId: 'app-two', agentId: 'agent-two' }),
+      options,
+      MCP_TOOL_PROXY_CLIENT_ADAPTERS,
+    );
+    await connectMcpToolProxyClient(
+      remoteCapability({
+        appId: 'app-one',
+        agentId: 'agent-one',
+        conversationId: 'conversation:other',
+      }),
+      options,
+      MCP_TOOL_PROXY_CLIENT_ADAPTERS,
+    );
+
+    expect(mcpSdkMocks.Client).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -2070,6 +2357,8 @@ function mcpRepository(input?: {
   remote?: boolean;
   remoteUrl?: string;
   appendAuditEvent?: (event: unknown) => Promise<void>;
+  bindingConversationId?: string;
+  bindingThreadId?: string;
 }) {
   const updatedAt = new Date(0).toISOString();
   const value = (entry: string | (() => string) | undefined): string =>
@@ -2108,10 +2397,15 @@ function mcpRepository(input?: {
     required: false,
     permissionPolicyIds: [],
     allowedToolPatterns: input?.bindingAllowedToolPatterns ?? [],
+    conversationId: input?.bindingConversationId,
+    threadId: input?.bindingThreadId,
     createdAt: updatedAt,
     updatedAt: value(input?.bindingUpdatedAt),
   });
   return {
+    withMcpCapabilityAuthorizationLock: async <T>(input: {
+      operation: () => Promise<T>;
+    }) => input.operation(),
     listAgentBindings: async () => [binding()],
     getServer: async (id: string) =>
       id === 'mcp:github' ? definition() : null,
@@ -2158,12 +2452,32 @@ function multiMcpRepository(names: string[]) {
     return { definition, binding };
   });
   return {
+    withMcpCapabilityAuthorizationLock: async <T>(input: {
+      operation: () => Promise<T>;
+    }) => input.operation(),
     listAgentBindings: async () => records.map((record) => record.binding),
     getServer: async (id: string) =>
       records.find((record) => record.definition.id === id)?.definition ?? null,
     listMaterializedServersForAgent: async () => records,
     appendAuditEvent: async () => {},
   } as never;
+}
+
+function serializedMcpCapabilityAuthorityLock() {
+  let tail = Promise.resolve();
+  return async <T>(input: { operation: () => Promise<T> }): Promise<T> => {
+    let release!: () => void;
+    const previous = tail;
+    tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await input.operation();
+    } finally {
+      release();
+    }
+  };
 }
 
 function emptyToolRepository() {
@@ -2187,7 +2501,11 @@ function toolRepository() {
       cannot: 'Call unrelated GitHub MCP tools.',
       credentialSource: 'none',
       implementationBindings: [
-        { kind: 'mcp_tool', mcpTool: 'mcp__github__create_issue' },
+        {
+          kind: 'mcp_pattern',
+          mcpServer: 'github',
+          mcpToolPatterns: ['create_issue'],
+        },
       ],
     }),
     createdAt: new Date(0).toISOString(),
@@ -2209,17 +2527,59 @@ function toolRepository() {
   } as never;
 }
 
-function remoteCapability(networkHosts: string[]) {
+function patternToolRepository() {
+  const tool = {
+    id: 'tool:github-search-read',
+    appId: 'app-one',
+    name: 'capability:github.search.read',
+    inputSchema: semanticCapabilityInputSchema({
+      capabilityId: 'github.search.read',
+      displayName: 'GitHub search read',
+      category: 'mcp',
+      risk: 'read',
+      can: 'Search GitHub repositories.',
+      cannot: 'Mutate GitHub state or call non-search tools.',
+      credentialSource: 'none',
+      implementationBindings: [
+        {
+          kind: 'mcp_pattern',
+          mcpServer: 'github',
+          mcpToolPatterns: ['search_*'],
+        },
+      ],
+    }),
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString(),
+  };
   return {
+    listAgentToolBindings: async () => [
+      {
+        id: 'agent-tool-binding:github-search-read',
+        appId: 'app-one',
+        agentId: 'agent-one',
+        toolId: tool.id,
+        status: 'active',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
+      },
+    ],
+    getTool: async (id: string) => (id === tool.id ? tool : null),
+  } as never;
+}
+
+function remoteCapability(input: {
+  appId: string;
+  agentId: string;
+  conversationId?: string;
+}) {
+  return {
+    ...input,
+    conversationId: input.conversationId ?? 'conversation:shared',
+    threadId: 'thread:shared',
     name: 'github',
     serverId: 'mcp:github',
     bindingId: 'agent-mcp-binding:github',
-    sourceRevision: JSON.stringify({
-      serverId: 'mcp:github',
-      serverUpdatedAt: new Date(0).toISOString(),
-      bindingId: 'agent-mcp-binding:github',
-      bindingUpdatedAt: new Date(0).toISOString(),
-    }),
+    sourceRevision: 'revision:shared',
     config: {
       type: 'http' as const,
       url: 'https://api.github.com/mcp',
@@ -2228,7 +2588,7 @@ function remoteCapability(networkHosts: string[]) {
     autoApproveToolPatterns: ['*'],
     allowedToolNames: ['mcp__github__create_issue'],
     autoApproveToolNames: ['mcp__github__create_issue'],
-    networkHosts,
+    networkHosts: ['api.github.com:443'],
     required: false,
   };
 }

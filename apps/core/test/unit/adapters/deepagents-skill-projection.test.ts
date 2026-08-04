@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { resolveDeepAgentSkillProjection } from '@core/adapters/llm/deepagents-langchain/skill-projection.js';
 import type { SkillArtifactStore } from '@core/domain/ports/skill-artifact-store.js';
+import { hashSkillBundle } from '@core/shared/skill-artifact-helpers.js';
 import type { SkillCatalogRepository } from '@core/domain/ports/repositories.js';
 import type { SkillCatalogItem } from '@core/domain/skills/skills.js';
 
@@ -11,6 +12,7 @@ function skill(input: {
   id: string;
   name: string;
   storageRef?: string;
+  contentHash?: string;
   storageType?: NonNullable<SkillCatalogItem['storage']>['storageType'];
   status?: SkillCatalogItem['status'];
 }): SkillCatalogItem {
@@ -29,7 +31,7 @@ function skill(input: {
           storage: {
             storageType: input.storageType ?? 'local-filesystem',
             storageRef: input.storageRef,
-            contentHash: `sha256:${input.storageRef}`,
+            contentHash: input.contentHash ?? `sha256:${input.storageRef}`,
             sizeBytes: 1,
           },
         }
@@ -77,29 +79,31 @@ description: ${input.description ?? 'Use this skill for release notes.'}
 
 describe('DeepAgents selected skill projection', () => {
   it('projects only selected materializable skill artifacts as virtual /skills files', async () => {
+    const releaseBundle = {
+      assets: [
+        {
+          path: 'SKILL.md',
+          content: skillMd({ name: 'release-writer' }),
+          contentType: 'text/markdown',
+        },
+        {
+          path: 'references/checklist.md',
+          content: Buffer.from('# Checklist\n'),
+          contentType: 'text/markdown',
+        },
+      ],
+    };
+    const skippedBundle = {
+      assets: [
+        {
+          path: 'SKILL.md',
+          content: skillMd({ name: 'skipped-skill' }),
+        },
+      ],
+    };
     const store = artifactStore({
-      'skill-release': {
-        assets: [
-          {
-            path: 'SKILL.md',
-            content: skillMd({ name: 'release-writer' }),
-            contentType: 'text/markdown',
-          },
-          {
-            path: 'references/checklist.md',
-            content: Buffer.from('# Checklist\n'),
-            contentType: 'text/markdown',
-          },
-        ],
-      },
-      'skill-skipped': {
-        assets: [
-          {
-            path: 'SKILL.md',
-            content: skillMd({ name: 'skipped-skill' }),
-          },
-        ],
-      },
+      'skill-release': releaseBundle,
+      'skill-skipped': skippedBundle,
     });
 
     const projection = await resolveDeepAgentSkillProjection({
@@ -110,11 +114,13 @@ describe('DeepAgents selected skill projection', () => {
           name: 'release-writer',
           storageType: 'object-store',
           storageRef: 'skill-release',
+          contentHash: hashSkillBundle(releaseBundle),
         }),
         skill({
           id: 'skill:skipped',
           name: 'skipped-skill',
           storageRef: 'skill-skipped',
+          contentHash: hashSkillBundle(skippedBundle),
         }),
       ]),
       skillArtifactStore: store,
@@ -250,6 +256,14 @@ describe('DeepAgents selected skill projection', () => {
   });
 
   it('fails closed when SKILL.md metadata cannot be loaded by DeepAgents skills', async () => {
+    const mismatchedNameBundle = {
+      assets: [
+        {
+          path: 'SKILL.md',
+          content: skillMd({ name: 'release_notes' }),
+        },
+      ],
+    };
     await expect(
       resolveDeepAgentSkillProjection({
         selectedSkillIds: ['skill:release'],
@@ -258,17 +272,11 @@ describe('DeepAgents selected skill projection', () => {
             id: 'skill:release',
             name: 'release-writer',
             storageRef: 'skill-release',
+            contentHash: hashSkillBundle(mismatchedNameBundle),
           }),
         ]),
         skillArtifactStore: artifactStore({
-          'skill-release': {
-            assets: [
-              {
-                path: 'SKILL.md',
-                content: skillMd({ name: 'release_notes' }),
-              },
-            ],
-          },
+          'skill-release': mismatchedNameBundle,
         }),
         skillContext: {
           appId: 'app:test' as never,

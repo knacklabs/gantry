@@ -1,11 +1,12 @@
 import type { JsonSchema } from './openapi-route-helpers.js';
 import { listModelRouteProviders } from '../../shared/model-provider-registry.js';
 import { modelCredentialSchemas } from './openapi-model-credential-schemas.js';
+import { peopleOpenApiSchemas } from './openapi-people.js';
 import {
   agentHarnessProp,
   modelPreviewSchemas,
 } from './openapi-model-preview-schemas.js';
-import { sessionRuntimeSchemas } from './openapi-session-runtime-schemas.js';
+import { openApiSessionSchemas } from './openapi-session-schemas.js';
 
 const isoDateTime = { type: 'string', format: 'date-time' };
 const metadata = { type: 'object', additionalProperties: true };
@@ -57,6 +58,61 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       status: { type: 'string', enum: ['active', 'disabled'] },
       agentHarness: agentHarnessProp,
     },
+  },
+  ReplaceAgentDelegatesRequest: {
+    type: 'object',
+    required: ['delegates'],
+    additionalProperties: false,
+    properties: {
+      delegates: {
+        type: 'array',
+        maxItems: 100,
+        items: { type: 'string', minLength: 1, maxLength: 160 },
+      },
+      expectedRevision: { type: 'integer', minimum: 0 },
+    },
+  },
+  AgentDelegateResolved: {
+    type: 'object',
+    required: ['ref', 'agentId', 'toolName', 'displayName', 'persona'],
+    additionalProperties: false,
+    properties: {
+      ref: { type: 'string' },
+      agentId: { type: 'string' },
+      toolName: { type: 'string' },
+      displayName: { type: 'string' },
+      persona: {
+        type: 'string',
+        enum: [
+          'developer',
+          'generalist',
+          'sales',
+          'marketing',
+          'operations',
+          'research',
+        ],
+      },
+    },
+  },
+  AgentDelegatesResponse: {
+    type: 'object',
+    required: ['agentId', 'revision', 'delegates', 'resolved'],
+    additionalProperties: false,
+    properties: {
+      agentId: { type: 'string' },
+      revision: { type: 'integer', minimum: 0 },
+      delegates: stringArray,
+      resolved: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/AgentDelegateResolved' },
+      },
+    },
+  },
+  SettingsRevisionResponse: {
+    type: 'object',
+    required: ['revision'],
+    additionalProperties: false,
+    properties: { revision: { type: 'integer', minimum: 0 } },
   },
   AgentAdminSummaryResponse: {
     type: 'object',
@@ -128,47 +184,8 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       audit: metadata,
     },
   },
-  ReviewedMcpCapabilityManifest: {
-    type: 'object',
-    required: [
-      'capabilityId',
-      'displayName',
-      'category',
-      'risk',
-      'can',
-      'cannot',
-      'credentialSource',
-      'implementationBindings',
-    ],
-    additionalProperties: false,
-    properties: {
-      capabilityId: { type: 'string' },
-      version: { type: 'string' },
-      displayName: { type: 'string' },
-      category: { type: 'string' },
-      risk: { type: 'string', enum: ['read', 'write', 'admin'] },
-      can: { type: 'string' },
-      cannot: { type: 'string' },
-      credentialSource: {
-        type: 'string',
-        enum: ['configured_access'],
-      },
-      implementationBindings: {
-        type: 'array',
-        minItems: 1,
-        items: {
-          type: 'object',
-          required: ['kind', 'mcpTool'],
-          additionalProperties: false,
-          properties: {
-            kind: { type: 'string', enum: ['mcp_tool'] },
-            mcpTool: { type: 'string' },
-          },
-        },
-      },
-    },
-  },
   CapabilityListResponse: arrayEnvelope('capabilities', 'CapabilityManifest'),
+  ...peopleOpenApiSchemas,
   ...modelCredentialSchemas,
   AgentSourceSelection: {
     type: 'object',
@@ -390,6 +407,9 @@ export const openApiSchemas: Record<string, JsonSchema> = {
           'structuredOutput',
         ],
         properties: {
+          imageInput: { type: 'boolean' },
+          imageToolResults: { type: 'boolean' },
+          pdfInput: { type: 'boolean' },
           streaming: { type: 'boolean' },
           toolUse: { type: 'boolean' },
           mcpProjection: { type: 'boolean' },
@@ -610,17 +630,5 @@ export const openApiSchemas: Record<string, JsonSchema> = {
   ...modelPreviewSchemas,
   SettingsResponse: envelope('settings', metadata),
   ReadOnlySettingsPatchRequest: metadata,
-  ...sessionRuntimeSchemas,
-  Run: {
-    type: 'object',
-    required: ['run_id', 'job_id', 'status'],
-    properties: {
-      run_id: { type: 'string' },
-      job_id: { type: 'string' },
-      status: { type: 'string' },
-      started_at: isoDateTime,
-      completed_at: { oneOf: [isoDateTime, { type: 'null' }] },
-    },
-  },
-  RunListResponse: arrayEnvelope('runs', 'Run'),
+  ...openApiSessionSchemas,
 };

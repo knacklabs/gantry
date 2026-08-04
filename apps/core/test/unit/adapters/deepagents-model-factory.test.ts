@@ -15,6 +15,19 @@ const sandboxOpenrouterBaseUrl =
 const gatewayToken = 'gtw_token';
 
 describe('deepagents model factory', () => {
+  it('builds Gemini with non-streaming signature-preserving chat completions', async () => {
+    const resolved = await buildRunnerModel({
+      provider: 'gemini',
+      modelId: 'gemini-3.1-flash-lite',
+      gatewayBaseUrl: loopbackBaseUrl,
+      gatewayToken,
+    });
+
+    expect(resolved.endpointFamily).toBe('openai');
+    expect(resolved.model.constructor.name).toBe('GantryChatGemini');
+    expect(resolved.model.disableStreaming).toBe(true);
+  });
+
   it('builds a ChatOpenAI via initChatModel for the openai provider', async () => {
     const resolved = await buildRunnerModel({
       provider: 'openai',

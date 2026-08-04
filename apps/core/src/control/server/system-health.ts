@@ -12,6 +12,7 @@ import {
   HOST_EXECUTION_SLOT_KEY_PREFIX,
   hostExecutionSlotKey,
 } from '../../shared/host-capacity.js';
+import { snapshotOperationalErrors } from '../../shared/operational-error-counters.js';
 
 /**
  * Process role string. Kept as a local union (not imported from the runtime
@@ -303,6 +304,15 @@ export async function renderMetrics(deps: MetricsDeps): Promise<string> {
       role: deps.role,
     },
   );
+  lines.push(
+    '# HELP gantry_errors_total Operational errors caught at load-bearing runtime boundaries.',
+  );
+  lines.push('# TYPE gantry_errors_total counter');
+  for (const counter of snapshotOperationalErrors()) {
+    lines.push(
+      `gantry_errors_total${renderLabels({ subsystem: counter.subsystem, kind: counter.kind })} ${counter.count}`,
+    );
+  }
 
   try {
     const rows = await deps.query<WorkerStatusRow>(
@@ -327,7 +337,7 @@ export async function renderMetrics(deps: MetricsDeps): Promise<string> {
   try {
     const rows = await deps.query<QueueDepthRow>(
       `SELECT state, count(*)::int AS count
-       FROM gantry_pgboss.job
+       FROM pgboss.job
        WHERE state IN ('created', 'retry', 'active')
        GROUP BY state`,
     );

@@ -5,7 +5,7 @@ import {
   parseReadableScopedToolRule,
   RUN_COMMAND_TOOL_NAME,
 } from '../../shared/agent-tool-references.js';
-import { isAdminMcpToolFullName } from '../../shared/admin-mcp-tools.js';
+import { isDurableGantryMcpToolFullName } from '../../shared/admin-mcp-tools.js';
 import { parseSemanticCapabilityRule } from '../../shared/semantic-capability-ids.js';
 import { toolRuleCoversRule } from '../../shared/tool-rule-matcher.js';
 import { validateDurableAccessRule } from '../../shared/durable-access-policy.js';
@@ -18,20 +18,6 @@ import {
 export interface ToolAccessRequirementPreflightResult {
   toolAccessRequirements: string[];
   missingTools: string[];
-}
-
-export function normalizeToolAccessRequirementsInput(
-  value: unknown,
-  fieldName = 'toolAccessRequirements',
-): string[] | undefined {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value)) {
-    throw new ApplicationError(
-      'INVALID_REQUEST',
-      `${fieldName} must be an array of readable tool rules.`,
-    );
-  }
-  return normalizeToolAccessRequirements(value, fieldName);
 }
 
 export function normalizeToolAccessRequirements(
@@ -63,20 +49,6 @@ export function normalizeToolAccessRequirements(
     }
   }
   return out;
-}
-
-export function normalizeRequiredMcpServersInput(
-  value: unknown,
-  fieldName = 'requiredMcpServers',
-): string[] | undefined {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value)) {
-    throw new ApplicationError(
-      'INVALID_REQUEST',
-      `${fieldName} must be an array of MCP server names or ids.`,
-    );
-  }
-  return normalizeRequiredMcpServers(value, fieldName);
 }
 
 export function normalizeRequiredMcpServers(
@@ -222,7 +194,7 @@ export function toolAccessRequirementRecoveryAction(toolName: string): string {
   }
   if (
     isGantryFacadeExactToolRule(toolName) ||
-    isAdminMcpToolFullName(toolName)
+    isDurableGantryMcpToolFullName(toolName)
   ) {
     return `request_access ${JSON.stringify({
       target: { kind: 'tool', name: toolName },

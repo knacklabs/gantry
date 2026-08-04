@@ -24,7 +24,10 @@ import type {
 } from './settings/runtime-settings-types.js';
 import { resolveConfiguredAgentRuntime } from './settings/runtime-settings-agent-runtime.js';
 import { isValidTimezone } from '../shared/timezone.js';
-import { resolvePermissionApprovalTimeoutMs } from '../shared/permission-timeout.js';
+import {
+  NO_PERMISSION_TIMEOUT_MS,
+  resolvePermissionApprovalTimeoutMs,
+} from '../shared/permission-timeout.js';
 import { effectiveYoloModeSettings } from '../shared/yolo-mode-policy.js';
 import { resolveEffectivePermissionMode } from '../shared/permission-mode.js';
 import {
@@ -33,6 +36,7 @@ import {
 } from '../shared/trigger-pattern.js';
 export * from './memory.js';
 export { SettingsDesiredStateService } from './settings/desired-state-service.js';
+export { createGroupJoinOnboardingCoordinator } from './settings/group-join-onboarding.js';
 export { configureDesiredSettingsStorageProvider } from './settings/runtime-settings.js';
 export {
   applyRuntimeSettingsDesiredState,
@@ -45,6 +49,7 @@ export {
 } from './settings/runtime-settings.js';
 export {
   resolveRuntimeBootstrapStorageConfigFromEnv,
+  resolveRuntimeStorageConfigForRuntimeHome,
   resolveRuntimeStorageConfig,
   resolveRuntimeStorageConfigFromSettings,
 } from './settings/storage.js';
@@ -62,6 +67,11 @@ export type ControlEnvKey =
   | 'SECRET_ENCRYPTION_KEY'
   | 'SECRET_ENCRYPTION_KEYRING_JSON';
 export function getControlEnvValue(key: ControlEnvKey): string {
+  return envValueDynamic(key);
+}
+// Registered runtime secrets (source-classification.ts) read from process env
+// first, then GANTRY_HOME/.env — managed services pass a minimal process env.
+export function readRuntimeSecretEnv(key: string): string {
   return envValueDynamic(key);
 }
 const GANTRY_HOME_RAW =
@@ -135,6 +145,7 @@ function getPublicConfiguredAgents(settings: RuntimeSettings) {
         permissionMode: agent.permissionMode,
         oneTimeJobDefaultModel: agent.oneTimeJobDefaultModel,
         recurringJobDefaultModel: agent.recurringJobDefaultModel,
+        delegates: agent.delegates,
         bindings: agent.bindings,
         sources: agent.sources,
         capabilities: agent.capabilities,
@@ -183,6 +194,7 @@ export function getPublicRuntimeSettings() {
         enabled: settings.memory.dreaming.enabled,
       },
     },
+    observer: settings.observer,
     runtime: {
       queue: settings.runtime.queue,
       sandbox: settings.runtime.sandbox,
@@ -214,6 +226,7 @@ export function getRuntimeQueueConfig() {
     maxMessageRuns: queue.maxMessageRuns,
     maxJobRuns: queue.maxJobRuns,
     maxMessageBacklog: queue.maxMessageBacklog,
+    maxLiveAdmissionBacklog: queue.maxLiveAdmissionBacklog,
     maxTaskBacklog: queue.maxTaskBacklog,
     maxRetries: queue.maxRetries,
     baseRetryMs: queue.baseRetryMs,
@@ -236,6 +249,7 @@ export const STORAGE_POSTGRES_PLAINTEXT_HOST_ALLOWLIST =
   runtimeStorageConfig.postgresPlaintextHostAllowlist;
 export const PERMISSION_APPROVAL_TIMEOUT_MS =
   resolvePermissionApprovalTimeoutMs(process.env, envConfig);
+export { NO_PERMISSION_TIMEOUT_MS };
 export const AGENT_TIMEOUT = parseInt(
   process.env.AGENT_TIMEOUT || '1800000',
   10,

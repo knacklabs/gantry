@@ -1,5 +1,23 @@
 import { z } from 'zod';
 
+const JsonObjectSchema = z.record(z.string(), z.unknown());
+
+function hasObjectResultRoot(schema: Record<string, unknown>): boolean {
+  if (schema.type === 'object') return true;
+  const variants = schema.oneOf ?? schema.anyOf;
+  return (
+    Array.isArray(variants) &&
+    variants.length > 0 &&
+    variants.every(
+      (variant) =>
+        Boolean(variant) &&
+        typeof variant === 'object' &&
+        !Array.isArray(variant) &&
+        hasObjectResultRoot(variant as Record<string, unknown>),
+    )
+  );
+}
+
 export const JobAgentTaskSchema = z
   .object({
     observability: z
@@ -10,12 +28,10 @@ export const JobAgentTaskSchema = z
       })
       .strict()
       .optional(),
-    responseSchema: z
-      .record(z.string(), z.unknown())
-      .refine((schema) => schema.type === 'object', {
-        message: 'responseSchema root type must be "object"',
-      })
-      .optional(),
+    responseSchema: JsonObjectSchema.refine(
+      hasObjectResultRoot,
+      'responseSchema must produce only object results',
+    ).optional(),
     callerResolvedTools: z
       .object({
         tools: z
@@ -24,7 +40,7 @@ export const JobAgentTaskSchema = z
               .object({
                 name: z.string().min(1).max(80),
                 description: z.string().min(1).max(1_000),
-                inputSchema: z.record(z.string(), z.unknown()),
+                inputSchema: JsonObjectSchema,
               })
               .strict(),
           )

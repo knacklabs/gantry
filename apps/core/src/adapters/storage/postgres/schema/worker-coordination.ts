@@ -1,5 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
+  bigint,
   index,
   integer,
   jsonb,
@@ -132,6 +134,87 @@ export const runSlotsPostgres = pgTable(
   }),
 );
 
+export const permissionPromptsPostgres = pgTable(
+  'permission_prompts',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    sourceAgentFolder: text('source_agent_folder').notNull(),
+    interactionId: text('interaction_id').notNull(),
+    // match_kind is application-constrained to: individual | batch.
+    matchKind: text('match_kind').notNull(),
+    memberCount: integer('member_count').notNull(),
+    renderedDecisionOptionsJson: jsonb(
+      'rendered_decision_options_json',
+    ).notNull(),
+    renderedRequestJson: jsonb('rendered_request_json').notNull(),
+    targetJid: text('target_jid'),
+    approvalContextJid: text('approval_context_jid'),
+    threadId: text('thread_id'),
+    decisionPolicy: text('decision_policy'),
+    fullViewJson: jsonb('full_view_json'),
+    externalPromptProvider: text('external_prompt_provider'),
+    externalPromptConversationId: text('external_prompt_conversation_id'),
+    externalPromptMessageId: text('external_prompt_message_id'),
+    externalPromptThreadId: text('external_prompt_thread_id'),
+    providerAliases: text('provider_aliases')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    claimId: text('claim_id'),
+    claimMode: text('claim_mode'),
+    claimApproverRef: text('claim_approver_ref'),
+    claimedAt: timestamp('claimed_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    // settlement_state is application-constrained to:
+    // open | claimed | settled | review_each_expired | superseded.
+    settlementState: text('settlement_state').notNull().default('open'),
+    settledAt: timestamp('settled_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    canonicalBatchId: text('canonical_batch_id'),
+    parentEnvelopeId: text('parent_envelope_id').references(
+      (): AnyPgColumn => permissionPromptsPostgres.id,
+      { onDelete: 'set null' },
+    ),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'string',
+    })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'string',
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    scopeIdx: index('idx_permission_prompts_scope').on(
+      table.appId,
+      table.sourceAgentFolder,
+      table.interactionId,
+      table.settlementState,
+    ),
+    promptMessageIdx: index('idx_permission_prompts_message').on(
+      table.appId,
+      table.externalPromptProvider,
+      table.externalPromptConversationId,
+      table.externalPromptMessageId,
+      table.externalPromptThreadId,
+    ),
+    parentEnvelopeIdx: index('idx_permission_prompts_parent').on(
+      table.parentEnvelopeId,
+    ),
+  }),
+);
+
 export const pendingInteractionsPostgres = pgTable(
   'pending_interactions',
   {
@@ -142,6 +225,14 @@ export const pendingInteractionsPostgres = pgTable(
     runId: text('run_id').references(() => agentRunsPostgres.id, {
       onDelete: 'set null',
     }),
+    envelopeId: text('envelope_id').references(
+      () => permissionPromptsPostgres.id,
+    ),
+    memberIndex: integer('member_index'),
+    sourceAgentFolder: text('source_agent_folder'),
+    requestId: text('request_id'),
+    runLeaseToken: text('run_lease_token'),
+    runLeaseFencingVersion: integer('run_lease_fencing_version'),
     // kind is application-constrained to: permission | question.
     kind: text('kind').notNull(),
     // status is application-constrained to:
@@ -177,6 +268,25 @@ export const pendingInteractionsPostgres = pgTable(
     runStatusIdx: index('idx_pending_interactions_run').on(
       table.runId,
       table.status,
+    ),
+    requestLookupIdx: index('idx_pending_interactions_request_lookup').on(
+      table.appId,
+      table.kind,
+      table.sourceAgentFolder,
+      table.requestId,
+      table.status,
+      table.expiresAt,
+    ),
+    envelopeMemberUnique: uniqueIndex(
+      'uq_pending_interactions_envelope_member',
+    ).on(table.envelopeId, table.memberIndex),
+    envelopeRequestUnique: uniqueIndex(
+      'uq_pending_interactions_envelope_request',
+    ).on(table.envelopeId, table.requestId),
+    envelopeStatusIdx: index('idx_pending_interactions_envelope_status').on(
+      table.envelopeId,
+      table.status,
+      table.expiresAt,
     ),
   }),
 );
@@ -262,4 +372,33 @@ export const transientGrantsPostgres = pgTable(
   (table) => ({
     runIdx: index('idx_transient_grants_run').on(table.runId, table.expiresAt),
   }),
+);
+
+/**
+ * Durable ownership generation per RuntimeLeasePort key.
+ *
+ * `run_leases` above already fences RUNS, but it is primary-keyed on
+ * (run_id, fencing_version) with NOT NULL foreign keys to agent_runs and
+ * worker_instances, so it cannot host arbitrary advisory-lease keys like
+ * `browser-profile:<name>` or `settings-projector:<appId>`. This table gives
+ * those keys the same monotonic-fence discipline: the generation is bumped on
+ * acquisition and handed to the holder, so a stale owner's late write can be
+ * rejected by comparing generations.
+ *
+ * The bump runs on the connection that already holds the advisory lock, which
+ * is what serializes it — there is no separate lock here.
+ */
+export const runtimeLeaseGenerationsPostgres = pgTable(
+  'runtime_lease_generations',
+  {
+    leaseKey: text('lease_key').primaryKey(),
+    generation: bigint('generation', { mode: 'number' }).notNull(),
+    // Diagnostic only: who most recently took the key. Never used for control
+    // decisions — the generation is the fence.
+    holder: text('holder'),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+  },
 );

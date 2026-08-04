@@ -9,8 +9,6 @@ import type {
 export function createGroupTurnOptionBuilders(input: {
   activeThreadId?: string;
   providerAccountId?: string;
-  runId: () => string | undefined;
-  appResponseRoute?: import('../domain/types.js').AppMessageResponseRoute;
   streamGeneration: () => number;
   progressGeneration: () => number;
 }): {
@@ -32,43 +30,24 @@ export function createGroupTurnOptionBuilders(input: {
   return {
     buildMessageOptions: (threadId?: string) => {
       const resolved = resolveThreadId(threadId);
-      const runId = input.runId();
-      if (
-        !resolved &&
-        !input.providerAccountId &&
-        !runId &&
-        !input.appResponseRoute
-      ) {
-        return undefined;
-      }
+      if (!resolved && !input.providerAccountId) return undefined;
       return {
         ...(resolved ? { threadId: resolved } : {}),
         ...(input.providerAccountId
           ? { providerAccountId: input.providerAccountId }
           : {}),
-        ...(runId ? { runId } : {}),
-        ...(input.appResponseRoute
-          ? { appResponseRoute: input.appResponseRoute }
-          : {}),
       };
     },
-    buildStreamingOptions: (args: { threadId?: string; done?: boolean }) => {
-      const runId = input.runId();
-      return {
-        generation: input.streamGeneration(),
-        ...(resolveThreadId(args.threadId)
-          ? { threadId: resolveThreadId(args.threadId) }
-          : {}),
-        ...(input.providerAccountId
-          ? { providerAccountId: input.providerAccountId }
-          : {}),
-        ...(runId ? { runId } : {}),
-        ...(input.appResponseRoute
-          ? { appResponseRoute: input.appResponseRoute }
-          : {}),
-        ...(args.done !== undefined ? { done: args.done } : {}),
-      };
-    },
+    buildStreamingOptions: (args: { threadId?: string; done?: boolean }) => ({
+      generation: input.streamGeneration(),
+      ...(resolveThreadId(args.threadId)
+        ? { threadId: resolveThreadId(args.threadId) }
+        : {}),
+      ...(input.providerAccountId
+        ? { providerAccountId: input.providerAccountId }
+        : {}),
+      ...(args.done !== undefined ? { done: args.done } : {}),
+    }),
     liveStopActionToken,
     buildProgressOptions: (
       args: { threadId?: string; done?: boolean; replaceOnly?: boolean } = {},

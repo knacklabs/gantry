@@ -17,19 +17,6 @@ function resultFailureRequiresRuntimeFailure(value: string): boolean {
   return looksLikeCredentialFailure || looksLikeBillingFailure;
 }
 
-function sdkResultTextPreview(
-  message: unknown,
-  maxLength = 500,
-): string | null {
-  if (!message || typeof message !== 'object') return null;
-  const value = (message as { result?: unknown }).result;
-  if (typeof value !== 'string') return null;
-  const normalized = value.replace(/\s+/g, ' ').trim();
-  if (!normalized) return null;
-  if (normalized.length <= maxLength) return normalized;
-  return `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
-}
-
 export function shouldPrefixVisibleBoundary(
   previous: string,
   next: string,
@@ -60,7 +47,7 @@ export function sdkResultFailureMessage(message: unknown): string | null {
   const text =
     typeof resultMessage.result === 'string' ? resultMessage.result : '';
   if (text && resultFailureRequiresRuntimeFailure(text)) {
-    return sdkResultTextPreview(message, 240) ?? text;
+    return text;
   }
   if (resultMessage.subtype && resultMessage.subtype !== 'success') {
     return errors.length > 0
@@ -69,12 +56,6 @@ export function sdkResultFailureMessage(message: unknown): string | null {
   }
   if (resultMessage.is_error && errors.length > 0) {
     return errors.join('; ');
-  }
-  if (resultMessage.is_error && text) {
-    const preview = sdkResultTextPreview(message, 240);
-    return preview && preview.length < text.replace(/\s+/g, ' ').trim().length
-      ? 'Claude SDK returned an error result.'
-      : `Claude SDK returned error result: ${preview ?? 'non-empty result text'}`;
   }
   return null;
 }
@@ -89,57 +70,41 @@ export function topLevelAssistantText(message: unknown): string {
   return assistantTextFromContent(record.message?.content);
 }
 
-export function sdkStructuredOutputText(message: unknown): string | null {
-  if (!message || typeof message !== 'object') return null;
-  const value = (message as { structured_output?: unknown }).structured_output;
-  if (value === undefined) return null;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return null;
-  }
-}
-
 export function sdkResultText(
   message: unknown,
   responseSchema?: Record<string, unknown>,
-  options?: { allowErrorResultText?: boolean },
 ): string | null {
   const failure = sdkResultFailureMessage(message);
-  if (failure) {
-    if (!options?.allowErrorResultText) throw new Error(failure);
-    const result =
-      message && typeof message === 'object'
-        ? (message as { result?: unknown }).result
-        : undefined;
-    if (typeof result !== 'string' || result.trim().length === 0) {
-      throw new Error(failure);
-    }
-  }
+  if (failure) throw new Error(failure);
   if (responseSchema) {
-    const structured = sdkStructuredOutputText(message);
-    if (structured === null) {
+    const structured =
+      message && typeof message === 'object'
+        ? (message as { structured_output?: unknown }).structured_output
+        : undefined;
+    if (structured === undefined) {
       throw new Error(
         'Claude SDK returned success without validated structured output.',
       );
     }
-    return structured;
+    return JSON.stringify(structured);
   }
-  if (!message || typeof message !== 'object') return null;
-  const result = (message as { result?: unknown }).result;
+  const result =
+    message && typeof message === 'object'
+      ? (message as { result?: unknown }).result
+      : undefined;
   return typeof result === 'string' ? result : null;
 }
 
 export function sdkStructuredOutputOptions(
   responseSchema?: Record<string, unknown>,
-): {
-  outputFormat?: {
-    type: 'json_schema';
-    schema: Record<string, unknown>;
-  };
-} {
+) {
   return responseSchema
-    ? { outputFormat: { type: 'json_schema', schema: responseSchema } }
+    ? {
+        outputFormat: {
+          type: 'json_schema' as const,
+          schema: responseSchema,
+        },
+      }
     : {};
 }
 

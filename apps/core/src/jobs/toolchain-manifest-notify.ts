@@ -15,29 +15,6 @@ export interface ToolchainManifestWakeup {
   status: RuntimeDependency['status'];
 }
 
-export function parseToolchainManifestWakeup(
-  payload: string | undefined,
-): ToolchainManifestWakeup | null {
-  if (!payload) return null;
-  try {
-    const parsed = JSON.parse(payload) as Partial<ToolchainManifestWakeup>;
-    if (
-      typeof parsed.appId !== 'string' ||
-      typeof parsed.manifestHash !== 'string' ||
-      typeof parsed.status !== 'string'
-    ) {
-      return null;
-    }
-    return {
-      appId: parsed.appId,
-      manifestHash: parsed.manifestHash,
-      status: parsed.status as RuntimeDependency['status'],
-    };
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Pool-backed manifest notifier. A failed NOTIFY is logged, not thrown: the
  * reconciler's interval poll fallback recovers a dropped wakeup, so the bake

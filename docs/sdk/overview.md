@@ -57,7 +57,7 @@ Deployment topology (`runtime.deployment_mode`) is a **different axis** from
 security posture (`GANTRY_SECURITY_POSTURE`, values `production|remote`). Fleet
 requires production posture; workstation defaults to the relaxed local posture
 and may opt into production. See
-[Deployment Modes](../decisions/2026-06-11-deployment-modes.md).
+[Deployment Modes](../decisions/0023-deployment-modes.md).
 
 ## Transport
 
@@ -166,7 +166,7 @@ file and the CLI `--file` edge. In the workstation shape, the same file is
 auto-imported through the identical validation path. See the
 [API reference](./api-reference.md#desired-state) for the contract, scopes,
 409/400 semantics, and an optimistic-concurrency example, and
-[Settings Authority](../decisions/2026-06-11-settings-authority.md) for the
+[Settings Authority](../decisions/0025-settings-authority.md) for the
 one-service/two-surfaces decision.
 
 ## External Ingress

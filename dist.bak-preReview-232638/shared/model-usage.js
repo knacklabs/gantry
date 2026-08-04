@@ -1,0 +1,169 @@
+import { findModelByRunnerModel, } from './model-catalog.js';
+import { resolveModelCacheProvider, resolveModelCacheSupport, } from './model-cache-support.js';
+import { nowIso } from './time/datetime.js';
+function numeric(value) {
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+const DIRECT_CACHE_PROVIDER = ['an', 'thropic'].join('');
+function normalizeCacheStatus(read, write, supported) {
+    if (!supported)
+        return 'unsupported';
+    if (read > 0 && write > 0)
+        return 'partial';
+    if (read > 0)
+        return 'hit';
+    if (write > 0)
+        return 'miss';
+    return 'unknown';
+}
+function readPath(input, path) {
+    if (!path)
+        return undefined;
+    let cursor = input;
+    for (const segment of path.split('.')) {
+        if (!segment)
+            return undefined;
+        if (cursor === null || typeof cursor !== 'object')
+            return undefined;
+        cursor = cursor[segment];
+    }
+    return cursor;
+}
+export function estimateUsageCostUsd(entry, usage) {
+    const inputUsd = entry?.inputUsdPerMillionTokens;
+    const outputUsd = entry?.outputUsdPerMillionTokens;
+    if (typeof inputUsd !== 'number' || typeof outputUsd !== 'number') {
+        return undefined;
+    }
+    const cachedInputUsd = entry?.cachedInputUsdPerMillionTokens ?? inputUsd;
+    if (usage.cacheProvider === DIRECT_CACHE_PROVIDER) {
+        const cacheWriteUsd = entry?.cacheWriteUsdPerMillionTokens ?? inputUsd;
+        return ((usage.inputTokens * inputUsd +
+            usage.cacheReadTokens * cachedInputUsd +
+            usage.cacheWriteTokens * cacheWriteUsd +
+            usage.outputTokens * outputUsd) /
+            1_000_000);
+    }
+    const freshInputTokens = Math.max(0, usage.inputTokens - usage.cacheReadTokens);
+    return ((freshInputTokens * inputUsd +
+        usage.cacheReadTokens * cachedInputUsd +
+        usage.outputTokens * outputUsd) /
+        1_000_000);
+}
+export function accumulateModelUsage(accumulated, usage) {
+    if (!accumulated)
+        return usage;
+    const hasEstimatedCost = typeof accumulated.estimatedCostUsd === 'number' ||
+        typeof usage.estimatedCostUsd === 'number';
+    return {
+        ...usage,
+        inputTokens: accumulated.inputTokens + usage.inputTokens,
+        outputTokens: accumulated.outputTokens + usage.outputTokens,
+        cacheReadTokens: accumulated.cacheReadTokens + usage.cacheReadTokens,
+        cacheWriteTokens: accumulated.cacheWriteTokens + usage.cacheWriteTokens,
+        totalBillableInputTokens: accumulated.totalBillableInputTokens + usage.totalBillableInputTokens,
+        estimatedCostUsd: hasEstimatedCost
+            ? (accumulated.estimatedCostUsd ?? 0) + (usage.estimatedCostUsd ?? 0)
+            : undefined,
+    };
+}
+export function normalizeModelUsage(input) {
+    const result = input.message;
+    if (result.modelUsage && Object.keys(result.modelUsage).length > 0) {
+        let inputTokens = 0;
+        let outputTokens = 0;
+        let cacheReadTokens = 0;
+        let cacheWriteTokens = 0;
+        let estimatedCostUsd = 0;
+        const modelNames = Object.keys(result.modelUsage);
+        const firstModel = modelNames[0] ?? input.fallbackModel;
+        const entries = modelNames
+            .map((model) => findModelByRunnerModel(model))
+            .filter((entry) => Boolean(entry));
+        const responseFamilySet = new Set(entries.map((entry) => entry.responseFamily));
+        const modelRouteSet = new Set(entries.map((entry) => entry.modelRoute.id));
+        const cacheProviderSet = new Set(entries.map(resolveModelCacheProvider));
+        const hasUnknownModel = entries.length !== modelNames.length;
+        for (const usage of Object.values(result.modelUsage)) {
+            inputTokens += numeric(usage.inputTokens);
+            outputTokens += numeric(usage.outputTokens);
+            cacheReadTokens += numeric(usage.cacheReadInputTokens);
+            cacheWriteTokens += numeric(usage.cacheCreationInputTokens);
+            estimatedCostUsd += numeric(usage.costUSD);
+        }
+        const entry = findModelByRunnerModel(firstModel ?? input.fallbackModel);
+        const isMixedModel = modelNames.length > 1;
+        const cacheProvider = hasUnknownModel
+            ? 'none'
+            : cacheProviderSet.size === 1
+                ? [...cacheProviderSet][0]
+                : 'mixed';
+        const supportsCacheAccounting = cacheProvider !== 'none' && cacheProviderSet.size > 0;
+        return {
+            model: isMixedModel ? 'mixed' : (entry?.recommendedAlias ?? firstModel),
+            responseFamily: responseFamilySet.size === 1
+                ? [...responseFamilySet][0]
+                : isMixedModel
+                    ? undefined
+                    : entry?.responseFamily,
+            modelRoute: modelRouteSet.size === 1
+                ? [...modelRouteSet][0]
+                : isMixedModel
+                    ? undefined
+                    : entry?.modelRoute.id,
+            provider: modelRouteSet.size === 1
+                ? [...modelRouteSet][0]
+                : isMixedModel
+                    ? undefined
+                    : entry?.modelRoute.id,
+            inputTokens,
+            outputTokens,
+            cacheReadTokens,
+            cacheWriteTokens,
+            totalBillableInputTokens: supportsCacheAccounting
+                ? Math.max(0, inputTokens - cacheReadTokens)
+                : inputTokens,
+            estimatedCostUsd: estimatedCostUsd > 0 ? estimatedCostUsd : result.total_cost_usd,
+            cacheProvider,
+            cacheStatus: normalizeCacheStatus(cacheReadTokens, cacheWriteTokens, supportsCacheAccounting),
+            at: nowIso(),
+        };
+    }
+    if (result.usage) {
+        const entry = findModelByRunnerModel(input.fallbackModel);
+        const inputTokens = numeric(result.usage.input_tokens) || numeric(result.usage.prompt_tokens);
+        const outputTokens = numeric(result.usage.output_tokens) ||
+            numeric(result.usage.completion_tokens);
+        const cacheProvider = resolveModelCacheProvider(entry);
+        const supportsCacheAccounting = cacheProvider !== 'none';
+        const usageFields = entry
+            ? resolveModelCacheSupport(entry).prompt.usageFields
+            : undefined;
+        const cacheReadTokens = numeric(readPath(result.usage, usageFields?.readTokens));
+        const cacheWriteTokens = numeric(readPath(result.usage, usageFields?.writeTokens));
+        return {
+            model: entry?.recommendedAlias ?? input.fallbackModel,
+            responseFamily: entry?.responseFamily,
+            modelRoute: entry?.modelRoute.id,
+            provider: entry?.modelRoute.id,
+            inputTokens,
+            outputTokens,
+            cacheReadTokens,
+            cacheWriteTokens,
+            totalBillableInputTokens: supportsCacheAccounting
+                ? Math.max(0, inputTokens - cacheReadTokens)
+                : inputTokens,
+            estimatedCostUsd: estimateUsageCostUsd(entry, {
+                inputTokens,
+                outputTokens,
+                cacheReadTokens,
+                cacheWriteTokens,
+                cacheProvider,
+            }),
+            cacheProvider,
+            cacheStatus: normalizeCacheStatus(cacheReadTokens, cacheWriteTokens, supportsCacheAccounting),
+            at: nowIso(),
+        };
+    }
+    return undefined;
+}

@@ -83,12 +83,12 @@ maybeDescribe('non-executing-role manual job trigger enqueue', () => {
       schemaPrefix: 'trigger_nonexec',
     });
     _setRuntimeStorageForTest(runtime.storageRuntime);
-    // The send-only client runs with migrate:false, so the `gantry_pgboss` schema and
+    // The send-only client runs with migrate:false, so the `pgboss` schema and
     // its job table must already exist (as in any fleet, where a job worker
     // boots first). Migrate it once here with a throwaway full client.
     const bootstrap = new PgBoss({
       connectionString: process.env.GANTRY_TEST_DATABASE_URL ?? '',
-      schema: 'gantry_pgboss',
+      schema: 'pgboss',
       schedule: false,
       supervise: false,
     });
@@ -101,7 +101,7 @@ maybeDescribe('non-executing-role manual job trigger enqueue', () => {
     await runtime?.cleanup();
   });
 
-  it('enqueues a delivery into the gantry_pgboss scheduler queue with no engine running', async () => {
+  it('enqueues a delivery into the pgboss scheduler queue with no engine running', async () => {
     _resetSchedulerLoopForTests();
     markRoleHasNoJobExecution();
 
@@ -128,7 +128,7 @@ maybeDescribe('non-executing-role manual job trigger enqueue', () => {
       group_id: string | null;
     }>(
       `SELECT id, name, data, group_id
-         FROM gantry_pgboss.job
+         FROM pgboss.job
         WHERE name = $1 AND data->>'triggerId' = $2`,
       [SCHEDULER_QUEUE, trigger.triggerId],
     );
@@ -144,10 +144,9 @@ maybeDescribe('non-executing-role manual job trigger enqueue', () => {
     // Grouped by the job's workspace key so it serializes with that group.
     expect(row.group_id).toBeTruthy();
 
-    // Clean up only this row to stay isolated from any other pg-boss user.
-    await runtime.service.pool.query(
-      `DELETE FROM gantry_pgboss.job WHERE id = $1`,
-      [row.id],
-    );
+    // Clean up only this row to stay isolated from any other pgboss user.
+    await runtime.service.pool.query(`DELETE FROM pgboss.job WHERE id = $1`, [
+      row.id,
+    ]);
   });
 });

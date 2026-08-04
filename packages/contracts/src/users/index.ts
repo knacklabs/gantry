@@ -5,8 +5,8 @@ import {
   IsoDateTimeSchema,
 } from '../contract-primitives.js';
 
-export const UserResponseSchema = z.object({
-  id: z.string(),
+export const PersonBaseResponseSchema = z.object({
+  personId: z.string(),
   appId: z.string(),
   kind: z.enum(['human', 'service']).default('human'),
   displayName: z.string().nullable().optional(),
@@ -15,18 +15,223 @@ export const UserResponseSchema = z.object({
   updatedAt: IsoDateTimeSchema,
   metadata: ContractMetadataSchema.optional(),
 });
-export type UserResponse = z.infer<typeof UserResponseSchema>;
+export type PersonBaseResponse = z.infer<typeof PersonBaseResponseSchema>;
 
-export const UserAliasResponseSchema = z.object({
+export const PersonAliasVerificationStatusSchema = z.enum([
+  'verified',
+  'unverified',
+  'retired',
+]);
+export type PersonAliasVerificationStatus = z.infer<
+  typeof PersonAliasVerificationStatusSchema
+>;
+
+export const PersonAliasResponseSchema = z.object({
   id: z.string(),
   appId: z.string(),
-  userId: z.string(),
+  personId: z.string(),
   provider: z.string(),
   providerAccountId: z.string().nullable().optional(),
   externalUserId: z.string(),
   displayName: z.string().nullable().optional(),
+  verificationStatus: PersonAliasVerificationStatusSchema,
+  verifiedAt: IsoDateTimeSchema.nullable().optional(),
+  verifiedBy: z.string().nullable().optional(),
+  retiredAt: IsoDateTimeSchema.nullable().optional(),
+  retiredBy: z.string().nullable().optional(),
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
+  evidence: ContractMetadataSchema.optional(),
   metadata: ContractMetadataSchema.optional(),
 });
-export type UserAliasResponse = z.infer<typeof UserAliasResponseSchema>;
+export type PersonAliasResponse = z.infer<typeof PersonAliasResponseSchema>;
+
+export const PersonResponseSchema = PersonBaseResponseSchema.extend({
+  aliases: z.array(PersonAliasResponseSchema).optional(),
+  memoryCounts: z
+    .object({
+      personal: z.number().int().min(0),
+      active: z.number().int().min(0),
+      archived: z.number().int().min(0),
+      superseded: z.number().int().min(0),
+      deleted: z.number().int().min(0),
+    })
+    .optional(),
+  aliasCounts: z
+    .object({
+      verified: z.number().int().min(0),
+      unverified: z.number().int().min(0),
+      retired: z.number().int().min(0),
+    })
+    .optional(),
+});
+export type PersonResponse = z.infer<typeof PersonResponseSchema>;
+
+export const PEOPLE_LIST_DEFAULT_LIMIT = 50;
+export const PEOPLE_LIST_MAX_LIMIT = 200;
+
+export const PeopleListQuerySchema = z.object({
+  appId: z.string().optional(),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(PEOPLE_LIST_MAX_LIMIT)
+    .default(PEOPLE_LIST_DEFAULT_LIMIT),
+  cursor: z.string().min(1).max(1024).optional(),
+});
+export type PeopleListQuery = z.input<typeof PeopleListQuerySchema>;
+
+export const PeopleListResponseSchema = z.object({
+  people: z.array(PersonResponseSchema),
+  nextCursor: z.string().nullable(),
+});
+export type PeopleListResponse = z.infer<typeof PeopleListResponseSchema>;
+
+export const IdentityResolveStatusSchema = z.enum([
+  'resolved',
+  'created',
+  'unresolved',
+]);
+export type IdentityResolveStatus = z.infer<typeof IdentityResolveStatusSchema>;
+
+export const IdentityEvidenceTypeSchema = z.enum([
+  'provider_user',
+  'email',
+  'phone',
+  'web_user',
+]);
+export type IdentityEvidenceType = z.infer<typeof IdentityEvidenceTypeSchema>;
+
+// Alias-key components: uniqueness coalesces a null account id to '', so a
+// whitespace-only string would silently collide with the null form. Refuse
+// empty and whitespace-only values at the contract.
+const AliasKeyStringSchema = z
+  .string()
+  .refine((value) => value.trim().length > 0, {
+    message: 'must not be empty or whitespace-only',
+  });
+
+export const IdentityResolveRequestSchema = z.object({
+  appId: z.string().optional(),
+  provider: AliasKeyStringSchema,
+  providerAccountId: AliasKeyStringSchema.nullable().optional(),
+  externalUserId: AliasKeyStringSchema,
+  displayName: z.string().nullable().optional(),
+  evidenceType: IdentityEvidenceTypeSchema,
+  createIfMissing: z.boolean().optional(),
+});
+export type IdentityResolveRequest = z.infer<
+  typeof IdentityResolveRequestSchema
+>;
+
+export const IdentityResolveResponseSchema = z.object({
+  status: IdentityResolveStatusSchema,
+  personId: z.string().nullable(),
+  memoryHydrationEligible: z.boolean(),
+  matchedAlias: PersonAliasResponseSchema.optional(),
+  createdAlias: PersonAliasResponseSchema.optional(),
+  verificationStatus: PersonAliasVerificationStatusSchema.optional(),
+});
+export type IdentityResolveResponse = z.infer<
+  typeof IdentityResolveResponseSchema
+>;
+
+export const AddPersonAliasRequestSchema = z.object({
+  appId: z.string().optional(),
+  provider: AliasKeyStringSchema,
+  providerAccountId: AliasKeyStringSchema.nullable().optional(),
+  externalUserId: AliasKeyStringSchema,
+  displayName: z.string().nullable().optional(),
+  evidenceType: IdentityEvidenceTypeSchema,
+  evidence: ContractMetadataSchema.optional(),
+});
+export type AddPersonAliasRequest = z.infer<typeof AddPersonAliasRequestSchema>;
+
+export const PersonMergeConflictResolutionSchema = z.enum([
+  'fail_on_conflict',
+  'keep_target',
+]);
+export type PersonMergeConflictResolution = z.infer<
+  typeof PersonMergeConflictResolutionSchema
+>;
+
+export const PersonMergeRequestSchema = z.object({
+  appId: z.string().optional(),
+  sourcePersonId: z.string(),
+  idempotencyKey: z.string().optional(),
+  fingerprint: z.string().min(1).optional(),
+  conflictResolution: PersonMergeConflictResolutionSchema.optional(),
+});
+export type PersonMergeRequest = z.infer<typeof PersonMergeRequestSchema>;
+
+export const PersonMergeApplyRequestSchema = PersonMergeRequestSchema.extend({
+  fingerprint: z.string().min(1),
+});
+export type PersonMergeApplyRequest = z.infer<
+  typeof PersonMergeApplyRequestSchema
+>;
+
+export const PersonMergePreviewResponseSchema = z.object({
+  summary: z.literal('Merge preview only. No data changed.'),
+  sourcePersonId: z.string(),
+  targetPersonId: z.string(),
+  aliasesToMove: z.array(PersonAliasResponseSchema),
+  memoryRowsToMove: z.number().int().min(0),
+  memoryRowsFingerprint: z.string().optional(),
+  excludedMemoryScopes: z.object({
+    group: z.number().int().min(0),
+    channel: z.number().int().min(0),
+    common: z.number().int().min(0),
+  }),
+  conflicts: z.array(
+    z.object({
+      type: z.enum(['memory', 'alias']).optional(),
+      sourceMemoryId: z.string().optional(),
+      targetMemoryId: z.string().optional(),
+      sourceAliasId: z.string().optional(),
+      targetAliasId: z.string().optional(),
+      agentId: z.string().nullable().optional(),
+      kind: z.string(),
+      key: z.string(),
+    }),
+  ),
+  fingerprint: z.string(),
+});
+export type PersonMergePreviewResponse = z.infer<
+  typeof PersonMergePreviewResponseSchema
+>;
+
+export const PersonMergeApplyResponseSchema =
+  PersonMergePreviewResponseSchema.omit({ summary: true }).extend({
+    summary: z.literal(
+      'Person merge completed. Personal memory and aliases now belong to the target person.',
+    ),
+    idempotencyKey: z.string(),
+    auditId: z.string(),
+    applied: z.boolean(),
+  });
+export type PersonMergeApplyResponse = z.infer<
+  typeof PersonMergeApplyResponseSchema
+>;
+
+export const PersonUnmergeRequestSchema = z.object({
+  appId: z.string().optional(),
+  auditId: z.string().min(1),
+  fingerprint: z.string().min(1),
+});
+export type PersonUnmergeRequest = z.infer<typeof PersonUnmergeRequestSchema>;
+
+export const PersonUnmergeResponseSchema = z.object({
+  summary: z.literal(
+    'Person unmerge completed. The archived person and merge-owned data were restored.',
+  ),
+  auditId: z.string(),
+  sourcePersonId: z.string(),
+  targetPersonId: z.string(),
+  restoredPerson: PersonResponseSchema,
+  aliasesRestored: z.array(PersonAliasResponseSchema),
+  memoryRowsRestored: z.number().int().min(0),
+  unmergedAt: IsoDateTimeSchema,
+});
+export type PersonUnmergeResponse = z.infer<typeof PersonUnmergeResponseSchema>;

@@ -11,9 +11,13 @@ import {
 import { recoverQueuedAsyncMcpTasks } from '@core/jobs/async-mcp-tool-task.js';
 
 describe('recoverStaleAsyncCommandTasks', () => {
-  it('recovers queued MCP tasks when command sandbox recovery is unavailable', async () => {
+  it('recovers queued command and MCP tasks without an enforcing sandbox', async () => {
+    const listCalls: unknown[] = [];
     const repository = {
-      listTasks: vi.fn(async () => []),
+      listTasks: vi.fn(async (input) => {
+        listCalls.push(input);
+        return [];
+      }),
     };
     const warn = vi.fn();
 
@@ -28,6 +32,12 @@ describe('recoverStaleAsyncCommandTasks', () => {
       appId: 'default',
       createProxy: expect.any(Function),
     });
+    expect(listCalls).toContainEqual(
+      expect.objectContaining({
+        kind: 'async_command',
+        statuses: ['queued'],
+      }),
+    );
     expect(warn).toHaveBeenCalledWith(
       { queuedMcp: 1 },
       'Recovered queued async MCP tasks',

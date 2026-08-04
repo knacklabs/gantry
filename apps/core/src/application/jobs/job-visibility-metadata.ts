@@ -61,7 +61,6 @@ export interface JobVisibilityMetadata {
   requiredMcpServers: string[];
   toolAccess: JobToolAccessView;
   setup: JobSetupMetadata;
-  recovery: JobRecoveryMetadata;
   health: JobHealthMetadata;
   recentRunErrors: Array<{
     runId: string;
@@ -111,17 +110,6 @@ export interface JobSetupMetadata {
   nextAction: string | null;
 }
 
-export interface JobRecoveryMetadata {
-  state: NonNullable<Job['recovery_intent']>['state'] | 'none';
-  kind: NonNullable<Job['recovery_intent']>['kind'] | null;
-  updatedAt: string | null;
-  attempts: number;
-  requirementType: string | null;
-  requirementId: string | null;
-  nextAction: string | null;
-  lastError: string | null;
-}
-
 export async function buildJobVisibilityMetadata(input: {
   job: Job;
   ops: Pick<RuntimeJobRepository, 'listJobRuns'>;
@@ -158,7 +146,6 @@ export async function buildJobVisibilityMetadata(input: {
     nowMs,
   });
   const setup = setupMetadataForJob(input.job);
-  const recovery = recoveryMetadataForJob(input.job);
   const displayLabels = deriveJobDisplayLabels({
     executionContext,
     notificationRoutes,
@@ -186,7 +173,6 @@ export async function buildJobVisibilityMetadata(input: {
       effectiveAllowedTools: policy.effectiveAllowedTools,
     }),
     setup,
-    recovery,
     health,
     staleness,
     recentRunErrors: runs
@@ -202,7 +188,7 @@ export async function buildJobVisibilityMetadata(input: {
 
 export async function buildJobListVisibilityMetadata(input: {
   jobs: Job[];
-  ops?: Pick<RuntimeJobRepository, 'listJobRuns'>;
+  ops?: Pick<RuntimeJobRepository, 'listLatestJobRunsByJobIds'>;
   toolRepository?: ToolCatalogRepository;
   skillRepository?: SkillCatalogRepository;
   appId?: string;
@@ -239,7 +225,8 @@ export async function buildJobListVisibilityMetadata(input: {
         const inheritedTools = await loadInheritedTools(appId, agentId);
         const effectiveAllowedTools = mergeUnique(inheritedTools);
         const staleness = schedulerJobStaleness(job, nowMs);
-        const runs = latestRunsByJobId.get(job.id) ?? [];
+        const latestRun = latestRunsByJobId.get(job.id);
+        const runs = latestRun ? [latestRun] : [];
         const setup = setupMetadataForJob(job);
         const health = buildJobHealth({
           job,
@@ -273,7 +260,6 @@ export async function buildJobListVisibilityMetadata(input: {
             effectiveAllowedTools,
           }),
           setup,
-          recovery: recoveryMetadataForJob(job),
           health,
           staleness,
           recentRunErrors: runs
@@ -293,19 +279,10 @@ export async function buildJobListVisibilityMetadata(input: {
 
 async function loadLatestRunsByJobId(
   jobs: readonly Job[],
-  ops: Pick<RuntimeJobRepository, 'listJobRuns'> | undefined,
-): Promise<Map<string, JobRun[]>> {
+  ops: Pick<RuntimeJobRepository, 'listLatestJobRunsByJobIds'> | undefined,
+): Promise<Map<string, JobRun>> {
   if (!ops || jobs.length === 0) return new Map();
-  return new Map(
-    await Promise.all(
-      jobs.map(
-        async (job): Promise<[string, JobRun[]]> => [
-          job.id,
-          await ops.listJobRuns(job.id, 1),
-        ],
-      ),
-    ),
-  );
+  return ops.listLatestJobRunsByJobIds(jobs.map((job) => job.id));
 }
 
 function promptPreview(prompt: string): string {
@@ -437,20 +414,6 @@ function setupMetadataForJob(job: Job): JobSetupMetadata {
       requirementId: blocker.requirementId,
     })),
     nextAction: blockers[0]?.nextAction ?? null,
-  };
-}
-
-function recoveryMetadataForJob(job: Job): JobRecoveryMetadata {
-  const recovery = job.recovery_intent;
-  return {
-    state: recovery?.state ?? 'none',
-    kind: recovery?.kind ?? null,
-    updatedAt: recovery?.updated_at ?? null,
-    attempts: recovery?.attempts ?? 0,
-    requirementType: recovery?.requirement_type ?? null,
-    requirementId: recovery?.requirement_id ?? null,
-    nextAction: recovery?.next_action ?? null,
-    lastError: recovery?.last_error ?? null,
   };
 }
 

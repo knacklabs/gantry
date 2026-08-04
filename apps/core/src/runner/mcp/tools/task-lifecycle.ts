@@ -14,15 +14,31 @@ import {
   providerAccountId,
   threadId,
 } from '../context.js';
+import {
+  CALLABLE_AGENT_RESPONSE_TIMEOUT_MS,
+  CALLABLE_AGENT_SYNC_WAIT_TIMEOUT_MS,
+  callableAgentToolDescription,
+  callableAgentToolName,
+  createCallableAgentToolSchema,
+  type CallableAgentToolManifestEntry,
+} from '../../../shared/callable-agent-manifest.js';
 import { formatTaskFailureLines } from '../formatting.js';
 import {
-  type TaskResponseEnvelope,
   waitForTaskResponse,
   writeIpcFile,
+  type TaskResponseEnvelope,
 } from '../ipc.js';
 import { makeIpcId } from '../ipc-ids.js';
 
 const TASK_TOOL_TIMEOUT_MS = 20_000;
+const DELEGATION_IPC_RESPONSE_TIMEOUT_MS = CALLABLE_AGENT_RESPONSE_TIMEOUT_MS;
+type DynamicToolRegistrar = {
+  registerTool(
+    name: string,
+    config: { description: string; inputSchema: unknown },
+    handler: (...args: any[]) => any,
+  ): unknown;
+};
 
 const todoItemSchema = z.object({
   id: z.string().min(1).max(80),
@@ -117,7 +133,10 @@ function formatSuccessfulTaskResponse(response: {
   return `${message}\n${JSON.stringify(response.data, null, 2)}`;
 }
 
-export function registerTaskLifecycleTools(server: McpServer): void {
+export function registerTaskLifecycleTools(
+  server: McpServer,
+  callableAgentManifest: readonly CallableAgentToolManifestEntry[] = [],
+): void {
   server.tool(
     'async_run_command',
     'Start an approved shell command as a durable background task. Use only for long-running commands that should continue while you inspect status with task_get or task_list. The host enforces selected RunCommand(...) capability rules before it creates the task.',
@@ -180,7 +199,6 @@ export function registerTaskLifecycleTools(server: McpServer): void {
     'delegate_task',
     'Start a durable async child agent run. Use task_get/task_list to inspect it and task_message to steer it while it is running.',
     {
-      taskKey: z.string().min(1).max(80).optional(),
       objective: z.string().min(1).max(10_000),
       context: z.string().max(20_000).optional(),
       expectedOutput: z.string().max(2_000).optional(),
@@ -198,29 +216,37 @@ export function registerTaskLifecycleTools(server: McpServer): void {
         payload: args,
         timeoutMessage: 'Delegated task start timed out.',
         fallbackError: 'Delegated task start failed.',
+        responseTimeoutMs: DELEGATION_IPC_RESPONSE_TIMEOUT_MS,
       }),
   );
 
-  server.tool(
-    'task_wait',
-    'Suspend this tool call until all selected durable tasks finish or the timeout expires. Completion is host-driven; do not poll task_get while waiting.',
-    {
-      taskIds: z.array(z.string().min(1).max(160)).min(1).max(64),
-      timeoutMs: z
-        .number()
-        .int()
-        .positive()
-        .max(30 * 60_000),
-    },
-    async (args) =>
-      submitTaskLifecycleRequest({
-        type: 'task_wait',
-        payload: args,
-        responseTimeoutMs: args.timeoutMs + TASK_TOOL_TIMEOUT_MS,
-        timeoutMessage: 'Task wait IPC response timed out.',
-        fallbackError: 'Task wait failed.',
-      }),
-  );
+  const callableAgentSchema = createCallableAgentToolSchema(z);
+  const dynamicServer = server as unknown as DynamicToolRegistrar;
+  for (const entry of callableAgentManifest) {
+    dynamicServer.registerTool(
+      callableAgentToolName(entry),
+      {
+        description: callableAgentToolDescription(entry),
+        inputSchema: callableAgentSchema,
+      },
+      async (args: Record<string, unknown>) =>
+        submitTaskLifecycleRequest({
+          type: 'delegate_task',
+          payload: {
+            ...args,
+            syncWaitTimeoutMs:
+              typeof args.syncWaitTimeoutMs === 'number'
+                ? args.syncWaitTimeoutMs
+                : CALLABLE_AGENT_SYNC_WAIT_TIMEOUT_MS,
+            targetAgentId: entry.targetAgentId,
+            callableAgentToolName: callableAgentToolName(entry),
+          },
+          timeoutMessage: 'Delegated task start timed out.',
+          fallbackError: 'Delegated task start failed.',
+          responseTimeoutMs: DELEGATION_IPC_RESPONSE_TIMEOUT_MS,
+        }),
+    );
+  }
 
   server.tool(
     'task_message',

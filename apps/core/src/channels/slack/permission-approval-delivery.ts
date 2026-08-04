@@ -4,17 +4,48 @@ import type {
   PermissionApprovalRequest,
 } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import { incrementOperationalError } from '../../shared/operational-error-counters.js';
+import { resolveInteractionSettlementDelayMs } from '../interaction-settlement.js';
 import {
   buildPermissionPromptParts,
   formatPermissionPromptPartsText,
   permissionButtonLabel,
   permissionDecisionOptions,
 } from '../permission-interaction.js';
-import { bindPendingPermissionInteractionMessage } from '../../application/interactions/pending-interaction-durability.js';
+import {
+  bindPendingPermissionInteractionMessage,
+  DurableInteractionPersistenceError,
+} from '../../application/interactions/pending-interaction-durability.js';
 import { buildPermissionPromptContentBlocks } from './permission-blocks.js';
 import { slackPermissionDecisionActionId } from './permission-action-id.js';
 import type { PendingPermissionPrompt } from './channel-state.js';
 import { slackThreadTsFromThreadId } from './thread-ts.js';
+import type { ChannelOpts } from '../channel-provider.js';
+
+export function slackPermissionApproverIds(
+  runtimeSettings: ChannelOpts['runtimeSettings'],
+  providerAccountId: string | undefined,
+  channelId: string,
+): string[] {
+  try {
+    const conversations = Object.values(
+      runtimeSettings?.().conversations || {},
+    );
+    return [
+      ...new Set(
+        conversations.flatMap((conversation) =>
+          conversation.externalId === channelId &&
+          (conversation.providerAccount ?? conversation.providerConnection) ===
+            providerAccountId
+            ? conversation.controlApprovers
+            : [],
+        ),
+      ),
+    ];
+  } catch {
+    return [];
+  }
+}
 
 export async function requestSlackPermissionApproval(input: {
   app: App;
@@ -24,12 +55,25 @@ export async function requestSlackPermissionApproval(input: {
   timeoutMs: number;
   approverUserIds?: readonly string[];
   pendingPermissionPrompts: Map<string, PendingPermissionPrompt>;
-  resolvePermissionPrompt: (
-    requestId: string,
-    decision: PermissionApprovalDecision,
+  timeoutPermissionPrompt: (
+    providerAlias: string,
+    retryWindowMs: number,
   ) => Promise<void>;
+  onPromptDelivered?: (messageId: string) => void;
 }): Promise<PermissionApprovalDecision> {
   const parts = buildPermissionPromptParts(input.request, input.timeoutMs);
+  const decisionOptions = permissionDecisionOptions(input.request);
+  const callback = {
+    providerAlias: globalThis.crypto.randomUUID(),
+    scope: {
+      appId: input.request.appId || 'default',
+      sourceAgentFolder: input.request.sourceAgentFolder,
+      interactionId: input.request.requestId,
+    },
+    matchKind: input.request.permissionBatch
+      ? ('batch' as const)
+      : ('individual' as const),
+  };
   const contentBlocks = buildPermissionPromptContentBlocks(parts);
   const promptText = formatPermissionPromptPartsText(parts);
   const actionsBlock = {
@@ -45,7 +89,7 @@ export async function requestSlackPermissionApproval(input: {
                 text: parts.fullView.label,
               },
               value: JSON.stringify({
-                requestId: input.request.requestId,
+                callback,
                 ...(input.request.providerAccountId
                   ? { providerAccountId: input.request.providerAccountId }
                   : {}),
@@ -53,7 +97,7 @@ export async function requestSlackPermissionApproval(input: {
             },
           ]
         : []),
-      ...permissionDecisionOptions(input.request).map((mode) => ({
+      ...decisionOptions.map((mode) => ({
         type: 'button',
         action_id: slackPermissionDecisionActionId(mode),
         text: {
@@ -64,7 +108,7 @@ export async function requestSlackPermissionApproval(input: {
           ? { style: 'danger' as const }
           : { style: 'primary' as const }),
         value: JSON.stringify({
-          requestId: input.request.requestId,
+          callback,
           decision: mode,
           ...(input.request.providerAccountId
             ? { providerAccountId: input.request.providerAccountId }
@@ -75,101 +119,171 @@ export async function requestSlackPermissionApproval(input: {
   };
   const threadTs = slackThreadTsFromThreadId(input.request.threadId);
   const threadPayload = threadTs ? { thread_ts: threadTs } : {};
-  const postPrompt = (blocks: unknown[]) =>
-    input.app.client.chat.postMessage({
+  const userIds = [...new Set(input.approverUserIds || [])].filter(Boolean);
+  const visiblePromptText =
+    'Approval required from a configured approver. Only configured approvers can decide this action.';
+  const visiblePromptBlocks = [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: '*Approval required*\nA configured approver must decide this action.',
+      },
+    },
+    actionsBlock,
+  ];
+  const postPromptDeliveryFailureNotice = async (reason: string) => {
+    try {
+      await input.app.client.chat.postMessage({
+        channel: input.channelId,
+        text: reason,
+        ...threadPayload,
+      });
+    } catch (err) {
+      logger.warn(
+        { jid: input.jid, requestId: input.request.requestId, err },
+        'Slack permission prompt failure notice could not be delivered',
+      );
+    }
+  };
+  const postVisiblePrompt = async (): Promise<{ ts?: string } | null> => {
+    const sent = (await input.app.client.chat.postMessage({
       channel: input.channelId,
-      text: promptText,
+      text: visiblePromptText,
       ...threadPayload,
-      blocks: blocks as any,
-    }) as Promise<{ ts?: string }>;
-  const postPrivatePrompt = async (
-    blocks: unknown[],
-  ): Promise<{ ts?: string } | null> => {
-    const userIds = [...new Set(input.approverUserIds || [])].filter(Boolean);
-    if (userIds.length === 0) return null;
-    let first: { ts?: string } | null = null;
+      blocks: visiblePromptBlocks as any,
+    })) as { ts?: string; message_ts?: string };
+    return { ts: sent.ts || sent.message_ts };
+  };
+  const postPrivateDetails = async (blocks: unknown[]): Promise<void> => {
     for (const user of userIds) {
       try {
-        const sent = (await input.app.client.chat.postEphemeral({
+        await input.app.client.chat.postEphemeral({
           channel: input.channelId,
           user,
           text: promptText,
           ...threadPayload,
           blocks: blocks as any,
-        })) as { ts?: string; message_ts?: string };
-        first ||= { ts: sent.ts || sent.message_ts };
+        });
       } catch (err) {
-        logger.debug(
+        logger.warn(
           { jid: input.jid, requestId: input.request.requestId, user, err },
-          'Slack private permission prompt failed for approver',
+          'Slack ephemeral permission prompt failed for approver',
         );
       }
     }
-    return first;
   };
-
   try {
-    let response: { ts?: string };
+    if (userIds.length === 0) {
+      const reason =
+        'Approval prompt could not be shown because this Slack conversation has no configured approvers. Add at least one conversation approver and retry.';
+      await postPromptDeliveryFailureNotice(reason);
+      return { approved: false, reason };
+    }
+    const binding = {
+      request: input.request,
+      decisionOptions,
+      callbackId: callback.providerAlias,
+      provider: 'slack',
+      conversationId: input.channelId,
+      fullView: parts.fullView,
+    };
+    if (!(await bindPendingPermissionInteractionMessage(binding))) {
+      throw new Error('Slack permission callback binding failed');
+    }
+    let response: { ts?: string } | null;
     try {
-      response =
-        (await postPrivatePrompt([...contentBlocks, actionsBlock])) ||
-        (await postPrompt([...contentBlocks, actionsBlock]));
+      response = await postVisiblePrompt();
     } catch (blocksErr) {
       logger.warn(
         { jid: input.jid, requestId: input.request.requestId, err: blocksErr },
-        'Slack native permission blocks rejected; retrying with simple layout',
+        'Slack visible permission prompt could not be delivered',
       );
-      const simpleBlocks = [
-        {
-          type: 'section',
-          text: { type: 'mrkdwn', text: promptText },
-        },
-        actionsBlock,
-      ];
-      response =
-        (await postPrivatePrompt(simpleBlocks)) ||
-        (await postPrompt(simpleBlocks));
+      const reason =
+        'Approval prompt could not be posted to this Slack thread. Check that the Slack app can post messages here and retry.';
+      await postPromptDeliveryFailureNotice(reason);
+      throw blocksErr;
     }
-    const messageTs = response.ts;
+    const messageTs = response?.ts;
     if (!messageTs) {
+      const reason = 'Slack did not accept the approval prompt.';
+      await postPromptDeliveryFailureNotice(reason);
       return {
         approved: false,
-        reason: 'Slack did not accept the approval prompt.',
+        reason,
       };
     }
-    await bindPendingPermissionInteractionMessage({
+    let resolveDecision!: (decision: PermissionApprovalDecision) => void;
+    const decision = new Promise<PermissionApprovalDecision>((resolve) => {
+      resolveDecision = resolve;
+    });
+    const { expiresAt } = input.request as PermissionApprovalRequest & {
+      expiresAt?: unknown;
+    };
+    const settlementDelayMs = resolveInteractionSettlementDelayMs({
+      expiresAt,
+      permissionLane: input.request.permissionLane,
+      fallbackTimeoutMs: input.timeoutMs,
+    });
+    const timer =
+      settlementDelayMs !== undefined
+        ? setTimeout(() => {
+            void input.timeoutPermissionPrompt(
+              callback.providerAlias,
+              settlementDelayMs,
+            );
+          }, settlementDelayMs)
+        : undefined;
+    const livePending: PendingPermissionPrompt = {
+      callback,
+      channelId: input.channelId,
       sourceAgentFolder: input.request.sourceAgentFolder,
-      requestId: input.request.requestId,
-      appId: input.request.appId,
-      externalMessageId: messageTs,
-      provider: 'slack',
-      conversationId: input.channelId,
-      ...(input.request.threadId ? { threadId: input.request.threadId } : {}),
-      fullView: parts.fullView,
-    });
-
-    return await new Promise<PermissionApprovalDecision>((resolve) => {
-      const timer = setTimeout(() => {
-        void input.resolvePermissionPrompt(input.request.requestId, {
-          approved: false,
-          decidedBy: 'system',
-          reason: 'timed out',
-        });
-      }, input.timeoutMs);
-
-      input.pendingPermissionPrompts.set(input.request.requestId, {
-        channelId: input.channelId,
-        sourceAgentFolder: input.request.sourceAgentFolder,
-        decisionPolicy: input.request.decisionPolicy,
-        approvalContextJid: input.request.approvalContextJid,
-        request: input.request,
-        messageTs,
-        timer,
-        resolve,
-        settled: false,
+      decisionPolicy: input.request.decisionPolicy,
+      approvalContextJid: input.request.approvalContextJid,
+      request: input.request,
+      messageTs,
+      timer,
+      resolve: resolveDecision,
+      settled: false,
+    };
+    input.pendingPermissionPrompts.set(callback.providerAlias, livePending);
+    try {
+      const bound = await bindPendingPermissionInteractionMessage({
+        ...binding,
+        externalMessageId: messageTs,
       });
-    });
+      if (!bound) throw new Error('Slack permission message binding failed');
+    } catch (err) {
+      if (err instanceof DurableInteractionPersistenceError) throw err;
+      incrementOperationalError('channels', 'permission_prompt');
+      if (!livePending.settled) {
+        livePending.settled = true;
+        clearTimeout(timer);
+        if (
+          input.pendingPermissionPrompts.get(callback.providerAlias) ===
+          livePending
+        ) {
+          input.pendingPermissionPrompts.delete(callback.providerAlias);
+        }
+        resolveDecision({
+          approved: false,
+          reason: 'Failed to send approval prompt to Slack',
+        });
+      }
+      logger.error(
+        { jid: input.jid, requestId: input.request.requestId, err },
+        'Failed to send Slack permission prompt',
+      );
+      return await decision;
+    }
+    input.onPromptDelivered?.(messageTs);
+    // Ephemeral details preserve the richer prompt for active approvers, but the
+    // durable thread card above is the sole required action surface.
+    await postPrivateDetails(contentBlocks);
+    return await decision;
   } catch (err) {
+    if (err instanceof DurableInteractionPersistenceError) throw err;
+    incrementOperationalError('channels', 'permission_prompt');
     logger.error(
       { jid: input.jid, requestId: input.request.requestId, err },
       'Failed to send Slack permission prompt',

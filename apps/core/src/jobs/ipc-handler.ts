@@ -1,9 +1,12 @@
 import { logger } from '../infrastructure/logging/logger.js';
 import { IpcDeps } from '../runtime/ipc-domain-types.js';
+import { parseAgentThreadQueueKey } from '../shared/thread-queue-key.js';
 import { adminTaskHandlers } from './ipc-admin-handlers.js';
 import { agentProfileTaskHandlers } from './ipc-agent-profile-handlers.js';
 import { fileArtifactTaskHandlers } from './ipc-file-artifact-handlers.js';
 import { agentTaskLifecycleHandlers } from './ipc-agent-task-lifecycle-handlers.js';
+import { attachmentOpenTaskHandlers } from './ipc-attachment-open-handler.js';
+import { callerResolvedToolTaskHandler } from './ipc-caller-resolved-tool-handler.js';
 import { schedulerCreateTaskHandlers } from './ipc-scheduler-create-handlers.js';
 import { schedulerMutateTaskHandlers } from './ipc-scheduler-mutate-handlers.js';
 import { schedulerQueryTaskHandlers } from './ipc-scheduler-query-handlers.js';
@@ -22,8 +25,40 @@ import {
 } from '../config/profiles.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
+import { incrementOperationalError } from '../shared/operational-error-counters.js';
+import {
+  beginDurablePermissionInteraction,
+  durablePermissionRequestSnapshot,
+} from '../application/interactions/durable-interaction-handler.js';
+import type {
+  PermissionApprovalDecision,
+  PermissionApprovalRequest,
+} from '../domain/types.js';
 
 const DENIED_BY_PROFILE_REASON = 'denied_by_profile';
+
+export async function requestDurableTaskPermissionApproval(
+  request: PermissionApprovalRequest,
+  prompt: (
+    request: PermissionApprovalRequest,
+  ) => Promise<PermissionApprovalDecision>,
+): Promise<PermissionApprovalDecision> {
+  await beginDurablePermissionInteraction({
+    request,
+    sourceAgentFolder: request.sourceAgentFolder,
+    payload: {
+      sourceAgentFolder: request.sourceAgentFolder,
+      requestId: request.requestId,
+      toolName: request.toolName,
+      targetJid: request.targetJid ?? null,
+      agentId: request.agentId ?? null,
+      jobId: request.jobId ?? null,
+      request: durablePermissionRequestSnapshot(request),
+    },
+    callbackRoute: null,
+  });
+  return prompt(request);
+}
 
 async function denyLockedIpcTask(
   data: TaskIpcData,
@@ -86,6 +121,8 @@ const taskHandlers: Record<string, TaskHandler> = {
   ...agentProfileTaskHandlers,
   ...fileArtifactTaskHandlers,
   ...agentTaskLifecycleHandlers,
+  ...attachmentOpenTaskHandlers,
+  caller_resolved_tool: callerResolvedToolTaskHandler,
 };
 
 export type { TaskIpcData } from './ipc-types.js';
@@ -97,9 +134,17 @@ export async function processTaskIpc(
   ipcBaseDir?: string,
 ): Promise<void> {
   const conversationBindings = deps.conversationRoutes();
-  const sourceAgentFolderJids = Object.entries(conversationBindings)
-    .filter(([, group]) => group.folder === sourceAgentFolder)
-    .map(([jid]) => jid);
+  // Same-channel authorization compares against the CHAT jid (data.chatJid),
+  // so derive the set of chat jids the agent is bound to from each route key's
+  // parsed chatJid — not the raw (possibly agent/provider-qualified) queue key,
+  // which would only match when a bare-key route happened to exist.
+  const sourceAgentFolderJids = Array.from(
+    new Set(
+      Object.entries(conversationBindings)
+        .filter(([, group]) => group.folder === sourceAgentFolder)
+        .map(([key]) => parseAgentThreadQueueKey(key).chatJid),
+    ),
+  );
 
   const handler = taskHandlers[data.type];
   if (!handler) {
@@ -136,12 +181,26 @@ export async function processTaskIpc(
 
   const resolvedDeps = {
     ...deps,
+    requestPermissionApproval: (request: PermissionApprovalRequest) =>
+      requestDurableTaskPermissionApproval(
+        request,
+        deps.requestPermissionApproval,
+      ),
     opsRepository: deps.opsRepository ?? getRuntimeRepositories(),
     getToolRepository:
       deps.getToolRepository ??
       (() => {
         try {
           return getRuntimeStorage().repositories.tools;
+        } catch {
+          return undefined;
+        }
+      }),
+    getAgentRepository:
+      deps.getAgentRepository ??
+      (() => {
+        try {
+          return getRuntimeStorage().repositories.agents;
         } catch {
           return undefined;
         }
@@ -197,6 +256,7 @@ export async function processTaskIpc(
       sourceAgentFolderJids,
     });
   } catch (err) {
+    incrementOperationalError('ipc', 'task_dispatch');
     logger.error(
       { err, type: data.type, sourceAgentFolder },
       'Unhandled IPC task handler error',

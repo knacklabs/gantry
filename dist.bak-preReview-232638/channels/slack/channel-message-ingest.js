@@ -1,0 +1,135 @@
+import { logger } from '../../infrastructure/logging/logger.js';
+import { buildTriggerPattern, triggerForRoute, } from '../../shared/trigger-pattern.js';
+import { findConversationRoutesForChat, parseAgentThreadQueueKey, } from '../../shared/thread-queue-key.js';
+import { nowIso } from '../../shared/time/datetime.js';
+import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
+import { ingestSlackSlashCommand as ingestSlackSlashCommandEvent } from './slash-command-ingest.js';
+import { shouldLogUnregisteredChatDrop } from '../unregistered-chat-drop-log.js';
+function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+function leadingBotMentionPattern(botUserId) {
+    return new RegExp(`^<@${escapeRegex(botUserId)}>[,:]?\\s*`);
+}
+function dedupeRouteAliases(matches) {
+    const byIdentity = new Map();
+    for (const match of matches) {
+        const [key, route, providerAccountId] = match;
+        const parsed = parseAgentThreadQueueKey(key);
+        const agentId = parsed.agentId ?? route.agentId ?? agentIdForFolder(route.folder);
+        const routeProviderAccountId = parsed.providerAccountId ??
+            route.providerAccountId ??
+            providerAccountId ??
+            '';
+        const routeThreadId = parsed.threadId ?? '';
+        const identity = `${agentId}::${routeProviderAccountId}::${routeThreadId}`;
+        const specificity = (parsed.agentId ? 1 : 0) +
+            (parsed.providerAccountId ? 1 : 0) +
+            (parsed.threadId ? 1 : 0);
+        const existing = byIdentity.get(identity);
+        if (!existing || specificity >= existing.specificity) {
+            byIdentity.set(identity, { match, specificity });
+        }
+    }
+    return [...byIdentity.values()].map(({ match }) => match);
+}
+export async function ingestSlackSlashCommand(input) {
+    await ingestSlackSlashCommandEvent({
+        command: input.command,
+        opts: input.opts,
+        resolveChannelName: input.resolveChannelName,
+        resolveUserName: input.resolveUserName,
+        isLikelyGroupConversation: input.isLikelyGroupConversation,
+    });
+}
+export async function ingestSlackMessage(input) {
+    const { event } = input;
+    if (!event.channel || !event.ts)
+        return;
+    if (event.bot_id)
+        return;
+    if (event.subtype && event.subtype !== 'file_share')
+        return;
+    if (event.subtype === 'message_changed')
+        return;
+    if (event.edited)
+        return;
+    const jid = `sl:${event.channel}`;
+    const chatName = await input.resolveChannelName(event.channel);
+    await input.opts.onChatMetadata(jid, nowIso(), chatName, 'slack', input.isLikelyGroupConversation(event.channel), { providerAccountId: input.opts.providerAccountId });
+    const isGroupConversation = input.isLikelyGroupConversation(event.channel);
+    const routes = input.opts.conversationRoutes();
+    const providerAccountIds = input.opts.inboundProviderAccountIds?.length && input.opts.providerAccountId
+        ? input.opts.inboundProviderAccountIds
+        : [input.opts.providerAccountId];
+    const routeMatches = dedupeRouteAliases(providerAccountIds.flatMap((providerAccountId) => findConversationRoutesForChat(routes, jid, event.thread_ts, providerAccountId).map((match) => [...match, providerAccountId])));
+    const singleRoute = routeMatches.length === 1 ? routeMatches[0]?.[1] : undefined;
+    if (routeMatches.length < 1 && isGroupConversation) {
+        if (shouldLogUnregisteredChatDrop('slack', jid)) {
+            logger.info({
+                provider: 'slack',
+                providerAccountId: input.opts.providerAccountId,
+                chatId: event.channel,
+                jid,
+                chatName,
+            }, 'Message from unregistered Slack conversation');
+        }
+        return;
+    }
+    const enriched = await input.enrichMessage(jid, event);
+    const rawContent = enriched.text;
+    const content = input.botUserId && singleRoute
+        ? rawContent.replace(leadingBotMentionPattern(input.botUserId), `${triggerForRoute(singleRoute)} `)
+        : input.botUserId && routeMatches.length > 1
+            ? rawContent.replace(leadingBotMentionPattern(input.botUserId), '')
+            : rawContent;
+    if (!content)
+        return;
+    const triggeredRoutes = routeMatches.length > 1
+        ? routeMatches.filter(([, route]) => buildTriggerPattern(triggerForRoute(route)).test(content.trim()))
+        : [];
+    const group = singleRoute ??
+        (triggeredRoutes.length === 1 ? triggeredRoutes[0]?.[1] : undefined);
+    const selectedProviderAccountIds = new Set((group
+        ? routeMatches.filter(([, route]) => route === group)
+        : routeMatches).map(([, , providerAccountId]) => providerAccountId));
+    const messageProviderAccountId = selectedProviderAccountIds.size === 1
+        ? [...selectedProviderAccountIds][0]
+        : selectedProviderAccountIds.size > 1
+            ? undefined
+            : input.opts.providerAccountId;
+    const attachments = group &&
+        Array.isArray(event.files) &&
+        (routeMatches.length > 1 ||
+            messageProviderAccountId !== input.opts.providerAccountId)
+        ? (await input.enrichMessage(jid, event, group.folder)).attachments
+        : enriched.attachments;
+    const sender = event.user || 'unknown';
+    const senderName = await input.resolveUserName(event.user);
+    const ownsTopLevelMessage = input.options?.forceOwnedTopLevel ||
+        (group
+            ? group.requiresTrigger === false ||
+                buildTriggerPattern(triggerForRoute(group)).test(content.trim())
+            : false);
+    const threadId = event.thread_ts ||
+        (isGroupConversation && ownsTopLevelMessage ? event.ts : undefined);
+    await input.opts.onMessage(jid, {
+        id: event.ts,
+        chat_jid: jid,
+        provider: 'slack',
+        ...(messageProviderAccountId
+            ? { providerAccountId: messageProviderAccountId }
+            : {}),
+        sender,
+        sender_name: senderName,
+        content,
+        timestamp: new Date(Math.round(Number(event.ts) * 1000)).toISOString(),
+        is_from_me: input.botUserId ? sender === input.botUserId : false,
+        external_message_id: event.ts,
+        thread_id: threadId,
+        attachments,
+        reply_to_message_id: event.thread_ts && event.thread_ts !== event.ts
+            ? event.thread_ts
+            : undefined,
+    });
+}

@@ -21,10 +21,6 @@ const remoteProxy = vi.hoisted(() => ({
   close: vi.fn(async () => undefined),
 }));
 
-const callerTool = vi.hoisted(() => ({
-  request: vi.fn(),
-}));
-
 const claudeSdkPackage = vi.hoisted(() =>
   ['@anthropic-ai', 'claude-agent-sdk'].join('/'),
 );
@@ -41,12 +37,8 @@ vi.mock(
   () => ({ createPinnedClaudeMcpProxies: remoteProxy.create }),
 );
 
-vi.mock(
-  '@core/application/interactions/caller-resolved-tool-coordinator.js',
-  () => ({ requestCallerResolvedTool: callerTool.request }),
-);
-
 import { runClaudeInlineAgentLoopLane } from '@core/adapters/llm/anthropic-claude-agent/inline-lane/index.js';
+import { createInlineToolActivity } from '@core/adapters/llm/inline-lane-tool-activity.js';
 import { InMemoryInlineRunnerControlPort } from '@core/runtime/agent-inline.js';
 import { DEFAULT_AGENT_ENGINE } from '@core/shared/agent-engine.js';
 
@@ -117,10 +109,6 @@ function laneInput(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  callerTool.request.mockImplementation(async (input) => {
-    await input.emitRequired();
-    return { answer: 42 };
-  });
   remoteProxy.create.mockResolvedValue({
     servers: [
       {
@@ -137,6 +125,60 @@ beforeEach(() => {
 });
 
 describe('Claude inline lane', () => {
+  it('consumes the compiled capability catalog in the static system prompt', async () => {
+    sdk.query.mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield resultMessage('catalog-result', 'done');
+      },
+    }));
+    const base = laneInput();
+
+    await runClaudeInlineAgentLoopLane(
+      laneInput({
+        input: {
+          ...base.input,
+          compiledSystemPrompt:
+            '# Capability catalog\n- Incident triage — Diagnose incidents.',
+        },
+      }),
+    );
+
+    const systemPrompt = sdk.query.mock.calls[0]?.[0].options.systemPrompt;
+    expect(systemPrompt[0]).toContain('# Capability catalog');
+    expect(systemPrompt[0]).toContain('Incident triage');
+  });
+
+  it('canonicalizes manifest-projected callable-agent activity to AgentDelegation', async () => {
+    const emitOutput = vi.fn(async () => undefined);
+    const toolActivity = createInlineToolActivity({
+      input: {
+        chatJid: 'conversation:test',
+        isScheduledJob: true,
+      },
+      coreTools: {
+        tools: [{ name: 'delegate_to_reviewer_hash' }],
+      },
+      emitOutput,
+    });
+
+    await toolActivity.run('delegate_to_reviewer_hash', async () => 'done');
+
+    expect(emitOutput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtimeEventOnly: true,
+        runtimeEvents: [
+          expect.objectContaining({
+            eventType: 'job.tool_activity',
+            payload: expect.objectContaining({
+              phase: 'started',
+              tool: 'AgentDelegation',
+            }),
+          }),
+        ],
+      }),
+    );
+  });
+
   it.each([
     ['uses the default cap when unset', {}, 50, undefined],
     [
@@ -209,69 +251,6 @@ describe('Claude inline lane', () => {
       result: JSON.stringify({ answer: 'done' }),
     });
     expect(input.emitOutput).toHaveBeenLastCalledWith(result);
-  });
-
-  it('emits canonical caller-tool interaction events with session correlation', async () => {
-    let toolResult: unknown;
-    sdk.query.mockImplementation(({ options }) => ({
-      async *[Symbol.asyncIterator]() {
-        toolResult = await options.mcpServers.caller.instance.tools[0].handler(
-          { query: 'deadline' },
-          {},
-        );
-        yield resultMessage('caller-tool-result', 'done');
-      },
-    }));
-    const input = laneInput({
-      input: {
-        ...laneInput().input,
-        appId: 'app-one',
-        runId: 'run-one',
-        callerResolvedTools: {
-          sessionId: 'session-one',
-          maxInteractions: 2,
-          interactionTimeoutMs: 5_000,
-          tools: [
-            {
-              name: 'lookup',
-              description: 'Look up one value.',
-              inputSchema: {
-                type: 'object',
-                properties: { query: { type: 'string' } },
-                required: ['query'],
-                additionalProperties: false,
-              },
-            },
-          ],
-        },
-      },
-    });
-
-    await runClaudeInlineAgentLoopLane(input);
-
-    expect(callerTool.request).toHaveBeenCalledWith(
-      expect.objectContaining({
-        appId: 'app-one',
-        runId: 'run-one',
-        sessionId: 'session-one',
-        toolName: 'lookup',
-        toolInput: { query: 'deadline' },
-      }),
-    );
-    expect(input.emitOutput).toHaveBeenCalledWith(
-      expect.objectContaining({
-        runtimeEventOnly: true,
-        runtimeEvents: [
-          expect.objectContaining({
-            sessionId: 'session-one',
-            eventType: 'interaction.pending',
-          }),
-        ],
-      }),
-    );
-    expect(toolResult).toMatchObject({
-      content: [{ type: 'text', text: JSON.stringify({ answer: 42 }) }],
-    });
   });
 
   it('returns a shaped error when structured output violates the schema', async () => {
@@ -422,12 +401,9 @@ describe('Claude inline lane', () => {
     });
     expect(queryOptions.allowedTools).toEqual(['mcp__gantry__send_message']);
     expect(queryOptions.env).toMatchObject(input.modelCredentialEnv);
-    expect(
-      queryOptions.env[['CLAUDE', 'CONFIG_DIR'].join('_')].replaceAll(
-        '\\',
-        '/',
-      ),
-    ).toContain('/tmp/gantry-inline-test');
+    expect(queryOptions.env[['CLAUDE', 'CONFIG_DIR'].join('_')]).toContain(
+      '/tmp/gantry-inline-test',
+    );
     expect(queryOptions.systemPrompt.join('\n')).toContain('system prompt');
     await expect(
       queryOptions.canUseTool(

@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { PostgresRuntimeEventRepository } from '@core/adapters/storage/postgres/repositories/runtime-event-repository.postgres.js';
+import { PostgresCanonicalMessageRepository } from '@core/adapters/storage/postgres/repositories/canonical-message-repository.postgres.js';
+import { createPostgresDomainRepositories } from '@core/adapters/storage/postgres/repositories/domain-repositories.postgres.js';
 import * as pgSchema from '@core/adapters/storage/postgres/schema/schema.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 
@@ -8,9 +10,13 @@ class FakeDrizzleDb {
   readonly operations: string[] = [];
   insertedRuntimeEvent: Record<string, unknown> | null = null;
   insertedOutboxEvent: Record<string, unknown> | null = null;
+  insertedConversationThread: Record<string, unknown> | null = null;
   failOutboxInsert = false;
   failDeliveryInsert = false;
-  canonicalConversationId: string | null = null;
+
+  async execute(): Promise<void> {
+    this.operations.push('lock:message_attachments');
+  }
 
   async transaction<T>(fn: (tx: this) => Promise<T>): Promise<T> {
     this.operations.push('transaction:begin');
@@ -42,7 +48,7 @@ class FakeDrizzleDb {
                   runId: null,
                   jobId: null,
                   triggerId: null,
-                  conversationId: value.conversationId,
+                  conversationId: null,
                   threadId: null,
                   eventType: value.eventType,
                   actor: value.actor,
@@ -68,6 +74,15 @@ class FakeDrizzleDb {
             },
           };
         }
+        if (table === pgSchema.conversationThreadsPostgres) {
+          db.operations.push('insert:conversation_threads');
+          db.insertedConversationThread = value;
+          return {
+            onConflictDoNothing() {
+              return Promise.resolve();
+            },
+          };
+        }
         if (table === pgSchema.controlHttpWebhookDeliveriesPostgres) {
           db.operations.push('insert:webhook_delivery');
           return {
@@ -88,15 +103,13 @@ class FakeDrizzleDb {
     const db = this;
     return {
       from(table: unknown) {
-        if (table === pgSchema.controlHttpSessionsPostgres) {
-          db.operations.push('select:control_session');
+        if (table === pgSchema.messageAttachmentsPostgres) {
+          db.operations.push('select:provider_attachment');
           return {
             where() {
               return {
                 async limit() {
-                  return db.canonicalConversationId
-                    ? [{ conversationId: db.canonicalConversationId }]
-                    : [];
+                  return [];
                 },
               };
             },
@@ -120,32 +133,28 @@ class FakeDrizzleDb {
   }
 }
 
-function createRepository(db: FakeDrizzleDb) {
-  return new PostgresRuntimeEventRepository(db as never);
+function createRepository(
+  db: FakeDrizzleDb,
+  reclaimProviderAttachment?: (storageRef: string) => Promise<void>,
+) {
+  return new PostgresRuntimeEventRepository(
+    db as never,
+    undefined,
+    100,
+    reclaimProviderAttachment,
+  );
+}
+
+function createWiredRepository(
+  db: FakeDrizzleDb,
+  reclaimProviderAttachment: (storageRef: string) => Promise<void>,
+) {
+  return createPostgresDomainRepositories(db as never, undefined, {
+    cleanupProviderAttachment: reclaimProviderAttachment,
+  }).runtimeEvents;
 }
 
 describe('PostgresRuntimeEventRepository', () => {
-  it('canonicalizes an external thread after resolving its control conversation', async () => {
-    const db = new FakeDrizzleDb();
-    db.canonicalConversationId = 'control:tenant:conversation:chat';
-    const repository = createRepository(db);
-
-    await repository.appendRuntimeEvent({
-      appId: 'tenant' as never,
-      sessionId: 'session-app' as never,
-      conversationId: 'control:tenant:conversation:chat' as never,
-      threadId: '1784557836905' as never,
-      eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_REJECTED,
-      actor: 'runtime',
-      payload: { reason: 'queue_wait_timeout' },
-    });
-
-    expect(db.insertedRuntimeEvent).toMatchObject({
-      conversationId: 'control:tenant:conversation:chat',
-      threadId: 'thread:app:tenant:chat:1784557836905',
-    });
-  });
-
   it('commits the runtime event and webhook delivery in one transaction', async () => {
     const db = new FakeDrizzleDb();
     const repository = createRepository(db);
@@ -207,6 +216,128 @@ describe('PostgresRuntimeEventRepository', () => {
       'insert:event_bus_outbox',
       'transaction:rollback',
     ]);
+  });
+
+  it('runs handed-off attachment cleanup only after its caller-owned transaction commits', async () => {
+    const db = new FakeDrizzleDb();
+    const reclaimProviderAttachment = vi.fn(async (_storageRef: string) => {
+      db.operations.push('reclaim:provider_attachment');
+    });
+    const saveMessageWithExecutor = vi
+      .spyOn(
+        PostgresCanonicalMessageRepository.prototype,
+        'saveMessageWithExecutor',
+      )
+      .mockResolvedValue({
+        liveAdmissionResult: undefined,
+        removedProviderStorageRefs: [
+          {
+            messageId: 'provider-message-1',
+            storageRef: 'provider-attachments/only-copy.txt',
+          },
+        ],
+      });
+    const repository = createWiredRepository(db, reclaimProviderAttachment);
+
+    try {
+      await repository.appendRuntimeEventAndStoreLiveAdmission(
+        {
+          appId: 'app:test' as never,
+          eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+          actor: 'agent',
+          payload: { text: 'done' },
+        },
+        {
+          message: {
+            id: 'provider-message-1',
+            chat_jid: 'sl:C123',
+            provider: 'slack',
+            sender: 'U123',
+            sender_name: 'Ravi',
+            content: 'message',
+            timestamp: '2026-04-30T00:00:00.000Z',
+          },
+          liveAdmission: { appId: 'app:test' },
+        },
+      );
+
+      expect(reclaimProviderAttachment).toHaveBeenCalledWith(
+        'provider-attachments/only-copy.txt',
+      );
+      expect(db.operations).toEqual([
+        'transaction:begin',
+        'insert:runtime_events',
+        'insert:event_bus_outbox',
+        'transaction:commit',
+        'transaction:begin',
+        'lock:message_attachments',
+        'lock:message_attachments',
+        'select:provider_attachment',
+        'reclaim:provider_attachment',
+        'transaction:commit',
+      ]);
+      expect(saveMessageWithExecutor).toHaveBeenCalledOnce();
+    } finally {
+      saveMessageWithExecutor.mockRestore();
+    }
+  });
+
+  it('does not run handed-off attachment cleanup when its caller-owned transaction rolls back', async () => {
+    const db = new FakeDrizzleDb();
+    db.failOutboxInsert = true;
+    const reclaimProviderAttachment = vi.fn(
+      async (_storageRef: string) => undefined,
+    );
+    const saveMessageWithExecutor = vi
+      .spyOn(
+        PostgresCanonicalMessageRepository.prototype,
+        'saveMessageWithExecutor',
+      )
+      .mockResolvedValue({
+        liveAdmissionResult: undefined,
+        removedProviderStorageRefs: [
+          {
+            messageId: 'provider-message-1',
+            storageRef: 'provider-attachments/only-copy.txt',
+          },
+        ],
+      });
+    const repository = createWiredRepository(db, reclaimProviderAttachment);
+
+    try {
+      await expect(
+        repository.appendRuntimeEventAndStoreLiveAdmission(
+          {
+            appId: 'app:test' as never,
+            eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+            actor: 'agent',
+            payload: { text: 'done' },
+          },
+          {
+            message: {
+              id: 'provider-message-1',
+              chat_jid: 'sl:C123',
+              provider: 'slack',
+              sender: 'U123',
+              sender_name: 'Ravi',
+              content: 'message',
+              timestamp: '2026-04-30T00:00:00.000Z',
+            },
+            liveAdmission: { appId: 'app:test' },
+          },
+        ),
+      ).rejects.toThrow('outbox insert failed');
+
+      expect(db.operations).toEqual([
+        'transaction:begin',
+        'insert:runtime_events',
+        'insert:event_bus_outbox',
+        'transaction:rollback',
+      ]);
+      expect(reclaimProviderAttachment).not.toHaveBeenCalled();
+    } finally {
+      saveMessageWithExecutor.mockRestore();
+    }
   });
 
   it('rolls back the runtime event when webhook delivery enqueue fails', async () => {
@@ -301,50 +432,44 @@ describe('PostgresRuntimeEventRepository', () => {
     ]);
   });
 
-  it('uses the canonical conversation mapped by an app session', async () => {
+  it('materializes canonical conversation thread rows before appending threaded events', async () => {
     const db = new FakeDrizzleDb();
-    db.canonicalConversationId = 'control:app:test:conversation:analysis-1';
     const repository = createRepository(db);
 
     await repository.appendRuntimeEvent({
-      appId: 'app:test' as never,
-      sessionId: 'session:test' as never,
-      conversationId: 'conversation:app:test:analysis-1' as never,
+      appId: 'default' as never,
+      conversationId: 'conversation:sl:C0B3M99H1B6' as never,
+      threadId: 'thread:sl:C0B3M99H1B6:1784789975.807219' as never,
       eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
       actor: 'agent',
       payload: { text: 'done' },
     });
 
-    expect(db.insertedRuntimeEvent).toEqual(
-      expect.objectContaining({
-        conversationId: 'control:app:test:conversation:analysis-1',
-      }),
-    );
     expect(db.operations).toEqual([
       'transaction:begin',
-      'select:control_session',
+      'insert:conversation_threads',
       'insert:runtime_events',
       'insert:event_bus_outbox',
       'transaction:commit',
     ]);
-  });
-
-  it('uses the app chat mapping when a runtime event has no session id', async () => {
-    const db = new FakeDrizzleDb();
-    db.canonicalConversationId = 'control:app:test:conversation:analysis-1';
-    const repository = createRepository(db);
-
-    await repository.appendRuntimeEvent({
-      appId: 'app:test' as never,
-      conversationId: 'conversation:app:test:analysis-1' as never,
-      eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
-      actor: 'agent',
-      payload: { text: 'done' },
+    expect(db.insertedConversationThread).toMatchObject({
+      id: 'thread:sl:C0B3M99H1B6:1784789975.807219',
+      appId: 'default',
+      conversationId: 'conversation:sl:C0B3M99H1B6',
     });
-
+    expect(db.insertedConversationThread?.externalRefJson).toBe(
+      JSON.stringify({
+        kind: 'conversation_thread',
+        value: '1784789975.807219',
+        jid: 'sl:C0B3M99H1B6',
+        threadId: '1784789975.807219',
+        externalThreadId: '1784789975.807219',
+      }),
+    );
     expect(db.insertedRuntimeEvent).toEqual(
       expect.objectContaining({
-        conversationId: 'control:app:test:conversation:analysis-1',
+        conversationId: 'conversation:sl:C0B3M99H1B6',
+        threadId: 'thread:sl:C0B3M99H1B6:1784789975.807219',
       }),
     );
   });

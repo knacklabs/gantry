@@ -15,6 +15,7 @@ import type { RuntimeConfiguredConversation } from './runtime-settings-types.js'
 export interface StoredAgentBinding {
   name: string;
   folder: string;
+  conversationId?: string;
   trigger: string;
   added_at: string;
   requiresTrigger?: boolean;
@@ -30,6 +31,7 @@ export interface StoredAgentBinding {
 
 export interface ConfiguredRoutingBinding {
   agentFolder: string;
+  conversationId?: string;
   jid: string;
   installKey?: string;
   threadId?: string;
@@ -45,6 +47,7 @@ export interface ConfiguredRoutingBinding {
 
 export interface SettingsDesiredStateOps {
   getAllConversationRoutes(): Promise<Record<string, StoredAgentBinding>>;
+  getAllChats?(): Promise<Array<{ jid: string; is_group?: number }>>;
   setConversationRoute(jid: string, group: StoredAgentBinding): Promise<void>;
   deleteConversationRoute?(jid: string): Promise<void>;
 }

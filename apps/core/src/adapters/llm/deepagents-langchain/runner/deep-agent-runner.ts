@@ -3,12 +3,11 @@ import type { FileData, FilesystemPermission } from 'deepagents';
 import { HumanMessage } from '@langchain/core/messages';
 import type { BaseMessage } from '@langchain/core/messages';
 import type { StructuredToolInterface } from '@langchain/core/tools';
-import { ProviderStrategy, ToolStrategy } from 'langchain';
+import { ToolStrategy } from 'langchain';
 
 import {
   buildRunnerModel,
   type OpenRouterProviderPreferences,
-  type ResolvedRunnerModel,
 } from './model-factory.js';
 import {
   applyCachePromptControl,
@@ -42,6 +41,12 @@ import type {
 import type { RunnerOutputFrame } from '../../../../runner/runner-frame.js';
 import { nowMs } from '../../../../shared/time/datetime.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
+import {
+  appendStructuredOutputContract,
+  serializeValidatedStructuredOutput,
+  STRUCTURED_OUTPUT_ENVELOPE_SCHEMA,
+} from './structured-output-envelope.js';
+import { envelopeToolsForProvider } from './tool-input-envelope.js';
 
 // Raw DeepAgents authority is fully disabled in v1: the default StateBackend has
 // no `execute` tool, and filesystem permissions deny reads/writes unless the
@@ -146,7 +151,10 @@ export async function runDeepAgentTurn(input: {
   );
   logElapsed('Model built');
   const systemPrompt = startupTiming.measure('systemPromptMs', () =>
-    composeDeepAgentSystemPrompt(input.agentInput),
+    appendStructuredOutputContract(
+      composeDeepAgentSystemPrompt(input.agentInput),
+      input.agentInput.responseSchema,
+    ),
   );
   logElapsed('System prompt composed');
 
@@ -205,6 +213,7 @@ export async function runDeepAgentTurn(input: {
         : {}),
       toolNetworkEnv: input.agentInput.toolNetworkEnv,
       hideAuthorityTools: input.agentInput.hideAuthorityTools === true,
+      callableAgentManifest: input.agentInput.callableAgentManifest,
       // The gated shell tool (when projected) runs commands as a child of this
       // already-sandboxed runner; thread the run-cancellation signal so an
       // in-flight command is killed on STOP/close.
@@ -221,11 +230,13 @@ export async function runDeepAgentTurn(input: {
         },
         permissionEnv,
         lockedAccessPreset: process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked',
+        ...(input.signal ? { signal: input.signal } : {}),
       },
     }),
   );
   logElapsed(`MCP tools connected (tools=${connected.tools.length})`);
   startupTiming.markToolsReady();
+  const modelTools = envelopeToolsForProvider(connected.tools, input.provider);
 
   try {
     const skillProjection = input.agentInput.deepAgentSkills;
@@ -239,9 +250,8 @@ export async function runDeepAgentTurn(input: {
           model: resolved.model,
           ...(input.agentInput.responseSchema
             ? {
-                responseFormat: responseFormatForSchema(
-                  input.agentInput.responseSchema,
-                  resolved.model,
+                responseFormat: ToolStrategy.fromSchema(
+                  STRUCTURED_OUTPUT_ENVELOPE_SCHEMA,
                 ),
               }
             : {}),
@@ -250,7 +260,7 @@ export async function runDeepAgentTurn(input: {
           permissions: hasProjectedSkills
             ? READONLY_SKILLS_FILESYSTEM
             : DENY_ALL_FILESYSTEM,
-          tools: connected.tools as StructuredToolInterface[] as never,
+          tools: modelTools as StructuredToolInterface[] as never,
           middleware: [
             createBuiltinToolExclusionMiddleware({
               exposeSkillReadTools: hasProjectedSkills,
@@ -345,7 +355,10 @@ export async function runDeepAgentTurn(input: {
     );
     logElapsed('Stream normalized');
     const terminalResult = input.agentInput.responseSchema
-      ? serializeStructuredResponse(structuredResponse)
+      ? serializeValidatedStructuredOutput(
+          structuredResponse,
+          input.agentInput.responseSchema,
+        )
       : normalized.terminalResult;
     const text = input.agentInput.responseSchema
       ? (terminalResult ?? '')
@@ -402,32 +415,6 @@ async function* captureStructuredResponse(
       capture(output.structuredResponse);
     }
     yield event;
-  }
-}
-
-function responseFormatForSchema(
-  schema: Record<string, unknown>,
-  { profile: { structuredOutput } }: ResolvedRunnerModel['model'],
-) {
-  const name = 'gantry_structured_output';
-  const normalized = { ...schema, name, title: name };
-  return structuredOutput === true
-    ? ProviderStrategy.fromSchema(normalized)
-    : ToolStrategy.fromSchema(normalized);
-}
-
-function serializeStructuredResponse(value: unknown): string {
-  if (value === undefined) {
-    throw new Error('DeepAgents structured output did not return a response.');
-  }
-  try {
-    return JSON.stringify(value);
-  } catch (error) {
-    const detail = error instanceof Error ? ` ${error.message}` : '';
-    throw new Error(
-      `DeepAgents structured output could not be serialized.${detail}`,
-      { cause: error },
-    );
   }
 }
 

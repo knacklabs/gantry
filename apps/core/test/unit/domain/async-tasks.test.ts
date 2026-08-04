@@ -41,7 +41,7 @@ describe('toPublicAsyncTaskDto', () => {
           needsAttention: 'none',
         }),
       ).receiptLines,
-    ).toEqual(['Completed: answered']);
+    ).toEqual(['answered']);
   });
 
   it('keeps full receipts when work used tools', () => {
@@ -55,13 +55,7 @@ describe('toPublicAsyncTaskDto', () => {
           needsAttention: 'none',
         }),
       ).receiptLines,
-    ).toEqual([
-      'Completed: cancelled',
-      'Used: RunCommand',
-      'Changed: none',
-      'Delegated: no',
-      'Needs attention: none',
-    ]);
+    ).toEqual(['cancelled', 'I used RunCommand.']);
   });
 
   it('exposes only bounded public progress for running async commands', () => {

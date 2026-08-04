@@ -93,7 +93,7 @@ async function bakeRebake(
   await initializeRuntimeStorage();
   const queue = new ToolchainBakeSender({
     connectionString: STORAGE_POSTGRES_URL,
-    schema: 'gantry_pgboss',
+    schema: 'pgboss',
     applicationName: `gantry-${STORAGE_POSTGRES_SCHEMA}-bake-rebake`,
   });
   try {

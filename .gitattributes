@@ -1,0 +1,12 @@
+# Append-only JSONL stores (gstack decisions, learnings): two devs appending
+# between pushes is a union, not a conflict. The driver is registered per
+# clone by the SessionStart hook (merge.jsonl-append.driver -> gstack-jsonl-merge).
+.gstack/**/*.jsonl merge=jsonl-append
+plans/lessons.jsonl merge=jsonl-append
+
+plans/quickfixes.jsonl merge=jsonl-append
+
+# deliberately not jsonl-append: these files must never conflict, and a custom
+# driver may not be registered in every clone — the built-in union always is.
+.factory/*.jsonl merge=union
+.factory/history/**/*.jsonl merge=union

@@ -7,7 +7,15 @@ import type {
   ReadinessRoleRequirements,
 } from './system-health.js';
 import type { JobManagementServiceDeps } from '../../application/jobs/job-management-types.js';
-import type { ControlPlaneStorageSettings } from '../../application/control-plane/control-plane-storage-model.js';
+import type { JobManagementService } from '../../application/jobs/job-management-service.js';
+import type {
+  ControlAgentSettingsPort,
+  ControlAgentSettingsView,
+  ControlObserverStatus,
+  ControlSettingsImportPort,
+  EffectiveControlRuntimeSettings,
+  ResolveControlObserverStatus,
+} from '../../application/control-plane/control-plane-storage-model.js';
 import type { AppId } from '../../domain/app/app.js';
 import type {
   ModelCatalogEntry,
@@ -19,9 +27,22 @@ import type { EgressSettings } from '../../shared/egress-policy.js';
 import { authenticate, type ApiKeyRecord, type Scope } from './auth.js';
 import { sendError } from './http.js';
 import type { RateLimiter } from './rate-limit.js';
+import type { SessionInteractionModule } from '../../application/sessions/session-interaction-module.js';
 
-type InternalRuntimeSettings = ControlPlaneStorageSettings & {
-  modelFamilies?: Record<string, string[]>;
+type ProjectionSettingsOverrides = {
+  providerAccount?: {
+    id: string;
+    runtimeSecretRefs: Record<string, string>;
+  };
+};
+
+type InternalRuntimeSettings = EffectiveControlRuntimeSettings;
+
+export type {
+  ControlAgentSettingsPort,
+  ControlAgentSettingsView,
+  ControlObserverStatus,
+  ControlSettingsImportPort,
 };
 
 export type ControlServerState = {
@@ -66,6 +87,8 @@ export type ControlModelProviderPreflightResult = {
 
 export type ControlRouteContext = {
   app: RuntimeApp;
+  sessionInteraction: SessionInteractionModule;
+  jobManagement: JobManagementService;
   runtimeHome: string;
   keys: ApiKeyRecord[];
   /** Process role this server runs as; drives role-aware readiness + metrics. */
@@ -85,15 +108,6 @@ export type ControlRouteContext = {
   isSchedulerReady?: () => boolean;
   oldestWaitingLiveAdmissionSeconds?: () => number;
   liveCapacityLimit?: () => number;
-  getChannelTransportHealth?: () => Array<{
-    providerId: string;
-    configured: boolean;
-    connected: boolean;
-    configuredAccountCount: number;
-    connectedAccountCount: number;
-    authenticatedConversationRegistrationCount: number;
-    authenticatedConversationRegistrationAvailable: boolean;
-  }>;
   socketPath: string;
   port: number;
   maxConcurrentStreams: number;
@@ -103,6 +117,14 @@ export type ControlRouteContext = {
   triggerRateLimiter: RateLimiter;
   getRuntimeSettings: () => RuntimeSettingsResponse['settings'];
   getInternalRuntimeSettings: () => InternalRuntimeSettings;
+  getEffectiveRuntimeSettings: () => InternalRuntimeSettings;
+  getEffectiveMemoryState?: () => {
+    enabled: boolean;
+    dreamingEnabled: boolean;
+  };
+  agentSettings: ControlAgentSettingsPort;
+  settingsImport: ControlSettingsImportPort;
+  resolveObserverStatus: ResolveControlObserverStatus;
   getEgressSettings?: () => EgressSettings;
   getDefaultModelConfig: (
     kind?: 'interactive' | 'oneTimeJob' | 'recurringJob',
@@ -137,20 +159,6 @@ export type ControlRouteContext = {
     providerAccountId: string;
     text: string;
   }) => Promise<void>;
-  sendConversationMessage?: (input: {
-    appId: string;
-    conversationId: string;
-    threadId?: string;
-    idempotencyKey: string;
-    text: string;
-    adaptiveCard?: Record<string, unknown>;
-  }) => Promise<{ messageId: string; providerMessageId?: string }>;
-  handleProviderHttpIngress?: (
-    providerId: string,
-    request: IncomingMessage,
-    response: ServerResponse,
-    body: Record<string, unknown>,
-  ) => Promise<boolean>;
   addMessageReaction?: (
     jid: string,
     messageRef: string,
@@ -158,7 +166,10 @@ export type ControlRouteContext = {
     options?: { providerAccountId?: string },
   ) => Promise<void>;
   getBrowserStatus?: JobManagementServiceDeps['getBrowserStatus'];
-  syncSettingsFromProjection: (appId: AppId) => Promise<void>;
+  syncSettingsFromProjection: (
+    appId: AppId,
+    overrides?: ProjectionSettingsOverrides,
+  ) => Promise<void>;
   getSelectedAgentHarness: (agentFolder?: string) => AgentHarness;
   getConfiguredAgentRuntime?: (
     agentFolder?: string,

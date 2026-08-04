@@ -1,0 +1,19 @@
+{
+  "artifact": "lesson",
+  "phase": "evolution",
+  "recorded_by": "forge lesson add",
+  "generated_by": ["implementer", "autoreview", "planner-high", "orchestrator", "human"],
+  "required": {
+    "topic": "str",
+    "lesson": "str",
+    "source": "str",
+    "applies_to": "list",
+    "severity": "str",
+    "generated_by": "str"
+  },
+  "optional": {
+    "added_at": "str"
+  },
+  "severity_note": "severity must be low | medium | high (enforced by the recorder; the schema DSL has no string enums).",
+  "applies_to_note": "applies_to is a list of path globs; `forge lesson relevant --files ...` surfaces matching lessons before work starts."
+}

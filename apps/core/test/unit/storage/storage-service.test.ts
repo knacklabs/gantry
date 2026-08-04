@@ -2,10 +2,12 @@ import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  GENERATED_ALWAYS_IDENTITY_PRIMARY_KEYS,
   PostgresStorageService,
   createStorageService,
   postgresMigrationsFolder,
   resolvePostgresPoolConfig,
+  resolveRuntimePostgresPoolMax,
 } from '@core/adapters/storage/postgres/storage-service.js';
 import {
   DEFAULT_SKILL_CATALOG,
@@ -44,6 +46,25 @@ describe('storage-service', () => {
     );
 
     expect(config.max).toBeGreaterThanOrEqual(20);
+  });
+
+  it('uses the default runtime postgres pool size when unset', () => {
+    expect(resolveRuntimePostgresPoolMax({})).toBe(20);
+  });
+
+  it('honors GANTRY_POSTGRES_POOL_MAX for constrained managed pools', () => {
+    expect(
+      resolveRuntimePostgresPoolMax({ GANTRY_POSTGRES_POOL_MAX: '10' }),
+    ).toBe(10);
+  });
+
+  it('rejects invalid GANTRY_POSTGRES_POOL_MAX values', () => {
+    expect(() =>
+      resolveRuntimePostgresPoolMax({ GANTRY_POSTGRES_POOL_MAX: '0' }),
+    ).toThrow(/positive integer/);
+    expect(() =>
+      resolveRuntimePostgresPoolMax({ GANTRY_POSTGRES_POOL_MAX: 'ten' }),
+    ).toThrow(/positive integer/);
   });
 
   it('constructs postgres storage with custom runtime schema', async () => {
@@ -128,6 +149,26 @@ describe('storage-service', () => {
     await service.close();
   });
 
+  it('preserves global admin seeds without globally seeding newly durable scheduler tools', () => {
+    const seededToolsByName = new Map(
+      DEFAULT_TOOL_CATALOG.map((tool) => [tool.name, tool]),
+    );
+
+    expect(
+      seededToolsByName.get('mcp__gantry__settings_desired_state')?.id,
+    ).toBe('tool:mcp__gantry__settings_desired_state');
+    expect(seededToolsByName.has('mcp__gantry__scheduler_run_now')).toBe(true);
+    expect(seededToolsByName.has('mcp__gantry__scheduler_list_jobs')).toBe(
+      true,
+    );
+    expect(seededToolsByName.has('mcp__gantry__scheduler_upsert_job')).toBe(
+      false,
+    );
+    expect(seededToolsByName.has('mcp__gantry__scheduler_resume_job')).toBe(
+      false,
+    );
+  });
+
   it('rejects skipped runtime migrations before the current migration head', async () => {
     const service = new PostgresStorageService(
       'postgres://user:pass@127.0.0.1:5432/gantry',
@@ -142,6 +183,50 @@ describe('storage-service', () => {
     );
 
     expect(query).toHaveBeenCalledOnce();
+    await service.close();
+  });
+
+  it('fails readiness with the exact diagnostic when any identity primary key loses its generator', async () => {
+    const service = new PostgresStorageService(
+      'postgres://user:pass@127.0.0.1:5432/gantry',
+      'gantry',
+    );
+    const query = vi
+      .spyOn(service.pool, 'query')
+      .mockImplementation(async (statement: unknown, params?: unknown[]) => {
+        const sql = String(statement);
+        if (sql === 'SELECT 1') {
+          return { rows: [{}] } as never;
+        }
+        expect(sql).toContain('jsonb_to_recordset($2::jsonb)');
+        expect(params?.[0]).toBe('gantry');
+        expect(JSON.parse(String(params?.[1]))).toEqual(
+          GENERATED_ALWAYS_IDENTITY_PRIMARY_KEYS,
+        );
+        return {
+          rows: [
+            {
+              has_vector: true,
+              has_text_search: true,
+              has_job_queue: true,
+              has_runtime_events_table: true,
+              missing_generated_identity_primary_keys: ['message_parts.id'],
+              has_event_bus_outbox_table: true,
+              has_event_bus_outbox_runtime_event_unique: true,
+              missing_runtime_event_indexes: [],
+              missing_event_bus_outbox_indexes: [],
+            },
+          ],
+        } as never;
+      });
+
+    const capabilities = await service.healthCheck();
+
+    expect(capabilities.runtimeEvents).toBe(false);
+    expect(capabilities.runtimeEventsReason).toBe(
+      'message_parts.id identity/default is missing',
+    );
+    expect(query).toHaveBeenCalledTimes(2);
     await service.close();
   });
 });

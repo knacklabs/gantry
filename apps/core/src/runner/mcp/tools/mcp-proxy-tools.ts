@@ -26,6 +26,7 @@ import {
   formatMcpCallToolResponse,
   formatMcpDescribeToolResponse,
   formatMcpListToolsResponse,
+  formatMcpSearchToolsResponse,
 } from './service-formatters.js';
 
 export function registerMcpProxyTools(server: McpServer): void {
@@ -60,7 +61,6 @@ export function registerMcpProxyTools(server: McpServer): void {
       writeIpcFile(TASKS_DIR, {
         type: 'mcp_list_tools',
         taskId,
-        ...scheduledMcpRunContext(),
         targetJid: chatJid,
         chatJid,
         authThreadId: threadId,
@@ -109,6 +109,73 @@ export function registerMcpProxyTools(server: McpServer): void {
   );
 
   server.tool(
+    'mcp_search_tools',
+    lockedAccessPreset
+      ? 'Search tools by keyword across MCP server sources connected to this agent. Returns ranked matches.'
+      : 'Search connected MCP source inventory by keyword over tool name, description, and server name. Matches are ranked and marked with whether a selected reviewed capability covers them; mcp_call_tool still rechecks reviewed action capability at call time.',
+    {
+      query: z
+        .string()
+        .min(1)
+        .describe('Keyword to search over MCP server, tool, and description'),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(50)
+        .optional()
+        .describe('Maximum matches to return, up to 50'),
+    },
+    async (args) => {
+      const taskId = makeIpcId('mcp-search-tools');
+      writeIpcFile(TASKS_DIR, {
+        type: 'mcp_search_tools',
+        taskId,
+        targetJid: chatJid,
+        chatJid,
+        authThreadId: threadId,
+        payload: {
+          query: args.query,
+          limit: args.limit,
+        },
+        timestamp: nowIso(),
+      });
+      const response = await waitForTaskResponse(taskId, MCP_PROXY_WAIT_MS);
+      if (!response?.ok) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: response?.error || 'MCP tool search failed.',
+            },
+          ],
+          isError: true,
+        };
+      }
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: (lockedAccessPreset
+              ? [
+                  formatMcpSearchToolsResponse(response.data, {
+                    includeReviewGuidance: false,
+                  }),
+                  capabilityStatusText(),
+                ]
+              : [
+                  formatMcpSearchToolsResponse(response.data),
+                  SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
+                  capabilityStatusText(),
+                ]
+            ).join('\n\n'),
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
     'mcp_describe_tool',
     lockedAccessPreset
       ? 'Describe one tool from an MCP server source connected to this agent.'
@@ -124,7 +191,6 @@ export function registerMcpProxyTools(server: McpServer): void {
       writeIpcFile(TASKS_DIR, {
         type: 'mcp_describe_tool',
         taskId,
-        ...scheduledMcpRunContext(),
         targetJid: chatJid,
         chatJid,
         authThreadId: threadId,
@@ -171,8 +237,8 @@ export function registerMcpProxyTools(server: McpServer): void {
   server.tool(
     'mcp_call_tool',
     lockedAccessPreset
-      ? 'Call a proxy-capable MCP source connected to this agent when no direct mcp__server__tool action is mounted. Use serverName and the raw tool name from mcp_list_tools.'
-      : 'Call a proxy-capable MCP source only when the action is covered by reviewed current-run capability access and no reviewed direct mcp__server__tool action is mounted. Local stdio sources execute through their directly mounted reviewed tools.',
+      ? 'Call a tool from an MCP server source connected to this agent. Use serverName and the raw tool name from mcp_list_tools.'
+      : 'Call a raw MCP source tool only when the requested action is covered by reviewed current-run capability access. Prefer the reviewed action capability as the product contract; do not call direct third-party mcp__server__tool names.',
     {
       serverName: z.string().describe('Connected MCP server name'),
       toolName: z
@@ -189,7 +255,6 @@ export function registerMcpProxyTools(server: McpServer): void {
         type: 'mcp_call_tool',
         taskId,
         runHandle: process.env.GANTRY_AGENT_RUN_HANDLE || undefined,
-        ...(jobId ? { jobId } : {}),
         ...(jobRunId ? { runId: jobRunId } : {}),
         ...(jobRunLeaseToken ? { runLeaseToken: jobRunLeaseToken } : {}),
         ...(jobRunLeaseFencingVersion !== undefined
@@ -284,19 +349,6 @@ export function registerMcpProxyTools(server: McpServer): void {
       };
     },
   );
-}
-
-function scheduledMcpRunContext(): Record<string, unknown> {
-  if (!jobId) return {};
-  return {
-    jobId,
-    runHandle: process.env.GANTRY_AGENT_RUN_HANDLE || undefined,
-    ...(jobRunId ? { runId: jobRunId } : {}),
-    ...(jobRunLeaseToken ? { runLeaseToken: jobRunLeaseToken } : {}),
-    ...(jobRunLeaseFencingVersion !== undefined
-      ? { runLeaseFencingVersion: Number(jobRunLeaseFencingVersion) }
-      : {}),
-  };
 }
 
 function modelVisibleMcpCallResult(data: unknown): CallToolResult {

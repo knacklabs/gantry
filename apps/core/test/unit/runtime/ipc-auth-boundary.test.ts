@@ -1,8 +1,15 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { signIpcRequestPayload } from '@core/infrastructure/ipc/request-signing.js';
+import { DATA_DIR } from '@core/config/index.js';
 import {
+  IPC_REQUEST_MAX_AGE_MS,
+  signIpcRequestPayload,
+} from '@core/infrastructure/ipc/request-signing.js';
+import {
+  computeAttachmentIpcAuthToken,
   computeBrowserIpcAuthToken,
   computeIpcAuthToken,
   computeMemoryIpcAuthToken,
@@ -10,6 +17,7 @@ import {
   getIpcResponseSigningPrivateKey,
   revokeIpcResponseSigningKey,
 } from '@core/runtime/ipc-auth.js';
+import { createAttachmentOpenProof } from '@core/shared/attachment-open-auth-proof.js';
 import {
   signIpcResponsePayload,
   verifyIpcResponsePayload,
@@ -31,12 +39,25 @@ import {
 import { parseTaskIpcData } from '@core/runtime/ipc-task-parsing.js';
 import { clearConsumedIpcRequestIds } from '@core/runtime/ipc-auth-validation.js';
 import { sanitizeIpcToolInput } from '@core/runtime/ipc-tool-input-sanitization.js';
+import { evaluatePermissionDeterministicRails } from '@core/domain/permission-deterministic-rails.js';
+import { computePermissionEffectHash } from '@core/domain/permission-effect-key.js';
+import type { PermissionApprovalRequest } from '@core/domain/types.js';
+import { PERMISSION_CLASSIFIER_MAX_STRING_LENGTH } from '@core/runtime/permission-classifier-prompt.js';
 import {
   appendOwnedFileArtifactDegradeText,
   resolveOwnedFileArtifactMessage,
 } from '@core/runtime/ipc-message-files.js';
 
 const TEST_RESPONSE_KEY_ID = 'test-response-key';
+const REPLAY_MARKER_SWEEP_GRACE_MS = IPC_REQUEST_MAX_AGE_MS * 2;
+
+function replayMarkerPath(replayKey: string): string {
+  return path.join(
+    DATA_DIR,
+    'ipc-replay',
+    `${createHash('sha256').update(replayKey).digest('hex')}.json`,
+  );
+}
 
 function signedPayload(
   payload: Record<string, unknown>,
@@ -90,14 +111,20 @@ function signedMemoryPayload(
   payload: Record<string, unknown>,
   sourceAgentFolder = 'team',
   input: {
+    appId?: string;
+    agentId?: string;
     chatJid?: string;
-    userId?: string;
+    personId?: string;
     defaultScope?: 'user' | 'group';
     threadId?: string;
     allowedActions?: readonly string[];
   } = {},
 ): Record<string, unknown> {
-  const signingKey = computeMemoryIpcAuthToken(sourceAgentFolder, input);
+  const signingKey = computeMemoryIpcAuthToken(sourceAgentFolder, {
+    appId: input.appId || 'default',
+    agentId: input.agentId || 'agent:team',
+    ...input,
+  });
   return {
     ...payload,
     signature: signIpcRequestPayload(signingKey, payload),
@@ -651,7 +678,9 @@ describe('validateIpcAuthRequest', () => {
       action: 'memory_search',
       payload: { query: 'travel' },
       context: {
-        userId: 'u-1',
+        appId: 'default',
+        agentId: 'agent:team',
+        personId: 'u-1',
         defaultScope: 'user',
         allowedActions: ['memory_search'],
         responseKeyId: TEST_RESPONSE_KEY_ID,
@@ -661,7 +690,9 @@ describe('validateIpcAuthRequest', () => {
     expect(
       parseMemoryIpcRequest(
         signedMemoryPayload(payload, 'team', {
-          userId: 'u-1',
+          appId: 'default',
+          agentId: 'agent:team',
+          personId: 'u-1',
           defaultScope: 'user',
           allowedActions: ['memory_search'],
         }),
@@ -669,7 +700,7 @@ describe('validateIpcAuthRequest', () => {
       ),
     ).toMatchObject({
       requestId: 'mem-1',
-      context: { userId: 'u-1', defaultScope: 'user' },
+      context: { personId: 'u-1', defaultScope: 'user' },
       allowedActions: ['memory_search'],
       deadlineAtMs: Date.parse(expiresAt),
     });
@@ -679,7 +710,8 @@ describe('validateIpcAuthRequest', () => {
     expect(() =>
       parseMemoryIpcRequest(
         signedMemoryPayload(payload, 'team', {
-          userId: 'u-2',
+          appId: 'default',
+          personId: 'u-2',
           defaultScope: 'user',
           allowedActions: ['memory_search'],
         }),
@@ -696,6 +728,8 @@ describe('validateIpcAuthRequest', () => {
       action: 'memory_patch',
       payload: { id: 'mem-1', expected_version: 1 },
       context: {
+        appId: 'default',
+        agentId: 'agent:team',
         chatJid: 'tg:team',
         defaultScope: 'group',
         allowedActions: ['memory_search', 'memory_save'],
@@ -707,6 +741,7 @@ describe('validateIpcAuthRequest', () => {
       parseMemoryIpcRequest(
         signedMemoryPayload(payload, 'team', {
           chatJid: 'tg:team',
+          agentId: 'agent:team',
           defaultScope: 'group',
           allowedActions: ['memory_search', 'memory_save'],
         }),
@@ -781,6 +816,118 @@ describe('validateIpcAuthRequest', () => {
       type: 'delegate_task',
       providerAccountId: 'provider-account:slack:main',
     });
+  });
+
+  it('preserves provider account scope from signed task request context', () => {
+    const payload = signedPayload(
+      {
+        requestId: 'task-provider-account-context',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'request_skill_proposal',
+        context: {
+          responseKeyId: TEST_RESPONSE_KEY_ID,
+          threadId: '1784545366.449119',
+          providerAccountId: 'slack_default',
+        },
+      },
+      'team',
+      '1784545366.449119',
+    );
+
+    expect(parseTaskIpcData(payload, 'team')).toMatchObject({
+      type: 'request_skill_proposal',
+      authThreadId: '1784545366.449119',
+      providerAccountId: 'slack_default',
+    });
+  });
+
+  it('rejects signed task requests with mismatched provider account scope', () => {
+    const payload = signedPayload(
+      {
+        requestId: 'task-provider-account-mismatch',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'request_skill_proposal',
+        providerAccountId: 'slack_other',
+        context: {
+          responseKeyId: TEST_RESPONSE_KEY_ID,
+          threadId: '1784545366.449119',
+          providerAccountId: 'slack_default',
+        },
+      },
+      'team',
+      '1784545366.449119',
+    );
+
+    expect(() => parseTaskIpcData(payload, 'team')).toThrow(
+      /providerAccountId mismatch/,
+    );
+  });
+
+  it('rejects a cross-conversation attachment proof even with a valid general IPC signature', () => {
+    const attachmentId = 'message-attachment:provider-fetch:m1:slack:F1';
+    const taskId = 'attachment-open-cross-conversation';
+    const threadId = '1784545366.449119';
+    const context = {
+      responseKeyId: TEST_RESPONSE_KEY_ID,
+      threadId,
+      appId: 'app-1',
+      agentId: 'agent-1',
+      providerAccountId: 'slack-default',
+    };
+    const originIpcAuthValue = computeAttachmentIpcAuthToken('team', {
+      chatJid: 'sl:C1',
+      threadId,
+      appId: 'app-1',
+      agentId: 'agent-1',
+      providerAccountId: 'slack-default',
+    });
+    const openEvidence = createAttachmentOpenProof(originIpcAuthValue, {
+      attachmentId,
+      chatJid: 'sl:C1',
+      taskId,
+      threadId,
+    });
+    const origin = signedPayload(
+      {
+        requestId: 'attachment-origin-conversation',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'attachment_open',
+        taskId,
+        chatJid: 'sl:C1',
+        targetJid: 'sl:C1',
+        context,
+        payload: { attachmentId, conversationProof: openEvidence },
+      },
+      'team',
+      threadId,
+    );
+    const forged = signedPayload(
+      {
+        requestId: 'attachment-cross-conversation',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'attachment_open',
+        taskId,
+        chatJid: 'sl:C2',
+        targetJid: 'sl:C2',
+        context,
+        payload: { attachmentId, conversationProof: openEvidence },
+      },
+      'team',
+      threadId,
+    );
+
+    expect(parseTaskIpcData(origin, 'team')).toMatchObject({
+      type: 'attachment_open',
+      chatJid: 'sl:C1',
+      providerAccountId: 'slack-default',
+    });
+    expect(() => parseTaskIpcData(forged, 'team')).toThrow(
+      'Invalid attachment open conversation proof',
+    );
   });
 
   it('preserves memory user ids from signed task requests', () => {
@@ -1059,7 +1206,7 @@ describe('validateIpcAuthRequest', () => {
       targetJid: 'tg:team',
       jobId: 'job-1',
       runId: 'run-1',
-      runLeaseToken: 'lease-token-1',
+      runLeaseToken: 'lease1',
       runLeaseFencingVersion: 1,
       toolName: 'Bash',
       unattended: true,
@@ -1087,7 +1234,7 @@ describe('validateIpcAuthRequest', () => {
         chatJid: 'tg:team',
         jobId: 'job-1',
         runId: 'run-1',
-        runLeaseToken: 'lease-token-1',
+        runLeaseToken: 'lease1',
         runLeaseFencingVersion: 1,
       },
     };
@@ -1097,7 +1244,7 @@ describe('validateIpcAuthRequest', () => {
         targetJid: 'tg:team',
         jobId: 'job-1',
         runId: 'run-1',
-        runLeaseToken: 'lease-token-1',
+        runLeaseToken: 'lease1',
         runLeaseFencingVersion: 1,
         appId: 'app:one',
         agentId: 'agent:team',
@@ -1148,6 +1295,132 @@ describe('validateIpcAuthRequest', () => {
       'apiToken',
       ...Array.from({ length: 62 }, (_, index) => `extra_${index + 38}`),
     ]);
+    expect(parsed.classifierToolInput).toMatchObject({
+      command: 'x'.repeat(600),
+      apiToken: '[REDACTED]',
+    });
+    expect(parsed.toolInputRedactedPaths).toEqual(['apiToken']);
+    expect(parsed.toolInputTruncatedPaths).toEqual(
+      Array.from({ length: 62 }, (_, index) => `extra_${index + 38}`),
+    );
+  });
+
+  it('strips the exact authenticated host env prefix from a shell command', () => {
+    const hostInjectedCommandPrefix =
+      "GODEBUG=netdns=go HTTP_PROXY='http://127.0.0.1:1/'";
+    const payload = {
+      requestId: 'perm-host-env-prefix',
+      responseNonce: randomUUID(),
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      sourceAgentFolder: 'team',
+      toolName: 'RunCommand',
+      hostInjectedCommandPrefix,
+      toolInput: {
+        command: `${hostInjectedCommandPrefix} head -30 file`,
+      },
+      context: {
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+        appId: 'app:one',
+        agentId: 'agent:team',
+      },
+    };
+
+    const parsed = parsePermissionIpcRequest(signedPayload(payload), 'team');
+
+    expect(parsed.hostInjectedCommandPrefix).toBe(hostInjectedCommandPrefix);
+    expect(parsed.toolInput).toMatchObject({ command: 'head -30 file' });
+    expect(parsed.classifierToolInput).toMatchObject({
+      command: 'head -30 file',
+    });
+    expect(parsed.toolInputTruncatedPaths ?? []).not.toContain('command');
+
+    // The rails no longer short-circuit on incomplete input, and the effect key
+    // builds for the stripped command.
+    const rails = evaluatePermissionDeterministicRails({ request: parsed });
+    if (rails?.railOutcome === 'ask') {
+      expect(rails.reason).not.toContain(
+        'missing or the command was truncated',
+      );
+    }
+    expect(computePermissionEffectHash({ request: parsed })).toBeDefined();
+  });
+
+  it('preserves a model-authored look-alike prefix when provenance mismatches', () => {
+    const command = 'HTTP_PROXY=http://127.0.0.1:1/ curl evil';
+    const payload = {
+      requestId: 'perm-forged-host-env-prefix',
+      responseNonce: randomUUID(),
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      sourceAgentFolder: 'team',
+      toolName: 'RunCommand',
+      hostInjectedCommandPrefix: 'GODEBUG=netdns=go',
+      toolInput: { command },
+      context: {
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+        appId: 'app:one',
+        agentId: 'agent:team',
+      },
+    };
+
+    const parsed = parsePermissionIpcRequest(signedPayload(payload), 'team');
+
+    expect(parsed.toolInput).toMatchObject({ command });
+    expect(parsed.classifierToolInput).toMatchObject({ command });
+  });
+
+  it('strips only the authenticated prefix and preserves a following model assignment', () => {
+    const hostInjectedCommandPrefix = 'GODEBUG=netdns=go';
+    const modelCommand = 'HTTP_PROXY=http://127.0.0.1:1/ curl evil';
+    const payload = {
+      requestId: 'perm-layered-host-env-prefix',
+      responseNonce: randomUUID(),
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      sourceAgentFolder: 'team',
+      toolName: 'RunCommand',
+      hostInjectedCommandPrefix,
+      toolInput: {
+        command: `${hostInjectedCommandPrefix} ${modelCommand}`,
+      },
+      context: {
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+        appId: 'app:one',
+        agentId: 'agent:team',
+      },
+    };
+
+    const parsed = parsePermissionIpcRequest(signedPayload(payload), 'team');
+
+    expect(parsed.toolInput).toMatchObject({ command: modelCommand });
+    expect(parsed.classifierToolInput).toMatchObject({
+      command: modelCommand,
+    });
+  });
+
+  it('does not normalize a shell command without authenticated prefix provenance', () => {
+    const command = 'HTTP_PROXY=http://127.0.0.1:1/ curl evil';
+    const payload = {
+      requestId: 'perm-no-host-env-prefix-provenance',
+      responseNonce: randomUUID(),
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      sourceAgentFolder: 'team',
+      toolName: 'RunCommand',
+      toolInput: { command },
+      context: {
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+        appId: 'app:one',
+        agentId: 'agent:team',
+      },
+    };
+
+    const parsed = parsePermissionIpcRequest(signedPayload(payload), 'team');
+
+    expect(parsed.hostInjectedCommandPrefix).toBeUndefined();
+    expect(parsed.toolInput).toMatchObject({ command });
+    expect(parsed.classifierToolInput).toMatchObject({ command });
   });
 
   it('records every altered tool input dot-path', () => {
@@ -1178,6 +1451,18 @@ describe('validateIpcAuthRequest', () => {
       'entries.21',
       'unsupported',
     ]);
+    expect(result.redactedPaths).toEqual(['apiToken', 'authText']);
+    // Only genuine content-removal paths: string length-truncation, depth cap,
+    // and array/key overflow. `unsupported` (a function coerced via String())
+    // is altered but not truncated content.
+    expect(result.truncatedPaths).toEqual([
+      'long',
+      'nested.child.tooDeep',
+      'wide.item_40',
+      'wide.item_41',
+      'entries.20',
+      'entries.21',
+    ]);
     expect(result.toolInput).toMatchObject({
       apiToken: '[REDACTED]',
       authText: '[REDACTED]',
@@ -1188,14 +1473,71 @@ describe('validateIpcAuthRequest', () => {
     });
   });
 
+  it('distinguishes display truncation from secret redaction paths', () => {
+    const benign = sanitizeIpcToolInput({ command: 'x'.repeat(501) });
+    const secret = sanitizeIpcToolInput({
+      command: 'curl -H "Authorization: Bearer abcdefgh123456"',
+    });
+
+    expect(benign.alteredPaths).toEqual(['command']);
+    expect(benign.redactedPaths).toEqual([]);
+    expect(benign.truncatedPaths).toEqual(['command']);
+    expect(secret.alteredPaths).toEqual(['command']);
+    expect(secret.redactedPaths).toEqual(['command']);
+    expect(secret.truncatedPaths).toEqual([]);
+  });
+
+  it('flags a command that is BOTH redacted and 16K-truncated as truncated (no silent allow/cache)', () => {
+    // Early token forces redaction; the destructive verb is pushed past the 16K
+    // classifier cap so it is sliced away. truncatedPaths must still report
+    // `command` even though the same path was redacted.
+    const command =
+      'echo Authorization: Bearer abcdefgh12345678 ' +
+      'a'.repeat(PERMISSION_CLASSIFIER_MAX_STRING_LENGTH) +
+      '; rm -rf /important';
+    const classifier = sanitizeIpcToolInput(
+      { command },
+      PERMISSION_CLASSIFIER_MAX_STRING_LENGTH,
+    );
+    const display = sanitizeIpcToolInput({ command });
+
+    expect(classifier.redactedPaths).toEqual(['command']);
+    expect(classifier.truncatedPaths).toEqual(['command']);
+    // The destructive suffix is gone from the retained view.
+    expect(JSON.stringify(classifier.toolInput)).not.toContain('rm -rf');
+
+    // A parsed request carrying this signal must be treated as incomplete: the
+    // rails ask and NO effect hash is cached.
+    const request = {
+      requestId: 'perm-redact-and-truncate',
+      appId: 'app:one',
+      sourceAgentFolder: 'team',
+      toolName: 'RunCommand',
+      toolInput: display.toolInput,
+      classifierToolInput: classifier.toolInput,
+      toolInputRedactedPaths: classifier.redactedPaths,
+      toolInputTruncatedPaths: classifier.truncatedPaths,
+    } as PermissionApprovalRequest;
+
+    expect(evaluatePermissionDeterministicRails({ request })).toMatchObject({
+      railOutcome: 'ask',
+      reason: expect.stringContaining('truncated'),
+    });
+    expect(computePermissionEffectHash({ request })).toBeUndefined();
+  });
+
   it('records a root alteration for non-object tool input', () => {
     expect(sanitizeIpcToolInput('not-an-object')).toEqual({
       altered: true,
       alteredPaths: ['$'],
+      redactedPaths: [],
+      truncatedPaths: ['$'],
     });
     expect(sanitizeIpcToolInput(undefined)).toEqual({
       altered: false,
       alteredPaths: [],
+      redactedPaths: [],
+      truncatedPaths: [],
     });
   });
 
@@ -1424,6 +1766,493 @@ describe('validateIpcAuthRequest', () => {
       validateIpcAuthRequest(restartReplay, 'team', 'permission IPC'),
     ).toThrow(/replay/);
   });
+
+  it('keeps the five-minute freshness bound for ordinary IPC requests', () => {
+    const payload = {
+      requestId: 'ordinary-ipc-too-far',
+      nonce: randomUUID(),
+      authExpiresAt: new Date(Date.now() + 5 * 60_000 + 1).toISOString(),
+    };
+
+    expect(() =>
+      validateIpcAuthRequest(signedPayload(payload), 'team', 'permission IPC'),
+    ).toThrow(/expiresAt exceeds max age/);
+  });
+
+  it('rejects a concurrent duplicate reservation for exactly one caller', () => {
+    const duplicate = signedPayload({
+      requestId: 'perm-concurrent',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const outcomes = [duplicate, duplicate].map((request) => {
+      try {
+        validateIpcAuthRequest(request, 'team', 'permission IPC');
+        return 'accepted';
+      } catch {
+        return 'rejected';
+      }
+    });
+
+    expect(outcomes.filter((outcome) => outcome === 'accepted')).toHaveLength(
+      1,
+    );
+    expect(outcomes.filter((outcome) => outcome === 'rejected')).toHaveLength(
+      1,
+    );
+  });
+
+  it('rejects a duplicate id when its marker expired inside sweep grace', () => {
+    const requestId = 'perm-expired-marker';
+    const replayKey = `team::${requestId}`;
+    const markerPath = replayMarkerPath(replayKey);
+    const first = signedPayload({
+      requestId,
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    expect(() =>
+      validateIpcAuthRequest(first, 'team', 'permission IPC'),
+    ).not.toThrow();
+    clearConsumedIpcRequestIds({ durable: false });
+    const expiredMarkerExpiry = Date.now() - 1;
+    fs.writeFileSync(
+      markerPath,
+      JSON.stringify({ expiresAtMs: expiredMarkerExpiry }),
+    );
+
+    const retry = signedPayload({
+      requestId,
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    expect(() =>
+      validateIpcAuthRequest(retry, 'team', 'permission IPC'),
+    ).toThrow(/replay/);
+    expect(
+      JSON.parse(fs.readFileSync(markerPath, 'utf-8')) as {
+        expiresAtMs: number;
+      },
+    ).toEqual({ expiresAtMs: expiredMarkerExpiry });
+  });
+
+  it('allows at most one reservation when two workers race the same id', () => {
+    const now = Date.now();
+    const requestId = 'perm-two-worker-race';
+    const markerPath = replayMarkerPath(`team::${requestId}`);
+    fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+    fs.writeFileSync(markerPath, JSON.stringify({ expiresAtMs: now - 1 }));
+    const workerRequests = [
+      signedPayload({
+        requestId,
+        nonce: randomUUID(),
+        expiresAt: new Date(now + 60_000).toISOString(),
+      }),
+      signedPayload({
+        requestId,
+        nonce: randomUUID(),
+        expiresAt: new Date(now + 60_000).toISOString(),
+      }),
+    ];
+    const outcomes: string[] = [];
+    const attempt = (request: Record<string, unknown>) => {
+      clearConsumedIpcRequestIds({ durable: false });
+      try {
+        validateIpcAuthRequest(request, 'team', 'permission IPC');
+        outcomes.push('accepted');
+      } catch {
+        outcomes.push('rejected');
+      }
+    };
+    const originalRmSync = fs.rmSync;
+    let reentered = false;
+    const rmSpy = vi
+      .spyOn(fs, 'rmSync')
+      .mockImplementation((target, options) => {
+        if (String(target) === markerPath && !reentered) {
+          reentered = true;
+          attempt(workerRequests[1]);
+        }
+        originalRmSync(target, options);
+      });
+    try {
+      attempt(workerRequests[0]);
+      if (!reentered) attempt(workerRequests[1]);
+
+      expect(outcomes).toHaveLength(2);
+      expect(
+        outcomes.filter((outcome) => outcome === 'accepted').length,
+      ).toBeLessThanOrEqual(1);
+    } finally {
+      rmSpy.mockRestore();
+      fs.rmSync(markerPath, { force: true });
+    }
+  });
+
+  it('does not sweep an expired replay marker inside the freshness grace', async () => {
+    vi.useFakeTimers();
+    const now = Date.now();
+    vi.setSystemTime(now);
+    const replayDir = path.join(DATA_DIR, 'ipc-replay');
+    const markerPath = path.join(replayDir, 'inside-grace.json');
+    const sweepControlPath = path.join(replayDir, 'past-grace.json');
+    fs.mkdirSync(replayDir, { recursive: true });
+    fs.writeFileSync(
+      markerPath,
+      JSON.stringify({
+        expiresAtMs: now - REPLAY_MARKER_SWEEP_GRACE_MS + 60_000,
+      }),
+    );
+    fs.writeFileSync(
+      sweepControlPath,
+      JSON.stringify({
+        expiresAtMs: now - REPLAY_MARKER_SWEEP_GRACE_MS - 1,
+      }),
+    );
+    try {
+      validateIpcAuthRequest(
+        signedPayload({
+          requestId: 'perm-inside-sweep-grace',
+          nonce: randomUUID(),
+          expiresAt: new Date(now + 60_000).toISOString(),
+        }),
+        'team',
+        'permission IPC',
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(fs.existsSync(sweepControlPath)).toBe(false);
+        },
+        { timeout: 2_000, interval: 50 },
+      );
+
+      expect(fs.existsSync(markerPath)).toBe(true);
+    } finally {
+      clearConsumedIpcRequestIds({ durable: 'consumed' });
+      fs.rmSync(markerPath, { force: true });
+      fs.rmSync(sweepControlPath, { force: true });
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects requests older than the freshness window before marker mutation', () => {
+    const now = Date.now();
+    const requestId = 'perm-stale-before-replay';
+    const markerPath = replayMarkerPath(`team::${requestId}`);
+    const markerStates = [
+      now + IPC_REQUEST_MAX_AGE_MS,
+      now - REPLAY_MARKER_SWEEP_GRACE_MS - 1,
+    ];
+    fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+
+    for (const expiresAtMs of markerStates) {
+      fs.writeFileSync(markerPath, JSON.stringify({ expiresAtMs }));
+      expect(() =>
+        validateIpcAuthRequest(
+          signedPayload({
+            requestId,
+            nonce: randomUUID(),
+            expiresAt: new Date(now - IPC_REQUEST_MAX_AGE_MS - 1).toISOString(),
+          }),
+          'team',
+          'permission IPC',
+        ),
+      ).toThrow(/freshness: expired request/);
+      expect(
+        JSON.parse(fs.readFileSync(markerPath, 'utf-8')) as {
+          expiresAtMs: number;
+        },
+      ).toEqual({ expiresAtMs });
+    }
+
+    fs.rmSync(markerPath, { force: true });
+  });
+
+  it('reclaims a malformed replay marker whose mtime is past grace', async () => {
+    vi.useFakeTimers();
+    const now = Date.now();
+    vi.setSystemTime(now);
+    const replayDir = path.join(DATA_DIR, 'ipc-replay');
+    const markerPath = path.join(replayDir, 'malformed-past-grace.json');
+    fs.mkdirSync(replayDir, { recursive: true });
+    fs.writeFileSync(markerPath, '{"expiresAtMs":');
+    const pastGrace = new Date(now - REPLAY_MARKER_SWEEP_GRACE_MS - 60_000);
+    fs.utimesSync(markerPath, pastGrace, pastGrace);
+    try {
+      validateIpcAuthRequest(
+        signedPayload({
+          requestId: 'perm-sweep-malformed-old',
+          nonce: randomUUID(),
+          expiresAt: new Date(now + 60_000).toISOString(),
+        }),
+        'team',
+        'permission IPC',
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(fs.existsSync(markerPath)).toBe(false);
+        },
+        { timeout: 2_000, interval: 50 },
+      );
+    } finally {
+      clearConsumedIpcRequestIds({ durable: 'consumed' });
+      fs.rmSync(markerPath, { force: true });
+      vi.useRealTimers();
+    }
+  });
+
+  it('retains a fresh malformed replay marker during a sweep', async () => {
+    vi.useFakeTimers();
+    const now = Date.now();
+    vi.setSystemTime(now);
+    const replayDir = path.join(DATA_DIR, 'ipc-replay');
+    const markerPath = path.join(replayDir, 'malformed-inside-grace.json');
+    const sweepControlPath = path.join(
+      replayDir,
+      'malformed-sweep-control.json',
+    );
+    fs.mkdirSync(replayDir, { recursive: true });
+    fs.writeFileSync(markerPath, '{"expiresAtMs":');
+    fs.writeFileSync(
+      sweepControlPath,
+      JSON.stringify({
+        expiresAtMs: now - REPLAY_MARKER_SWEEP_GRACE_MS - 1,
+      }),
+    );
+    try {
+      validateIpcAuthRequest(
+        signedPayload({
+          requestId: 'perm-sweep-malformed-fresh',
+          nonce: randomUUID(),
+          expiresAt: new Date(now + 60_000).toISOString(),
+        }),
+        'team',
+        'permission IPC',
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(fs.existsSync(sweepControlPath)).toBe(false);
+        },
+        { timeout: 2_000, interval: 50 },
+      );
+      expect(fs.existsSync(markerPath)).toBe(true);
+    } finally {
+      clearConsumedIpcRequestIds({ durable: 'consumed' });
+      fs.rmSync(markerPath, { force: true });
+      fs.rmSync(sweepControlPath, { force: true });
+      vi.useRealTimers();
+    }
+  });
+
+  it('adaptively drains a large grace-expired replay backlog', async () => {
+    vi.useFakeTimers();
+    const now = Date.now();
+    vi.setSystemTime(now);
+    const replayDir = path.join(DATA_DIR, 'ipc-replay');
+    fs.mkdirSync(replayDir, { recursive: true });
+    const markerPrefix = `backlog-${randomUUID()}-`;
+    const markerPaths: string[] = [];
+    const marker = JSON.stringify({
+      expiresAtMs: now - REPLAY_MARKER_SWEEP_GRACE_MS - 1,
+    });
+    for (let index = 0; index < 512; index += 1) {
+      const markerPath = path.join(replayDir, `${markerPrefix}${index}.json`);
+      markerPaths.push(markerPath);
+      fs.writeFileSync(markerPath, marker);
+    }
+    try {
+      validateIpcAuthRequest(
+        signedPayload({
+          requestId: 'perm-adaptive-sweep',
+          nonce: randomUUID(),
+          expiresAt: new Date(now + 60_000).toISOString(),
+        }),
+        'team',
+        'permission IPC',
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(
+            fs
+              .readdirSync(replayDir)
+              .filter((file) => file.startsWith(markerPrefix)),
+          ).toHaveLength(0);
+        },
+        { timeout: 8_000, interval: 50 },
+      );
+    } finally {
+      clearConsumedIpcRequestIds({ durable: 'consumed' });
+      for (const markerPath of markerPaths) {
+        fs.rmSync(markerPath, { force: true });
+      }
+      vi.useRealTimers();
+    }
+  });
+
+  it('continues sweeping after an unreadable replay marker', async () => {
+    vi.useFakeTimers();
+    const now = Date.now();
+    vi.setSystemTime(now);
+    const replayDir = path.join(DATA_DIR, 'ipc-replay');
+    const markerPrefix = `unreadable-${randomUUID()}-`;
+    const unreadablePath = path.join(replayDir, `${markerPrefix}0.json`);
+    const healthyPaths = [1, 2].map((index) =>
+      path.join(replayDir, `${markerPrefix}${index}.json`),
+    );
+    const expiredMarker = JSON.stringify({
+      expiresAtMs: now - REPLAY_MARKER_SWEEP_GRACE_MS - 1,
+    });
+    fs.mkdirSync(replayDir, { recursive: true });
+    fs.writeFileSync(unreadablePath, expiredMarker);
+    for (const markerPath of healthyPaths) {
+      fs.writeFileSync(markerPath, expiredMarker);
+    }
+    const unreadableError = Object.assign(new Error('unreadable marker'), {
+      code: 'EACCES',
+    });
+    const originalReadFile = fs.promises.readFile;
+    const originalStat = fs.promises.stat;
+    const readFileSpy = vi
+      .spyOn(fs.promises, 'readFile')
+      .mockImplementation(((...args) =>
+        String(args[0]) === unreadablePath
+          ? Promise.reject(unreadableError)
+          : Reflect.apply(
+              originalReadFile,
+              fs.promises,
+              args,
+            )) as typeof fs.promises.readFile);
+    const statSpy = vi
+      .spyOn(fs.promises, 'stat')
+      .mockImplementation(((...args) =>
+        String(args[0]) === unreadablePath
+          ? Promise.reject(unreadableError)
+          : Reflect.apply(
+              originalStat,
+              fs.promises,
+              args,
+            )) as typeof fs.promises.stat);
+    try {
+      validateIpcAuthRequest(
+        signedPayload({
+          requestId: `perm-sweep-${randomUUID()}`,
+          nonce: randomUUID(),
+          expiresAt: new Date(now + 60_000).toISOString(),
+        }),
+        'team',
+        'permission IPC',
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(
+            healthyPaths.every((markerPath) => !fs.existsSync(markerPath)),
+          ).toBe(true);
+        },
+        { timeout: 2_000, interval: 50 },
+      );
+      expect(fs.existsSync(unreadablePath)).toBe(true);
+    } finally {
+      readFileSpy.mockRestore();
+      statSpy.mockRestore();
+      clearConsumedIpcRequestIds({ durable: 'consumed' });
+      fs.rmSync(unreadablePath, { force: true });
+      for (const markerPath of healthyPaths) {
+        fs.rmSync(markerPath, { force: true });
+      }
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops the replay-marker sweep timer during watcher cleanup', () => {
+    vi.useFakeTimers();
+    try {
+      const request = signedPayload({
+        requestId: 'perm-sweeper-lifecycle',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+      validateIpcAuthRequest(request, 'team', 'permission IPC');
+      expect(vi.getTimerCount()).toBe(1);
+
+      stopIpcWatcher();
+
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('performs bounded filesystem work with 5,000 replay markers', () => {
+    const replayDir = path.join(DATA_DIR, 'ipc-replay');
+    fs.mkdirSync(replayDir, { recursive: true });
+    const markerPrefix = `padding-${randomUUID()}-`;
+    const markerPaths: string[] = [];
+    const marker = JSON.stringify({ expiresAtMs: Date.now() + 60_000 });
+    for (let index = 0; index < 5_000; index += 1) {
+      const markerPath = path.join(replayDir, `${markerPrefix}${index}.json`);
+      markerPaths.push(markerPath);
+      fs.writeFileSync(markerPath, marker);
+    }
+
+    const readdirSpy = vi.spyOn(fs, 'readdirSync');
+    const readSpy = vi.spyOn(fs, 'readFileSync');
+    const mkdirSpy = vi.spyOn(fs, 'mkdirSync');
+    const lstatSpy = vi.spyOn(fs, 'lstatSync');
+    const chmodSpy = vi.spyOn(fs, 'chmodSync');
+    const writeSpy = vi.spyOn(fs, 'writeFileSync');
+    const rmSpy = vi.spyOn(fs, 'rmSync');
+    try {
+      validateIpcAuthRequest(
+        signedPayload({
+          requestId: 'bounded-5000',
+          nonce: randomUUID(),
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        }),
+        'team',
+        'permission IPC',
+      );
+
+      const targetsReplayStore = (call: unknown[]): boolean =>
+        typeof call[0] === 'string' && call[0].startsWith(replayDir);
+      expect(readdirSpy.mock.calls.filter(targetsReplayStore)).toHaveLength(0);
+      expect(readSpy.mock.calls.filter(targetsReplayStore)).toHaveLength(0);
+      expect(rmSpy.mock.calls.filter(targetsReplayStore)).toHaveLength(0);
+      expect(mkdirSpy.mock.calls.filter(targetsReplayStore)).toHaveLength(1);
+      expect(lstatSpy.mock.calls.filter(targetsReplayStore)).toHaveLength(1);
+      expect(chmodSpy.mock.calls.filter(targetsReplayStore)).toHaveLength(1);
+      expect(writeSpy.mock.calls.filter(targetsReplayStore)).toHaveLength(1);
+      const totalReplayStoreOperations = [
+        readdirSpy,
+        readSpy,
+        mkdirSpy,
+        lstatSpy,
+        chmodSpy,
+        writeSpy,
+        rmSpy,
+      ].reduce(
+        (total, spy) =>
+          total + spy.mock.calls.filter(targetsReplayStore).length,
+        0,
+      );
+      expect(totalReplayStoreOperations).toBe(4);
+    } finally {
+      readdirSpy.mockRestore();
+      readSpy.mockRestore();
+      mkdirSpy.mockRestore();
+      lstatSpy.mockRestore();
+      chmodSpy.mockRestore();
+      writeSpy.mockRestore();
+      rmSpy.mockRestore();
+      for (const markerPath of markerPaths) {
+        fs.rmSync(markerPath, { force: true });
+      }
+    }
+  });
 });
 
 describe('parseIpcMessage', () => {
@@ -1432,7 +2261,7 @@ describe('parseIpcMessage', () => {
     stopIpcWatcher();
   });
 
-  it('keeps signed app scope and bounded FileArtifact refs', () => {
+  it('keeps signed app scope and defaults source-less refs to FileArtifact', () => {
     const payload = {
       type: 'message',
       requestId: 'msg-1',
@@ -1446,8 +2275,14 @@ describe('parseIpcMessage', () => {
         providerAccountId: 'provider-account:slack:a',
       },
       files: [
-        { scope: 'reports', path: 'daily.md', version: 2 },
-        { path: 'summary.txt' },
+        {
+          source: 'artifact',
+          scope: 'reports',
+          path: 'daily.md',
+          version: 2,
+        },
+        { source: 'workspace', path: 'summary.txt' },
+        { path: 'source-less.txt' },
         { scope: 'ignored' },
       ],
     };
@@ -1458,10 +2293,35 @@ describe('parseIpcMessage', () => {
       chatJid: 'tg:team',
       text: 'See attached report.',
       files: [
-        { scope: 'reports', path: 'daily.md', version: 2 },
-        { path: 'summary.txt' },
+        {
+          source: 'artifact',
+          scope: 'reports',
+          path: 'daily.md',
+          version: 2,
+        },
+        { source: 'workspace', path: 'summary.txt' },
+        { source: 'artifact', path: 'source-less.txt' },
       ],
     });
+  });
+
+  it.each([
+    ['unknown', 'remote'],
+    ['malformed', 42],
+  ])('rejects %s IPC message file sources loudly', (label, source) => {
+    const payload = {
+      type: 'message',
+      requestId: `msg-invalid-source-${label}`,
+      chatJid: 'tg:team',
+      text: 'See attached report.',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      files: [{ source, path: 'report.txt' }],
+    };
+
+    expect(() => parseIpcMessage(signedPayload(payload), 'team')).toThrow(
+      'Invalid IPC message file source',
+    );
   });
 });
 
@@ -1505,7 +2365,7 @@ describe('appendOwnedFileArtifactDegradeText', () => {
         appId: 'app:test',
         sourceAgentFolder: 'team',
         text: 'See attached report.',
-        files: [{ scope: 'reports', path: 'daily.md' }],
+        files: [{ source: 'artifact', scope: 'reports', path: 'daily.md' }],
       }),
     ).resolves.toMatchObject({
       text: 'See attached report.\n\nAttachments:\n- daily.md (text/markdown, 1024 bytes)',
@@ -1563,10 +2423,10 @@ describe('appendOwnedFileArtifactDegradeText', () => {
         appId: 'app:test',
         sourceAgentFolder: 'team',
         text: 'See attached report.',
-        files: [{ scope: 'reports', path: 'large.bin' }],
+        files: [{ source: 'artifact', scope: 'reports', path: 'large.bin' }],
       }),
     ).resolves.toEqual({
-      text: 'See attached report.\n\nAttachments:\n- Attachment unavailable.',
+      text: 'See attached report.\n\nAttachments:\n- Attachment unavailable: exceeds 25 MB',
     });
     expect(readFileArtifact).not.toHaveBeenCalled();
   });
@@ -1578,10 +2438,10 @@ describe('appendOwnedFileArtifactDegradeText', () => {
         appId: 'app:test',
         sourceAgentFolder: 'team',
         text: 'Ship the note.',
-        files: [{ path: 'daily.md' }],
+        files: [{ source: 'artifact', path: 'daily.md' }],
       }),
     ).resolves.toBe(
-      'Ship the note.\n\nAttachments:\n- Attachment unavailable.',
+      'Ship the note.\n\nAttachments:\n- Attachment unavailable: FileArtifact store unavailable',
     );
   });
 
@@ -1594,10 +2454,10 @@ describe('appendOwnedFileArtifactDegradeText', () => {
         appId: 'app:test',
         sourceAgentFolder: 'team',
         text: 'Ship the note.',
-        files: [{ path: '../secret.txt' }],
+        files: [{ source: 'artifact', path: '../secret.txt' }],
       }),
     ).resolves.toBe(
-      'Ship the note.\n\nAttachments:\n- Attachment unavailable.',
+      'Ship the note.\n\nAttachments:\n- Attachment unavailable: invalid path: File artifact path must be a safe relative virtual path without empty, dot, dot-dot, absolute, or drive segments.',
     );
   });
 });

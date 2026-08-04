@@ -16,9 +16,10 @@ import { sanitizeRetryTailProviderPayload } from '../../../../domain/messages/re
 import type { OutboundDeliveryRepository } from '../../../../domain/ports/repositories.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
-import type {
-  CanonicalDb,
-  CanonicalExecutor,
+import {
+  canonicalProviderThreadForIds,
+  type CanonicalDb,
+  type CanonicalExecutor,
 } from './canonical-graph-repository.postgres.js';
 import { claimDueOutboundDeliveryItems } from './outbound-delivery-repository.postgres.claims.js';
 import { resolveOutboundDeliveryDestination } from './outbound-delivery-repository.postgres.destinations.js';
@@ -669,27 +670,9 @@ export function canonicalProviderThreadForDelivery(input: {
   conversationId: OutboundDelivery['conversationId'];
   externalRefJson: string;
 } | null {
-  if (!input.threadId) return null;
-  const conversationPrefix = 'conversation:';
-  if (!input.conversationId.startsWith(conversationPrefix)) return null;
-  const providerJid = input.conversationId
-    .slice(conversationPrefix.length)
-    .trim();
-  if (!providerJid) return null;
-  const threadPrefix = `thread:${providerJid}:`;
-  if (!input.threadId.startsWith(threadPrefix)) return null;
-  const externalThreadId = input.threadId.slice(threadPrefix.length);
-  if (!externalThreadId) return null;
-  return {
-    id: input.threadId,
+  return canonicalProviderThreadForIds({
     appId: input.appId,
     conversationId: input.conversationId,
-    externalRefJson: JSON.stringify({
-      kind: 'conversation_thread',
-      value: externalThreadId,
-      jid: providerJid,
-      threadId: externalThreadId,
-      externalThreadId,
-    }),
-  };
+    threadId: input.threadId,
+  });
 }

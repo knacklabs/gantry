@@ -1,26 +1,24 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
 import type {
+  AgentSkillAccessSnapshot,
   SkillCatalogRepository,
-  ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
 import type {
   AgentSkillBinding,
   SkillCatalogItem,
 } from '../../domain/skills/skills.js';
 import { isSkillUsableForBinding } from '../../domain/skills/skills.js';
+import type { ToolCatalogRepository } from '../../domain/ports/repositories.js';
 import { skillActionSemanticCapabilitiesForSkills } from '../../domain/skills/skill-action-permissions.js';
 import type { ToolCatalogItem } from '../../domain/tools/tools.js';
-import { isAdminMcpToolFullName } from '../../shared/admin-mcp-tools.js';
-import { isGantryFacadeExactToolRule } from '../../shared/agent-tool-references.js';
-import { validateDurableAccessRule } from '../../shared/durable-access-policy.js';
 import { canonicalizeDurableSkillActionToolRule } from '../../shared/skill-action-capability-rules.js';
 import { parseSemanticCapabilityRule } from '../../shared/semantic-capability-ids.js';
 import {
   semanticCapabilityFromToolCatalogItem,
   type SemanticCapabilityDefinition,
 } from '../../shared/semantic-capabilities.js';
-import { ApplicationError } from '../common/application-error.js';
+import { skillActionSource } from '../../domain/skills/skill-action-permissions.js';
 
 export async function skillActionDefinitionsForAgent(input: {
   appId: AppId;
@@ -61,22 +59,64 @@ export async function skillActionDefinitionsForBindings(input: {
   return skillActionSemanticCapabilitiesForSkills(skills);
 }
 
-export async function catalogSemanticCapabilityDefinitions(input: {
+/**
+ * Durable access selection accepts reviewed catalog capabilities as well as
+ * actions declared by selected skills. Skill-owned capabilities remain tied to
+ * the selected skill; catalog capabilities cover independently reviewed MCP,
+ * adapter, and local CLI authority.
+ */
+export async function semanticCapabilityDefinitionsForAccess(input: {
   appId: AppId;
+  skillBindings: readonly AgentSkillBinding[];
+  skillRepository: SkillCatalogRepository;
   toolRepository: ToolCatalogRepository;
 }): Promise<Record<string, SemanticCapabilityDefinition>> {
-  const definitions: Record<string, SemanticCapabilityDefinition> = {};
-  for (const tool of await input.toolRepository.listTools({
-    appId: input.appId,
-    statuses: ['active'],
-  })) {
+  const [skillDefinitions, tools] = await Promise.all([
+    skillActionDefinitionsForBindings({
+      appId: input.appId,
+      skillBindings: input.skillBindings,
+      skillRepository: input.skillRepository,
+    }),
+    input.toolRepository.listTools({
+      appId: input.appId,
+      statuses: ['active'],
+    }),
+  ]);
+  const catalogDefinitions: Record<string, SemanticCapabilityDefinition> = {};
+  for (const tool of tools) {
+    if (!tool.selectable) continue;
     const capability = semanticCapabilityFromToolCatalogItem({
       name: tool.name,
       inputSchema: tool.inputSchema,
     });
-    if (capability) definitions[capability.capabilityId] = capability;
+    if (!capability || skillActionSource(capability)) continue;
+    catalogDefinitions[capability.capabilityId] = capability;
   }
-  return definitions;
+  return { ...catalogDefinitions, ...skillDefinitions };
+}
+
+export function skillActionDefinitionsFromSnapshot(input: {
+  appId: AppId;
+  activeRows: AgentSkillAccessSnapshot['activeBindings'];
+}): Record<string, SemanticCapabilityDefinition> {
+  const seen = new Set<string>();
+  const skills: SkillCatalogItem[] = [];
+  for (const row of input.activeRows) {
+    const binding = row.binding;
+    if (binding.status !== 'active') continue;
+    const skill = row.definition;
+    if (
+      !skill ||
+      skill.appId !== input.appId ||
+      !isSkillUsableForBinding(skill) ||
+      seen.has(String(skill.id))
+    ) {
+      continue;
+    }
+    seen.add(String(skill.id));
+    skills.push(skill);
+  }
+  return skillActionSemanticCapabilitiesForSkills(skills);
 }
 
 export function canonicalToolReferenceForView(
@@ -120,43 +160,6 @@ export function buildSelectedCapabilities(
       semanticCapabilityDefinitions,
     ),
   );
-}
-
-export function resolveSelectedToolReferences(
-  capabilities: ReadonlyArray<{ id: string; version: string }>,
-  semanticCapabilityDefinitions: Record<string, SemanticCapabilityDefinition>,
-): string[] {
-  return [
-    ...new Set(
-      capabilities.flatMap((capability) => {
-        const reference = capabilitySelectionToToolReference(capability.id);
-        const validation = validateDurableAccessRule(reference, {
-          semanticCapabilityDefinitions,
-        });
-        if (!validation.ok) {
-          throw new ApplicationError('INVALID_REQUEST', validation.reason);
-        }
-        const canonical = canonicalToolReferenceForView(reference, {
-          semanticCapabilityDefinitions,
-        });
-        if (canonical.length === 0) {
-          throw new ApplicationError(
-            'INVALID_REQUEST',
-            `Capability selection ${capability.id} is not a durable access rule.`,
-          );
-        }
-        return canonical;
-      }),
-    ),
-  ];
-}
-
-function capabilitySelectionToToolReference(capabilityId: string): string {
-  const id = capabilityId.trim();
-  if (id === 'browser.use') return 'Browser';
-  if (id.startsWith('RunCommand(')) return id;
-  if (isAdminMcpToolFullName(id) || isGantryFacadeExactToolRule(id)) return id;
-  return `capability:${id}`;
 }
 
 function toolReferenceToCapability(

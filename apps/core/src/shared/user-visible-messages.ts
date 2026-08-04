@@ -19,9 +19,7 @@ export function formatDeclaredGantrySecretLines(
   const unique = uniqueNames(names);
   if (unique.length === 0) return [];
   return [
-    `${subject} uses Gantry capability credential${unique.length === 1 ? '' : 's'}: ${unique.join(', ')}.`,
-    'If not set yet, run:',
-    ...unique.map((name) => `gantry credentials access set ${name}`),
+    `${subject} needs ${unique.length === 1 ? 'a credential' : 'credentials'} before it can be used. Add ${unique.length === 1 ? 'it' : 'them'} in Credential Center.`,
   ];
 }
 
@@ -29,12 +27,9 @@ export function formatMissingGantrySecretsMessage(
   names: readonly string[],
 ): string {
   const unique = uniqueNames(names);
-  if (unique.length === 0)
-    return 'A required Gantry capability credential is missing.';
-  return [
-    `Gantry capability credential${unique.length === 1 ? '' : 's'} required before this can run: ${unique.join(', ')}.`,
-    ...unique.map((name) => `Run: gantry credentials access set ${name}`),
-  ].join('\n');
+  return unique.length > 1
+    ? 'Gantry credentials are required before this can run. Add them in Credential Center, then try again.'
+    : 'A Gantry credential is required before this can run. Add it in Credential Center, then try again.';
 }
 
 export function formatApprovalRequestedMessage(displayName: string): string {

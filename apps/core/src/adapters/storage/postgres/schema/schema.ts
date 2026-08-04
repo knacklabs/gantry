@@ -9,6 +9,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
   vector,
@@ -66,6 +67,50 @@ export const permissionPromotionCountersPostgres = pgTable(
   }),
 );
 
+export const permissionDecisionMemoryPostgres = pgTable(
+  'permission_decision_memory',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id').notNull(),
+    agentFolder: text('agent_folder').notNull(),
+    kind: text('kind').notNull(),
+    lookupIdentity: text('lookup_identity').notNull(),
+    effectHash: text('effect_hash'),
+    decision: text('decision'),
+    reason: text('reason').notNull(),
+    riskLevel: text('risk_level'),
+    riskCategory: text('risk_category'),
+    canonicalRoot: text('canonical_root'),
+    principal: text('principal'),
+    effectSchemaVersion: integer('effect_schema_version').notNull(),
+    railVersion: integer('rail_version').notNull(),
+    provenance: text('provenance').notNull(),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    expiresAt: timestamp('expires_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    revokedAt: timestamp('revoked_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+  },
+  (table) => ({
+    lookupUq: unique('permission_decision_memory_lookup_uq').on(
+      table.appId,
+      table.agentFolder,
+      table.kind,
+      table.lookupIdentity,
+    ),
+    activeIdx: index('permission_decision_memory_active_idx')
+      .on(table.appId, table.agentFolder, table.kind, table.lookupIdentity)
+      .where(sql`revoked_at IS NULL`),
+  }),
+);
+
 export const memoryEvidencePostgres = pgTable(
   'memory_evidence',
   {
@@ -80,6 +125,7 @@ export const memoryEvidencePostgres = pgTable(
     threadId: text('thread_id'),
     sourceType: text('source_type').notNull(),
     sourceId: text('source_id'),
+    sourceUri: text('source_uri'),
     actorId: text('actor_id'),
     text: text('text').notNull(),
     metadataJson: text('metadata_json').notNull().default('{}'),
@@ -290,6 +336,8 @@ export const memoryReviewRequestsPostgres = pgTable(
       .default('{}'),
     status: text('status').notNull().default('pending_review'),
     validationSummary: text('validation_summary').notNull(),
+    reviewSnapshotJson: text('review_snapshot_json'),
+    decisionSource: text('decision_source'),
     flaggedContentHash: text('flagged_content_hash'),
     reviewerId: text('reviewer_id'),
     decision: text('decision'),

@@ -1,3 +1,11 @@
+import type {
+  PermissionCallbackClaim,
+  PermissionCallbackClaimReference,
+  PermissionCallbackScope,
+  PermissionRecoveryEnvelope,
+} from '../types.js';
+import type { LiveTurnCommandAppendInput } from './live-turns.js';
+
 export type WorkerInstanceStatus =
   | 'starting'
   | 'healthy'
@@ -94,6 +102,12 @@ export interface PendingInteraction {
   id: string;
   appId: string;
   runId: string | null;
+  sourceAgentFolder: string | null;
+  requestId: string | null;
+  runLeaseToken: string | null;
+  runLeaseFencingVersion: number | null;
+  envelopeId: string | null;
+  memberIndex: number | null;
   kind: PendingInteractionKind;
   status: PendingInteractionStatus;
   payload: Record<string, unknown>;
@@ -104,6 +118,40 @@ export interface PendingInteraction {
   createdAt: string;
   expiresAt: string;
   resolvedAt: string | null;
+}
+
+export type PermissionPromptSettlementState =
+  | 'open'
+  | 'claimed'
+  | 'settled'
+  | 'review_each_expired'
+  | 'superseded';
+
+export interface PermissionPrompt {
+  id: string;
+  parentEnvelopeId: string | null;
+  appId: string;
+  sourceAgentFolder: string;
+  interactionId: string;
+  matchKind: 'individual' | 'batch';
+  memberCount: number;
+  envelope: PermissionRecoveryEnvelope;
+  fullView: Record<string, unknown> | null;
+  externalPromptProvider: string | null;
+  externalPromptConversationId: string | null;
+  externalPromptMessageId: string | null;
+  externalPromptThreadId: string | null;
+  providerAliases: string[];
+  claim: PermissionCallbackClaim | null;
+  settlementState: PermissionPromptSettlementState;
+  settledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PermissionPromptGroup {
+  prompt: PermissionPrompt;
+  members: PendingInteraction[];
 }
 
 export interface TransientGrant {
@@ -259,6 +307,10 @@ export interface PendingInteractionRepository {
     id: string;
     appId: string;
     runId?: string | null;
+    sourceAgentFolder: string;
+    requestId: string;
+    runLeaseToken?: string | null;
+    runLeaseFencingVersion?: number | null;
     kind: PendingInteractionKind;
     payload: Record<string, unknown>;
     callbackRoute?: Record<string, unknown> | null;
@@ -271,12 +323,86 @@ export interface PendingInteractionRepository {
     status: Extract<PendingInteractionStatus, 'resolved' | 'cancelled'>;
     resolution: Record<string, unknown>;
     approverRef?: string | null;
+    permissionCallbackClaim?: PermissionCallbackClaimReference | null;
+    liveTurnCommand?: LiveTurnCommandAppendInput | null;
+    now?: string;
+  }): Promise<boolean>;
+  cancelPendingQuestionInteractionIfRunLeaseInactive(input: {
+    id: string;
+    resolution: Record<string, unknown>;
     now?: string;
   }): Promise<boolean>;
   updatePendingInteractionPayload(input: {
     idempotencyKey: string;
-    payload: Record<string, unknown>;
+    update: (
+      payload: Record<string, unknown>,
+    ) => Record<string, unknown> | null;
   }): Promise<boolean>;
+  bindPendingPermissionPrompt(input: {
+    id: string;
+    appId: string;
+    sourceAgentFolder: string;
+    interactionId: string;
+    matchKind: 'individual' | 'batch';
+    members: Array<{
+      idempotencyKey: string;
+      requestId: string;
+      index: number;
+    }>;
+    envelope: PermissionRecoveryEnvelope;
+    fullView?: Record<string, unknown> | null;
+    externalPromptProvider?: string | null;
+    externalPromptConversationId?: string | null;
+    externalPromptMessageId?: string | null;
+    externalPromptThreadId?: string | null;
+    providerAliases: string[];
+    now?: string;
+  }): Promise<PermissionPromptGroup | null>;
+  claimPendingPermissionCallback(input: {
+    claim: PermissionCallbackClaim;
+  }): Promise<PermissionPromptGroup | null>;
+  releasePendingPermissionCallback(input: {
+    claim: PermissionCallbackClaimReference;
+  }): Promise<boolean>;
+  settlePendingPermissionCallback(input: {
+    claim: PermissionCallbackClaimReference;
+  }): Promise<boolean>;
+  expirePendingPermissionReviewEach(input: {
+    claim: PermissionCallbackClaimReference;
+    now?: string;
+  }): Promise<PermissionPromptGroup | null>;
+  findPendingPermissionPrompt(input: {
+    scope: PermissionCallbackScope;
+    now?: string;
+    includeTerminalSettlement?: boolean;
+  }): Promise<PermissionPromptGroup | null>;
+  findPendingPermissionPromptByMember(input: {
+    appId: string;
+    sourceAgentFolder: string;
+    requestId: string;
+    now?: string;
+  }): Promise<PermissionPromptGroup | null>;
+  findPendingPermissionPromptByMessage(input: {
+    appId: string;
+    provider: string;
+    conversationId: string;
+    externalMessageId: string;
+    threadId?: string | null;
+    now?: string;
+  }): Promise<PermissionPromptGroup | null>;
+  findPendingInteractionByRequest(input: {
+    appId: string;
+    kind: PendingInteractionKind;
+    sourceAgentFolder?: string;
+    requestId: string;
+    now?: string;
+  }): Promise<PendingInteraction | null>;
+  findPendingInteractionByIdempotencyKey(input: {
+    appId: string;
+    idempotencyKey: string;
+    runId?: string | null;
+    now?: string;
+  }): Promise<PendingInteraction | null>;
   listPendingInteractions(input: {
     appId: string;
     runId?: string | null;

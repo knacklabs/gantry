@@ -6,6 +6,7 @@ import { isStrongProductionSecret } from './secret-strength.js';
 export type Scope =
   | 'sessions:read'
   | 'sessions:write'
+  | 'approvals:write'
   | 'jobs:read'
   | 'jobs:write'
   | 'providers:read'
@@ -13,7 +14,6 @@ export type Scope =
   | 'conversations:read'
   | 'conversations:admin'
   | 'messages:read'
-  | 'messages:send'
   | 'agents:admin'
   | 'credentials:read'
   | 'credentials:admin'
@@ -28,7 +28,10 @@ export type Scope =
   | 'usage:read'
   | 'llm:invoke'
   | 'memory:read'
-  | 'memory:admin';
+  | 'memory:admin'
+  | 'identity:resolve'
+  | 'people:read'
+  | 'people:admin';
 
 export type ApiKeyRecord = {
   kid: string;
@@ -41,6 +44,7 @@ export type ApiKeyRecord = {
 export const CONTROL_API_SCOPES: readonly Scope[] = [
   'sessions:read',
   'sessions:write',
+  'approvals:write',
   'jobs:read',
   'jobs:write',
   'providers:read',
@@ -48,7 +52,6 @@ export const CONTROL_API_SCOPES: readonly Scope[] = [
   'conversations:read',
   'conversations:admin',
   'messages:read',
-  'messages:send',
   'agents:admin',
   'credentials:read',
   'credentials:admin',
@@ -64,6 +67,9 @@ export const CONTROL_API_SCOPES: readonly Scope[] = [
   'llm:invoke',
   'memory:read',
   'memory:admin',
+  'identity:resolve',
+  'people:read',
+  'people:admin',
 ];
 
 function isApiKeyJsonEntry(value: unknown): value is {

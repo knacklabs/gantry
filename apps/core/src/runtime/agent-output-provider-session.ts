@@ -28,14 +28,12 @@ export function runnerResultWithProviderSession(input: {
   status: AgentOutput['status'];
   externalSessionId: string | undefined;
   error?: string;
-  failure?: AgentOutput['failure'];
 }): AgentOutput {
   return outputWithProviderSession(
     {
       status: input.status,
       result: null,
       ...(input.error ? { error: input.error } : {}),
-      ...(input.failure ? { failure: input.failure } : {}),
     },
     input.externalSessionId,
   );

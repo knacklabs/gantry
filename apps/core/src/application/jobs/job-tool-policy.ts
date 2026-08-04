@@ -1,17 +1,19 @@
 import type { Job } from '../../domain/types.js';
 import type {
-  McpServerRepository,
   SkillCatalogRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
 import { ApplicationError } from '../common/application-error.js';
 import {
   resolveAgentToolRuntimePolicy,
+  resolveAgentToolRuntimePolicyFromSnapshot,
   resolveAgentToolRuntimeRules,
 } from '../agents/agent-tool-runtime-rules.js';
 import type { CapabilityRuntimeAccess } from '../../shared/capability-runtime-access.js';
-import { splitAccessRequirements } from './job-access-requirements.js';
-import { reviewedMcpToolPatterns } from '../../shared/mcp-tool-scope.js';
+import {
+  assertHostAccessSnapshot,
+  type AgentAccessSnapshot,
+} from '../agent-execution/agent-access-snapshot.js';
 
 export interface JobToolPolicyResolution {
   inheritedTools: string[];
@@ -30,82 +32,54 @@ export async function resolveJobToolPolicy(input: {
   agentId?: string;
   toolRepository?: ToolCatalogRepository;
   skillRepository?: SkillCatalogRepository;
-  mcpServerRepository?: McpServerRepository;
+  accessSnapshot?: AgentAccessSnapshot;
 }): Promise<JobToolPolicyResolution> {
   const inheritedTools =
     input.appId && input.agentId
-      ? await resolveAgentToolBindingPolicy({
-          repository: input.toolRepository,
-          appId: input.appId,
-          agentId: input.agentId,
-          skillRepository: input.skillRepository,
-        })
+      ? input.accessSnapshot
+        ? resolveAgentToolBindingPolicyFromSnapshot({
+            accessSnapshot: assertHostAccessSnapshot({
+              accessSnapshot: input.accessSnapshot,
+              appId: input.appId,
+              agentId: input.agentId,
+              subject: 'Job tool policy',
+            })!,
+          })
+        : await resolveAgentToolBindingPolicy({
+            repository: input.toolRepository,
+            appId: input.appId,
+            agentId: input.agentId,
+            skillRepository: input.skillRepository,
+          })
       : {
           rules: [],
           runtimeAccess: [],
         };
-  const requiredMcpAccess =
-    input.appId && input.agentId && input.mcpServerRepository
-      ? await resolveRequiredMcpAccess({
-          repository: input.mcpServerRepository,
-          appId: input.appId,
-          agentId: input.agentId,
-          requiredServers: splitAccessRequirements(
-            input.job.access_requirements,
-          ).requiredMcpServers,
-        })
-      : { rules: [], runtimeAccess: [] };
   return {
     inheritedTools: inheritedTools.rules,
-    effectiveAllowedTools: mergeUnique([
-      ...inheritedTools.rules,
-      ...requiredMcpAccess.rules,
-    ]),
-    runtimeAccess: [
-      ...inheritedTools.runtimeAccess,
-      ...requiredMcpAccess.runtimeAccess,
-    ],
+    effectiveAllowedTools: mergeUnique(inheritedTools.rules),
+    runtimeAccess: inheritedTools.runtimeAccess,
   };
 }
 
-async function resolveRequiredMcpAccess(input: {
-  repository: McpServerRepository;
-  appId: string;
-  agentId: string;
-  requiredServers: readonly string[];
-}): Promise<{ rules: string[]; runtimeAccess: CapabilityRuntimeAccess[] }> {
-  if (input.requiredServers.length === 0)
-    return { rules: [], runtimeAccess: [] };
-  const required = new Set(input.requiredServers);
-  const records = await input.repository.listMaterializedServersForAgent({
-    appId: input.appId as never,
-    agentId: input.agentId as never,
+function resolveAgentToolBindingPolicyFromSnapshot(input: {
+  accessSnapshot: AgentAccessSnapshot;
+}): {
+  rules: string[];
+  runtimeAccess: CapabilityRuntimeAccess[];
+} {
+  const policy = resolveAgentToolRuntimePolicyFromSnapshot({
+    appId: input.accessSnapshot.appId,
+    errorSubject: 'Inherited agent tool',
+    selectedToolDefinitionsByBinding:
+      input.accessSnapshot.tools.activeBindings.map((row) => row.definition),
+    activeSkillDefinitions: input.accessSnapshot.skills.enabledDefinitions,
+    makeError: (message) => new ApplicationError('FORBIDDEN', message),
   });
-  const runtimeAccess: CapabilityRuntimeAccess[] = [];
-  const rules: string[] = [];
-  for (const { definition, binding } of records) {
-    if (!required.has(definition.id) && !required.has(definition.name))
-      continue;
-    const patterns =
-      binding.allowedToolPatterns.length > 0
-        ? binding.allowedToolPatterns
-        : reviewedMcpToolPatterns(definition);
-    const allowedTools = patterns
-      .filter((pattern) => /^[A-Za-z0-9_.-]+$/.test(pattern))
-      .map((pattern) => `mcp__${definition.name}__${pattern}`);
-    if (allowedTools.length === 0) continue;
-    rules.push(...allowedTools);
-    runtimeAccess.push({
-      selectedCapabilityId: `mcp:${definition.name}`,
-      sourceType: 'mcp_server',
-      auditLabel: definition.displayName ?? definition.name,
-      reviewedServerId: definition.id,
-      allowedTools,
-      credentialRefs: definition.credentialRefs.map((ref) => ref.name),
-      networkHosts: [...definition.networkHosts],
-    });
-  }
-  return { rules, runtimeAccess };
+  return {
+    rules: policy.rules,
+    runtimeAccess: policy.runtimeAccess,
+  };
 }
 
 export async function resolveAgentToolBindings(input: {
