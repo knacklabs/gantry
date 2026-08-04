@@ -30,6 +30,7 @@ import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
 import { runtimeSecretNameForAgent } from '@core/domain/provider/provider-runtime-secret-keys.js';
 import {
   SLACK_APP_MANIFEST,
+  SLACK_FEATURE_BOT_SCOPES,
   SLACK_REQUIRED_BOT_SCOPES,
 } from '@core/cli/slack-install-scopes.js';
 
@@ -125,17 +126,16 @@ const strongEncryptionKey = Buffer.from(
 
 describe('Slack install scopes', () => {
   it('uses one canonical fresh-install manifest with canvas and file scopes', () => {
-    expect(SLACK_APP_MANIFEST.oauth_config.scopes.bot).toEqual(
-      SLACK_REQUIRED_BOT_SCOPES,
-    );
-    expect(SLACK_REQUIRED_BOT_SCOPES).toEqual(
-      expect.arrayContaining([
-        'files:read',
-        'files:write',
-        'canvases:read',
-        'canvases:write',
-      ]),
-    );
+    expect(SLACK_APP_MANIFEST.oauth_config.scopes.bot).toEqual([
+      ...SLACK_REQUIRED_BOT_SCOPES,
+      ...SLACK_FEATURE_BOT_SCOPES,
+    ]);
+    expect(SLACK_FEATURE_BOT_SCOPES).toEqual([
+      'files:read',
+      'files:write',
+      'canvases:read',
+      'canvases:write',
+    ]);
   });
 
   it('detects an upgraded Slack install missing canvas scopes', async () => {
@@ -164,10 +164,11 @@ describe('Slack install scopes', () => {
 
     const result = await validateSlackBotToken('xoxb-existing');
 
+    // Feature scopes are advisory: an upgraded pre-canvas install still
+    // validates, with a warning naming the missing capability scopes.
     expect(result).toMatchObject({
-      ok: false,
-      missingScopes: ['canvases:read', 'canvases:write'],
-      nextAction: expect.stringMatching(/reinstall.*workspace/i),
+      ok: true,
+      warning: expect.stringMatching(/canvases:read, canvases:write/),
     });
   });
 });

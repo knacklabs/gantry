@@ -81,6 +81,10 @@ export async function createChannelCanvas(
       throw error;
     }
     existing = true;
+    // Write authority for the channel's own bound canvas comes from the
+    // host-derived conversation binding (the agent operates in this
+    // channel); the read-only rule applies to canvases users share INTO a
+    // conversation, which never take this path.
     canvasId = await resolveBoundCanvasId(ctx, channelId, deadlineAt);
   }
 

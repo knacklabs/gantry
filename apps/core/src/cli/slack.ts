@@ -177,9 +177,13 @@ export async function validateSlackBotToken(
       payload,
     );
     if (scopeFailure) return scopeFailure;
+    const featureWarning = slackInstallScopes.featureWarning(
+      response.headers.get('x-oauth-scopes'),
+    );
 
     return {
       ok: true,
+      ...(featureWarning ? { warning: featureWarning } : {}),
       teamId: payload.team_id,
       teamName: payload.team,
       userId: payload.user_id,

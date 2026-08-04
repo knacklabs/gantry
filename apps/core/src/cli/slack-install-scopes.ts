@@ -1,9 +1,15 @@
-export const SLACK_REQUIRED_BOT_SCOPES = [
-  'chat:write',
+// Feature scopes are advisory: the runtime degrades honestly without them
+// (canvas/file calls name the missing scope). Hard-failing token validation
+// on them would break every pre-canvas Slack installation.
+export const SLACK_FEATURE_BOT_SCOPES = [
   'files:read',
   'files:write',
   'canvases:read',
   'canvases:write',
+] as const;
+
+export const SLACK_REQUIRED_BOT_SCOPES = [
+  'chat:write',
   'app_mentions:read',
   'channels:read',
   'channels:history',
@@ -18,20 +24,24 @@ export const SLACK_REQUIRED_BOT_SCOPES = [
 export const SLACK_APP_MANIFEST = {
   oauth_config: {
     scopes: {
-      bot: [...SLACK_REQUIRED_BOT_SCOPES],
+      bot: [...SLACK_REQUIRED_BOT_SCOPES, ...SLACK_FEATURE_BOT_SCOPES],
     },
   },
 } as const;
 
-export function missingSlackBotScopes(
-  grantedScopes: readonly string[],
-): string[] {
+export function missingSlackBotScopes(grantedScopes: readonly string[]): {
+  core: string[];
+  feature: string[];
+} {
   const granted = new Set(grantedScopes.map((scope) => scope.trim()));
-  return SLACK_REQUIRED_BOT_SCOPES.filter((scope) => !granted.has(scope));
+  return {
+    core: SLACK_REQUIRED_BOT_SCOPES.filter((scope) => !granted.has(scope)),
+    feature: SLACK_FEATURE_BOT_SCOPES.filter((scope) => !granted.has(scope)),
+  };
 }
 
 export function formatSlackBotScopes(): string {
-  return SLACK_REQUIRED_BOT_SCOPES.join(', ');
+  return [...SLACK_REQUIRED_BOT_SCOPES, ...SLACK_FEATURE_BOT_SCOPES].join(', ');
 }
 
 export function slackBotScopeFailure(rawHeader: string | null):
@@ -46,14 +56,27 @@ export function slackBotScopeFailure(rawHeader: string | null):
     .map((scope) => scope.trim())
     .filter(Boolean);
   if (grantedScopes.length === 0) return undefined;
-  const missingScopes = missingSlackBotScopes(grantedScopes);
-  if (missingScopes.length === 0) return undefined;
+  const { core } = missingSlackBotScopes(grantedScopes);
+  if (core.length === 0) return undefined;
   return {
-    missingScopes,
-    message: `Slack bot token is missing required scopes: ${missingScopes.join(', ')}.`,
+    missingScopes: core,
+    message: `Slack bot token is missing required scopes: ${core.join(', ')}.`,
     nextAction:
       'Add the missing bot scopes in the Slack app settings, reinstall the app to this workspace to reauthorize it, copy the new Bot User OAuth token, and retry.',
   };
+}
+
+export function slackBotScopeWarning(
+  rawHeader: string | null,
+): string | undefined {
+  const grantedScopes = (rawHeader || '')
+    .split(',')
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+  if (grantedScopes.length === 0) return undefined;
+  const { feature } = missingSlackBotScopes(grantedScopes);
+  if (feature.length === 0) return undefined;
+  return `Slack file/canvas features need scopes this token lacks: ${feature.join(', ')}. Add them and reinstall the app when you want those features; messaging works without them.`;
 }
 
 export function validateSlackBotScopeHeader(
@@ -75,6 +98,7 @@ export function validateSlackBotScopeHeader(
 export const slackInstallScopes = {
   text: formatSlackBotScopes,
   validateHeader: validateSlackBotScopeHeader,
+  featureWarning: slackBotScopeWarning,
   setupNote: slackSetupNoteText,
 };
 

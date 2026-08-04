@@ -157,6 +157,10 @@ export interface SlackCanvasFileLike {
   url_private_download?: string;
 }
 
+// Handle records carry no provider-account field on purpose: each
+// SlackCanvasService instance is constructed per Slack connection, so the
+// maps are account-scoped structurally and cross-account handle submission
+// fails closed on an unknown random handle.
 export interface CanvasHandleRecord {
   conversationJid: string;
   canvasId: string;

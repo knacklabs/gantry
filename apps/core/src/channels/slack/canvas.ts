@@ -214,7 +214,12 @@ export class SlackCanvasService implements ContentCanvasSurface {
     // containment filter over ids-only results, so only an exactly-one match
     // is safe (the exported heading exists, hence the single match IS it).
     // ATTEMPTS are capped so dense canvases cannot drive unbounded calls.
-    const sectionResults: Array<{ label: string; handle: string }> = [];
+    const sectionResults: Array<{
+      label: string;
+      handle: string;
+      sectionId: string;
+    }> = [];
+    const claimedIds = new Set<string>();
     let omitted = 0;
     let attempts = 0;
     for (const label of sectionLabels) {
@@ -240,11 +245,26 @@ export class SlackCanvasService implements ContentCanvasSurface {
         .map((section) => optionalString(section.id))
         .filter((id): id is string => Boolean(id));
       const sectionId = ids.length === 1 ? ids[0] : undefined;
-      if (!sectionId) {
+      // contains_text may match section CONTENT, not only heading text
+      // (live behavior unverified until the scope-reinstall spike): if two
+      // labels claim the same id, neither binding is trustworthy.
+      if (!sectionId || claimedIds.has(sectionId)) {
+        if (sectionId) {
+          claimedIds.add(sectionId);
+          const clash = sectionResults.findIndex(
+            (entry) => entry.sectionId === sectionId,
+          );
+          if (clash !== -1) {
+            sectionResults.splice(clash, 1);
+            omitted += 1;
+          }
+        }
         omitted += 1;
         continue;
       }
+      claimedIds.add(sectionId);
       sectionResults.push({
+        sectionId,
         label,
         handle: this.mintSectionHandle({
           conversationJid,
@@ -263,7 +283,7 @@ export class SlackCanvasService implements ContentCanvasSurface {
           ? ` ${omitted} heading(s) could not be offered as section handles (duplicate or overlapping heading text, or beyond the per-read limit).`
           : ''),
       content,
-      sections: sectionResults,
+      sections: sectionResults.map(({ label, handle }) => ({ label, handle })),
       ...(optionalString(file?.permalink)
         ? { permalink: optionalString(file?.permalink) }
         : {}),
