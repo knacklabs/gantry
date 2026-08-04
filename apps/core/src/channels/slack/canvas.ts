@@ -289,7 +289,11 @@ export class SlackCanvasService implements ContentCanvasSurface {
         Date.now() - minted.mintedAt < REPLACE_ALL_TOKEN_TTL_MS;
       if (supplied) this.replaceAllPreflightIds.delete(supplied);
       if (!valid) {
-        const current = await this.lookupSections(canvasId, {});
+        const current = await this.lookupSections(
+          canvasId,
+          {},
+          remainingTimeoutMs(deadlineAt),
+        );
         const candidates = current
           .slice(0, MAX_SECTION_HANDLES_PER_READ)
           .map((section, index) => ({
@@ -575,13 +579,17 @@ export class SlackCanvasService implements ContentCanvasSurface {
   }
 
   private mintCanvasHandle(record: CanvasHandleRecord): string {
-    // Re-sharing the same canvas reuses its handle (bounds map growth).
+    // Re-sharing the same canvas reuses its handle (bounds map growth);
+    // re-insert to refresh its FIFO position so a paired mint at the cap
+    // cannot evict the handle it just returned.
     for (const [existing, held] of this.canvasHandles) {
       if (
         held.conversationJid === record.conversationJid &&
         held.canvasId === record.canvasId &&
         held.access === record.access
       ) {
+        this.canvasHandles.delete(existing);
+        this.canvasHandles.set(existing, held);
         return existing;
       }
     }
