@@ -884,6 +884,7 @@ describe('validateIpcAuthRequest', () => {
       providerAccountId: 'slack-default',
     });
     const openEvidence = createAttachmentOpenProof(originIpcAuthValue, {
+      type: 'attachment_open',
       attachmentId,
       chatJid: 'sl:C1',
       taskId,
@@ -919,6 +920,43 @@ describe('validateIpcAuthRequest', () => {
       'team',
       threadId,
     );
+    const crossTypeReplay = signedPayload(
+      {
+        requestId: 'attachment-cross-type-replay',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'attachment_materialize',
+        taskId,
+        chatJid: 'sl:C1',
+        targetJid: 'sl:C1',
+        context,
+        payload: { attachmentId, conversationProof: openEvidence },
+      },
+      'team',
+      threadId,
+    );
+    const materializeEvidence = createAttachmentOpenProof(originIpcAuthValue, {
+      type: 'attachment_materialize',
+      attachmentId,
+      chatJid: 'sl:C1',
+      taskId,
+      threadId,
+    });
+    const materialize = signedPayload(
+      {
+        requestId: 'attachment-materialize-origin-conversation',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'attachment_materialize',
+        taskId,
+        chatJid: 'sl:C1',
+        targetJid: 'sl:C1',
+        context,
+        payload: { attachmentId, conversationProof: materializeEvidence },
+      },
+      'team',
+      threadId,
+    );
 
     expect(parseTaskIpcData(origin, 'team')).toMatchObject({
       type: 'attachment_open',
@@ -928,6 +966,14 @@ describe('validateIpcAuthRequest', () => {
     expect(() => parseTaskIpcData(forged, 'team')).toThrow(
       'Invalid attachment open conversation proof',
     );
+    expect(() => parseTaskIpcData(crossTypeReplay, 'team')).toThrow(
+      'Invalid attachment open conversation proof',
+    );
+    expect(parseTaskIpcData(materialize, 'team')).toMatchObject({
+      type: 'attachment_materialize',
+      chatJid: 'sl:C1',
+      providerAccountId: 'slack-default',
+    });
   });
 
   it('preserves memory user ids from signed task requests', () => {

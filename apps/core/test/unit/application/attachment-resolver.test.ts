@@ -545,6 +545,65 @@ describe('AttachmentResolver', () => {
     expect(provider.calls).toBe(0);
   });
 
+  it('returns workspace-local refs directly in materialize mode', async () => {
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set(
+      'attachment-1',
+      attachment({
+        storageRef: 'attachments/live-report.csv',
+        providerFetch: undefined,
+      }),
+    );
+    const provider = fetcher(() => {
+      throw new Error('workspace-local materialize must not fetch');
+    });
+    const resolver = createResolver({ repository, fetcher: provider });
+
+    await expect(
+      resolver.open(openRequest({ mode: 'materialize' })),
+    ).resolves.toEqual({
+      status: 'already_in_workspace',
+      content: 'Attachment is already in the workspace.',
+      workspaceRelativePath: 'attachments/live-report.csv',
+      fileName: 'report.txt',
+    });
+    expect(provider.calls).toBe(0);
+  });
+
+  it('skips attachment view extraction in materialize mode and returns the canonical file name', async () => {
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set(
+      'attachment-1',
+      attachment({
+        storageRef: 'provider-attachments/report.pdf',
+        fileName: 'report.pdf',
+        contentType: 'application/pdf',
+      }),
+    );
+    const provider = fetcher(() => {
+      throw new Error('materialized attachments must not refetch');
+    });
+    const materializationRoot = tempRoot('gantry-provider-attachments');
+    const materializedPath = path.join(materializationRoot, 'report.pdf');
+    fs.writeFileSync(materializedPath, Buffer.from('%PDF-not-extracted'));
+    const resolver = createResolver({
+      repository,
+      fetcher: provider,
+      materializationRoot,
+    });
+
+    await expect(
+      resolver.open(openRequest({ mode: 'materialize' })),
+    ).resolves.toEqual({
+      status: 'opened',
+      content: '',
+      materializedPath: fs.realpathSync(materializedPath),
+      storageRef: 'provider-attachments/report.pdf',
+      fileName: 'report.pdf',
+    });
+    expect(provider.calls).toBe(0);
+  });
+
   it('rejects a materialization root that resolves through a symlink into a workspace', async () => {
     const repository = new MemoryAttachmentRepository();
     repository.attachments.set('attachment-1', attachment());

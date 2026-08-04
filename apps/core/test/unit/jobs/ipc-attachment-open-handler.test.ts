@@ -1,10 +1,14 @@
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ATTACHMENT_UNREACHABLE_COPY } from '@core/application/attachments/attachment-resolver.js';
 import { attachmentOpenTaskHandlers } from '@core/jobs/ipc-attachment-open-handler.js';
 import { taskIpcResponsePath } from '@core/jobs/ipc-shared.js';
+import { logger } from '@core/infrastructure/logging/logger.js';
+import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
 import {
   createIpcAuthEnvelope,
   revokeIpcResponseSigningKey,
@@ -59,5 +63,205 @@ describe('attachment open IPC handler', () => {
       ok: true,
       data: { content: ATTACHMENT_UNREACHABLE_COPY },
     });
+  });
+});
+
+describe('attachment materialize', () => {
+  it('streams the resolved attachment into the workspace quarantine through the hardened writer', async () => {
+    const folder = 'attachment_materialize_test';
+    const materializeTaskId = 'attachment-materialize-stream';
+    const materializeResponsePath = taskIpcResponsePath(
+      folder,
+      materializeTaskId,
+    );
+    const envelope = createIpcAuthEnvelope(folder);
+    const workspaceRoot = resolveWorkspaceFolderPath(folder);
+    const casRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-cas-'));
+    const casPath = path.join(casRoot, 'report.csv');
+    const bytes = Buffer.from('name,total\nAda,42\n');
+    fs.mkdirSync(workspaceRoot, { recursive: true });
+    fs.writeFileSync(casPath, bytes);
+    const info = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+
+    try {
+      const handler = attachmentOpenTaskHandlers.attachment_materialize;
+      if (!handler) {
+        throw new Error('attachment_materialize handler is not registered');
+      }
+      await handler({
+        data: {
+          type: 'attachment_materialize',
+          taskId: materializeTaskId,
+          appId: 'app-1',
+          providerAccountId: 'slack-default',
+          chatJid: 'sl:C1',
+          targetJid: 'sl:C1',
+          responseKeyId: envelope.responseKeyId,
+          payload: { attachmentId: 'attachment-1' },
+        },
+        sourceAgentFolder: folder,
+        sourceAgentFolderJids: ['sl:C1'],
+        conversationBindings: {},
+        deps: {
+          openAttachment: async (input: { mode?: string }) => {
+            expect(input.mode).toBe('materialize');
+            return {
+              status: 'opened',
+              content: '',
+              materializedPath: casPath,
+              storageRef: 'provider-attachments/report.csv',
+              fileName: 'report.csv',
+            } as const;
+          },
+        } as never,
+      });
+
+      const response = JSON.parse(
+        fs.readFileSync(materializeResponsePath, 'utf8'),
+      );
+      expect(response).toMatchObject({
+        ok: true,
+        data: {
+          status: 'materialized',
+          path: expect.stringMatching(
+            /^quarantine\/[0-9a-f]{16}-report\.csv$/u,
+          ),
+          bytes: bytes.byteLength,
+        },
+      });
+      const quarantinePath = response.data.path as string;
+      expect(fs.readFileSync(path.join(workspaceRoot, quarantinePath))).toEqual(
+        bytes,
+      );
+      expect(info).toHaveBeenCalledWith(
+        {
+          sourceAgentFolder: folder,
+          attachmentId: 'attachment-1',
+          chatJid: 'sl:C1',
+          bytes: bytes.byteLength,
+          quarantinePath,
+        },
+        'Attachment materialized into workspace quarantine',
+      );
+    } finally {
+      info.mockRestore();
+      fs.rmSync(materializeResponsePath, { force: true });
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+      fs.rmSync(casRoot, { recursive: true, force: true });
+      revokeIpcResponseSigningKey(envelope.responseKeyId, folder);
+    }
+  });
+
+  it('returns workspace-local refs without copying them', async () => {
+    const folder = 'attachment_materialize_local_test';
+    const localTaskId = 'attachment-materialize-local';
+    const localResponsePath = taskIpcResponsePath(folder, localTaskId);
+    const envelope = createIpcAuthEnvelope(folder);
+    const workspaceRoot = resolveWorkspaceFolderPath(folder);
+    const localPath = 'attachments/live.txt';
+    fs.mkdirSync(path.join(workspaceRoot, 'attachments'), { recursive: true });
+    fs.writeFileSync(path.join(workspaceRoot, localPath), 'live bytes');
+
+    try {
+      await attachmentOpenTaskHandlers.attachment_materialize!({
+        data: {
+          type: 'attachment_materialize',
+          taskId: localTaskId,
+          appId: 'app-1',
+          providerAccountId: 'telegram-default',
+          chatJid: 'tg:C1',
+          targetJid: 'tg:C1',
+          responseKeyId: envelope.responseKeyId,
+          payload: { attachmentId: 'attachment-live' },
+        },
+        sourceAgentFolder: folder,
+        sourceAgentFolderJids: ['tg:C1'],
+        conversationBindings: {},
+        deps: {
+          openAttachment: async () => ({
+            status: 'already_in_workspace',
+            content: 'Attachment is already in the workspace.',
+            workspaceRelativePath: localPath,
+            fileName: 'live.txt',
+          }),
+        } as never,
+      });
+
+      expect(
+        JSON.parse(fs.readFileSync(localResponsePath, 'utf8')),
+      ).toMatchObject({
+        ok: true,
+        data: {
+          status: 'already_in_workspace',
+          path: localPath,
+          bytes: Buffer.byteLength('live bytes'),
+        },
+      });
+      expect(fs.existsSync(path.join(workspaceRoot, 'quarantine'))).toBe(false);
+    } finally {
+      fs.rmSync(localResponsePath, { force: true });
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+      revokeIpcResponseSigningKey(envelope.responseKeyId, folder);
+    }
+  });
+
+  it('refuses a symlinked quarantine directory', async () => {
+    const folder = 'attachment_materialize_symlink_test';
+    const symlinkTaskId = 'attachment-materialize-symlink';
+    const symlinkResponsePath = taskIpcResponsePath(folder, symlinkTaskId);
+    const envelope = createIpcAuthEnvelope(folder);
+    const workspaceRoot = resolveWorkspaceFolderPath(folder);
+    const outsideRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-quarantine-outside-'),
+    );
+    const casRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-cas-'));
+    const casPath = path.join(casRoot, 'report.txt');
+    fs.mkdirSync(workspaceRoot, { recursive: true });
+    fs.writeFileSync(casPath, 'host bytes');
+    fs.symlinkSync(outsideRoot, path.join(workspaceRoot, 'quarantine'), 'dir');
+
+    try {
+      await attachmentOpenTaskHandlers.attachment_materialize!({
+        data: {
+          type: 'attachment_materialize',
+          taskId: symlinkTaskId,
+          appId: 'app-1',
+          providerAccountId: 'slack-default',
+          chatJid: 'sl:C1',
+          targetJid: 'sl:C1',
+          responseKeyId: envelope.responseKeyId,
+          payload: { attachmentId: 'attachment-1' },
+        },
+        sourceAgentFolder: folder,
+        sourceAgentFolderJids: ['sl:C1'],
+        conversationBindings: {},
+        deps: {
+          openAttachment: async () => ({
+            status: 'opened',
+            content: '',
+            materializedPath: casPath,
+            storageRef: 'provider-attachments/report.txt',
+            fileName: 'report.txt',
+          }),
+        } as never,
+      });
+
+      expect(
+        JSON.parse(fs.readFileSync(symlinkResponsePath, 'utf8')),
+      ).toMatchObject({
+        ok: true,
+        data: {
+          status: 'unreachable',
+          content: ATTACHMENT_UNREACHABLE_COPY,
+        },
+      });
+      expect(fs.readdirSync(outsideRoot)).toEqual([]);
+    } finally {
+      fs.rmSync(symlinkResponsePath, { force: true });
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+      fs.rmSync(outsideRoot, { recursive: true, force: true });
+      fs.rmSync(casRoot, { recursive: true, force: true });
+      revokeIpcResponseSigningKey(envelope.responseKeyId, folder);
+    }
   });
 });

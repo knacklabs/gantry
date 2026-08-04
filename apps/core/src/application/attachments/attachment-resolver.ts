@@ -36,6 +36,13 @@ export type AttachmentOpenResult =
       image?: AttachmentImagePayload;
       materializedPath: string;
       storageRef: string;
+      fileName: string;
+    }
+  | {
+      status: 'already_in_workspace';
+      content: string;
+      workspaceRelativePath: string;
+      fileName: string;
     }
   | {
       status: 'not_found' | 'deleted' | 'too_large' | 'unreachable';
@@ -84,6 +91,7 @@ export class AttachmentResolver {
     providerAccountId: string;
     conversationJid: string;
     threadId?: string;
+    mode?: 'view' | 'materialize';
   }): Promise<AttachmentOpenResult> {
     const abortController = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -145,12 +153,28 @@ export class AttachmentResolver {
       return { status: 'deleted', content: ATTACHMENT_DELETED_COPY };
     }
     if (
+      input.mode === 'materialize' &&
+      attachment.storageRef &&
+      isWorkspaceLocalAttachmentStorageRef(attachment.storageRef)
+    ) {
+      return {
+        status: 'already_in_workspace',
+        content: 'Attachment is already in the workspace.',
+        workspaceRelativePath: attachment.storageRef,
+        fileName:
+          attachment.fileName?.trim() ||
+          attachment.storageRef.split('/').at(-1) ||
+          'attachment.bin',
+      };
+    }
+    if (
       attachment.storageRef &&
       isProviderAttachmentStorageRef(attachment.storageRef)
     ) {
       const opened = await this.openMaterialized(
         attachment,
         attachment.storageRef,
+        input.mode,
       );
       if (opened.status === 'opened') return opened;
       if (!attachment.providerFetch) return opened;
@@ -174,6 +198,7 @@ export class AttachmentResolver {
       attachment.providerFetch.provider,
       attachment.providerFetch.kind,
       attachment.providerFetch.id,
+      input.mode ?? 'view',
     ].join('\0');
     const existing = this.inFlight.get(inFlightKey);
     if (existing) return existing;
@@ -271,6 +296,7 @@ export class AttachmentResolver {
         sizeBytes: persisted.attachment.sizeBytes ?? prepared.sizeBytes,
       },
       persisted.attachment.storageRef,
+      input.mode,
     );
   }
 
@@ -389,6 +415,7 @@ export class AttachmentResolver {
   private async openMaterialized(
     attachment: ResolvableMessageAttachment,
     storageRef: string,
+    mode: 'view' | 'materialize' = 'view',
   ): Promise<AttachmentOpenResult> {
     if (!isProviderAttachmentStorageRef(storageRef)) {
       return {
@@ -401,6 +428,7 @@ export class AttachmentResolver {
       workspaceRoots: this.deps.workspaceRoots(),
       storageRef,
       attachment,
+      mode,
     }).catch(() => ({ status: 'missing' as const }));
     if (opened.status === 'missing') {
       return {
@@ -414,6 +442,10 @@ export class AttachmentResolver {
       ...(opened.image ? { image: opened.image } : {}),
       materializedPath: opened.materializedPath,
       storageRef,
+      fileName:
+        attachment.fileName?.trim() ||
+        storageRef.split('/').at(-1) ||
+        'attachment.bin',
     };
   }
 
@@ -438,6 +470,15 @@ export class AttachmentResolver {
       storageRef,
     });
   }
+}
+
+function isWorkspaceLocalAttachmentStorageRef(storageRef: string): boolean {
+  return (
+    storageRef.startsWith('attachments/') &&
+    storageRef.length > 'attachments/'.length &&
+    !storageRef.includes('\\') &&
+    !storageRef.split('/').includes('..')
+  );
 }
 
 function historicalAttachmentReader(

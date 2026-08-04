@@ -135,6 +135,7 @@ export interface IpcDeps {
     providerAccountId: string;
     conversationJid: string;
     threadId?: string;
+    mode?: 'view' | 'materialize';
   }) => Promise<AttachmentOpenResult>;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
   classifierConsult?: PermissionClassifierPromptConsultInput['classifierConsult'];

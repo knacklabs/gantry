@@ -169,6 +169,7 @@ export async function readProviderAttachment(input: {
   workspaceRoots: readonly string[];
   storageRef: string;
   attachment: ReadableAttachmentMetadata;
+  mode?: 'view' | 'materialize';
   extract?: DocumentTextExtractor;
 }): Promise<
   | {
@@ -188,6 +189,11 @@ export async function readProviderAttachment(input: {
     ...providerAttachmentStoragePath(input.storageRef).split('/'),
   );
   try {
+    if (input.mode === 'materialize') {
+      const stat = await fs.stat(materializedPath);
+      if (!stat.isFile()) return { status: 'missing' };
+      return { status: 'opened', content: '', materializedPath };
+    }
     const read = await readAttachmentContent(
       materializedPath,
       input.attachment,
