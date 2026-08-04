@@ -120,6 +120,34 @@ describe('slack canvas tools', () => {
     expect(result.canvasReadHandle).not.toBe(result.canvasUpdateHandle);
   });
 
+  it('creates a standalone canvas for DMs with an honest sharing message', async () => {
+    const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const service = new SlackCanvasService(
+      'xoxb-test',
+      vi.fn(async (url, init) => {
+        calls.push({ url: String(url), body: bodyOf(init) });
+        if (String(url).endsWith('/canvases.create')) {
+          return json({ ok: true, canvas_id: 'F-DM' });
+        }
+        return json({
+          ok: true,
+          file: { permalink: 'https://workspace.slack.com/docs/F-DM' },
+        });
+      }) as typeof fetch,
+    );
+
+    const result = await service.executeCanvasAction('sl:D0123456789', {
+      action: 'create',
+      title: 'Notes',
+      markdown: '# Notes',
+    });
+
+    expect(calls[0]!.url).toBe('https://slack.com/api/canvases.create');
+    expect(calls[0]!.body.channel_id).toBeUndefined();
+    expect(result.message).toContain('Standalone canvas');
+    expect(result.permalink).toBe('https://workspace.slack.com/docs/F-DM');
+  });
+
   it('returns the existing bound canvas on the free-team limit', async () => {
     const calls: string[] = [];
     const service = new SlackCanvasService(

@@ -40,13 +40,16 @@ export async function createChannelCanvas(
   // One creation deadline shared by create + existing-canvas resolution +
   // permalink lookup, under the caller's 120s timeout.
   const deadlineAt = Date.now() + SLACK_CANVAS_READ_DEADLINE_MS;
+  // Channel canvases attach to channels only; DMs get a standalone canvas
+  // whose permalink the agent can post into the conversation.
+  const isDm = channelId.startsWith('D');
   let canvasId: string;
   let existing = false;
   try {
     const response = await ctx.slackApi(
-      'conversations.canvases.create',
+      isDm ? 'canvases.create' : 'conversations.canvases.create',
       {
-        channel_id: channelId,
+        ...(isDm ? {} : { channel_id: channelId }),
         ...(input.title ? { title: input.title } : {}),
         ...(input.markdown !== undefined
           ? {
@@ -62,6 +65,15 @@ export async function createChannelCanvas(
     canvasId = requiredString(response.canvas_id, 'canvas_id');
   } catch (error) {
     if (
+      error instanceof SlackCanvasProviderError &&
+      error.code === 'free_teams_cannot_create_standalone_canvases'
+    ) {
+      throw new Error(
+        'Slack free plans cannot create standalone canvases, and direct messages cannot have channel canvases. Create the canvas in a channel instead.',
+      );
+    }
+    if (
+      isDm ||
       !(error instanceof SlackCanvasProviderError) ||
       (error.code !== 'free_team_canvas_tab_already_exists' &&
         error.code !== 'channel_canvas_already_exists')
@@ -77,9 +89,13 @@ export async function createChannelCanvas(
   return {
     message: existing
       ? 'This channel already has a canvas; creation was unnecessary and the existing bound canvas is ready.'
-      : permalink
-        ? 'Canvas created in this Slack conversation.'
-        : 'Canvas created in this Slack conversation, but Slack did not return its permalink. The canvas handles are still usable.',
+      : isDm
+        ? permalink
+          ? 'Standalone canvas created (direct messages cannot have channel canvases); post the permalink here to share it.'
+          : 'Standalone canvas created (direct messages cannot have channel canvases), but Slack did not return its permalink. The canvas handles are still usable.'
+        : permalink
+          ? 'Canvas created in this Slack conversation.'
+          : 'Canvas created in this Slack conversation, but Slack did not return its permalink. The canvas handles are still usable.',
     ...handles,
     ...(permalink ? { permalink } : {}),
   };
