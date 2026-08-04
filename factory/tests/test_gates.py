@@ -2052,6 +2052,19 @@ def test_hook_denies_variable_hidden_companion_in_unparseable_bash(repo):
     assert "deny" in out and "could not be safely parsed" in out
 
 
+def test_hook_denies_exec_capable_display_commands(repo):
+    """Pagers and option-bearing display tools can execute; deny them."""
+    for cmd in (
+        "less '+!node /x/codex-companion.mjs task --write go' /dev/null",
+        "rg --pre=/x/codex-companion.mjs pattern file.txt",
+        "tail -f /tmp/codex-companion.mjs",
+    ):
+        code, out = hook(repo, {"tool_name": "Bash",
+                                "permission_mode": "default",
+                                "tool_input": {"command": cmd}})
+        assert "deny" in out, cmd
+
+
 def test_hook_denies_wrapped_or_computed_companion_launch(repo):
     """Executors that could compute argv at runtime are unverifiable."""
     for cmd in (

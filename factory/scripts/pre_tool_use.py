@@ -356,10 +356,17 @@ COMPANION_WRITE_FLAGS = {
 }
 COMPANION_METACHARS = re.compile("[;&|<>$`(){}\n*?~\\=]|\x27\x27|\x22\x22")
 COMPANION_NAME = re.compile(r"codex-companion(?:\.mjs)?")
+# No shell-capable pagers (less/more run "+!cmd" startup commands).
 DISPLAY_SAFE_ARGV0 = {
-    "rg", "grep", "cat", "head", "tail", "less", "more", "printf", "echo",
+    "rg", "grep", "cat", "head", "tail", "printf", "echo",
     "ls", "stat", "wc", "file", "md5", "shasum",
 }
+
+
+def _display_safe(tokens):
+    """Display command with NO option tokens: some display tools grow
+    exec options (rg --pre, tail --pid); bare invocations have none."""
+    return not any(t.startswith(("-", "+")) for t in tokens[1:])
 
 
 def _companion_readonly_launch_ok():
@@ -377,13 +384,13 @@ def _companion_readonly_launch_ok():
     if comp_idx is None:
         # Companion referenced only inside larger tokens (prose/paths):
         # display commands may show it; anything else is unverifiable.
-        return argv0 in DISPLAY_SAFE_ARGV0
+        return argv0 in DISPLAY_SAFE_ARGV0 and _display_safe(shell_tokens)
     if comp_idx == 0 or (comp_idx == 1 and argv0 in ("node", "nodejs")):
         rest = shell_tokens[comp_idx + 1:]
         return not any(token in COMPANION_WRITE_FLAGS for token in rest)
     # Companion path appears under another executor (xargs, env, sh -c,
     # an interpreter): the final argv cannot be established from text.
-    return argv0 in DISPLAY_SAFE_ARGV0
+    return argv0 in DISPLAY_SAFE_ARGV0 and _display_safe(shell_tokens)
 
 
 if tool_name == "Bash" and has_companion and not _companion_readonly_launch_ok():

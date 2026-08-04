@@ -1,5 +1,5 @@
 {
-  "harness_commit": "b78d314fff0945a6420452749194cb23a7d72807",
+  "harness_commit": "bf4c120fa85326953a3873125e738c355dbdf4bd",
   "files": {
     "factory/scripts/check_agents_hygiene.py": "bbfda3eb84548114eb4cd5cf17af46747de5c2c895e4519397f1d4d9d8fb76a0",
     "factory/scripts/check_dual_runtime.py": "ac66a934f6dc6c74d282cff0a36821d610ec1ff10f6fcf10defa6fd5fe9940da",
@@ -41,7 +41,7 @@
     "factory/scripts/intake.py": "e98d0d4dbb1ae09c588c56bf46cfdf3118cd9d9a68d040408c18d4fa23b9249d",
     "factory/scripts/pr_ready.py": "b43796e39627018c4d92e77baf3c852c5c63b734d6527d477377a8e220f0dcc7",
     "factory/scripts/pre_compact.py": "8a54efbb3018fa0c4aec885b9b2fc0d7f97b8e66b331e7b8222856e9357b142e",
-    "factory/scripts/pre_tool_use.py": "d5384d52a0c9d24b192d915a8705432aa65e4d5796d61b84064369c38364dbb2",
+    "factory/scripts/pre_tool_use.py": "be1ebe41398ad093e3a035364946fb72c68196ea51730c5d7143133a2acec394",
     "factory/scripts/record_decomposition_from_json.py": "a1ce19e0310ebfbf749d03bd24d802bc58402bffefbc2ee6402a42b63563d154",
     "factory/scripts/record_grill_from_json.py": "74ae2b175638c2f3e088c7f18cd9c7a12de0e441431730411fe754b5b4b5175c",
     "factory/scripts/record_review_from_json.py": "9952ce4be158814997b01cd29d574dc8ef3d3de15e81f39c376519ccfcdbb542",
