@@ -2052,6 +2052,19 @@ def test_hook_denies_variable_hidden_companion_in_unparseable_bash(repo):
     assert "deny" in out and "could not be safely parsed" in out
 
 
+def test_hook_denies_file_and_cwd_overrides_in_readonly_lane(repo):
+    """--prompt-file exfiltrates local files; options are default-deny."""
+    for cmd in (
+        "node /x/codex-companion.mjs task --prompt-file /etc/passwd go",
+        "node /x/codex-companion.mjs task --cwd /other/repo go",
+        "node /x/codex-companion.mjs task --unknown-flag go",
+    ):
+        code, out = hook(repo, {"tool_name": "Bash",
+                                "permission_mode": "default",
+                                "tool_input": {"command": cmd}})
+        assert "deny" in out, cmd
+
+
 def test_hook_denies_mutating_companion_subcommands(repo):
     """Only allowlisted read-only verbs pass; setup/cancel/task-worker mutate."""
     for verb in ("setup", "cancel", "task-worker", "unknown-verb"):

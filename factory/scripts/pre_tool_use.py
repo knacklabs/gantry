@@ -355,6 +355,7 @@ COMPANION_WRITE_FLAGS = {
     "--write", "--full-auto", "--dangerously-bypass-approvals-and-sandbox",
 }
 READONLY_COMPANION_VERBS = {"task", "task-resume-candidate"}
+READONLY_COMPANION_FLAGS = {"--model", "--effort", "--json"}
 COMPANION_METACHARS = re.compile("[;&|<>$`(){}\n*?~\\=\\[\\]]|\x27\x27|\x22\x22")
 COMPANION_NAME = re.compile(r"codex-companion(?:\.mjs)?")
 # No shell-capable pagers (less/more run "+!cmd" startup commands).
@@ -389,10 +390,16 @@ def _companion_readonly_launch_ok():
     if comp_idx == 0 or (comp_idx == 1 and argv0 in ("node", "nodejs")):
         rest = shell_tokens[comp_idx + 1:]
         # Verb allowlist, not a flag denylist: other subcommands (setup,
-        # cancel, task-worker) mutate state without any write flag.
+        # cancel, task-worker) mutate state without any write flag. Options
+        # are default-deny too: --prompt-file and --cwd can exfiltrate
+        # arbitrary local files / retarget other repos, and future flags
+        # should not be trusted implicitly.
         if not rest or rest[0] not in READONLY_COMPANION_VERBS:
             return False
-        return not any(token in COMPANION_WRITE_FLAGS for token in rest)
+        return all(
+            not token.startswith("-") or token in READONLY_COMPANION_FLAGS
+            for token in rest[1:]
+        )
     # Companion path appears under another executor (xargs, env, sh -c,
     # an interpreter): the final argv cannot be established from text.
     return argv0 in DISPLAY_SAFE_ARGV0 and _display_safe(shell_tokens)
