@@ -120,32 +120,28 @@ describe('slack canvas tools', () => {
     expect(result.canvasReadHandle).not.toBe(result.canvasUpdateHandle);
   });
 
-  it('creates a standalone canvas for DMs with an honest sharing message', async () => {
-    const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+  it('rejects canvas creation in DMs and MPDMs with channel guidance', async () => {
     const service = new SlackCanvasService(
       'xoxb-test',
-      vi.fn(async (url, init) => {
-        calls.push({ url: String(url), body: bodyOf(init) });
-        if (String(url).endsWith('/canvases.create')) {
-          return json({ ok: true, canvas_id: 'F-DM' });
-        }
-        return json({
-          ok: true,
-          file: { permalink: 'https://workspace.slack.com/docs/F-DM' },
-        });
-      }) as typeof fetch,
+      vi.fn(async (url) =>
+        String(url).endsWith('/conversations.info')
+          ? json({ ok: true, channel: { is_mpim: true } })
+          : json({ ok: true, canvas_id: 'F-X' }),
+      ) as typeof fetch,
     );
 
-    const result = await service.executeCanvasAction('sl:D0123456789', {
-      action: 'create',
-      title: 'Notes',
-      markdown: '# Notes',
-    });
-
-    expect(calls[0]!.url).toBe('https://slack.com/api/canvases.create');
-    expect(calls[0]!.body.channel_id).toBeUndefined();
-    expect(result.message).toContain('Standalone canvas');
-    expect(result.permalink).toBe('https://workspace.slack.com/docs/F-DM');
+    await expect(
+      service.executeCanvasAction('sl:D0123456789', {
+        action: 'create',
+        markdown: '# Notes',
+      }),
+    ).rejects.toThrow(/channels only/);
+    await expect(
+      service.executeCanvasAction('sl:G0123456789', {
+        action: 'create',
+        markdown: '# Notes',
+      }),
+    ).rejects.toThrow(/channels only/);
   });
 
   it('returns the existing bound canvas on the free-team limit', async () => {

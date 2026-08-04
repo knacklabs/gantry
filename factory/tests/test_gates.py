@@ -2096,6 +2096,7 @@ def test_hook_denies_expansion_bearing_companion_launch(repo):
         "node /x/codex-companion.mjs task $(cat /tmp/mode) go",
         "node /x/codex-companion.mjs task `cat /tmp/mode` go",
         "node /x/codex-companion.mjs task $'--write' go",
+        "node /x/codex-companion.mjs task --writ[e] go",
     ):
         code, out = hook(repo, {"tool_name": "Bash",
                                 "permission_mode": "default",

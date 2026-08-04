@@ -355,7 +355,7 @@ COMPANION_WRITE_FLAGS = {
     "--write", "--full-auto", "--dangerously-bypass-approvals-and-sandbox",
 }
 READONLY_COMPANION_VERBS = {"task", "task-resume-candidate"}
-COMPANION_METACHARS = re.compile("[;&|<>$`(){}\n*?~\\=]|\x27\x27|\x22\x22")
+COMPANION_METACHARS = re.compile("[;&|<>$`(){}\n*?~\\=\\[\\]]|\x27\x27|\x22\x22")
 COMPANION_NAME = re.compile(r"codex-companion(?:\.mjs)?")
 # No shell-capable pagers (less/more run "+!cmd" startup commands).
 DISPLAY_SAFE_ARGV0 = {
