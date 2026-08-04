@@ -33,6 +33,7 @@ import {
 import {
   connectDiscordGateway,
   DiscordGatewayConnection,
+  websocketFactory,
 } from './discord-gateway.js';
 import { agentTodoStopActions } from './agent-todo-render.js';
 import { CHANNEL_STREAM_UPDATE_INTERVAL_MS } from './channel-provider.js';
@@ -85,10 +86,6 @@ export function normalizeDiscordJid(raw: string): string | null {
 export function discordChannelIdFromJid(jid: string): string | null {
   const normalized = normalizeDiscordJid(jid);
   return normalized ? normalized.slice(DISCORD_JID_PREFIX.length) : null;
-}
-
-function websocketFactory(url: string): WebSocketLike {
-  return new WebSocket(url) as unknown as WebSocketLike;
 }
 
 export class DiscordChannel implements ChannelAdapter {
