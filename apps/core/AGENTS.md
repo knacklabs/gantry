@@ -198,3 +198,6 @@
   - `runtime/group-queue.test.ts`: `threads retry numbering and the configured maximum through every attempt`
 - Teams typing and reactions remain deferred by decision 0033 until a real
   Teams client is available; this map records no Teams runtime coverage.
+
+Maintenance: when a liveness flow test above moves or is renamed, update this
+map in the same change — it is the durable index of the user-visible contract.
