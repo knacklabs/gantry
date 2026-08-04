@@ -19,6 +19,7 @@ import {
   SlackCanvasProviderError,
   WRITE_SCOPE_ERROR,
 } from './canvas-support.js';
+import { createChannelCanvas } from './canvas-create.js';
 
 export type { SlackCanvasFileLike } from './canvas-support.js';
 import {
@@ -112,7 +113,16 @@ export class SlackCanvasService implements ContentCanvasSurface {
   ): Promise<ContentCanvasResult> {
     const channelId = parseSlackConversationJid(conversationJid);
     if (action.action === 'create') {
-      return this.createCanvas(channelId, conversationJid, action);
+      return createChannelCanvas(
+        {
+          slackApi: (m, b, t) => this.slackApi(m, b, t),
+          fileInfo: (id, req, t) => this.fileInfo(id, req, t),
+          mintReadWriteHandles: (jid, id) => this.mintReadWriteHandles(jid, id),
+        },
+        channelId,
+        conversationJid,
+        action,
+      );
     }
     const handle = this.resolveCanvasHandle(
       action.canvasHandle,
@@ -137,52 +147,6 @@ export class SlackCanvasService implements ContentCanvasSurface {
         editDeadlineAt,
       );
     });
-  }
-
-  private async createCanvas(
-    channelId: string,
-    conversationJid: string,
-    input: Extract<ContentCanvasAction, { action: 'create' }>,
-  ): Promise<ContentCanvasResult> {
-    let canvasId: string;
-    let existing = false;
-    try {
-      const response = await this.slackApi('conversations.canvases.create', {
-        channel_id: channelId,
-        ...(input.title ? { title: input.title } : {}),
-        ...(input.markdown !== undefined
-          ? {
-              document_content: {
-                type: 'markdown',
-                markdown: input.markdown,
-              },
-            }
-          : {}),
-      });
-      canvasId = requiredString(response.canvas_id, 'canvas_id');
-    } catch (error) {
-      if (
-        !(error instanceof SlackCanvasProviderError) ||
-        (error.code !== 'free_team_canvas_tab_already_exists' &&
-          error.code !== 'channel_canvas_already_exists')
-      ) {
-        throw error;
-      }
-      existing = true;
-      canvasId = await this.resolveBoundCanvasId(channelId);
-    }
-
-    const handles = this.mintReadWriteHandles(conversationJid, canvasId);
-    const permalink = await this.lookupPermalink(canvasId);
-    return {
-      message: existing
-        ? 'This channel already has a canvas; creation was unnecessary and the existing bound canvas is ready.'
-        : permalink
-          ? 'Canvas created in this Slack conversation.'
-          : 'Canvas created in this Slack conversation, but Slack did not return its permalink. The canvas handles are still usable.',
-      ...handles,
-      ...(permalink ? { permalink } : {}),
-    };
   }
 
   private async readCanvas(
@@ -506,28 +470,6 @@ export class SlackCanvasService implements ContentCanvasSurface {
         throw new Error(READ_SCOPE_ERROR, { cause: error });
       }
       throw error;
-    }
-  }
-
-  private async resolveBoundCanvasId(channelId: string): Promise<string> {
-    const response = await this.slackApi('conversations.info', {
-      channel: channelId,
-    });
-    const fileId = boundCanvasIdFromConversationInfo(response);
-    if (!fileId) {
-      throw new Error(
-        'This channel already has a canvas, but Slack did not identify it. Open the existing canvas in Slack and try again after reinstalling the app scopes if needed.',
-      );
-    }
-    return fileId;
-  }
-
-  private async lookupPermalink(canvasId: string): Promise<string | undefined> {
-    try {
-      const response = await this.fileInfo(canvasId, false);
-      return optionalString(asRecord(response.file)?.permalink);
-    } catch {
-      return undefined;
     }
   }
 
