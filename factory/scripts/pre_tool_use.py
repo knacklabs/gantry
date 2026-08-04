@@ -380,7 +380,7 @@ def _companion_write_in(tokens, depth=0):
 # Unexpanded $VAR / $(...) / backticks in a companion command could
 # smuggle a write flag past exact-argv matching; the hook cannot see
 # post-expansion argv, so such launches are unverifiable and denied.
-COMPANION_EXPANSION = re.compile(r"\$[A-Za-z_{(]|`")
+COMPANION_EXPANSION = re.compile("\\$[A-Za-z_{('\"]|`")
 has_companion_write = (
     _companion_write_in(shell_tokens)
     or (has_companion and COMPANION_EXPANSION.search(command) is not None)
