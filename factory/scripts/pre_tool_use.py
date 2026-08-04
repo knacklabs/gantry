@@ -350,13 +350,34 @@ has_companion = (
 COMPANION_WRITE_FLAGS = {
     "--write", "--full-auto", "--dangerously-bypass-approvals-and-sandbox",
 }
-# Substring scan of the whole shape catches quoted/nested launches
-# (e.g. a write flag inside sh -c '...') where the inner command
-# survives as a single shell token no exact match can see.
-has_companion_write = (
-    any(token in COMPANION_WRITE_FLAGS for token in shell_tokens)
-    or any(flag in shell_shape for flag in COMPANION_WRITE_FLAGS)
-)
+def _companion_write_in(tokens, depth=0):
+    """Exact write-flag argv match, recursing into quoted/nested shells.
+
+    Substring scans over-block prompts that merely MENTION a flag; exact
+    top-level matching under-blocks sh -c '...' launches whose inner
+    command survives as one token. Split any companion-mentioning token
+    and match exactly; an unsplittable companion token is denied
+    conservatively only when it contains a write flag.
+    """
+    for token in tokens:
+        # Strip substitution/redirect punctuation so `...` and <(...)
+        # wrappers cannot hide an exact flag; quoted prose stays multi-word
+        # and therefore never strips down to a bare flag.
+        if token.strip("`()<>;|&\"'") in COMPANION_WRITE_FLAGS:
+            return True
+        if depth < 3 and re.search(r"codex-companion", token):
+            try:
+                inner = shlex.split(token)
+            except ValueError:
+                if any(flag in token for flag in COMPANION_WRITE_FLAGS):
+                    return True
+                continue
+            if len(inner) > 1 and _companion_write_in(inner, depth + 1):
+                return True
+    return False
+
+
+has_companion_write = _companion_write_in(shell_tokens)
 if tool_name == "Bash" and has_companion and has_companion_write:
     deny("Companion write launches are off-contract. Use "
          "`./forge delegate <task-id>`; it owns the argv launch and records "

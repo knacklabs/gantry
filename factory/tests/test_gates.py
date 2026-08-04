@@ -2052,6 +2052,19 @@ def test_hook_denies_variable_hidden_companion_in_unparseable_bash(repo):
     assert "deny" in out and "could not be safely parsed" in out
 
 
+def test_hook_allows_readonly_companion_prompt_mentioning_write_flag(repo):
+    """A prompt that merely MENTIONS a write flag is not a write launch."""
+    for cmd in (
+        "node /x/codex-companion.mjs task 'audit how --write is handled'",
+        "bash -c 'node /x/codex-companion.mjs task "
+        '"explain --full-auto usage"' + "'",
+    ):
+        code, out = hook(repo, {"tool_name": "Bash",
+                                "permission_mode": "default",
+                                "tool_input": {"command": cmd}})
+        assert code == 0 and "deny" not in out, cmd
+
+
 def test_hook_denies_nested_quoted_companion_write_launch(repo):
     """A write flag hidden inside a quoted nested shell must still deny."""
     for cmd in (
