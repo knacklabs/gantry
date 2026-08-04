@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerBrainTools } from './tools/brain.js';
 import { registerAttachmentTools } from './tools/attachment.js';
 import { registerBrowserTools } from './tools/browser.js';
+import { registerCanvasTools } from './tools/canvas.js';
 import { registerFileTools } from './tools/file.js';
 import { registerMemoryTools } from './tools/memory.js';
 import { registerMessagingTools } from './tools/messaging.js';
@@ -119,6 +120,7 @@ export function createGantryMcpServer(): McpServer {
   registerMemoryTools(filteredServer);
   registerBrainTools(filteredServer);
   registerBrowserTools(filteredServer);
+  registerCanvasTools(filteredServer);
   registerFileTools(filteredServer);
   registerProfileTools(filteredServer);
   registerServiceTools(filteredServer);

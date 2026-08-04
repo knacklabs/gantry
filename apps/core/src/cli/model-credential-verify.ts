@@ -272,7 +272,9 @@ export async function inspectSlackTokenLiveCheck(input: {
       };
     }
     const failed = [botValidation, appValidation].filter((item) => !item.ok);
-    const nextAction = SLACK_CHANNEL_TOKEN_NEXT_ACTION;
+    const nextAction =
+      failed.find((item) => item.nextAction)?.nextAction ||
+      SLACK_CHANNEL_TOKEN_NEXT_ACTION;
     return {
       id: 'slack-token-api',
       title: 'Slack Token API Validation',

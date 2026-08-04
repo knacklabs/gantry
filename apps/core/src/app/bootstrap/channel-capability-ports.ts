@@ -10,6 +10,7 @@ import {
 } from '../../domain/types.js';
 import { ChannelAdapter } from '../../channels/channel-provider.js';
 import type { AgentTodoSink } from '../../domain/ports/task-lifecycle.js';
+import type { ContentCanvasSurface } from '../../shared/content-canvas.js';
 
 export function asTypingSink(channel: ChannelAdapter): TypingSink | undefined {
   return typeof channel.setTyping === 'function'
@@ -112,5 +113,14 @@ export function asAgentTodoSurface(
 ): AgentTodoSink | undefined {
   return typeof channel.renderAgentTodo === 'function'
     ? (channel as unknown as AgentTodoSink)
+    : undefined;
+}
+
+export function asContentCanvasSurface(
+  channel: ChannelAdapter,
+): ContentCanvasSurface | undefined {
+  return typeof (channel as unknown as Partial<ContentCanvasSurface>)
+    .executeCanvasAction === 'function'
+    ? (channel as unknown as ContentCanvasSurface)
     : undefined;
 }

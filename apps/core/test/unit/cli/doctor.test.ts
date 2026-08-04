@@ -622,6 +622,27 @@ describe('doctor model credential readiness', () => {
         status: 'pass',
       }),
     );
+
+    mockValidateSlackBotToken.mockResolvedValue({
+      ok: false,
+      message:
+        'Slack bot token is missing required scopes: canvases:read, canvases:write.',
+      nextAction:
+        'Add the missing bot scopes and reinstall the app to this workspace.',
+    });
+    const upgradedReport = await runDoctorWithNetwork(
+      import.meta.url,
+      runtimeHome,
+      { validateTelegramToken: false },
+    );
+    expect(upgradedReport.checks).toContainEqual(
+      expect.objectContaining({
+        id: 'slack-token-api',
+        status: 'warn',
+        message: expect.stringContaining('canvases:read'),
+        nextAction: expect.stringMatching(/reinstall.*workspace/i),
+      }),
+    );
   });
 
   it('skips Slack live token validation when disabled', async () => {
