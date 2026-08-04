@@ -4962,6 +4962,116 @@ describe('Slack channel', () => {
     );
   });
 
+  it('uploads large Slack stream text as a UTF-8 snippet before split delivery', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+    );
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+    vi.mocked(appRef.current.client.apiCall).mockResolvedValue({ ok: false });
+
+    await expect(
+      channel.sendStreamingChunk('sl:C1234567890', '🙂'.repeat(8000), {
+        done: true,
+      }),
+    ).resolves.toBe(true);
+
+    expect(
+      appRef.current.client.files.getUploadURLExternal,
+    ).toHaveBeenCalledWith({
+      filename: 'gantry-response.txt',
+      length: 32_000,
+      snippet_type: 'text',
+    });
+    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('uploads Slack text above one UTF-8 MiB as a plain .txt file', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+    );
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+    vi.mocked(appRef.current.client.apiCall).mockResolvedValue({ ok: false });
+    const text = `x${'🙂'.repeat(262_144)}`;
+
+    await expect(
+      channel.sendStreamingChunk('sl:C1234567890', text, { done: true }),
+    ).resolves.toBe(true);
+
+    expect(
+      appRef.current.client.files.getUploadURLExternal,
+    ).toHaveBeenCalledWith({
+      filename: 'gantry-response.txt',
+      length: 1_048_577,
+    });
+  });
+
+  it('falls back to split Slack text when snippet upload fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 503 }),
+    );
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+    vi.mocked(appRef.current.client.apiCall).mockResolvedValue({ ok: false });
+
+    await expect(
+      channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(20_000), {
+        done: true,
+      }),
+    ).resolves.toBe(true);
+
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(5);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'stream_output_too_large' }),
+      'Slack snippet fallback upload failed; using split text delivery',
+    );
+  });
+
+  it('splits the rejected part when a snippet upload fails', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+    vi.mocked(appRef.current.client.chat.postMessage)
+      .mockRejectedValueOnce({ status: 413, message: 'payload too large' })
+      .mockResolvedValue({ ok: true, ts: '1710000000.500600' });
+    vi.mocked(
+      appRef.current.client.files.getUploadURLExternal,
+    ).mockRejectedValueOnce(new Error('upload unavailable'));
+
+    // A 413 is deterministic for the same payload: the fallback must post
+    // smaller chunks, never replay the identical part.
+    await expect(
+      channel.sendMessage('sl:C1234567890', 'replay me'),
+    ).resolves.toMatchObject({ deliveredParts: 1, totalParts: 1 });
+
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(3);
+    const calls = vi
+      .mocked(appRef.current.client.chat.postMessage)
+      .mock.calls.slice(1)
+      .map(([payload]) => (payload as { text: string }).text);
+    expect(calls.join('')).toBe('replay me');
+    expect(calls.every((text) => text.length < 'replay me'.length)).toBe(true);
+  });
+
   it('clears Slack thread status for replace-only done without chat text', async () => {
     const channel = new SlackChannel(
       'xoxb-token',

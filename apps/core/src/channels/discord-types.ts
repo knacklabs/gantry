@@ -24,11 +24,24 @@ export type DiscordMessageCreate = {
     user?: DiscordUser;
   };
   attachments?: DiscordMessageAttachment[];
+  embeds?: DiscordMessageEmbed[];
   referenced_message?: {
     id?: string;
     content?: string;
     author?: DiscordUser;
   } | null;
+};
+
+export type DiscordMessageEmbed = {
+  title?: string;
+  description?: string;
+  url?: string;
+  fields?: Array<{ name?: string; value?: string }>;
+  author?: { name?: string };
+  footer?: { text?: string };
+  image?: { description?: string };
+  thumbnail?: { description?: string };
+  video?: { description?: string };
 };
 
 export type DiscordMessageAttachment = {

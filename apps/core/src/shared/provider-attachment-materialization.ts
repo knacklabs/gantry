@@ -14,7 +14,6 @@ import {
 const PROVIDER_ATTACHMENT_STORAGE_PREFIX = 'provider-attachments/';
 const MAX_INLINE_IMAGE_BYTES = 3 * 1024 * 1024;
 export const MAX_TEXT_OUTPUT_BYTES = 80_000;
-const MAX_BINARY_OUTPUT_BYTES = 60_000;
 
 const DOCUMENT_EXTENSIONS = new Set([
   '.docx',
@@ -27,6 +26,34 @@ const DOCUMENT_EXTENSIONS = new Set([
   '.rtf',
 ]);
 const LEGACY_OFFICE_EXTENSIONS = new Set(['.doc', '.xls', '.ppt']);
+const AUDIO_EXTENSIONS = new Set([
+  '.aac',
+  '.flac',
+  '.m4a',
+  '.mp3',
+  '.oga',
+  '.ogg',
+  '.opus',
+  '.wav',
+]);
+const VIDEO_EXTENSIONS = new Set([
+  '.avi',
+  '.m4v',
+  '.mkv',
+  '.mov',
+  '.mp4',
+  '.webm',
+]);
+const ARCHIVE_EXTENSIONS = new Set([
+  '.7z',
+  '.bz2',
+  '.gz',
+  '.rar',
+  '.tar',
+  '.tgz',
+  '.zip',
+]);
+const IWORK_EXTENSIONS = new Set(['.key', '.numbers', '.pages']);
 
 interface ReadableAttachmentMetadata {
   fileName?: string;
@@ -287,7 +314,10 @@ async function readAttachmentContent(
       content: `${label} uses a legacy Microsoft Office format that Gantry cannot read yet. Please save it as DOCX, XLSX, PPTX, PDF, RTF, or OpenDocument and share it again.`,
     };
   }
-  const limit = textLike ? MAX_TEXT_OUTPUT_BYTES : MAX_BINARY_OUTPUT_BYTES;
+  if (!textLike) {
+    return { content: binaryAttachmentGuidance(filePath, attachment) };
+  }
+  const limit = MAX_TEXT_OUTPUT_BYTES;
   const file = await fs.open(filePath, 'r');
   try {
     const buffer = Buffer.alloc(limit + 1);
@@ -304,25 +334,44 @@ async function readAttachmentContent(
     }
     const truncated = bytesRead > limit;
     const content = buffer.subarray(0, Math.min(bytesRead, limit));
-    if (textLike) {
-      return {
-        content: `${content.toString('utf8')}${
-          truncated ? '\n\n[Attachment content truncated.]' : ''
-        }`,
-      };
-    }
-    const label = attachment.fileName || path.basename(filePath);
-    const contentType = attachment.contentType || 'application/octet-stream';
     return {
-      content: [
-        `${label} (${contentType}), base64 content:`,
-        content.toString('base64'),
-        ...(truncated ? ['[Attachment content truncated.]'] : []),
-      ].join('\n'),
+      content: `${content.toString('utf8')}${
+        truncated ? '\n\n[Attachment content truncated.]' : ''
+      }`,
     };
   } finally {
     await file.close();
   }
+}
+
+function binaryAttachmentGuidance(
+  filePath: string,
+  attachment: ReadableAttachmentMetadata,
+): string {
+  const label = attachment.fileName || path.basename(filePath);
+  const extension = path.extname(label).toLowerCase();
+  const contentType = attachment.contentType?.toLowerCase() ?? '';
+  if (contentType.startsWith('audio/') || AUDIO_EXTENSIONS.has(extension)) {
+    return `${label} is an audio attachment. Gantry cannot transcribe audio through this tool yet; ask for a transcript or a text summary.`;
+  }
+  if (contentType.startsWith('video/') || VIDEO_EXTENSIONS.has(extension)) {
+    return `${label} is a video attachment. Gantry cannot play or transcribe video through this tool yet; ask for a transcript, captions, or key frames.`;
+  }
+  // iWork documents are zip containers; classify them before generic archives
+  // so a provider-labelled application/zip .pages gets export guidance.
+  if (IWORK_EXTENSIONS.has(extension)) {
+    return `${label} is an Apple iWork attachment. Export it to PDF, DOCX, XLSX, or PPTX and share it again.`;
+  }
+  if (
+    contentType.includes('zip') ||
+    contentType.includes('compressed') ||
+    contentType.includes('tar') ||
+    contentType.includes('rar') ||
+    ARCHIVE_EXTENSIONS.has(extension)
+  ) {
+    return `${label} is an archive attachment. Gantry cannot inspect archives through this tool yet; unpack it and share the individual files.`;
+  }
+  return `${label} is a binary attachment that Gantry cannot read through this tool. Convert it to text, PDF, or a supported document format and share it again.`;
 }
 
 const IMAGE_EXTENSION_MIME_TYPES: Record<string, string> = {
@@ -398,7 +447,8 @@ function isTextLike(contentType?: string, fileName?: string): boolean {
   ) {
     return true;
   }
-  return /\.(?:txt|md|csv|json|ya?ml|xml|html?|css|js|ts)$/i.test(
+  if (normalized === 'message/rfc822') return true;
+  return /\.(?:txt|md|csv|json|ya?ml|xml|html?|css|js|ts|eml)$/i.test(
     fileName ?? '',
   );
 }

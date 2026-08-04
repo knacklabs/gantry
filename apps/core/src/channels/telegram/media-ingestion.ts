@@ -277,9 +277,24 @@ export function registerTelegramMediaHandlers(input: {
     await enqueueMediaStore(ctx, `[Sticker ${emoji}]`);
   });
   input.bot.on('message:location', async (ctx: any) => {
-    await enqueueMediaStore(ctx, '[Location]');
+    const location = ctx.message.location;
+    await enqueueMediaStore(
+      ctx,
+      `[Location: ${location.latitude}, ${location.longitude}]`,
+    );
+  });
+  input.bot.on('message:venue', async (ctx: any) => {
+    const venue = ctx.message.venue;
+    await enqueueMediaStore(
+      ctx,
+      `[Venue: ${venue.title}; ${venue.address}; ${venue.location.latitude}, ${venue.location.longitude}]`,
+    );
   });
   input.bot.on('message:contact', async (ctx: any) => {
-    await enqueueMediaStore(ctx, '[Contact]');
+    const contact = ctx.message.contact;
+    const name = [contact.first_name, contact.last_name]
+      .filter(Boolean)
+      .join(' ');
+    await enqueueMediaStore(ctx, `[Contact: ${name}; ${contact.phone_number}]`);
   });
 }
