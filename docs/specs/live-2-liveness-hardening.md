@@ -61,8 +61,10 @@ handles, runtime fencing — all load-bearing, keep.
 3. Telegram replaceOnly edit-failure falls through to create a duplicate message —
    propagate as ambiguous, never create (channel-delivery.ts:416,487-507; spec
    live-1-ambient-liveness.md:24).
-4. Slack persisted generation survives restart while the counter resets — restored-epoch
-   rebase rule so a restarted process can still update/terminalize old cards
+4. Slack persisted generation survives restart while the counter resets, muting all
+   updates — resolve by STALE-AND-REPOST (grill-locked 2026-08-04): on restart a
+   persisted card from a prior process is terminally marked stale (best-effort edit)
+   and new work posts a fresh card; no epoch/rebase arithmetic
    (channel-delivery-helpers.ts:489,656; group-processing.ts:67).
 5. Telegram topic typing drops message_thread_id — typing lands in the right topic
    (channel-delivery.ts:759, typing-indicator.ts:14, channel-wiring-live-ux.ts:17).
@@ -90,9 +92,10 @@ handles, runtime fencing — all load-bearing, keep.
   plumbing.
 - Unreachable undispatched-stall rollback in group-progress-channel-sender.ts:203.
 - Unused multipartMutationByProgressKey alias (discord-progress.ts:36).
-- Discord active/tombstone parallel maps → one keyed lifecycle registry with
-  retained/active status, preserving tombstone BEHAVIOR (definitive-missing survives
-  eviction).
+- Discord active/tombstone parallel-map collapse: DEFERRED (grill-locked 2026-08-04)
+  — behavior is audited-correct; storage refactor reopens the hardest-won machinery
+  for no user-visible gain. Deferral trigger: the next bug traced to the dual-map
+  migration logic.
 
 ### D. Determinism test hardening
 
