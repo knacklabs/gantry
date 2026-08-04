@@ -6,11 +6,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cawstudios/Agent.Gantry.git"
+    "url": "git+https://github.com/knacklabs/gantry.git"
   },
-  "homepage": "https://github.com/cawstudios/Agent.Gantry",
+  "homepage": "https://github.com/knacklabs/gantry",
   "bugs": {
-    "url": "https://github.com/cawstudios/Agent.Gantry/issues"
+    "url": "https://github.com/knacklabs/gantry/issues"
   },
   "keywords": [
     "agent",
@@ -126,10 +126,12 @@
     "drizzle-kit": "^0.31.5",
     "eslint": "^9.35.0",
     "eslint-plugin-no-catch-all": "^1.1.0",
+    "github-slugger": "^2.0.0",
     "globals": "^15.12.0",
     "husky": "^9.1.7",
     "openapi-typescript": "^7.13.0",
-    "prettier": "^3.8.1",
+    "parse5": "^8.0.1",
+    "prettier": "^3.8.3",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.35.0",
@@ -144,7 +146,7 @@
     "hono": "4.12.26",
     "ws": "8.21.0",
     "qs": "6.15.2",
-    "fast-uri": "3.1.4",
+    "fast-uri": "3.1.5",
     "@emnapi/core": "^1.11.3",
     "@emnapi/runtime": "^1.11.3",
     "@emnapi/wasi-threads": "^1.2.3"

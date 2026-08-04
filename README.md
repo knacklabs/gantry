@@ -9,8 +9,9 @@ without tying application code to one model provider or chat surface.
 Gantry is not a chatbot wrapper and not a personal assistant. It is the
 runtime boundary between:
 
-- human channels such as Slack, Microsoft Teams, Telegram, Discord, and
-  web/SDK clients;
+- active human channels such as Slack, Telegram, Discord, and web/SDK clients;
+- Microsoft Teams setup and conversation discovery (the runtime transport is
+  still a scaffold and is not available yet);
 - application events, SDK calls, and scheduled jobs;
 - approved tools, local CLIs, browser automation, skills, and MCP servers;
 - Postgres-backed runtime state, artifacts, settings, credentials, and audit.
@@ -59,8 +60,8 @@ sudo apt install -y ca-certificates curl git libatomic1 bubblewrap socat ripgrep
 ## Quick Start From Source
 
 ```bash
-git clone https://github.com/cawstudios/Agent.Gantry.git
-cd Agent.Gantry
+git clone https://github.com/knacklabs/gantry.git
+cd gantry
 npm ci
 npm run build
 ```
@@ -237,6 +238,19 @@ should first read [AGENTS.md](AGENTS.md), [WORKFLOW.md](WORKFLOW.md),
 
 ## Documentation
 
+- [Static project explorer](docs/index.html) — choose an evaluation, learning,
+  operations, extension, or architecture path without a build step.
+- [Source-audited project explorer](index.html) — browse the repository map
+  and source-derived guide from a standalone root page.
+- [Source-derived codebase guide](docs/CODEBASE_GUIDE.md) — trace packages,
+  runtime components, commands, and verification evidence back to source.
+- [Company adoption guide](docs/product/company-adoption-guide.md) — fit,
+  trade-offs, rollout, readiness, responsibilities, and evaluation metrics.
+- [Basic-to-advanced learning path](docs/getting-started.md) — setup through
+  multi-agent operation, security, memory, APIs, extension, observability, and
+  fleet deployment.
+- [Interactive architecture atlas](docs/architecture/atlas/README.md) — five
+  revision-pinned, self-contained system views.
 - [Product brief](docs/product/BRIEF.md)
 - [Architecture docs](docs/architecture/README.md)
 - [Decision records](docs/decisions/README.md)
@@ -252,7 +266,6 @@ checks.
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
 
 ## Working in this repo — Symphony Forge
 

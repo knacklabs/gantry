@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Gantry fleet execution",
+    "subtitle": "One binary, role-separated processes, durable coordination, and independently scalable work lanes",
+    "output": "docs/architecture/atlas/fleet-execution.architecture.html",
+    "visual_preset": "signal-flow",
+    "animation": "none",
+    "quality_profile": "showcase",
+    "engineering_profile": "deployment-ownership",
+    "repository": {
+      "url": "https://github.com/knacklabs/gantry",
+      "revision": "69ac5b71650d1d8ff99c24eb15fa368b9c3eb418"
+    },
+    "views": [
+      {
+        "id": "roles",
+        "label": "Separate process roles",
+        "focus": ["edge", "control", "live", "jobs"],
+        "note": "Control, live-turn, and background-job lanes run from the same binary with distinct role surfaces."
+      },
+      {
+        "id": "coordination",
+        "label": "Coordinate through durable truth",
+        "focus": ["live", "jobs", "postgres", "artifacts", "revisions"],
+        "note": "Postgres owns admission, leases, fencing, settings revisions, events, and recovery evidence."
+      },
+      {
+        "id": "capacity",
+        "label": "Scale live capacity",
+        "focus": ["channels", "edge", "inboundLease", "live", "models"],
+        "note": "Add live workers for concurrent turn capacity while preserving provider single-consumer constraints."
+      }
+    ]
+  },
+  "components": [
+    {"id": "channels", "type": "external", "label": "Channels & apps", "sublabel": "provider events · Control API", "pos": [30, 320], "size": [154, 66], "sources": [{"path": "apps/core/src/channels/register-builtins.ts"}]},
+    {"id": "edge", "type": "cloud", "label": "Ingress / load balancer", "sublabel": "role-aware traffic routing", "pos": [240, 319], "size": [166, 68], "tag": "customer platform", "sources": [{"path": "apps/core/src/app/bootstrap/startup.ts"}]},
+    {"id": "inboundLease", "type": "security", "label": "Provider inbound lease", "sublabel": "single poller where required", "pos": [240, 80], "size": [166, 68], "tag": "Gantry control", "sources": [{"path": "apps/core/src/app/bootstrap/fleet-boot.ts"}]},
+    {"id": "revisions", "type": "messagebus", "label": "Settings revisions", "sublabel": "authoritative desired-state notify", "pos": [480, 80], "size": [166, 68], "tag": "Gantry control", "sources": [{"path": "apps/core/src/runtime/settings-revision-listener.ts"}]},
+    {"id": "control", "type": "backend", "label": "Control processes", "sublabel": "full API · settings · recovery coordinator", "pos": [720, 78], "size": [178, 72], "tag": "GANTRY_PROCESS_ROLE=control", "sources": [{"path": "apps/core/src/app/bootstrap/runtime-app.ts"}]},
+    {"id": "live", "type": "backend", "label": "Live-worker pool", "sublabel": "N processes × configured run slots", "pos": [720, 317], "size": [178, 72], "tag": "horizontal capacity", "sources": [{"path": "apps/core/src/runtime/live-turn-authority.ts"}]},
+    {"id": "models", "type": "external", "label": "Models & capabilities", "sublabel": "provider-neutral external execution", "pos": [970, 317], "size": [178, 72], "sources": [{"path": "apps/core/src/adapters/llm/anthropic-claude-agent/gantry-model-gateway.ts"}, {"path": "apps/core/src/shared/capability-runtime-access.ts"}]},
+    {"id": "jobs", "type": "backend", "label": "Job-worker pool", "sublabel": "scheduled · recurring · maintenance", "pos": [480, 560], "size": [170, 70], "tag": "GANTRY_PROCESS_ROLE=job-worker", "sources": [{"path": "apps/core/src/jobs/scheduler.ts"}]},
+    {"id": "postgres", "type": "database", "label": "Shared Postgres", "sublabel": "runs · leases · commands · events · settings", "pos": [720, 559], "size": [178, 72], "tag": "coordination authority", "sources": [{"path": "apps/core/src/adapters/storage/postgres/repositories/settings-revision-repository.postgres.ts"}]},
+    {"id": "artifacts", "type": "database", "label": "Shared artifacts", "sublabel": "S3-compatible or equivalent shared store", "pos": [970, 559], "size": [178, 72], "tag": "fleet requirement", "sources": [{"path": "apps/core/src/adapters/artifacts/skills/remote-first-skill-artifact-store.ts"}]}
+  ],
+  "boundaries": [
+    {"kind": "region", "label": "Customer deployment", "wraps": ["edge", "inboundLease", "revisions", "control", "live", "jobs", "postgres", "artifacts"], "pad": 22},
+    {"kind": "security-group", "label": "Private Gantry runtime network", "wraps": ["control", "live", "jobs", "postgres", "artifacts"], "pad": 18}
+  ],
+  "connections": [
+    {"from": "channels", "to": "edge", "label": "HTTPS / provider event", "variant": "emphasis", "route": "straight", "labelAt": [212, 300]},
+    {"from": "edge", "to": "live", "label": "live-turn route", "variant": "emphasis", "route": "straight", "labelAt": [565, 296]},
+    {"from": "inboundLease", "to": "edge", "label": "poll ownership", "variant": "security", "route": "orthogonal-v", "labelAt": [220, 236]},
+    {"from": "revisions", "to": "control", "label": "revision notify", "variant": "dashed", "route": "straight", "labelAt": [684, 60]},
+    {"from": "control", "to": "live", "label": "commands / recovery", "variant": "dashed", "route": "orthogonal-v", "labelAt": [700, 236]},
+    {"from": "live", "to": "models", "label": "mediated execution", "variant": "security", "route": "straight", "labelAt": [934, 296]},
+    {"from": "postgres", "to": "live", "label": "claim · renew · fence", "variant": "security", "route": "orthogonal-v", "labelAt": [700, 500]},
+    {"from": "jobs", "to": "postgres", "label": "durable jobs & events", "variant": "emphasis", "route": "straight", "labelAt": [685, 540]},
+    {"from": "postgres", "to": "artifacts", "label": "artifact metadata", "variant": "dashed", "route": "straight", "labelAt": [934, 540]}
+  ],
+  "cards": [
+    {"dot": "cyan", "title": "Capacity model", "items": ["Each live worker advertises bounded run slots", "One active turn per durable scope is preserved across the fleet", "Job workers scale independently from interactive turns"]},
+    {"dot": "rose", "title": "Coordination and fencing", "items": ["Postgres owns leases, generations, command inboxes, and terminal state", "Stale owners lose authority when lease generation changes", "One recovery coordinator sweeps abandoned work; it does not centralize admission"]},
+    {"dot": "emerald", "title": "Deployment responsibilities", "items": ["Provider polling may require one advisory-lease holder per bot", "Fleet nodes consume authoritative Postgres settings revisions", "Artifacts must be shared when workers can claim the same workload"]}
+  ]
+}

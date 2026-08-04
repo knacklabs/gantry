@@ -70,6 +70,46 @@
       ],
       "notes": "Pre-adopt .codex/hooks.json wiring legacy scripts; replaced by adopted hooks per 0002.",
       "marked_at": "2026-07-22T11:10:14+00:00"
+    },
+    "WORKFLOW.md": {
+      "sha256": "b865977039ae97e1e146711362a58f5d5207dde14f0d3a55640957f4399c6947",
+      "added": "2026-07-27T09:00:16+00:00",
+      "status": "ignored",
+      "outputs": [],
+      "notes": "DOCS-001 compatibility pointer for an immutable historical link; not source context",
+      "marked_at": "2026-07-27T09:00:23+00:00"
+    },
+    "docs/FACTORY.md": {
+      "sha256": "5753d68327157c9f84bb9c742af9b7d00d115fc9eefed06e15cfe7a60834beef",
+      "added": "2026-07-27T09:00:16+00:00",
+      "status": "ignored",
+      "outputs": [],
+      "notes": "DOCS-001 compatibility pointer for an immutable historical link; not source context",
+      "marked_at": "2026-07-27T09:00:23+00:00"
+    },
+    "docs/QUALITY.md": {
+      "sha256": "724d887b349adbc9d31ceec19f93dee6bb19466f02dc8825a03d5f4541031bb5",
+      "added": "2026-07-27T09:00:16+00:00",
+      "status": "ignored",
+      "outputs": [],
+      "notes": "DOCS-001 compatibility pointer for an immutable historical link; not source context",
+      "marked_at": "2026-07-27T09:00:24+00:00"
+    },
+    "docs/architecture/codebase-refactor-principles.md": {
+      "sha256": "b4701d340269b056cfd3e2cefade0512f44ebeb3caf9d836838deb48e95e62a7",
+      "added": "2026-07-27T09:00:16+00:00",
+      "status": "ignored",
+      "outputs": [],
+      "notes": "DOCS-001 compatibility pointer for an immutable historical link; not source context",
+      "marked_at": "2026-07-27T09:00:24+00:00"
+    },
+    "docs/architecture/current-verification-commands.md": {
+      "sha256": "b942b875fe81666e52035ee10a9a00427dee532894cd16b250c929d3e110f368",
+      "added": "2026-07-27T09:00:16+00:00",
+      "status": "ignored",
+      "outputs": [],
+      "notes": "DOCS-001 compatibility pointer for an immutable historical link; not source context",
+      "marked_at": "2026-07-27T09:00:24+00:00"
     }
   }
 }

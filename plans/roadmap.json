@@ -616,6 +616,27 @@
       "order": 36
     },
     {
+      "key": "DOCS-002",
+      "title": "Source-derived Gantry architecture atlas and adoption guide",
+      "story": "As a company evaluator, operator, or developer, I can move from Gantry's value proposition to verified runtime architecture and advanced deployment guidance so that I can evaluate, adopt, operate, and extend the platform with confidence.",
+      "acceptance_criteria": [
+        "A layered public documentation entrypoint routes evaluators, operators, developers, and architects to source-derived guides.",
+        "Five showcase-validated Archify artifacts cover system architecture, live execution, memory and dreaming, permission lifecycle, and fleet scaling.",
+        "The documentation explains every major current feature family, multi-agent routing, horizontal scaling, and basic-to-advanced operation without presenting planned work as shipped.",
+        "The company adoption guide explains fit, advantages, trade-offs, rollout phases, stakeholder responsibilities, and evaluation metrics without unsupported commercial claims.",
+        "Root/docs navigation and changed public documentation have zero broken local links, while historical decisions and audits retain their meaning.",
+        "No runtime behavior, API, schema, settings, or package contracts change."
+      ],
+      "order": 39,
+      "status": "done",
+      "epic": "documentation",
+      "skill": "fullstack",
+      "spec": "docs/specs/architecture-atlas-and-adoption.md",
+      "completed_at": "2026-08-03T14:39:57+00:00",
+      "history": ".factory/history/DOCS-002/",
+      "outcome": "Gantry now has a source-derived, revision-pinned documentation experience that lets evaluators, operators, developers, and architects understand the product from first setup through multi-agent operation, memory and dreaming, permissions, deployment, and horizontal scaling; companies can explore five interactive architecture views, follow role-specific learning paths, assess adoption trade-offs honestly, and rely on deterministic link, fragment, provenance, and generated-artifact checks to keep the published guidance trustworthy."
+    },
+    {
       "status": "active",
       "key": "CONTENT-1",
       "title": "Provider content gaps: honest fallbacks, quick fixes, Slack canvas CRUD",
@@ -741,5 +762,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-03T09:45:48+00:00"
+  "updated_at": "2026-08-03T14:39:57+00:00"
 }

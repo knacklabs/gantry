@@ -4,6 +4,12 @@ Operator-facing reference for the three ways Gantry's single binary is deployed:
 **workstation**, **fleet**, and the **locked support stack** (a fleet variant).
 This doc is the operator view; the decisions behind it are the ADRs:
 
+> Current production limit: the multi-role and horizontal-execution machinery
+> is implemented, but rate-limit counters and LLM concurrency admission are
+> process-local. A multi-instance deployment sharing one database must first
+> make those authorities cluster-wide. See
+> [Scaling and Deployment](./scaling-and-deployment.md#current-operational-ceilings).
+
 - [Process Roles and Multi-Live](../decisions/0027-process-roles-and-multi-live.md)
   — the `GANTRY_PROCESS_ROLE` deployment env; control-plane separation; the
   multi-live cutover (live execution scales horizontally now). **This supersedes
@@ -269,7 +275,9 @@ section.
 Gantry scales on two axes and they solve different problems. **Vertical** =
 bigger instances and higher per-worker concurrency (`runtime.queue`,
 `runtime.sandbox.resource_limits`). **Horizontal** = more workers in the
-autoscaled pool. Start from the symptom, not the axis:
+autoscaled pool. The capacity levers below describe the implemented topology;
+do not use them for a production multi-instance rollout until the process-local
+authority prerequisite above is complete. Start from the symptom, not the axis:
 
 | What is actually growing / hurting                                                                            | Scale                                                                                                                       | Levers                                                                                                                                                                        |
 | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -301,7 +309,8 @@ to fleet when you need availability (no single point of failure for live chat),
 chat or job throughput beyond one machine, separation of the admin control plane
 from public execution workers, or locked public-facing agents on isolated stacks.
 Unlike the original single-live-host fleet, **live-chat capacity is now a valid
-reason to move to fleet** — the live pool scales horizontally.
+reason to prepare for fleet** — the live pool scales horizontally after the
+cluster-authoritative rate-limit/admission prerequisite is complete.
 
 ## Health, Readiness, and Metrics by role
 
@@ -362,6 +371,8 @@ copy-paste runbook.
   fencing, recovery.
 - [live-horizontal-execution.md](./live-horizontal-execution.md) — durable
   multi-worker live turns; the recovery-coordinator lease.
+- [scaling-and-deployment.md](./scaling-and-deployment.md) — current fleet
+  capacity, provider ownership, recovery, and process-local authority limits.
 - [Process Roles and Multi-Live ADR](../decisions/0027-process-roles-and-multi-live.md)
   — the role model, control-plane separation, and the multi-live cutover.
 - [TODOS.md](../../TODOS.md) — deferred items (browser snapshots, GCP/Azure, etc.).

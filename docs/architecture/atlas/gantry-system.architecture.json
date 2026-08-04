@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Gantry — governed agent runtime",
+    "subtitle": "Channels and applications enter a host-owned control and execution plane",
+    "output": "docs/architecture/atlas/gantry-system.architecture.html",
+    "visual_preset": "blueprint",
+    "animation": "none",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/knacklabs/gantry",
+      "revision": "69ac5b71650d1d8ff99c24eb15fa368b9c3eb418"
+    },
+    "views": [
+      {
+        "id": "ingress",
+        "label": "Enter through governed routes",
+        "focus": ["people", "channels", "control", "router"],
+        "note": "Provider accounts and conversations bind people to installed agents."
+      },
+      {
+        "id": "execution",
+        "label": "Execute one durable turn",
+        "focus": ["router", "admission", "runner", "gateway", "capabilities"],
+        "note": "The host admits work, hydrates context, and mediates models and capabilities."
+      },
+      {
+        "id": "authority",
+        "label": "Keep authority on the host",
+        "focus": ["control", "credentials", "capabilities", "postgres", "artifacts"],
+        "note": "Secrets, policy, durable state, evidence, and artifacts stay host-owned."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "people",
+      "type": "external",
+      "label": "People & systems",
+      "sublabel": "operators · teammates · apps",
+      "pos": [30, 320],
+      "size": [150, 64],
+      "sources": [{"path": "apps/core/src/application/identity/person-identity-policy.ts"}]
+    },
+    {
+      "id": "channels",
+      "type": "external",
+      "label": "Conversation surfaces",
+      "sublabel": "Slack · Telegram · Teams · Discord · app",
+      "pos": [250, 316],
+      "size": [174, 72],
+      "sources": [{"path": "apps/core/src/channels/register-builtins.ts"}]
+    },
+    {
+      "id": "control",
+      "type": "security",
+      "label": "Control plane",
+      "sublabel": "settings · API · CLI · identity",
+      "pos": [490, 80],
+      "size": [164, 70],
+      "tag": "host authority",
+      "sources": [{"path": "apps/core/src/control/server/index.ts"}, {"path": "apps/core/src/cli/index.ts"}]
+    },
+    {
+      "id": "router",
+      "type": "backend",
+      "label": "Conversation router",
+      "sublabel": "account · conversation · agent · thread",
+      "pos": [490, 316],
+      "size": [164, 72],
+      "sources": [{"path": "apps/core/src/runtime/live-turn-routing.ts"}]
+    },
+    {
+      "id": "admission",
+      "type": "messagebus",
+      "label": "Durable admission",
+      "sublabel": "turn scope · slots · leases · fencing",
+      "pos": [730, 316],
+      "size": [168, 72],
+      "sources": [{"path": "apps/core/src/runtime/live-turn-authority.ts"}]
+    },
+    {
+      "id": "runner",
+      "type": "backend",
+      "label": "Agent execution",
+      "sublabel": "DeepAgents · Claude SDK · subagents",
+      "pos": [970, 316],
+      "size": [172, 72],
+      "sources": [{"path": "apps/core/src/runtime/group-agent-runner.ts"}, {"path": "apps/core/src/application/agent-execution/agent-execution-adapter-registry.ts"}]
+    },
+    {
+      "id": "gateway",
+      "type": "cloud",
+      "label": "Model gateway",
+      "sublabel": "provider-neutral routing & usage",
+      "pos": [970, 80],
+      "size": [166, 70],
+      "sources": [{"path": "apps/core/src/adapters/llm/anthropic-claude-agent/gantry-model-gateway.ts"}]
+    },
+    {
+      "id": "capabilities",
+      "type": "security",
+      "label": "Capability boundary",
+      "sublabel": "tools · skills · MCP · browser · files",
+      "pos": [970, 560],
+      "size": [176, 74],
+      "tag": "permissioned",
+      "sources": [{"path": "apps/core/src/shared/capability-runtime-access.ts"}, {"path": "apps/core/src/application/permissions/permission-management-service.ts"}]
+    },
+    {
+      "id": "credentials",
+      "type": "security",
+      "label": "Credential Center",
+      "sublabel": "encrypted provider & capability secrets",
+      "pos": [250, 560],
+      "size": [168, 72],
+      "tag": "trusted host",
+      "sources": [{"path": "apps/core/src/application/credentials/agent-credential-service.ts"}]
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "Postgres truth",
+      "sublabel": "settings · runs · events · jobs · memory",
+      "pos": [730, 80],
+      "size": [168, 72],
+      "tag": "durable authority",
+      "sources": [{"path": "apps/core/src/adapters/storage/postgres/repositories/settings-revision-repository.postgres.ts"}]
+    },
+    {
+      "id": "artifacts",
+      "type": "database",
+      "label": "Artifact store",
+      "sublabel": "files · sessions · materialization",
+      "pos": [730, 560],
+      "size": [170, 72],
+      "sources": [{"path": "apps/core/src/adapters/artifacts/files/local-file-artifact-bytes.ts"}]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "Customer-operated Gantry trust boundary",
+      "wraps": ["control", "router", "admission", "runner", "gateway", "capabilities", "credentials", "postgres", "artifacts"],
+      "pad": 22
+    }
+  ],
+  "connections": [
+    {"from": "people", "to": "channels", "label": "messages / API", "variant": "emphasis", "route": "straight", "labelAt": [215, 300]},
+    {"from": "channels", "to": "router", "label": "provider event", "variant": "security", "route": "straight", "labelAt": [457, 296]},
+    {"from": "router", "to": "admission", "label": "persist then admit", "variant": "emphasis", "route": "straight", "labelAt": [692, 296]},
+    {"from": "admission", "to": "runner", "label": "fenced claim", "variant": "emphasis", "route": "straight", "labelAt": [929, 296]},
+    {"from": "control", "to": "router", "label": "desired state", "variant": "dashed", "route": "straight", "labelAt": [470, 236]},
+    {"from": "postgres", "to": "admission", "label": "leases & slots", "variant": "security", "route": "straight", "labelAt": [710, 236]},
+    {"from": "gateway", "to": "runner", "label": "model call", "route": "orthogonal-v", "labelAt": [950, 236]},
+    {"from": "credentials", "to": "channels", "label": "provider auth", "variant": "security", "route": "orthogonal-v", "labelAt": [230, 500]},
+    {"from": "artifacts", "to": "admission", "label": "context & output", "variant": "dashed", "route": "orthogonal-v", "labelAt": [710, 500]},
+    {"from": "capabilities", "to": "runner", "label": "scoped action", "variant": "security", "route": "orthogonal-v", "labelAt": [950, 500]}
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Routing identity",
+      "items": ["Provider account selects credentials", "Conversation selects policy and installed agents", "Agent and thread scope isolate sessions and turns"]
+    },
+    {
+      "dot": "rose",
+      "title": "Host authority",
+      "items": ["Agents receive mediated model and capability access", "Postgres owns durable coordination and audit", "Secrets remain encrypted outside runner context"]
+    },
+    {
+      "dot": "emerald",
+      "title": "One binary, flexible topology",
+      "items": ["Workstation mode can run every role together", "Fleet mode separates control, live, and job workers", "Adapters keep channels and model providers replaceable"]
+    }
+  ]
+}
