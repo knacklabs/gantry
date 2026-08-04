@@ -87,7 +87,11 @@ export function asCanvasReadError(error: unknown): Error {
   if (detail.includes('missing_scope')) {
     return new Error(`${READ_SCOPE_ERROR} Export detail: ${detail}`);
   }
-  if (detail.includes('canvas_not_found') || detail.includes('not_found')) {
+  if (
+    ['canvas_not_found', 'not_found', 'canvas_deleted', 'file_deleted'].some(
+      (code) => detail.includes(code),
+    )
+  ) {
     return new Error(
       `Canvas read failed: the canvas no longer exists or the handle is stale (${detail}). Re-run the listing to get a fresh handle.`,
     );
