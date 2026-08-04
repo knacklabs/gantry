@@ -23,6 +23,77 @@ export function discordHeaders(token: string): Record<string, string> {
   };
 }
 
+type DiscordJsonRequester = <T>(
+  path: string,
+  init: RequestInit,
+  errorMessage: string,
+  parseJson?: boolean,
+) => Promise<T>;
+
+export function editDiscordMessage(
+  requestJson: DiscordJsonRequester,
+  botToken: string,
+  channelId: string,
+  messageId: string,
+  body: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<void> {
+  return requestJson<void>(
+    `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: 'PATCH',
+      headers: discordHeaders(botToken),
+      body: JSON.stringify(body),
+      signal,
+    },
+    'Discord message edit failed',
+    false,
+  );
+}
+
+export function deleteDiscordMessage(
+  requestJson: DiscordJsonRequester,
+  botToken: string,
+  channelId: string,
+  messageId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  return requestJson<void>(
+    `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: 'DELETE',
+      headers: discordHeaders(botToken),
+      signal,
+    },
+    'Discord message delete failed',
+    false,
+  );
+}
+
+export function createDiscordMessageMutations(
+  requestJson: DiscordJsonRequester,
+  botToken: string,
+) {
+  return {
+    edit: (
+      channelId: string,
+      messageId: string,
+      body: Record<string, unknown>,
+      signal?: AbortSignal,
+    ) =>
+      editDiscordMessage(
+        requestJson,
+        botToken,
+        channelId,
+        messageId,
+        body,
+        signal,
+      ),
+    delete: (channelId: string, messageId: string, signal?: AbortSignal) =>
+      deleteDiscordMessage(requestJson, botToken, channelId, messageId, signal),
+  };
+}
+
 export function discordReactionEmoji(emoji: string): string {
   if (emoji === 'seen') return '👀';
   if (emoji === 'running') return '⏳';

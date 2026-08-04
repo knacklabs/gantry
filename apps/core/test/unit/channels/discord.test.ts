@@ -695,11 +695,10 @@ describe('DiscordChannel', () => {
     fetchMock.mockRestore();
   });
 
-  it('lets a terminal carrying the current identity create after a definitive missing handle', async () => {
+  it('keeps a terminal replace-only after a completed create returns no message id', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse({}))
-      .mockResolvedValueOnce(jsonResponse({ id: 'terminal-1' }));
+      .mockResolvedValueOnce(jsonResponse({}));
     const channel = new DiscordChannel('bot-token', 'app-id', opts());
     const stopOptions = {
       generation: 1,
@@ -719,17 +718,17 @@ describe('DiscordChannel', () => {
 
     await expect(
       channel.sendProgressUpdate('dc:channel-1', '', stopOptions),
-    ).resolves.toBe(false);
+    ).resolves.toBe(true);
     await expect(
       channel.sendProgressUpdate('dc:channel-1', 'I hit an issue.', {
         generation: 1,
         done: true,
         progressCardIdentity: currentIdentity,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBe(false);
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
       'https://discord.com/api/v10/channels/channel-1/messages',
     );
     fetchMock.mockRestore();

@@ -2490,7 +2490,7 @@ describe('createProgressChannelSender', () => {
     expect(progressOrderingRegistrySize(channelRuntime)).toBe(0);
   });
 
-  it('retries a failed repair with bounded backoff and restores terminal state', async () => {
+  it('retries a rejected repair with bounded backoff and restores terminal state', async () => {
     const stalled = deferred<boolean>();
     const calls: string[] = [];
     let repairAttempts = 0;
@@ -2498,7 +2498,9 @@ describe('createProgressChannelSender', () => {
       sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
         calls.push(text);
         if (text === 'Still working') return stalled.promise;
-        if (calls.length > 2 && repairAttempts++ === 0) return false;
+        if (calls.length > 2 && repairAttempts++ === 0) {
+          throw new Error('terminal repair rejected');
+        }
         return true;
       }),
     } as never;

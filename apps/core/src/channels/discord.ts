@@ -41,7 +41,6 @@ import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { findConversationRoutesForChat } from '../shared/thread-queue-key.js';
 import type {
   DiscordMessageCreate,
-  DiscordUser,
   WebSocketFactory,
   WebSocketLike,
 } from './discord-types.js';
@@ -55,6 +54,7 @@ import {
 import { deliverLiveDiscordMessage } from './discord-live-attachment-capture.js';
 import { DiscordInteractionHandler } from './discord-interactions.js';
 import {
+  createDiscordMessageMutations,
   discordHeaders,
   requestDiscordJson,
   userName,
@@ -118,6 +118,9 @@ export class DiscordChannel implements ChannelAdapter {
   private readonly channelContextCache: DiscordConversationContextCache =
     new Map();
   private readonly interactions: DiscordInteractionHandler;
+  private readonly messageMutations: ReturnType<
+    typeof createDiscordMessageMutations
+  >;
   readonly fetchHistoricalAttachment: ReturnType<
     typeof createDiscordHistoricalAttachmentFetcher
   >;
@@ -128,6 +131,10 @@ export class DiscordChannel implements ChannelAdapter {
     private readonly opts: ChannelOpts,
     private readonly createWebSocket: WebSocketFactory = websocketFactory,
   ) {
+    this.messageMutations = createDiscordMessageMutations(
+      this.requestJson.bind(this),
+      botToken,
+    );
     this.fetchHistoricalAttachment =
       createDiscordHistoricalAttachmentFetcher(botToken);
     this.interactions = new DiscordInteractionHandler({
@@ -256,25 +263,26 @@ export class DiscordChannel implements ChannelAdapter {
     if (!channelId) return false;
     const progressKey =
       options.progressCardIdentity ?? this.progressCardIdentity(jid, options);
-    const routeKey = `${jid}\n${options.threadId ?? ''}`;
     return sendDiscordProgressUpdateForRoute({
-      routeKey,
+      routeKey: `${jid}\n${options.threadId ?? ''}`,
       key: progressKey,
       activeMessages: this.activeProgressMessages,
       identityLifecycle: this.progressIdentityLifecycle,
       text,
       options,
-      post: (body, components) =>
+      post: (body, components, signal) =>
         postDiscordMessageParts({
           channelId,
           parts: splitDiscordText(body),
           components,
-          post: (target, payload) => this.postMessage(target, payload),
+          post: (target, payload) => this.postMessage(target, payload, signal),
         }),
-      edit: (messageId, body) => this.patchMessage(channelId, messageId, body),
+      edit: (messageId, body, signal) =>
+        this.messageMutations.edit(channelId, messageId, body, signal),
+      delete: (messageId, signal) =>
+        this.messageMutations.delete(channelId, messageId, signal),
     });
   }
-
   progressCardIdentity(
     jid: string,
     options: ProgressUpdateOptions = {},
@@ -327,7 +335,11 @@ export class DiscordChannel implements ChannelAdapter {
         components: options.done ? [] : undefined,
       };
       if (state.messageId) {
-        await this.patchMessage(state.channelId, state.messageId, body);
+        await this.messageMutations.edit(
+          state.channelId,
+          state.messageId,
+          body,
+        );
       } else {
         const posted = await this.postMessage(state.channelId, body);
         state.messageId = posted.id;
@@ -439,7 +451,11 @@ export class DiscordChannel implements ChannelAdapter {
     const existing = this.pendingTodos.get(todoKey);
     if (existing) {
       try {
-        await this.patchMessage(existing.channelId, existing.messageId, body);
+        await this.messageMutations.edit(
+          existing.channelId,
+          existing.messageId,
+          body,
+        );
         return true;
       } catch (err) {
         logger.debug(
@@ -519,6 +535,7 @@ export class DiscordChannel implements ChannelAdapter {
     path: string,
     body: unknown,
     parseJson = true,
+    signal?: AbortSignal,
   ): Promise<T> {
     return this.requestJson<T>(
       path,
@@ -526,6 +543,7 @@ export class DiscordChannel implements ChannelAdapter {
         method: 'POST',
         headers: discordHeaders(this.botToken),
         body: JSON.stringify(body),
+        signal,
       },
       `Discord REST request failed: ${path}`,
       parseJson,
@@ -535,27 +553,13 @@ export class DiscordChannel implements ChannelAdapter {
   private async postMessage(
     channelId: string,
     body: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<{ id?: string }> {
     return this.postJson<{ id?: string }>(
       `/channels/${encodeURIComponent(channelId)}/messages`,
       body,
-    );
-  }
-
-  private async patchMessage(
-    channelId: string,
-    messageId: string,
-    body: Record<string, unknown>,
-  ): Promise<void> {
-    await this.requestJson<void>(
-      `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
-      {
-        method: 'PATCH',
-        headers: discordHeaders(this.botToken),
-        body: JSON.stringify(body),
-      },
-      'Discord message edit failed',
-      false,
+      true,
+      signal,
     );
   }
 
