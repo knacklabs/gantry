@@ -1,0 +1,19 @@
+{
+  "issue_key": "DOCS-001",
+  "title": "Source-derived Gantry documentation and project explorer",
+  "tracker": "linear",
+  "branch": "feat/DOCS-001-source-derived-gantry-documentation-and-project-explorer",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-07-27T08:28:45+00:00",
+  "updated_at": "2026-07-27T09:45:53+00:00",
+  "client_signoff": true,
+  "client_signoff_record": "docs/decisions/0068-client-signoff.md",
+  "client_signoff_at": "2026-07-27T08:40:59+00:00",
+  "plan_file": "plans/completed/DOCS-001-source-derived-gantry-documentation-and-project-explorer.md"
+}

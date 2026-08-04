@@ -6,7 +6,8 @@ Node.js binary, but it is not limited to one process: a workstation uses the
 default `all` role, while a fleet can run the same image as `control`,
 `live-worker`, and `job-worker` services.
 
-Start here, then use the three current deep guides:
+Start with the source-audited [Codebase Guide](../CODEBASE_GUIDE.md) for the
+repository map. Then use these three current deep architecture guides:
 
 - [System Atlas](./system-atlas.md) — complete feature-family status and
   authority map;

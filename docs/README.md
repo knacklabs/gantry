@@ -9,6 +9,8 @@ boundaries, decisions, security model, and operations.
 - [Company adoption guide](product/company-adoption-guide.md) - fit, trade-offs, ownership, rollout, readiness, and evaluation.
 - [Basic-to-advanced learning path](getting-started.md) - setup through fleet deployment.
 - [Repository README](../README.md) - install, setup, and runtime overview.
+- [Static project explorer](../index.html) - visual architecture and feature map.
+- [Codebase guide](CODEBASE_GUIDE.md) - source-derived runtime and contributor guide.
 - [Product brief](product/BRIEF.md) - concise product intent and scope.
 - [Requirements](REQUIREMENTS.md) - product and architecture requirements.
 - [Specification](SPEC.md) - expected runtime behavior and constraints.
@@ -28,4 +30,5 @@ boundaries, decisions, security model, and operations.
 
 ## Operations
 
+- [Quality and validation](QUALITY.md) - deterministic validation flow.
 - [Debug checklist](DEBUG_CHECKLIST.md) - operational troubleshooting.

@@ -1,0 +1,155 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": true,
+  "project": "Gantry",
+  "doc_roots": [
+    "docs/product/BRIEF.md",
+    "docs/product/DISCOVERY.md",
+    "docs/architecture/",
+    "docs/decisions/0068-client-signoff.md",
+    "plans/active/DOCS-001-source-derived-gantry-documentation-and-project-explorer.md"
+  ],
+  "epics": [
+    {
+      "id": "source-derived-docs",
+      "title": "Source-derived Gantry documentation",
+      "objective": "Give users and developers an implementation-accurate written and visual map of Gantry with honest verification evidence.",
+      "source_refs": [
+        "docs/product/DISCOVERY.md#docs-001--source-derived-documentation",
+        "plans/active/DOCS-001-source-derived-gantry-documentation-and-project-explorer.md"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "DOCS-001-A",
+      "title": "Finalize current-state documentation and static explorer",
+      "epic_id": "source-derived-docs",
+      "objective": "Deliver the source-derived guide, issue report, active documentation corrections, metadata corrections, and responsive static explorer.",
+      "write_scope": [
+        "README.md",
+        "docs/README.md",
+        "docs/CODEBASE_GUIDE.md",
+        "docs/architecture/",
+        "bug.md",
+        "index.html",
+        "package.json",
+        "packages/contracts/package.json",
+        "packages/sdk/README.md",
+        "packages/sdk/package.json"
+      ],
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Guide covers every subsystem named in the approved plan using source-derived evidence.",
+        "Teams and durable-memory boundaries match executable implementation.",
+        "Repository metadata points to knacklabs/gantry.",
+        "Static explorer is self-contained, searchable, expandable, accessible, responsive, and free of browser console errors."
+      ],
+      "verify_commands": [
+        "npx prettier --check README.md docs/README.md docs/CODEBASE_GUIDE.md docs/architecture/README.md docs/architecture/components.md docs/architecture/overview.md docs/architecture/runtime-components.md bug.md index.html packages/sdk/README.md package.json packages/contracts/package.json packages/sdk/package.json",
+        "git diff --check",
+        "npm run build"
+      ],
+      "required_tests": [
+        "Desktop and 390px mobile functional browser check",
+        "Search filtering and details expansion interaction check",
+        "Changed-document relative-link check"
+      ],
+      "reviewer_focus": [
+        "Implementation accuracy and absence of unsupported claims",
+        "Static page accessibility, responsive behavior, and dependency-free operation",
+        "Clear distinction between current behavior, historical intent, and reproduced defects"
+      ],
+      "linear_parent": null
+    },
+    {
+      "id": "DOCS-001-B",
+      "title": "Repair repository documentation navigation",
+      "epic_id": "source-derived-docs",
+      "objective": "Make every checked relative Markdown/HTML target resolve without changing historical meaning.",
+      "write_scope": [
+        "docs/architecture/pr237-final-review.md",
+        "docs/context/migrated-AGENTS.md",
+        "harness/nestjs-react/conventions/doc-gardening.md"
+      ],
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Repository-wide Markdown/HTML checker reports zero missing relative targets.",
+        "Historical prose is unchanged except for link-target syntax.",
+        "Line-specific citations use GitHub-compatible #L fragments where applicable."
+      ],
+      "verify_commands": [
+        "node repository-wide-relative-link-checker",
+        "git diff --check"
+      ],
+      "required_tests": [
+        "Repository-wide relative-link existence check",
+        "Diff inspection limited to navigation targets"
+      ],
+      "reviewer_focus": [
+        "No historical claims rewritten",
+        "Correct relative depth and GitHub line-anchor syntax",
+        "No placeholder or code-example false positives converted into links"
+      ],
+      "linear_parent": null
+    },
+    {
+      "id": "DOCS-001-C",
+      "title": "Record complete verification and review evidence",
+      "epic_id": "source-derived-docs",
+      "objective": "Prove the documentation package against deterministic checks, runtime tests, functional behavior, and the three required review lenses.",
+      "write_scope": [
+        ".factory/"
+      ],
+      "dependencies": [
+        "DOCS-001-A",
+        "DOCS-001-B"
+      ],
+      "acceptance_criteria": [
+        "Tracked-tree scanner and TypeScript parser coverage is re-established.",
+        "Architecture, typecheck, unit, and build commands pass.",
+        "Lint and production audit findings match bug.md exactly.",
+        "Automated and functional test evidence is schema-valid.",
+        "One autoreview run records passing quality, performance, and security artifacts."
+      ],
+      "verify_commands": [
+        "npm run check:architecture",
+        "npm run typecheck",
+        "npm run test:unit",
+        "npm run build",
+        "npm run lint",
+        "npm audit --omit=dev",
+        "python3 .agents/scripts/verify.py"
+      ],
+      "required_tests": [
+        "Tracked-tree and parser audit",
+        "Repository-wide link validation",
+        "Desktop/mobile functional check",
+        "Full unit suite and complete build"
+      ],
+      "reviewer_focus": [
+        "Evidence matches actual command output",
+        "Inherited failures are not attributed to the documentation diff",
+        "No runtime, performance, or security behavior changed"
+      ],
+      "linear_parent": null
+    }
+  ],
+  "build_waves": [
+    {
+      "wave": 1,
+      "tasks": [
+        "DOCS-001-A",
+        "DOCS-001-B"
+      ]
+    },
+    {
+      "wave": 2,
+      "tasks": [
+        "DOCS-001-C"
+      ]
+    }
+  ],
+  "status": "approved",
+  "commit": "9e592f99526ffd460f963c41f59c32117ba67235"
+}

@@ -9,13 +9,15 @@ become current runtime truth by proximity.
 
 Read these in order for a source-derived view of the running system:
 
-1. [Architecture Overview](./overview.md) — boundaries, roles, and ownership.
-2. [System Atlas](./system-atlas.md) — complete feature-family status map.
-3. [Runtime Flows](./runtime-flows.md) — live turns, permissions, delivery,
+1. [Codebase Guide](../CODEBASE_GUIDE.md) — source-audited repository and
+   package map.
+2. [Architecture Overview](./overview.md) — boundaries, roles, and ownership.
+3. [System Atlas](./system-atlas.md) — complete feature-family status map.
+4. [Runtime Flows](./runtime-flows.md) — live turns, permissions, delivery,
    jobs, memory, dreaming, company brain, and recovery.
-4. [Scaling and Deployment](./scaling-and-deployment.md) — one binary across
+5. [Scaling and Deployment](./scaling-and-deployment.md) — one binary across
    workstation and role-separated fleet topology, including current ceilings.
-5. [Interactive Atlas](./atlas/README.md) — five revision-pinned, self-contained
+6. [Interactive Atlas](./atlas/README.md) — five revision-pinned, self-contained
    diagrams and their [source evidence](./atlas/source-evidence.md).
 
 Use the subsystem docs for authoritative detail rather than copying their
