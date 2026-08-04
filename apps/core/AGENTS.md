@@ -169,3 +169,32 @@
 - Runtime exception logging must preserve redacted `Error` type, message, code, cause, and stack details; never let structured runtime logs collapse thrown errors to `{}`.
 - Scheduler terminal completion surfaces must redact provider resume handles before side effects. Apply redaction before writing `completeJobRun` summaries, `pause_reason`, lifecycle/runtime event summaries, and terminal scheduler notifications.
 - Runtime live group output must use bounded user-visible accumulators for provider-visible delivery, redact provider resume handles after full-segment buffering, before channel formatting/streaming/fallback delivery, and before appending transcript summaries. Do not retain or join unbounded raw streamed deltas for provider-visible output.
+
+## LIVE-1 Ambient-Liveness Behavior-to-Test Map
+
+- Three-minute stall heartbeat: replace only the active progress card with
+  `Still working`, suppress typing while stalled, and re-arm after output.
+  - `runtime/group-processing.test.ts`: `edits the existing card once after 180s of silence, gates typing, and re-arms on output`
+  - `runtime/group-processing.test.ts`: `holds the stall latch and typing suppression when the replace-only edit rejects`
+  - `runtime/group-progress-heartbeats.test.ts`: `releases a definitive false without typing and retries after one stall interval`
+- Discord typing sink: POST typing to the routed Discord thread; `false` is a
+  no-op because Discord typing expires rather than being explicitly cleared.
+  - `channels/discord.test.ts`: `posts typing to the Discord thread and ignores typing false`
+  - `runtime/group-processing.test.ts`: `calls setTyping true before and false after agent run`
+- Seen-to-running reaction lifecycle: after five seconds remove `seen` and add
+  `running`; on first visible output remove `running` and restore `seen`.
+  - `bootstrap/live-reaction-lifecycle.test.ts`: `flips seen to running after five seconds and restores seen on first output`
+  - `bootstrap/live-reaction-lifecycle.test.ts`: `terminal cleanup before output leaves seen and never adds running`
+  - `bootstrap/live-reaction-lifecycle.test.ts`: `serializes timer and output cleanup when removal is already in flight`
+- Continuation receipts: acknowledge the newest real provider message through
+  the shared loop seam, regardless of whether the active turn accepts it.
+  - `runtime/message-loop.test.ts`: `acknowledges the newest provider message when continuation acceptance is %s`
+  - `runtime/message-loop.test.ts`: `does not acknowledge a synthetic continuation reference`
+  - `bootstrap/live-recovery-coordinator.test.ts`: `acknowledges direct-route continuations for %s outcomes`
+- Same-card retry status: keep the failing card generation and render
+  `retrying n/max`; `maxRetries: 0` is terminal on the initial failure.
+  - `runtime/group-processing.test.ts`: `keeps the failing progress-card generation for retry count %i`
+  - `runtime/group-processing.test.ts`: `treats maxRetries zero as terminal on the initial failure`
+  - `runtime/group-queue.test.ts`: `threads retry numbering and the configured maximum through every attempt`
+- Teams typing and reactions remain deferred by decision 0033 until a real
+  Teams client is available; this map records no Teams runtime coverage.
