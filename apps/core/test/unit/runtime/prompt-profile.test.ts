@@ -622,7 +622,7 @@ describe('PromptProfileService', () => {
     expect(prompt).not.toContain('New user messages may arrive mid-run');
   });
 
-  it('keeps channel prompt presentation byte-identical to the previous path', () => {
+  it('keeps the base channel presentation intact when tool guidance is appended', () => {
     const before = [
       '- Channel: Telegram direct message. Telegram renders a limited HTML subset; hard message length cap 4096 characters; outbound workspace file attachments are capped at 25MB.',
       '- Channel: Slack group conversation. Slack renders mrkdwn; keep single messages under 4000 characters; outbound workspace file attachments are capped at 25MB.',
@@ -634,7 +634,7 @@ describe('PromptProfileService', () => {
       renderChannelPromptPresentationLine('other:123', undefined),
     ];
 
-    expect(after).toEqual(before);
+    expect(after.map((line) => line?.split('\n')[0])).toEqual(before);
   });
 
   it('maps casual controls to reviewed tools and one-line progress', async () => {
