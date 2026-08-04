@@ -345,51 +345,53 @@ has_companion = (
     or "codexcompanion" in compact_command
 )
 # Read-only companion runs are the /codex:rescue exploration lane and
-# pass. Only write launches must route through the canonical executor,
-# which owns the argv and records evidence `forge stage done` can verify.
+# pass — but ONLY in a shape whose argv the hook can prove from text: a
+# single simple command, no shell metacharacters, launching the
+# companion directly (optionally via node). Anything else that mentions
+# the companion is either a safe display command (rg/cat/...) or an
+# unverifiable launch, which is denied: shell text cannot bound a child
+# interpreter's computed argv, so we never try.
 COMPANION_WRITE_FLAGS = {
     "--write", "--full-auto", "--dangerously-bypass-approvals-and-sandbox",
 }
-def _companion_write_in(tokens, depth=0):
-    """Exact write-flag argv match, recursing into quoted/nested shells.
-
-    Substring scans over-block prompts that merely MENTION a flag; exact
-    top-level matching under-blocks sh -c '...' launches whose inner
-    command survives as one token. Split any companion-mentioning token
-    and match exactly; an unsplittable companion token is denied
-    conservatively only when it contains a write flag.
-    """
-    for token in tokens:
-        # Strip substitution/redirect punctuation so `...` and <(...)
-        # wrappers cannot hide an exact flag; quoted prose stays multi-word
-        # and therefore never strips down to a bare flag.
-        if token.strip("`()<>;|&\"'") in COMPANION_WRITE_FLAGS:
-            return True
-        if depth < 3 and re.search(r"codex-companion", token):
-            try:
-                inner = shlex.split(token)
-            except ValueError:
-                if any(flag in token for flag in COMPANION_WRITE_FLAGS):
-                    return True
-                continue
-            if len(inner) > 1 and _companion_write_in(inner, depth + 1):
-                return True
-    return False
+COMPANION_METACHARS = re.compile("[;&|<>$`(){}\n*?~\\=]|\x27\x27|\x22\x22")
+COMPANION_NAME = re.compile(r"codex-companion(?:\.mjs)?")
+DISPLAY_SAFE_ARGV0 = {
+    "rg", "grep", "cat", "head", "tail", "less", "more", "printf", "echo",
+    "ls", "stat", "wc", "file", "md5", "shasum",
+}
 
 
-# Unexpanded $VAR / $(...) / backticks in a companion command could
-# smuggle a write flag past exact-argv matching; the hook cannot see
-# post-expansion argv, so such launches are unverifiable and denied.
-COMPANION_EXPANSION = re.compile("\\$[A-Za-z_{('\"]|`")
-has_companion_write = (
-    _companion_write_in(shell_tokens)
-    or (has_companion and COMPANION_EXPANSION.search(command) is not None)
-)
-if tool_name == "Bash" and has_companion and has_companion_write:
-    deny("Companion write launches are off-contract. Use "
-         "`./forge delegate <task-id>`; it owns the argv launch and records "
-         "evidence that `forge stage done` can verify. Read-only companion "
-         "runs (/codex:rescue exploration) are allowed.")
+def _companion_readonly_launch_ok():
+    """True iff the command is a provably read-only companion launch."""
+    if COMPANION_METACHARS.search(command):
+        return False
+    if not shell_tokens:
+        return False
+    argv0 = Path(shell_tokens[0]).name
+    comp_idx = None
+    for idx, token in enumerate(shell_tokens):
+        if COMPANION_NAME.fullmatch(Path(token).name):
+            comp_idx = idx
+            break
+    if comp_idx is None:
+        # Companion referenced only inside larger tokens (prose/paths):
+        # display commands may show it; anything else is unverifiable.
+        return argv0 in DISPLAY_SAFE_ARGV0
+    if comp_idx == 0 or (comp_idx == 1 and argv0 in ("node", "nodejs")):
+        rest = shell_tokens[comp_idx + 1:]
+        return not any(token in COMPANION_WRITE_FLAGS for token in rest)
+    # Companion path appears under another executor (xargs, env, sh -c,
+    # an interpreter): the final argv cannot be established from text.
+    return argv0 in DISPLAY_SAFE_ARGV0
+
+
+if tool_name == "Bash" and has_companion and not _companion_readonly_launch_ok():
+    deny("Companion launches are off-contract unless they are a provably "
+         "read-only direct invocation (no write flags, no shell "
+         "metacharacters, no wrapping executor). Use `./forge delegate "
+         "<task-id>` for write work; it owns the argv launch and records "
+         "evidence that `forge stage done` can verify.")
 
 if run_state and not client_signoff(root)[0]:
     advancing = any(script in command for script in PHASE_ADVANCING)
