@@ -736,6 +736,22 @@
         "models with pdfInput/imageInput can be handed the physical file where the runner supports it",
         "materialization verified for a Slack, a Telegram, and a Discord attachment through the same code path (no provider branches)"
       ],
+      "order": 43
+    },
+    {
+      "status": "pending",
+      "key": "TOOLS-1",
+      "title": "Provider-aware tool surface: affinity-filtered projection + dynamic per-provider instructions",
+      "value": "Agents only see tools that work on their conversation's provider, and their instructions explain exactly how shared tools behave there (split thresholds, rich-render shapes, option caps). Cleaner tool lists, fewer wasted turns, a declared checklist for future providers.",
+      "acceptance_criteria": [
+        "canvas_* absent from Telegram/Discord/unknown-provider tool surfaces in BOTH the spawn projection and the runner-process parse path; present for Slack incl. jobs-lane spawns",
+        "affinity beats explicit GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON entries",
+        "each provider's compiled system prompt carries its own tool guidance built from imported limit constants, and no other provider's",
+        "docs/architecture/tool-provider-affinity.md records the full tool classification"
+      ],
+      "source_refs": [
+        "docs/architecture/tool-provider-affinity.md"
+      ],
       "order": 42
     }
   ],
@@ -825,5 +841,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-04T16:10:11+00:00"
+  "updated_at": "2026-08-04T17:20:00+00:00"
 }
