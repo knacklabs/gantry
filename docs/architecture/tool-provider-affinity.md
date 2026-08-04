@@ -1,6 +1,6 @@
 # Tool provider affinity
 
-Gantry classifies its 75 built-in MCP tools by whether provider identity changes availability or presentation. The canonical inventory is `ALL_GANTRY_MCP_TOOL_NAMES` in `apps/core/src/shared/admin-mcp-tools.ts`; the availability rule is `CHANNEL_TOOL_PROVIDER_AFFINITY` in `apps/core/src/runner/mcp/tool-provider-affinity.ts`.
+Gantry classifies its 75 built-in MCP tools by whether provider identity changes availability or presentation. The canonical inventory is `ALL_GANTRY_MCP_TOOL_NAMES` in `apps/core/src/shared/admin-mcp-tools.ts`; the availability rule is `TOOL_PROVIDER_AFFINITY_BY_JID_PREFIX` in `apps/core/src/runner/mcp/tool-provider-affinity.ts`.
 
 ## Classification
 
@@ -31,6 +31,6 @@ Provider-specific tools are different: they are not useful on another provider. 
 1. Register the provider, JID prefix, formatting descriptor, and a compact `toolGuidance` block in `apps/core/src/channels/register-builtins.ts`.
 2. Import delivery limits from bare constant modules. Keep delivery adapters and provider SDK modules out of the registry's static import graph.
 3. Describe `send_message` splitting/file behavior, the native `render_*` surface and text fallback, and the `ask_user_question` control shape. Add `attachment_open` notes only for real provider differences.
-4. Add provider-specific tools to `CHANNEL_TOOL_PROVIDER_AFFINITY`; leave neutral and provider-variant tools out of the map.
+4. Add provider-specific tools to `TOOL_PROVIDER_AFFINITY_BY_JID_PREFIX`; leave neutral and provider-variant tools out of the map.
 5. Test the compiled prompt against imported constants, assert it excludes every other provider's guidance, and assert non-owning providers do not mount affinity tools.
 6. Run typecheck and the architecture boundary check, including a static-import review of `register-builtins.ts`.
