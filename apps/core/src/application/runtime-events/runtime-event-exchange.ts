@@ -45,14 +45,17 @@ interface LiveAdmissionActivatingRuntimeEventRepository extends RuntimeEventRepo
 }
 
 export class RuntimeEventExchange {
+  private publishTail: Promise<void> = Promise.resolve();
+
   constructor(
     private readonly repository: RuntimeEventRepository,
     private readonly notifier: RuntimeEventNotifier,
   ) {}
 
   async publish(input: RuntimeEventPublishInput): Promise<RuntimeEvent> {
-    const event = await this.repository.appendRuntimeEvent(
-      normalizeRuntimeEventPublishInput(input),
+    const normalized = normalizeRuntimeEventPublishInput(input);
+    const event = await this.enqueuePublish(() =>
+      this.repository.appendRuntimeEvent(normalized),
     );
     try {
       await this.notifier.notify(event);
@@ -61,6 +64,15 @@ export class RuntimeEventExchange {
     }
     notifyWebhookDeliveryReady();
     return event;
+  }
+
+  private enqueuePublish<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.publishTail.then(operation, operation);
+    this.publishTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   async publishWithLiveAdmissionMessage(

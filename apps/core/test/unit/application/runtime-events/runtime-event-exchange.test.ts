@@ -134,6 +134,46 @@ describe('RuntimeEventExchange', () => {
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
+  it('serializes runtime event appends to avoid database pool spikes', async () => {
+    const repository = new MemoryRuntimeEventRepository();
+    let activeAppends = 0;
+    let maxActiveAppends = 0;
+    const originalAppend = repository.appendRuntimeEvent.bind(repository);
+    repository.appendRuntimeEvent = vi.fn(async (input) => {
+      activeAppends += 1;
+      maxActiveAppends = Math.max(maxActiveAppends, activeAppends);
+      await Promise.resolve();
+      activeAppends -= 1;
+      return originalAppend(input);
+    });
+    const notifier = new InMemoryRuntimeEventNotifier();
+    const exchange = new RuntimeEventExchange(repository, notifier);
+
+    await Promise.all([
+      exchange.publish({
+        appId: 'app:test' as never,
+        eventType: RUNTIME_EVENT_TYPES.EGRESS_CONNECT,
+        actor: 'egress-gateway',
+        payload: { host: 'model-gateway.gantry.internal' },
+      }),
+      exchange.publish({
+        appId: 'app:test' as never,
+        eventType: RUNTIME_EVENT_TYPES.EGRESS_CONNECT,
+        actor: 'egress-gateway',
+        payload: { host: 'model-gateway.gantry.internal' },
+      }),
+      exchange.publish({
+        appId: 'app:test' as never,
+        eventType: RUNTIME_EVENT_TYPES.EGRESS_CONNECT,
+        actor: 'egress-gateway',
+        payload: { host: 'model-gateway.gantry.internal' },
+      }),
+    ]);
+
+    expect(maxActiveAppends).toBe(1);
+    expect(repository.events).toHaveLength(3);
+  });
+
   it('can co-commit accepted messages and live admission before notifying subscribers', async () => {
     const repository =
       new MemoryRuntimeEventRepository() as MemoryRuntimeEventRepository & {

@@ -440,22 +440,19 @@ async function toolIdsForReplacement(input: {
     ...(await catalogSemanticCapabilityDefinitions(input)),
     ...semanticCapabilityDefinitionsById(input.skillActionDefinitions ?? []),
   };
-  const ids = await Promise.all(
-    [
-      ...new Set(
-        normalized.capabilities.map(settingsCapabilityToToolReference),
-      ),
-    ].map(async (reference) => {
-      const tool = await ensureAgentToolCatalogItem({
-        repository: input.repositories.tools,
-        appId: input.appId,
-        reference,
-        now: input.now,
-        semanticCapabilityDefinitions,
-      });
-      return String(tool.id);
-    }),
-  );
+  const ids: string[] = [];
+  for (const reference of [
+    ...new Set(normalized.capabilities.map(settingsCapabilityToToolReference)),
+  ]) {
+    const tool = await ensureAgentToolCatalogItem({
+      repository: input.repositories.tools,
+      appId: input.appId,
+      reference,
+      now: input.now,
+      semanticCapabilityDefinitions,
+    });
+    ids.push(String(tool.id));
+  }
   return ids;
 }
 

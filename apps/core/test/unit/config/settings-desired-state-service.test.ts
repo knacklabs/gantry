@@ -859,6 +859,61 @@ describe('SettingsDesiredStateService', () => {
     );
   });
 
+  it('reconciles capability catalog items sequentially to avoid startup pool spikes', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: emptySources(),
+      capabilities: [
+        {
+          id: 'mcp__gantry__scheduler_get_job',
+          version: 'builtin',
+        },
+        {
+          id: 'mcp__gantry__scheduler_list_jobs',
+          version: 'builtin',
+        },
+        {
+          id: 'mcp__gantry__scheduler_run_now',
+          version: 'builtin',
+        },
+      ],
+    };
+    let activeLookups = 0;
+    let maxActiveLookups = 0;
+    const repositories = makeRepositories({
+      tools: {
+        ...makeRepositories().tools,
+        getTool: vi.fn(async () => {
+          activeLookups += 1;
+          maxActiveLookups = Math.max(maxActiveLookups, activeLookups);
+          await Promise.resolve();
+          activeLookups -= 1;
+          return null;
+        }),
+      },
+    });
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings);
+
+    expect(maxActiveLookups).toBe(1);
+    expect(repositories.tools.getTool).toHaveBeenCalledWith(
+      'tool:mcp__gantry__scheduler_get_job',
+    );
+    expect(repositories.tools.getTool).toHaveBeenCalledWith(
+      'tool:mcp__gantry__scheduler_list_jobs',
+    );
+    expect(repositories.tools.getTool).toHaveBeenCalledWith(
+      'tool:mcp__gantry__scheduler_run_now',
+    );
+  });
+
   it('reconciles reviewed catalog semantic capabilities from settings', async () => {
     const capability = acmeRecordsAppendCapability();
     const settings = createDefaultRuntimeSettings();
