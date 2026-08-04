@@ -276,7 +276,7 @@
       ]
     },
     {
-      "status": "pending",
+      "status": "done",
       "key": "CO-1",
       "title": "Jobs recovery-intent -> columns + CAS",
       "epic": "coordination-hardening",
@@ -289,7 +289,10 @@
         "audit item B1 implemented: recovery intent as columns with compare-and-set transitions",
         "no JSON-blob state machine remains for recovery intent",
         "concurrent-recovery test pins the CAS invariant"
-      ]
+      ],
+      "completed_at": "2026-08-03T00:00:00+00:00",
+      "history": ".factory/history/CO-1/",
+      "outcome": "Merged PR #380 per decision 0104 reframe: dead recovery-intent machinery deleted; live coordination fields (failure counter, pause reason, setup state) promoted to race-safe columns with in-DB increments and fingerprint-guarded writes; validated live (migration backfill + full lifecycle on the production runtime). Net -286 lines."
     },
     {
       "status": "pending",
@@ -624,7 +627,7 @@
         "Root/docs navigation and changed public documentation have zero broken local links, while historical decisions and audits retain their meaning.",
         "No runtime behavior, API, schema, settings, or package contracts change."
       ],
-      "order": 37,
+      "order": 39,
       "status": "done",
       "epic": "documentation",
       "skill": "fullstack",
@@ -632,6 +635,45 @@
       "completed_at": "2026-08-03T14:39:57+00:00",
       "history": ".factory/history/DOCS-002/",
       "outcome": "Gantry now has a source-derived, revision-pinned documentation experience that lets evaluators, operators, developers, and architects understand the product from first setup through multi-agent operation, memory and dreaming, permissions, deployment, and horizontal scaling; companies can explore five interactive architecture views, follow role-specific learning paths, assess adoption trade-offs honestly, and rely on deterministic link, fragment, provenance, and generated-artifact checks to keep the published guidance trustworthy."
+    },
+    {
+      "status": "active",
+      "key": "CONTENT-1",
+      "title": "Provider content gaps: honest fallbacks, quick fixes, Slack canvas CRUD",
+      "epic": "provider-content",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "Six verified quick fixes (honest binary fallback guidance, .eml text, Slack snippet delivery, Discord voice-note classification, Telegram location/venue/contact data, Discord embed folding) plus Slack canvas read/create/update behind host-issued handles with split read/write authority. Teams equivalents deferred to TEAMS-1; reading reactions/edits stays backlog.",
+      "acceptance_criteria": [
+        "binary attachments return typed guidance, never truncated base64",
+        "Slack oversized messages deliver as snippet (<=1MB) or .txt file with text-path fallback on provider failure",
+        "canvas create/update/read tools enforce the split-capability trust boundary and IPC bounds per the plan",
+        "TEAMS-1 roadmap entry carries the deferred Teams criteria"
+      ],
+      "source_refs": [
+        "docs/architecture/provider-content-gaps-plan-draft.md"
+      ],
+      "order": 37
+    },
+    {
+      "status": "pending",
+      "key": "CONTENT-2",
+      "title": "Physical attachment hand-off for ALL providers: materialize conversation files into the agent workspace",
+      "epic": "provider-content",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [
+        "CONTENT-1"
+      ],
+      "story": "An attachment_materialize tool copies a conversation-scoped attachment (host-issued ref, signed proof \u2014 the attachment_open trust model) into a quarantined subdirectory of the agent's CURRENT workspace, size-capped, on explicit request, so agents can process files with any tool (scripts over CSVs, proper conversions, native model PDF/image reads, re-upload of results). Requires its own decision record: crossing the deliberate workspace/attachment-store isolation, with the quarantine contract (dedicated dir, never auto-read into context, prompt guidance that contents are untrusted data not instructions). Provider-neutral by construction: operates on the shared provider-attachments store, so Slack, Telegram, and Discord are covered identically at ship time and Teams inherits automatically when FILE-1C Graph capture lands. Decision 0105 (accepted) holds the quarantine contract. Generalizes the native-PDF hand-off follow-up recorded during PR #379.",
+      "acceptance_criteria": [
+        "decision record for the workspace-boundary crossing and quarantine contract, accepted before implementation",
+        "attachment_materialize mints only from conversation-scoped host-issued refs; size-capped; writes only inside the quarantine dir via the hardened writer",
+        "quarantined files are reachable by agent tools but never auto-ingested into context; prompt guidance marks them untrusted data",
+        "models with pdfInput/imageInput can be handed the physical file where the runner supports it",
+        "materialization verified for a Slack, a Telegram, and a Discord attachment through the same code path (no provider branches)"
+      ],
+      "order": 38
     }
   ],
   "epics": [

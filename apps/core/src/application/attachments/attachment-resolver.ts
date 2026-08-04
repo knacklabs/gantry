@@ -13,6 +13,7 @@ import {
   providerAttachmentWriter,
   readProviderAttachment,
   removeProviderAttachment,
+  type AttachmentImagePayload,
   type ProviderAttachmentWriter,
 } from '../../shared/provider-attachment-materialization.js';
 import { nowIso } from '../../shared/time/datetime.js';
@@ -32,6 +33,7 @@ export type AttachmentOpenResult =
   | {
       status: 'opened';
       content: string;
+      image?: AttachmentImagePayload;
       materializedPath: string;
       storageRef: string;
     }
@@ -409,6 +411,7 @@ export class AttachmentResolver {
     return {
       status: 'opened',
       content: opened.content,
+      ...(opened.image ? { image: opened.image } : {}),
       materializedPath: opened.materializedPath,
       storageRef,
     };

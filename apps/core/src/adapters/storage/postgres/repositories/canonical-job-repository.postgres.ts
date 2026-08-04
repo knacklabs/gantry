@@ -1,11 +1,27 @@
 import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 
-import type { JobRun } from '../../../../domain/repositories/domain-types.js';
+import type {
+  Job,
+  JobRun,
+} from '../../../../domain/repositories/domain-types.js';
 // prettier-ignore
 import type { JobListFilters, JobRunListFilters, ReleasedStaleJobLease } from '../../../../domain/repositories/ops-repo.js';
 import type { RuntimeEventType } from '../../../../domain/events/runtime-event-types.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
+import {
+  type CanonicalJobCoordinationUpdate,
+  coordinationColumnUpdate,
+  markJobSetupNotified as markJobSetupNotifiedStatement,
+} from './canonical-job-coordination.postgres.js';
+export * from './canonical-job-records.js';
+import type {
+  CanonicalJobEventRecord,
+  CanonicalJobRecord,
+  CanonicalJobTerminalUpdate,
+  CanonicalRunRecord,
+  JobRecordInput,
+} from './canonical-job-records.js';
 // prettier-ignore
 import { CANONICAL_APP_ID, type CanonicalDb, PostgresCanonicalGraphRepository, configVersionIdForAgent, jsonb, jsonText, parseJson } from './canonical-graph-repository.postgres.js';
 import { CANONICAL_JOB_EVENT_TYPES } from './canonical-job-event-types.postgres.js';
@@ -20,106 +36,6 @@ import {
   settledRunLeaseFence,
   type RunLeaseFence,
 } from './run-lease-fence.postgres.js';
-
-export interface CanonicalJobRecord {
-  id: string;
-  agentId: string | null;
-  name: string;
-  prompt: string;
-  model: string | null;
-  scheduleJson: string;
-  status: string;
-  targetJson: string;
-  silent: boolean;
-  timeoutMs: number;
-  maxRetries: number;
-  retryBackoffMs: number;
-  nextRunAt: string | null;
-  lastRunAt: string | null;
-  leaseRunId: string | null;
-  leaseExpiresAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface JobRecordInput {
-  id: string;
-  agentId: string;
-  name: string;
-  prompt: string;
-  model: string | null;
-  scheduleJson: string;
-  status: string;
-  targetJson: string;
-  silent: boolean;
-  timeoutMs: number;
-  maxRetries: number;
-  retryBackoffMs: number;
-  nextRunAt: string | null;
-  lastRunAt: string | null;
-  leaseRunId: string | null;
-  leaseExpiresAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface CanonicalRunRecord {
-  id: string;
-  shortId: number | null;
-  jobId: string | null;
-  executionProviderId: string;
-  providerRunId: string | null;
-  providerSessionId: string | null;
-  workerId: string | null;
-  leaseOwner: string | null;
-  leaseExpiresAt: string | null;
-  status: string;
-  createdAt: string;
-  startedAt: string | null;
-  endedAt: string | null;
-  resultSummary: string | null;
-  errorSummary: string | null;
-  notifiedAt: string | null;
-}
-
-export interface CanonicalJobTerminalUpdate {
-  status?: string;
-  nextRunAt?: string | null;
-  lastRunAt?: string | null;
-  leaseRunId?: string | null;
-  leaseExpiresAt?: string | null;
-  updatedAt: string;
-  targetJsonPatch?: Record<string, unknown>;
-}
-
-const canonicalRunProjection = {
-  id: pgSchema.agentRunsPostgres.id,
-  shortId: pgSchema.agentRunsPostgres.shortId,
-  jobId: pgSchema.agentRunsPostgres.jobId,
-  executionProviderId: pgSchema.agentRunsPostgres.executionProviderId,
-  providerRunId: pgSchema.agentRunsPostgres.providerRunId,
-  providerSessionId: pgSchema.agentRunsPostgres.providerSessionId,
-  workerId: pgSchema.agentRunsPostgres.workerId,
-  leaseOwner: pgSchema.agentRunsPostgres.leaseOwner,
-  leaseExpiresAt: pgSchema.agentRunsPostgres.leaseExpiresAt,
-  status: pgSchema.agentRunsPostgres.status,
-  createdAt: pgSchema.agentRunsPostgres.createdAt,
-  startedAt: pgSchema.agentRunsPostgres.startedAt,
-  endedAt: pgSchema.agentRunsPostgres.endedAt,
-  resultSummary: pgSchema.agentRunsPostgres.resultSummary,
-  errorSummary: pgSchema.agentRunsPostgres.errorSummary,
-  notifiedAt: pgSchema.agentRunsPostgres.notifiedAt,
-} satisfies Record<keyof CanonicalRunRecord, unknown>;
-
-export interface CanonicalJobEventRecord {
-  id: string;
-  appId: string;
-  runId: string;
-  jobId: string;
-  type: string;
-  payloadJson: string;
-  createdAt: string;
-}
 
 function canonicalAgentId(agentId: string): string {
   const trimmed = agentId.trim();
@@ -182,6 +98,25 @@ function jobRecordFromRow(
     targetJson: jsonText(row.targetJson),
   };
 }
+
+const canonicalRunProjection = {
+  id: pgSchema.agentRunsPostgres.id,
+  shortId: pgSchema.agentRunsPostgres.shortId,
+  jobId: pgSchema.agentRunsPostgres.jobId,
+  executionProviderId: pgSchema.agentRunsPostgres.executionProviderId,
+  providerRunId: pgSchema.agentRunsPostgres.providerRunId,
+  providerSessionId: pgSchema.agentRunsPostgres.providerSessionId,
+  workerId: pgSchema.agentRunsPostgres.workerId,
+  leaseOwner: pgSchema.agentRunsPostgres.leaseOwner,
+  leaseExpiresAt: pgSchema.agentRunsPostgres.leaseExpiresAt,
+  status: pgSchema.agentRunsPostgres.status,
+  createdAt: pgSchema.agentRunsPostgres.createdAt,
+  startedAt: pgSchema.agentRunsPostgres.startedAt,
+  endedAt: pgSchema.agentRunsPostgres.endedAt,
+  resultSummary: pgSchema.agentRunsPostgres.resultSummary,
+  errorSummary: pgSchema.agentRunsPostgres.errorSummary,
+  notifiedAt: pgSchema.agentRunsPostgres.notifiedAt,
+} satisfies Record<keyof CanonicalRunRecord, unknown>;
 
 export class PostgresCanonicalJobRepository {
   private readonly graph: PostgresCanonicalGraphRepository;
@@ -252,7 +187,12 @@ export class PostgresCanonicalJobRepository {
     return rows.map(jobRecordFromRow);
   }
 
-  async upsertJob(record: JobRecordInput): Promise<void> {
+  async upsertJob(
+    record: JobRecordInput,
+    coordination: Required<
+      Omit<CanonicalJobCoordinationUpdate, 'incrementConsecutiveFailures'>
+    >,
+  ): Promise<void> {
     await this.ensureAgentForRecord(record);
     await this.db
       .insert(pgSchema.canonicalJobsPostgres)
@@ -261,8 +201,10 @@ export class PostgresCanonicalJobRepository {
         createdByActorId: 'runtime',
         createdBySource: 'runtime',
         ...record,
+        ...coordination,
         scheduleJson: jsonb(record.scheduleJson),
         targetJson: jsonb(record.targetJson),
+        setupState: jsonb(coordination.setupState),
       })
       .onConflictDoUpdate({
         target: pgSchema.canonicalJobsPostgres.id,
@@ -278,6 +220,10 @@ export class PostgresCanonicalJobRepository {
           timeoutMs: record.timeoutMs,
           maxRetries: record.maxRetries,
           retryBackoffMs: record.retryBackoffMs,
+          consecutiveFailures: coordination.consecutiveFailures,
+          maxConsecutiveFailures: coordination.maxConsecutiveFailures,
+          pauseReason: coordination.pauseReason,
+          setupState: jsonb(coordination.setupState),
           nextRunAt: record.nextRunAt,
           lastRunAt: record.lastRunAt,
           leaseRunId: record.leaseRunId,
@@ -290,6 +236,7 @@ export class PostgresCanonicalJobRepository {
   async updateJob(
     id: string,
     record: Omit<JobRecordInput, 'id' | 'createdAt'>,
+    coordination: CanonicalJobCoordinationUpdate,
   ): Promise<void> {
     await this.ensureAgentForRecord(record);
     await this.db
@@ -298,10 +245,18 @@ export class PostgresCanonicalJobRepository {
         ...record,
         scheduleJson: jsonb(record.scheduleJson),
         targetJson: jsonb(record.targetJson),
+        ...coordinationColumnUpdate(coordination),
         createdByActorId: 'runtime',
         createdBySource: 'runtime',
       })
       .where(eq(pgSchema.canonicalJobsPostgres.id, id));
+  }
+
+  async markJobSetupNotified(
+    id: string,
+    expectedFingerprint: string,
+  ): Promise<boolean> {
+    return markJobSetupNotifiedStatement(this.db, id, expectedFingerprint);
   }
 
   async deleteJob(id: string): Promise<void> {
@@ -517,11 +472,7 @@ export class PostgresCanonicalJobRepository {
           ...(input.jobUpdate.leaseExpiresAt !== undefined
             ? { leaseExpiresAt: input.jobUpdate.leaseExpiresAt }
             : {}),
-          ...(input.jobUpdate.targetJsonPatch
-            ? {
-                targetJson: sql`${pgSchema.canonicalJobsPostgres.targetJson} || ${jsonb(input.jobUpdate.targetJsonPatch)}`,
-              }
-            : {}),
+          ...coordinationColumnUpdate(input.jobUpdate.coordination),
           updatedAt: input.jobUpdate.updatedAt,
         })
         .where(

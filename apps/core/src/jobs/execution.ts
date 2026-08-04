@@ -39,10 +39,8 @@ import {
   resolveExecutionContext,
   resolveExecutionMemoryContext,
 } from './execution-context.js';
-import {
-  logMemoryDreamJobFailure,
-  notifySchedulerTerminalRunState,
-} from './execution-notifications.js';
+// prettier-ignore
+import { logMemoryDreamJobFailure, notifySchedulerTerminalRunState } from './execution-notifications.js';
 import type { MemoryReviewCreatedNotification } from './memory-dreaming-job-outcome.js';
 import {
   claimSchedulerRunLease,
@@ -673,6 +671,7 @@ async function runActiveJob(
               ? state.safeErrorSummary.slice(0, 500)
               : null,
             jobUpdates,
+            incrementConsecutiveFailures: state.incrementConsecutiveFailures,
           }),
           'Scheduler run lease finalization is unavailable for terminal job write.',
           'Scheduler run lease is no longer active during terminal finalization.',

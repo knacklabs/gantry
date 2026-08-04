@@ -1206,6 +1206,7 @@ describe('TelegramChannel', () => {
       expect(currentBot().filterHandlers.has('message:document')).toBe(true);
       expect(currentBot().filterHandlers.has('message:sticker')).toBe(true);
       expect(currentBot().filterHandlers.has('message:location')).toBe(true);
+      expect(currentBot().filterHandlers.has('message:venue')).toBe(true);
       expect(currentBot().filterHandlers.has('message:contact')).toBe(true);
       expect(currentBot().filterHandlers.has('my_chat_member')).toBe(true);
       expect(currentBot().filterHandlers.has('chat_member')).toBe(false);
@@ -2700,17 +2701,36 @@ describe('TelegramChannel', () => {
       );
     });
 
-    it('stores location with placeholder (no download)', async () => {
+    it('stores location coordinates and venue details without downloading', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const ctx = createMediaCtx({});
+      const ctx = createMediaCtx({
+        extra: { location: { latitude: 12.9716, longitude: 77.5946 } },
+      });
       await triggerMediaMessage('message:location', ctx);
 
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
-        expect.objectContaining({ content: '[Location]' }),
+        expect.objectContaining({ content: '[Location: 12.9716, 77.5946]' }),
+      );
+
+      const venueCtx = createMediaCtx({
+        extra: {
+          venue: {
+            title: 'Town Hall',
+            address: '1 Main Street',
+            location: { latitude: 12.97, longitude: 77.59 },
+          },
+        },
+      });
+      await triggerMediaMessage('message:venue', venueCtx);
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'tg:100200300',
+        expect.objectContaining({
+          content: '[Venue: Town Hall; 1 Main Street; 12.97, 77.59]',
+        }),
       );
     });
 
@@ -2719,12 +2739,22 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const ctx = createMediaCtx({});
+      const ctx = createMediaCtx({
+        extra: {
+          contact: {
+            first_name: 'Ada',
+            last_name: 'Lovelace',
+            phone_number: '+44 1234',
+          },
+        },
+      });
       await triggerMediaMessage('message:contact', ctx);
 
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
-        expect.objectContaining({ content: '[Contact]' }),
+        expect.objectContaining({
+          content: '[Contact: Ada Lovelace; +44 1234]',
+        }),
       );
     });
 

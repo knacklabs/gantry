@@ -28,6 +28,8 @@ type ExecutableModelEntryFn = (input: {
   cacheTokenFields: readonly string[];
   supportsThinking?: boolean;
   supportsTools?: boolean;
+  imageInput?: boolean;
+  pdfInput?: boolean;
   supportedWorkloads: readonly ModelWorkload[];
   experimental?: boolean;
 }) => ModelCatalogEntry;
@@ -84,6 +86,8 @@ export function buildOpenAiCatalog(deps: {
       cacheTokenFields: OPENAI_CACHE_TOKEN_FIELDS,
       supportsThinking: true,
       supportsTools: true,
+      imageInput: true,
+      pdfInput: true,
       supportedWorkloads: OPENAI_MODEL_WORKLOADS,
       experimental: true,
     }),
@@ -103,6 +107,8 @@ export function buildOpenAiCatalog(deps: {
       cacheTokenFields: OPENAI_CACHE_TOKEN_FIELDS,
       supportsThinking: true,
       supportsTools: true,
+      imageInput: true,
+      pdfInput: true,
       supportedWorkloads: OPENAI_MODEL_WORKLOADS,
       experimental: true,
     }),
@@ -123,6 +129,8 @@ export function buildOpenAiCatalog(deps: {
       cacheTokenFields: OPENAI_CACHE_TOKEN_FIELDS,
       supportsThinking: true,
       supportsTools: true,
+      imageInput: true,
+      pdfInput: true,
       supportedWorkloads: OPENAI_MODEL_WORKLOADS,
       experimental: true,
     }),
@@ -147,6 +155,8 @@ export function buildOpenAiCatalog(deps: {
       cacheTokenFields: GPT_5_6_CACHE_TOKEN_FIELDS,
       supportsThinking: true,
       supportsTools: true,
+      imageInput: true,
+      pdfInput: true,
       supportedWorkloads: OPENAI_MODEL_WORKLOADS,
       experimental: true,
     }),
@@ -168,6 +178,8 @@ export function buildOpenAiCatalog(deps: {
       cacheTokenFields: GPT_5_6_CACHE_TOKEN_FIELDS,
       supportsThinking: true,
       supportsTools: true,
+      imageInput: true,
+      pdfInput: true,
       supportedWorkloads: OPENAI_MODEL_WORKLOADS,
       experimental: true,
     }),
@@ -189,6 +201,8 @@ export function buildOpenAiCatalog(deps: {
       cacheTokenFields: GPT_5_6_CACHE_TOKEN_FIELDS,
       supportsThinking: true,
       supportsTools: true,
+      imageInput: true,
+      pdfInput: true,
       supportedWorkloads: OPENAI_MODEL_WORKLOADS,
       experimental: true,
     }),

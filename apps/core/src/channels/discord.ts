@@ -44,6 +44,7 @@ import type {
 } from './discord-types.js';
 import {
   discordMessageAttachments,
+  discordMessageContent,
   hydrateDiscordConversationContext,
   isDiscordDurableIngressMessage,
   resolveDiscordConversationContext,
@@ -593,7 +594,7 @@ export class DiscordChannel implements ChannelAdapter {
       provider: 'discord',
       sender: author?.id || 'unknown',
       sender_name: message.member?.nick || userName(author),
-      content: message.content || '',
+      content: discordMessageContent(message),
       timestamp: message.timestamp || new Date().toISOString(),
       is_from_me: false,
       is_bot_message: false,

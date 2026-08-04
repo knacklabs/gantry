@@ -6,7 +6,6 @@ import {
 import { agentIdForJobWorkspaceKey } from '../application/jobs/job-tool-policy.js';
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
-import type { JobRecoveryIntentSource } from '../application/jobs/job-recovery-intent-service.js';
 import type { SchedulerEventAppSession } from './app-session-resolution.js';
 import { notifySchedulerSetupRequired } from './execution-notifications.js';
 import { readImageCapabilityInventory } from '../shared/worker-image-inventory.js';
@@ -25,6 +24,13 @@ import {
   type AgentAccessSnapshot,
 } from '../application/agent-execution/agent-access-snapshot.js';
 
+type JobSetupCheckSource =
+  | 'preflight_setup'
+  | 'final_setup'
+  | 'permission_denied'
+  | 'permission_timeout'
+  | 'transient_permission';
+
 export async function pauseJobForSetupIfNeeded(input: {
   currentJob: Job;
   deps: SchedulerDependencies;
@@ -32,7 +38,7 @@ export async function pauseJobForSetupIfNeeded(input: {
   runtimeAppId: string;
   appSession?: SchedulerEventAppSession;
   agentId?: string;
-  source?: JobRecoveryIntentSource;
+  source?: JobSetupCheckSource;
   runId?: string | null;
   accessSnapshot?: AgentAccessSnapshot;
   publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
@@ -119,7 +125,7 @@ async function pauseAndNotify(input: {
   deps: SchedulerDependencies;
   runtimeAppId: string;
   appSession?: SchedulerEventAppSession;
-  source?: JobRecoveryIntentSource;
+  source?: JobSetupCheckSource;
   runId?: string | null;
   setupState: NonNullable<Job['setup_state']>;
   publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
@@ -151,7 +157,7 @@ export async function notifyJobSetupRequired(input: {
   runtimeAppId: string;
   appSession?: SchedulerEventAppSession;
   setupState: NonNullable<Job['setup_state']>;
-  source?: JobRecoveryIntentSource;
+  source?: JobSetupCheckSource;
   runId?: string | null;
   publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
 }): Promise<boolean> {
@@ -161,12 +167,10 @@ export async function notifyJobSetupRequired(input: {
     sendMessage: input.deps.sendMessage,
   });
   if (notified) {
-    await input.deps.opsRepository.updateJob(input.currentJob.id, {
-      setup_state: {
-        ...input.setupState,
-        notified_fingerprint: input.setupState.fingerprint,
-      },
-    });
+    await input.deps.opsRepository.markJobSetupNotified(
+      input.currentJob.id,
+      input.setupState.fingerprint,
+    );
   }
   await input.publishRuntimeEvent({
     appId: (input.appSession?.appId ?? input.runtimeAppId) as never,

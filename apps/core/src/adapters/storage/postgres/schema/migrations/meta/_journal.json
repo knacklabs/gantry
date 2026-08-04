@@ -918,6 +918,13 @@
       "when": 1785607107238,
       "tag": "20260801175827_normalize_contact_aliases",
       "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "7",
+      "when": 1785746462812,
+      "tag": "20260803084102_job_coordination_columns",
+      "breakpoints": true
     }
   ]
 }

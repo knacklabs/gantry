@@ -5,7 +5,6 @@ import type { RunLease } from '../../../../domain/ports/worker-coordination.js';
 import { parseIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
 import {
-  parseJson,
   type CanonicalDb,
   type CanonicalExecutor,
 } from './canonical-graph-repository.postgres.js';
@@ -38,13 +37,8 @@ export async function claimDueCanonicalJobRunStart(input: {
         .limit(1);
       const job = rows[0];
       if (!job) return null;
-      const target = parseJson<{ recoveryIntent?: { state?: unknown } }>(
-        job.targetJson,
-        {},
-      );
       if (
         job.status !== 'active' ||
-        target.recoveryIntent?.state === 'running' ||
         (input.requireNextRun !== false &&
           job.nextRunAt !== input.run.scheduled_for)
       ) {

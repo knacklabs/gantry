@@ -37,17 +37,24 @@ import {
   clampSlackRetryDelayMs,
   slackRateLimitRetryDelayMs,
 } from './channel-retry-delay.js';
-import { uploadSlackAttachments } from './file-delivery.js';
+// prettier-ignore
+import { buildPartialSlackDelivery, deliverOversizedSlackPart, postActionsFollowUpNonFatal } from './oversized-part-delivery.js';
+import {
+  isSlackPayloadTooLarge,
+  uploadSlackAttachments,
+  type SlackSnippetFallbackInput,
+  type SlackSnippetFallbackResult,
+} from './file-delivery.js';
 type SlackPostMessagePayload = {
   channel: string;
   text: string;
   thread_ts?: string;
   blocks?: Array<Record<string, unknown>>;
 };
-type SlackDeliveryLogger = {
+export type SlackDeliveryLogger = {
   warn(metadata: Record<string, unknown>, message: string): void;
 };
-function slackActionBlocks(text: string, options: MessageSendOptions) {
+export function slackActionBlocks(text: string, options: MessageSendOptions) {
   if (options.observerDigestView) {
     return slackObserverDigestBlocks(options.observerDigestView, {
       ...(options.providerAccountId
@@ -75,43 +82,10 @@ function slackActionBlocks(text: string, options: MessageSendOptions) {
       })
     : undefined;
 }
-export type SlackSnippetFallbackInput = {
-  channelId: string;
-  text: string;
-  threadId?: string;
-  reason: string;
-};
-export type SlackSnippetFallbackResult = {
-  fallbackArtifactId: string;
-  externalMessageId?: string;
-};
 async function waitForPostMessageRetry(delayMs: number): Promise<void> {
   await new Promise<void>((resolve) =>
     setTimeout(resolve, clampSlackRetryDelayMs(delayMs)),
   );
-}
-export function isSlackPayloadTooLarge(err: unknown): boolean {
-  const candidate = err as {
-    status?: unknown;
-    statusCode?: unknown;
-    code?: unknown;
-    error?: unknown;
-    data?: { error?: unknown };
-    message?: unknown;
-  };
-  if (
-    candidate.status === 413 ||
-    candidate.statusCode === 413 ||
-    candidate.code === 413
-  ) {
-    return true;
-  }
-  const text = [
-    candidate.error,
-    candidate.data?.error,
-    candidate.message,
-  ].filter((value): value is string => typeof value === 'string');
-  return text.some((value) => /msg_too_long|too_long|payload/i.test(value));
 }
 export async function postSlackMessageWithRetry(
   app: App | null,
@@ -185,6 +159,8 @@ export async function sendSlackMessage(input: {
   const threadTs = slackThreadTsFromThreadId(input.options.threadId);
 
   const externalMessageIds: string[] = [];
+  // prettier-ignore
+  const oversizedCtx = { app: input.app, channelId: input.channelId, threadTs, options: input.options, jid: input.jid, warnings, log: input.log, externalMessageIds };
   let deliveredParts = 0;
   for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
     const part = parts[partIndex];
@@ -217,48 +193,64 @@ export async function sendSlackMessage(input: {
         });
         if (fallback) {
           warnings.push('slack.snippet_fallback');
-          const ids = fallback.externalMessageId
-            ? [fallback.externalMessageId]
-            : [];
+          if (fallback.externalMessageId) {
+            externalMessageIds.push(fallback.externalMessageId);
+          }
+          await postActionsFollowUpNonFatal(oversizedCtx, warnings);
+          const ids = [...externalMessageIds];
           return {
             ...(ids[0] ? { externalMessageId: ids[0] } : {}),
             ...(ids.length > 0 ? { externalMessageIds: ids } : {}),
-            deliveredParts: ids.length,
+            deliveredParts: parts.length,
             totalParts: parts.length,
             warnings,
             fallbackArtifactId: fallback.fallbackArtifactId,
           };
         }
+        try {
+          await deliverOversizedSlackPart({
+            ...oversizedCtx,
+            part,
+            partIndex,
+            totalParts: parts.length,
+          });
+          if (partIndex === parts.length - 1) {
+            await postActionsFollowUpNonFatal(oversizedCtx, warnings);
+          }
+        } catch (resplitErr) {
+          if (externalMessageIds.length > 0) {
+            const remainder =
+              typeof (resplitErr as { slackResplitRemainder?: string })
+                .slackResplitRemainder === 'string'
+                ? (resplitErr as { slackResplitRemainder: string })
+                    .slackResplitRemainder
+                : '';
+            throw buildPartialSlackDelivery({
+              cause: resplitErr,
+              deliveredParts,
+              totalParts: parts.length,
+              externalMessageIds,
+              unsentTail: remainder + parts.slice(partIndex + 1).join(''),
+              channelId: input.channelId,
+              threadTs,
+            });
+          }
+          throw resplitErr;
+        }
+        deliveredParts += 1;
+        continue;
       }
       if (deliveredParts > 0) {
-        const unsentTail = parts.slice(deliveredParts).join('');
-        const partial = new PartialMessageDeliveryError({
+        throw buildPartialSlackDelivery({
           cause: err,
-          deliveredChunks: deliveredParts,
-          name: 'PartialSlackDeliveryError',
-          message: `Slack message partially delivered (${deliveredParts}/${parts.length} parts)`,
-          totalChunks: parts.length,
-        });
-        Object.assign(partial, {
-          provider: 'slack',
           deliveredParts,
           totalParts: parts.length,
           externalMessageIds,
-          ...(unsentTail.trim()
-            ? {
-                retryTail: {
-                  canonicalText: unsentTail,
-                  providerPayload: {
-                    provider: 'slack',
-                    channelId: input.channelId,
-                    ...(threadTs ? { threadId: threadTs } : {}),
-                  },
-                },
-              }
-            : {}),
-          ...(warnings.length > 0 ? { warnings } : {}),
+          unsentTail: parts.slice(deliveredParts).join(''),
+          channelId: input.channelId,
+          threadTs,
+          warnings,
         });
-        throw partial;
       }
       throw err;
     }

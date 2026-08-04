@@ -43,7 +43,10 @@ function makeDeps(): {
   const updateJob = vi.fn(async () => undefined);
   const sendMessage = vi.fn(async () => true);
   const deps = {
-    opsRepository: { updateJob },
+    opsRepository: {
+      updateJob,
+      markJobSetupNotified: vi.fn(async () => true),
+    },
     sendMessage,
     onSchedulerChanged: vi.fn(),
   } as unknown as SchedulerDependencies;
@@ -74,6 +77,7 @@ describe('finalizeSchedulerJobRun — permission ASK on a fenced job', () => {
     expect(updateJob).toHaveBeenCalledWith(
       'job-1',
       expect.objectContaining({ status: 'paused' }),
+      { incrementConsecutiveFailures: true },
     );
   });
 
@@ -105,6 +109,7 @@ describe('finalizeSchedulerJobRun — permission ASK on a fenced job', () => {
     expect(updateJob).toHaveBeenCalledWith(
       'job-1',
       expect.objectContaining({ status: 'paused' }),
+      { incrementConsecutiveFailures: true },
     );
   });
 
@@ -128,6 +133,7 @@ describe('finalizeSchedulerJobRun — permission ASK on a fenced job', () => {
     expect(updateJob).toHaveBeenCalledWith(
       'job-1',
       expect.objectContaining({ status: 'paused' }),
+      { incrementConsecutiveFailures: true },
     );
   });
 });
