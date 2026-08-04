@@ -1054,6 +1054,24 @@ describe('TelegramChannel', () => {
     );
   });
 
+  it('clears every Telegram reaction dedupe key when removing one reaction', async () => {
+    const channel = new TelegramChannel('token', createTestOpts());
+    await channel.connect({ inbound: false });
+
+    await channel.addReaction('tg:100200300', '987', 'seen');
+    await channel.addReaction('tg:100200300', '987', 'running');
+    await channel.removeReaction('tg:100200300', '987', 'seen');
+    await channel.addReaction('tg:100200300', '987', 'seen');
+    await channel.addReaction('tg:100200300', '987', 'running');
+
+    expect(botRef.current.api.setMessageReaction).toHaveBeenCalledWith(
+      '100200300',
+      987,
+      [],
+    );
+    expect(botRef.current.api.setMessageReaction).toHaveBeenCalledTimes(5);
+  });
+
   it('sends a memory-review message as native HTML with three decision buttons', async () => {
     const channel = new TelegramChannel('token', createTestOpts());
     await channel.connect({ inbound: false });
@@ -4195,7 +4213,7 @@ describe('TelegramChannel', () => {
       );
       await channel.sendProgressUpdate(
         'tg:-1001234567890',
-        'Still working (1m 00s)...',
+        'Still working',
         stopAction,
       );
 
@@ -4212,7 +4230,7 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
         '-1001234567890',
         987,
-        'Still working (1m 00s)...',
+        'Still working',
         expect.objectContaining({
           parse_mode: 'MarkdownV2',
         }),
@@ -4429,11 +4447,12 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      await channel.sendProgressUpdate('tg:100200300', 'Done.', {
+      const landed = await channel.sendProgressUpdate('tg:100200300', 'Done.', {
         done: true,
         replaceOnly: true,
       });
 
+      expect(landed).toBe(false);
       expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
       expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
     });

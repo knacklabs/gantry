@@ -26,10 +26,14 @@ import {
   postDiscordMessageParts,
   splitDiscordText,
 } from './discord-delivery.js';
-import { sendDiscordProgressUpdate } from './discord-progress.js';
+import {
+  DiscordProgressIdentityLifecycle,
+  sendDiscordProgressUpdateForRoute,
+} from './discord-progress.js';
 import {
   connectDiscordGateway,
   DiscordGatewayConnection,
+  websocketFactory,
 } from './discord-gateway.js';
 import { agentTodoStopActions } from './agent-todo-render.js';
 import { CHANNEL_STREAM_UPDATE_INTERVAL_MS } from './channel-provider.js';
@@ -38,7 +42,6 @@ import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { findConversationRoutesForChat } from '../shared/thread-queue-key.js';
 import type {
   DiscordMessageCreate,
-  DiscordUser,
   WebSocketFactory,
   WebSocketLike,
 } from './discord-types.js';
@@ -53,11 +56,16 @@ import {
 import { deliverLiveDiscordMessage } from './discord-live-attachment-capture.js';
 import { DiscordInteractionHandler } from './discord-interactions.js';
 import {
+  createDiscordMessageMutations,
   discordHeaders,
-  discordReactionEmoji,
   requestDiscordJson,
   userName,
 } from './discord-http-helpers.js';
+import {
+  addDiscordReaction,
+  removeDiscordReaction,
+} from './discord-ambient-liveness.js';
+import { DiscordMessageChannelCache } from './discord-message-channel-cache.js';
 import { createDiscordHistoricalAttachmentFetcher } from './discord-historical-attachment-fetcher.js';
 import { StreamResetEpochs } from './stream-reset-epochs.js';
 import { resolveInboundConversationIdentity } from './inbound-conversation-identity.js';
@@ -67,14 +75,6 @@ export const DISCORD_JID_PREFIX = 'dc:';
 
 const DISCORD_API_ROOT = 'https://discord.com/api/v10';
 const DISCORD_GATEWAY_INTENTS = (1 << 0) | (1 << 9) | (1 << 12) | (1 << 15);
-const DISCORD_MESSAGE_CHANNEL_CACHE_TTL_MS = 10 * 60 * 1000;
-const DISCORD_MESSAGE_CHANNEL_CACHE_MAX_ENTRIES = 5000;
-
-type DiscordMessageChannelCacheEntry = {
-  channelId: string;
-  expiresAtMs: number;
-};
-
 export function normalizeDiscordJid(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -88,16 +88,13 @@ export function discordChannelIdFromJid(jid: string): string | null {
   return normalized ? normalized.slice(DISCORD_JID_PREFIX.length) : null;
 }
 
-function websocketFactory(url: string): WebSocketLike {
-  return new WebSocket(url) as unknown as WebSocketLike;
-}
-
 export class DiscordChannel implements ChannelAdapter {
   readonly reportsHistoryCoverageInboundLiveness = true;
   name = 'discord';
   private gateway: DiscordGatewayConnection | null = null;
   private botUserId = '';
   private activeProgressMessages = new Map<string, string>();
+  private progressIdentityLifecycle = new DiscordProgressIdentityLifecycle();
   private activeStreams = new Map<
     string,
     {
@@ -115,13 +112,13 @@ export class DiscordChannel implements ChannelAdapter {
     { channelId: string; messageId: string }
   >();
   private readonly reactionKeys = new Set<string>();
-  private readonly messageChannelIds = new Map<
-    string,
-    DiscordMessageChannelCacheEntry
-  >();
+  private readonly messageChannelIds = new DiscordMessageChannelCache();
   private readonly channelContextCache: DiscordConversationContextCache =
     new Map();
   private readonly interactions: DiscordInteractionHandler;
+  private readonly messageMutations: ReturnType<
+    typeof createDiscordMessageMutations
+  >;
   readonly fetchHistoricalAttachment: ReturnType<
     typeof createDiscordHistoricalAttachmentFetcher
   >;
@@ -132,6 +129,10 @@ export class DiscordChannel implements ChannelAdapter {
     private readonly opts: ChannelOpts,
     private readonly createWebSocket: WebSocketFactory = websocketFactory,
   ) {
+    this.messageMutations = createDiscordMessageMutations(
+      this.requestJson.bind(this),
+      botToken,
+    );
     this.fetchHistoricalAttachment =
       createDiscordHistoricalAttachmentFetcher(botToken);
     this.interactions = new DiscordInteractionHandler({
@@ -202,29 +203,39 @@ export class DiscordChannel implements ChannelAdapter {
     jid: string,
     messageRef: string,
     emoji: string,
+    options: { threadId?: string } = {},
   ): Promise<void> {
-    const parentChannelId = discordChannelIdFromJid(jid);
-    const channelId =
-      this.resolveMessageChannelId(this.messageChannelKey(jid, messageRef)) ||
-      parentChannelId;
-    if (!channelId || !messageRef.trim()) return;
-    const reaction = discordReactionEmoji(emoji);
-    const key = `${channelId}:${messageRef}:${reaction}`;
-    if (this.reactionKeys.has(key)) return;
-    try {
-      await this.requestJson<void>(
-        `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageRef)}/reactions/${encodeURIComponent(reaction)}/@me`,
-        {
-          method: 'PUT',
-          headers: discordHeaders(this.botToken),
-        },
-        'Discord reaction update failed',
-        false,
-      );
-      this.reactionKeys.add(key);
-    } catch (err) {
-      logger.debug({ jid, messageRef, err }, 'Discord reaction update failed');
-    }
+    await addDiscordReaction({
+      ...this.discordReactionInput(jid, messageRef, options.threadId),
+      emoji,
+    });
+  }
+
+  async removeReaction(
+    jid: string,
+    messageRef: string,
+    emoji: string,
+    options: { threadId?: string } = {},
+  ): Promise<void> {
+    await removeDiscordReaction({
+      ...this.discordReactionInput(jid, messageRef, options.threadId),
+      emoji,
+    });
+  }
+
+  async setTyping(
+    jid: string,
+    isTyping: boolean,
+    options: { threadId?: string } = {},
+  ): Promise<void> {
+    if (!isTyping) return;
+    const channelId = options.threadId || discordChannelIdFromJid(jid);
+    if (!channelId) return;
+    await this.postJson<void>(
+      `/channels/${encodeURIComponent(channelId)}/typing`,
+      {},
+      false,
+    );
   }
 
   async hydrateConversationContext(
@@ -245,33 +256,44 @@ export class DiscordChannel implements ChannelAdapter {
     jid: string,
     text: string,
     options: ProgressUpdateOptions = {},
-  ): Promise<void> {
+  ): Promise<boolean> {
     const channelId = options.threadId || discordChannelIdFromJid(jid);
-    if (!channelId) return;
+    if (!channelId) return false;
+    const progressKey =
+      options.progressCardIdentity ?? this.progressCardIdentity(jid, options);
+    return sendDiscordProgressUpdateForRoute({
+      routeKey: `${jid}\n${options.threadId ?? ''}`,
+      key: progressKey,
+      activeMessages: this.activeProgressMessages,
+      identityLifecycle: this.progressIdentityLifecycle,
+      text,
+      options,
+      post: (body, components, signal) =>
+        postDiscordMessageParts({
+          channelId,
+          parts: splitDiscordText(body),
+          components,
+          post: (target, payload) => this.postMessage(target, payload, signal),
+        }),
+      edit: (messageId, body, signal) =>
+        this.messageMutations.edit(channelId, messageId, body, signal),
+      delete: (messageId, signal) =>
+        this.messageMutations.delete(channelId, messageId, signal),
+    });
+  }
+  progressCardIdentity(
+    jid: string,
+    options: ProgressUpdateOptions = {},
+  ): string {
     const generationKey = `${jid}\n${options.threadId ?? ''}\n${options.generation ?? ''}`;
     const controlKey = `${jid}\n${options.threadId ?? ''}\ncontrol`;
     const hasStopAction = options.actionAffordances?.some(
       (action) => action.kind === 'live_turn_stop',
     );
-    const progressKey =
-      hasStopAction ||
+    return hasStopAction ||
       (options.done && this.activeProgressMessages.has(controlKey))
-        ? controlKey
-        : generationKey;
-    await sendDiscordProgressUpdate({
-      key: progressKey,
-      activeMessages: this.activeProgressMessages,
-      text,
-      options,
-      post: (body, components) =>
-        postDiscordMessageParts({
-          channelId,
-          parts: splitDiscordText(body),
-          components,
-          post: (target, payload) => this.postMessage(target, payload),
-        }),
-      edit: (messageId, body) => this.patchMessage(channelId, messageId, body),
-    });
+      ? controlKey
+      : generationKey;
   }
 
   async sendStreamingChunk(
@@ -311,7 +333,11 @@ export class DiscordChannel implements ChannelAdapter {
         components: options.done ? [] : undefined,
       };
       if (state.messageId) {
-        await this.patchMessage(state.channelId, state.messageId, body);
+        await this.messageMutations.edit(
+          state.channelId,
+          state.messageId,
+          body,
+        );
       } else {
         const posted = await this.postMessage(state.channelId, body);
         state.messageId = posted.id;
@@ -423,7 +449,11 @@ export class DiscordChannel implements ChannelAdapter {
     const existing = this.pendingTodos.get(todoKey);
     if (existing) {
       try {
-        await this.patchMessage(existing.channelId, existing.messageId, body);
+        await this.messageMutations.edit(
+          existing.channelId,
+          existing.messageId,
+          body,
+        );
         return true;
       } catch (err) {
         logger.debug(
@@ -499,42 +529,35 @@ export class DiscordChannel implements ChannelAdapter {
     });
   }
 
-  private async postJson<T>(path: string, body: unknown): Promise<T> {
+  private async postJson<T>(
+    path: string,
+    body: unknown,
+    parseJson = true,
+    signal?: AbortSignal,
+  ): Promise<T> {
     return this.requestJson<T>(
       path,
       {
         method: 'POST',
         headers: discordHeaders(this.botToken),
         body: JSON.stringify(body),
+        signal,
       },
       `Discord REST request failed: ${path}`,
+      parseJson,
     );
   }
 
   private async postMessage(
     channelId: string,
     body: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<{ id?: string }> {
     return this.postJson<{ id?: string }>(
       `/channels/${encodeURIComponent(channelId)}/messages`,
       body,
-    );
-  }
-
-  private async patchMessage(
-    channelId: string,
-    messageId: string,
-    body: Record<string, unknown>,
-  ): Promise<void> {
-    await this.requestJson<void>(
-      `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
-      {
-        method: 'PATCH',
-        headers: discordHeaders(this.botToken),
-        body: JSON.stringify(body),
-      },
-      'Discord message edit failed',
-      false,
+      true,
+      signal,
     );
   }
 
@@ -570,7 +593,7 @@ export class DiscordChannel implements ChannelAdapter {
       context.conversationJid,
     );
     if (context.threadId) {
-      this.rememberMessageChannelId(
+      this.messageChannelIds.remember(
         context.conversationJid,
         message.id,
         message.channel_id,
@@ -616,46 +639,23 @@ export class DiscordChannel implements ChannelAdapter {
     });
   }
 
-  private messageChannelKey(jid: string, messageRef: string): string {
-    return `${jid.trim()}:${messageRef.trim()}`;
-  }
-
-  private rememberMessageChannelId(
+  private discordReactionInput(
     jid: string,
     messageRef: string,
-    channelId: string,
-  ): void {
-    const now = currentTimeMs();
-    const key = this.messageChannelKey(jid, messageRef);
-    this.messageChannelIds.delete(key);
-    this.messageChannelIds.set(key, {
-      channelId,
-      expiresAtMs: now + DISCORD_MESSAGE_CHANNEL_CACHE_TTL_MS,
-    });
-    this.pruneMessageChannelIds(now);
-  }
-
-  private resolveMessageChannelId(key: string): string | undefined {
-    const entry = this.messageChannelIds.get(key);
-    if (!entry) return undefined;
-    if (entry.expiresAtMs <= currentTimeMs()) {
-      this.messageChannelIds.delete(key);
-      return undefined;
-    }
-    return entry.channelId;
-  }
-
-  private pruneMessageChannelIds(now: number): void {
-    for (const [key, entry] of this.messageChannelIds) {
-      if (entry.expiresAtMs <= now) this.messageChannelIds.delete(key);
-    }
-    while (
-      this.messageChannelIds.size > DISCORD_MESSAGE_CHANNEL_CACHE_MAX_ENTRIES
-    ) {
-      const oldestKey = this.messageChannelIds.keys().next().value;
-      if (!oldestKey) break;
-      this.messageChannelIds.delete(oldestKey);
-    }
+    threadId?: string,
+  ) {
+    return {
+      botToken: this.botToken,
+      channelId:
+        threadId ??
+        this.messageChannelIds.resolve(jid, messageRef) ??
+        discordChannelIdFromJid(jid) ??
+        undefined,
+      jid,
+      messageRef,
+      reactionKeys: this.reactionKeys,
+      requestJson: this.requestJson.bind(this),
+    };
   }
 
   private resolveInteractionConversationContext(channelId: string) {

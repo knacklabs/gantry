@@ -682,7 +682,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     jid: string,
     text: string,
     options?: ProgressUpdateOptions,
-  ): Promise<void>;
+  ): Promise<boolean>;
   abstract requestPermissionApproval(
     jid: string,
     request: PermissionApprovalRequest,

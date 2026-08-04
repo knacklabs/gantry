@@ -511,6 +511,8 @@ export interface StreamingChunkOptions {
 export interface ProgressUpdateOptions {
   threadId?: string;
   providerAccountId?: string;
+  /** Provider-card identity sampled when the update entered its ordering chain. */
+  progressCardIdentity?: string;
   done?: boolean;
   replaceOnly?: boolean;
   generation?: number;
@@ -602,15 +604,11 @@ export interface MessageSink {
     options?: MessageSendOptions,
   ): Promise<void | MessageDeliveryResult>;
 }
-
-export interface MessageReactionSink {
-  addReaction(jid: string, messageRef: string, emoji: string): Promise<void>;
-}
-
-export interface TypingSink {
-  setTyping(jid: string, isTyping: boolean): Promise<void>;
-}
-
+export type {
+  MessageReactionRemovalSink,
+  MessageReactionSink,
+  TypingSink,
+} from './channel-live-ux.js';
 export interface StreamingSink {
   sendStreamingChunk(
     jid: string,
@@ -618,19 +616,20 @@ export interface StreamingSink {
     options?: StreamingChunkOptions,
   ): Promise<boolean>;
 }
-
 export interface StreamingStateSink {
   resetStreaming(jid: string, options?: { threadId?: string }): void;
 }
-
 export interface ProgressSink {
+  progressCardIdentity?(
+    jid: string,
+    options?: ProgressUpdateOptions,
+  ): string | undefined;
   sendProgressUpdate(
     jid: string,
     text: string,
     options?: ProgressUpdateOptions,
-  ): Promise<void>;
+  ): Promise<void | boolean>;
 }
-
 export interface GroupDiscoverySource {
   syncGroups(force: boolean): Promise<void>;
 }

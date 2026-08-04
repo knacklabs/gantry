@@ -21,7 +21,10 @@ export async function sendFinalProgressUpdate(args: {
   enabled: boolean;
   state: FinalProgressState;
   options: ProgressUpdateOptions;
-  send: (text: string, options?: ProgressUpdateOptions) => Promise<void>;
+  send: (
+    text: string,
+    options?: ProgressUpdateOptions,
+  ) => Promise<void | boolean>;
   onError?: (err: unknown) => void;
 }): Promise<void> {
   if (!args.enabled) return;

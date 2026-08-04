@@ -43,6 +43,38 @@ function makeBuffer(
 }
 
 describe('streamed generation persistence', () => {
+  it('settles a successful delivery before running the first-visible hook', async () => {
+    const order: string[] = [];
+    const buffer = createGroupOutputBuffer({
+      channelRuntime: {
+        sendStreamingChunk: vi.fn(async () => true),
+      } as never,
+      chatJid: 'sl:C1',
+      groupName: 'group',
+      supportsStreamingChunks: true,
+      buildStreamingOptions: () => ({}) as never,
+      buildMessageOptions: () => undefined,
+      sendMessageToChannel: async () => {},
+      applyDeliverySettlement: () => {
+        order.push('settlement');
+      },
+      onVisibleDeliveryFinish: async () => {
+        order.push('hook');
+        throw new Error('reaction provider unavailable');
+      },
+      getStreamedTranscriptDeliveryStatus: () => 'sent',
+      persistCompletedStreamedGeneration: async () => {},
+      log: {
+        info: vi.fn(),
+        warn: vi.fn(),
+      },
+    });
+
+    await buffer.appendRawOutput('visible output '.repeat(20));
+
+    expect(order).toEqual(['settlement', 'hook']);
+  });
+
   it('persists the WHOLE generation, not just its final flush', async () => {
     // The visible accumulator resets on every flush, so the `text` a flush sees
     // is only the delta since the previous one. Persisting that alone stores a

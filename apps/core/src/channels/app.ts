@@ -147,18 +147,23 @@ export async function createAppChannel(
       jid: string,
       text: string,
       options?: ProgressUpdateOptions,
-    ): Promise<void> {
-      await emitSessionEvent(jid, RUNTIME_EVENT_TYPES.SESSION_PROGRESS, {
-        text,
-        threadId: options?.threadId ?? null,
-        done: options?.done === true,
-        actionOnly: options?.actionOnly === true,
-        actionAffordances: options?.done
-          ? []
-          : (options?.actionAffordances ?? []),
-        orderedEnvelope: orderedEnvelope('progress'),
-        canonicalText: canonicalTextMetadata(text),
-      });
+    ): Promise<boolean> {
+      const result = await emitSessionEvent(
+        jid,
+        RUNTIME_EVENT_TYPES.SESSION_PROGRESS,
+        {
+          text,
+          threadId: options?.threadId ?? null,
+          done: options?.done === true,
+          actionOnly: options?.actionOnly === true,
+          actionAffordances: options?.done
+            ? []
+            : (options?.actionAffordances ?? []),
+          orderedEnvelope: orderedEnvelope('progress'),
+          canonicalText: canonicalTextMetadata(text),
+        },
+      );
+      return result.emitted;
     },
     async renderRichInteraction(
       jid: string,
