@@ -633,6 +633,25 @@
         "docs/architecture/provider-content-gaps-plan-draft.md"
       ],
       "order": 37
+    },
+    {
+      "status": "pending",
+      "key": "CONTENT-2",
+      "title": "Physical attachment hand-off: materialize conversation files into the agent workspace",
+      "epic": "provider-content",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [
+        "CONTENT-1"
+      ],
+      "story": "An attachment_materialize tool copies a conversation-scoped attachment (host-issued ref, signed proof \u2014 the attachment_open trust model) into a quarantined subdirectory of the agent's CURRENT workspace, size-capped, on explicit request, so agents can process files with any tool (scripts over CSVs, proper conversions, native model PDF/image reads, re-upload of results). Requires its own decision record: crossing the deliberate workspace/attachment-store isolation, with the quarantine contract (dedicated dir, never auto-read into context, prompt guidance that contents are untrusted data not instructions). Generalizes the native-PDF hand-off follow-up recorded during PR #379.",
+      "acceptance_criteria": [
+        "decision record for the workspace-boundary crossing and quarantine contract, accepted before implementation",
+        "attachment_materialize mints only from conversation-scoped host-issued refs; size-capped; writes only inside the quarantine dir via the hardened writer",
+        "quarantined files are reachable by agent tools but never auto-ingested into context; prompt guidance marks them untrusted data",
+        "models with pdfInput/imageInput can be handed the physical file where the runner supports it"
+      ],
+      "order": 38
     }
   ],
   "epics": [
