@@ -154,6 +154,8 @@ export function formatPermissionReceiptText(
   }
   if (decision.batchDecision === 'review_each')
     return 'Reviewing each permission request.';
+  // Strict field read, no mode fallback: decisionForMode always stamps
+  // provenance (owner-directed no-legacy policy).
   if (decision.repeatableForFutureRuns === true) {
     const agentName = request
       ? formatPermissionAgentDisplayName(request.sourceAgentFolder)
