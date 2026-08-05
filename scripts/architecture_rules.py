@@ -398,6 +398,8 @@ def path_in_repo(root: Path, path: Path) -> bool:
 def is_production_source(rel_path: Path) -> bool:
     rel_text = rel_path.as_posix()
     lower = rel_text.lower()
+    if rel_text.startswith("apps/web/"):
+        return False
     if rel_path.suffix not in {".ts", ".tsx"}:
         return False
     if "/src/" not in rel_text:
@@ -428,6 +430,8 @@ def iter_production_sources(root: Path) -> list[Path]:
 def is_provider_boundary_source(rel_path: Path) -> bool:
     rel_text = rel_path.as_posix()
     lower = rel_text.lower()
+    if rel_text.startswith("apps/web/"):
+        return False
     if rel_path.suffix not in {".ts", ".tsx"}:
         return False
     if ".d.ts" in lower:

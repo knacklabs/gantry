@@ -13,7 +13,9 @@ export function ConnectionGateProvider({ children }: { children: ReactNode }) {
 
   function requestConnection(nextAction: string) {
     returnFocusRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     setAction(nextAction);
   }
 

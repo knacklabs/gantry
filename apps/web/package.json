@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 5173",
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{html,json,ts}\""
   },
   "dependencies": {
     "@fontsource-variable/spline-sans": "5.2.8",

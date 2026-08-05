@@ -47,6 +47,7 @@
     "build:sdk": "npm run build --workspace @gantry/sdk",
     "build:examples": "npm run typecheck --workspace @gantry/example-nextjs-workflows && npm run build --workspace @gantry/example-nextjs-workflows",
     "build:web": "npm run build --workspace @gantry/web",
+    "dev:web": "npm run dev --workspace @gantry/web",
     "clean": "rm -rf dist packages/contracts/dist packages/sdk/dist",
     "build:runtime": "npm run clean && npm run build:contracts && npm run build:sdk && tsc && npm run copy:migrations && chmod +x dist/cli/index.js",
     "build": "npm run build:runtime && npm run build:examples",
