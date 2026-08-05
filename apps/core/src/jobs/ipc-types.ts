@@ -8,6 +8,9 @@ export interface TaskIpcData {
   providerAccountId?: string;
   authThreadId?: string;
   responseKeyId?: string;
+  sourceJobId?: string;
+  sourceRunId?: string;
+  sourceRunKind?: 'interactive' | 'scheduled';
   taskId?: string;
   runHandle?: string;
   prompt?: string;

@@ -68,6 +68,10 @@ export function buildGantryMcpProjection(
       memoryReviewerIsControlApprover,
       asyncTaskToolsEnabled,
       chatJid: env.GANTRY_CHAT_JID,
+      permissionLane:
+        env.GANTRY_PERMISSION_LANE === 'interactive'
+          ? 'interactive'
+          : 'autonomous',
     },
   );
   // Browser gateway tools (browser_*) are reachable only when the host enabled
@@ -113,6 +117,7 @@ export function buildGantryMcpProjection(
     ...passthrough(env, 'GANTRY_JOB_ID'),
     ...passthrough(env, 'GANTRY_JOB_NAME'),
     ...passthrough(env, 'GANTRY_JOB_RUN_ID'),
+    ...passthrough(env, 'GANTRY_RUN_ID'),
     ...passthrough(env, 'GANTRY_PARENT_TASK_ID'),
     ...passthrough(env, 'GANTRY_JOB_RUN_LEASE_TOKEN'),
     ...passthrough(env, 'GANTRY_JOB_RUN_LEASE_FENCING_VERSION'),
@@ -132,6 +137,7 @@ export function buildGantryMcpProjection(
     ...passthrough(env, 'GANTRY_AGENT_ACCESS_PRESET'),
     ...passthrough(env, 'GANTRY_DEPLOYMENT_MODE'),
     ...passthrough(env, 'GANTRY_PERMISSION_MODE'),
+    ...passthrough(env, 'GANTRY_PERMISSION_LANE'),
     ...passthrough(env, 'GANTRY_TURN_INTENT_SUMMARY'),
     ...passthrough(env, 'GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS'),
     ...passthrough(env, 'GANTRY_PERMISSION_TIMEOUT_MS'),

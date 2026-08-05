@@ -466,6 +466,15 @@ export function parseTaskIpcData(
   if (threadBinding.responseKeyId) {
     parsed.responseKeyId = threadBinding.responseKeyId;
   }
+  if (threadBinding.sourceJobId) {
+    parsed.sourceJobId = threadBinding.sourceJobId;
+  }
+  if (threadBinding.sourceRunId) {
+    parsed.sourceRunId = threadBinding.sourceRunId;
+  }
+  if (threadBinding.sourceRunKind) {
+    parsed.sourceRunKind = threadBinding.sourceRunKind;
+  }
   if (threadBinding.payloadThreadId !== undefined) {
     parsed.threadId = threadBinding.payloadThreadId;
   }

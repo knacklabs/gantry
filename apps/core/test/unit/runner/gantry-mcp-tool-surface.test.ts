@@ -7,6 +7,10 @@ import {
   parseEnabledGantryMcpToolNames,
   selectedGantryMcpToolNames,
 } from '@core/runner/gantry-mcp-tool-surface.js';
+import {
+  SCHEDULER_MCP_TOOL_NAMES,
+  SCHEDULER_MUTATION_MCP_TOOL_NAMES,
+} from '@core/shared/admin-mcp-tools.js';
 
 const CANVAS_TOOL_NAMES = [
   'canvas_read',
@@ -33,6 +37,52 @@ function expectCanvasToolsPresent(names: Iterable<string>): void {
 }
 
 describe('gantry mcp tool surface', () => {
+  it('keeps scheduler reads but drops mutations in both autonomous selection paths', async () => {
+    process.env.GANTRY_IPC_DIR = '/tmp/gantry-tools-scheduled';
+    const { effectiveEnabledMcpToolNames } =
+      await import('@core/runner/mcp/server.js');
+    const readTools = SCHEDULER_MCP_TOOL_NAMES.filter(
+      (name) => !SCHEDULER_MUTATION_MCP_TOOL_NAMES.includes(name as never),
+    );
+    const autonomousSurfaces = [
+      selectedGantryMcpToolNames([], { permissionLane: 'autonomous' }),
+      parseEnabledGantryMcpToolNames(JSON.stringify(SCHEDULER_MCP_TOOL_NAMES), {
+        permissionLane: 'autonomous',
+      }),
+      effectiveEnabledMcpToolNames(
+        JSON.stringify(SCHEDULER_MCP_TOOL_NAMES),
+        undefined,
+        undefined,
+        false,
+        undefined,
+        'tg:team',
+        'autonomous',
+      ),
+    ];
+    for (const surface of autonomousSurfaces) {
+      const names = new Set(surface);
+      for (const toolName of SCHEDULER_MUTATION_MCP_TOOL_NAMES) {
+        expect(names.has(toolName)).toBe(false);
+      }
+      for (const toolName of readTools) {
+        expect(names.has(toolName)).toBe(true);
+      }
+    }
+
+    const interactiveSurfaces = [
+      selectedGantryMcpToolNames([], { permissionLane: 'interactive' }),
+      parseEnabledGantryMcpToolNames(JSON.stringify(SCHEDULER_MCP_TOOL_NAMES), {
+        permissionLane: 'interactive',
+      }),
+    ];
+    for (const surface of interactiveSurfaces) {
+      const names = new Set(surface);
+      for (const toolName of SCHEDULER_MCP_TOOL_NAMES) {
+        expect(names.has(toolName)).toBe(true);
+      }
+    }
+  });
+
   it('drops provider-affinity tools for conversations on other providers in both selection paths', async () => {
     process.env.GANTRY_IPC_DIR = '/tmp/gantry-tools-1-1';
     const { effectiveEnabledMcpToolNames } =

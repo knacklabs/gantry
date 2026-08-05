@@ -245,15 +245,11 @@ export type PermissionApprovalDecisionMode =
   | 'allow_persistent_rule'
   | 'cancel';
 
+// prettier-ignore
 export type PermissionDecisionSource =
-  | 'durable_rule'
-  | 'birthright'
-  | 'deterministic_policy'
-  | 'auto_classifier'
-  | 'cached_classifier'
-  | 'trusted_root'
-  | 'human_once'
-  | 'human_persistent';
+  | 'durable_rule' | 'birthright' | 'deterministic_policy'
+  | 'auto_classifier' | 'cached_classifier' | 'trusted_root'
+  | 'human_once' | 'human_persistent';
 
 export interface PermissionRecoveryEnvelope {
   version: 1;

@@ -664,10 +664,8 @@ export function createCanUseToolCallback(
   };
 }
 
-const SILENT_ALLOW_DECIDERS = new Set([
-  'birthright',
-  'deterministic_read_only',
-]);
+// Typed source, never free-form decidedBy (human 'birthright' still surfaces).
+const SILENT_SOURCES = new Set(['birthright', 'deterministic_policy']);
 function permissionAllowedActivityPayload(
   decision: PermissionDecision,
 ): Record<string, unknown> {
@@ -694,7 +692,7 @@ function permissionAllowedActivityPayload(
 function formatPermissionAllowedMessage(
   decision: PermissionDecision,
 ): string | undefined {
-  if (decision.decidedBy && SILENT_ALLOW_DECIDERS.has(decision.decidedBy)) {
+  if (decision.source && SILENT_SOURCES.has(decision.source)) {
     return undefined;
   }
   if (!decision.decidedBy && !decision.risk_level) return undefined;

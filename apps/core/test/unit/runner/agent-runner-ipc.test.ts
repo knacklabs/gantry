@@ -2574,6 +2574,9 @@ describe('agent-runner IPC lifecycle', () => {
         (call?.stringPrompt as string | undefined) ??
         JSON.stringify(call?.streamMessages ?? []);
       expect(prompt).toContain('Final Job Report');
+      expect(prompt).toContain('Scheduler control is inspect-only');
+      expect(prompt).toContain('proposedJobChange');
+      expect(prompt).not.toContain('use scheduler_update_job to remove it');
       expect(prompt).toContain('found, added, skipped, and errors');
       expect(prompt).toContain('Durable tool rules for this autonomous run:');
       expect(prompt).toContain(

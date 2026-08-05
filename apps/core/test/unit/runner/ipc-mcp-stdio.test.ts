@@ -405,6 +405,7 @@ async function runMcpFixture(
       GANTRY_WORKSPACE_KEY: 'team',
       GANTRY_AGENT_RUN_HANDLE: 'mcp-test-run',
       GANTRY_NO_PERMISSION_TOOLS: '',
+      GANTRY_PERMISSION_LANE: 'interactive',
       GANTRY_ADMIN_MCP_TOOLS_JSON: '[]',
       GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(ALL_GANTRY_MCP_TOOL_NAMES),
       ...envOverrides,

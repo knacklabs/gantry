@@ -91,6 +91,7 @@ export function createGantryMcpServer(): McpServer {
     process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked',
     process.env.GANTRY_ASYNC_TASK_TOOLS_ENABLED,
     process.env.GANTRY_CHAT_JID,
+    process.env.GANTRY_PERMISSION_LANE,
   );
   const callableAgentManifest = parseCallableAgentManifest(
     process.env.GANTRY_CALLABLE_AGENT_MANIFEST_JSON,
@@ -149,11 +150,14 @@ export function effectiveEnabledMcpToolNames(
   lockedPreset = process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked',
   rawAsyncTaskToolsEnabled = process.env.GANTRY_ASYNC_TASK_TOOLS_ENABLED,
   rawChatJid = process.env.GANTRY_CHAT_JID,
+  rawPermissionLane = process.env.GANTRY_PERMISSION_LANE,
 ): Set<string> {
   const enabledTools = new Set(
     parseEnabledGantryMcpToolNames(rawToolNames, {
       lockedPreset,
       chatJid: rawChatJid,
+      permissionLane:
+        rawPermissionLane === 'interactive' ? 'interactive' : 'autonomous',
     }),
   );
   const selectedAdminTools = parseSelectedAdminMcpToolNames(rawAdminToolNames);

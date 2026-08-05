@@ -27,6 +27,9 @@ import {
   appId,
   chatJid,
   providerAccountId,
+  jobId,
+  permissionLane,
+  runId,
   memoryDefaultScope,
   memoryIpcAllowedActions,
   memoryReviewerIsControlApprover,
@@ -75,6 +78,10 @@ export function writeIpcFile(dir: string, data: object): string {
     ...(providerAccountId ? { providerAccountId } : {}),
     ...(threadId ? { threadId } : {}),
     ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
+    ...(jobId ? { sourceJobId: jobId } : {}),
+    ...(runId ? { sourceRunId: runId } : {}),
+    sourceRunKind:
+      permissionLane === 'autonomous' ? 'scheduled' : 'interactive',
   };
   const payload = {
     ...data,

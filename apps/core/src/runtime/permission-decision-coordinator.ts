@@ -267,8 +267,11 @@ function grantAllow(
   };
 }
 
-interface PermissionRunRestriction {
+export interface PermissionRunRestriction {
   hideAuthorityTools: boolean;
+  runKind: 'interactive' | 'scheduled';
+  jobId?: string;
+  runId?: string;
 }
 
 const permissionRunRestrictions = new Map<string, PermissionRunRestriction>();
@@ -277,9 +280,15 @@ export function registerPermissionRunRestriction(input: {
   sourceAgentFolder: string;
   responseKeyId: string;
   hideAuthorityTools: boolean;
+  runKind: 'interactive' | 'scheduled';
+  jobId?: string;
+  runId?: string;
 }): void {
   permissionRunRestrictions.set(restrictionKey(input), {
     hideAuthorityTools: input.hideAuthorityTools,
+    runKind: input.runKind,
+    ...(input.jobId ? { jobId: input.jobId } : {}),
+    ...(input.runId ? { runId: input.runId } : {}),
   });
 }
 

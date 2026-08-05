@@ -672,9 +672,15 @@ describe('coordinatePermissionDecision', () => {
     registerWorkerPermissionRunRestriction({
       ...key,
       hideAuthorityTools: true,
+      runKind: 'scheduled',
+      jobId: 'job-1',
+      runId: 'run-1',
     });
     expect(permissionRunRestriction(key)).toEqual({
       hideAuthorityTools: true,
+      runKind: 'scheduled',
+      jobId: 'job-1',
+      runId: 'run-1',
     });
     unregisterPermissionRunRestriction(key);
     expect(permissionRunRestriction(key)).toBeUndefined();
@@ -718,6 +724,8 @@ describe('coordinatePermissionDecision', () => {
     registerWorkerPermissionRunRestriction({
       ...key,
       hideAuthorityTools: true,
+      runKind: 'interactive',
+      runId: 'run-1',
     });
     const requestPermissionApproval = vi.fn();
     await expect(

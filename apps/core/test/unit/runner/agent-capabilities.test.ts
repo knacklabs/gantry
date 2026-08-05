@@ -311,6 +311,7 @@ describe('agent capability composition', () => {
         GANTRY_MEMORY_DEFAULT_SCOPE: 'group',
         GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER: '',
         GANTRY_NO_PERMISSION_TOOLS: '',
+        GANTRY_PERMISSION_LANE: 'interactive',
         GANTRY_BROWSER_PROFILE_NAME: 'c-team-abc123abc123',
         GANTRY_ADMIN_MCP_TOOLS_JSON: '[]',
         GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON: '[]',
@@ -461,11 +462,14 @@ describe('agent capability composition', () => {
       runId: 'run-1',
       runLeaseToken: 'lease-1',
       runLeaseFencingVersion: 7,
+      isScheduledJob: true,
     });
 
     expect(profile.mcpServers.gantry?.env).toMatchObject({
       GANTRY_JOB_ID: 'job-1',
       GANTRY_JOB_RUN_ID: 'run-1',
+      GANTRY_RUN_ID: 'run-1',
+      GANTRY_PERMISSION_LANE: 'autonomous',
       GANTRY_JOB_RUN_LEASE_TOKEN: 'lease-1',
       GANTRY_JOB_RUN_LEASE_FENCING_VERSION: '7',
     });

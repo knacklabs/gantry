@@ -68,6 +68,44 @@ async function loadIpcModule(tempRoot: string, responseVerifyKey: string) {
   return import('@core/runner/mcp/ipc.js');
 }
 
+describe('runner MCP task IPC provenance', () => {
+  it('stamps signed source provenance over caller-provided context', async () => {
+    const tempRoot = makeTempRoot();
+    const { publicKey } = generateKeyPairSync('ed25519');
+    vi.stubEnv('GANTRY_JOB_ID', 'job-host');
+    vi.stubEnv('GANTRY_RUN_ID', 'run-host');
+    vi.stubEnv('GANTRY_PERMISSION_LANE', 'autonomous');
+    const { writeIpcFile } = await loadIpcModule(
+      tempRoot,
+      publicKey.export({ format: 'pem', type: 'spki' }).toString(),
+    );
+
+    const tasksDir = path.join(tempRoot, 'tasks');
+    const filename = writeIpcFile(tasksDir, {
+      type: 'scheduler_update_job',
+      context: {
+        sourceJobId: 'job-forged',
+        sourceRunId: 'run-forged',
+        sourceRunKind: 'interactive',
+      },
+    });
+    const request = JSON.parse(
+      fs.readFileSync(path.join(tasksDir, filename), 'utf-8'),
+    ) as Record<string, unknown>;
+    const payload = { ...request };
+    delete payload.signature;
+
+    expect(request.context).toMatchObject({
+      sourceJobId: 'job-host',
+      sourceRunId: 'run-host',
+      sourceRunKind: 'scheduled',
+    });
+    expect(request.signature).toBe(
+      signPayloadWithAuthToken('mcp-test-auth-token', payload),
+    );
+  });
+});
+
 afterEach(() => {
   vi.useRealTimers();
   vi.resetModules();

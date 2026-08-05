@@ -933,13 +933,17 @@ describe('createCanUseToolCallback', () => {
     },
   );
 
-  it.each(['birthright', 'deterministic_read_only'])(
+  it.each([
+    ['birthright', 'birthright'],
+    ['deterministic_read_only', 'deterministic_policy'],
+  ] as const)(
     'keeps %s approvals silent in model-visible post-tool context',
-    async (decidedBy) => {
+    async (decidedBy, source) => {
       permissionMock.requestPermissionApproval.mockResolvedValueOnce({
         approved: true,
         mode: 'allow_once',
         decidedBy,
+        source,
       });
       const recordPermissionApprovalContext = vi.fn();
       const canUseTool = makeCallback({ recordPermissionApprovalContext });
@@ -955,6 +959,28 @@ describe('createCanUseToolCallback', () => {
       expect(recordPermissionApprovalContext).not.toHaveBeenCalled();
     },
   );
+
+  it('does not silence a human approver whose name collides with a silent decider', async () => {
+    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'birthright',
+      source: 'human_once',
+      repeatableForFutureRuns: false,
+    });
+    const recordPermissionApprovalContext = vi.fn();
+    const canUseTool = makeCallback({ recordPermissionApprovalContext });
+
+    await expect(
+      canUseTool(
+        'Bash',
+        { command: 'npm test' },
+        makePermissionOptions() as never,
+      ),
+    ).resolves.toEqual(expect.objectContaining({ behavior: 'allow' }));
+
+    expect(recordPermissionApprovalContext).toHaveBeenCalled();
+  });
 
   it('denies exact facade access in autonomous jobs without permission prompts', async () => {
     const canUseTool = makeCallback({
