@@ -82,7 +82,7 @@
       "title": "Observer S3b: xAI Grok + Kimi batch transports",
       "epic": "observer",
       "skill": "backend",
-      "order": 5,
+      "order": 10,
       "depends_on": [
         "OBS-1"
       ],
@@ -98,7 +98,7 @@
       "title": "Observer S4: digest delivery",
       "epic": "observer",
       "skill": "backend",
-      "order": 6,
+      "order": 11,
       "depends_on": [
         "OBS-2"
       ],
@@ -114,7 +114,7 @@
       "title": "Observer S5: setup wizard + preview + cold-start backfill",
       "epic": "observer",
       "skill": "backend",
-      "order": 7,
+      "order": 12,
       "depends_on": [
         "OBS-3"
       ],
@@ -130,7 +130,7 @@
       "title": "E2E: reconcile the test-matrix tracker",
       "epic": "agent-e2e-gate",
       "skill": "backend",
-      "order": 8,
+      "order": 13,
       "depends_on": [
         "PAY-1"
       ],
@@ -148,7 +148,7 @@
       "title": "E2E: remaining matrix rows",
       "epic": "agent-e2e-gate",
       "skill": "backend",
-      "order": 9,
+      "order": 14,
       "depends_on": [
         "E2E-1"
       ],
@@ -163,7 +163,7 @@
       "title": "E2E: flip agent-e2e-gate to a required check",
       "epic": "agent-e2e-gate",
       "skill": "backend",
-      "order": 10,
+      "order": 15,
       "depends_on": [
         "E2E-2"
       ],
@@ -197,7 +197,7 @@
       "title": "MCP hybrid search",
       "epic": "capability-search",
       "skill": "backend",
-      "order": 12,
+      "order": 17,
       "depends_on": [
         "CAP-1"
       ],
@@ -213,7 +213,7 @@
       "title": "Ponytail Phase-8 offline cutover",
       "epic": "ponytail",
       "skill": "backend",
-      "order": 13,
+      "order": 18,
       "depends_on": [
         "PAY-1"
       ],
@@ -232,7 +232,7 @@
       "title": "OTel permission/decision spans",
       "epic": "observability",
       "skill": "backend",
-      "order": 14,
+      "order": 19,
       "depends_on": [
         "PAY-1"
       ],
@@ -249,7 +249,7 @@
       "title": "Durable-work primitive",
       "epic": "post-cutover",
       "skill": "backend",
-      "order": 15,
+      "order": 20,
       "depends_on": [
         "PONY-1"
       ],
@@ -265,7 +265,7 @@
       "title": "Model management: unify then UX",
       "epic": "post-cutover",
       "skill": "backend",
-      "order": 16,
+      "order": 21,
       "depends_on": [
         "PONY-1"
       ],
@@ -300,7 +300,7 @@
       "title": "Coordination hardening batch (locks, TOCTOU, serializer)",
       "epic": "coordination-hardening",
       "skill": "backend",
-      "order": 18,
+      "order": 23,
       "depends_on": [
         "CO-1"
       ],
@@ -315,7 +315,7 @@
       "title": "desired-state-current-export rewrite",
       "epic": "coordination-hardening",
       "skill": "backend",
-      "order": 19,
+      "order": 24,
       "depends_on": [
         "PAY-1"
       ],
@@ -330,7 +330,7 @@
       "title": "S3/MinIO file-artifact bytes",
       "epic": "artifact-store",
       "skill": "backend",
-      "order": 20,
+      "order": 25,
       "depends_on": [
         "PAY-1"
       ],
@@ -364,7 +364,7 @@
     {
       "key": "SIMP-1",
       "title": "Audit paydown: simplifications (queue defaults, control service construction, test consolidation)",
-      "order": 23,
+      "order": 28,
       "status": "pending",
       "epic": "Audit paydown 2026-07",
       "skill": "backend"
@@ -372,7 +372,7 @@
     {
       "key": "SPS-4",
       "title": "Audit paydown: architecture decisions (cluster rate-limit authority, mandatory durable coordination, LLM loopback collapse, live-admission retention)",
-      "order": 24,
+      "order": 29,
       "status": "pending",
       "epic": "Audit paydown 2026-07",
       "skill": "backend"
@@ -675,7 +675,7 @@
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 39
+      "order": 44
     },
     {
       "status": "pending",
@@ -694,7 +694,7 @@
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 40
+      "order": 45
     },
     {
       "status": "done",
@@ -759,6 +759,89 @@
       "completed_at": "2026-08-04T20:18:18+00:00",
       "history": ".factory/history/CONTENT-2/",
       "outcome": "Agents can now get the real file, not just a text view: a new attachment_materialize tool copies one conversation attachment at a time into a quarantine folder inside the agent's own workspace, so scripts, converters and capable models can work on the actual bytes. Every copy is explicit, capped at 50 MB, cryptographically tied to the conversation it came from, written through the hardened writer that refuses symlink tricks, and logged. Files Telegram already dropped into the workspace are answered honestly with their existing path instead of a duplicate copy, and a stale reference falls back to re-fetching from the provider. The agent's instructions mark the quarantine folder as untrusted data to process with tools, never instructions to follow."
+    },
+    {
+      "status": "pending",
+      "key": "SCHED-1",
+      "title": "Scheduler correctness blockers: no self-mutation, typed permission provenance",
+      "value": "Recurring jobs stop pausing themselves: automatic policy allows no longer read as human one-time consent, scheduled runs lose scheduler mutation tools (surface + signed host rejection), and scheduler mutations ask in auto mode per decision 0058.",
+      "acceptance_criteria": [
+        "recurring job stays active after runs containing auto_classifier / cached_classifier_verdict / trusted_root_grant / birthright / deterministic_read_only / reviewed_rule allows; pauses only on explicit human one-time consent",
+        "scheduled runs mount only scheduler read tools; forged mutation IPC from a scheduled source is host-rejected via signed sourceJobId/sourceRunId/sourceRunKind",
+        "scheduler mutation+delete tools classify ask in normal auto mode (reads stay birthright); the tests requiring auto-approval are corrected",
+        "scheduled prompt drops the self-edit instruction and states the no-mutation control policy; runs report proposedJobChange in outcomes"
+      ],
+      "source_refs": [
+        "docs/architecture/scheduler-incident-assessment-2026-08-05.md",
+        "docs/decisions/0106-scheduled-runs-cannot-mutate-jobs.md",
+        "docs/decisions/0107-typed-permission-decision-provenance.md"
+      ],
+      "order": 5
+    },
+    {
+      "status": "pending",
+      "key": "SCHED-2",
+      "title": "Lead-job repair: semantic Sheets dependency + idempotent replay",
+      "value": "The live lead-maintenance job runs unattended again: raw Sheets command requirements replaced by the reviewed semantic capability, prompt rewritten semantically, the two missed lead writes replayed idempotently.",
+      "acceptance_criteria": [
+        "job requirements carry capability:google.sheets.values.append (update only if genuinely needed) and no raw Sheets RunCommand rules",
+        "prompt forbids raw shell Sheets use and self-mutation; reports missing capabilities and stops",
+        "agent-side readiness verified (capability selected, credential bound, worker image carries it); resume only on setup_state=ready with next_run set",
+        "missed writes replayed with a stable uniqueness key (no duplicates if an earlier write silently succeeded)"
+      ],
+      "source_refs": [
+        "docs/architecture/scheduler-incident-assessment-2026-08-05.md"
+      ],
+      "order": 6,
+      "depends_on": [
+        "SCHED-1"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "SCHED-3",
+      "title": "Job definition revision fencing: concurrent edits survive finalization",
+      "value": "A human pause, schedule change or requirement edit during a run is never overwritten: finalization is revision-aware and one canonical reconciler owns status and next_run.",
+      "acceptance_criteria": [
+        "definition_revision column, incremented on operator-meaningful changes; runs record the claimed revision",
+        "terminal transaction reloads the job; changed revision preserves operator definition/status, updates only run-owned state, recomputes readiness+next_run from the latest definition",
+        "regressions: human pause mid-run stays paused; schedule change mid-run yields next_run from the new schedule; requirement edits survive"
+      ],
+      "source_refs": [
+        "docs/decisions/0108-job-definition-revision-fencing.md"
+      ],
+      "order": 7
+    },
+    {
+      "status": "pending",
+      "key": "SCHED-4",
+      "title": "Scheduler observability + scheduled-run context parity",
+      "value": "Causality becomes provable and models choose semantic actions: immutable job.definition_changed / status_transition / readiness_changed events with actor+revision+before/after, richer mutation receipts and event rendering, the interactive capability catalog and a host-generated job runtime brief in scheduled prompts, and structured completed|partial|blocked run outcomes.",
+      "acceptance_criteria": [
+        "definition changes and status transitions are durable events with actor kind, source run, revision, changed fields and reason codes; scheduler_get_job/list_events render them",
+        "mutation receipts show revision delta, changed fields, readiness and status transition \u2014 never just 'job updated'",
+        "scheduled runs receive the SAME capability catalog resolver as interactive runs plus a job runtime brief (status at claim, revision, ready actions, previous outcome, control policy)",
+        "job runs gain structured partial/blocked outcomes; found-but-not-written can no longer be durably recorded as plain completed; paused-job permission recovery paginates past 100"
+      ],
+      "source_refs": [
+        "docs/architecture/scheduler-incident-assessment-2026-08-05.md"
+      ],
+      "order": 8
+    },
+    {
+      "status": "pending",
+      "key": "SCHED-5",
+      "title": "Semantic capability IDs as the canonical job dependency",
+      "value": "Jobs declare what they need, not how it is implemented: capability IDs become the canonical dependency, raw commands stay only as an explicit escape hatch rejected when a reviewed capability covers them, and existing workarounds are migrated.",
+      "acceptance_criteria": [
+        "job dependencies are {capabilityId, reason}; implementation resolves from the reviewed catalog at preflight and run time",
+        "raw command requirements rejected when the catalog proves coverage; migration replaces known workarounds and pauses only unmappable jobs",
+        "no second capability registry: the existing catalog is the single source"
+      ],
+      "source_refs": [
+        "docs/decisions/0109-semantic-capability-job-dependencies.md"
+      ],
+      "order": 9
     }
   ],
   "epics": [
@@ -847,5 +930,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-04T20:18:18+00:00"
+  "updated_at": "2026-08-05T03:30:00+00:00"
 }
