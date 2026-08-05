@@ -143,3 +143,25 @@ over the capability catalog.
 - Auditability: definition changes and transitions carry actor/source-run/
   revision/reason and render in scheduler tools.
 - Outcome: found-2-written-0 is partial/blocked, never plain completed.
+
+## Addendum (2026-08-05, Ravi): notification & approval UX spec
+
+Six defects in how the incident presented, priority-ordered (2 and 4 are the
+cheap wins, 5 removes the misdiagnosis, 1/3/6 are polish → SCHED-4A carries
+2/4/5/3; SCHED-4 carries 1/6):
+
+1. Setup-needed messages must say what broke, not just what is missing:
+   human-readable action, the job step that triggered it, died-vs-degraded,
+   and the scope choice — never a bare tool id.
+2. One-time vs durable must be explicit: approval prompts offer scope
+   (read-only defaults durable), and an Allow-once confirmation says
+   "Approved for this run only. It will ask again next run."
+3. Repeats escalate the copy: "Asked 3 times in 9 days, each approved once
+   only. Approve permanently?"
+4. Never send Setup-needed and Completed as contradictory peer cards: fold
+   the blocker into "Completed with limits" + degraded line, or badge it.
+5. Distinguish "not granted" from "granted but the command shape did not
+   match the rule": show approved pattern vs attempted command.
+6. Job health names the specific gap as the computed declared-vs-granted
+   diff ("missing: memory_search — declared by job, not granted to agent"),
+   not a bare missing_capability state.

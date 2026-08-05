@@ -129,7 +129,7 @@
       "source_refs": [
         "docs/decisions/0108-job-definition-revision-fencing.md"
       ],
-      "order": 7
+      "order": 8
     },
     {
       "status": "pending",
@@ -140,12 +140,14 @@
         "definition changes and status transitions are durable events with actor kind, source run, revision, changed fields and reason codes; scheduler_get_job/list_events render them",
         "mutation receipts show revision delta, changed fields, readiness and status transition \u2014 never just 'job updated'",
         "scheduled runs receive the SAME capability catalog resolver as interactive runs plus a job runtime brief (status at claim, revision, ready actions, previous outcome, control policy)",
-        "job runs gain structured partial/blocked outcomes; found-but-not-written can no longer be durably recorded as plain completed; paused-job permission recovery paginates past 100"
+        "job runs gain structured partial/blocked outcomes; found-but-not-written can no longer be durably recorded as plain completed; paused-job permission recovery paginates past 100",
+        "setup-needed messages name the human-readable action, the job step that triggered it, and whether the run died or degraded \u2014 never just the tool id",
+        "job health names the specific gap (e.g. 'missing: memory_search \u2014 declared by job, not granted to agent') computed as the declared-vs-granted diff, shown on the job card"
       ],
       "source_refs": [
         "docs/architecture/scheduler-incident-assessment-2026-08-05.md"
       ],
-      "order": 8
+      "order": 9
     },
     {
       "status": "pending",
@@ -160,7 +162,7 @@
       "source_refs": [
         "docs/decisions/0109-semantic-capability-job-dependencies.md"
       ],
-      "order": 9
+      "order": 10
     },
     {
       "status": "pending",
@@ -168,7 +170,7 @@
       "title": "Observer S3b: xAI Grok + Kimi batch transports",
       "epic": "observer",
       "skill": "backend",
-      "order": 10,
+      "order": 11,
       "depends_on": [
         "OBS-1"
       ],
@@ -184,7 +186,7 @@
       "title": "Observer S4: digest delivery",
       "epic": "observer",
       "skill": "backend",
-      "order": 11,
+      "order": 12,
       "depends_on": [
         "OBS-2"
       ],
@@ -219,7 +221,7 @@
       "title": "Observer S5: setup wizard + preview + cold-start backfill",
       "epic": "observer",
       "skill": "backend",
-      "order": 12,
+      "order": 13,
       "depends_on": [
         "OBS-3"
       ],
@@ -235,7 +237,7 @@
       "title": "E2E: reconcile the test-matrix tracker",
       "epic": "agent-e2e-gate",
       "skill": "backend",
-      "order": 13,
+      "order": 14,
       "depends_on": [
         "PAY-1"
       ],
@@ -253,7 +255,7 @@
       "title": "E2E: remaining matrix rows",
       "epic": "agent-e2e-gate",
       "skill": "backend",
-      "order": 14,
+      "order": 15,
       "depends_on": [
         "E2E-1"
       ],
@@ -268,7 +270,7 @@
       "title": "E2E: flip agent-e2e-gate to a required check",
       "epic": "agent-e2e-gate",
       "skill": "backend",
-      "order": 15,
+      "order": 16,
       "depends_on": [
         "E2E-2"
       ],
@@ -283,7 +285,7 @@
       "title": "MCP hybrid search",
       "epic": "capability-search",
       "skill": "backend",
-      "order": 17,
+      "order": 18,
       "depends_on": [
         "CAP-1"
       ],
@@ -318,7 +320,7 @@
       "title": "Ponytail Phase-8 offline cutover",
       "epic": "ponytail",
       "skill": "backend",
-      "order": 18,
+      "order": 19,
       "depends_on": [
         "PAY-1"
       ],
@@ -337,7 +339,7 @@
       "title": "OTel permission/decision spans",
       "epic": "observability",
       "skill": "backend",
-      "order": 19,
+      "order": 20,
       "depends_on": [
         "PAY-1"
       ],
@@ -354,7 +356,7 @@
       "title": "Durable-work primitive",
       "epic": "post-cutover",
       "skill": "backend",
-      "order": 20,
+      "order": 21,
       "depends_on": [
         "PONY-1"
       ],
@@ -370,7 +372,7 @@
       "title": "Model management: unify then UX",
       "epic": "post-cutover",
       "skill": "backend",
-      "order": 21,
+      "order": 22,
       "depends_on": [
         "PONY-1"
       ],
@@ -406,7 +408,7 @@
       "title": "Coordination hardening batch (locks, TOCTOU, serializer)",
       "epic": "coordination-hardening",
       "skill": "backend",
-      "order": 23,
+      "order": 24,
       "depends_on": [
         "CO-1"
       ],
@@ -421,7 +423,7 @@
       "title": "desired-state-current-export rewrite",
       "epic": "coordination-hardening",
       "skill": "backend",
-      "order": 24,
+      "order": 25,
       "depends_on": [
         "PAY-1"
       ],
@@ -436,7 +438,7 @@
       "title": "S3/MinIO file-artifact bytes",
       "epic": "artifact-store",
       "skill": "backend",
-      "order": 25,
+      "order": 26,
       "depends_on": [
         "PAY-1"
       ],
@@ -506,7 +508,7 @@
     {
       "key": "SIMP-1",
       "title": "Audit paydown: simplifications (queue defaults, control service construction, test consolidation)",
-      "order": 28,
+      "order": 29,
       "status": "pending",
       "epic": "Audit paydown 2026-07",
       "skill": "backend"
@@ -534,7 +536,7 @@
     {
       "key": "SPS-4",
       "title": "Audit paydown: architecture decisions (cluster rate-limit authority, mandatory durable coordination, LLM loopback collapse, live-admission retention)",
-      "order": 29,
+      "order": 30,
       "status": "pending",
       "epic": "Audit paydown 2026-07",
       "skill": "backend"
@@ -825,7 +827,7 @@
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 44
+      "order": 45
     },
     {
       "status": "pending",
@@ -844,7 +846,23 @@
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 45
+      "order": 46
+    },
+    {
+      "status": "pending",
+      "key": "SCHED-4A",
+      "title": "Approval & setup-notification UX: explicit scope, no contradictory cards, match-vs-grant diagnosis",
+      "value": "Kills the confusion that made the pause loop undiagnosable: approvals say whether they are one-time or durable (and confirm 'will ask again next run'), a run that recovers never sends a green Completed card and an orange Setup-needed card as peers, and 'granted but pattern did not match' reads differently from 'not granted' with the attempted-vs-approved diff shown.",
+      "acceptance_criteria": [
+        "approval prompts offer explicit scope (Allow once / Allow for future / Deny \u2014 the locked set) with read-only tools defaulting to the durable option; an Allow-once confirmation states 'Approved for this run only; it will ask again next run'",
+        "when a run completes after a blocked-but-degraded step, the setup card is folded into the completion ('Completed with limits' + degraded line) or suppressed in favor of a completion badge \u2014 never two contradictory peer cards",
+        "permission denials distinguish not-granted from granted-but-unmatched, showing the approved pattern vs the attempted command",
+        "same job + same tool asked more than twice escalates the copy with the ask count and a permanent-approval offer"
+      ],
+      "source_refs": [
+        "docs/architecture/scheduler-incident-assessment-2026-08-05.md"
+      ],
+      "order": 7
     }
   ],
   "epics": [
@@ -933,5 +951,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-05T06:09:52+00:00"
+  "updated_at": "2026-08-05T07:20:00+00:00"
 }
