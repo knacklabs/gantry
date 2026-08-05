@@ -77,7 +77,7 @@
       "history": ".factory/history/OBS-1/"
     },
     {
-      "status": "active",
+      "status": "done",
       "key": "SCHED-1",
       "title": "Scheduler correctness blockers: no self-mutation, typed permission provenance",
       "value": "Recurring jobs stop pausing themselves: automatic policy allows no longer read as human one-time consent, scheduled runs lose scheduler mutation tools (surface + signed host rejection), and scheduler mutations ask in auto mode per decision 0058.",
@@ -92,7 +92,10 @@
         "docs/decisions/0106-scheduled-runs-cannot-mutate-jobs.md",
         "docs/decisions/0107-typed-permission-decision-provenance.md"
       ],
-      "order": 5
+      "order": 5,
+      "completed_at": "2026-08-05T06:09:52+00:00",
+      "history": ".factory/history/SCHED-1/",
+      "outcome": "Recurring jobs no longer pause themselves: the runtime now distinguishes automatic policy approvals from genuine human one-time consent, and only the latter pauses a job \u2014 with every automatic path regression-tested and ambiguous records treated safely. Scheduled runs also lost the ability to edit their own future: the six scheduler mutation tools are gone from unattended runs at two independent layers (the tool list they see, and a host-side check they cannot forge because it keys on values only the host mints), scheduler changes now ask a human in auto mode as decision 0058 always required, and every request carries signed source-run provenance for auditing. The self-pausing loop that hit the lead-maintenance job is closed at all four of its causes."
     },
     {
       "status": "pending",
@@ -930,5 +933,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-05T03:16:07+00:00"
+  "updated_at": "2026-08-05T06:09:52+00:00"
 }
