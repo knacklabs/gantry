@@ -135,6 +135,7 @@ function gantryMcpAllowedTools(input: {
   memoryReviewerIsControlApprover?: boolean;
   callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
   chatJid: string;
+  isScheduledJob?: boolean;
 }): string[] {
   const selectedNames = new Set(
     selectedGantryMcpToolNames(input.configuredTools ?? [], {
@@ -143,6 +144,7 @@ function gantryMcpAllowedTools(input: {
       memoryReviewerIsControlApprover:
         input.memoryReviewerIsControlApprover === true,
       chatJid: input.chatJid,
+      permissionLane: input.isScheduledJob ? 'autonomous' : 'interactive',
     }),
   );
   const defaultAllowedNames = [
@@ -175,6 +177,7 @@ function defaultAllowedTools(input: {
   memoryReviewerIsControlApprover?: boolean;
   callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
   chatJid: string;
+  isScheduledJob?: boolean;
 }): string[] {
   return [...SAFE_NATIVE_SDK_TOOLS, ...gantryMcpAllowedTools(input)];
 }
@@ -236,6 +239,7 @@ const sdkToolsProvider: AgentCapabilityProvider = {
                   ctx.memoryReviewerIsControlApprover,
                 callableAgentManifest: projectedCallableAgentManifest(ctx),
                 chatJid: ctx.chatJid,
+                isScheduledJob: ctx.isScheduledJob,
               }),
             ]
           : defaultAllowedTools({
@@ -246,6 +250,7 @@ const sdkToolsProvider: AgentCapabilityProvider = {
                 ctx.memoryReviewerIsControlApprover,
               callableAgentManifest: projectedCallableAgentManifest(ctx),
               chatJid: ctx.chatJid,
+              isScheduledJob: ctx.isScheduledJob,
             }),
       availableTools: baseAvailableTools,
       disallowedTools: UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS,
@@ -274,6 +279,8 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       ...(ctx.runHandle ? { GANTRY_AGENT_RUN_HANDLE: ctx.runHandle } : {}),
       ...(ctx.jobId ? { GANTRY_JOB_ID: ctx.jobId } : {}),
       ...(ctx.runId ? { GANTRY_JOB_RUN_ID: ctx.runId } : {}),
+      ...(ctx.runId ? { GANTRY_RUN_ID: ctx.runId } : {}),
+      GANTRY_PERMISSION_LANE: ctx.isScheduledJob ? 'autonomous' : 'interactive',
       ...(ctx.parentTaskId ? { GANTRY_PARENT_TASK_ID: ctx.parentTaskId } : {}),
       ...(ctx.runLeaseToken
         ? { GANTRY_JOB_RUN_LEASE_TOKEN: ctx.runLeaseToken }
@@ -327,6 +334,7 @@ const gantryMcpProvider: AgentCapabilityProvider = {
           memoryReviewerIsControlApprover:
             ctx.memoryReviewerIsControlApprover === true,
           chatJid: ctx.chatJid,
+          permissionLane: ctx.isScheduledJob ? 'autonomous' : 'interactive',
         }),
         ...callableAgentManifest.map(callableAgentToolName),
       ]),

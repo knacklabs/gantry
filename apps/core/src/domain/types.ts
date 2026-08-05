@@ -245,6 +245,12 @@ export type PermissionApprovalDecisionMode =
   | 'allow_persistent_rule'
   | 'cancel';
 
+// prettier-ignore
+export type PermissionDecisionSource =
+  | 'durable_rule' | 'birthright' | 'deterministic_policy'
+  | 'auto_classifier' | 'cached_classifier' | 'trusted_root'
+  | 'human_once' | 'human_persistent';
+
 export interface PermissionRecoveryEnvelope {
   version: 1;
   renderedDecisionOptions: PermissionApprovalDecisionMode[];
@@ -310,6 +316,8 @@ export interface PermissionApprovalDecision {
   approved: boolean;
   mode?: PermissionApprovalDecisionMode;
   decidedBy?: string;
+  source?: PermissionDecisionSource;
+  repeatableForFutureRuns?: boolean;
   reason?: string;
   risk_level?: PermissionRiskLevel;
   risk_category?: PermissionRiskCategory;

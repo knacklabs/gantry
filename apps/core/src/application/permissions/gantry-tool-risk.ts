@@ -48,6 +48,14 @@ const EXTERNAL_MUTATION_TOOLS = new Set<string>(['send_message']);
 // config writes, so the whole tool asks rather than auto-approving a list/read.
 const ARG_DEPENDENT_HIGH_RISK_TOOLS = new Set<string>(['file']);
 
+const SCHEDULER_MUTATION_TOOLS = new Set<string>([
+  'scheduler_update_job',
+  'scheduler_upsert_job',
+  'scheduler_pause_job',
+  'scheduler_resume_job',
+  'scheduler_run_now',
+]);
+
 export interface GantryToolRisk {
   risk_level: PermissionRiskLevel;
   reason: string;
@@ -117,6 +125,11 @@ export function gantryToolDefaultRisk(
   if (ARG_DEPENDENT_HIGH_RISK_TOOLS.has(canonical)) {
     return high(
       `Gantry ${canonical} can mutate protected state depending on arguments; ask the user.`,
+    );
+  }
+  if (SCHEDULER_MUTATION_TOOLS.has(canonical)) {
+    return high(
+      `Gantry ${canonical} mutates future unattended execution; ask the user.`,
     );
   }
   if (EXTERNAL_MUTATION_TOOLS.has(canonical)) {

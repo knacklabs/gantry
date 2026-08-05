@@ -271,6 +271,42 @@ describe('validateIpcAuthRequest', () => {
     });
   });
 
+  it('parses signed scheduler source provenance and rejects field tampering', () => {
+    const payload = {
+      requestId: 'scheduler-source-provenance',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      type: 'scheduler_update_job',
+      jobId: 'job-target',
+      context: {
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+        sourceJobId: 'job-source',
+        sourceRunId: 'run-source',
+        sourceRunKind: 'scheduled',
+      },
+    };
+    const signed = signedPayload(payload);
+
+    expect(parseTaskIpcData(signed, 'team')).toMatchObject({
+      sourceJobId: 'job-source',
+      sourceRunId: 'run-source',
+      sourceRunKind: 'scheduled',
+    });
+    clearConsumedIpcRequestIds({ durable: 'consumed' });
+    expect(() =>
+      parseTaskIpcData(
+        {
+          ...signed,
+          context: {
+            ...payload.context,
+            sourceRunKind: 'interactive',
+          },
+        },
+        'team',
+      ),
+    ).toThrow('Invalid IPC task signature');
+  });
+
   it('preserves scheduler notification route provider account scope', () => {
     const payload = signedPayload(
       {

@@ -784,7 +784,7 @@ describe('ipc-interaction-handler', () => {
       approved: true,
       mode: 'allow_once',
       decidedBy: 'reviewed_rule',
-      decisionClassification: 'user_temporary',
+      decisionClassification: 'user_permanent',
     });
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1021,6 +1021,11 @@ describe('ipc-interaction-handler', () => {
           ? { risk_category: expectedRiskCategory }
           : {}),
         decisionClassification: 'user_reject',
+        // 'runtime' is a free-form decider: the provenance map is
+        // deliberately conservative for unknown strings (human_once);
+        // denials never feed the recurring-job pause predicate.
+        source: 'human_once',
+        repeatableForFutureRuns: false,
       });
       expect(publishRuntimeEvent).toHaveBeenCalledWith(
         expect.objectContaining({

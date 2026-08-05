@@ -65,6 +65,10 @@ import { schedulerMutateTaskHandlers } from '@core/jobs/ipc-scheduler-mutate-han
 import { schedulerQueryTaskHandlers } from '@core/jobs/ipc-scheduler-query-handlers.js';
 import { schedulerAccessFromContext } from '@core/jobs/ipc-scheduler-access.js';
 import {
+  registerPermissionRunRestriction,
+  unregisterPermissionRunRestriction,
+} from '@core/runtime/permission-decision-coordinator.js';
+import {
   configureCustomModelCatalogEntries,
   executableModelEntry,
   providerRoute,
@@ -85,6 +89,8 @@ function makeContext(data: TaskIpcData): TaskContext {
       taskId: 'task-1',
       chatJid: 'tg:team',
       targetJid: 'tg:team',
+      responseKeyId: 'scheduler-adapter-contract',
+      sourceRunKind: 'interactive',
       ...data,
     },
     sourceAgentFolder: 'team',
@@ -136,6 +142,12 @@ function makeContext(data: TaskIpcData): TaskContext {
 describe('scheduler IPC adapter contracts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    registerPermissionRunRestriction({
+      sourceAgentFolder: 'team',
+      responseKeyId: 'scheduler-adapter-contract',
+      hideAuthorityTools: false,
+      runKind: 'interactive',
+    });
     mocks.jobServiceDeps.length = 0;
     mocks.runtimeControlRepository.getAppSessionById.mockResolvedValue(
       undefined,
@@ -167,6 +179,10 @@ describe('scheduler IPC adapter contracts', () => {
   });
 
   afterEach(() => {
+    unregisterPermissionRunRestriction({
+      sourceAgentFolder: 'team',
+      responseKeyId: 'scheduler-adapter-contract',
+    });
     vi.useRealTimers();
     configureCustomModelCatalogEntries([]);
   });

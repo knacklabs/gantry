@@ -9,13 +9,19 @@ export function registerWorkerPermissionRunRestriction(input: {
   sourceAgentFolder: string;
   responseKeyId: string;
   hideAuthorityTools: boolean;
+  runKind: 'interactive' | 'scheduled';
+  jobId?: string;
+  runId?: string;
 }): void {
   registerPermissionRunRestriction(input);
 }
 
 export function setupPermissionRunRestriction(
   sourceAgentFolder: string,
-  agentInput: Pick<AgentInput, 'threadId' | 'appId' | 'agentId'>,
+  agentInput: Pick<
+    AgentInput,
+    'threadId' | 'appId' | 'agentId' | 'isScheduledJob' | 'jobId' | 'runId'
+  >,
   hideAuthorityTools: boolean,
 ) {
   const ipcAuth = createIpcAuthEnvelope(
@@ -30,6 +36,9 @@ export function setupPermissionRunRestriction(
     sourceAgentFolder,
     responseKeyId: ipcAuth.responseKeyId,
     hideAuthorityTools,
+    runKind: agentInput.isScheduledJob ? 'scheduled' : 'interactive',
+    jobId: agentInput.jobId,
+    runId: agentInput.runId,
   });
   return {
     ipcAuth,

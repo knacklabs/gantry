@@ -362,7 +362,12 @@ async function resolvePermissionIpcDecisionTail(input: {
   if (classifierDecision?.decision === 'allow' && !input.railRequiresApproval) {
     return withRequestRisk(
       input.request,
-      decisionForMode(input.request, 'allow_once', 'auto_classifier'),
+      decisionForMode(
+        input.request,
+        'allow_once',
+        'auto_classifier',
+        'machine',
+      ),
     );
   }
   if (
@@ -374,6 +379,7 @@ async function resolvePermissionIpcDecisionTail(input: {
         input.request,
         'cancel',
         railVetoedClassifierAllow ? 'deterministic_rails' : 'runtime',
+        'machine',
       ),
       reason: railVetoedClassifierAllow
         ? (input.railApprovalReason ??

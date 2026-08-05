@@ -376,7 +376,7 @@ function allow(
   decidedBy = 'deterministic_read_only',
 ): PermissionDeterministicRailDecision {
   return {
-    ...decisionForMode(request, 'allow_once', decidedBy),
+    ...decisionForMode(request, 'allow_once', decidedBy, 'machine'),
     railOutcome: 'allow',
     reason,
   };
