@@ -626,13 +626,10 @@ async function runActiveJob(
     const safeResultSummary = deletionGuard.deletedDuringRun
       ? null
       : result || resultSummaryAccumulator.snapshot() || null;
+    // prettier-ignore
     const {
-      runStatus,
-      nextRun,
-      retryCount,
-      pauseReason,
-      safeErrorSummary,
-      toolDenial,
+      runStatus, nextRun, retryCount, pauseReason,
+      safeErrorSummary, toolDenial, setupNotified,
     } = await finalizeSchedulerJobRun({
       currentJob,
       deps,
@@ -753,6 +750,8 @@ async function runActiveJob(
         nextRun,
         retryCount,
         pauseReason,
+        setupNotified,
+        diagnostics,
         durationMs: Math.max(0, nowMs() - startedAtMs),
         runShortId,
         sendMessage: deps.sendMessage,

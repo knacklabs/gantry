@@ -1300,6 +1300,7 @@ describe('ipc-interaction-handler', () => {
     expect(requestPermissionApproval).toHaveBeenCalledWith(
       expect.objectContaining({
         promotionHintCount: 2,
+        firstAskedAt: '2026-07-12T00:00:00.000Z',
         decisionOptions: ['allow_persistent_rule', 'allow_once', 'cancel'],
       }),
     );

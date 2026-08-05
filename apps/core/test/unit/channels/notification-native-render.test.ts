@@ -460,12 +460,12 @@ describe('Slack permission blocks', () => {
 
   it('renders a receipt as a single muted context block', () => {
     const blocks = buildPermissionReceiptBlocks(
-      'Allowed once: Command (npm test). The agent will continue this request.',
+      'Approved for this run only: Command (npm test).',
     ) as Array<Record<string, any>>;
     expect(blocks).toHaveLength(1);
     expect(blocks[0].type).toBe('context');
     expect(blocks[0].elements[0].text).toBe(
-      'Allowed once: Command (npm test). The agent will continue this request.',
+      'Approved for this run only: Command (npm test).',
     );
   });
 });

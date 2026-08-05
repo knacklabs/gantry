@@ -160,12 +160,15 @@ export async function notifyJobSetupRequired(input: {
   source?: JobSetupCheckSource;
   runId?: string | null;
   publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
+  suppressNotification?: boolean;
 }): Promise<boolean> {
-  const notified = await notifySchedulerSetupRequired({
-    job: input.currentJob,
-    setupState: input.setupState,
-    sendMessage: input.deps.sendMessage,
-  });
+  const notified = input.suppressNotification
+    ? false
+    : await notifySchedulerSetupRequired({
+        job: input.currentJob,
+        setupState: input.setupState,
+        sendMessage: input.deps.sendMessage,
+      });
   if (notified) {
     await input.deps.opsRepository.markJobSetupNotified(
       input.currentJob.id,
