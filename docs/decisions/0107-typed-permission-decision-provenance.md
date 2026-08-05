@@ -1,6 +1,6 @@
 ---
-status: proposed
-confirmed_by: ""
+status: accepted
+confirmed_by: "Ravi"
 date: 2026-08-05
 stories: [SCHED-1]
 ---
