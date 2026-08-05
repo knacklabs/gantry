@@ -160,10 +160,11 @@ export function createChannelWiring(
     asPermissionApprovalSurface,
     asUserQuestionSurface,
   });
-  const { setTyping, addReaction, removeReaction } = createChannelWiringLiveUx({
-    findBinding: findLiveUxBinding,
-    logger: resolved.logger,
-  });
+  const { setTyping, addReaction, removeReaction, reactionRemovalMode } =
+    createChannelWiringLiveUx({
+      findBinding: findLiveUxBinding,
+      logger: resolved.logger,
+    });
   const isControlApproverAllowed = (input: {
     providerId: string;
     providerAccountId?: string;
@@ -750,6 +751,7 @@ export function createChannelWiring(
     sendProgressUpdate,
     addReaction,
     removeReaction,
+    reactionRemovalMode,
     syncGroups: (force) => syncChannelGroups(connectedChannels, force),
     requestPermissionApproval,
     cancelPermissionApproval: requestPermissionApproval.cancel,

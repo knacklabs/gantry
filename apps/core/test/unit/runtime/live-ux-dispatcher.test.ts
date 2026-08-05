@@ -56,6 +56,18 @@ function binding(channel: ChannelAdapter, identity: object = channel) {
   return { channel, identity };
 }
 
+function rememberDiscordReactionTarget(
+  channel: DiscordChannel,
+  jid = 'dc:42',
+  messageRef = 'message-1',
+  channelId = '42',
+): void {
+  const messageChannelIds = Reflect.get(channel, 'messageChannelIds') as {
+    remember(jid: string, messageRef: string, channelId: string): void;
+  };
+  messageChannelIds.remember(jid, messageRef, channelId);
+}
+
 describe('live UX dispatcher', () => {
   it('declares truthful built-in adapter capabilities without inferred operations', async () => {
     const app = await createAppChannel({
@@ -132,6 +144,12 @@ describe('live UX dispatcher', () => {
       },
       logger: { warn: vi.fn() },
     });
+
+    expect(
+      liveUx.reactionRemovalMode('tg:42', {
+        providerAccountId: 'account-two',
+      }),
+    ).toBe('all');
 
     await liveUx.setTyping('tg:42', true, {
       providerAccountId: 'account-two',
@@ -582,6 +600,7 @@ describe('live UX dispatcher', () => {
       );
       try {
         const discord = new DiscordChannel('bot', 'app', {} as never);
+        rememberDiscordReactionTarget(discord);
         const liveUx = createLiveUxDispatcher({
           findBinding: () => binding(discord),
           logger: { warn: vi.fn() },
@@ -609,6 +628,7 @@ describe('live UX dispatcher', () => {
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     try {
       const discord = new DiscordChannel('bot', 'app', {} as never);
+      rememberDiscordReactionTarget(discord);
       const liveUx = createLiveUxDispatcher({
         findBinding: () => binding(discord),
         logger: { warn: vi.fn() },
@@ -729,6 +749,7 @@ describe('live UX dispatcher', () => {
           return new Response(null, { status: 204 });
         });
       const discord = new DiscordChannel('bot', 'app', {} as never);
+      rememberDiscordReactionTarget(discord);
       const liveUx = createLiveUxDispatcher({
         findBinding: () => binding(discord),
         logger: { warn: vi.fn() },
@@ -770,6 +791,7 @@ describe('live UX dispatcher', () => {
           return new Response(null, { status: 204 });
         });
       const discord = new DiscordChannel('bot', 'app', {} as never);
+      rememberDiscordReactionTarget(discord);
       const liveUx = createLiveUxDispatcher({
         findBinding: () => binding(discord),
         logger: { warn: vi.fn() },
@@ -1004,6 +1026,7 @@ describe('live UX dispatcher', () => {
           return new Response(null, { status: 204 });
         });
       const discord = new DiscordChannel('bot', 'app', {} as never);
+      rememberDiscordReactionTarget(discord);
       const liveUx = createLiveUxDispatcher({
         findBinding: () => binding(discord),
         logger: { warn: vi.fn() },
@@ -1040,6 +1063,7 @@ describe('live UX dispatcher', () => {
       remember(jid: string, messageRef: string, channelId: string): void;
     };
     messageChannelIds.remember('dc:parent', 'message-1', '123');
+    messageChannelIds.remember('dc:123', 'message-1', '123');
     const addReaction = vi.spyOn(discord, 'addReaction').mockImplementation(
       () =>
         new Promise<void>((resolve) => {
@@ -1085,6 +1109,7 @@ describe('live UX dispatcher', () => {
       remember(jid: string, messageRef: string, channelId: string): void;
     };
     messageChannelIds.remember('dc:parent', 'message-1', '123');
+    messageChannelIds.remember('dc:123', 'message-1', '123');
     const liveUx = createLiveUxDispatcher({
       findBinding: () => binding(discord),
       logger: { warn: vi.fn() },

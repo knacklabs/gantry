@@ -536,6 +536,8 @@ export async function startRuntimeServices(
         channelWiring.addReaction(jid, messageRef, emoji, options),
       removeReaction: (jid, messageRef, emoji, options) =>
         channelWiring.removeReaction(jid, messageRef, emoji, options),
+      reactionRemovalMode: (jid, options) =>
+        channelWiring.reactionRemovalMode(jid, options),
       handleActiveControlCommand,
       finalizeAgentTodo: (jid, render, options) =>
         channelWiring.finalizeAgentTodo(jid, render, options),

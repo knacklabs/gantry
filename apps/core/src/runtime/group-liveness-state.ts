@@ -17,7 +17,7 @@ type GroupLivenessLogger = {
   debug(metadata: Record<string, unknown>, message: string): void;
 };
 
-type ReactionTarget = { jid: string; messageRef: string };
+type ReactionTarget = { jid: string; messageRef: string; threadId?: string };
 type GroupLivenessPauseReason = 'waiting-for-user' | 'turn-complete';
 
 export function createGroupTurnTypingSender(input: {

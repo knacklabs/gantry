@@ -530,8 +530,15 @@ export function createLiveUxDispatcher(input: {
     }
     return binding;
   };
-
   return {
+    reactionRemovalMode: (
+      jid: string,
+      options?: { providerAccountId?: string },
+    ): 'exact' | 'all' | undefined => {
+      const reactions = input.findBinding(jid, options?.providerAccountId)
+        ?.channel.liveUx?.reactions;
+      return reactions === 'none' ? undefined : reactions?.removal;
+    },
     setTyping: async (
       jid: string,
       isTyping: boolean,

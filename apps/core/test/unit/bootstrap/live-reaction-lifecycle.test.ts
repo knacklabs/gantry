@@ -20,6 +20,7 @@ describe('live reaction lifecycle', () => {
     const lifecycle = createLiveReactionLifecycle({
       addReaction,
       removeReaction,
+      removalMode: 'exact',
     });
 
     await lifecycle.onFirstProgress({ jid: 'sl:C1', messageRef: 'm-1' });
@@ -61,6 +62,7 @@ describe('live reaction lifecycle', () => {
     const lifecycle = createLiveReactionLifecycle({
       addReaction,
       removeReaction,
+      removalMode: 'exact',
     });
 
     await lifecycle.onFirstProgress({ jid: 'sl:C1', messageRef: 'm-1' });
@@ -91,6 +93,7 @@ describe('live reaction lifecycle', () => {
     const lifecycle = createLiveReactionLifecycle({
       addReaction,
       removeReaction,
+      removalMode: 'exact',
     });
 
     void lifecycle.onFirstProgress({ jid: 'sl:C1', messageRef: 'm-1' });
@@ -121,6 +124,7 @@ describe('live reaction lifecycle', () => {
     const lifecycle = createLiveReactionLifecycle({
       addReaction,
       removeReaction,
+      removalMode: 'exact',
     });
 
     await lifecycle.onFirstProgress({ jid: 'sl:C1', messageRef: 'm-1' });
@@ -141,5 +145,78 @@ describe('live reaction lifecycle', () => {
       'seen',
       undefined,
     );
+  });
+
+  it('replaces reactions directly when the provider removal mode is all', async () => {
+    const events: string[] = [];
+    const addReaction = vi.fn(async (_jid, _ref, emoji) => {
+      events.push(`add:${emoji}`);
+    });
+    const removeReaction = vi.fn(async (_jid, _ref, emoji) => {
+      events.push(`remove:${emoji}`);
+    });
+    const lifecycle = createLiveReactionLifecycle({
+      addReaction,
+      removeReaction,
+      removalMode: 'all',
+    });
+
+    await lifecycle.onFirstProgress({ jid: 'tg:1', messageRef: 'm-1' });
+    await vi.advanceTimersByTimeAsync(5_000);
+    await lifecycle.onTerminal();
+
+    expect(events).toEqual(['add:seen', 'add:running', 'add:seen']);
+    expect(removeReaction).not.toHaveBeenCalled();
+  });
+
+  it('uses the selected reaction target thread for every flip operation', async () => {
+    const addReaction = vi.fn(async () => undefined);
+    const removeReaction = vi.fn(async () => undefined);
+    const lifecycle = createLiveReactionLifecycle({
+      addReaction,
+      removeReaction,
+      removalMode: 'exact',
+      options: { threadId: 'newest-thread' },
+    });
+
+    await lifecycle.onFirstProgress({
+      jid: 'dc:parent-1',
+      messageRef: 'message-1',
+      threadId: 'selected-thread',
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    await lifecycle.onTerminal();
+
+    for (const call of [
+      ...addReaction.mock.calls,
+      ...removeReaction.mock.calls,
+    ]) {
+      expect(call[3]).toEqual({ threadId: 'selected-thread' });
+    }
+  });
+
+  it('clears an inherited thread when the selected reaction target is threadless', async () => {
+    const addReaction = vi.fn(async () => undefined);
+    const removeReaction = vi.fn(async () => undefined);
+    const lifecycle = createLiveReactionLifecycle({
+      addReaction,
+      removeReaction,
+      removalMode: 'exact',
+      options: { providerAccountId: 'account-1', threadId: 'newest-thread' },
+    });
+
+    await lifecycle.onFirstProgress({
+      jid: 'dc:parent-1',
+      messageRef: 'plain-message-1',
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    await lifecycle.onTerminal();
+
+    for (const call of [
+      ...addReaction.mock.calls,
+      ...removeReaction.mock.calls,
+    ]) {
+      expect(call[3]).toEqual({ providerAccountId: 'account-1' });
+    }
   });
 });

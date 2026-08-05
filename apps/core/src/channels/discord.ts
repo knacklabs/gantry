@@ -586,13 +586,11 @@ export class DiscordChannel implements ChannelAdapter {
       message,
       context.conversationJid,
     );
-    if (context.threadId) {
-      this.messageChannelIds.remember(
-        context.conversationJid,
-        message.id,
-        message.channel_id,
-      );
-    }
+    this.messageChannelIds.remember(
+      context.conversationJid,
+      message.id,
+      message.channel_id,
+    );
     const matchingRoutes = findConversationRoutesForChat(
       this.opts.conversationRoutes?.() ?? {},
       context.conversationJid,

@@ -5693,6 +5693,220 @@ describe('Slack channel', () => {
     }
   });
 
+  it('lazily marks a prior-process Slack card stale and posts fresh work', async () => {
+    const runtimeHome = fs.mkdtempSync('/tmp/gantry-slack-progress-');
+    const savedHome = process.env.GANTRY_HOME;
+    process.env.GANTRY_HOME = runtimeHome;
+    try {
+      const first = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await first.connect();
+      await first.sendProgressUpdate('sl:C1234567890', 'Waiting...', {
+        generation: 4,
+      });
+
+      const runDir = `${runtimeHome}/run`;
+      const stateFile = fs
+        .readdirSync(runDir)
+        .find((name) => name.startsWith('slack-progress-state-'));
+      expect(stateFile).toBeTruthy();
+      const statePath = `${runDir}/${stateFile}`;
+      const entries = JSON.parse(fs.readFileSync(statePath, 'utf8')) as any[];
+      entries[0][1].ownerProcessId = process.pid;
+      entries[0][1].ownerBootNonce = 'prior-process-boot';
+      fs.writeFileSync(statePath, JSON.stringify(entries));
+
+      appRef.current.client.chat.postMessage.mockClear();
+      appRef.current.client.chat.update.mockClear();
+      const second = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await second.connect();
+
+      expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+      expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+
+      await second.sendProgressUpdate('sl:C1234567890', 'Working again...', {
+        generation: 5,
+      });
+
+      expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
+        channel: 'C1234567890',
+        ts: '1710000000.100200',
+        text: 'Interrupted by a restart.',
+        blocks: [],
+      });
+      expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith({
+        channel: 'C1234567890',
+        text: 'Working again...',
+      });
+      expect(
+        appRef.current.client.chat.update.mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        appRef.current.client.chat.postMessage.mock.invocationCallOrder[0]!,
+      );
+    } finally {
+      if (savedHome === undefined) delete process.env.GANTRY_HOME;
+      else process.env.GANTRY_HOME = savedHome;
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects an older generation before prior-process Slack cleanup', async () => {
+    const runtimeHome = fs.mkdtempSync('/tmp/gantry-slack-progress-');
+    const savedHome = process.env.GANTRY_HOME;
+    process.env.GANTRY_HOME = runtimeHome;
+    try {
+      const first = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await first.connect();
+      await first.sendProgressUpdate('sl:C1234567890', 'Newer work...', {
+        generation: 5,
+      });
+
+      const runDir = `${runtimeHome}/run`;
+      const stateFile = fs
+        .readdirSync(runDir)
+        .find((name) => name.startsWith('slack-progress-state-'));
+      expect(stateFile).toBeTruthy();
+      const statePath = `${runDir}/${stateFile}`;
+      const entries = JSON.parse(fs.readFileSync(statePath, 'utf8')) as any[];
+      entries[0][1].ownerBootNonce = 'prior-process-boot';
+      fs.writeFileSync(statePath, JSON.stringify(entries));
+
+      const second = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await second.connect();
+      appRef.current.client.chat.postMessage.mockClear();
+      appRef.current.client.chat.update.mockClear();
+
+      await expect(
+        second.sendProgressUpdate('sl:C1234567890', 'Obsolete work...', {
+          generation: 4,
+        }),
+      ).resolves.toBe(false);
+
+      expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+      expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+      expect(JSON.parse(fs.readFileSync(statePath, 'utf8'))).toEqual(entries);
+    } finally {
+      if (savedHome === undefined) delete process.env.GANTRY_HOME;
+      else process.env.GANTRY_HOME = savedHome;
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('treats legacy Slack progress without ownership as prior-process work', async () => {
+    const runtimeHome = fs.mkdtempSync('/tmp/gantry-slack-progress-');
+    const savedHome = process.env.GANTRY_HOME;
+    process.env.GANTRY_HOME = runtimeHome;
+    try {
+      const first = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await first.connect();
+      await first.sendProgressUpdate('sl:C1234567890', 'Waiting...');
+
+      const runDir = `${runtimeHome}/run`;
+      const stateFile = fs
+        .readdirSync(runDir)
+        .find((name) => name.startsWith('slack-progress-state-'));
+      expect(stateFile).toBeTruthy();
+      const statePath = `${runDir}/${stateFile}`;
+      const entries = JSON.parse(fs.readFileSync(statePath, 'utf8')) as any[];
+      delete entries[0][1].ownerBootNonce;
+      fs.writeFileSync(statePath, JSON.stringify(entries));
+
+      const second = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await second.connect();
+      appRef.current.client.chat.postMessage.mockClear();
+      appRef.current.client.chat.update.mockClear();
+
+      await second.sendProgressUpdate('sl:C1234567890', 'Working again...');
+
+      expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
+        channel: 'C1234567890',
+        ts: '1710000000.100200',
+        text: 'Interrupted by a restart.',
+        blocks: [],
+      });
+      expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith({
+        channel: 'C1234567890',
+        text: 'Working again...',
+      });
+    } finally {
+      if (savedHome === undefined) delete process.env.GANTRY_HOME;
+      else process.env.GANTRY_HOME = savedHome;
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('posts fresh Slack work when the prior-process stale edit fails', async () => {
+    const runtimeHome = fs.mkdtempSync('/tmp/gantry-slack-progress-');
+    const savedHome = process.env.GANTRY_HOME;
+    process.env.GANTRY_HOME = runtimeHome;
+    try {
+      const first = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await first.connect();
+      await first.sendProgressUpdate('sl:C1234567890', 'Waiting...');
+
+      const runDir = `${runtimeHome}/run`;
+      const stateFile = fs
+        .readdirSync(runDir)
+        .find((name) => name.startsWith('slack-progress-state-'));
+      expect(stateFile).toBeTruthy();
+      const statePath = `${runDir}/${stateFile}`;
+      const entries = JSON.parse(fs.readFileSync(statePath, 'utf8')) as any[];
+      entries[0][1].ownerBootNonce = 'prior-process-boot';
+      fs.writeFileSync(statePath, JSON.stringify(entries));
+
+      const second = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await second.connect();
+      appRef.current.client.chat.postMessage.mockClear();
+      appRef.current.client.chat.update.mockRejectedValueOnce(
+        new Error('stale edit failed'),
+      );
+
+      await expect(
+        second.sendProgressUpdate('sl:C1234567890', 'Working again...'),
+      ).resolves.toBe(true);
+
+      expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith({
+        channel: 'C1234567890',
+        text: 'Working again...',
+      });
+    } finally {
+      if (savedHome === undefined) delete process.env.GANTRY_HOME;
+      else process.env.GANTRY_HOME = savedHome;
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
   it('drops persisted Slack progress handles for a different channel', async () => {
     const runtimeHome = fs.mkdtempSync('/tmp/gantry-slack-progress-');
     const savedHome = process.env.GANTRY_HOME;

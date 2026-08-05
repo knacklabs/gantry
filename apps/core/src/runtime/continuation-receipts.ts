@@ -1,5 +1,22 @@
 import type { NewMessage } from '../domain/types.js';
 
+export function latestReactionTarget(
+  messages: readonly NewMessage[] | undefined,
+): { messageRef: string; threadId?: string } | undefined {
+  if (!messages) return undefined;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    const messageRef = message?.external_message_id;
+    if (messageRef && !messageRef.startsWith('external-ingress:')) {
+      return {
+        messageRef,
+        ...(message.thread_id ? { threadId: message.thread_id } : {}),
+      };
+    }
+  }
+  return undefined;
+}
+
 export async function acknowledgeContinuationReceipt(input: {
   jid: string;
   messages: readonly NewMessage[] | undefined;
@@ -12,10 +29,15 @@ export async function acknowledgeContinuationReceipt(input: {
   ) => Promise<void>;
 }): Promise<void> {
   if (!input.addReaction || !input.messages) return;
-  for (let index = input.messages.length - 1; index >= 0; index -= 1) {
-    const ref = input.messages[index]?.external_message_id;
-    if (!ref || ref.startsWith('external-ingress:')) continue;
-    await input.addReaction(input.jid, ref, 'seen', input.options);
-    return;
-  }
+  const target = latestReactionTarget(input.messages);
+  if (!target) return;
+  const { threadId: _inheritedThreadId, ...baseOptions } = input.options ?? {};
+  const options =
+    input.options || target.threadId
+      ? {
+          ...baseOptions,
+          ...(target.threadId ? { threadId: target.threadId } : {}),
+        }
+      : undefined;
+  await input.addReaction(input.jid, target.messageRef, 'seen', options);
 }

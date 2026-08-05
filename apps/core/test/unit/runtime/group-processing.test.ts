@@ -1146,6 +1146,47 @@ describe('createGroupProcessor', () => {
       }
     });
 
+    it('backwards-scans a batch for the newest provider reaction target', async () => {
+      const onFirstProgress = vi.fn();
+      const messages = [
+        makeMessage({ external_message_id: 'provider-message-1' }),
+        makeMessage({ external_message_id: 'external-ingress:batch-2' }),
+      ];
+      const { deps } = setupHappyPath({ messages });
+      const { processGroupMessages } = createGroupProcessor(deps);
+
+      await processGroupMessages('group1@g.us', { onFirstProgress });
+
+      expect(onFirstProgress).toHaveBeenCalledWith({
+        jid: 'group1@g.us',
+        messageRef: 'provider-message-1',
+      });
+    });
+
+    it('carries the back-scanned reaction target thread instead of the newest batch thread', async () => {
+      const onFirstProgress = vi.fn();
+      const messages = [
+        makeMessage({
+          external_message_id: 'provider-message-1',
+          thread_id: 'selected-thread',
+        }),
+        makeMessage({
+          external_message_id: 'external-ingress:batch-2',
+          thread_id: 'synthetic-thread',
+        }),
+      ];
+      const { deps } = setupHappyPath({ messages });
+      const { processGroupMessages } = createGroupProcessor(deps);
+
+      await processGroupMessages('group1@g.us', { onFirstProgress });
+
+      expect(onFirstProgress).toHaveBeenCalledWith({
+        jid: 'group1@g.us',
+        messageRef: 'provider-message-1',
+        threadId: 'selected-thread',
+      });
+    });
+
     it('starts the agent while the first reaction admission never settles', async () => {
       const runnerResult = deferred<AgentOutput>();
       const neverSettles = new Promise<void>(() => undefined);

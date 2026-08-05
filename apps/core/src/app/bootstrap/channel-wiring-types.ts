@@ -250,6 +250,10 @@ export interface ChannelWiring {
     emoji: string,
     options?: ChannelAccountOptions,
   ) => Promise<void>;
+  reactionRemovalMode: (
+    jid: string,
+    options?: Pick<ChannelAccountOptions, 'providerAccountId'>,
+  ) => 'exact' | 'all' | undefined;
   syncGroups: (force: boolean) => Promise<void>;
   requestPermissionApproval: (
     request: PermissionApprovalRequest,

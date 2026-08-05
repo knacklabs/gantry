@@ -4696,6 +4696,26 @@ describe('TelegramChannel', () => {
         expect.objectContaining({ parse_mode: 'MarkdownV2' }),
       );
     });
+
+    it('keeps a replace-only edit failure sticky-ambiguous without creating a duplicate', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+      currentBot().api.editMessageText.mockRejectedValue(
+        new Error('message can not be edited'),
+      );
+
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(true);
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalled();
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
   });
 
   // --- ownsJid ---
@@ -4741,6 +4761,20 @@ describe('TelegramChannel', () => {
         '100200300',
         'typing',
         undefined,
+        undefined,
+      );
+    });
+
+    it('sends typing into the originating Telegram topic', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      await channel.setTyping('tg:100200300', true, { threadId: '42' });
+
+      expect(currentBot().api.sendChatAction).toHaveBeenCalledWith(
+        '100200300',
+        'typing',
+        { message_thread_id: 42 },
         undefined,
       );
     });

@@ -495,6 +495,13 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
           actionOptions.editReplyMarkup,
         );
       } catch (err) {
+        if (options.replaceOnly) {
+          logger.debug(
+            { jid, err },
+            'Progress lifecycle telegram retained ambiguous replace-only handle after edit failure',
+          );
+          return true;
+        }
         logger.debug(
           { jid, err },
           'Failed to edit progress message, creating a fresh one',
@@ -765,6 +772,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
       bot: this.bot,
       jid,
       isTyping,
+      threadId: options.threadId,
       signal: options.signal,
     });
   };

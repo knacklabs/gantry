@@ -68,6 +68,7 @@ export interface ActiveProgressState {
   messageTs?: string;
   lastText: string;
   generation?: number;
+  ownerBootNonce?: string;
 }
 
 export interface PendingPermissionPrompt {

@@ -12,8 +12,10 @@ export class DiscordMessageChannelCache {
     const key = this.key(jid, messageRef);
     this.entries.delete(key);
     this.entries.set(key, { channelId, expiresAtMs: now + TTL_MS });
-    for (const [candidate, entry] of this.entries) {
-      if (entry.expiresAtMs <= now) this.entries.delete(candidate);
+    if (this.entries.size > MAX_ENTRIES) {
+      for (const [candidate, entry] of this.entries) {
+        if (entry.expiresAtMs <= now) this.entries.delete(candidate);
+      }
     }
     while (this.entries.size > MAX_ENTRIES) {
       const oldest = this.entries.keys().next().value;
@@ -27,8 +29,7 @@ export class DiscordMessageChannelCache {
     const entry = this.entries.get(key);
     if (!entry) return undefined;
     if (entry.expiresAtMs <= Date.now()) {
-      this.entries.delete(key);
-      return undefined;
+      entry.expiresAtMs = Date.now() + TTL_MS;
     }
     return entry.channelId;
   }

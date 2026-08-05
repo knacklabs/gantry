@@ -26,13 +26,15 @@ function discordLiveUxChannelId(input: {
   resolveMessageChannelId(jid: string, messageRef: string): string | undefined;
 }): string | undefined {
   const normalizedJid = normalizedDiscordJid(input.jid);
-  return (
-    (input.threadId || undefined) ??
-    (normalizedJid && input.messageRef
-      ? input.resolveMessageChannelId(normalizedJid, input.messageRef)
-      : undefined) ??
-    normalizedJid?.slice('dc:'.length)
-  );
+  if (input.threadId) return input.threadId;
+  if (normalizedJid && input.messageRef) {
+    const resolved = input.resolveMessageChannelId(
+      normalizedJid,
+      input.messageRef,
+    );
+    if (resolved) return resolved;
+  }
+  return normalizedJid?.slice('dc:'.length);
 }
 
 export function createDiscordLiveUxCapability(
@@ -70,10 +72,9 @@ export function createDiscordLiveUxCapability(
         ...target,
         resolveMessageChannelId,
       });
-      const resolvedTarget = channel ?? target.jid.trim();
       return {
-        key: `reaction\n${resolvedTarget}\n${target.messageRef}\n${discordReactionEmoji(target.emoji)}`,
-        resolvedTarget,
+        key: `reaction\n${channel ?? `unresolved:${target.jid.trim()}`}\n${target.messageRef}\n${discordReactionEmoji(target.emoji)}`,
+        ...(channel ? { resolvedTarget: channel } : {}),
       };
     },
   } as const;
@@ -97,25 +98,25 @@ export class DiscordLiveUxOperations {
     );
   }
 
-  addReaction(
+  async addReaction(
     jid: string,
     messageRef: string,
     emoji: string,
     options: LiveUxOperationOptions = {},
   ): Promise<void> {
-    return addDiscordReaction({
+    await addDiscordReaction({
       ...this.reactionInput(jid, messageRef, options),
       emoji,
     });
   }
 
-  removeReaction(
+  async removeReaction(
     jid: string,
     messageRef: string,
     emoji: string,
     options: LiveUxOperationOptions = {},
   ): Promise<void> {
-    return removeDiscordReaction({
+    await removeDiscordReaction({
       ...this.reactionInput(jid, messageRef, options),
       emoji,
     });
@@ -144,17 +145,21 @@ export class DiscordLiveUxOperations {
     messageRef: string,
     options: LiveUxOperationOptions,
   ) {
+    const channelId =
+      typeof options.resolvedTarget === 'string'
+        ? options.resolvedTarget
+        : discordLiveUxChannelId({
+            jid,
+            messageRef,
+            threadId: options.threadId,
+            resolveMessageChannelId: this.input.resolveMessageChannelId,
+          });
+    if (!channelId) {
+      throw new Error('Discord reaction target channel is unavailable');
+    }
     return {
       botToken: this.input.botToken,
-      channelId:
-        typeof options.resolvedTarget === 'string'
-          ? options.resolvedTarget
-          : discordLiveUxChannelId({
-              jid,
-              messageRef,
-              threadId: options.threadId,
-              resolveMessageChannelId: this.input.resolveMessageChannelId,
-            }),
+      channelId,
       jid,
       messageRef,
       reactionKeys: this.input.reactionKeys,

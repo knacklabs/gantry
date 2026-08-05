@@ -59,6 +59,7 @@ import { randomUUID } from 'node:crypto';
 import { nowIso } from '../shared/time/datetime.js';
 import { createGroupProcessingSessionCommandHandlers } from './group-processing-session-command-handlers.js';
 import { createGroupProcessingPersonResolver } from './group-person-identity.js';
+import { latestReactionTarget } from './continuation-receipts.js';
 import {
   isFailoverEligibleError,
   isMissingProviderSessionError,
@@ -121,11 +122,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const latestMessage = missedMessages[missedMessages.length - 1];
     const cursorForMessage = (message: typeof latestMessage) =>
       encodeGroupMessageCursor(toGroupMessageCursor(message));
-    const latestMessageReactionRef =
-      latestMessage.external_message_id &&
-      !latestMessage.external_message_id.startsWith('external-ingress:')
-        ? latestMessage.external_message_id
-        : null;
+    const latestMessageReactionTarget = latestReactionTarget(missedMessages);
     const activeThreadId = firstThreadQueueId(
       threadId,
       latestMessage.thread_id,
@@ -268,8 +265,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const turnUiMarker = Symbol(queueJid);
     try {
       liveness.start(
-        latestMessageReactionRef
-          ? { jid: chatJid, messageRef: latestMessageReactionRef }
+        latestMessageReactionTarget
+          ? { jid: chatJid, ...latestMessageReactionTarget }
           : null,
       );
       const memoryUserId = await resolveActionMemoryUserId();
