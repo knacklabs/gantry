@@ -454,6 +454,60 @@ describe('jobs/execution-notifications', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
+  it('folds a completed degraded run into one completed-with-limits card', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+
+    const notified = await notifySchedulerTerminalRunState({
+      job: makeJob({ name: 'Lead maintenance' }),
+      runId: 'run-degraded',
+      runStatus: 'completed',
+      summary: 'Imported 3 records.',
+      nextRun: null,
+      retryCount: 0,
+      pauseReason: 'Setup required',
+      setupNotified: false,
+      diagnostics: {
+        pendingPermissionRequests: 0,
+        pendingPermissionToolNames: [],
+        totalToolCalls: 1,
+        browserActivityCount: 0,
+        transientPermissionApprovals: [
+          { toolName: 'RunCommand', mode: 'allow_once' },
+        ],
+        startupDiagnostics: [],
+        latestStreamedOutputChars: 0,
+        totalStreamedOutputChars: 0,
+      },
+      sendMessage,
+    });
+
+    expect(notified).toBe(true);
+    expect(sendMessage).toHaveBeenCalledOnce();
+    const message = String(sendMessage.mock.calls[0]?.[1]);
+    expect(message).toContain('**⚠️ Completed with limits**');
+    expect(message).toContain('⚠️ Degraded:');
+    expect(message).not.toContain('Setup needed');
+  });
+
+  it('keeps only the setup card when a blocker ends the run', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+
+    const notified = await notifySchedulerTerminalRunState({
+      job: makeJob(),
+      runId: 'run-blocked',
+      runStatus: 'paused',
+      summary: 'Tool not on autonomous run allowlist: RunCommand.',
+      nextRun: null,
+      retryCount: 0,
+      pauseReason: 'Setup required',
+      setupNotified: true,
+      sendMessage,
+    });
+
+    expect(notified).toBe(false);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
   it('sends setup-required notifications with plain user actions', async () => {
     const sendMessage = vi.fn(async () => undefined);
     const setupState: JobSetupState = {

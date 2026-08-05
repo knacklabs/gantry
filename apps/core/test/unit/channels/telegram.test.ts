@@ -6036,7 +6036,7 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
         '100200300',
         987,
-        expect.stringContaining('Allowed once:'),
+        expect.stringContaining('Approved for this run only:'),
         expect.objectContaining({ reply_markup: { inline_keyboard: [] } }),
       );
     });
@@ -6074,7 +6074,7 @@ describe('TelegramChannel', () => {
       await expect(decisionPromise).resolves.toMatchObject({ approved: true });
       expect(currentBot().api.sendMessage).toHaveBeenLastCalledWith(
         '100200300',
-        expect.stringContaining('Allowed once:'),
+        expect.stringContaining('Approved for this run only:'),
         expect.objectContaining({ parse_mode: 'HTML' }),
       );
     });

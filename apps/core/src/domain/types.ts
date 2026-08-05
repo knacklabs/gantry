@@ -225,6 +225,7 @@ export interface PermissionApprovalRequest {
    *  "remember this folder", so it approves without a tool-rule suggestion. */
   trustedRootLearn?: boolean;
   promotionHintCount?: number;
+  firstAskedAt?: string;
   interaction?: InteractionDescriptor;
   permissionBatch?: {
     requestIds: string[];

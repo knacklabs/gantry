@@ -12,6 +12,7 @@ import {
   type ReviewMessageView,
 } from '../memory/review-message-view.js';
 import { formatRunStatusMessage } from './status-formatting.js';
+import type { JobRunDiagnostics } from './execution-diagnostics.js';
 import {
   isMemoryDreamingSystemJob,
   MEMORY_DREAM_SYSTEM_PROMPT,
@@ -22,6 +23,7 @@ import {
   setupActionLabel,
   setupBlockerLabel,
 } from '../shared/job-setup-labels.js';
+import { humanizeTechnicalIdentifier } from '../shared/user-visible-messages.js';
 
 type TerminalRunStatus = Extract<
   JobRunStatus,
@@ -125,6 +127,8 @@ export async function notifySchedulerTerminalRunState(input: {
   retryCount: number;
   pauseReason: string | null;
   durationMs?: number;
+  setupNotified?: boolean;
+  diagnostics?: JobRunDiagnostics;
   sendMessage: SchedulerSendMessage;
   memoryReviewNotification?: MemoryReviewCreatedNotification;
   updateLifecycleNotification?: (input: {
@@ -135,11 +139,42 @@ export async function notifySchedulerTerminalRunState(input: {
   }) => Promise<JobNotificationLifecycleUpdateResult>;
 }): Promise<boolean> {
   if (input.job.silent) return false;
-  if (
+  // Suppress only when a setup card was actually DELIVERED and the run did
+  // not complete: a completed-but-paused run whose setup card was skipped
+  // must still get its completed-with-limits card, or the pause is silent.
+  // The setup card subsumes the terminal card only when the SEMANTIC gate
+  // holds: the pause is the setup requirement AND the summary parses as the
+  // autonomous denial — i.e. the denial IS the whole outcome, whatever the
+  // terminal status string says (the long-standing behavior). An explicit
+  // setupNotified === false always keeps the card (silent-pause guard);
+  // undefined is a legacy caller relying on the semantic gate alone.
+  const suppressTerminalCard =
+    input.runStatus !== 'completed' &&
+    input.setupNotified !== false &&
     input.pauseReason === SETUP_REQUIRED_PAUSE_REASON &&
-    parseAutonomousToolDenial(input.summary)
-  ) {
-    return false;
+    parseAutonomousToolDenial(input.summary) !== null;
+  if (suppressTerminalCard) {
+    // An existing lifecycle/progress message must not stay frozen at
+    // "running" next to the setup card — retire it with the terminal
+    // summary. If the updater cannot edit in place, fall through to the
+    // normal send path so the outcome is never lost.
+    const retired = await input.updateLifecycleNotification?.({
+      job: input.job,
+      runId: input.runId,
+      runStatus: input.runStatus,
+      summaryMessage: formatRunStatusMessage({
+        job: input.job,
+        runId: input.runId,
+        runShortId: input.runShortId,
+        runStatus: input.runStatus,
+        summary: input.summary,
+        nextRun: input.nextRun,
+        retryCount: input.retryCount,
+        pauseReason: input.pauseReason,
+        durationMs: input.durationMs,
+      }),
+    });
+    if (retired === 'updated' || retired === undefined) return false;
   }
   // A review-created run sends the actual review card + Approve/Reject/Edit
   // buttons as a fresh terminal message. It deliberately bypasses the
@@ -165,6 +200,11 @@ export async function notifySchedulerTerminalRunState(input: {
       retryCount: input.retryCount,
       pauseReason: input.pauseReason,
       durationMs: input.durationMs,
+      degradedReason: degradedReasonForDiagnostics(
+        input.runStatus,
+        input.diagnostics,
+        input.pauseReason,
+      ),
     });
   const updateResult =
     input.updateLifecycleNotification === undefined
@@ -188,6 +228,42 @@ export async function notifySchedulerTerminalRunState(input: {
     actionAffordances,
     sendMessage: input.sendMessage,
   });
+}
+
+function degradedReasonForDiagnostics(
+  runStatus: TerminalRunStatus,
+  diagnostics: JobRunDiagnostics | undefined,
+  pauseReason: string | null,
+): string | undefined {
+  if (runStatus !== 'completed' || !diagnostics) return undefined;
+  // The denial that actually limited THIS run outranks a transient approval
+  // note about future runs; show both when both happened.
+  const parts: string[] = [];
+  if (diagnostics.terminalToolDenial) {
+    parts.push(
+      `Missing ${humanizeTechnicalIdentifier(diagnostics.terminalToolDenial.toolName)} access limited this run.`,
+    );
+  }
+  // The future-runs warning is emitted only when finalization actually
+  // paused the job for setup — a completed one-shot run with an allow_once
+  // has nothing to warn about. And since the setup card is suppressed on
+  // this path, list EVERY distinct approval, not just the first: fixing one
+  // and pausing again on the next would be the old loop in miniature.
+  if (pauseReason === SETUP_REQUIRED_PAUSE_REASON) {
+    const names = [
+      ...new Set(
+        diagnostics.transientPermissionApprovals.map((approval) =>
+          humanizeTechnicalIdentifier(approval.toolName),
+        ),
+      ),
+    ];
+    if (names.length > 0) {
+      parts.push(
+        `${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} approved for this run only; future runs need permanent approval.`,
+      );
+    }
+  }
+  return parts.length > 0 ? parts.join(' ') : undefined;
 }
 
 function reviewDecisionAffordances(

@@ -34,6 +34,7 @@ export interface FinalizedJobRunState {
   pauseReason: string | null;
   safeErrorSummary: string | null;
   toolDenial: ReturnType<typeof parseAutonomousToolDenial>;
+  setupNotified: boolean;
 }
 
 export async function finalizeSchedulerJobRun(input: {
@@ -70,6 +71,7 @@ export async function finalizeSchedulerJobRun(input: {
   let retryCount = currentJob.consecutive_failures;
   let incrementConsecutiveFailures = false;
   let pauseReason: string | null = null;
+  let setupNotified = false;
   const safePrimaryErrorSummary = input.error
     ? redactProviderSessionHandlesInText(input.error)
     : null;
@@ -104,6 +106,7 @@ export async function finalizeSchedulerJobRun(input: {
       pauseReason,
       safeErrorSummary,
       toolDenial,
+      setupNotified,
     });
   };
   const updateJob = async (updates: Partial<Job>): Promise<void> => {
@@ -115,6 +118,7 @@ export async function finalizeSchedulerJobRun(input: {
       pauseReason,
       safeErrorSummary,
       toolDenial,
+      setupNotified,
     };
     await beforeJobStateUpdate();
     if (input.updateJobState) {
@@ -149,7 +153,7 @@ export async function finalizeSchedulerJobRun(input: {
         lease_expires_at: null,
       });
       if (setupState) {
-        await notifyJobSetupRequired({
+        setupNotified = await notifyJobSetupRequired({
           currentJob,
           deps,
           runtimeAppId,
@@ -189,7 +193,7 @@ export async function finalizeSchedulerJobRun(input: {
         lease_run_id: null,
         lease_expires_at: null,
       });
-      await notifyJobSetupRequired({
+      setupNotified = await notifyJobSetupRequired({
         currentJob,
         deps,
         runtimeAppId,
@@ -281,7 +285,7 @@ export async function finalizeSchedulerJobRun(input: {
       lease_run_id: null,
       lease_expires_at: null,
     });
-    await notifyJobSetupRequired({
+    setupNotified = await notifyJobSetupRequired({
       currentJob,
       deps,
       runtimeAppId,
@@ -290,6 +294,7 @@ export async function finalizeSchedulerJobRun(input: {
       source: 'transient_permission',
       runId: input.runId,
       publishRuntimeEvent: input.publishRuntimeEvent,
+      suppressNotification: true,
     });
   } else {
     await updateJob({
@@ -314,6 +319,7 @@ export async function finalizeSchedulerJobRun(input: {
     pauseReason,
     safeErrorSummary,
     toolDenial,
+    setupNotified,
   };
 }
 

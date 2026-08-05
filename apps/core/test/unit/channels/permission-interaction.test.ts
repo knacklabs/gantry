@@ -15,6 +15,7 @@ import {
 import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 import { decisionForMode as domainDecisionForMode } from '@core/domain/permission-decision.js';
+import { formatPermissionDeniedMessage } from '@core/shared/permission-decision-message.js';
 
 function requestWithSuggestions(
   suggestions: PermissionApprovalRequest['suggestions'],
@@ -26,6 +27,104 @@ function requestWithSuggestions(
     suggestions,
   };
 }
+
+describe('permission receipts', () => {
+  it('says approved for this run only and that a scheduled job will ask again next run', () => {
+    const request = {
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      jobId: 'job-1',
+      toolName: 'RunCommand',
+      toolInput: { command: 'npm test' },
+    } satisfies PermissionApprovalRequest;
+
+    expect(
+      formatPermissionReceiptText(request.requestId, request, {
+        approved: true,
+        mode: 'allow_once',
+        repeatableForFutureRuns: false,
+      }),
+    ).toBe(
+      'Approved for this run only: Command (npm test). It will ask again next run.',
+    );
+  });
+
+  it('uses provenance when present and mode as the legacy fallback', () => {
+    const request = {
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      toolInput: { command: 'npm test' },
+      suggestions: [
+        {
+          type: 'addRules' as const,
+          behavior: 'allow' as const,
+          rules: [{ toolName: 'RunCommand', ruleContent: 'npm test' }],
+        },
+      ],
+    } satisfies PermissionApprovalRequest;
+
+    expect(
+      formatPermissionReceiptText(request.requestId, request, {
+        approved: true,
+        mode: 'allow_persistent_rule',
+        repeatableForFutureRuns: false,
+      }),
+    ).toBe('Approved for this run only: Command (npm test).');
+    expect(
+      formatPermissionReceiptText(request.requestId, request, {
+        approved: true,
+        mode: 'allow_persistent_rule',
+      }),
+    ).toBe(
+      'Allowed for future: Command (npm test). Saved for Main Agent. Manage access to revoke it later.',
+    );
+  });
+});
+
+describe('permission match diagnosis', () => {
+  it('shows the approved pattern and sanitized attempted command for a RunCommand miss', () => {
+    const secret = 'abcdefghijklmnopqrstuvwxyz123456';
+    const request = {
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      closestRule: {
+        rule: 'RunCommand(gog sheets get *)',
+        reason: 'The pipeline shape did not match.',
+      },
+      toolInput: {
+        command: `gog sheets get sheet-id | head -50 -H "Authorization: bearer ${secret}"`,
+      },
+    } satisfies PermissionApprovalRequest;
+
+    const prompt = formatPermissionPromptText(request, 60_000);
+    expect(prompt).toContain('Approved pattern: RunCommand(gog sheets get *)');
+    expect(prompt).toContain('Attempted command:');
+    expect(prompt).toContain('[REDACTED_SECRET]');
+    expect(prompt).not.toContain(secret);
+
+    const unmatched = domainDecisionForMode(
+      request,
+      'cancel',
+      'operator',
+      'human',
+    );
+    const notGranted = domainDecisionForMode(
+      { ...request, closestRule: undefined },
+      'cancel',
+      'operator',
+      'human',
+    );
+    expect(
+      formatPermissionDeniedMessage(unmatched, unmatched.reason!),
+    ).toContain('attempted command did not match an approved pattern');
+    expect(
+      formatPermissionDeniedMessage(notGranted, notGranted.reason!),
+    ).toContain('Access for this tool was not granted');
+    expect(unmatched.reason).not.toBe(notGranted.reason);
+  });
+});
 
 describe('permission interaction', () => {
   it('derives typed provenance and classification at the decision choke point', () => {
@@ -473,9 +572,10 @@ describe('permission interaction', () => {
     const request = {
       ...requestWithSuggestions([]),
       promotionHintCount: 3,
+      firstAskedAt: new Date().toISOString(),
     } satisfies PermissionApprovalRequest;
     const hint =
-      "You've allowed me to do this 3 times — want me to stop asking?";
+      'Asked 3 times in 1 day, each approved once only. Approve permanently?';
     const oldHint = "'Allow for future' makes it permanent.";
     const prompt = formatPermissionPromptText(request, 60_000);
     const contextLines = buildPermissionPromptParts(
@@ -895,7 +995,7 @@ describe('permission interaction', () => {
       decidedBy: 'ravi',
     });
     expect(receipt).toContain(
-      'Allowed once: Selected skill action (skills/linkedin-posting/post.py). The agent will continue this request.',
+      'Approved for this run only: Selected skill action (skills/linkedin-posting/post.py).',
     );
     expect(receipt).not.toContain('.llm-runtime');
   });
@@ -935,7 +1035,7 @@ describe('permission interaction', () => {
       decidedBy: 'ravi',
     });
     expect(receipt).toContain(
-      'Allowed once: Command (acme records append sheet-id A1:B2). The agent will continue this request.',
+      'Approved for this run only: Command (acme records append sheet-id A1:B2).',
     );
     expect(receipt).not.toContain('Route:');
   });
@@ -1038,7 +1138,7 @@ describe('permission interaction', () => {
       decidedBy: 'ravi',
     });
     expect(receipt).toContain(
-      'Allowed once: Command (gantry credentials --help > /tmp/gantry-help.txt). The agent will continue this request.',
+      'Approved for this run only: Command (gantry credentials --help > /tmp/gantry-help.txt).',
     );
   });
 
@@ -1529,7 +1629,7 @@ describe('permission interaction', () => {
     );
 
     expect(receipt).toContain(
-      'Allowed once: Command (git status --short). The agent will continue this request.',
+      'Approved for this run only: Command (git status --short).',
     );
     expect(receipt).not.toContain('From: agent chat');
     expect(receipt).not.toContain('Request ID');
@@ -1583,7 +1683,7 @@ describe('permission interaction', () => {
     );
 
     expect(receipt).toContain(
-      'Allowed once: Command (npm run lead-generator). The agent will continue this request.',
+      'Approved for this run only: Command (npm run lead-generator). It will ask again next run.',
     );
     expect(receipt).not.toContain('From: scheduled job');
     expect(receipt).not.toContain(
@@ -1647,7 +1747,7 @@ describe('permission interaction', () => {
       },
     );
 
-    expect(receipt).toContain('Allowed once: Command');
+    expect(receipt).toContain('Approved for this run only: Command');
     // The secret span is masked but the rest of the command stays visible.
     expect(receipt).toContain('curl https://api.example.com');
     expect(receipt).toContain('[REDACTED_SECRET]');

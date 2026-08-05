@@ -159,7 +159,9 @@ export function decisionForMode(
       mode,
       decidedBy,
       ...provenance,
-      reason: 'canceled',
+      reason: request.closestRule
+        ? 'The attempted command did not match an approved pattern.'
+        : 'Access for this tool was not granted.',
       decisionClassification: decisionClassification(false, provenance.source),
     };
   }
