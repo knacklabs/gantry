@@ -77,6 +77,89 @@
       "history": ".factory/history/OBS-1/"
     },
     {
+      "status": "active",
+      "key": "SCHED-1",
+      "title": "Scheduler correctness blockers: no self-mutation, typed permission provenance",
+      "value": "Recurring jobs stop pausing themselves: automatic policy allows no longer read as human one-time consent, scheduled runs lose scheduler mutation tools (surface + signed host rejection), and scheduler mutations ask in auto mode per decision 0058.",
+      "acceptance_criteria": [
+        "recurring job stays active after runs containing auto_classifier / cached_classifier_verdict / trusted_root_grant / birthright / deterministic_read_only / reviewed_rule allows; pauses only on explicit human one-time consent",
+        "scheduled runs mount only scheduler read tools; forged mutation IPC from a scheduled source is host-rejected via signed sourceJobId/sourceRunId/sourceRunKind",
+        "scheduler mutation+delete tools classify ask in normal auto mode (reads stay birthright); the tests requiring auto-approval are corrected",
+        "scheduled prompt drops the self-edit instruction and states the no-mutation control policy; runs report proposedJobChange in outcomes"
+      ],
+      "source_refs": [
+        "docs/architecture/scheduler-incident-assessment-2026-08-05.md",
+        "docs/decisions/0106-scheduled-runs-cannot-mutate-jobs.md",
+        "docs/decisions/0107-typed-permission-decision-provenance.md"
+      ],
+      "order": 5
+    },
+    {
+      "status": "pending",
+      "key": "SCHED-2",
+      "title": "Lead-job repair: semantic Sheets dependency + idempotent replay",
+      "value": "The live lead-maintenance job runs unattended again: raw Sheets command requirements replaced by the reviewed semantic capability, prompt rewritten semantically, the two missed lead writes replayed idempotently.",
+      "acceptance_criteria": [
+        "job requirements carry capability:google.sheets.values.append (update only if genuinely needed) and no raw Sheets RunCommand rules",
+        "prompt forbids raw shell Sheets use and self-mutation; reports missing capabilities and stops",
+        "agent-side readiness verified (capability selected, credential bound, worker image carries it); resume only on setup_state=ready with next_run set",
+        "missed writes replayed with a stable uniqueness key (no duplicates if an earlier write silently succeeded)"
+      ],
+      "source_refs": [
+        "docs/architecture/scheduler-incident-assessment-2026-08-05.md"
+      ],
+      "order": 6,
+      "depends_on": [
+        "SCHED-1"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "SCHED-3",
+      "title": "Job definition revision fencing: concurrent edits survive finalization",
+      "value": "A human pause, schedule change or requirement edit during a run is never overwritten: finalization is revision-aware and one canonical reconciler owns status and next_run.",
+      "acceptance_criteria": [
+        "definition_revision column, incremented on operator-meaningful changes; runs record the claimed revision",
+        "terminal transaction reloads the job; changed revision preserves operator definition/status, updates only run-owned state, recomputes readiness+next_run from the latest definition",
+        "regressions: human pause mid-run stays paused; schedule change mid-run yields next_run from the new schedule; requirement edits survive"
+      ],
+      "source_refs": [
+        "docs/decisions/0108-job-definition-revision-fencing.md"
+      ],
+      "order": 7
+    },
+    {
+      "status": "pending",
+      "key": "SCHED-4",
+      "title": "Scheduler observability + scheduled-run context parity",
+      "value": "Causality becomes provable and models choose semantic actions: immutable job.definition_changed / status_transition / readiness_changed events with actor+revision+before/after, richer mutation receipts and event rendering, the interactive capability catalog and a host-generated job runtime brief in scheduled prompts, and structured completed|partial|blocked run outcomes.",
+      "acceptance_criteria": [
+        "definition changes and status transitions are durable events with actor kind, source run, revision, changed fields and reason codes; scheduler_get_job/list_events render them",
+        "mutation receipts show revision delta, changed fields, readiness and status transition \u2014 never just 'job updated'",
+        "scheduled runs receive the SAME capability catalog resolver as interactive runs plus a job runtime brief (status at claim, revision, ready actions, previous outcome, control policy)",
+        "job runs gain structured partial/blocked outcomes; found-but-not-written can no longer be durably recorded as plain completed; paused-job permission recovery paginates past 100"
+      ],
+      "source_refs": [
+        "docs/architecture/scheduler-incident-assessment-2026-08-05.md"
+      ],
+      "order": 8
+    },
+    {
+      "status": "pending",
+      "key": "SCHED-5",
+      "title": "Semantic capability IDs as the canonical job dependency",
+      "value": "Jobs declare what they need, not how it is implemented: capability IDs become the canonical dependency, raw commands stay only as an explicit escape hatch rejected when a reviewed capability covers them, and existing workarounds are migrated.",
+      "acceptance_criteria": [
+        "job dependencies are {capabilityId, reason}; implementation resolves from the reviewed catalog at preflight and run time",
+        "raw command requirements rejected when the catalog proves coverage; migration replaces known workarounds and pauses only unmappable jobs",
+        "no second capability registry: the existing catalog is the single source"
+      ],
+      "source_refs": [
+        "docs/decisions/0109-semantic-capability-job-dependencies.md"
+      ],
+      "order": 9
+    },
+    {
       "status": "pending",
       "key": "OBS-2",
       "title": "Observer S3b: xAI Grok + Kimi batch transports",
@@ -107,6 +190,25 @@
         "evidence permalinks + feedback capture + delivery artifact recorded",
         "at most one digest per day, owner-private routing enforced"
       ]
+    },
+    {
+      "status": "done",
+      "key": "CAP-1",
+      "title": "Close out the capability-authoring lane",
+      "epic": "capability-search",
+      "skill": "backend",
+      "order": 11,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "story": "Rescued WIP snapshot feature/capability-authoring @ 13ae2e698 (source of record). Imported WITHOUT a goal-prompt as a closeout exception (epics grill 2026-07-22): finishing in-flight work, not a new goal. Verify, one autoreview pass, merge; it edits mcp-tool-proxy.ts so nothing else may touch that file concurrently.",
+      "acceptance_criteria": [
+        "branch verified (typecheck + unit + relevant integration) and reviewed via one autoreview pass",
+        "merged to main or explicitly split/reverted with a decision note",
+        "mcp-tool-proxy.ts conflict window closed"
+      ],
+      "completed_at": "2026-08-02T19:08:22+00:00",
+      "outcome": "Merged via PR #376. Agents can author MCP capabilities; approval cards are host-derived and fail-closed (agent input is not risk authority). Formal review fixed 12 findings incl. 3 security Highs (principal-required approvals, route-scoped credentials, tenant-scoped MCP client caches). mcp-tool-proxy conflict window closed."
     },
     {
       "status": "pending",
@@ -173,25 +275,6 @@
       ]
     },
     {
-      "status": "done",
-      "key": "CAP-1",
-      "title": "Close out the capability-authoring lane",
-      "epic": "capability-search",
-      "skill": "backend",
-      "order": 11,
-      "depends_on": [
-        "PAY-1"
-      ],
-      "story": "Rescued WIP snapshot feature/capability-authoring @ 13ae2e698 (source of record). Imported WITHOUT a goal-prompt as a closeout exception (epics grill 2026-07-22): finishing in-flight work, not a new goal. Verify, one autoreview pass, merge; it edits mcp-tool-proxy.ts so nothing else may touch that file concurrently.",
-      "acceptance_criteria": [
-        "branch verified (typecheck + unit + relevant integration) and reviewed via one autoreview pass",
-        "merged to main or explicitly split/reverted with a decision note",
-        "mcp-tool-proxy.ts conflict window closed"
-      ],
-      "completed_at": "2026-08-02T19:08:22+00:00",
-      "outcome": "Merged via PR #376. Agents can author MCP capabilities; approval cards are host-derived and fail-closed (agent input is not risk authority). Formal review fixed 12 findings incl. 3 security Highs (principal-required approvals, route-scoped credentials, tenant-scoped MCP client caches). mcp-tool-proxy conflict window closed."
-    },
-    {
       "status": "pending",
       "key": "CAP-2",
       "title": "MCP hybrid search",
@@ -206,6 +289,25 @@
         "opt-in semantic layer reusing memory embedding provider + cache, degrading to FTS",
         "grill-locked goal-prompt acceptance list satisfied"
       ]
+    },
+    {
+      "status": "done",
+      "key": "CO-1",
+      "title": "Jobs recovery-intent -> columns + CAS",
+      "epic": "coordination-hardening",
+      "skill": "backend",
+      "order": 17,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "acceptance_criteria": [
+        "audit item B1 implemented: recovery intent as columns with compare-and-set transitions",
+        "no JSON-blob state machine remains for recovery intent",
+        "concurrent-recovery test pins the CAS invariant"
+      ],
+      "completed_at": "2026-08-03T00:00:00+00:00",
+      "history": ".factory/history/CO-1/",
+      "outcome": "Merged PR #380 per decision 0104 reframe: dead recovery-intent machinery deleted; live coordination fields (failure counter, pause reason, setup state) promoted to race-safe columns with in-DB increments and fingerprint-guarded writes; validated live (migration backfill + full lifecycle on the production runtime). Net -286 lines."
     },
     {
       "status": "pending",
@@ -276,23 +378,24 @@
       ]
     },
     {
+      "key": "SEC-1",
+      "title": "Audit paydown: security blockers (CI runner isolation, inbound attachment writers, LLM concurrency admission)",
+      "order": 21,
       "status": "done",
-      "key": "CO-1",
-      "title": "Jobs recovery-intent -> columns + CAS",
-      "epic": "coordination-hardening",
+      "epic": "Audit paydown 2026-07",
       "skill": "backend",
-      "order": 17,
-      "depends_on": [
-        "PAY-1"
-      ],
-      "acceptance_criteria": [
-        "audit item B1 implemented: recovery intent as columns with compare-and-set transitions",
-        "no JSON-blob state machine remains for recovery intent",
-        "concurrent-recovery test pins the CAS invariant"
-      ],
-      "completed_at": "2026-08-03T00:00:00+00:00",
-      "history": ".factory/history/CO-1/",
-      "outcome": "Merged PR #380 per decision 0104 reframe: dead recovery-intent machinery deleted; live coordination fields (failure counter, pause reason, setup state) promoted to race-safe columns with in-DB increments and fingerprint-guarded writes; validated live (migration backfill + full lifecycle on the production runtime). Net -286 lines."
+      "completed_at": "2026-07-24T11:42:10+00:00",
+      "history": ".factory/history/SEC-1/"
+    },
+    {
+      "key": "PERF-1",
+      "title": "Audit paydown: performance fixes (IPC replay scan, jobs N+1, SSE permit race, live-admission caps)",
+      "order": 22,
+      "status": "done",
+      "epic": "Audit paydown 2026-07",
+      "skill": "backend",
+      "completed_at": "2026-07-24T15:06:25+00:00",
+      "history": ".factory/history/PERF-1/"
     },
     {
       "status": "pending",
@@ -340,42 +443,6 @@
         "TTL janitor covered by tests",
         "local backend remains the default"
       ]
-    },
-    {
-      "key": "SEC-1",
-      "title": "Audit paydown: security blockers (CI runner isolation, inbound attachment writers, LLM concurrency admission)",
-      "order": 21,
-      "status": "done",
-      "epic": "Audit paydown 2026-07",
-      "skill": "backend",
-      "completed_at": "2026-07-24T11:42:10+00:00",
-      "history": ".factory/history/SEC-1/"
-    },
-    {
-      "key": "PERF-1",
-      "title": "Audit paydown: performance fixes (IPC replay scan, jobs N+1, SSE permit race, live-admission caps)",
-      "order": 22,
-      "status": "done",
-      "epic": "Audit paydown 2026-07",
-      "skill": "backend",
-      "completed_at": "2026-07-24T15:06:25+00:00",
-      "history": ".factory/history/PERF-1/"
-    },
-    {
-      "key": "SIMP-1",
-      "title": "Audit paydown: simplifications (queue defaults, control service construction, test consolidation)",
-      "order": 28,
-      "status": "pending",
-      "epic": "Audit paydown 2026-07",
-      "skill": "backend"
-    },
-    {
-      "key": "SPS-4",
-      "title": "Audit paydown: architecture decisions (cluster rate-limit authority, mandatory durable coordination, LLM loopback collapse, live-admission retention)",
-      "order": 29,
-      "status": "pending",
-      "epic": "Audit paydown 2026-07",
-      "skill": "backend"
     },
     {
       "key": "LAT-5B",
@@ -434,6 +501,14 @@
       "outcome": "Merged via PR #373 (supersedes #217, credits Suraj). One canonical person per app with provider-neutral exact-match aliases; personal memory DM-only; audited merge with single-use all-or-nothing unmerge; People API + SDK incl. unmerge; boundaries pinned by revert-proven tests; 22 review rounds, ~50 fixes."
     },
     {
+      "key": "SIMP-1",
+      "title": "Audit paydown: simplifications (queue defaults, control service construction, test consolidation)",
+      "order": 28,
+      "status": "pending",
+      "epic": "Audit paydown 2026-07",
+      "skill": "backend"
+    },
+    {
       "key": "FILE-2",
       "title": "Slack deletion registration on the neutral attachment-deletion operation",
       "story": "As a Slack user, when I delete a message whose files the agent saved, I want the agent to treat those files as deleted \u2014 honestly reported and bytes removed \u2014 the same way it already does on Discord.",
@@ -452,6 +527,14 @@
       "completed_at": "2026-08-02T06:06:47+00:00",
       "history": ".factory/history/FILE-2/",
       "outcome": "Deleting a Slack message whose files the agent saved now works like Discord: the files are honestly reported as deleted and the stored bytes are removed, durably \u2014 a deletion that races message ingestion or arrives before the message is stored still lands, threads included (Slack threads share the parent channel, so no thread bookkeeping is needed and events without thread metadata are handled). Interaction-only connections never observe deletions. Telegram is honestly documented as having no deletion signal for ordinary bot chats."
+    },
+    {
+      "key": "SPS-4",
+      "title": "Audit paydown: architecture decisions (cluster rate-limit authority, mandatory durable coordination, LLM loopback collapse, live-admission retention)",
+      "order": 29,
+      "status": "pending",
+      "epic": "Audit paydown 2026-07",
+      "skill": "backend"
     },
     {
       "status": "done",
@@ -657,46 +740,6 @@
       "outcome": "Merged PR #377: JobManagementService and SessionInteractionModule constructed once in the control composition root; live deps via getters; liveAdmissionAppId is a method argument."
     },
     {
-      "status": "pending",
-      "key": "SIMP-3",
-      "title": "Collapse the direct-LLM loopback HTTP hop into one in-process service",
-      "epic": "runtime-hardening-audit",
-      "skill": "backend",
-      "kind": "refactor",
-      "story": "Audit simplification (pairs with SEC-3): the direct API path serializes and buffers the same request through two in-process HTTP layers (public route -> loopback -> model gateway). Extract provider forwarding into one in-process application operation used directly by the public route; keep the loopback HTTP adapter only for child runners that need an HTTP endpoint. Do after SEC-3's concurrency admission lands.",
-      "acceptance_criteria": [
-        "the direct API path no longer makes a loopback HTTP hop; one body reader and one serialize/deserialize cycle removed",
-        "provider credential isolation, per-app/route audit, provider path confinement, streaming, cancellation, rate limits, and child-runner gateway support unchanged",
-        "contract test: identical provider URL/headers/body/frames/usage/errors/cancellation before and after"
-      ],
-      "depends_on": [
-        "SEC-3"
-      ],
-      "source_refs": [
-        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
-      ],
-      "order": 44
-    },
-    {
-      "status": "pending",
-      "key": "SIMP-4",
-      "title": "Make durable coordination mandatory; remove process-local fallbacks",
-      "epic": "runtime-hardening-audit",
-      "skill": "backend",
-      "kind": "refactor",
-      "story": "Audit simplification: AsyncTaskRepository atomic admission/claim are optional, and session compaction falls back to a process-global Set when the durable method is absent \u2014 two coordination systems with different guarantees. Make atomic admission/claim required for production repositories; the in-memory test repository implements the same atomic semantics. Removes createTaskWithLocalAdmission, optional-method probing, and the global compaction dedup set. Overlaps DUR-1 \u2014 fold in unless it lands sooner as standalone cleanup.",
-      "acceptance_criteria": [
-        "atomic admission/claim required; local count/create and global compaction-dedup fallbacks removed",
-        "per-app/per-agent backlog caps, compaction dedup, stale-task recovery, fencing, and restart-safe records unchanged",
-        "concurrent admission tests pass against Postgres and the in-memory repository (two workers, restart, stale tasks, cap boundaries)",
-        "reconciled with DUR-1 (not implemented twice)"
-      ],
-      "source_refs": [
-        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
-      ],
-      "order": 45
-    },
-    {
       "status": "done",
       "key": "CONTENT-1",
       "title": "Provider content gaps: honest fallbacks, quick fixes, Slack canvas CRUD",
@@ -762,86 +805,43 @@
     },
     {
       "status": "pending",
-      "key": "SCHED-1",
-      "title": "Scheduler correctness blockers: no self-mutation, typed permission provenance",
-      "value": "Recurring jobs stop pausing themselves: automatic policy allows no longer read as human one-time consent, scheduled runs lose scheduler mutation tools (surface + signed host rejection), and scheduler mutations ask in auto mode per decision 0058.",
+      "key": "SIMP-3",
+      "title": "Collapse the direct-LLM loopback HTTP hop into one in-process service",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "refactor",
+      "story": "Audit simplification (pairs with SEC-3): the direct API path serializes and buffers the same request through two in-process HTTP layers (public route -> loopback -> model gateway). Extract provider forwarding into one in-process application operation used directly by the public route; keep the loopback HTTP adapter only for child runners that need an HTTP endpoint. Do after SEC-3's concurrency admission lands.",
       "acceptance_criteria": [
-        "recurring job stays active after runs containing auto_classifier / cached_classifier_verdict / trusted_root_grant / birthright / deterministic_read_only / reviewed_rule allows; pauses only on explicit human one-time consent",
-        "scheduled runs mount only scheduler read tools; forged mutation IPC from a scheduled source is host-rejected via signed sourceJobId/sourceRunId/sourceRunKind",
-        "scheduler mutation+delete tools classify ask in normal auto mode (reads stay birthright); the tests requiring auto-approval are corrected",
-        "scheduled prompt drops the self-edit instruction and states the no-mutation control policy; runs report proposedJobChange in outcomes"
+        "the direct API path no longer makes a loopback HTTP hop; one body reader and one serialize/deserialize cycle removed",
+        "provider credential isolation, per-app/route audit, provider path confinement, streaming, cancellation, rate limits, and child-runner gateway support unchanged",
+        "contract test: identical provider URL/headers/body/frames/usage/errors/cancellation before and after"
       ],
-      "source_refs": [
-        "docs/architecture/scheduler-incident-assessment-2026-08-05.md",
-        "docs/decisions/0106-scheduled-runs-cannot-mutate-jobs.md",
-        "docs/decisions/0107-typed-permission-decision-provenance.md"
-      ],
-      "order": 5
-    },
-    {
-      "status": "pending",
-      "key": "SCHED-2",
-      "title": "Lead-job repair: semantic Sheets dependency + idempotent replay",
-      "value": "The live lead-maintenance job runs unattended again: raw Sheets command requirements replaced by the reviewed semantic capability, prompt rewritten semantically, the two missed lead writes replayed idempotently.",
-      "acceptance_criteria": [
-        "job requirements carry capability:google.sheets.values.append (update only if genuinely needed) and no raw Sheets RunCommand rules",
-        "prompt forbids raw shell Sheets use and self-mutation; reports missing capabilities and stops",
-        "agent-side readiness verified (capability selected, credential bound, worker image carries it); resume only on setup_state=ready with next_run set",
-        "missed writes replayed with a stable uniqueness key (no duplicates if an earlier write silently succeeded)"
-      ],
-      "source_refs": [
-        "docs/architecture/scheduler-incident-assessment-2026-08-05.md"
-      ],
-      "order": 6,
       "depends_on": [
-        "SCHED-1"
-      ]
+        "SEC-3"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 44
     },
     {
       "status": "pending",
-      "key": "SCHED-3",
-      "title": "Job definition revision fencing: concurrent edits survive finalization",
-      "value": "A human pause, schedule change or requirement edit during a run is never overwritten: finalization is revision-aware and one canonical reconciler owns status and next_run.",
+      "key": "SIMP-4",
+      "title": "Make durable coordination mandatory; remove process-local fallbacks",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "refactor",
+      "story": "Audit simplification: AsyncTaskRepository atomic admission/claim are optional, and session compaction falls back to a process-global Set when the durable method is absent \u2014 two coordination systems with different guarantees. Make atomic admission/claim required for production repositories; the in-memory test repository implements the same atomic semantics. Removes createTaskWithLocalAdmission, optional-method probing, and the global compaction dedup set. Overlaps DUR-1 \u2014 fold in unless it lands sooner as standalone cleanup.",
       "acceptance_criteria": [
-        "definition_revision column, incremented on operator-meaningful changes; runs record the claimed revision",
-        "terminal transaction reloads the job; changed revision preserves operator definition/status, updates only run-owned state, recomputes readiness+next_run from the latest definition",
-        "regressions: human pause mid-run stays paused; schedule change mid-run yields next_run from the new schedule; requirement edits survive"
+        "atomic admission/claim required; local count/create and global compaction-dedup fallbacks removed",
+        "per-app/per-agent backlog caps, compaction dedup, stale-task recovery, fencing, and restart-safe records unchanged",
+        "concurrent admission tests pass against Postgres and the in-memory repository (two workers, restart, stale tasks, cap boundaries)",
+        "reconciled with DUR-1 (not implemented twice)"
       ],
       "source_refs": [
-        "docs/decisions/0108-job-definition-revision-fencing.md"
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 7
-    },
-    {
-      "status": "pending",
-      "key": "SCHED-4",
-      "title": "Scheduler observability + scheduled-run context parity",
-      "value": "Causality becomes provable and models choose semantic actions: immutable job.definition_changed / status_transition / readiness_changed events with actor+revision+before/after, richer mutation receipts and event rendering, the interactive capability catalog and a host-generated job runtime brief in scheduled prompts, and structured completed|partial|blocked run outcomes.",
-      "acceptance_criteria": [
-        "definition changes and status transitions are durable events with actor kind, source run, revision, changed fields and reason codes; scheduler_get_job/list_events render them",
-        "mutation receipts show revision delta, changed fields, readiness and status transition \u2014 never just 'job updated'",
-        "scheduled runs receive the SAME capability catalog resolver as interactive runs plus a job runtime brief (status at claim, revision, ready actions, previous outcome, control policy)",
-        "job runs gain structured partial/blocked outcomes; found-but-not-written can no longer be durably recorded as plain completed; paused-job permission recovery paginates past 100"
-      ],
-      "source_refs": [
-        "docs/architecture/scheduler-incident-assessment-2026-08-05.md"
-      ],
-      "order": 8
-    },
-    {
-      "status": "pending",
-      "key": "SCHED-5",
-      "title": "Semantic capability IDs as the canonical job dependency",
-      "value": "Jobs declare what they need, not how it is implemented: capability IDs become the canonical dependency, raw commands stay only as an explicit escape hatch rejected when a reviewed capability covers them, and existing workarounds are migrated.",
-      "acceptance_criteria": [
-        "job dependencies are {capabilityId, reason}; implementation resolves from the reviewed catalog at preflight and run time",
-        "raw command requirements rejected when the catalog proves coverage; migration replaces known workarounds and pauses only unmappable jobs",
-        "no second capability registry: the existing catalog is the single source"
-      ],
-      "source_refs": [
-        "docs/decisions/0109-semantic-capability-job-dependencies.md"
-      ],
-      "order": 9
+      "order": 45
     }
   ],
   "epics": [
@@ -930,5 +930,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-05T03:30:00+00:00"
+  "updated_at": "2026-08-05T03:16:07+00:00"
 }
