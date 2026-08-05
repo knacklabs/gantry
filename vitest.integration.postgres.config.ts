@@ -2,22 +2,35 @@ import { makeVitestConfig } from './vitest.shared.js';
 
 // Postgres-backed integration suite. Selection is by naming convention:
 // <name>.postgres.integration.test.ts. Runs serially (shared database).
+//
+// One config, three lanes, selected by GANTRY_POSTGRES_LANE (set by the npm
+// scripts): default sweep, "chaos" (long-running destructive combo suite),
+// "hot-path" (explain suites, paired with GANTRY_POSTGRES_HOT_PATH=1).
+const lane = process.env.GANTRY_POSTGRES_LANE ?? 'default';
+
 export default makeVitestConfig({
-  include: ['apps/core/test/integration/**/*.postgres.integration.test.ts'],
-  exclude: [
-    // Runs under test:integration:postgres:chaos (own config).
-    '**/fleet-capability-chaos-combo.postgres.integration.test.ts',
-    // Hot-path explain suite: test:integration:postgres:hot-path (own config).
-    '**/*-explain.postgres.integration.test.ts',
-    // ponytail: these match the convention but were never in the old
-    // hard-coded script list and have never run in CI with a live database.
-    // Excluded to keep this refactor behavior-preserving; delete a line here
-    // to deliberately adopt that suite into CI.
-    '**/live-waiting-admission.postgres.integration.test.ts',
-    '**/pattern-candidate-atomic-claim.postgres.integration.test.ts',
-    '**/proactive-surfacing-opt-in.postgres.integration.test.ts',
-    '**/toolchain-bake-reconciler.postgres.integration.test.ts',
-    '**/worker-coordination.postgres.integration.test.ts',
-  ],
+  include:
+    lane === 'chaos'
+      ? [
+          'apps/core/test/integration/fleet-capability-chaos-combo.postgres.integration.test.ts',
+        ]
+      : lane === 'hot-path'
+        ? ['apps/core/test/integration/**/*-explain.postgres.integration.test.ts']
+        : ['apps/core/test/integration/**/*.postgres.integration.test.ts'],
+  exclude:
+    lane === 'default'
+      ? [
+          '**/fleet-capability-chaos-combo.postgres.integration.test.ts', // chaos lane
+          '**/*-explain.postgres.integration.test.ts', // hot-path lane
+          // ponytail: these match the convention but were never in the old
+          // hard-coded script list and have never run in CI with a live
+          // database. Excluded to keep behavior; delete a line to adopt one.
+          '**/live-waiting-admission.postgres.integration.test.ts',
+          '**/pattern-candidate-atomic-claim.postgres.integration.test.ts',
+          '**/proactive-surfacing-opt-in.postgres.integration.test.ts',
+          '**/toolchain-bake-reconciler.postgres.integration.test.ts',
+          '**/worker-coordination.postgres.integration.test.ts',
+        ]
+      : [],
   fileParallelism: false,
 });
