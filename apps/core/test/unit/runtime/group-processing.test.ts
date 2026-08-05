@@ -1288,9 +1288,9 @@ describe('createGroupProcessor', () => {
       const progressCall = (
         progressChannel.sendProgressUpdate as ReturnType<typeof vi.fn>
       ).mock.calls.find((call) => call[1] === '');
-      const actionToken =
+      const renderedStopRef =
         progressCall?.[2]?.actionAffordances?.[0]?.actionToken;
-      expect(onLiveStopActionToken).toHaveBeenCalledWith(actionToken);
+      expect(onLiveStopActionToken).toHaveBeenCalledWith(renderedStopRef);
       expect(order.slice(0, 2)).toEqual(['token', 'progress']);
 
       runnerResult.resolve({ status: 'success', result: 'done' });
