@@ -249,6 +249,14 @@ Maintenance: update this map whenever ambient-liveness flow tests are renamed or
   - `runtime/live-ux-dispatcher.test.ts`: `reconciles a slow reaction add that lands after removal and grace`
   - `runtime/live-ux-dispatcher.test.ts`: `reconciles a slow terminal off that lands after a newer start and grace`
   - `channels/discord-live-ux.test.ts`: `keeps thread-less channels in distinct lanes`
+- Provider-visible determinism (LIVE-2): the shared stateful provider fake
+  records final card text, reaction sets, typing state, duplicate cards, and
+  peak provider-mutation concurrency across the lifecycle and dispatcher
+  suites. The flow proof crosses admission, lifecycle, wiring, and the channel
+  boundary without pinning instant-success call order.
+  - `runtime/liveness-flow.test.ts`: `flows admission through lifecycle and wiring to one terminal provider card`
+  - `runtime/liveness-flow.test.ts`: `converges after failure, rate limit, and a slow stale typing settlement`
+  - `runtime/liveness-flow.test.ts`: `reuses provider-visible progress state after a runtime restart without duplicating the card`
 - App (web session) typing is `explicit` on/off keyed to the durable lease
   generation; SDK consumers order typing via the caller-owned
   `SessionTypingTracker` (session+thread scoped, per-session cursors).

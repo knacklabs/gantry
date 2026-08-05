@@ -12,6 +12,7 @@ import {
   type ChannelLiveUxCapability,
 } from '@core/domain/channel-live-ux.js';
 import { createLiveUxDispatcher } from '@core/runtime/live-ux-dispatcher.js';
+import { StatefulLivenessProvider } from '../../harness/stateful-liveness-provider.js';
 
 type TestChannelOverrides = Omit<Partial<ChannelAdapter>, 'liveUx'> & {
   liveUx?: Omit<ChannelLiveUxCapability, 'canonicalTarget'> &
@@ -107,33 +108,17 @@ describe('live UX dispatcher', () => {
   });
 
   it('routes reactions and typing to the account that owns the route', async () => {
-    const accountOneTyping = vi.fn(async () => undefined);
-    const accountOneReaction = vi.fn(async () => undefined);
-    const accountTwoTyping = vi.fn(async () => undefined);
-    const accountTwoReaction = vi.fn(async () => undefined);
+    const accountOne = new StatefulLivenessProvider({
+      name: 'telegram-one',
+      reactionRemoval: 'all',
+    });
+    const accountTwo = new StatefulLivenessProvider({
+      name: 'telegram-two',
+      reactionRemoval: 'all',
+    });
     const channels = new Map([
-      [
-        'account-one',
-        channel('telegram', {
-          liveUx: {
-            typing: 'expiring',
-            reactions: { removal: 'all' },
-          },
-          setTyping: accountOneTyping,
-          addReaction: accountOneReaction,
-        }),
-      ],
-      [
-        'account-two',
-        channel('telegram', {
-          liveUx: {
-            typing: 'expiring',
-            reactions: { removal: 'all' },
-          },
-          setTyping: accountTwoTyping,
-          addReaction: accountTwoReaction,
-        }),
-      ],
+      ['account-one', accountOne.adapter],
+      ['account-two', accountTwo.adapter],
     ]);
     const liveUx = createChannelWiringLiveUx({
       findBinding: (_jid, providerAccountId) => {
@@ -160,16 +145,53 @@ describe('live UX dispatcher', () => {
       threadId: '7',
     });
 
-    expect(accountOneTyping).not.toHaveBeenCalled();
-    expect(accountOneReaction).not.toHaveBeenCalled();
-    expect(accountTwoTyping).toHaveBeenCalledWith('tg:42', true, {
-      threadId: '7',
-      signal: expect.any(AbortSignal),
+    expect(accountOne.typing.size).toBe(0);
+    expect(accountOne.reactions.size).toBe(0);
+    expect(accountTwo.typing.get('tg:42\n7')).toBe(true);
+    expect(accountTwo.reactionSet('tg:42', '10', '7')).toEqual(
+      new Set(['seen']),
+    );
+  });
+
+  it('keeps two-account liveness isolated when both accounts own the same route', async () => {
+    const accountOne = new StatefulLivenessProvider();
+    const accountTwo = new StatefulLivenessProvider();
+    const channels = new Map([
+      ['account-one', accountOne.adapter],
+      ['account-two', accountTwo.adapter],
+    ]);
+    const warn = vi.fn();
+    const liveUx = createChannelWiringLiveUx({
+      findBinding: (_jid, providerAccountId) => {
+        const resolved = providerAccountId
+          ? channels.get(providerAccountId)
+          : undefined;
+        return resolved ? binding(resolved) : undefined;
+      },
+      logger: { warn },
     });
-    expect(accountTwoReaction).toHaveBeenCalledWith('tg:42', '10', 'seen', {
-      threadId: '7',
-      signal: expect.any(AbortSignal),
-    });
+
+    await Promise.all([
+      liveUx.addReaction('sl:C1', 'message-1', 'seen', {
+        providerAccountId: 'account-one',
+      }),
+      liveUx.addReaction('sl:C1', 'message-2', 'running', {
+        providerAccountId: 'account-two',
+      }),
+    ]);
+    await liveUx.addReaction('sl:C1', 'missing', 'seen');
+
+    expect(accountOne.reactionSet('sl:C1', 'message-1')).toEqual(
+      new Set(['seen']),
+    );
+    expect(accountOne.reactionSet('sl:C1', 'message-2')).toEqual(new Set());
+    expect(accountTwo.reactionSet('sl:C1', 'message-2')).toEqual(
+      new Set(['running']),
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: 'reaction.add', jid: 'sl:C1' }),
+      'Live UX delivery sink could not be resolved',
+    );
   });
 
   it('warns loudly when route resolution finds no sink', async () => {
@@ -217,13 +239,12 @@ describe('live UX dispatcher', () => {
   });
 
   it('does not cadence-refresh explicit typing and always delivers terminal off', async () => {
-    const setTyping = vi.fn(async () => undefined);
-    const appChannel = channel('app', {
-      liveUx: { typing: 'explicit', reactions: 'none' },
-      setTyping,
+    const provider = new StatefulLivenessProvider({
+      name: 'app',
+      typing: 'explicit',
     });
     const liveUx = createLiveUxDispatcher({
-      findBinding: () => binding(appChannel),
+      findBinding: () => binding(provider.adapter),
       logger: { warn: vi.fn() },
     });
 
@@ -232,10 +253,11 @@ describe('live UX dispatcher', () => {
     await liveUx.setTyping('app:conversation', false);
     await liveUx.setTyping('app:conversation', false);
 
-    expect(setTyping.mock.calls).toEqual([
-      ['app:conversation', true, { signal: expect.any(AbortSignal) }],
-      ['app:conversation', false, { signal: expect.any(AbortSignal) }],
-      ['app:conversation', false, { signal: expect.any(AbortSignal) }],
+    expect(provider.typing.get('app:conversation\n')).toBe(false);
+    expect(provider.typingHistory).toEqual([
+      expect.objectContaining({ isTyping: true }),
+      expect.objectContaining({ isTyping: false }),
+      expect.objectContaining({ isTyping: false }),
     ]);
   });
 
