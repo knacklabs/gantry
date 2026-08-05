@@ -738,7 +738,7 @@
       "outcome": "Agents now only see the tools that actually work where they are: Slack agents keep the canvas tools, while Telegram, Discord and other conversations no longer carry three dead tools they could never use \u2014 enforced in both the spawn projection and inside the runner process, and even an operator config entry cannot re-add a tool that cannot function there. Each agent's instructions now also explain, per provider, how its shared tools behave: where long messages split, how rich cards degrade, how many question options fit \u2014 with every number imported from the real code constants so the guidance can never drift. A classification of all 75 tools plus a checklist for wiring future providers landed in docs/architecture."
     },
     {
-      "status": "pending",
+      "status": "done",
       "key": "CONTENT-2",
       "title": "Physical attachment hand-off for ALL providers: materialize conversation files into the agent workspace",
       "epic": "provider-content",
@@ -755,7 +755,10 @@
         "models with pdfInput/imageInput can be handed the physical file where the runner supports it",
         "materialization verified for a Slack, a Telegram, and a Discord attachment through the same code path (no provider branches)"
       ],
-      "order": 43
+      "order": 43,
+      "completed_at": "2026-08-04T20:18:18+00:00",
+      "history": ".factory/history/CONTENT-2/",
+      "outcome": "Agents can now get the real file, not just a text view: a new attachment_materialize tool copies one conversation attachment at a time into a quarantine folder inside the agent's own workspace, so scripts, converters and capable models can work on the actual bytes. Every copy is explicit, capped at 50 MB, cryptographically tied to the conversation it came from, written through the hardened writer that refuses symlink tricks, and logged. Files Telegram already dropped into the workspace are answered honestly with their existing path instead of a duplicate copy, and a stale reference falls back to re-fetching from the provider. The agent's instructions mark the quarantine folder as untrusted data to process with tools, never instructions to follow."
     }
   ],
   "epics": [
@@ -844,5 +847,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-04T18:29:57+00:00"
+  "updated_at": "2026-08-04T20:18:18+00:00"
 }

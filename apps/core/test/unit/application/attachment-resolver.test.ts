@@ -545,6 +545,102 @@ describe('AttachmentResolver', () => {
     expect(provider.calls).toBe(0);
   });
 
+  it('returns workspace-local refs directly in materialize mode when the file exists', async () => {
+    const os = await import('node:os');
+    const fsp = await import('node:fs/promises');
+    const pathMod = await import('node:path');
+    const workspaceRoot = await fsp.mkdtemp(pathMod.join(os.tmpdir(), 'ws-'));
+    await fsp.mkdir(pathMod.join(workspaceRoot, 'attachments'));
+    await fsp.writeFile(
+      pathMod.join(workspaceRoot, 'attachments', 'live-report.csv'),
+      'a,b',
+    );
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set(
+      'attachment-1',
+      attachment({
+        storageRef: 'attachments/live-report.csv',
+        providerFetch: undefined,
+      }),
+    );
+    const provider = fetcher(() => {
+      throw new Error('workspace-local materialize must not fetch');
+    });
+    const resolver = createResolver({ repository, fetcher: provider });
+
+    await expect(
+      resolver.open(openRequest({ mode: 'materialize', workspaceRoot })),
+    ).resolves.toEqual({
+      status: 'already_in_workspace',
+      content: 'Attachment is already in the workspace.',
+      workspaceRelativePath: 'attachments/live-report.csv',
+      fileName: 'report.txt',
+    });
+    expect(provider.calls).toBe(0);
+    await fsp.rm(workspaceRoot, { recursive: true, force: true });
+  });
+
+  it('falls through to provider recovery when the workspace-local file is stale', async () => {
+    const os = await import('node:os');
+    const fsp = await import('node:fs/promises');
+    const pathMod = await import('node:path');
+    const workspaceRoot = await fsp.mkdtemp(pathMod.join(os.tmpdir(), 'ws-'));
+    // No attachments/live-report.csv on disk: the syntax-only short-circuit
+    // must not fire; the resolver continues into provider-fetch recovery.
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set(
+      'attachment-1',
+      attachment({ storageRef: 'attachments/live-report.csv' }),
+    );
+    const provider = fetcher(() => ({
+      status: 'ok' as const,
+      content: new TextEncoder().encode('recovered'),
+      fileName: 'live-report.csv',
+    }));
+    const resolver = createResolver({ repository, fetcher: provider });
+
+    const result = await resolver.open(
+      openRequest({ mode: 'materialize', workspaceRoot }),
+    );
+    expect(result.status).not.toBe('already_in_workspace');
+    expect(provider.calls).toBeGreaterThan(0);
+    await fsp.rm(workspaceRoot, { recursive: true, force: true });
+  });
+
+  it('skips attachment view extraction in materialize mode and returns the canonical file name', async () => {
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set(
+      'attachment-1',
+      attachment({
+        storageRef: 'provider-attachments/report.pdf',
+        fileName: 'report.pdf',
+        contentType: 'application/pdf',
+      }),
+    );
+    const provider = fetcher(() => {
+      throw new Error('materialized attachments must not refetch');
+    });
+    const materializationRoot = tempRoot('gantry-provider-attachments');
+    const materializedPath = path.join(materializationRoot, 'report.pdf');
+    fs.writeFileSync(materializedPath, Buffer.from('%PDF-not-extracted'));
+    const resolver = createResolver({
+      repository,
+      fetcher: provider,
+      materializationRoot,
+    });
+
+    await expect(
+      resolver.open(openRequest({ mode: 'materialize' })),
+    ).resolves.toEqual({
+      status: 'opened',
+      content: '',
+      materializedPath: fs.realpathSync(materializedPath),
+      storageRef: 'provider-attachments/report.pdf',
+      fileName: 'report.pdf',
+    });
+    expect(provider.calls).toBe(0);
+  });
+
   it('rejects a materialization root that resolves through a symlink into a workspace', async () => {
     const repository = new MemoryAttachmentRepository();
     repository.attachments.set('attachment-1', attachment());

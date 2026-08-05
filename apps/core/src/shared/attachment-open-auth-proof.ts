@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 export interface AttachmentOpenProofInput {
+  type: 'attachment_open' | 'attachment_materialize';
   attachmentId: string;
   chatJid: string;
   taskId: string;
@@ -14,6 +15,7 @@ export function createAttachmentOpenProof(
   return createHmac('sha256', authToken)
     .update(
       [
+        input.type,
         input.taskId,
         input.attachmentId,
         input.chatJid,

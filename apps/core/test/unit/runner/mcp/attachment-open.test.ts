@@ -5,6 +5,8 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  attachmentMaterializeResponsePayload,
+  attachmentMaterializeTaskRequest,
   attachmentOpenResponsePayload,
   attachmentOpenResponseText,
   attachmentOpenTaskRequest,
@@ -32,6 +34,7 @@ describe('attachment_open MCP bridge', () => {
       payload: {
         attachmentId: 'message-attachment:provider-fetch:m1:slack:file_id:F1',
         conversationProof: createAttachmentOpenProof('chat-scoped-token', {
+          type: 'attachment_open',
           attachmentId: 'message-attachment:provider-fetch:m1:slack:file_id:F1',
           chatJid: 'sl:C1',
           threadId: '1700000000.0001',
@@ -39,6 +42,62 @@ describe('attachment_open MCP bridge', () => {
         }),
       },
     });
+  });
+
+  it('binds materialize proofs to the distinct request type', () => {
+    const request = attachmentMaterializeTaskRequest({
+      attachmentId: 'attachment-1',
+      chatJid: 'tg:C1',
+      taskId: 'attachment-materialize-1',
+      authToken: 'chat-scoped-token',
+    });
+
+    expect(request).toMatchObject({
+      type: 'attachment_materialize',
+      payload: {
+        conversationProof: createAttachmentOpenProof('chat-scoped-token', {
+          type: 'attachment_materialize',
+          attachmentId: 'attachment-1',
+          chatJid: 'tg:C1',
+          taskId: 'attachment-materialize-1',
+        }),
+      },
+    });
+    expect(request.payload.conversationProof).not.toBe(
+      createAttachmentOpenProof('chat-scoped-token', {
+        type: 'attachment_open',
+        attachmentId: 'attachment-1',
+        chatJid: 'tg:C1',
+        taskId: 'attachment-materialize-1',
+      }),
+    );
+    expect(isLongRunningTask('attachment_materialize')).toBe(true);
+  });
+
+  it('formats materialize and already-in-workspace responses', () => {
+    expect(
+      attachmentMaterializeResponsePayload({
+        ok: true,
+        data: {
+          status: 'materialized',
+          path: 'quarantine/0123456789abcdef-report.csv',
+          bytes: 7,
+        },
+      }),
+    ).toMatchObject({
+      status: 'materialized',
+      path: 'quarantine/0123456789abcdef-report.csv',
+      bytes: 7,
+    });
+    expect(
+      attachmentMaterializeResponsePayload({
+        ok: true,
+        data: {
+          status: 'already_in_workspace',
+          path: 'attachments/live.csv',
+        },
+      }).text,
+    ).toContain('attachments/live.csv');
   });
 
   it('returns host content without exposing host paths or repository data', () => {
@@ -200,12 +259,12 @@ describe('attachment_open tool image delivery', () => {
       | undefined;
     registerAttachmentTools({
       tool: (
-        _name: string,
+        name: string,
         _description: string,
         _schema: unknown,
         toolHandler: never,
       ) => {
-        handler = toolHandler;
+        if (name === 'attachment_open') handler = toolHandler;
       },
     } as never);
     return handler!({ attachment_ids: attachmentIds });

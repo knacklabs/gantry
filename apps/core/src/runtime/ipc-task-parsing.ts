@@ -343,11 +343,12 @@ export function parseTaskIpcData(
   }
   const type = toTrimmedString(raw.type, { maxLen: 80 });
   if (!type) throw new Error('IPC task type is required');
-  if (type === 'attachment_open') {
+  if (type === 'attachment_open' || type === 'attachment_materialize') {
     validateAttachmentOpenConversationProof(
       raw,
       sourceAgentFolder,
       threadBinding,
+      type,
     );
   }
   assertNoUnsupportedSchedulerJobTaskFields(raw, type);
@@ -524,6 +525,7 @@ function validateAttachmentOpenConversationProof(
   raw: Record<string, unknown>,
   sourceAgentFolder: string,
   binding: ReturnType<typeof validateIpcAuthRequest>,
+  type: 'attachment_open' | 'attachment_materialize',
 ): void {
   const payload = isPlainObject(raw.payload) ? raw.payload : {};
   const attachmentId = toTrimmedString(payload.attachmentId, { maxLen: 512 });
@@ -553,6 +555,7 @@ function validateAttachmentOpenConversationProof(
     !verifyAttachmentOpenProof(
       authToken,
       {
+        type,
         attachmentId,
         chatJid,
         taskId,

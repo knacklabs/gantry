@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 
 import {
@@ -169,6 +170,7 @@ export async function readProviderAttachment(input: {
   workspaceRoots: readonly string[];
   storageRef: string;
   attachment: ReadableAttachmentMetadata;
+  mode?: 'view' | 'materialize';
   extract?: DocumentTextExtractor;
 }): Promise<
   | {
@@ -188,6 +190,11 @@ export async function readProviderAttachment(input: {
     ...providerAttachmentStoragePath(input.storageRef).split('/'),
   );
   try {
+    if (input.mode === 'materialize') {
+      const stat = await fs.lstat(materializedPath);
+      if (!stat.isFile() || stat.isSymbolicLink()) return { status: 'missing' };
+      return { status: 'opened', content: '', materializedPath };
+    }
     const read = await readAttachmentContent(
       materializedPath,
       input.attachment,
@@ -460,4 +467,51 @@ function isNotFoundError(error: unknown): boolean {
     'code' in error &&
     error.code === 'ENOENT'
   );
+}
+
+// Hardened read-only open for copying a CAS entry: parent directories are
+// canonicalized deliberately (host tmp/data roots may legitimately sit
+// behind symlinks like /var -> /private/var); the LEAF must be a physical
+// single-link regular file, validated on the FD itself so a post-check swap
+// cannot redirect the copy to another host file.
+export async function openMaterializedAttachmentReadOnly(
+  materializedPath: string,
+): Promise<import('node:fs/promises').FileHandle> {
+  const canonicalDir = await fs.realpath(path.dirname(materializedPath));
+  const leafPath = path.join(canonicalDir, path.basename(materializedPath));
+  const handle = await fs.open(
+    leafPath,
+    fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+  );
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.nlink !== 1) {
+      throw new Error(
+        'Provider attachment source must be a physical single-link file.',
+      );
+    }
+    return handle;
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    throw error;
+  }
+}
+
+// Existence probe for workspace-local attachment refs: a regular file,
+// contained in the workspace, no symlink leaf. Lives here (not in the
+// application layer) because the application layer may not touch node:fs.
+export async function workspaceLocalRegularFile(
+  workspaceRoot: string,
+  storageRef: string,
+): Promise<boolean> {
+  const resolved = path.resolve(workspaceRoot, storageRef);
+  if (!resolved.startsWith(path.resolve(workspaceRoot) + path.sep)) {
+    return false;
+  }
+  try {
+    const stat = await fs.lstat(resolved);
+    return stat.isFile() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
 }

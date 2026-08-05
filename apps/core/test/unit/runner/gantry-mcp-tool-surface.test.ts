@@ -44,6 +44,9 @@ describe('gantry mcp tool surface', () => {
       'app:conversation',
       'unknown:conversation',
     ]) {
+      expect(
+        selectedGantryMcpToolNames(CONFIGURED_CANVAS_TOOLS, { chatJid }),
+      ).toContain('attachment_materialize');
       expectCanvasToolsAbsent(
         selectedGantryMcpToolNames(CONFIGURED_CANVAS_TOOLS, { chatJid }),
       );
