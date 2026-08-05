@@ -184,6 +184,15 @@ export class StatefulLivenessProvider {
     return [...this.cards.values()].map((card) => card.text);
   }
 
+  snapshotProgressState(): StatefulLivenessProgressState {
+    return {
+      cards: new Map(
+        [...this.cards].map(([messageId, card]) => [messageId, { ...card }]),
+      ),
+      cardIdByRoute: new Map(this.cardIdByRoute),
+    };
+  }
+
   private async sendProgressUpdate(
     jid: string,
     text: string,

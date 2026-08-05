@@ -13,7 +13,14 @@
 - Same-card retry status (`retrying n/max`): `apps/core/test/unit/runtime/group-processing.test.ts` — `keeps the failing progress-card generation for retry count %i` and `treats maxRetries zero as terminal on the initial failure`; `apps/core/test/unit/runtime/group-progress-channel-sender.test.ts` — `keeps a dispatched retry status repairable after its sender retires`.
 - Terminal Done wins: `apps/core/test/unit/runtime/group-progress-channel-sender.test.ts` — `keeps a stalled edit before terminal Done for the same card`, `drops an obsolete pre-dispatch stall link and advances terminal Done after the bound`, and `restores a failed terminal desired payload after an older stall lands late`.
 
-Maintenance: update this map whenever ambient-liveness flow tests are renamed or moved so the behavior contract continues to point at the exact exercising tests.
+- Determinism harness (LIVE-2-5): liveness suites assert provider-visible end
+  state through `apps/core/test/harness/stateful-liveness-provider.ts` — final
+  card text, final reaction set, one card, no duplicate post, concurrency
+  ceiling — and assert never-happens invariants against its recorded history
+  rather than the end state alone. The chain from admission to channel is
+  covered by `apps/core/test/unit/runtime/liveness-flow.test.ts`.
+
+Maintenance: update this map whenever ambient-liveness flow tests are renamed or moved so the behavior contract continues to point at the exact exercising tests. When a test name claims a never-happens invariant or a specific transition strategy, assert it against the harness history — an end-state assertion alone will pass on a flicker that is later corrected.
 
 ## Rules
 
@@ -256,7 +263,7 @@ Maintenance: update this map whenever ambient-liveness flow tests are renamed or
   boundary without pinning instant-success call order.
   - `runtime/liveness-flow.test.ts`: `flows admission through lifecycle and wiring to one terminal provider card`
   - `runtime/liveness-flow.test.ts`: `converges after failure, rate limit, and a slow stale typing settlement`
-  - `runtime/liveness-flow.test.ts`: `reuses provider-visible progress state after a runtime restart without duplicating the card`
+  - `runtime/liveness-flow.test.ts`: `reconstructs the real progress sender around restored provider state without duplicating the card`
 - App (web session) typing is `explicit` on/off keyed to the durable lease
   generation; SDK consumers order typing via the caller-owned
   `SessionTypingTracker` (session+thread scoped, per-session cursors).

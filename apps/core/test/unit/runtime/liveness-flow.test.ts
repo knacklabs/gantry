@@ -4,10 +4,7 @@ import { createChannelWiringLiveUx } from '@core/app/bootstrap/channel-wiring-li
 import { createLiveReactionLifecycle } from '@core/app/bootstrap/live-reaction-lifecycle.js';
 import { GroupLivenessController } from '@core/runtime/group-liveness-state.js';
 import { createProgressChannelSender } from '@core/runtime/group-progress-channel-sender.js';
-import {
-  createStatefulLivenessProgressState,
-  StatefulLivenessProvider,
-} from '../../harness/stateful-liveness-provider.js';
+import { StatefulLivenessProvider } from '../../harness/stateful-liveness-provider.js';
 
 function wiringFor(provider: StatefulLivenessProvider) {
   return createChannelWiringLiveUx({
@@ -119,21 +116,25 @@ describe('liveness provider-visible flow', () => {
     expect(provider.maxMutationsInFlight).toBe(1);
   });
 
-  it('reuses provider-visible progress state after a runtime restart without duplicating the card', async () => {
-    const progressState = createStatefulLivenessProgressState();
-    const beforeProvider = new StatefulLivenessProvider({ progressState });
+  it('reconstructs the real progress sender around restored provider state without duplicating the card', async () => {
+    const beforeProvider = new StatefulLivenessProvider();
     const beforeRuntime = runtimeFor(beforeProvider);
     const beforeRestart = progressSenderFor(beforeRuntime, 'sl:C1');
     await beforeRestart('Working');
     beforeRestart.retire();
 
-    const afterProvider = new StatefulLivenessProvider({ progressState });
+    const restoredProgressState = beforeProvider.snapshotProgressState();
+    const afterProvider = new StatefulLivenessProvider({
+      progressState: restoredProgressState,
+    });
     const afterRuntime = runtimeFor(afterProvider);
     const afterRestart = progressSenderFor(afterRuntime, 'sl:C1');
     await afterRestart('Interrupted by a restart.', {
       done: true,
     });
 
+    expect(afterProvider.cards).not.toBe(beforeProvider.cards);
+    expect(beforeProvider.cardTexts()).toEqual(['Working']);
     expect(afterProvider.cardTexts()).toEqual(['Interrupted by a restart.']);
     expect(afterProvider.cards.size).toBe(1);
   });
