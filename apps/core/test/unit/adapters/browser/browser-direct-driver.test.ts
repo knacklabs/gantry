@@ -38,6 +38,11 @@ function createPage(opts: {
   redirectUrl?: string;
   screenshotBuffers?: Buffer[];
   locatorClick?: ReturnType<typeof vi.fn>;
+  download?: {
+    suggestedFilename?: string;
+    bytes?: Buffer;
+    failure?: string | null;
+  };
 }) {
   const locator = {
     click: opts.locatorClick ?? vi.fn(async () => undefined),
@@ -84,6 +89,23 @@ function createPage(opts: {
       press: vi.fn(async () => undefined),
     },
     waitForTimeout: vi.fn(async () => undefined),
+    waitForEvent: vi.fn(async (event: string) => {
+      if (event !== 'download' || !opts.download) {
+        throw new Error(`Unexpected page event: ${event}`);
+      }
+      return {
+        suggestedFilename: () =>
+          opts.download?.suggestedFilename ?? 'download.bin',
+        failure: vi.fn(async () => opts.download?.failure ?? null),
+        saveAs: vi.fn(async (filename: string) => {
+          fs.mkdirSync(path.dirname(filename), { recursive: true });
+          fs.writeFileSync(
+            filename,
+            opts.download?.bytes ?? Buffer.from('download'),
+          );
+        }),
+      };
+    }),
     setInputFiles: vi.fn(async () => undefined),
     setViewportSize: vi.fn(async () => undefined),
     viewportSize: vi.fn(() => ({ width: 1280, height: 900 })),
@@ -417,6 +439,61 @@ describe('browser direct driver', () => {
     expect(page.setInputFiles.mock.calls[2]?.[1]).toEqual([
       fs.realpathSync.native(uploadPath),
     ]);
+  });
+
+  it('captures a target-initiated download inside the browser artifact root', async () => {
+    const root = tempRoot();
+    const { page, locator } = createPage({
+      url: 'https://93.184.216.34/',
+      download: {
+        suggestedFilename: '../../candidate resume.pdf',
+        bytes: Buffer.from('resume-bytes'),
+      },
+    });
+    const { browser } = createBrowser([page]);
+    browserMocks.connectOverCDP.mockResolvedValue(browser);
+
+    const result = await callBrowserTool({
+      toolName: 'download',
+      arguments: { target: 'e1' },
+      session: session(),
+      fileAccessRoot: root,
+    });
+
+    expect(locator.click).toHaveBeenCalledTimes(1);
+    expect(page.waitForEvent).toHaveBeenCalledWith(
+      'download',
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+    expect(result).toMatchObject({
+      file: { sizeBytes: 12 },
+    });
+    const savedPath = (result as { file: { path: string } }).file.path;
+    expect(savedPath).toContain(`${path.sep}downloads${path.sep}`);
+    expect(path.relative(fs.realpathSync.native(root), savedPath)).not.toMatch(
+      /^\.\./,
+    );
+    expect(fs.readFileSync(savedPath, 'utf8')).toBe('resume-bytes');
+  });
+
+  it('confines an explicit download filename to the artifact root', async () => {
+    const root = tempRoot();
+    const { page } = createPage({
+      url: 'https://93.184.216.34/',
+      download: { bytes: Buffer.from('resume-bytes') },
+    });
+    const { browser } = createBrowser([page]);
+    browserMocks.connectOverCDP.mockResolvedValue(browser);
+
+    await expect(
+      callBrowserTool({
+        toolName: 'download',
+        arguments: { target: 'e1', filename: '../resume.pdf' },
+        session: session(),
+        fileAccessRoot: root,
+      }),
+    ).rejects.toThrow('limited to the run browser artifact root');
+    expect(page.waitForEvent).not.toHaveBeenCalled();
   });
 
   it('rejects file_attach path sources outside allowed roots', async () => {

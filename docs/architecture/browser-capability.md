@@ -50,9 +50,21 @@ activity audit records the public `browser_act` call and backend
 `file_attach` action; durable authority remains the single `Browser`
 capability.
 
-Downloads are intentionally deferred in this slice. The direct driver does not
-add download tools until download roots, retention, and result disclosure have a
-separate scoped policy and test plan.
+`browser_act` supports `action: "download"` with `profile: "full"`, a reason,
+and a target from the latest inspection (or a unique selector). Gantry arms the
+Playwright download listener before clicking, stores at most 50 MiB below the
+run browser artifact root, and returns a compact file reference. It never
+returns inline bytes or writes to an application-owned path. Application code
+must read the artifact through its scoped capability and send business data to
+the owning application API; Browser does not receive database credentials.
+
+The official fleet image includes Chromium and can start headed Chrome on an
+opt-in Xvfb display with `GANTRY_BROWSER_VIRTUAL_DISPLAY_ENABLED=1`. An
+authenticated noVNC viewer can be enabled with
+`GANTRY_BROWSER_VIEWER_ENABLED=1` plus a deployment-mounted
+`GANTRY_BROWSER_VNC_PASSWORD_FILE`. Listener exposure, TLS, routing, and the
+public URL remain deployment-owned. These settings do not add headless mode or
+new durable authority to the agent-facing Browser contract.
 
 Private browser backend tools are not Gantry browser authority. They must not be
 persisted, requested, advertised, or projected into the model-facing tool

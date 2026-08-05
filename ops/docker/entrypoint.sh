@@ -175,6 +175,35 @@ EOF
 
 prepare_runtime_home_and_drop_privileges "$@"
 
+start_browser_display() {
+  if [ "${GANTRY_BROWSER_VIRTUAL_DISPLAY_ENABLED:-0}" != "1" ]; then
+    return
+  fi
+  if [ -n "${DISPLAY:-}" ]; then
+    log "using existing browser display ${DISPLAY}"
+  else
+    display="${GANTRY_BROWSER_DISPLAY:-:99}"
+    Xvfb "$display" -screen 0 "${GANTRY_BROWSER_SCREEN:-1440x1000x24}" -nolisten tcp &
+    export DISPLAY="$display"
+    fluxbox >/tmp/gantry-fluxbox.log 2>&1 &
+    log "started hosted browser virtual display ${display}"
+  fi
+
+  if [ "${GANTRY_BROWSER_VIEWER_ENABLED:-0}" != "1" ]; then
+    return
+  fi
+  auth_file="${GANTRY_BROWSER_VNC_PASSWORD_FILE:-}"
+  if [ -z "$auth_file" ] || [ ! -r "$auth_file" ]; then
+    log "GANTRY_BROWSER_VIEWER_ENABLED requires a readable GANTRY_BROWSER_VNC_PASSWORD_FILE"
+    exit 1
+  fi
+  x11vnc -display "$DISPLAY" -rfbauth "$auth_file" -forever -shared -localhost -rfbport 5900 >/tmp/gantry-x11vnc.log 2>&1 &
+  websockify --web=/usr/share/novnc "${GANTRY_BROWSER_VIEWER_PORT:-6080}" localhost:5900 >/tmp/gantry-websockify.log 2>&1 &
+  log "started authenticated browser viewer on port ${GANTRY_BROWSER_VIEWER_PORT:-6080}"
+}
+
+start_browser_display
+
 if [ "${GANTRY_FLEET_REHEARSAL_AUTO_SECRETS:-0}" = "1" ]; then
   load_or_create_rehearsal_secrets
   export SECRET_ENCRYPTION_KEY GANTRY_IPC_AUTH_SECRET GANTRY_CONTROL_API_KEYS_JSON

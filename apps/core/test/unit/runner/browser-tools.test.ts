@@ -285,9 +285,18 @@ describe('runner browser MCP gateway tools', () => {
         source: { type: 'path', path: '/tmp/report.zip' },
       },
     });
+    await server.tools.get('browser_act')?.({
+      action: 'download',
+      profile: 'full',
+      reason: 'Download the inspected candidate export.',
+      payload: {
+        target: 'download-link',
+        filename: 'downloads/candidates.xlsx',
+      },
+    });
 
     expect(blocked).toMatchObject({ isError: true });
-    expect(requestBrowserAction).toHaveBeenCalledTimes(2);
+    expect(requestBrowserAction).toHaveBeenCalledTimes(3);
     expect(requestBrowserAction).toHaveBeenNthCalledWith(
       1,
       'evaluate',
@@ -300,6 +309,15 @@ describe('runner browser MCP gateway tools', () => {
       {
         target: 'upload-input',
         source: { type: 'path', path: '/tmp/report.zip' },
+      },
+      { timeoutMs: 120_000, publicToolName: 'browser_act' },
+    );
+    expect(requestBrowserAction).toHaveBeenNthCalledWith(
+      3,
+      'download',
+      {
+        target: 'download-link',
+        filename: 'downloads/candidates.xlsx',
       },
       { timeoutMs: 120_000, publicToolName: 'browser_act' },
     );
@@ -358,6 +376,14 @@ describe('runner browser MCP gateway tools', () => {
         profile: 'full',
         reason: 'Fill required checkout fields.',
         payload: { fields: [{ target: 'e1', value: 'Ravi' }] },
+      }).success,
+    ).toBe(true);
+    expect(
+      actSchema.safeParse({
+        action: 'download',
+        profile: 'full',
+        reason: 'Download the inspected export.',
+        payload: { target: 'download-link' },
       }).success,
     ).toBe(true);
     expect(
