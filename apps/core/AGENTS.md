@@ -208,7 +208,26 @@ Maintenance: update this map whenever ambient-liveness flow tests are renamed or
   - `runtime/group-processing.test.ts`: `treats maxRetries zero as terminal on the initial failure`
   - `runtime/group-queue.test.ts`: `threads retry numbering and the configured maximum through every attempt`
 - Teams typing and reactions remain deferred by decision 0033 until a real
-  Teams client is available; this map records no Teams runtime coverage.
+  Teams client is available; Teams truthfully declares `reactions: none` in
+  its `liveUx` capability (LIVE-2) — no advertised no-ops.
+- Declared live-UX capability + dispatcher (LIVE-2): adapters declare
+  `liveUx` (typing: none|expiring|explicit; reactions with exact|all removal
+  and adapter-canonical target keys); one dispatcher serializes per target,
+  bounds attempts, treats deadline-fired attempts as ambiguous, reconciles
+  late settlements to the newest desired state, and owns the single
+  rate-limit retry honoring provider retry-after in full.
+  - `runtime/live-ux-dispatcher.test.ts`: `declares truthful built-in adapter capabilities without inferred operations`
+  - `runtime/live-ux-dispatcher.test.ts`: `contains a throwing typing adapter so liveness cannot reject the turn`
+  - `runtime/live-ux-dispatcher.test.ts`: `routes reactions and typing to the account that owns the route`
+  - `runtime/live-ux-dispatcher.test.ts`: `reconciles a slow reaction add that lands after removal and grace`
+  - `runtime/live-ux-dispatcher.test.ts`: `reconciles a slow terminal off that lands after a newer start and grace`
+  - `channels/discord-live-ux.test.ts`: `keeps thread-less channels in distinct lanes`
+- App (web session) typing is `explicit` on/off keyed to the durable lease
+  generation; SDK consumers order typing via the caller-owned
+  `SessionTypingTracker` (session+thread scoped, per-session cursors).
+  - `channels/app.test.ts`: `keeps a late stale typing event from overriding newer terminal off`
+  - `channels/app.test.ts`: `partitions typing order by thread within one consumer`
+  - `channels/app.test.ts`: `delivers terminal off from a replacement producer despite clock rollback`
 
 Maintenance: when a liveness flow test above moves or is renamed, update this
 map in the same change — it is the durable index of the user-visible contract.
