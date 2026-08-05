@@ -198,6 +198,8 @@ describe('finalizeSchedulerJobRun — transient permission approvals', () => {
         tool: 'Bash',
         mode: 'allow_once',
         decidedBy: 'human',
+        source: 'human_once',
+        repeatableForFutureRuns: false,
         ok: true,
       },
     );

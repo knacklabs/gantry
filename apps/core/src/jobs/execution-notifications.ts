@@ -142,15 +142,12 @@ export async function notifySchedulerTerminalRunState(input: {
   // Suppress only when a setup card was actually DELIVERED and the run did
   // not complete: a completed-but-paused run whose setup card was skipped
   // must still get its completed-with-limits card, or the pause is silent.
-  // The setup card subsumes the terminal card only when the SEMANTIC gate
-  // holds: the pause is the setup requirement AND the summary parses as the
-  // autonomous denial — i.e. the denial IS the whole outcome, whatever the
-  // terminal status string says (the long-standing behavior). An explicit
-  // setupNotified === false always keeps the card (silent-pause guard);
-  // undefined is a legacy caller relying on the semantic gate alone.
+  // The setup card subsumes the terminal card only when it was DELIVERED
+  // and the semantic gate holds: the pause is the setup requirement and the
+  // summary parses as the autonomous denial — the denial IS the outcome.
   const suppressTerminalCard =
     input.runStatus !== 'completed' &&
-    input.setupNotified !== false &&
+    input.setupNotified === true &&
     input.pauseReason === SETUP_REQUIRED_PAUSE_REASON &&
     parseAutonomousToolDenial(input.summary) !== null;
   if (suppressTerminalCard) {

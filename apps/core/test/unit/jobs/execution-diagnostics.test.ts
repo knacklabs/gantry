@@ -72,42 +72,6 @@ describe('job execution diagnostics', () => {
     );
   });
 
-  it('keeps legacy permission payloads without source on the old transient path', () => {
-    const diagnostics = createJobRunDiagnostics();
-
-    updateDiagnosticsFromRuntimeEvent(
-      diagnostics,
-      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
-      {
-        phase: 'permission_wait',
-        tool: 'Bash',
-        ok: false,
-        reason: 'Tool not on autonomous run allowlist: RunCommand.',
-        recovery_action:
-          'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
-      },
-    );
-    updateDiagnosticsFromRuntimeEvent(
-      diagnostics,
-      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
-      {
-        phase: 'permission_allowed',
-        tool: 'Bash',
-        mode: 'allow_once',
-        ok: true,
-      },
-    );
-
-    expect(diagnostics.transientPermissionApprovals).toEqual([
-      {
-        toolName: 'Bash',
-        mode: 'allow_once',
-        recoveryAction:
-          'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
-      },
-    ]);
-  });
-
   it('keeps recurring jobs active across automatic allow-once decisions from every policy source', () => {
     const automaticDecisions = [
       {
@@ -190,29 +154,6 @@ describe('job execution diagnostics', () => {
       },
     );
     expect(repeatable.transientPermissionApprovals).toEqual([]);
-  });
-
-  it('keeps legacy reviewed-rule payloads without source non-transient', () => {
-    for (const provenance of [
-      { decidedBy: 'reviewed_rule' },
-      { decided_by: 'reviewed_rule' },
-    ]) {
-      const diagnostics = createJobRunDiagnostics();
-
-      updateDiagnosticsFromRuntimeEvent(
-        diagnostics,
-        RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
-        {
-          phase: 'permission_allowed',
-          tool: 'Bash',
-          mode: 'allow_once',
-          ok: true,
-          ...provenance,
-        },
-      );
-
-      expect(diagnostics.transientPermissionApprovals).toEqual([]);
-    }
   });
 
   it('aggregates startup diagnostics with sanitized count and timing fields', () => {

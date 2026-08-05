@@ -446,6 +446,7 @@ describe('jobs/execution-notifications', () => {
       nextRun: null,
       retryCount: 1,
       pauseReason: 'Setup required',
+      setupNotified: true,
       sendMessage,
       durationMs: 41_000,
     });

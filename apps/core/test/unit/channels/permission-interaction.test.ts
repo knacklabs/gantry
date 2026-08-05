@@ -48,38 +48,6 @@ describe('permission receipts', () => {
       'Approved for this run only: Command (npm test). It will ask again next run.',
     );
   });
-
-  it('uses provenance when present and mode as the legacy fallback', () => {
-    const request = {
-      requestId: 'permission_123',
-      sourceAgentFolder: 'main_agent',
-      toolName: 'RunCommand',
-      toolInput: { command: 'npm test' },
-      suggestions: [
-        {
-          type: 'addRules' as const,
-          behavior: 'allow' as const,
-          rules: [{ toolName: 'RunCommand', ruleContent: 'npm test' }],
-        },
-      ],
-    } satisfies PermissionApprovalRequest;
-
-    expect(
-      formatPermissionReceiptText(request.requestId, request, {
-        approved: true,
-        mode: 'allow_persistent_rule',
-        repeatableForFutureRuns: false,
-      }),
-    ).toBe('Approved for this run only: Command (npm test).');
-    expect(
-      formatPermissionReceiptText(request.requestId, request, {
-        approved: true,
-        mode: 'allow_persistent_rule',
-      }),
-    ).toBe(
-      'Allowed for future: Command (npm test). Saved for Main Agent. Manage access to revoke it later.',
-    );
-  });
 });
 
 describe('permission match diagnosis', () => {
@@ -296,6 +264,7 @@ describe('permission interaction', () => {
       expect.objectContaining({
         approved: true,
         mode: 'allow_persistent_rule',
+        repeatableForFutureRuns: false,
         reason: 'review each',
       }),
     );
@@ -337,6 +306,7 @@ describe('permission interaction', () => {
     expect(decision).toMatchObject({
       approved: true,
       mode: 'allow_persistent_rule',
+      repeatableForFutureRuns: false,
       decisionClassification: 'user_temporary',
       batchDecision: 'review_each',
     });
@@ -575,7 +545,7 @@ describe('permission interaction', () => {
       firstAskedAt: new Date().toISOString(),
     } satisfies PermissionApprovalRequest;
     const hint =
-      'Asked 3 times in 1 day, each approved once only. Approve permanently?';
+      'Approved once 3 times in 1 day — and it is asking again now. Approve permanently?';
     const oldHint = "'Allow for future' makes it permanent.";
     const prompt = formatPermissionPromptText(request, 60_000);
     const contextLines = buildPermissionPromptParts(
@@ -850,6 +820,7 @@ describe('permission interaction', () => {
     const receipt = formatPermissionReceiptText('permission_123', request, {
       approved: true,
       mode: 'allow_persistent_rule',
+      repeatableForFutureRuns: true,
       decidedBy: 'ravi',
     });
     expect(receipt).toContain(
@@ -1658,6 +1629,7 @@ describe('permission interaction', () => {
       {
         approved: true,
         mode: 'allow_persistent_rule',
+        repeatableForFutureRuns: true,
       },
     );
     expect(persistentReceipt).toBe(
@@ -1715,6 +1687,7 @@ describe('permission interaction', () => {
       {
         approved: true,
         mode: 'allow_persistent_rule',
+        repeatableForFutureRuns: true,
         decidedBy: 'ravi',
       },
     );

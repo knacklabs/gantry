@@ -152,15 +152,9 @@ export function formatPermissionReceiptText(
   if (!decision.approved || decision.mode === 'cancel') {
     return limitPermissionMessage(`Canceled: ${summary}. Nothing changed.`);
   }
-  // Legacy batch + persistent = per-request review, never a blanket grant.
-  // prettier-ignore
-  if (decision.batchDecision === 'review_each' ||
-      (request && isPermissionBatchRequest(request) && decision.mode === 'allow_persistent_rule'))
+  if (decision.batchDecision === 'review_each')
     return 'Reviewing each permission request.';
-  const repeatableForFutureRuns =
-    decision.repeatableForFutureRuns ??
-    decision.mode === 'allow_persistent_rule';
-  if (repeatableForFutureRuns) {
+  if (decision.repeatableForFutureRuns === true) {
     const agentName = request
       ? formatPermissionAgentDisplayName(request.sourceAgentFolder)
       : 'this agent';
@@ -368,14 +362,10 @@ function formatPermissionContextLines(
       );
     }
   }
-  if (request.promotionHintCount) {
-    const days = request.firstAskedAt
-      ? permissionAskSpanDays(request.firstAskedAt)
-      : null;
+  if (request.promotionHintCount && request.firstAskedAt) {
+    const days = permissionAskSpanDays(request.firstAskedAt);
     lines.push(
-      days === null
-        ? `You've allowed me to do this ${request.promotionHintCount} times — want me to stop asking?`
-        : `Asked ${request.promotionHintCount} times in ${days} ${days === 1 ? 'day' : 'days'}, each approved once only. Approve permanently?`,
+      `Approved once ${request.promotionHintCount} times in ${days} ${days === 1 ? 'day' : 'days'} — and it is asking again now. Approve permanently?`,
     );
   }
   lines.push('The agent cannot approve this itself.');
