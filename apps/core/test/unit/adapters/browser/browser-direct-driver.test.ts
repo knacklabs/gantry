@@ -496,6 +496,29 @@ describe('browser direct driver', () => {
     expect(page.waitForEvent).not.toHaveBeenCalled();
   });
 
+  it('does not materialize a browser-reported failed download', async () => {
+    const root = tempRoot();
+    const { page, locator } = createPage({
+      url: 'https://93.184.216.34/',
+      download: { failure: 'remote server rejected the export' },
+    });
+    const { browser } = createBrowser([page]);
+    browserMocks.connectOverCDP.mockResolvedValue(browser);
+
+    await expect(
+      callBrowserTool({
+        toolName: 'download',
+        arguments: { target: 'e1' },
+        session: session(),
+        fileAccessRoot: root,
+      }),
+    ).rejects.toThrow(
+      'Browser download failed: remote server rejected the export',
+    );
+    expect(locator.click).toHaveBeenCalledTimes(1);
+    expect(fs.readdirSync(root)).toEqual([]);
+  });
+
   it('rejects file_attach path sources outside allowed roots', async () => {
     const root = tempRoot();
     const { page } = createPage({ url: 'https://93.184.216.34/' });
