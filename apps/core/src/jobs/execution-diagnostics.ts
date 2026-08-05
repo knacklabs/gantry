@@ -177,10 +177,13 @@ export function updateDiagnosticsFromRuntimeEvent(
     };
   }
   const source = stringValue(payload.source);
-  // Fail closed: human_once is transient regardless of the (independently
-  // optional) repeatable flag, and an explicit non-repeatable flag is
-  // transient even if the source went missing — a partial payload must never
-  // read as consent for future unattended runs.
+  // Fail closed on PARTIAL provenance: human_once is transient regardless
+  // of the (independently optional) repeatable flag, and an explicit
+  // non-repeatable flag is transient even without a source. Deliberately NO
+  // fallback for payloads carrying NEITHER field: the runtime always stamps
+  // provenance (decision 0107; owner-directed no-legacy policy) — such a
+  // shape cannot come from current code, and the incident this fixes was
+  // spurious pauses, not missed ones.
   const isHumanOnce =
     source === 'human_once' || payload.repeatableForFutureRuns === false;
   if (
