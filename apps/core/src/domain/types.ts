@@ -605,6 +605,7 @@ export interface MessageSink {
   ): Promise<void | MessageDeliveryResult>;
 }
 export type {
+  ChannelLiveUxCapability,
   MessageReactionRemovalSink,
   MessageReactionSink,
   TypingSink,

@@ -1,4 +1,3 @@
-import { logger } from '../infrastructure/logging/logger.js';
 import {
   discordHeaders,
   discordReactionEmoji,
@@ -23,12 +22,16 @@ export async function addDiscordReaction(input: {
   messageRef: string;
   emoji: string;
   reactionKeys: Set<string>;
+  signal?: AbortSignal;
+  reconcile?: boolean;
   requestJson: RequestJson;
 }): Promise<void> {
   if (!input.channelId || !input.messageRef.trim()) return;
   const reaction = discordReactionEmoji(input.emoji);
   const key = `${input.channelId}:${input.messageRef}:${reaction}`;
-  if (input.reactionKeys.has(key)) return;
+  if (!input.reconcile && input.reactionKeys.has(key)) return;
+  const invalidate = () => input.reactionKeys.delete(key);
+  input.signal?.addEventListener('abort', invalidate, { once: true });
   try {
     await input.requestJson<void>(
       reactionPath(input.channelId, input.messageRef, reaction),
@@ -36,12 +39,9 @@ export async function addDiscordReaction(input: {
       'Discord reaction update failed',
       false,
     );
-    input.reactionKeys.add(key);
-  } catch (err) {
-    logger.debug(
-      { jid: input.jid, messageRef: input.messageRef, err },
-      'Discord reaction update failed',
-    );
+    if (!input.signal?.aborted) input.reactionKeys.add(key);
+  } finally {
+    input.signal?.removeEventListener('abort', invalidate);
   }
 }
 
@@ -52,11 +52,14 @@ export async function removeDiscordReaction(input: {
   messageRef: string;
   emoji: string;
   reactionKeys: Set<string>;
+  signal?: AbortSignal;
   requestJson: RequestJson;
 }): Promise<void> {
   if (!input.channelId || !input.messageRef.trim()) return;
   const reaction = discordReactionEmoji(input.emoji);
   const key = `${input.channelId}:${input.messageRef}:${reaction}`;
+  const invalidate = () => input.reactionKeys.delete(key);
+  input.signal?.addEventListener('abort', invalidate, { once: true });
   try {
     await input.requestJson<void>(
       reactionPath(input.channelId, input.messageRef, reaction),
@@ -64,15 +67,14 @@ export async function removeDiscordReaction(input: {
       'Discord reaction removal failed',
       false,
     );
-    input.reactionKeys.delete(key);
+    if (!input.signal?.aborted) input.reactionKeys.delete(key);
   } catch (err) {
     if (err instanceof DiscordRestError && err.status === 404) {
-      input.reactionKeys.delete(key);
+      if (!input.signal?.aborted) input.reactionKeys.delete(key);
       return;
     }
-    logger.debug(
-      { jid: input.jid, messageRef: input.messageRef, err },
-      'Discord reaction removal failed',
-    );
+    throw err;
+  } finally {
+    input.signal?.removeEventListener('abort', invalidate);
   }
 }

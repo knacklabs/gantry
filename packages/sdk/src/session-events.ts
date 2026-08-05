@@ -1,5 +1,130 @@
 import type { SessionEventEnvelope, SseEvent } from './types.js';
 
+type AppliedTypingOrder = {
+  generation: number;
+  sequenceCeilings: Map<number, number>;
+};
+
+type AppliedTypingState = {
+  isTyping: boolean;
+  order?: AppliedTypingOrder;
+};
+
+/**
+ * Caller-owned latest-value tracker for App typing events.
+ *
+ * Publication can time out while its durable append later succeeds. That
+ * narrow residual intentionally remains in the event log; consumers discard
+ * an older orderedEnvelope sequence so a late stale `isTyping: true` can never
+ * override a newer terminal `isTyping: false`. Raw history and wait reads stay
+ * raw: the logical consumer explicitly retains this tracker across polls.
+ * Generation is the durable runtime lease epoch for the App binding. Lower
+ * producer epochs are rejected, including an A -> B -> A interleave, and the
+ * per-epoch sequence ceilings prevent an older operation within an epoch from
+ * reappearing. Thread targets are independent, and dispose releases the
+ * tracker's bounded consumer lifetime.
+ */
+export class SessionTypingTracker {
+  private readonly appliedByTarget = new Map<string, AppliedTypingState>();
+  private readonly lastObservedEventIdBySession = new Map<string, number>();
+  private disposed = false;
+
+  apply(event: SessionEventEnvelope): boolean {
+    if (this.disposed) {
+      throw new Error('Session typing tracker has been disposed');
+    }
+    if (event.sessionId) {
+      this.lastObservedEventIdBySession.set(
+        event.sessionId,
+        Math.max(
+          this.lastObservedEventIdBySession.get(event.sessionId) ?? 0,
+          event.eventId,
+        ),
+      );
+    }
+    if (event.eventType !== 'session.typing' || !event.sessionId) return true;
+    const isTyping = typingValue(event.payload);
+    if (isTyping === undefined) return true;
+    const target = `${event.sessionId}\n${event.threadId ?? ''}`;
+    const applied = this.appliedByTarget.get(target);
+    const envelope = orderedEnvelope(event.payload);
+    if (!envelope) {
+      if (applied?.order) return false;
+      this.appliedByTarget.set(target, { isTyping });
+      return true;
+    }
+    if (!applied?.order) {
+      this.appliedByTarget.set(target, {
+        isTyping,
+        order: {
+          generation: envelope.generation,
+          sequenceCeilings: new Map([[envelope.generation, envelope.sequence]]),
+        },
+      });
+      return true;
+    }
+    if (envelope.generation < applied.order.generation) return false;
+    const sequenceCeiling = applied.order.sequenceCeilings.get(
+      envelope.generation,
+    );
+    if (sequenceCeiling !== undefined && envelope.sequence <= sequenceCeiling) {
+      return false;
+    }
+    applied.order.sequenceCeilings.set(envelope.generation, envelope.sequence);
+    applied.order.generation = envelope.generation;
+    applied.isTyping = isTyping;
+    return true;
+  }
+
+  afterEventId(sessionId: string): number | undefined {
+    if (this.disposed) {
+      throw new Error('Session typing tracker has been disposed');
+    }
+    return this.lastObservedEventIdBySession.get(sessionId);
+  }
+
+  isTyping(sessionId: string, threadId?: string | null): boolean | undefined {
+    if (this.disposed) {
+      throw new Error('Session typing tracker has been disposed');
+    }
+    return this.appliedByTarget.get(`${sessionId}\n${threadId ?? ''}`)
+      ?.isTyping;
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.appliedByTarget.clear();
+    this.lastObservedEventIdBySession.clear();
+  }
+}
+
+function typingValue(payload: unknown): boolean | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const { isTyping } = payload as { isTyping?: unknown };
+  return typeof isTyping === 'boolean' ? isTyping : undefined;
+}
+
+function orderedEnvelope(
+  payload: unknown,
+): { generation: number; sequence: number } | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const candidate = (payload as { orderedEnvelope?: unknown }).orderedEnvelope;
+  if (!candidate || typeof candidate !== 'object') return undefined;
+  const { generation, kind, sequence } = candidate as Record<string, unknown>;
+  if (
+    kind !== 'typing' ||
+    typeof generation !== 'number' ||
+    !Number.isSafeInteger(generation) ||
+    generation < 1 ||
+    typeof sequence !== 'number' ||
+    !Number.isSafeInteger(sequence) ||
+    sequence < 0
+  ) {
+    return undefined;
+  }
+  return { generation, sequence };
+}
+
 export function parseSessionSseEvent(input: {
   eventId: number;
   eventType: string;

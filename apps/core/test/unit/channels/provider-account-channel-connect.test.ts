@@ -92,6 +92,40 @@ const fanOutMessage = {
 };
 
 describe('connectProviderAccountChannels', () => {
+  it('exposes the App binding durable lease generation to the adapter', async () => {
+    let bindingGeneration: (() => number | undefined) | undefined;
+    const activeChannel = channel();
+    const create = vi.fn<Provider['create']>(async (opts) => {
+      bindingGeneration = opts.liveUxBindingGeneration;
+      return activeChannel;
+    });
+    const lease = {
+      generation: 7,
+      isValid: vi.fn(() => true),
+      release: vi.fn(async () => undefined),
+    };
+    const tryAcquire = vi.fn(async () => lease);
+    const connectedChannelLeases: Parameters<
+      typeof connectProviderAccountChannels
+    >[0]['connectedChannelLeases'] = [];
+
+    await connectProviderAccountChannels({
+      provider: { ...provider(create, 'app'), internal: true },
+      appId: 'app-one',
+      runtimeSettings: { providerAccounts: {}, runtime: {} },
+      channelOpts: { ...channelOpts(), runtimeLease: { tryAcquire } },
+      inboundEnabled: true,
+      connectedChannels: [],
+      connectedChannelLeases,
+      inboundLeasePrefix: 'runtime:provider-inbound',
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(tryAcquire).toHaveBeenCalledOnce();
+    expect(bindingGeneration?.()).toBe(7);
+    expect(connectedChannelLeases).toEqual([lease]);
+  });
+
   it('distrusts every account sharing an inbound hydration transport before and after connect', async () => {
     const order: string[] = [];
     const activeChannel = channel();

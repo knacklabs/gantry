@@ -756,7 +756,16 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     this.draftStreamApi = disconnected.draftStreamApi;
   }
 
-  async setTyping(jid: string, isTyping: boolean): Promise<void> {
-    await sendTelegramTyping({ bot: this.bot, jid, isTyping });
-  }
+  setTyping = async (
+    jid: string,
+    isTyping: boolean,
+    options: { threadId?: string; signal?: AbortSignal } = {},
+  ): Promise<void> => {
+    await sendTelegramTyping({
+      bot: this.bot,
+      jid,
+      isTyping,
+      signal: options.signal,
+    });
+  };
 }

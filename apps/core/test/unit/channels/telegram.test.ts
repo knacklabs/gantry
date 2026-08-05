@@ -1051,7 +1051,19 @@ describe('TelegramChannel', () => {
       987,
       [{ type: 'emoji', emoji: '⏳' }],
       { is_big: false },
+      undefined,
     );
+  });
+
+  it('replaces the cached Telegram reaction key after every successful add', async () => {
+    const channel = new TelegramChannel('token', createTestOpts());
+    await channel.connect({ inbound: false });
+
+    await channel.addReaction('tg:100200300', '987', 'seen');
+    await channel.addReaction('tg:100200300', '987', 'running');
+    await channel.addReaction('tg:100200300', '987', 'seen');
+
+    expect(botRef.current.api.setMessageReaction).toHaveBeenCalledTimes(3);
   });
 
   it('clears every Telegram reaction dedupe key when removing one reaction', async () => {
@@ -1068,6 +1080,8 @@ describe('TelegramChannel', () => {
       '100200300',
       987,
       [],
+      undefined,
+      undefined,
     );
     expect(botRef.current.api.setMessageReaction).toHaveBeenCalledTimes(5);
   });
@@ -4726,6 +4740,8 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.sendChatAction).toHaveBeenCalledWith(
         '100200300',
         'typing',
+        undefined,
+        undefined,
       );
     });
 
@@ -4749,7 +4765,7 @@ describe('TelegramChannel', () => {
       // No error, no API call
     });
 
-    it('handles typing indicator failure gracefully', async () => {
+    it('surfaces typing indicator failures to the dispatcher', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
@@ -4758,9 +4774,47 @@ describe('TelegramChannel', () => {
         new Error('Rate limited'),
       );
 
+      await expect(channel.setTyping('tg:100200300', true)).rejects.toThrow(
+        'Rate limited',
+      );
+    });
+
+    it('translates typing rate limits for the dispatcher retry policy', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      const rateLimit = {
+        error_code: 429,
+        parameters: { retry_after: 2 },
+      };
+      currentBot().api.sendChatAction.mockRejectedValueOnce(rateLimit);
+
       await expect(
         channel.setTyping('tg:100200300', true),
-      ).resolves.toBeUndefined();
+      ).rejects.toMatchObject({
+        name: 'LiveUxRateLimitError',
+        retryDelayMs: 2_000,
+        cause: rateLimit,
+      });
+    });
+
+    it('preserves the full Telegram retry_after delay', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      const rateLimit = {
+        error_code: 429,
+        parameters: { retry_after: 120 },
+      };
+      currentBot().api.sendChatAction.mockRejectedValueOnce(rateLimit);
+
+      await expect(
+        channel.setTyping('tg:100200300', true),
+      ).rejects.toMatchObject({
+        name: 'LiveUxRateLimitError',
+        retryDelayMs: 120_000,
+        cause: rateLimit,
+      });
     });
   });
 

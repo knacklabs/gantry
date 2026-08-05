@@ -70,17 +70,37 @@ function createSessionInteractionModule(): SessionInteractionModule {
 }
 
 export async function createAppChannel(
-  _opts: ChannelOpts,
+  opts: ChannelOpts,
 ): Promise<ChannelAdapter> {
+  const liveUxBindingGeneration = opts.liveUxBindingGeneration;
+  if (!liveUxBindingGeneration) {
+    throw new Error(
+      'App channel requires a durable runtime lease generation binding',
+    );
+  }
   let connected = false;
   let outboundSequence = 0;
+  const outboundGeneration = randomUUID();
 
-  const orderedEnvelope = (kind: string) => ({
-    sequence: ++outboundSequence,
-    kind,
-    partIndex: 1,
-    totalParts: 1,
-  });
+  const orderedEnvelope = (kind: string) => {
+    const generation =
+      kind === 'typing' ? liveUxBindingGeneration() : outboundGeneration;
+    if (
+      kind === 'typing' &&
+      (!Number.isSafeInteger(generation) || Number(generation) < 1)
+    ) {
+      throw new Error(
+        'App typing requires the durable runtime lease generation',
+      );
+    }
+    return {
+      generation,
+      sequence: ++outboundSequence,
+      kind,
+      partIndex: 1,
+      totalParts: 1,
+    };
+  };
 
   const sendMessage = async (
     jid: string,
@@ -104,6 +124,13 @@ export async function createAppChannel(
 
   return {
     name: 'app',
+    liveUx: {
+      typing: 'explicit',
+      reactions: 'none',
+      canonicalTarget: (target) => ({
+        key: `typing\n${target.jid}\n${target.threadId ?? ''}`,
+      }),
+    },
     async connect() {
       connected = true;
     },
@@ -137,9 +164,18 @@ export async function createAppChannel(
       return result.emitted;
     },
     resetStreaming(_jid: string, _options?: { threadId?: string }) {},
-    async setTyping(jid: string, isTyping: boolean): Promise<void> {
+    async setTyping(
+      jid: string,
+      isTyping: boolean,
+      options: { threadId?: string; signal?: AbortSignal } = {},
+    ): Promise<void> {
+      // App event publication is deliberately not cancellation-fenced through
+      // the notifier or Postgres transaction. orderedEnvelope is the consumer
+      // fence: a late stale typing event may remain in the event log, but an
+      // order-aware consumer never applies it over a newer typing state.
       await emitSessionEvent(jid, RUNTIME_EVENT_TYPES.SESSION_TYPING, {
         isTyping,
+        threadId: options.threadId ?? null,
         orderedEnvelope: orderedEnvelope('typing'),
       });
     },

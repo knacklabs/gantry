@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   conversationMessageTarget,
   GantryClient,
+  SessionTypingTracker,
   signIngressRequest,
   verifyIngressSignature,
   verifyWebhookSignature,
@@ -193,6 +194,360 @@ describe('@gantry/sdk transport', () => {
         conversationId: 'conv-one',
       }),
     ).resolves.toEqual({ sessionId: 'session-1' });
+  });
+
+  it('returns raw list events with their original sequence', async () => {
+    const client = new GantryClient({
+      apiKey: 'test-key',
+      baseUrl: 'http://127.0.0.1:3939',
+    });
+    const event = (
+      sequence: number,
+      isTyping: boolean,
+      eventId: number,
+      threadId: string,
+    ) => ({
+      eventId,
+      eventType: 'session.typing',
+      sessionId: 'session-1',
+      threadId,
+      correlationId: null,
+      createdAt: '2026-08-05T00:00:00.000Z',
+      payload: {
+        isTyping,
+        orderedEnvelope: {
+          generation: 1,
+          sequence,
+          kind: 'typing',
+          partIndex: 1,
+          totalParts: 1,
+        },
+      },
+    });
+    const request = vi
+      .spyOn(
+        (client as unknown as { transport: { request: () => unknown } })
+          .transport,
+        'request',
+      )
+      .mockResolvedValueOnce({
+        events: [
+          event(2, false, 1, 'thread-a'),
+          event(1, true, 2, 'thread-b'),
+          event(1, true, 3, 'thread-a'),
+        ],
+      })
+      .mockResolvedValueOnce({ events: [event(1, true, 3, 'thread-a')] });
+
+    await expect(client.sessions.listEvents('session-1')).resolves.toEqual({
+      events: [
+        event(2, false, 1, 'thread-a'),
+        event(1, true, 2, 'thread-b'),
+        event(1, true, 3, 'thread-a'),
+      ],
+    });
+    await expect(client.sessions.listEvents('session-1', 2)).resolves.toEqual({
+      events: [event(1, true, 3, 'thread-a')],
+    });
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps latest typing off across two raw wait polls with a caller-owned tracker', async () => {
+    const client = new GantryClient({
+      apiKey: 'test-key',
+      baseUrl: 'http://127.0.0.1:3939',
+    });
+    const event = (sequence: number, isTyping: boolean, eventId: number) => ({
+      eventId,
+      eventType: 'session.typing',
+      sessionId: 'session-1',
+      threadId: null,
+      correlationId: null,
+      createdAt: '2026-08-05T00:00:00.000Z',
+      payload: {
+        isTyping,
+        orderedEnvelope: {
+          generation: 1,
+          sequence,
+          kind: 'typing',
+          partIndex: 1,
+          totalParts: 1,
+        },
+      },
+      afterEventId: eventId,
+    });
+    const request = vi
+      .spyOn(
+        (client as unknown as { transport: { request: () => unknown } })
+          .transport,
+        'request',
+      )
+      .mockResolvedValueOnce(event(2, false, 1))
+      .mockResolvedValueOnce(event(1, true, 2));
+
+    const tracker = client.sessions.createTypingTracker();
+    const terminal = await client.sessions.wait('session-1', {
+      timeoutMs: 5_000,
+    });
+    const lateStart = await client.sessions.wait('session-1', {
+      afterEventId: 1,
+      timeoutMs: 5_000,
+    });
+
+    expect(tracker.apply(terminal)).toBe(true);
+    expect(tracker.apply(lateStart)).toBe(false);
+    expect(tracker.isTyping('session-1')).toBe(false);
+    tracker.dispose();
+    expect(request.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        path: expect.stringContaining('afterEventId=1'),
+      }),
+    );
+  });
+
+  it('scopes the typing tracker to each stream iterator', async () => {
+    const event = (sequence: number, eventId: number) => ({
+      eventId,
+      eventType: 'session.typing',
+      sessionId: 'session-1',
+      threadId: 'thread-1',
+      correlationId: null,
+      createdAt: '2026-08-05T00:00:00.000Z',
+      payload: {
+        isTyping: sequence === 1,
+        orderedEnvelope: {
+          generation: 1,
+          sequence,
+          kind: 'typing',
+          partIndex: 1,
+          totalParts: 1,
+        },
+      },
+    });
+    const client = new GantryClient({ apiKey: 'one' });
+    vi.spyOn(
+      (
+        client as unknown as {
+          transport: { stream: () => AsyncIterable<unknown> };
+        }
+      ).transport,
+      'stream',
+    ).mockImplementation(async function* () {
+      yield event(2, 1);
+      yield event(1, 2);
+    });
+
+    const collect = async () => {
+      const events = [];
+      for await (const streamed of client.sessions.stream('session-1')) {
+        events.push(streamed);
+      }
+      return events;
+    };
+
+    await expect(collect()).resolves.toEqual([event(2, 1)]);
+    await expect(collect()).resolves.toEqual([event(2, 1)]);
+  });
+
+  it('keeps a caller-owned typing baseline across stream reconnects', async () => {
+    const event = (sequence: number, isTyping: boolean, eventId: number) => ({
+      eventId,
+      eventType: 'session.typing',
+      sessionId: 'session-1',
+      threadId: 'thread-1',
+      correlationId: null,
+      createdAt: '2026-08-05T00:00:00.000Z',
+      payload: {
+        isTyping,
+        orderedEnvelope: {
+          generation: 1,
+          sequence,
+          kind: 'typing',
+          partIndex: 1,
+          totalParts: 1,
+        },
+      },
+    });
+    const client = new GantryClient({ apiKey: 'one' });
+    const stream = vi.spyOn(
+      (
+        client as unknown as {
+          transport: { stream: () => AsyncIterable<unknown> };
+        }
+      ).transport,
+      'stream',
+    );
+    stream
+      .mockImplementationOnce(async function* () {
+        yield event(2, false, 2);
+      })
+      .mockImplementationOnce(async function* () {
+        yield event(1, true, 3);
+      });
+    const tracker = client.sessions.createTypingTracker();
+    const collect = async (afterEventId: number) => {
+      const events = [];
+      for await (const streamed of client.sessions.stream('session-1', {
+        afterEventId,
+        tracker,
+      })) {
+        events.push(streamed);
+      }
+      return events;
+    };
+
+    await expect(collect(1)).resolves.toEqual([event(2, false, 2)]);
+    await expect(collect(2)).resolves.toEqual([]);
+    expect(tracker.isTyping('session-1', 'thread-1')).toBe(false);
+    expect(tracker.afterEventId('session-1')).toBe(3);
+    expect(stream.mock.calls[1]?.[0]).toContain('afterEventId=2');
+    tracker.dispose();
+  });
+
+  it('records legacy typing state until an ordered envelope establishes the baseline', () => {
+    const tracker = new SessionTypingTracker();
+    const legacy = (isTyping: boolean, eventId: number) => ({
+      eventId,
+      eventType: 'session.typing',
+      sessionId: 'session-1',
+      threadId: null,
+      correlationId: null,
+      createdAt: '2026-08-05T00:00:00.000Z',
+      payload: { isTyping },
+    });
+    const ordered = {
+      ...legacy(false, 3),
+      payload: {
+        isTyping: false,
+        orderedEnvelope: {
+          generation: 1,
+          sequence: 2,
+          kind: 'typing',
+          partIndex: 1,
+          totalParts: 1,
+        },
+      },
+    };
+
+    expect(tracker.apply(legacy(true, 1))).toBe(true);
+    expect(tracker.isTyping('session-1')).toBe(true);
+    expect(tracker.apply(legacy(false, 2))).toBe(true);
+    expect(tracker.isTyping('session-1')).toBe(false);
+    expect(tracker.apply(ordered)).toBe(true);
+    expect(tracker.apply(legacy(true, 4))).toBe(false);
+    expect(tracker.isTyping('session-1')).toBe(false);
+    expect(tracker.afterEventId('session-1')).toBe(4);
+  });
+
+  it('advances reconnect past a suppressed typing event', async () => {
+    const event = (sequence: number, isTyping: boolean, eventId: number) => ({
+      eventId,
+      eventType: 'session.typing',
+      sessionId: 'session-1',
+      threadId: null,
+      correlationId: null,
+      createdAt: '2026-08-05T00:00:00.000Z',
+      payload: {
+        isTyping,
+        orderedEnvelope: {
+          generation: 1,
+          sequence,
+          kind: 'typing',
+          partIndex: 1,
+          totalParts: 1,
+        },
+      },
+    });
+    const client = new GantryClient({ apiKey: 'one' });
+    const stream = vi.spyOn(
+      (
+        client as unknown as {
+          transport: { stream: () => AsyncIterable<unknown> };
+        }
+      ).transport,
+      'stream',
+    );
+    stream
+      .mockImplementationOnce(async function* () {
+        yield event(2, false, 2);
+        yield event(1, true, 3);
+      })
+      .mockImplementationOnce(async function* () {});
+    const tracker = client.sessions.createTypingTracker();
+
+    const first = [];
+    for await (const streamed of client.sessions.stream('session-1', {
+      tracker,
+    })) {
+      first.push(streamed);
+    }
+    const second = [];
+    for await (const streamed of client.sessions.stream('session-1', {
+      afterEventId: 2,
+      tracker,
+    })) {
+      second.push(streamed);
+    }
+
+    expect(first).toEqual([event(2, false, 2)]);
+    expect(second).toEqual([]);
+    expect(stream.mock.calls[1]?.[0]).toContain('afterEventId=3');
+    expect(tracker.isTyping('session-1')).toBe(false);
+  });
+
+  it('keeps tracker resume cursors independent across sessions', async () => {
+    const event = (sessionId: string, eventId: number) => ({
+      eventId,
+      eventType: 'session.typing',
+      sessionId,
+      threadId: null,
+      correlationId: null,
+      createdAt: '2026-08-05T00:00:00.000Z',
+      payload: {
+        isTyping: true,
+        orderedEnvelope: {
+          generation: 1,
+          sequence: 1,
+          kind: 'typing',
+          partIndex: 1,
+          totalParts: 1,
+        },
+      },
+    });
+    const client = new GantryClient({ apiKey: 'one' });
+    const stream = vi.spyOn(
+      (
+        client as unknown as {
+          transport: { stream: () => AsyncIterable<unknown> };
+        }
+      ).transport,
+      'stream',
+    );
+    stream
+      .mockImplementationOnce(async function* () {
+        yield event('session-a', 100);
+      })
+      .mockImplementationOnce(async function* () {
+        yield event('session-b', 1);
+      });
+    const tracker = client.sessions.createTypingTracker();
+
+    for await (const _event of client.sessions.stream('session-a', {
+      tracker,
+    })) {
+      // Consume the first session to establish its cursor.
+    }
+    const sessionB = [];
+    for await (const streamed of client.sessions.stream('session-b', {
+      tracker,
+    })) {
+      sessionB.push(streamed);
+    }
+
+    expect(stream.mock.calls[1]?.[0]).toBe('/v1/sessions/session-b/events');
+    expect(sessionB).toEqual([event('session-b', 1)]);
+    expect(tracker.afterEventId('session-a')).toBe(100);
+    expect(tracker.afterEventId('session-b')).toBe(1);
   });
 
   it('builds the usage query from every typed filter', async () => {

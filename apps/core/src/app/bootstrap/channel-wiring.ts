@@ -139,6 +139,14 @@ export function createChannelWiring(
     // prettier-ignore
     return routeProviderAccount.findBoundChannelForProviderAccount(connectedChannels, jid, providerAccountId);
   }
+  function findLiveUxBinding(jid: string, providerAccountId?: string) {
+    const bound = routeProviderAccount.findProviderAccountBinding(
+      connectedChannels,
+      jid,
+      providerAccountId,
+    );
+    return bound ? { channel: bound.channel, identity: bound } : undefined;
+  }
   const findBoundChannelForRequest = (
     jid: string,
     providerAccountId?: string,
@@ -153,7 +161,8 @@ export function createChannelWiring(
     asUserQuestionSurface,
   });
   const { setTyping, addReaction, removeReaction } = createChannelWiringLiveUx({
-    findBoundChannel,
+    findBinding: findLiveUxBinding,
+    logger: resolved.logger,
   });
   const isControlApproverAllowed = (input: {
     providerId: string;

@@ -198,7 +198,6 @@ import {
   SLACK_SOCKET_MODE_DISCONNECTED_EVENT,
   SLACK_SOCKET_MODE_RECONNECT_EVENT,
 } from '@core/channels/slack/channel-connect.js';
-import { asTypingSink } from '@core/app/bootstrap/channel-capability-ports.js';
 import type {
   PermissionApprovalRequest,
   PermissionCallbackClaim,
@@ -772,7 +771,8 @@ describe('Slack channel', () => {
       createOpts() as any,
     );
 
-    expect(asTypingSink(channel)).toBeUndefined();
+    expect(channel.liveUx.typing).toBe('none');
+    expect('setTyping' in channel).toBe(false);
   });
 
   it('distrusts Slack history on socket close and successful reconnect without delivery middleware', async () => {
@@ -980,6 +980,9 @@ describe('Slack channel', () => {
   });
 
   it('adds Slack reactions idempotently', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response('{"ok":true}'));
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -990,15 +993,24 @@ describe('Slack channel', () => {
     await channel.addReaction('sl:C1234567890', '1710000000.000100', 'seen');
     await channel.addReaction('sl:C1234567890', '1710000000.000100', 'seen');
 
-    expect(appRef.current.client.reactions.add).toHaveBeenCalledTimes(1);
-    expect(appRef.current.client.reactions.add).toHaveBeenCalledWith({
-      channel: 'C1234567890',
-      timestamp: '1710000000.000100',
-      name: 'eyes',
-    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://slack.com/api/reactions.add',
+      expect.objectContaining({
+        method: 'POST',
+        body: new URLSearchParams({
+          channel: 'C1234567890',
+          timestamp: '1710000000.000100',
+          name: 'eyes',
+        }),
+      }),
+    );
   });
 
   it('removes Slack reactions and permits the same reaction to be re-added', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response('{"ok":true}'));
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -1010,12 +1022,11 @@ describe('Slack channel', () => {
     await channel.removeReaction('sl:C1234567890', '1710000000.000100', 'seen');
     await channel.addReaction('sl:C1234567890', '1710000000.000100', 'seen');
 
-    expect(appRef.current.client.reactions.remove).toHaveBeenCalledWith({
-      channel: 'C1234567890',
-      timestamp: '1710000000.000100',
-      name: 'eyes',
-    });
-    expect(appRef.current.client.reactions.add).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'https://slack.com/api/reactions.add',
+      'https://slack.com/api/reactions.remove',
+      'https://slack.com/api/reactions.add',
+    ]);
   });
 
   it('persists standalone metadata for Slack group discovery without a message', async () => {

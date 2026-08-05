@@ -12,6 +12,7 @@ import {
   UserQuestionResponse,
 } from '../domain/types.js';
 import { isPartialMessageDeliveryError } from '../domain/messages/partial-delivery.js';
+import type { LiveUxOperationOptions } from '../domain/channel-live-ux.js';
 import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import {
@@ -61,10 +62,7 @@ import {
   requestDiscordJson,
   userName,
 } from './discord-http-helpers.js';
-import {
-  addDiscordReaction,
-  removeDiscordReaction,
-} from './discord-ambient-liveness.js';
+import { DiscordLiveUxOperations } from './discord-live-ux.js';
 import { DiscordMessageChannelCache } from './discord-message-channel-cache.js';
 import { createDiscordHistoricalAttachmentFetcher } from './discord-historical-attachment-fetcher.js';
 import { StreamResetEpochs } from './stream-reset-epochs.js';
@@ -91,6 +89,7 @@ export function discordChannelIdFromJid(jid: string): string | null {
 export class DiscordChannel implements ChannelAdapter {
   readonly reportsHistoryCoverageInboundLiveness = true;
   name = 'discord';
+  readonly liveUx;
   private gateway: DiscordGatewayConnection | null = null;
   private botUserId = '';
   private activeProgressMessages = new Map<string, string>();
@@ -113,6 +112,7 @@ export class DiscordChannel implements ChannelAdapter {
   >();
   private readonly reactionKeys = new Set<string>();
   private readonly messageChannelIds = new DiscordMessageChannelCache();
+  private readonly liveUxOperations: DiscordLiveUxOperations;
   private readonly channelContextCache: DiscordConversationContextCache =
     new Map();
   private readonly interactions: DiscordInteractionHandler;
@@ -129,6 +129,13 @@ export class DiscordChannel implements ChannelAdapter {
     private readonly opts: ChannelOpts,
     private readonly createWebSocket: WebSocketFactory = websocketFactory,
   ) {
+    this.liveUxOperations = new DiscordLiveUxOperations({
+      botToken,
+      reactionKeys: this.reactionKeys,
+      resolveMessageChannelId: (jid, messageRef) =>
+        this.messageChannelIds.resolve(jid, messageRef),
+    });
+    this.liveUx = this.liveUxOperations.capability;
     this.messageMutations = createDiscordMessageMutations(
       this.requestJson.bind(this),
       botToken,
@@ -203,39 +210,26 @@ export class DiscordChannel implements ChannelAdapter {
     jid: string,
     messageRef: string,
     emoji: string,
-    options: { threadId?: string } = {},
+    options: LiveUxOperationOptions = {},
   ): Promise<void> {
-    await addDiscordReaction({
-      ...this.discordReactionInput(jid, messageRef, options.threadId),
-      emoji,
-    });
+    await this.liveUxOperations.addReaction(jid, messageRef, emoji, options);
   }
 
   async removeReaction(
     jid: string,
     messageRef: string,
     emoji: string,
-    options: { threadId?: string } = {},
+    options: LiveUxOperationOptions = {},
   ): Promise<void> {
-    await removeDiscordReaction({
-      ...this.discordReactionInput(jid, messageRef, options.threadId),
-      emoji,
-    });
+    await this.liveUxOperations.removeReaction(jid, messageRef, emoji, options);
   }
 
   async setTyping(
     jid: string,
     isTyping: boolean,
-    options: { threadId?: string } = {},
+    options: LiveUxOperationOptions = {},
   ): Promise<void> {
-    if (!isTyping) return;
-    const channelId = options.threadId || discordChannelIdFromJid(jid);
-    if (!channelId) return;
-    await this.postJson<void>(
-      `/channels/${encodeURIComponent(channelId)}/typing`,
-      {},
-      false,
-    );
+    await this.liveUxOperations.setTyping(jid, isTyping, options);
   }
 
   async hydrateConversationContext(
@@ -637,25 +631,6 @@ export class DiscordChannel implements ChannelAdapter {
       metadataName: identity.messageIdentity.name,
       needsStandaloneMetadataWrite: identity.needsStandaloneMetadataWrite,
     });
-  }
-
-  private discordReactionInput(
-    jid: string,
-    messageRef: string,
-    threadId?: string,
-  ) {
-    return {
-      botToken: this.botToken,
-      channelId:
-        threadId ??
-        this.messageChannelIds.resolve(jid, messageRef) ??
-        discordChannelIdFromJid(jid) ??
-        undefined,
-      jid,
-      messageRef,
-      reactionKeys: this.reactionKeys,
-      requestJson: this.requestJson.bind(this),
-    };
   }
 
   private resolveInteractionConversationContext(channelId: string) {
