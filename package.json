@@ -37,6 +37,7 @@
     "factory/skills/*/SKILL.md"
   ],
   "workspaces": [
+    "apps/web",
     "packages/contracts",
     "packages/sdk",
     "examples/nextjs-workflows"
@@ -45,6 +46,7 @@
     "build:contracts": "npm run build --workspace @gantry/contracts",
     "build:sdk": "npm run build --workspace @gantry/sdk",
     "build:examples": "npm run typecheck --workspace @gantry/example-nextjs-workflows && npm run build --workspace @gantry/example-nextjs-workflows",
+    "build:web": "npm run build --workspace @gantry/web",
     "clean": "rm -rf dist packages/contracts/dist packages/sdk/dist",
     "build:runtime": "npm run clean && npm run build:contracts && npm run build:sdk && tsc && npm run copy:migrations && chmod +x dist/cli/index.js",
     "build": "npm run build:runtime && npm run build:examples",
@@ -57,9 +59,11 @@
     "dev": "tsx apps/core/src/index.ts",
     "cli:dev": "tsx apps/core/src/cli/index.ts",
     "typecheck": "npm run build:contracts && tsc --noEmit",
+    "typecheck:web": "npm run typecheck --workspace @gantry/web",
     "format": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"",
     "format:fix": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"",
     "format:check": "prettier --check \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"",
+    "format:check:web": "npm run format:check --workspace @gantry/web",
     "check:architecture": "python3 scripts/check_architecture.py",
     "security:sbom": "npm sbom --omit=dev --sbom-format=cyclonedx",
     "security:package": "python3 scripts/check_package_contents.py",
@@ -67,6 +71,7 @@
     "prepare": "HUSKY=1 husky || true",
     "prepublishOnly": "npm run build",
     "lint": "eslint apps/core/src packages/contracts/src packages/sdk/src",
+    "lint:web": "npm run lint --workspace @gantry/web",
     "lint:fix": "eslint apps/core/src packages/contracts/src packages/sdk/src --fix",
     "test": "npm run build:contracts && npm run test:unit && npm run test:integration",
     "test:unit": "npm run build:contracts && vitest run -c vitest.unit.config.ts",
