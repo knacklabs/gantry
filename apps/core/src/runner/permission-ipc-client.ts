@@ -59,6 +59,16 @@ export interface PermissionDecisionResult {
   approved: boolean;
   mode?: 'allow_once' | 'allow_persistent_rule' | 'cancel';
   decidedBy?: string;
+  source?:
+    | 'durable_rule'
+    | 'birthright'
+    | 'deterministic_policy'
+    | 'auto_classifier'
+    | 'cached_classifier'
+    | 'trusted_root'
+    | 'human_once'
+    | 'human_persistent';
+  repeatableForFutureRuns?: boolean;
   reason?: string;
   risk_level?: 'low' | 'medium' | 'high' | 'critical';
   risk_category?:
@@ -363,6 +373,13 @@ function readPermissionResponse(input: {
         typeof responsePayload.decidedBy === 'string'
           ? responsePayload.decidedBy
           : undefined,
+      source: isPermissionDecisionSource(responsePayload.source)
+        ? responsePayload.source
+        : undefined,
+      repeatableForFutureRuns:
+        typeof responsePayload.repeatableForFutureRuns === 'boolean'
+          ? responsePayload.repeatableForFutureRuns
+          : undefined,
       reason:
         typeof responsePayload.reason === 'string'
           ? responsePayload.reason
@@ -388,6 +405,21 @@ function readPermissionResponse(input: {
           : 'Failed to read permission response',
     };
   }
+}
+
+function isPermissionDecisionSource(
+  value: unknown,
+): value is NonNullable<PermissionDecisionResult['source']> {
+  return (
+    value === 'durable_rule' ||
+    value === 'birthright' ||
+    value === 'deterministic_policy' ||
+    value === 'auto_classifier' ||
+    value === 'cached_classifier' ||
+    value === 'trusted_root' ||
+    value === 'human_once' ||
+    value === 'human_persistent'
+  );
 }
 
 function isPermissionRiskLevel(

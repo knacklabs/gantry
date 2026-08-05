@@ -178,11 +178,20 @@ export function updateDiagnosticsFromRuntimeEvent(
   }
   const decidedBy =
     stringValue(payload.decidedBy) ?? stringValue(payload.decided_by);
+  const source = stringValue(payload.source);
+  // Fail closed: human_once is transient regardless of the (independently
+  // optional) repeatable flag, and an explicit non-repeatable flag is
+  // transient even if the source went missing — a partial payload must never
+  // read as consent for future unattended runs.
+  const isHumanOnce =
+    source === 'human_once' || payload.repeatableForFutureRuns === false;
+  const isLegacyTransient =
+    source === undefined && decidedBy !== 'reviewed_rule';
   if (
     phase === 'permission_allowed' &&
     tool &&
     mode === 'allow_once' &&
-    decidedBy !== 'reviewed_rule'
+    (isHumanOnce || isLegacyTransient)
   ) {
     const matchingWait =
       diagnostics.lastPermissionWait?.toolName === tool

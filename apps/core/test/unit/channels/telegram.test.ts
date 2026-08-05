@@ -5953,6 +5953,8 @@ describe('TelegramChannel', () => {
           },
         },
         reason: 'allowed once via Telegram',
+        source: 'human_once',
+        repeatableForFutureRuns: false,
       });
       expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
         text: 'Allowed once.',

@@ -14,6 +14,7 @@ import {
 } from '@core/channels/permission-interaction.js';
 import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
+import { decisionForMode as domainDecisionForMode } from '@core/domain/permission-decision.js';
 
 function requestWithSuggestions(
   suggestions: PermissionApprovalRequest['suggestions'],
@@ -27,6 +28,43 @@ function requestWithSuggestions(
 }
 
 describe('permission interaction', () => {
+  it('derives typed provenance and classification at the decision choke point', () => {
+    const request = requestWithSuggestions([]);
+    const automaticSources = [
+      ['reviewed_rule', 'durable_rule'],
+      ['birthright', 'birthright'],
+      ['deterministic_read_only', 'deterministic_policy'],
+      ['auto_classifier', 'auto_classifier'],
+      ['cached_classifier_verdict', 'cached_classifier'],
+      ['trusted_root_grant', 'trusted_root'],
+    ] as const;
+
+    for (const [decidedBy, source] of automaticSources) {
+      // Machine origin resolves through the decider map...
+      expect(
+        domainDecisionForMode(request, 'allow_once', decidedBy, 'machine'),
+      ).toMatchObject({
+        source,
+        repeatableForFutureRuns: true,
+        decisionClassification: 'user_permanent',
+      });
+      // ...but the channel wrapper is structurally human: an approverRef
+      // colliding with a machine decider is never promoted.
+      expect(decisionForMode(request, 'allow_once', decidedBy)).toMatchObject({
+        source: 'human_once',
+        repeatableForFutureRuns: false,
+        decisionClassification: 'user_temporary',
+      });
+    }
+    expect(
+      decisionForMode(request, 'allow_once', 'operator:free-form'),
+    ).toMatchObject({
+      source: 'human_once',
+      repeatableForFutureRuns: false,
+      decisionClassification: 'user_temporary',
+    });
+  });
+
   it('labels the generic MCP passthrough as access to any connected server', () => {
     const text = formatPermissionPromptText(
       {

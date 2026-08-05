@@ -668,7 +668,6 @@ const SILENT_ALLOW_DECIDERS = new Set([
   'birthright',
   'deterministic_read_only',
 ]);
-
 function permissionAllowedActivityPayload(
   decision: PermissionDecision,
 ): Record<string, unknown> {
@@ -677,6 +676,10 @@ function permissionAllowedActivityPayload(
     ok: true,
     mode: decision.mode,
     ...(decision.decidedBy ? { decided_by: decision.decidedBy } : {}),
+    ...(decision.source ? { source: decision.source } : {}),
+    ...(typeof decision.repeatableForFutureRuns === 'boolean'
+      ? { repeatableForFutureRuns: decision.repeatableForFutureRuns }
+      : {}),
     ...(decision.risk_level ? { risk_level: decision.risk_level } : {}),
     ...(decision.risk_category
       ? { risk_category: decision.risk_category }
@@ -688,7 +691,6 @@ function permissionAllowedActivityPayload(
         : {}),
   };
 }
-
 function formatPermissionAllowedMessage(
   decision: PermissionDecision,
 ): string | undefined {

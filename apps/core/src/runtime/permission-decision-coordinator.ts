@@ -85,7 +85,12 @@ export async function coordinatePermissionDecision(
       : input.reviewedRuleDecision;
   if (reviewedRuleDecision?.status === 'allow') {
     return {
-      ...decisionForMode(input.request, 'allow_once', 'reviewed_rule'),
+      ...decisionForMode(
+        input.request,
+        'allow_once',
+        'reviewed_rule',
+        'machine',
+      ),
       reason: reviewedRuleDecision.reason,
     };
   }
@@ -137,6 +142,7 @@ export async function coordinatePermissionDecision(
           input.request,
           'allow_once',
           'cached_classifier_verdict',
+          'machine',
         ),
         reason: cached.reason,
         risk_level: cached.risk_level,
@@ -256,7 +262,7 @@ function grantAllow(
   canonicalRoot: string,
 ): PermissionApprovalDecision {
   return {
-    ...decisionForMode(request, 'allow_once', 'trusted_root_grant'),
+    ...decisionForMode(request, 'allow_once', 'trusted_root_grant', 'machine'),
     reason: `Command runs inside a granted trusted root: ${canonicalRoot}.`,
   };
 }
@@ -304,7 +310,7 @@ function denied(
   decidedBy: string,
 ): PermissionApprovalDecision {
   return {
-    ...decisionForMode(request, 'cancel', decidedBy),
+    ...decisionForMode(request, 'cancel', decidedBy, 'machine'),
     reason,
   };
 }

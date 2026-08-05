@@ -72,10 +72,13 @@ export function decisionForPermissionInteraction(
       decidedBy,
       reason: 'review each',
       decisionClassification: 'user_temporary',
+      source: 'human_once',
+      repeatableForFutureRuns: false,
       batchDecision: 'review_each',
     };
   }
-  return domainDecisionForMode(request, mode, decidedBy);
+  // Channel prompt resolutions are structurally human decisions.
+  return domainDecisionForMode(request, mode, decidedBy, 'human');
 }
 
 export function withRecoveredBatchOption(

@@ -366,6 +366,13 @@ async function requestPermissionApprovalInner(options: {
                 typeof responsePayload.decidedBy === 'string'
                   ? responsePayload.decidedBy
                   : undefined,
+              source: isPermissionDecisionSource(responsePayload.source)
+                ? responsePayload.source
+                : undefined,
+              repeatableForFutureRuns:
+                typeof responsePayload.repeatableForFutureRuns === 'boolean'
+                  ? responsePayload.repeatableForFutureRuns
+                  : undefined,
               reason:
                 typeof responsePayload.reason === 'string'
                   ? responsePayload.reason
@@ -451,6 +458,21 @@ async function requestPermissionApprovalInner(options: {
           : 'Permission request failed',
     };
   }
+}
+
+function isPermissionDecisionSource(
+  value: unknown,
+): value is NonNullable<PermissionDecision['source']> {
+  return (
+    value === 'durable_rule' ||
+    value === 'birthright' ||
+    value === 'deterministic_policy' ||
+    value === 'auto_classifier' ||
+    value === 'cached_classifier' ||
+    value === 'trusted_root' ||
+    value === 'human_once' ||
+    value === 'human_persistent'
+  );
 }
 
 function cancelPermissionRequest(input: {

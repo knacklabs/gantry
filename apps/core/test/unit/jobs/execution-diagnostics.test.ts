@@ -9,7 +9,29 @@ import {
   updateDiagnosticsFromRuntimeEvent,
 } from '@core/jobs/execution-diagnostics.js';
 
-describe('execution diagnostics', () => {
+describe('job execution diagnostics', () => {
+  it('treats partial or inconsistent human-once provenance as transient (fail closed)', () => {
+    for (const provenance of [
+      { source: 'human_once' }, // repeatable flag missing
+      { repeatableForFutureRuns: false }, // source missing
+      { source: 'human_once', repeatableForFutureRuns: true }, // inconsistent
+    ]) {
+      const diagnostics = createJobRunDiagnostics();
+      updateDiagnosticsFromRuntimeEvent(
+        diagnostics,
+        RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        {
+          phase: 'permission_allowed',
+          tool: 'Bash',
+          mode: 'allow_once',
+          decidedBy: 'owner',
+          ok: true,
+          ...provenance,
+        },
+      );
+      expect(diagnostics.transientPermissionApprovals).toHaveLength(1);
+    }
+  });
   it('does not turn non-terminal permission denials into run errors', () => {
     const diagnostics = createJobRunDiagnostics();
 
@@ -50,7 +72,7 @@ describe('execution diagnostics', () => {
     );
   });
 
-  it('carries recovery actions from transient permission approvals', () => {
+  it('keeps legacy permission payloads without source on the old transient path', () => {
     const diagnostics = createJobRunDiagnostics();
 
     updateDiagnosticsFromRuntimeEvent(
@@ -86,7 +108,48 @@ describe('execution diagnostics', () => {
     ]);
   });
 
-  it('keeps explicit human and user allow_once approvals transient', () => {
+  it('keeps recurring jobs active across automatic allow-once decisions from every policy source', () => {
+    const automaticDecisions = [
+      {
+        decidedBy: 'auto_classifier',
+        source: 'auto_classifier',
+      },
+      {
+        decidedBy: 'cached_classifier_verdict',
+        source: 'cached_classifier',
+      },
+      {
+        decidedBy: 'trusted_root_grant',
+        source: 'trusted_root',
+      },
+      { decidedBy: 'birthright', source: 'birthright' },
+      {
+        decidedBy: 'deterministic_read_only',
+        source: 'deterministic_policy',
+      },
+      { decidedBy: 'reviewed_rule', source: 'durable_rule' },
+    ];
+    const diagnostics = createJobRunDiagnostics();
+
+    for (const decision of automaticDecisions) {
+      updateDiagnosticsFromRuntimeEvent(
+        diagnostics,
+        RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        {
+          phase: 'permission_allowed',
+          tool: 'Bash',
+          mode: 'allow_once',
+          repeatableForFutureRuns: true,
+          ok: true,
+          ...decision,
+        },
+      );
+    }
+
+    expect(diagnostics.transientPermissionApprovals).toEqual([]);
+  });
+
+  it('pauses only for explicit non-repeatable human one-time consent', () => {
     for (const decidedBy of ['human', 'user:approver']) {
       const diagnostics = createJobRunDiagnostics();
 
@@ -98,6 +161,8 @@ describe('execution diagnostics', () => {
           tool: 'Bash',
           mode: 'allow_once',
           decidedBy,
+          source: 'human_once',
+          repeatableForFutureRuns: false,
           ok: true,
         },
       );
@@ -109,9 +174,25 @@ describe('execution diagnostics', () => {
         },
       ]);
     }
+
+    const repeatable = createJobRunDiagnostics();
+    updateDiagnosticsFromRuntimeEvent(
+      repeatable,
+      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      {
+        phase: 'permission_allowed',
+        tool: 'Bash',
+        mode: 'allow_once',
+        decidedBy: 'human',
+        source: 'human_persistent',
+        repeatableForFutureRuns: true,
+        ok: true,
+      },
+    );
+    expect(repeatable.transientPermissionApprovals).toEqual([]);
   });
 
-  it('does not classify reviewed-rule allow_once approvals as transient', () => {
+  it('keeps legacy reviewed-rule payloads without source non-transient', () => {
     for (const provenance of [
       { decidedBy: 'reviewed_rule' },
       { decided_by: 'reviewed_rule' },

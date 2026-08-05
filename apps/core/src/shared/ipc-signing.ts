@@ -10,6 +10,8 @@ export type IpcAuthPurpose = 'unbounded-interaction' | 'cancellation-retention';
 const PERMISSION_RESPONSE_FIELDS_AFTER_APPROVED = [
   'mode',
   'decidedBy',
+  'source',
+  'repeatableForFutureRuns',
   'reason',
   'risk_level',
   'risk_category',
@@ -29,7 +31,7 @@ export function buildPermissionResponseSignaturePayload(
   }
   payload.approved = response.approved;
   for (const field of PERMISSION_RESPONSE_FIELDS_AFTER_APPROVED) {
-    if (response[field]) {
+    if (response[field] !== undefined) {
       payload[field] = response[field];
     }
   }
