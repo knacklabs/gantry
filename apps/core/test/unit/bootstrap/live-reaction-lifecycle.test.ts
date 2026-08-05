@@ -81,6 +81,37 @@ describe('live reaction lifecycle', () => {
     );
   });
 
+  it('restores seen at terminal even when the admission reaction never settles', async () => {
+    const firstAdd = deferred();
+    const addReaction = vi
+      .fn()
+      .mockImplementationOnce(() => firstAdd.promise)
+      .mockResolvedValue(undefined);
+    const removeReaction = vi.fn(async () => undefined);
+    const lifecycle = createLiveReactionLifecycle({
+      addReaction,
+      removeReaction,
+    });
+
+    void lifecycle.onFirstProgress({ jid: 'sl:C1', messageRef: 'm-1' });
+    await vi.advanceTimersByTimeAsync(0);
+    await lifecycle.onTerminal();
+
+    expect(removeReaction).toHaveBeenCalledWith(
+      'sl:C1',
+      'm-1',
+      'running',
+      undefined,
+    );
+    expect(addReaction).toHaveBeenCalledTimes(2);
+    expect(addReaction).toHaveBeenLastCalledWith(
+      'sl:C1',
+      'm-1',
+      'seen',
+      undefined,
+    );
+  });
+
   it('serializes timer and output cleanup when removal is already in flight', async () => {
     const releaseSeenRemoval = deferred();
     const addReaction = vi.fn(async () => undefined);

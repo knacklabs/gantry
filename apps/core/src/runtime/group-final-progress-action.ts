@@ -14,18 +14,21 @@ export function createGroupDoneProgressSender(input: {
   pause: () => void;
   progressGeneration: () => number;
   finalizingGenerations: Set<number>;
-  buildOptions: () => ProgressUpdateOptions;
+  buildOptions: (generation: number) => ProgressUpdateOptions;
   send: (text: string, options?: ProgressUpdateOptions) => Promise<boolean>;
   onError: (err: unknown) => void;
 }) {
-  return async (state: FinalProgressState) => {
+  return async (
+    state: FinalProgressState,
+    generation = input.progressGeneration(),
+  ) => {
     if (!input.supportsProgress) return;
-    input.pause();
-    input.finalizingGenerations.add(input.progressGeneration());
+    if (input.progressGeneration() === generation) input.pause();
+    input.finalizingGenerations.add(generation);
     await sendFinalProgressUpdate({
       enabled: true,
       state,
-      options: input.buildOptions(),
+      options: input.buildOptions(generation),
       send: input.send,
       onError: input.onError,
     });
