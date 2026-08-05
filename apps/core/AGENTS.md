@@ -210,6 +210,21 @@ Maintenance: update this map whenever ambient-liveness flow tests are renamed or
 - Teams typing and reactions remain deferred by decision 0033 until a real
   Teams client is available; Teams truthfully declares `reactions: none` in
   its `liveUx` capability (LIVE-2) — no advertised no-ops.
+- Provider liveness truths (LIVE-2): Telegram replace-only edits never post a
+  duplicate and reaction keys follow its replace-everything removal; Slack
+  marks a prior-process card `Interrupted by a restart.` (keyed to a boot
+  nonce, legacy state counts as prior-process, generation checks first) and
+  posts fresh work to a new card; Discord resolves reaction targets exactly —
+  threads never fall back to the parent, plain channels still resolve from the
+  JID on a cold cache; batch turns acknowledge the earliest unseen message and
+  carry that message's own thread.
+  - `channels/telegram.test.ts`: `clears every Telegram reaction dedupe key when removing one reaction`
+  - `channels/telegram.test.ts`: `replaces the cached Telegram reaction key after every successful add`
+  - `channels/slack.test.ts`: `lazily marks a prior-process Slack card stale and posts fresh work`
+  - `channels/slack.test.ts`: `rejects an older generation before prior-process Slack cleanup`
+  - `channels/slack.test.ts`: `treats legacy Slack progress without ownership as prior-process work`
+  - `runtime/group-processing.test.ts`: `backwards-scans a batch for the newest provider reaction target`
+  - `runtime/group-processing.test.ts`: `carries the back-scanned reaction target thread instead of the newest batch thread`
 - Turn liveness phase (LIVE-2): one controller owns
   `active | delivering | waiting | stalled | terminal`. Reaction admission and
   terminal restore share one scope, the first reaction cannot block turn start,
