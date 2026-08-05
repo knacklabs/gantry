@@ -16,4 +16,17 @@ describe('web shell boundary', () => {
     expect(source).toContain('md:grid');
     expect(source).toContain('md:hidden');
   });
+
+  it('uses_a_non_modal_alert_for_the_connection_gate', () => {
+    const source = readFileSync(
+      'src/ui/compositions/connection-gate.tsx',
+      'utf8',
+    );
+
+    expect(source).toContain('<Alert');
+    expect(source).toContain('AlertAction');
+    expect(source).toContain('useContext');
+    expect(source).toContain('useMemo');
+    expect(source).not.toContain('primitives/dialog');
+  });
 });
