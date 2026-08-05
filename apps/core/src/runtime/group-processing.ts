@@ -265,7 +265,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       log: logger,
     });
     let cancelTurnUiTimers: () => Promise<void> = async () => undefined;
-    const turnUiToken = Symbol(queueJid);
+    const turnUiMarker = Symbol(queueJid);
     try {
       liveness.start(
         latestMessageReactionRef
@@ -408,7 +408,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         await Promise.all([liveness.terminal(), cancelInitialProgress()]);
       };
       turnCleanup.activeTurnUiCleanupByQueue.set(queueJid, {
-        token: turnUiToken,
+        turnMarker: turnUiMarker,
         cancel: cancelTurnUiTimers,
       });
       let hadError = false;
@@ -829,7 +829,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       await liveness.terminal();
       const activeCleanup =
         turnCleanup.activeTurnUiCleanupByQueue.get(queueJid);
-      if (activeCleanup?.token === turnUiToken) {
+      if (activeCleanup?.turnMarker === turnUiMarker) {
         turnCleanup.activeTurnUiCleanupByQueue.delete(queueJid);
       }
       sendProgressToChannel.retire();

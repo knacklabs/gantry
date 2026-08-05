@@ -1,5 +1,5 @@
 type ActiveTurnUiCleanup = {
-  token: symbol;
+  turnMarker: symbol;
   cancel: () => void | Promise<void>;
 };
 
