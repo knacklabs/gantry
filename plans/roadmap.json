@@ -863,6 +863,21 @@
         "docs/architecture/scheduler-incident-assessment-2026-08-05.md"
       ],
       "order": 7
+    },
+    {
+      "key": "GANTRY-WEB-FOUNDATION",
+      "title": "Safe Web UI foundation shell",
+      "story": "As a Gantry maintainer, I can validate a disconnected web shell without changing the hosted runtime or its delivery artifacts.",
+      "acceptance_criteria": [
+        "apps/web builds independently under /ui and renders a responsive accessible Not connected shell with local preferences",
+        "separate root and CI commands validate web formatting, typecheck, lint and build",
+        "the production build does not create or copy dist/ui and runtime serving, APIs, auth, storage, providers and Docker remain unchanged",
+        "architecture docs state the source-only boundary and require a later approved integration PR"
+      ],
+      "order": 47,
+      "status": "pending",
+      "skill": "frontend",
+      "spec": "docs/specs/web-ui-foundation.md"
     }
   ],
   "epics": [
@@ -951,5 +966,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-05T07:20:00+00:00"
+  "updated_at": "2026-08-05T09:12:59+00:00"
 }
