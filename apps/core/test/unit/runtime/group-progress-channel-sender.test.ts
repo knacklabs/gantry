@@ -64,7 +64,7 @@ describe('createProgressChannelSender', () => {
     expect(calls).toEqual(['Still working', 'Done.']);
   });
 
-  it('drops an obsolete pre-dispatch stall link and advances terminal Done after the bound', async () => {
+  it('supersedes an undispatched stall without duplicating terminal dispatch', async () => {
     const neverSettles = new Promise<boolean>(() => undefined);
     const calls: string[] = [];
     const sendProgressUpdate = vi.fn(async (_jid: string, text: string) => {
@@ -96,6 +96,10 @@ describe('createProgressChannelSender', () => {
     await expect(stall).resolves.toBe(false);
     await expect(done).resolves.toBe(true);
     expect(calls).toEqual(['Working', 'Done.']);
+    expect(sendProgressUpdate).toHaveBeenCalledTimes(2);
+    expect(
+      sendProgressUpdate.mock.calls.filter(([, text]) => text === 'Done.'),
+    ).toHaveLength(1);
   });
 
   it('drops a pre-dispatch stall link before visible delivery', async () => {

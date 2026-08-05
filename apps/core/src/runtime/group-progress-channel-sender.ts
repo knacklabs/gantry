@@ -35,7 +35,6 @@ type ProgressSendLink = {
   nonBlocking: boolean;
   obsolete: boolean;
   stallNotice: boolean;
-  previousDesired?: DesiredProgressPayload;
   abandon(): void;
   settled: Promise<void>;
 };
@@ -208,9 +207,6 @@ function supersedePendingStallNotices(chain?: ProgressSendChain): void {
   for (const link of pending) {
     if (link.dispatched || !link.stallNotice) continue;
     link.obsolete = true;
-    if (chain.lastDesired?.sequence === link.sequence) {
-      chain.lastDesired = link.previousDesired;
-    }
   }
 }
 
@@ -495,7 +491,6 @@ export function createProgressChannelSender(input: {
     if (options?.done) supersedePendingStallNotices(chain);
     const previous = chain.tail;
     const sequence = chain.nextSequence++;
-    const previousDesired = chain.lastDesired;
     const link: ProgressSendLink = {
       ownerEpoch: chain.currentOwnerEpoch,
       sequence,
@@ -503,7 +498,6 @@ export function createProgressChannelSender(input: {
       nonBlocking: false,
       obsolete: false,
       stallNotice: text === 'Still working',
-      previousDesired,
       abandon: () => undefined,
       settled: Promise.resolve(),
     };
