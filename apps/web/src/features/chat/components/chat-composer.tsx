@@ -4,6 +4,8 @@ import { useRef, useState } from 'react';
 import { useConnectionGate } from '../../../ui/compositions/connection-gate';
 import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
+import { Input } from '../../../ui/primitives/input';
+import { Textarea } from '../../../ui/primitives/textarea';
 
 export function ChatComposer({ sessionTitle }: { sessionTitle: string }) {
   const { requestConnection } = useConnectionGate();
@@ -23,14 +25,14 @@ export function ChatComposer({ sessionTitle }: { sessionTitle: string }) {
       <label className="sr-only" htmlFor="chat-draft">
         Message
       </label>
-      <textarea
-        className="min-h-24 w-full resize-y rounded-md border border-border-strong bg-surface px-3 py-2 text-sm leading-6 text-text placeholder:text-text-muted"
+      <Textarea
+        className="min-h-24 resize-y bg-surface text-sm leading-6 text-text"
         id="chat-draft"
         placeholder="Write a message"
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
       />
-      <input
+      <Input
         aria-label="Attach files"
         className="sr-only"
         multiple

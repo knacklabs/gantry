@@ -2,6 +2,23 @@
 
 @theme inline {
   --color-canvas: var(--canvas);
+  --color-background: var(--canvas);
+  --color-foreground: var(--text);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--text);
+  --color-popover: var(--surface);
+  --color-popover-foreground: var(--text);
+  --color-primary: var(--ink);
+  --color-primary-foreground: var(--ink-on);
+  --color-secondary: var(--surface-strong);
+  --color-secondary-foreground: var(--text);
+  --color-muted: var(--surface-muted);
+  --color-muted-foreground: var(--text-secondary);
+  --color-accent: var(--surface-strong);
+  --color-accent-foreground: var(--text);
+  --color-destructive: var(--danger);
+  --color-input: var(--border-strong);
+  --color-ring: var(--focus-ring);
   --color-surface: var(--surface);
   --color-surface-muted: var(--surface-muted);
   --color-surface-strong: var(--surface-strong);
@@ -29,6 +46,9 @@
   --shadow-panel: 0 1px 2px rgb(27 26 24 / 5%);
   --shadow-popover: 0 16px 40px -16px rgb(27 26 24 / 30%);
   --shadow-drawer: 12px 0 28px rgb(27 26 24 / 16%);
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
 }
 
 :root {

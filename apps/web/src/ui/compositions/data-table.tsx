@@ -15,7 +15,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 
-import { IconButton } from '../primitives/icon-button';
+import { Button } from '../primitives/button';
 
 type DataTableProps<TData> = {
   columns: ColumnDef<TData>[];
@@ -137,22 +137,26 @@ export function DataTable<TData>({
           Page {visiblePage} of {pageCount} · {data.length} records
         </span>
         <div className="flex gap-1">
-          <IconButton
+          <Button
+            size="icon"
+            variant="outline"
             aria-label="Previous page"
             disabled={visiblePage <= 1}
             title="Previous page"
             onClick={() => onPageChange(visiblePage - 1)}
           >
             <ChevronLeft size={16} aria-hidden="true" />
-          </IconButton>
-          <IconButton
+          </Button>
+          <Button
+            size="icon"
+            variant="outline"
             aria-label="Next page"
             disabled={visiblePage >= pageCount}
             title="Next page"
             onClick={() => onPageChange(visiblePage + 1)}
           >
             <ChevronRight size={16} aria-hidden="true" />
-          </IconButton>
+          </Button>
         </div>
       </div>
     </div>

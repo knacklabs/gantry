@@ -174,7 +174,7 @@ export function WorkflowRunRoute() {
           Retry run
         </Button>
         <Button
-          variant="danger"
+          variant="destructive"
           onClick={() => requestConnection(`Cancel ${run.id}`)}
         >
           <XCircle size={15} aria-hidden="true" />

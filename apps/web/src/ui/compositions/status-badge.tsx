@@ -1,6 +1,6 @@
-import { Badge, type BadgeTone } from '../primitives/badge';
+import { Badge, type BadgeVariant } from '../primitives/badge';
 
-const toneByStatus: Record<string, BadgeTone> = {
+const toneByStatus: Record<string, BadgeVariant> = {
   active: 'success',
   accepted: 'success',
   blocked: 'danger',
@@ -27,7 +27,7 @@ const toneByStatus: Record<string, BadgeTone> = {
 
 export function StatusBadge({ status }: { status: string }) {
   return (
-    <Badge tone={toneByStatus[status] ?? 'neutral'}>
+    <Badge variant={toneByStatus[status] ?? 'neutral'}>
       {formatStatus(status)}
     </Badge>
   );

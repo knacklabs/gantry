@@ -1,8 +1,9 @@
 import { Monitor, Moon, Sun } from 'lucide-react';
 
 import { PageHeader } from '../../ui/compositions/page-header';
-import { SegmentedControl } from '../../ui/primitives/segmented-control';
+import { Field, FieldLabel } from '../../ui/primitives/field';
 import { Switch } from '../../ui/primitives/switch';
+import { ToggleGroup, ToggleGroupItem } from '../../ui/primitives/toggle-group';
 import { usePreferences } from './preferences-provider';
 
 export function PreferencesRoute() {
@@ -31,16 +32,27 @@ export function PreferencesRoute() {
               Choose how Gantry looks in this browser.
             </p>
           </div>
-          <SegmentedControl
+          <ToggleGroup
             aria-label="Theme preference"
-            onValueChange={setTheme}
-            options={[
-              { value: 'system', label: 'System', icon: Monitor },
-              { value: 'light', label: 'Light', icon: Sun },
-              { value: 'dark', label: 'Dark', icon: Moon },
-            ]}
+            onValueChange={(theme) =>
+              theme && setTheme(theme as typeof preferences.theme)
+            }
+            type="single"
             value={preferences.theme}
-          />
+          >
+            <ToggleGroupItem value="system">
+              <Monitor aria-hidden="true" />
+              System
+            </ToggleGroupItem>
+            <ToggleGroupItem value="light">
+              <Sun aria-hidden="true" />
+              Light
+            </ToggleGroupItem>
+            <ToggleGroupItem value="dark">
+              <Moon aria-hidden="true" />
+              Dark
+            </ToggleGroupItem>
+          </ToggleGroup>
         </section>
         <section
           aria-labelledby="motion-title"
@@ -54,11 +66,14 @@ export function PreferencesRoute() {
               Turn off nonessential interface motion.
             </p>
           </div>
-          <Switch
-            checked={preferences.reduceMotion}
-            label="Reduce motion"
-            onCheckedChange={setReduceMotion}
-          />
+          <Field orientation="horizontal">
+            <FieldLabel htmlFor="reduce-motion">Reduce motion</FieldLabel>
+            <Switch
+              checked={preferences.reduceMotion}
+              id="reduce-motion"
+              onCheckedChange={setReduceMotion}
+            />
+          </Field>
         </section>
       </div>
     </section>

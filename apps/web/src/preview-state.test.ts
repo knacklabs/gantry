@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 
 import { agentListSearchSchema } from './features/agents/agents-search';
 import { providers } from './features/operations/operations-preview';
@@ -23,5 +24,18 @@ describe('static preview state', () => {
     expect(workflowPreviewQuery.queryFn?.({} as never)).toEqual(
       workflowPreviewQuery.initialData,
     );
+  });
+
+  it('uses_controlled_radix_selects_without_runtime_transport', () => {
+    const selectField = readFileSync(
+      'src/ui/compositions/select-field.tsx',
+      'utf8',
+    );
+    const source = readFileSync('src/app/app.tsx', 'utf8');
+
+    expect(selectField).toContain('onValueChange');
+    expect(selectField).toContain('SelectTrigger');
+    expect(selectField).not.toContain('<select');
+    expect(source).not.toContain('fetch(');
   });
 });

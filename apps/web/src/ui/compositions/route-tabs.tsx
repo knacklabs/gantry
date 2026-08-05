@@ -1,4 +1,4 @@
-import * as Tabs from '@radix-ui/react-tabs';
+import { Tabs, TabsList, TabsTrigger } from '../primitives/tabs';
 
 export type RouteTab<T extends string> = {
   label: string;
@@ -18,13 +18,14 @@ export function RouteTabs<T extends string>({
   onValueChange: (value: T) => void;
 }) {
   return (
-    <Tabs.Root value={value} onValueChange={(next) => onValueChange(next as T)}>
-      <Tabs.List
+    <Tabs value={value} onValueChange={(next) => onValueChange(next as T)}>
+      <TabsList
+        variant="line"
         aria-label={label}
         className="flex min-w-0 gap-1 overflow-x-auto border-b border-border"
       >
         {tabs.map((tab) => (
-          <Tabs.Trigger
+          <TabsTrigger
             className="relative inline-flex h-10 shrink-0 items-center gap-2 border-0 bg-transparent px-3 text-xs font-semibold text-text-secondary hover:text-text data-[state=active]:text-text data-[state=active]:after:absolute data-[state=active]:after:right-2 data-[state=active]:after:bottom-0 data-[state=active]:after:left-2 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-text"
             key={tab.value}
             value={tab.value}
@@ -35,9 +36,9 @@ export function RouteTabs<T extends string>({
                 {tab.count}
               </span>
             )}
-          </Tabs.Trigger>
+          </TabsTrigger>
         ))}
-      </Tabs.List>
-    </Tabs.Root>
+      </TabsList>
+    </Tabs>
   );
 }

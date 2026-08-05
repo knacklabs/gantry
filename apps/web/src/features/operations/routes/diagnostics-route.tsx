@@ -15,7 +15,10 @@ import { Panel } from '../../../ui/compositions/panel';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
 import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
-import { SegmentedControl } from '../../../ui/primitives/segmented-control';
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from '../../../ui/primitives/toggle-group';
 import { diagnosticPreviewQuery } from '../operations-queries';
 
 const filterOptions = [
@@ -53,25 +56,35 @@ export function DiagnosticsRoute() {
       />
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <Summary label="Passing" value={passing} tone="success" />
+        <Summary label="Passing" value={passing} variant="success" />
         <Summary
           label="Warnings"
           value={data.filter((item) => item.status === 'warning').length}
-          tone="attention"
+          variant="attention"
         />
         <Summary
           label="Failing"
           value={data.filter((item) => item.status === 'failing').length}
-          tone="danger"
+          variant="destructive"
         />
       </div>
 
-      <SegmentedControl
+      <ToggleGroup
         aria-label="Diagnostic status"
-        options={[...filterOptions]}
+        type="single"
         value={search.status}
-        onValueChange={(status) => void navigate({ search: { status } })}
-      />
+        onValueChange={(status) =>
+          status &&
+          void navigate({ search: { status: status as typeof search.status } })
+        }
+      >
+        {filterOptions.map(({ icon: Icon, label, value }) => (
+          <ToggleGroupItem key={value} value={value} aria-label={label}>
+            <Icon size={15} aria-hidden="true" />
+            {label}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
 
       <Panel
         title="Health checks"
@@ -128,18 +141,18 @@ export function DiagnosticsRoute() {
 function Summary({
   label,
   value,
-  tone,
+  variant,
 }: {
   label: string;
   value: number;
-  tone: 'success' | 'attention' | 'danger';
+  variant: 'success' | 'attention' | 'destructive';
 }) {
   return (
     <div className="rounded-md border border-border bg-surface p-4 shadow-panel">
       <p className="m-0 text-xs font-semibold text-text-secondary">{label}</p>
       <div className="mt-2 flex items-center justify-between">
         <strong className="text-2xl text-text">{value}</strong>
-        <Badge tone={tone}>{label.toLowerCase()}</Badge>
+        <Badge variant={variant}>{label.toLowerCase()}</Badge>
       </div>
     </div>
   );

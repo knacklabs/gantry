@@ -94,7 +94,7 @@ function ApprovalInteraction({
       icon={<LockKeyhole size={16} aria-hidden="true" />}
       action={
         <Badge
-          tone={
+          variant={
             descriptor.risk === 'high'
               ? 'danger'
               : descriptor.risk === 'medium'

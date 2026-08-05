@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 
+import { Card, CardHeader } from '../primitives/card';
+
 type PanelProps = {
   action?: ReactNode;
   children: ReactNode;
@@ -16,11 +18,11 @@ export function Panel({
   title,
 }: PanelProps) {
   return (
-    <section
-      className={`overflow-hidden rounded-lg border border-border bg-surface shadow-panel ${className}`}
+    <Card
+      className={`gap-0 rounded-lg border border-border bg-surface py-0 text-text ring-0 shadow-panel ${className}`}
     >
       {title || action ? (
-        <header className="flex min-h-12 items-center justify-between gap-4 border-b border-border px-4 py-2.5">
+        <CardHeader className="flex min-h-12 items-center justify-between gap-4 rounded-none border-b border-border px-4 py-2.5">
           <div className="min-w-0">
             {title ? (
               <h2 className="m-0 truncate text-sm font-semibold text-text">
@@ -34,9 +36,9 @@ export function Panel({
             ) : null}
           </div>
           {action}
-        </header>
+        </CardHeader>
       ) : null}
       {children}
-    </section>
+    </Card>
   );
 }

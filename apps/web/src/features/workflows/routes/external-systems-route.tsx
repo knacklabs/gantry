@@ -62,7 +62,7 @@ export function ExternalSystemsRoute() {
                   </strong>
                   <StatusBadge status={system.status} />
                   {system.pendingSteps ? (
-                    <Badge tone="attention">
+                    <Badge variant="attention">
                       {system.pendingSteps} pending
                     </Badge>
                   ) : null}

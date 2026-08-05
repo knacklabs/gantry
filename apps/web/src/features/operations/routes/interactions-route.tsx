@@ -12,7 +12,10 @@ import { PageHeader } from '../../../ui/compositions/page-header';
 import { Panel } from '../../../ui/compositions/panel';
 import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
-import { SegmentedControl } from '../../../ui/primitives/segmented-control';
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from '../../../ui/primitives/toggle-group';
 import { interactionPreviewQuery } from '../operations-queries';
 
 const filterOptions = [
@@ -38,17 +41,27 @@ export function InteractionsRoute() {
         eyebrow="Operations"
         title="Waiting on you"
         description="Questions and approval requests paused for an owner decision."
-        action={<Badge tone="attention">{data.length} pending</Badge>}
+        action={<Badge variant="attention">{data.length} pending</Badge>}
       />
 
-      <SegmentedControl
+      <ToggleGroup
         aria-label="Interaction type"
-        options={[...filterOptions]}
+        type="single"
         value={search.kind}
         onValueChange={(kind) =>
-          void navigate({ search: { kind, selected: undefined } })
+          kind &&
+          void navigate({
+            search: { kind: kind as typeof search.kind, selected: undefined },
+          })
         }
-      />
+      >
+        {filterOptions.map(({ icon: Icon, label, value }) => (
+          <ToggleGroupItem key={value} value={value} aria-label={label}>
+            <Icon size={15} aria-hidden="true" />
+            {label}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
 
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(300px,.8fr)_minmax(0,1.2fr)]">
         <Panel
@@ -120,7 +133,7 @@ export function InteractionsRoute() {
                         choice === 'Cancel'
                           ? 'ghost'
                           : index === 0
-                            ? 'primary'
+                            ? 'default'
                             : 'secondary'
                       }
                       onClick={() =>
@@ -172,5 +185,5 @@ function Detail({
 function RiskBadge({ risk }: { risk: 'low' | 'medium' | 'high' }) {
   const tone =
     risk === 'high' ? 'danger' : risk === 'medium' ? 'attention' : 'neutral';
-  return <Badge tone={tone}>{risk} risk</Badge>;
+  return <Badge variant={tone}>{risk} risk</Badge>;
 }

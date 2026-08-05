@@ -119,7 +119,7 @@ export function AgentDetailSection({
               />
               {capability}
             </span>
-            <Badge tone="success">Selected</Badge>
+            <Badge variant="success">Selected</Badge>
           </div>
         ))}
       </Collection>
@@ -233,7 +233,7 @@ export function AgentDetailSection({
           <span className="inline-flex items-center gap-2 text-[13px] font-medium text-text">
             <Link2 size={16} aria-hidden="true" /> {conversation}
           </span>
-          <Badge tone="success">Installed</Badge>
+          <Badge variant="success">Installed</Badge>
         </div>
       ))}
     </Collection>

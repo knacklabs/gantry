@@ -5,6 +5,7 @@ import { AlertTriangle, Brain, History, ShieldQuestion } from 'lucide-react';
 import { useConnectionGate } from '../../../ui/compositions/connection-gate';
 import { PageHeader } from '../../../ui/compositions/page-header';
 import { Panel } from '../../../ui/compositions/panel';
+import { SelectField } from '../../../ui/compositions/select-field';
 import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
 import { memoryPreviewQuery } from '../chat-queries';
@@ -79,7 +80,7 @@ export function MemoryRoute() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge>{memory.category}</Badge>
-                  <Badge tone={confidenceTone(memory.confidence)}>
+                  <Badge variant={confidenceTone(memory.confidence)}>
                     {memory.confidence} confidence
                   </Badge>
                 </div>
@@ -129,20 +130,15 @@ function FilterSelect<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <label className="grid gap-1.5 text-xs font-semibold text-text">
-      {label}
-      <select
-        className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] font-normal text-text capitalize"
-        value={value}
-        onChange={(event) => onChange(event.target.value as T)}
-      >
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option === 'all' ? `All ${label.toLowerCase()}s` : option}
-          </option>
-        ))}
-      </select>
-    </label>
+    <SelectField
+      label={label}
+      onValueChange={onChange}
+      options={options.map((value) => ({
+        label: value === 'all' ? `All ${label.toLowerCase()}s` : value,
+        value,
+      }))}
+      value={value}
+    />
   );
 }
 

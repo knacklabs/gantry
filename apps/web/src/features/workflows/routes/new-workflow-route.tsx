@@ -9,6 +9,12 @@ import { PageHeader } from '../../../ui/compositions/page-header';
 import { Panel } from '../../../ui/compositions/panel';
 import { TextField } from '../../../ui/compositions/text-field';
 import { Button } from '../../../ui/primitives/button';
+import {
+  Field,
+  FieldDescription,
+  FieldLabel,
+} from '../../../ui/primitives/field';
+import { Textarea } from '../../../ui/primitives/textarea';
 
 const workflowDraftSchema = z.object({
   name: z.string().trim().min(3, 'Enter at least 3 characters.').max(100),
@@ -115,19 +121,27 @@ export function NewWorkflowRoute() {
               {...register('owner')}
             />
           </div>
-          <label className="grid gap-1.5" htmlFor="workflow-description">
-            <span className="text-xs font-semibold text-text">Outcome</span>
-            <textarea
-              className={`min-h-28 rounded-md border bg-surface px-3 py-2 text-[13px] leading-5 text-text ${errors.description ? 'border-danger' : 'border-border-strong'}`}
+          <Field
+            data-invalid={errors.description ? true : undefined}
+            className="gap-1.5"
+          >
+            <FieldLabel
+              className="text-xs font-semibold text-text"
+              htmlFor="workflow-description"
+            >
+              Outcome
+            </FieldLabel>
+            <Textarea
+              className="min-h-28 bg-surface text-[13px] leading-5 text-text"
               id="workflow-description"
               {...register('description')}
             />
             {errors.description ? (
-              <span className="text-xs text-danger">
+              <FieldDescription className="text-xs text-danger">
                 {errors.description.message}
-              </span>
+              </FieldDescription>
             ) : null}
-          </label>
+          </Field>
           <div className="rounded-md border border-status-attention/40 bg-status-attention-soft p-4 text-xs leading-5 text-status-attention">
             Workflow drafts do not schedule, execute, grant permissions, or send
             notifications in the browser. Server-side validation remains

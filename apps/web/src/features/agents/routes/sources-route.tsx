@@ -6,6 +6,7 @@ import { type FormEvent } from 'react';
 import { useConnectionGate } from '../../../ui/compositions/connection-gate';
 import { PageHeader } from '../../../ui/compositions/page-header';
 import { Panel } from '../../../ui/compositions/panel';
+import { SelectField } from '../../../ui/compositions/select-field';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
 import { TextField } from '../../../ui/compositions/text-field';
 import { Badge } from '../../../ui/primitives/badge';
@@ -74,27 +75,17 @@ export function SourcesRoute() {
           name="q"
           placeholder="Name, type, or capability"
         />
-        <label className="grid gap-1.5 text-xs font-semibold text-text">
-          Type
-          <select
-            className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] font-normal text-text"
-            value={search.kind}
-            onChange={(event) =>
-              void navigate({
-                search: {
-                  ...search,
-                  kind: event.target.value as typeof search.kind,
-                },
-              })
-            }
-          >
-            {kinds.map((kind) => (
-              <option key={kind} value={kind}>
-                {kind === 'all' ? 'All source types' : kind}
-              </option>
-            ))}
-          </select>
-        </label>
+        <SelectField
+          label="Type"
+          value={search.kind}
+          options={kinds.map((value) => ({
+            label: value === 'all' ? 'All source types' : value,
+            value,
+          }))}
+          onValueChange={(kind) =>
+            void navigate({ search: { ...search, kind } })
+          }
+        />
         <Button variant="secondary" type="submit">
           <Search size={15} aria-hidden="true" /> Search
         </Button>

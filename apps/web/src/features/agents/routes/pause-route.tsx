@@ -102,13 +102,15 @@ export function PauseRoute() {
           <Checkbox
             checked={confirmed}
             id="confirm-pause"
-            label="I understand that this would pause every represented deployed agent."
-            onCheckedChange={setConfirmed}
+            onCheckedChange={(checked) => setConfirmed(checked === true)}
           />
+          <label htmlFor="confirm-pause">
+            I understand that this would pause every represented deployed agent.
+          </label>
           <div>
             <Button
               disabled={!confirmed}
-              variant="danger"
+              variant="destructive"
               onClick={() => requestConnection('Pause all deployed agents')}
             >
               <PauseCircle size={16} aria-hidden="true" />

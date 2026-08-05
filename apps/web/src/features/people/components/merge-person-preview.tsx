@@ -2,6 +2,7 @@ import { AlertTriangle, Merge } from 'lucide-react';
 import { useState } from 'react';
 
 import { useConnectionGate } from '../../../ui/compositions/connection-gate';
+import { SelectField } from '../../../ui/compositions/select-field';
 import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
 import { Checkbox } from '../../../ui/primitives/checkbox';
@@ -42,26 +43,23 @@ export function MergePersonPreview({
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <PersonSummary label="Source person" person={person} />
-        <label className="grid gap-2 rounded-md border border-border p-4 text-xs font-semibold text-text">
-          Target person
-          <select
-            className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] font-normal text-text"
+        <div className="grid gap-2 rounded-md border border-border p-4 text-xs font-semibold text-text">
+          <SelectField
+            label="Target person"
             value={target.id}
-            onChange={(event) => {
-              setTargetId(event.target.value);
+            options={targets.map((candidate) => ({
+              label: candidate.name,
+              value: candidate.id,
+            }))}
+            onValueChange={(id) => {
+              setTargetId(id);
               setConfirmed(false);
             }}
-          >
-            {targets.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {candidate.name}
-              </option>
-            ))}
-          </select>
+          />
           <span className="font-mono text-[10px] font-normal text-text-muted">
             person:{target.id}
           </span>
-        </label>
+        </div>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <Impact label="Aliases moved" value={preview.aliasCount} />
@@ -88,7 +86,7 @@ export function MergePersonPreview({
                   {alias.provenance}
                 </span>
               </span>
-              <Badge tone={alias.verified ? 'success' : 'attention'}>
+              <Badge variant={alias.verified ? 'success' : 'attention'}>
                 {alias.verified ? 'Verified' : 'Unverified'}
               </Badge>
             </div>
@@ -116,13 +114,16 @@ export function MergePersonPreview({
       <Checkbox
         checked={confirmed}
         id="confirm-merge"
-        label={`I reviewed the provenance and want to merge ${person.name} into ${target.name}.`}
-        onCheckedChange={setConfirmed}
+        onCheckedChange={(checked) => setConfirmed(checked === true)}
       />
+      <label htmlFor="confirm-merge">
+        I reviewed the provenance and want to merge {person.name} into{' '}
+        {target.name}.
+      </label>
       <div>
         <Button
           disabled={!canConfirm}
-          variant="danger"
+          variant="destructive"
           onClick={() =>
             requestConnection(`Merge ${person.name} into ${target.name}`)
           }

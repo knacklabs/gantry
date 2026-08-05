@@ -1,11 +1,18 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { RotateCcw, Save } from 'lucide-react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { z } from 'zod';
 
 import { useConnectionGate } from '../../../ui/compositions/connection-gate';
 import { TextField } from '../../../ui/compositions/text-field';
+import { SelectField } from '../../../ui/compositions/select-field';
 import { Button } from '../../../ui/primitives/button';
+import {
+  Field,
+  FieldDescription,
+  FieldLabel,
+} from '../../../ui/primitives/field';
+import { Textarea } from '../../../ui/primitives/textarea';
 import type { AgentPreview } from '../agents-preview';
 
 const agentIdentitySchema = z.object({
@@ -33,6 +40,7 @@ export function AgentIdentityForm({ agent }: { agent: AgentPreview }) {
   };
   const {
     formState: { errors, isDirty },
+    control,
     handleSubmit,
     register,
     reset,
@@ -92,25 +100,37 @@ export function AgentIdentityForm({ agent }: { agent: AgentPreview }) {
           </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <SelectField
-            id="agent-model"
-            label="Model alias"
-            options={[
-              ['sonnet', 'Sonnet'],
-              ['opus', 'Opus'],
-              ['gpt-5', 'GPT-5'],
-            ]}
-            {...register('modelAlias')}
+          <Controller
+            control={control}
+            name="modelAlias"
+            render={({ field }) => (
+              <SelectField
+                label="Model alias"
+                value={field.value}
+                onValueChange={field.onChange}
+                options={[
+                  { value: 'sonnet', label: 'Sonnet' },
+                  { value: 'opus', label: 'Opus' },
+                  { value: 'gpt-5', label: 'GPT-5' },
+                ]}
+              />
+            )}
           />
-          <SelectField
-            id="agent-harness"
-            label="Agent harness"
-            options={[
-              ['auto', 'Auto'],
-              ['anthropic_sdk', 'Anthropic SDK'],
-              ['deepagents', 'DeepAgents'],
-            ]}
-            {...register('agentHarness')}
+          <Controller
+            control={control}
+            name="agentHarness"
+            render={({ field }) => (
+              <SelectField
+                label="Agent harness"
+                value={field.value}
+                onValueChange={field.onChange}
+                options={[
+                  { value: 'auto', label: 'Auto' },
+                  { value: 'anthropic_sdk', label: 'Anthropic SDK' },
+                  { value: 'deepagents', label: 'DeepAgents' },
+                ]}
+              />
+            )}
           />
         </div>
         <TextAreaField
@@ -157,46 +177,21 @@ function TextAreaField({
   label: string;
 }) {
   return (
-    <label className="grid gap-1.5" htmlFor={id}>
-      <span className="text-xs font-semibold text-text">{label}</span>
-      <textarea
+    <Field data-invalid={error ? true : undefined} className="gap-1.5">
+      <FieldLabel className="text-xs font-semibold text-text" htmlFor={id}>
+        {label}
+      </FieldLabel>
+      <Textarea
         aria-invalid={error ? true : undefined}
-        className={`w-full resize-y rounded-md border bg-surface px-3 py-2 text-[13px] leading-5 text-text ${error ? 'border-danger' : 'border-border-strong'}`}
+        className="resize-y bg-surface text-[13px] leading-5 text-text"
         id={id}
         {...props}
       />
-      {error ? <span className="text-xs text-danger">{error}</span> : null}
-    </label>
-  );
-}
-
-function SelectField({
-  id,
-  label,
-  options,
-  ...props
-}: React.ComponentPropsWithRef<'select'> & {
-  id: string;
-  label: string;
-  options: readonly (readonly [string, string])[];
-}) {
-  return (
-    <label
-      className="grid gap-1.5 text-xs font-semibold text-text"
-      htmlFor={id}
-    >
-      {label}
-      <select
-        className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] font-normal text-text"
-        id={id}
-        {...props}
-      >
-        {options.map(([value, text]) => (
-          <option key={value} value={value}>
-            {text}
-          </option>
-        ))}
-      </select>
-    </label>
+      {error ? (
+        <FieldDescription className="text-xs text-danger">
+          {error}
+        </FieldDescription>
+      ) : null}
+    </Field>
   );
 }

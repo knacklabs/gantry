@@ -2,7 +2,9 @@ import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import { Badge } from '../../../ui/primitives/badge';
-import { IconButton } from '../../../ui/primitives/icon-button';
+import { Button } from '../../../ui/primitives/button';
+import { Input } from '../../../ui/primitives/input';
+import { Textarea } from '../../../ui/primitives/textarea';
 import type {
   WorkflowStepPreview,
   WorkflowStepType,
@@ -126,7 +128,7 @@ export function WorkflowBuilder({
           <h2 className="m-0 text-xs font-semibold text-text" id="canvas-title">
             Ordered canvas
           </h2>
-          <Badge tone={errors.length ? 'attention' : 'success'}>
+          <Badge variant={errors.length ? 'attention' : 'success'}>
             {errors.length ? `${errors.length} issues` : 'Valid draft'}
           </Badge>
         </div>
@@ -209,8 +211,8 @@ export function WorkflowBuilder({
         {selected ? (
           <div className="grid gap-4 rounded-md border border-border p-4">
             <Field label="Name">
-              <input
-                className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] text-text"
+              <Input
+                className="h-9 bg-surface text-[13px] text-text"
                 value={selected.name}
                 onChange={(event) =>
                   updateSelected({ name: event.target.value })
@@ -218,8 +220,8 @@ export function WorkflowBuilder({
               />
             </Field>
             <Field label="Description">
-              <textarea
-                className="min-h-24 rounded-md border border-border-strong bg-surface px-3 py-2 text-[13px] leading-5 text-text"
+              <Textarea
+                className="min-h-24 bg-surface text-[13px] leading-5 text-text"
                 value={selected.description}
                 onChange={(event) =>
                   updateSelected({ description: event.target.value })
@@ -228,8 +230,8 @@ export function WorkflowBuilder({
             </Field>
             {selected.type === 'agent' ? (
               <Field label="Required capability">
-                <input
-                  className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] text-text"
+                <Input
+                  className="h-9 bg-surface text-[13px] text-text"
                   value={selected.capability ?? ''}
                   onChange={(event) =>
                     updateSelected({ capability: event.target.value })
@@ -239,8 +241,8 @@ export function WorkflowBuilder({
             ) : null}
             {selected.type === 'external' ? (
               <Field label="External system">
-                <input
-                  className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] text-text"
+                <Input
+                  className="h-9 bg-surface text-[13px] text-text"
                   value={selected.externalSystem ?? ''}
                   onChange={(event) =>
                     updateSelected({ externalSystem: event.target.value })
@@ -250,8 +252,8 @@ export function WorkflowBuilder({
             ) : null}
             {selected.type === 'notification' ? (
               <Field label="Notification route">
-                <input
-                  className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] text-text"
+                <Input
+                  className="h-9 bg-surface text-[13px] text-text"
                   value={selected.notificationRoute ?? ''}
                   onChange={(event) =>
                     updateSelected({ notificationRoute: event.target.value })
@@ -329,13 +331,15 @@ function ControlButton({
   children: React.ReactNode;
 }) {
   return (
-    <IconButton
+    <Button
+      size="icon"
+      variant="outline"
       aria-label={label}
       disabled={disabled}
       title={label}
       onClick={onClick}
     >
       {children}
-    </IconButton>
+    </Button>
   );
 }

@@ -144,7 +144,7 @@ function ProfileView({ person }: { person: PersonPreview }) {
                   provider identity:{alias.providerIdentity}
                 </span>
               </span>
-              <Badge tone={alias.verified ? 'success' : 'attention'}>
+              <Badge variant={alias.verified ? 'success' : 'attention'}>
                 {alias.verified ? 'Verified' : 'Unverified'}
               </Badge>
             </article>

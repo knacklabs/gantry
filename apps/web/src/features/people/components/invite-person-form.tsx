@@ -1,11 +1,18 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Send } from 'lucide-react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { z } from 'zod';
 
 import { useConnectionGate } from '../../../ui/compositions/connection-gate';
 import { TextField } from '../../../ui/compositions/text-field';
+import { SelectField } from '../../../ui/compositions/select-field';
 import { Button } from '../../../ui/primitives/button';
+import {
+  Field,
+  FieldDescription,
+  FieldLabel,
+} from '../../../ui/primitives/field';
+import { Textarea } from '../../../ui/primitives/textarea';
 import type { PersonPreview } from '../people-preview';
 
 const invitationSchema = z.object({
@@ -29,6 +36,7 @@ export function InvitePersonForm({ person }: { person: PersonPreview }) {
   const { requestConnection } = useConnectionGate();
   const {
     formState: { errors, isDirty },
+    control,
     handleSubmit,
     register,
   } = useForm<InvitationDraft>({
@@ -60,28 +68,38 @@ export function InvitePersonForm({ person }: { person: PersonPreview }) {
         </p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="grid gap-1.5 text-xs font-semibold text-text">
-          Provider
-          <select
-            className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] font-normal text-text"
-            {...register('provider')}
-          >
-            <option value="Slack">Slack</option>
-            <option value="Telegram">Telegram</option>
-            <option value="Teams">Teams</option>
-          </select>
-        </label>
-        <label className="grid gap-1.5 text-xs font-semibold text-text">
-          Role summary
-          <select
-            className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] font-normal text-text"
-            {...register('role')}
-          >
-            <option value="Member">Member</option>
-            <option value="Approver">Approver</option>
-            <option value="Owner">Owner</option>
-          </select>
-        </label>
+        <Controller
+          control={control}
+          name="provider"
+          render={({ field }) => (
+            <SelectField
+              label="Provider"
+              value={field.value}
+              onValueChange={field.onChange}
+              options={[
+                { value: 'Slack', label: 'Slack' },
+                { value: 'Telegram', label: 'Telegram' },
+                { value: 'Teams', label: 'Teams' },
+              ]}
+            />
+          )}
+        />
+        <Controller
+          control={control}
+          name="role"
+          render={({ field }) => (
+            <SelectField
+              label="Role summary"
+              value={field.value}
+              onValueChange={field.onChange}
+              options={[
+                { value: 'Member', label: 'Member' },
+                { value: 'Approver', label: 'Approver' },
+                { value: 'Owner', label: 'Owner' },
+              ]}
+            />
+          )}
+        />
       </div>
       <TextField
         id="invite-target"
@@ -89,17 +107,27 @@ export function InvitePersonForm({ person }: { person: PersonPreview }) {
         error={errors.target?.message}
         {...register('target')}
       />
-      <label className="grid gap-1.5" htmlFor="invite-message">
-        <span className="text-xs font-semibold text-text">Message</span>
-        <textarea
-          className={`min-h-28 rounded-md border bg-surface px-3 py-2 text-[13px] leading-5 text-text ${errors.message ? 'border-danger' : 'border-border-strong'}`}
+      <Field
+        data-invalid={errors.message ? true : undefined}
+        className="gap-1.5"
+      >
+        <FieldLabel
+          className="text-xs font-semibold text-text"
+          htmlFor="invite-message"
+        >
+          Message
+        </FieldLabel>
+        <Textarea
+          className="min-h-28 bg-surface text-[13px] leading-5 text-text"
           id="invite-message"
           {...register('message')}
         />
         {errors.message ? (
-          <span className="text-xs text-danger">{errors.message.message}</span>
+          <FieldDescription className="text-xs text-danger">
+            {errors.message.message}
+          </FieldDescription>
         ) : null}
-      </label>
+      </Field>
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
         <span className="text-xs text-text-muted">
           {isDirty ? 'Unsaved local changes' : 'Preview defaults'}

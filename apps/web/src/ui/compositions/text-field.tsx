@@ -1,5 +1,8 @@
 import type { ComponentPropsWithRef, ReactNode } from 'react';
 
+import { Field, FieldDescription, FieldLabel } from '../primitives/field';
+import { Input } from '../primitives/input';
+
 type TextFieldProps = Omit<ComponentPropsWithRef<'input'>, 'id'> & {
   error?: string;
   hint?: ReactNode;
@@ -18,23 +21,25 @@ export function TextField({
   const descriptionId = error || hint ? `${id}-description` : undefined;
 
   return (
-    <label className="grid gap-1.5" htmlFor={id}>
-      <span className="text-xs font-semibold text-text">{label}</span>
-      <input
+    <Field data-invalid={error ? true : undefined} className="gap-1.5">
+      <FieldLabel className="text-xs font-semibold text-text" htmlFor={id}>
+        {label}
+      </FieldLabel>
+      <Input
         aria-describedby={descriptionId}
         aria-invalid={error ? true : undefined}
-        className={`h-9 w-full rounded-md border bg-surface px-3 text-[13px] text-text placeholder:text-text-muted ${error ? 'border-danger' : 'border-border-strong'} ${className}`}
+        className={`h-9 rounded-md bg-surface px-3 text-[13px] text-text ${className}`}
         id={id}
         {...props}
       />
       {error || hint ? (
-        <span
+        <FieldDescription
           className={`text-xs leading-5 ${error ? 'text-danger' : 'text-text-muted'}`}
           id={descriptionId}
         >
           {error ?? hint}
-        </span>
+        </FieldDescription>
       ) : null}
-    </label>
+    </Field>
   );
 }

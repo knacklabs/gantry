@@ -4,6 +4,7 @@ import { Boxes, Settings2 } from 'lucide-react';
 
 import { useConnectionGate } from '../../../ui/compositions/connection-gate';
 import { MetricTile } from '../../../ui/compositions/metric-tile';
+import { SelectField } from '../../../ui/compositions/select-field';
 import { PageHeader } from '../../../ui/compositions/page-header';
 import { Panel } from '../../../ui/compositions/panel';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
@@ -49,24 +50,17 @@ export function ModelsRoute() {
         />
         <MetricTile label="Cost · 24h" value="$12.40" detail="of $50 budget" />
       </div>
-      <label className="grid max-w-[240px] gap-1.5 text-xs font-semibold text-text">
-        Model family
-        <select
-          className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] font-normal text-text"
+      <div className="max-w-[240px]">
+        <SelectField
+          label="Model family"
           value={search.family}
-          onChange={(event) =>
-            void navigate({
-              search: { family: event.target.value as typeof search.family },
-            })
-          }
-        >
-          {families.map((family) => (
-            <option key={family} value={family}>
-              {family === 'all' ? 'All families' : family}
-            </option>
-          ))}
-        </select>
-      </label>
+          options={families.map((value) => ({
+            label: value === 'all' ? 'All families' : value,
+            value,
+          }))}
+          onValueChange={(family) => void navigate({ search: { family } })}
+        />
+      </div>
       <Panel
         title="Model catalog"
         description={`${visible.length} aliases shown`}

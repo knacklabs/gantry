@@ -7,6 +7,7 @@ import { useConnectionGate } from '../../../ui/compositions/connection-gate';
 import { PageHeader } from '../../../ui/compositions/page-header';
 import { Panel } from '../../../ui/compositions/panel';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
+import { SelectField } from '../../../ui/compositions/select-field';
 import { TextField } from '../../../ui/compositions/text-field';
 import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
@@ -105,7 +106,7 @@ export function ChatRoute() {
                   <strong className="text-sm">{session.title}</strong>
                   <StatusBadge status={session.status} />
                   {session.unread ? (
-                    <Badge tone="attention">{session.unread} new</Badge>
+                    <Badge variant="attention">{session.unread} new</Badge>
                   ) : null}
                 </span>
                 <span className="mt-1 block text-xs text-text-secondary">
@@ -143,19 +144,14 @@ function FilterSelect<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <label className="grid gap-1.5 text-xs font-semibold text-text">
-      {label}
-      <select
-        className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] font-normal text-text"
-        value={value}
-        onChange={(event) => onChange(event.target.value as T)}
-      >
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option === 'all' ? `All ${label.toLowerCase()}s` : option}
-          </option>
-        ))}
-      </select>
-    </label>
+    <SelectField
+      label={label}
+      onValueChange={onChange}
+      options={options.map((value) => ({
+        label: value === 'all' ? `All ${label.toLowerCase()}s` : value,
+        value,
+      }))}
+      value={value}
+    />
   );
 }

@@ -5,7 +5,7 @@ import { Badge } from '../primitives/badge';
 export function ConnectionState() {
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <Badge tone="attention">Preview data</Badge>
+      <Badge variant="attention">Preview data</Badge>
       <span
         aria-label="Runtime connection: not connected"
         className="inline-flex min-w-0 items-center gap-1.5 font-mono text-[11px] font-medium text-text-secondary"

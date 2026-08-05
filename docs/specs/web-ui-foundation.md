@@ -10,14 +10,17 @@ saved: 2026-08-05T09:30:00+00:00
 ## Capability
 
 Gantry includes a standalone, buildable React workspace that establishes the
-visual and routing foundation for a future operator UI without changing or
-connecting to the hosted runtime.
+visual and routing foundation for a fixture-backed operator preview without
+changing or connecting to the hosted runtime. Its shared controls use local
+shadcn components on the Radix base, mapped onto Gantry's existing theme
+tokens rather than an upstream visual preset.
 
 ## Behaviour (acceptance)
 
 1. `apps/web` builds independently under the `/ui` base path and renders a
-   responsive, accessible application shell with neutral navigation, local
-   browser preferences, and a clear `Not connected` state.
+   responsive, accessible application shell, local browser preferences, and
+   fixture-backed preview routes. It is available at tablet and desktop widths
+   (768px and above); smaller widths show a non-interactive notice.
 2. Root workspace commands and pull-request CI validate web formatting,
    typechecking, linting, and building independently from the production
    runtime build.
@@ -33,8 +36,9 @@ connecting to the hosted runtime.
 ## Non-goals
 
 Runtime `/ui` hosting, a `/ui-api` bridge, authentication, environment
-variables, Docker packaging, API clients, database changes, agent or identity
-administration, and preview product screens.
+variables, Docker packaging, API clients, database changes, and agent or
+identity administration. Preview data and interactions stay in browser memory
+and reset on reload.
 
 ## Constraints
 

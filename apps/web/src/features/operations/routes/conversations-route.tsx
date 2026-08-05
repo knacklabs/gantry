@@ -8,6 +8,7 @@ import { useConnectionGate } from '../../../ui/compositions/connection-gate';
 import { DataTable } from '../../../ui/compositions/data-table';
 import { PageHeader } from '../../../ui/compositions/page-header';
 import { Panel } from '../../../ui/compositions/panel';
+import { SelectField } from '../../../ui/compositions/select-field';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
 import { TextField } from '../../../ui/compositions/text-field';
 import { Button } from '../../../ui/primitives/button';
@@ -95,27 +96,19 @@ export function ConversationsRoute() {
           name="q"
           placeholder="Name, provider, or agent"
         />
-        <label className="grid gap-1.5 text-xs font-semibold text-text">
-          Status
-          <select
-            className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] font-normal text-text"
-            value={search.status}
-            onChange={(event) =>
-              void navigate({
-                search: {
-                  ...search,
-                  status: event.target.value as typeof search.status,
-                  page: 1,
-                },
-              })
-            }
-          >
-            <option value="all">All statuses</option>
-            <option value="active">Active</option>
-            <option value="quiet">Quiet</option>
-            <option value="blocked">Blocked</option>
-          </select>
-        </label>
+        <SelectField
+          label="Status"
+          value={search.status}
+          options={[
+            { label: 'All statuses', value: 'all' },
+            { label: 'Active', value: 'active' },
+            { label: 'Quiet', value: 'quiet' },
+            { label: 'Blocked', value: 'blocked' },
+          ]}
+          onValueChange={(status) =>
+            void navigate({ search: { ...search, status, page: 1 } })
+          }
+        />
         <Button variant="secondary" type="submit">
           Search
         </Button>

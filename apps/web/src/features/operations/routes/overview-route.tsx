@@ -55,7 +55,7 @@ export function OverviewRoute() {
           title="Setup blockers"
           description="Resolve these before expecting every route to work."
           action={
-            <Badge tone="attention">{setupBlockers.length} blockers</Badge>
+            <Badge variant="attention">{setupBlockers.length} blockers</Badge>
           }
         >
           <div className="divide-y divide-border">
@@ -93,7 +93,7 @@ export function OverviewRoute() {
           description="Latest checks represented by this preview snapshot."
           action={
             <Badge
-              tone={
+              variant={
                 healthyChecks === diagnostics.length ? 'success' : 'attention'
               }
             >

@@ -9,6 +9,7 @@ import { DataTable } from '../../../ui/compositions/data-table';
 import { PageHeader } from '../../../ui/compositions/page-header';
 import { Panel } from '../../../ui/compositions/panel';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
+import { SelectField } from '../../../ui/compositions/select-field';
 import { TextField } from '../../../ui/compositions/text-field';
 import { Button } from '../../../ui/primitives/button';
 import type { AgentPreview } from '../agents-preview';
@@ -174,21 +175,17 @@ function FilterSelect<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <label className="grid gap-1.5 text-xs font-semibold text-text">
-      {label}
-      <select
-        className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] font-normal text-text capitalize"
-        value={value}
-        onChange={(event) => onChange(event.target.value as T)}
-      >
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option === 'all'
-              ? `All ${label.toLowerCase()}s`
-              : option.replaceAll('-', ' ')}
-          </option>
-        ))}
-      </select>
-    </label>
+    <SelectField
+      label={label}
+      onValueChange={onChange}
+      options={options.map((value) => ({
+        label:
+          value === 'all'
+            ? `All ${label.toLowerCase()}s`
+            : value.replaceAll('-', ' '),
+        value,
+      }))}
+      value={value}
+    />
   );
 }

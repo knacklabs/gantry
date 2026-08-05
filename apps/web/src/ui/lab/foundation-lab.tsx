@@ -45,19 +45,19 @@ export function FoundationLab() {
       <LabSection title="Actions and status">
         <div className="flex flex-wrap items-center gap-2">
           <Button
-            variant="primary"
+            variant="default"
             onClick={() => requestConnection('Deploy agent')}
           >
             Deploy agent
           </Button>
           <Button>Secondary</Button>
           <Button variant="ghost">Ghost</Button>
-          <Button variant="danger">Danger</Button>
+          <Button variant="destructive">Danger</Button>
           <Button disabled>Disabled</Button>
           <Badge>Neutral</Badge>
-          <Badge tone="attention">Needs attention</Badge>
-          <Badge tone="success">Healthy</Badge>
-          <Badge tone="danger">Blocked</Badge>
+          <Badge variant="attention">Needs attention</Badge>
+          <Badge variant="success">Healthy</Badge>
+          <Badge variant="destructive">Blocked</Badge>
         </div>
       </LabSection>
 
@@ -78,7 +78,7 @@ export function FoundationLab() {
         </LabSection>
         <Panel
           title="Readiness"
-          action={<Badge tone="attention">2 blockers</Badge>}
+          action={<Badge variant="attention">2 blockers</Badge>}
         >
           <StatusList
             items={[
