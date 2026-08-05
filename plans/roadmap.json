@@ -119,7 +119,7 @@
       "outcome": "Repaired by the interactive agent under the new ask-gated approval flow (the attended path decision 0106 intends): raw gog/RunCommand requirements replaced with the three semantic Sheets capabilities, prompt rewritten with hard semantic rules and a 12-minute budget, access approved by Ravi, job resumed once. Proof run 2026-08-05: completed, 2 leads verified and written (rows 1943-1944), job stayed ACTIVE with Setup Ready \u2014 no self-pause, no Setup-needed card. Kai Workspace cleanup sheet deliberately descoped pending a second Google account binding (open item)."
     },
     {
-      "status": "active",
+      "status": "done",
       "key": "SCHED-4A",
       "title": "Approval & setup-notification UX: explicit scope, no contradictory cards, match-vs-grant diagnosis",
       "value": "Kills the confusion that made the pause loop undiagnosable: approvals say whether they are one-time or durable (and confirm 'will ask again next run'), a run that recovers never sends a green Completed card and an orange Setup-needed card as peers, and 'granted but pattern did not match' reads differently from 'not granted' with the attempted-vs-approved diff shown.",
@@ -132,7 +132,10 @@
       "source_refs": [
         "docs/architecture/scheduler-incident-assessment-2026-08-05.md"
       ],
-      "order": 7
+      "order": 7,
+      "completed_at": "2026-08-05T16:28:29+00:00",
+      "history": ".factory/history/SCHED-4A/",
+      "outcome": "Permission and job notifications now tell the truth plainly. Approving something once says so \u2014 'Approved for this run only; future runs will need approval again' \u2014 instead of leaving you to discover the difference later. A job that finishes despite a blocked step sends ONE card ('Completed with limits', naming what degraded and every one-time approval) instead of a green Completed and an orange Setup-needed contradicting each other, and no path can leave a paused job silent. A command blocked because its shape didn't match shows the approved pattern next to what was attempted \u2014 ending the 'was it even granted?' guessing from the incident. And a repeating permission prompt now says how many times you've approved it and over how many days, offering to make it permanent."
     },
     {
       "status": "pending",
@@ -953,5 +956,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-05T09:40:00+00:00"
+  "updated_at": "2026-08-05T16:28:29+00:00"
 }
