@@ -98,7 +98,7 @@
       "outcome": "Recurring jobs no longer pause themselves: the runtime now distinguishes automatic policy approvals from genuine human one-time consent, and only the latter pauses a job \u2014 with every automatic path regression-tested and ambiguous records treated safely. Scheduled runs also lost the ability to edit their own future: the six scheduler mutation tools are gone from unattended runs at two independent layers (the tool list they see, and a host-side check they cannot forge because it keys on values only the host mints), scheduler changes now ask a human in auto mode as decision 0058 always required, and every request carries signed source-run provenance for auditing. The self-pausing loop that hit the lead-maintenance job is closed at all four of its causes."
     },
     {
-      "status": "pending",
+      "status": "done",
       "key": "SCHED-2",
       "title": "Lead-job repair: semantic Sheets dependency + idempotent replay",
       "value": "The live lead-maintenance job runs unattended again: raw Sheets command requirements replaced by the reviewed semantic capability, prompt rewritten semantically, the two missed lead writes replayed idempotently.",
@@ -114,7 +114,9 @@
       "order": 6,
       "depends_on": [
         "SCHED-1"
-      ]
+      ],
+      "completed_at": "2026-08-05T09:40:00+00:00",
+      "outcome": "Repaired by the interactive agent under the new ask-gated approval flow (the attended path decision 0106 intends): raw gog/RunCommand requirements replaced with the three semantic Sheets capabilities, prompt rewritten with hard semantic rules and a 12-minute budget, access approved by Ravi, job resumed once. Proof run 2026-08-05: completed, 2 leads verified and written (rows 1943-1944), job stayed ACTIVE with Setup Ready \u2014 no self-pause, no Setup-needed card. Kai Workspace cleanup sheet deliberately descoped pending a second Google account binding (open item)."
     },
     {
       "status": "active",
@@ -951,5 +953,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-05T07:19:22+00:00"
+  "updated_at": "2026-08-05T09:40:00+00:00"
 }
