@@ -210,6 +210,18 @@ Maintenance: update this map whenever ambient-liveness flow tests are renamed or
 - Teams typing and reactions remain deferred by decision 0033 until a real
   Teams client is available; Teams truthfully declares `reactions: none` in
   its `liveUx` capability (LIVE-2) — no advertised no-ops.
+- Turn liveness phase (LIVE-2): one controller owns
+  `active | delivering | waiting | stalled | terminal`. Reaction admission and
+  terminal restore share one scope, the first reaction cannot block turn start,
+  typing refreshes during a normal delivery lease but never while stalled, and
+  a stall recovery refreshes typing immediately rather than at the next
+  heartbeat. Pause reasons separate interaction waits from turn-complete.
+  - `runtime/group-liveness-state.test.ts`: `bounds and detaches a first reaction that never settles`
+  - `runtime/group-liveness-state.test.ts`: `keeps typing suppressed for stalled in-flight and failed delivery, then refreshes immediately after success`
+  - `runtime/group-liveness-state.test.ts`: `refreshes typing during an active delivery lease until the lease expires`
+  - `runtime/group-liveness-state.test.ts`: `orders a slow typing start before terminal off and ends typing off`
+  - `runtime/group-liveness-state.test.ts`: `resumes typing after an interaction wait`
+  - `runtime/group-liveness-state.test.ts`: `detaches a hung first-visible cleanup after the bound and keeps terminal progress fenced`
 - Declared live-UX capability + dispatcher (LIVE-2): adapters declare
   `liveUx` (typing: none|expiring|explicit; reactions with exact|all removal
   and adapter-canonical target keys); one dispatcher serializes per target,
