@@ -916,25 +916,26 @@
       "outcome": "Ambient liveness now behaves the same way everywhere. Each chat app declares honestly what it can do (Slack has no typing; Teams cannot react), one dispatcher delivers every reaction and typing signal with the same rules \u2014 bounded waits, loud logs, provider-respecting backoff, self-correction when a slow request lands late \u2014 and one controller owns a turn's liveness end to end, so signals are never stranded, typing resumes after a stall, and a liveness failure cannot kill a turn. The bugs behind the missed emojis are fixed across Telegram, Slack, Discord and batch turns. The tests that let this ship broken were rebuilt around a stateful fake provider that can fail and stall, asserting what a user would actually see."
     },
     {
-      "key": "FILE-3",
-      "title": "Attachment failures say which cause: actionable copy, per-cause logs, honest doctor",
-      "story": "As someone sharing a file with the agent, when it can't read the file I am told what went wrong and what would fix it, so that I am not stuck guessing",
+      "key": "LEGACY-1",
+      "title": "Legacy clean-cut: single canonical shape, delete compat readers",
+      "story": "As a maintainer, I want every runtime read path to accept only the one canonical data shape (legacy inputs rejected or reset, never silently migrated), so the codebase honors decision 0003 and job/permission/settings/memory state is auditable.",
       "acceptance_criteria": [
-        "Each failure cause (permission_scope, not_a_member/not_visible, deleted, too_large, rate_limited, timeout, transport) produces its own plain-English, actionable sentence; unknown is the only path to the legacy generic copy",
-        "Every classified failure logs once at warn with cause, provider, providerAccountId, conversationJid, attachmentId, provider status where present, and elapsed ms \u2014 and no token, URL or file bytes",
-        "The two host-side silent paths gain logs (resolver deadline and incapable routing); the runner no-response timeout gets timeout-specific user copy only, its host log deferred to D-0045 because the runner lacks the account context and application logger",
-        "A Slack token missing files:read yields a named doctor warning that survives aggregation (naming the scope and the reinstall step) while the check still passes",
-        "The reported scenario \u2014 files:read missing, every file type \u2014 yields the permission sentence plus exactly one permission_scope log line"
+        "No runtime read path runs a legacy migration or ownership reconstruction: migrateLegacyAgentBindings, the jobs JID/default-app/sessionId-empty path, and the skill remote-missing->local fallback are gone (greppable + tests)",
+        "Legacy inputs are rejected with a clear error or ignored, never silently migrated: settings agents.*.bindings -> remediation error; memory malformed snapshot -> fail closed; skill remote-missing -> fail closed; permission null-request branch deleted",
+        "One canonical shape per domain: single providerAccount field+prefix; a JobOwner discriminator; review_snapshot_json NOT NULL",
+        "Live gantry data handled per migrate/reset (migrate jobs; reset settings bindings, memory-review nulls, thread:slack ids) and the runtime boots green after migration",
+        "Dead/duplicate surface removed: ./primitives export, provider CLI info/control-allowlist aliases, thread:slack: parser, runAgent prod-type optionality, brain-review optionality",
+        "check:architecture rejects a new compat branch (silent migration/dual-read/ownership-reconstruction/remote-to-local fallback) lacking a time-boxed exception record, and is green for this change",
+        "verify.py green; one 3-lens branch autoreview clean; no legacy-preserving test remains"
       ],
       "order": 52,
-      "status": "done",
-      "epic": "Conversation file trust",
+      "status": "pending",
+      "epic": "harness-hygiene",
       "skill": "backend",
-      "kind": "feature",
-      "spec": "docs/specs/file-3-attachment-failure-diagnosability.md",
-      "completed_at": "2026-08-06T16:17:19+00:00",
-      "history": ".factory/history/FILE-3/",
-      "outcome": "When Gantry can't open a file someone shared, it now says why in plain language and tells them what to do \u2014 'the app needs the files:read permission; ask an admin to reinstall Gantry', 'that file was deleted', 'the channel is rate-limiting requests, try again in a few minutes', instead of one vague 'I can't get that file right now' for every case. Operators get exactly one diagnostic log per failure, tagged with the specific cause (and the HTTP status when there is one), and the setup doctor now warns loudly when a Slack install is missing files:read instead of passing silently. So a person hitting the reported bug \u2014 every Slack file failing with a generic message and no logs \u2014 now sees the actual reason and the fix."
+      "kind": "refactor",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec_debt_reason": "Audit-driven refactor; the verified audit + approved plan are the source of truth, no product spec applies (0003 cleanup)"
     }
   ],
   "epics": [
@@ -1023,5 +1024,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-06T16:17:19+00:00"
+  "updated_at": "2026-08-06T18:42:16+00:00"
 }
