@@ -914,6 +914,24 @@
       "completed_at": "2026-08-06T06:06:08+00:00",
       "history": ".factory/history/LIVE-2/",
       "outcome": "Ambient liveness now behaves the same way everywhere. Each chat app declares honestly what it can do (Slack has no typing; Teams cannot react), one dispatcher delivers every reaction and typing signal with the same rules \u2014 bounded waits, loud logs, provider-respecting backoff, self-correction when a slow request lands late \u2014 and one controller owns a turn's liveness end to end, so signals are never stranded, typing resumes after a stall, and a liveness failure cannot kill a turn. The bugs behind the missed emojis are fixed across Telegram, Slack, Discord and batch turns. The tests that let this ship broken were rebuilt around a stateful fake provider that can fail and stall, asserting what a user would actually see."
+    },
+    {
+      "key": "FILE-3",
+      "title": "Attachment failures say which cause: actionable copy, per-cause logs, honest doctor",
+      "story": "As someone sharing a file with the agent, when it can't read the file I am told what went wrong and what would fix it, so that I am not stuck guessing",
+      "acceptance_criteria": [
+        "Each failure cause (permission_scope, not_a_member/not_visible, deleted, too_large, rate_limited, timeout, transport) produces its own plain-English, actionable sentence; unknown is the only path to the legacy generic copy",
+        "Every classified failure logs once at warn with cause, provider, providerAccountId, conversationJid, attachmentId, provider status where present, and elapsed ms \u2014 and no token, URL or file bytes",
+        "The three currently silent paths gain logs: resolver deadline, runner no-response timeout, and incapable routing",
+        "A Slack token missing files:read yields a named doctor warning that survives aggregation (naming the scope and the reinstall step) while the check still passes",
+        "The reported scenario \u2014 files:read missing, every file type \u2014 yields the permission sentence plus exactly one permission_scope log line"
+      ],
+      "order": 52,
+      "status": "pending",
+      "epic": "Conversation file trust",
+      "skill": "backend",
+      "kind": "feature",
+      "spec": "docs/specs/file-3-attachment-failure-diagnosability.md"
     }
   ],
   "epics": [
@@ -1002,5 +1020,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-06T06:06:08+00:00"
+  "updated_at": "2026-08-06T09:14:33+00:00"
 }
