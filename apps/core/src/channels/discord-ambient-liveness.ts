@@ -30,6 +30,7 @@ export async function addDiscordReaction(input: {
   const reaction = discordReactionEmoji(input.emoji);
   const key = `${input.channelId}:${input.messageRef}:${reaction}`;
   if (!input.reconcile && input.reactionKeys.has(key)) return;
+  if (input.reconcile) input.reactionKeys.delete(key);
   const invalidate = () => input.reactionKeys.delete(key);
   input.signal?.addEventListener('abort', invalidate, { once: true });
   try {
@@ -53,11 +54,13 @@ export async function removeDiscordReaction(input: {
   emoji: string;
   reactionKeys: Set<string>;
   signal?: AbortSignal;
+  reconcile?: boolean;
   requestJson: RequestJson;
 }): Promise<void> {
   if (!input.channelId || !input.messageRef.trim()) return;
   const reaction = discordReactionEmoji(input.emoji);
   const key = `${input.channelId}:${input.messageRef}:${reaction}`;
+  if (input.reconcile) input.reactionKeys.delete(key);
   const invalidate = () => input.reactionKeys.delete(key);
   input.signal?.addEventListener('abort', invalidate, { once: true });
   try {

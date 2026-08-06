@@ -35,7 +35,11 @@ export abstract class TelegramChannelReactions extends TelegramChannelConnect {
     jid: string,
     messageRef: string,
     _emoji: string,
-    options: { threadId?: string; signal?: AbortSignal } = {},
+    options: {
+      threadId?: string;
+      signal?: AbortSignal;
+      reconcile?: boolean;
+    } = {},
   ): Promise<void> {
     if (!this.bot) return;
     try {
@@ -45,6 +49,7 @@ export abstract class TelegramChannelReactions extends TelegramChannelConnect {
         messageRef,
         reactionKeys: this.reactionKeys,
         signal: options.signal,
+        reconcile: options.reconcile,
       });
     } catch (err) {
       translateTelegramLiveUxError(err);

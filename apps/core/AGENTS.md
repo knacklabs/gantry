@@ -227,7 +227,9 @@ Maintenance: update this map whenever ambient-liveness flow tests are renamed or
   carry that message's own thread.
   - `channels/telegram.test.ts`: `clears every Telegram reaction dedupe key when removing one reaction`
   - `channels/telegram.test.ts`: `replaces the cached Telegram reaction key after every successful add`
+  - `channels/telegram.test.ts`: `returns false for a definitive replace-only edit failure without creating a duplicate`
   - `channels/slack.test.ts`: `lazily marks a prior-process Slack card stale and posts fresh work`
+  - `channels/slack.test.ts`: `posts fresh Slack work when the prior-process stale edit fails`
   - `channels/slack.test.ts`: `rejects an older generation before prior-process Slack cleanup`
   - `channels/slack.test.ts`: `treats legacy Slack progress without ownership as prior-process work`
   - `runtime/group-processing.test.ts`: `backwards-scans a batch for the newest provider reaction target`
@@ -239,7 +241,7 @@ Maintenance: update this map whenever ambient-liveness flow tests are renamed or
   a stall recovery refreshes typing immediately rather than at the next
   heartbeat. Pause reasons separate interaction waits from turn-complete.
   - `runtime/group-liveness-state.test.ts`: `bounds and detaches a first reaction that never settles`
-  - `runtime/group-liveness-state.test.ts`: `keeps typing suppressed for stalled in-flight and failed delivery, then refreshes immediately after success`
+  - `runtime/group-liveness-state.test.ts`: `turns explicit typing off through a stalled failed delivery, then refreshes immediately after success`
   - `runtime/group-liveness-state.test.ts`: `refreshes typing during an active delivery lease until the lease expires`
   - `runtime/group-liveness-state.test.ts`: `orders a slow typing start before terminal off and ends typing off`
   - `runtime/group-liveness-state.test.ts`: `resumes typing after an interaction wait`
@@ -255,6 +257,9 @@ Maintenance: update this map whenever ambient-liveness flow tests are renamed or
   - `runtime/live-ux-dispatcher.test.ts`: `routes reactions and typing to the account that owns the route`
   - `runtime/live-ux-dispatcher.test.ts`: `reconciles a slow reaction add that lands after removal and grace`
   - `runtime/live-ux-dispatcher.test.ts`: `reconciles a slow terminal off that lands after a newer start and grace`
+  - `channels/discord.test.ts`: `invalidates Discord reaction cache before failed forced add and remove repairs`
+  - `channels/slack.test.ts`: `invalidates Slack reaction cache before failed forced add and remove repairs`
+  - `channels/telegram.test.ts`: `invalidates Telegram reaction cache before failed forced add and remove repairs`
   - `channels/discord-live-ux.test.ts`: `keeps thread-less channels in distinct lanes`
 - Provider-visible determinism (LIVE-2): the shared stateful provider fake
   records final card text, reaction sets, typing state, duplicate cards, and
@@ -267,10 +272,15 @@ Maintenance: update this map whenever ambient-liveness flow tests are renamed or
 - App (web session) typing is `explicit` on/off keyed to the durable lease
   generation; SDK consumers order typing via the caller-owned
   `SessionTypingTracker` (session+thread scoped, per-session cursors), and a
-  newer producer yields synthetic typing-off updates for other active threads.
+  newer producer yields marked synthetic typing-off updates for other active
+  threads using the triggering durable event cursor. Slack declares typing
+  absent rather than exposing a no-op.
+  - `channels/slack.test.ts`: `does not expose Slack as typing-capable`
   - `channels/app.test.ts`: `keeps a late stale typing event from overriding newer terminal off`
   - `channels/app.test.ts`: `partitions typing order by thread within one consumer`
   - `control/sdk-transport.test.ts`: `yields typing off for another thread invalidated by a newer producer generation`
+  - `control/sdk-transport.test.ts`: `does not let a synthetic typing invalidation consume the triggering durable cursor`
+  - `control/sdk-transport.test.ts`: `lets an eventId-deduplicating consumer observe a marked synthetic invalidation`
   - `channels/app.test.ts`: `delivers terminal off from a replacement producer despite clock rollback`
   - `runtime/live-ux-dispatcher.test.ts`: `keeps concurrent Telegram topic typing in separate lanes`
 

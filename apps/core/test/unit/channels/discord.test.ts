@@ -378,6 +378,53 @@ describe('DiscordChannel', () => {
     fetchMock.mockRestore();
   });
 
+  it('invalidates Discord reaction cache before failed forced add and remove repairs', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({}));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const messageChannelIds = Reflect.get(channel, 'messageChannelIds') as {
+      remember(jid: string, messageRef: string, channelId: string): void;
+    };
+    messageChannelIds.remember('dc:channel-1', 'message-1', 'channel-1');
+
+    await channel.addReaction('dc:channel-1', 'message-1', 'seen');
+    fetchMock.mockResolvedValueOnce(
+      new Response('{}', {
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    await expect(
+      channel.removeReaction('dc:channel-1', 'message-1', 'seen', {
+        reconcile: true,
+      }),
+    ).rejects.toThrow('Discord reaction removal failed');
+    await channel.addReaction('dc:channel-1', 'message-1', 'seen');
+
+    fetchMock.mockResolvedValueOnce(
+      new Response('{}', {
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    await expect(
+      channel.addReaction('dc:channel-1', 'message-1', 'seen', {
+        reconcile: true,
+      }),
+    ).rejects.toThrow('Discord reaction update failed');
+    await channel.addReaction('dc:channel-1', 'message-1', 'seen');
+
+    expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual([
+      'PUT',
+      'DELETE',
+      'PUT',
+      'PUT',
+      'PUT',
+    ]);
+    fetchMock.mockRestore();
+  });
+
   it('posts typing to the Discord thread and ignores typing false', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')

@@ -448,7 +448,7 @@ describe('@gantry/sdk transport', () => {
       threadANewerProducer,
       {
         ...threadANewerProducer,
-        eventId: -1,
+        synthetic: true,
         threadId: 'thread-b',
         payload: { isTyping: false },
       },
@@ -505,13 +505,14 @@ describe('@gantry/sdk transport', () => {
       threadBStart,
       triggeringDurableEvent,
       expect.objectContaining({
-        eventId: -1,
+        eventId: triggeringDurableEvent.eventId,
         eventType: 'session.typing',
+        synthetic: true,
         threadId: 'thread-b',
         payload: { isTyping: false },
       }),
     ]);
-    expect(new Set(first.map((event) => event.eventId)).size).toBe(3);
+    expect(new Set(first.map((event) => event.eventId)).size).toBe(2);
     expect(tracker.afterEventId('session-1')).toBe(2);
 
     const resumed = [];
@@ -524,6 +525,55 @@ describe('@gantry/sdk transport', () => {
     expect(resumed).toEqual([]);
     expect(stream.mock.calls[1]?.[0]).toContain('afterEventId=2');
     tracker.dispose();
+  });
+
+  it('lets an eventId-deduplicating consumer observe a marked synthetic invalidation', async () => {
+    const event = (threadId: string, generation: number, eventId: number) => ({
+      eventId,
+      eventType: 'session.typing',
+      sessionId: 'session-1',
+      threadId,
+      payload: {
+        isTyping: true,
+        orderedEnvelope: {
+          generation,
+          sequence: 1,
+          kind: 'typing',
+          partIndex: 1,
+          totalParts: 1,
+        },
+      },
+    });
+    const client = new GantryClient({ apiKey: 'one' });
+    vi.spyOn(
+      (
+        client as unknown as {
+          transport: { stream: () => AsyncIterable<unknown> };
+        }
+      ).transport,
+      'stream',
+    ).mockImplementation(async function* () {
+      yield event('thread-b', 1, 1);
+      yield event('thread-a', 2, 2);
+    });
+    const seenDurableIds = new Set<number>();
+    const observed = [];
+
+    for await (const streamed of client.sessions.stream('session-1')) {
+      if (streamed.synthetic || !seenDurableIds.has(streamed.eventId)) {
+        observed.push(streamed);
+      }
+      if (!streamed.synthetic) seenDurableIds.add(streamed.eventId);
+    }
+
+    expect(observed).toContainEqual(
+      expect.objectContaining({
+        eventId: 2,
+        synthetic: true,
+        threadId: 'thread-b',
+        payload: { isTyping: false },
+      }),
+    );
   });
 
   it('records legacy typing state until an ordered envelope establishes the baseline', () => {

@@ -46,6 +46,7 @@ export async function addSlackReaction(input: {
   const name = slackReactionName(input.emoji);
   const key = `${input.jid}:${input.messageRef}:${name}`;
   if (!input.reconcile && input.reactionKeys.has(key)) return;
+  if (input.reconcile) input.reactionKeys.delete(key);
   const invalidate = () => input.reactionKeys.delete(key);
   input.signal?.addEventListener('abort', invalidate, { once: true });
   try {
@@ -82,6 +83,7 @@ export async function removeSlackReaction(input: {
   if (!input.messageRef.trim()) return;
   const name = slackReactionName(input.emoji);
   const key = `${input.jid}:${input.messageRef}:${name}`;
+  if (input.reconcile) input.reactionKeys.delete(key);
   const invalidate = () => input.reactionKeys.delete(key);
   input.signal?.addEventListener('abort', invalidate, { once: true });
   try {

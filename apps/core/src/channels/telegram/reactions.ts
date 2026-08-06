@@ -32,6 +32,7 @@ export async function addTelegramReaction(input: {
       if (cachedKey.startsWith(prefix)) input.reactionKeys.delete(cachedKey);
     }
   };
+  if (input.reconcile) invalidate();
   input.signal?.addEventListener('abort', invalidate, { once: true });
   try {
     await input.bot.api.setMessageReaction(
@@ -66,6 +67,7 @@ export async function removeTelegramReaction(input: {
   messageRef: string;
   reactionKeys: Set<string>;
   signal?: AbortSignal;
+  reconcile?: boolean;
 }): Promise<void> {
   const numericId = input.jid.replace(/^tg:/, '');
   const messageId = Number.parseInt(input.messageRef, 10);
@@ -76,6 +78,7 @@ export async function removeTelegramReaction(input: {
       if (key.startsWith(prefix)) input.reactionKeys.delete(key);
     }
   };
+  if (input.reconcile) invalidate();
   input.signal?.addEventListener('abort', invalidate, { once: true });
   try {
     await input.bot.api.setMessageReaction(

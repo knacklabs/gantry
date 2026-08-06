@@ -19,10 +19,14 @@ export function createSessionsClient(transport: SessionTransport) {
         const accepted = tracker.apply(event);
         if (accepted) yield event;
         for (const invalidated of tracker.takeInvalidatedTypingTargets()) {
+          // Synthetic invalidations deliberately reuse the triggering durable
+          // cursor and follow that event. Resuming from this id may redeliver
+          // the idempotent typing event once, but never skips session history.
           yield {
             ...event,
             eventId: invalidated.eventId,
             eventType: 'session.typing',
+            synthetic: true,
             sessionId: invalidated.sessionId,
             threadId: invalidated.threadId,
             payload: { isTyping: false },

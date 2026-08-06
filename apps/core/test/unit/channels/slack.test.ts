@@ -1029,6 +1029,47 @@ describe('Slack channel', () => {
     ]);
   });
 
+  it('invalidates Slack reaction cache before failed forced add and remove repairs', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response('{"ok":true}'));
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect({ inbound: false });
+
+    await channel.addReaction('sl:C1234567890', '1710000000.000100', 'seen');
+    fetchMock.mockResolvedValueOnce(
+      new Response('{"ok":false,"error":"internal_error"}'),
+    );
+    await expect(
+      channel.removeReaction('sl:C1234567890', '1710000000.000100', 'seen', {
+        reconcile: true,
+      }),
+    ).rejects.toThrow('Slack live UX request failed: internal_error');
+    await channel.addReaction('sl:C1234567890', '1710000000.000100', 'seen');
+
+    fetchMock.mockResolvedValueOnce(
+      new Response('{"ok":false,"error":"internal_error"}'),
+    );
+    await expect(
+      channel.addReaction('sl:C1234567890', '1710000000.000100', 'seen', {
+        reconcile: true,
+      }),
+    ).rejects.toThrow('Slack live UX request failed: internal_error');
+    await channel.addReaction('sl:C1234567890', '1710000000.000100', 'seen');
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'https://slack.com/api/reactions.add',
+      'https://slack.com/api/reactions.remove',
+      'https://slack.com/api/reactions.add',
+      'https://slack.com/api/reactions.add',
+      'https://slack.com/api/reactions.add',
+    ]);
+  });
+
   it('persists standalone metadata for Slack group discovery without a message', async () => {
     const opts = createOpts();
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);

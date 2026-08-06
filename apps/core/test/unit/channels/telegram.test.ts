@@ -1086,6 +1086,34 @@ describe('TelegramChannel', () => {
     expect(botRef.current.api.setMessageReaction).toHaveBeenCalledTimes(5);
   });
 
+  it('invalidates Telegram reaction cache before failed forced add and remove repairs', async () => {
+    const channel = new TelegramChannel('token', createTestOpts());
+    await channel.connect({ inbound: false });
+
+    await channel.addReaction('tg:100200300', '987', 'seen');
+    botRef.current.api.setMessageReaction.mockRejectedValueOnce(
+      new Error('forced remove failed'),
+    );
+    await expect(
+      channel.removeReaction('tg:100200300', '987', 'seen', {
+        reconcile: true,
+      }),
+    ).rejects.toThrow('forced remove failed');
+    await channel.addReaction('tg:100200300', '987', 'seen');
+
+    botRef.current.api.setMessageReaction.mockRejectedValueOnce(
+      new Error('forced add failed'),
+    );
+    await expect(
+      channel.addReaction('tg:100200300', '987', 'seen', {
+        reconcile: true,
+      }),
+    ).rejects.toThrow('forced add failed');
+    await channel.addReaction('tg:100200300', '987', 'seen');
+
+    expect(botRef.current.api.setMessageReaction).toHaveBeenCalledTimes(5);
+  });
+
   it('sends a memory-review message as native HTML with three decision buttons', async () => {
     const channel = new TelegramChannel('token', createTestOpts());
     await channel.connect({ inbound: false });

@@ -17,6 +17,7 @@ export type RequestOptions = {
 export type SessionEventEnvelope = {
   eventId: number;
   eventType: string;
+  synthetic?: true;
   sessionId?: string | null;
   threadId?: string | null;
   correlationId?: string | null;
