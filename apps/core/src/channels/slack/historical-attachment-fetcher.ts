@@ -166,6 +166,9 @@ function classifySlackUnreachableEvidence(
       ...providerStatus,
     };
   }
+  if (status === 401 || status === 403) {
+    return { reason: 'unknown', ...providerStatus };
+  }
   if (
     errorCode === 'ratelimited' ||
     errorCode === 'slack_webapi_rate_limited_error' ||

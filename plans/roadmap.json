@@ -922,7 +922,7 @@
       "acceptance_criteria": [
         "Each failure cause (permission_scope, not_a_member/not_visible, deleted, too_large, rate_limited, timeout, transport) produces its own plain-English, actionable sentence; unknown is the only path to the legacy generic copy",
         "Every classified failure logs once at warn with cause, provider, providerAccountId, conversationJid, attachmentId, provider status where present, and elapsed ms \u2014 and no token, URL or file bytes",
-        "The three currently silent paths gain logs: resolver deadline, runner no-response timeout, and incapable routing",
+        "The two host-side silent paths gain logs (resolver deadline and incapable routing); the runner no-response timeout gets timeout-specific user copy only, its host log deferred to D-0045 because the runner lacks the account context and application logger",
         "A Slack token missing files:read yields a named doctor warning that survives aggregation (naming the scope and the reinstall step) while the check still passes",
         "The reported scenario \u2014 files:read missing, every file type \u2014 yields the permission sentence plus exactly one permission_scope log line"
       ],

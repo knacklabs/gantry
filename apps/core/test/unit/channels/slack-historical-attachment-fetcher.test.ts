@@ -136,7 +136,10 @@ describe('Slack historical attachment fetch taxonomy', () => {
       { identity },
       {
         filesInfo: vi.fn(async () => {
-          throw slackError('missing_scope');
+          throw Object.assign(slackError('missing_scope'), {
+            code: 'slack_webapi_http_error',
+            statusCode: 403,
+          });
         }),
         download: vi.fn(),
       },
@@ -146,13 +149,20 @@ describe('Slack historical attachment fetch taxonomy', () => {
       status: 'unreachable',
       reason: 'missing_scope',
       scope: 'files:read',
+      providerStatus: 403,
     });
   });
 
   it.each([
-    Object.assign(new Error('forbidden'), { statusCode: 401 }),
-    Object.assign(new Error('forbidden'), { statusCode: 403 }),
-  ])('keeps a bare SDK authorization status unknown', async (error) => {
+    Object.assign(new Error('unauthorized'), {
+      code: 'slack_webapi_http_error',
+      statusCode: 401,
+    }),
+    Object.assign(new Error('forbidden'), {
+      code: 'slack_webapi_http_error',
+      statusCode: 403,
+    }),
+  ])('keeps SDK HTTP-error authorization status unknown', async (error) => {
     const result = await fetchSlackHistoricalAttachment(
       { identity },
       {

@@ -1211,6 +1211,38 @@ describe('AttachmentResolver', () => {
     ).toBeUndefined();
   });
 
+  it.each([401, 403])(
+    'keeps Slack HTTP-error status %s on the legacy sentence instead of transport copy',
+    async (statusCode) => {
+      const repository = new MemoryAttachmentRepository();
+      repository.attachments.set('attachment-1', attachment());
+      const provider: HistoricalAttachmentFetcher = {
+        fetchHistoricalAttachment: (input) =>
+          fetchSlackHistoricalAttachment(
+            { identity: input.identity },
+            {
+              filesInfo: async () => {
+                throw Object.assign(new Error('authorization failed'), {
+                  code: 'slack_webapi_http_error',
+                  statusCode,
+                });
+              },
+              download: vi.fn(),
+            },
+          ),
+      };
+      const resolver = createResolver({ repository, fetcher: provider });
+
+      const result = await resolver.open(openRequest());
+
+      expect(result).toEqual({
+        status: 'unreachable',
+        content: ATTACHMENT_UNREACHABLE_COPY,
+      });
+      expect(result.content).not.toBe(ATTACHMENT_TRANSPORT_COPY);
+    },
+  );
+
   it.each([
     [
       'incapable',
