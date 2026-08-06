@@ -10,6 +10,11 @@ type AppliedTypingState = {
   order?: AppliedTypingOrder;
 };
 
+export type SessionTypingInvalidation = {
+  sessionId: string;
+  threadId: string | null;
+};
+
 /**
  * Caller-owned latest-value tracker for App typing events.
  *
@@ -22,13 +27,17 @@ type AppliedTypingState = {
  * producer epochs are rejected across the whole session, including an
  * A -> B -> A interleave. A newer producer clears typing left by the older
  * producer on every thread, while per-thread sequence ceilings still prevent
- * an older operation within the current epoch from reappearing. Dispose
- * releases the tracker's bounded consumer lifetime.
+ * an older operation within the current epoch from reappearing. Callers that
+ * apply events directly can drain those cross-thread clears with
+ * `takeInvalidatedTypingTargets`; the SDK stream does this automatically and
+ * yields synthetic typing-off events. Dispose releases the tracker's bounded
+ * consumer lifetime.
  */
 export class SessionTypingTracker {
   private readonly appliedByTarget = new Map<string, AppliedTypingState>();
   private readonly highestGenerationBySession = new Map<string, number>();
   private readonly lastObservedEventIdBySession = new Map<string, number>();
+  private invalidatedTypingTargets: SessionTypingInvalidation[] = [];
   private disposed = false;
 
   apply(event: SessionEventEnvelope): boolean {
@@ -73,6 +82,12 @@ export class SessionTypingTracker {
       const sessionPrefix = `${event.sessionId}\n`;
       for (const [appliedTarget, state] of this.appliedByTarget) {
         if (!appliedTarget.startsWith(sessionPrefix)) continue;
+        if (appliedTarget !== target && state.isTyping) {
+          this.invalidatedTypingTargets.push({
+            sessionId: event.sessionId,
+            threadId: appliedTarget.slice(sessionPrefix.length) || null,
+          });
+        }
         state.isTyping = false;
         state.order = {
           generation: envelope.generation,
@@ -119,11 +134,21 @@ export class SessionTypingTracker {
       ?.isTyping;
   }
 
+  takeInvalidatedTypingTargets(): readonly SessionTypingInvalidation[] {
+    if (this.disposed) {
+      throw new Error('Session typing tracker has been disposed');
+    }
+    const invalidated = this.invalidatedTypingTargets;
+    this.invalidatedTypingTargets = [];
+    return invalidated;
+  }
+
   dispose(): void {
     this.disposed = true;
     this.appliedByTarget.clear();
     this.highestGenerationBySession.clear();
     this.lastObservedEventIdBySession.clear();
+    this.invalidatedTypingTargets = [];
   }
 }
 

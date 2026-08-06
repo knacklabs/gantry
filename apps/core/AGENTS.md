@@ -266,10 +266,13 @@ Maintenance: update this map whenever ambient-liveness flow tests are renamed or
   - `runtime/liveness-flow.test.ts`: `reconstructs the real progress sender around restored provider state without duplicating the card`
 - App (web session) typing is `explicit` on/off keyed to the durable lease
   generation; SDK consumers order typing via the caller-owned
-  `SessionTypingTracker` (session+thread scoped, per-session cursors).
+  `SessionTypingTracker` (session+thread scoped, per-session cursors), and a
+  newer producer yields synthetic typing-off updates for other active threads.
   - `channels/app.test.ts`: `keeps a late stale typing event from overriding newer terminal off`
   - `channels/app.test.ts`: `partitions typing order by thread within one consumer`
+  - `control/sdk-transport.test.ts`: `yields typing off for another thread invalidated by a newer producer generation`
   - `channels/app.test.ts`: `delivers terminal off from a replacement producer despite clock rollback`
+  - `runtime/live-ux-dispatcher.test.ts`: `keeps concurrent Telegram topic typing in separate lanes`
 
 Maintenance: when a liveness flow test above moves or is renamed, update this
 map in the same change — it is the durable index of the user-visible contract.

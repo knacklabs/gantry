@@ -131,6 +131,9 @@ describe('app channel', () => {
 
     expect(tracker.apply(event('thread-a', 2, 1, true))).toBe(true);
     expect(tracker.isTyping('session-1', 'thread-b')).toBe(false);
+    expect(tracker.takeInvalidatedTypingTargets()).toEqual([
+      { sessionId: 'session-1', threadId: 'thread-b' },
+    ]);
     expect(tracker.apply(event('thread-b', 1, 2, true))).toBe(false);
     expect(tracker.isTyping('session-1', 'thread-b')).toBe(false);
   });

@@ -404,6 +404,56 @@ describe('@gantry/sdk transport', () => {
     tracker.dispose();
   });
 
+  it('yields typing off for another thread invalidated by a newer producer generation', async () => {
+    const event = (threadId: string, generation: number, eventId: number) => ({
+      eventId,
+      eventType: 'session.typing',
+      sessionId: 'session-1',
+      threadId,
+      correlationId: null,
+      createdAt: '2026-08-05T00:00:00.000Z',
+      payload: {
+        isTyping: true,
+        orderedEnvelope: {
+          generation,
+          sequence: 1,
+          kind: 'typing',
+          partIndex: 1,
+          totalParts: 1,
+        },
+      },
+    });
+    const threadBStart = event('thread-b', 1, 1);
+    const threadANewerProducer = event('thread-a', 2, 2);
+    const client = new GantryClient({ apiKey: 'one' });
+    vi.spyOn(
+      (
+        client as unknown as {
+          transport: { stream: () => AsyncIterable<unknown> };
+        }
+      ).transport,
+      'stream',
+    ).mockImplementation(async function* () {
+      yield threadBStart;
+      yield threadANewerProducer;
+    });
+
+    const streamed = [];
+    for await (const event of client.sessions.stream('session-1')) {
+      streamed.push(event);
+    }
+
+    expect(streamed).toEqual([
+      threadBStart,
+      {
+        ...threadANewerProducer,
+        threadId: 'thread-b',
+        payload: { isTyping: false },
+      },
+      threadANewerProducer,
+    ]);
+  });
+
   it('records legacy typing state until an ordered envelope establishes the baseline', () => {
     const tracker = new SessionTypingTracker();
     const legacy = (isTyping: boolean, eventId: number) => ({

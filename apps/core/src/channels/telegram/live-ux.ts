@@ -11,12 +11,12 @@ export const TELEGRAM_LIVE_UX_CAPABILITY = {
   reactions: { removal: 'all' },
   canonicalTarget: (
     target:
-      | { operation: 'typing'; jid: string }
+      | { operation: 'typing'; jid: string; threadId?: string }
       | { operation: 'reaction'; jid: string; messageRef: string },
   ) => ({
     key:
       target.operation === 'typing'
-        ? `typing\n${target.jid}`
+        ? `typing\n${target.jid}\n${target.threadId ?? ''}`
         : `reaction\n${target.jid}\n${target.messageRef}`,
   }),
 } as const;

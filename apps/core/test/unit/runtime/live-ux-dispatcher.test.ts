@@ -153,6 +153,43 @@ describe('live UX dispatcher', () => {
     );
   });
 
+  it('keeps concurrent Telegram topic typing in separate lanes', async () => {
+    let releaseTopicA: (() => void) | undefined;
+    const delivered: string[] = [];
+    const setTyping = vi.fn(
+      async (_jid: string, _isTyping: boolean, options) => {
+        if (options?.threadId === 'topic-a') {
+          await new Promise<void>((resolve) => {
+            releaseTopicA = resolve;
+          });
+        }
+        delivered.push(options?.threadId ?? '');
+      },
+    );
+    const telegram = new TelegramChannel('bot', {} as never);
+    const adapter = channel('telegram', {
+      liveUx: telegram.liveUx,
+      setTyping,
+    });
+    const liveUx = createLiveUxDispatcher({
+      findBinding: () => binding(adapter),
+      logger: { warn: vi.fn() },
+    });
+
+    const topicA = liveUx.setTyping('tg:42', true, {
+      threadId: 'topic-a',
+    });
+    await vi.waitFor(() => expect(setTyping).toHaveBeenCalledOnce());
+    const topicB = liveUx.setTyping('tg:42', true, {
+      threadId: 'topic-b',
+    });
+    await vi.waitFor(() => expect(setTyping).toHaveBeenCalledTimes(2));
+
+    releaseTopicA?.();
+    await Promise.all([topicA, topicB]);
+    expect(delivered.sort()).toEqual(['topic-a', 'topic-b']);
+  });
+
   it('keeps two-account liveness isolated when both accounts own the same route', async () => {
     const accountOne = new StatefulLivenessProvider();
     const accountTwo = new StatefulLivenessProvider();
