@@ -151,7 +151,8 @@ function isTransportError(error: unknown): boolean {
   ]) {
     if (layer && typeof layer === 'object') {
       const code = (layer as { code?: unknown }).code;
-      if (typeof code === 'string' && NETWORK_ERROR_CODES.has(code)) return true;
+      if (typeof code === 'string' && NETWORK_ERROR_CODES.has(code))
+        return true;
     }
   }
   // Global fetch throws a TypeError('fetch failed') on transport failure; gate on

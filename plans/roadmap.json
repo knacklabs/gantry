@@ -927,11 +927,14 @@
         "The reported scenario \u2014 files:read missing, every file type \u2014 yields the permission sentence plus exactly one permission_scope log line"
       ],
       "order": 52,
-      "status": "pending",
+      "status": "done",
       "epic": "Conversation file trust",
       "skill": "backend",
       "kind": "feature",
-      "spec": "docs/specs/file-3-attachment-failure-diagnosability.md"
+      "spec": "docs/specs/file-3-attachment-failure-diagnosability.md",
+      "completed_at": "2026-08-06T16:17:19+00:00",
+      "history": ".factory/history/FILE-3/",
+      "outcome": "When Gantry can't open a file someone shared, it now says why in plain language and tells them what to do \u2014 'the app needs the files:read permission; ask an admin to reinstall Gantry', 'that file was deleted', 'the channel is rate-limiting requests, try again in a few minutes', instead of one vague 'I can't get that file right now' for every case. Operators get exactly one diagnostic log per failure, tagged with the specific cause (and the HTTP status when there is one), and the setup doctor now warns loudly when a Slack install is missing files:read instead of passing silently. So a person hitting the reported bug \u2014 every Slack file failing with a generic message and no logs \u2014 now sees the actual reason and the fix."
     }
   ],
   "epics": [
@@ -1020,5 +1023,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-06T09:14:33+00:00"
+  "updated_at": "2026-08-06T16:17:19+00:00"
 }
