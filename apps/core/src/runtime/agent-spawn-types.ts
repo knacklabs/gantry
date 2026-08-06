@@ -131,6 +131,8 @@ export interface AgentOutput {
   compactBoundary?: boolean;
   interactionBoundary?: 'user_interaction';
   continuedByFollowup?: boolean;
+  completionGateAccepted?: boolean;
+  structuredResultValidated?: boolean;
   usage?: NormalizedModelUsage;
   usageEventId?: string;
   contextUsage?: RuntimeContextUsageSnapshot;

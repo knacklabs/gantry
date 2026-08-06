@@ -173,6 +173,9 @@ export function createJobManagementService(
     get mcpServerRepository() {
       return getRuntimeStorage().repositories.mcpServers;
     },
+    get capabilitySecretRepository() {
+      return getRuntimeStorage().repositories.capabilitySecrets;
+    },
     getCredentialBroker: async () => input.app.getCredentialBroker?.(),
     getBrowserStatus: input.getBrowserStatus,
   });

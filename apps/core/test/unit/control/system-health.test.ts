@@ -52,7 +52,7 @@ function makeReadinessDeps(
       }
       return [{ '?column?': 1 }] as never[];
     }),
-    shippedMigrationCount: () => 76,
+    migrationsCurrent: async () => true,
     settingsLoaded: () => true,
     isDraining: () => false,
     apiKeyCount: () => 1,
@@ -183,16 +183,10 @@ describe('evaluateReadiness', () => {
     expect(result.failing).toContain('migrations');
   });
 
-  it('is red and names migrations when applied count is behind the build', async () => {
+  it('is red and names migrations when the latest shipped migration is absent', async () => {
     const result = await evaluateReadiness(
       makeReadinessDeps({
-        query: vi.fn(async (sql: string) => {
-          if (sql.includes('__drizzle_migrations')) {
-            return [{ applied: 70 }] as never[];
-          }
-          return [{ '?column?': 1 }] as never[];
-        }),
-        shippedMigrationCount: () => 76,
+        migrationsCurrent: async () => false,
       }),
     );
     expect(result.ready).toBe(false);

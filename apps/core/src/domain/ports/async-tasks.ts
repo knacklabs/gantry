@@ -29,8 +29,11 @@ export type AgentFailureType =
   | 'cancelled'
   | 'child_task';
 
+export type AgentFailureCode = 'structured_output_validation_failed';
+
 export interface AgentFailureMetadata {
   type: AgentFailureType;
+  code?: AgentFailureCode;
   attemptedAction: string;
   partialResult?: string | null;
 }
@@ -64,6 +67,7 @@ export interface AsyncTaskRecord {
 
 export interface PublicAsyncTaskDto {
   id: string;
+  taskKey?: string;
   kind: AsyncTaskKind;
   status: AsyncTaskStatus;
   summary?: string | null;
@@ -217,6 +221,9 @@ export function toPublicAsyncTaskDto(
   );
   return {
     id: task.id,
+    ...(typeof task.privateCorrelationJson.taskKey === 'string'
+      ? { taskKey: task.privateCorrelationJson.taskKey }
+      : {}),
     kind: task.kind,
     status: task.status,
     summary: task.summary,
@@ -250,6 +257,9 @@ function publicFailure(value: unknown): AgentFailureMetadata | null {
   }
   return {
     type: type as AgentFailureType,
+    ...(failure.code === 'structured_output_validation_failed'
+      ? { code: failure.code }
+      : {}),
     attemptedAction,
     partialResult: stringValue(failure.partialResult),
   };

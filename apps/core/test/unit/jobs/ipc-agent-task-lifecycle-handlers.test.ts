@@ -1014,6 +1014,7 @@ describe('agent task lifecycle IPC handlers', () => {
     const sendMessage = vi.fn(async () => {
       reviewerFileReadActive = false;
     });
+    const publishRuntimeEvent = vi.fn(async () => undefined);
     const runAgent = vi.fn(
       async (group, input, onProcess, onOutput, options) => {
         const child = new EventEmitter() as EventEmitter & {
@@ -1089,6 +1090,7 @@ describe('agent task lifecycle IPC handlers', () => {
         }) as never,
       sendMessage,
       runAgent,
+      publishRuntimeEvent,
     };
     const interactiveSandboxPolicy = {
       appId: 'app:test',
@@ -1199,6 +1201,7 @@ describe('agent task lifecycle IPC handlers', () => {
       contextFor({
         data: {
           ...taskData('delegate-start', 'delegate_task', {
+            taskKey: 'research_bid_commercial',
             objective: 'Research lead sources',
             targetAgentId: 'agent:reviewer',
           }),
@@ -1216,11 +1219,16 @@ describe('agent task lifecycle IPC handlers', () => {
       data: { id: taskId, kind: 'delegated_agent' },
     });
     expect(repository.tasks.get(taskId!)?.privateCorrelationJson).toMatchObject(
-      { targetAgentId: 'agent:reviewer', workspaceFolder: 'reviewer' },
+      {
+        taskKey: 'research_bid_commercial',
+        targetAgentId: 'agent:reviewer',
+        workspaceFolder: 'reviewer',
+      },
     );
     expect(repository.tasks.get(taskId!)?.authoritySnapshotJson).toEqual({
       toolName: 'delegate_task',
       maxDepth: 1,
+      taskKey: 'research_bid_commercial',
     });
     expect(
       readEncryptedAsyncTaskPayload<{ providerAccountId?: string }>(
@@ -1228,6 +1236,67 @@ describe('agent task lifecycle IPC handlers', () => {
       ),
     ).toMatchObject({ providerAccountId: 'slack-one' });
     await waitForStatus(repository, 'completed');
+    await Promise.all([
+      agentTaskLifecycleHandlers.task_wait(
+        contextFor({
+          data: {
+            ...taskData('delegate-wait', 'task_wait', {
+              taskIds: [taskId],
+              timeoutMs: 1_000,
+            }),
+            jobId: 'job-id-1',
+            providerAccountId: 'slack-one',
+          },
+          deps,
+          conversationBindings,
+        }),
+      ),
+      agentTaskLifecycleHandlers.task_wait(
+        contextFor({
+          data: {
+            ...taskData('delegate-wait-again', 'task_wait', {
+              taskIds: [taskId],
+              timeoutMs: 1_000,
+            }),
+            jobId: 'job-id-1',
+            providerAccountId: 'slack-one',
+          },
+          deps,
+          conversationBindings,
+        }),
+      ),
+    ]);
+    expect(readResponse(runtimeHome, 'delegate-wait')).toMatchObject({
+      ok: true,
+      data: {
+        timedOut: false,
+        tasks: [
+          expect.objectContaining({
+            id: taskId,
+            taskKey: 'research_bid_commercial',
+            status: 'completed',
+          }),
+        ],
+      },
+    });
+    expect(publishRuntimeEvent).toHaveBeenCalledWith({
+      appId: 'app:test',
+      agentId: 'agent:main_agent',
+      conversationId: 'sl:C123',
+      threadId: 'thread-1',
+      runId: 'run-id-1',
+      jobId: 'job-id-1',
+      eventType: 'task.updated',
+      actor: 'gantry-async-task-runtime',
+      correlationId: `async-task-terminal:${taskId}:completed`,
+      responseMode: 'none',
+      payload: {
+        taskId,
+        taskKey: 'research_bid_commercial',
+        status: 'completed',
+      },
+    });
+    expect(publishRuntimeEvent).toHaveBeenCalledTimes(1);
     expect(sendMessage).not.toHaveBeenCalled();
 
     const { runId: runnerSuppliedRunId, ...syntheticDelegationData } = taskData(
@@ -1332,6 +1401,7 @@ describe('agent task lifecycle IPC handlers', () => {
       contextFor({
         data: {
           ...taskData('delegate-synthetic-scheduled', 'delegate_task', {
+            taskKey: 'holistic_review',
             objective: 'Research lead sources',
             targetAgentId: 'agent:reviewer',
             callableAgentToolName: syntheticToolName,
@@ -1347,6 +1417,15 @@ describe('agent task lifecycle IPC handlers', () => {
     expect(
       readResponse(runtimeHome, 'delegate-synthetic-scheduled'),
     ).toMatchObject({ ok: true, data: { status: 'completed' } });
+    expect(
+      [...repository.tasks.values()].find(
+        (task) => task.privateCorrelationJson.taskKey === 'holistic_review',
+      ),
+    ).toMatchObject({
+      parentRunId: 'turn-correlation-1',
+      parentJobId: 'job-1',
+      parentJobRunId: null,
+    });
     expect(sendMessage).not.toHaveBeenCalled();
     registerAsyncCommandSandboxPolicy({
       sourceAgentFolder: 'main_agent',

@@ -384,6 +384,7 @@ export interface RuntimeCustomModelAlias {
   cachedInputUsdPerMillionTokens?: number;
   cacheWriteUsdPerMillionTokens?: number;
   supportsThinking?: boolean;
+  supportedEffortLevels?: ModelEffortLevel[];
   supportsTools?: boolean;
   source: RuntimeCustomModelAliasSource;
 }

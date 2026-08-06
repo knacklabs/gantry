@@ -197,8 +197,9 @@ export function registerTaskLifecycleTools(
 
   server.tool(
     'delegate_task',
-    'Start a durable async child agent run. Use task_get/task_list to inspect it and task_message to steer it while it is running.',
+    'Start a durable async child agent run. Use task_wait for workflow barriers, task_get/task_list to inspect it, and task_message to steer it while it is running.',
     {
+      taskKey: z.string().min(1).max(80).optional(),
       objective: z.string().min(1).max(10_000),
       context: z.string().max(20_000).optional(),
       expectedOutput: z.string().max(2_000).optional(),
@@ -217,6 +218,27 @@ export function registerTaskLifecycleTools(
         timeoutMessage: 'Delegated task start timed out.',
         fallbackError: 'Delegated task start failed.',
         responseTimeoutMs: DELEGATION_IPC_RESPONSE_TIMEOUT_MS,
+      }),
+  );
+
+  server.tool(
+    'task_wait',
+    'Suspend this tool call until all selected durable tasks finish or the timeout expires. Completion is host-driven; do not poll task_get while waiting.',
+    {
+      taskIds: z.array(z.string().min(1).max(160)).min(1).max(64),
+      timeoutMs: z
+        .number()
+        .int()
+        .positive()
+        .max(30 * 60_000),
+    },
+    async (args) =>
+      submitTaskLifecycleRequest({
+        type: 'task_wait',
+        payload: args,
+        responseTimeoutMs: args.timeoutMs + TASK_TOOL_TIMEOUT_MS,
+        timeoutMessage: 'Task wait IPC response timed out.',
+        fallbackError: 'Task wait failed.',
       }),
   );
 

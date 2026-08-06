@@ -218,7 +218,7 @@ async function spawnAgentWithContext(
     agentInput: input,
     appId: input.appId || 'default',
     accessPreset: hideAuthorityTools ? 'locked' : accessPreset,
-    mcpInventoryToolsMounted: true,
+    mcpInventoryToolsMounted: input.callerResolvedTools == null,
     modelIdentity: {
       alias: resolvedModel.value.modelEntry.displayName,
       modelId: resolvedModel.value.runnerModel,

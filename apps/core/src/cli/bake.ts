@@ -18,6 +18,7 @@ import {
 import { ToolchainBakeSender } from '../jobs/toolchain-bake-queue.js';
 import { PostgresToolchainManifestNotifier } from '../jobs/toolchain-manifest-notify.js';
 import { nowMs } from '../shared/time/datetime.js';
+import { PGBOSS_SCHEMA } from '../shared/pgboss-schema.js';
 
 function usage(): string {
   return [
@@ -93,7 +94,7 @@ async function bakeRebake(
   await initializeRuntimeStorage();
   const queue = new ToolchainBakeSender({
     connectionString: STORAGE_POSTGRES_URL,
-    schema: 'pgboss',
+    schema: PGBOSS_SCHEMA,
     applicationName: `gantry-${STORAGE_POSTGRES_SCHEMA}-bake-rebake`,
   });
   try {

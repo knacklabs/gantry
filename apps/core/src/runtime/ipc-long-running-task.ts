@@ -9,7 +9,8 @@ export const isLongRunningTask = (type: string): boolean =>
   type.startsWith('mcp_') ||
   type === 'attachment_open' ||
   type === 'scheduler_wait_for_events' ||
-  type === 'delegate_task';
+  type === 'delegate_task' ||
+  type === 'task_wait';
 
 export async function processLongRunningTaskIpc(input: {
   data: ReturnType<typeof parseTaskIpcData>;

@@ -1328,6 +1328,7 @@ quoted_decimal: "0.5"
         contextWindowTokens: 131_072,
         inputUsdPerMillionTokens: 0.05,
         outputUsdPerMillionTokens: 0.08,
+        supportedEffortLevels: ['low', 'medium', 'high'],
         supportsTools: true,
         source: {
           label: 'Groq supported models',
@@ -1350,11 +1351,13 @@ quoted_decimal: "0.5"
     const yaml = renderRuntimeSettingsYaml(settings);
     expect(yaml).toContain('model_aliases:');
     expect(yaml).toContain('provider_model_id: "llama-3.1-8b-instant"');
+    expect(yaml).toContain('supported_effort_levels: ["low","medium","high"]');
 
     const parsed = parseRuntimeSettings(yaml);
     expect(parsed.modelAliases['fast-job']).toMatchObject({
       provider: 'groq',
       providerModelId: 'llama-3.1-8b-instant',
+      supportedEffortLevels: ['low', 'medium', 'high'],
     });
     expect(parsed.agents.worker.model).toBe('fast-job');
     const validation = withRuntimeModelAliases(parsed, () =>

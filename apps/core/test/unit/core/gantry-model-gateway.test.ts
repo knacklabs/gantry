@@ -1384,6 +1384,55 @@ describe('GantryModelGatewayBroker', () => {
     }
   });
 
+  it('revokes only one model-runtime request when agents share a run', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'sk-ant-upstream');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{"ok":true}')),
+    );
+    const broker = new GantryModelGatewayBroker(repo);
+    const binding = (apiRequestId: string) => ({
+      profile: 'gantry' as const,
+      purpose: 'model_runtime' as const,
+      appId,
+      runId: 'run:shared' as never,
+      apiRequestId,
+      modelRouteId: 'anthropic' as const,
+    });
+    try {
+      const first = await broker.getInjection({
+        binding: binding('model-runtime:first'),
+      });
+      const sibling = await broker.getInjection({
+        binding: binding('model-runtime:sibling'),
+      });
+
+      await broker.revokeInjection({
+        binding: binding('model-runtime:first'),
+      });
+
+      expect(
+        (
+          await gatewayRequest({
+            url: `${first.env[anthropicBaseUrlKey]}/v1/messages`,
+            token: first.env[anthropicApiKeyKey]!,
+          })
+        ).status,
+      ).toBe(401);
+      expect(
+        (
+          await gatewayRequest({
+            url: `${sibling.env[anthropicBaseUrlKey]}/v1/messages`,
+            token: sibling.env[anthropicApiKeyKey]!,
+          })
+        ).status,
+      ).toBe(200);
+    } finally {
+      await broker.close();
+    }
+  });
+
   it('rejects method and path attempts outside the provider route before upstream fetch', async () => {
     const repo = new MutableModelCredentialRepository();
     repo.set('openrouter', 'sk-or-upstream');

@@ -10,6 +10,7 @@ export type CoreTaskLifecycleName =
   | 'task_get'
   | 'task_list'
   | 'task_cancel'
+  | 'task_wait'
   | 'task_message';
 
 export type CoreTaskLifecycleErrorCode =
@@ -90,6 +91,19 @@ export interface CoreTaskLifecycleService {
       limit?: number;
     },
   ): Promise<PublicAsyncTaskDto[]>;
+  wait(
+    input: CoreTaskOwner & {
+      taskIds: string[];
+      parentTaskId?: string | null;
+      timeoutMs: number;
+      signal?: AbortSignal;
+    },
+  ): Promise<{
+    ok: boolean;
+    message: string;
+    tasks?: PublicAsyncTaskDto[];
+    timedOut?: boolean;
+  }>;
   cancel(
     input: CoreTaskOwner & {
       taskId: string;
@@ -99,6 +113,9 @@ export interface CoreTaskLifecycleService {
   startDelegatedAgent(
     input: CoreTaskOwner & {
       parentRunId?: string | null;
+      parentJobId?: string | null;
+      parentJobRunId?: string | null;
+      taskKey?: string;
       objective: string;
       context?: string | null;
       expectedOutput?: string | null;
@@ -138,6 +155,8 @@ export function createCoreTaskLifecycleBackend(input: {
   owner: CoreTaskOwner;
   parentTaskId?: string | null;
   parentRunId?: string | null;
+  parentJobId?: string | null;
+  parentJobRunId?: string | null;
   authorityToolName?: 'AgentDelegation';
   enableDelegatedAsyncFollowUp?: boolean;
   workspaceFolder: string;
@@ -185,6 +204,43 @@ export function createCoreTaskLifecycleBackend(input: {
               : 'not_found',
           };
     },
+    task_wait: async (args) => {
+      const taskIds = Array.isArray(args.taskIds)
+        ? args.taskIds
+            .map(requiredString)
+            .filter((id): id is string => Boolean(id))
+        : [];
+      const timeoutMs =
+        typeof args.timeoutMs === 'number' && Number.isInteger(args.timeoutMs)
+          ? args.timeoutMs
+          : 0;
+      if (
+        taskIds.length === 0 ||
+        taskIds.length > 64 ||
+        new Set(taskIds).size !== taskIds.length ||
+        timeoutMs < 1 ||
+        timeoutMs > 30 * 60_000
+      ) {
+        return invalid(
+          'task_wait requires 1-64 unique taskIds and timeoutMs between 1 and 1800000.',
+        );
+      }
+      const result = await input.service.wait({
+        ...scoped,
+        taskIds,
+        timeoutMs,
+      });
+      return result.ok
+        ? {
+            ok: true,
+            message: result.message,
+            data: {
+              tasks: result.tasks ?? [],
+              timedOut: result.timedOut === true,
+            },
+          }
+        : { ok: false, message: result.message, code: 'not_found' };
+    },
     delegate_task: async (args) => {
       const objective = requiredString(args.objective);
       if (!objective) return invalid('delegate_task requires an objective.');
@@ -195,6 +251,9 @@ export function createCoreTaskLifecycleBackend(input: {
       const result = await input.service.startDelegatedAgent({
         ...input.owner,
         parentRunId: input.parentRunId ?? null,
+        parentJobId: input.parentJobId ?? null,
+        parentJobRunId: input.parentJobRunId ?? null,
+        taskKey: optionalString(args.taskKey),
         objective,
         context: optionalString(args.context),
         expectedOutput: optionalString(args.expectedOutput),

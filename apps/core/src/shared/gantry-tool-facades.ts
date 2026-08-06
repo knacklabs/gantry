@@ -18,7 +18,11 @@ const GANTRY_FACADE_EXACT_TOOL_NAME_SET = new Set<string>(
 );
 const GANTRY_DELEGATION_TOOL_NAME_SET = new Set([
   'delegate_task',
+  'task_cancel',
+  'task_get',
+  'task_list',
   'task_message',
+  'task_wait',
 ]);
 
 export function canonicalGantryToolRuleName(

@@ -651,6 +651,36 @@ describe('autonomous tool rule matcher', () => {
         toolName: 'Task',
       }),
     ).toMatchObject({ allowed: false });
+    expect(
+      evaluateAutonomousToolUse({
+        rules: ['AgentDelegation'],
+        toolName: 'mcp__gantry__delegate_task',
+      }),
+    ).toMatchObject({ allowed: true, matchedRule: 'AgentDelegation' });
+    expect(
+      evaluateAutonomousToolUse({
+        rules: ['AgentDelegation'],
+        toolName: 'mcp__gantry__task_message',
+      }),
+    ).toMatchObject({ allowed: true, matchedRule: 'AgentDelegation' });
+    expect(
+      evaluateAutonomousToolUse({
+        rules: ['AgentDelegation'],
+        toolName: 'mcp__gantry__task_wait',
+      }),
+    ).toMatchObject({ allowed: true, matchedRule: 'AgentDelegation' });
+    for (const toolName of [
+      'mcp__gantry__task_cancel',
+      'mcp__gantry__task_get',
+      'mcp__gantry__task_list',
+    ]) {
+      expect(
+        evaluateAutonomousToolUse({
+          rules: ['AgentDelegation'],
+          toolName,
+        }),
+      ).toMatchObject({ allowed: true, matchedRule: 'AgentDelegation' });
+    }
   });
 
   it('allows exact MCP tool names without extra scopes', () => {

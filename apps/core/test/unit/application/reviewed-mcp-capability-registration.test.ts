@@ -21,6 +21,70 @@ const capability = {
 };
 
 describe('reviewed MCP capability registration', () => {
+  it('upgrades an equivalent legacy exact MCP binding', async () => {
+    const existing = {
+      id: 'tool:capability:firecrawl.scrape',
+      appId: 'manipal',
+      name: 'capability:firecrawl.scrape',
+      status: 'active',
+      selectable: true,
+      inputSchema: {
+        format: 'gantry.semantic-capability.v1',
+        schema: capability,
+      },
+    };
+    const saveTool = vi.fn();
+    const tools = {
+      listTools: vi.fn(async () => [existing]),
+      saveTool,
+    } as unknown as ToolCatalogRepository;
+    const mcpServers = {
+      getServerByName: vi.fn(async () => ({
+        id: 'mcp:firecrawl',
+        appId: 'manipal',
+        name: 'firecrawl',
+        status: 'active',
+        allowedToolPatterns: ['firecrawl_scrape'],
+      })),
+      appendAuditEvent: vi.fn(),
+    } as unknown as McpServerRepository;
+
+    const result = await registerReviewedMcpCapability({
+      appId: 'manipal' as never,
+      capability,
+      repositories: { mcpServers, tools },
+      now: '2026-08-04T00:00:00.000Z',
+    });
+
+    expect(saveTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'tool:capability:firecrawl.scrape',
+        inputSchema: expect.objectContaining({
+          schema: expect.objectContaining({
+            implementationBindings: [
+              {
+                kind: 'mcp_pattern',
+                mcpServer: 'firecrawl',
+                mcpToolPatterns: ['firecrawl_scrape'],
+              },
+            ],
+          }),
+        }),
+      }),
+    );
+    expect(result.inputSchema).toMatchObject({
+      schema: {
+        implementationBindings: [
+          {
+            kind: 'mcp_pattern',
+            mcpServer: 'firecrawl',
+            mcpToolPatterns: ['firecrawl_scrape'],
+          },
+        ],
+      },
+    });
+  });
+
   it('rejects a source owned by another application', async () => {
     const appendAuditEvent = vi.fn();
     const mcpServers = {
@@ -40,7 +104,9 @@ describe('reviewed MCP capability registration', () => {
         capability,
         repositories: {
           mcpServers,
-          tools: { listTools: vi.fn(async () => []) } as unknown as ToolCatalogRepository,
+          tools: {
+            listTools: vi.fn(async () => []),
+          } as unknown as ToolCatalogRepository,
         },
         now: '2026-08-04T00:00:00.000Z',
       }),

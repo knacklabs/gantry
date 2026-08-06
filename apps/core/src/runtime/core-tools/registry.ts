@@ -83,6 +83,7 @@ export const CORE_TOOL_NAMES = [
   'task_get',
   'task_list',
   'task_cancel',
+  'task_wait',
   'task_message',
 ] as const;
 export type CoreToolName = (typeof CORE_TOOL_NAMES)[number];
@@ -302,6 +303,7 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
         task_get: deps.schemas.task_get,
         task_list: deps.schemas.task_list,
         task_cancel: deps.schemas.task_cancel,
+        task_wait: deps.schemas.task_wait,
         task_message: deps.schemas.task_message,
       }) as Array<
         [
@@ -601,6 +603,8 @@ function taskDescription(name: CoreTaskLifecycleName): string {
       return 'List recent durable tasks.';
     case 'task_cancel':
       return 'Cancel one running durable task.';
+    case 'task_wait':
+      return 'Wait until selected durable tasks finish or the timeout expires.';
     case 'task_message':
       return 'Send a steering message to a delegated task.';
   }

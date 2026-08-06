@@ -8,6 +8,7 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { PgBoss } from 'pg-boss';
 import { Pool, type PoolConfig } from 'pg';
 
+import { PGBOSS_SCHEMA } from '../../../shared/pgboss-schema.js';
 import { isLocalPostgresHost, parsePostgresConnectionUrl } from './url.js';
 import * as pgSchema from './schema/schema.js';
 import {
@@ -318,7 +319,7 @@ export class PostgresStorageService implements StorageService {
     );
     const boss = new PgBoss({
       connectionString: poolConfig.connectionString,
-      schema: 'pgboss',
+      schema: PGBOSS_SCHEMA,
       createSchema: true,
       migrate: true,
       schedule: false,
@@ -376,7 +377,7 @@ export class PostgresStorageService implements StorageService {
         SELECT
           EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'vector') AS has_vector,
           EXISTS(SELECT 1 FROM pg_extension WHERE extname IN ('pg_trgm', 'pg_search')) AS has_text_search,
-          (to_regclass('pgboss.version') IS NOT NULL) AS has_job_queue,
+          (to_regclass($3::text) IS NOT NULL) AS has_job_queue,
           ((SELECT runtime_events_oid FROM event_tables) IS NOT NULL) AS has_runtime_events_table,
           ARRAY(
             SELECT format('%s.%s', required.table_name, required.column_name)
@@ -433,7 +434,11 @@ export class PostgresStorageService implements StorageService {
             )
             ORDER BY r.index_name
           ) AS missing_event_bus_outbox_indexes`,
-      [this.schemaName, JSON.stringify(GENERATED_ALWAYS_IDENTITY_PRIMARY_KEYS)],
+      [
+        this.schemaName,
+        JSON.stringify(GENERATED_ALWAYS_IDENTITY_PRIMARY_KEYS),
+        `${PGBOSS_SCHEMA}.version`,
+      ],
     );
     const row = caps.rows[0];
     const hasVector = Boolean(row?.has_vector);
@@ -477,7 +482,7 @@ export class PostgresStorageService implements StorageService {
       jobQueue: hasJobQueue,
       jobQueueReason: hasJobQueue
         ? undefined
-        : 'pg-boss schema is not initialized (expected table pgboss.version)',
+        : `pg-boss schema is not initialized (expected table ${PGBOSS_SCHEMA}.version)`,
       runtimeEvents: hasRuntimeEvents,
       runtimeEventsReason: hasRuntimeEvents
         ? undefined

@@ -51,6 +51,7 @@ export type CoreToolInputByName = {
     source?: string;
   };
   delegate_task: {
+    taskKey?: string;
     objective: string;
     context?: string;
     expectedOutput?: string;
@@ -60,6 +61,7 @@ export type CoreToolInputByName = {
   task_get: { taskId: string };
   task_list: Record<string, never>;
   task_cancel: { taskId: string };
+  task_wait: { taskIds: string[]; timeoutMs: number };
   task_message: { taskId: string; message: string };
 };
 
@@ -135,6 +137,7 @@ export function createCoreToolSchemas(z: ZodFactory): CoreToolSchemas {
       source: z.string().optional(),
     }),
     delegate_task: z.object({
+      taskKey: z.string().min(1).max(80).optional(),
       objective: z.string().min(1).max(10_000),
       context: z.string().max(20_000).optional(),
       expectedOutput: z.string().max(2_000).optional(),
@@ -150,6 +153,14 @@ export function createCoreToolSchemas(z: ZodFactory): CoreToolSchemas {
     task_get: taskIdSchema,
     task_list: z.object({}),
     task_cancel: taskIdSchema,
+    task_wait: z.object({
+      taskIds: z.array(z.string().min(1).max(160)).min(1).max(64),
+      timeoutMs: z
+        .number()
+        .int()
+        .positive()
+        .max(30 * 60_000),
+    }),
     task_message: z.object({
       taskId: z.string().min(1).max(160),
       message: z.string().min(1).max(10_000),

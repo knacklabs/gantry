@@ -5,6 +5,7 @@ import {
   getDeploymentMode,
   getRuntimeSettingsForConfig,
 } from '../config/index.js';
+import { PGBOSS_SCHEMA } from '../shared/pgboss-schema.js';
 import { getRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js';
 import { createS3ArtifactClient } from '../adapters/artifacts/skills/s3-artifact-client.js';
 import { LocalToolchainArtifactStore } from '../adapters/artifacts/toolchains/local-toolchain-artifact-store.js';
@@ -72,7 +73,7 @@ export async function startToolchainBakeSubsystem(
   };
   const options: ToolchainBakeQueueOptions = {
     connectionString: STORAGE_POSTGRES_URL,
-    schema: 'pgboss',
+    schema: PGBOSS_SCHEMA,
     applicationName: `gantry-${STORAGE_POSTGRES_SCHEMA}-toolchain-bake`,
     logError: (context, message) => logger.error(context, message),
     logInfo: (context, message) => logger.info(context, message),

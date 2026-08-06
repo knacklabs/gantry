@@ -1,7 +1,8 @@
 import fs from 'fs';
 // prettier-ignore
 import { ASSISTANT_NAME, getEffectiveModelConfig, getRuntimeSettingsForConfig, getSelectedAgentHarness } from '../config/index.js';
-import type { Job } from '../domain/types.js';
+import type { ConversationRoute, Job } from '../domain/types.js';
+import type { AgentFailureMetadata } from '../domain/ports/async-tasks.js';
 import { logger, updateLogContext } from '../infrastructure/logging/logger.js';
 // prettier-ignore
 import { getRuntimeControlRepository, getRuntimeEventExchange, getConfiguredModelProvidersForApp, getWorkerCoordinationRepository } from '../adapters/storage/postgres/runtime-store.js';
@@ -133,6 +134,12 @@ async function runActiveJob(
   const warn = (context: Record<string, unknown>, message: string): void =>
     logger.warn(context, message);
   const groups = deps.conversationRoutes();
+  await recoverAppSessionExecutionRoute({
+    currentJob,
+    groups,
+    appSession: preflightAppSession,
+    projectConversationRoute: deps.projectConversationRoute,
+  });
   const execution = await resolveExecutionContextOrDeadLetter({
     resolve: () => resolveExecutionContext(currentJob, groups),
     currentJob,
@@ -252,11 +259,17 @@ async function runActiveJob(
     });
     let result: string | null = null;
     const structured = Boolean(currentJob.agent_task?.responseSchema);
+    const completionGateRequired = Boolean(
+      currentJob.agent_task?.completionGate,
+    );
     let structuredResult: string | null = null;
+    let structuredResultValidated = !structured;
+    let completionGateAccepted = !completionGateRequired;
     let error: string | null =
       resolvedModel.routeResolution && !resolvedModel.routeResolution.ok
         ? resolvedModel.routeResolution.message
         : null;
+    let failure: AgentFailureMetadata | undefined;
     const diagnostics = createJobRunDiagnostics();
     let pausedForSetupDuringRun = false;
     let setupStateForSetupPause: NonNullable<Job['setup_state']> | undefined;
@@ -464,6 +477,10 @@ async function runActiveJob(
                 const fromProviderId = executionProviderId;
                 executionProviderId = toProviderId;
                 error = null;
+                failure = undefined;
+                structuredResult = null;
+                structuredResultValidated = !structured;
+                completionGateAccepted = !completionGateRequired;
                 await updateRunProviderMetadata({
                   providerRunId: null,
                   providerSessionId: null,
@@ -553,6 +570,12 @@ async function runActiveJob(
               },
               streamHandler: async (streamedOutput: AgentOutput) => {
                 if (runLeaseAbort.isAborted()) return;
+                if (streamedOutput.completionGateAccepted === true) {
+                  completionGateAccepted = true;
+                }
+                if (streamedOutput.structuredResultValidated === true) {
+                  structuredResultValidated = true;
+                }
                 for (const event of streamedOutput.runtimeEvents ?? []) {
                   const eventKey = runnerRuntimeEventKey(event);
                   if (eventKey) streamedRuntimeEventKeys.add(eventKey);
@@ -583,9 +606,15 @@ async function runActiveJob(
                   context: { jobId: currentJob.id, runId },
                 });
                 if (streamedOutput.result) {
-                  if (structured) structuredResult = streamedOutput.result;
                   hasStreamedResult = true;
-                  appendResultSummary(streamedOutput.result);
+                  if (structured) {
+                    if (streamedOutput.structuredResultValidated === true) {
+                      structuredResult = streamedOutput.result;
+                      appendResultSummary(streamedOutput.result);
+                    }
+                  } else {
+                    appendResultSummary(streamedOutput.result);
+                  }
                   const chunkChars = streamedOutput.result.length;
                   diagnostics.latestStreamedOutputChars = chunkChars;
                   diagnostics.totalStreamedOutputChars += chunkChars;
@@ -594,6 +623,7 @@ async function runActiveJob(
                 }
                 if (streamedOutput.status === 'error') {
                   error = streamedOutput.error || 'Unknown error';
+                  failure = streamedOutput.failure;
                 }
               },
             });
@@ -613,10 +643,43 @@ async function runActiveJob(
               if (output.status === 'error') {
                 recordJobAgentRunFailure();
                 if (!error) error = output.error || 'Unknown error';
+                failure ??= output.failure;
                 await failRun();
               } else if (output.result && !hasStreamedResult) {
-                if (structured) structuredResult = output.result;
-                appendResultSummary(output.result);
+                if (structured) {
+                  if (output.structuredResultValidated === true) {
+                    structuredResult = output.result;
+                    structuredResultValidated = true;
+                    appendResultSummary(output.result);
+                  }
+                } else {
+                  appendResultSummary(output.result);
+                }
+              }
+              if (output.completionGateAccepted === true) {
+                completionGateAccepted = true;
+              }
+              if (
+                !error &&
+                structured &&
+                (!structuredResult || !structuredResultValidated)
+              ) {
+                error =
+                  'Structured job ended without a validated response_schema result.';
+                failure ??= {
+                  type: 'execution',
+                  code: 'structured_output_validation_failed',
+                  attemptedAction:
+                    'Validate final response against response schema',
+                };
+              }
+              if (!error && completionGateRequired && !completionGateAccepted) {
+                error =
+                  'Completion-gated job ended without completion-gate acceptance.';
+                failure ??= {
+                  type: 'execution',
+                  attemptedAction: 'Accept the configured completion gate',
+                };
               }
               if (!error) error = formatTerminalToolDenial(diagnostics) ?? null;
               if (!error) {
@@ -825,6 +888,7 @@ async function runActiveJob(
         notified,
         summary,
         ...(structuredResult ? { result: structuredResult } : {}),
+        ...(failure ? { failure } : {}),
         ...jobCompletedModelPayload(resolvedModel, accumulatedUsage),
         diagnostics: terminalDiagnosticsPayload(diagnostics),
       },
@@ -837,6 +901,9 @@ async function runActiveJob(
       startNotified,
       summary,
       result: structuredResult,
+      failure,
+      completionGateAccepted,
+      structuredResultValidated,
       nextRun,
       state: eventState,
       runtimeAppId,
@@ -869,4 +936,32 @@ async function runActiveJob(
       });
     }
   }
+}
+
+async function recoverAppSessionExecutionRoute(input: {
+  currentJob: Job;
+  groups: Record<string, ConversationRoute>;
+  appSession: Awaited<ReturnType<typeof resolveAppSessionForJob>>;
+  projectConversationRoute?: SchedulerDependencies['projectConversationRoute'];
+}): Promise<void> {
+  if (
+    resolveExecutionContext(input.currentJob, input.groups) ||
+    !input.projectConversationRoute ||
+    !input.appSession?.chatJid ||
+    !input.appSession.workspaceKey ||
+    input.currentJob.execution_context?.conversationJid !==
+      input.appSession.chatJid
+  ) {
+    return;
+  }
+  await input.projectConversationRoute(input.appSession.chatJid, {
+    name: `${input.appSession.appId}:${input.appSession.sessionId}`,
+    folder: input.appSession.workspaceKey,
+    trigger: '',
+    added_at: input.currentJob.created_at,
+    requiresTrigger: false,
+    senderIdentityEvidenceType: 'web_user',
+    systemSenderIds: ['sdk'],
+    conversationKind: 'channel',
+  });
 }

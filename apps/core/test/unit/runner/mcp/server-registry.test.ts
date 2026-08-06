@@ -281,4 +281,30 @@ describe('effective enabled MCP tool projection', () => {
     expect(enabled.has('delegate_task')).toBe(true);
     expect(enabled.has('task_message')).toBe(true);
   });
+
+  it('mounts bounded caller-resolved tools outside the closed Gantry catalog', async () => {
+    setIpcDir();
+    const { effectiveEnabledMcpToolNames } =
+      await import('@core/runner/mcp/server.js');
+
+    const enabled = effectiveEnabledMcpToolNames(
+      undefined,
+      undefined,
+      undefined,
+      false,
+      undefined,
+      JSON.stringify({
+        tools: [
+          {
+            name: 'get_source_discovery_seeds',
+            description: 'Load seeds.',
+            inputSchema: { type: 'object' },
+          },
+        ],
+        interactionTimeoutMs: 30_000,
+      }),
+    );
+
+    expect(enabled.has('get_source_discovery_seeds')).toBe(true);
+  });
 });

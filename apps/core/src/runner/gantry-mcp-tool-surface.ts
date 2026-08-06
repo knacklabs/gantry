@@ -7,6 +7,7 @@ import {
   DEFAULT_GANTRY_MCP_TOOL_NAMES,
   DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
   GATED_GANTRY_MCP_TOOL_NAMES,
+  MCP_PROXY_GANTRY_MCP_TOOL_NAMES,
   OPTIONAL_GANTRY_MCP_TOOL_NAMES,
   REVIEWED_GANTRY_MCP_TOOL_NAMES,
 } from '../shared/admin-mcp-tools.js';
@@ -31,6 +32,7 @@ export {
   DEFAULT_GANTRY_MCP_TOOL_NAMES,
   DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
   GATED_GANTRY_MCP_TOOL_NAMES,
+  MCP_PROXY_GANTRY_MCP_TOOL_NAMES,
   OPTIONAL_GANTRY_MCP_TOOL_NAMES,
   REVIEWED_GANTRY_MCP_TOOL_NAMES,
 };
@@ -75,6 +77,10 @@ export interface GantryMcpToolSelectionOptions extends MemoryIpcActionSelectionO
   // runner sandbox. They are projected only when the host says that executor is
   // available for this run.
   asyncTaskToolsEnabled?: boolean;
+  // Caller-bounded jobs already receive their exact reviewed tools. Hide the
+  // generic proxy/inventory path so the model cannot escape that closed set.
+  excludeMcpProxyTools?: boolean;
+  includeBaselineTools?: boolean;
 }
 
 export function gantryMcpFullToolName(toolName: string): string {
@@ -92,7 +98,9 @@ export function selectedGantryMcpToolNames(
   configuredTools: readonly string[],
   options: GantryMcpToolSelectionOptions = {},
 ): string[] {
-  const names = new Set<string>(DEFAULT_GANTRY_MCP_TOOL_NAMES);
+  const names = new Set<string>(
+    options.includeBaselineTools === false ? [] : DEFAULT_GANTRY_MCP_TOOL_NAMES,
+  );
   if (options.asyncTaskToolsEnabled && !options.excludeAuthorityTools) {
     for (const toolName of ASYNC_TASK_GANTRY_MCP_TOOL_NAMES)
       names.add(toolName);
@@ -128,6 +136,11 @@ export function selectedGantryMcpToolNames(
       names.delete(toolName);
     }
     for (const toolName of ADMIN_MCP_TOOL_NAMES) {
+      names.delete(toolName);
+    }
+  }
+  if (options.excludeMcpProxyTools) {
+    for (const toolName of MCP_PROXY_GANTRY_MCP_TOOL_NAMES) {
       names.delete(toolName);
     }
   }

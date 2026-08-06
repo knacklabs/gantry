@@ -114,6 +114,32 @@ describe('compileSpawnSystemPrompt', () => {
     expect(prompt).not.toContain('New user messages may arrive mid-run');
   });
 
+  it('identifies caller-resolved job tools as direct host tools', async () => {
+    const prompt = await compile({
+      agentInput: {
+        isScheduledJob: true,
+        callerResolvedTools: {
+          sessionId: 'session-1',
+          tools: [
+            {
+              name: 'get_source_discovery_seeds',
+              description: 'Load seeds.',
+              inputSchema: { type: 'object' },
+            },
+          ],
+          maxInteractions: 4,
+          interactionTimeoutMs: 30_000,
+        },
+      },
+    });
+
+    expect(prompt).toContain('# Caller-resolved job tools');
+    expect(prompt).toContain('- mcp__gantry__get_source_discovery_seeds');
+    expect(prompt).toContain('Never pass them to mcp_call_tool');
+    expect(prompt).not.toContain('mcp_search_tools');
+    expect(prompt).not.toContain('mcp_list_tools');
+  });
+
   it('threads the resolved capability catalog into the compiled profile', async () => {
     // Model behavioral-corpus coverage is intentionally deferred to the
     // separate evaluation; this unit test pins only prompt projection.

@@ -96,8 +96,28 @@ export async function registerReviewedMcpCapability(
       name: existing.name,
       inputSchema: existing.inputSchema,
     });
-    if (current && stableSha256Json(current) === stableSha256Json(capability)) {
-      return existing;
+    const canonicalCurrent = current
+      ? tryCanonicalReviewedCapability(current)
+      : tryCanonicalStoredReviewedCapability(existing.inputSchema);
+    if (
+      canonicalCurrent &&
+      stableSha256Json(canonicalCurrent) === stableSha256Json(capability)
+    ) {
+      if (
+        current &&
+        stableSha256Json(current) === stableSha256Json(capability)
+      ) {
+        return existing;
+      }
+      return ensureAgentToolCatalogItem({
+        repository: input.repositories.tools,
+        appId: input.appId,
+        reference: semanticCapabilityRule(capability.capabilityId),
+        now: input.now,
+        semanticCapabilityDefinitions: {
+          [capability.capabilityId]: capability,
+        },
+      });
     }
     throw new ApplicationError(
       'CONFLICT',
@@ -137,28 +157,51 @@ export async function registerReviewedMcpCapability(
   return tool;
 }
 
+function tryCanonicalStoredReviewedCapability(
+  inputSchema: unknown,
+): SemanticCapabilityDefinition | undefined {
+  if (!inputSchema || typeof inputSchema !== 'object') return undefined;
+  const record = inputSchema as Record<string, unknown>;
+  if (record.format !== 'gantry.semantic-capability.v1') return undefined;
+  if (!record.schema || typeof record.schema !== 'object') return undefined;
+  return tryCanonicalReviewedCapability(
+    record.schema as SemanticCapabilityDefinition,
+  );
+}
+
+function tryCanonicalReviewedCapability(
+  capability: SemanticCapabilityDefinition,
+): SemanticCapabilityDefinition | undefined {
+  try {
+    const canonical = canonicalReviewedCapability(capability);
+    return validateSemanticCapabilityDefinition(canonical).ok
+      ? canonical
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function canonicalReviewedCapability(
   capability: SemanticCapabilityDefinition,
 ): SemanticCapabilityDefinition {
   return {
     ...capability,
-    implementationBindings: capability.implementationBindings.map(
-      (binding) => {
-        if (binding.kind !== 'mcp_tool') return binding;
-        const parsed = parseExactMcpTool(binding.mcpTool);
-        if (!parsed) {
-          throw new ApplicationError(
-            'INVALID_REQUEST',
-            `MCP capability binding must name one exact tool without wildcards: ${binding.mcpTool ?? ''}`,
-          );
-        }
-        return {
-          kind: 'mcp_pattern' as const,
-          mcpServer: parsed.serverName,
-          mcpToolPatterns: [parsed.toolName],
-        };
-      },
-    ),
+    implementationBindings: capability.implementationBindings.map((binding) => {
+      if (binding.kind !== 'mcp_tool') return binding;
+      const parsed = parseExactMcpTool(binding.mcpTool);
+      if (!parsed) {
+        throw new ApplicationError(
+          'INVALID_REQUEST',
+          `MCP capability binding must name one exact tool without wildcards: ${binding.mcpTool ?? ''}`,
+        );
+      }
+      return {
+        kind: 'mcp_pattern' as const,
+        mcpServer: parsed.serverName,
+        mcpToolPatterns: [parsed.toolName],
+      };
+    }),
   };
 }
 

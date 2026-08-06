@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  sdkResultFailureMetadata,
   sdkResultText,
   sdkStructuredOutputOptions,
+  StructuredOutputValidationError,
 } from '@core/adapters/llm/anthropic-claude-agent/runner/sdk-message-output.js';
 
 describe('Claude worker structured output', () => {
@@ -35,5 +37,38 @@ describe('Claude worker structured output', () => {
         schema,
       ),
     ).toThrow('without validated structured output');
+  });
+
+  it('validates SDK structured output with AJV instead of trusting the provider flag', () => {
+    expect(() =>
+      sdkResultText(
+        {
+          subtype: 'success',
+          structured_output: { recipeVersion: 1 },
+        },
+        schema,
+      ),
+    ).toThrow('/recipeVersion must be string');
+  });
+
+  it('classifies only typed structured-output failures with a stable code', () => {
+    for (const message of ['provider wording one', 'provider wording two']) {
+      expect(
+        sdkResultFailureMetadata(new StructuredOutputValidationError(message)),
+      ).toEqual({
+        type: 'execution',
+        code: 'structured_output_validation_failed',
+        attemptedAction: 'Validate final response against response schema',
+      });
+    }
+
+    for (const message of [
+      'structured output validation failed',
+      'provider unavailable',
+      'timed out',
+      'cancelled',
+    ]) {
+      expect(sdkResultFailureMetadata(new Error(message))).toBeUndefined();
+    }
   });
 });

@@ -11,6 +11,7 @@ import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-c
 import type { GantryAgentPromptMode } from '../../../../runner/gantry-agent-system-prompt.js';
 import type { DeclarativeToolRule } from '../../../../runner/tool-gate-core.js';
 import type { CallableAgentToolManifestEntry } from '../../../../application/core-tools/callable-agent-tools.js';
+import type { AgentFailureMetadata } from '../../../../domain/ports/async-tasks.js';
 
 export interface AgentRunnerInput {
   prompt: string;
@@ -80,10 +81,13 @@ export interface AgentRunnerOutput {
   compactBoundary?: boolean;
   interactionBoundary?: 'user_interaction';
   continuedByFollowup?: boolean;
+  completionGateAccepted?: boolean;
+  structuredResultValidated?: boolean;
   usage?: NormalizedModelUsage;
   usageEventId?: string;
   contextUsage?: RuntimeContextUsageSnapshot;
   error?: string;
+  failure?: AgentFailureMetadata;
   runtimeEvents?: AgentRunnerRuntimeEventOutput[];
   primeToolAttempts?: AgentRunnerToolAttemptOutput[];
 }

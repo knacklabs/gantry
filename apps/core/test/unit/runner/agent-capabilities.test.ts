@@ -961,7 +961,11 @@ describe('agent capability composition', () => {
     );
     expect(profile.allowedTools).not.toContain('mcp__gantry__service_restart');
     expect(profile.allowedTools).not.toContain('mcp__linear__search');
-    expect(profile.availableTools).toEqual(DEVELOPER_AVAILABLE_TOOLS);
+    expect(profile.availableTools).toEqual([
+      ...DEVELOPER_AVAILABLE_TOOLS,
+      'mcp__github__search_repositories',
+      'mcp__github__issues.create',
+    ]);
     expect(profile.alwaysAllowedTools).toEqual([
       'mcp__github__search_repositories',
       'mcp__github__issues.create',
@@ -1117,6 +1121,96 @@ describe('agent capability composition', () => {
     // Baseline messaging/profile-read tools still mount.
     expect(profile.allowedTools).toContain('mcp__gantry__send_message');
     expect(profile.allowedTools).toContain('mcp__gantry__agent_profile_read');
+  });
+
+  it('keeps reviewed direct MCP tools but removes Gantry proxy inventory from caller-bounded jobs', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'app:manipal-tender-copilot:source-discovery',
+      workspaceFolder: 'source_discovery',
+      isScheduledJob: true,
+      configuredAllowedTools: ['Browser', 'WebSearch', 'AgentDelegation'],
+      callerResolvedTools: {
+        sessionId: 'session-1',
+        tools: [
+          {
+            name: 'get_source_discovery_seeds',
+            description: 'Load source discovery seeds.',
+            inputSchema: { type: 'object' },
+          },
+        ],
+        maxInteractions: 4,
+        interactionTimeoutMs: 30_000,
+      },
+      externalMcpServers: {
+        firecrawl: {
+          type: 'stdio',
+          command: 'node',
+          args: ['firecrawl.js'],
+        },
+      },
+      externalMcpAllowedTools: ['mcp__firecrawl__firecrawl_search'],
+    });
+
+    const gantryNames = JSON.parse(
+      profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON ?? '[]',
+    ) as string[];
+    expect(gantryNames).not.toContain('mcp_list_tools');
+    expect(gantryNames).not.toContain('mcp_search_tools');
+    expect(gantryNames).not.toContain('mcp_describe_tool');
+    expect(gantryNames).not.toContain('mcp_call_tool');
+    expect(gantryNames).not.toContain('brain_search');
+    expect(gantryNames).not.toContain('memory_search');
+    expect(gantryNames).not.toContain('delegate_task');
+    expect(gantryNames).not.toContain('browser_open');
+    expect(gantryNames).toEqual(['get_source_discovery_seeds']);
+    expect(profile.allowedTools).not.toContain('mcp__gantry__mcp_search_tools');
+    expect(profile.allowedTools).not.toContain('mcp__gantry__brain_search');
+    expect(profile.allowedTools).not.toContain('Browser');
+    expect(profile.availableTools).not.toContain('Browser');
+    expect(profile.availableTools).toContain(
+      'mcp__firecrawl__firecrawl_search',
+    );
+    expect(profile.mcpServers.firecrawl).toBeDefined();
+    expect(profile.allowedTools).toContain('mcp__firecrawl__firecrawl_search');
+  });
+
+  it('keeps only caller and delegated task tools for a bounded job with a completion gate', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'app:manipal-tender-copilot:deep-analysis',
+      workspaceFolder: 'deep_analysis',
+      isScheduledJob: true,
+      asyncTaskToolsEnabled: true,
+      configuredAllowedTools: ['AgentDelegation'],
+      callerResolvedDelegationEnabled: true,
+      callerResolvedTools: {
+        sessionId: 'session-1',
+        tools: [
+          {
+            name: 'get_deep_analysis_context',
+            description: 'Load analysis context.',
+            inputSchema: { type: 'object' },
+          },
+        ],
+        maxInteractions: 8,
+        interactionTimeoutMs: 30_000,
+      },
+    });
+
+    const gantryNames = JSON.parse(
+      profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON ?? '[]',
+    ) as string[];
+    expect(gantryNames).toContain('get_deep_analysis_context');
+    expect(gantryNames).toContain('delegate_task');
+    expect(gantryNames).toContain('task_message');
+    expect(gantryNames).toContain('task_get');
+    expect(gantryNames).not.toContain('brain_search');
+    expect(gantryNames).not.toContain('mcp_list_tools');
+    expect(profile.allowedTools).toContain('mcp__gantry__delegate_task');
+    expect(profile.allowedTools).toContain(
+      'mcp__gantry__get_deep_analysis_context',
+    );
   });
 
   it('keeps the default permission mode for a full-preset agent', () => {

@@ -232,6 +232,7 @@ describe('jobs/execution', () => {
     vi.clearAllMocks();
     runtimeStoreMock.appendRunnerControlEvent.mockResolvedValue('persisted');
     runtimeStoreMock.heartbeatRunLease.mockResolvedValue(true);
+    runtimeStoreMock.getAppSessionById.mockResolvedValue(null);
     handleSystemJobMock.mockResolvedValue('System job completed.');
   });
 
@@ -370,6 +371,59 @@ describe('jobs/execution', () => {
           delivery_state: 'sent',
         }),
       }),
+    );
+  });
+
+  it('recovers an app-scoped execution route from its persisted session', async () => {
+    const job = makeJob({
+      app_id: 'manipal-tender-copilot',
+      session_id: 'session-source-discovery',
+      execution_context: {
+        conversationJid:
+          'app:manipal-tender-copilot:source-discovery-schedule-38',
+        threadId: null,
+        workspaceKey: 'source_discovery_agent',
+      },
+    });
+    runtimeStoreMock.getAppSessionById.mockResolvedValue({
+      appId: 'manipal-tender-copilot',
+      sessionId: 'session-source-discovery',
+      chatJid: 'app:manipal-tender-copilot:source-discovery-schedule-38',
+      workspaceKey: 'source_discovery_agent',
+      defaultResponseMode: 'none',
+      defaultWebhookId: null,
+    });
+    const routes: Record<string, ConversationRoute> = {};
+    const projectConversationRoute = vi.fn(
+      async (conversationJid: string, route: ConversationRoute) => {
+        routes[conversationJid] = route;
+      },
+    );
+    const opsRepository = makeOpsRepository(job);
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => routes,
+        projectConversationRoute,
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        runAgent: vi.fn(async () => ({
+          status: 'success',
+          result: 'source discovery completed',
+        })) as never,
+      },
+      'app:manipal-tender-copilot:source-discovery-schedule-38',
+    );
+
+    expect(projectConversationRoute).toHaveBeenCalledWith(
+      'app:manipal-tender-copilot:source-discovery-schedule-38',
+      expect.objectContaining({ folder: 'source_discovery_agent' }),
+    );
+    expect(opsRepository.createJobRun).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'dead_lettered' }),
     );
   });
 
@@ -677,6 +731,151 @@ describe('jobs/execution', () => {
         eventType: 'job.run.failed',
       }),
     );
+    const genericFailureEvent = runtimeStoreMock.publish.mock.calls.find(
+      ([event]) => event?.eventType === 'job.run.failed',
+    )?.[0];
+    expect(genericFailureEvent?.payload).not.toHaveProperty('failure');
+  });
+
+  it('publishes stable runner failure metadata on job.run.failed', async () => {
+    const job = makeJob();
+    const opsRepository = makeOpsRepository(job);
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        runAgent: vi.fn(async () => ({
+          status: 'error',
+          result: null,
+          error: 'provider wording may change',
+          failure: {
+            type: 'execution',
+            code: 'structured_output_validation_failed',
+            attemptedAction: 'Validate final response against response schema',
+          },
+        })) as never,
+      },
+      'tg:scheduler',
+    );
+
+    const runFailureEvent = runtimeStoreMock.publish.mock.calls.find(
+      ([event]) => event?.eventType === 'job.run.failed',
+    )?.[0];
+    expect(runFailureEvent?.payload?.failure).toEqual({
+      type: 'execution',
+      code: 'structured_output_validation_failed',
+      attemptedAction: 'Validate final response against response schema',
+    });
+  });
+
+  it('fails closed when a structured job returns a result without validation evidence', async () => {
+    const job = makeJob({
+      agent_task: {
+        responseSchema: {
+          type: 'object',
+          properties: { version: { const: 2 } },
+          required: ['version'],
+        },
+        executionPolicy: { totalTimeoutMs: 30_000 },
+      },
+    });
+    const opsRepository = makeOpsRepository(job);
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        runAgent: vi.fn(async () => ({
+          status: 'success',
+          result: '{"version":2}',
+        })) as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
+      expect.any(String),
+      'failed',
+      null,
+      expect.stringContaining('without a validated response_schema result'),
+    );
+    expect(
+      runtimeStoreMock.publish.mock.calls.some(
+        ([event]) => event?.eventType === 'job.run.completed',
+      ),
+    ).toBe(false);
+  });
+
+  it('completes only after the same run reports gate acceptance and an AJV-validated result', async () => {
+    const job = makeJob({
+      session_id: 'session-deep-analysis',
+      agent_task: {
+        responseSchema: {
+          type: 'object',
+          properties: { version: { const: 2 } },
+          required: ['version'],
+        },
+        callerResolvedTools: {
+          tools: [
+            {
+              name: 'validate_deep_analysis_completion',
+              description: 'Validate completion',
+              inputSchema: { type: 'object' },
+            },
+          ],
+          maxInteractions: 2,
+          interactionTimeoutMs: 30_000,
+        },
+        completionGate: {
+          toolName: 'validate_deep_analysis_completion',
+          maxNoProgressContinuations: 2,
+        },
+        executionPolicy: { totalTimeoutMs: 30_000 },
+      },
+    });
+    const opsRepository = makeOpsRepository(job);
+    const runAgent = vi.fn(async (_group, _input, _onProcess, onStream) => {
+      await onStream({
+        status: 'success',
+        result: '{"version":2}',
+        completionGateAccepted: true,
+        structuredResultValidated: true,
+      });
+      return { status: 'success', result: null };
+    });
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        runAgent: runAgent as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
+      expect.any(String),
+      'completed',
+      '{"version":2}',
+      null,
+    );
+    const completionEvent = runtimeStoreMock.publish.mock.calls.find(
+      ([event]) => event?.eventType === 'job.run.completed',
+    )?.[0];
+    expect(completionEvent?.payload?.result).toBe('{"version":2}');
   });
 
   it('pauses policy-denied manual jobs instead of reactivating them', async () => {

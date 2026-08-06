@@ -184,7 +184,7 @@ function gantryControlSection(): string {
     'Avoid repeated generic progress chatter; keep progress in todo_update unless there is a concrete blocker, decision, or result to share.',
     'For long installs, dependency setup, and renders, use render_progress before the slow step and update the same compact line only at meaningful boundaries; do not append separate progress messages.',
     'Use ask_user_question for decision-blocking questions.',
-    'If Gantry mounts async_run_command or async_mcp_call, use it for approved long-running work. If Gantry mounts delegate_task, use task_get/task_list/task_message/task_cancel to inspect, steer, and cancel delegated work.',
+    'If Gantry mounts async_run_command or async_mcp_call, use it for approved long-running work. If Gantry mounts delegate_task, use task_wait for workflow barriers and task_get/task_list/task_message/task_cancel to inspect, steer, and cancel delegated work.',
   ].join('\n');
 }
 

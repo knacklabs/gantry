@@ -9,6 +9,7 @@ import {
   getRuntimeQueueConfig,
 } from '../../config/index.js';
 import { logger } from '../logging/logger.js';
+import { PGBOSS_SCHEMA } from '../../shared/pgboss-schema.js';
 import type { Job } from '../../domain/types.js';
 import type { ReleasedStaleJobLease } from '../../domain/repositories/ops-repo.js';
 import {
@@ -121,7 +122,7 @@ export class PgBossSchedulerEngine {
     }
     const boss = new PgBoss({
       connectionString: STORAGE_POSTGRES_URL,
-      schema: 'pgboss',
+      schema: PGBOSS_SCHEMA,
       createSchema: true,
       migrate: true,
       schedule: true,

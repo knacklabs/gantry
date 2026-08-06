@@ -46,8 +46,8 @@ export interface ReadinessDeps {
   requirements: ReadinessRoleRequirements;
   /** Runs a parameterless query; throws when the database is unreachable. */
   query: <T>(sql: string) => Promise<T[]>;
-  /** Number of migrations shipped in this build (drizzle journal entries). */
-  shippedMigrationCount: () => number;
+  /** Verifies that the latest shipped migration and runtime seeds are present. */
+  migrationsCurrent: () => Promise<boolean>;
   /** Whether runtime settings have been loaded into the process. */
   settingsLoaded: () => boolean;
   /** Whether the process has entered graceful-drain state. */
@@ -106,11 +106,7 @@ export async function evaluateReadiness(
   try {
     await deps.query('SELECT 1');
     database = 'pass';
-    const rows = await deps.query<{ applied: number }>(
-      'SELECT count(*)::int AS applied FROM __drizzle_migrations',
-    );
-    const applied = rows[0]?.applied ?? 0;
-    migrations = applied >= deps.shippedMigrationCount() ? 'pass' : 'fail';
+    migrations = (await deps.migrationsCurrent()) ? 'pass' : 'fail';
   } catch {
     // Connection-level failure or missing migrations table: both DB and
     // migration checks fail, which is the correct not-ready signal.

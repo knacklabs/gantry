@@ -22,6 +22,11 @@ const sdkState = vi.hoisted(() => ({
     | 'mcp-missing'
     | 'mcp-metadata-omitted'
     | 'active-followup'
+    | 'structured-completion-followup'
+    | 'structured-schema-repair'
+    | 'structured-schema-terminal-failure'
+    | 'external-mcp-result-fallback'
+    | 'external-mcp-audit-file'
     | 'memory-denial'
     | 'agent-model-denial'
     | 'agent-input-field-denial'
@@ -47,8 +52,18 @@ const sdkState = vi.hoisted(() => ({
         model?: string;
       }>),
 }));
+const completionGateState = vi.hoisted(() => ({
+  submit: vi.fn(),
+}));
 const clockState = vi.hoisted(() => ({
   nowMs: () => Date.now(),
+}));
+
+vi.mock('@core/runner/mcp/tools/task-lifecycle.js', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@core/runner/mcp/tools/task-lifecycle.js')
+  >()),
+  submitTaskLifecycleDataRequest: completionGateState.submit,
 }));
 
 vi.mock('@core/shared/time/datetime.js', async (importOriginal) => {
@@ -139,6 +154,124 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => {
       if (next && !next.done) {
         call.streamMessages.push(next.value.message.content);
       }
+      return;
+    }
+
+    if (sdkState.mode === 'structured-completion-followup') {
+      yield {
+        type: 'result',
+        subtype: 'error_max_structured_output_retries',
+        errors: ['intermediate response was not structured'],
+      };
+      const next = await nextWithTimeout(iterator, 1_500);
+      if (next && !next.done) {
+        call.streamMessages.push(next.value.message.content);
+      }
+      yield {
+        type: 'result',
+        subtype: 'success',
+        structured_output: { version: 2 },
+      };
+      return;
+    }
+
+    if (
+      sdkState.mode === 'structured-schema-repair' ||
+      sdkState.mode === 'structured-schema-terminal-failure'
+    ) {
+      yield {
+        type: 'result',
+        subtype: 'success',
+        structured_output: { version: 1 },
+      };
+      const next = await nextWithTimeout(iterator, 1_500);
+      if (next && !next.done) {
+        call.streamMessages.push(next.value.message.content);
+      }
+      call.permissionDecision = await options.canUseTool(
+        'Bash',
+        { command: 'should-not-run' },
+        {
+          signal: new AbortController().signal,
+          title: 'Repair with a tool',
+          displayName: 'Bash',
+          description: 'Attempt a tool during schema repair',
+          decisionReason: 'Repair attempt',
+        },
+      );
+      yield {
+        type: 'result',
+        subtype: 'success',
+        structured_output: {
+          version: sdkState.mode === 'structured-schema-repair' ? 2 : 1,
+        },
+      };
+      return;
+    }
+
+    if (sdkState.mode === 'external-mcp-result-fallback') {
+      yield {
+        type: 'assistant',
+        uuid: 'assistant-firecrawl-tool-use',
+        parent_tool_use_id: null,
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              id: 'toolu_firecrawl_fallback',
+              name: 'mcp__firecrawl__firecrawl_search',
+              input: { query: 'site:example.test tenders' },
+            },
+          ],
+        },
+      };
+      yield {
+        type: 'user',
+        parent_tool_use_id: null,
+        message: {
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'toolu_firecrawl_fallback',
+              content: JSON.stringify({
+                data: [{ url: 'https://example.test/tenders' }],
+              }),
+            },
+          ],
+        },
+      };
+      yield { type: 'result', subtype: 'success', result: 'ok' };
+      return;
+    }
+
+    if (sdkState.mode === 'external-mcp-audit-file') {
+      const auditFile = options.mcpServers.firecrawl.env
+        .GANTRY_EXTERNAL_MCP_AUDIT_FILE as string;
+      fs.appendFileSync(
+        auditFile,
+        `${JSON.stringify({
+          toolCallId: '7d996d62-e6a3-42de-a858-208817d04174',
+          serverName: 'firecrawl',
+          toolName: 'firecrawl_search',
+          requestedToolRule: 'mcp__firecrawl__firecrawl_search',
+          resultClass: 'success',
+          latencyMs: 12,
+          argumentSummary: { keys: ['query'] },
+          inputHash: 'a'.repeat(64),
+          resultHash: 'b'.repeat(64),
+          evidenceProjection: [
+            { kind: 'url', value: 'https://example.test/tenders' },
+          ],
+        })}\n`,
+      );
+      await delay(400);
+      yield {
+        type: 'assistant',
+        uuid: 'assistant-after-audited-tool',
+        parent_tool_use_id: null,
+        message: { content: [{ type: 'text', text: 'done' }] },
+      };
+      yield { type: 'result', subtype: 'success', result: 'ok' };
       return;
     }
 
@@ -401,11 +534,270 @@ afterEach(() => {
   sdkState.mode = 'success';
   sdkState.calls.length = 0;
   sdkState.getContextUsage = undefined;
+  completionGateState.submit.mockReset();
   clockState.nowMs = () => Date.now();
   vi.unstubAllEnvs();
 });
 
 describe('Claude Agent SDK boundary integration', () => {
+  it('emits terminal external MCP evidence from the Gantry-owned audit file', async () => {
+    sdkState.mode = 'external-mcp-audit-file';
+    const env = prepareRuntimeEnv();
+    vi.stubEnv(
+      'GANTRY_MCP_SERVERS_JSON',
+      JSON.stringify({
+        firecrawl: { command: 'node', args: [env.mcpServerPath] },
+      }),
+    );
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { runQuery } = await importRunQuery();
+
+    await runQuery(
+      'discover tender sources',
+      env.mcpServerPath,
+      runnerInput({
+        appId: 'manipal-tender-copilot',
+        agentId: 'agent-source-discovery',
+        runId: 'run-source-discovery',
+        jobId: 'job-source-discovery',
+      }),
+      sdkProcessEnv(),
+      'sonnet',
+      undefined,
+      undefined,
+    );
+
+    const activity = logSpy.mock.calls
+      .map((call) => String(call[0] ?? ''))
+      .filter((line) => line.startsWith('{'))
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            runtimeEvents?: Array<{
+              eventType?: string;
+              actor?: string;
+              payload?: Record<string, unknown>;
+            }>;
+          },
+      )
+      .flatMap((output) => output.runtimeEvents ?? [])
+      .find((event) => event.eventType === 'mcp.tool_activity');
+    logSpy.mockRestore();
+    expect(activity).toMatchObject({
+      actor: 'audited-external-mcp-proxy',
+      payload: {
+        toolCallId: '7d996d62-e6a3-42de-a858-208817d04174',
+        serverName: 'firecrawl',
+        toolName: 'firecrawl_search',
+        resultClass: 'success',
+        evidenceProjection: [
+          { kind: 'url', value: 'https://example.test/tenders' },
+        ],
+      },
+    });
+  });
+
+  it('emits terminal external MCP evidence from SDK tool-result messages when post-tool hooks are absent', async () => {
+    sdkState.mode = 'external-mcp-result-fallback';
+    const env = prepareRuntimeEnv();
+    vi.stubEnv(
+      'GANTRY_MCP_SERVERS_JSON',
+      JSON.stringify({
+        firecrawl: { command: 'node', args: [env.mcpServerPath] },
+      }),
+    );
+    vi.stubEnv(
+      'GANTRY_MCP_ALLOWED_TOOLS_JSON',
+      JSON.stringify(['mcp__firecrawl__firecrawl_search']),
+    );
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { runQuery } = await importRunQuery();
+
+    await runQuery(
+      'discover tender sources',
+      env.mcpServerPath,
+      runnerInput({
+        appId: 'manipal-tender-copilot',
+        agentId: 'agent-source-discovery',
+        runId: 'run-source-discovery',
+        jobId: 'job-source-discovery',
+      }),
+      sdkProcessEnv(),
+      'sonnet',
+      undefined,
+      undefined,
+    );
+
+    const outputs = logSpy.mock.calls
+      .map((call) => String(call[0] ?? ''))
+      .filter((line) => line.startsWith('{'))
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            runtimeEvents?: Array<{
+              eventType?: string;
+              payload?: Record<string, unknown>;
+            }>;
+          },
+      );
+    logSpy.mockRestore();
+    const activity = outputs
+      .flatMap((output) => output.runtimeEvents ?? [])
+      .find((event) => event.eventType === 'mcp.tool_activity');
+    expect(activity?.payload).toMatchObject({
+      toolCallId: 'toolu_firecrawl_fallback',
+      serverName: 'firecrawl',
+      toolName: 'firecrawl_search',
+      resultClass: 'success',
+      evidenceProjection: expect.arrayContaining([
+        expect.objectContaining({ value: 'https://example.test/tenders' }),
+      ]),
+    });
+  });
+
+  it('continues a structured job through its completion gate before requiring final output', async () => {
+    sdkState.mode = 'structured-completion-followup';
+    completionGateState.submit
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          decision: 'continue',
+          progressToken: 'draft-prepared',
+          message: 'Delegate and wait for holistic_review.',
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { decision: 'accept', progressToken: 'review-approved' },
+      });
+    const env = prepareRuntimeEnv();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { runQuery } = await importRunQuery();
+
+    await runQuery(
+      'prepare and review the report',
+      env.mcpServerPath,
+      runnerInput({
+        isScheduledJob: true,
+        responseSchema: {
+          type: 'object',
+          properties: { version: { const: 2 } },
+          required: ['version'],
+          additionalProperties: false,
+        },
+        delegatedCompletionGate: {
+          toolName: 'validate_deep_analysis_completion',
+          maxNoProgressContinuations: 2,
+          interactionTimeoutMs: 90_000,
+        },
+      }),
+      sdkProcessEnv(),
+      'sonnet',
+      undefined,
+      undefined,
+      { enableIpcFollowups: false, persistSdkSession: false },
+    );
+
+    const outputs = logSpy.mock.calls
+      .map((call) => String(call[0] ?? ''))
+      .filter((line) => line.startsWith('{'))
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            result: string | null;
+            completionGateAccepted?: boolean;
+            structuredResultValidated?: boolean;
+          },
+      );
+    logSpy.mockRestore();
+
+    expect(completionGateState.submit).toHaveBeenCalledTimes(2);
+    expect(sdkState.calls[0]?.streamMessages).toEqual([
+      'prepare and review the report',
+      'Delegate and wait for holistic_review.',
+    ]);
+    expect(outputs.map((output) => output.result)).toContain(
+      JSON.stringify({ version: 2 }),
+    );
+    expect(outputs).toContainEqual(
+      expect.objectContaining({
+        completionGateAccepted: true,
+        structuredResultValidated: true,
+      }),
+    );
+  });
+
+  it('repairs one AJV-invalid scheduled result with tools disabled', async () => {
+    sdkState.mode = 'structured-schema-repair';
+    const env = prepareRuntimeEnv();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { runQuery } = await importRunQuery();
+
+    await runQuery(
+      'return the report',
+      env.mcpServerPath,
+      runnerInput({
+        isScheduledJob: true,
+        responseSchema: {
+          type: 'object',
+          properties: { version: { const: 2 } },
+          required: ['version'],
+          additionalProperties: false,
+        },
+      }),
+      sdkProcessEnv(),
+      'sonnet',
+      undefined,
+      undefined,
+      { enableIpcFollowups: false, persistSdkSession: false },
+    );
+
+    const outputs = logSpy.mock.calls
+      .map((call) => String(call[0] ?? ''))
+      .filter((line) => line.startsWith('{'))
+      .map((line) => JSON.parse(line) as { result: string | null });
+    logSpy.mockRestore();
+
+    expect(sdkState.calls[0]?.streamMessages).toHaveLength(2);
+    expect(String(sdkState.calls[0]?.streamMessages[1])).toContain(
+      'failed response_schema validation',
+    );
+    expect(sdkState.calls[0]?.permissionDecision).toEqual(
+      expect.objectContaining({ behavior: 'deny' }),
+    );
+    expect(outputs.map((output) => output.result)).toContain('{"version":2}');
+  });
+
+  it('fails with the stable code after the single schema repair is exhausted', async () => {
+    sdkState.mode = 'structured-schema-terminal-failure';
+    const env = prepareRuntimeEnv();
+    const { runQuery } = await importRunQuery();
+
+    await expect(
+      runQuery(
+        'return the report',
+        env.mcpServerPath,
+        runnerInput({
+          isScheduledJob: true,
+          responseSchema: {
+            type: 'object',
+            properties: { version: { const: 2 } },
+            required: ['version'],
+            additionalProperties: false,
+          },
+        }),
+        sdkProcessEnv(),
+        'sonnet',
+        undefined,
+        undefined,
+        { enableIpcFollowups: false, persistSdkSession: false },
+      ),
+    ).rejects.toMatchObject({
+      code: 'structured_output_validation_failed',
+    });
+    expect(sdkState.calls[0]?.streamMessages).toHaveLength(2);
+  });
+
   it('logs SDK startup timing with the shared clock helper', async () => {
     sdkState.mode = 'partial-output';
     const env = prepareRuntimeEnv();

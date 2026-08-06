@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import type {
   MaterializedMcpServer,
   McpCredentialRef,
@@ -104,7 +106,12 @@ export function materializeMcpRecord(
   };
   const command =
     config.templateId === 'installed-package'
-      ? config.args?.[0]
+      ? path.join(
+          process.cwd(),
+          'node_modules',
+          '.bin',
+          `${config.args?.[0]}${process.platform === 'win32' ? '.cmd' : ''}`,
+        )
       : template.command;
   const args =
     config.templateId === 'installed-package'

@@ -46,6 +46,7 @@ describe('delegation IPC detachment', () => {
 
   it('processes a response-requiring callee task while the parent delegation is waiting', async () => {
     expect(isLongRunningTask('delegate_task')).toBe(true);
+    expect(isLongRunningTask('task_wait')).toBe(true);
     expect(isLongRunningTask('task_get')).toBe(false);
 
     const controlPort = new FilesystemRunnerControlPort(
