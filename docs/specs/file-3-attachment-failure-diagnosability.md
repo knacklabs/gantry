@@ -7,7 +7,7 @@ saved: 2026-08-06T09:13:57+00:00
 
 # FILE-3 — Attachment failures say which cause
 
-Status: draft
+Status: confirmed
 Story: FILE-3
 Trigger: a Gantry deployment reported `attachment_open` failing for every Slack
 file and every file type with one sentence — "I can't get that file from the
@@ -29,8 +29,10 @@ is dropped when two `ok` validations are folded into an unconditional pass.
 ## What is actually broken (validated, with evidence)
 
 1. **Every distinct failure collapses into one message.** Slack API failures are
-   normalised into an `unreachable` result rather than carried as a reason, and
-   `ipc-attachment-open-handler.ts:83-96` converts a thrown `openAttachment`
+   reduced to an `unreachable` reason that the resolver discards when choosing
+   copy, and
+   `apps/core/src/jobs/ipc-attachment-open-handler.ts:68-97` converts a thrown
+   `openAttachment`
    into a *successful* IPC envelope containing the generic copy. The user
    therefore cannot distinguish scope, membership, size, timeout or transport.
 2. **No log exists for the common causes.** There is no attachment-open log for
@@ -40,12 +42,14 @@ is dropped when two `ok` validations are folded into an unconditional pass.
    the only discriminator is elapsed time, which is not a diagnostic.
 3. **The provider doctor can pass while the scope is missing.** `files:read` is
    deliberately a feature scope, not a startup requirement
-   (`cli/slack-install-scopes.ts`), but the doctor drops that warning
-   (`cli/slack.ts:175-190`, `cli/model-credential-verify.ts:261-272`). A green
+   (`apps/core/src/cli/slack-install-scopes.ts:1-9`), but the doctor drops that
+   warning
+   (`apps/core/src/cli/slack.ts:175-190`,
+   `apps/core/src/cli/model-credential-verify.ts:261-272`). A green
    doctor does not rule out the reported failure.
 
 Not broken, checked: Slack downloads DO send `Authorization: Bearer <botToken>`
-(`channels/slack/channel-state.ts:661`, `inbound-attachment-download.ts:32`).
+(`apps/core/src/channels/slack/channel-state.ts:640-650`).
 
 ## Locked product decisions (Ravi, 2026-08-06, in chat)
 
@@ -64,8 +68,10 @@ Not broken, checked: Slack downloads DO send `Authorization: Bearer <botToken>`
 ## Scope
 
 ### A. Name the cause to the user
-- A single classification point maps each failure to a cause:
-  `permission_scope`, `not_a_member` / `not_visible`, `deleted`, `too_large`,
+- The single host-side classification-and-log function is
+  `classifyAndLogAttachmentFailure(input)` in
+  `application/attachments/attachment-failure.ts`. It maps each failure to a cause:
+  `permission_scope`, `not_visible`, `deleted`, `too_large`,
   `rate_limited`, `timeout`, `transport`, `unknown`.
 - Each cause has one plain-English sentence that says what happened and, where
   an action exists, what would fix it. Copy carries no stack traces, tokens,
@@ -74,11 +80,20 @@ Not broken, checked: Slack downloads DO send `Authorization: Bearer <botToken>`
   cause it does not have.
 
 ### B. Log the cause for operators
-- Every classified failure logs once at warn with: cause, provider,
+- Every host-classified failure logs once at warn with: cause, provider,
   providerAccountId, conversationJid, attachmentId, provider status code where
   there is one, and elapsed ms. No token, URL or file bytes.
-- The three silent paths get logs they currently lack: the resolver deadline,
-  the runner no-response timeout, and `incapable` routing.
+- The resolver deadline, thrown `openAttachment`, and `incapable` routing get the
+  same host log. The runner no-response timeout gets timeout-specific user copy,
+  but not a fabricated host-shaped log: the runner lacks `providerAccountId` and
+  the application logger. Carrying that context is part of the deferred IPC
+  refactor.
+- The log helper is allowlist-only. It never accepts a raw `error`, headers,
+  response, URL, body, or provider payload; the current handler catch's
+  `logger.warn({ error, ... })` is removed because its retained message/stack can
+  expose private host or materialization paths and would double-log. The current
+  IPC sanitization test proves the response hides such a path, but does not
+  assert the log is clean.
 
 ### C. Honest doctor
 - The Slack provider doctor surfaces missing feature scopes as a named warning
@@ -93,13 +108,34 @@ Not broken, checked: Slack downloads DO send `Authorization: Bearer <botToken>`
 - Changing Slack OAuth scope requirements or the install flow itself.
 - Teams/Discord/Telegram-specific attachment causes beyond what the shared
   classification naturally covers.
+- Full host-shaped logging for a runner-side no-response timeout; revisit with
+  the typed IPC failure/context refactor.
+
+## Verified path contract
+
+| Path | User cause without changing the IPC envelope | Logging |
+| --- | --- | --- |
+| Slack fetch failure | Yes: resolver-selected `content` already crosses response data. | Once in `classifyAndLogAttachmentFailure`. |
+| Thrown `openAttachment` | Yes: handler returns `unknown` copy in its existing successful response. | Once in the same function; no separate raw-error log. |
+| 110s resolver deadline | Yes: resolver returns timeout copy. | Once in the same function. |
+| 120s runner null response | Yes: runner maps its known wait expiry to timeout copy. | Deferred; runner lacks the required host context and logger. |
+
+Slack mappings are deliberately evidence-conservative. `missing_scope` maps to
+`permission_scope`; `not_visible` to `not_visible`; explicit `file_deleted` to
+`deleted`; HTTP 429 or the SDK rate-limit code to `rate_limited`; and download
+rejection/abort to `transport`. A bare 403 stays `unknown`. The unsupported
+`not_in_channel`, `channel_not_found`, and `file_not_visible` spellings are not
+promised until a real attachment error shape reaches the boundary. There is no
+separate `not_a_member` cause in FILE-3 because current evidence cannot
+distinguish it honestly from visibility.
 
 ## Success criteria
 
 - Each cause in section A is reachable in a test and produces its own distinct
   user-visible sentence; `unknown` is the only path to the legacy copy.
-- Each cause logs exactly once with the fields in section B; no secret material
-  appears in any of them.
+- Each host-classified cause logs exactly once with the fields in section B; no
+  secret material appears in any of them. The runner-only timeout exception is
+  explicit in section B.
 - A token without `files:read` produces a named doctor warning that survives
   aggregation, and the check still passes.
 - The reporter's exact scenario (`files:read` missing, every file type) yields
