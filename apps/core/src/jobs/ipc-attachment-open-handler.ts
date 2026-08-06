@@ -4,9 +4,7 @@ import path from 'node:path';
 
 import {
   classifyAndLogAttachmentFailure,
-  summarizeAttachmentFailureError,
   type AttachmentFailureEvidence,
-  type AttachmentFailureErrorSummary,
 } from '../application/attachments/attachment-failure.js';
 import { ATTACHMENT_MAX_BYTES } from '../application/attachments/attachment-resolver.js';
 import { logger } from '../infrastructure/logging/logger.js';
@@ -84,18 +82,12 @@ async function handleAttachment(
           }
         : {}),
     });
-  } catch (error) {
+  } catch {
     const failure = classifyHandlerFailure(
       context,
       attachmentId,
       { kind: 'unexpected' },
       startedAt,
-      {
-        errorSummary: summarizeAttachmentFailureError(error),
-        ...(mode === 'materialize'
-          ? { workspaceFolder: context.sourceAgentFolder }
-          : {}),
-      },
     );
     acceptData(
       'Attachment unavailable.',
@@ -220,16 +212,12 @@ async function respondToMaterialize(
       path: quarantineRelativePath,
       bytes: writeResult.bytes,
     });
-  } catch (error) {
+  } catch {
     const failure = classifyHandlerFailure(
       context,
       attachmentId,
       { kind: 'unexpected' },
       startedAt,
-      {
-        errorSummary: summarizeAttachmentFailureError(error),
-        workspaceFolder: context.sourceAgentFolder,
-      },
     );
     acceptData('Attachment unavailable.', {
       status: 'unreachable',
@@ -245,10 +233,6 @@ function classifyHandlerFailure(
   attachmentId: string,
   evidence: AttachmentFailureEvidence,
   startedAt: number,
-  details?: {
-    errorSummary?: AttachmentFailureErrorSummary;
-    workspaceFolder?: string;
-  },
 ) {
   return classifyAndLogAttachmentFailure({
     evidence,
@@ -257,10 +241,6 @@ function classifyHandlerFailure(
     conversationJid: context.data.chatJid ?? 'unknown',
     attachmentId,
     elapsedMs: Date.now() - startedAt,
-    ...(details?.errorSummary ? { errorSummary: details.errorSummary } : {}),
-    ...(details?.workspaceFolder
-      ? { workspaceFolder: details.workspaceFolder }
-      : {}),
   });
 }
 

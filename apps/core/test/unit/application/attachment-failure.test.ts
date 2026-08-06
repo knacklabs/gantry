@@ -10,7 +10,6 @@ import {
   ATTACHMENT_TRANSPORT_COPY,
   ATTACHMENT_UNREACHABLE_COPY,
   classifyAndLogAttachmentFailure,
-  summarizeAttachmentFailureError,
   type AttachmentFailureEvidence,
 } from '@core/application/attachments/attachment-failure.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
@@ -105,24 +104,33 @@ describe('attachment failure classification and copy', () => {
     ).toBe(8);
   });
 
-  it('redacts and caps unexpected error summaries before logging', () => {
-    const summary = summarizeAttachmentFailureError(
-      Object.assign(
-        new Error(
-          `failed at https://files.slack.test/report?token=private-token-value in /private/workspaces/agent/report.txt fileContent=${'private file bytes '.repeat(30)}`,
-        ),
-        { code: 'EATTACHMENT' },
-      ),
-    );
-
-    expect(summary).toMatchObject({
-      errorName: 'Error',
-      errorCode: 'EATTACHMENT',
-      errorMessage: expect.stringContaining('failed at [REDACTED_URL]'),
+  it('emits only the allowlisted log fields', () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    classifyAndLogAttachmentFailure({
+      evidence: {
+        kind: 'provider_unreachable',
+        reason: 'rate_limit',
+        providerStatus: 429,
+      },
+      provider: 'slack',
+      providerAccountId: 'slack-default',
+      conversationJid: 'sl:C123',
+      attachmentId: 'attachment-1',
+      elapsedMs: 24.6,
     });
-    expect(summary.errorMessage?.length).toBeLessThanOrEqual(300);
-    expect(JSON.stringify(summary)).not.toContain('files.slack.test');
-    expect(JSON.stringify(summary)).not.toContain('/private/workspaces');
-    expect(JSON.stringify(summary)).not.toContain('private file bytes');
+
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      {
+        cause: 'rate_limited',
+        provider: 'slack',
+        providerAccountId: 'slack-default',
+        conversationJid: 'sl:C123',
+        attachmentId: 'attachment-1',
+        providerStatus: 429,
+        elapsedMs: 25,
+      },
+      'Attachment unavailable',
+    );
   });
 });

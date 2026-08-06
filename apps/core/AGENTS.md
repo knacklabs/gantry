@@ -47,12 +47,13 @@ copy — and it is where the single warn log is emitted.
   from a non-Slack provider must not become a scope claim —
   `does not turn another provider bare authorization evidence into a scope claim`.
 - No two causes share a sentence: `keeps all named cause sentences distinct`.
-- Logs carry a sanitized error summary, never the raw error:
-  `redacts and caps unexpected error summaries before logging`.
+- Logs rebuild an allowlisted record and never accept or retain the raw error:
+  `emits only the allowlisted log fields` and
+  `logs a thrown open once without retaining any raw error data`.
 - A timed-out open logs once — the deadline record is terminal and a late
   settlement of the abandoned fetch must not add a second, contradictory cause:
   `application/attachment-resolver.test.ts` — `ends a stalled provider call
-  before the runner timeout and clears single-flight state for retry`.
+before the runner timeout and clears single-flight state for retry`.
 
 Maintenance: a new cause needs a row in the copy table, a distinct sentence, and
 a falsifier that fails if it is classified from evidence that cannot prove it. A

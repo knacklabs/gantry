@@ -951,7 +951,14 @@ describe('AttachmentResolver', () => {
 
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn).toHaveBeenCalledWith(
-        expect.objectContaining({ cause: 'timeout' }),
+        {
+          cause: 'timeout',
+          provider: 'unknown',
+          providerAccountId: 'provider-account-1',
+          conversationJid: 'sl:C1',
+          attachmentId: 'attachment-1',
+          elapsedMs: expect.any(Number),
+        },
         'Attachment unavailable',
       );
     },
@@ -1223,4 +1230,33 @@ describe('AttachmentResolver', () => {
       );
     },
   );
+
+  it('logs incapable routing exactly once with host attachment context', async () => {
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set('attachment-1', attachment());
+    const provider = fetcher(() => ({
+      status: 'unreachable',
+      reason: 'incapable',
+    }));
+    const resolver = createResolver({ repository, fetcher: provider });
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+    await expect(resolver.open(openRequest())).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_UNREACHABLE_COPY,
+    });
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      {
+        cause: 'unknown',
+        provider: 'slack',
+        providerAccountId: 'provider-account-1',
+        conversationJid: 'sl:C1',
+        attachmentId: 'attachment-1',
+        elapsedMs: expect.any(Number),
+      },
+      'Attachment unavailable',
+    );
+  });
 });
