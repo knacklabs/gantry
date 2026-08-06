@@ -98,6 +98,7 @@ export async function raiseSetupPausePermissionPrompt(input: {
   }
   const setupState = job.setup_state;
   const appId = deps.appId;
+  const cancelledFingerprints = new Set<string>();
   if (
     input.previousFingerprint &&
     input.previousFingerprint !== setupState?.fingerprint
@@ -109,6 +110,7 @@ export async function raiseSetupPausePermissionPrompt(input: {
       fingerprint: input.previousFingerprint,
       reason: 'The job setup blockers changed.',
     });
+    cancelledFingerprints.add(input.previousFingerprint);
   }
   if (
     job.silent ||
@@ -118,6 +120,15 @@ export async function raiseSetupPausePermissionPrompt(input: {
     setupState.state === 'ready' ||
     setupState.fingerprint !== input.setupFingerprint
   ) {
+    if (!cancelledFingerprints.has(input.setupFingerprint)) {
+      await cancelPrompt({
+        deps,
+        job,
+        appId,
+        fingerprint: input.setupFingerprint,
+        reason: 'The job no longer requires this setup approval.',
+      });
+    }
     return { status: 'instruction_only', notificationEligible: false };
   }
 

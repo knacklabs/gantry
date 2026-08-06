@@ -478,6 +478,48 @@ describe('setup pause prompts', () => {
     );
   });
 
+  it.each([
+    [
+      'ready',
+      makeJob({
+        setup_state: {
+          ...makeJob().setup_state!,
+          state: 'ready',
+          blockers: [],
+        },
+      }),
+    ],
+    ['active', makeJob({ status: 'active' })],
+    ['silenced', makeJob({ silent: true })],
+    ['unpaused', makeJob({ status: 'running', pause_reason: null })],
+  ])(
+    'retires the current-fingerprint prompt before returning instruction-only when the job is %s',
+    async (_state, job) => {
+      const cancelPermissionApproval = vi.fn(async () => 'settled' as const);
+      configure({ job: () => job, cancelPermissionApproval });
+
+      await expect(
+        raiseSetupPausePermissionPrompt({
+          jobId: job.id,
+          setupFingerprint: job.setup_state!.fingerprint,
+        }),
+      ).resolves.toEqual({
+        status: 'instruction_only',
+        notificationEligible: false,
+      });
+      expect(cancelPermissionApproval).toHaveBeenCalledOnce();
+      expect(cancelPermissionApproval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestId: setupPausePermissionRequestId(
+            job.id,
+            job.setup_state!.fingerprint,
+          ),
+          reason: 'The job no longer requires this setup approval.',
+        }),
+      );
+    },
+  );
+
   it('formats the prompt rationale from the selected grantable blocker', async () => {
     const job = makeJob({
       setup_state: {
@@ -662,7 +704,7 @@ describe('setup pause prompts', () => {
     );
   });
 
-  it('excludes the approver route for the prompt owner but does not mark an undelivered prompt as notified', async () => {
+  it('falls back to an instruction card when the only-route prompt is undelivered and keeps the fingerprint retryable', async () => {
     const approverRoute = {
       conversationJid: 'sl:approver',
       threadId: 'approval-thread',
@@ -696,7 +738,11 @@ describe('setup pause prompts', () => {
       }),
     ).resolves.toBe(false);
 
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith(
+      'sl:approver',
+      expect.stringContaining('Setup needed'),
+      expect.objectContaining({ threadId: 'approval-thread' }),
+    );
     expect(markJobSetupNotified).not.toHaveBeenCalled();
   });
 
@@ -733,6 +779,7 @@ describe('setup pause prompts', () => {
       'sl:job-notifications',
       expect.stringContaining('Setup needed'),
     );
+    expect(sendMessage).toHaveBeenCalledOnce();
     expect(markJobSetupNotified).not.toHaveBeenCalled();
   });
 

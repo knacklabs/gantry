@@ -7,7 +7,10 @@ import { agentIdForJobWorkspaceKey } from '../application/jobs/job-tool-policy.j
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import type { SchedulerEventAppSession } from './app-session-resolution.js';
-import { notifySchedulerSetupRequired } from './execution-notifications.js';
+import {
+  isOnlyJobNotificationRoute,
+  notifySchedulerSetupRequired,
+} from './execution-notifications.js';
 import { readImageCapabilityInventory } from '../shared/worker-image-inventory.js';
 import { getDeploymentMode } from '../config/index.js';
 import {
@@ -213,6 +216,20 @@ export async function notifyJobSetupRequired(input: {
         });
   const promptNotified =
     prompt.status === 'raised' ? await prompt.delivered : false;
+  if (
+    prompt.status === 'raised' &&
+    !promptNotified &&
+    isOnlyJobNotificationRoute(input.currentJob, prompt.approverRoute)
+  ) {
+    await notifySchedulerSetupRequired({
+      job: input.currentJob,
+      setupState: input.setupState,
+      source: input.source,
+      runId: input.runId,
+      includeRoute: prompt.approverRoute,
+      sendMessage: input.deps.sendMessage,
+    });
+  }
   const notified =
     prompt.status === 'raised'
       ? promptNotified
