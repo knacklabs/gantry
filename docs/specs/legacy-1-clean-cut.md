@@ -1,7 +1,7 @@
 ---
 slug: legacy-1-clean-cut
 title: LEGACY-1 — Legacy clean-cut: one canonical shape, no runtime back-compat
-status: draft
+status: confirmed
 saved: 2026-08-06T22:32:36+00:00
 ---
 
