@@ -39,21 +39,55 @@ Every attachment-fetch failure is classified once, in
 a cause or its user-visible sentence is chosen — adapters supply evidence, never
 copy — and it is where the single warn log is emitted.
 
-- Cause-to-copy table, one row per cause:
-  `application/attachment-failure.test.ts` — `attachment failure classification and copy`.
-- Conservative evidence stays on the legacy sentence (`incapable`, `not_found`,
-  `unknown`, and any unexpected throw): same suite —
-  `keeps conservative evidence on the legacy copy`. A bare authorization signal
-  from a non-Slack provider must not become a scope claim —
-  `does not turn another provider bare authorization evidence into a scope claim`.
+Each cause, and the test that exercises it (suite file in parentheses):
+
+- `permission_scope` — the reported scenario (missing `files:read`, any file
+  type): the user gets the permission sentence and operators get exactly one
+  `permission_scope` warn. Classification + copy: `maps evidence to
+  permission_scope copy` and `emits only the allowlisted log fields`
+  (`attachment-failure.test.ts`). Adapter emits evidence, never copy: `emits
+  explicit files:read scope evidence for Slack missing_scope`
+  (`slack-historical-attachment-fetcher.test.ts`). End to end through the
+  resolver: `keeps missing_scope unreachable and retryable without tombstoning`
+  (`attachment-resolver.test.ts`).
+- `not_visible` — `maps evidence to not_visible copy` (`attachment-failure.test.ts`);
+  adapter taxonomy row (`slack-historical-attachment-fetcher.test.ts`).
+- `deleted` — `maps evidence to deleted copy` (`attachment-failure.test.ts`);
+  `refuses an existing tombstone without a provider call`
+  (`attachment-resolver.test.ts`).
+- `too_large` — `maps evidence to too_large copy` (`attachment-failure.test.ts`);
+  `refuses an over-cap stream through the 50 MiB writer limit and persists
+  nothing` (`attachment-resolver.test.ts`).
+- `rate_limited` — `maps evidence to rate_limited copy` (`attachment-failure.test.ts`);
+  SDK error preserved and an HTML-shaped 429 classified before the HTML fallback
+  (`preserves an SDK rate-limit error as rate-limit evidence`, `classifies an
+  HTML-shaped 429 as rate limited before the HTML fallback`,
+  `slack-historical-attachment-fetcher.test.ts`; `returns rate-limit copy for a
+  Slack HTML-shaped 429 response`, `carries a Slack SDK 429 status into the
+  emitted warning`, `attachment-resolver.test.ts`).
+- `timeout` — `maps evidence to timeout copy` (`attachment-failure.test.ts`); a
+  genuine runner wait-expiry (not a malformed response) gets the timeout copy
+  (`attachment-open.test.ts`); and one shared open logs the timeout exactly once
+  across every stale-retry topology (`logs one timeout when the owner and a
+  joined waiter both expire across a stale retry`, `logs one timeout when a
+  stale retry joins an F2 flight already in progress`, `still logs the timeout
+  when the earlier joiner expires before the F2 owner settles`, and `ends a
+  stalled provider call before the runner timeout and clears single-flight state
+  for retry`, `attachment-resolver.test.ts`).
+- `transport` — `maps evidence to transport copy` (`attachment-failure.test.ts`);
+  an authorization HTTP status (401/403) is `unknown`, never transport
+  (`attachment-resolver.test.ts`).
+- `unknown` (legacy fallback) — conservative evidence (`incapable`, `not_found`,
+  `unknown`, any unexpected throw) stays on the legacy sentence: `keeps
+  conservative evidence on the legacy copy`; a bare authorization signal from a
+  non-Slack provider must not become a scope claim: `does not turn another
+  provider bare authorization evidence into a scope claim`
+  (`attachment-failure.test.ts`).
+
 - No two causes share a sentence: `keeps all named cause sentences distinct`.
 - Logs rebuild an allowlisted record and never accept or retain the raw error:
   `emits only the allowlisted log fields` and
   `logs a thrown open once without retaining any raw error data`.
-- A timed-out open logs once — the deadline record is terminal and a late
-  settlement of the abandoned fetch must not add a second, contradictory cause:
-  `application/attachment-resolver.test.ts` — `ends a stalled provider call
-before the runner timeout and clears single-flight state for retry`.
 
 Maintenance: a new cause needs a row in the copy table, a distinct sentence, and
 a falsifier that fails if it is classified from evidence that cannot prove it. A
