@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ATTACHMENT_UNREACHABLE_COPY } from '@core/application/attachments/attachment-resolver.js';
+import { ATTACHMENT_UNREACHABLE_COPY } from '@core/application/attachments/attachment-failure.js';
 import { attachmentOpenTaskHandlers } from '@core/jobs/ipc-attachment-open-handler.js';
 import { taskIpcResponsePath } from '@core/jobs/ipc-shared.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
@@ -20,6 +20,7 @@ const responsePath = taskIpcResponsePath(sourceAgentFolder, taskId);
 let responseKeyId: string | undefined;
 
 afterEach(() => {
+  vi.restoreAllMocks();
   fs.rmSync(responsePath, { force: true });
   if (responseKeyId) {
     revokeIpcResponseSigningKey(responseKeyId, sourceAgentFolder);
@@ -47,8 +48,16 @@ describe('attachment open IPC handler', () => {
   it('keeps host filesystem errors out of the runner response', async () => {
     const envelope = createIpcAuthEnvelope(sourceAgentFolder);
     responseKeyId = envelope.responseKeyId;
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     const handler = attachmentOpenTaskHandlers.attachment_open;
     if (!handler) throw new Error('attachment_open handler is not registered');
+
+    const token = 'xoxb-123456789012345678901234';
+    const signedUrl =
+      'https://files.slack.test/private/report.csv?token=signed-secret-value';
+    const workspacePath = '/private/host/attachments/secret/report.csv';
+    const fileContent = 'name,total Ada,42';
+    const nestedCause = 'nested provider response body';
 
     await handler({
       data: {
@@ -66,8 +75,11 @@ describe('attachment open IPC handler', () => {
       conversationBindings: {},
       deps: {
         openAttachment: async () => {
-          throw new Error(
-            "EACCES: permission denied, open '/private/host/attachments/secret'",
+          throw Object.assign(
+            new TypeError(
+              `download failed token=${token} signedUrl=${signedUrl} workspacePath=${workspacePath} fileContent=${fileContent} cause=${nestedCause}`,
+            ),
+            { code: 'EATTACHMENT' },
           );
         },
       } as never,
@@ -79,6 +91,36 @@ describe('attachment open IPC handler', () => {
       ok: true,
       data: { content: ATTACHMENT_UNREACHABLE_COPY },
     });
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [logContext] = warn.mock.calls[0] ?? [];
+    expect(logContext).toMatchObject({
+      cause: 'unknown',
+      errorName: 'TypeError',
+      errorCode: 'EATTACHMENT',
+      errorMessage: expect.stringContaining('download failed'),
+    });
+    expect(Object.keys(logContext as Record<string, unknown>)).toEqual([
+      'cause',
+      'provider',
+      'providerAccountId',
+      'conversationJid',
+      'attachmentId',
+      'elapsedMs',
+      'errorName',
+      'errorCode',
+      'errorMessage',
+    ]);
+    const serializedLog = JSON.stringify(logContext);
+    for (const privateValue of [
+      token,
+      signedUrl,
+      workspacePath,
+      fileContent,
+      nestedCause,
+    ]) {
+      expect(serializedLog).not.toContain(privateValue);
+    }
+    expect(serializedLog).not.toContain('stack');
   });
 });
 
@@ -235,6 +277,7 @@ describe('attachment materialize', () => {
     fs.mkdirSync(workspaceRoot, { recursive: true });
     fs.writeFileSync(casPath, 'host bytes');
     fs.symlinkSync(outsideRoot, path.join(workspaceRoot, 'quarantine'), 'dir');
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
 
     try {
       await attachmentOpenTaskHandlers.attachment_materialize!({
@@ -272,6 +315,15 @@ describe('attachment materialize', () => {
         },
       });
       expect(fs.readdirSync(outsideRoot)).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const [logContext] = warn.mock.calls[0] ?? [];
+      expect(logContext).toMatchObject({
+        cause: 'unknown',
+        workspaceFolder: folder,
+        errorName: 'Error',
+      });
+      expect(JSON.stringify(logContext)).not.toContain(workspaceRoot);
+      expect(JSON.stringify(logContext)).not.toContain(outsideRoot);
     } finally {
       fs.rmSync(symlinkResponsePath, { force: true });
       fs.rmSync(workspaceRoot, { recursive: true, force: true });

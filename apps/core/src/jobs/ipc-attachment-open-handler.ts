@@ -3,10 +3,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import {
-  ATTACHMENT_MAX_BYTES,
-  ATTACHMENT_TOO_LARGE_COPY,
-  ATTACHMENT_UNREACHABLE_COPY,
-} from '../application/attachments/attachment-resolver.js';
+  classifyAndLogAttachmentFailure,
+  summarizeAttachmentFailureError,
+  type AttachmentFailureEvidence,
+  type AttachmentFailureErrorSummary,
+} from '../application/attachments/attachment-failure.js';
+import { ATTACHMENT_MAX_BYTES } from '../application/attachments/attachment-resolver.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import {
@@ -65,6 +67,7 @@ async function handleAttachment(
   let result: Awaited<
     ReturnType<NonNullable<typeof context.deps.openAttachment>>
   >;
+  const startedAt = Date.now();
   try {
     result = await context.deps.openAttachment({
       attachmentId,
@@ -82,22 +85,34 @@ async function handleAttachment(
         : {}),
     });
   } catch (error) {
-    logger.warn(
-      { error, attachmentId, sourceAgentFolder: context.sourceAgentFolder },
-      mode === 'materialize'
-        ? 'Attachment materialize failed'
-        : 'Attachment open failed',
+    const failure = classifyHandlerFailure(
+      context,
+      attachmentId,
+      { kind: 'unexpected' },
+      startedAt,
+      {
+        errorSummary: summarizeAttachmentFailureError(error),
+        ...(mode === 'materialize'
+          ? { workspaceFolder: context.sourceAgentFolder }
+          : {}),
+      },
     );
     acceptData(
       'Attachment unavailable.',
       mode === 'materialize'
-        ? { status: 'unreachable', content: ATTACHMENT_UNREACHABLE_COPY }
-        : { content: ATTACHMENT_UNREACHABLE_COPY },
+        ? { status: 'unreachable', content: failure.content }
+        : { content: failure.content },
     );
     return;
   }
   if (mode === 'materialize') {
-    await respondToMaterialize(context, result, acceptData);
+    await respondToMaterialize(
+      context,
+      result,
+      acceptData,
+      attachmentId,
+      startedAt,
+    );
     return;
   }
   acceptData('Attachment opened.', {
@@ -114,6 +129,8 @@ async function respondToMaterialize(
     ReturnType<NonNullable<TaskContext['deps']['openAttachment']>>
   >,
   acceptData: ReturnType<typeof createTaskResponder>['acceptData'],
+  attachmentId: string,
+  startedAt: number,
 ): Promise<void> {
   if (result.status === 'already_in_workspace') {
     const bytes = await workspaceFileSize(
@@ -121,9 +138,15 @@ async function respondToMaterialize(
       result.workspaceRelativePath,
     );
     if (bytes === null) {
+      const failure = classifyHandlerFailure(
+        context,
+        attachmentId,
+        { kind: 'unexpected' },
+        startedAt,
+      );
       acceptData('Attachment unavailable.', {
         status: 'unreachable',
-        content: ATTACHMENT_UNREACHABLE_COPY,
+        content: failure.content,
       });
       return;
     }
@@ -170,9 +193,15 @@ async function respondToMaterialize(
       maxBytes: ATTACHMENT_MAX_BYTES,
     });
     if (writeResult.status === 'too-large') {
+      const failure = classifyHandlerFailure(
+        context,
+        attachmentId,
+        { kind: 'too_large' },
+        startedAt,
+      );
       acceptData('Attachment is too large.', {
         status: 'too_large',
-        content: ATTACHMENT_TOO_LARGE_COPY,
+        content: failure.content,
       });
       return;
     }
@@ -192,21 +221,47 @@ async function respondToMaterialize(
       bytes: writeResult.bytes,
     });
   } catch (error) {
-    logger.warn(
+    const failure = classifyHandlerFailure(
+      context,
+      attachmentId,
+      { kind: 'unexpected' },
+      startedAt,
       {
-        error,
-        attachmentId: context.data.payload?.attachmentId,
-        sourceAgentFolder: context.sourceAgentFolder,
+        errorSummary: summarizeAttachmentFailureError(error),
+        workspaceFolder: context.sourceAgentFolder,
       },
-      'Attachment materialize failed',
     );
     acceptData('Attachment unavailable.', {
       status: 'unreachable',
-      content: ATTACHMENT_UNREACHABLE_COPY,
+      content: failure.content,
     });
   } finally {
     await source?.close().catch(() => undefined);
   }
+}
+
+function classifyHandlerFailure(
+  context: TaskContext,
+  attachmentId: string,
+  evidence: AttachmentFailureEvidence,
+  startedAt: number,
+  details?: {
+    errorSummary?: AttachmentFailureErrorSummary;
+    workspaceFolder?: string;
+  },
+) {
+  return classifyAndLogAttachmentFailure({
+    evidence,
+    provider: 'unknown',
+    providerAccountId: context.data.providerAccountId ?? 'unknown',
+    conversationJid: context.data.chatJid ?? 'unknown',
+    attachmentId,
+    elapsedMs: Date.now() - startedAt,
+    ...(details?.errorSummary ? { errorSummary: details.errorSummary } : {}),
+    ...(details?.workspaceFolder
+      ? { workspaceFolder: details.workspaceFolder }
+      : {}),
+  });
 }
 
 async function workspaceFileSize(

@@ -18,17 +18,16 @@ import {
   type ProviderAttachmentWriter,
 } from '../../shared/provider-attachment-materialization.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import {
+  ATTACHMENT_DELETED_COPY,
+  ATTACHMENT_NOT_FOUND_COPY,
+  ATTACHMENT_UNREACHABLE_COPY,
+  classifyAndLogAttachmentFailure,
+  type AttachmentFailureEvidence,
+} from './attachment-failure.js';
 
 export const ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024;
 export const ATTACHMENT_OPEN_TIMEOUT_MS = 110_000;
-export const ATTACHMENT_NOT_FOUND_COPY =
-  "I couldn't find that attachment in this conversation.";
-export const ATTACHMENT_DELETED_COPY =
-  'That file was deleted from the channel.';
-export const ATTACHMENT_TOO_LARGE_COPY =
-  "That file is larger than 50 MiB, so I can't open it.";
-export const ATTACHMENT_UNREACHABLE_COPY =
-  "I can't get that file from the channel right now.";
 
 export type AttachmentOpenResult =
   | {
@@ -95,19 +94,28 @@ export class AttachmentResolver {
     mode?: 'view' | 'materialize';
     workspaceRoot?: string;
   }): Promise<AttachmentOpenResult> {
+    const startedAt = Date.now();
     const abortController = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<AttachmentOpenResult>((resolve) => {
       timeout = setTimeout(() => {
         abortController.abort();
+        const failure = classifyAndLogAttachmentFailure({
+          evidence: { kind: 'timeout' },
+          provider: 'unknown',
+          providerAccountId: input.providerAccountId,
+          conversationJid: input.conversationJid,
+          attachmentId: input.attachmentId,
+          elapsedMs: Date.now() - startedAt,
+        });
         resolve({
           status: 'unreachable',
-          content: ATTACHMENT_UNREACHABLE_COPY,
+          content: failure.content,
         });
       }, this.openTimeoutMs);
     });
     return Promise.race([
-      this.openWithinDeadline(input, abortController.signal, 1),
+      this.openWithinDeadline(input, abortController.signal, 1, startedAt),
       deadline,
     ]).finally(() => {
       if (timeout) clearTimeout(timeout);
@@ -119,6 +127,7 @@ export class AttachmentResolver {
     input: Parameters<AttachmentResolver['open']>[0],
     signal: AbortSignal,
     staleRetriesRemaining: number,
+    startedAt: number,
   ): Promise<AttachmentOpenResult> {
     const attachment = await this.deps.repository.getResolvableAttachment(
       input.attachmentId,
@@ -221,6 +230,7 @@ export class AttachmentResolver {
       input,
       signal,
       staleRetriesRemaining,
+      startedAt,
     );
     this.inFlight.set(inFlightKey, pending);
     const clearPending = () => {
@@ -242,14 +252,22 @@ export class AttachmentResolver {
     input: Parameters<AttachmentResolver['open']>[0],
     signal: AbortSignal,
     staleRetriesRemaining: number,
+    startedAt: number,
   ): Promise<AttachmentOpenResult> {
     const prepared = await this.fetchAndPrepare(
       attachment,
       input.threadId,
       signal,
+      input,
+      startedAt,
     );
     if (prepared.status === 'stale') {
-      return this.retryStaleAttachment(input, signal, staleRetriesRemaining);
+      return this.retryStaleAttachment(
+        input,
+        signal,
+        staleRetriesRemaining,
+        startedAt,
+      );
     }
     if (prepared.status !== 'ready') return prepared;
     if (signal.aborted) {
@@ -286,7 +304,12 @@ export class AttachmentResolver {
     if (persisted.status !== 'materialized') {
       await this.removeMaterialized(prepared.storageRef);
       if (persisted.status === 'stale') {
-        return this.retryStaleAttachment(input, signal, staleRetriesRemaining);
+        return this.retryStaleAttachment(
+          input,
+          signal,
+          staleRetriesRemaining,
+          startedAt,
+        );
       }
       return persisted.status === 'deleted'
         ? { status: 'deleted', content: ATTACHMENT_DELETED_COPY }
@@ -317,6 +340,8 @@ export class AttachmentResolver {
     attachment: ResolvableMessageAttachment,
     threadId: string | undefined,
     signal: AbortSignal,
+    input: Parameters<AttachmentResolver['open']>[0],
+    startedAt: number,
   ): Promise<PreparedAttachment | AttachmentOpenResult | StaleAttachment> {
     const fetched = await this.deps.fetcher.fetchHistoricalAttachment({
       identity: attachment.providerFetch!,
@@ -353,12 +378,24 @@ export class AttachmentResolver {
           content: ATTACHMENT_NOT_FOUND_COPY,
         };
       }
-      return { status: 'deleted', content: ATTACHMENT_DELETED_COPY };
+      const failure = this.classifyFailure(
+        attachment,
+        input,
+        { kind: 'deleted' },
+        startedAt,
+      );
+      return { status: 'deleted', content: failure.content };
     }
     if (fetched.status === 'unreachable') {
+      const failure = this.classifyFailure(
+        attachment,
+        input,
+        { kind: 'provider_unreachable', reason: fetched.reason },
+        startedAt,
+      );
       return {
         status: 'unreachable',
-        content: ATTACHMENT_UNREACHABLE_COPY,
+        content: failure.content,
       };
     }
 
@@ -403,17 +440,25 @@ export class AttachmentResolver {
       signal.removeEventListener('abort', cancelOnAbort);
       await cancelIncompleteStream();
     }
-    if (writeResult.status === 'too-large') {
-      return {
-        status: 'too_large',
-        content: ATTACHMENT_TOO_LARGE_COPY,
-      };
-    }
     if (signal.aborted) {
-      await this.removeMaterialized(storageRef);
+      if (writeResult.status === 'written') {
+        await this.removeMaterialized(storageRef);
+      }
       return {
         status: 'unreachable',
         content: ATTACHMENT_UNREACHABLE_COPY,
+      };
+    }
+    if (writeResult.status === 'too-large') {
+      const failure = this.classifyFailure(
+        attachment,
+        input,
+        { kind: 'too_large' },
+        startedAt,
+      );
+      return {
+        status: 'too_large',
+        content: failure.content,
       };
     }
     return {
@@ -466,6 +511,7 @@ export class AttachmentResolver {
     input: Parameters<AttachmentResolver['open']>[0],
     signal: AbortSignal,
     staleRetriesRemaining: number,
+    startedAt: number,
   ): Promise<AttachmentOpenResult> {
     if (staleRetriesRemaining <= 0 || signal.aborted) {
       return Promise.resolve({
@@ -473,7 +519,28 @@ export class AttachmentResolver {
         content: ATTACHMENT_UNREACHABLE_COPY,
       });
     }
-    return this.openWithinDeadline(input, signal, staleRetriesRemaining - 1);
+    return this.openWithinDeadline(
+      input,
+      signal,
+      staleRetriesRemaining - 1,
+      startedAt,
+    );
+  }
+
+  private classifyFailure(
+    attachment: ResolvableMessageAttachment,
+    input: Parameters<AttachmentResolver['open']>[0],
+    evidence: AttachmentFailureEvidence,
+    startedAt: number,
+  ) {
+    return classifyAndLogAttachmentFailure({
+      evidence,
+      provider: attachment.providerFetch?.provider ?? 'unknown',
+      providerAccountId: input.providerAccountId,
+      conversationJid: input.conversationJid,
+      attachmentId: input.attachmentId,
+      elapsedMs: Date.now() - startedAt,
+    });
   }
 
   private removeMaterialized(storageRef: string): Promise<void> {

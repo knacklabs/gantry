@@ -94,7 +94,10 @@ export function classifySlackApiError(
   if (errorCode === 'file_deleted') return { status: 'deleted' };
   return {
     status: 'unreachable',
-    reason: classifySlackUnreachableReason(errorCode),
+    reason: classifySlackUnreachableReason(
+      errorCode,
+      slackApiStatusCode(error),
+    ),
   };
 }
 
@@ -113,6 +116,14 @@ function slackApiErrorCode(error: unknown): string | undefined {
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return undefined;
+}
+
+function slackApiStatusCode(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object' || Array.isArray(error)) {
+    return undefined;
+  }
+  const statusCode = (error as Record<string, unknown>).statusCode;
+  return typeof statusCode === 'number' ? statusCode : undefined;
 }
 
 async function slackDownloadErrorCode(
@@ -142,17 +153,7 @@ function classifySlackUnreachableReason(
 ): HistoricalAttachmentUnreachableReason {
   if (errorCode === 'file_not_found') return 'not_found';
   if (errorCode === 'not_visible') return 'not_visible';
-  if (
-    errorCode === 'missing_scope' ||
-    errorCode === 'not_authed' ||
-    errorCode === 'invalid_auth' ||
-    errorCode === 'account_inactive' ||
-    errorCode === 'token_revoked' ||
-    status === 401 ||
-    status === 403
-  ) {
-    return 'auth';
-  }
+  if (errorCode === 'missing_scope') return 'auth';
   if (
     errorCode === 'ratelimited' ||
     errorCode === 'slack_webapi_rate_limited_error' ||

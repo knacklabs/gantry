@@ -6,10 +6,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   ATTACHMENT_DELETED_COPY,
-  ATTACHMENT_MAX_BYTES,
   ATTACHMENT_NOT_FOUND_COPY,
+  ATTACHMENT_PERMISSION_SCOPE_COPY,
+  ATTACHMENT_RATE_LIMITED_COPY,
+  ATTACHMENT_TIMEOUT_COPY,
   ATTACHMENT_TOO_LARGE_COPY,
+  ATTACHMENT_TRANSPORT_COPY,
   ATTACHMENT_UNREACHABLE_COPY,
+} from '@core/application/attachments/attachment-failure.js';
+import {
+  ATTACHMENT_MAX_BYTES,
   AttachmentResolver,
 } from '@core/application/attachments/attachment-resolver.js';
 import { fetchSlackHistoricalAttachment } from '@core/channels/slack/historical-attachment-fetcher.js';
@@ -21,6 +27,7 @@ import type {
   MessageAttachmentRepository,
   ResolvableMessageAttachment,
 } from '@core/domain/ports/message-attachment-repository.js';
+import { logger } from '@core/infrastructure/logging/logger.js';
 import { writeInboundAttachment } from '@core/shared/inbound-attachment-writer.js';
 
 const roots: string[] = [];
@@ -287,6 +294,7 @@ function createResolver(input: {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const root of roots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -831,7 +839,7 @@ describe('AttachmentResolver', () => {
 
     await expect(pending).resolves.toEqual({
       status: 'unreachable',
-      content: ATTACHMENT_UNREACHABLE_COPY,
+      content: ATTACHMENT_TRANSPORT_COPY,
     });
     expect(provider.calls).toBe(2);
     expect(repository.attachments.get('attachment-1')).toMatchObject({
@@ -864,12 +872,12 @@ describe('AttachmentResolver', () => {
 
     await expect(resolver.open(openRequest())).resolves.toEqual({
       status: 'unreachable',
-      content: ATTACHMENT_UNREACHABLE_COPY,
+      content: ATTACHMENT_TIMEOUT_COPY,
     });
     expect(firstSignal?.aborted).toBe(true);
     await expect(resolver.open(openRequest())).resolves.toEqual({
       status: 'unreachable',
-      content: ATTACHMENT_UNREACHABLE_COPY,
+      content: ATTACHMENT_TRANSPORT_COPY,
     });
     expect(provider.calls).toBe(2);
   });
@@ -889,10 +897,65 @@ describe('AttachmentResolver', () => {
 
     await expect(resolver.open(openRequest())).resolves.toEqual({
       status: 'unreachable',
-      content: ATTACHMENT_UNREACHABLE_COPY,
+      content: ATTACHMENT_TIMEOUT_COPY,
     });
     expect(provider.calls).toBe(0);
   });
+
+  it.each(['transport', 'deleted', 'too_large'] as const)(
+    'keeps timeout as the only terminal log when %s settles after the deadline',
+    async (lateFailure) => {
+      const repository = new MemoryAttachmentRepository();
+      repository.attachments.set('attachment-1', attachment());
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let lateSettlementFinished!: () => void;
+      const lateSettlement = new Promise<void>((resolve) => {
+        lateSettlementFinished = resolve;
+      });
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+      const provider = fetcher(async () => {
+        if (lateFailure === 'too_large') {
+          return { status: 'ok', content: Buffer.from('late bytes') };
+        }
+        await gate;
+        lateSettlementFinished();
+        return lateFailure === 'deleted'
+          ? { status: 'deleted' }
+          : { status: 'unreachable', reason: 'network' };
+      });
+      const resolver = createResolver({
+        repository,
+        fetcher: provider,
+        openTimeoutMs: 5,
+        ...(lateFailure === 'too_large'
+          ? {
+              writeAttachment: async () => {
+                await gate;
+                lateSettlementFinished();
+                return { status: 'too-large', bytes: ATTACHMENT_MAX_BYTES + 1 };
+              },
+            }
+          : {}),
+      });
+
+      await expect(resolver.open(openRequest())).resolves.toEqual({
+        status: 'unreachable',
+        content: ATTACHMENT_TIMEOUT_COPY,
+      });
+      release();
+      await lateSettlement;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({ cause: 'timeout' }),
+        'Attachment unavailable',
+      );
+    },
+  );
 
   it('refuses an over-cap stream through the 50 MiB writer limit and persists nothing', async () => {
     const repository = new MemoryAttachmentRepository();
@@ -1137,9 +1200,14 @@ describe('AttachmentResolver', () => {
     ).toBeUndefined();
   });
 
-  it.each(['not_found', 'auth', 'rate_limit'] as const)(
+  it.each([
+    ['incapable', ATTACHMENT_UNREACHABLE_COPY],
+    ['not_found', ATTACHMENT_UNREACHABLE_COPY],
+    ['auth', ATTACHMENT_PERMISSION_SCOPE_COPY],
+    ['rate_limit', ATTACHMENT_RATE_LIMITED_COPY],
+  ] as const)(
     'keeps %s unreachable and retryable without tombstoning',
-    async (reason) => {
+    async (reason, content) => {
       const repository = new MemoryAttachmentRepository();
       repository.attachments.set('attachment-1', attachment());
       const provider = fetcher(() => ({ status: 'unreachable', reason }));
@@ -1147,7 +1215,7 @@ describe('AttachmentResolver', () => {
 
       await expect(resolver.open(openRequest())).resolves.toEqual({
         status: 'unreachable',
-        content: ATTACHMENT_UNREACHABLE_COPY,
+        content,
       });
       expect(repository.tombstoneUpdates).toBe(0);
       expect(repository.attachments.get('attachment-1')?.deletedAt).toBe(
