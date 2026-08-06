@@ -255,6 +255,22 @@ describe('Slack historical attachment fetch taxonomy', () => {
     },
   );
 
+  it('classifies an HTML-shaped 429 as rate limited before the HTML fallback', async () => {
+    await expect(
+      classifySlackDownloadResponse(
+        new Response('<html>rate limited</html>', {
+          status: 429,
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        }),
+        'report.txt',
+      ),
+    ).resolves.toEqual({
+      status: 'unreachable',
+      reason: 'rate_limit',
+      providerStatus: 429,
+    });
+  });
+
   it('recognizes explicit file_deleted in a failed download body', async () => {
     await expect(
       classifySlackDownloadResponse(

@@ -294,6 +294,7 @@ function createResolver(input: {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   for (const root of roots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
@@ -704,6 +705,224 @@ describe('AttachmentResolver', () => {
     ]);
     expect(provider.calls).toBe(1);
     expect(repository.storageUpdates).toBe(1);
+  });
+
+  it('keeps a joined waiter on its own deadline after the first caller times out', async () => {
+    vi.useFakeTimers();
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set('attachment-1', attachment());
+    let release!: () => void;
+    const provider = fetcher(
+      () =>
+        new Promise<HistoricalAttachmentFetchResult>((resolve) => {
+          release = () => resolve({ status: 'unreachable', reason: 'network' });
+        }),
+    );
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const resolver = createResolver({
+      repository,
+      fetcher: provider,
+      openTimeoutMs: 5,
+    });
+
+    const first = resolver.open(openRequest());
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(2);
+    const second = resolver.open(openRequest());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(3);
+    await expect(first).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_TIMEOUT_COPY,
+    });
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+
+    await expect(second).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_TRANSPORT_COPY,
+    });
+    expect(warn.mock.calls.map(([context]) => context.cause)).toEqual([
+      'timeout',
+      'transport',
+    ]);
+  });
+
+  it('logs one timeout when the owner and a joined waiter both expire across a stale retry', async () => {
+    vi.useFakeTimers();
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set('attachment-1', attachment());
+    const gates = new Map<string, () => void>();
+    const provider = fetcher(
+      (input) =>
+        new Promise<HistoricalAttachmentFetchResult>((resolve) => {
+          // F1 reports deleted (drives the stale retry once the row is F2);
+          // F2 never settles, so both callers reach the deadline.
+          gates.set(input.identity.id, () => resolve({ status: 'deleted' }));
+        }),
+    );
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const resolver = createResolver({
+      repository,
+      fetcher: provider,
+      openTimeoutMs: 50,
+    });
+
+    const owner = resolver.open(openRequest());
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(2);
+    // Joins the still-in-flight F1 before its provider id changes.
+    const joined = resolver.open(openRequest());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(1);
+
+    // Move the row to F2 so F1's persist is stale, then release F1: the owner
+    // retries into F2 (never released), carrying the joined waiter with it.
+    repository.attachments.set(
+      'attachment-1',
+      attachment({
+        providerFetch: { provider: 'slack', kind: 'file_id', id: 'F2' },
+      }),
+    );
+    gates.get('F1')?.();
+    // Flush the persist->stale->retry microtasks without consuming the deadline.
+    for (let i = 0; i < 10; i += 1) await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(2);
+
+    await vi.advanceTimersByTimeAsync(60);
+    await expect(owner).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_TIMEOUT_COPY,
+    });
+    await expect(joined).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_TIMEOUT_COPY,
+    });
+    expect(
+      warn.mock.calls.filter(([context]) => context.cause === 'timeout').length,
+    ).toBe(1);
+  });
+
+  it('logs one timeout when a stale retry joins an F2 flight already in progress', async () => {
+    vi.useFakeTimers();
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set('attachment-1', attachment());
+    const gates = new Map<string, () => void>();
+    const provider = fetcher(
+      (input) =>
+        new Promise<HistoricalAttachmentFetchResult>((resolve) => {
+          // F1 reports deleted to drive the stale retry; F2 never settles so
+          // both the F2 owner and the retry that joins it reach the deadline.
+          gates.set(input.identity.id, () => resolve({ status: 'deleted' }));
+        }),
+    );
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const resolver = createResolver({
+      repository,
+      fetcher: provider,
+      openTimeoutMs: 100,
+    });
+
+    // A owns F1 (row still F1).
+    const staleChain = resolver.open(openRequest());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(1);
+
+    // Row moves to F2; C opens and creates+owns the F2 flight.
+    repository.attachments.set(
+      'attachment-1',
+      attachment({
+        providerFetch: { provider: 'slack', kind: 'file_id', id: 'F2' },
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(2);
+    const f2Owner = resolver.open(openRequest());
+    for (let i = 0; i < 5; i += 1) await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(2);
+
+    // Release F1: A's stale retry recomputes the key to F2 and JOINS C's flight
+    // rather than creating a new one, so A is a non-owner of F2.
+    gates.get('F1')?.();
+    for (let i = 0; i < 10; i += 1) await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(2);
+
+    await vi.advanceTimersByTimeAsync(120);
+    await expect(staleChain).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_TIMEOUT_COPY,
+    });
+    await expect(f2Owner).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_TIMEOUT_COPY,
+    });
+    expect(
+      warn.mock.calls.filter(([context]) => context.cause === 'timeout').length,
+    ).toBe(1);
+  });
+
+  it('still logs the timeout when the earlier joiner expires before the F2 owner settles', async () => {
+    // The lost-diagnostic case: an older F1 chain joins a younger F2 owner, the
+    // older caller's deadline fires first, then F2 settles (no timeout) before
+    // the owner's later deadline. Exactly one timeout warning must survive.
+    vi.useFakeTimers();
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set('attachment-1', attachment());
+    const gates = new Map<string, () => void>();
+    const provider = fetcher(
+      (input) =>
+        new Promise<HistoricalAttachmentFetchResult>((resolve) => {
+          gates.set(input.identity.id, () =>
+            resolve(
+              input.identity.id === 'F1'
+                ? { status: 'deleted' }
+                : { status: 'unreachable', reason: 'network' },
+            ),
+          );
+        }),
+    );
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const resolver = createResolver({
+      repository,
+      fetcher: provider,
+      openTimeoutMs: 100,
+    });
+
+    const staleChain = resolver.open(openRequest());
+    await vi.advanceTimersByTimeAsync(0);
+    repository.attachments.set(
+      'attachment-1',
+      attachment({
+        providerFetch: { provider: 'slack', kind: 'file_id', id: 'F2' },
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(2);
+    const f2Owner = resolver.open(openRequest());
+    for (let i = 0; i < 5; i += 1) await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(2);
+
+    gates.get('F1')?.();
+    for (let i = 0; i < 10; i += 1) await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(2);
+
+    // Fire the older caller's deadline (t=100) but not the F2 owner's (t=102).
+    await vi.advanceTimersByTimeAsync(99);
+    await expect(staleChain).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_TIMEOUT_COPY,
+    });
+
+    // F2 settles as transport before its owner ever times out.
+    gates.get('F2')?.();
+    for (let i = 0; i < 10; i += 1) await vi.advanceTimersByTimeAsync(0);
+    await expect(f2Owner).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_TRANSPORT_COPY,
+    });
+    expect(
+      warn.mock.calls.filter(([context]) => context.cause === 'timeout').length,
+    ).toBe(1);
   });
 
   it('does not share or claim a result after the attachment id moves to another owner', async () => {
@@ -1209,6 +1428,36 @@ describe('AttachmentResolver', () => {
     expect(
       repository.attachments.get('attachment-1')?.deletedAt,
     ).toBeUndefined();
+  });
+
+  it('returns rate-limit copy for a Slack HTML-shaped 429 response', async () => {
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set('attachment-1', attachment());
+    const provider: HistoricalAttachmentFetcher = {
+      fetchHistoricalAttachment: (input) =>
+        fetchSlackHistoricalAttachment(
+          { identity: input.identity },
+          {
+            filesInfo: async () => ({
+              file: {
+                name: 'report.txt',
+                url_private_download: 'https://files.slack.test/F1',
+              },
+            }),
+            download: async () =>
+              new Response('<html>rate limited</html>', {
+                status: 429,
+                headers: { 'content-type': 'text/html; charset=utf-8' },
+              }),
+          },
+        ),
+    };
+    const resolver = createResolver({ repository, fetcher: provider });
+
+    await expect(resolver.open(openRequest())).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_RATE_LIMITED_COPY,
+    });
   });
 
   it.each([401, 403])(

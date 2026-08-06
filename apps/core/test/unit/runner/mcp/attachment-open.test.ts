@@ -10,8 +10,11 @@ import {
   attachmentOpenResponsePayload,
   attachmentOpenResponseText,
   attachmentOpenTaskRequest,
+  attachmentOpenTimeoutPayload,
   openAttachmentBatch,
+  RUNNER_ATTACHMENT_TIMEOUT_COPY,
 } from '@core/runner/mcp/attachment-open-protocol.js';
+import { ATTACHMENT_TIMEOUT_COPY } from '@core/application/attachments/attachment-failure.js';
 import { isLongRunningTask } from '@core/runtime/ipc-long-running-task.js';
 import { createAttachmentOpenProof } from '@core/shared/attachment-open-auth-proof.js';
 
@@ -151,6 +154,16 @@ describe('attachment_open MCP bridge', () => {
     ).toContain("can't get that file from the channel");
   });
 
+  it('uses timeout copy only for the runner wait-expiry outcome', () => {
+    expect(attachmentOpenTimeoutPayload()).toEqual({
+      text: RUNNER_ATTACHMENT_TIMEOUT_COPY,
+    });
+    expect(RUNNER_ATTACHMENT_TIMEOUT_COPY).toBe(ATTACHMENT_TIMEOUT_COPY);
+    expect(attachmentOpenResponseText(null)).not.toBe(
+      RUNNER_ATTACHMENT_TIMEOUT_COPY,
+    );
+  });
+
   it('opens attachment batches concurrently while preserving source order', async () => {
     let active = 0;
     let peak = 0;
@@ -207,6 +220,7 @@ describe('attachment_open MCP bridge', () => {
 });
 
 describe('attachment_open tool image delivery', () => {
+  const timedOut = Symbol('timed-out');
   const previousEnv = {
     GANTRY_IPC_DIR: process.env.GANTRY_IPC_DIR,
     GANTRY_MODEL_INPUT_MODALITIES: process.env.GANTRY_MODEL_INPUT_MODALITIES,
@@ -249,6 +263,13 @@ describe('attachment_open tool image delivery', () => {
         ok: true,
         data: responsesByAttachmentId[attachmentIdByTaskId.get(taskId)!],
       })),
+      waitForTaskResponseOutcome: vi.fn(async (taskId: string) => {
+        const response =
+          responsesByAttachmentId[attachmentIdByTaskId.get(taskId)!];
+        return response === timedOut
+          ? { status: 'timed_out' }
+          : { status: 'received', response: { ok: true, data: response } };
+      }),
     }));
     const { registerAttachmentTools } =
       await import('@core/runner/mcp/tools/attachment.js');
@@ -286,6 +307,14 @@ describe('attachment_open tool image delivery', () => {
         text: 'Image attachment: delivered as an image block in this result.',
       },
       { type: 'image', data: 'bytes-a1', mimeType: 'image/png' },
+    ]);
+  });
+
+  it('maps the runner wait expiry to timeout-specific user copy', async () => {
+    const result = await callTool({ a1: timedOut }, ['a1']);
+
+    expect(result.content).toEqual([
+      { type: 'text', text: RUNNER_ATTACHMENT_TIMEOUT_COPY },
     ]);
   });
 

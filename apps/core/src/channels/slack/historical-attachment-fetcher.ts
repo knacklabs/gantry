@@ -75,6 +75,13 @@ export async function classifySlackDownloadResponse(
   response: Response,
   fileName = 'attachment.bin',
 ): Promise<Exclude<HistoricalAttachmentFetchResult, { status: 'ok' }> | null> {
+  if (response.status === 429) {
+    return {
+      status: 'unreachable',
+      reason: 'rate_limit',
+      providerStatus: response.status,
+    };
+  }
   if (isLikelySlackHtmlResponse(response, fileName)) {
     return {
       status: 'unreachable',

@@ -21,6 +21,7 @@ import { nowIso } from '../../shared/time/datetime.js';
 import {
   ATTACHMENT_DELETED_COPY,
   ATTACHMENT_NOT_FOUND_COPY,
+  ATTACHMENT_TIMEOUT_COPY,
   ATTACHMENT_UNREACHABLE_COPY,
   classifyAndLogAttachmentFailure,
   type AttachmentFailureEvidence,
@@ -59,6 +60,13 @@ type PreparedAttachment = {
 
 type StaleAttachment = { status: 'stale' };
 
+type InFlightAttachmentOpen = {
+  promise: Promise<AttachmentOpenResult>;
+  abortController: AbortController;
+  waiters: number;
+  settled: boolean;
+};
+
 export interface AttachmentResolverDeps {
   repository: MessageAttachmentRepository;
   fetcher: HistoricalAttachmentFetcher;
@@ -71,7 +79,14 @@ export interface AttachmentResolverDeps {
 }
 
 export class AttachmentResolver {
-  private readonly inFlight = new Map<string, Promise<AttachmentOpenResult>>();
+  private readonly inFlight = new Map<string, InFlightAttachmentOpen>();
+  // One timeout warning per shared logical open (decision 0111): keyed by open
+  // input so it is stable across F1->F2 stale retries and joins, ref-counted so
+  // it lives exactly as long as a concurrent open of this attachment+mode does.
+  private readonly timeoutLogs = new Map<
+    string,
+    { emitted: boolean; openCount: number }
+  >();
   private readonly writeAttachment: ProviderAttachmentWriter;
   private readonly createStorageRef: (fileName: string) => string;
   private readonly now: () => string;
@@ -96,21 +111,37 @@ export class AttachmentResolver {
   }): Promise<AttachmentOpenResult> {
     const startedAt = Date.now();
     const abortController = new AbortController();
+    const timeoutKey = [
+      input.attachmentId,
+      input.conversationJid,
+      input.providerAccountId,
+      input.mode ?? 'view',
+    ].join('\0');
+    const timeoutEntry = this.timeoutLogs.get(timeoutKey) ?? {
+      emitted: false,
+      openCount: 0,
+    };
+    timeoutEntry.openCount += 1;
+    this.timeoutLogs.set(timeoutKey, timeoutEntry);
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<AttachmentOpenResult>((resolve) => {
       timeout = setTimeout(() => {
         abortController.abort();
-        const failure = classifyAndLogAttachmentFailure({
-          evidence: { kind: 'timeout' },
-          provider: 'unknown',
-          providerAccountId: input.providerAccountId,
-          conversationJid: input.conversationJid,
-          attachmentId: input.attachmentId,
-          elapsedMs: Date.now() - startedAt,
-        });
+        const shouldLog = !timeoutEntry.emitted;
+        timeoutEntry.emitted = true;
+        const content = shouldLog
+          ? classifyAndLogAttachmentFailure({
+              evidence: { kind: 'timeout' },
+              provider: 'unknown',
+              providerAccountId: input.providerAccountId,
+              conversationJid: input.conversationJid,
+              attachmentId: input.attachmentId,
+              elapsedMs: Date.now() - startedAt,
+            }).content
+          : ATTACHMENT_TIMEOUT_COPY;
         resolve({
           status: 'unreachable',
-          content: failure.content,
+          content,
         });
       }, this.openTimeoutMs);
     });
@@ -120,6 +151,8 @@ export class AttachmentResolver {
     ]).finally(() => {
       if (timeout) clearTimeout(timeout);
       abortController.abort();
+      timeoutEntry.openCount -= 1;
+      if (timeoutEntry.openCount <= 0) this.timeoutLogs.delete(timeoutKey);
     });
   }
 
@@ -223,28 +256,47 @@ export class AttachmentResolver {
       input.mode ?? 'view',
     ].join('\0');
     const existing = this.inFlight.get(inFlightKey);
-    if (existing) return existing;
+    if (existing) {
+      return this.waitForSharedFlight(inFlightKey, existing, signal);
+    }
 
+    // The pre-flight lookups above (materialized-file probe, reclamation) can
+    // await past the caller's deadline. Starting a fresh flight here would hand
+    // provider work a live, non-aborted signal and dispatch a download after
+    // open() already returned a timeout. Refuse before creating the flight.
+    if (signal.aborted) {
+      return { status: 'unreachable', content: ATTACHMENT_TIMEOUT_COPY };
+    }
+    const flightAbortController = new AbortController();
     const pending = this.fetchAndMaterialize(
       attachment,
       input,
-      signal,
+      flightAbortController.signal,
       staleRetriesRemaining,
       startedAt,
     );
-    this.inFlight.set(inFlightKey, pending);
-    const clearPending = () => {
-      if (this.inFlight.get(inFlightKey) === pending) {
-        this.inFlight.delete(inFlightKey);
-      }
+    const flight: InFlightAttachmentOpen = {
+      promise: pending,
+      abortController: flightAbortController,
+      waiters: 0,
+      settled: false,
     };
-    signal.addEventListener('abort', clearPending, { once: true });
-    try {
-      return await pending;
-    } finally {
-      signal.removeEventListener('abort', clearPending);
-      clearPending();
-    }
+    void pending.then(
+      () => {
+        flight.settled = true;
+        if (this.inFlight.get(inFlightKey) === flight) {
+          this.inFlight.delete(inFlightKey);
+        }
+      },
+      () => {
+        flight.settled = true;
+        if (this.inFlight.get(inFlightKey) === flight) {
+          this.inFlight.delete(inFlightKey);
+        }
+      },
+    );
+    this.inFlight.set(inFlightKey, flight);
+    return this.waitForSharedFlight(inFlightKey, flight, signal);
   }
 
   private async fetchAndMaterialize(
@@ -565,6 +617,39 @@ export class AttachmentResolver {
       staleRetriesRemaining - 1,
       startedAt,
     );
+  }
+
+  private async waitForSharedFlight(
+    inFlightKey: string,
+    flight: InFlightAttachmentOpen,
+    signal: AbortSignal,
+  ): Promise<AttachmentOpenResult> {
+    flight.waiters += 1;
+    let resolveAbort!: (result: AttachmentOpenResult) => void;
+    const aborted = new Promise<AttachmentOpenResult>((resolve) => {
+      resolveAbort = resolve;
+    });
+    const onAbort = () =>
+      resolveAbort({
+        status: 'unreachable',
+        content: ATTACHMENT_TIMEOUT_COPY,
+      });
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
+    try {
+      return await Promise.race([flight.promise, aborted]);
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+      flight.waiters -= 1;
+      if (flight.waiters === 0) {
+        if (!flight.settled) {
+          if (this.inFlight.get(inFlightKey) === flight) {
+            this.inFlight.delete(inFlightKey);
+          }
+        }
+        flight.abortController.abort();
+      }
+    }
   }
 
   private classifyFailure(
