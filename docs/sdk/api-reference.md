@@ -474,6 +474,11 @@ client.sessions.stream(sessionId, { afterEventId?, signal? })
 client.sessions.wait(sessionId, { afterEventId?, timeoutMs? })
 ```
 
+`sessions.stream` yields durable events only and uses exactly the caller's
+`afterEventId`. Pass a caller-owned `SessionTypingTracker` when needed, then ask
+the tracker for current typing state and generation-invalidated targets; the
+stream never inserts logical typing events into the durable cursor sequence.
+
 `client.sessions.sendMessage` resolves after the runtime accepts and persists the
 inbound session message. The response shape is:
 

@@ -46,6 +46,10 @@ for await (const event of client.sessions.stream(sessionId)) {
 }
 ```
 
+`sessions.stream` yields durable events only. Pass a caller-owned typing tracker
+when needed and ask the tracker for current typing state; stream cursors remain
+the caller's durable `afterEventId` contract.
+
 `client.health()` returns `{ status, processRole, ... }`; `processRole` tells you
 which deployment role answered (`all` on a workstation; `control` in a fleet,
 where the SDK's `baseUrl` is the ALB / control plane — worker roles serve only

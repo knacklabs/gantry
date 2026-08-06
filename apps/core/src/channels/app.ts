@@ -80,6 +80,17 @@ export async function createAppChannel(
   let connected = false;
   let outboundSequence = 0;
   const outboundGeneration = randomUUID();
+  const activeTypingTargets = new Map<
+    string,
+    { jid: string; threadId?: string }
+  >();
+  const liveUx: NonNullable<ChannelAdapter['liveUx']> = {
+    typing: hasLiveUxBindingGeneration ? 'explicit' : 'none',
+    reactions: 'none',
+    canonicalTarget: (target) => ({
+      key: `typing\n${target.jid}\n${target.threadId ?? ''}`,
+    }),
+  };
 
   const orderedEnvelope = (
     kind: string,
@@ -112,22 +123,45 @@ export async function createAppChannel(
       : {};
   };
 
-  return {
+  const channel: ChannelAdapter = {
     name: 'app',
-    liveUx: {
-      typing: hasLiveUxBindingGeneration ? 'explicit' : 'none',
-      reactions: 'none',
-      canonicalTarget: (target) => ({
-        key: `typing\n${target.jid}\n${target.threadId ?? ''}`,
-      }),
-    },
+    liveUx,
     async connect() {
       connected = true;
+      liveUx.typing = liveUxBindingGeneration?.() ? 'explicit' : 'none';
     },
     isConnected() {
       return connected;
     },
     async disconnect() {
+      const targets = [...activeTypingTargets.values()];
+      const terminalTypingResults = await Promise.allSettled(
+        targets.map((target) =>
+          emitSessionEvent(target.jid, RUNTIME_EVENT_TYPES.SESSION_TYPING, {
+            isTyping: false,
+            threadId: target.threadId ?? null,
+            orderedEnvelope: orderedEnvelope(
+              'typing',
+              Number(initialLiveUxBindingGeneration),
+            ),
+          }),
+        ),
+      );
+      terminalTypingResults.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          const target = targets[index]!;
+          logger.warn(
+            {
+              err: result.reason,
+              jid: target.jid,
+              threadId: target.threadId,
+            },
+            'App channel failed to end typing during producer shutdown',
+          );
+        }
+      });
+      activeTypingTargets.clear();
+      liveUx.typing = 'none';
       connected = false;
     },
     ownsJid(jid: string) {
@@ -170,6 +204,15 @@ export async function createAppChannel(
         threadId: options.threadId ?? null,
         orderedEnvelope: orderedEnvelope('typing', Number(generation)),
       });
+      const targetKey = `${jid}\n${options.threadId ?? ''}`;
+      if (isTyping) {
+        activeTypingTargets.set(targetKey, {
+          jid,
+          ...(options.threadId ? { threadId: options.threadId } : {}),
+        });
+      } else {
+        activeTypingTargets.delete(targetKey);
+      }
     },
     async sendProgressUpdate(
       jid: string,
@@ -213,4 +256,5 @@ export async function createAppChannel(
       return result.emitted;
     },
   };
+  return channel;
 }

@@ -7,14 +7,16 @@ type AppliedTypingOrder = {
 
 type AppliedTypingState = {
   isTyping: boolean;
+  observedAtMs: number;
   order?: AppliedTypingOrder;
 };
 
 export type SessionTypingInvalidation = {
-  eventId: number;
   sessionId: string;
   threadId: string | null;
 };
+
+export const SESSION_TYPING_STALE_AFTER_MS = 15_000;
 
 /**
  * Caller-owned latest-value tracker for App typing events.
@@ -29,30 +31,21 @@ export type SessionTypingInvalidation = {
  * A -> B -> A interleave. A newer producer clears typing left by the older
  * producer on every thread, while per-thread sequence ceilings still prevent
  * an older operation within the current epoch from reappearing. Callers that
- * apply events directly can drain those cross-thread clears with
- * `takeInvalidatedTypingTargets`; the SDK stream does this automatically and
- * yields synthetic typing-off events. Dispose releases the tracker's bounded
- * consumer lifetime.
+ * apply events can drain those cross-thread clears with
+ * `takeInvalidatedTypingTargets`. `sessions.stream` yields durable events only;
+ * ask this tracker for current typing state. Typing state older than the bounded
+ * staleness window is reported as not typing. Dispose releases the tracker's
+ * bounded consumer lifetime.
  */
 export class SessionTypingTracker {
   private readonly appliedByTarget = new Map<string, AppliedTypingState>();
   private readonly highestGenerationBySession = new Map<string, number>();
-  private readonly lastObservedEventIdBySession = new Map<string, number>();
   private invalidatedTypingTargets: SessionTypingInvalidation[] = [];
   private disposed = false;
 
   apply(event: SessionEventEnvelope): boolean {
     if (this.disposed) {
       throw new Error('Session typing tracker has been disposed');
-    }
-    if (event.sessionId) {
-      this.lastObservedEventIdBySession.set(
-        event.sessionId,
-        Math.max(
-          this.lastObservedEventIdBySession.get(event.sessionId) ?? 0,
-          event.eventId,
-        ),
-      );
     }
     if (event.eventType !== 'session.typing' || !event.sessionId) return true;
     const isTyping = typingValue(event.payload);
@@ -63,7 +56,7 @@ export class SessionTypingTracker {
       const applied = this.appliedByTarget.get(target);
       if (this.highestGenerationBySession.has(event.sessionId)) return false;
       if (applied?.order) return false;
-      this.appliedByTarget.set(target, { isTyping });
+      this.appliedByTarget.set(target, { isTyping, observedAtMs: Date.now() });
       return true;
     }
     const highestGeneration = this.highestGenerationBySession.get(
@@ -85,12 +78,12 @@ export class SessionTypingTracker {
         if (!appliedTarget.startsWith(sessionPrefix)) continue;
         if (appliedTarget !== target && state.isTyping) {
           this.invalidatedTypingTargets.push({
-            eventId: event.eventId,
             sessionId: event.sessionId,
             threadId: appliedTarget.slice(sessionPrefix.length) || null,
           });
         }
         state.isTyping = false;
+        state.observedAtMs = Date.now();
         state.order = {
           generation: envelope.generation,
           sequenceCeilings: new Map(),
@@ -101,6 +94,7 @@ export class SessionTypingTracker {
     if (!applied?.order) {
       this.appliedByTarget.set(target, {
         isTyping,
+        observedAtMs: Date.now(),
         order: {
           generation: envelope.generation,
           sequenceCeilings: new Map([[envelope.generation, envelope.sequence]]),
@@ -118,22 +112,22 @@ export class SessionTypingTracker {
     applied.order.sequenceCeilings.set(envelope.generation, envelope.sequence);
     applied.order.generation = envelope.generation;
     applied.isTyping = isTyping;
+    applied.observedAtMs = Date.now();
     return true;
-  }
-
-  afterEventId(sessionId: string): number | undefined {
-    if (this.disposed) {
-      throw new Error('Session typing tracker has been disposed');
-    }
-    return this.lastObservedEventIdBySession.get(sessionId);
   }
 
   isTyping(sessionId: string, threadId?: string | null): boolean | undefined {
     if (this.disposed) {
       throw new Error('Session typing tracker has been disposed');
     }
-    return this.appliedByTarget.get(`${sessionId}\n${threadId ?? ''}`)
-      ?.isTyping;
+    const applied = this.appliedByTarget.get(`${sessionId}\n${threadId ?? ''}`);
+    if (
+      applied?.isTyping &&
+      Date.now() - applied.observedAtMs >= SESSION_TYPING_STALE_AFTER_MS
+    ) {
+      applied.isTyping = false;
+    }
+    return applied?.isTyping;
   }
 
   takeInvalidatedTypingTargets(): readonly SessionTypingInvalidation[] {
@@ -149,7 +143,6 @@ export class SessionTypingTracker {
     this.disposed = true;
     this.appliedByTarget.clear();
     this.highestGenerationBySession.clear();
-    this.lastObservedEventIdBySession.clear();
     this.invalidatedTypingTargets = [];
   }
 }

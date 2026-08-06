@@ -305,7 +305,7 @@ describe('@gantry/sdk transport', () => {
     );
   });
 
-  it('scopes the typing tracker to each stream iterator', async () => {
+  it('yields durable typing events without an implicit tracker', async () => {
     const event = (sequence: number, eventId: number) => ({
       eventId,
       eventType: 'session.typing',
@@ -345,11 +345,11 @@ describe('@gantry/sdk transport', () => {
       return events;
     };
 
-    await expect(collect()).resolves.toEqual([event(2, 1)]);
-    await expect(collect()).resolves.toEqual([event(2, 1)]);
+    await expect(collect()).resolves.toEqual([event(2, 1), event(1, 2)]);
+    await expect(collect()).resolves.toEqual([event(2, 1), event(1, 2)]);
   });
 
-  it('keeps a caller-owned typing baseline across stream reconnects', async () => {
+  it('yields durable reconnect events while the tracker keeps current state', async () => {
     const event = (sequence: number, isTyping: boolean, eventId: number) => ({
       eventId,
       eventType: 'session.typing',
@@ -397,14 +397,13 @@ describe('@gantry/sdk transport', () => {
     };
 
     await expect(collect(1)).resolves.toEqual([event(2, false, 2)]);
-    await expect(collect(2)).resolves.toEqual([]);
+    await expect(collect(2)).resolves.toEqual([event(1, true, 3)]);
     expect(tracker.isTyping('session-1', 'thread-1')).toBe(false);
-    expect(tracker.afterEventId('session-1')).toBe(3);
     expect(stream.mock.calls[1]?.[0]).toContain('afterEventId=2');
     tracker.dispose();
   });
 
-  it('yields typing off for another thread invalidated by a newer producer generation', async () => {
+  it('yields only durable events while the tracker exposes generation invalidation', async () => {
     const event = (threadId: string, generation: number, eventId: number) => ({
       eventId,
       eventType: 'session.typing',
@@ -438,20 +437,18 @@ describe('@gantry/sdk transport', () => {
       yield threadANewerProducer;
     });
 
+    const tracker = client.sessions.createTypingTracker();
     const streamed = [];
-    for await (const event of client.sessions.stream('session-1')) {
+    for await (const event of client.sessions.stream('session-1', {
+      tracker,
+    })) {
       streamed.push(event);
     }
 
-    expect(streamed).toEqual([
-      threadBStart,
-      {
-        ...threadANewerProducer,
-        synthetic: true,
-        threadId: 'thread-b',
-        payload: { isTyping: false },
-      },
-      threadANewerProducer,
+    expect(streamed).toEqual([threadBStart, threadANewerProducer]);
+    expect(tracker.isTyping('session-1', 'thread-b')).toBe(false);
+    expect(tracker.takeInvalidatedTypingTargets()).toEqual([
+      { sessionId: 'session-1', threadId: 'thread-b' },
     ]);
   });
 
@@ -503,22 +500,18 @@ describe('@gantry/sdk transport', () => {
     });
     const tracker = client.sessions.createTypingTracker();
     tracker.apply(typing('session-a', 'thread-b', 1, 1));
-    const streamA = client.sessions
-      .stream('session-a', { tracker })
-      [Symbol.asyncIterator]();
-    const streamB = client.sessions
-      .stream('session-b', { tracker })
-      [Symbol.asyncIterator]();
+    const sessionAStream = client.sessions.stream('session-a', { tracker });
+    const sessionBStream = client.sessions.stream('session-b', { tracker });
+    const streamA = sessionAStream[Symbol.asyncIterator]();
+    const streamB = sessionBStream[Symbol.asyncIterator]();
 
     await expect(streamA.next()).resolves.toEqual({
       done: false,
-      value: {
-        ...sessionANewerProducer,
-        synthetic: true,
-        threadId: 'thread-b',
-        payload: { isTyping: false },
-      },
+      value: sessionANewerProducer,
     });
+    expect(tracker.takeInvalidatedTypingTargets()).toEqual([
+      { sessionId: 'session-a', threadId: 'thread-b' },
+    ]);
     await expect(streamB.next()).resolves.toEqual({
       done: false,
       value: sessionBEvent,
@@ -528,17 +521,13 @@ describe('@gantry/sdk transport', () => {
       value: undefined,
     });
     await expect(streamA.next()).resolves.toEqual({
-      done: false,
-      value: sessionANewerProducer,
-    });
-    await expect(streamA.next()).resolves.toEqual({
       done: true,
       value: undefined,
     });
     tracker.dispose();
   });
 
-  it('does not let a synthetic typing invalidation consume the triggering durable cursor', async () => {
+  it('reconnects from the caller cursor without losing or replaying durable events', async () => {
     const event = (threadId: string, generation: number, eventId: number) => ({
       eventId,
       eventType: 'session.typing',
@@ -571,7 +560,6 @@ describe('@gantry/sdk transport', () => {
     stream
       .mockImplementationOnce(async function* () {
         yield threadBStart;
-        yield triggeringDurableEvent;
       })
       .mockImplementationOnce(async function* () {
         yield triggeringDurableEvent;
@@ -584,19 +572,7 @@ describe('@gantry/sdk transport', () => {
       first.push(streamed);
     }
 
-    expect(first).toEqual([
-      threadBStart,
-      expect.objectContaining({
-        eventId: triggeringDurableEvent.eventId,
-        eventType: 'session.typing',
-        synthetic: true,
-        threadId: 'thread-b',
-        payload: { isTyping: false },
-      }),
-      triggeringDurableEvent,
-    ]);
-    expect(new Set(first.map((event) => event.eventId)).size).toBe(2);
-    expect(tracker.afterEventId('session-1')).toBe(2);
+    expect(first).toEqual([threadBStart]);
 
     const resumed = [];
     for await (const streamed of client.sessions.stream('session-1', {
@@ -605,12 +581,16 @@ describe('@gantry/sdk transport', () => {
     })) {
       resumed.push(streamed);
     }
-    expect(resumed).toEqual([]);
-    expect(stream.mock.calls[1]?.[0]).toContain('afterEventId=2');
+    expect(resumed).toEqual([triggeringDurableEvent]);
+    expect(stream.mock.calls[1]?.[0]).toContain('afterEventId=1');
+    expect(tracker.isTyping('session-1', 'thread-b')).toBe(false);
+    expect(tracker.takeInvalidatedTypingTargets()).toEqual([
+      { sessionId: 'session-1', threadId: 'thread-b' },
+    ]);
     tracker.dispose();
   });
 
-  it('lets an eventId-deduplicating consumer observe a marked synthetic invalidation', async () => {
+  it('preserves one durable event for each event id without synthetic duplicates', async () => {
     const event = (threadId: string, generation: number, eventId: number) => ({
       eventId,
       eventType: 'session.typing',
@@ -639,24 +619,17 @@ describe('@gantry/sdk transport', () => {
       yield event('thread-b', 1, 1);
       yield event('thread-a', 2, 2);
     });
-    const seenDurableIds = new Set<number>();
     const observed = [];
 
     for await (const streamed of client.sessions.stream('session-1')) {
-      if (streamed.synthetic || !seenDurableIds.has(streamed.eventId)) {
-        observed.push(streamed);
-      }
-      if (!streamed.synthetic) seenDurableIds.add(streamed.eventId);
+      observed.push(streamed);
     }
 
-    expect(observed).toContainEqual(
-      expect.objectContaining({
-        eventId: 2,
-        synthetic: true,
-        threadId: 'thread-b',
-        payload: { isTyping: false },
-      }),
-    );
+    expect(observed).toEqual([
+      event('thread-b', 1, 1),
+      event('thread-a', 2, 2),
+    ]);
+    expect(new Set(observed.map((event) => event.eventId)).size).toBe(2);
   });
 
   it('records legacy typing state until an ordered envelope establishes the baseline', () => {
@@ -691,10 +664,9 @@ describe('@gantry/sdk transport', () => {
     expect(tracker.apply(ordered)).toBe(true);
     expect(tracker.apply(legacy(true, 4))).toBe(false);
     expect(tracker.isTyping('session-1')).toBe(false);
-    expect(tracker.afterEventId('session-1')).toBe(4);
   });
 
-  it('advances reconnect past a suppressed typing event', async () => {
+  it('does not hide suppressed typing events or rewrite the reconnect cursor', async () => {
     const event = (sequence: number, isTyping: boolean, eventId: number) => ({
       eventId,
       eventType: 'session.typing',
@@ -744,13 +716,13 @@ describe('@gantry/sdk transport', () => {
       second.push(streamed);
     }
 
-    expect(first).toEqual([event(2, false, 2)]);
+    expect(first).toEqual([event(2, false, 2), event(1, true, 3)]);
     expect(second).toEqual([]);
-    expect(stream.mock.calls[1]?.[0]).toContain('afterEventId=3');
+    expect(stream.mock.calls[1]?.[0]).toContain('afterEventId=2');
     expect(tracker.isTyping('session-1')).toBe(false);
   });
 
-  it('keeps tracker resume cursors independent across sessions', async () => {
+  it('keeps tracker typing state independent across sessions', async () => {
     const event = (sessionId: string, eventId: number) => ({
       eventId,
       eventType: 'session.typing',
@@ -790,7 +762,7 @@ describe('@gantry/sdk transport', () => {
     for await (const _event of client.sessions.stream('session-a', {
       tracker,
     })) {
-      // Consume the first session to establish its cursor.
+      // Consume the first session to establish its typing state.
     }
     const sessionB = [];
     for await (const streamed of client.sessions.stream('session-b', {
@@ -801,8 +773,8 @@ describe('@gantry/sdk transport', () => {
 
     expect(stream.mock.calls[1]?.[0]).toBe('/v1/sessions/session-b/events');
     expect(sessionB).toEqual([event('session-b', 1)]);
-    expect(tracker.afterEventId('session-a')).toBe(100);
-    expect(tracker.afterEventId('session-b')).toBe(1);
+    expect(tracker.isTyping('session-a')).toBe(true);
+    expect(tracker.isTyping('session-b')).toBe(true);
   });
 
   it('builds the usage query from every typed filter', async () => {

@@ -5798,7 +5798,7 @@ describe('Slack channel', () => {
     }
   });
 
-  it('rejects an older generation before prior-process Slack cleanup', async () => {
+  it('cleans up prior-process Slack ownership before comparing reset generations', async () => {
     const runtimeHome = fs.mkdtempSync('/tmp/gantry-slack-progress-');
     const savedHome = process.env.GANTRY_HOME;
     process.env.GANTRY_HOME = runtimeHome;
@@ -5833,14 +5833,21 @@ describe('Slack channel', () => {
       appRef.current.client.chat.update.mockClear();
 
       await expect(
-        second.sendProgressUpdate('sl:C1234567890', 'Obsolete work...', {
-          generation: 4,
+        second.sendProgressUpdate('sl:C1234567890', 'Restarted work...', {
+          generation: 1,
         }),
-      ).resolves.toBe(false);
+      ).resolves.toBe(true);
 
-      expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
-      expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
-      expect(JSON.parse(fs.readFileSync(statePath, 'utf8'))).toEqual(entries);
+      expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
+        channel: 'C1234567890',
+        ts: '1710000000.100200',
+        text: 'Interrupted by a restart.',
+        blocks: [],
+      });
+      expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith({
+        channel: 'C1234567890',
+        text: 'Restarted work...',
+      });
     } finally {
       if (savedHome === undefined) delete process.env.GANTRY_HOME;
       else process.env.GANTRY_HOME = savedHome;

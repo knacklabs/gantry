@@ -223,34 +223,12 @@ export async function connectProviderAccountChannels(input: {
     if (
       providerInbound &&
       input.provider.id !== 'app' &&
-      (input.runtimeSettings.runtime.deploymentMode === 'fleet' ||
-        input.provider.id === 'app')
+      input.runtimeSettings.runtime.deploymentMode === 'fleet'
     ) {
       providerInboundLease = await input.channelOpts.runtimeLease?.tryAcquire(
         `${input.inboundLeasePrefix}:${input.provider.id}:${providerAccountId}`,
       );
       providerInbound = providerInboundLease !== undefined;
-      providerInboundLease?.onLost?.((err) => {
-        if (providerInboundLeaseLost) return;
-        providerInboundLeaseLost = err;
-        if (input.provider.id === 'app' && channel.liveUx) {
-          channel.liveUx = { ...channel.liveUx, typing: 'none' };
-        }
-        if (hasHistoryCoverage) {
-          input.channelOpts.setHistoryCoverageInboundActive?.(
-            inboundProviderAccountIds,
-            false,
-          );
-          input.channelOpts.distrustHistoryCoverage?.(
-            inboundProviderAccountIds,
-          );
-        }
-        input.logger.warn(
-          { err, channel: input.provider.id, providerAccountId },
-          'Provider Account inbound lease lost; disconnecting channel',
-        );
-        if (channelConnected) return disconnectAfterLeaseLoss();
-      });
       if (!providerInbound) {
         input.logger.info(
           { channel: input.provider.id, providerAccountId },
@@ -258,6 +236,22 @@ export async function connectProviderAccountChannels(input: {
         );
       }
     }
+    providerInboundLease?.onLost?.((err) => {
+      if (providerInboundLeaseLost) return;
+      providerInboundLeaseLost = err;
+      if (hasHistoryCoverage) {
+        input.channelOpts.setHistoryCoverageInboundActive?.(
+          inboundProviderAccountIds,
+          false,
+        );
+        input.channelOpts.distrustHistoryCoverage?.(inboundProviderAccountIds);
+      }
+      input.logger.warn(
+        { err, channel: input.provider.id, providerAccountId },
+        'Provider Account inbound lease lost; disconnecting channel',
+      );
+      if (channelConnected) return disconnectAfterLeaseLoss();
+    });
 
     // onLost now replays synchronously, so a lease lost immediately after
     // acquisition is already known here. Don't start connecting inbound without

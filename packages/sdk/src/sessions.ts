@@ -13,28 +13,12 @@ export function createSessionsClient(transport: SessionTransport) {
     signal?: AbortSignal,
     retainedTracker?: SessionTypingTracker,
   ): AsyncIterable<SseEvent> {
-    const tracker = retainedTracker ?? new SessionTypingTracker();
-    try {
-      for await (const event of transport.stream(pathname, signal)) {
-        const accepted = tracker.apply(event);
-        for (const invalidated of tracker.takeInvalidatedTypingTargets()) {
-          // Synthetic invalidations deliberately reuse the triggering durable
-          // cursor. Drain them before yielding so another stream sharing the
-          // caller-owned tracker cannot consume this stream's invalidation.
-          yield {
-            ...event,
-            eventId: invalidated.eventId,
-            eventType: 'session.typing',
-            synthetic: true,
-            sessionId: invalidated.sessionId,
-            threadId: invalidated.threadId,
-            payload: { isTyping: false },
-          };
-        }
-        if (accepted) yield event;
-      }
-    } finally {
-      if (!retainedTracker) tracker.dispose();
+    // The stream is the durable event log. It neither inserts logical typing
+    // events nor changes cursor semantics; ask the optional tracker for current
+    // typing state after applying the durable events.
+    for await (const event of transport.stream(pathname, signal)) {
+      retainedTracker?.apply(event);
+      yield event;
     }
   };
 
@@ -66,10 +50,7 @@ export function createSessionsClient(transport: SessionTransport) {
         tracker?: SessionTypingTracker;
       } = {},
     ) => {
-      const afterEventId = Math.max(
-        input.afterEventId ?? 0,
-        input.tracker?.afterEventId(sessionId) ?? 0,
-      );
+      const afterEventId = input.afterEventId ?? 0;
       return streamEvents(
         `/v1/sessions/${encodeURIComponent(sessionId)}/events${afterEventId ? `?afterEventId=${afterEventId}` : ''}`,
         input.signal,

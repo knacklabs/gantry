@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
-import { SessionTypingTracker } from '../../../../../packages/sdk/src/session-events.js';
+import {
+  SESSION_TYPING_STALE_AFTER_MS,
+  SessionTypingTracker,
+} from '../../../../../packages/sdk/src/session-events.js';
 
 const controlRepo = {
   getAppSessionByChatJid: vi.fn(),
@@ -168,14 +171,104 @@ describe('app channel', () => {
 
     expect(tracker.apply(event('thread-a', 2, 1, true))).toBe(true);
     expect(tracker.isTyping('session-1', 'thread-b')).toBe(false);
-    // The invalidation carries the id of the event that triggered it, so a
-    // consumer resuming from the last yielded id neither replays history nor
-    // skips the original event.
+    // Generation invalidation is logical tracker state, separate from the
+    // durable event cursor exposed by sessions.stream.
     expect(tracker.takeInvalidatedTypingTargets()).toEqual([
-      { eventId: 1, sessionId: 'session-1', threadId: 'thread-b' },
+      { sessionId: 'session-1', threadId: 'thread-b' },
     ]);
     expect(tracker.apply(event('thread-b', 1, 2, true))).toBe(false);
     expect(tracker.isTyping('session-1', 'thread-b')).toBe(false);
+  });
+
+  it('reports typing as off after the bounded staleness window', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-06T00:00:00.000Z'));
+    const tracker = new SessionTypingTracker();
+    tracker.apply({
+      eventId: 1,
+      eventType: 'session.typing',
+      sessionId: 'session-1',
+      threadId: 'thread-a',
+      payload: {
+        isTyping: true,
+        orderedEnvelope: { generation: 1, sequence: 1, kind: 'typing' },
+      },
+    });
+
+    vi.advanceTimersByTime(SESSION_TYPING_STALE_AFTER_MS - 1);
+    expect(tracker.isTyping('session-1', 'thread-a')).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(tracker.isTyping('session-1', 'thread-a')).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it('publishes terminal typing off for every active thread before disconnecting', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      canonicalConversationId: 'conversation-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue(null);
+    runtimeEvents.publish.mockResolvedValue({ eventId: 1 });
+    const app = await createAppChannel(appOptions(7));
+
+    await app.connect();
+    await app.setTyping?.('app:demo:conversation', true, {
+      threadId: 'thread-a',
+    });
+    await app.setTyping?.('app:demo:conversation', true, {
+      threadId: 'thread-b',
+    });
+    runtimeEvents.publish.mockClear();
+
+    await app.disconnect();
+
+    expect(runtimeEvents.publish).toHaveBeenCalledTimes(2);
+    expect(runtimeEvents.publish.mock.calls.map((call) => call[0])).toEqual([
+      expect.objectContaining({
+        threadId: 'thread-a',
+        payload: expect.objectContaining({ isTyping: false }),
+      }),
+      expect.objectContaining({
+        threadId: 'thread-b',
+        payload: expect.objectContaining({ isTyping: false }),
+      }),
+    ]);
+    expect(app.liveUx?.typing).toBe('none');
+  });
+
+  it('continues producer shutdown when one terminal typing emit fails', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      canonicalConversationId: 'conversation-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue(null);
+    runtimeEvents.publish.mockResolvedValue({ eventId: 1 });
+    const app = await createAppChannel(appOptions(7));
+
+    await app.connect();
+    await app.setTyping?.('app:demo:conversation', true, {
+      threadId: 'thread-a',
+    });
+    await app.setTyping?.('app:demo:conversation', true, {
+      threadId: 'thread-b',
+    });
+    runtimeEvents.publish.mockReset();
+    runtimeEvents.publish
+      .mockRejectedValueOnce(new Error('emit failed'))
+      .mockResolvedValueOnce({ eventId: 2 });
+
+    await expect(app.disconnect()).resolves.toBeUndefined();
+
+    expect(runtimeEvents.publish).toHaveBeenCalledTimes(2);
+    expect(app.liveUx?.typing).toBe('none');
   });
 
   it('accepts legacy typing only before enveloped state exists for the target', () => {

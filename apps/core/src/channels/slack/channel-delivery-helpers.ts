@@ -491,8 +491,8 @@ export async function sendSlackProgressUpdate(input: {
     },
     'Progress lifecycle slack receive',
   );
-  if (rejectOlderSlackProgressGeneration(input, existing)) return false;
   existing = await currentProcessSlackProgress(input, existing);
+  if (rejectOlderSlackProgressGeneration(input, existing)) return false;
   if (
     existing &&
     input.options.generation !== undefined &&
