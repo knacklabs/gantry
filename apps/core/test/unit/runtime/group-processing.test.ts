@@ -4300,12 +4300,13 @@ describe('createGroupProcessor', () => {
       expect(String(stallCalls()[0]?.[1])).not.toMatch(/\d+[smh]/i);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBe(typingAt179);
+      ).toBe(typingAt179 + 1);
+      expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', false);
       await vi.advanceTimersByTimeAsync(8_000);
       expect(stallCalls()).toHaveLength(1);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBe(typingAt179);
+      ).toBe(typingAt179 + 1);
 
       await onOutput?.({
         status: 'success',
@@ -4314,7 +4315,7 @@ describe('createGroupProcessor', () => {
       await vi.advanceTimersByTimeAsync(4_000);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBeGreaterThan(typingAt179);
+      ).toBeGreaterThan(typingAt179 + 1);
       await vi.advanceTimersByTimeAsync(180_000);
       expect(stallCalls()).toHaveLength(2);
 
@@ -4349,7 +4350,8 @@ describe('createGroupProcessor', () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBe(typingAt179);
+      ).toBe(typingAt179 + 1);
+      expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', false);
 
       await vi.advanceTimersByTimeAsync(12_000);
       const stallCalls = sendProgressUpdate.mock.calls.filter(
@@ -4358,7 +4360,7 @@ describe('createGroupProcessor', () => {
       expect(stallCalls).toHaveLength(1);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBe(typingAt179);
+      ).toBe(typingAt179 + 1);
 
       finish.resolve({ status: 'success', result: null });
       await processing;
@@ -4394,19 +4396,20 @@ describe('createGroupProcessor', () => {
       expect(stallCalls()).toHaveLength(1);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBe(typingAt179);
+      ).toBe(typingAt179 + 1);
+      expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', false);
 
       await vi.advanceTimersByTimeAsync(178_999);
       expect(stallCalls()).toHaveLength(1);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBe(typingAt179);
+      ).toBe(typingAt179 + 1);
 
       await vi.advanceTimersByTimeAsync(1);
       expect(stallCalls()).toHaveLength(2);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBe(typingAt179);
+      ).toBe(typingAt179 + 1);
 
       finish.resolve({ status: 'success', result: null });
       await processing;

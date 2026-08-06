@@ -178,11 +178,13 @@ export class GroupLivenessController {
         this.phase = 'waiting';
         this.pauseReason = deliveryPauseReason;
       } else {
-        this.phase =
+        const nextPhase =
           recoveredFromStall ||
           Date.now() - this.lastOutputAt >= STALL_HEARTBEAT_THRESHOLD_MS
             ? 'stalled'
             : 'active';
+        this.phase = nextPhase;
+        if (nextPhase === 'stalled') void this.setTyping(false);
       }
       return;
     }
@@ -231,11 +233,13 @@ export class GroupLivenessController {
         return;
       }
       this.phase = 'stalled';
+      void this.setTyping(false);
     } else if (
       this.phase === 'active' &&
       Date.now() - this.lastOutputAt >= STALL_HEARTBEAT_THRESHOLD_MS
     ) {
       this.phase = 'stalled';
+      void this.setTyping(false);
     }
 
     if (this.phase === 'active') {

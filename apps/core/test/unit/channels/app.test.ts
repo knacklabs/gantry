@@ -108,6 +108,33 @@ describe('app channel', () => {
     expect(tracker.apply(event('thread-a', 1))).toBe(false);
   });
 
+  it('fences producer generations across every thread in a session', () => {
+    const event = (
+      threadId: string,
+      generation: number,
+      sequence: number,
+      isTyping: boolean,
+    ) => ({
+      eventId: sequence,
+      eventType: 'session.typing',
+      sessionId: 'session-1',
+      threadId,
+      payload: {
+        isTyping,
+        orderedEnvelope: { generation, sequence, kind: 'typing' },
+      },
+    });
+    const tracker = new SessionTypingTracker();
+
+    expect(tracker.apply(event('thread-b', 1, 1, true))).toBe(true);
+    expect(tracker.isTyping('session-1', 'thread-b')).toBe(true);
+
+    expect(tracker.apply(event('thread-a', 2, 1, true))).toBe(true);
+    expect(tracker.isTyping('session-1', 'thread-b')).toBe(false);
+    expect(tracker.apply(event('thread-b', 1, 2, true))).toBe(false);
+    expect(tracker.isTyping('session-1', 'thread-b')).toBe(false);
+  });
+
   it('accepts legacy typing only before enveloped state exists for the target', () => {
     const tracker = new SessionTypingTracker();
     const event = (payload: Record<string, unknown>, eventId: number) => ({

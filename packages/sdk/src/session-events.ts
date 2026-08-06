@@ -19,13 +19,15 @@ type AppliedTypingState = {
  * override a newer terminal `isTyping: false`. Raw history and wait reads stay
  * raw: the logical consumer explicitly retains this tracker across polls.
  * Generation is the durable runtime lease epoch for the App binding. Lower
- * producer epochs are rejected, including an A -> B -> A interleave, and the
- * per-epoch sequence ceilings prevent an older operation within an epoch from
- * reappearing. Thread targets are independent, and dispose releases the
- * tracker's bounded consumer lifetime.
+ * producer epochs are rejected across the whole session, including an
+ * A -> B -> A interleave. A newer producer clears typing left by the older
+ * producer on every thread, while per-thread sequence ceilings still prevent
+ * an older operation within the current epoch from reappearing. Dispose
+ * releases the tracker's bounded consumer lifetime.
  */
 export class SessionTypingTracker {
   private readonly appliedByTarget = new Map<string, AppliedTypingState>();
+  private readonly highestGenerationBySession = new Map<string, number>();
   private readonly lastObservedEventIdBySession = new Map<string, number>();
   private disposed = false;
 
@@ -46,13 +48,39 @@ export class SessionTypingTracker {
     const isTyping = typingValue(event.payload);
     if (isTyping === undefined) return true;
     const target = `${event.sessionId}\n${event.threadId ?? ''}`;
-    const applied = this.appliedByTarget.get(target);
     const envelope = orderedEnvelope(event.payload);
     if (!envelope) {
+      const applied = this.appliedByTarget.get(target);
+      if (this.highestGenerationBySession.has(event.sessionId)) return false;
       if (applied?.order) return false;
       this.appliedByTarget.set(target, { isTyping });
       return true;
     }
+    const highestGeneration = this.highestGenerationBySession.get(
+      event.sessionId,
+    );
+    if (
+      highestGeneration !== undefined &&
+      envelope.generation < highestGeneration
+    ) {
+      return false;
+    }
+    if (
+      highestGeneration === undefined ||
+      envelope.generation > highestGeneration
+    ) {
+      this.highestGenerationBySession.set(event.sessionId, envelope.generation);
+      const sessionPrefix = `${event.sessionId}\n`;
+      for (const [appliedTarget, state] of this.appliedByTarget) {
+        if (!appliedTarget.startsWith(sessionPrefix)) continue;
+        state.isTyping = false;
+        state.order = {
+          generation: envelope.generation,
+          sequenceCeilings: new Map(),
+        };
+      }
+    }
+    const applied = this.appliedByTarget.get(target);
     if (!applied?.order) {
       this.appliedByTarget.set(target, {
         isTyping,
@@ -94,6 +122,7 @@ export class SessionTypingTracker {
   dispose(): void {
     this.disposed = true;
     this.appliedByTarget.clear();
+    this.highestGenerationBySession.clear();
     this.lastObservedEventIdBySession.clear();
   }
 }

@@ -51,6 +51,7 @@ import {
   DurableInteractionPersistenceError,
   recordDurableQuestionAnswerProgress,
 } from '../../application/interactions/pending-interaction-durability.js';
+import { retainTelegramProgressHandleAfterEditFailure } from './progress-edit-failure.js';
 
 export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
   async sendMessage(
@@ -496,11 +497,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
         );
       } catch (err) {
         if (options.replaceOnly) {
-          logger.debug(
-            { jid, err },
-            'Progress lifecycle telegram retained ambiguous replace-only handle after edit failure',
-          );
-          return true;
+          return retainTelegramProgressHandleAfterEditFailure({ jid, err });
         }
         logger.debug(
           { jid, err },

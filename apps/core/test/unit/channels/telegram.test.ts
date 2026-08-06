@@ -4697,13 +4697,49 @@ describe('TelegramChannel', () => {
       );
     });
 
-    it('keeps a replace-only edit failure sticky-ambiguous without creating a duplicate', async () => {
+    it('returns false for a definitive replace-only edit failure without creating a duplicate', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
 
       await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
       currentBot().api.editMessageText.mockRejectedValue(
         new Error('message can not be edited'),
+      );
+
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(false);
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalled();
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+
+      currentBot().api.editMessageText.mockResolvedValue(undefined);
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Repaired.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(true);
+
+      expect(currentBot().api.editMessageText).toHaveBeenLastCalledWith(
+        '100200300',
+        expect.any(Number),
+        'Repaired.',
+        expect.anything(),
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps an ambiguous replace-only transport failure sticky without creating a duplicate', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+      currentBot().api.editMessageText.mockRejectedValue(
+        new Error('socket closed before a response arrived'),
       );
 
       await expect(

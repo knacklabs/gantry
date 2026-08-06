@@ -80,7 +80,7 @@ describe('GroupLivenessController', () => {
     await controller.terminal();
   });
 
-  it('keeps typing suppressed for stalled in-flight and failed delivery, then refreshes immediately after success', async () => {
+  it('turns explicit typing off through a stalled failed delivery, then refreshes immediately after success', async () => {
     const visibleOrdering = deferred<void>();
     const { controller, sendProgressToChannel, setTyping } = setupController();
     sendProgressToChannel.beforeVisibleDelivery = vi
@@ -96,6 +96,9 @@ describe('GroupLivenessController', () => {
       'Still working',
       expect.objectContaining({ replaceOnly: true }),
     );
+    expect(setTyping).toHaveBeenLastCalledWith('discord:parent', false, {
+      threadId: 'thread',
+    });
     setTyping.mockClear();
 
     const inFlight = controller.beginVisibleDelivery();
@@ -107,12 +110,15 @@ describe('GroupLivenessController', () => {
 
     await controller.finishVisibleDelivery(false);
     expect(controller.currentPhase()).toBe('stalled');
-    expect(setTyping).not.toHaveBeenCalled();
+    expect(setTyping).toHaveBeenCalledTimes(1);
+    expect(setTyping).toHaveBeenLastCalledWith('discord:parent', false, {
+      threadId: 'thread',
+    });
 
     await controller.beginVisibleDelivery();
     await controller.finishVisibleDelivery(true);
     expect(controller.currentPhase()).toBe('active');
-    expect(setTyping).toHaveBeenCalledTimes(1);
+    expect(setTyping.mock.calls.map((call) => call[1])).toEqual([false, true]);
     expect(setTyping).toHaveBeenLastCalledWith('discord:parent', true, {
       threadId: 'thread',
     });
@@ -187,7 +193,9 @@ describe('GroupLivenessController', () => {
       'Still working',
       expect.objectContaining({ replaceOnly: true }),
     );
-    expect(setTyping).not.toHaveBeenCalled();
+    expect(setTyping).toHaveBeenCalledWith('discord:parent', false, {
+      threadId: 'thread',
+    });
     await controller.terminal();
   });
 
