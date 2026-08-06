@@ -7,12 +7,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ATTACHMENT_DELETED_COPY,
   ATTACHMENT_NOT_FOUND_COPY,
-  ATTACHMENT_PERMISSION_SCOPE_COPY,
   ATTACHMENT_RATE_LIMITED_COPY,
   ATTACHMENT_TIMEOUT_COPY,
   ATTACHMENT_TOO_LARGE_COPY,
   ATTACHMENT_TRANSPORT_COPY,
   ATTACHMENT_UNREACHABLE_COPY,
+  attachmentPermissionScopeCopy,
 } from '@core/application/attachments/attachment-failure.js';
 import {
   ATTACHMENT_MAX_BYTES,
@@ -1208,16 +1208,41 @@ describe('AttachmentResolver', () => {
   });
 
   it.each([
-    ['incapable', ATTACHMENT_UNREACHABLE_COPY],
-    ['not_found', ATTACHMENT_UNREACHABLE_COPY],
-    ['auth', ATTACHMENT_PERMISSION_SCOPE_COPY],
-    ['rate_limit', ATTACHMENT_RATE_LIMITED_COPY],
+    [
+      'incapable',
+      { status: 'unreachable', reason: 'incapable' },
+      ATTACHMENT_UNREACHABLE_COPY,
+    ],
+    [
+      'not_found',
+      { status: 'unreachable', reason: 'not_found' },
+      ATTACHMENT_UNREACHABLE_COPY,
+    ],
+    [
+      'auth',
+      { status: 'unreachable', reason: 'auth' },
+      ATTACHMENT_UNREACHABLE_COPY,
+    ],
+    [
+      'missing_scope',
+      {
+        status: 'unreachable',
+        reason: 'missing_scope',
+        scope: 'files:read',
+      },
+      attachmentPermissionScopeCopy('files:read'),
+    ],
+    [
+      'rate_limit',
+      { status: 'unreachable', reason: 'rate_limit' },
+      ATTACHMENT_RATE_LIMITED_COPY,
+    ],
   ] as const)(
     'keeps %s unreachable and retryable without tombstoning',
-    async (reason, content) => {
+    async (_reason, failure, content) => {
       const repository = new MemoryAttachmentRepository();
       repository.attachments.set('attachment-1', attachment());
-      const provider = fetcher(() => ({ status: 'unreachable', reason }));
+      const provider = fetcher(() => failure);
       const resolver = createResolver({ repository, fetcher: provider });
 
       await expect(resolver.open(openRequest())).resolves.toEqual({

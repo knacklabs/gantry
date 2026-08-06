@@ -1,7 +1,7 @@
 import type {
   HistoricalAttachmentFetchIdentity,
   HistoricalAttachmentFetchResult,
-  HistoricalAttachmentUnreachableReason,
+  HistoricalAttachmentUnreachableEvidence,
 } from '../../domain/ports/historical-attachment-fetcher.js';
 import { isLikelySlackHtmlResponse } from './inbound-attachment-download.js';
 
@@ -83,7 +83,7 @@ export async function classifySlackDownloadResponse(
   if (errorCode === 'file_deleted') return { status: 'deleted' };
   return {
     status: 'unreachable',
-    reason: classifySlackUnreachableReason(errorCode, response.status),
+    ...classifySlackUnreachableEvidence(errorCode, response.status),
   };
 }
 
@@ -94,10 +94,7 @@ export function classifySlackApiError(
   if (errorCode === 'file_deleted') return { status: 'deleted' };
   return {
     status: 'unreachable',
-    reason: classifySlackUnreachableReason(
-      errorCode,
-      slackApiStatusCode(error),
-    ),
+    ...classifySlackUnreachableEvidence(errorCode, slackApiStatusCode(error)),
   };
 }
 
@@ -147,25 +144,27 @@ async function slackDownloadErrorCode(
   return undefined;
 }
 
-function classifySlackUnreachableReason(
+function classifySlackUnreachableEvidence(
   errorCode?: string,
   status?: number,
-): HistoricalAttachmentUnreachableReason {
-  if (errorCode === 'file_not_found') return 'not_found';
-  if (errorCode === 'not_visible') return 'not_visible';
-  if (errorCode === 'missing_scope') return 'auth';
+): HistoricalAttachmentUnreachableEvidence {
+  if (errorCode === 'file_not_found') return { reason: 'not_found' };
+  if (errorCode === 'not_visible') return { reason: 'not_visible' };
+  if (errorCode === 'missing_scope') {
+    return { reason: 'missing_scope', scope: 'files:read' };
+  }
   if (
     errorCode === 'ratelimited' ||
     errorCode === 'slack_webapi_rate_limited_error' ||
     status === 429
   ) {
-    return 'rate_limit';
+    return { reason: 'rate_limit' };
   }
   if (
     errorCode === 'slack_webapi_request_error' ||
     errorCode === 'slack_webapi_http_error'
   ) {
-    return 'network';
+    return { reason: 'network' };
   }
-  return 'unknown';
+  return { reason: 'unknown' };
 }

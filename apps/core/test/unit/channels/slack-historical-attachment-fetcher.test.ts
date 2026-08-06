@@ -111,7 +111,6 @@ describe('Slack historical attachment fetch taxonomy', () => {
   it.each([
     ['file_not_found', 'not_found'],
     ['not_visible', 'not_visible'],
-    ['missing_scope', 'auth'],
     ['invalid_auth', 'unknown'],
     ['ratelimited', 'rate_limit'],
     ['slack_webapi_rate_limited_error', 'rate_limit'],
@@ -130,6 +129,24 @@ describe('Slack historical attachment fetch taxonomy', () => {
     );
 
     expect(result).toEqual({ status: 'unreachable', reason });
+  });
+
+  it('emits explicit files:read scope evidence for Slack missing_scope', async () => {
+    const result = await fetchSlackHistoricalAttachment(
+      { identity },
+      {
+        filesInfo: vi.fn(async () => {
+          throw slackError('missing_scope');
+        }),
+        download: vi.fn(),
+      },
+    );
+
+    expect(result).toEqual({
+      status: 'unreachable',
+      reason: 'missing_scope',
+      scope: 'files:read',
+    });
   });
 
   it.each([

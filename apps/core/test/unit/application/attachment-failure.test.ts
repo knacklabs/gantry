@@ -3,12 +3,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ATTACHMENT_DELETED_COPY,
   ATTACHMENT_NOT_VISIBLE_COPY,
-  ATTACHMENT_PERMISSION_SCOPE_COPY,
   ATTACHMENT_RATE_LIMITED_COPY,
   ATTACHMENT_TIMEOUT_COPY,
   ATTACHMENT_TOO_LARGE_COPY,
   ATTACHMENT_TRANSPORT_COPY,
   ATTACHMENT_UNREACHABLE_COPY,
+  attachmentPermissionScopeCopy,
   classifyAndLogAttachmentFailure,
   type AttachmentFailureEvidence,
 } from '@core/application/attachments/attachment-failure.js';
@@ -33,9 +33,13 @@ function classify(evidence: AttachmentFailureEvidence) {
 describe('attachment failure classification and copy', () => {
   it.each([
     [
-      { kind: 'provider_unreachable', reason: 'auth' },
+      {
+        kind: 'provider_unreachable',
+        reason: 'missing_scope',
+        scope: 'files:read',
+      },
       'permission_scope',
-      ATTACHMENT_PERMISSION_SCOPE_COPY,
+      attachmentPermissionScopeCopy('files:read'),
     ],
     [
       { kind: 'provider_unreachable', reason: 'not_visible' },
@@ -92,7 +96,7 @@ describe('attachment failure classification and copy', () => {
   it('keeps all named cause sentences distinct', () => {
     expect(
       new Set([
-        ATTACHMENT_PERMISSION_SCOPE_COPY,
+        attachmentPermissionScopeCopy('files:read'),
         ATTACHMENT_NOT_VISIBLE_COPY,
         ATTACHMENT_DELETED_COPY,
         ATTACHMENT_TOO_LARGE_COPY,

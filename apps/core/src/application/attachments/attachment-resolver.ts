@@ -387,10 +387,18 @@ export class AttachmentResolver {
       return { status: 'deleted', content: failure.content };
     }
     if (fetched.status === 'unreachable') {
+      const evidence: AttachmentFailureEvidence =
+        fetched.reason === 'missing_scope'
+          ? {
+              kind: 'provider_unreachable',
+              reason: fetched.reason,
+              scope: fetched.scope,
+            }
+          : { kind: 'provider_unreachable', reason: fetched.reason };
       const failure = this.classifyFailure(
         attachment,
         input,
-        { kind: 'provider_unreachable', reason: fetched.reason },
+        evidence,
         startedAt,
       );
       return {

@@ -1,4 +1,4 @@
-import type { HistoricalAttachmentUnreachableReason } from '../../domain/ports/historical-attachment-fetcher.js';
+import type { HistoricalAttachmentUnreachableEvidence } from '../../domain/ports/historical-attachment-fetcher.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 
 export const ATTACHMENT_NOT_FOUND_COPY =
@@ -9,8 +9,6 @@ export const ATTACHMENT_TOO_LARGE_COPY =
   "That file is larger than 50 MiB, so I can't open it.";
 export const ATTACHMENT_UNREACHABLE_COPY =
   "I can't get that file from the channel right now.";
-export const ATTACHMENT_PERMISSION_SCOPE_COPY =
-  "I can't read files in this workspace yet because the Slack app needs the files:read permission; ask an admin to reinstall Gantry.";
 export const ATTACHMENT_NOT_VISIBLE_COPY =
   "I can't read that file because it isn't visible to Gantry; share it in a channel Gantry can access.";
 export const ATTACHMENT_RATE_LIMITED_COPY =
@@ -31,11 +29,10 @@ export type AttachmentFailureCause =
   | 'unknown';
 
 export type AttachmentFailureEvidence =
-  | {
+  | ({
       kind: 'provider_unreachable';
-      reason: HistoricalAttachmentUnreachableReason;
       providerStatus?: number;
-    }
+    } & HistoricalAttachmentUnreachableEvidence)
   | { kind: 'deleted' }
   | { kind: 'too_large' }
   | { kind: 'timeout' }
@@ -49,7 +46,7 @@ export function classifyAndLogAttachmentFailure(input: {
   attachmentId: string;
   elapsedMs: number;
 }): { cause: AttachmentFailureCause; content: string } {
-  const cause = classifyAttachmentFailure(input.evidence, input.provider);
+  const cause = classifyAttachmentFailure(input.evidence);
   logger.warn(
     {
       cause,
@@ -65,12 +62,11 @@ export function classifyAndLogAttachmentFailure(input: {
     },
     'Attachment unavailable',
   );
-  return { cause, content: ATTACHMENT_FAILURE_COPY[cause] };
+  return { cause, content: attachmentFailureCopy(cause, input.evidence) };
 }
 
 function classifyAttachmentFailure(
   evidence: AttachmentFailureEvidence,
-  provider: string,
 ): AttachmentFailureCause {
   if (evidence.kind === 'deleted') return 'deleted';
   if (evidence.kind === 'too_large') return 'too_large';
@@ -78,8 +74,10 @@ function classifyAttachmentFailure(
   if (evidence.kind === 'unexpected') return 'unknown';
 
   switch (evidence.reason) {
+    case 'missing_scope':
+      return 'permission_scope';
     case 'auth':
-      return provider === 'slack' ? 'permission_scope' : 'unknown';
+      return 'unknown';
     case 'not_visible':
       return 'not_visible';
     case 'rate_limit':
@@ -93,8 +91,29 @@ function classifyAttachmentFailure(
   }
 }
 
-const ATTACHMENT_FAILURE_COPY: Record<AttachmentFailureCause, string> = {
-  permission_scope: ATTACHMENT_PERMISSION_SCOPE_COPY,
+export function attachmentPermissionScopeCopy(scope: string): string {
+  return `I can't read files in this workspace yet because the channel app needs the ${scope} permission; ask an admin to reinstall Gantry.`;
+}
+
+function attachmentFailureCopy(
+  cause: AttachmentFailureCause,
+  evidence: AttachmentFailureEvidence,
+): string {
+  if (
+    cause === 'permission_scope' &&
+    evidence.kind === 'provider_unreachable' &&
+    evidence.reason === 'missing_scope'
+  ) {
+    return attachmentPermissionScopeCopy(evidence.scope);
+  }
+  if (cause === 'permission_scope') return ATTACHMENT_UNREACHABLE_COPY;
+  return ATTACHMENT_FAILURE_COPY[cause];
+}
+
+const ATTACHMENT_FAILURE_COPY: Record<
+  Exclude<AttachmentFailureCause, 'permission_scope'>,
+  string
+> = {
   not_visible: ATTACHMENT_NOT_VISIBLE_COPY,
   deleted: ATTACHMENT_DELETED_COPY,
   too_large: ATTACHMENT_TOO_LARGE_COPY,
