@@ -131,8 +131,11 @@ describe('app channel', () => {
 
     expect(tracker.apply(event('thread-a', 2, 1, true))).toBe(true);
     expect(tracker.isTyping('session-1', 'thread-b')).toBe(false);
+    // The invalidation carries the id of the event that triggered it, so a
+    // consumer resuming from the last yielded id neither replays history nor
+    // skips the original event.
     expect(tracker.takeInvalidatedTypingTargets()).toEqual([
-      { eventId: -1, sessionId: 'session-1', threadId: 'thread-b' },
+      { eventId: 1, sessionId: 'session-1', threadId: 'thread-b' },
     ]);
     expect(tracker.apply(event('thread-b', 1, 2, true))).toBe(false);
     expect(tracker.isTyping('session-1', 'thread-b')).toBe(false);
