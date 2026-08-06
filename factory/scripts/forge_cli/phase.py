@@ -49,13 +49,14 @@ def cmd_next(args: argparse.Namespace) -> None:
                      "run: python3 factory/scripts/intake.py --issue <KEY> --title \"<title>\"")
     elif not client_signoff(base)[0]:
         phase("discovery/prototype/specs/roadmap (0a/0b/0c)")
-        steps.append("[PM] Fill docs/product/DISCOVERY.md and BRIEF.md; prototype freely (no ceremony)")
-        steps.append("[PM] Capture client decisions: forge.py decision new <slug>")
+        steps.append("[PM] Capture discovery and the product brief — ask for them; "
+                     "prototype freely meanwhile (no ceremony)")
+        steps.append("[PM] Record each client decision as it is made — ask, then confirm it in chat")
         from .specs import spec_records
         specs = spec_records(base)
         if not specs:
-            steps.append("[PM] Save capability specs as they emerge: "
-                         "./forge spec save <slug> --from <draft.md>")
+            steps.append("[PM] Save capability specs as they emerge — ask to save each one "
+                         "from its draft, then confirm it")
         drafts = [spec["slug"] for spec in specs if spec.get("status") != "confirmed"]
         if drafts:
             steps.append("[PM] Grill and confirm every draft spec: "

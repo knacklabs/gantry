@@ -146,10 +146,46 @@ def dirty_paths(base: Path) -> list[str]:
     return sorted(set(paths))
 
 
+def stage_ref(stage_id: str) -> str:
+    """The stage's fixed point (decision 0023).
+
+    Under `refs/forge/` so it is never confused with a branch, never fetched or
+    pushed by default, and never rewritten by an ordinary git operation.
+    """
+    return f"refs/forge/stage/{stage_id}"
+
+
+def write_stage_ref(base: Path, stage_id: str) -> str:
+    """Pin HEAD as this stage's baseline and return the sha it points at."""
+    head = head_sha(base) or ""
+    if head:
+        _git(base, "update-ref", stage_ref(stage_id), head)
+    return head
+
+
+def stage_baseline(base: Path, stage: dict) -> str:
+    """The ref if it resolves, else the recorded sha.
+
+    The fallback is what lets a stage started before 0023 — or one whose ref a
+    worktree prune removed — still be measured and closed, rather than becoming
+    the unrecoverable state this decision exists to remove.
+    """
+    resolved = _git(base, "rev-parse", "--verify", "--quiet",
+                    stage_ref(stage.get("id", ""))).strip()
+    return resolved or stage.get("base_sha", "") or ""
+
+
 def committed_paths(base: Path, base_sha: str, head: str) -> set[str]:
-    """Both sides of every committed change, including renames and copies."""
-    raw = _git(base, "diff", "--name-status", "-z", "--find-renames",
-               f"{base_sha}..{head}")
+    """Both sides of every change THIS BRANCH committed, renames and copies too.
+
+    `--first-parent --no-merges`, not a plain range diff: merging upstream into
+    a story worktree while a stage is open otherwise attributes every file that
+    upstream touched to the stage, and `stage done` refuses a scope violation
+    the worker never committed. A merge is something the branch received, not
+    something the stage did.
+    """
+    raw = _git(base, "log", "--first-parent", "--no-merges", "--format=",
+               "--name-status", "-z", "--find-renames", f"{base_sha}..{head}")
     entries = raw.split("\0")
     paths: set[str] = set()
     index = 0
@@ -585,24 +621,17 @@ def _cmd_start_locked(args: argparse.Namespace, base: Path) -> None:
              "new stage in a re-recorded decomposition")
     current_task = task_for(base, args.id)
     if stage.get("status") == "active":
-        recorded = stage.get("task_sha256")
-        current = task_digest(current_task)
-        if not recorded or recorded == current:
-            fail(f"{args.id} is already active — restarting it would erase the "
-                 "measured delta. Continue the active stage, or re-record a "
-                 "changed task contract before deliberately re-baselining it.")
-        changed = [
-            path for path in changed_paths(
-                base, stage.get("base_sha", ""),
-                stage.get("dirty_at_start", {}),
-            )
-            if not path.startswith(WORKFLOW_PATHS)
-        ]
-        strays = out_of_scope(changed, current_task.get("write_scope") or [])
-        if strays:
-            fail(f"{args.id} cannot re-baseline over path(s) still outside the "
-                 f"new task contract: {', '.join(strays[:10])}. Resolve or "
-                 "remove those changes before restarting the stage.")
+        # No re-baselining, ever (decision 0023). The baseline is a ref written
+        # once at start; a contract that changes mid-stage is LEDGERED, not
+        # replayed onto a new fixed point. Coupling the two is what stranded a
+        # stage whose work was complete, reviewed and committed: the repair
+        # rebaselined onto the finished commit, so the delta it was protecting
+        # no longer existed and nothing could measure it again.
+        fail(f"{args.id} is already active — restarting would erase the measured "
+             "delta, and the baseline is not something to move. Re-record a "
+             "changed contract if the scope was wrong: the change is ledgered "
+             f"and `forge stage done {args.id}` still measures against the ref "
+             "this stage started from.")
     active_others = [
         other["id"] for other in data.get("stages", [])
         if other is not stage and other.get("status") == "active"
@@ -615,11 +644,47 @@ def _cmd_start_locked(args: argparse.Namespace, base: Path) -> None:
     if not_done:
         fail(f"{args.id} follows unfinished task(s): {', '.join(not_done)} — "
              "finish them in decomposition order")
+    # The realistic staleness: the plan was edited AFTER this task graph was
+    # recorded, so the tasks describe a plan nobody approved. No record-time
+    # check can see that — the decomposition was current when it was written.
+    # This is where it becomes visible, at the last moment before work starts.
+    # The PROTECTED authority, not the workspace mirror. Reading the mutable
+    # .factory/decomposition.json meant that replacing it — which a merge does
+    # routinely, since tracked evidence travels with the branch — could drop
+    # the stamp and silently disable this check. A binding that disappears
+    # when a file is overwritten is not a binding.
+    decomposition = load_json(protected_decomposition_state_path(base), default={})
+    if not decomposition:
+        decomposition = load_json(decomposition_state_path(base), default={})
+    stamped = decomposition.get("plan_sha256")
+    plan_file = load_json(run_state_path(base), default={}).get("plan_file")
+    if stamped:
+        # A stamped decomposition CLAIMS a plan binding, so failing to verify it
+        # is a refusal, never a pass. Skipping the check when the plan is gone
+        # would open the gate in exactly the case it exists for: the plan that
+        # was approved is no longer there to compare against.
+        if not plan_file:
+            fail(f"{args.id} cannot start: this decomposition is bound to a plan "
+                 "digest, but .factory/run.json no longer names a plan_file. "
+                 "Restore the run state or re-record the decomposition.")
+        if not (base / plan_file).is_file():
+            fail(f"{args.id} cannot start: the plan this decomposition was built "
+                 f"from ({plan_file}) is missing, so its binding cannot be "
+                 "verified. Restore it or re-record against the current plan.")
+        if sha256_of(base / plan_file) != stamped:
+            fail(f"{args.id} cannot start: {plan_file} has changed since this "
+                 "decomposition was recorded, so the task list describes a plan "
+                 "that is no longer the approved one. Re-record the "
+                 "decomposition against the current plan, then start the stage.")
     stage["status"] = "active"
     stage["started_at"] = now_iso()
     # `stage done` measures the diff, and a measurement needs a fixed point —
     # plus the dirt that was already there, which is not this stage's work.
-    stage["base_sha"] = head_sha(base) or ""
+    # The fixed point is a REF (decision 0023): a sha in stages.json can be
+    # rewritten by the next `stage start`, which is how re-recording a contract
+    # once destroyed the delta it was supposed to protect. A ref is written
+    # once per stage and survives commits, rebases and worktree switches.
+    stage["base_sha"] = write_stage_ref(base, args.id) or ""
     stage["dirty_at_start"] = dirty_digests(base)
     stage["task_sha256"] = task_digest(current_task)
     append_event(base, "stage-start", actor="implementer", story=data.get("issue", ""),
@@ -648,7 +713,7 @@ def _measure(base: Path, stage_id: str, stage: dict, task: dict) -> None:
     Every other diff-based check in this repo fires when TOO MUCH changed.
     None fired when too little did — which is exactly what a stalled or
     half-finished delegation looks like, and it signed itself off."""
-    base_sha = stage.get("base_sha")
+    base_sha = stage_baseline(base, stage)
     if not base_sha:
         fail(f"{stage_id} was started before its base commit was recorded, so "
              "there is nothing to measure against. Re-run "
@@ -662,16 +727,12 @@ def _measure(base: Path, stage_id: str, stage: dict, task: dict) -> None:
         fail(f"{stage_id} declares no write_scope, so nothing bounds what it may "
              "change. Re-record the decomposition with the paths this task owns, "
              f"then `forge stage start {stage_id}` again.")
-    recorded = stage.get("task_sha256")
-    if recorded and recorded != task_digest(task):
-        # Re-recording mid-stage is the sanctioned repair for a wrong scope —
-        # but it must not be a way to widen the contract moments before closing
-        # over it. Re-starting re-baselines deliberately and on the record.
-        fail(f"{stage_id}'s task contract changed after the stage started "
-             "(write_scope, required_tests, verify_commands or acceptance "
-             "criteria). Closing over a contract you just rewrote proves "
-             f"nothing — run `forge stage start {stage_id}` to re-baseline "
-             "against the current decomposition, then close it.")
+    # NOTE: _measure must stay PURE. It runs several times per close — before
+    # the proof, after it, and again under the lock — and product_tree_snapshot
+    # digests every TRACKED file, .factory/events.jsonl included. Appending an
+    # event here changed the tree between the proof snapshot and the final
+    # check, so the stage refused itself. The contract change is ledgered once,
+    # in the serialization block, where stages.json is written anyway.
     # Emptiness is judged on PRODUCT paths only. A stalled run still churns
     # .factory/ — the stage tracker and the events ledger move on every
     # command — so counting workflow paths would make this check pass for
@@ -963,10 +1024,14 @@ def _finish_stage(base: Path, args: argparse.Namespace, data: dict,
             fail(f"{args.id} changed identity before its done transition could "
                  "be serialized; inspect `forge stage list` and retry.")
         locked_task = task_for(base, args.id)
-        if (not current.get("task_sha256")
-                or task_digest(locked_task) != current["task_sha256"]):
-            fail(f"{args.id}'s task contract changed before its done transition "
-                 "could be serialized; re-baseline and prove the current contract.")
+        # A RACE guard, not a contract-drift guard: the decomposition must not
+        # move between the measurement above and the write below. Comparing to
+        # the digest recorded at stage START conflated the two, so a contract
+        # legitimately re-recorded mid-stage (decision 0023 ledgers those)
+        # could never be closed at all.
+        if task_digest(locked_task) != task_digest(final_task):
+            fail(f"{args.id}'s task contract changed while its done transition "
+                 "was being serialized; nothing was written — retry.")
         _measure(base, args.id, current, locked_task)
         _require_successful_launch(base, args.id, current, locked_task)
         if product_tree_snapshot(base) != proof_tree:
@@ -976,6 +1041,28 @@ def _finish_stage(base: Path, args: argparse.Namespace, data: dict,
         current.pop("attested_digests", None)
         current["status"] = "done"
         current["completed_at"] = now_iso()
+        # A contract that moved mid-stage is EVIDENCE, not a refusal (0023):
+        # review sees the widened scope and can ask why. Recorded HERE, past
+        # the last snapshot check, because every write before it changes a
+        # tracked file the proof already attested.
+        started_digest = current.get("task_sha256")
+        if started_digest and started_digest != task_digest(locked_task):
+            current["contract_changed"] = {
+                "at": current["completed_at"],
+                "from": started_digest,
+                "to": task_digest(locked_task),
+            }
+            # The stage was MEASURED and closed against the current contract,
+            # so that is the digest it carries. Leaving the start digest here
+            # made the completed stage permanently un-re-recordable: the
+            # frozen-contract guard compares against task_sha256 and would see
+            # a change that was already ledgered and closed over.
+            current["task_sha256"] = task_digest(locked_task)
+            append_event(base, "stage-contract-changed", actor="implementer",
+                         story=data.get("issue", ""),
+                         detail=f"{args.id}: task contract re-recorded mid-stage")
+            print(f"NOTE: {args.id}'s task contract changed after the stage "
+                  "started; recorded for review. The measured diff is unaffected.")
         append_event(base, "stage-done", actor="implementer",
                      story=data.get("issue", ""),
                      detail=f"{args.id} {current.get('title', '')}")
@@ -1054,6 +1141,19 @@ def _cmd_migrate_locked(args: argparse.Namespace, base: Path) -> None:
         fail("migration trusts legacy workspace state exactly once; inspect "
              ".factory/decomposition.json and .factory/stages.json, then pass "
              "--confirm-workspace-state")
+    resolved_base = _git(
+        base, "rev-parse", "--verify", "--end-of-options",
+        f"{args.base}^{{commit}}")
+    if not resolved_base:
+        fail(f"--base {args.base!r} does not resolve to a commit")
+    resolved_base = resolved_base.strip()
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", resolved_base, "HEAD"],
+        cwd=base, capture_output=True, text=True, env=clean_git_env())
+    if ancestor.returncode == 1:
+        fail(f"--base {resolved_base!r} is not an ancestor of HEAD")
+    if ancestor.returncode != 0:
+        fail(f"could not validate --base {resolved_base!r} against HEAD")
     protected_decomposition = protected_decomposition_state_path(base)
     protected_stages = authoritative_stages_path(base)
     if protected_decomposition.exists() != protected_stages.exists():
@@ -1086,6 +1186,7 @@ def _cmd_migrate_locked(args: argparse.Namespace, base: Path) -> None:
         if stage.get("status") not in {"pending", "active", "done"}:
             fail(f"legacy stage {stage.get('id')} has invalid status")
         if stage.get("status") in {"active", "done"}:
+            stage["base_sha"] = resolved_base
             stage["task_sha256"] = task_digest(tasks[stage["id"]])
         stage.pop("parallel", None)
         stage.pop("attested_digests", None)

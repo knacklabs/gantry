@@ -80,3 +80,14 @@ i-have-adhd/
 .gstack/**/brain-cache/
 .gstack/**/timeline.jsonl
 .gstack/slug-cache/
+
+# forge gstack: project-local store — projects/ is committed, machine noise is not
+.gstack/*
+!.gstack/projects/
+.gstack/**/brain-cache/
+.gstack/**/timeline.jsonl
+
+# forge 0025: briefs and the delegation mirror are read from disk, never from git
+.factory/briefs/
+.factory/diagnostic-briefs/
+.factory/delegations.jsonl

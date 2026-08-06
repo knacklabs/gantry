@@ -13,21 +13,11 @@ payload = read_hook_input()
 root = repo_root()
 run_state = load_json(run_state_path(root), default={})
 
-# Per-clone, idempotent: register the JSONL union merge driver that
-# .gitattributes references, so two devs appending to .gstack stores merge
-# cleanly. Quiet — configuration, not conversation.
-attributes = root / ".gitattributes"
-if attributes.exists() and "merge=jsonl-append" in attributes.read_text():
-    have = subprocess.run(
-        ["git", "config", "merge.jsonl-append.driver"],
-        cwd=root, capture_output=True, text=True,
-    )
-    driver = Path.home() / ".claude" / "skills" / "gstack" / "bin" / "gstack-jsonl-merge"
-    if have.returncode != 0 and driver.is_file():
-        subprocess.run(
-            ["git", "config", "merge.jsonl-append.driver", f"{driver} %O %A %B"],
-            cwd=root, capture_output=True,
-        )
+# Nothing to register: the JSONL ledgers use git's built-in `union` driver.
+# This hook used to install a custom `jsonl-append` driver per clone, which
+# made every merge depend on a hook having run on whichever machine performed
+# it — and the driver hung, so the merge blocked forever rather than failing.
+# A merge that cannot finish is indistinguishable from a hostile conflict.
 context = []
 # Machine readiness, EVERY session (milliseconds — existence checks only):
 # a teammate who just cloned/pulled learns their machine is not ready at the

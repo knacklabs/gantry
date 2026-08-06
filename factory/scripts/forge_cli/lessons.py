@@ -16,7 +16,7 @@ import subprocess
 from fnmatch import fnmatch
 from pathlib import Path
 
-from factory_lib import now_iso, repo_root, validate_payload
+from factory_lib import append_ledger_record, read_ledger_records, now_iso, repo_root, validate_payload
 
 from .common import fail
 
@@ -30,23 +30,9 @@ def lessons_path(base: Path) -> Path:
 def load_lessons(base: Path) -> list[dict]:
     """Strict parse: a malformed line is a merge artifact or hand edit and
     FAILS loudly — a silently-dropped lesson is a repeated mistake waiting."""
-    path = lessons_path(base)
-    if not path.exists():
-        return []
-    lessons = []
-    for lineno, line in enumerate(path.read_text().splitlines(), 1):
-        if not line.strip():
-            continue
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            fail(f"plans/lessons.jsonl line {lineno} is not valid JSON "
-                 f"(merge artifact or hand edit?): {line[:80]!r} — repair it; "
-                 "lines are managed by `forge lesson add`.")
-        if not isinstance(entry, dict):
-            fail(f"plans/lessons.jsonl line {lineno} must be a JSON object")
-        lessons.append(entry)
-    return lessons
+    # Directory form first, legacy plans/lessons.jsonl still read, so a repo
+    # adopts 0022 without a migration and history stays readable.
+    return read_ledger_records(lessons_path(base))
 
 
 def _matches(rel: str, pattern: str) -> bool:
@@ -104,11 +90,13 @@ def cmd_add(args: argparse.Namespace) -> None:
         fail("this lesson text is already ledgered — refine the existing entry "
              "via PR instead of duplicating it")
     payload["added_at"] = now_iso()
-    path = lessons_path(base)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as fh:
-        fh.write(json.dumps(payload) + "\n")
-    print(f"Lesson ledgered ({len(existing) + 1} total) -> plans/lessons.jsonl")
+    # One record, one file (decision 0022). Two worktrees appending between
+    # merges is what made this ledger conflict, and the union driver that
+    # "fixed" it duplicated records into every generated brief.
+    record_id = f"{payload['added_at'].replace(':', '').replace('-', '')}-{payload['topic']}"
+    path = append_ledger_record(lessons_path(base), payload, record_id)
+    print(f"Lesson ledgered ({len(existing) + 1} total) -> "
+          f"{path.relative_to(base)}")
 
 
 def cmd_relevant(args: argparse.Namespace) -> None:

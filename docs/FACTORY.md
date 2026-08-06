@@ -138,9 +138,9 @@ Each leaf task must include:
 - reviewer focus
 
 Store the decomposition in `.factory/decomposition.json` — that artifact is
-canonical. Mirroring into a tracker (Linear, GitHub Issues, Jira) is optional;
-`python3 factory/scripts/render_linear_task_graph.py` renders a deterministic
-Markdown view of the graph if you want one to review or sync.
+canonical. Mirroring into a tracker (Linear, GitHub Issues, Jira) is optional.
+Order is derived, never authored (decision 0021): the array is the execution
+sequence and a task's `dependencies` may only name an earlier task.
 
 ## AGENTS Hygiene
 

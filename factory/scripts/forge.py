@@ -25,6 +25,7 @@ from forge_cli import quickfix as quickfix_mod
 from forge_cli import scratchpad as scratchpad_mod
 from forge_cli import stages as stages_mod
 from forge_cli import gstack as gstack_mod
+from forge_cli import history as history_mod
 from forge_cli import signal as signal_mod
 from forge_cli import decisions, doctor, phase, plans, roadmap, scaffold, specs, team, upgrade
 
@@ -43,6 +44,21 @@ def main() -> None:
     p_next = sub.add_parser("next", help="where am I and what do I do now (deterministic)")
     p_next.add_argument("--repo")
     p_next.set_defaults(func=phase.cmd_next)
+
+    p_history = sub.add_parser("history", help="read the committed project event timeline")
+    p_history.add_argument("--story", help="show only events attributed to this story")
+    p_history.add_argument("--event", help="show only this event type")
+    p_history.add_argument("--since", help="show events on or after this ISO date prefix")
+    p_history.add_argument("--until", help="show events on or before this ISO date prefix")
+    p_history.add_argument("--repo")
+    p_history.set_defaults(func=history_mod.cmd_history)
+
+    p_pr_link = sub.add_parser(
+        "pr-link", help="record the merged PR that shipped a story")
+    p_pr_link.add_argument("story", help="story or issue key")
+    p_pr_link.add_argument("reference", help="merged PR reference")
+    p_pr_link.add_argument("--repo")
+    p_pr_link.set_defaults(func=history_mod.cmd_pr_link)
 
     p_board = sub.add_parser("board", help="open the read-only local lifecycle board")
     p_board.add_argument("--port", type=int, default=8765)
@@ -71,7 +87,8 @@ def main() -> None:
 
     p_plan = sub.add_parser("plan", help="manage task plans")
     plan_sub = p_plan.add_subparsers(dest="plan_command", required=True)
-    p_save = plan_sub.add_parser("save", help="persist an approved plan into plans/active/")
+    p_save = plan_sub.add_parser(
+        "save", help="validate and persist a plan for human approval")
     p_save.add_argument("--from", dest="source", required=True,
                         help="path to the approved plan file (e.g. the Claude Code plan)")
     p_save.add_argument("--issue", help="issue key (defaults to .factory/run.json)")
@@ -80,6 +97,12 @@ def main() -> None:
                         help="roadmap story key (defaults to the active issue key)")
     p_save.add_argument("--repo", help="target repo (defaults to this repo)")
     p_save.set_defaults(func=plans.cmd_save)
+    p_approve = plan_sub.add_parser(
+        "approve", help="record a human's approval of the current plan body")
+    p_approve.add_argument("--by", required=True, help="the human confirming (not an agent)")
+    p_approve.add_argument("--issue", help="select the plan by issue key (no run state / several active)")
+    p_approve.add_argument("--repo", help="target repo (defaults to this repo)")
+    p_approve.set_defaults(func=plans.cmd_approve)
     p_pl = plan_sub.add_parser("list", help="show plans, roadmap status, and stage progress")
     p_pl.add_argument("--repo")
     p_pl.set_defaults(func=plans.cmd_list)
@@ -140,7 +163,7 @@ def main() -> None:
                       help='the user-facing narrative: "As a <user>, I ... so that ..."')
     p_ra.add_argument("--ac", action="append", required=True, metavar="CRITERION",
                       help="acceptance criterion (repeat for each)")
-    p_ra.add_argument("--epic")
+    p_ra.add_argument("--epic", required=True)
     p_ra.add_argument("--skill", help="frontend | backend | fullstack")
     p_ra.add_argument("--kind", help="feature | refactor (refactor => source-delta ratchet at pr_ready)")
     p_ra.add_argument("--spec", help="confirmed docs/specs/<slug>.md source (required)")
@@ -152,6 +175,27 @@ def main() -> None:
     p_ra.add_argument("--reason", help="why this story is captured without a spec")
     p_ra.add_argument("--repo")
     p_ra.set_defaults(func=roadmap.cmd_add)
+    p_re = rm_sub.add_parser("epic", help="manage roadmap epics")
+    re_sub = p_re.add_subparsers(dest="roadmap_epic_command", required=True)
+    p_rea = re_sub.add_parser(
+        "add",
+        help="append one epic after sign-off without the epics-approved import gate",
+        description="Append one epic after sign-off. Unlike roadmap import, this does not "
+                    "require the epics-approved decision because it does not replace the "
+                    "whole epic list.",
+    )
+    p_rea.add_argument("id")
+    p_rea.add_argument("--title", required=True)
+    p_rea.add_argument("--objective", required=True)
+    p_rea.add_argument("--source-ref", action="append", required=True, metavar="PATH",
+                       help="repo-relative source path (repeat for each)")
+    p_rea.add_argument("--repo")
+    p_rea.set_defaults(func=roadmap.cmd_epic_add)
+    p_rse = rm_sub.add_parser("set-epic", help="point an existing story at a known epic")
+    p_rse.add_argument("key")
+    p_rse.add_argument("--epic", required=True)
+    p_rse.add_argument("--repo")
+    p_rse.set_defaults(func=roadmap.cmd_set_epic)
     p_rls = rm_sub.add_parser("link-spec", help="attach a confirmed spec to a story (clears spec debt)")
     p_rls.add_argument("key")
     p_rls.add_argument("--spec", required=True, help="confirmed docs/specs/<slug>.md")
@@ -264,6 +308,8 @@ def main() -> None:
     p_sd.set_defaults(func=stages_mod.cmd_done)
     p_sm = st_sub.add_parser(
         "migrate", help="adopt inspected legacy workspace state once")
+    p_sm.add_argument("--base", required=True, metavar="SHA",
+                      help="commit where measurement of adopted stages begins")
     p_sm.add_argument("--confirm-workspace-state", action="store_true")
     p_sm.add_argument("--repo")
     p_sm.set_defaults(func=stages_mod.cmd_migrate)

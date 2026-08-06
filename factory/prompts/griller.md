@@ -24,8 +24,8 @@ Four gates, four scopes:
   proposed epics + stories against BRIEF and decisions. Hunt: BRIEF
   capabilities with no epic (coverage), stories whose acceptance criteria
   contradict a decision record, dependency order that can't work
-  (build_waves), stories too big for one implementation session, missing
-  `skill` tags that will stall distribution.
+  (`dependencies` edges), stories too big for one implementation session,
+  missing `skill` tags that will stall distribution.
 - `--gate plan` (dev, before `forge plan save` — EVERY task) — interrogate
   the draft plan against the roadmap item's `acceptance_criteria`, the
   active decision corpus (`forge decision list --active`), and

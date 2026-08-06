@@ -11,7 +11,7 @@ from pathlib import Path
 from factory_lib import (
     decomposition_state_path, dump_json, gate, head_sha, load_json, now_iso,
     protected_decomposition_state_path, repo_root, run_state_path,
-    safe_factory_write_json, validate_payload,
+    safe_factory_write_json, sha256_of, validate_payload,
 )
 from forge_cli.doctor import unrunnable_reason
 
@@ -29,6 +29,89 @@ else:
 
 root = repo_root()
 state = gate(root, signoff=True, approved_plan=True)
+
+# Provenance belongs to repository state, not to the agent recording the task
+# graph. The one agent-supplied provenance value that matters is its view of
+# the plan digest: if present, it must still describe the active plan.
+project = state.get("project")
+story = state.get("story")
+plan_file = state.get("plan_file")
+# OPTIONAL, unlike story and plan_file. `project` is written by `forge init`
+# at scaffold time and carried forward by intake, so a repo that adopted the
+# harness rather than being scaffolded by it — this one included — has never
+# had the field. Requiring provenance nobody can supply refuses the harness's
+# own repo, and the field is optional in the schema for the same reason.
+# Absent or null is a legacy repo that never ran `forge init`; anything else
+# non-string is a broken run.json and must REFUSE rather than be recorded as
+# "no project". Third instance of this shape in this file — erasing a value to
+# make it validate is how false provenance gets written.
+if project is None:
+    project = ""
+elif not isinstance(project, str):
+    raise SystemExit(
+        f"decomposition provenance: .factory/run.json has a non-string project "
+        f"({type(project).__name__}); it must be a string, absent, or null"
+    )
+else:
+    project = project.strip()
+if not isinstance(story, str) or not story.strip():
+    raise SystemExit("decomposition provenance: .factory/run.json has no story")
+if not isinstance(plan_file, str) or not plan_file.strip():
+    raise SystemExit("decomposition provenance: .factory/run.json has no plan_file")
+plan_path = root / plan_file
+if not plan_path.is_file():
+    raise SystemExit(
+        f"decomposition provenance: active plan {plan_file!r} is not readable"
+    )
+plan_sha256 = sha256_of(plan_path)
+# The digest the recorder can actually VOUCH for: it reads the active plan
+# itself, so the stamp is true at record time without asking the producer to
+# hash a file. A supplied digest is still compared — a producer that knows
+# which plan it decomposed must not disagree with the one that is active.
+# Requiring it would not buy the guarantee it appears to: the real failure is
+# the plan being edited AFTER this artifact is recorded, which no record-time
+# check can see. `stage start` compares the stamp against the plan then.
+supplied_plan_sha256 = payload.get("plan_sha256")
+if supplied_plan_sha256 is not None and supplied_plan_sha256 != plan_sha256:
+    raise SystemExit(
+        "decomposition plan_sha256 does not match the active plan file "
+        f"{plan_file!r} — this task graph was built from a different plan"
+    )
+roadmap = load_json(root / "plans" / "roadmap.json", default={})
+roadmap_story = next(
+    (
+        item for item in roadmap.get("items") or []
+        if isinstance(item, dict) and item.get("key") == story
+    ),
+    None,
+)
+if roadmap_story is None:
+    raise SystemExit(
+        f"decomposition provenance: story {story!r} is not in plans/roadmap.json"
+    )
+# A legacy roadmap says "no epic" as a missing key or an explicit null; the
+# decomposition says it as "". Refusing null would block recording for every
+# pre-hierarchy story, which is the case this provenance has to survive — and
+# PH-2's own backfilled roadmap writes null for stories it has not adopted yet.
+# Only None becomes "". `or ""` also swallowed false, 0, {} and [], so the
+# type check below could never reject them and provenance recorded "no epic"
+# for a malformed roadmap — the same bug this file already had for
+# `dependencies`, reintroduced three lines away.
+epic = roadmap_story.get("epic")
+epic = "" if epic is None else epic
+if not isinstance(epic, str):
+    raise SystemExit(
+        f"decomposition provenance: roadmap story {story!r} has a non-string epic "
+        f"({type(roadmap_story.get('epic')).__name__}); it must be a string, "
+        "absent, or null"
+    )
+payload.update({
+    "project": project,
+    "story": story,
+    "epic": epic,
+    "plan_file": plan_file,
+    "plan_sha256": plan_sha256,
+})
 validate_payload(root, "decomposition", payload)
 tasks = payload.get("tasks") or []
 if not tasks:
@@ -37,6 +120,7 @@ if not tasks:
         "implementation gates with nothing bounded to implement."
     )
 OBJECTIVE_MAX = 500
+seen_task_ids: set[str] = set()
 for pos, task in enumerate(tasks, 1):
     if not isinstance(task, dict) or not isinstance(task.get("id"), str) \
             or not isinstance(task.get("title"), str) or not task["id"].strip():
@@ -44,6 +128,29 @@ for pos, task in enumerate(tasks, 1):
             f"decomposition task {pos} must be an object with string 'id' and 'title' "
             "(plus write_scope/acceptance_criteria per the decomposer contract)."
         )
+    task_id = task["id"]
+    if task_id in seen_task_ids:
+        raise SystemExit(f"decomposition task {task_id}: duplicate task id")
+    # Default only when ABSENT. `or []` treated false, 0, "", {} and null as an
+    # empty list for validation while the malformed value stayed in the payload,
+    # so the artifact was recorded with a non-list `dependencies` that had
+    # passed a list check.
+    dependencies = task.get("dependencies", [])
+    if not isinstance(dependencies, list) or not all(
+        isinstance(dependency, str) and dependency.strip()
+        for dependency in dependencies
+    ):
+        raise SystemExit(
+            f"decomposition task {task_id}: dependencies must be a list of "
+            "non-empty task ids"
+        )
+    for dependency in dependencies:
+        if dependency not in seen_task_ids:
+            raise SystemExit(
+                f"decomposition task {task_id}: dependency {dependency!r} must "
+                "name an earlier task; array order is the execution sequence."
+            )
+    seen_task_ids.add(task_id)
     # The narrative fields were prompt-convention and silently droppable, so a
     # task could reach the board as an id and a title. They are the contract now.
     objective = task.get("objective")
@@ -198,6 +305,13 @@ with delegation_exclusion(
                         "legacy contract cannot be changed or removed; add a "
                         "new follow-up task instead."
                     )
+                stage["task_sha256"] = new_digest
+                backfilled_stage_digest = True
+            elif new_digest == (stage.get("contract_changed") or {}).get("to"):
+                # The stage RECORDS that its contract moved and that it closed
+                # after the move (decision 0023). Its task_sha256 kept the start
+                # digest, which made every completed stage permanently
+                # un-re-recordable. Trust the evidence beside it and self-heal.
                 stage["task_sha256"] = new_digest
                 backfilled_stage_digest = True
             elif new_digest != recorded_digest:

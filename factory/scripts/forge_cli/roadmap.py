@@ -136,6 +136,67 @@ def check_item(item: dict, pos: int) -> None:
             fail(f"roadmap item {item['key']}: depends_on must be a list of story keys")
 
 
+def _blank(value: object) -> bool:
+    """Present but empty. A field of spaces is a field nobody filled in."""
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, list):
+        return not [entry for entry in value
+                    if not isinstance(entry, str) or entry.strip()]
+    return value is None
+
+
+def check_story_contract(item: dict, known_epics: set[str]) -> None:
+    """Require the narrative and hierarchy fields only at authoring routes."""
+    missing = []
+    for field in ("epic", "story", "acceptance_criteria", "skill"):
+        if field not in item or _blank(item[field]):
+            missing.append(field)
+    if "depends_on" not in item:
+        missing.append("depends_on")
+    if missing:
+        fail(f"roadmap item {item.get('key', '<unknown>')}: missing required fields: "
+             f"{', '.join(missing)}")
+    if item["epic"] not in known_epics:
+        fail(f"roadmap item {item['key']}: epic '{item['epic']}' is not a known epic")
+
+
+def check_epic_contract(epic: dict, base: Path) -> None:
+    """Require complete epics whose source references resolve inside the repo.
+
+    `base` is the caller's repo, never `repo_root()`. Every authoring command
+    honours `--repo`, and resolving against the tool's own checkout instead
+    refuses references that exist in the target while accepting ones that do
+    not — then stores the broken reference as if it had been checked.
+    """
+    missing = [
+        field for field in ("id", "title", "objective")
+        if not isinstance(epic.get(field), str) or not epic[field].strip()
+    ]
+    if not isinstance(epic.get("source_refs"), list) or not epic["source_refs"]:
+        missing.append("source_refs")
+    if missing:
+        fail(f"epic {epic.get('id', '<unknown>')}: missing required fields: "
+             f"{', '.join(missing)}")
+    source_refs = epic["source_refs"]
+    if not isinstance(source_refs, list) or not all(
+        isinstance(ref, str) and ref.strip() for ref in source_refs
+    ):
+        fail(f"epic {epic['id']}: source_refs must be a list of repo-relative paths")
+    root = base.resolve()
+    for ref in source_refs:
+        source = Path(ref)
+        try:
+            resolved = (root / source).resolve()
+            resolved.relative_to(root)
+        except ValueError:
+            fail(f"epic {epic['id']}: source_ref '{ref}' must be repo-relative")
+        if source.is_absolute():
+            fail(f"epic {epic['id']}: source_ref '{ref}' must be repo-relative")
+        if not resolved.exists():
+            fail(f"epic {epic['id']}: source_ref '{ref}' does not exist")
+
+
 def check_dag(items: list[dict]) -> None:
     """The merged dependency graph must stay acyclic — a cycle deadlocks the
     ready frontier forever (Kahn's algorithm; leftovers = cycle members)."""
@@ -246,11 +307,21 @@ def cmd_derive(args: argparse.Namespace) -> None:
     incoming = payload["items"]
     if not incoming:
         fail("roadmap input has no items")
+    epics = payload.get("epics", [])
+    check_epics(epics)
+    for epic in epics:
+        check_epic_contract(epic, base)
+    # derive REPLACES the epic list, so a story may only name an epic this
+    # payload persists. Accepting a stored epic here would validate a story
+    # against a parent the very same call is about to delete, and save a
+    # roadmap that violates the contract it just passed.
+    known_epics = {epic["id"] for epic in epics}
     from .specs import resolve_spec_reference
     seen: set[str] = set()
     normalized: list[dict] = []
     for pos, item in enumerate(incoming, 1):
         check_item(item, pos)
+        check_story_contract(item, known_epics)
         if item["key"] in seen:
             fail(f"duplicate roadmap key: {item['key']}")
         seen.add(item["key"])
@@ -272,8 +343,6 @@ def cmd_derive(args: argparse.Namespace) -> None:
                 fail(f"roadmap item {item['key']}: depends_on '{dependency}' "
                      "is not in the derived roadmap")
     check_dag(normalized)
-    epics = payload.get("epics", [])
-    check_epics(epics)
     save_roadmap(
         base,
         normalized,
@@ -319,9 +388,28 @@ def cmd_import(args: argparse.Namespace) -> None:
     incoming = payload["items"]
     if not incoming:
         fail("roadmap input has no items")
+    incoming_epics = payload.get("epics", [])
+    check_epics(incoming_epics)
+    for epic in incoming_epics:
+        check_epic_contract(epic, base)
+    stored_epics = load_roadmap(base).get("epics", [])
+    known_epics = {epic["id"] for epic in stored_epics + incoming_epics}
+    # A stored epic is only as good as it still is: its source_refs may have
+    # been deleted since it was written. Import may lean on one, so the ones
+    # incoming stories actually name are re-checked — and only those, or an
+    # unrelated stale epic elsewhere in the roadmap would refuse this import.
+    # Strings only: this runs before check_item, and an `epic` that arrived as
+    # a list would raise TypeError here instead of being refused there.
+    referenced = {item.get("epic") for item in incoming
+                  if isinstance(item, dict) and isinstance(item.get("epic"), str)}
+    incoming_ids = {epic["id"] for epic in incoming_epics}
+    for epic in stored_epics:
+        if epic.get("id") in referenced and epic.get("id") not in incoming_ids:
+            check_epic_contract(epic, base)
     seen: set[str] = set()
     for pos, item in enumerate(incoming, 1):
         check_item(item, pos)
+        check_story_contract(item, known_epics)
         if item["key"] in seen:
             fail(f"duplicate roadmap key: {item['key']}")
         seen.add(item["key"])
@@ -334,8 +422,6 @@ def cmd_import(args: argparse.Namespace) -> None:
                 fail(f"roadmap item {item['key']} depends on itself")
             if dep not in known:
                 fail(f"roadmap item {item['key']}: depends_on '{dep}' is not on the roadmap")
-    incoming_epics = payload.get("epics", [])
-    check_epics(incoming_epics)
     existing = {item["key"]: item for item in load_items(base)}
     merged: list[dict] = []
     added = updated = 0
@@ -359,7 +445,7 @@ def cmd_import(args: argparse.Namespace) -> None:
     merged.extend(kept)
     check_dag(merged)
     # Epics merge by id, same keep-what-input-omits rule.
-    current_epics = {e["id"]: e for e in load_roadmap(base).get("epics", [])}
+    current_epics = {e["id"]: e for e in stored_epics}
     for epic in incoming_epics:
         current_epics[epic["id"]] = {**current_epics.get(epic["id"], {}), **epic}
     save_roadmap(base, merged, epics=list(current_epics.values()),
@@ -378,6 +464,7 @@ def cmd_add(args: argparse.Namespace) -> None:
     base = Path(args.repo).resolve() if args.repo else repo_root()
     require_signoff(base, "roadmap grooming")
     items = load_items(base)
+    epics = load_roadmap(base).get("epics", [])
     if any(item.get("key") == args.key for item in items):
         fail(f"{args.key} is already on the roadmap")
     order = max((item.get("order", 0) for item in items), default=0) + 1
@@ -399,6 +486,7 @@ def cmd_add(args: argparse.Namespace) -> None:
     if getattr(args, "kind", None):
         item["kind"] = args.kind
     deps = [d.strip() for d in (getattr(args, "depends_on", None) or []) if d.strip()]
+    item["depends_on"] = deps
     if deps:
         keys = {i.get("key") for i in items}
         missing = [d for d in deps if d not in keys]
@@ -406,8 +494,14 @@ def cmd_add(args: argparse.Namespace) -> None:
             # Self-reference lands here too: the new key is not on the roadmap yet.
             fail(f"--depends-on references unknown stor{'ies' if len(missing) > 1 else 'y'}: "
                  f"{', '.join(missing)}")
-        item["depends_on"] = deps
     check_item(item, order)
+    check_story_contract(item, {epic["id"] for epic in epics})
+    # Only the epic this story leans on, matching import: revalidating the
+    # whole stored list would let one legacy epic elsewhere refuse an
+    # unrelated, perfectly good story.
+    for epic in epics:
+        if epic.get("id") == item["epic"]:
+            check_epic_contract(epic, base)
     if args.spec:
         from .specs import resolve_spec_reference
         item["spec"] = resolve_spec_reference(
@@ -433,6 +527,45 @@ def cmd_add(args: argparse.Namespace) -> None:
         print("Captured as spec debt — it sits in 'Needs spec' and cannot be planned "
               f"until: ./forge spec confirm <slug> && ./forge roadmap link-spec {args.key} "
               "--spec docs/specs/<slug>.md")
+
+
+def cmd_epic_add(args: argparse.Namespace) -> None:
+    """Append one epic after sign-off without invoking the import handoff gate."""
+    base = Path(args.repo).resolve() if args.repo else repo_root()
+    require_signoff(base, "roadmap epic grooming")
+    data = load_roadmap(base)
+    items = data.get("items", [])
+    epics = data.get("epics", [])
+    if any(epic.get("id") == args.id for epic in epics):
+        fail(f"epic '{args.id}' is already on the roadmap")
+    epic = {
+        "id": args.id,
+        "title": args.title,
+        "objective": args.objective,
+        "source_refs": args.source_ref,
+    }
+    check_epic_contract(epic, base)
+    epics.append(epic)
+    save_roadmap(base, items, epics=epics)
+    append_event(base, "roadmap-epic-add", actor="orchestrator", detail=args.id)
+    print(f"Added epic {args.id} to the roadmap")
+
+
+def cmd_set_epic(args: argparse.Namespace) -> None:
+    """Point an existing story at an epic already known to the roadmap."""
+    base = Path(args.repo).resolve() if args.repo else repo_root()
+    data = load_roadmap(base)
+    items = data.get("items", [])
+    item = next((entry for entry in items if entry.get("key") == args.key), None)
+    if item is None:
+        fail(f"{args.key} is not on the roadmap")
+    if args.epic not in {epic.get("id") for epic in data.get("epics", [])}:
+        fail(f"epic '{args.epic}' is not a known epic")
+    item["epic"] = args.epic
+    save_roadmap(base, items)
+    append_event(base, "roadmap-set-epic", actor="orchestrator", story=args.key,
+                 detail=args.epic)
+    print(f"{args.key} -> epic {args.epic}")
 
 
 def cmd_link_spec(args: argparse.Namespace) -> None:
