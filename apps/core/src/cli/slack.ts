@@ -35,6 +35,7 @@ import {
 import { planRuntimeSecretInput } from './runtime-secret-ref-prompt.js';
 import { providerAccountIdForAgent } from './provider-utils.js';
 import { runtimeSecretNameForAgent } from '../domain/provider/provider-runtime-secret-keys.js';
+import { slackInstallScopes } from './slack-install-scopes.js';
 
 export interface SlackTokenValidation {
   ok: boolean;
@@ -171,8 +172,18 @@ export async function validateSlackBotToken(
       };
     }
 
+    const scopeFailure = slackInstallScopes.validateHeader(
+      response.headers,
+      payload,
+    );
+    if (scopeFailure) return scopeFailure;
+    const featureWarning = slackInstallScopes.featureWarning(
+      response.headers.get('x-oauth-scopes'),
+    );
+
     return {
       ok: true,
+      ...(featureWarning ? { warning: featureWarning } : {}),
       teamId: payload.team_id,
       teamName: payload.team,
       userId: payload.user_id,
@@ -482,17 +493,7 @@ export async function runSlackConnectCommand(
   const requestedAgentDisplayName = requestedAgentName?.trim();
   const credentialOwnerId = requestedAgentId?.trim() || DEFAULT_AGENT_FOLDER;
   const env = readEnvFile(envFilePath(runtimeHome));
-  p.note(
-    [
-      'Create the Slack app first: create an app in the target workspace, add a bot user, then install it.',
-      'Recommended bot scopes: chat:write, files:read, files:write, app_mentions:read, channels:read, channels:history, groups:read, groups:history, im:read, im:history, mpim:read, mpim:history.',
-      'Enable Socket Mode and generate an app-level xapp token with connections:write.',
-      'For Slack DMs, enable App Home > Messages Tab and allow users to send messages from the tab.',
-      'After adding files:read or changing any scope or App Home setting, reinstall the app so existing workspace installations receive the new access, then invite it to the target channel or DM it once before discovery.',
-      'Docs: https://docs.slack.dev/apis/events-api/using-socket-mode/',
-    ].join('\n'),
-    'Slack app setup',
-  );
+  p.note(slackInstallScopes.setupNote(), 'Slack app setup');
 
   const botTokenInput = await promptForValue({
     message: 'Slack bot token (xoxb-...)',

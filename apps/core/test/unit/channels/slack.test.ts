@@ -6251,7 +6251,7 @@ describe('Slack channel', () => {
       2,
       expect.objectContaining({
         replace_original: true,
-        text: expect.stringContaining('Allowed once:'),
+        text: expect.stringContaining('Approved for this run only:'),
       }),
     );
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(

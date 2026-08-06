@@ -29,6 +29,15 @@ export const SCHEDULER_MCP_TOOL_NAMES = [
 
 export type SchedulerMcpToolName = (typeof SCHEDULER_MCP_TOOL_NAMES)[number];
 
+export const SCHEDULER_MUTATION_MCP_TOOL_NAMES = [
+  'scheduler_upsert_job',
+  'scheduler_update_job',
+  'scheduler_delete_job',
+  'scheduler_pause_job',
+  'scheduler_resume_job',
+  'scheduler_run_now',
+] as const satisfies readonly SchedulerMcpToolName[];
+
 // These scheduler rows predate the general durable-grant rule and remain
 // startup catalog seeds. This list defines seed inventory only, not which
 // Gantry tools may receive durable grants.
@@ -49,6 +58,10 @@ export type SeededSchedulerMcpToolName =
 
 export const BASELINE_GANTRY_MCP_TOOL_NAMES = [
   'attachment_open',
+  'attachment_materialize',
+  'canvas_read',
+  'canvas_create',
+  'canvas_update',
   'send_message',
   'ask_user_question',
   'render_status',

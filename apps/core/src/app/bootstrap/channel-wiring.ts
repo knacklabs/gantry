@@ -33,6 +33,7 @@ import {
   asPermissionApprovalSurface,
   asProgressSink,
   asRichInteractionSurface,
+  asContentCanvasSurface,
   asStreamingSink,
   asStreamingStateSink,
   asUserQuestionSurface,
@@ -759,6 +760,13 @@ export function createChannelWiring(
     cancelUserQuestion: userQuestionResponder.cancelUserQuestion,
     renderAgentTodo: agentTodoRenderer,
     renderRichInteraction: richInteractionRenderer,
+    executeContentCanvasAction: async (jid, action, options) => {
+      const channel = findBoundChannel(jid, options?.providerAccountId);
+      const surface = channel ? asContentCanvasSurface(channel) : undefined;
+      if (!surface)
+        throw new Error('No canvas adapter owns this conversation.');
+      return surface.executeCanvasAction(jid, action);
+    },
     hydrateConversationContext: (request) =>
       hydrateChannelConversationContext(
         request,

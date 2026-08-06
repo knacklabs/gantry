@@ -22,7 +22,7 @@ import type { IpcDeps } from './ipc-domain-types.js';
 import type { ParsedPermissionIpcRequest } from './ipc-parsing.js';
 import {
   consultPermissionClassifierBeforePrompt,
-  permissionPromotionHintCount,
+  permissionPromotionHint,
   recordHumanPermissionPromotionSignal,
 } from './permission-classifier.js';
 import { runDurablePermissionInteraction } from '../application/interactions/durable-interaction-handler.js';
@@ -362,7 +362,12 @@ async function resolvePermissionIpcDecisionTail(input: {
   if (classifierDecision?.decision === 'allow' && !input.railRequiresApproval) {
     return withRequestRisk(
       input.request,
-      decisionForMode(input.request, 'allow_once', 'auto_classifier'),
+      decisionForMode(
+        input.request,
+        'allow_once',
+        'auto_classifier',
+        'machine',
+      ),
     );
   }
   if (
@@ -374,6 +379,7 @@ async function resolvePermissionIpcDecisionTail(input: {
         input.request,
         'cancel',
         railVetoedClassifierAllow ? 'deterministic_rails' : 'runtime',
+        'machine',
       ),
       reason: railVetoedClassifierAllow
         ? (input.railApprovalReason ??
@@ -393,16 +399,21 @@ async function resolvePermissionIpcDecisionTail(input: {
       await input.deps.requestPermissionApproval(input.request),
     );
   }
-  input.request.promotionHintCount =
-    classifierDecision?.promotionHintCount ??
-    (await permissionPromotionHintCount({
-      promotion,
-      appId: input.request.appId,
-      agentFolder: input.sourceAgentFolder,
-      canonicalToolName: input.request.toolName,
-      toolInput: input.request.toolInput,
-      suggestions: input.request.suggestions,
-    }));
+  const promotionHint = classifierDecision?.promotionHintCount
+    ? {
+        promotionHintCount: classifierDecision.promotionHintCount,
+        firstAskedAt: classifierDecision.firstAskedAt,
+      }
+    : await permissionPromotionHint({
+        promotion,
+        appId: input.request.appId,
+        agentFolder: input.sourceAgentFolder,
+        canonicalToolName: input.request.toolName,
+        toolInput: input.request.toolInput,
+        suggestions: input.request.suggestions,
+      });
+  input.request.promotionHintCount = promotionHint?.promotionHintCount;
+  input.request.firstAskedAt = promotionHint?.firstAskedAt;
   const effectiveDecisionOptions = input.request.decisionOptions?.length
     ? input.request.decisionOptions
     : firstPersistentRule(input.request)

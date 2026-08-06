@@ -4,12 +4,70 @@ import type {
   PermissionApprovalRequest,
   PermissionApprovalRuleValue,
   PermissionApprovalUpdate,
+  PermissionDecisionSource,
 } from './types.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import { validateDurableAccessRule } from '../shared/durable-access-policy.js';
 import { permissionUpdateAllowedToolRules } from '../shared/permission-tool-rules.js';
 
 export const PERSISTENT_RULE_APPROVAL_MAX_RULES = 5;
+
+const PERMISSION_PROVENANCE_BY_DECIDER: Record<
+  string,
+  { source: PermissionDecisionSource; repeatableForFutureRuns: boolean }
+> = {
+  reviewed_rule: { source: 'durable_rule', repeatableForFutureRuns: true },
+  birthright: { source: 'birthright', repeatableForFutureRuns: true },
+  deterministic_read_only: {
+    source: 'deterministic_policy',
+    repeatableForFutureRuns: true,
+  },
+  auto_classifier: {
+    source: 'auto_classifier',
+    repeatableForFutureRuns: true,
+  },
+  cached_classifier_verdict: {
+    source: 'cached_classifier',
+    repeatableForFutureRuns: true,
+  },
+  trusted_root_grant: {
+    source: 'trusted_root',
+    repeatableForFutureRuns: true,
+  },
+};
+
+export type PermissionDecisionOrigin = 'machine' | 'human';
+
+function permissionProvenance(
+  mode: PermissionApprovalDecisionMode,
+  decidedBy?: string,
+  origin?: PermissionDecisionOrigin,
+): { source: PermissionDecisionSource; repeatableForFutureRuns: boolean } {
+  const humanProvenance =
+    mode === 'allow_persistent_rule'
+      ? ({ source: 'human_persistent', repeatableForFutureRuns: true } as const)
+      : ({ source: 'human_once', repeatableForFutureRuns: false } as const);
+  // A structurally human decision NEVER consults the decider map: decidedBy
+  // is a free-form approverRef there, and an approver literally named
+  // 'auto_classifier' must not be promoted to repeatable machine provenance.
+  if (origin === 'human') return humanProvenance;
+  // Machine/unspecified: own-property check keeps prototype keys like
+  // 'constructor' from resolving as recognized deciders; unknown deciders
+  // fall back to the conservative human semantics.
+  return (
+    (decidedBy && Object.hasOwn(PERMISSION_PROVENANCE_BY_DECIDER, decidedBy)
+      ? PERMISSION_PROVENANCE_BY_DECIDER[decidedBy]
+      : undefined) ?? humanProvenance
+  );
+}
+
+function decisionClassification(
+  approved: boolean,
+  source: PermissionDecisionSource,
+): PermissionApprovalDecision['decisionClassification'] {
+  if (!approved) return 'user_reject';
+  return source === 'human_once' ? 'user_temporary' : 'user_permanent';
+}
 
 export function persistentPermissionUpdates(
   request: PermissionApprovalRequest,
@@ -92,14 +150,19 @@ export function decisionForMode(
   request: PermissionApprovalRequest,
   mode: PermissionApprovalDecisionMode,
   decidedBy?: string,
+  origin?: PermissionDecisionOrigin,
 ): PermissionApprovalDecision {
+  const provenance = permissionProvenance(mode, decidedBy, origin);
   if (mode === 'cancel') {
     return {
       approved: false,
       mode,
       decidedBy,
-      reason: 'canceled',
-      decisionClassification: 'user_reject',
+      ...provenance,
+      reason: request.closestRule
+        ? 'The attempted command did not match an approved pattern.'
+        : 'Access for this tool was not granted.',
+      decisionClassification: decisionClassification(false, provenance.source),
     };
   }
   if (!isPermissionDecisionModeAllowed(request, mode)) {
@@ -107,8 +170,9 @@ export function decisionForMode(
       approved: false,
       mode: 'cancel',
       decidedBy,
+      ...provenance,
       reason: 'approval option unavailable',
-      decisionClassification: 'user_reject',
+      decisionClassification: decisionClassification(false, provenance.source),
     };
   }
   if (mode === 'allow_persistent_rule') {
@@ -125,32 +189,42 @@ export function decisionForMode(
           approved: true,
           mode,
           decidedBy,
+          ...provenance,
           reason: 'trusted root remembered',
-          decisionClassification: 'user_permanent',
+          decisionClassification: decisionClassification(
+            true,
+            provenance.source,
+          ),
         };
       }
       return {
         approved: false,
         mode: 'cancel',
         decidedBy,
+        ...provenance,
         reason: 'persistent rule unavailable',
-        decisionClassification: 'user_reject',
+        decisionClassification: decisionClassification(
+          false,
+          provenance.source,
+        ),
       };
     }
     return {
       approved: true,
       mode,
       decidedBy,
+      ...provenance,
       reason: 'persistent rule allowed',
       updatedPermissions: updates,
-      decisionClassification: 'user_permanent',
+      decisionClassification: decisionClassification(true, provenance.source),
     };
   }
   return {
     approved: true,
     mode,
     decidedBy,
+    ...provenance,
     reason: 'allowed once',
-    decisionClassification: 'user_temporary',
+    decisionClassification: decisionClassification(true, provenance.source),
   };
 }

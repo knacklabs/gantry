@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerBrainTools } from './tools/brain.js';
 import { registerAttachmentTools } from './tools/attachment.js';
 import { registerBrowserTools } from './tools/browser.js';
+import { registerCanvasTools } from './tools/canvas.js';
 import { registerFileTools } from './tools/file.js';
 import { registerMemoryTools } from './tools/memory.js';
 import { registerMessagingTools } from './tools/messaging.js';
@@ -24,6 +25,7 @@ import {
   isAdminMcpToolName,
 } from '../../shared/admin-mcp-tools.js';
 import { formatOperatorError } from '../../shared/operator-error.js';
+import { applyProviderAffinity } from './tool-provider-affinity.js';
 
 export { parseCallableAgentManifest } from '../../shared/callable-agent-manifest.js';
 
@@ -88,6 +90,8 @@ export function createGantryMcpServer(): McpServer {
     process.env.GANTRY_NO_PERMISSION_TOOLS,
     process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked',
     process.env.GANTRY_ASYNC_TASK_TOOLS_ENABLED,
+    process.env.GANTRY_CHAT_JID,
+    process.env.GANTRY_PERMISSION_LANE,
   );
   const callableAgentManifest = parseCallableAgentManifest(
     process.env.GANTRY_CALLABLE_AGENT_MANIFEST_JSON,
@@ -119,6 +123,7 @@ export function createGantryMcpServer(): McpServer {
   registerMemoryTools(filteredServer);
   registerBrainTools(filteredServer);
   registerBrowserTools(filteredServer);
+  registerCanvasTools(filteredServer);
   registerFileTools(filteredServer);
   registerProfileTools(filteredServer);
   registerServiceTools(filteredServer);
@@ -144,9 +149,16 @@ export function effectiveEnabledMcpToolNames(
   rawNoPermissionTools = process.env.GANTRY_NO_PERMISSION_TOOLS,
   lockedPreset = process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked',
   rawAsyncTaskToolsEnabled = process.env.GANTRY_ASYNC_TASK_TOOLS_ENABLED,
+  rawChatJid = process.env.GANTRY_CHAT_JID,
+  rawPermissionLane = process.env.GANTRY_PERMISSION_LANE,
 ): Set<string> {
   const enabledTools = new Set(
-    parseEnabledGantryMcpToolNames(rawToolNames, { lockedPreset }),
+    parseEnabledGantryMcpToolNames(rawToolNames, {
+      lockedPreset,
+      chatJid: rawChatJid,
+      permissionLane:
+        rawPermissionLane === 'interactive' ? 'interactive' : 'autonomous',
+    }),
   );
   const selectedAdminTools = parseSelectedAdminMcpToolNames(rawAdminToolNames);
   // Locked agents never mount admin tools, even when capabilities selected them.
@@ -177,7 +189,7 @@ export function effectiveEnabledMcpToolNames(
       enabledTools.delete(toolName);
     }
   }
-  return enabledTools;
+  return applyProviderAffinity(enabledTools, rawChatJid);
 }
 
 function parseSelectedAdminMcpToolNames(raw: string | undefined): Set<string> {

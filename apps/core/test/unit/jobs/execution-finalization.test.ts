@@ -187,7 +187,8 @@ describe('finalizeSchedulerJobRun — transient permission approvals', () => {
   });
 
   it('pauses a successful recurring job after human allow_once', async () => {
-    const { deps, updateJob } = makeDeps();
+    const { deps, updateJob, sendMessage } = makeDeps();
+    const publishRuntimeEvent = vi.fn(async () => undefined);
     const diagnostics = createJobRunDiagnostics();
     updateDiagnosticsFromRuntimeEvent(
       diagnostics,
@@ -197,6 +198,8 @@ describe('finalizeSchedulerJobRun — transient permission approvals', () => {
         tool: 'Bash',
         mode: 'allow_once',
         decidedBy: 'human',
+        source: 'human_once',
+        repeatableForFutureRuns: false,
         ok: true,
       },
     );
@@ -215,11 +218,19 @@ describe('finalizeSchedulerJobRun — transient permission approvals', () => {
       deletedDuringRun: false,
       runtimeAppId: 'default',
       runId: 'run-human',
-      publishRuntimeEvent: vi.fn(async () => undefined),
+      publishRuntimeEvent,
     });
 
     expect(state.runStatus).toBe('completed');
     expect(state.pauseReason).toBe('Setup required');
+    expect(state.setupNotified).toBe(false);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: RUNTIME_EVENT_TYPES.JOB_SETUP_REQUIRED,
+        payload: expect.objectContaining({ notified: false }),
+      }),
+    );
     expect(updateJob).toHaveBeenCalledWith(
       'job-1',
       expect.objectContaining({

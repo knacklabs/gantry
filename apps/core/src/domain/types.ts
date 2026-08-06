@@ -225,6 +225,7 @@ export interface PermissionApprovalRequest {
    *  "remember this folder", so it approves without a tool-rule suggestion. */
   trustedRootLearn?: boolean;
   promotionHintCount?: number;
+  firstAskedAt?: string;
   interaction?: InteractionDescriptor;
   permissionBatch?: {
     requestIds: string[];
@@ -244,6 +245,12 @@ export type PermissionApprovalDecisionMode =
   | 'allow_once'
   | 'allow_persistent_rule'
   | 'cancel';
+
+// prettier-ignore
+export type PermissionDecisionSource =
+  | 'durable_rule' | 'birthright' | 'deterministic_policy'
+  | 'auto_classifier' | 'cached_classifier' | 'trusted_root'
+  | 'human_once' | 'human_persistent';
 
 export interface PermissionRecoveryEnvelope {
   version: 1;
@@ -310,6 +317,8 @@ export interface PermissionApprovalDecision {
   approved: boolean;
   mode?: PermissionApprovalDecisionMode;
   decidedBy?: string;
+  source?: PermissionDecisionSource;
+  repeatableForFutureRuns?: boolean;
   reason?: string;
   risk_level?: PermissionRiskLevel;
   risk_category?: PermissionRiskCategory;

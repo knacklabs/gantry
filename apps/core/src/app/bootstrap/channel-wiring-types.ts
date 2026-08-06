@@ -43,6 +43,10 @@ import type {
   ConversationContextHydrationResult,
   HydrationRequestObservation,
 } from '../../channels/channel-provider.js';
+import type {
+  ContentCanvasAction,
+  ContentCanvasResult,
+} from '../../shared/content-canvas.js';
 import type { BrainChannelHarvestTap } from '../../brain/brain-channel-harvest.js';
 import type {
   HistoricalAttachmentFetcher,
@@ -277,6 +281,11 @@ export interface ChannelWiring {
     request: RichInteractionRequest,
     options?: ChannelAccountOptions,
   ) => Promise<boolean>;
+  executeContentCanvasAction: (
+    jid: string,
+    action: ContentCanvasAction,
+    options?: ChannelAccountOptions,
+  ) => Promise<ContentCanvasResult>;
   hydrateConversationContext?: (
     request: ConversationContextHydrationRequest,
   ) => Promise<ConversationContextHydrationResult>;

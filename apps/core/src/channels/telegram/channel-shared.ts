@@ -15,6 +15,15 @@ import {
   isDefinitiveTelegramEditTargetFailure,
   isTelegramMessageNotModified,
 } from './progress-edit-failure.js';
+import {
+  TELEGRAM_MESSAGE_MAX_LENGTH,
+  TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
+} from './text-limits.js';
+
+export {
+  TELEGRAM_MESSAGE_MAX_LENGTH,
+  TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
+} from './text-limits.js';
 
 export { splitTelegramTextByCodeUnits } from './channel-delivery-text-splitting.js';
 export {
@@ -30,8 +39,6 @@ export type TelegramChannelOpts = ChannelOpts;
 export const TELEGRAM_MEDIA_DOWNLOAD_CONCURRENCY = 2;
 export const TELEGRAM_MEDIA_DOWNLOAD_QUEUE_MAX = 512;
 export const TELEGRAM_MEDIA_DRAIN_TIMEOUT_MS = 5000;
-export const TELEGRAM_MESSAGE_MAX_LENGTH = 4096;
-export const TELEGRAM_STREAM_CHUNK_MAX_LENGTH = 3500;
 export const TELEGRAM_GROUP_EDIT_INTERVAL_MS =
   CHANNEL_STREAM_UPDATE_INTERVAL_MS.telegram;
 export const TELEGRAM_INLINE_BUTTON_TEXT_MAX_BYTES = 56;

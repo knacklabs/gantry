@@ -95,7 +95,7 @@ decisions_reviewed:
   - 0103-live-admission-terminal-retention
   - 0104-co-1-recovery-intent-reframe
   - 0105-physical-attachment-workspace-handoff
-  - 0106-live-ux-capability-dispatcher
+  - 0110-live-ux-capability-dispatcher
 ---
 
 # LIVE-2 — Liveness hardening: unified dispatcher, declared capabilities, deterministic tests
@@ -200,7 +200,7 @@ Order the work so the reshape lands first and the point-fixes land ON the new sh
 
 ## Decisions
 
-- `docs/decisions/0106-live-ux-capability-dispatcher.md` (new): adapters declare
+- `docs/decisions/0110-live-ux-capability-dispatcher.md` (new): adapters declare
   liveness in a `liveUx` capability object; one route-aware dispatcher owns
   reaction/typing delivery policy; Slack typing is declared absent (no emulation);
   typing resumes on stall recovery. Locked with Ravi in chat 2026-08-04.

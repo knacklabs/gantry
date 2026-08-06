@@ -7,7 +7,9 @@ import {
   getDeploymentMode,
   getRuntimeSettingsForConfig,
 } from '../../config/index.js';
+import { liveUxReactionSinks } from './live-ux-reaction-sinks.js';
 import path from 'node:path';
+import { configureCanvasIpcHandlers } from '../../jobs/ipc-canvas-handlers.js';
 import { agentIdForFolder } from '../../config/settings/desired-state-service-helpers.js';
 import {
   createAgentToolRuleSettingsMirror,
@@ -515,6 +517,13 @@ export async function startRuntimeServices(
           : Promise.resolve(false),
       mcpHostnameLookup: resolved.mcpHostnameLookup,
     });
+  configureCanvasIpcHandlers((input) =>
+    channelWiring.executeContentCanvasAction(
+      input.conversationJid,
+      input.action,
+      { providerAccountId: input.providerAccountId },
+    ),
+  );
   syncGroupSnapshots();
   app.queue.setLiveTurnRunnerRegistrar(
     liveTurnAuthority
@@ -532,12 +541,7 @@ export async function startRuntimeServices(
       timezone: TIMEZONE,
       enqueueMessageCheck: app.queue.enqueueMessageCheck.bind(app.queue),
       warn: (context, message) => resolved.logger.warn(context, message),
-      addReaction: (jid, messageRef, emoji, options) =>
-        channelWiring.addReaction(jid, messageRef, emoji, options),
-      removeReaction: (jid, messageRef, emoji, options) =>
-        channelWiring.removeReaction(jid, messageRef, emoji, options),
-      reactionRemovalMode: (jid, options) =>
-        channelWiring.reactionRemovalMode(jid, options),
+      ...liveUxReactionSinks(channelWiring),
       handleActiveControlCommand,
       finalizeAgentTodo: (jid, render, options) =>
         channelWiring.finalizeAgentTodo(jid, render, options),

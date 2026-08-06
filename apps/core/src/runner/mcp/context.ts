@@ -70,6 +70,7 @@ export const permissionLane =
     ? 'interactive'
     : 'autonomous';
 export const jobRunId = process.env.GANTRY_JOB_RUN_ID?.trim() || undefined;
+export const runId = process.env.GANTRY_RUN_ID?.trim() || undefined;
 export const jobRunLeaseToken =
   process.env.GANTRY_JOB_RUN_LEASE_TOKEN?.trim() || undefined;
 export const jobRunLeaseFencingVersion =
@@ -101,7 +102,7 @@ export const enabledAdminMcpTools = parseEnabledAdminMcpTools(
 );
 export const enabledGantryMcpTools = parseEnabledGantryMcpToolNames(
   process.env.GANTRY_MCP_TOOL_NAMES_JSON,
-  { lockedPreset: lockedAccessPreset },
+  { lockedPreset: lockedAccessPreset, chatJid, permissionLane },
 );
 const asyncTaskToolNameSet = new Set<string>([
   ...ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,

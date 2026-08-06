@@ -152,11 +152,11 @@ export function formatPermissionReceiptText(
   if (!decision.approved || decision.mode === 'cancel') {
     return limitPermissionMessage(`Canceled: ${summary}. Nothing changed.`);
   }
-  if (decision.mode === 'allow_persistent_rule') {
-    if (decision.batchDecision === 'review_each')
-      return 'Reviewing each permission request.';
-    if (request && isPermissionBatchRequest(request))
-      return 'Reviewing each permission request.';
+  if (decision.batchDecision === 'review_each')
+    return 'Reviewing each permission request.';
+  // Strict field read, no mode fallback: decisionForMode always stamps
+  // provenance (owner-directed no-legacy policy).
+  if (decision.repeatableForFutureRuns === true) {
     const agentName = request
       ? formatPermissionAgentDisplayName(request.sourceAgentFolder)
       : 'this agent';
@@ -170,7 +170,7 @@ export function formatPermissionReceiptText(
     );
   }
   return limitPermissionMessage(
-    `Allowed once: ${summary}. The agent will continue this request.`,
+    `Approved for this run only: ${summary}.${request?.jobId ? ' It will ask again next run.' : ''}`,
   );
 }
 
@@ -353,13 +353,39 @@ function formatPermissionContextLines(
   if (requestHasThreadRoute(request)) {
     lines.push('Approval applies to the parent conversation.');
   }
-  if (request.promotionHintCount) {
+  if (request.closestRule) {
     lines.push(
-      `You've allowed me to do this ${request.promotionHintCount} times — want me to stop asking?`,
+      `Approved pattern: ${sanitizePermissionText(request.closestRule.rule, 500, 160)}`,
+    );
+    const attemptedCommand = permissionAttemptedCommand(request);
+    if (attemptedCommand) {
+      lines.push(
+        `Attempted command: ${sanitizePermissionCommandText(attemptedCommand, 500, 160)}`,
+      );
+    }
+  }
+  if (request.promotionHintCount && request.firstAskedAt) {
+    const days = permissionAskSpanDays(request.firstAskedAt);
+    lines.push(
+      `Approved once ${request.promotionHintCount} times in ${days} ${days === 1 ? 'day' : 'days'} — and it is asking again now. Approve permanently?`,
     );
   }
   lines.push('The agent cannot approve this itself.');
   return lines;
+}
+
+function permissionAttemptedCommand(
+  request: PermissionApprovalRequest,
+): string | null {
+  const command = request.toolInput?.command ?? request.toolInput?.cmd;
+  if (typeof command !== 'string' || !command.trim()) return null;
+  return runtimeDisplayCommand(command.trim()).command;
+}
+
+function permissionAskSpanDays(firstAskedAt: string): number {
+  const firstAskedAtMs = Date.parse(firstAskedAt);
+  if (!Number.isFinite(firstAskedAtMs)) return 1;
+  return Math.max(1, Math.ceil((Date.now() - firstAskedAtMs) / 86_400_000));
 }
 
 function formatInteractionPermissionPrompt(

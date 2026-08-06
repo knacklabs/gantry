@@ -119,6 +119,16 @@ export interface PermissionDecision {
   approved: boolean;
   mode?: 'allow_once' | 'allow_persistent_rule' | 'cancel';
   decidedBy?: string;
+  source?:
+    | 'durable_rule'
+    | 'birthright'
+    | 'deterministic_policy'
+    | 'auto_classifier'
+    | 'cached_classifier'
+    | 'trusted_root'
+    | 'human_once'
+    | 'human_persistent';
+  repeatableForFutureRuns?: boolean;
   reason?: string;
   risk_level?: 'low' | 'medium' | 'high' | 'critical';
   risk_category?:

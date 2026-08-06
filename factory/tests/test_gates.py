@@ -1155,7 +1155,7 @@ def test_upgrade_migration_promotes_and_refuses_correctly(repo, tmp_path):
         "client_signoff_record": "docs/decisions/0005-client-signoff.md",
     }))
     git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "legacy project, unsigned")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "legacy project, unsigned")
     proc = upgrade_into(repo)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert not signed_off(repo), "an explicitly unsigned project was promoted"
@@ -1167,7 +1167,7 @@ def test_upgrade_migration_promotes_and_refuses_correctly(repo, tmp_path):
     strip_pin(repo)
     (repo / ".factory" / "run.json").unlink()
     git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "no run state")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "no run state")
     proc = upgrade_into(repo)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert not signed_off(repo), "absent run state was treated as prior sign-off"
@@ -1182,7 +1182,7 @@ def test_upgrade_migration_promotes_and_refuses_correctly(repo, tmp_path):
         "client_signoff_record": "docs/decisions/0005-client-signoff.md",
     }))
     git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "legacy signed")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "legacy signed")
     proc = upgrade_into(repo)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert signed_off(repo), "a genuinely signed legacy project was un-signed"
@@ -2052,6 +2052,86 @@ def test_hook_denies_variable_hidden_companion_in_unparseable_bash(repo):
     assert "deny" in out and "could not be safely parsed" in out
 
 
+def test_hook_denies_file_and_cwd_overrides_in_readonly_lane(repo):
+    """--prompt-file exfiltrates local files; options are default-deny."""
+    for cmd in (
+        "node /x/codex-companion.mjs task --prompt-file /etc/passwd go",
+        "node /x/codex-companion.mjs task --cwd /other/repo go",
+        "node /x/codex-companion.mjs task --unknown-flag go",
+    ):
+        code, out = hook(repo, {"tool_name": "Bash",
+                                "permission_mode": "default",
+                                "tool_input": {"command": cmd}})
+        assert "deny" in out, cmd
+
+
+def test_hook_denies_mutating_companion_subcommands(repo):
+    """Only allowlisted read-only verbs pass; setup/cancel/task-worker mutate."""
+    for verb in ("setup", "cancel", "task-worker", "unknown-verb"):
+        cmd = f"node /x/codex-companion.mjs {verb} go"
+        code, out = hook(repo, {"tool_name": "Bash",
+                                "permission_mode": "default",
+                                "tool_input": {"command": cmd}})
+        assert "deny" in out, cmd
+
+
+def test_hook_denies_exec_capable_display_commands(repo):
+    """Pagers and option-bearing display tools can execute; deny them."""
+    for cmd in (
+        "less '+!node /x/codex-companion.mjs task --write go' /dev/null",
+        "rg --pre=/x/codex-companion.mjs pattern file.txt",
+        "tail -f /tmp/codex-companion.mjs",
+    ):
+        code, out = hook(repo, {"tool_name": "Bash",
+                                "permission_mode": "default",
+                                "tool_input": {"command": cmd}})
+        assert "deny" in out, cmd
+
+
+def test_hook_denies_wrapped_or_computed_companion_launch(repo):
+    """Executors that could compute argv at runtime are unverifiable."""
+    for cmd in (
+        "xargs node /x/codex-companion.mjs task go",
+        "env FLAG=1 node /x/codex-companion.mjs task go",
+        "python3 -c 'import subprocess; subprocess.run([\"node\", "
+        "\"/x/codex-companion.mjs\", \"task\", \"--\" + \"write\"])'",
+    ):
+        code, out = hook(repo, {"tool_name": "Bash",
+                                "permission_mode": "default",
+                                "tool_input": {"command": cmd}})
+        assert "deny" in out, cmd
+
+
+def test_hook_denies_expansion_bearing_companion_launch(repo):
+    """Unexpanded variables can smuggle write flags; deny as unverifiable."""
+    for cmd in (
+        "flag=--write bash -c 'node /x/codex-companion.mjs task \"$flag\" go'",
+        "node /x/codex-companion.mjs task $(cat /tmp/mode) go",
+        "node /x/codex-companion.mjs task `cat /tmp/mode` go",
+        "node /x/codex-companion.mjs task $'--write' go",
+        "node /x/codex-companion.mjs task --writ[e] go",
+    ):
+        code, out = hook(repo, {"tool_name": "Bash",
+                                "permission_mode": "default",
+                                "tool_input": {"command": cmd}})
+        assert "deny" in out, cmd
+
+
+def test_hook_allows_readonly_companion_prompt_mentioning_write_flag(repo):
+    """A prompt that merely MENTIONS a write flag is not a write launch."""
+    cmd = "node /x/codex-companion.mjs task 'audit how --write is handled'"
+    code, out = hook(repo, {"tool_name": "Bash",
+                            "permission_mode": "default",
+                            "tool_input": {"command": cmd}})
+    assert code == 0 and "deny" not in out, cmd
+    # Even a read-only nested launch is unverifiable and therefore denied.
+    nested = "bash -c 'node /x/codex-companion.mjs task \"explore\"'"
+    code, out = hook(repo, {"tool_name": "Bash",
+                            "permission_mode": "default",
+                            "tool_input": {"command": nested}})
+    assert "deny" in out, nested
+
+
 def test_hook_denies_nested_quoted_companion_write_launch(repo):
     """A write flag hidden inside a quoted nested shell must still deny."""
     for cmd in (
@@ -2176,11 +2256,12 @@ def test_planning_lock_forces_plan_mode(repo, tmp_path):
                             "tool_input": {"command":
                                            "codex exec --profile explore -s read-only 'map it'"}})
     assert "deny" in out and "codex:rescue" in out
-    # Direct companion commands are always off-contract.
+    # Read-only companion launches are the rescue exploration lane and are
+    # exactly what planning prescribes; write launches stay off-contract.
     companion = "node /x/codex-companion.mjs task --model gpt-5.6-terra 'map the module'"
     code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
                             "tool_input": {"command": companion}})
-    assert "deny" in out and "forge delegate" in out
+    assert code == 0 and "deny" not in out
     code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
                             "tool_input": {"command": companion + " --write"}})
     assert "deny" in out and "forge delegate" in out

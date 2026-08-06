@@ -16,6 +16,19 @@ export interface AttachmentOpenPayload {
   image?: AttachmentOpenImagePayload;
 }
 
+export interface AttachmentMaterializePayload {
+  status:
+    | 'materialized'
+    | 'already_in_workspace'
+    | 'not_found'
+    | 'deleted'
+    | 'too_large'
+    | 'unreachable';
+  text: string;
+  path?: string;
+  bytes?: number;
+}
+
 const DEFAULT_BATCH_CONCURRENCY = 4;
 const MAX_BATCH_ITEM_BYTES = 32_000;
 const MAX_BATCH_OUTPUT_BYTES = 160_000;
@@ -40,12 +53,96 @@ export function attachmentOpenTaskRequest(input: {
     payload: {
       attachmentId: input.attachmentId,
       conversationProof: createAttachmentOpenProof(input.authToken, {
+        type: 'attachment_open',
         attachmentId: input.attachmentId,
         chatJid: input.chatJid,
         taskId: input.taskId,
         ...(input.threadId ? { threadId: input.threadId } : {}),
       }),
     },
+  };
+}
+
+export function attachmentMaterializeTaskRequest(input: {
+  attachmentId: string;
+  chatJid: string;
+  threadId?: string;
+  taskId: string;
+  authToken: string;
+}) {
+  return {
+    type: 'attachment_materialize',
+    taskId: input.taskId,
+    chatJid: input.chatJid,
+    targetJid: input.chatJid,
+    payload: {
+      attachmentId: input.attachmentId,
+      conversationProof: createAttachmentOpenProof(input.authToken, {
+        type: 'attachment_materialize',
+        attachmentId: input.attachmentId,
+        chatJid: input.chatJid,
+        taskId: input.taskId,
+        ...(input.threadId ? { threadId: input.threadId } : {}),
+      }),
+    },
+  };
+}
+
+export function attachmentMaterializeResponsePayload(
+  response: AttachmentOpenTaskResponse | null,
+): AttachmentMaterializePayload {
+  if (!response) {
+    return {
+      status: 'unreachable',
+      text: "I can't get that file from the channel right now.",
+    };
+  }
+  if (!response.ok) {
+    return {
+      status: 'unreachable',
+      text: `I can't materialize that attachment: ${
+        response.error || 'the host rejected the request.'
+      }`,
+    };
+  }
+  const data =
+    response.data &&
+    typeof response.data === 'object' &&
+    !Array.isArray(response.data)
+      ? (response.data as Record<string, unknown>)
+      : {};
+  const status = data.status;
+  const content = typeof data.content === 'string' ? data.content : undefined;
+  const workspacePath = typeof data.path === 'string' ? data.path : undefined;
+  const bytes = typeof data.bytes === 'number' ? data.bytes : undefined;
+  if (status === 'materialized' && workspacePath && bytes !== undefined) {
+    return {
+      status,
+      path: workspacePath,
+      bytes,
+      text: `Attachment materialized at ${workspacePath} (${bytes} bytes).`,
+    };
+  }
+  if (status === 'already_in_workspace' && workspacePath) {
+    return {
+      status,
+      path: workspacePath,
+      ...(bytes !== undefined ? { bytes } : {}),
+      text: `Attachment is already in the workspace at ${workspacePath}.`,
+    };
+  }
+  if (
+    content &&
+    (status === 'not_found' ||
+      status === 'deleted' ||
+      status === 'too_large' ||
+      status === 'unreachable')
+  ) {
+    return { status, text: content };
+  }
+  return {
+    status: 'unreachable',
+    text: "I can't get that file from the channel right now.",
   };
 }
 

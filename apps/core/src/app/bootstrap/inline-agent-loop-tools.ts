@@ -455,13 +455,13 @@ export function createInlineCoreTools(
               publishRuntimeEvent: deps.publishRuntimeEvent,
               classifierConsult: deps.classifierConsult,
             });
-            if (classifierDecision?.decision === 'allow') {
-              return decisionForMode(request, 'allow_once', 'auto_classifier');
-            }
+            if (classifierDecision?.decision === 'allow')
+              // prettier-ignore
+              return decisionForMode(request, 'allow_once', 'auto_classifier', 'machine');
           }
           if (run.permissionMode !== 'ask' && run.isScheduledJob === true) {
             return {
-              ...decisionForMode(request, 'cancel', 'runtime'),
+              ...decisionForMode(request, 'cancel', 'runtime', 'machine'),
               reason: classifierDecision
                 ? `Classifier requested human approval: ${classifierDecision.reason}`
                 : 'This tool is not eligible for unattended auto-permission.',

@@ -4684,8 +4684,7 @@ describe('DiscordChannel', () => {
       expect.objectContaining({
         method: 'PATCH',
         body: JSON.stringify({
-          content:
-            'Allowed once: Command (git status). The agent will continue this request.',
+          content: 'Approved for this run only: Command (git status).',
           components: [],
         }),
       }),

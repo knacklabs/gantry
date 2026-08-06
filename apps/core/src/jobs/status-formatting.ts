@@ -16,10 +16,16 @@ export function formatRunStatusMessage(args: {
   retryCount: number;
   pauseReason?: string | null;
   durationMs?: number;
+  degradedReason?: string;
 }): string {
   const denial = parseAutonomousToolDenial(args.summary);
   const displaySummary = selectJobNotificationSummary(args.summary);
-  const statusText = statusLabel(args.runStatus, displaySummary, denial);
+  const statusText = statusLabel(
+    args.runStatus,
+    displaySummary,
+    denial,
+    Boolean(args.degradedReason),
+  );
   const duration =
     args.durationMs === undefined
       ? ''
@@ -30,6 +36,7 @@ export function formatRunStatusMessage(args: {
     `**${statusEmoji(statusText)} ${statusText}** · ${args.job.name}${duration}`,
     summary,
   ];
+  if (args.degradedReason) lines.push(`⚠️ Degraded: ${args.degradedReason}`);
   // A "Completed with issues" header must carry its blocker even when the
   // compacted summary truncates it away.
   const attention = hasMeaningfulReceiptValue(action)
@@ -49,6 +56,7 @@ function statusEmoji(statusText: string): string {
     case 'Completed, no report':
       return '✅';
     case 'Completed with issues':
+    case 'Completed with limits':
       return '⚠️';
     case 'Needs permission':
       return '🔐';
@@ -94,7 +102,11 @@ function statusLabel(
   status: 'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered',
   summary: string,
   denial: AutonomousToolDenial | null,
+  degraded: boolean,
 ): string {
+  // A completed run that degraded reads as a completion, not a permission
+  // plea — the degraded line carries the denial detail.
+  if (status === 'completed' && degraded) return 'Completed with limits';
   if (denial) return 'Needs permission';
   if (status === 'paused') return 'Needs permission';
   if (status === 'completed') {
