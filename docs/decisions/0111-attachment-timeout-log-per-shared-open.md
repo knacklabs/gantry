@@ -67,3 +67,14 @@ flight identity nor deadline ordering:
 - Tests assert exactly one `timeout` warning across both stale-retry topologies
   (F1 splits to F2; F1's chain joins an already-in-flight F2) and that a fresh
   later open can still log.
+
+## Status note (acceptance deferred)
+
+Left `proposed` deliberately. The invariant is a correctness guardrail on a
+narrow race — it only bites when several callers open the **same** attachment
+concurrently *and* that shared open times out. Practical impact of getting it
+wrong is **log fidelity for operators** (a duplicate or, worst case, a missing
+timeout log line under concurrent timeouts), never a user-visible failure. The
+open question before accepting is whether a formal decision is warranted for an
+edge that small, or whether a code comment on the registry would suffice.
+Revisit and accept (or downgrade to an inline note) when convenient.
