@@ -1012,6 +1012,53 @@ describe('validateIpcAuthRequest', () => {
     });
   });
 
+  it('accepts attachment proofs from legacy runner tokens without provider account scope', () => {
+    const attachmentId = 'message-attachment:provider-fetch:m1:slack:F1';
+    const taskId = 'attachment-open-legacy-provider-token';
+    const threadId = '1784545366.449119';
+    const context = {
+      responseKeyId: TEST_RESPONSE_KEY_ID,
+      threadId,
+      appId: 'app-1',
+      agentId: 'agent-1',
+      providerAccountId: 'slack-default',
+    };
+    const legacyIpcAuthValue = computeAttachmentIpcAuthToken('team', {
+      chatJid: 'sl:C1',
+      threadId,
+      appId: 'app-1',
+      agentId: 'agent-1',
+    });
+    const legacyEvidence = createAttachmentOpenProof(legacyIpcAuthValue, {
+      type: 'attachment_open',
+      attachmentId,
+      chatJid: 'sl:C1',
+      taskId,
+      threadId,
+    });
+    const payload = signedPayload(
+      {
+        requestId: 'attachment-legacy-provider-token',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'attachment_open',
+        taskId,
+        chatJid: 'sl:C1',
+        targetJid: 'sl:C1',
+        context,
+        payload: { attachmentId, conversationProof: legacyEvidence },
+      },
+      'team',
+      threadId,
+    );
+
+    expect(parseTaskIpcData(payload, 'team')).toMatchObject({
+      type: 'attachment_open',
+      chatJid: 'sl:C1',
+      providerAccountId: 'slack-default',
+    });
+  });
+
   it('preserves memory user ids from signed task requests', () => {
     const payload = signedPayload({
       requestId: 'task-memory-user-id',

@@ -548,31 +548,48 @@ function validateAttachmentOpenConversationProof(
     !conversationProof ||
     !chatJid ||
     !taskId ||
-    !binding.appId ||
-    !binding.providerAccountId
+    !binding.appId
   ) {
     throw new Error('Invalid attachment open conversation proof');
   }
-  const authToken = computeAttachmentIpcAuthToken(sourceAgentFolder, {
-    chatJid,
-    threadId: binding.authThreadId,
-    appId: binding.appId,
-    agentId: binding.agentId,
-    providerAccountId: binding.providerAccountId,
-  });
-  if (
-    !verifyAttachmentOpenProof(
-      authToken,
-      {
-        type,
-        attachmentId,
+
+  const candidateProviderAccountIds = [
+    binding.providerAccountId,
+    // Older runner environments computed the attachment auth token before the
+    // provider account scope was available. Keep accepting that token shape so
+    // attachment_open remains usable for existing Slack routes while the proof
+    // is still bound to app, agent, chat, thread, attachment id, and task id.
+    undefined,
+  ].filter(
+    (value, index, all): value is string | undefined =>
+      all.indexOf(value) === index,
+  );
+
+  const hasValidProof = candidateProviderAccountIds.some(
+    (providerAccountId) => {
+      const authToken = computeAttachmentIpcAuthToken(sourceAgentFolder, {
         chatJid,
-        taskId,
-        ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
-      },
-      conversationProof,
-    )
-  ) {
+        threadId: binding.authThreadId,
+        appId: binding.appId,
+        agentId: binding.agentId,
+        providerAccountId,
+      });
+
+      return verifyAttachmentOpenProof(
+        authToken,
+        {
+          type,
+          attachmentId,
+          chatJid,
+          taskId,
+          ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
+        },
+        conversationProof,
+      );
+    },
+  );
+
+  if (!hasValidProof) {
     throw new Error('Invalid attachment open conversation proof');
   }
 }
