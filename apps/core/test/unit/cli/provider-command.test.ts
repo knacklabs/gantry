@@ -331,14 +331,17 @@ describe('channel CLI command', () => {
     expect(error).toHaveBeenCalledWith(expect.stringContaining('Usage:'));
   });
 
-  it('uses scoped channel health for doctor exit status', async () => {
+  it('keeps a passing Slack feature-scope warning in the scoped provider doctor report', async () => {
     const { note } = mockClack();
     mockProviders();
+    const formatDoctorReport = vi.fn((report) =>
+      report.ok ? 'channel ok' : 'channel failed',
+    );
     vi.doMock('@core/cli/doctor.js', () => ({
       runDoctorWithNetwork: vi.fn(async () => ({
         ok: false,
         blockingFailures: 1,
-        warnings: 0,
+        warnings: 1,
         checks: [
           {
             id: 'postgres-storage',
@@ -347,16 +350,16 @@ describe('channel CLI command', () => {
             message: 'Database down.',
           },
           {
-            id: 'telegram-token',
-            title: 'Telegram',
+            id: 'slack-token-api',
+            title: 'Slack Token API Validation',
             status: 'pass',
-            message: 'Telegram ready.',
+            message: 'Slack bot/app tokens validated.',
+            warning:
+              'Slack is missing files:read. Add it and reinstall the app to this workspace. See docs/operations/slack-app-install.md.',
           },
         ],
       })),
-      formatDoctorReport: vi.fn((report) =>
-        report.ok ? 'channel ok' : 'channel failed',
-      ),
+      formatDoctorReport,
     }));
     vi.doMock('@core/config/settings/runtime-settings.js', () => ({
       ensureRuntimeSettings: vi.fn(),
@@ -379,6 +382,22 @@ describe('channel CLI command', () => {
 
     expect(code).toBe(0);
     expect(note).toHaveBeenCalledWith('channel ok', 'Provider Doctor');
+    expect(formatDoctorReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ok: true,
+        blockingFailures: 0,
+        warnings: 1,
+        checks: [
+          expect.objectContaining({
+            id: 'slack-token-api',
+            status: 'pass',
+            warning: expect.stringMatching(
+              /files:read.*reinstall.*docs\/operations\/slack-app-install\.md/i,
+            ),
+          }),
+        ],
+      }),
+    );
   });
 
   it('lists Provider Accounts without internal binding copy', async () => {

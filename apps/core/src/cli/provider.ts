@@ -103,7 +103,9 @@ function scopeProviderDoctorReport(report: DoctorReport): DoctorReport {
     ...report,
     checks,
     blockingFailures,
-    warnings: checks.filter((check) => check.status === 'warn').length,
+    warnings: checks.filter(
+      (check) => check.status === 'warn' || check.warning !== undefined,
+    ).length,
     ok: blockingFailures === 0,
   };
 }
