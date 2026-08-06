@@ -22,6 +22,14 @@
   rather than the end state alone. The chain from admission to channel is
   covered by `apps/core/test/unit/runtime/liveness-flow.test.ts`.
 
+Accepted residuals (LIVE-2, documented rather than fixed): a late-committing
+stale typing event stays in the durable log but is inert, because consumers
+discard it by sequence; an abandoned live-UX attempt evicted past the 30s/256
+retention bound cannot be reconciled if its provider effect lands afterwards,
+and eviction warns with route context; a Slack restart mid-turn can briefly
+show the interrupted card alongside the fresh one — the stale-and-repost trade
+chosen over cross-restart card continuity.
+
 Maintenance: update this map whenever ambient-liveness flow tests are renamed or moved so the behavior contract continues to point at the exact exercising tests. When a test name claims a never-happens invariant or a specific transition strategy, assert it against the harness history — an end-state assertion alone will pass on a flicker that is later corrected.
 
 ## Rules
