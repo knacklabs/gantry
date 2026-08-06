@@ -1163,6 +1163,53 @@ describe('createGroupProcessor', () => {
       });
     });
 
+    it('inherits the route thread for the newest unannotated reaction target', async () => {
+      const onFirstProgress = vi.fn();
+      const messages = [
+        makeMessage({
+          external_message_id: 'provider-message-1',
+          thread_id: null,
+        }),
+      ];
+      const { deps } = setupHappyPath({ messages });
+      const { processGroupMessages } = createGroupProcessor(deps);
+
+      await processGroupMessages('group1@g.us::thread:route-thread', {
+        onFirstProgress,
+      });
+
+      expect(onFirstProgress).toHaveBeenCalledWith({
+        jid: 'group1@g.us',
+        messageRef: 'provider-message-1',
+        threadId: 'route-thread',
+      });
+    });
+
+    it('clears the route thread when the reaction scan selects an earlier plain-channel message', async () => {
+      const onFirstProgress = vi.fn();
+      const messages = [
+        makeMessage({
+          external_message_id: 'provider-message-1',
+          thread_id: null,
+        }),
+        makeMessage({
+          external_message_id: 'external-ingress:batch-2',
+          thread_id: 'route-thread',
+        }),
+      ];
+      const { deps } = setupHappyPath({ messages });
+      const { processGroupMessages } = createGroupProcessor(deps);
+
+      await processGroupMessages('group1@g.us::thread:route-thread', {
+        onFirstProgress,
+      });
+
+      expect(onFirstProgress).toHaveBeenCalledWith({
+        jid: 'group1@g.us',
+        messageRef: 'provider-message-1',
+      });
+    });
+
     it('carries the back-scanned reaction target thread instead of the newest batch thread', async () => {
       const onFirstProgress = vi.fn();
       const messages = [

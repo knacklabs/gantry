@@ -26,11 +26,8 @@ function findLatestReactionTarget(
 
 export function latestReactionTarget(
   messages: readonly NewMessage[] | undefined,
-): { messageRef: string; threadId?: string } | undefined {
-  const target = findLatestReactionTarget(messages);
-  if (!target) return undefined;
-  const { messageIndex: _messageIndex, ...publicTarget } = target;
-  return publicTarget;
+): ReactionTarget | undefined {
+  return findLatestReactionTarget(messages);
 }
 
 export async function acknowledgeContinuationReceipt(input: {

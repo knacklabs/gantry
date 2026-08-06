@@ -207,6 +207,12 @@ function supersedePendingStallNotices(chain?: ProgressSendChain): void {
   for (const link of pending) {
     if (link.dispatched || !link.stallNotice) continue;
     link.obsolete = true;
+    if (
+      chain.lastDesired?.ownerEpoch === link.ownerEpoch &&
+      chain.lastDesired.sequence === link.sequence
+    ) {
+      chain.lastDesired = chain.lastDesired.previousDesired;
+    }
   }
 }
 
@@ -275,7 +281,7 @@ function reconcile(
     dispatched: false,
     nonBlocking: false,
     obsolete: false,
-    stallNotice: false,
+    stallNotice: latest.text === 'Still working',
     abandon: () => undefined,
     settled: Promise.resolve(),
   };

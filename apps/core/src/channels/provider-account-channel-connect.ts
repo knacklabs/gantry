@@ -102,14 +102,28 @@ export async function connectProviderAccountChannels(input: {
       inboundKey && inboundAccountIdsByKey.get(inboundKey)?.length
         ? inboundAccountIdsByKey.get(inboundKey)!
         : [providerAccountId];
+    let providerInbound =
+      input.inboundEnabled &&
+      (!inboundKey || !attemptedInboundKeys.has(inboundKey));
     let providerInboundLease: RuntimeLease | undefined;
+    if (providerInbound && input.provider.id === 'app') {
+      providerInboundLease = await input.channelOpts.runtimeLease?.tryAcquire(
+        `${input.inboundLeasePrefix}:${input.provider.id}:${providerAccountId}`,
+      );
+      providerInbound = providerInboundLease !== undefined;
+    }
     const channel = await input.provider.create({
       ...input.channelOpts,
       appId: input.appId,
       providerAccountId,
       inboundProviderAccountIds,
       agentId,
-      liveUxBindingGeneration: () => providerInboundLease?.generation,
+      liveUxBindingGeneration: providerInboundLease
+        ? () =>
+            providerInboundLease?.isValid()
+              ? providerInboundLease.generation
+              : undefined
+        : undefined,
       onChatMetadata: (
         conversationJid,
         timestamp,
@@ -195,9 +209,6 @@ export async function connectProviderAccountChannels(input: {
     const hasHistoryCoverage =
       channel.hydrateConversationContext && input.provider.id !== 'telegram';
 
-    let providerInbound =
-      input.inboundEnabled &&
-      (!inboundKey || !attemptedInboundKeys.has(inboundKey));
     let providerInboundLeaseLost: Error | undefined;
     let channelConnected = false;
     let leaseLossTeardown: Promise<void> | undefined;
@@ -211,6 +222,7 @@ export async function connectProviderAccountChannels(input: {
     if (providerInbound && inboundKey) attemptedInboundKeys.add(inboundKey);
     if (
       providerInbound &&
+      input.provider.id !== 'app' &&
       (input.runtimeSettings.runtime.deploymentMode === 'fleet' ||
         input.provider.id === 'app')
     ) {
@@ -221,6 +233,9 @@ export async function connectProviderAccountChannels(input: {
       providerInboundLease?.onLost?.((err) => {
         if (providerInboundLeaseLost) return;
         providerInboundLeaseLost = err;
+        if (input.provider.id === 'app' && channel.liveUx) {
+          channel.liveUx = { ...channel.liveUx, typing: 'none' };
+        }
         if (hasHistoryCoverage) {
           input.channelOpts.setHistoryCoverageInboundActive?.(
             inboundProviderAccountIds,

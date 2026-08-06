@@ -122,12 +122,23 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const latestMessage = missedMessages[missedMessages.length - 1];
     const cursorForMessage = (message: typeof latestMessage) =>
       encodeGroupMessageCursor(toGroupMessageCursor(message));
-    const latestMessageReactionTarget = latestReactionTarget(missedMessages);
+    const selectedReactionTarget = latestReactionTarget(missedMessages);
     const activeThreadId = firstThreadQueueId(
       threadId,
       latestMessage.thread_id,
       slackChannelRootThreadId(chatJid, latestMessage.external_message_id),
     );
+    const latestMessageReactionTarget = selectedReactionTarget
+      ? {
+          messageRef: selectedReactionTarget.messageRef,
+          ...(selectedReactionTarget.threadId
+            ? { threadId: selectedReactionTarget.threadId }
+            : selectedReactionTarget.messageIndex ===
+                  missedMessages.length - 1 && activeThreadId
+              ? { threadId: activeThreadId }
+              : {}),
+        }
+      : undefined;
     let streamGeneration = (streamingGenerationCounter += 1);
     let progressGeneration = streamGeneration;
     const turnOptions = createGroupTurnOptionBuilders({

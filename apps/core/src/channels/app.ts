@@ -73,34 +73,24 @@ export async function createAppChannel(
   opts: ChannelOpts,
 ): Promise<ChannelAdapter> {
   const liveUxBindingGeneration = opts.liveUxBindingGeneration;
-  if (!liveUxBindingGeneration) {
-    throw new Error(
-      'App channel requires a durable runtime lease generation binding',
-    );
-  }
+  const initialLiveUxBindingGeneration = liveUxBindingGeneration?.();
+  const hasLiveUxBindingGeneration =
+    Number.isSafeInteger(initialLiveUxBindingGeneration) &&
+    Number(initialLiveUxBindingGeneration) >= 1;
   let connected = false;
   let outboundSequence = 0;
   const outboundGeneration = randomUUID();
 
-  const orderedEnvelope = (kind: string) => {
-    const generation =
-      kind === 'typing' ? liveUxBindingGeneration() : outboundGeneration;
-    if (
-      kind === 'typing' &&
-      (!Number.isSafeInteger(generation) || Number(generation) < 1)
-    ) {
-      throw new Error(
-        'App typing requires the durable runtime lease generation',
-      );
-    }
-    return {
-      generation,
-      sequence: ++outboundSequence,
-      kind,
-      partIndex: 1,
-      totalParts: 1,
-    };
-  };
+  const orderedEnvelope = (
+    kind: string,
+    generation: number | string = outboundGeneration,
+  ) => ({
+    generation,
+    sequence: ++outboundSequence,
+    kind,
+    partIndex: 1,
+    totalParts: 1,
+  });
 
   const sendMessage = async (
     jid: string,
@@ -125,7 +115,7 @@ export async function createAppChannel(
   return {
     name: 'app',
     liveUx: {
-      typing: 'explicit',
+      typing: hasLiveUxBindingGeneration ? 'explicit' : 'none',
       reactions: 'none',
       canonicalTarget: (target) => ({
         key: `typing\n${target.jid}\n${target.threadId ?? ''}`,
@@ -169,6 +159,8 @@ export async function createAppChannel(
       isTyping: boolean,
       options: { threadId?: string; signal?: AbortSignal } = {},
     ): Promise<void> {
+      const generation = liveUxBindingGeneration?.();
+      if (!Number.isSafeInteger(generation) || Number(generation) < 1) return;
       // App event publication is deliberately not cancellation-fenced through
       // the notifier or Postgres transaction. orderedEnvelope is the consumer
       // fence: a late stale typing event may remain in the event log, but an
@@ -176,7 +168,7 @@ export async function createAppChannel(
       await emitSessionEvent(jid, RUNTIME_EVENT_TYPES.SESSION_TYPING, {
         isTyping,
         threadId: options.threadId ?? null,
-        orderedEnvelope: orderedEnvelope('typing'),
+        orderedEnvelope: orderedEnvelope('typing', Number(generation)),
       });
     },
     async sendProgressUpdate(

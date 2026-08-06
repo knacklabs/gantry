@@ -94,9 +94,11 @@ const fanOutMessage = {
 describe('connectProviderAccountChannels', () => {
   it('exposes the App binding durable lease generation to the adapter', async () => {
     let bindingGeneration: (() => number | undefined) | undefined;
+    let generationAtConstruction: number | undefined;
     const activeChannel = channel();
     const create = vi.fn<Provider['create']>(async (opts) => {
       bindingGeneration = opts.liveUxBindingGeneration;
+      generationAtConstruction = bindingGeneration?.();
       return activeChannel;
     });
     const lease = {
@@ -122,6 +124,7 @@ describe('connectProviderAccountChannels', () => {
     });
 
     expect(tryAcquire).toHaveBeenCalledOnce();
+    expect(generationAtConstruction).toBe(7);
     expect(bindingGeneration?.()).toBe(7);
     expect(connectedChannelLeases).toEqual([lease]);
   });

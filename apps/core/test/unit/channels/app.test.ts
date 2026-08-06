@@ -25,9 +25,46 @@ describe('app channel', () => {
     vi.clearAllMocks();
   });
 
-  it('refuses to construct an app binding without a durable producer generation source', async () => {
-    await expect(createAppChannel({} as never)).rejects.toThrow(
-      'App channel requires a durable runtime lease generation binding',
+  it('declares outbound-only App typing absent without logging typing errors', async () => {
+    const app = await createAppChannel({} as never);
+
+    expect(app.liveUx).toMatchObject({
+      typing: 'none',
+      reactions: 'none',
+    });
+    await expect(
+      app.setTyping?.('app:demo:conversation', true),
+    ).resolves.toBeUndefined();
+    expect(runtimeEvents.publish).not.toHaveBeenCalled();
+  });
+
+  it('declares generation-bearing App typing explicit and publishes end to end', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      canonicalConversationId: 'conversation-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue(null);
+    runtimeEvents.publish.mockResolvedValue({ eventId: 1 });
+    const app = await createAppChannel(appOptions(7));
+
+    expect(app.liveUx).toMatchObject({
+      typing: 'explicit',
+      reactions: 'none',
+    });
+    await app.setTyping?.('app:demo:conversation', true);
+
+    expect(runtimeEvents.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: RUNTIME_EVENT_TYPES.SESSION_TYPING,
+        payload: expect.objectContaining({
+          isTyping: true,
+          orderedEnvelope: expect.objectContaining({ generation: 7 }),
+        }),
+      }),
     );
   });
 
