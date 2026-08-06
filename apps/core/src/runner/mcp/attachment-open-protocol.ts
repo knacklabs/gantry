@@ -42,6 +42,7 @@ export function attachmentOpenTaskRequest(input: {
   attachmentId: string;
   chatJid: string;
   threadId?: string;
+  providerAccountId?: string;
   taskId: string;
   authToken: string;
 }) {
@@ -50,6 +51,9 @@ export function attachmentOpenTaskRequest(input: {
     taskId: input.taskId,
     chatJid: input.chatJid,
     targetJid: input.chatJid,
+    ...(input.providerAccountId
+      ? { providerAccountId: input.providerAccountId }
+      : {}),
     payload: {
       attachmentId: input.attachmentId,
       conversationProof: createAttachmentOpenProof(input.authToken, {
@@ -67,6 +71,7 @@ export function attachmentMaterializeTaskRequest(input: {
   attachmentId: string;
   chatJid: string;
   threadId?: string;
+  providerAccountId?: string;
   taskId: string;
   authToken: string;
 }) {
@@ -75,6 +80,9 @@ export function attachmentMaterializeTaskRequest(input: {
     taskId: input.taskId,
     chatJid: input.chatJid,
     targetJid: input.chatJid,
+    ...(input.providerAccountId
+      ? { providerAccountId: input.providerAccountId }
+      : {}),
     payload: {
       attachmentId: input.attachmentId,
       conversationProof: createAttachmentOpenProof(input.authToken, {
