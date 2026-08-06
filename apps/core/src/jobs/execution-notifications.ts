@@ -20,9 +20,9 @@ import {
 import { SETUP_REQUIRED_PAUSE_REASON } from '../application/jobs/job-readiness-service.js';
 import { parseAutonomousToolDenial } from '../shared/autonomous-tool-denial.js';
 import {
-  setupActionLabel,
-  setupBlockerLabel,
-} from '../shared/job-setup-labels.js';
+  formatSchedulerSetupStory,
+  type SchedulerSetupStorySource,
+} from '../application/jobs/scheduler-setup-story.js';
 import { humanizeTechnicalIdentifier } from '../shared/user-visible-messages.js';
 
 type TerminalRunStatus = Extract<
@@ -34,6 +34,8 @@ export type JobNotificationLifecycleUpdateResult =
   | 'updated'
   | 'unsupported'
   | 'failed';
+
+export type { SchedulerSetupStorySource } from '../application/jobs/scheduler-setup-story.js';
 
 function recoveryActionAffordances(input: {
   job: Job;
@@ -94,6 +96,18 @@ export async function notifySchedulerRunRecovered(input: {
 export async function notifySchedulerSetupRequired(input: {
   job: Job;
   setupState: JobSetupState;
+  source?: SchedulerSetupStorySource;
+  runId?: string | null;
+  excludeRoute?: {
+    conversationJid: string;
+    threadId: string | null;
+    providerAccountId?: string;
+  };
+  includeRoute?: {
+    conversationJid: string;
+    threadId: string | null;
+    providerAccountId?: string;
+  };
   sendMessage: SchedulerSendMessage;
 }): Promise<boolean> {
   if (input.job.silent) return false;
@@ -101,20 +115,89 @@ export async function notifySchedulerSetupRequired(input: {
   if (input.setupState.notified_fingerprint === input.setupState.fingerprint) {
     return false;
   }
-  const blocker = input.setupState.blockers[0];
-  const action = setupActionLabel(blocker);
-  const reason = setupBlockerLabel(blocker, input.setupState.state);
+  const includedJob = input.includeRoute
+    ? withNotificationRoute(input.job, input.includeRoute)
+    : input.job;
+  const job = input.excludeRoute
+    ? withoutNotificationRoute(includedJob, input.excludeRoute)
+    : includedJob;
+  if (!job) return false;
   return sendJobNotification({
-    job: input.job,
-    text: [
-      `**🛠️ Setup needed** · ${input.job.name}`,
-      reason,
-      `Action: ${action}`,
-    ].join('\n'),
+    job,
+    text: formatSchedulerSetupStory(input),
     phase: 'summary',
     runId: `setup:${input.setupState.fingerprint}`,
     sendMessage: input.sendMessage,
   });
+}
+
+function withNotificationRoute(
+  job: Job,
+  included: {
+    conversationJid: string;
+    threadId: string | null;
+    providerAccountId?: string;
+  },
+): Job {
+  const routes = job.notification_routes ?? [];
+  if (routes.some((route) => routesMatch(route, included))) {
+    return job;
+  }
+  return {
+    ...job,
+    notification_routes: [
+      ...routes,
+      {
+        ...included,
+        label: 'Setup approver',
+      },
+    ],
+  };
+}
+
+function withoutNotificationRoute(
+  job: Job,
+  excluded: {
+    conversationJid: string;
+    threadId: string | null;
+    providerAccountId?: string;
+  },
+): Job | null {
+  if (job.notification_routes?.length) {
+    const notificationRoutes = job.notification_routes.filter(
+      (route) => !routesMatch(route, excluded),
+    );
+    return notificationRoutes.length > 0
+      ? { ...job, notification_routes: notificationRoutes }
+      : null;
+  }
+  const route = job.execution_context;
+  return route?.conversationJid === excluded.conversationJid &&
+    (route.threadId ?? job.thread_id ?? null) === excluded.threadId
+    ? null
+    : job;
+}
+
+function routesMatch(
+  stored: {
+    conversationJid: string;
+    threadId: string | null;
+    providerAccountId?: string | null;
+  },
+  resolved: {
+    conversationJid: string;
+    threadId: string | null;
+    providerAccountId?: string;
+  },
+): boolean {
+  return (
+    stored.conversationJid === resolved.conversationJid &&
+    stored.threadId === resolved.threadId &&
+    // An omitted account means the resolved default account for this route.
+    // An explicit account remains distinct from every other explicit account.
+    (stored.providerAccountId ?? resolved.providerAccountId) ===
+      resolved.providerAccountId
+  );
 }
 
 export async function notifySchedulerTerminalRunState(input: {

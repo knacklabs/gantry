@@ -106,7 +106,7 @@ import { registerRuntimeBrainDreamReviewMessageAction } from './runtime-brain-re
 import { nowIso, nowMs, toIso } from '../../shared/time/datetime.js';
 import { LiveTurnAuthority } from '../../runtime/live-turn-authority.js';
 import type { LiveTurnRecoveryLoop } from '../../runtime/live-turn-recovery.js';
-import { configurePendingInteractionPermissionPersistence } from '../../application/interactions/pending-interaction-durability.js';
+import { configureRuntimeSetupPausePermissions } from './setup-pause-permission-wiring.js';
 import { liveTurnScopeForQueue } from './live-recovery-coordinator.js';
 // prettier-ignore
 import { buildLiveAdmissionProcessor, startLiveExecutionServices, type ActiveControlCommandHandler, type LiveExecutionServicesHandle, type RecoveryCoordinatorPort } from './live-execution.js';
@@ -429,16 +429,12 @@ export async function startRuntimeServices(
     reloadRuntimeState: () => app.loadState(),
     leases: resolved.leases,
   });
-  configurePendingInteractionPermissionPersistence({
-    opsRepository: resolved.opsRepository,
-    getToolRepository: resolved.getToolRepository,
-    getPermissionRepository: resolved.getPermissionRepository,
+  configureRuntimeSetupPausePermissions({
+    ...resolved,
+    app,
+    channelWiring,
     mirrorAgentToolRulesToSettings,
     onSchedulerChanged,
-    getSkillRepository: resolved.getSkillRepository,
-    getMcpServerRepository: resolved.getMcpServerRepository,
-    getCapabilitySecretRepository: resolved.getCapabilitySecretRepository,
-    getCredentialBroker: app.getCredentialBroker,
     getBrowserStatus,
     publishRuntimeEvent: resolved.publishRuntimeEvent,
   });

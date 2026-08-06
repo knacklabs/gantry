@@ -268,6 +268,12 @@ describe('DiscordChannel', () => {
                   label: 'Retry now',
                   custom_id: 'gantry:scheduler_run_now:job-1',
                 },
+                {
+                  type: 2,
+                  style: 2,
+                  label: 'How to pause',
+                  custom_id: 'gantry:scheduler_pause_job:job-1',
+                },
               ],
             },
           ],

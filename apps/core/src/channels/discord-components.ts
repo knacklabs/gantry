@@ -7,6 +7,8 @@ import type {
 
 export const LIVE_STOP_CUSTOM_ID_PREFIX = 'gantry:live_stop:';
 export const SCHEDULER_RUN_NOW_CUSTOM_ID_PREFIX = 'gantry:scheduler_run_now:';
+export const SCHEDULER_PAUSE_JOB_CUSTOM_ID_PREFIX =
+  'gantry:scheduler_pause_job:';
 export const PERMISSION_CUSTOM_ID_PREFIX = 'gantry:perm:';
 export const QUESTION_CUSTOM_ID_PREFIX = 'gantry:q:';
 const DISCORD_CUSTOM_ID_MAX_LENGTH = 100;
@@ -17,9 +19,6 @@ export function discordActionComponents(
   const stopAction = options?.actionAffordances?.find(
     (action) => action.kind === 'live_turn_stop',
   );
-  const runNowAction = options?.actionAffordances?.find(
-    (action) => action.kind === 'scheduler_run_now' && action.jobId.trim(),
-  );
   const buttons: Array<{ label: string; style: number; custom_id: string }> =
     [];
   if (stopAction?.kind === 'live_turn_stop') {
@@ -29,18 +28,31 @@ export function discordActionComponents(
       custom_id: `${LIVE_STOP_CUSTOM_ID_PREFIX}${stopAction.actionToken}`,
     });
   }
-  if (runNowAction?.kind === 'scheduler_run_now') {
-    // ponytail: only scheduler_run_now is wired here; add pause/open when they share a callback path.
-    const customId = `${SCHEDULER_RUN_NOW_CUSTOM_ID_PREFIX}${encodeURIComponent(runNowAction.jobId)}`;
+  for (const action of options?.actionAffordances ?? []) {
+    if (
+      (action.kind !== 'scheduler_run_now' &&
+        action.kind !== 'scheduler_pause_job') ||
+      !action.jobId.trim()
+    ) {
+      continue;
+    }
+    const prefix =
+      action.kind === 'scheduler_run_now'
+        ? SCHEDULER_RUN_NOW_CUSTOM_ID_PREFIX
+        : SCHEDULER_PAUSE_JOB_CUSTOM_ID_PREFIX;
+    const customId = `${prefix}${encodeURIComponent(action.jobId)}`;
     if (customId.length <= DISCORD_CUSTOM_ID_MAX_LENGTH) {
       buttons.push({
-        style: 1,
-        label: runNowAction.label,
+        style: action.kind === 'scheduler_pause_job' ? 2 : 1,
+        label:
+          action.kind === 'scheduler_pause_job' ? 'How to pause' : action.label,
         custom_id: customId,
       });
     }
   }
-  return buttons.length ? buttonRows(buttons) : undefined;
+  // Discord accepts at most five action rows with five components each. The
+  // current scheduler kind set is far below this defensive provider cap.
+  return buttons.length ? buttonRows(buttons.slice(0, 25)) : undefined;
 }
 
 export function buttonRows(

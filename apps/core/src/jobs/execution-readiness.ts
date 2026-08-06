@@ -23,6 +23,8 @@ import {
   assertHostAccessSnapshot,
   type AgentAccessSnapshot,
 } from '../application/agent-execution/agent-access-snapshot.js';
+import { raiseSetupPausePermissionPrompt } from '../application/jobs/setup-pause-permission-prompt.js';
+import { logger } from '../infrastructure/logging/logger.js';
 
 type JobSetupCheckSource =
   | 'preflight_setup'
@@ -162,13 +164,60 @@ export async function notifyJobSetupRequired(input: {
   publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
   suppressNotification?: boolean;
 }): Promise<boolean> {
-  const notified = input.suppressNotification
-    ? false
-    : await notifySchedulerSetupRequired({
-        job: input.currentJob,
-        setupState: input.setupState,
-        sendMessage: input.deps.sendMessage,
+  const notificationEligible =
+    !input.suppressNotification &&
+    !input.currentJob.silent &&
+    input.setupState.notified_fingerprint !== input.setupState.fingerprint;
+  let prompt: Awaited<ReturnType<typeof raiseSetupPausePermissionPrompt>> = {
+    status: 'instruction_only',
+    notificationEligible: true,
+  };
+  let promptPreparationFailed = false;
+  if (notificationEligible) {
+    try {
+      prompt = await raiseSetupPausePermissionPrompt({
+        jobId: input.currentJob.id,
+        setupFingerprint: input.setupState.fingerprint,
+        previousFingerprint: input.currentJob.setup_state?.fingerprint,
+        source: input.source,
+        runId: input.runId,
       });
+    } catch (err) {
+      logger.warn(
+        {
+          err,
+          jobId: input.currentJob.id,
+          setupFingerprint: input.setupState.fingerprint,
+        },
+        'Failed to prepare setup-pause permission prompt; continuing with setup card',
+      );
+      promptPreparationFailed = true;
+    }
+  }
+  const cardNotified = !notificationEligible
+    ? false
+    : prompt.status === 'instruction_only' && !prompt.notificationEligible
+      ? false
+      : await notifySchedulerSetupRequired({
+          job: input.currentJob,
+          setupState: input.setupState,
+          source: input.source,
+          runId: input.runId,
+          ...(prompt.status === 'raised'
+            ? { excludeRoute: prompt.approverRoute }
+            : prompt.status === 'already_pending'
+              ? { includeRoute: prompt.approverRoute }
+              : {}),
+          sendMessage: input.deps.sendMessage,
+        });
+  const promptNotified =
+    prompt.status === 'raised' ? await prompt.delivered : false;
+  const notified =
+    prompt.status === 'raised'
+      ? promptNotified
+      : promptPreparationFailed
+        ? false
+        : cardNotified;
   if (notified) {
     await input.deps.opsRepository.markJobSetupNotified(
       input.currentJob.id,

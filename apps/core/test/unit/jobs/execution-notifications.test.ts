@@ -742,3 +742,79 @@ describe('jobs/execution-notifications', () => {
     );
   });
 });
+
+describe('setup cards', () => {
+  it('lists every blocker with human labels plus the died-vs-degraded line and triggering step', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const setupState: JobSetupState = {
+      state: 'missing_capability',
+      checked_at: '2026-08-05T00:00:00.000Z',
+      fingerprint: 'setup-many-blockers',
+      blockers: [
+        {
+          state: 'missing_capability',
+          requirementType: 'semantic_capability',
+          requirementId: 'salesforce.leads.append',
+          message: 'Capability missing.',
+          nextAction: 'Approve the reviewed capability.',
+        },
+        {
+          state: 'missing_capability',
+          requirementType: 'browser',
+          requirementId: 'Browser',
+          message: 'Browser access missing.',
+          nextAction: 'Approve Browser access.',
+        },
+        {
+          state: 'missing_capability',
+          requirementType: 'tool',
+          requirementId: 'mcp__gantry__scheduler_run_now',
+          message: 'Tool access missing.',
+          nextAction: 'Approve the requested access.',
+        },
+        {
+          state: 'missing_capability',
+          requirementType: 'mcp_server',
+          requirementId: 'customer-records',
+          message: 'MCP server missing.',
+          nextAction: 'Connect the server.',
+        },
+      ],
+    };
+
+    await notifySchedulerSetupRequired({
+      job: makeJob({ name: 'Lead maintenance' }),
+      setupState,
+      source: 'permission_denied',
+      runId: 'run-1',
+      sendMessage,
+    });
+
+    const message = String(sendMessage.mock.calls[0]?.[1]);
+    expect(message).toContain('Failed action: Use Salesforce Leads Append');
+    expect(message).toContain(
+      'Triggering step: Permission check during the run',
+    );
+    expect(message).toContain(
+      'Run outcome: Died — this run stopped before completing.',
+    );
+    expect(message).toContain('Blockers (4):');
+    expect(message).toContain('1. Salesforce Leads Append');
+    expect(message).toContain('2. Browser access');
+    expect(message).toContain('3. Tool access: Mcp Gantry Scheduler Run Now');
+    expect(message).toContain('4. MCP server: Customer Records');
+    expect(message).not.toContain('mcp__gantry__scheduler_run_now');
+
+    sendMessage.mockClear();
+    await notifySchedulerSetupRequired({
+      job: makeJob({ name: 'Lead maintenance' }),
+      setupState: { ...setupState, fingerprint: 'setup-transient' },
+      source: 'transient_permission',
+      runId: 'run-2',
+      sendMessage,
+    });
+    expect(String(sendMessage.mock.calls[0]?.[1])).toContain(
+      'Run outcome: Degraded — this run completed with temporary access; future runs are paused.',
+    );
+  });
+});

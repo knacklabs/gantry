@@ -36,8 +36,10 @@ export async function beginDurablePermissionInteraction(input: {
   payload: Record<string, unknown>;
   callbackRoute?: Record<string, unknown> | null;
   operations?: DurableInteractionOperations;
-}): Promise<void> {
+}): Promise<boolean> {
+  const interactionId = globalThis.crypto.randomUUID();
   const recorded = await (input.operations ?? defaultOperations).record({
+    interactionId,
     kind: 'permission',
     sourceAgentFolder: input.sourceAgentFolder,
     requestId: input.request.requestId,
@@ -49,6 +51,7 @@ export async function beginDurablePermissionInteraction(input: {
     callbackRoute: input.callbackRoute,
   });
   if (!recorded) throw new Error('Permission prompt was not durably recorded');
+  return typeof recorded !== 'boolean' && recorded.id === interactionId;
 }
 
 export async function finishDurablePermissionInteraction(input: {
@@ -133,8 +136,12 @@ export async function runDurablePermissionInteraction(input: {
     decision: PermissionApprovalDecision,
   ) => Promise<void> | void;
   operations?: DurableInteractionOperations;
-}): Promise<{ decision: PermissionApprovalDecision; resolved: boolean }> {
-  await beginDurablePermissionInteraction({
+}): Promise<{
+  began: boolean;
+  decision: PermissionApprovalDecision;
+  resolved: boolean;
+}> {
+  const began = await beginDurablePermissionInteraction({
     request: input.request,
     sourceAgentFolder: input.sourceAgentFolder,
     operations: input.operations,
@@ -149,6 +156,17 @@ export async function runDurablePermissionInteraction(input: {
     },
     callbackRoute: null,
   });
+  if (!began) {
+    return {
+      began: false,
+      decision: {
+        approved: false,
+        mode: 'cancel',
+        reason: 'A durable permission interaction is already pending.',
+      },
+      resolved: false,
+    };
+  }
   await input.beforePrompt?.();
   const decision = await input.prompt(input.request);
   try {
@@ -164,7 +182,7 @@ export async function runDurablePermissionInteraction(input: {
     updatedPermissions: decision.updatedPermissions,
     operations: input.operations,
   });
-  return { decision, resolved };
+  return { began: true, decision, resolved };
 }
 
 async function releaseDecisionClaim(

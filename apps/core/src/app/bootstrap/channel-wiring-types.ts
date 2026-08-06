@@ -257,6 +257,7 @@ export interface ChannelWiring {
   syncGroups: (force: boolean) => Promise<void>;
   requestPermissionApproval: (
     request: PermissionApprovalRequest,
+    onPromptDelivered?: (messageId: string) => void,
   ) => Promise<PermissionApprovalDecision>;
   cancelPermissionApproval: (
     cancellation: PermissionApprovalCancellation,

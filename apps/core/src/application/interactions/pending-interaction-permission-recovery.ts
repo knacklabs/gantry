@@ -19,6 +19,9 @@ import { PermissionManagementService } from '../permissions/permission-managemen
 
 export interface PermissionPersistenceBackend {
   opsRepository: RuntimeJobRepository;
+  beforePersistentGrant?: (
+    request: PermissionApprovalRequest,
+  ) => Promise<boolean>;
   getToolRepository?: () => ToolCatalogRepository | undefined;
   getPermissionRepository?: () => PermissionRepository | undefined;
   mirrorAgentToolRulesToSettings?: (
@@ -64,6 +67,12 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
   if (!toolRepository || !mirrorAgentToolRulesToSettings) return false;
   const updates = input.decision.updatedPermissions ?? [];
   if (updates.length === 0) return false;
+  if (
+    input.persistence.beforePersistentGrant &&
+    !(await input.persistence.beforePersistentGrant(input.request))
+  ) {
+    return false;
+  }
   const scopedRequest = persistentPermissionScopeRequest(input.request);
   const permissionService = new PermissionManagementService();
   await permissionService.applyPersistentToolRuleGrant({

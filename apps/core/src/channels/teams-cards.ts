@@ -67,7 +67,7 @@ export interface TeamsAdaptiveCardAction {
       }
     | {
         action: 'message_action';
-        kind: 'scheduler_run_now';
+        kind: 'scheduler_run_now' | 'scheduler_pause_job';
         jobId: string;
         targetJid: string;
         threadId?: string;
@@ -312,7 +312,6 @@ export function buildTeamsMessageCard(options: {
         };
       }
       if (action.kind === 'scheduler_run_now' && action.jobId.trim()) {
-        // ponytail: only scheduler_run_now is wired here; add pause/open when they share a callback path.
         return {
           type: 'Action.Execute',
           title: action.label.trim(),
@@ -320,6 +319,20 @@ export function buildTeamsMessageCard(options: {
           data: {
             action: 'message_action',
             kind: 'scheduler_run_now',
+            jobId: action.jobId,
+            targetJid: options.targetJid,
+            ...(options.threadId ? { threadId: options.threadId } : {}),
+          },
+        };
+      }
+      if (action.kind === 'scheduler_pause_job' && action.jobId.trim()) {
+        return {
+          type: 'Action.Execute',
+          title: 'How to pause',
+          verb: 'gantry.scheduler.pause_job',
+          data: {
+            action: 'message_action',
+            kind: 'scheduler_pause_job',
             jobId: action.jobId,
             targetJid: options.targetJid,
             ...(options.threadId ? { threadId: options.threadId } : {}),
