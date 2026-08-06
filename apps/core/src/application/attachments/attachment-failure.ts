@@ -33,7 +33,7 @@ export type AttachmentFailureEvidence =
       kind: 'provider_unreachable';
       providerStatus?: number;
     } & HistoricalAttachmentUnreachableEvidence)
-  | { kind: 'deleted' }
+  | { kind: 'deleted'; providerStatus?: number }
   | { kind: 'too_large' }
   | { kind: 'timeout' }
   | { kind: 'unexpected' };
@@ -54,7 +54,8 @@ export function classifyAndLogAttachmentFailure(input: {
       providerAccountId: input.providerAccountId,
       conversationJid: input.conversationJid,
       attachmentId: input.attachmentId,
-      ...(input.evidence.kind === 'provider_unreachable' &&
+      ...((input.evidence.kind === 'provider_unreachable' ||
+        input.evidence.kind === 'deleted') &&
       input.evidence.providerStatus !== undefined
         ? { providerStatus: input.evidence.providerStatus }
         : {}),

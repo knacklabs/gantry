@@ -91,7 +91,9 @@ export async function classifySlackDownloadResponse(
   }
   if (response.ok) return null;
   const errorCode = await slackDownloadErrorCode(response);
-  if (errorCode === 'file_deleted') return { status: 'deleted' };
+  if (errorCode === 'file_deleted') {
+    return { status: 'deleted', providerStatus: response.status };
+  }
   return {
     status: 'unreachable',
     ...classifySlackUnreachableEvidence(errorCode, response.status),
@@ -102,11 +104,59 @@ export function classifySlackApiError(
   error: unknown,
 ): Exclude<HistoricalAttachmentFetchResult, { status: 'ok' }> {
   const errorCode = slackApiErrorCode(error);
-  if (errorCode === 'file_deleted') return { status: 'deleted' };
+  const status = slackApiStatusCode(error);
+  if (errorCode === 'file_deleted') {
+    return {
+      status: 'deleted',
+      ...(status === undefined ? {} : { providerStatus: status }),
+    };
+  }
+  // A transport failure (fetch/undici throw, DNS/TLS, socket close) surfaces a
+  // network error code — which `slackApiErrorCode` also reads — or a nested
+  // fetch cause, never a Slack error string. Classify it as network before the
+  // code-based taxonomy so it gets the transport diagnosis, not generic unknown.
+  if (isTransportError(error)) {
+    return { status: 'unreachable', reason: 'network' };
+  }
   return {
     status: 'unreachable',
-    ...classifySlackUnreachableEvidence(errorCode, slackApiStatusCode(error)),
+    ...classifySlackUnreachableEvidence(errorCode, status),
   };
+}
+
+const NETWORK_ERROR_CODES = new Set([
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ECONNABORTED',
+  'ETIMEDOUT',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'EPIPE',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'UND_ERR_SOCKET',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'CERT_HAS_EXPIRED',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+]);
+
+function isTransportError(error: unknown): boolean {
+  // A transport failure carries a network error code on the error itself, on
+  // `cause` (global fetch/undici), or on `original` (the @slack/web-api
+  // WebAPIRequestError wrapper).
+  for (const layer of [
+    error,
+    (error as { cause?: unknown } | null)?.cause,
+    (error as { original?: unknown } | null)?.original,
+  ]) {
+    if (layer && typeof layer === 'object') {
+      const code = (layer as { code?: unknown }).code;
+      if (typeof code === 'string' && NETWORK_ERROR_CODES.has(code)) return true;
+    }
+  }
+  // Global fetch throws a TypeError('fetch failed') on transport failure; gate on
+  // that documented message so an unrelated caused TypeError is not mislabelled.
+  return error instanceof TypeError && /fetch failed/i.test(error.message);
 }
 
 function slackApiErrorCode(error: unknown): string | undefined {

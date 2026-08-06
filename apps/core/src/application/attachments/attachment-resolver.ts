@@ -434,7 +434,12 @@ export class AttachmentResolver {
       const failure = this.classifyFailure(
         attachment,
         input,
-        { kind: 'deleted' },
+        {
+          kind: 'deleted',
+          ...(fetched.providerStatus !== undefined
+            ? { providerStatus: fetched.providerStatus }
+            : {}),
+        },
         startedAt,
       );
       return { status: 'deleted', content: failure.content };

@@ -271,14 +271,61 @@ describe('Slack historical attachment fetch taxonomy', () => {
     });
   });
 
-  it('recognizes explicit file_deleted in a failed download body', async () => {
+  it('recognizes explicit file_deleted in a failed download body and carries its status', async () => {
     await expect(
       classifySlackDownloadResponse(
         new Response(JSON.stringify({ ok: false, error: 'file_deleted' }), {
           status: 404,
         }),
       ),
-    ).resolves.toEqual({ status: 'deleted' });
+    ).resolves.toEqual({ status: 'deleted', providerStatus: 404 });
+  });
+
+  it.each([
+    Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }),
+    Object.assign(new TypeError('fetch failed'), {
+      cause: Object.assign(new Error('getaddrinfo ENOTFOUND'), {
+        code: 'ENOTFOUND',
+      }),
+    }),
+    // @slack/web-api WebAPIRequestError stores the socket error in `original`.
+    Object.assign(new Error('A request error occurred'), {
+      code: 'slack_webapi_request_error',
+      original: Object.assign(new Error('socket hang up'), {
+        code: 'ECONNRESET',
+      }),
+    }),
+  ])(
+    'classifies a transport failure on files.info as network, not unknown',
+    async (error) => {
+      const result = await fetchSlackHistoricalAttachment(
+        { identity },
+        {
+          filesInfo: vi.fn(async () => {
+            throw error;
+          }),
+          download: vi.fn(),
+        },
+      );
+
+      expect(result).toEqual({ status: 'unreachable', reason: 'network' });
+    },
+  );
+
+  it('does not mislabel an unrelated caused TypeError as network', async () => {
+    const result = await fetchSlackHistoricalAttachment(
+      { identity },
+      {
+        filesInfo: vi.fn(async () => {
+          throw new TypeError('cannot read property x', {
+            cause: new Error('validation failed'),
+          });
+        }),
+        download: vi.fn(),
+      },
+    );
+
+    expect(result).toEqual({ status: 'unreachable', reason: 'unknown' });
   });
 
   it('does not infer deletion from HTTP status alone', async () => {

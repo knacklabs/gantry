@@ -33,7 +33,7 @@ export type HistoricalAttachmentFetchResult =
       fileName?: string;
       contentType?: string;
     }
-  | { status: 'deleted' }
+  | { status: 'deleted'; providerStatus?: number }
   | ({ status: 'unreachable' } & HistoricalAttachmentUnreachableEvidence);
 
 export interface HistoricalAttachmentFetcher {

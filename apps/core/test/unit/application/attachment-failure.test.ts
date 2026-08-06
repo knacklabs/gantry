@@ -93,6 +93,31 @@ describe('attachment failure classification and copy', () => {
     });
   });
 
+  it('carries a deleted response HTTP status into the warn', () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    classifyAndLogAttachmentFailure({
+      evidence: { kind: 'deleted', providerStatus: 404 },
+      provider: 'slack',
+      providerAccountId: 'slack-default',
+      conversationJid: 'sl:C123',
+      attachmentId: 'attachment-1',
+      elapsedMs: 12,
+    });
+
+    expect(warn).toHaveBeenCalledWith(
+      {
+        cause: 'deleted',
+        provider: 'slack',
+        providerAccountId: 'slack-default',
+        conversationJid: 'sl:C123',
+        attachmentId: 'attachment-1',
+        providerStatus: 404,
+        elapsedMs: 12,
+      },
+      'Attachment unavailable',
+    );
+  });
+
   it('keeps all named cause sentences distinct', () => {
     expect(
       new Set([
