@@ -229,7 +229,9 @@ export class GroupLivenessController {
         Date.now() - this.visibleDeliveryStartedAt <
         STALL_HEARTBEAT_THRESHOLD_MS
       ) {
-        if (!this.deliveryBeganStalled) this.refreshTyping();
+        if (!this.deliveryBeganStalled && !this.deliveryPauseReason) {
+          this.refreshTyping();
+        }
         return;
       }
       this.phase = 'stalled';

@@ -11,6 +11,7 @@ type AppliedTypingState = {
 };
 
 export type SessionTypingInvalidation = {
+  eventId: number;
   sessionId: string;
   threadId: string | null;
 };
@@ -38,6 +39,7 @@ export class SessionTypingTracker {
   private readonly highestGenerationBySession = new Map<string, number>();
   private readonly lastObservedEventIdBySession = new Map<string, number>();
   private invalidatedTypingTargets: SessionTypingInvalidation[] = [];
+  private nextSyntheticEventId = -1;
   private disposed = false;
 
   apply(event: SessionEventEnvelope): boolean {
@@ -84,6 +86,7 @@ export class SessionTypingTracker {
         if (!appliedTarget.startsWith(sessionPrefix)) continue;
         if (appliedTarget !== target && state.isTyping) {
           this.invalidatedTypingTargets.push({
+            eventId: this.nextSyntheticEventId--,
             sessionId: event.sessionId,
             threadId: appliedTarget.slice(sessionPrefix.length) || null,
           });

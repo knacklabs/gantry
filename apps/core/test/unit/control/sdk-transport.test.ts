@@ -445,13 +445,85 @@ describe('@gantry/sdk transport', () => {
 
     expect(streamed).toEqual([
       threadBStart,
+      threadANewerProducer,
       {
         ...threadANewerProducer,
+        eventId: -1,
         threadId: 'thread-b',
         payload: { isTyping: false },
       },
-      threadANewerProducer,
     ]);
+  });
+
+  it('does not let a synthetic typing invalidation consume the triggering durable cursor', async () => {
+    const event = (threadId: string, generation: number, eventId: number) => ({
+      eventId,
+      eventType: 'session.typing',
+      sessionId: 'session-1',
+      threadId,
+      correlationId: null,
+      createdAt: '2026-08-05T00:00:00.000Z',
+      payload: {
+        isTyping: true,
+        orderedEnvelope: {
+          generation,
+          sequence: 1,
+          kind: 'typing',
+          partIndex: 1,
+          totalParts: 1,
+        },
+      },
+    });
+    const threadBStart = event('thread-b', 1, 1);
+    const triggeringDurableEvent = event('thread-a', 2, 2);
+    const client = new GantryClient({ apiKey: 'one' });
+    const stream = vi.spyOn(
+      (
+        client as unknown as {
+          transport: { stream: () => AsyncIterable<unknown> };
+        }
+      ).transport,
+      'stream',
+    );
+    stream
+      .mockImplementationOnce(async function* () {
+        yield threadBStart;
+        yield triggeringDurableEvent;
+      })
+      .mockImplementationOnce(async function* () {
+        yield triggeringDurableEvent;
+      });
+    const tracker = client.sessions.createTypingTracker();
+    const first = [];
+    for await (const streamed of client.sessions.stream('session-1', {
+      tracker,
+    })) {
+      first.push(streamed);
+    }
+
+    expect(first).toEqual([
+      threadBStart,
+      triggeringDurableEvent,
+      expect.objectContaining({
+        eventId: -1,
+        eventType: 'session.typing',
+        threadId: 'thread-b',
+        payload: { isTyping: false },
+      }),
+    ]);
+    expect(new Set(first.map((event) => event.eventId)).size).toBe(3);
+    expect(tracker.afterEventId('session-1')).toBe(2);
+
+    const resumed = [];
+    for await (const streamed of client.sessions.stream('session-1', {
+      afterEventId: 1,
+      tracker,
+    })) {
+      resumed.push(streamed);
+    }
+    expect(resumed).toEqual([]);
+    expect(stream.mock.calls[1]?.[0]).toContain('afterEventId=2');
+    tracker.dispose();
   });
 
   it('records legacy typing state until an ordered envelope establishes the baseline', () => {

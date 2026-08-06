@@ -17,16 +17,17 @@ export function createSessionsClient(transport: SessionTransport) {
     try {
       for await (const event of transport.stream(pathname, signal)) {
         const accepted = tracker.apply(event);
+        if (accepted) yield event;
         for (const invalidated of tracker.takeInvalidatedTypingTargets()) {
           yield {
             ...event,
+            eventId: invalidated.eventId,
             eventType: 'session.typing',
             sessionId: invalidated.sessionId,
             threadId: invalidated.threadId,
             payload: { isTyping: false },
           };
         }
-        if (accepted) yield event;
       }
     } finally {
       if (!retainedTracker) tracker.dispose();

@@ -4733,7 +4733,7 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps an ambiguous replace-only transport failure sticky without creating a duplicate', async () => {
+    it('returns false for an ambiguous replace-only transport failure and safely retries the retained handle', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
 
@@ -4747,9 +4747,27 @@ describe('TelegramChannel', () => {
           done: true,
           replaceOnly: true,
         }),
-      ).resolves.toBe(true);
+      ).resolves.toBe(false);
 
       expect(currentBot().api.editMessageText).toHaveBeenCalled();
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+
+      currentBot().api.editMessageText.mockClear();
+      currentBot().api.editMessageText.mockResolvedValue(undefined);
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(true);
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
+        '100200300',
+        expect.any(Number),
+        'Finished.',
+        expect.anything(),
+      );
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
     });
   });

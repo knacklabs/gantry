@@ -497,7 +497,8 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
         );
       } catch (err) {
         if (options.replaceOnly) {
-          return retainTelegramProgressHandleAfterEditFailure({ jid, err });
+          retainTelegramProgressHandleAfterEditFailure({ jid, err });
+          return false;
         }
         logger.debug(
           { jid, err },

@@ -41,7 +41,7 @@ function isDefinitiveTelegramEditFailure(err: unknown): boolean {
 export function retainTelegramProgressHandleAfterEditFailure(input: {
   jid: string;
   err: unknown;
-}): boolean {
+}): void {
   const definitive = isDefinitiveTelegramEditFailure(input.err);
   logger.debug(
     { jid: input.jid, err: input.err },
@@ -49,5 +49,4 @@ export function retainTelegramProgressHandleAfterEditFailure(input: {
       ? 'Progress lifecycle telegram retained handle after definitive replace-only edit failure'
       : 'Progress lifecycle telegram retained ambiguous replace-only handle after edit failure',
   );
-  return !definitive;
 }

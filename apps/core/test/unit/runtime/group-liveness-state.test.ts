@@ -199,6 +199,32 @@ describe('GroupLivenessController', () => {
     await controller.terminal();
   });
 
+  it('does not refresh typing during a paused slow visible delivery', async () => {
+    const visibleOrdering = deferred<void>();
+    const { controller, sendProgressToChannel, setTyping } = setupController();
+    sendProgressToChannel.beforeVisibleDelivery = vi.fn(
+      () => visibleOrdering.promise,
+    );
+    controller.start(null);
+    await vi.advanceTimersByTimeAsync(0);
+    controller.pauseForTurnComplete();
+    await vi.advanceTimersByTimeAsync(0);
+    setTyping.mockClear();
+
+    const delivery = controller.beginVisibleDelivery();
+    await vi.advanceTimersByTimeAsync(12_000);
+
+    expect(controller.currentPhase()).toBe('delivering');
+    expect(setTyping).not.toHaveBeenCalled();
+
+    visibleOrdering.resolve();
+    await delivery;
+    await controller.finishVisibleDelivery(true);
+    expect(controller.currentPhase()).toBe('waiting');
+    expect(setTyping).not.toHaveBeenCalled();
+    await controller.terminal();
+  });
+
   it('detaches a hung first-visible cleanup after the bound and keeps terminal progress fenced', async () => {
     const cleanup = deferred<void>();
     const onFirstVisibleOutput = vi.fn(() => cleanup.promise);
