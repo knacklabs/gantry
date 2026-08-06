@@ -131,18 +131,17 @@ export async function replaceAgentAccessDocument(input: {
     input.capabilities,
     semanticCapabilityDefinitions,
   );
-  const capabilityToolIds = await Promise.all(
-    selectedToolReferences.map(async (reference) => {
-      const tool = await ensureAgentToolCatalogItem({
-        repository: input.repositories.tools,
-        appId: input.appId,
-        reference,
-        now: input.now,
-        semanticCapabilityDefinitions,
-      });
-      return tool.id;
-    }),
-  );
+  const capabilityToolIds: ToolId[] = [];
+  for (const reference of selectedToolReferences) {
+    const tool = await ensureAgentToolCatalogItem({
+      repository: input.repositories.tools,
+      appId: input.appId,
+      reference,
+      now: input.now,
+      semanticCapabilityDefinitions,
+    });
+    capabilityToolIds.push(tool.id);
+  }
   await input.requireSelectableTools(input.appId, capabilityToolIds);
 
   await input.repositories.agents.replaceAgentAccess({

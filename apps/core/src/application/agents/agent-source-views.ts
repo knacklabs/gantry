@@ -1,6 +1,9 @@
 import type { SkillCatalogRepository } from '../../domain/ports/repositories.js';
 import type { AgentMcpServerBinding } from '../../domain/mcp/mcp-servers.js';
-import type { AgentSkillBinding } from '../../domain/skills/skills.js';
+import type {
+  AgentSkillBinding,
+  SkillCatalogItem,
+} from '../../domain/skills/skills.js';
 import type { AgentToolSource } from '../../domain/tools/tools.js';
 
 export interface ReadableSkillSource {
@@ -21,9 +24,10 @@ export async function readableSkillSources(input: {
   const activeBindings = input.skillBindings.filter(
     (binding) => binding.status === 'active',
   );
-  const skills = await Promise.all(
-    activeBindings.map((binding) => input.repository.getSkill(binding.skillId)),
-  );
+  const skills: Array<SkillCatalogItem | null> = [];
+  for (const binding of activeBindings) {
+    skills.push(await input.repository.getSkill(binding.skillId));
+  }
   return activeBindings.map((binding, index) => {
     const skill = skills[index];
     return {

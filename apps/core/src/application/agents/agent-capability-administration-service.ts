@@ -139,17 +139,14 @@ export class AgentCapabilityAdministrationService {
     const activeToolBindings = toolBindings.filter(
       (binding) => binding.status === 'active',
     );
-    const [selectedTools, configuredSkillSources] = await Promise.all([
-      Promise.all(
-        activeToolBindings.map((binding) =>
-          this.repositories.tools.getTool(binding.toolId),
-        ),
-      ),
-      readableSkillSources({
-        skillBindings,
-        repository: this.repositories.skills,
-      }),
-    ]);
+    const selectedTools: Array<ToolCatalogItem | null> = [];
+    for (const binding of activeToolBindings) {
+      selectedTools.push(await this.repositories.tools.getTool(binding.toolId));
+    }
+    const configuredSkillSources = await readableSkillSources({
+      skillBindings,
+      repository: this.repositories.skills,
+    });
     const configuredToolEntries = activeToolBindings.flatMap(
       (binding, index) => {
         const tool = selectedTools[index];
@@ -237,22 +234,22 @@ export class AgentCapabilityAdministrationService {
       semanticCapabilityDefinitions,
     );
 
-    const capabilityToolIds = await Promise.all(
-      selectedToolReferences.map(async (reference) => {
-        const tool = await ensureAgentToolCatalogItem({
-          repository: this.repositories.tools,
-          appId: input.appId,
-          reference,
-          now,
-          semanticCapabilityDefinitions,
-        });
-        return tool.id;
-      }),
-    );
+    const capabilityToolIds: ToolId[] = [];
+    for (const reference of selectedToolReferences) {
+      const tool = await ensureAgentToolCatalogItem({
+        repository: this.repositories.tools,
+        appId: input.appId,
+        reference,
+        now,
+        semanticCapabilityDefinitions,
+      });
+      capabilityToolIds.push(tool.id);
+    }
 
-    const [toolMap] = await Promise.all([
-      this.requireSelectableTools(input.appId, capabilityToolIds),
-    ]);
+    const toolMap = await this.requireSelectableTools(
+      input.appId,
+      capabilityToolIds,
+    );
 
     const [toolBindings, toolSources, skillBindings, mcpBindings] =
       await Promise.all([

@@ -6,6 +6,7 @@ import type {
   MessageAttachmentRepository,
   ResolvableMessageAttachment,
 } from '../../domain/ports/message-attachment-repository.js';
+import { logger } from '../../infrastructure/logging/logger.js';
 import {
   workspaceLocalRegularFile,
   createProviderAttachmentStorageRef,
@@ -179,6 +180,15 @@ export class AttachmentResolver {
             'attachment.bin',
         };
       }
+      logger.info(
+        {
+          attachmentId: attachment.id,
+          storageRef: attachment.storageRef,
+          providerAccountId: attachment.providerAccountId,
+          conversationJid: attachment.conversationJid,
+        },
+        'Workspace attachment ref missing; falling back to provider fetch',
+      );
     }
     if (
       attachment.storageRef &&
@@ -337,6 +347,15 @@ export class AttachmentResolver {
       };
     }
     if (fetched.status === 'deleted') {
+      logger.info(
+        {
+          attachmentId: attachment.id,
+          provider: attachment.providerFetch?.provider,
+          providerAccountId: attachment.providerAccountId,
+          conversationJid: attachment.conversationJid,
+        },
+        'Provider attachment fetch reported deleted file',
+      );
       const tombstone = await this.deps.repository.setDeletedAt({
         attachmentId: attachment.id,
         expectedMessageId: attachment.messageId,
@@ -356,6 +375,16 @@ export class AttachmentResolver {
       return { status: 'deleted', content: ATTACHMENT_DELETED_COPY };
     }
     if (fetched.status === 'unreachable') {
+      logger.warn(
+        {
+          attachmentId: attachment.id,
+          provider: attachment.providerFetch?.provider,
+          providerAccountId: attachment.providerAccountId,
+          conversationJid: attachment.conversationJid,
+          reason: fetched.reason,
+        },
+        'Provider attachment fetch failed',
+      );
       return {
         status: 'unreachable',
         content: ATTACHMENT_UNREACHABLE_COPY,

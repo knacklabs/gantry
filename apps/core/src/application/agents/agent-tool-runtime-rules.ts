@@ -99,9 +99,10 @@ export async function resolveAgentToolRuntimePolicy(
   const activeBindings = bindings.filter(
     (binding) => binding.status === 'active',
   );
-  const tools = await Promise.all(
-    activeBindings.map((binding) => input.repository.getTool(binding.toolId)),
-  );
+  const tools = [];
+  for (const binding of activeBindings) {
+    tools.push(await input.repository.getTool(binding.toolId));
+  }
   return projectAgentToolRuntimePolicy({
     appId: input.appId,
     errorSubject: input.errorSubject,

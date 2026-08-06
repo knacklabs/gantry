@@ -48,11 +48,11 @@ export async function skillActionDefinitionsForBindings(input: {
         .map((binding) => binding.skillId),
     ),
   ];
-  const skills = (
-    await Promise.all(
-      activeSkillIds.map((skillId) => input.skillRepository.getSkill(skillId)),
-    )
-  ).filter(
+  const loadedSkills = [];
+  for (const skillId of activeSkillIds) {
+    loadedSkills.push(await input.skillRepository.getSkill(skillId));
+  }
+  const skills = loadedSkills.filter(
     (skill): skill is SkillCatalogItem =>
       !!skill && skill.appId === input.appId && isSkillUsableForBinding(skill),
   );
