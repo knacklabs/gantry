@@ -25,7 +25,10 @@ import type {
 } from './types.js';
 import type * as OpenApi from './openapi-types.js';
 import { parseSessionSseEvent } from './session-events.js';
-export { SessionTypingTracker } from './session-events.js';
+export {
+  SessionTypingTracker,
+  type SessionTypingTrackerSeed,
+} from './session-events.js';
 import { createIngressesClient } from './ingresses.js';
 import { querySuffix } from './query-string.js';
 import { createIdentityClient, createPeopleClient } from './people.js';

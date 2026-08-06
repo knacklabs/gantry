@@ -22,6 +22,13 @@ export function isTelegramMessageNotModified(err: unknown): boolean {
   return /message is not modified/i.test(telegramErrorText(err));
 }
 
+export function isDefinitiveTelegramEditTargetFailure(err: unknown): boolean {
+  if (isTelegramMessageNotModified(err)) return false;
+  return /message (?:can not|cannot|can't) be edited|message to edit not found|failed to edit message/i.test(
+    telegramErrorText(err),
+  );
+}
+
 function isDefinitiveTelegramEditFailure(err: unknown): boolean {
   if (isTelegramMessageNotModified(err)) return false;
   if (err && typeof err === 'object') {
@@ -38,9 +45,7 @@ function isDefinitiveTelegramEditFailure(err: unknown): boolean {
       return true;
     }
   }
-  return /message (?:can not|cannot|can't) be edited|message to edit not found/i.test(
-    telegramErrorText(err),
-  );
+  return isDefinitiveTelegramEditTargetFailure(err);
 }
 
 export function retainTelegramProgressHandleAfterEditFailure(input: {

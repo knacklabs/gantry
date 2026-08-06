@@ -182,6 +182,29 @@ describe('app channel', () => {
     expect(tracker.isTyping('session-1', 'thread-b')).toBe(false);
   });
 
+  it('seeds a cursor-restored tracker before rejecting an older producer generation', () => {
+    const event = (threadId: string, generation: number, sequence: number) => ({
+      eventId: sequence,
+      eventType: 'session.typing',
+      sessionId: 'session-1',
+      threadId,
+      payload: {
+        isTyping: true,
+        orderedEnvelope: { generation, sequence, kind: 'typing' },
+      },
+    });
+    const tracker = new SessionTypingTracker();
+    tracker.seed({
+      sessionId: 'session-1',
+      generation: 2,
+      targets: [{ threadId: 'thread-a', sequence: 4 }],
+    });
+
+    expect(tracker.apply(event('thread-b', 1, 5))).toBe(false);
+    expect(tracker.apply(event('thread-a', 2, 4))).toBe(false);
+    expect(tracker.apply(event('thread-b', 2, 1))).toBe(true);
+  });
+
   it('reports typing as off after the bounded staleness window', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-06T00:00:00.000Z'));
@@ -295,6 +318,7 @@ describe('app channel', () => {
       expect(runtimeEvents.publish).toHaveBeenCalledOnce(),
     );
     await app.disconnect();
+    await vi.waitFor(() => expect(committed).toHaveLength(1));
 
     expect(
       committed.map(
@@ -366,6 +390,7 @@ describe('app channel', () => {
 
     releaseTerminalOff?.();
     await disconnect;
+    await vi.waitFor(() => expect(committed).toHaveLength(2));
 
     const tracker = new SessionTypingTracker();
     committed.forEach((event) => tracker.apply(event));
@@ -400,8 +425,10 @@ describe('app channel', () => {
     runtimeEvents.publish.mockClear();
 
     await app.disconnect();
+    await vi.waitFor(() =>
+      expect(runtimeEvents.publish).toHaveBeenCalledTimes(2),
+    );
 
-    expect(runtimeEvents.publish).toHaveBeenCalledTimes(2);
     expect(runtimeEvents.publish.mock.calls.map((call) => call[0])).toEqual([
       expect.objectContaining({
         threadId: 'thread-a',
@@ -444,6 +471,38 @@ describe('app channel', () => {
 
     expect(runtimeEvents.publish).toHaveBeenCalledTimes(2);
     expect(app.liveUx?.typing).toBe('none');
+  });
+
+  it('detaches a terminal typing emit that never settles so a successor producer can start', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      canonicalConversationId: 'conversation-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue(null);
+    runtimeEvents.publish.mockImplementation(async (event) => {
+      if (!(event.payload as { isTyping: boolean }).isTyping) {
+        await new Promise<never>(() => {});
+      }
+      return { eventId: 1 };
+    });
+    const firstProducer = await createAppChannel(appOptions(7));
+    await firstProducer.connect();
+    await firstProducer.setTyping?.('app:demo:conversation', true);
+
+    await expect(firstProducer.disconnect()).resolves.toBeUndefined();
+    expect(firstProducer.isConnected()).toBe(false);
+
+    const successorProducer = await createAppChannel(appOptions(8));
+    await successorProducer.connect();
+    await expect(
+      successorProducer.setTyping?.('app:demo:conversation', true),
+    ).resolves.toBeUndefined();
+    expect(successorProducer.isConnected()).toBe(true);
+    expect(runtimeEvents.publish).toHaveBeenCalledTimes(3);
   });
 
   it('accepts legacy typing only before enveloped state exists for the target', () => {

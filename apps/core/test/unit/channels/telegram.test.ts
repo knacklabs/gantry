@@ -4761,6 +4761,28 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
     });
 
+    it('does not report a definitive first Telegram edit failure as success when a formatting retry would resolve', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+      currentBot()
+        .api.editMessageText.mockRejectedValueOnce(
+          new Error('message can not be edited'),
+        )
+        .mockResolvedValue(undefined);
+
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(false);
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
     it('returns false for an ambiguous replace-only transport failure and safely retries the retained handle', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();

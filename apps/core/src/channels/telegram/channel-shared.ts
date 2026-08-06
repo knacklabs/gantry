@@ -11,7 +11,10 @@ import { splitTelegramDeliveryTextWithLimits } from './channel-delivery-text-spl
 import { escapeTelegramMarkdownV2 } from './telegram-markdown-v2-escape.js';
 import { CHANNEL_STREAM_UPDATE_INTERVAL_MS } from '../channel-provider.js';
 import type { UserQuestionRequest } from '../../domain/types.js';
-import { isTelegramMessageNotModified } from './progress-edit-failure.js';
+import {
+  isDefinitiveTelegramEditTargetFailure,
+  isTelegramMessageNotModified,
+} from './progress-edit-failure.js';
 
 export { splitTelegramTextByCodeUnits } from './channel-delivery-text-splitting.js';
 export {
@@ -324,6 +327,7 @@ export async function editTelegramMessage(
     return;
   } catch (errV2Raw) {
     if (isTelegramMessageNotModified(errV2Raw)) return;
+    if (isDefinitiveTelegramEditTargetFailure(errV2Raw)) throw errV2Raw;
     logger.debug(
       { err: errV2Raw },
       'MarkdownV2 edit failed, retrying with escaped text',
@@ -343,6 +347,7 @@ export async function editTelegramMessage(
     return;
   } catch (errV2Escaped) {
     if (isTelegramMessageNotModified(errV2Escaped)) return;
+    if (isDefinitiveTelegramEditTargetFailure(errV2Escaped)) throw errV2Escaped;
     logger.debug(
       { err: errV2Escaped },
       'Escaped MarkdownV2 edit failed, falling back to plain text',

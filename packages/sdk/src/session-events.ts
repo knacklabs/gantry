@@ -16,6 +16,15 @@ export type SessionTypingInvalidation = {
   threadId: string | null;
 };
 
+export type SessionTypingTrackerSeed = {
+  sessionId: string;
+  generation: number;
+  targets?: ReadonlyArray<{
+    threadId?: string | null;
+    sequence: number;
+  }>;
+};
+
 export const SESSION_TYPING_STALE_AFTER_MS = 15_000;
 
 /**
@@ -33,15 +42,60 @@ export const SESSION_TYPING_STALE_AFTER_MS = 15_000;
  * an older operation within the current epoch from reappearing. Callers that
  * apply events can drain those cross-thread clears with
  * `takeInvalidatedTypingTargets`. `sessions.stream` yields durable events only;
- * ask this tracker for current typing state. Typing state older than the bounded
- * staleness window is reported as not typing. Dispose releases the tracker's
- * bounded consumer lifetime.
+ * ask this tracker for current typing state. A cursor-restoring consumer must
+ * call `seed` with its durable per-session generation and per-thread sequence
+ * baselines before applying resumed events. Typing state older than the
+ * bounded staleness window is reported as not typing. Dispose releases the
+ * tracker's bounded consumer lifetime.
  */
 export class SessionTypingTracker {
   private readonly appliedByTarget = new Map<string, AppliedTypingState>();
   private readonly highestGenerationBySession = new Map<string, number>();
   private invalidatedTypingTargets: SessionTypingInvalidation[] = [];
   private disposed = false;
+
+  seed(input: SessionTypingTrackerSeed): void {
+    if (this.disposed) {
+      throw new Error('Session typing tracker has been disposed');
+    }
+    if (!input.sessionId) {
+      throw new TypeError('Session typing tracker seed requires a session id');
+    }
+    if (!Number.isSafeInteger(input.generation) || input.generation < 1) {
+      throw new TypeError(
+        'Session typing tracker seed generation must be a positive safe integer',
+      );
+    }
+    for (const target of input.targets ?? []) {
+      if (!Number.isSafeInteger(target.sequence) || target.sequence < 0) {
+        throw new TypeError(
+          'Session typing tracker seed sequence must be a non-negative safe integer',
+        );
+      }
+    }
+    const sessionPrefix = `${input.sessionId}\n`;
+    if (
+      this.highestGenerationBySession.has(input.sessionId) ||
+      [...this.appliedByTarget.keys()].some((target) =>
+        target.startsWith(sessionPrefix),
+      )
+    ) {
+      throw new Error(
+        'Session typing tracker must be seeded before applying events for that session',
+      );
+    }
+    this.highestGenerationBySession.set(input.sessionId, input.generation);
+    for (const target of input.targets ?? []) {
+      this.appliedByTarget.set(`${input.sessionId}\n${target.threadId ?? ''}`, {
+        isTyping: false,
+        observedAtMs: Date.now(),
+        order: {
+          generation: input.generation,
+          sequenceCeilings: new Map([[input.generation, target.sequence]]),
+        },
+      });
+    }
+  }
 
   apply(event: SessionEventEnvelope): boolean {
     if (this.disposed) {

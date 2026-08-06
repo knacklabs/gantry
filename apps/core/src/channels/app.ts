@@ -140,30 +140,27 @@ export async function createAppChannel(
       disconnecting = true;
       liveUx.typing = 'none';
       const targets = [...activeTypingTargets.values()];
-      const terminalTypingResults = await Promise.allSettled(
-        targets.map((target) =>
-          emitSessionEvent(target.jid, RUNTIME_EVENT_TYPES.SESSION_TYPING, {
-            isTyping: false,
-            threadId: target.threadId ?? null,
-            orderedEnvelope: orderedEnvelope(
-              'typing',
-              Number(initialLiveUxBindingGeneration),
-            ),
-          }),
-        ),
-      );
-      terminalTypingResults.forEach((result, index) => {
-        if (result.status === 'rejected') {
-          const target = targets[index]!;
+      // Terminal appends are best effort: a stuck durable write must not hold
+      // producer teardown or its replacement. The old generation envelope
+      // keeps any late settlement behind the successor producer.
+      targets.forEach((target) => {
+        void emitSessionEvent(target.jid, RUNTIME_EVENT_TYPES.SESSION_TYPING, {
+          isTyping: false,
+          threadId: target.threadId ?? null,
+          orderedEnvelope: orderedEnvelope(
+            'typing',
+            Number(initialLiveUxBindingGeneration),
+          ),
+        }).catch((err) => {
           logger.warn(
             {
-              err: result.reason,
+              err,
               jid: target.jid,
               threadId: target.threadId,
             },
             'App channel failed to end typing during producer shutdown',
           );
-        }
+        });
       });
       activeTypingTargets.clear();
       connected = false;
