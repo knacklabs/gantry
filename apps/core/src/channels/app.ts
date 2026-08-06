@@ -195,23 +195,38 @@ export async function createAppChannel(
     ): Promise<void> {
       const generation = liveUxBindingGeneration?.();
       if (!Number.isSafeInteger(generation) || Number(generation) < 1) return;
+      const targetKey = `${jid}\n${options.threadId ?? ''}`;
+      const target = {
+        jid,
+        ...(options.threadId ? { threadId: options.threadId } : {}),
+      };
+      const activeTargetBeforePublish = activeTypingTargets.get(targetKey);
+      if (isTyping) {
+        // Record intent before publication so shutdown can fence a start that
+        // is still waiting on the durable append.
+        activeTypingTargets.set(targetKey, target);
+      }
       // App event publication is deliberately not cancellation-fenced through
       // the notifier or Postgres transaction. orderedEnvelope is the consumer
       // fence: a late stale typing event may remain in the event log, but an
       // order-aware consumer never applies it over a newer typing state.
-      await emitSessionEvent(jid, RUNTIME_EVENT_TYPES.SESSION_TYPING, {
-        isTyping,
-        threadId: options.threadId ?? null,
-        orderedEnvelope: orderedEnvelope('typing', Number(generation)),
-      });
-      const targetKey = `${jid}\n${options.threadId ?? ''}`;
-      if (isTyping) {
-        activeTypingTargets.set(targetKey, {
-          jid,
-          ...(options.threadId ? { threadId: options.threadId } : {}),
+      try {
+        await emitSessionEvent(jid, RUNTIME_EVENT_TYPES.SESSION_TYPING, {
+          isTyping,
+          threadId: options.threadId ?? null,
+          orderedEnvelope: orderedEnvelope('typing', Number(generation)),
         });
-      } else {
-        activeTypingTargets.delete(targetKey);
+        if (
+          !isTyping &&
+          activeTypingTargets.get(targetKey) === activeTargetBeforePublish
+        ) {
+          activeTypingTargets.delete(targetKey);
+        }
+      } catch (error) {
+        if (isTyping && activeTypingTargets.get(targetKey) === target) {
+          activeTypingTargets.delete(targetKey);
+        }
+        throw error;
       }
     },
     async sendProgressUpdate(

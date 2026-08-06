@@ -86,7 +86,6 @@ export function createLiveUxDispatcher(input: {
   abandonedAttemptLimit?: number;
   wait?: (delayMs: number) => Promise<void>;
 }) {
-  const explicitTypingActiveByBinding = new WeakMap<object, Set<string>>();
   const queuesByBinding = new WeakMap<object, Map<string, TargetQueue>>();
   const desiredByBinding = new WeakMap<
     object,
@@ -567,34 +566,15 @@ export function createLiveUxDispatcher(input: {
         { operation: 'typing', jid, threadId: options?.threadId },
         context,
       );
-      const explicitKey = resolvedTarget.key;
-      let explicitState = explicitTypingActiveByBinding.get(binding.identity);
-      if (!explicitState) {
-        explicitState = new Set<string>();
-        explicitTypingActiveByBinding.set(binding.identity, explicitState);
-      }
-      if (!isTyping) explicitState.delete(explicitKey);
       await enqueue(binding, resolvedTarget.key, {
         context,
         desiredKey: `typing:${String(isTyping)}`,
-        run: (signal) => {
-          if (channel.liveUx?.typing === 'explicit' && !isTyping) {
-            explicitState.delete(explicitKey);
-          }
-          return channel.setTyping?.(jid, isTyping, {
+        run: (signal) =>
+          channel.setTyping?.(jid, isTyping, {
             ...(options?.threadId ? { threadId: options.threadId } : {}),
             signal,
             ...resolvedTargetOptions(resolvedTarget.resolvedTarget),
-          });
-        },
-        shouldSkip:
-          channel.liveUx.typing === 'explicit' && isTyping
-            ? () => explicitState.has(explicitKey)
-            : undefined,
-        onConfirmed:
-          channel.liveUx.typing === 'explicit' && isTyping
-            ? () => explicitState.add(explicitKey)
-            : undefined,
+          }),
       });
     },
     addReaction: async (

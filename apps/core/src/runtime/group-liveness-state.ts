@@ -2,7 +2,7 @@ import type { ProgressUpdateOptions } from '../domain/types.js';
 import type { GroupProcessingDeps } from './group-processing-types.js';
 import type { ProgressChannelSender } from './group-progress-channel-sender.js';
 
-const TYPING_HEARTBEAT_INTERVAL_MS = 4_000;
+export const TYPING_HEARTBEAT_INTERVAL_MS = 4_000;
 const LIFECYCLE_HOOK_TIMEOUT_MS = 2_000;
 export const STALL_HEARTBEAT_THRESHOLD_MS = 180_000;
 

@@ -275,7 +275,7 @@ describe('live UX dispatcher', () => {
     );
   });
 
-  it('does not cadence-refresh explicit typing and always delivers terminal off', async () => {
+  it('republishes explicit typing refreshes and always delivers terminal off', async () => {
     const provider = new StatefulLivenessProvider({
       name: 'app',
       typing: 'explicit',
@@ -292,6 +292,7 @@ describe('live UX dispatcher', () => {
 
     expect(provider.typing.get('app:conversation\n')).toBe(false);
     expect(provider.typingHistory).toEqual([
+      expect.objectContaining({ isTyping: true }),
       expect.objectContaining({ isTyping: true }),
       expect.objectContaining({ isTyping: false }),
       expect.objectContaining({ isTyping: false }),
@@ -320,7 +321,7 @@ describe('live UX dispatcher', () => {
     resolved = binding(second);
     await liveUx.setTyping('app:conversation', true);
 
-    expect(firstTyping).toHaveBeenCalledOnce();
+    expect(firstTyping).toHaveBeenCalledTimes(2);
     expect(secondTyping).toHaveBeenCalledOnce();
   });
 
@@ -380,14 +381,15 @@ describe('live UX dispatcher', () => {
     ]);
   });
 
-  it('coalesces concurrent duplicate explicit typing starts', async () => {
+  it('serializes concurrent explicit typing refreshes', async () => {
     let settleStart: (() => void) | undefined;
-    const setTyping = vi.fn(
-      async (): Promise<void> =>
-        new Promise<void>((resolve) => {
+    const setTyping = vi.fn(async (): Promise<void> => {
+      if (setTyping.mock.calls.length === 1) {
+        await new Promise<void>((resolve) => {
           settleStart = resolve;
-        }),
-    );
+        });
+      }
+    });
     const appChannel = channel('app', {
       liveUx: { typing: 'explicit', reactions: 'none' },
       setTyping,
@@ -403,7 +405,7 @@ describe('live UX dispatcher', () => {
     settleStart?.();
     await Promise.all([first, duplicate]);
 
-    expect(setTyping).toHaveBeenCalledOnce();
+    expect(setTyping).toHaveBeenCalledTimes(2);
   });
 
   it('retries a rate-limited operation exactly once', async () => {

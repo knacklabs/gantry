@@ -4,6 +4,8 @@ import {
   SESSION_TYPING_STALE_AFTER_MS,
   SessionTypingTracker,
 } from '../../../../../packages/sdk/src/session-events.js';
+import { createLiveUxDispatcher } from '@core/runtime/live-ux-dispatcher.js';
+import { TYPING_HEARTBEAT_INTERVAL_MS } from '@core/runtime/group-liveness-state.js';
 
 const controlRepo = {
   getAppSessionByChatJid: vi.fn(),
@@ -200,6 +202,118 @@ describe('app channel', () => {
     vi.advanceTimersByTime(1);
     expect(tracker.isTyping('session-1', 'thread-a')).toBe(false);
     vi.useRealTimers();
+  });
+
+  it('keeps a healthy long App turn typing through consumer staleness expiry', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-08-06T00:00:00.000Z'));
+      controlRepo.getAppSessionByChatJid.mockResolvedValue({
+        sessionId: 'session-1',
+        appId: 'app-1',
+        agentId: 'agent-1',
+        canonicalConversationId: 'conversation-1',
+        defaultResponseMode: 'sse',
+        defaultWebhookId: null,
+      });
+      controlRepo.getAppResponseRoute.mockResolvedValue(null);
+      const tracker = new SessionTypingTracker();
+      let eventId = 0;
+      runtimeEvents.publish.mockImplementation(async (event) => {
+        eventId += 1;
+        tracker.apply({
+          ...event,
+          eventId,
+          sessionId: 'session-1',
+        });
+        return { eventId };
+      });
+      const app = await createAppChannel(appOptions(7));
+      const liveUx = createLiveUxDispatcher({
+        findBinding: () => ({ channel: app, identity: app }),
+        logger: { warn: vi.fn() },
+      });
+
+      await liveUx.setTyping('app:demo:conversation', true);
+      for (
+        let elapsed = TYPING_HEARTBEAT_INTERVAL_MS;
+        elapsed <= 24_000;
+        elapsed += TYPING_HEARTBEAT_INTERVAL_MS
+      ) {
+        vi.advanceTimersByTime(TYPING_HEARTBEAT_INTERVAL_MS);
+        await liveUx.setTyping('app:demo:conversation', true);
+        expect(tracker.isTyping('session-1')).toBe(true);
+      }
+
+      expect(SESSION_TYPING_STALE_AFTER_MS).toBeGreaterThanOrEqual(
+        TYPING_HEARTBEAT_INTERVAL_MS * 3,
+      );
+      expect(runtimeEvents.publish).toHaveBeenCalledTimes(7);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ends an in-flight typing start on shutdown without repopulating live state', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      canonicalConversationId: 'conversation-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue(null);
+    let releaseStart: (() => void) | undefined;
+    const committed: Array<{
+      eventId: number;
+      eventType: string;
+      sessionId: string;
+      payload: unknown;
+    }> = [];
+    runtimeEvents.publish.mockImplementation(async (event) => {
+      if ((event.payload as { isTyping: boolean }).isTyping) {
+        await new Promise<void>((resolve) => {
+          releaseStart = resolve;
+        });
+      }
+      const committedEvent = {
+        ...event,
+        eventId: committed.length + 1,
+        sessionId: 'session-1',
+      };
+      committed.push(committedEvent);
+      return committedEvent;
+    });
+    const app = await createAppChannel(appOptions(7));
+    await app.connect();
+
+    const start = app.setTyping?.('app:demo:conversation', true, {
+      threadId: 'thread-a',
+    });
+    await vi.waitFor(() =>
+      expect(runtimeEvents.publish).toHaveBeenCalledOnce(),
+    );
+    await app.disconnect();
+
+    expect(
+      committed.map(
+        (event) => (event.payload as { isTyping: boolean }).isTyping,
+      ),
+    ).toEqual([false]);
+    releaseStart?.();
+    await start;
+
+    const tracker = new SessionTypingTracker();
+    const applied = committed.filter((event) => tracker.apply(event));
+    expect(
+      applied.map((event) => (event.payload as { isTyping: boolean }).isTyping),
+    ).toEqual([false]);
+    expect(tracker.isTyping('session-1', 'thread-a')).toBe(false);
+
+    runtimeEvents.publish.mockClear();
+    await app.disconnect();
+    expect(runtimeEvents.publish).not.toHaveBeenCalled();
   });
 
   it('publishes terminal typing off for every active thread before disconnecting', async () => {
