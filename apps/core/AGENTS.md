@@ -32,6 +32,32 @@ chosen over cross-restart card continuity.
 
 Maintenance: update this map whenever ambient-liveness flow tests are renamed or moved so the behavior contract continues to point at the exact exercising tests. When a test name claims a never-happens invariant or a specific transition strategy, assert it against the harness history — an end-state assertion alone will pass on a flicker that is later corrected.
 
+## Attachment failures: cause to test
+
+Every attachment-fetch failure is classified once, in
+`application/attachments/attachment-failure.ts`. That function is the ONLY place
+a cause or its user-visible sentence is chosen — adapters supply evidence, never
+copy — and it is where the single warn log is emitted.
+
+- Cause-to-copy table, one row per cause:
+  `application/attachment-failure.test.ts` — `attachment failure classification and copy`.
+- Conservative evidence stays on the legacy sentence (`incapable`, `not_found`,
+  `unknown`, and any unexpected throw): same suite —
+  `keeps conservative evidence on the legacy copy`. A bare authorization signal
+  from a non-Slack provider must not become a scope claim —
+  `does not turn another provider bare authorization evidence into a scope claim`.
+- No two causes share a sentence: `keeps all named cause sentences distinct`.
+- Logs carry a sanitized error summary, never the raw error:
+  `redacts and caps unexpected error summaries before logging`.
+- A timed-out open logs once — the deadline record is terminal and a late
+  settlement of the abandoned fetch must not add a second, contradictory cause:
+  `application/attachment-resolver.test.ts` — `ends a stalled provider call
+  before the runner timeout and clears single-flight state for retry`.
+
+Maintenance: a new cause needs a row in the copy table, a distinct sentence, and
+a falsifier that fails if it is classified from evidence that cannot prove it. A
+confidently wrong cause is worse than `unknown`.
+
 ## Rules
 
 - Keep runtime imports aligned with the split domains under `apps/core/src/` rather than rebuilding root wrapper modules.
