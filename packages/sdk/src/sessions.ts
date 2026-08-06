@@ -17,11 +17,10 @@ export function createSessionsClient(transport: SessionTransport) {
     try {
       for await (const event of transport.stream(pathname, signal)) {
         const accepted = tracker.apply(event);
-        if (accepted) yield event;
         for (const invalidated of tracker.takeInvalidatedTypingTargets()) {
           // Synthetic invalidations deliberately reuse the triggering durable
-          // cursor and follow that event. Resuming from this id may redeliver
-          // the idempotent typing event once, but never skips session history.
+          // cursor. Drain them before yielding so another stream sharing the
+          // caller-owned tracker cannot consume this stream's invalidation.
           yield {
             ...event,
             eventId: invalidated.eventId,
@@ -32,6 +31,7 @@ export function createSessionsClient(transport: SessionTransport) {
             payload: { isTyping: false },
           };
         }
+        if (accepted) yield event;
       }
     } finally {
       if (!retainedTracker) tracker.dispose();

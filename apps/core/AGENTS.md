@@ -6,12 +6,12 @@
 
 ## Ambient liveness: user-visible behaviors and their flow tests
 
-- Truthful typing: `apps/core/test/unit/runtime/group-processing.test.ts` — `calls setTyping true before and false after agent run`; `apps/core/test/unit/channels/discord.test.ts` — `posts typing to the Discord thread and ignores typing false`; `apps/core/test/unit/channels/slack.test.ts` — `does not expose Slack as typing-capable`.
-- Single 180-second stall notice: `apps/core/test/unit/runtime/group-processing.test.ts` — `edits the existing card once after 180s of silence, gates typing, and re-arms on output`; `apps/core/test/unit/runtime/group-progress-heartbeats.test.ts` — `keeps the stall claim held and typing suppressed when the notice rejects` and `releases a definitive false without typing and retries after one stall interval`.
+- Truthful typing: `apps/core/test/unit/runtime/group-liveness-state.test.ts` — `orders a slow typing start before terminal off and ends typing off`; `apps/core/test/unit/channels/slack.test.ts` — `does not expose Slack as typing-capable`; `apps/core/test/unit/channels/telegram.test.ts` — `sends typing into the originating Telegram topic`.
+- Single 180-second stall notice and recovery: `apps/core/test/unit/runtime/group-liveness-state.test.ts` — `turns explicit typing off through a stalled failed delivery, then refreshes immediately after success`, `keeps a rejected stall claim sticky until a successful visible delivery`, and `retries a definitive missing stall notice only after the retry delay`.
 - Seen-to-running reaction flips and first-output cleanup: `apps/core/test/unit/bootstrap/live-reaction-lifecycle.test.ts` — `flips seen to running after five seconds and restores seen on first output`; adapter removal/re-add contracts are `removes Discord reactions and permits the same reaction to be re-added` in `apps/core/test/unit/channels/discord.test.ts`, `removes Slack reactions and permits the same reaction to be re-added` in `apps/core/test/unit/channels/slack.test.ts`, and `clears every Telegram reaction dedupe key when removing one reaction` in `apps/core/test/unit/channels/telegram.test.ts`.
 - Non-blocking continuation receipts at the loop seam: `apps/core/test/unit/runtime/message-loop.test.ts` — `acknowledges the newest provider message when continuation acceptance is %s` and `re-enqueues immediately when a continuation receipt never settles`; `apps/core/test/unit/bootstrap/live-recovery-coordinator.test.ts` — `finishes direct recovery routing when its continuation receipt never settles`.
 - Same-card retry status (`retrying n/max`): `apps/core/test/unit/runtime/group-processing.test.ts` — `keeps the failing progress-card generation for retry count %i` and `treats maxRetries zero as terminal on the initial failure`; `apps/core/test/unit/runtime/group-progress-channel-sender.test.ts` — `keeps a dispatched retry status repairable after its sender retires`.
-- Terminal Done wins: `apps/core/test/unit/runtime/group-progress-channel-sender.test.ts` — `keeps a stalled edit before terminal Done for the same card`, `drops an obsolete pre-dispatch stall link and advances terminal Done after the bound`, and `restores a failed terminal desired payload after an older stall lands late`.
+- Terminal progress converges: `apps/core/test/unit/runtime/group-progress-channel-sender.test.ts` — `keeps a stalled edit before terminal Done for the same card` and `restores a failed terminal desired payload after an older stall lands late`; Slack restart convergence is pinned by `lazily marks a prior-process Slack card stale and posts fresh work` and `posts fresh Slack work when the prior-process stale edit fails` in `apps/core/test/unit/channels/slack.test.ts`.
 
 - Determinism harness (LIVE-2-5): liveness suites assert provider-visible end
   state through `apps/core/test/harness/stateful-liveness-provider.ts` — final
@@ -279,6 +279,7 @@ Maintenance: update this map whenever ambient-liveness flow tests are renamed or
   - `channels/app.test.ts`: `keeps a late stale typing event from overriding newer terminal off`
   - `channels/app.test.ts`: `partitions typing order by thread within one consumer`
   - `control/sdk-transport.test.ts`: `yields typing off for another thread invalidated by a newer producer generation`
+  - `control/sdk-transport.test.ts`: `keeps a shared tracker's generation invalidation on its originating session stream`
   - `control/sdk-transport.test.ts`: `does not let a synthetic typing invalidation consume the triggering durable cursor`
   - `control/sdk-transport.test.ts`: `lets an eventId-deduplicating consumer observe a marked synthetic invalidation`
   - `channels/app.test.ts`: `delivers terminal off from a replacement producer despite clock rollback`

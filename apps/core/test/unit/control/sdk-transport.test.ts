@@ -445,14 +445,97 @@ describe('@gantry/sdk transport', () => {
 
     expect(streamed).toEqual([
       threadBStart,
-      threadANewerProducer,
       {
         ...threadANewerProducer,
         synthetic: true,
         threadId: 'thread-b',
         payload: { isTyping: false },
       },
+      threadANewerProducer,
     ]);
+  });
+
+  it("keeps a shared tracker's generation invalidation on its originating session stream", async () => {
+    const typing = (
+      sessionId: string,
+      threadId: string,
+      generation: number,
+      eventId: number,
+    ) => ({
+      eventId,
+      eventType: 'session.typing',
+      sessionId,
+      threadId,
+      correlationId: null,
+      createdAt: '2026-08-05T00:00:00.000Z',
+      payload: {
+        isTyping: true,
+        orderedEnvelope: {
+          generation,
+          sequence: 1,
+          kind: 'typing',
+          partIndex: 1,
+          totalParts: 1,
+        },
+      },
+    });
+    const sessionANewerProducer = typing('session-a', 'thread-a', 2, 2);
+    const sessionBEvent = {
+      eventId: 1,
+      eventType: 'session.message.outbound',
+      sessionId: 'session-b',
+      threadId: null,
+      correlationId: null,
+      createdAt: '2026-08-05T00:00:00.000Z',
+      payload: { text: 'session B only' },
+    };
+    const client = new GantryClient({ apiKey: 'one' });
+    vi.spyOn(
+      (
+        client as unknown as {
+          transport: { stream: (pathname: string) => AsyncIterable<unknown> };
+        }
+      ).transport,
+      'stream',
+    ).mockImplementation(async function* (pathname: string) {
+      if (pathname.includes('session-a')) yield sessionANewerProducer;
+      else yield sessionBEvent;
+    });
+    const tracker = client.sessions.createTypingTracker();
+    tracker.apply(typing('session-a', 'thread-b', 1, 1));
+    const streamA = client.sessions
+      .stream('session-a', { tracker })
+      [Symbol.asyncIterator]();
+    const streamB = client.sessions
+      .stream('session-b', { tracker })
+      [Symbol.asyncIterator]();
+
+    await expect(streamA.next()).resolves.toEqual({
+      done: false,
+      value: {
+        ...sessionANewerProducer,
+        synthetic: true,
+        threadId: 'thread-b',
+        payload: { isTyping: false },
+      },
+    });
+    await expect(streamB.next()).resolves.toEqual({
+      done: false,
+      value: sessionBEvent,
+    });
+    await expect(streamB.next()).resolves.toEqual({
+      done: true,
+      value: undefined,
+    });
+    await expect(streamA.next()).resolves.toEqual({
+      done: false,
+      value: sessionANewerProducer,
+    });
+    await expect(streamA.next()).resolves.toEqual({
+      done: true,
+      value: undefined,
+    });
+    tracker.dispose();
   });
 
   it('does not let a synthetic typing invalidation consume the triggering durable cursor', async () => {
@@ -503,7 +586,6 @@ describe('@gantry/sdk transport', () => {
 
     expect(first).toEqual([
       threadBStart,
-      triggeringDurableEvent,
       expect.objectContaining({
         eventId: triggeringDurableEvent.eventId,
         eventType: 'session.typing',
@@ -511,6 +593,7 @@ describe('@gantry/sdk transport', () => {
         threadId: 'thread-b',
         payload: { isTyping: false },
       }),
+      triggeringDurableEvent,
     ]);
     expect(new Set(first.map((event) => event.eventId)).size).toBe(2);
     expect(tracker.afterEventId('session-1')).toBe(2);
