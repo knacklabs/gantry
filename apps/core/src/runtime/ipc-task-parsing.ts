@@ -565,11 +565,23 @@ function validateAttachmentOpenConversationProof(
       all.indexOf(value) === index,
   );
 
-  const hasValidProof = candidateProviderAccountIds.some(
-    (providerAccountId) => {
+  const candidateThreadIds = [
+    binding.authThreadId,
+    // Some attachment_open task payloads are emitted without a thread id even
+    // when the surrounding live turn is thread-bound. Keep accepting that token
+    // shape so file reads work for existing Slack attachment tasks while the
+    // proof remains bound to app, agent, chat, attachment id, and task id.
+    undefined,
+  ].filter(
+    (value, index, all): value is string | undefined =>
+      all.indexOf(value) === index,
+  );
+
+  const hasValidProof = candidateProviderAccountIds.some((providerAccountId) =>
+    candidateThreadIds.some((threadId) => {
       const authToken = computeAttachmentIpcAuthToken(sourceAgentFolder, {
         chatJid,
-        threadId: binding.authThreadId,
+        threadId,
         appId: binding.appId,
         agentId: binding.agentId,
         providerAccountId,
@@ -582,11 +594,11 @@ function validateAttachmentOpenConversationProof(
           attachmentId,
           chatJid,
           taskId,
-          ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
+          ...(threadId ? { threadId } : {}),
         },
         conversationProof,
       );
-    },
+    }),
   );
 
   if (!hasValidProof) {
