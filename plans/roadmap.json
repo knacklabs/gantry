@@ -748,11 +748,14 @@
         "Liveness suites assert final provider-visible state via a shared stateful fake with failure/latency/restart falsifiers; flow-level chain test; two-account sink tests"
       ],
       "order": 43,
-      "status": "pending",
+      "status": "done",
       "epic": "Ambient liveness",
       "skill": "backend",
       "kind": "feature",
-      "spec": "docs/specs/live-2-liveness-hardening.md"
+      "spec": "docs/specs/live-2-liveness-hardening.md",
+      "completed_at": "2026-08-06T06:06:08+00:00",
+      "history": ".factory/history/LIVE-2/",
+      "outcome": "Ambient liveness now behaves the same way everywhere. Each chat app declares honestly what it can do (Slack has no typing; Teams cannot react), one dispatcher delivers every reaction and typing signal with the same rules \u2014 bounded waits, loud logs, provider-respecting backoff, self-correction when a slow request lands late \u2014 and one controller owns a turn's liveness end to end, so signals are never stranded, typing resumes after a stall, and a liveness failure cannot kill a turn. The bugs behind the missed emojis are fixed across Telegram, Slack, Discord and batch turns. The tests that let this ship broken were rebuilt around a stateful fake provider that can fail and stall, asserting what a user would actually see."
     }
   ],
   "epics": [
@@ -841,5 +844,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-04T14:08:03+00:00"
+  "updated_at": "2026-08-06T06:06:08+00:00"
 }
