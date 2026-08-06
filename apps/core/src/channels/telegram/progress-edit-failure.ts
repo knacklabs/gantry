@@ -18,7 +18,12 @@ function telegramErrorText(err: unknown): string {
     .join(' | ');
 }
 
+export function isTelegramMessageNotModified(err: unknown): boolean {
+  return /message is not modified/i.test(telegramErrorText(err));
+}
+
 function isDefinitiveTelegramEditFailure(err: unknown): boolean {
+  if (isTelegramMessageNotModified(err)) return false;
   if (err && typeof err === 'object') {
     const candidate = err as {
       error_code?: unknown;

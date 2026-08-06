@@ -4798,6 +4798,41 @@ describe('TelegramChannel', () => {
       );
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
     });
+
+    it('treats message is not modified as success when repairing an ambiguous landed edit', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+      currentBot().api.editMessageText.mockRejectedValue(
+        new Error('socket closed before a response arrived'),
+      );
+
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(false);
+
+      currentBot().api.editMessageText.mockClear();
+      currentBot().api.editMessageText.mockRejectedValue({
+        error_code: 400,
+        response: {
+          description: 'Bad Request: message is not modified',
+        },
+      });
+
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(true);
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
   });
 
   // --- ownsJid ---

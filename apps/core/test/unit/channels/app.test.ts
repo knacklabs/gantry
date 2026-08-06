@@ -316,6 +316,67 @@ describe('app channel', () => {
     expect(runtimeEvents.publish).not.toHaveBeenCalled();
   });
 
+  it('fences heartbeat starts before the shutdown snapshot so consumers end not-typing', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      canonicalConversationId: 'conversation-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue(null);
+    let releaseTerminalOff: (() => void) | undefined;
+    const committed: Array<{
+      eventId: number;
+      eventType: string;
+      sessionId: string;
+      payload: unknown;
+    }> = [];
+    runtimeEvents.publish.mockImplementation(async (event) => {
+      if (!(event.payload as { isTyping: boolean }).isTyping) {
+        await new Promise<void>((resolve) => {
+          releaseTerminalOff = resolve;
+        });
+      }
+      const committedEvent = {
+        ...event,
+        eventId: committed.length + 1,
+        sessionId: 'session-1',
+      };
+      committed.push(committedEvent);
+      return committedEvent;
+    });
+    const app = await createAppChannel(appOptions(7));
+    await app.connect();
+    await app.setTyping?.('app:demo:conversation', true, {
+      threadId: 'thread-a',
+    });
+
+    const disconnect = app.disconnect();
+    await vi.waitFor(() =>
+      expect(runtimeEvents.publish).toHaveBeenCalledTimes(2),
+    );
+    expect(app.liveUx?.typing).toBe('none');
+
+    await app.setTyping?.('app:demo:conversation', true, {
+      threadId: 'thread-a',
+    });
+    expect(runtimeEvents.publish).toHaveBeenCalledTimes(2);
+
+    releaseTerminalOff?.();
+    await disconnect;
+
+    const tracker = new SessionTypingTracker();
+    committed.forEach((event) => tracker.apply(event));
+    expect(
+      committed.map(
+        (event) => (event.payload as { isTyping: boolean }).isTyping,
+      ),
+    ).toEqual([true, false]);
+    expect(tracker.isTyping('session-1', 'thread-a')).toBe(false);
+  });
+
   it('publishes terminal typing off for every active thread before disconnecting', async () => {
     controlRepo.getAppSessionByChatJid.mockResolvedValue({
       sessionId: 'session-1',

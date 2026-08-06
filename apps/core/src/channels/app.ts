@@ -78,6 +78,7 @@ export async function createAppChannel(
     Number.isSafeInteger(initialLiveUxBindingGeneration) &&
     Number(initialLiveUxBindingGeneration) >= 1;
   let connected = false;
+  let disconnecting = false;
   let outboundSequence = 0;
   const outboundGeneration = randomUUID();
   const activeTypingTargets = new Map<
@@ -127,6 +128,7 @@ export async function createAppChannel(
     name: 'app',
     liveUx,
     async connect() {
+      disconnecting = false;
       connected = true;
       liveUx.typing = liveUxBindingGeneration?.() ? 'explicit' : 'none';
     },
@@ -134,6 +136,9 @@ export async function createAppChannel(
       return connected;
     },
     async disconnect() {
+      if (disconnecting) return;
+      disconnecting = true;
+      liveUx.typing = 'none';
       const targets = [...activeTypingTargets.values()];
       const terminalTypingResults = await Promise.allSettled(
         targets.map((target) =>
@@ -161,7 +166,6 @@ export async function createAppChannel(
         }
       });
       activeTypingTargets.clear();
-      liveUx.typing = 'none';
       connected = false;
     },
     ownsJid(jid: string) {
@@ -193,6 +197,7 @@ export async function createAppChannel(
       isTyping: boolean,
       options: { threadId?: string; signal?: AbortSignal } = {},
     ): Promise<void> {
+      if (isTyping && disconnecting) return;
       const generation = liveUxBindingGeneration?.();
       if (!Number.isSafeInteger(generation) || Number(generation) < 1) return;
       const targetKey = `${jid}\n${options.threadId ?? ''}`;
