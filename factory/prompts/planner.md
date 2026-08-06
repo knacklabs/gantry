@@ -88,6 +88,10 @@ Rules:
   and the architecture docs. Resolve findings into the plan or new decision
   records, then record:
   `python3 factory/scripts/record_grill_from_json.py --gate plan`.
-- Approval means the plan file is in-repo and bound to its roadmap story:
+- Save the grilled plan into the repo, bound to its roadmap story:
   `python3 factory/scripts/forge.py plan save --from <plan-file> --story
-  <story-key>`. `update_run.py` refuses `plan_status approved` until it is.
+  <story-key>`. This records it as `awaiting-approval`.
+- Present that saved plan to the human in plan mode. After the human confirms
+  approval in chat, run `./forge plan approve --by "<their name>"`, then rerun
+  `plan save` with the unchanged plan. `update_run.py` refuses implementation
+  until this digest-bound approval makes `plan_status` approved.

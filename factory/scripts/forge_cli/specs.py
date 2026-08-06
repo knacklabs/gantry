@@ -5,13 +5,17 @@ import argparse
 import re
 from pathlib import Path
 
-from factory_lib import now_iso, repo_root, require_grill
+from factory_lib import (
+    ATX_CLOSING_RUN, now_iso, outside_examples, parse_sections, repo_root,
+    require_grill,
+)
 
 from .common import fail
 from .events import append_event
 
 FRONTMATTER = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 SAFE_SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
+REQUIRED_SECTIONS = ("Why", "Behaviour", "Acceptance criteria")
 
 
 def parse_frontmatter(text: str) -> dict[str, str]:
@@ -25,6 +29,37 @@ def parse_frontmatter(text: str) -> dict[str, str]:
         key, _, value = line.partition(":")
         fields[key.strip()] = value.strip().strip("\"'")
     return fields
+
+
+# The H1 rule; the H2 rule lives in factory_lib.parse_sections and both strip
+# the same ATX closing run, so `# Billing #` and `## Why ##` mean what they say.
+ATX_TITLE = re.compile(r"^#[ \t]+(?P<title>.*)$", re.MULTILINE)
+
+
+def document_structure(text: str) -> str:
+    """The spec body — frontmatter removed.
+
+    Frontmatter goes first so a `status:` line can never read as content;
+    fenced blocks and HTML comments are excluded at the point of asking, by
+    factory_lib.example_ranges, so a section written only inside an example
+    still counts as its own body but never as a heading.
+    """
+    return FRONTMATTER.sub("", text, count=1)
+
+
+def missing_required_content(text: str) -> list[str]:
+    body = document_structure(text)
+    missing = []
+    if not any(
+        ATX_CLOSING_RUN.sub("", match.group("title")).strip()
+        for match in outside_examples(body, ATX_TITLE.finditer(body))
+    ):
+        missing.append("H1 title")
+    sections = parse_sections(body)
+    for title in REQUIRED_SECTIONS:
+        if not sections.get(title, "").strip():
+            missing.append(f"## {title}")
+    return missing
 
 
 def spec_records(base: Path) -> list[dict]:
@@ -97,6 +132,9 @@ def cmd_confirm(args: argparse.Namespace) -> None:
     if fields.get("status") != "draft":
         fail(f"spec status must be draft before confirmation, got "
              f"{fields.get('status', 'missing')!r}")
+    missing = missing_required_content(text)
+    if missing:
+        fail(f"spec is incomplete; missing or empty: {', '.join(missing)}")
     require_grill(
         base,
         "spec",

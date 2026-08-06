@@ -50,8 +50,8 @@ or route:
 | Dev says | Do |
 |---|---|
 | set up my machine | `./forge doctor` (`--fix` installs the toolchain; logins stay manual) |
-| create a new project / build a new app | prefer the `knacklabs-new-project` skill; without it: `./forge init --name <project> --target <dir>`, then IN `<dir>`: commit and push to its OWN origin (`gh repo create <org>/<repo> --private --source . --push`), `direnv allow`, and open future sessions there. The app is a fresh unrelated repo — NEVER fork the harness, NEVER `gh repo create --template`, never build the app inside this clone |
-| migrate an existing repo / make this repo symphony-forge ready | `knacklabs-migrate-project` skill — core: `./forge adopt --target <repo>` from the harness clone (clean tree; old AGENTS/CLAUDE preserved to docs/context/; repo keeps its own origin — never fork/merge the harness into it) |
+| create a new project / build a new app | prefer the `knacklabs-new-project` skill; without it: `./forge init --name <project> --target <dir>`, then IN `<dir>`: commit and push to its OWN origin (`gh repo create <org>/<repo> --private --source . --push`), `direnv allow`, and open future sessions there. Init writes `.factory/record-origin.json` once so history has an honest starting boundary. The app is a fresh unrelated repo — NEVER fork the harness, NEVER `gh repo create --template`, never build the app inside this clone |
+| migrate an existing repo / make this repo symphony-forge ready | `knacklabs-migrate-project` skill — core: `./forge adopt --target <repo>` from the harness clone (clean tree; old AGENTS/CLAUDE preserved to docs/context/; repo keeps its own origin — never fork/merge the harness into it). Adopt creates the same record-origin boundary if absent and never rewrites it. |
 | migrate my gstack history / gstack outputs are on my machine | `./forge gstack migrate` — union-merges ~/.gstack/projects/<slug>/ into the repo's .gstack/ (then commit). Going forward .envrc + `direnv allow` keeps gstack in-repo |
 | what's left to build / show the roadmap | `./forge roadmap list` (`--pending` for what's next; grouped by epic, shows @assignee) |
 | what can run in parallel / fan out the work | `./forge roadmap parallel` — the dependency-ready frontier, one isolated `git worktree add` + intake per story. Tasks inside each story run sequentially; only separate ready story worktrees run in parallel |
@@ -99,6 +99,7 @@ or route:
 | client signed off | `python3 factory/scripts/record_signoff.py` |
 | harvest context / process the dump | follow `factory/prompts/harvester.md`, then `forge.py context mark ...` |
 | harness status | read `.factory/run.json`; `forge.py context list --pending`; `ls factory/skills/proposed/` |
+| what happened / show project history | `./forge history` reads committed events; add `--story`, `--event`, `--since`, or `--until` to narrow them. Unattributed events remain visible, and the board reports `.factory/record-origin.json` as “record begins here; N commits precede it” when that marker exists. |
 | record what the story delivered | `./forge outcome set "<what changed and what someone can now do>"` — one paragraph in a reader's language, required before PR-ready; it lands on the roadmap item and in the ship archive |
 | is this PR ready | `python3 factory/scripts/pr_ready.py` (never bypass with ad hoc checks) — a bare run lists what is missing, including the outcome |
 | what did we ship last month | open the board's **Ship log** (`./forge board`) — PR-ready date, story, outcome and the decisions it created, newest first |
@@ -120,6 +121,12 @@ instead of narrating it:
   the URL rather than starting a second one; a busy port means it is running.
 - Stories are cards on a swimlane board — epic lanes across the lifecycle
   columns — so progress is read from where a card sits, not from prose.
+- The board opens on **Overview**: what the project is, what can start now,
+  what each epic delivers, and where each story sits. Use
+  `./forge board --repo <example>` for a full initialized example repo. The
+  checked-in data-only contract sample is discoverable at
+  `factory/board/example/`; production validators exercise it, while direct
+  serving waits on the deferred board-page resolver change.
 - **Deep-link to the story you are talking about**: `…:8765/#RAIL-3` opens that
   story's drawer with its gate rail, what blocks the next gate, and its
   artifacts (plan, spec, decomposition, evidence).

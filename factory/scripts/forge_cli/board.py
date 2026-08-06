@@ -9,7 +9,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from factory_lib import load_json, now_iso, repo_root, run_state_path
+from factory_lib import load_json, now_iso, parse_sections, repo_root, run_state_path
+from record_signoff import REQUIRED_BRIEF_HEADINGS
 
 from .assumptions import open_count as open_assumptions
 from .decisions import decision_records
@@ -155,22 +156,71 @@ def _summary(stories: list[dict], specs: list[dict], signals: list[dict],
 def quickfix_ledger(base: Path) -> list[dict]:
     """Closed quickfix windows, for the Library panel.
 
-    # ponytail: skips unreadable lines instead of reusing quickfix.load_events,
-    # which raises. The ledger is JSONL merged across worktrees, so a bad merge
-    # can leave a torn line — and a viewer must not blank the page over one.
+    Reads through the shared ledger helper (decision 0022), so the directory
+    form and any legacy .jsonl both land here, ordered by each record's own
+    timestamp rather than by position in a file a merge could rewrite.
     """
-    path = ledger_path(base)
-    if not path.exists():
-        return []
-    records = []
-    for line in path.read_text().splitlines():
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(event, dict) and event.get("event") == "done":
-            records.append(event)
-    return records
+    from .quickfix import load_events
+    return [event for event in load_events(base) if event.get("event") == "done"]
+
+
+def project_identity(base: Path) -> dict:
+    """Project identity and capture status, derived from the committed brief.
+
+    The name is the one `forge init --name` AUTHORED into run.json — `--name
+    "Acme Billing"` into ~/work/acme-billing must read as Acme Billing, not
+    its slug — falling back to the directory for a repo that never authored
+    one. `pr_ready` carries `project` into the shipped run state, so it
+    survives the whole lifecycle.
+
+    The BRIEF's H1 is deliberately NOT a source: it is a document title, which
+    is why the scaffold ships "# Product Brief". A repo that wants a name on
+    the board authors one; inferring it from a heading would put a document's
+    title where a project's name belongs.
+    """
+    brief = base / "docs" / "product" / "BRIEF.md"
+    sections = parse_sections(brief.read_text()) if brief.is_file() else {}
+    authored = load_json(base / ".factory" / "run.json", default={})
+    name = authored.get("project") if isinstance(authored, dict) else ""
+    return {
+        # resolve(): Path(".").name is "", which would render a nameless project.
+        "name": (name or "").strip() or base.resolve().name,
+        "sections": sections,
+        "missing_sections": [
+            heading for heading in REQUIRED_BRIEF_HEADINGS
+            if not sections.get(heading, "").strip()
+        ],
+    }
+
+
+def derived_epics(roadmap: dict, stories: list[dict]) -> list[dict]:
+    """Resolve epic membership, progress, and authored cross-epic gating."""
+    epics = [dict(epic) for epic in roadmap.get("epics", [])]
+    by_id = {epic.get("id"): epic for epic in epics}
+    story_epic = {story.get("key"): story.get("epic") for story in stories}
+    blocked_by = {epic_id: [] for epic_id in by_id}
+
+    for epic_id, epic in by_id.items():
+        members = [story for story in stories if story.get("epic") == epic_id]
+        epic["stories"] = [story.get("key") for story in members]
+        epic["progress"] = {
+            "done": sum(story.get("status") == "done" for story in members),
+            "total": len(members),
+        }
+        for story in members:
+            for dependency in story.get("depends_on", []):
+                dependency_epic = story_epic.get(dependency)
+                if (dependency_epic in by_id and dependency_epic != epic_id
+                        and dependency_epic not in blocked_by[epic_id]):
+                    blocked_by[epic_id].append(dependency_epic)
+
+    for epic_id, epic in by_id.items():
+        epic["blocked_by"] = blocked_by[epic_id]
+        epic["unblocks"] = [
+            other_id for other_id in by_id
+            if epic_id in blocked_by[other_id]
+        ]
+    return epics
 
 
 def aggregate_state(base: Path) -> dict:
@@ -196,8 +246,14 @@ def aggregate_state(base: Path) -> dict:
     ]
     spec_status = {record["path"]: record.get("status", "draft") for record in specs}
     run = load_json(base / ".factory" / "run.json", default={})
+    record_origin = load_json(base / ".factory" / "record-origin.json", default=None)
     stages = _stage_summary(base)
     done_keys = {item.get("key") for item in items if item.get("status") == "done"}
+    unblocks = {item.get("key"): [] for item in items}
+    for item in items:
+        for dependency in item.get("depends_on", []):
+            if dependency in unblocks:
+                unblocks[dependency].append(item.get("key"))
     stories = []
     for item in items:
         story = dict(item)
@@ -208,6 +264,7 @@ def aggregate_state(base: Path) -> dict:
         story["tasks"] = tasks
         story["blocked_by"] = [dep for dep in item.get("depends_on", [])
                                if dep not in done_keys]
+        story["unblocks"] = unblocks.get(item.get("key"), [])
         story["lifecycle"] = {
             "spec": spec_status.get(item.get("spec"), "missing"),
             "roadmap": True,
@@ -220,12 +277,15 @@ def aggregate_state(base: Path) -> dict:
         }
         story["state"] = _story_state(story, bool(story["blocked_by"]))
         stories.append(story)
+    epics = derived_epics(roadmap, stories)
     signals = open_signals(base)
     return {
         "generated_at": now_iso(),
         "root": str(base.resolve()),
         "specs": specs,
-        "epics": roadmap.get("epics", []),
+        "project": project_identity(base),
+        "record_origin": record_origin,
+        "epics": epics,
         "stories": stories,
         "summary": _summary(stories, specs, signals, open_assumptions(base)),
         "frontier": frontier,
@@ -300,26 +360,26 @@ def approval_readiness(base: Path, detail: dict) -> list[dict]:
                       if s.get("kind") == "contradiction"]
     checks.append({
         "ok": bool(plan), "label": "plan saved",
-        "fix": "forge.py plan save --from <plan-file>"})
+        "fix": "write the plan, then ask to save it against this story"})
     checks.append({
         "ok": bool(grill) and grill.get("verdict") == "pass",
         "label": "plan grill passed",
-        "fix": "/grill-me, then record_grill_from_json.py --gate plan"})
+        "fix": "grill the plan and record the result — ask for it; save refuses without a passing grill"})
     checks.append({
         "ok": not missing,
         "label": "decisions reviewed" + (f" — {len(missing)} missing" if missing else ""),
         # The ids are the evidence, but sixteen of them inline is a wall of
         # text; the board discloses them behind the count.
         "detail": missing,
-        "fix": "list every active decision in the plan's decisions_reviewed"})
+        "fix": "the plan must attest every active decision — ask for the missing ones"})
     checks.append({
         "ok": "## Surface Impact" in body,
         "label": "Surface Impact section",
-        "fix": "classify every surface in the plan (factory/prompts/planner.md)"})
+        "fix": "the plan must classify every surface — runtime, API, data, CLI, UI, docs, tests"})
     checks.append({
         "ok": not contradictions,
         "label": "no open contradiction" + (f" — {', '.join(contradictions)}" if contradictions else ""),
-        "fix": "forge.py signal resolve <id> --notes \"...\""})
+        "fix": "answer the paused worker in your session"})
     return checks
 
 
@@ -329,7 +389,8 @@ def story_detail(base: Path, key: str) -> dict | None:
     The key is matched against the roadmap rather than used as a path, so no
     request can address a file outside the artifacts this story owns.
     """
-    items = load_roadmap(base).get("items", [])
+    roadmap = load_roadmap(base)
+    items = roadmap.get("items", [])
     item = next((i for i in items if i.get("key") == key), None)
     if item is None:
         return None
@@ -366,8 +427,18 @@ def story_detail(base: Path, key: str) -> dict | None:
     spec_path = item.get("spec")
     spec = None
     if spec_path and (base / spec_path).is_file():
+        # `body` stays the EXACT committed source: the raw-json view exists to
+        # show the artifact as it is, and stripping here would make the API
+        # lossy for every consumer to fix one renderer. The drawer strips
+        # frontmatter when it renders prose.
         spec = {"path": spec_path, "body": (base / spec_path).read_text()}
-    detail = {"key": key, "story": item, "plan": plan, "plan_body": plan_body,
+    epic = next(
+        (epic for epic in derived_epics(roadmap, items)
+         if epic.get("id") == item.get("epic")),
+        None,
+    )
+    detail = {"key": key, "project": project_identity(base), "epic": epic,
+              "story": item, "plan": plan, "plan_body": plan_body,
               "spec": spec, "evidence": evidence}
     detail["tasks"] = task_dossiers(detail)
     detail["readiness"] = approval_readiness(base, detail)

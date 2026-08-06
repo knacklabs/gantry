@@ -9,7 +9,7 @@ from pathlib import Path
 from factory_lib import (
     client_signoff, load_json, read_hook_input, repo_root, run_state_path,
 )
-from forge_cli.quickfix import claim_files, load_active
+from forge_cli.quickfix import claim_files, load_active, record_files
 
 payload = read_hook_input()
 tool_name = payload.get("tool_name", "")
@@ -224,6 +224,11 @@ def guard_product_writes(targets: list[str], state: dict, root: Path) -> None:
     ))
     if not product:
         return
+    if (state.get("plan_status") == "approved"
+            and state.get("decomposition_status") == "recorded"):
+        # The plan already authorizes this write. Recording only observes it:
+        # it neither applies the quickfix budget nor changes the return below.
+        record_files(root, product)
     if state.get("plan_status") == "approved":
         # An approved plan is not yet an implementation licence: the bounded
         # tasks are what implementation is measured against, and a write before

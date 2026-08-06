@@ -9,9 +9,8 @@ Read `AGENTS.md` first; it is the contract. Standards live in `constitution/`
 - Claude Code coordinates: discovery, planning, decisions, orchestration.
 - Codex executes: exploration, implementation, testing. Review is Claude's —
   run the autoreview skill DIRECTLY, loop until clean post-rescue (0011).
-- During planning, do NOT grep/read application code yourself — delegate:
-  `/codex:rescue --model gpt-5.6-terra --effort high "<question>"` (read-only
-  by default). NEVER raw `codex exec` — the hook blocks it.
+- During planning, do NOT grep/read app code yourself — delegate `/codex:rescue
+  --model gpt-5.6-terra --effort high` (read-only). NEVER raw `codex exec`.
 
 ## codex-plugin-cc
 
@@ -29,9 +28,9 @@ Read `AGENTS.md` first; it is the contract. Standards live in `constitution/`
 - If the plugin is unavailable, follow `docs/degraded-mode.md`.
 
 ## Ground rules
-- The planning lock is always armed. Enter PLAN MODE per `factory/prompts/planner.md`
-  or run `./forge quickfix start "<reason>"`; do not fight the hook. Grill the plan
-  (`/grill-me`); it is approved only when saved with `forge.py plan save`.
+- Planning lock always armed: plan in PLAN MODE or `./forge quickfix start`, grill
+  (`/grill-me`), present to the HUMAN; on approval `./forge plan approve --by
+  "<name>"` and re-save — only its marker approves.
 - Decisions: `./forge decision new <slug>`; acceptance is HUMAN chat
   confirmation — then run accept/sign-off yourself, `--by "<name>"` + trailer.
 - Recording sign-off requires confirmed specs and their derived roadmap.

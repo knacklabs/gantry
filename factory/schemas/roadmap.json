@@ -2,7 +2,10 @@
   "artifact": "roadmap",
   "phase": "handoff",
   "recorded_by": "forge roadmap import --input <json>",
-  "generated_by": ["docs-decomposer", "human"],
+  "generated_by": [
+    "docs-decomposer",
+    "human"
+  ],
   "required": {
     "generated_by": "str",
     "items": "list"
@@ -10,5 +13,5 @@
   "optional": {
     "epics": "list"
   },
-  "item_fields_note": "derived items: key+title+spec required, where spec is a repo-relative docs/specs/<slug>.md reference to a confirmed spec. Optional story, acceptance_criteria (list), epic, skill (frontend|backend|fullstack), order, depends_on (list of story keys — edges must resolve; drives `forge roadmap parallel`). epics: id+title required; optional objective, source_refs. assignee/status are grooming/lifecycle state — never set by derive/import."
+  "item_fields_note": "Every item needs key and title. STORIES are authored by `forge roadmap derive`, `forge roadmap import` and `forge roadmap add`, which additionally require epic (a known epic id), story, acceptance_criteria (non-empty list), skill (frontend|backend|fullstack), and depends_on (list of story keys; [] explicitly means no dependencies). derive/import also require spec as a repo-relative docs/specs/<slug>.md reference to a confirmed spec; add requires it unless --no-spec --reason records visible spec debt. EPICS are authored by `forge roadmap derive`, `forge roadmap import` and `forge roadmap epic add` \u2014 not by `roadmap add`, which only checks that the epic its story names already exists. Those three require id, title, objective, and source_refs that resolve inside the repo. `forge roadmap set-epic` points an existing story at a known epic. Stored roadmaps predating this contract stay readable: only authoring is checked, and forge doctor reports the gaps. assignee/status are grooming and lifecycle state \u2014 never set by derive/import."
 }
