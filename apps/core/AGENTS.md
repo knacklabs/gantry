@@ -44,9 +44,9 @@ Each cause, and the test that exercises it (suite file in parentheses):
 - `permission_scope` — the reported scenario (missing `files:read`, any file
   type): the user gets the permission sentence and operators get exactly one
   `permission_scope` warn. Classification + copy: `maps evidence to
-  permission_scope copy` and `emits only the allowlisted log fields`
+permission_scope copy` and `emits only the allowlisted log fields`
   (`attachment-failure.test.ts`). Adapter emits evidence, never copy: `emits
-  explicit files:read scope evidence for Slack missing_scope`
+explicit files:read scope evidence for Slack missing_scope`
   (`slack-historical-attachment-fetcher.test.ts`). End to end through the
   resolver: `keeps missing_scope unreachable and retryable without tombstoning`
   (`attachment-resolver.test.ts`).
@@ -57,31 +57,31 @@ Each cause, and the test that exercises it (suite file in parentheses):
   (`attachment-resolver.test.ts`).
 - `too_large` — `maps evidence to too_large copy` (`attachment-failure.test.ts`);
   `refuses an over-cap stream through the 50 MiB writer limit and persists
-  nothing` (`attachment-resolver.test.ts`).
+nothing` (`attachment-resolver.test.ts`).
 - `rate_limited` — `maps evidence to rate_limited copy` (`attachment-failure.test.ts`);
   SDK error preserved and an HTML-shaped 429 classified before the HTML fallback
   (`preserves an SDK rate-limit error as rate-limit evidence`, `classifies an
-  HTML-shaped 429 as rate limited before the HTML fallback`,
+HTML-shaped 429 as rate limited before the HTML fallback`,
   `slack-historical-attachment-fetcher.test.ts`; `returns rate-limit copy for a
-  Slack HTML-shaped 429 response`, `carries a Slack SDK 429 status into the
-  emitted warning`, `attachment-resolver.test.ts`).
+Slack HTML-shaped 429 response`, `carries a Slack SDK 429 status into the
+emitted warning`, `attachment-resolver.test.ts`).
 - `timeout` — `maps evidence to timeout copy` (`attachment-failure.test.ts`); a
   genuine runner wait-expiry (not a malformed response) gets the timeout copy
   (`attachment-open.test.ts`); and one shared open logs the timeout exactly once
   across every stale-retry topology (`logs one timeout when the owner and a
-  joined waiter both expire across a stale retry`, `logs one timeout when a
-  stale retry joins an F2 flight already in progress`, `still logs the timeout
-  when the earlier joiner expires before the F2 owner settles`, and `ends a
-  stalled provider call before the runner timeout and clears single-flight state
-  for retry`, `attachment-resolver.test.ts`).
+joined waiter both expire across a stale retry`, `logs one timeout when a
+stale retry joins an F2 flight already in progress`, `still logs the timeout
+when the earlier joiner expires before the F2 owner settles`, and `ends a
+stalled provider call before the runner timeout and clears single-flight state
+for retry`, `attachment-resolver.test.ts`).
 - `transport` — `maps evidence to transport copy` (`attachment-failure.test.ts`);
   an authorization HTTP status (401/403) is `unknown`, never transport
   (`attachment-resolver.test.ts`).
 - `unknown` (legacy fallback) — conservative evidence (`incapable`, `not_found`,
   `unknown`, any unexpected throw) stays on the legacy sentence: `keeps
-  conservative evidence on the legacy copy`; a bare authorization signal from a
+conservative evidence on the legacy copy`; a bare authorization signal from a
   non-Slack provider must not become a scope claim: `does not turn another
-  provider bare authorization evidence into a scope claim`
+provider bare authorization evidence into a scope claim`
   (`attachment-failure.test.ts`).
 
 - No two causes share a sentence: `keeps all named cause sentences distinct`.
