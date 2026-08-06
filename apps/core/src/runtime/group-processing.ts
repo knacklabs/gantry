@@ -16,7 +16,6 @@ import type {
 } from './group-processing-types.js';
 import { settleDeliveryAttempt } from '../jobs/delivery.js';
 import { resolveMemoryUserId } from './session-resume-runtime.js';
-import { firstThreadQueueId } from '../shared/thread-queue-key.js';
 import { getConfiguredModelProvidersForApp } from '../adapters/storage/postgres/runtime-store.js';
 import { resolveGroupProcessingRouteContext } from './command-override-route-key.js';
 import { memoryScopeForConversationKind } from './group-run-context.js';
@@ -59,7 +58,7 @@ import { randomUUID } from 'node:crypto';
 import { nowIso } from '../shared/time/datetime.js';
 import { createGroupProcessingSessionCommandHandlers } from './group-processing-session-command-handlers.js';
 import { createGroupProcessingPersonResolver } from './group-person-identity.js';
-import { latestReactionTarget } from './continuation-receipts.js';
+import { resolveGroupReactionTarget } from './group-reaction-target.js';
 import {
   isFailoverEligibleError,
   isMissingProviderSessionError,
@@ -68,15 +67,6 @@ let streamingGenerationCounter = 0;
 const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
 const PROVIDER_FAILOVER_EXHAUSTED_MESSAGE =
   "The AI provider is unavailable and your message couldn't be processed after several retries. Please try again shortly.";
-function slackChannelRootThreadId(
-  chatJid: string,
-  externalMessageId: string | null | undefined,
-): string | undefined {
-  if (!/^sl:[CG][A-Z0-9]+$/i.test(chatJid)) return undefined;
-  const threadId = externalMessageId?.trim();
-  return /^\d+\.\d+$/.test(threadId ?? '') ? threadId : undefined;
-}
-
 export function createGroupProcessor(deps: GroupProcessingDeps) {
   const collectSessionMemory = deps.collectSessionMemory;
   const ops = () => {
@@ -122,23 +112,12 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const latestMessage = missedMessages[missedMessages.length - 1];
     const cursorForMessage = (message: typeof latestMessage) =>
       encodeGroupMessageCursor(toGroupMessageCursor(message));
-    const selectedReactionTarget = latestReactionTarget(missedMessages);
-    const activeThreadId = firstThreadQueueId(
-      threadId,
-      latestMessage.thread_id,
-      slackChannelRootThreadId(chatJid, latestMessage.external_message_id),
-    );
-    const latestMessageReactionTarget = selectedReactionTarget
-      ? {
-          messageRef: selectedReactionTarget.messageRef,
-          ...(selectedReactionTarget.threadId
-            ? { threadId: selectedReactionTarget.threadId }
-            : selectedReactionTarget.messageIndex ===
-                  missedMessages.length - 1 && activeThreadId
-              ? { threadId: activeThreadId }
-              : {}),
-        }
-      : undefined;
+    const { activeThreadId, reactionTarget: latestMessageReactionTarget } =
+      resolveGroupReactionTarget({
+        chatJid,
+        routeThreadId: threadId,
+        messages: missedMessages,
+      });
     let streamGeneration = (streamingGenerationCounter += 1);
     let progressGeneration = streamGeneration;
     const turnOptions = createGroupTurnOptionBuilders({
