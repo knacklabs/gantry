@@ -350,18 +350,13 @@ export class AttachmentResolver {
       providerAccountId: attachment.providerAccountId,
       signal,
     });
-    if (signal.aborted) {
-      if (fetched.status === 'ok') {
-        await historicalAttachmentReader(fetched.content)
-          ?.cancel(signal.reason)
-          .catch(() => undefined);
-      }
-      return {
-        status: 'unreachable',
-        content: ATTACHMENT_UNREACHABLE_COPY,
-      };
-    }
     if (fetched.status === 'deleted') {
+      if (signal.aborted) {
+        return {
+          status: 'unreachable',
+          content: ATTACHMENT_UNREACHABLE_COPY,
+        };
+      }
       const tombstone = await this.deps.repository.setDeletedAt({
         attachmentId: attachment.id,
         expectedMessageId: attachment.messageId,
@@ -371,6 +366,12 @@ export class AttachmentResolver {
         expectedProviderFetch: attachment.providerFetch!,
         deletedAt: this.now(),
       });
+      if (signal.aborted) {
+        return {
+          status: 'unreachable',
+          content: ATTACHMENT_UNREACHABLE_COPY,
+        };
+      }
       if (tombstone.stale) return { status: 'stale' };
       if (!tombstone.tombstoned) {
         return {
@@ -387,14 +388,29 @@ export class AttachmentResolver {
       return { status: 'deleted', content: failure.content };
     }
     if (fetched.status === 'unreachable') {
+      if (signal.aborted) {
+        return {
+          status: 'unreachable',
+          content: ATTACHMENT_UNREACHABLE_COPY,
+        };
+      }
+      const providerStatus =
+        fetched.providerStatus === undefined
+          ? {}
+          : { providerStatus: fetched.providerStatus };
       const evidence: AttachmentFailureEvidence =
         fetched.reason === 'missing_scope'
           ? {
               kind: 'provider_unreachable',
               reason: fetched.reason,
               scope: fetched.scope,
+              ...providerStatus,
             }
-          : { kind: 'provider_unreachable', reason: fetched.reason };
+          : {
+              kind: 'provider_unreachable',
+              reason: fetched.reason,
+              ...providerStatus,
+            };
       const failure = this.classifyFailure(
         attachment,
         input,
@@ -404,6 +420,16 @@ export class AttachmentResolver {
       return {
         status: 'unreachable',
         content: failure.content,
+      };
+    }
+
+    if (signal.aborted) {
+      await historicalAttachmentReader(fetched.content)
+        ?.cancel(signal.reason)
+        .catch(() => undefined);
+      return {
+        status: 'unreachable',
+        content: ATTACHMENT_UNREACHABLE_COPY,
       };
     }
 
@@ -458,6 +484,12 @@ export class AttachmentResolver {
       };
     }
     if (writeResult.status === 'too-large') {
+      if (signal.aborted) {
+        return {
+          status: 'unreachable',
+          content: ATTACHMENT_UNREACHABLE_COPY,
+        };
+      }
       const failure = this.classifyFailure(
         attachment,
         input,

@@ -163,7 +163,11 @@ describe('Slack historical attachment fetch taxonomy', () => {
       },
     );
 
-    expect(result).toEqual({ status: 'unreachable', reason: 'unknown' });
+    expect(result).toEqual({
+      status: 'unreachable',
+      reason: 'unknown',
+      providerStatus: error.statusCode,
+    });
   });
 
   it('preserves an SDK rate-limit error as rate-limit evidence', async () => {
@@ -181,7 +185,11 @@ describe('Slack historical attachment fetch taxonomy', () => {
       },
     );
 
-    expect(result).toEqual({ status: 'unreachable', reason: 'rate_limit' });
+    expect(result).toEqual({
+      status: 'unreachable',
+      reason: 'rate_limit',
+      providerStatus: 429,
+    });
   });
 
   it('preserves the SDK request-error code as transport evidence', async () => {
@@ -229,7 +237,11 @@ describe('Slack historical attachment fetch taxonomy', () => {
           }),
           'report.txt',
         ),
-      ).resolves.toEqual({ status: 'unreachable', reason: 'unknown' });
+      ).resolves.toEqual({
+        status: 'unreachable',
+        reason: 'unknown',
+        providerStatus: status,
+      });
     },
   );
 
@@ -250,19 +262,35 @@ describe('Slack historical attachment fetch taxonomy', () => {
           status: 404,
         }),
       ),
-    ).resolves.toEqual({ status: 'unreachable', reason: 'not_found' });
+    ).resolves.toEqual({
+      status: 'unreachable',
+      reason: 'not_found',
+      providerStatus: 404,
+    });
     await expect(
       classifySlackDownloadResponse(
         new Response('ratelimited', { status: 429 }),
       ),
-    ).resolves.toEqual({ status: 'unreachable', reason: 'rate_limit' });
+    ).resolves.toEqual({
+      status: 'unreachable',
+      reason: 'rate_limit',
+      providerStatus: 429,
+    });
     await expect(
       classifySlackDownloadResponse(
         new Response('invalid_auth', { status: 401 }),
       ),
-    ).resolves.toEqual({ status: 'unreachable', reason: 'unknown' });
+    ).resolves.toEqual({
+      status: 'unreachable',
+      reason: 'unknown',
+      providerStatus: 401,
+    });
     await expect(
       classifySlackDownloadResponse(new Response('', { status: 403 })),
-    ).resolves.toEqual({ status: 'unreachable', reason: 'unknown' });
+    ).resolves.toEqual({
+      status: 'unreachable',
+      reason: 'unknown',
+      providerStatus: 403,
+    });
   });
 });

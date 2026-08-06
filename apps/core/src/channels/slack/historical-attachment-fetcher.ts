@@ -76,7 +76,11 @@ export async function classifySlackDownloadResponse(
   fileName = 'attachment.bin',
 ): Promise<Exclude<HistoricalAttachmentFetchResult, { status: 'ok' }> | null> {
   if (isLikelySlackHtmlResponse(response, fileName)) {
-    return { status: 'unreachable', reason: 'unknown' };
+    return {
+      status: 'unreachable',
+      reason: 'unknown',
+      providerStatus: response.status,
+    };
   }
   if (response.ok) return null;
   const errorCode = await slackDownloadErrorCode(response);
@@ -148,23 +152,32 @@ function classifySlackUnreachableEvidence(
   errorCode?: string,
   status?: number,
 ): HistoricalAttachmentUnreachableEvidence {
-  if (errorCode === 'file_not_found') return { reason: 'not_found' };
-  if (errorCode === 'not_visible') return { reason: 'not_visible' };
+  const providerStatus = status === undefined ? {} : { providerStatus: status };
+  if (errorCode === 'file_not_found') {
+    return { reason: 'not_found', ...providerStatus };
+  }
+  if (errorCode === 'not_visible') {
+    return { reason: 'not_visible', ...providerStatus };
+  }
   if (errorCode === 'missing_scope') {
-    return { reason: 'missing_scope', scope: 'files:read' };
+    return {
+      reason: 'missing_scope',
+      scope: 'files:read',
+      ...providerStatus,
+    };
   }
   if (
     errorCode === 'ratelimited' ||
     errorCode === 'slack_webapi_rate_limited_error' ||
     status === 429
   ) {
-    return { reason: 'rate_limit' };
+    return { reason: 'rate_limit', ...providerStatus };
   }
   if (
     errorCode === 'slack_webapi_request_error' ||
     errorCode === 'slack_webapi_http_error'
   ) {
-    return { reason: 'network' };
+    return { reason: 'network', ...providerStatus };
   }
-  return { reason: 'unknown' };
+  return { reason: 'unknown', ...providerStatus };
 }

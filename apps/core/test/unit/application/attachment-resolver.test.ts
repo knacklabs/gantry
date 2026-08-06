@@ -902,7 +902,7 @@ describe('AttachmentResolver', () => {
     expect(provider.calls).toBe(0);
   });
 
-  it.each(['transport', 'deleted', 'too_large'] as const)(
+  it.each(['unreachable', 'deleted', 'too_large'] as const)(
     'keeps timeout as the only terminal log when %s settles after the deadline',
     async (lateFailure) => {
       const repository = new MemoryAttachmentRepository();
@@ -961,6 +961,10 @@ describe('AttachmentResolver', () => {
         },
         'Attachment unavailable',
       );
+      expect(repository.tombstoneUpdates).toBe(0);
+      expect(
+        repository.attachments.get('attachment-1')?.deletedAt,
+      ).toBeUndefined();
     },
   );
 
@@ -1279,6 +1283,47 @@ describe('AttachmentResolver', () => {
         providerAccountId: 'provider-account-1',
         conversationJid: 'sl:C1',
         attachmentId: 'attachment-1',
+        elapsedMs: expect.any(Number),
+      },
+      'Attachment unavailable',
+    );
+  });
+
+  it('carries a Slack SDK 429 status into the emitted warning', async () => {
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set('attachment-1', attachment());
+    const provider: HistoricalAttachmentFetcher = {
+      fetchHistoricalAttachment: (input) =>
+        fetchSlackHistoricalAttachment(
+          { identity: input.identity },
+          {
+            filesInfo: async () => {
+              throw Object.assign(new Error('rate limited'), {
+                code: 'slack_webapi_rate_limited_error',
+                statusCode: 429,
+              });
+            },
+            download: vi.fn(),
+          },
+        ),
+    };
+    const resolver = createResolver({ repository, fetcher: provider });
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+    await expect(resolver.open(openRequest())).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_RATE_LIMITED_COPY,
+    });
+
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      {
+        cause: 'rate_limited',
+        provider: 'slack',
+        providerAccountId: 'provider-account-1',
+        conversationJid: 'sl:C1',
+        attachmentId: 'attachment-1',
+        providerStatus: 429,
         elapsedMs: expect.any(Number),
       },
       'Attachment unavailable',

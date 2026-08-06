@@ -20,8 +20,11 @@ export type HistoricalAttachmentUnreachableReason =
   | 'unknown';
 
 export type HistoricalAttachmentUnreachableEvidence =
-  | { reason: 'missing_scope'; scope: string }
-  | { reason: HistoricalAttachmentUnreachableReason };
+  | { reason: 'missing_scope'; scope: string; providerStatus?: number }
+  | {
+      reason: HistoricalAttachmentUnreachableReason;
+      providerStatus?: number;
+    };
 
 export type HistoricalAttachmentFetchResult =
   | {
