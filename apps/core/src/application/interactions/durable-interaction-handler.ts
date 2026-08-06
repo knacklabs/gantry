@@ -135,6 +135,7 @@ export async function runDurablePermissionInteraction(input: {
   afterDecision?: (
     decision: PermissionApprovalDecision,
   ) => Promise<void> | void;
+  skipPromptWhenAlreadyPending?: boolean;
   operations?: DurableInteractionOperations;
 }): Promise<{
   began: boolean;
@@ -156,7 +157,11 @@ export async function runDurablePermissionInteraction(input: {
     },
     callbackRoute: null,
   });
-  if (!began) {
+  // Default contract is always-prompt (the original behavior): dedup for the
+  // general permission flow lives in the record idempotency + requester
+  // coalescer, not here. Only setup-pause opts into skip so a deduped
+  // readiness check does not re-raise a prompt and can route via `began`.
+  if (!began && input.skipPromptWhenAlreadyPending) {
     return {
       began: false,
       decision: {
@@ -182,7 +187,7 @@ export async function runDurablePermissionInteraction(input: {
     updatedPermissions: decision.updatedPermissions,
     operations: input.operations,
   });
-  return { began: true, decision, resolved };
+  return { began, decision, resolved };
 }
 
 async function releaseDecisionClaim(

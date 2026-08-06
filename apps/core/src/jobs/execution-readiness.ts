@@ -196,7 +196,8 @@ export async function notifyJobSetupRequired(input: {
   }
   const cardNotified = !notificationEligible
     ? false
-    : prompt.status === 'instruction_only' && !prompt.notificationEligible
+    : prompt.status === 'instruction_only' &&
+        prompt.notificationEligible === false
       ? false
       : await notifySchedulerSetupRequired({
           job: input.currentJob,

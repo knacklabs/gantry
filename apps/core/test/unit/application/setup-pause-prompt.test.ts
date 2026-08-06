@@ -169,13 +169,20 @@ function configure(input: {
 }
 
 describe('setup pause prompts', () => {
-  it('fails loudly when runtime wiring is absent', async () => {
+  it('keeps the instruction-only path available when runtime wiring is absent', async () => {
     await expect(
       raiseSetupPausePermissionPrompt({
         jobId: 'job-1',
         setupFingerprint: 'fingerprint-1',
       }),
-    ).rejects.toThrow('Setup-pause permission prompt seam is not configured');
+    ).resolves.toEqual({ status: 'instruction_only' });
+
+    await expect(
+      retireSetupPausePermissionPrompt({
+        job: makeJob(),
+        reason: 'The job was deleted.',
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it("raises one standard permission prompt from the job's stored requirement and settles through the existing grant chain", async () => {
@@ -844,6 +851,7 @@ describe('setup pause prompts', () => {
           request,
           sourceAgentFolder: request.sourceAgentFolder,
           operations: operations as never,
+          skipPromptWhenAlreadyPending: true,
           beforePrompt: began,
           prompt: async () => {
             providerPrompt(request.requestId);
@@ -893,6 +901,7 @@ describe('setup pause prompts', () => {
           request,
           sourceAgentFolder: request.sourceAgentFolder,
           operations: operations as never,
+          skipPromptWhenAlreadyPending: true,
           beforePrompt: began,
           prompt: async () => {
             providerPrompt(request.requestId);

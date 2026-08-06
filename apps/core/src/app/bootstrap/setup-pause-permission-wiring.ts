@@ -79,6 +79,7 @@ export function configureRuntimeSetupPausePermissions(input: {
       runDurablePermissionInteraction({
         request,
         sourceAgentFolder: request.sourceAgentFolder,
+        skipPromptWhenAlreadyPending: true,
         beforePrompt: onInteractionBegan,
         prompt: (durableRequest) =>
           input.channelWiring.requestPermissionApproval(

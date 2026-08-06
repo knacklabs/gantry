@@ -60,7 +60,7 @@ export type SetupPausePromptResult =
       delivered: Promise<boolean>;
     }
   | { status: 'already_pending'; approverRoute: SetupPausePromptRoute }
-  | { status: 'instruction_only'; notificationEligible: boolean };
+  | { status: 'instruction_only'; notificationEligible?: boolean };
 
 export interface SetupPausePromptRoute {
   conversationJid: string;
@@ -90,7 +90,7 @@ export async function raiseSetupPausePermissionPrompt(input: {
 }): Promise<SetupPausePromptResult> {
   const deps = configuredDeps;
   if (!deps) {
-    throw new Error('Setup-pause permission prompt seam is not configured');
+    return { status: 'instruction_only' };
   }
   const job = await deps.getJobById(input.jobId);
   if (!job) {
@@ -227,9 +227,7 @@ export async function retireSetupPausePermissionPrompt(input: {
   reason: string;
 }): Promise<void> {
   const deps = configuredDeps;
-  if (!deps) {
-    throw new Error('Setup-pause permission prompt seam is not configured');
-  }
+  if (!deps) return;
   const fingerprint = input.job.setup_state?.fingerprint;
   if (!fingerprint) return;
   await cancelPrompt({
