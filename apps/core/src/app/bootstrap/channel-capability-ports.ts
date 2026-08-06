@@ -1,25 +1,14 @@
 import {
   GroupDiscoverySource,
   InteractionSurface,
-  MessageReactionSink,
-  MessageReactionRemovalSink,
   ProgressSink,
   RichInteractionSurface,
   StreamingSink,
   StreamingStateSink,
-  TypingSink,
 } from '../../domain/types.js';
 import { ChannelAdapter } from '../../channels/channel-provider.js';
 import type { AgentTodoSink } from '../../domain/ports/task-lifecycle.js';
 import type { ContentCanvasSurface } from '../../shared/content-canvas.js';
-
-export function asTypingSink(
-  channel: ChannelAdapter | undefined,
-): TypingSink | undefined {
-  return typeof channel?.setTyping === 'function'
-    ? (channel as unknown as TypingSink)
-    : undefined;
-}
 
 export function asStreamingSink(
   channel: ChannelAdapter,
@@ -42,22 +31,6 @@ export function asProgressSink(
 ): ProgressSink | undefined {
   return typeof channel.sendProgressUpdate === 'function'
     ? (channel as unknown as ProgressSink)
-    : undefined;
-}
-
-export function asMessageReactionSink(
-  channel: ChannelAdapter | undefined,
-): MessageReactionSink | undefined {
-  return typeof channel?.addReaction === 'function'
-    ? (channel as unknown as MessageReactionSink)
-    : undefined;
-}
-
-export function asMessageReactionRemovalSink(
-  channel: ChannelAdapter | undefined,
-): MessageReactionRemovalSink | undefined {
-  return typeof channel?.removeReaction === 'function'
-    ? (channel as unknown as MessageReactionRemovalSink)
     : undefined;
 }
 

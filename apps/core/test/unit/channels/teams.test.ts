@@ -551,7 +551,7 @@ describe('Teams Adaptive Card payloads', () => {
 });
 
 describe('TeamsChannel adapter scaffold', () => {
-  it('does not post visible Teams reaction text', async () => {
+  it('truthfully declares Teams reactions unsupported', async () => {
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),
       stop: vi.fn(async () => {}),
@@ -568,9 +568,8 @@ describe('TeamsChannel adapter scaffold', () => {
     );
     await channel.connect({ inbound: false });
 
-    await channel.addReaction('teams:19:abc@thread.v2', 'message-1', 'running');
-    await channel.addReaction('teams:19:abc@thread.v2', 'message-1', 'running');
-
+    expect(channel.liveUx.reactions).toBe('none');
+    expect('addReaction' in channel).toBe(false);
     expect(sdkClient.sendMessage).not.toHaveBeenCalled();
   });
 

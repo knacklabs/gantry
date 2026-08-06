@@ -1,12 +1,13 @@
-import { logger } from '../../infrastructure/logging/logger.js';
-
-export function slackReactionName(emoji: string): string {
-  if (emoji === 'seen') return 'eyes';
-  if (emoji === 'running') return 'hourglass_flowing_sand';
-  return emoji.replace(/^:+|:+$/g, '');
-}
+import {
+  requestSlackLiveUx,
+  slackReactionName,
+  SlackLiveUxResponseError,
+} from './live-ux.js';
 
 export function isSlackAlreadyReactedError(err: unknown): boolean {
+  if (err instanceof SlackLiveUxResponseError) {
+    return err.code === 'already_reacted';
+  }
   return (
     typeof err === 'object' &&
     err !== null &&
@@ -17,6 +18,9 @@ export function isSlackAlreadyReactedError(err: unknown): boolean {
 }
 
 export function isSlackReactionAlreadyAbsentError(err: unknown): boolean {
+  if (err instanceof SlackLiveUxResponseError) {
+    return ['no_reaction', 'already_reacted'].includes(err.code);
+  }
   return (
     typeof err === 'object' &&
     err !== null &&
@@ -29,62 +33,76 @@ export function isSlackReactionAlreadyAbsentError(err: unknown): boolean {
 }
 
 export async function addSlackReaction(input: {
-  app: { client: { reactions: { add(args: unknown): Promise<unknown> } } };
+  botToken: string;
   jid: string;
   channelId: string;
   messageRef: string;
   emoji: string;
   reactionKeys: Set<string>;
+  signal?: AbortSignal;
+  reconcile?: boolean;
 }): Promise<void> {
   if (!input.messageRef.trim()) return;
   const name = slackReactionName(input.emoji);
   const key = `${input.jid}:${input.messageRef}:${name}`;
-  if (input.reactionKeys.has(key)) return;
+  if (!input.reconcile && input.reactionKeys.has(key)) return;
+  if (input.reconcile) input.reactionKeys.delete(key);
+  const invalidate = () => input.reactionKeys.delete(key);
+  input.signal?.addEventListener('abort', invalidate, { once: true });
   try {
-    await input.app.client.reactions.add({
-      channel: input.channelId,
-      timestamp: input.messageRef,
+    await requestSlackLiveUx({
+      method: 'reactions.add',
+      botToken: input.botToken,
+      channelId: input.channelId,
+      messageRef: input.messageRef,
       name,
+      signal: input.signal,
     });
-    input.reactionKeys.add(key);
+    if (!input.signal?.aborted) input.reactionKeys.add(key);
   } catch (err) {
     if (isSlackAlreadyReactedError(err)) {
-      input.reactionKeys.add(key);
+      if (!input.signal?.aborted) input.reactionKeys.add(key);
       return;
     }
-    logger.debug(
-      { jid: input.jid, messageRef: input.messageRef, err },
-      'Slack reaction update failed',
-    );
+    throw err;
+  } finally {
+    input.signal?.removeEventListener('abort', invalidate);
   }
 }
 
 export async function removeSlackReaction(input: {
-  app: { client: { reactions: { remove(args: unknown): Promise<unknown> } } };
+  botToken: string;
   jid: string;
   channelId: string;
   messageRef: string;
   emoji: string;
   reactionKeys: Set<string>;
+  signal?: AbortSignal;
+  reconcile?: boolean;
 }): Promise<void> {
   if (!input.messageRef.trim()) return;
   const name = slackReactionName(input.emoji);
   const key = `${input.jid}:${input.messageRef}:${name}`;
+  if (input.reconcile) input.reactionKeys.delete(key);
+  const invalidate = () => input.reactionKeys.delete(key);
+  input.signal?.addEventListener('abort', invalidate, { once: true });
   try {
-    await input.app.client.reactions.remove({
-      channel: input.channelId,
-      timestamp: input.messageRef,
+    await requestSlackLiveUx({
+      method: 'reactions.remove',
+      botToken: input.botToken,
+      channelId: input.channelId,
+      messageRef: input.messageRef,
       name,
+      signal: input.signal,
     });
-    input.reactionKeys.delete(key);
+    if (!input.signal?.aborted) input.reactionKeys.delete(key);
   } catch (err) {
     if (isSlackReactionAlreadyAbsentError(err)) {
-      input.reactionKeys.delete(key);
+      if (!input.signal?.aborted) input.reactionKeys.delete(key);
       return;
     }
-    logger.debug(
-      { jid: input.jid, messageRef: input.messageRef, err },
-      'Slack reaction removal failed',
-    );
+    throw err;
+  } finally {
+    input.signal?.removeEventListener('abort', invalidate);
   }
 }

@@ -64,7 +64,7 @@ describe('createProgressChannelSender', () => {
     expect(calls).toEqual(['Still working', 'Done.']);
   });
 
-  it('drops an obsolete pre-dispatch stall link and advances terminal Done after the bound', async () => {
+  it('supersedes an undispatched stall without duplicating terminal dispatch', async () => {
     const neverSettles = new Promise<boolean>(() => undefined);
     const calls: string[] = [];
     const sendProgressUpdate = vi.fn(async (_jid: string, text: string) => {
@@ -96,6 +96,10 @@ describe('createProgressChannelSender', () => {
     await expect(stall).resolves.toBe(false);
     await expect(done).resolves.toBe(true);
     expect(calls).toEqual(['Working', 'Done.']);
+    expect(sendProgressUpdate).toHaveBeenCalledTimes(2);
+    expect(
+      sendProgressUpdate.mock.calls.filter(([, text]) => text === 'Done.'),
+    ).toHaveLength(1);
   });
 
   it('drops a pre-dispatch stall link before visible delivery', async () => {
@@ -2711,6 +2715,45 @@ describe('createProgressChannelSender', () => {
     await flushMicrotasks();
 
     expect(calls).toEqual(['Still working', 'Done.', 'Done.', 'Done.']);
+  });
+
+  it('does not reissue an undispatched superseded stall repair after an older send settles late', async () => {
+    const older = deferred<boolean>();
+    const stalled = deferred<boolean>();
+    const calls: string[] = [];
+    const channelRuntime = {
+      sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
+        calls.push(text);
+        if (text === 'Working') return older.promise;
+        if (text === 'Still working') return stalled.promise;
+        return true;
+      }),
+    } as never;
+    const sender = createProgressChannelSender({
+      channelRuntime,
+      chatJid: 'discord:superseded-stall-repair',
+      groupName: 'thread',
+      finalizingGenerations: new Set<number>(),
+      log: { warn: vi.fn() },
+    });
+    const options = { threadId: 'thread', generation: 66 };
+
+    const first = sender('Working', options);
+    const stall = sender('Still working', options);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(calls).toEqual(['Working', 'Still working']);
+
+    older.resolve(true);
+    await expect(first).resolves.toBe(true);
+    await flushMicrotasks();
+
+    const beforeVisible = sender.beforeVisibleDelivery(options);
+    stalled.resolve(false);
+    await expect(stall).resolves.toBe(false);
+    await beforeVisible;
+    await flushMicrotasks();
+
+    expect(calls.filter((text) => text === 'Still working')).toHaveLength(1);
   });
 
   it('keeps a retired card registered while its repair retry is scheduled', async () => {

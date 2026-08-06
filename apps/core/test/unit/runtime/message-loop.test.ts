@@ -780,6 +780,7 @@ describe('thread queue routing', () => {
       const message = {
         ...makePendingMessage(1),
         external_message_id: 'provider-message-1',
+        thread_id: 'thread-1',
       };
       mockGetMessagesSince.mockReturnValueOnce([message]);
       const addReaction = vi.fn(async () => undefined);
@@ -811,6 +812,44 @@ describe('thread queue routing', () => {
       );
     },
   );
+
+  it('clears the newer thread when a continuation receipt back-scans to a plain-channel message', async () => {
+    mockGetMessagesSince.mockReturnValueOnce([
+      {
+        ...makePendingMessage(1),
+        external_message_id: 'provider-message-1',
+        thread_id: null,
+      },
+      {
+        ...makePendingMessage(2),
+        external_message_id: 'external-ingress:message-2',
+        thread_id: 'thread-1',
+      },
+    ]);
+    const addReaction = vi.fn(async () => undefined);
+    const deps = makeDeps({
+      addReaction,
+      queue: {
+        ...makeDeps().queue,
+        sendMessage: vi.fn(() => true),
+      },
+    });
+
+    await processLiveAdmissionWorkItem(
+      deps,
+      makeAdmissionItem({
+        threadId: 'thread-1',
+        queueJid: makeAgentThreadQueueKey('group@g.us', undefined, 'thread-1'),
+      }),
+    );
+
+    expect(addReaction).toHaveBeenCalledWith(
+      'group@g.us',
+      'provider-message-1',
+      'seen',
+      {},
+    );
+  });
 
   it('re-enqueues immediately when a continuation receipt never settles', async () => {
     const enqueueMessageCheck = vi.fn();

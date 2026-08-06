@@ -23,7 +23,10 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import { ConversationRoute, ThinkingOverride } from '../../domain/types.js';
 import { RemoteMcpDnsValidationCache } from '../../application/mcp/mcp-server-policy.js';
 import { createGroupProcessor } from '../../runtime/group-processing.js';
-import type { GroupProcessingDeps } from '../../runtime/group-processing-types.js';
+import type {
+  GroupProcessOptions,
+  GroupProcessingDeps,
+} from '../../runtime/group-processing-types.js';
 import { resolveAgentLockStatus } from '../../config/profiles.js';
 import {
   ensureRouteProfileDefaults,
@@ -114,18 +117,7 @@ export interface RuntimeApp {
   ) => Promise<void>;
   processGroupMessages: (
     chatJid: string,
-    options?: {
-      queued?: boolean;
-      existingRunId?: string;
-      existingRunLeaseToken?: string;
-      existingRunLeaseWorkerInstanceId?: string;
-      existingRunLeaseFencingVersion?: number;
-      onRunResult?: (result: 'success' | 'error' | 'stopped') => void;
-      onFirstProgress?: (input: {
-        jid: string;
-        messageRef: string;
-      }) => Promise<void> | void;
-    },
+    options?: GroupProcessOptions,
   ) => Promise<boolean>;
   getConversationRoutes: () => Record<string, ConversationRoute>;
   resolveExecutionProviderId: (

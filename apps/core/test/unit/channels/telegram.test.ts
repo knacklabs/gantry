@@ -1051,7 +1051,19 @@ describe('TelegramChannel', () => {
       987,
       [{ type: 'emoji', emoji: '⏳' }],
       { is_big: false },
+      undefined,
     );
+  });
+
+  it('replaces the cached Telegram reaction key after every successful add', async () => {
+    const channel = new TelegramChannel('token', createTestOpts());
+    await channel.connect({ inbound: false });
+
+    await channel.addReaction('tg:100200300', '987', 'seen');
+    await channel.addReaction('tg:100200300', '987', 'running');
+    await channel.addReaction('tg:100200300', '987', 'seen');
+
+    expect(botRef.current.api.setMessageReaction).toHaveBeenCalledTimes(3);
   });
 
   it('clears every Telegram reaction dedupe key when removing one reaction', async () => {
@@ -1068,7 +1080,37 @@ describe('TelegramChannel', () => {
       '100200300',
       987,
       [],
+      undefined,
+      undefined,
     );
+    expect(botRef.current.api.setMessageReaction).toHaveBeenCalledTimes(5);
+  });
+
+  it('invalidates Telegram reaction cache before failed forced add and remove repairs', async () => {
+    const channel = new TelegramChannel('token', createTestOpts());
+    await channel.connect({ inbound: false });
+
+    await channel.addReaction('tg:100200300', '987', 'seen');
+    botRef.current.api.setMessageReaction.mockRejectedValueOnce(
+      new Error('forced remove failed'),
+    );
+    await expect(
+      channel.removeReaction('tg:100200300', '987', 'seen', {
+        reconcile: true,
+      }),
+    ).rejects.toThrow('forced remove failed');
+    await channel.addReaction('tg:100200300', '987', 'seen');
+
+    botRef.current.api.setMessageReaction.mockRejectedValueOnce(
+      new Error('forced add failed'),
+    );
+    await expect(
+      channel.addReaction('tg:100200300', '987', 'seen', {
+        reconcile: true,
+      }),
+    ).rejects.toThrow('forced add failed');
+    await channel.addReaction('tg:100200300', '987', 'seen');
+
     expect(botRef.current.api.setMessageReaction).toHaveBeenCalledTimes(5);
   });
 
@@ -4682,6 +4724,137 @@ describe('TelegramChannel', () => {
         expect.objectContaining({ parse_mode: 'MarkdownV2' }),
       );
     });
+
+    it('returns false for a definitive replace-only edit failure without creating a duplicate', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+      currentBot().api.editMessageText.mockRejectedValue(
+        new Error('message can not be edited'),
+      );
+
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(false);
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalled();
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+
+      currentBot().api.editMessageText.mockResolvedValue(undefined);
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Repaired.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(true);
+
+      expect(currentBot().api.editMessageText).toHaveBeenLastCalledWith(
+        '100200300',
+        expect.any(Number),
+        'Repaired.',
+        expect.anything(),
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not report a definitive first Telegram edit failure as success when a formatting retry would resolve', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+      currentBot()
+        .api.editMessageText.mockRejectedValueOnce(
+          new Error('message can not be edited'),
+        )
+        .mockResolvedValue(undefined);
+
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(false);
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns false for an ambiguous replace-only transport failure and safely retries the retained handle', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+      currentBot().api.editMessageText.mockRejectedValue(
+        new Error('socket closed before a response arrived'),
+      );
+
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(false);
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalled();
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+
+      currentBot().api.editMessageText.mockClear();
+      currentBot().api.editMessageText.mockResolvedValue(undefined);
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(true);
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
+        '100200300',
+        expect.any(Number),
+        'Finished.',
+        expect.anything(),
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('treats message is not modified as success when repairing an ambiguous landed edit', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+      currentBot().api.editMessageText.mockRejectedValue(
+        new Error('socket closed before a response arrived'),
+      );
+
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(false);
+
+      currentBot().api.editMessageText.mockClear();
+      currentBot().api.editMessageText.mockRejectedValue({
+        error_code: 400,
+        response: {
+          description: 'Bad Request: message is not modified',
+        },
+      });
+
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(true);
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
   });
 
   // --- ownsJid ---
@@ -4726,6 +4899,22 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.sendChatAction).toHaveBeenCalledWith(
         '100200300',
         'typing',
+        undefined,
+        undefined,
+      );
+    });
+
+    it('sends typing into the originating Telegram topic', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      await channel.setTyping('tg:100200300', true, { threadId: '42' });
+
+      expect(currentBot().api.sendChatAction).toHaveBeenCalledWith(
+        '100200300',
+        'typing',
+        { message_thread_id: 42 },
+        undefined,
       );
     });
 
@@ -4749,7 +4938,7 @@ describe('TelegramChannel', () => {
       // No error, no API call
     });
 
-    it('handles typing indicator failure gracefully', async () => {
+    it('surfaces typing indicator failures to the dispatcher', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
@@ -4758,9 +4947,47 @@ describe('TelegramChannel', () => {
         new Error('Rate limited'),
       );
 
+      await expect(channel.setTyping('tg:100200300', true)).rejects.toThrow(
+        'Rate limited',
+      );
+    });
+
+    it('translates typing rate limits for the dispatcher retry policy', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      const rateLimit = {
+        error_code: 429,
+        parameters: { retry_after: 2 },
+      };
+      currentBot().api.sendChatAction.mockRejectedValueOnce(rateLimit);
+
       await expect(
         channel.setTyping('tg:100200300', true),
-      ).resolves.toBeUndefined();
+      ).rejects.toMatchObject({
+        name: 'LiveUxRateLimitError',
+        retryDelayMs: 2_000,
+        cause: rateLimit,
+      });
+    });
+
+    it('preserves the full Telegram retry_after delay', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      const rateLimit = {
+        error_code: 429,
+        parameters: { retry_after: 120 },
+      };
+      currentBot().api.sendChatAction.mockRejectedValueOnce(rateLimit);
+
+      await expect(
+        channel.setTyping('tg:100200300', true),
+      ).rejects.toMatchObject({
+        name: 'LiveUxRateLimitError',
+        retryDelayMs: 120_000,
+        cause: rateLimit,
+      });
     });
   });
 

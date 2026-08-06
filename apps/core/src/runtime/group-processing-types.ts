@@ -79,6 +79,7 @@ export type GroupProcessOptions = {
   onFirstProgress?: (input: {
     jid: string;
     messageRef: string;
+    threadId?: string;
   }) => Promise<void> | void;
   onFirstVisibleOutput?: () => Promise<void> | void;
   onTurnTerminal?: () => Promise<void> | void;

@@ -92,6 +92,98 @@ const fanOutMessage = {
 };
 
 describe('connectProviderAccountChannels', () => {
+  it('exposes the App binding durable lease generation to the adapter', async () => {
+    let bindingGeneration: (() => number | undefined) | undefined;
+    let generationAtConstruction: number | undefined;
+    const activeChannel = channel();
+    const create = vi.fn<Provider['create']>(async (opts) => {
+      bindingGeneration = opts.liveUxBindingGeneration;
+      generationAtConstruction = bindingGeneration?.();
+      return activeChannel;
+    });
+    const lease = {
+      generation: 7,
+      isValid: vi.fn(() => true),
+      release: vi.fn(async () => undefined),
+    };
+    const tryAcquire = vi.fn(async () => lease);
+    const connectedChannelLeases: Parameters<
+      typeof connectProviderAccountChannels
+    >[0]['connectedChannelLeases'] = [];
+
+    await connectProviderAccountChannels({
+      provider: { ...provider(create, 'app'), internal: true },
+      appId: 'app-one',
+      runtimeSettings: { providerAccounts: {}, runtime: {} },
+      channelOpts: { ...channelOpts(), runtimeLease: { tryAcquire } },
+      inboundEnabled: true,
+      connectedChannels: [],
+      connectedChannelLeases,
+      inboundLeasePrefix: 'runtime:provider-inbound',
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(tryAcquire).toHaveBeenCalledOnce();
+    expect(generationAtConstruction).toBe(7);
+    expect(bindingGeneration?.()).toBe(7);
+    expect(connectedChannelLeases).toEqual([lease]);
+  });
+
+  it('disconnects the App producer when its durable lease is lost', async () => {
+    let lostHandler: ((err: Error) => void) | undefined;
+    let leaseValid = true;
+    const lease = {
+      generation: 7,
+      isValid: vi.fn(() => leaseValid),
+      onLost: vi.fn((handler: (err: Error) => void) => {
+        lostHandler = handler;
+      }),
+      release: vi.fn(async () => undefined),
+    };
+    const activeChannel = channel();
+    activeChannel.name = 'app';
+    activeChannel.liveUx = {
+      typing: 'explicit',
+      reactions: 'none',
+      canonicalTarget: (target) => ({ key: target.jid }),
+    };
+    const disconnected = new Promise<void>((resolve) => {
+      vi.mocked(activeChannel.disconnect).mockImplementation(async () => {
+        activeChannel.liveUx!.typing = 'none';
+        resolve();
+      });
+    });
+
+    await connectProviderAccountChannels({
+      provider: {
+        ...provider(
+          vi.fn(async () => activeChannel),
+          'app',
+        ),
+        internal: true,
+      },
+      appId: 'app-one',
+      runtimeSettings: { providerAccounts: {}, runtime: {} },
+      channelOpts: {
+        ...channelOpts(),
+        runtimeLease: { tryAcquire: vi.fn(async () => lease) },
+      },
+      inboundEnabled: true,
+      connectedChannels: [],
+      connectedChannelLeases: [],
+      inboundLeasePrefix: 'runtime:provider-inbound',
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(lease.onLost).toHaveBeenCalledOnce();
+    leaseValid = false;
+    lostHandler?.(new Error('lease lost'));
+    await disconnected;
+
+    expect(activeChannel.disconnect).toHaveBeenCalledOnce();
+    expect(activeChannel.liveUx.typing).toBe('none');
+  });
+
   it('distrusts every account sharing an inbound hydration transport before and after connect', async () => {
     const order: string[] = [];
     const activeChannel = channel();

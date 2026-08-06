@@ -1409,7 +1409,7 @@ describe('Discord progress lifecycle', () => {
     expect(activeMessages.has('progress-1')).toBe(false);
   });
 
-  it('serializes overlapping multipart terminal repairs per progress key', async () => {
+  it('keeps multipart terminal repairs exclusive in the mutation queue', async () => {
     const firstEdit = deferred<void>();
     const activeMessages = new Map<string, string>();
     const identityLifecycle = new DiscordProgressIdentityLifecycle();
@@ -1459,9 +1459,11 @@ describe('Discord progress lifecycle', () => {
     await Promise.resolve();
 
     expect(edit).toHaveBeenCalledTimes(1);
+    expect(identityLifecycle.mutationQueue.pendingByProgressKey.size).toBe(1);
     firstEdit.resolve();
     await expect(firstRepair).resolves.toBe(true);
     await expect(secondRepair).resolves.toBe(true);
+    expect(identityLifecycle.mutationQueue.pendingByProgressKey.size).toBe(0);
 
     expect(edit.mock.calls.map(([messageId]) => messageId)).toEqual([
       'message-1',

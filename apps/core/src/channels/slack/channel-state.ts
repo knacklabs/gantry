@@ -52,6 +52,9 @@ type SlackMessageAttachments = NonNullable<NewMessage['attachments']>;
 type UQSelection = { selected: string | string[]; answeredBy?: string };
 type PendingPermissionPromptMap = Map<string, PendingPermissionPrompt>;
 
+import type { SlackMessageLike } from './message-shapes.js';
+export type { SlackMessageLike } from './message-shapes.js';
+
 export interface ActiveStreamState {
   channelId: string;
   threadId?: string;
@@ -71,6 +74,7 @@ export interface ActiveProgressState {
   messageTs?: string;
   lastText: string;
   generation?: number;
+  ownerBootNonce?: string;
 }
 
 export interface PendingPermissionPrompt {
@@ -103,24 +107,6 @@ export interface PendingUserQuestionState {
   timer?: ReturnType<typeof setTimeout>;
   resolve: (selection: UQSelection) => void;
   settled: boolean;
-}
-
-export interface SlackMessageLike {
-  channel?: string;
-  ts?: string;
-  thread_ts?: string;
-  user?: string;
-  bot_id?: string;
-  subtype?: string;
-  deleted_ts?: string;
-  previous_message?: {
-    ts?: string;
-    thread_ts?: string;
-  };
-  text?: string;
-  files?: SlackCanvasFileLike[];
-  client_msg_id?: string;
-  edited?: unknown;
 }
 
 export abstract class SlackChannelState {

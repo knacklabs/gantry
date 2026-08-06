@@ -34,6 +34,11 @@ import {
   isSlackTerminalSuccessText,
 } from './thread-progress-status.js';
 import {
+  currentProcessSlackProgress,
+  rejectOlderSlackProgressGeneration,
+  slackProgressBootNonce,
+} from './progress-restart.js';
+import {
   clampSlackRetryDelayMs,
   slackRateLimitRetryDelayMs,
 } from './channel-retry-delay.js';
@@ -486,26 +491,14 @@ export async function sendSlackProgressUpdate(input: {
     },
     'Progress lifecycle slack receive',
   );
+  existing = await currentProcessSlackProgress(input, existing);
+  if (rejectOlderSlackProgressGeneration(input, existing)) return false;
   if (
     existing &&
     input.options.generation !== undefined &&
     existing.generation !== undefined &&
     existing.generation !== input.options.generation
   ) {
-    if (input.options.generation < existing.generation) {
-      logger.info(
-        {
-          channelId: input.channelId,
-          key: input.key,
-          done: input.options.done ?? false,
-          replaceOnly: input.options.replaceOnly ?? false,
-          generation: input.options.generation,
-          existingGeneration: existing.generation,
-        },
-        'Progress lifecycle slack dropped generation mismatch',
-      );
-      return false;
-    }
     if (!input.options.done && !input.options.replaceOnly) {
       logger.info(
         {
@@ -553,6 +546,7 @@ export async function sendSlackProgressUpdate(input: {
         threadId: threadTs,
         messageTs: sent.ts,
         lastText: trimmed,
+        ownerBootNonce: slackProgressBootNonce,
         ...(input.options.generation !== undefined
           ? { generation: input.options.generation }
           : {}),
@@ -664,7 +658,9 @@ export function loadPersistedSlackProgress(
   for (const [key, state] of entries) {
     if (
       typeof state.channelId === 'string' &&
-      typeof state.lastText === 'string'
+      typeof state.lastText === 'string' &&
+      (state.ownerBootNonce === undefined ||
+        typeof state.ownerBootNonce === 'string')
     ) {
       activeProgress.set(key, state);
     }
