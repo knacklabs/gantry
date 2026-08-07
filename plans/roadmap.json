@@ -935,7 +935,7 @@
       "kind": "refactor",
       "depends_on": [],
       "origin": "adhoc",
-      "spec_debt_reason": "Audit-driven refactor; the verified audit + approved plan are the source of truth, no product spec applies (0003 cleanup)"
+      "spec": "docs/specs/legacy-1-clean-cut.md"
     }
   ],
   "epics": [
@@ -1024,5 +1024,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-06T18:42:16+00:00"
+  "updated_at": "2026-08-06T22:36:02+00:00"
 }
