@@ -153,7 +153,7 @@
       "order": 8
     },
     {
-      "status": "pending",
+      "status": "done",
       "key": "SCHED-4B",
       "title": "Actionable job cards: approve-from-card, full setup story, visible recovery, provider parity",
       "value": "The buttonless 'Setup needed' card gains an approve-this-requirement affordance that settles through the existing permission path on every provider (and survives durable delivery); setup cards say which step broke and whether the run died or degraded, listing every blocker; durable-grant auto-resume drains past 100 and tells the job's conversation; lifecycle bubbles retire on crash/dead-letter/stale-lease exits; discord/teams reach action parity or degrade visibly to text.",
@@ -168,7 +168,10 @@
         "docs/architecture/job-notification-gap-audit-2026-08-06.md",
         "docs/architecture/scheduler-incident-assessment-2026-08-05.md"
       ],
-      "order": 9
+      "order": 8,
+      "completed_at": "2026-08-07T14:05:18+00:00",
+      "history": ".factory/history/SCHED-4B/",
+      "outcome": "Scheduled-job cards are now actionable. When a job pauses for missing access it raises the real permission prompt (Allow for future / Deny) built from the job's stored requirement, settled through the existing durable permission path with a fingerprint fence; setup cards say what failed, at which step, whether the run died or degraded, and list every blocker in plain words; Discord and Teams reach button parity with Slack/Telegram. Durable-grant recovery drains all paused jobs (the 100-cap is gone) with a fail-open 'resumed' receipt per job, and stale 'running' bubbles retire on every terminal exit without blocking execution. Shipped over 11 stages; verify.py caught two full-suite regressions we then fixed. Three bounded, user-revocable residuals are tracked as deferrals (D-0044/45/46)."
     },
     {
       "status": "pending",
@@ -1048,5 +1051,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-07T13:29:35+00:00"
+  "updated_at": "2026-08-07T15:25:43+00:00"
 }

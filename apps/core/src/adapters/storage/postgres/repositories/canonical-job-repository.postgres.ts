@@ -13,6 +13,8 @@ import {
   type CanonicalJobCoordinationUpdate,
   coordinationColumnUpdate,
   markJobSetupNotified as markJobSetupNotifiedStatement,
+  refreshSetupPausedJob as refreshSetupPausedJobStatement,
+  resumeSetupPausedJob as resumeSetupPausedJobStatement,
 } from './canonical-job-coordination.postgres.js';
 export * from './canonical-job-records.js';
 import type {
@@ -175,12 +177,26 @@ export class PostgresCanonicalJobRepository {
       filters?.conversationJid
         ? sql`${canonicalJobNotificationRoutes()} @> ${JSON.stringify([{ conversationJid: filters.conversationJid }])}::jsonb`
         : undefined,
+      filters?.pageAfter
+        ? sql`(
+            ${pgSchema.canonicalJobsPostgres.createdAt} < ${filters.pageAfter.createdAt}
+            or (${pgSchema.canonicalJobsPostgres.createdAt} = ${filters.pageAfter.createdAt}
+              and ${pgSchema.canonicalJobsPostgres.id} < ${filters.pageAfter.id})
+          )`
+        : undefined,
     ].filter(Boolean);
     const filtered = clauses.length > 0 ? query.where(and(...clauses)) : query;
-    const ordered = filtered.orderBy(
-      desc(pgSchema.canonicalJobsPostgres.updatedAt),
-      desc(pgSchema.canonicalJobsPostgres.createdAt),
-    );
+    const ordered =
+      filters?.orderBy === 'created_at'
+        ? filtered.orderBy(
+            desc(pgSchema.canonicalJobsPostgres.createdAt),
+            desc(pgSchema.canonicalJobsPostgres.id),
+          )
+        : filtered.orderBy(
+            desc(pgSchema.canonicalJobsPostgres.updatedAt),
+            desc(pgSchema.canonicalJobsPostgres.createdAt),
+            desc(pgSchema.canonicalJobsPostgres.id),
+          );
     const rows = filters?.limit
       ? await ordered.limit(filters.limit)
       : await ordered;
@@ -257,6 +273,25 @@ export class PostgresCanonicalJobRepository {
     expectedFingerprint: string,
   ): Promise<boolean> {
     return markJobSetupNotifiedStatement(this.db, id, expectedFingerprint);
+  }
+
+  async resumeSetupPausedJob(input: {
+    jobId: string;
+    expectedSetupCheckedAt: string;
+    expectedPauseReason: string;
+    nextRun: string;
+    setupState: NonNullable<Job['setup_state']>;
+  }): Promise<boolean> {
+    return resumeSetupPausedJobStatement(this.db, input);
+  }
+
+  async refreshSetupPausedJob(input: {
+    jobId: string;
+    expectedSetupCheckedAt: string;
+    expectedPauseReason: string;
+    setupState: NonNullable<Job['setup_state']>;
+  }): Promise<boolean> {
+    return refreshSetupPausedJobStatement(this.db, input);
   }
 
   async deleteJob(id: string): Promise<void> {

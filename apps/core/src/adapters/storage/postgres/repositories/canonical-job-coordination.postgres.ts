@@ -72,3 +72,74 @@ export async function markJobSetupNotified(
     .returning({ id: jobs.id });
   return rows.length > 0;
 }
+
+export async function resumeSetupPausedJob(
+  db: CanonicalDb,
+  input: {
+    jobId: string;
+    expectedSetupCheckedAt: string;
+    expectedPauseReason: string;
+    nextRun: string;
+    setupState: NonNullable<Job['setup_state']>;
+  },
+): Promise<boolean> {
+  const jobs = pgSchema.canonicalJobsPostgres;
+  const rows = await db
+    .update(jobs)
+    .set({
+      status: 'active',
+      pauseReason: null,
+      nextRunAt: input.nextRun,
+      leaseRunId: null,
+      leaseExpiresAt: null,
+      updatedAt: input.nextRun,
+      ...coordinationColumnUpdate({ setupState: input.setupState }),
+    })
+    .where(
+      and(
+        eq(jobs.id, input.jobId),
+        eq(jobs.status, 'paused'),
+        eq(jobs.pauseReason, input.expectedPauseReason),
+        sql`coalesce(
+          (${jobs.setupState} ->> 'checked_at')::timestamptz,
+          ${jobs.updatedAt}
+        ) = ${input.expectedSetupCheckedAt}::timestamptz`,
+      ),
+    )
+    .returning({ id: jobs.id });
+  return rows.length > 0;
+}
+
+export async function refreshSetupPausedJob(
+  db: CanonicalDb,
+  input: {
+    jobId: string;
+    expectedSetupCheckedAt: string;
+    expectedPauseReason: string;
+    setupState: NonNullable<Job['setup_state']>;
+  },
+): Promise<boolean> {
+  const jobs = pgSchema.canonicalJobsPostgres;
+  const rows = await db
+    .update(jobs)
+    .set({
+      nextRunAt: null,
+      leaseRunId: null,
+      leaseExpiresAt: null,
+      updatedAt: currentIso(),
+      ...coordinationColumnUpdate({ setupState: input.setupState }),
+    })
+    .where(
+      and(
+        eq(jobs.id, input.jobId),
+        eq(jobs.status, 'paused'),
+        eq(jobs.pauseReason, input.expectedPauseReason),
+        sql`coalesce(
+          (${jobs.setupState} ->> 'checked_at')::timestamptz,
+          ${jobs.updatedAt}
+        ) = ${input.expectedSetupCheckedAt}::timestamptz`,
+      ),
+    )
+    .returning({ id: jobs.id });
+  return rows.length > 0;
+}

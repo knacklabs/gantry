@@ -213,6 +213,98 @@ describe('createPermissionApprovalRequester cancellation retries', () => {
     expect(cancelPendingPermission).toHaveBeenCalledOnce();
   });
 
+  it('reports run-scoped prompt delivery only to the first coalesced caller', async () => {
+    vi.useFakeTimers();
+    const requestPermissionApproval = vi.fn(
+      async (_jid, _request, onPromptDelivered) => {
+        onPromptDelivered?.('permission-prompt');
+        return {
+          approved: false,
+          mode: 'cancel' as const,
+          decidedBy: 'owner',
+        };
+      },
+    );
+    const requester = createPermissionApprovalRequester({
+      findBoundChannel: () => ({}),
+      asPermissionApprovalSurface: () => ({ requestPermissionApproval }),
+      interactionLifecycle: { logger: { error: vi.fn() } },
+    });
+    const request: PermissionApprovalRequest = {
+      requestId: 'permission-run-scoped-delivery',
+      appId: 'default',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:team',
+      runId: 'run-1',
+      toolName: 'Bash',
+    };
+    const firstDelivered = vi.fn();
+    const replayDelivered = vi.fn();
+
+    const first = requester(request, firstDelivered);
+    const replay = requester({ ...request }, replayDelivered);
+    expect(replay).toBe(first);
+
+    await vi.advanceTimersByTimeAsync(DEFAULT_PERMISSION_BATCH_WINDOW_MS);
+    await expect(Promise.all([first, replay])).resolves.toHaveLength(2);
+
+    expect(firstDelivered).toHaveBeenCalledOnce();
+    expect(firstDelivered).toHaveBeenCalledWith('permission-prompt');
+    expect(replayDelivered).not.toHaveBeenCalled();
+  });
+
+  it('reports one batch prompt delivery to each distinct request scope but not replays', async () => {
+    vi.useFakeTimers();
+    const requestPermissionApproval = vi.fn(
+      async (_jid, _request, onPromptDelivered) => {
+        onPromptDelivered?.('permission-batch-prompt');
+        onPromptDelivered?.('duplicate-provider-signal');
+        return {
+          approved: false,
+          mode: 'cancel' as const,
+          decidedBy: 'owner',
+        };
+      },
+    );
+    const requester = createPermissionApprovalRequester({
+      findBoundChannel: () => ({}),
+      asPermissionApprovalSurface: () => ({ requestPermissionApproval }),
+      interactionLifecycle: { logger: { error: vi.fn() } },
+    });
+    const first: PermissionApprovalRequest = {
+      requestId: 'permission-batch-delivery-1',
+      appId: 'default',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:team',
+      runId: 'run-1',
+      toolName: 'Bash',
+      toolInput: { command: 'git status' },
+    };
+    const second: PermissionApprovalRequest = {
+      ...first,
+      requestId: 'permission-batch-delivery-2',
+      toolInput: { command: 'git diff' },
+    };
+    const firstDelivered = vi.fn();
+    const firstReplayDelivered = vi.fn();
+    const secondDelivered = vi.fn();
+
+    const firstDecision = requester(first, firstDelivered);
+    const firstReplayDecision = requester({ ...first }, firstReplayDelivered);
+    const secondDecision = requester(second, secondDelivered);
+
+    await vi.advanceTimersByTimeAsync(DEFAULT_PERMISSION_BATCH_WINDOW_MS);
+    await expect(
+      Promise.all([firstDecision, firstReplayDecision, secondDecision]),
+    ).resolves.toHaveLength(3);
+
+    expect(firstDelivered).toHaveBeenCalledOnce();
+    expect(firstDelivered).toHaveBeenCalledWith('permission-batch-prompt');
+    expect(secondDelivered).toHaveBeenCalledOnce();
+    expect(secondDelivered).toHaveBeenCalledWith('permission-batch-prompt');
+    expect(firstReplayDelivered).not.toHaveBeenCalled();
+  });
+
   it('applies a retryable cancellation if a single prompt resolves before its retry', async () => {
     vi.useFakeTimers();
     let resolveDecision!: (decision: PermissionApprovalDecision) => void;
