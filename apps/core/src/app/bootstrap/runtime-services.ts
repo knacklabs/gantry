@@ -7,6 +7,7 @@ import {
   getDeploymentMode,
   getRuntimeSettingsForConfig,
 } from '../../config/index.js';
+import { liveUxReactionSinks } from './live-ux-reaction-sinks.js';
 import path from 'node:path';
 import { configureCanvasIpcHandlers } from '../../jobs/ipc-canvas-handlers.js';
 import { agentIdForFolder } from '../../config/settings/desired-state-service-helpers.js';
@@ -538,10 +539,7 @@ export async function startRuntimeServices(
       timezone: TIMEZONE,
       enqueueMessageCheck: app.queue.enqueueMessageCheck.bind(app.queue),
       warn: (context, message) => resolved.logger.warn(context, message),
-      addReaction: (jid, messageRef, emoji, options) =>
-        channelWiring.addReaction(jid, messageRef, emoji, options),
-      removeReaction: (jid, messageRef, emoji, options) =>
-        channelWiring.removeReaction(jid, messageRef, emoji, options),
+      ...liveUxReactionSinks(channelWiring),
       handleActiveControlCommand,
       finalizeAgentTodo: (jid, render, options) =>
         channelWiring.finalizeAgentTodo(jid, render, options),

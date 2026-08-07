@@ -15,9 +15,10 @@ Plans are first-class artifacts. They live in the repo. Agents read plans to und
 
 This is the starting point. Written by a human. Contains:
 
-- **What** — one paragraph on what we're building and why
-- **Who** — 2-4 user types
-- **Flows** — 3-7 key user journeys in plain English
+- **Summary** — one paragraph on what we're building and why
+- **Users** — 2-4 user types
+- **Target Outcome** — the observable result that makes the work successful
+- **Key Flows** — 3-7 key user journeys in plain English
 - **Domain Concepts** — the nouns and their relationships (not schemas)
 - **Constraints** — auth, integrations, deploy target, business rules
 - **Out of Scope** — what v1 is NOT

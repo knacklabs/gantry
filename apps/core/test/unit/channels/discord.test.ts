@@ -48,6 +48,7 @@ import {
 } from '@core/channels/channel-provider.js';
 import { DISCORD_LIVE_ATTACHMENT_DEADLINE_MS } from '@core/channels/discord-live-attachment-capture.js';
 import { discordMessageContent } from '@core/channels/discord-conversation-context.js';
+import { createLiveReactionLifecycle } from '@core/app/bootstrap/live-reaction-lifecycle.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
 
 class FakeWebSocket {
@@ -309,6 +310,10 @@ describe('DiscordChannel', () => {
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async () => jsonResponse({}));
     const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const messageChannelIds = Reflect.get(channel, 'messageChannelIds') as {
+      remember(jid: string, messageRef: string, channelId: string): void;
+    };
+    messageChannelIds.remember('dc:channel-1', 'message-1', 'channel-1');
 
     await channel.addReaction('dc:channel-1', 'message-1', 'seen');
     await channel.addReaction('dc:channel-1', 'message-1', 'seen');
@@ -321,11 +326,51 @@ describe('DiscordChannel', () => {
     fetchMock.mockRestore();
   });
 
+  it('reacts in a plain Discord channel when the message cache is cold', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({}));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await channel.addReaction('dc:channel-1', 'queued-message', 'seen');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/channel-1/messages/queued-message/reactions/%F0%9F%91%80/@me',
+      expect.objectContaining({ method: 'PUT' }),
+    );
+    fetchMock.mockRestore();
+  });
+
+  it('uses explicit Discord thread context when the message cache is cold', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({}));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await channel.addReaction('dc:parent-1', 'thread-message', 'seen', {
+      threadId: 'thread-1',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/thread-1/messages/thread-message/reactions/%F0%9F%91%80/@me',
+      expect.objectContaining({ method: 'PUT' }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/parent-1/messages/thread-message/reactions/%F0%9F%91%80/@me',
+      expect.anything(),
+    );
+    fetchMock.mockRestore();
+  });
+
   it('removes Discord reactions and permits the same reaction to be re-added', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async () => jsonResponse({}));
     const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const messageChannelIds = Reflect.get(channel, 'messageChannelIds') as {
+      remember(jid: string, messageRef: string, channelId: string): void;
+    };
+    messageChannelIds.remember('dc:channel-1', 'message-1', 'channel-1');
 
     await channel.addReaction('dc:channel-1', 'message-1', 'seen');
     await channel.removeReaction('dc:channel-1', 'message-1', 'seen');
@@ -336,6 +381,53 @@ describe('DiscordChannel', () => {
       expect.objectContaining({ method: 'DELETE' }),
     );
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    fetchMock.mockRestore();
+  });
+
+  it('invalidates Discord reaction cache before failed forced add and remove repairs', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({}));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const messageChannelIds = Reflect.get(channel, 'messageChannelIds') as {
+      remember(jid: string, messageRef: string, channelId: string): void;
+    };
+    messageChannelIds.remember('dc:channel-1', 'message-1', 'channel-1');
+
+    await channel.addReaction('dc:channel-1', 'message-1', 'seen');
+    fetchMock.mockResolvedValueOnce(
+      new Response('{}', {
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    await expect(
+      channel.removeReaction('dc:channel-1', 'message-1', 'seen', {
+        reconcile: true,
+      }),
+    ).rejects.toThrow('Discord reaction removal failed');
+    await channel.addReaction('dc:channel-1', 'message-1', 'seen');
+
+    fetchMock.mockResolvedValueOnce(
+      new Response('{}', {
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    await expect(
+      channel.addReaction('dc:channel-1', 'message-1', 'seen', {
+        reconcile: true,
+      }),
+    ).rejects.toThrow('Discord reaction update failed');
+    await channel.addReaction('dc:channel-1', 'message-1', 'seen');
+
+    expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual([
+      'PUT',
+      'DELETE',
+      'PUT',
+      'PUT',
+      'PUT',
+    ]);
     fetchMock.mockRestore();
   });
 
@@ -1879,7 +1971,7 @@ describe('DiscordChannel', () => {
     vi.restoreAllMocks();
   });
 
-  it('expires Discord thread message channel ids used for reactions', async () => {
+  it('retains Discord thread message channel ids used after the cache TTL', async () => {
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(0);
     let socket!: FakeWebSocket;
     const fetchMock = vi
@@ -1898,7 +1990,7 @@ describe('DiscordChannel', () => {
         }
         if (
           url ===
-          'https://discord.com/api/v10/channels/parent-1/messages/message-2/reactions/%F0%9F%91%80/@me'
+          'https://discord.com/api/v10/channels/thread-1/messages/message-2/reactions/%F0%9F%91%80/@me'
         ) {
           return jsonResponse({});
         }
@@ -1927,17 +2019,118 @@ describe('DiscordChannel', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     nowSpy.mockReturnValue(11 * 60 * 1000);
-    await channel.addReaction('dc:parent-1', 'message-2', 'seen');
+    const target = channel.liveUx.canonicalTarget({
+      operation: 'reaction',
+      jid: 'dc:parent-1',
+      messageRef: 'message-2',
+      emoji: 'seen',
+    });
+    await channel.addReaction('dc:parent-1', 'message-2', 'seen', {
+      resolvedTarget: target.resolvedTarget,
+    });
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://discord.com/api/v10/channels/parent-1/messages/message-2/reactions/%F0%9F%91%80/@me',
-      expect.objectContaining({ method: 'PUT' }),
-    );
     expect(fetchMock).not.toHaveBeenCalledWith(
-      'https://discord.com/api/v10/channels/thread-1/messages/message-2/reactions/%F0%9F%91%80/@me',
+      'https://discord.com/api/v10/channels/parent-1/messages/message-2/reactions/%F0%9F%91%80/@me',
       expect.anything(),
     );
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/thread-1/messages/message-2/reactions/%F0%9F%91%80/@me',
+      expect.objectContaining({ method: 'PUT' }),
+    );
     await channel.disconnect();
+  });
+
+  it('completes a plain-channel reaction flip after the cache TTL', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({}));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const messageChannelIds = Reflect.get(channel, 'messageChannelIds') as {
+      remember(jid: string, messageRef: string, channelId: string): void;
+    };
+    messageChannelIds.remember('dc:channel-1', 'message-1', 'channel-1');
+    const lifecycle = createLiveReactionLifecycle({
+      addReaction: channel.addReaction.bind(channel),
+      removeReaction: channel.removeReaction.bind(channel),
+      removalMode: 'exact',
+    });
+
+    await lifecycle.onFirstProgress({
+      jid: 'dc:channel-1',
+      messageRef: 'message-1',
+    });
+    vi.setSystemTime(11 * 60 * 1000);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await lifecycle.onTerminal();
+
+    expect(
+      fetchMock.mock.calls.map(([url, init]) => [
+        String(url),
+        (init as RequestInit | undefined)?.method,
+      ]),
+    ).toEqual([
+      [
+        'https://discord.com/api/v10/channels/channel-1/messages/message-1/reactions/%F0%9F%91%80/@me',
+        'PUT',
+      ],
+      [
+        'https://discord.com/api/v10/channels/channel-1/messages/message-1/reactions/%F0%9F%91%80/@me',
+        'DELETE',
+      ],
+      [
+        'https://discord.com/api/v10/channels/channel-1/messages/message-1/reactions/%E2%8F%B3/@me',
+        'PUT',
+      ],
+      [
+        'https://discord.com/api/v10/channels/channel-1/messages/message-1/reactions/%E2%8F%B3/@me',
+        'DELETE',
+      ],
+      [
+        'https://discord.com/api/v10/channels/channel-1/messages/message-1/reactions/%F0%9F%91%80/@me',
+        'PUT',
+      ],
+    ]);
+  });
+
+  it('keeps a thread reaction flip in its thread after the cache TTL', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({}));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const messageChannelIds = Reflect.get(channel, 'messageChannelIds') as {
+      remember(jid: string, messageRef: string, channelId: string): void;
+    };
+    messageChannelIds.remember('dc:parent-1', 'message-1', 'thread-1');
+    const lifecycle = createLiveReactionLifecycle({
+      addReaction: channel.addReaction.bind(channel),
+      removeReaction: channel.removeReaction.bind(channel),
+      removalMode: 'exact',
+      options: { threadId: 'thread-1' },
+    });
+
+    await lifecycle.onFirstProgress({
+      jid: 'dc:parent-1',
+      messageRef: 'message-1',
+    });
+    vi.setSystemTime(11 * 60 * 1000);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await lifecycle.onTerminal();
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(
+      fetchMock.mock.calls.every(([url]) =>
+        String(url).includes('/channels/thread-1/'),
+      ),
+    ).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes('/channels/parent-1/'),
+      ),
+    ).toBe(false);
   });
 
   it('hydrates Discord attachment-only messages with provider metadata only', async () => {

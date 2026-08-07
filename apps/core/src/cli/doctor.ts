@@ -55,6 +55,7 @@ export interface DoctorCheck {
   title: string;
   status: DoctorStatus;
   message: string;
+  warning?: string;
   nextAction?: string;
   action?: GuidedActionRef;
 }
@@ -116,12 +117,18 @@ function add(checks: DoctorCheck[], check: DoctorCheck): void {
   checks.push(check);
 }
 
+function countDoctorWarnings(checks: readonly DoctorCheck[]): number {
+  return checks.filter(
+    (check) => check.status === 'warn' || check.warning !== undefined,
+  ).length;
+}
+
 function addToReport(report: DoctorReport, check: DoctorCheck): DoctorReport {
   const checks = [...report.checks, check];
   const blockingFailures = checks.filter(
     (entry) => entry.status === 'fail',
   ).length;
-  const warnings = checks.filter((entry) => entry.status === 'warn').length;
+  const warnings = countDoctorWarnings(checks);
   return {
     checks,
     blockingFailures,
@@ -589,7 +596,7 @@ export function runDoctor(
   const blockingFailures = checks.filter(
     (check) => check.status === 'fail',
   ).length;
-  const warnings = checks.filter((check) => check.status === 'warn').length;
+  const warnings = countDoctorWarnings(checks);
   return {
     ok: blockingFailures === 0,
     blockingFailures,
@@ -668,6 +675,9 @@ export function formatDoctorReport(report: DoctorReport): string {
     lines.push(
       `[${statusLabel(check.status)}] ${check.title}: ${check.message}`,
     );
+    if (check.warning) {
+      lines.push(`  Warning: ${check.warning}`);
+    }
     if (check.nextAction) {
       lines.push(`  Next action: ${check.nextAction}`);
     }

@@ -2122,6 +2122,10 @@ describe('createChannelWiring', () => {
   it('routes live UX methods through the requested Provider Account', async () => {
     const app = makeApp();
     const alpha = {
+      liveUx: {
+        typing: 'expiring' as const,
+        reactions: { removal: 'exact' as const },
+      },
       resetStreaming: vi.fn(),
       setTyping: vi.fn(async () => undefined),
       addReaction: vi.fn(async () => undefined),
@@ -2130,6 +2134,10 @@ describe('createChannelWiring', () => {
       renderRichInteraction: vi.fn(async () => true),
     };
     const beta = {
+      liveUx: {
+        typing: 'expiring' as const,
+        reactions: { removal: 'exact' as const },
+      },
       resetStreaming: vi.fn(),
       setTyping: vi.fn(async () => undefined),
       addReaction: vi.fn(async () => undefined),
@@ -2210,12 +2218,15 @@ describe('createChannelWiring', () => {
     expect(beta.resetStreaming).toHaveBeenCalledWith('sl:C123');
     expect(beta.setTyping).toHaveBeenCalledWith('sl:C123', true, {
       threadId: 'thread-1',
+      signal: expect.any(AbortSignal),
     });
     expect(beta.addReaction).toHaveBeenCalledWith('sl:C123', 'm-1', 'eyes', {
       threadId: 'thread-1',
+      signal: expect.any(AbortSignal),
     });
     expect(beta.removeReaction).toHaveBeenCalledWith('sl:C123', 'm-1', 'eyes', {
       threadId: 'thread-1',
+      signal: expect.any(AbortSignal),
     });
     expect(beta.renderAgentTodo).toHaveBeenCalledOnce();
     expect(beta.renderRichInteraction).toHaveBeenCalledOnce();

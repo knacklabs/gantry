@@ -4,16 +4,13 @@ import type {
 } from '../domain/types.js';
 import { buildReplaceOnlyProgressOptions } from './progress-updates.js';
 
-const TYPING_HEARTBEAT_INTERVAL_MS = 4_000;
-export const STALL_HEARTBEAT_THRESHOLD_MS = 180_000;
-
-type GroupProgressHeartbeatLogger = {
+type GroupProgressLogger = {
   debug(metadata: Record<string, unknown>, message: string): void;
   info?(metadata: Record<string, unknown>, message: string): void;
 };
 
 function logProgressLifecycle(
-  log: GroupProgressHeartbeatLogger,
+  log: GroupProgressLogger,
   metadata: Record<string, unknown>,
   message: string,
 ): void {
@@ -33,7 +30,7 @@ export function startInitialGroupProgress(input: {
     options?: ProgressUpdateOptions,
   ): Promise<void | boolean>;
   onSent?: () => Promise<void> | void;
-  log: GroupProgressHeartbeatLogger;
+  log: GroupProgressLogger;
 }): { cancel(): Promise<void> } {
   if (!input.supportsProgress) {
     logProgressLifecycle(
@@ -108,138 +105,6 @@ export function createResponseProgressSenders(input: {
           .catch(() => undefined);
       }
       return Promise.resolve();
-    },
-  };
-}
-
-export function startGroupProgressHeartbeats(input: {
-  supportsProgress: boolean;
-  isTypingActive: () => boolean;
-  chatJid: string;
-  providerAccountId?: string;
-  activeThreadId?: string;
-  groupName: string;
-  isStalled: () => boolean;
-  claimStallNotice: () => boolean;
-  releaseStallNotice: () => void;
-  sendStallProgress: () => Promise<boolean>;
-  beforeVisibleDelivery: () => Promise<void>;
-  cancelPendingStallNotices: () => void;
-  channelRuntime: {
-    setTyping(
-      jid: string,
-      isTyping: boolean,
-      options?: { providerAccountId?: string; threadId?: string },
-    ): Promise<void>;
-  };
-  log: GroupProgressHeartbeatLogger;
-}): {
-  typingHeartbeatTimer: ReturnType<typeof setInterval>;
-  pause(): void;
-  resume(): void;
-  beginVisibleDelivery(): Promise<void>;
-  finishVisibleDelivery(delivered: boolean): void;
-} {
-  let paused = false;
-  let visibleDeliveryInFlight = false;
-  let visibleDeliveryStartedAt = 0;
-  let lifecycleEpoch = 0;
-  let stallRetryNotBefore = 0;
-  const visibleDeliveryIsSuppressed = () =>
-    visibleDeliveryInFlight &&
-    Date.now() - visibleDeliveryStartedAt < STALL_HEARTBEAT_THRESHOLD_MS;
-  const refreshTyping = () => {
-    const typing =
-      input.providerAccountId || input.activeThreadId
-        ? input.channelRuntime.setTyping(input.chatJid, true, {
-            ...(input.providerAccountId
-              ? { providerAccountId: input.providerAccountId }
-              : {}),
-            ...(input.activeThreadId ? { threadId: input.activeThreadId } : {}),
-          })
-        : input.channelRuntime.setTyping(input.chatJid, true);
-    void typing.catch((err) =>
-      input.log.debug(
-        { err, group: input.groupName },
-        'Failed to refresh typing heartbeat',
-      ),
-    );
-  };
-  const typingHeartbeatTimer = setInterval(() => {
-    if (paused || !input.isTypingActive()) return;
-    if (visibleDeliveryIsSuppressed()) {
-      refreshTyping();
-      return;
-    }
-    const stalled = input.isStalled();
-    if (stalled && Date.now() < stallRetryNotBefore) {
-      return;
-    }
-    if (stalled && input.claimStallNotice()) {
-      const requestEpoch = lifecycleEpoch;
-      void input
-        .sendStallProgress()
-        .then((landed) => {
-          if (
-            paused ||
-            visibleDeliveryIsSuppressed() ||
-            requestEpoch !== lifecycleEpoch
-          ) {
-            return;
-          }
-          if (landed) return;
-          stallRetryNotBefore = Date.now() + STALL_HEARTBEAT_THRESHOLD_MS;
-          input.releaseStallNotice();
-          input.log.debug(
-            { group: input.groupName, landed: false },
-            'Failed to send stalled progress heartbeat',
-          );
-        })
-        .catch((err: unknown) => {
-          if (
-            paused ||
-            visibleDeliveryIsSuppressed() ||
-            requestEpoch !== lifecycleEpoch
-          ) {
-            return;
-          }
-          input.log.debug(
-            { err, group: input.groupName },
-            'Failed to send stalled progress heartbeat',
-          );
-        });
-    }
-    if (stalled) return;
-    stallRetryNotBefore = 0;
-    refreshTyping();
-  }, TYPING_HEARTBEAT_INTERVAL_MS);
-  return {
-    typingHeartbeatTimer,
-    pause: () => {
-      paused = true;
-      lifecycleEpoch += 1;
-      stallRetryNotBefore = 0;
-      input.releaseStallNotice();
-      input.cancelPendingStallNotices();
-    },
-    resume: () => {
-      paused = false;
-    },
-    beginVisibleDelivery: async () => {
-      visibleDeliveryInFlight = true;
-      visibleDeliveryStartedAt = Date.now();
-      lifecycleEpoch += 1;
-      stallRetryNotBefore = 0;
-      input.releaseStallNotice();
-      input.cancelPendingStallNotices();
-      await input.beforeVisibleDelivery();
-    },
-    finishVisibleDelivery: (delivered) => {
-      visibleDeliveryInFlight = false;
-      if (delivered) {
-        lifecycleEpoch += 1;
-        input.releaseStallNotice();
-      }
     },
   };
 }

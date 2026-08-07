@@ -26,7 +26,6 @@ required = [
     root / 'factory' / 'scripts' / 'record_grill_from_json.py',
     root / 'factory' / 'scripts' / 'verify.py',
     root / 'factory' / 'scripts' / 'record_decomposition_from_json.py',
-    root / 'factory' / 'scripts' / 'render_linear_task_graph.py',
     root / 'factory' / 'scripts' / 'record_test_from_json.py',
     root / 'factory' / 'scripts' / 'forge.py',
     root / 'factory' / 'scripts' / 'record_signoff.py',

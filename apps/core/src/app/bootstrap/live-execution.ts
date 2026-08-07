@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-
 import type {
   LiveAdmissionWakeupSource,
   LiveTurn,
@@ -136,6 +135,7 @@ export function buildLiveAdmissionProcessor(input: {
     emoji: string,
     options?: { providerAccountId?: string; threadId?: string },
   ) => Promise<void>;
+  reactionRemovalMode?: import('./channel-wiring-types.js').ChannelWiring['reactionRemovalMode'];
   finalizeAgentTodo?: (
     jid: string,
     input: {
@@ -208,6 +208,7 @@ export function buildLiveAdmissionProcessor(input: {
     const reactionLifecycle = createLiveReactionLifecycle({
       addReaction: input.addReaction,
       removeReaction: input.removeReaction,
+      removalMode: input.reactionRemovalMode?.(chatJid, account),
       options: account,
     });
     const finalizeTodo = (

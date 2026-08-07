@@ -184,6 +184,7 @@ function makeChannelWiring(): ChannelWiring {
     sendProgressUpdate: vi.fn(async () => {}),
     addReaction: vi.fn(async () => {}),
     removeReaction: vi.fn(async () => {}),
+    reactionRemovalMode: vi.fn(() => 'all'),
     syncGroups: vi.fn(async () => {}),
     requestPermissionApproval: vi.fn(async () => ({ approved: true })),
     requestUserAnswer: vi.fn(async () => ({ requestId: 'q', answers: {} })),
@@ -879,6 +880,7 @@ describe('startRuntimeServices', () => {
       await runOptions?.onFirstProgress?.({
         jid: 'tg:primary',
         messageRef: 'message-1',
+        threadId: 'thread-1',
       });
       expect(channelWiring.addReaction).toHaveBeenCalledWith(
         'tg:primary',
@@ -887,12 +889,7 @@ describe('startRuntimeServices', () => {
         { threadId: 'thread-1' },
       );
       await runOptions?.onFirstVisibleOutput?.();
-      expect(channelWiring.removeReaction).toHaveBeenCalledWith(
-        'tg:primary',
-        'message-1',
-        'running',
-        { threadId: 'thread-1' },
-      );
+      expect(channelWiring.removeReaction).not.toHaveBeenCalled();
       expect(channelWiring.addReaction).toHaveBeenLastCalledWith(
         'tg:primary',
         'message-1',

@@ -33,8 +33,6 @@ export class DiscordProgressIdentityLifecycle {
   private stateByProgressKey = new Map<string, ProgressKeyState>();
   private createTombstoneByProgressKey = new Map<string, CreateTombstone>();
   readonly mutationQueue = new DiscordProgressMutationQueue();
-  private multipartMutationByProgressKey =
-    this.mutationQueue.pendingByProgressKey;
   private nextCreateAttemptSequence = 0;
   private nextGeneration = 0;
 

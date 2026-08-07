@@ -1,0 +1,69 @@
+{
+  "generated_by": "docs-decomposer",
+  "epics": [
+    {
+      "id": "workshop",
+      "title": "Prepare the workshop",
+      "objective": "Give the team a dependable repair queue and working schedule.",
+      "source_refs": [
+        "docs/product/BRIEF.md",
+        "docs/specs/workshop-flow.md"
+      ]
+    },
+    {
+      "id": "delivery",
+      "title": "Return completed work",
+      "objective": "Make every customer handoff traceable to completed repair work.",
+      "source_refs": [
+        "docs/product/BRIEF.md",
+        "docs/specs/workshop-flow.md"
+      ]
+    }
+  ],
+  "items": [
+    {
+      "key": "SHOP-1",
+      "title": "Create the repair queue",
+      "epic": "workshop",
+      "story": "As a service coordinator, I can place accepted jobs in a repair queue so that technicians know what can start.",
+      "acceptance_criteria": [
+        "Accepted jobs appear in a readable repair queue."
+      ],
+      "skill": "fullstack",
+      "depends_on": [],
+      "spec": "docs/specs/workshop-flow.md",
+      "order": 1,
+      "status": "pending"
+    },
+    {
+      "key": "SHOP-2",
+      "title": "Publish the workshop schedule",
+      "epic": "workshop",
+      "story": "As a technician, I can see the workshop schedule so that I can prepare for assigned repairs.",
+      "acceptance_criteria": [
+        "The schedule shows each assigned repair job."
+      ],
+      "skill": "frontend",
+      "depends_on": [],
+      "spec": "docs/specs/workshop-flow.md",
+      "order": 2,
+      "status": "pending"
+    },
+    {
+      "key": "HANDOFF-1",
+      "title": "Prepare the customer handoff",
+      "epic": "delivery",
+      "story": "As a service coordinator, I can prepare a customer handoff after repair work finishes so that incomplete jobs are never returned.",
+      "acceptance_criteria": [
+        "The handoff remains blocked until the repair queue story is complete."
+      ],
+      "skill": "fullstack",
+      "depends_on": [
+        "SHOP-1"
+      ],
+      "spec": "docs/specs/workshop-flow.md",
+      "order": 3,
+      "status": "pending"
+    }
+  ]
+}

@@ -6,10 +6,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   ATTACHMENT_DELETED_COPY,
-  ATTACHMENT_MAX_BYTES,
   ATTACHMENT_NOT_FOUND_COPY,
+  ATTACHMENT_RATE_LIMITED_COPY,
+  ATTACHMENT_TIMEOUT_COPY,
   ATTACHMENT_TOO_LARGE_COPY,
+  ATTACHMENT_TRANSPORT_COPY,
   ATTACHMENT_UNREACHABLE_COPY,
+  attachmentPermissionScopeCopy,
+} from '@core/application/attachments/attachment-failure.js';
+import {
+  ATTACHMENT_MAX_BYTES,
   AttachmentResolver,
 } from '@core/application/attachments/attachment-resolver.js';
 import { fetchSlackHistoricalAttachment } from '@core/channels/slack/historical-attachment-fetcher.js';
@@ -21,6 +27,7 @@ import type {
   MessageAttachmentRepository,
   ResolvableMessageAttachment,
 } from '@core/domain/ports/message-attachment-repository.js';
+import { logger } from '@core/infrastructure/logging/logger.js';
 import { writeInboundAttachment } from '@core/shared/inbound-attachment-writer.js';
 
 const roots: string[] = [];
@@ -287,6 +294,8 @@ function createResolver(input: {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   for (const root of roots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -698,6 +707,224 @@ describe('AttachmentResolver', () => {
     expect(repository.storageUpdates).toBe(1);
   });
 
+  it('keeps a joined waiter on its own deadline after the first caller times out', async () => {
+    vi.useFakeTimers();
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set('attachment-1', attachment());
+    let release!: () => void;
+    const provider = fetcher(
+      () =>
+        new Promise<HistoricalAttachmentFetchResult>((resolve) => {
+          release = () => resolve({ status: 'unreachable', reason: 'network' });
+        }),
+    );
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const resolver = createResolver({
+      repository,
+      fetcher: provider,
+      openTimeoutMs: 5,
+    });
+
+    const first = resolver.open(openRequest());
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(2);
+    const second = resolver.open(openRequest());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(3);
+    await expect(first).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_TIMEOUT_COPY,
+    });
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+
+    await expect(second).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_TRANSPORT_COPY,
+    });
+    expect(warn.mock.calls.map(([context]) => context.cause)).toEqual([
+      'timeout',
+      'transport',
+    ]);
+  });
+
+  it('logs one timeout when the owner and a joined waiter both expire across a stale retry', async () => {
+    vi.useFakeTimers();
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set('attachment-1', attachment());
+    const gates = new Map<string, () => void>();
+    const provider = fetcher(
+      (input) =>
+        new Promise<HistoricalAttachmentFetchResult>((resolve) => {
+          // F1 reports deleted (drives the stale retry once the row is F2);
+          // F2 never settles, so both callers reach the deadline.
+          gates.set(input.identity.id, () => resolve({ status: 'deleted' }));
+        }),
+    );
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const resolver = createResolver({
+      repository,
+      fetcher: provider,
+      openTimeoutMs: 50,
+    });
+
+    const owner = resolver.open(openRequest());
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(2);
+    // Joins the still-in-flight F1 before its provider id changes.
+    const joined = resolver.open(openRequest());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(1);
+
+    // Move the row to F2 so F1's persist is stale, then release F1: the owner
+    // retries into F2 (never released), carrying the joined waiter with it.
+    repository.attachments.set(
+      'attachment-1',
+      attachment({
+        providerFetch: { provider: 'slack', kind: 'file_id', id: 'F2' },
+      }),
+    );
+    gates.get('F1')?.();
+    // Flush the persist->stale->retry microtasks without consuming the deadline.
+    for (let i = 0; i < 10; i += 1) await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(2);
+
+    await vi.advanceTimersByTimeAsync(60);
+    await expect(owner).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_TIMEOUT_COPY,
+    });
+    await expect(joined).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_TIMEOUT_COPY,
+    });
+    expect(
+      warn.mock.calls.filter(([context]) => context.cause === 'timeout').length,
+    ).toBe(1);
+  });
+
+  it('logs one timeout when a stale retry joins an F2 flight already in progress', async () => {
+    vi.useFakeTimers();
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set('attachment-1', attachment());
+    const gates = new Map<string, () => void>();
+    const provider = fetcher(
+      (input) =>
+        new Promise<HistoricalAttachmentFetchResult>((resolve) => {
+          // F1 reports deleted to drive the stale retry; F2 never settles so
+          // both the F2 owner and the retry that joins it reach the deadline.
+          gates.set(input.identity.id, () => resolve({ status: 'deleted' }));
+        }),
+    );
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const resolver = createResolver({
+      repository,
+      fetcher: provider,
+      openTimeoutMs: 100,
+    });
+
+    // A owns F1 (row still F1).
+    const staleChain = resolver.open(openRequest());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(1);
+
+    // Row moves to F2; C opens and creates+owns the F2 flight.
+    repository.attachments.set(
+      'attachment-1',
+      attachment({
+        providerFetch: { provider: 'slack', kind: 'file_id', id: 'F2' },
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(2);
+    const f2Owner = resolver.open(openRequest());
+    for (let i = 0; i < 5; i += 1) await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(2);
+
+    // Release F1: A's stale retry recomputes the key to F2 and JOINS C's flight
+    // rather than creating a new one, so A is a non-owner of F2.
+    gates.get('F1')?.();
+    for (let i = 0; i < 10; i += 1) await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(2);
+
+    await vi.advanceTimersByTimeAsync(120);
+    await expect(staleChain).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_TIMEOUT_COPY,
+    });
+    await expect(f2Owner).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_TIMEOUT_COPY,
+    });
+    expect(
+      warn.mock.calls.filter(([context]) => context.cause === 'timeout').length,
+    ).toBe(1);
+  });
+
+  it('still logs the timeout when the earlier joiner expires before the F2 owner settles', async () => {
+    // The lost-diagnostic case: an older F1 chain joins a younger F2 owner, the
+    // older caller's deadline fires first, then F2 settles (no timeout) before
+    // the owner's later deadline. Exactly one timeout warning must survive.
+    vi.useFakeTimers();
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set('attachment-1', attachment());
+    const gates = new Map<string, () => void>();
+    const provider = fetcher(
+      (input) =>
+        new Promise<HistoricalAttachmentFetchResult>((resolve) => {
+          gates.set(input.identity.id, () =>
+            resolve(
+              input.identity.id === 'F1'
+                ? { status: 'deleted' }
+                : { status: 'unreachable', reason: 'network' },
+            ),
+          );
+        }),
+    );
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const resolver = createResolver({
+      repository,
+      fetcher: provider,
+      openTimeoutMs: 100,
+    });
+
+    const staleChain = resolver.open(openRequest());
+    await vi.advanceTimersByTimeAsync(0);
+    repository.attachments.set(
+      'attachment-1',
+      attachment({
+        providerFetch: { provider: 'slack', kind: 'file_id', id: 'F2' },
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(2);
+    const f2Owner = resolver.open(openRequest());
+    for (let i = 0; i < 5; i += 1) await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(2);
+
+    gates.get('F1')?.();
+    for (let i = 0; i < 10; i += 1) await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(2);
+
+    // Fire the older caller's deadline (t=100) but not the F2 owner's (t=102).
+    await vi.advanceTimersByTimeAsync(99);
+    await expect(staleChain).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_TIMEOUT_COPY,
+    });
+
+    // F2 settles as transport before its owner ever times out.
+    gates.get('F2')?.();
+    for (let i = 0; i < 10; i += 1) await vi.advanceTimersByTimeAsync(0);
+    await expect(f2Owner).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_TRANSPORT_COPY,
+    });
+    expect(
+      warn.mock.calls.filter(([context]) => context.cause === 'timeout').length,
+    ).toBe(1);
+  });
+
   it('does not share or claim a result after the attachment id moves to another owner', async () => {
     const repository = new MemoryAttachmentRepository();
     repository.attachments.set('attachment-1', attachment());
@@ -831,7 +1058,7 @@ describe('AttachmentResolver', () => {
 
     await expect(pending).resolves.toEqual({
       status: 'unreachable',
-      content: ATTACHMENT_UNREACHABLE_COPY,
+      content: ATTACHMENT_TRANSPORT_COPY,
     });
     expect(provider.calls).toBe(2);
     expect(repository.attachments.get('attachment-1')).toMatchObject({
@@ -864,12 +1091,12 @@ describe('AttachmentResolver', () => {
 
     await expect(resolver.open(openRequest())).resolves.toEqual({
       status: 'unreachable',
-      content: ATTACHMENT_UNREACHABLE_COPY,
+      content: ATTACHMENT_TIMEOUT_COPY,
     });
     expect(firstSignal?.aborted).toBe(true);
     await expect(resolver.open(openRequest())).resolves.toEqual({
       status: 'unreachable',
-      content: ATTACHMENT_UNREACHABLE_COPY,
+      content: ATTACHMENT_TRANSPORT_COPY,
     });
     expect(provider.calls).toBe(2);
   });
@@ -889,10 +1116,76 @@ describe('AttachmentResolver', () => {
 
     await expect(resolver.open(openRequest())).resolves.toEqual({
       status: 'unreachable',
-      content: ATTACHMENT_UNREACHABLE_COPY,
+      content: ATTACHMENT_TIMEOUT_COPY,
     });
     expect(provider.calls).toBe(0);
   });
+
+  it.each(['unreachable', 'deleted', 'too_large'] as const)(
+    'keeps timeout as the only terminal log when %s settles after the deadline',
+    async (lateFailure) => {
+      const repository = new MemoryAttachmentRepository();
+      repository.attachments.set('attachment-1', attachment());
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let lateSettlementFinished!: () => void;
+      const lateSettlement = new Promise<void>((resolve) => {
+        lateSettlementFinished = resolve;
+      });
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+      const provider = fetcher(async () => {
+        if (lateFailure === 'too_large') {
+          return { status: 'ok', content: Buffer.from('late bytes') };
+        }
+        await gate;
+        lateSettlementFinished();
+        return lateFailure === 'deleted'
+          ? { status: 'deleted' }
+          : { status: 'unreachable', reason: 'network' };
+      });
+      const resolver = createResolver({
+        repository,
+        fetcher: provider,
+        openTimeoutMs: 5,
+        ...(lateFailure === 'too_large'
+          ? {
+              writeAttachment: async () => {
+                await gate;
+                lateSettlementFinished();
+                return { status: 'too-large', bytes: ATTACHMENT_MAX_BYTES + 1 };
+              },
+            }
+          : {}),
+      });
+
+      await expect(resolver.open(openRequest())).resolves.toEqual({
+        status: 'unreachable',
+        content: ATTACHMENT_TIMEOUT_COPY,
+      });
+      release();
+      await lateSettlement;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        {
+          cause: 'timeout',
+          provider: 'unknown',
+          providerAccountId: 'provider-account-1',
+          conversationJid: 'sl:C1',
+          attachmentId: 'attachment-1',
+          elapsedMs: expect.any(Number),
+        },
+        'Attachment unavailable',
+      );
+      expect(repository.tombstoneUpdates).toBe(0);
+      expect(
+        repository.attachments.get('attachment-1')?.deletedAt,
+      ).toBeUndefined();
+    },
+  );
 
   it('refuses an over-cap stream through the 50 MiB writer limit and persists nothing', async () => {
     const repository = new MemoryAttachmentRepository();
@@ -1137,17 +1430,109 @@ describe('AttachmentResolver', () => {
     ).toBeUndefined();
   });
 
-  it.each(['not_found', 'auth', 'rate_limit'] as const)(
-    'keeps %s unreachable and retryable without tombstoning',
-    async (reason) => {
+  it('returns rate-limit copy for a Slack HTML-shaped 429 response', async () => {
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set('attachment-1', attachment());
+    const provider: HistoricalAttachmentFetcher = {
+      fetchHistoricalAttachment: (input) =>
+        fetchSlackHistoricalAttachment(
+          { identity: input.identity },
+          {
+            filesInfo: async () => ({
+              file: {
+                name: 'report.txt',
+                url_private_download: 'https://files.slack.test/F1',
+              },
+            }),
+            download: async () =>
+              new Response('<html>rate limited</html>', {
+                status: 429,
+                headers: { 'content-type': 'text/html; charset=utf-8' },
+              }),
+          },
+        ),
+    };
+    const resolver = createResolver({ repository, fetcher: provider });
+
+    await expect(resolver.open(openRequest())).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_RATE_LIMITED_COPY,
+    });
+  });
+
+  it.each([401, 403])(
+    'keeps Slack HTTP-error status %s on the legacy sentence instead of transport copy',
+    async (statusCode) => {
       const repository = new MemoryAttachmentRepository();
       repository.attachments.set('attachment-1', attachment());
-      const provider = fetcher(() => ({ status: 'unreachable', reason }));
+      const provider: HistoricalAttachmentFetcher = {
+        fetchHistoricalAttachment: (input) =>
+          fetchSlackHistoricalAttachment(
+            { identity: input.identity },
+            {
+              filesInfo: async () => {
+                throw Object.assign(new Error('authorization failed'), {
+                  code: 'slack_webapi_http_error',
+                  statusCode,
+                });
+              },
+              download: vi.fn(),
+            },
+          ),
+      };
+      const resolver = createResolver({ repository, fetcher: provider });
+
+      const result = await resolver.open(openRequest());
+
+      expect(result).toEqual({
+        status: 'unreachable',
+        content: ATTACHMENT_UNREACHABLE_COPY,
+      });
+      expect(result.content).not.toBe(ATTACHMENT_TRANSPORT_COPY);
+    },
+  );
+
+  it.each([
+    [
+      'incapable',
+      { status: 'unreachable', reason: 'incapable' },
+      ATTACHMENT_UNREACHABLE_COPY,
+    ],
+    [
+      'not_found',
+      { status: 'unreachable', reason: 'not_found' },
+      ATTACHMENT_UNREACHABLE_COPY,
+    ],
+    [
+      'auth',
+      { status: 'unreachable', reason: 'auth' },
+      ATTACHMENT_UNREACHABLE_COPY,
+    ],
+    [
+      'missing_scope',
+      {
+        status: 'unreachable',
+        reason: 'missing_scope',
+        scope: 'files:read',
+      },
+      attachmentPermissionScopeCopy('files:read'),
+    ],
+    [
+      'rate_limit',
+      { status: 'unreachable', reason: 'rate_limit' },
+      ATTACHMENT_RATE_LIMITED_COPY,
+    ],
+  ] as const)(
+    'keeps %s unreachable and retryable without tombstoning',
+    async (_reason, failure, content) => {
+      const repository = new MemoryAttachmentRepository();
+      repository.attachments.set('attachment-1', attachment());
+      const provider = fetcher(() => failure);
       const resolver = createResolver({ repository, fetcher: provider });
 
       await expect(resolver.open(openRequest())).resolves.toEqual({
         status: 'unreachable',
-        content: ATTACHMENT_UNREACHABLE_COPY,
+        content,
       });
       expect(repository.tombstoneUpdates).toBe(0);
       expect(repository.attachments.get('attachment-1')?.deletedAt).toBe(
@@ -1155,4 +1540,74 @@ describe('AttachmentResolver', () => {
       );
     },
   );
+
+  it('logs incapable routing exactly once with host attachment context', async () => {
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set('attachment-1', attachment());
+    const provider = fetcher(() => ({
+      status: 'unreachable',
+      reason: 'incapable',
+    }));
+    const resolver = createResolver({ repository, fetcher: provider });
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+    await expect(resolver.open(openRequest())).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_UNREACHABLE_COPY,
+    });
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      {
+        cause: 'unknown',
+        provider: 'slack',
+        providerAccountId: 'provider-account-1',
+        conversationJid: 'sl:C1',
+        attachmentId: 'attachment-1',
+        elapsedMs: expect.any(Number),
+      },
+      'Attachment unavailable',
+    );
+  });
+
+  it('carries a Slack SDK 429 status into the emitted warning', async () => {
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set('attachment-1', attachment());
+    const provider: HistoricalAttachmentFetcher = {
+      fetchHistoricalAttachment: (input) =>
+        fetchSlackHistoricalAttachment(
+          { identity: input.identity },
+          {
+            filesInfo: async () => {
+              throw Object.assign(new Error('rate limited'), {
+                code: 'slack_webapi_rate_limited_error',
+                statusCode: 429,
+              });
+            },
+            download: vi.fn(),
+          },
+        ),
+    };
+    const resolver = createResolver({ repository, fetcher: provider });
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+    await expect(resolver.open(openRequest())).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_RATE_LIMITED_COPY,
+    });
+
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      {
+        cause: 'rate_limited',
+        provider: 'slack',
+        providerAccountId: 'provider-account-1',
+        conversationJid: 'sl:C1',
+        attachmentId: 'attachment-1',
+        providerStatus: 429,
+        elapsedMs: expect.any(Number),
+      },
+      'Attachment unavailable',
+    );
+  });
 });

@@ -76,7 +76,7 @@ export function slackBotScopeWarning(
   if (grantedScopes.length === 0) return undefined;
   const { feature } = missingSlackBotScopes(grantedScopes);
   if (feature.length === 0) return undefined;
-  return `Slack file/canvas features need scopes this token lacks: ${feature.join(', ')}. Add them and reinstall the app when you want those features; messaging works without them.`;
+  return `Slack file/canvas features need scopes this token lacks: ${feature.join(', ')}. Add them and reinstall the app to this workspace when you want those features; messaging works without them. See docs/operations/slack-app-install.md.`;
 }
 
 export function validateSlackBotScopeHeader(

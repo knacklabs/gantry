@@ -15,6 +15,10 @@ import type {
   UserQuestionRequest,
 } from '../../domain/types.js';
 import {
+  isDefinitiveTelegramEditTargetFailure,
+  isTelegramMessageNotModified,
+} from './progress-edit-failure.js';
+import {
   TELEGRAM_MESSAGE_MAX_LENGTH,
   TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
 } from './text-limits.js';
@@ -351,8 +355,8 @@ export async function editTelegramMessage(
     });
     return;
   } catch (errV2Raw) {
-    const msg = errV2Raw instanceof Error ? errV2Raw.message : String(errV2Raw);
-    if (/message is not modified/i.test(msg)) return;
+    if (isTelegramMessageNotModified(errV2Raw)) return;
+    if (isDefinitiveTelegramEditTargetFailure(errV2Raw)) throw errV2Raw;
     logger.debug(
       { err: errV2Raw },
       'MarkdownV2 edit failed, retrying with escaped text',
@@ -371,11 +375,8 @@ export async function editTelegramMessage(
     );
     return;
   } catch (errV2Escaped) {
-    const msg =
-      errV2Escaped instanceof Error
-        ? errV2Escaped.message
-        : String(errV2Escaped);
-    if (/message is not modified/i.test(msg)) return;
+    if (isTelegramMessageNotModified(errV2Escaped)) return;
+    if (isDefinitiveTelegramEditTargetFailure(errV2Escaped)) throw errV2Escaped;
     logger.debug(
       { err: errV2Escaped },
       'Escaped MarkdownV2 edit failed, falling back to plain text',
@@ -385,8 +386,7 @@ export async function editTelegramMessage(
   try {
     await api.editMessageText(chatId, messageId, text, editOptions);
   } catch (errPlain) {
-    const msg = errPlain instanceof Error ? errPlain.message : String(errPlain);
-    if (/message is not modified/i.test(msg)) return;
+    if (isTelegramMessageNotModified(errPlain)) return;
     throw errPlain;
   }
 }

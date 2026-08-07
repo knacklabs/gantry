@@ -314,6 +314,14 @@ if outcome_path(root).exists():
 scratchpad_file = root / ".factory" / "scratchpad.md"
 if scratchpad_file.exists():
     scratchpad_file.unlink()
+# The stage baselines go with the stage state they belong to (decision 0023).
+# They are refs, so nothing else prunes them, and a stale one would still
+# resolve for a task id the next story happens to reuse.
+for stage in (load_stages(root) or {}).get("stages", []):
+    subprocess.run(
+        ["git", "update-ref", "-d", f"refs/forge/stage/{stage.get('id', '')}"],
+        cwd=root, capture_output=True,
+    )
 for artifact in (decomposition_state_path(root), verify_state_path(root),
                  tests_state_path(root), root / ".factory" / "grills" / "plan.json",
                  signals_path(root), stages_file, outcome_path(root)):
