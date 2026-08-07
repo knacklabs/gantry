@@ -54,6 +54,7 @@ PROVIDER_CONNECTION_PATTERN = re.compile(
 )
 CHANNEL_PROVIDER_CONNECTION_PATTERN = re.compile(r"channel-providerConnection:")
 RUNTIME_COMPAT_EXCEPTION_FIELDS = {
+    "file",
     "symbol",
     "owner",
     "reason",
@@ -61,6 +62,7 @@ RUNTIME_COMPAT_EXCEPTION_FIELDS = {
     "removal_condition",
     "remove_by",
     "kind",
+    "maxViolations",
 }
 
 
@@ -329,6 +331,7 @@ class ExceptionEntry:
 
 @dataclass(frozen=True)
 class RuntimeCompatException:
+    file: str
     symbol: str
     owner: str
     reason: str
@@ -336,6 +339,7 @@ class RuntimeCompatException:
     removal_condition: str
     remove_by: date
     kind: str
+    max_violations: int
 
 
 class ExceptionRegistry:
@@ -349,8 +353,9 @@ class ExceptionRegistry:
         self.by_file_rule: dict[tuple[str, str], ExceptionEntry] = {
             (entry.file, entry.rule): entry for entry in entries
         }
-        self.runtime_compat_by_symbol = {
-            entry.symbol: entry for entry in self.runtime_compat_entries
+        self.runtime_compat_by_file_symbol = {
+            (entry.file, entry.symbol): entry
+            for entry in self.runtime_compat_entries
         }
 
     def get(self, file: str, rule: str) -> ExceptionEntry | None:
@@ -369,11 +374,13 @@ class ExceptionRegistry:
                 stale.append(f"{entry.file} has stale exception for `{entry.rule}`; remove it.")
         return stale
 
-    def stale_runtime_compat_entries(self, active_symbols: set[str]) -> list[str]:
+    def stale_runtime_compat_entries(
+        self, active_keys: set[tuple[str, str]]
+    ) -> list[str]:
         return [
-            f"{entry.symbol} has a stale runtime compat exception; remove it."
+            f"{entry.file} has a stale runtime compat exception for `{entry.symbol}`; remove it."
             for entry in self.runtime_compat_entries
-            if entry.symbol not in active_symbols
+            if (entry.file, entry.symbol) not in active_keys
         ]
 
 
@@ -560,7 +567,7 @@ def validate_exceptions(
     entries: list[ExceptionEntry] = []
     runtime_compat_entries: list[RuntimeCompatException] = []
     seen: set[tuple[str, str]] = set()
-    seen_runtime_compat_symbols: set[str] = set()
+    seen_runtime_compat_keys: set[tuple[str, str]] = set()
     for index, item in enumerate(payload):
         prefix = f"[{index}]"
         if not isinstance(item, dict):
@@ -585,6 +592,7 @@ def validate_exceptions(
                 )
 
             symbol = str(item.get("symbol", "")).strip()
+            target = normalize_repo_relative(str(item.get("file", "")).strip())
             kind = str(item.get("kind", "")).strip()
             expected_kind = runtime_compat_kind_for_symbol(symbol)
             if expected_kind is None and symbol:
@@ -599,11 +607,32 @@ def validate_exceptions(
                 item_issues.append(
                     f"{prefix} runtime compat exception kind `{kind}` does not match `{symbol}` ({expected_kind})."
                 )
-            if symbol in seen_runtime_compat_symbols:
+            target_path = root / target
+            if Path(target).is_absolute():
+                item_issues.append(f"{prefix} file must be repo-relative: {target}")
+            if not target:
+                item_issues.append(f"{prefix} file must be non-empty.")
+            elif not target_path.exists():
+                item_issues.append(f"{prefix} points to a missing file/path: {target}")
+            elif target not in production_files:
+                item_issues.append(f"{prefix} file is not a production source file: {target}")
+
+            key = (target, symbol)
+            if key in seen_runtime_compat_keys:
                 item_issues.append(
-                    f"{prefix} duplicates runtime compat symbol `{symbol}`."
+                    f"{prefix} duplicates runtime compat file/symbol pair `{target}:{symbol}`."
                 )
-            seen_runtime_compat_symbols.add(symbol)
+            seen_runtime_compat_keys.add(key)
+
+            max_violations = item.get("maxViolations")
+            if (
+                not isinstance(max_violations, int)
+                or isinstance(max_violations, bool)
+                or max_violations <= 0
+            ):
+                item_issues.append(
+                    f"{prefix} runtime compat exception maxViolations must be a positive integer."
+                )
 
             introduced = None
             remove_by = None
@@ -641,6 +670,7 @@ def validate_exceptions(
             assert introduced is not None and remove_by is not None
             runtime_compat_entries.append(
                 RuntimeCompatException(
+                    file=target,
                     symbol=symbol,
                     owner=str(item["owner"]).strip(),
                     reason=str(item["reason"]).strip(),
@@ -648,6 +678,7 @@ def validate_exceptions(
                     removal_condition=str(item["removal_condition"]).strip(),
                     remove_by=remove_by,
                     kind=kind,
+                    max_violations=max_violations,
                 )
             )
             continue
@@ -1506,9 +1537,9 @@ def check_runtime_compat_branches(
     production_files: list[Path],
     root: Path,
     exceptions: ExceptionRegistry,
-) -> tuple[list[str], set[str]]:
+) -> tuple[list[str], set[tuple[str, str]]]:
     issues: list[str] = []
-    active_symbols: set[str] = set()
+    active_keys: set[tuple[str, str]] = set()
     exact_patterns = {
         symbol: re.compile(
             rf"(?:\b(?:function|class|const|let|var)\s+{re.escape(symbol)}\b|\b{re.escape(symbol)}\s*\()"
@@ -1518,32 +1549,43 @@ def check_runtime_compat_branches(
     for source_file in production_files:
         source_rel = source_file.relative_to(root).as_posix()
         source_text = source_file.read_text()
-        matches: dict[str, re.Match[str]] = {}
+        matches: dict[str, dict[tuple[int, int], re.Match[str]]] = {}
         for symbol, pattern in exact_patterns.items():
-            match = pattern.search(source_text)
-            if match is not None:
-                matches[symbol] = match
+            for match in pattern.finditer(source_text):
+                matches.setdefault(symbol, {})[match.span()] = match
         for match in MIGRATE_LEGACY_SYMBOL_PATTERN.finditer(source_text):
             symbol = match.group(1) or match.group(2)
-            matches.setdefault(symbol, match)
+            matches.setdefault(symbol, {})[match.span()] = match
         for match in PROVIDER_CONNECTION_PATTERN.finditer(source_text):
             symbol = match.group(1) or match.group(2)
-            matches.setdefault(symbol, match)
-        match = CHANNEL_PROVIDER_CONNECTION_PATTERN.search(source_text)
-        if match is not None:
-            matches.setdefault("channel-providerConnection:", match)
+            matches.setdefault(symbol, {})[match.span()] = match
+        for match in CHANNEL_PROVIDER_CONNECTION_PATTERN.finditer(source_text):
+            matches.setdefault("channel-providerConnection:", {})[
+                match.span()
+            ] = match
 
-        for symbol, match in matches.items():
-            active_symbols.add(symbol)
-            if symbol in exceptions.runtime_compat_by_symbol:
+        for symbol, matches_by_span in matches.items():
+            active_keys.add((source_rel, symbol))
+            entry = exceptions.runtime_compat_by_file_symbol.get(
+                (source_rel, symbol)
+            )
+            if entry is not None and len(matches_by_span) <= entry.max_violations:
                 continue
+            match = next(iter(matches_by_span.values()))
             line = source_text.count("\n", 0, match.start()) + 1
             kind = runtime_compat_kind_for_symbol(symbol)
             assert kind is not None
-            issues.append(
-                f"{source_rel}:{line}: runtime compat symbol `{symbol}` ({kind}) requires a time-boxed architecture exception."
-            )
-    return sorted(issues), active_symbols
+            if entry is None:
+                issues.append(
+                    f"{source_rel}:{line}: runtime compat symbol `{symbol}` ({kind}) requires a time-boxed architecture exception."
+                )
+            else:
+                issues.append(
+                    f"{source_rel}:{line}: runtime compat symbol `{symbol}` ({kind}) has "
+                    f"{len(matches_by_span)} violations but exception maxViolations is "
+                    f"{entry.max_violations}."
+                )
+    return sorted(issues), active_keys
 
 
 def check_empty_folders(

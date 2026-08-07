@@ -220,6 +220,7 @@ class CheckArchitectureTests(unittest.TestCase):
                 root / "scripts/architecture-exceptions.json",
                 [
                     {
+                        "file": "apps/core/src/runtime/compat-branch.ts",
                         "symbol": "migrateLegacyAgentBindings",
                         "owner": "runtime-platform",
                         "reason": "A bounded fixture exception",
@@ -227,11 +228,105 @@ class CheckArchitectureTests(unittest.TestCase):
                         "removal_condition": "Canonical settings are deployed",
                         "remove_by": "2099-01-01",
                         "kind": "silent_stale_state_migration",
+                        "maxViolations": 1,
                     }
                 ],
             )
             result = run_architecture_check(root)
             self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+    def test_runtime_compat_exception_requires_file_and_max_violations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/compat-branch.ts",
+                "export const active = providerAccount ?? providerConnection;\n",
+            )
+            write_json(
+                root / "scripts/architecture-exceptions.json",
+                [
+                    {
+                        "symbol": "providerConnection",
+                        "owner": "runtime-platform",
+                        "reason": "An obsolete symbol-only fixture exception",
+                        "introduced": "2026-01-01",
+                        "removal_condition": "Canonical settings are deployed",
+                        "remove_by": "2099-01-01",
+                        "kind": "dual_read",
+                    }
+                ],
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Exception Hygiene]", result.stdout)
+            self.assertIn(
+                "missing required fields: file, maxViolations", result.stdout
+            )
+
+    def test_runtime_compat_exception_does_not_cover_a_new_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/compat-branch.ts",
+                "export const active = providerAccount ?? providerConnection;\n",
+            )
+            write_text(
+                root / "apps/core/src/runtime/new-compat-branch.ts",
+                "export const active = providerAccount ?? providerConnection;\n",
+            )
+            write_json(
+                root / "scripts/architecture-exceptions.json",
+                [
+                    {
+                        "file": "apps/core/src/runtime/compat-branch.ts",
+                        "symbol": "providerConnection",
+                        "owner": "runtime-platform",
+                        "reason": "A bounded fixture exception",
+                        "introduced": "2026-01-01",
+                        "removal_condition": "Canonical settings are deployed",
+                        "remove_by": "2099-01-01",
+                        "kind": "dual_read",
+                        "maxViolations": 1,
+                    }
+                ],
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Runtime Compatibility Branches]", result.stdout)
+            self.assertIn(
+                "apps/core/src/runtime/new-compat-branch.ts:1", result.stdout
+            )
+
+    def test_runtime_compat_exception_enforces_max_violations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/compat-branch.ts",
+                "export const first = providerAccount ?? providerConnection;\n"
+                "export const second = providerAccount ?? providerConnection;\n",
+            )
+            write_json(
+                root / "scripts/architecture-exceptions.json",
+                [
+                    {
+                        "file": "apps/core/src/runtime/compat-branch.ts",
+                        "symbol": "providerConnection",
+                        "owner": "runtime-platform",
+                        "reason": "A bounded fixture exception",
+                        "introduced": "2026-01-01",
+                        "removal_condition": "Canonical settings are deployed",
+                        "remove_by": "2099-01-01",
+                        "kind": "dual_read",
+                        "maxViolations": 1,
+                    }
+                ],
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Runtime Compatibility Branches]", result.stdout)
+            self.assertIn(
+                "has 2 violations but exception maxViolations is 1", result.stdout
+            )
 
     def test_migrate_legacy_symbol_family_catches_differently_named_branch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -293,6 +388,7 @@ class CheckArchitectureTests(unittest.TestCase):
                 root / "scripts/architecture-exceptions.json",
                 [
                     {
+                        "file": "apps/core/src/runtime/compat-branch.ts",
                         "symbol": "migrateLegacyAgentBindings",
                         "owner": "runtime-platform",
                         "reason": "Expired fixture exception",
@@ -300,6 +396,7 @@ class CheckArchitectureTests(unittest.TestCase):
                         "removal_condition": "Canonical settings are deployed",
                         "remove_by": "2025-12-31",
                         "kind": "silent_stale_state_migration",
+                        "maxViolations": 1,
                     }
                 ],
             )
