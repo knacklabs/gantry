@@ -45,14 +45,15 @@ KNOWN_RUNTIME_COMPAT_SYMBOLS = {
     "reconstructJobOwnerFromJid": "ownership_reconstruction",
     "readLocalSkillArtifactFallback": "remote_to_local_fail_open",
 }
-MIGRATE_LEGACY_SYMBOL_PATTERN = re.compile(
-    r"(?:\b(?:function|class|const|let|var)\s+(migrateLegacy[A-Za-z0-9_$]*)\b|"
-    r"\b(migrateLegacy[A-Za-z0-9_$]*)\s*\()"
-)
-PROVIDER_CONNECTION_PATTERN = re.compile(
-    r"(?:\?\?\s*(providerConnection)\b|\b(providerConnection)\s*\??\s*:)"
-)
-CHANNEL_PROVIDER_CONNECTION_PATTERN = re.compile(r"channel-providerConnection:")
+MIGRATE_LEGACY_SYMBOL_PATTERN = re.compile(r"\bmigrateLegacy[A-Za-z0-9_$]*\b")
+RUNTIME_COMPAT_SYMBOL_PATTERNS = {
+    symbol: re.compile(
+        rf"\b{re.escape(symbol)}\b"
+        if symbol != "channel-providerConnection:"
+        else rf"\b{re.escape(symbol)}"
+    )
+    for symbol in KNOWN_RUNTIME_COMPAT_SYMBOLS
+}
 RUNTIME_COMPAT_EXCEPTION_FIELDS = {
     "file",
     "symbol",
@@ -1540,29 +1541,16 @@ def check_runtime_compat_branches(
 ) -> tuple[list[str], set[tuple[str, str]]]:
     issues: list[str] = []
     active_keys: set[tuple[str, str]] = set()
-    exact_patterns = {
-        symbol: re.compile(
-            rf"(?:\b(?:function|class|const|let|var)\s+{re.escape(symbol)}\b|\b{re.escape(symbol)}\s*\()"
-        )
-        for symbol in KNOWN_RUNTIME_COMPAT_SYMBOLS
-    }
     for source_file in production_files:
         source_rel = source_file.relative_to(root).as_posix()
         source_text = source_file.read_text()
         matches: dict[str, dict[tuple[int, int], re.Match[str]]] = {}
-        for symbol, pattern in exact_patterns.items():
+        for symbol, pattern in RUNTIME_COMPAT_SYMBOL_PATTERNS.items():
             for match in pattern.finditer(source_text):
                 matches.setdefault(symbol, {})[match.span()] = match
         for match in MIGRATE_LEGACY_SYMBOL_PATTERN.finditer(source_text):
-            symbol = match.group(1) or match.group(2)
+            symbol = match.group(0)
             matches.setdefault(symbol, {})[match.span()] = match
-        for match in PROVIDER_CONNECTION_PATTERN.finditer(source_text):
-            symbol = match.group(1) or match.group(2)
-            matches.setdefault(symbol, {})[match.span()] = match
-        for match in CHANNEL_PROVIDER_CONNECTION_PATTERN.finditer(source_text):
-            matches.setdefault("channel-providerConnection:", {})[
-                match.span()
-            ] = match
 
         for symbol, matches_by_span in matches.items():
             active_keys.add((source_rel, symbol))

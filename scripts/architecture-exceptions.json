@@ -1414,6 +1414,116 @@
   "maxViolations": 1
  },
  {
+  "file": "apps/core/src/channels/slack/permission-approval-delivery.ts",
+  "symbol": "providerConnection",
+  "owner": "settings",
+  "reason": "Deferred providerConnection shadow-field removal in Slack permission delivery, LEGACY follow-up",
+  "introduced": "2026-08-07",
+  "removal_condition": "The providerConnection shadow field and dual-read are removed",
+  "remove_by": "2026-08-28",
+  "kind": "dual_read",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/channels/telegram/group-join-onboarding.ts",
+  "symbol": "providerConnection",
+  "owner": "settings",
+  "reason": "Deferred providerConnection shadow-field removal in Telegram group onboarding, LEGACY follow-up",
+  "introduced": "2026-08-07",
+  "removal_condition": "The providerConnection shadow field and dual-read are removed",
+  "remove_by": "2026-08-28",
+  "kind": "dual_read",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/config/settings/desired-state-export-helpers.ts",
+  "symbol": "providerConnection",
+  "owner": "settings",
+  "reason": "Deferred providerConnection shadow-field removal in desired-state export helpers, LEGACY follow-up",
+  "introduced": "2026-08-07",
+  "removal_condition": "The providerConnection shadow field and dual-read are removed",
+  "remove_by": "2026-08-28",
+  "kind": "dual_read",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/config/settings/desired-state-provider-conversations.ts",
+  "symbol": "providerConnection",
+  "owner": "settings",
+  "reason": "Deferred providerConnection shadow-field removal in desired-state provider conversations, LEGACY follow-up",
+  "introduced": "2026-08-07",
+  "removal_condition": "The providerConnection shadow field and dual-read are removed",
+  "remove_by": "2026-08-28",
+  "kind": "dual_read",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/config/settings/desired-state-service-helpers.ts",
+  "symbol": "providerConnection",
+  "owner": "settings",
+  "reason": "Deferred providerConnection shadow-field removal in desired-state service helpers, LEGACY follow-up",
+  "introduced": "2026-08-07",
+  "removal_condition": "The providerConnection shadow field and dual-read are removed",
+  "remove_by": "2026-08-28",
+  "kind": "dual_read",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/config/settings/observer-activation.ts",
+  "symbol": "providerConnection",
+  "owner": "settings",
+  "reason": "Deferred providerConnection shadow-field removal in observer activation, LEGACY follow-up",
+  "introduced": "2026-08-07",
+  "removal_condition": "The providerConnection shadow field and dual-read are removed",
+  "remove_by": "2026-08-28",
+  "kind": "dual_read",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/config/settings/runtime-settings-binding-derivation.ts",
+  "symbol": "providerConnection",
+  "owner": "settings",
+  "reason": "Deferred providerConnection shadow-field removal in runtime settings binding derivation, LEGACY follow-up",
+  "introduced": "2026-08-07",
+  "removal_condition": "The providerConnection shadow field and dual-read are removed",
+  "remove_by": "2026-08-28",
+  "kind": "dual_read",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/config/settings/runtime-settings-renderer.ts",
+  "symbol": "providerConnection",
+  "owner": "settings",
+  "reason": "Deferred providerConnection shadow-field removal in runtime settings rendering, LEGACY follow-up",
+  "introduced": "2026-08-07",
+  "removal_condition": "The providerConnection shadow field and dual-read are removed",
+  "remove_by": "2026-08-28",
+  "kind": "dual_read",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/config/settings/runtime-settings-validation.ts",
+  "symbol": "providerConnection",
+  "owner": "settings",
+  "reason": "Deferred providerConnection shadow-field removal in runtime settings validation, LEGACY follow-up",
+  "introduced": "2026-08-07",
+  "removal_condition": "The providerConnection shadow field and dual-read are removed",
+  "remove_by": "2026-08-28",
+  "kind": "dual_read",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/config/settings/settings-revision-document.ts",
+  "symbol": "providerConnection",
+  "owner": "settings",
+  "reason": "Deferred providerConnection shadow-field removal in settings revision documents, LEGACY follow-up",
+  "introduced": "2026-08-07",
+  "removal_condition": "The providerConnection shadow field and dual-read are removed",
+  "remove_by": "2026-08-28",
+  "kind": "dual_read",
+  "maxViolations": 1
+ },
+ {
   "file": "apps/core/src/application/control-plane/control-plane-storage-model.ts",
   "symbol": "providerConnection",
   "owner": "settings",
@@ -1422,7 +1532,7 @@
   "removal_condition": "The providerConnection shadow field and dual-read are removed",
   "remove_by": "2026-08-28",
   "kind": "dual_read",
-  "maxViolations": 1
+  "maxViolations": 2
  },
  {
   "file": "apps/core/src/cli/provider-utils.ts",
@@ -1433,7 +1543,7 @@
   "removal_condition": "The providerConnection shadow field and dual-read are removed",
   "remove_by": "2026-08-28",
   "kind": "dual_read",
-  "maxViolations": 1
+  "maxViolations": 2
  },
  {
   "file": "apps/core/src/config/index.ts",
@@ -1455,7 +1565,7 @@
   "removal_condition": "The providerConnection shadow field and dual-read are removed",
   "remove_by": "2026-08-28",
   "kind": "dual_read",
-  "maxViolations": 1
+  "maxViolations": 2
  },
  {
   "file": "apps/core/src/config/settings/desired-state-conversation-reconcile.ts",
@@ -1466,7 +1576,7 @@
   "removal_condition": "The providerConnection shadow field and dual-read are removed",
   "remove_by": "2026-08-28",
   "kind": "dual_read",
-  "maxViolations": 2
+  "maxViolations": 3
  },
  {
   "file": "apps/core/src/config/settings/desired-state-current-export.ts",
@@ -1532,6 +1642,6 @@
   "removal_condition": "The providerConnection shadow field and dual-read are removed",
   "remove_by": "2026-08-28",
   "kind": "dual_read",
-  "maxViolations": 1
+  "maxViolations": 4
  }
 ]

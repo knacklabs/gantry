@@ -343,17 +343,22 @@ class CheckArchitectureTests(unittest.TestCase):
                 result.stdout,
             )
 
-    def test_provider_connection_dual_read_is_caught(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = make_base_fixture(Path(tmp))
-            write_text(
-                root / "apps/core/src/runtime/compat-branch.ts",
-                "export const active = providerAccount ?? providerConnection;\n",
-            )
-            result = run_architecture_check(root)
-            self.assertEqual(result.returncode, 1)
-            self.assertIn("[Runtime Compatibility Branches]", result.stdout)
-            self.assertIn("`providerConnection` (dual_read)", result.stdout)
+    def test_provider_connection_token_is_caught_qualified_and_unqualified(self) -> None:
+        sources = (
+            "export const active = providerConnection;\n",
+            "export const active = conversation.providerConnection;\n",
+        )
+        for source in sources:
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as tmp:
+                root = make_base_fixture(Path(tmp))
+                write_text(
+                    root / "apps/core/src/runtime/compat-branch.ts",
+                    source,
+                )
+                result = run_architecture_check(root)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("[Runtime Compatibility Branches]", result.stdout)
+                self.assertIn("`providerConnection` (dual_read)", result.stdout)
 
     def test_channel_provider_connection_prefix_is_caught(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -372,7 +377,8 @@ class CheckArchitectureTests(unittest.TestCase):
             root = make_base_fixture(Path(tmp))
             write_text(
                 root / "apps/core/src/runtime/canonical-connection.ts",
-                "export const active = configuredConnection ?? defaultConnection;\n",
+                "export const active = configuredConnection ?? defaultConnection;\n"
+                "export const connectionId = conversation.providerConnectionId;\n",
             )
             result = run_architecture_check(root)
             self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
@@ -410,8 +416,7 @@ class CheckArchitectureTests(unittest.TestCase):
             root = make_base_fixture(Path(tmp))
             write_text(
                 root / "apps/core/src/runtime/allowed-compat.ts",
-                """const rejectedRuntimeSymbols = ['migrateLegacyAgentBindings'];
-export function rejectUnsupportedLegacyInput() { return rejectedRuntimeSymbols; }
+                """export function rejectUnsupportedLegacyInput() { return false; }
 export function negotiateVendorProtocolCompatibility() { return 'v2'; }
 """,
             )
