@@ -38,6 +38,8 @@ RUNTIME_COMPAT_KINDS = {
 KNOWN_RUNTIME_COMPAT_SYMBOLS = {
     "migrateLegacyAgentBindings": "silent_stale_state_migration",
     "findLegacyBindingConversation": "dual_read",
+    "providerConnection": "dual_read",
+    "channel-providerConnection:": "dual_read",
     "providerAccountForLegacyInstall": "ownership_reconstruction",
     "readLegacyStateFallback": "dual_read",
     "reconstructJobOwnerFromJid": "ownership_reconstruction",
@@ -47,9 +49,10 @@ MIGRATE_LEGACY_SYMBOL_PATTERN = re.compile(
     r"(?:\b(?:function|class|const|let|var)\s+(migrateLegacy[A-Za-z0-9_$]*)\b|"
     r"\b(migrateLegacy[A-Za-z0-9_$]*)\s*\()"
 )
-CONNECTION_DUAL_READ_PATTERN = re.compile(
-    r"\?\?\s*([A-Za-z_$][A-Za-z0-9_$]*Connection)\b"
+PROVIDER_CONNECTION_PATTERN = re.compile(
+    r"(?:\?\?\s*(providerConnection)\b|\b(providerConnection)\s*\??\s*:)"
 )
+CHANNEL_PROVIDER_CONNECTION_PATTERN = re.compile(r"channel-providerConnection:")
 RUNTIME_COMPAT_EXCEPTION_FIELDS = {
     "symbol",
     "owner",
@@ -67,8 +70,6 @@ def runtime_compat_kind_for_symbol(symbol: str) -> str | None:
         return known_kind
     if re.fullmatch(r"migrateLegacy[A-Za-z0-9_$]*", symbol):
         return "silent_stale_state_migration"
-    if re.fullmatch(r"[A-Za-z_$][A-Za-z0-9_$]*Connection", symbol):
-        return "dual_read"
     return None
 
 ACTIVE_DOC_FILES = (
@@ -1525,8 +1526,12 @@ def check_runtime_compat_branches(
         for match in MIGRATE_LEGACY_SYMBOL_PATTERN.finditer(source_text):
             symbol = match.group(1) or match.group(2)
             matches.setdefault(symbol, match)
-        for match in CONNECTION_DUAL_READ_PATTERN.finditer(source_text):
-            matches.setdefault(match.group(1), match)
+        for match in PROVIDER_CONNECTION_PATTERN.finditer(source_text):
+            symbol = match.group(1) or match.group(2)
+            matches.setdefault(symbol, match)
+        match = CHANNEL_PROVIDER_CONNECTION_PATTERN.search(source_text)
+        if match is not None:
+            matches.setdefault("channel-providerConnection:", match)
 
         for symbol, match in matches.items():
             active_symbols.add(symbol)

@@ -28,7 +28,7 @@ reason: temporary rolling-upgrade bridge
 introduced: 2026-08-03
 removal_condition: all active settings revisions are schema version N
 remove_by: 2026-08-15
-kind: internal-state-compatibility
+kind: dual_read
 ```
 
 Explicitly **allowed without an exception** (not internal-state compat):

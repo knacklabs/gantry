@@ -1412,5 +1412,23 @@
   "reason": "The live-jid scheme discriminator is a closed set of jid prefixes ('teams' matches the provider word scan); the canonical registry lives in channels/, which the memory layer may not import. Capped to this one literal.",
   "removeByPhase": "identity-jid-scheme-registry-extraction",
   "maxViolations": 1
+ },
+ {
+  "symbol": "providerConnection",
+  "owner": "settings",
+  "reason": "Deferred cosmetic shadow-field removal, LEGACY follow-up",
+  "introduced": "2026-08-07",
+  "removal_condition": "The providerConnection shadow field and dual-read are removed",
+  "remove_by": "2026-08-28",
+  "kind": "dual_read"
+ },
+ {
+  "symbol": "channel-providerConnection:",
+  "owner": "settings",
+  "reason": "Deferred cosmetic shadow-field removal, LEGACY follow-up",
+  "introduced": "2026-08-07",
+  "removal_condition": "The channel-providerConnection prefix reader is removed",
+  "remove_by": "2026-08-28",
+  "kind": "dual_read"
  }
 ]

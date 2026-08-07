@@ -248,17 +248,39 @@ class CheckArchitectureTests(unittest.TestCase):
                 result.stdout,
             )
 
-    def test_connection_dual_read_family_catches_differently_named_fallback(self) -> None:
+    def test_provider_connection_dual_read_is_caught(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = make_base_fixture(Path(tmp))
             write_text(
                 root / "apps/core/src/runtime/compat-branch.ts",
-                "export const active = canonicalConnection ?? retiredConnection;\n",
+                "export const active = providerAccount ?? providerConnection;\n",
             )
             result = run_architecture_check(root)
             self.assertEqual(result.returncode, 1)
             self.assertIn("[Runtime Compatibility Branches]", result.stdout)
-            self.assertIn("`retiredConnection` (dual_read)", result.stdout)
+            self.assertIn("`providerConnection` (dual_read)", result.stdout)
+
+    def test_channel_provider_connection_prefix_is_caught(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/compat-branch.ts",
+                "export const legacyPrefix = 'channel-providerConnection:';\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Runtime Compatibility Branches]", result.stdout)
+            self.assertIn("`channel-providerConnection:` (dual_read)", result.stdout)
+
+    def test_unrelated_connection_fallback_does_not_trip_runtime_rule(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/canonical-connection.ts",
+                "export const active = configuredConnection ?? defaultConnection;\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
 
     def test_expired_runtime_compat_exception_fails_hygiene(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
