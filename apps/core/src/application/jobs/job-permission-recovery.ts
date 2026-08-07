@@ -243,7 +243,7 @@ async function notifyStillBlockedSetupPrompt(notification: {
       jobId: notification.job.id,
       setupFingerprint: notification.setupState.fingerprint,
       previousFingerprint: notification.previousFingerprint,
-      source: 'permission_denied',
+      source: 'partial_recovery',
     });
     if (prompt.status !== 'raised' || !(await prompt.delivered)) return;
     await notification.recheckInput.opsRepository.markJobSetupNotified(

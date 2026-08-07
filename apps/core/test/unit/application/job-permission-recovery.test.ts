@@ -686,7 +686,7 @@ describe('permission recovery', () => {
     expect(job.pause_reason).toBe('Paused by an administrator');
   });
 
-  it('retries a failed replacement prompt and does not re-raise after confirmed delivery', async () => {
+  it('retries an accurate partial-recovery prompt and does not re-raise after confirmed delivery', async () => {
     const job = pausedJob(1);
     job.access_requirements = [
       { target: { kind: 'tool_rule', rule: 'Browser' } },
@@ -764,6 +764,20 @@ describe('permission recovery', () => {
         }),
       );
       expect(runPermissionInteraction).toHaveBeenCalledTimes(1);
+      expect(
+        runPermissionInteraction.mock.calls[0]?.[0].decisionReason,
+      ).toContain('Triggering step: Setup recheck after an access update');
+      expect(
+        runPermissionInteraction.mock.calls[0]?.[0].decisionReason,
+      ).toContain(
+        'Run outcome: Not started — setup is still blocked; no replacement run started.',
+      );
+      expect(
+        runPermissionInteraction.mock.calls[0]?.[0].decisionReason,
+      ).not.toContain('Permission check during the run');
+      expect(
+        runPermissionInteraction.mock.calls[0]?.[0].decisionReason,
+      ).not.toContain('this run stopped before completing');
 
       await recheckSetupPausedJobsAfterCapabilityUpdate(input);
 
