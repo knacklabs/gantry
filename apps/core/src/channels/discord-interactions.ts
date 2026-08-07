@@ -35,6 +35,7 @@ import {
   PERMISSION_CUSTOM_ID_PREFIX,
   permissionCustomId,
   QUESTION_CUSTOM_ID_PREFIX,
+  SCHEDULER_PAUSE_JOB_CUSTOM_ID_PREFIX,
   SCHEDULER_RUN_NOW_CUSTOM_ID_PREFIX,
 } from './discord-components.js';
 import {
@@ -314,6 +315,8 @@ export class DiscordInteractionHandler {
         });
         return;
       }
+      if (customId.startsWith(SCHEDULER_PAUSE_JOB_CUSTOM_ID_PREFIX))
+        return void this.ackInteraction(interaction, 'Use scheduler to pause.');
       if (customId.startsWith(PERMISSION_CUSTOM_ID_PREFIX)) {
         await this.handlePermissionInteraction(interaction, customId);
         return;
@@ -655,7 +658,6 @@ export class DiscordInteractionHandler {
       answeredBy: user?.id,
     });
   }
-
   private async openRichFormInteraction(
     interaction: DiscordInteraction,
     customId: string,
@@ -669,7 +671,6 @@ export class DiscordInteractionHandler {
       ackInteraction: (message) => this.ackInteraction(interaction, message),
     });
   }
-
   private async isInteractionApproverAllowed(
     interaction: DiscordInteraction,
     userId: string | undefined,

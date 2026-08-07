@@ -19,6 +19,9 @@ import { PermissionManagementService } from '../permissions/permission-managemen
 
 export interface PermissionPersistenceBackend {
   opsRepository: RuntimeJobRepository;
+  beforePersistentGrant?: (
+    request: PermissionApprovalRequest,
+  ) => Promise<boolean>;
   getToolRepository?: () => ToolCatalogRepository | undefined;
   getPermissionRepository?: () => PermissionRepository | undefined;
   mirrorAgentToolRulesToSettings?: (
@@ -38,6 +41,15 @@ export interface PermissionPersistenceBackend {
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
   getBrowserStatus?: JobManagementServiceDeps['getBrowserStatus'];
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
+  sendQueuedReceipt?: (
+    job: import('../../domain/types.js').Job,
+    recoveryTransitionId: string,
+  ) => Promise<unknown>;
+  notifySetupRequired?: (input: {
+    job: import('../../domain/types.js').Job;
+    setupState: NonNullable<import('../../domain/types.js').Job['setup_state']>;
+    previousFingerprint?: string;
+  }) => Promise<boolean>;
 }
 
 function persistentPermissionScopeRequest(
@@ -64,6 +76,12 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
   if (!toolRepository || !mirrorAgentToolRulesToSettings) return false;
   const updates = input.decision.updatedPermissions ?? [];
   if (updates.length === 0) return false;
+  if (
+    input.persistence.beforePersistentGrant &&
+    !(await input.persistence.beforePersistentGrant(input.request))
+  ) {
+    return false;
+  }
   const scopedRequest = persistentPermissionScopeRequest(input.request);
   const permissionService = new PermissionManagementService();
   await permissionService.applyPersistentToolRuleGrant({
@@ -92,6 +110,7 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
     sourceAgentFolder: input.sourceAgentFolder,
     conversationJid: input.request.targetJid,
     jobId: input.request.jobId,
+    recoveringPermissionRequestId: input.request.requestId,
     opsRepository: input.persistence.opsRepository,
     scheduler: {
       requestSchedulerSync: input.persistence.onSchedulerChanged ?? (() => {}),
@@ -104,6 +123,8 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
     credentialBroker: await input.persistence.getCredentialBroker?.(),
     getBrowserStatus: input.persistence.getBrowserStatus,
     publishRuntimeEvent: input.persistence.publishRuntimeEvent,
+    sendQueuedReceipt: input.persistence.sendQueuedReceipt,
+    notifySetupRequired: input.persistence.notifySetupRequired,
   });
   await input.onApplied?.(recovery);
   return true;

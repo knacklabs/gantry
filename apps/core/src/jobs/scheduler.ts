@@ -205,6 +205,7 @@ export async function startSchedulerLoop(
         releases,
         opsRepository: callbackDeps.opsRepository,
         sendMessage: callbackDeps.sendMessage,
+        updateLifecycleNotification: callbackDeps.updateLifecycleNotification,
         controlRepository: getRuntimeControlRepository(),
         publishRuntimeEvent: async (event) => {
           await getRuntimeEventExchange().publish(event);

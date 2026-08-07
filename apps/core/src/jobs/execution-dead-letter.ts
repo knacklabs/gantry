@@ -188,6 +188,7 @@ export async function deadLetterUnresolvedExecutionContext(input: {
     pauseReason: errorSummary,
     durationMs: Math.max(0, nowMs() - input.startedAtMs),
     sendMessage: input.deps.sendMessage,
+    updateLifecycleNotification: input.deps.updateLifecycleNotification,
   });
   if (notified) await input.deps.opsRepository.markJobRunNotified(input.runId);
   await publishRuntimeEvent(RUNTIME_EVENT_TYPES.JOB_FAILED, {

@@ -1,12 +1,7 @@
 // prettier-ignore
 import type { Job, JobAccessRequirement, JobCapabilityRequirementImplementation, JobEvent, JobRun } from '../../../../domain/repositories/domain-types.js';
-import type {
-  JobEventListFilters,
-  JobListFilters,
-  JobRunListFilters,
-  JobUpsertInput,
-  ReleasedStaleJobLease,
-} from '../../../../domain/repositories/ops-repo.js';
+// prettier-ignore
+import type { JobEventListFilters, JobListFilters, JobRunListFilters, JobUpsertInput, ReleasedStaleJobLease, SetupPausedJobRecoveryClaim, SetupPausedJobRecoveryRefresh } from '../../../../domain/repositories/ops-repo.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import {
   CANONICAL_APP_ID,
@@ -118,6 +113,14 @@ export class CanonicalJobOpsService {
       }),
       coordinationUpdateFromJob(updates, options),
     );
+  }
+
+  async resumeSetupPausedJob(input: SetupPausedJobRecoveryClaim) {
+    return this.repository.resumeSetupPausedJob(input);
+  }
+
+  async refreshSetupPausedJob(input: SetupPausedJobRecoveryRefresh) {
+    return this.repository.refreshSetupPausedJob(input);
   }
 
   async markJobSetupNotified(

@@ -23,13 +23,16 @@ import {
   assertHostAccessSnapshot,
   type AgentAccessSnapshot,
 } from '../application/agent-execution/agent-access-snapshot.js';
+import { raiseSetupPausePermissionPrompt } from '../application/jobs/setup-pause-permission-prompt.js';
+import { logger } from '../infrastructure/logging/logger.js';
 
 type JobSetupCheckSource =
   | 'preflight_setup'
   | 'final_setup'
   | 'permission_denied'
   | 'permission_timeout'
-  | 'transient_permission';
+  | 'transient_permission'
+  | 'partial_recovery';
 
 export async function pauseJobForSetupIfNeeded(input: {
   currentJob: Job;
@@ -153,22 +156,93 @@ async function pauseAndNotify(input: {
 
 export async function notifyJobSetupRequired(input: {
   currentJob: Job;
-  deps: SchedulerDependencies;
+  deps: {
+    sendMessage: SchedulerDependencies['sendMessage'];
+    opsRepository: Pick<
+      SchedulerDependencies['opsRepository'],
+      'markJobSetupNotified'
+    >;
+  };
   runtimeAppId: string;
   appSession?: SchedulerEventAppSession;
   setupState: NonNullable<Job['setup_state']>;
+  previousFingerprint?: string | null;
   source?: JobSetupCheckSource;
   runId?: string | null;
   publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
   suppressNotification?: boolean;
 }): Promise<boolean> {
-  const notified = input.suppressNotification
-    ? false
-    : await notifySchedulerSetupRequired({
-        job: input.currentJob,
-        setupState: input.setupState,
-        sendMessage: input.deps.sendMessage,
+  const notificationEligible =
+    !input.suppressNotification &&
+    !input.currentJob.silent &&
+    input.setupState.notified_fingerprint !== input.setupState.fingerprint;
+  let prompt: Awaited<ReturnType<typeof raiseSetupPausePermissionPrompt>> = {
+    status: 'instruction_only',
+    notificationEligible: true,
+  };
+  let promptPreparationFailed = false;
+  if (notificationEligible) {
+    try {
+      prompt = await raiseSetupPausePermissionPrompt({
+        jobId: input.currentJob.id,
+        setupFingerprint: input.setupState.fingerprint,
+        previousFingerprint:
+          input.previousFingerprint ??
+          input.currentJob.setup_state?.fingerprint,
+        source: input.source,
+        runId: input.runId,
       });
+    } catch (err) {
+      logger.warn(
+        {
+          err,
+          jobId: input.currentJob.id,
+          setupFingerprint: input.setupState.fingerprint,
+        },
+        'Failed to prepare setup-pause permission prompt; continuing with setup card',
+      );
+      promptPreparationFailed = true;
+    }
+  }
+  const cardNotified = !notificationEligible
+    ? false
+    : prompt.status === 'instruction_only' &&
+        prompt.notificationEligible === false
+      ? false
+      : await notifySchedulerSetupRequired({
+          job: input.currentJob,
+          setupState: input.setupState,
+          source: input.source,
+          runId: input.runId,
+          ...(prompt.status === 'raised'
+            ? { excludeRoute: prompt.approverRoute }
+            : prompt.status === 'already_pending'
+              ? { includeRoute: prompt.approverRoute }
+              : {}),
+          sendMessage: input.deps.sendMessage,
+        });
+  const promptNotified =
+    prompt.status === 'raised' ? await prompt.delivered : false;
+  const fallbackNotified =
+    prompt.status === 'raised' && !promptNotified
+      ? await notifySchedulerSetupRequired({
+          job: {
+            ...input.currentJob,
+            notification_routes: [],
+          },
+          setupState: input.setupState,
+          source: input.source,
+          runId: input.runId,
+          includeRoute: prompt.approverRoute,
+          sendMessage: input.deps.sendMessage,
+        })
+      : false;
+  const notified =
+    prompt.status === 'raised'
+      ? promptNotified || fallbackNotified
+      : promptPreparationFailed
+        ? false
+        : cardNotified;
   if (notified) {
     await input.deps.opsRepository.markJobSetupNotified(
       input.currentJob.id,
