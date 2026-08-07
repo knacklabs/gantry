@@ -368,6 +368,31 @@ describe('ipc-interaction-handler', () => {
     const saveDecision = vi.fn(async () => undefined);
     const publishRuntimeEvent = vi.fn(async () => undefined);
     const sendMessage = vi.fn(async () => undefined);
+    const refreshSetupPausedJob = vi.fn(async () => true);
+    const resumeSetupPausedJob = vi.fn(async () => true);
+    const listJobs = vi.fn(async () => [
+      {
+        id: 'job-still-blocked',
+        name: 'Lead sync',
+        workspace_key: 'main_agent',
+        status: 'paused',
+        pause_reason: 'Setup required',
+        execution_context: {
+          conversationJid: 'tg:team',
+          threadId: 'topic-7',
+          workspaceKey: 'main_agent',
+        },
+        access_requirements: [
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
+        ],
+        setup_state: {
+          state: 'missing_capability',
+          checked_at: '2026-05-14T00:00:00.000Z',
+          fingerprint: 'browser-missing',
+          blockers: [],
+        },
+      },
+    ]);
     const toolRepository = {
       getTool: vi.fn(async () => ({
         id: 'tool:mcp__gantry__admin_permission_list',
@@ -413,30 +438,10 @@ describe('ipc-interaction-handler', () => {
         sendMessage,
         publishRuntimeEvent,
         opsRepository: {
-          listJobs: vi.fn(async () => [
-            {
-              id: 'job-still-blocked',
-              name: 'Lead sync',
-              workspace_key: 'main_agent',
-              status: 'paused',
-              pause_reason: 'Setup required',
-              execution_context: {
-                conversationJid: 'tg:team',
-                threadId: 'topic-7',
-                workspaceKey: 'main_agent',
-              },
-              access_requirements: [
-                { target: { kind: 'tool_rule', rule: 'Browser' } },
-              ],
-              setup_state: {
-                state: 'missing_capability',
-                checked_at: '2026-05-14T00:00:00.000Z',
-                fingerprint: 'browser-missing',
-                blockers: [],
-              },
-            },
-          ]),
+          listJobs,
           getJobById: vi.fn(async () => null),
+          refreshSetupPausedJob,
+          resumeSetupPausedJob,
           updateJob: vi.fn(async () => null),
         } as never,
         getToolRepository: () => toolRepository as never,
@@ -466,9 +471,15 @@ describe('ipc-interaction-handler', () => {
     const publishedEvents = publishRuntimeEvent.mock.calls.map(
       (call) => call[0],
     );
-    expect(publishedEvents.map((event) => event.eventType)).toContain(
+    expect(publishedEvents.map((event) => event.eventType)).toEqual([
+      'interaction.pending',
+      'permission.requested',
+      'permission.allowed',
+      'permission.final_outcome',
       'permission.persisted',
-    );
+      'permission.resumed',
+      'permission.final_outcome',
+    ]);
     const persistedEvent = publishedEvents.find(
       (event) => event.eventType === 'permission.persisted',
     );
@@ -478,6 +489,23 @@ describe('ipc-interaction-handler', () => {
         threadId: undefined,
       }),
     );
+    expect(refreshSetupPausedJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'job-still-blocked',
+        expectedSetupCheckedAt: '2026-05-14T00:00:00.000Z',
+        expectedPauseReason: 'Setup required',
+        setupState: expect.objectContaining({ state: 'missing_capability' }),
+      }),
+    );
+    expect(listJobs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationJid: 'tg:team',
+        orderBy: 'created_at',
+        statuses: ['paused'],
+        workspaceKey: 'main_agent',
+      }),
+    );
+    expect(resumeSetupPausedJob).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:team',
       'Still needs setup: request_access {"target":{"kind":"capability","id":"browser.use"},"temporaryOnly":false,"reason":"This autonomous run requires Browser access."}.',
