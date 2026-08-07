@@ -78,14 +78,13 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
   > = async ({ job, runId, summaryMessage }) => {
     const routes = resolveJobNotificationRoutes(job);
     const capture = capturesByRun.get(runId);
-    capturesByRun.delete(runId);
     if (capture) capture.terminalSummary = summaryMessage;
-    return Promise.all(
+    const outcomes = await Promise.all(
       routes.map(async (route) => {
         const key = routeKey(route);
         const identity = capture?.identities.get(key);
         if (!identity) {
-          return { route, status: 'unsupported' };
+          return { route, status: 'unsupported' } as const;
         }
         try {
           const updated = await input.channelWiring.sendProgressUpdate(
@@ -105,10 +104,19 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
           } as const;
           return outcome;
         } catch {
-          return { route, status: 'failed' };
+          return { route, status: 'failed' } as const;
         }
       }),
     );
+    if (capture) {
+      for (const outcome of outcomes) {
+        if (outcome.status === 'updated') {
+          capture.identities.delete(routeKey(outcome.route));
+        }
+      }
+      if (capture.identities.size === 0) capturesByRun.delete(runId);
+    }
+    return outcomes;
   };
 
   return {

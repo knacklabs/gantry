@@ -383,6 +383,153 @@ describe('permission recovery', () => {
     expect(receipts).toEqual(['2026-08-06T00:00:00.000Z']);
   });
 
+  it('re-reads and resumes after losing the ready-job claim once', async () => {
+    const job = pausedJob(1);
+    const requestSchedulerSync = vi.fn();
+    const getJobById = vi.fn(async () => job);
+    const resumeSetupPausedJob = vi
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockImplementationOnce(async ({ setupState }) => {
+        Object.assign(job, {
+          status: 'active',
+          pause_reason: null,
+          setup_state: setupState,
+        });
+        return true;
+      });
+
+    const result = await recheckSetupPausedJobsAfterCapabilityUpdate({
+      appId: 'default',
+      sourceAgentFolder: 'team',
+      jobId: job.id,
+      opsRepository: {
+        getJobById,
+        resumeSetupPausedJob,
+      } as unknown as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync },
+      clock: { now: () => '2026-08-06T00:05:00.000Z' },
+    });
+
+    expect(getJobById).toHaveBeenCalledTimes(2);
+    expect(resumeSetupPausedJob).toHaveBeenCalledTimes(2);
+    expect(result.queued).toEqual([
+      { jobId: job.id, name: job.name, state: 'queued' },
+    ]);
+    expect(requestSchedulerSync).toHaveBeenCalledWith(job.id);
+  });
+
+  it('syncs a job activated by the concurrent winner of a lost resume claim', async () => {
+    const job = pausedJob(1);
+    const requestSchedulerSync = vi.fn();
+    const resumeSetupPausedJob = vi.fn(async () => {
+      Object.assign(job, {
+        status: 'active',
+        pause_reason: null,
+        setup_state: {
+          ...job.setup_state!,
+          state: 'ready',
+        },
+      });
+      return false;
+    });
+
+    const result = await recheckSetupPausedJobsAfterCapabilityUpdate({
+      appId: 'default',
+      sourceAgentFolder: 'team',
+      jobId: job.id,
+      opsRepository: {
+        getJobById: vi.fn(async () => job),
+        resumeSetupPausedJob,
+      } as unknown as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync },
+      clock: { now: () => '2026-08-06T00:05:00.000Z' },
+    });
+
+    expect(resumeSetupPausedJob).toHaveBeenCalledOnce();
+    expect(requestSchedulerSync).toHaveBeenCalledOnce();
+    expect(requestSchedulerSync).toHaveBeenCalledWith(job.id);
+    expect(result).toEqual({ checked: 0, queued: [], stillBlocked: [] });
+  });
+
+  it('re-evaluates a concurrent grant after losing the blocked-state refresh', async () => {
+    const job = pausedJob(1);
+    job.access_requirements = [
+      { target: { kind: 'tool_rule', rule: 'Browser' } },
+    ];
+    let browserGranted = false;
+    const requestSchedulerSync = vi.fn();
+    const refreshSetupPausedJob = vi.fn(async () => {
+      browserGranted = true;
+      return false;
+    });
+    const resumeSetupPausedJob = vi.fn(async ({ setupState }) => {
+      Object.assign(job, {
+        status: 'active',
+        pause_reason: null,
+        setup_state: setupState,
+      });
+      return true;
+    });
+
+    const result = await recheckSetupPausedJobsAfterCapabilityUpdate({
+      appId: 'default',
+      sourceAgentFolder: 'team',
+      jobId: job.id,
+      opsRepository: {
+        getJobById: vi.fn(async () => job),
+        refreshSetupPausedJob,
+        resumeSetupPausedJob,
+      } as unknown as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync },
+      toolRepository: {
+        listAgentToolBindings: vi.fn(async () =>
+          browserGranted ? [{ status: 'active', toolId: 'tool:browser' }] : [],
+        ),
+        getTool: vi.fn(async () => ({
+          appId: 'default',
+          id: 'tool:browser',
+          name: 'Browser',
+          selectable: true,
+          status: 'active',
+        })),
+      } as never,
+      clock: { now: () => '2026-08-06T00:05:00.000Z' },
+    });
+
+    expect(refreshSetupPausedJob).toHaveBeenCalledTimes(1);
+    expect(resumeSetupPausedJob).toHaveBeenCalledTimes(1);
+    expect(result.queued).toEqual([
+      { jobId: job.id, name: job.name, state: 'queued' },
+    ]);
+    expect(requestSchedulerSync).toHaveBeenCalledWith(job.id);
+  });
+
+  it('bounds re-evaluation after repeated lost resume claims', async () => {
+    const job = pausedJob(1);
+    const getJobById = vi.fn(async () => job);
+    const resumeSetupPausedJob = vi.fn(async () => false);
+    const requestSchedulerSync = vi.fn();
+
+    const result = await recheckSetupPausedJobsAfterCapabilityUpdate({
+      appId: 'default',
+      sourceAgentFolder: 'team',
+      jobId: job.id,
+      opsRepository: {
+        getJobById,
+        resumeSetupPausedJob,
+      } as unknown as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync },
+      clock: { now: () => '2026-08-06T00:05:00.000Z' },
+    });
+
+    expect(getJobById).toHaveBeenCalledTimes(2);
+    expect(resumeSetupPausedJob).toHaveBeenCalledTimes(2);
+    expect(requestSchedulerSync).toHaveBeenCalledOnce();
+    expect(requestSchedulerSync).toHaveBeenCalledWith(job.id);
+    expect(result).toEqual({ checked: 0, queued: [], stillBlocked: [] });
+  });
+
   it('does not resume a job whose pause reason changed before the atomic claim', async () => {
     const job = pausedJob(1);
     const sendQueuedReceipt = vi.fn();

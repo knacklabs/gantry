@@ -13,6 +13,10 @@ const runtimeStore = vi.hoisted(() => ({
   bindTriggerToRun: vi.fn(async () => null),
   getAppSessionById: vi.fn(async () => null),
   markTriggerCompleted: vi.fn(async () => undefined),
+  runSystemJobTurn: vi.fn(async () => ({
+    result: 'System job completed.',
+    error: null as string | null,
+  })),
 }));
 
 vi.mock('@core/config/index.js', async (importOriginal) => {
@@ -48,10 +52,7 @@ vi.mock('@core/jobs/worker-identity.js', () => ({
 }));
 
 vi.mock('@core/jobs/execution-system-job.js', () => ({
-  runSystemJobTurn: vi.fn(async () => ({
-    result: 'System job completed.',
-    error: null,
-  })),
+  runSystemJobTurn: runtimeStore.runSystemJobTurn,
 }));
 
 vi.mock('@core/shared/system-job-identity.js', async (importOriginal) => {
@@ -176,6 +177,10 @@ describe('lifecycle retirement', () => {
   beforeEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+    runtimeStore.runSystemJobTurn.mockResolvedValue({
+      result: 'System job completed.',
+      error: null,
+    });
   });
 
   it('starts the lease heartbeat before lifecycle card provider I/O settles', async () => {
@@ -469,6 +474,117 @@ describe('lifecycle retirement', () => {
     );
     expect(discardLifecycleNotification).toHaveBeenCalledWith(
       expect.any(String),
+    );
+  });
+
+  it('retires a nominally completed run as stopped unexpectedly when settlement fails', async () => {
+    const job = makeJob();
+    const primary = terminalDeps(job);
+    primary.repository.finalizeJobRunWithLease.mockRejectedValue(
+      new Error('terminal settlement failed'),
+    );
+
+    await expect(runJob(job, primary.deps, 'tg:scheduler')).rejects.toThrow(
+      'terminal settlement failed',
+    );
+
+    expect(primary.updateLifecycleNotification).toHaveBeenCalledTimes(1);
+    expect(primary.updateLifecycleNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        job,
+        runStatus: 'failed',
+        summaryMessage: expect.stringContaining('stopped unexpectedly'),
+      }),
+    );
+    expect(primary.updateLifecycleNotification).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        runStatus: 'completed',
+      }),
+    );
+  });
+
+  it.each([
+    {
+      name: 'completed result',
+      outcome: { result: 'Completed with 42 processed records.', error: null },
+      status: 'completed' as const,
+      summary: '42 processed records',
+    },
+    {
+      name: 'failure error',
+      outcome: { result: null, error: 'Upstream report export failed.' },
+      status: 'failed' as const,
+      summary: 'Upstream report export failed',
+    },
+  ])(
+    'retries lifecycle retirement with the actual $name summary after a post-settlement update throws',
+    async ({ outcome, status, summary }) => {
+      const job = makeJob();
+      const primary = terminalDeps(job);
+      runtimeStore.runSystemJobTurn.mockResolvedValueOnce(outcome);
+      primary.updateLifecycleNotification
+        .mockRejectedValueOnce(new Error('terminal card update failed'))
+        .mockResolvedValueOnce([
+          {
+            route: {
+              conversationJid: 'tg:scheduler',
+              threadId: 'thread-1',
+              label: 'Primary',
+            },
+            status: 'updated',
+          },
+        ]);
+
+      await expect(runJob(job, primary.deps, 'tg:scheduler')).rejects.toThrow(
+        'terminal card update failed',
+      );
+
+      expect(primary.repository.finalizeJobRunWithLease).toHaveBeenCalled();
+      expect(primary.updateLifecycleNotification).toHaveBeenCalledTimes(2);
+      const [initial, retry] =
+        primary.updateLifecycleNotification.mock.calls.map(([input]) => input);
+      expect(initial).toEqual(
+        expect.objectContaining({ job, runStatus: status }),
+      );
+      expect(retry).toEqual(
+        expect.objectContaining({ job, runStatus: status }),
+      );
+      expect(retry?.summaryMessage).toContain(summary);
+      expect(retry?.summaryMessage).not.toBe(`Job ${status}: ${job.name}.`);
+    },
+  );
+
+  it('does not suppress fallback retirement for a failed route outcome', async () => {
+    const job = makeJob();
+    const primary = terminalDeps(job);
+    let terminalAttempts = 0;
+    const sendProgressUpdate = vi.fn(async (_jid: string, text: string) => {
+      if (text.startsWith('Running:')) return true;
+      terminalAttempts += 1;
+      if (terminalAttempts === 1) {
+        throw new Error('provider update rejected');
+      }
+      return true;
+    });
+    Object.assign(
+      primary.deps,
+      createSchedulerLifecycleNotificationUpdater({
+        channelWiring: { sendProgressUpdate },
+      }),
+    );
+
+    await runJob(job, primary.deps, 'tg:scheduler');
+
+    const terminalCalls = sendProgressUpdate.mock.calls.filter(
+      ([, text]) => !text.startsWith('Running:'),
+    );
+    expect(terminalCalls).toHaveLength(2);
+    expect(terminalCalls[1]?.[2]).toEqual(
+      expect.objectContaining({
+        done: true,
+        replaceOnly: true,
+        progressCardIdentity: terminalCalls[0]?.[2]?.progressCardIdentity,
+      }),
     );
   });
 

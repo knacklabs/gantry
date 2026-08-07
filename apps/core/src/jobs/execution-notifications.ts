@@ -48,45 +48,94 @@ export type { SchedulerSetupStorySource } from '../application/jobs/scheduler-se
 
 const LIFECYCLE_EXIT_NOTIFICATION_TIMEOUT_MS = 5_000;
 
-export async function retireSchedulerLifecycleOnExecutionExit(
+export function schedulerTerminalRunSummary(
+  errorSummary: string | null,
+  resultSummary: string | null,
+): string {
+  return errorSummary
+    ? errorSummary.slice(0, 1_200)
+    : resultSummary
+      ? resultSummary.slice(0, 4_000)
+      : 'Completed, no reportable output.';
+}
+
+export function createSchedulerLifecycleRetirementTracker(
   job: Job,
   runId: string,
-  deleted: boolean,
-  settled: boolean,
   lifecycle: {
     updateLifecycleNotification?: (input: {
       job: Job;
       runId: string;
-      runStatus: 'failed';
+      runStatus: TerminalRunStatus;
       summaryMessage: string;
-    }) => Promise<unknown>;
+    }) => Promise<JobNotificationLifecycleUpdateResult>;
     discardLifecycleNotification?: (runId: string) => void;
   },
-): Promise<void> {
-  try {
-    const update =
-      (!settled || deleted) &&
-      lifecycle.updateLifecycleNotification?.({
-        job,
-        runId,
-        runStatus: 'failed',
-        summaryMessage: deleted
-          ? `Job stopped: ${job.name} was deleted.`
-          : `Job stopped unexpectedly: ${job.name}.`,
-      });
-    if (update) {
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      await Promise.race([
-        update.catch(() => undefined),
-        new Promise<void>((resolve) => {
-          timeout = setTimeout(resolve, LIFECYCLE_EXIT_NOTIFICATION_TIMEOUT_MS);
-          timeout.unref?.();
-        }),
-      ]).finally(() => clearTimeout(timeout));
-    }
-  } finally {
-    lifecycle.discardLifecycleNotification?.(runId);
-  }
+): {
+  captureTerminal(runStatus: TerminalRunStatus, summaryMessage: string): void;
+  updateLifecycleNotification: typeof lifecycle.updateLifecycleNotification;
+  retire(deleted: boolean): Promise<void>;
+} {
+  let lifecycleRetired = false;
+  let routesPendingRetirement: NormalizedJobNotificationRoute[] | undefined;
+  let terminal:
+    | { runStatus: TerminalRunStatus; summaryMessage: string }
+    | undefined;
+  const updateLifecycleNotification = lifecycle.updateLifecycleNotification
+    ? async (
+        input: Parameters<
+          NonNullable<typeof lifecycle.updateLifecycleNotification>
+        >[0],
+      ) => {
+        const outcomes = await lifecycle.updateLifecycleNotification!(input);
+        routesPendingRetirement = outcomes
+          .filter((outcome) => outcome.status !== 'updated')
+          .map((outcome) => outcome.route);
+        lifecycleRetired =
+          outcomes.length > 0 && routesPendingRetirement.length === 0;
+        return outcomes;
+      }
+    : undefined;
+  return {
+    captureTerminal: (runStatus, summaryMessage) => {
+      terminal = { runStatus, summaryMessage };
+    },
+    updateLifecycleNotification,
+    retire: async (deleted) => {
+      try {
+        const update =
+          (!lifecycleRetired || deleted) &&
+          lifecycle.updateLifecycleNotification?.({
+            job:
+              !deleted && routesPendingRetirement?.length
+                ? { ...job, notification_routes: routesPendingRetirement }
+                : job,
+            runId,
+            runStatus: deleted ? 'failed' : (terminal?.runStatus ?? 'failed'),
+            summaryMessage: deleted
+              ? `Job stopped: ${job.name} was deleted.`
+              : terminal
+                ? terminal.summaryMessage
+                : `Job stopped unexpectedly: ${job.name}.`,
+          });
+        if (update) {
+          let timeout: ReturnType<typeof setTimeout> | undefined;
+          await Promise.race([
+            update.catch(() => undefined),
+            new Promise<void>((resolve) => {
+              timeout = setTimeout(
+                resolve,
+                LIFECYCLE_EXIT_NOTIFICATION_TIMEOUT_MS,
+              );
+              timeout.unref?.();
+            }),
+          ]).finally(() => clearTimeout(timeout));
+        }
+      } finally {
+        lifecycle.discardLifecycleNotification?.(runId);
+      }
+    },
+  };
 }
 
 function recoveryActionAffordances(input: {

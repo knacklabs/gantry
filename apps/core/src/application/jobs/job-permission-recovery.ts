@@ -76,82 +76,7 @@ export async function recheckSetupPausedJobsAfterCapabilityUpdate(
   do {
     const candidates = await listCandidateJobs(input, pageAfter);
     for (const job of candidates) {
-      if (!isSetupPausedJob(job)) continue;
-      const readiness = await evaluateJobReadiness({
-        job,
-        appId: input.appId,
-        agentId: agentIdForJobWorkspaceKey(input.sourceAgentFolder),
-        toolRepository: input.toolRepository,
-        skillRepository: input.skillRepository,
-        mcpServerRepository: input.mcpServerRepository,
-        capabilitySecretRepository: input.capabilitySecretRepository,
-        credentialBroker: input.credentialBroker,
-        getBrowserStatus: input.getBrowserStatus,
-        clock: input.clock,
-      });
-      if (readiness.ready) {
-        const recoveryTransitionId =
-          job.setup_state?.checked_at ?? job.updated_at;
-        const claimed = await input.opsRepository.resumeSetupPausedJob({
-          jobId: job.id,
-          expectedSetupCheckedAt: recoveryTransitionId,
-          expectedPauseReason: SETUP_REQUIRED_PAUSE_REASON,
-          nextRun: now,
-          setupState: readiness.setupState,
-        });
-        if (!claimed) continue;
-        queued.push({ jobId: job.id, name: job.name, state: 'queued' });
-        try {
-          if (
-            input.recoveringPermissionRequestId !==
-            setupPausePermissionRequestId(job.id, job.setup_state!.fingerprint)
-          ) {
-            try {
-              await retireSetupPausePermissionPrompt({
-                job,
-                reason:
-                  'The job setup requirement was resolved by another grant.',
-              });
-            } catch (err) {
-              logger.warn(
-                { err, jobId: job.id },
-                'Failed to retire setup-pause permission prompt after job recovery',
-              );
-            }
-          }
-          await sendQueuedReceipt(input, job, recoveryTransitionId);
-          await publishRecheckEvent(input, job, 'queued', readiness.setupState);
-        } finally {
-          input.scheduler.requestSchedulerSync(job.id);
-        }
-        continue;
-      }
-      const previousFingerprint = job.setup_state?.fingerprint;
-      const refreshed = await input.opsRepository.refreshSetupPausedJob({
-        jobId: job.id,
-        expectedSetupCheckedAt: job.setup_state?.checked_at ?? job.updated_at,
-        expectedPauseReason: SETUP_REQUIRED_PAUSE_REASON,
-        setupState: readiness.setupState,
-      });
-      if (!refreshed) continue;
-      await notifyStillBlockedSetupPrompt({
-        recheckInput: input,
-        job,
-        setupState: readiness.setupState,
-        previousFingerprint,
-      });
-      stillBlocked.push({
-        jobId: job.id,
-        name: job.name,
-        state: 'still_blocked',
-        nextAction: readiness.setupState.blockers[0]?.nextAction,
-      });
-      await publishRecheckEvent(
-        input,
-        job,
-        'still_blocked',
-        readiness.setupState,
-      );
+      await recheckCandidateJob(input, job, now, queued, stillBlocked);
     }
     const last = candidates.at(-1);
     pageAfter =
@@ -167,6 +92,138 @@ export async function recheckSetupPausedJobsAfterCapabilityUpdate(
     queued,
     stillBlocked,
   };
+}
+
+async function recheckCandidateJob(
+  input: RecheckPausedJobsAfterCapabilityUpdateInput,
+  initialJob: Job,
+  now: string,
+  queued: RecheckedSetupJob[],
+  stillBlocked: RecheckedSetupJob[],
+): Promise<void> {
+  let job = initialJob;
+  for (let attempt = 0; attempt <= RECOVERY_CAS_RETRY_LIMIT; attempt += 1) {
+    if (!isSetupPausedJob(job)) return;
+    const readiness = await evaluateJobReadiness({
+      job,
+      appId: input.appId,
+      agentId: agentIdForJobWorkspaceKey(input.sourceAgentFolder),
+      toolRepository: input.toolRepository,
+      skillRepository: input.skillRepository,
+      mcpServerRepository: input.mcpServerRepository,
+      capabilitySecretRepository: input.capabilitySecretRepository,
+      credentialBroker: input.credentialBroker,
+      getBrowserStatus: input.getBrowserStatus,
+      clock: input.clock,
+    });
+    if (readiness.ready) {
+      const recoveryTransitionId =
+        job.setup_state?.checked_at ?? job.updated_at;
+      const claimed = await input.opsRepository.resumeSetupPausedJob({
+        jobId: job.id,
+        expectedSetupCheckedAt: recoveryTransitionId,
+        expectedPauseReason: SETUP_REQUIRED_PAUSE_REASON,
+        nextRun: now,
+        setupState: readiness.setupState,
+      });
+      if (!claimed) {
+        if (attempt === RECOVERY_CAS_RETRY_LIMIT) {
+          input.scheduler.requestSchedulerSync(job.id);
+          return;
+        }
+        const reread = await rereadCandidateJob(input, job.id);
+        if (!reread) return;
+        if (!isSetupPausedJob(reread)) {
+          requestSyncForConcurrentReadyJob(input, reread);
+          return;
+        }
+        job = reread;
+        continue;
+      }
+      queued.push({ jobId: job.id, name: job.name, state: 'queued' });
+      try {
+        if (
+          input.recoveringPermissionRequestId !==
+          setupPausePermissionRequestId(job.id, job.setup_state!.fingerprint)
+        ) {
+          try {
+            await retireSetupPausePermissionPrompt({
+              job,
+              reason:
+                'The job setup requirement was resolved by another grant.',
+            });
+          } catch (err) {
+            logger.warn(
+              { err, jobId: job.id },
+              'Failed to retire setup-pause permission prompt after job recovery',
+            );
+          }
+        }
+        await sendQueuedReceipt(input, job, recoveryTransitionId);
+        await publishRecheckEvent(input, job, 'queued', readiness.setupState);
+      } finally {
+        input.scheduler.requestSchedulerSync(job.id);
+      }
+      return;
+    }
+    const previousFingerprint = job.setup_state?.fingerprint;
+    const refreshed = await input.opsRepository.refreshSetupPausedJob({
+      jobId: job.id,
+      expectedSetupCheckedAt: job.setup_state?.checked_at ?? job.updated_at,
+      expectedPauseReason: SETUP_REQUIRED_PAUSE_REASON,
+      setupState: readiness.setupState,
+    });
+    if (!refreshed) {
+      if (attempt === RECOVERY_CAS_RETRY_LIMIT) {
+        input.scheduler.requestSchedulerSync(job.id);
+        return;
+      }
+      const reread = await rereadCandidateJob(input, job.id);
+      if (!reread) return;
+      if (!isSetupPausedJob(reread)) {
+        requestSyncForConcurrentReadyJob(input, reread);
+        return;
+      }
+      job = reread;
+      continue;
+    }
+    await notifyStillBlockedSetupPrompt({
+      recheckInput: input,
+      job,
+      setupState: readiness.setupState,
+      previousFingerprint,
+    });
+    stillBlocked.push({
+      jobId: job.id,
+      name: job.name,
+      state: 'still_blocked',
+      nextAction: readiness.setupState.blockers[0]?.nextAction,
+    });
+    await publishRecheckEvent(
+      input,
+      job,
+      'still_blocked',
+      readiness.setupState,
+    );
+    return;
+  }
+}
+
+async function rereadCandidateJob(
+  input: RecheckPausedJobsAfterCapabilityUpdateInput,
+  jobId: string,
+): Promise<Job | undefined> {
+  const job = await input.opsRepository.getJobById(jobId);
+  return job && jobMatchesCapabilityRecoveryScope(job, input) ? job : undefined;
+}
+
+function requestSyncForConcurrentReadyJob(
+  input: RecheckPausedJobsAfterCapabilityUpdateInput,
+  job: Job,
+): void {
+  if (job.status === 'active' || job.setup_state?.state === 'ready') {
+    input.scheduler.requestSchedulerSync(job.id);
+  }
 }
 
 async function notifyStillBlockedSetupPrompt(notification: {
@@ -221,6 +278,7 @@ async function listCandidateJobs(
 }
 
 const RECOVERY_PAGE_SIZE = 100;
+const RECOVERY_CAS_RETRY_LIMIT = 1;
 
 async function sendQueuedReceipt(
   input: RecheckPausedJobsAfterCapabilityUpdateInput,

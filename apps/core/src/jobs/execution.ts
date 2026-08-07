@@ -40,7 +40,7 @@ import {
   resolveExecutionMemoryContext,
 } from './execution-context.js';
 // prettier-ignore
-import { logMemoryDreamJobFailure, notifySchedulerTerminalRunState, retireSchedulerLifecycleOnExecutionExit as retireExecutionLifecycle } from './execution-notifications.js';
+import { createSchedulerLifecycleRetirementTracker as trackLifecycle, logMemoryDreamJobFailure, notifySchedulerTerminalRunState, schedulerTerminalRunSummary as terminalSummary } from './execution-notifications.js';
 import type { MemoryReviewCreatedNotification } from './memory-dreaming-job-outcome.js';
 import {
   claimSchedulerRunLease,
@@ -208,6 +208,7 @@ async function runActiveJob(
   });
   let settled = false,
     deleted = false;
+  const lifecycle = trackLifecycle(currentJob, runId, deps);
   try {
     // prettier-ignore
     void deps.captureLifecycleNotification?.({ job: currentJob, runId })?.catch(() => deps.discardLifecycleNotification?.(runId));
@@ -706,12 +707,14 @@ async function runActiveJob(
     }
     if (runLeaseAbort.isAborted())
       await failSessionRun(deps.opsRepository, agentRunId, error);
+    const summary = terminalSummary(safeErrorSummary, safeResultSummary);
     if (!deletionGuard.deletedDuringRun) {
       await leaseContext.recordRunnerControlEvent('terminal_state', {
         outcome: error ? 'failed' : 'completed',
         fencingVersion: leaseContext.lease.fencingVersion,
       });
     }
+    lifecycle.captureTerminal(runStatus, summary);
     await emitJobEvent(runtimeEventTypeForRunStatus(runStatus), {
       next_run: nextRun,
       retry_count: retryCount,
@@ -735,11 +738,6 @@ async function runActiveJob(
         RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
         toolDenialEventPayload(toolDenial, safeErrorSummary),
       );
-    const summary = safeErrorSummary
-      ? safeErrorSummary.slice(0, 1_200)
-      : safeResultSummary
-        ? safeResultSummary.slice(0, 4_000)
-        : 'Completed, no reportable output.';
     logMemoryDreamJobFailure({ job: currentJob, runId, error, logger });
     const notified =
       !(await deletionGuard.shouldSuppressDelivery()) &&
@@ -756,7 +754,7 @@ async function runActiveJob(
         durationMs: Math.max(0, nowMs() - startedAtMs),
         runShortId,
         sendMessage: deps.sendMessage,
-        updateLifecycleNotification: deps.updateLifecycleNotification,
+        updateLifecycleNotification: lifecycle.updateLifecycleNotification,
         ...(memoryReviewNotification ? { memoryReviewNotification } : {}),
       }));
     if (notified) {
@@ -824,7 +822,7 @@ async function runActiveJob(
           logger,
         });
     } finally {
-      await retireExecutionLifecycle(currentJob, runId, deleted, settled, deps);
+      await lifecycle.retire(deleted);
     }
   }
 }
