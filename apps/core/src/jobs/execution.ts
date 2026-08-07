@@ -86,7 +86,6 @@ import type {
   SchedulerDependencies,
   SchedulerDispatchPayload,
 } from './types.js';
-
 export async function runJob(
   job: Job,
   deps: SchedulerDependencies,
@@ -173,7 +172,7 @@ async function runActiveJob(
     runId,
     publishRuntimeEvent,
   });
-  if (pausedForSetup) return;
+  if (pausedForSetup) return void deps.discardLifecycleNotification?.(runId);
   let executionProviderId = resolveJobExecutionProviderId({
     resolvedModel,
     executionAdapter: deps.executionAdapter,
@@ -195,7 +194,7 @@ async function runActiveJob(
     getCoordinationRepository: getWorkerCoordinationRepository,
     warn,
   });
-  if (!leaseContext) return;
+  if (!leaseContext) return void deps.discardLifecycleNotification?.(runId);
   const runLeaseAbort = createSchedulerRunLeaseAbort();
   const leaseHeartbeat = startSchedulerRunLeaseHeartbeat({
     runId,
@@ -207,9 +206,11 @@ async function runActiveJob(
     onLeaseLost: runLeaseAbort.abort,
     externalAbortSignal: control?.abortSignal,
   });
-  let terminalRunRecorded = false,
-    deletedDuringRun = false;
+  let settled = false,
+    deleted = false;
   try {
+    // prettier-ignore
+    void deps.captureLifecycleNotification?.({ job: currentJob, runId })?.catch(() => deps.discardLifecycleNotification?.(runId));
     const claimedRun = await deps.opsRepository.getJobRunById(runId);
     const runShortId = claimedRun?.short_id ?? null;
     const eventState = await bindSchedulerRunEventState({
@@ -621,7 +622,7 @@ async function runActiveJob(
     }
     const now = nowIso();
     await deletionGuard.isJobDeleted(true);
-    deletedDuringRun = deletionGuard.deletedDuringRun;
+    deleted = deletionGuard.deletedDuringRun;
     if (deletionGuard.deletedDuringRun) result = error = null;
     const safeResultSummary = deletionGuard.deletedDuringRun
       ? null
@@ -673,10 +674,10 @@ async function runActiveJob(
           'Scheduler run lease finalization is unavailable for terminal job write.',
           'Scheduler run lease is no longer active during terminal finalization.',
         );
-        terminalRunRecorded = true;
+        settled = true;
       },
     });
-    if (!terminalRunRecorded && !deletionGuard.deletedDuringRun) {
+    if (!settled && !deletionGuard.deletedDuringRun) {
       const finalizeRunLease = deps.opsRepository.finalizeJobRunLease;
       await requireTerminalSettlement(
         finalizeRunLease?.call(deps.opsRepository, {
@@ -701,7 +702,7 @@ async function runActiveJob(
         'Scheduler run lease finalization is unavailable for terminal run write.',
         'Scheduler run lease is no longer active during terminal finalization.',
       );
-      terminalRunRecorded = true;
+      settled = true;
     }
     if (runLeaseAbort.isAborted())
       await failSessionRun(deps.opsRepository, agentRunId, error);
@@ -755,6 +756,7 @@ async function runActiveJob(
         durationMs: Math.max(0, nowMs() - startedAtMs),
         runShortId,
         sendMessage: deps.sendMessage,
+        updateLifecycleNotification: deps.updateLifecycleNotification,
         ...(memoryReviewNotification ? { memoryReviewNotification } : {}),
       }));
     if (notified) {
@@ -812,7 +814,7 @@ async function runActiveJob(
     }
   } finally {
     leaseHeartbeat.stop();
-    if (!terminalRunRecorded && !deletedDuringRun) {
+    if (!settled && !deleted) {
       await completeFailedRunFailsafe({
         opsRepository: deps.opsRepository,
         jobId: currentJob.id,

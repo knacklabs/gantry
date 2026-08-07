@@ -124,6 +124,7 @@ import type { GroupProcessingDeps } from '../../runtime/group-processing-types.j
 import { createAttachmentOpen } from './attachment-resolver-wiring.js';
 import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { createProviderAttachmentMaterializer } from '../../shared/provider-attachment-materialization.js';
+import { createSchedulerLifecycleNotificationUpdater } from './scheduler-lifecycle-notification.js';
 export { stopAsyncTaskRecoveryLoop } from './runtime-services-async-task-recovery.js';
 
 export function createRuntimeProviderAttachmentMaterializer(app: RuntimeApp) {
@@ -396,6 +397,7 @@ export async function startRuntimeServices(
           ...(messageOptions ? { messageOptions } : {}),
         });
       },
+      ...createSchedulerLifecycleNotificationUpdater({ channelWiring }),
       sendStreamingChunk: channelWiring.sendStreamingChunk,
       resetStreaming: channelWiring.resetStreaming,
       onSchedulerChanged,

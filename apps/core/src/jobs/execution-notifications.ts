@@ -24,16 +24,25 @@ import {
   type SchedulerSetupStorySource,
 } from '../application/jobs/scheduler-setup-story.js';
 import { humanizeTechnicalIdentifier } from '../shared/user-visible-messages.js';
+import type { NormalizedJobNotificationRoute } from './job-notification-routes.js';
 
 type TerminalRunStatus = Extract<
   JobRunStatus,
   'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered'
 >;
 
-export type JobNotificationLifecycleUpdateResult =
+export type JobNotificationLifecycleRouteStatus =
   | 'updated'
   | 'unsupported'
   | 'failed';
+
+export interface JobNotificationLifecycleRouteOutcome {
+  route: NormalizedJobNotificationRoute;
+  status: JobNotificationLifecycleRouteStatus;
+}
+
+export type JobNotificationLifecycleUpdateResult =
+  JobNotificationLifecycleRouteOutcome[];
 
 export type { SchedulerSetupStorySource } from '../application/jobs/scheduler-setup-story.js';
 
@@ -51,11 +60,19 @@ function recoveryActionAffordances(input: {
   ];
 }
 
-function runAgainActionAffordances(_input: {
+function runAgainActionAffordances(input: {
   job: Job;
   runId: string;
 }): MessageActionAffordance[] {
-  return [];
+  if (input.job.schedule_type !== 'manual') return [];
+  return [
+    {
+      kind: 'scheduler_run_now',
+      label: 'Run again',
+      jobId: input.job.id,
+      runId: input.runId,
+    },
+  ];
 }
 
 export function logMemoryDreamJobFailure(input: {
@@ -91,6 +108,27 @@ export async function notifySchedulerRunRecovered(input: {
     runId: `recovered:${input.runId}`,
     sendMessage: input.sendMessage,
   });
+}
+
+export async function notifySchedulerPermissionRecovery(input: {
+  job: Job;
+  recoveryTransitionId: string;
+  sendMessage: SchedulerSendMessage;
+}): Promise<boolean> {
+  if (input.job.silent) return false;
+  return sendJobNotification({
+    job: input.job,
+    text: `Job resumed and queued: ${input.job.name}.`,
+    phase: 'summary',
+    runId: permissionRecoveryNotificationRunId(input.recoveryTransitionId),
+    sendMessage: input.sendMessage,
+  });
+}
+
+export function permissionRecoveryNotificationRunId(
+  recoveryTransitionId: string,
+): string {
+  return `permission-recovery:${recoveryTransitionId}`;
 }
 
 export async function notifySchedulerSetupRequired(input: {
@@ -249,7 +287,45 @@ export async function notifySchedulerTerminalRunState(input: {
     // "running" next to the setup card — retire it with the terminal
     // summary. If the updater cannot edit in place, fall through to the
     // normal send path so the outcome is never lost.
+    const summaryMessage = formatRunStatusMessage({
+      job: input.job,
+      runId: input.runId,
+      runShortId: input.runShortId,
+      runStatus: input.runStatus,
+      summary: input.summary,
+      nextRun: input.nextRun,
+      retryCount: input.retryCount,
+      pauseReason: input.pauseReason,
+      durationMs: input.durationMs,
+    });
     const retired = await input.updateLifecycleNotification?.({
+      job: input.job,
+      runId: input.runId,
+      runStatus: input.runStatus,
+      summaryMessage,
+    });
+    if (retired === undefined) return false;
+    const fallbackJob = jobForLifecycleFallback(input.job, retired);
+    const actionAffordances = recoveryActionAffordances({
+      job: input.job,
+      runId: input.runId,
+    });
+    const notificationJob =
+      actionAffordances.length > 0 ? input.job : fallbackJob;
+    if (!notificationJob) return false;
+    return sendJobNotification({
+      job: notificationJob,
+      text: summaryMessage,
+      phase: 'summary',
+      runId: input.runId,
+      actionAffordances,
+      sendMessage: input.sendMessage,
+    });
+  }
+  // A review-created run retires its running progress message first, then
+  // sends the actual review card + Approve/Reject/Edit buttons separately.
+  if (input.memoryReviewNotification) {
+    await input.updateLifecycleNotification?.({
       job: input.job,
       runId: input.runId,
       runStatus: input.runStatus,
@@ -265,13 +341,6 @@ export async function notifySchedulerTerminalRunState(input: {
         durationMs: input.durationMs,
       }),
     });
-    if (retired === 'updated' || retired === undefined) return false;
-  }
-  // A review-created run sends the actual review card + Approve/Reject/Edit
-  // buttons as a fresh terminal message. It deliberately bypasses the
-  // lifecycle-update edit path (which would replace an existing progress
-  // message with plain text and drop the buttons).
-  if (input.memoryReviewNotification) {
     return sendMemoryReviewNotification({
       job: input.job,
       runId: input.runId,
@@ -297,28 +366,47 @@ export async function notifySchedulerTerminalRunState(input: {
         input.pauseReason,
       ),
     });
-  const updateResult =
+  const updateOutcomes =
     input.updateLifecycleNotification === undefined
-      ? 'unsupported'
+      ? undefined
       : await input.updateLifecycleNotification({
           job: input.job,
           runId: input.runId,
           runStatus: input.runStatus,
           summaryMessage,
         });
-  if (updateResult === 'updated') return true;
+  const fallbackJob = jobForLifecycleFallback(input.job, updateOutcomes);
   const actionAffordances =
     input.runStatus === 'completed'
       ? runAgainActionAffordances({ job: input.job, runId: input.runId })
       : recoveryActionAffordances({ job: input.job, runId: input.runId });
+  const notificationJob =
+    actionAffordances.length > 0 ? input.job : fallbackJob;
+  if (!notificationJob) return true;
   return sendJobNotification({
-    job: input.job,
+    job: notificationJob,
     text: summaryMessage,
     phase: 'summary',
     runId: input.runId,
     actionAffordances,
     sendMessage: input.sendMessage,
   });
+}
+
+function jobForLifecycleFallback(
+  job: Job,
+  outcomes: JobNotificationLifecycleUpdateResult | undefined,
+): Job | null {
+  if (outcomes === undefined) return job;
+  if (outcomes.length === 0) return job;
+  const routes = outcomes
+    .filter((outcome) => outcome.status !== 'updated')
+    .map((outcome) => outcome.route);
+  if (routes.length === 0) return null;
+  return {
+    ...job,
+    notification_routes: routes.map((route) => ({ ...route })),
+  };
 }
 
 function degradedReasonForDiagnostics(

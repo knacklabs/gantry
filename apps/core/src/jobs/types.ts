@@ -29,6 +29,8 @@ import type { RunnerSandboxProvider } from '../shared/runner-sandbox-provider.js
 import type { BrowserSessionStatus } from '../runtime/browser-capability-types.js';
 import type { ProcessRole } from '../app/bootstrap/roles/process-role.js';
 import type { AsyncTaskRepository } from '../domain/ports/async-tasks.js';
+import type { Job, JobRunStatus } from '../domain/types.js';
+import type { JobNotificationLifecycleUpdateResult } from './execution-notifications.js';
 
 export interface SchedulerDependencies {
   /** Process role; persisted on the worker_instances row at registration. */
@@ -47,6 +49,20 @@ export interface SchedulerDependencies {
     stopAliasJids?: string[],
   ) => void;
   sendMessage: SchedulerSendMessage;
+  captureLifecycleNotification?: (input: {
+    job: Job;
+    runId: string;
+  }) => Promise<void>;
+  discardLifecycleNotification?: (runId: string) => void;
+  updateLifecycleNotification?: (input: {
+    job: Job;
+    runId: string;
+    runStatus: Extract<
+      JobRunStatus,
+      'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered'
+    >;
+    summaryMessage: string;
+  }) => Promise<JobNotificationLifecycleUpdateResult>;
   sendStreamingChunk?: (
     jid: string,
     rawText: string,

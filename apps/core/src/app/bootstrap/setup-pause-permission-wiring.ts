@@ -28,12 +28,16 @@ import {
 import { resolveConversationRoute } from './runtime-app-routes.js';
 import type { RuntimeApp } from './runtime-app.js';
 import type { ChannelWiring } from './channel-wiring-types.js';
+import { notifySchedulerPermissionRecovery } from '../../jobs/execution-notifications.js';
 
 export function configureRuntimeSetupPausePermissions(input: {
   app: Pick<RuntimeApp, 'getConversationRoutes' | 'getCredentialBroker'>;
   channelWiring: Pick<
     ChannelWiring,
-    'getRuntimeAppId' | 'requestPermissionApproval' | 'cancelPermissionApproval'
+    | 'getRuntimeAppId'
+    | 'requestPermissionApproval'
+    | 'cancelPermissionApproval'
+    | 'sendMessage'
   >;
   opsRepository: RuntimeJobRepository;
   getToolRepository: () => ToolCatalogRepository;
@@ -66,6 +70,17 @@ export function configureRuntimeSetupPausePermissions(input: {
     getCredentialBroker: input.app.getCredentialBroker,
     getBrowserStatus: input.getBrowserStatus,
     publishRuntimeEvent: input.publishRuntimeEvent,
+    sendQueuedReceipt: (job, recoveryTransitionId) =>
+      notifySchedulerPermissionRecovery({
+        job,
+        recoveryTransitionId,
+        sendMessage: (jid, text, options) =>
+          input.channelWiring.sendMessage(jid, text, {
+            durability: 'required',
+            throwOnMissing: true,
+            ...(options ? { messageOptions: options } : {}),
+          }),
+      }),
   });
   configureSetupPausePermissionPrompt({
     appId: String(input.channelWiring.getRuntimeAppId()),

@@ -41,6 +41,10 @@ export interface PermissionPersistenceBackend {
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
   getBrowserStatus?: JobManagementServiceDeps['getBrowserStatus'];
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
+  sendQueuedReceipt?: (
+    job: import('../../domain/types.js').Job,
+    recoveryTransitionId: string,
+  ) => Promise<unknown>;
 }
 
 function persistentPermissionScopeRequest(
@@ -113,6 +117,7 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
     credentialBroker: await input.persistence.getCredentialBroker?.(),
     getBrowserStatus: input.persistence.getBrowserStatus,
     publishRuntimeEvent: input.persistence.publishRuntimeEvent,
+    sendQueuedReceipt: input.persistence.sendQueuedReceipt,
   });
   await input.onApplied?.(recovery);
   return true;

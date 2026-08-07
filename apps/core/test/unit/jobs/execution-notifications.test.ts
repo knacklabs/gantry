@@ -123,9 +123,18 @@ describe('jobs/execution-notifications', () => {
     );
   });
 
-  it('prefers lifecycle update over summary fallback when update succeeds', async () => {
+  it('retires lifecycle progress and preserves Run again controls', async () => {
     const sendMessage = vi.fn(async () => undefined);
-    const update = vi.fn(async () => 'updated' as const);
+    const update = vi.fn(async () => [
+      {
+        route: {
+          conversationJid: 'sl:C123',
+          threadId: null,
+          label: 'Primary',
+        },
+        status: 'updated' as const,
+      },
+    ]);
 
     const notified = await notifySchedulerTerminalRunState({
       job: makeJob(),
@@ -141,7 +150,18 @@ describe('jobs/execution-notifications', () => {
 
     expect(notified).toBe(true);
     expect(update).toHaveBeenCalledTimes(1);
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith(
+      'tg:scheduler',
+      expect.stringContaining('Completed'),
+      expect.objectContaining({
+        actionAffordances: [
+          expect.objectContaining({
+            kind: 'scheduler_run_now',
+            label: 'Run again',
+          }),
+        ],
+      }),
+    );
   });
 
   it('sends one terminal outcome and no normal start notification', async () => {
@@ -200,7 +220,14 @@ describe('jobs/execution-notifications', () => {
     expect(message).not.toContain('*Mode*');
     expect(message).not.toContain('T08:35:00.000Z');
     expect(sendMessage.mock.calls[0]?.[2]).toMatchObject({
-      actionAffordances: [],
+      actionAffordances: [
+        {
+          kind: 'scheduler_run_now',
+          label: 'Run again',
+          jobId: 'job-1',
+          runId: 'run-1',
+        },
+      ],
     });
   });
 
@@ -276,7 +303,16 @@ describe('jobs/execution-notifications', () => {
 
   it('keeps pending memory review guidance in lifecycle update summaries', async () => {
     const sendMessage = vi.fn(async () => undefined);
-    const updateLifecycleNotification = vi.fn(async () => 'updated' as const);
+    const updateLifecycleNotification = vi.fn(async () => [
+      {
+        route: {
+          conversationJid: 'sl:C123',
+          threadId: null,
+          label: 'Primary',
+        },
+        status: 'updated' as const,
+      },
+    ]);
 
     const notified = await notifySchedulerTerminalRunState({
       job: makeMemoryDreamingJob(),
@@ -687,9 +723,18 @@ describe('jobs/execution-notifications', () => {
     expect(text).toContain('＋2 more pending reviews.');
   });
 
-  it('bypasses the lifecycle-update path so the review buttons are never swallowed', async () => {
+  it('retires lifecycle progress before sending the actionable review card', async () => {
     const sendMessage = vi.fn(async () => undefined);
-    const updateLifecycleNotification = vi.fn(async () => 'updated' as const);
+    const updateLifecycleNotification = vi.fn(async () => [
+      {
+        route: {
+          conversationJid: 'sl:C123',
+          threadId: null,
+          label: 'Primary',
+        },
+        status: 'updated' as const,
+      },
+    ]);
 
     const notified = await notifySchedulerTerminalRunState({
       job: makeMemoryDreamingJob(),
@@ -705,9 +750,7 @@ describe('jobs/execution-notifications', () => {
     });
 
     expect(notified).toBe(true);
-    // The edit path would replace an existing progress message with plain text
-    // and drop the buttons — it must not run for a review notification.
-    expect(updateLifecycleNotification).not.toHaveBeenCalled();
+    expect(updateLifecycleNotification).toHaveBeenCalledTimes(1);
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(sendMessage.mock.calls[0]?.[2]).toMatchObject({
       actionAffordances: [

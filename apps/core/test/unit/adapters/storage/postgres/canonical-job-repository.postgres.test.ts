@@ -334,6 +334,106 @@ describe('PostgresCanonicalJobRepository', () => {
     expect(result).toBe(true);
   });
 
+  it('claims setup recovery using updated_at when checked_at is absent', async () => {
+    const returning = vi.fn(async () => [{ id: 'job-1' }]);
+    const where = vi.fn(() => ({ returning }));
+    const set = vi.fn(() => ({ where }));
+    const db = { update: vi.fn(() => ({ set })) };
+    const repository = new PostgresCanonicalJobRepository(db as never);
+
+    const claimed = await repository.resumeSetupPausedJob({
+      jobId: 'job-1',
+      expectedSetupCheckedAt: '2026-08-06T00:00:00.000Z',
+      expectedPauseReason: 'Setup required',
+      nextRun: '2026-08-06T00:05:00.000Z',
+      setupState: {
+        state: 'ready',
+        checked_at: '2026-08-06T00:05:00.000Z',
+        fingerprint: 'ready',
+        blockers: [],
+      },
+    });
+
+    const predicateShape = flattenSqlShape(where.mock.calls[0]?.[0]);
+    expect(predicateShape).toContain('coalesce');
+    expect(predicateShape).toContain('checked_at');
+    expect(predicateShape).toContain('updated_at');
+    expect(predicateShape).toContain('pause_reason');
+    expect(claimed).toBe(true);
+  });
+
+  it('refreshes still-blocked setup state with the same transition predicate', async () => {
+    const returning = vi.fn(async () => [{ id: 'job-1' }]);
+    const where = vi.fn(() => ({ returning }));
+    const set = vi.fn(() => ({ where }));
+    const db = { update: vi.fn(() => ({ set })) };
+    const repository = new PostgresCanonicalJobRepository(db as never);
+
+    const refreshed = await repository.refreshSetupPausedJob({
+      jobId: 'job-1',
+      expectedSetupCheckedAt: '2026-08-06T00:00:00.000Z',
+      expectedPauseReason: 'Setup required',
+      setupState: {
+        state: 'missing_capability',
+        checked_at: '2026-08-06T00:05:00.000Z',
+        fingerprint: 'still-blocked',
+        blockers: [],
+      },
+    });
+
+    const predicateShape = flattenSqlShape(where.mock.calls[0]?.[0]);
+    expect(predicateShape).toContain('coalesce');
+    expect(predicateShape).toContain('checked_at');
+    expect(predicateShape).toContain('updated_at');
+    expect(predicateShape).toContain('pause_reason');
+    expect(refreshed).toBe(true);
+  });
+
+  it('uses immutable created_at and id ordering for recovery pagination', async () => {
+    const limit = vi.fn(async () => []);
+    const orderBy = vi.fn(() => ({ limit }));
+    const where = vi.fn(() => ({ orderBy }));
+    const dynamic = vi.fn(() => ({ where, orderBy }));
+    const from = vi.fn(() => ({ $dynamic: dynamic }));
+    const db = { select: vi.fn(() => ({ from })) };
+    const repository = new PostgresCanonicalJobRepository(db as never);
+
+    await repository.listJobs({
+      statuses: ['paused'],
+      orderBy: 'created_at',
+      pageAfter: {
+        createdAt: '2026-08-06T00:00:00.000Z',
+        id: 'job-100',
+      },
+      limit: 100,
+    });
+
+    const predicateShape = flattenSqlShape(where.mock.calls[0]?.[0]);
+    const orderingShape = flattenSqlShape(orderBy.mock.calls[0]);
+    expect(predicateShape).toContain('created_at');
+    expect(predicateShape).toContain('id');
+    expect(predicateShape).not.toContain('updated_at');
+    expect(orderingShape).toContain('created_at');
+    expect(orderingShape).toContain('id');
+    expect(orderingShape).not.toContain('updated_at');
+  });
+
+  it('preserves updated_at ordering for existing job-list callers', async () => {
+    const limit = vi.fn(async () => []);
+    const orderBy = vi.fn(() => ({ limit }));
+    const dynamic = vi.fn(() => ({ orderBy }));
+    const from = vi.fn(() => ({ $dynamic: dynamic }));
+    const db = { select: vi.fn(() => ({ from })) };
+    const repository = new PostgresCanonicalJobRepository(db as never);
+
+    await repository.listJobs({ limit: 10 });
+
+    const orderingShape = flattenSqlShape(orderBy.mock.calls[0]);
+    expect(orderingShape).toContain('updated_at');
+    expect(orderingShape).toContain('created_at');
+    expect(orderingShape).toContain('id');
+  });
+
   it('filters nested session agent runs out of scheduler run lists', async () => {
     const limit = vi.fn(async () => []);
     const orderBy = vi.fn(() => ({ limit }));

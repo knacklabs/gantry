@@ -3,6 +3,7 @@ import type { IpcDeps } from '../runtime/ipc-domain-types.js';
 import { recheckSetupPausedJobsAfterCapabilityUpdate } from '../application/jobs/job-permission-recovery.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import { formatDurableAccessRulesForUser } from './request-permission-review.js';
+import { notifySchedulerPermissionRecovery } from './execution-notifications.js';
 
 type RequestAccessRecoveryResult = Awaited<
   ReturnType<typeof recheckSetupPausedJobsAfterCapabilityUpdate>
@@ -41,6 +42,12 @@ export async function recheckPausedSetupJobsAfterRequestAccessGrant(input: {
       credentialBroker: await input.deps.getCredentialBroker?.(),
       getBrowserStatus: input.deps.getBrowserStatus,
       publishRuntimeEvent: input.deps.publishRuntimeEvent,
+      sendQueuedReceipt: (job, recoveryTransitionId) =>
+        notifySchedulerPermissionRecovery({
+          job,
+          recoveryTransitionId,
+          sendMessage: input.deps.sendMessage,
+        }),
     });
   } catch (err) {
     input.logWarn?.(
