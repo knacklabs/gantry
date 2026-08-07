@@ -880,15 +880,15 @@ describe('channel CLI command', () => {
       envFilePath: (runtimeHome: string) => `${runtimeHome}/.env`,
     }));
 
-    const { runProviderCommand } = await import('@core/cli/provider.js');
+    const { runConversationCommand } = await import('@core/cli/provider.js');
     const runtimeStore =
       await import('@core/adapters/storage/postgres/runtime-store.js');
-    const showCode = await runProviderCommand(import.meta.url, '/tmp/gantry', [
-      'control-allowlist',
+    const showCode = await runConversationCommand('/tmp/gantry', [
+      'approvers',
       'conversation-1',
     ]);
-    const setCode = await runProviderCommand(import.meta.url, '/tmp/gantry', [
-      'control-allowlist',
+    const setCode = await runConversationCommand('/tmp/gantry', [
+      'approvers',
       'conversation-1',
       '--allow',
       '456,456,123',

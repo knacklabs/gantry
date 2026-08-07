@@ -151,29 +151,7 @@ export async function runProviderCommand(
     return scoped.ok ? 0 : 1;
   }
 
-  if (command === 'info') {
-    if (!providerId) {
-      p.log.error(usage());
-      return 1;
-    }
-    try {
-      const conversationId = await resolveConversationIdArgument(
-        runtimeHome,
-        providerId,
-        { providerAccountId: option(args, '--provider-account') },
-      );
-      p.note(
-        await withRuntimeStorage(() => formatConversationInfo(conversationId)),
-        'Conversation Info',
-      );
-      return 0;
-    } catch (error) {
-      p.log.error(formatConversationAdminError(error));
-      return 1;
-    }
-  }
-
-  if (command === 'control-allowlist' || command === 'approvers') {
+  if (command === 'approvers') {
     if (!providerId) {
       p.log.error(usage());
       return 1;
