@@ -8,7 +8,10 @@ import type {
 } from '../../domain/ports/repositories.js';
 import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
-import type { PermissionApprovalRequest } from '../../domain/types.js';
+import type {
+  PermissionApprovalRequest,
+  PermissionApprovalUpdate,
+} from '../../domain/types.js';
 import type { IpcDeps } from '../../runtime/ipc-domain-types.js';
 import {
   SETUP_REQUIRED_PAUSE_REASON,
@@ -19,6 +22,7 @@ import { configurePendingInteractionPermissionPersistence } from '../../applicat
 import {
   configureSetupPausePermissionPrompt,
   setupPauseApproverRoute,
+  setupPauseRequirementForApprovedSuggestions,
 } from '../../application/jobs/setup-pause-permission-prompt.js';
 import {
   requestPermissionReviewSuggestions,
@@ -59,8 +63,12 @@ export function configureRuntimeSetupPausePermissions(input: {
     opsRepository: input.opsRepository,
     // The shared durable path runs this setup-specific guard for both live
     // settlement and restart recovery immediately before grant persistence.
-    beforePersistentGrant: (request) =>
-      setupPauseGrantIsCurrent(input.opsRepository, request),
+    beforePersistentGrant: (request, effectiveUpdates) =>
+      prepareSetupPausePersistentGrant(
+        input.opsRepository,
+        request,
+        effectiveUpdates,
+      ),
     getToolRepository: input.getToolRepository,
     getPermissionRepository: input.getPermissionRepository,
     mirrorAgentToolRulesToSettings: input.mirrorAgentToolRulesToSettings,
@@ -167,8 +175,49 @@ export async function setupPauseGrantIsCurrent(
   const job = await opsRepository.getJobById(request.jobId);
   // The shared persistence backend invokes this one setup-specific guard for
   // both live settlement and recovered durable decisions before grant apply.
+  return job ? setupPauseGrantIsCurrentForJob(job, request) : false;
+}
+
+export async function prepareSetupPausePersistentGrant(
+  opsRepository: Pick<
+    RuntimeJobRepository,
+    'getJobById' | 'appendJobAccessRequirement'
+  >,
+  request: PermissionApprovalRequest,
+  effectiveUpdates: readonly PermissionApprovalUpdate[],
+): Promise<boolean> {
+  if (!request.requestId.startsWith('setup-pause:')) return true;
+  if (!request.jobId) return false;
+  for (
+    let attempt = 0;
+    attempt <= SETUP_REQUIREMENT_CAS_RETRY_LIMIT;
+    attempt += 1
+  ) {
+    const job = await opsRepository.getJobById(request.jobId);
+    if (!job || !setupPauseGrantIsCurrentForJob(job, request)) return false;
+    const approved = setupPauseRequirementForApprovedSuggestions({
+      job,
+      suggestions: effectiveUpdates,
+    });
+    if (!approved.matched) return false;
+    if (!approved.requirement) return true;
+    const appended = await opsRepository.appendJobAccessRequirement({
+      jobId: job.id,
+      requirement: approved.requirement,
+      expectedUpdatedAt: job.updated_at,
+    });
+    if (appended) return true;
+  }
+  return false;
+}
+
+const SETUP_REQUIREMENT_CAS_RETRY_LIMIT = 1;
+
+function setupPauseGrantIsCurrentForJob(
+  job: NonNullable<Awaited<ReturnType<RuntimeJobRepository['getJobById']>>>,
+  request: PermissionApprovalRequest,
+): boolean {
   return Boolean(
-    job &&
     job.status === 'paused' &&
     job.pause_reason === SETUP_REQUIRED_PAUSE_REASON &&
     job.setup_state &&

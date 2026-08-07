@@ -10,6 +10,7 @@ import type { RuntimeJobRepository } from '../../domain/repositories/ops-repo.js
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalUpdate,
 } from '../../domain/types.js';
 import type { JobManagementServiceDeps } from '../jobs/job-management-types.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
@@ -21,6 +22,7 @@ export interface PermissionPersistenceBackend {
   opsRepository: RuntimeJobRepository;
   beforePersistentGrant?: (
     request: PermissionApprovalRequest,
+    effectiveUpdates: readonly PermissionApprovalUpdate[],
   ) => Promise<boolean>;
   getToolRepository?: () => ToolCatalogRepository | undefined;
   getPermissionRepository?: () => PermissionRepository | undefined;
@@ -78,7 +80,7 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
   if (updates.length === 0) return false;
   if (
     input.persistence.beforePersistentGrant &&
-    !(await input.persistence.beforePersistentGrant(input.request))
+    !(await input.persistence.beforePersistentGrant(input.request, updates))
   ) {
     return false;
   }

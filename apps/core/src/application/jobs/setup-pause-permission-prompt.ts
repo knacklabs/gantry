@@ -23,6 +23,7 @@ import { agentIdForJobWorkspaceKey } from './job-tool-policy.js';
 import { localCliCommandTemplatePermissionRule } from './job-capability-requirements.js';
 import { normalizeToolAccessRequirements } from './job-tool-access-requirements.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from './job-readiness-service.js';
+import { permissionUpdateAllowedToolRules } from '../../shared/permission-tool-rules.js';
 
 export interface SetupPauseReviewedRequirement {
   suggestions: PermissionApprovalUpdate[];
@@ -132,7 +133,7 @@ export async function raiseSetupPausePermissionPrompt(input: {
     return { status: 'instruction_only', notificationEligible: false };
   }
 
-  const requirements = storedGrantableRequirements(job, setupState.blockers);
+  const requirements = grantableRequirementCandidates(job, setupState.blockers);
   const approverRoute = setupPauseApproverRoute(job);
   if (!requirements.length || !approverRoute) {
     return { status: 'instruction_only', notificationEligible: true };
@@ -298,19 +299,18 @@ export function setupPauseApproverRoute(
   };
 }
 
-function storedGrantableRequirements(
-  job: Job,
-  blockers: readonly JobSetupBlocker[],
-): {
+interface GrantableRequirementCandidate {
   blocker: JobSetupBlocker;
   displayName: string;
   toolInput: Record<string, unknown>;
-}[] {
-  const requirements: {
-    blocker: JobSetupBlocker;
-    displayName: string;
-    toolInput: Record<string, unknown>;
-  }[] = [];
+  suggestedRequirement?: JobAccessRequirement;
+}
+
+function grantableRequirementCandidates(
+  job: Job,
+  blockers: readonly JobSetupBlocker[],
+): GrantableRequirementCandidate[] {
+  const requirements: GrantableRequirementCandidate[] = [];
   for (const blocker of blockers) {
     if (
       blocker.state !== 'missing_capability' ||
@@ -324,9 +324,111 @@ function storedGrantableRequirements(
       job.access_requirements ?? [],
       blocker,
     );
-    if (mapped) requirements.push({ blocker, ...mapped });
+    if (mapped) {
+      requirements.push({ blocker, ...mapped });
+      continue;
+    }
+    const suggested = suggestedRequirementForBlocker(blocker);
+    if (suggested) requirements.push({ blocker, ...suggested });
   }
   return requirements;
+}
+
+export function setupPauseRequirementForApprovedSuggestions(input: {
+  job: Job;
+  suggestions: readonly PermissionApprovalUpdate[];
+}): { matched: boolean; requirement?: JobAccessRequirement } {
+  const approvedRules = permissionUpdateAllowedToolRules(input.suggestions);
+  for (const candidate of grantableRequirementCandidates(
+    input.job,
+    input.job.setup_state?.blockers ?? [],
+  )) {
+    if (
+      approvedRules.length === 1 &&
+      candidateRule(candidate) === approvedRules[0]
+    ) {
+      return {
+        matched: true,
+        ...(candidate.suggestedRequirement
+          ? { requirement: candidate.suggestedRequirement }
+          : {}),
+      };
+    }
+  }
+  return { matched: false };
+}
+
+function candidateRule(
+  candidate: GrantableRequirementCandidate,
+): string | undefined {
+  const capabilityId =
+    typeof candidate.toolInput.capabilityId === 'string'
+      ? candidate.toolInput.capabilityId
+      : undefined;
+  if (capabilityId) return `capability:${capabilityId}`;
+  const toolName =
+    typeof candidate.toolInput.toolName === 'string'
+      ? candidate.toolInput.toolName
+      : undefined;
+  const rule =
+    typeof candidate.toolInput.rule === 'string'
+      ? candidate.toolInput.rule
+      : undefined;
+  if (!toolName) return undefined;
+  return permissionUpdateAllowedToolRules([
+    {
+      type: 'addRules',
+      behavior: 'allow',
+      rules: [{ toolName, ...(rule ? { ruleContent: rule } : {}) }],
+    },
+  ])[0];
+}
+
+function suggestedRequirementForBlocker(
+  blocker: JobSetupBlocker,
+): Omit<GrantableRequirementCandidate, 'blocker'> | null {
+  if (blocker.requirementType === 'local_cli') return null;
+  if (blocker.requirementType === 'semantic_capability') {
+    const capabilityId =
+      parseSemanticCapabilityRule(blocker.requirementId) ??
+      blocker.requirementId;
+    return {
+      ...semanticCapabilityReview(capabilityId, blocker),
+      suggestedRequirement: {
+        target: { kind: 'capability', capabilityId },
+        reason: `Required after ${setupBlockerLabel(blocker, blocker.state)} was denied.`,
+      },
+    };
+  }
+  try {
+    const canonicalRule = normalizeToolAccessRequirements([
+      blocker.requirementId,
+    ])[0];
+    if (!canonicalRule) return null;
+    const parsed = splitToolRule(canonicalRule);
+    if (!parsed) return null;
+    if (
+      blocker.requirementType === 'browser' &&
+      !isCanonicalBrowserCapabilityRule(canonicalRule)
+    ) {
+      return null;
+    }
+    return {
+      displayName: setupBlockerLabel(blocker, blocker.state),
+      toolInput: {
+        permissionKind: 'tool',
+        toolName: parsed.toolName,
+        ...(parsed.rule ? { rule: parsed.rule } : {}),
+        effect: 'persistent_rule_when_always_allowed',
+      },
+      suggestedRequirement: {
+        target: { kind: 'tool_rule', rule: canonicalRule },
+        reason: `Required after ${setupBlockerLabel(blocker, blocker.state)} was denied.`,
+      },
+    };
+  } catch {
+    return null;
+  }
 }
 
 function storedRequirementForBlocker(

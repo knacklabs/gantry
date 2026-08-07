@@ -75,6 +75,12 @@ export interface SetupPausedJobRecoveryRefresh {
   setupState: NonNullable<Job['setup_state']>;
 }
 
+export interface JobAccessRequirementAppend {
+  jobId: string;
+  requirement: NonNullable<Job['access_requirements']>[number];
+  expectedUpdatedAt: string;
+}
+
 export interface JobRunListFilters {
   jobIds?: string[];
   ownerAppId?: string;
@@ -217,6 +223,9 @@ export interface RuntimeJobRepository {
     updates: Partial<Job>,
     options?: { incrementConsecutiveFailures?: boolean },
   ): Promise<void>;
+  appendJobAccessRequirement(
+    input: JobAccessRequirementAppend,
+  ): Promise<boolean>;
   resumeSetupPausedJob(input: SetupPausedJobRecoveryClaim): Promise<boolean>;
   refreshSetupPausedJob(input: SetupPausedJobRecoveryRefresh): Promise<boolean>;
   markJobSetupNotified(

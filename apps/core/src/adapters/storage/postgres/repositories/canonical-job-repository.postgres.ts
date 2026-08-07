@@ -5,7 +5,7 @@ import type {
   JobRun,
 } from '../../../../domain/repositories/domain-types.js';
 // prettier-ignore
-import type { JobListFilters, JobRunListFilters, ReleasedStaleJobLease } from '../../../../domain/repositories/ops-repo.js';
+import type { JobAccessRequirementAppend, JobListFilters, JobRunListFilters, ReleasedStaleJobLease } from '../../../../domain/repositories/ops-repo.js';
 import type { RuntimeEventType } from '../../../../domain/events/runtime-event-types.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
@@ -38,6 +38,7 @@ import {
   settledRunLeaseFence,
   type RunLeaseFence,
 } from './run-lease-fence.postgres.js';
+import { appendCanonicalJobAccessRequirement } from './canonical-job-access-requirements.postgres.js';
 
 function canonicalAgentId(agentId: string): string {
   const trimmed = agentId.trim();
@@ -266,6 +267,12 @@ export class PostgresCanonicalJobRepository {
         createdBySource: 'runtime',
       })
       .where(eq(pgSchema.canonicalJobsPostgres.id, id));
+  }
+
+  async appendJobAccessRequirement(
+    input: JobAccessRequirementAppend,
+  ): Promise<boolean> {
+    return appendCanonicalJobAccessRequirement(this.db, input);
   }
 
   async markJobSetupNotified(

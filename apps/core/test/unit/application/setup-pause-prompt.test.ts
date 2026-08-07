@@ -8,10 +8,16 @@ import {
   type SetupPausePermissionPromptDeps,
 } from '@core/application/jobs/setup-pause-permission-prompt.js';
 import { JobManagementService } from '@core/application/jobs/job-management-service.js';
-import { setupPauseGrantIsCurrent } from '@core/app/bootstrap/setup-pause-permission-wiring.js';
+import {
+  prepareSetupPausePersistentGrant,
+  setupPauseGrantIsCurrent,
+} from '@core/app/bootstrap/setup-pause-permission-wiring.js';
 import { runDurablePermissionInteraction } from '@core/application/interactions/durable-interaction-handler.js';
 import { applyRecoveredPersistentPermissionGrant } from '@core/application/interactions/pending-interaction-permission-recovery.js';
-import { requestPermissionSetupDecisionOptions } from '@core/jobs/request-permission-review.js';
+import {
+  requestPermissionReviewSuggestions,
+  requestPermissionSetupDecisionOptions,
+} from '@core/jobs/request-permission-review.js';
 import { notifyJobSetupRequired } from '@core/jobs/execution-readiness.js';
 import { runtimeJobSchedulePlanner } from '@core/jobs/job-schedule-planner.js';
 import type { RuntimeJobRepository } from '@core/domain/repositories/ops-repo.js';
@@ -247,6 +253,346 @@ describe('setup pause prompts', () => {
         toolName: 'Browser',
       }),
     ).toContain('allow_once');
+  });
+
+  it('an under-declared grantable denial offers one-tap approve that adds the job requirement and grants the agent', async () => {
+    let job = makeJob({
+      access_requirements: [],
+      setup_state: {
+        state: 'missing_capability',
+        checked_at: '2026-08-05T00:00:00.000Z',
+        fingerprint: 'under-declared-browser',
+        blockers: [
+          {
+            state: 'missing_capability',
+            requirementType: 'browser',
+            requirementId: 'Browser',
+            message: 'Browser access was denied.',
+            nextAction: 'Approve lasting Browser access.',
+          },
+        ],
+      },
+    });
+    const appendJobAccessRequirement = vi.fn(async (input) => {
+      if (input.expectedUpdatedAt !== job.updated_at) return false;
+      job = {
+        ...job,
+        access_requirements: [
+          ...(job.access_requirements ?? []),
+          input.requirement,
+        ],
+        updated_at: '2026-08-05T00:00:01.000Z',
+      };
+      return true;
+    });
+    const resumeSetupPausedJob = vi.fn(async () => true);
+    const requestSchedulerSync = vi.fn();
+    const bindings: Record<string, unknown>[] = [];
+    const browserTool = {
+      id: 'tool:Browser',
+      appId: 'default',
+      name: 'Browser',
+      kind: 'browser',
+      provider: 'gantry',
+      displayName: 'Browser',
+      category: 'agent',
+      risk: 'medium',
+      selectable: true,
+      status: 'active',
+      adapterRef: 'browser',
+      createdAt: '2026-08-05T00:00:00.000Z',
+      updatedAt: '2026-08-05T00:00:00.000Z',
+    };
+    const toolRepository = {
+      listTools: vi.fn(async () => [browserTool]),
+      getTool: vi.fn(async () => browserTool),
+      listAgentToolBindings: vi.fn(async () => bindings),
+      saveAgentToolBinding: vi.fn(async (binding) => {
+        bindings.push(binding);
+      }),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+    const opsRepository = {
+      getJobById: vi.fn(async () => job),
+      appendJobAccessRequirement,
+      resumeSetupPausedJob,
+      refreshSetupPausedJob: vi.fn(async () => false),
+    };
+    let request: PermissionApprovalRequest | undefined;
+    configure({
+      job: () => job,
+      reviewStoredRequirement: async ({ toolInput }) => {
+        const suggestions = requestPermissionReviewSuggestions(toolInput);
+        return suggestions
+          ? {
+              suggestions,
+              decisionOptions: requestPermissionSetupDecisionOptions(toolInput),
+            }
+          : null;
+      },
+      requestPermissionApproval: async (input, delivered) => {
+        request = input;
+        delivered('prompt-1');
+        return cancelledDecision();
+      },
+    });
+
+    await expect(
+      raiseSetupPausePermissionPrompt({
+        jobId: job.id,
+        setupFingerprint: job.setup_state!.fingerprint,
+        source: 'permission_denied',
+      }),
+    ).resolves.toMatchObject({ status: 'raised' });
+
+    expect(request).toMatchObject({
+      decisionOptions: ['allow_persistent_rule', 'cancel'],
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'Browser' }],
+        },
+      ],
+    });
+    expect(appendJobAccessRequirement).not.toHaveBeenCalled();
+
+    const decision: PermissionApprovalDecision = {
+      approved: true,
+      mode: 'allow_persistent_rule',
+      decidedBy: 'owner-1',
+      decisionClassification: 'user_permanent',
+      updatedPermissions: request!.suggestions,
+    };
+    const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
+    await expect(
+      applyRecoveredPersistentPermissionGrant({
+        persistence: {
+          opsRepository: opsRepository as never,
+          beforePersistentGrant: (candidate, effectiveUpdates) =>
+            prepareSetupPausePersistentGrant(
+              opsRepository as never,
+              candidate,
+              effectiveUpdates,
+            ),
+          getToolRepository: () => toolRepository as never,
+          mirrorAgentToolRulesToSettings,
+          onSchedulerChanged: requestSchedulerSync,
+        },
+        request: request!,
+        sourceAgentFolder: 'main_agent',
+        decision,
+      }),
+    ).resolves.toBe(true);
+
+    expect(job.access_requirements).toEqual([
+      expect.objectContaining({
+        target: { kind: 'tool_rule', rule: 'Browser' },
+      }),
+    ]);
+    expect(appendJobAccessRequirement).toHaveBeenCalledWith({
+      jobId: job.id,
+      requirement: expect.objectContaining({
+        target: { kind: 'tool_rule', rule: 'Browser' },
+      }),
+      expectedUpdatedAt: '2026-08-05T00:00:00.000Z',
+    });
+    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
+      'main_agent',
+      ['Browser'],
+      { appId: 'default' },
+    );
+    expect(resumeSetupPausedJob).toHaveBeenCalledOnce();
+    expect(requestSchedulerSync).toHaveBeenCalledWith(job.id);
+  });
+
+  it('matches an under-declared requirement to the effective grant selected by the approver', async () => {
+    const job = makeJob({
+      access_requirements: [],
+      setup_state: {
+        state: 'missing_capability',
+        checked_at: '2026-08-05T00:00:00.000Z',
+        fingerprint: 'under-declared-browser',
+        blockers: [
+          {
+            state: 'missing_capability',
+            requirementType: 'browser',
+            requirementId: 'Browser',
+            message: 'Browser access was denied.',
+            nextAction: 'Approve lasting Browser access.',
+          },
+        ],
+      },
+    });
+    const appendJobAccessRequirement = vi.fn(async () => true);
+    const mirrorAgentToolRulesToSettings = vi.fn();
+    const request = {
+      requestId: 'setup-pause:job-1:under-declared-browser',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      sourceAgentFolder: 'main_agent',
+      jobId: job.id,
+      toolName: 'request_permission',
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'Browser' }],
+        },
+      ],
+    } as PermissionApprovalRequest;
+
+    await expect(
+      applyRecoveredPersistentPermissionGrant({
+        persistence: {
+          opsRepository: {
+            getJobById: vi.fn(async () => job),
+            appendJobAccessRequirement,
+          } as never,
+          beforePersistentGrant: (candidate, effectiveUpdates) =>
+            prepareSetupPausePersistentGrant(
+              {
+                getJobById: vi.fn(async () => job),
+                appendJobAccessRequirement,
+              } as never,
+              candidate,
+              effectiveUpdates,
+            ),
+          getToolRepository: () => ({}) as never,
+          mirrorAgentToolRulesToSettings,
+        },
+        request,
+        sourceAgentFolder: 'main_agent',
+        decision: {
+          approved: true,
+          mode: 'allow_persistent_rule',
+          decidedBy: 'owner-1',
+          decisionClassification: 'user_permanent',
+          updatedPermissions: [
+            {
+              type: 'addRules',
+              behavior: 'allow',
+              rules: [{ toolName: 'FileRead' }],
+            },
+          ],
+        },
+      }),
+    ).resolves.toBe(false);
+
+    expect(appendJobAccessRequirement).not.toHaveBeenCalled();
+    expect(mirrorAgentToolRulesToSettings).not.toHaveBeenCalled();
+  });
+
+  it('re-reads and retries the requirement append after an updated_at conflict without losing a concurrent requirement', async () => {
+    let job = makeJob({
+      access_requirements: [],
+      setup_state: {
+        state: 'missing_capability',
+        checked_at: '2026-08-05T00:00:00.000Z',
+        fingerprint: 'under-declared-browser',
+        blockers: [
+          {
+            state: 'missing_capability',
+            requirementType: 'browser',
+            requirementId: 'Browser',
+            message: 'Browser access was denied.',
+            nextAction: 'Approve lasting Browser access.',
+          },
+        ],
+      },
+    });
+    const concurrentRequirement = {
+      target: { kind: 'tool_rule' as const, rule: 'FileRead' },
+      reason: 'Added concurrently by the operator.',
+    };
+    const appendJobAccessRequirement = vi.fn(async (input) => {
+      if (appendJobAccessRequirement.mock.calls.length === 1) {
+        job = {
+          ...job,
+          access_requirements: [concurrentRequirement],
+          updated_at: '2026-08-05T00:00:01.000Z',
+        };
+        return false;
+      }
+      expect(input.expectedUpdatedAt).toBe('2026-08-05T00:00:01.000Z');
+      job = {
+        ...job,
+        access_requirements: [
+          ...(job.access_requirements ?? []),
+          input.requirement,
+        ],
+      };
+      return true;
+    });
+    const request = {
+      requestId: 'setup-pause:job-1:under-declared-browser',
+      jobId: job.id,
+    } as PermissionApprovalRequest;
+    const browserGrant = [
+      {
+        type: 'addRules' as const,
+        behavior: 'allow' as const,
+        rules: [{ toolName: 'Browser' }],
+      },
+    ];
+
+    await expect(
+      prepareSetupPausePersistentGrant(
+        {
+          getJobById: vi.fn(async () => job),
+          appendJobAccessRequirement,
+        } as never,
+        request,
+        browserGrant,
+      ),
+    ).resolves.toBe(true);
+
+    expect(appendJobAccessRequirement).toHaveBeenCalledTimes(2);
+    expect(job.access_requirements).toEqual([
+      concurrentRequirement,
+      expect.objectContaining({
+        target: { kind: 'tool_rule', rule: 'Browser' },
+      }),
+    ]);
+  });
+
+  it('keeps an under-declared non-grantable denial instruction-only', async () => {
+    const job = makeJob({
+      access_requirements: [],
+      setup_state: {
+        state: 'missing_capability',
+        checked_at: '2026-08-05T00:00:00.000Z',
+        fingerprint: 'under-declared-unscoped-command',
+        blockers: [
+          {
+            state: 'missing_capability',
+            requirementType: 'tool',
+            requirementId: 'RunCommand',
+            message: 'Unscoped command access was denied.',
+            nextAction: 'Declare a reviewed scoped command.',
+          },
+        ],
+      },
+    });
+    const runPermissionInteraction = vi.fn();
+    const reviewStoredRequirement = vi.fn();
+    configure({
+      job: () => job,
+      runPermissionInteraction,
+      reviewStoredRequirement,
+    });
+
+    await expect(
+      raiseSetupPausePermissionPrompt({
+        jobId: job.id,
+        setupFingerprint: job.setup_state!.fingerprint,
+      }),
+    ).resolves.toEqual({
+      status: 'instruction_only',
+      notificationEligible: true,
+    });
+    expect(reviewStoredRequirement).not.toHaveBeenCalled();
+    expect(runPermissionInteraction).not.toHaveBeenCalled();
   });
 
   it('same fingerprint does not re-prompt and a changed blocker set retires the old prompt', async () => {
@@ -1173,6 +1519,7 @@ describe('setup pause prompts', () => {
     });
     const repository = {
       getJobById: vi.fn(async () => job),
+      appendJobAccessRequirement: vi.fn(async () => true),
     };
     const mirrorAgentToolRulesToSettings = vi.fn();
     const request = {
@@ -1188,8 +1535,12 @@ describe('setup pause prompts', () => {
       applyRecoveredPersistentPermissionGrant({
         persistence: {
           opsRepository: repository as never,
-          beforePersistentGrant: (candidate) =>
-            setupPauseGrantIsCurrent(repository as never, candidate),
+          beforePersistentGrant: (candidate, effectiveUpdates) =>
+            prepareSetupPausePersistentGrant(
+              repository as never,
+              candidate,
+              effectiveUpdates,
+            ),
           getToolRepository: () => ({}) as never,
           mirrorAgentToolRulesToSettings,
         },
@@ -1198,6 +1549,7 @@ describe('setup pause prompts', () => {
         decision: permanentDecision(),
       }),
     ).resolves.toBe(false);
+    expect(repository.appendJobAccessRequirement).not.toHaveBeenCalled();
     expect(mirrorAgentToolRulesToSettings).not.toHaveBeenCalled();
   });
 
