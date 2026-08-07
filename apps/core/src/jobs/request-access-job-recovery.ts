@@ -15,6 +15,7 @@ export async function recheckPausedSetupJobsAfterRequestAccessGrant(input: {
   sourceAgentFolder: string;
   targetJid: string;
   jobId?: string;
+  recoveringPermissionRequestId: string;
   logWarn?: (context: Record<string, unknown>, message: string) => void;
 }): Promise<RequestAccessRecoveryResult | undefined> {
   const opsRepository = input.deps.opsRepository;
@@ -31,6 +32,7 @@ export async function recheckPausedSetupJobsAfterRequestAccessGrant(input: {
       sourceAgentFolder: input.sourceAgentFolder,
       conversationJid: input.targetJid,
       jobId: input.jobId,
+      recoveringPermissionRequestId: input.recoveringPermissionRequestId,
       opsRepository,
       scheduler: {
         requestSchedulerSync: input.deps.onSchedulerChanged,

@@ -105,6 +105,7 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
     sourceAgentFolder: input.sourceAgentFolder,
     conversationJid: input.request.targetJid,
     jobId: input.request.jobId,
+    recoveringPermissionRequestId: input.request.requestId,
     opsRepository: input.persistence.opsRepository,
     scheduler: {
       requestSchedulerSync: input.persistence.onSchedulerChanged ?? (() => {}),

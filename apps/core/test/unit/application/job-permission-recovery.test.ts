@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { recheckSetupPausedJobsAfterCapabilityUpdate } from '@core/application/jobs/job-permission-recovery.js';
+import {
+  configureSetupPausePermissionPrompt,
+  setupPausePermissionRequestId,
+} from '@core/application/jobs/setup-pause-permission-prompt.js';
 import { permissionRecoveryNotificationRunId } from '@core/jobs/execution-notifications.js';
 import type { Job } from '@core/domain/types.js';
 import type {
@@ -159,6 +163,111 @@ describe('permission recovery', () => {
     });
 
     expect(order).toEqual(['receipt', 'event', 'sync']);
+  });
+
+  it('retires the recovered setup prompt after a cross-flow atomic resume', async () => {
+    const job = pausedJob(1);
+    const cancelPermissionApproval = vi.fn(async () => 'settled' as const);
+    configureSetupPausePermissionPrompt({
+      appId: 'default',
+      cancelPermissionApproval,
+    } as never);
+
+    try {
+      await recheckSetupPausedJobsAfterCapabilityUpdate({
+        appId: 'default',
+        sourceAgentFolder: 'team',
+        jobId: job.id,
+        recoveringPermissionRequestId: 'request-access:another-flow',
+        opsRepository: {
+          getJobById: vi.fn(async () => job),
+          resumeSetupPausedJob: vi.fn(async () => true),
+        } as unknown as RuntimeJobRepository,
+        scheduler: { requestSchedulerSync: vi.fn() },
+        clock: { now: () => '2026-08-06T00:05:00.000Z' },
+      });
+
+      expect(cancelPermissionApproval).toHaveBeenCalledWith({
+        requestId: setupPausePermissionRequestId(
+          job.id,
+          job.setup_state!.fingerprint,
+        ),
+        appId: 'default',
+        sourceAgentFolder: job.workspace_key,
+        reason: 'The job setup requirement was resolved by another grant.',
+      });
+    } finally {
+      configureSetupPausePermissionPrompt(null);
+    }
+  });
+
+  it('does not cancel the setup prompt interaction performing the recovery', async () => {
+    const job = pausedJob(1);
+    const requestId = setupPausePermissionRequestId(
+      job.id,
+      job.setup_state!.fingerprint,
+    );
+    const cancelPermissionApproval = vi.fn(async () => 'settled' as const);
+    configureSetupPausePermissionPrompt({
+      appId: 'default',
+      cancelPermissionApproval,
+    } as never);
+
+    try {
+      await recheckSetupPausedJobsAfterCapabilityUpdate({
+        appId: 'default',
+        sourceAgentFolder: 'team',
+        jobId: job.id,
+        recoveringPermissionRequestId: requestId,
+        opsRepository: {
+          getJobById: vi.fn(async () => job),
+          resumeSetupPausedJob: vi.fn(async () => true),
+        } as unknown as RuntimeJobRepository,
+        scheduler: { requestSchedulerSync: vi.fn() },
+        clock: { now: () => '2026-08-06T00:05:00.000Z' },
+      });
+
+      expect(cancelPermissionApproval).not.toHaveBeenCalled();
+    } finally {
+      configureSetupPausePermissionPrompt(null);
+    }
+  });
+
+  it('continues post-claim notifications when cross-flow prompt retirement throws', async () => {
+    const job = pausedJob(1);
+    const sendQueuedReceipt = vi.fn(async () => undefined);
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+    const requestSchedulerSync = vi.fn();
+    configureSetupPausePermissionPrompt({
+      appId: 'default',
+      cancelPermissionApproval: vi.fn(async () => {
+        throw new Error('prompt store unavailable');
+      }),
+    } as never);
+
+    try {
+      const result = await recheckSetupPausedJobsAfterCapabilityUpdate({
+        appId: 'default',
+        sourceAgentFolder: 'team',
+        jobId: job.id,
+        recoveringPermissionRequestId: 'request-access:another-flow',
+        opsRepository: {
+          getJobById: vi.fn(async () => job),
+          resumeSetupPausedJob: vi.fn(async () => true),
+        } as unknown as RuntimeJobRepository,
+        scheduler: { requestSchedulerSync },
+        sendQueuedReceipt,
+        publishRuntimeEvent,
+        clock: { now: () => '2026-08-06T00:05:00.000Z' },
+      });
+
+      expect(result.queued).toHaveLength(1);
+      expect(sendQueuedReceipt).toHaveBeenCalledTimes(1);
+      expect(publishRuntimeEvent).toHaveBeenCalledTimes(1);
+      expect(requestSchedulerSync).toHaveBeenCalledWith(job.id);
+    } finally {
+      configureSetupPausePermissionPrompt(null);
+    }
   });
 
   it('requests scheduler sync when event publication throws after a successful claim', async () => {

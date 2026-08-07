@@ -20,12 +20,18 @@ import {
 } from './job-readiness-service.js';
 import { agentIdForJobWorkspaceKey } from './job-tool-policy.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import {
+  retireSetupPausePermissionPrompt,
+  setupPausePermissionRequestId,
+} from './setup-pause-permission-prompt.js';
+import { logger } from '../../infrastructure/logging/logger.js';
 
 export interface RecheckPausedJobsAfterCapabilityUpdateInput {
   appId?: string;
   sourceAgentFolder: string;
   conversationJid?: string;
   jobId?: string;
+  recoveringPermissionRequestId?: string;
   opsRepository: RuntimeJobRepository;
   scheduler: SchedulerCoordinationPort;
   toolRepository?: ToolCatalogRepository;
@@ -95,6 +101,23 @@ export async function recheckSetupPausedJobsAfterCapabilityUpdate(
         if (!claimed) continue;
         queued.push({ jobId: job.id, name: job.name, state: 'queued' });
         try {
+          if (
+            input.recoveringPermissionRequestId !==
+            setupPausePermissionRequestId(job.id, job.setup_state!.fingerprint)
+          ) {
+            try {
+              await retireSetupPausePermissionPrompt({
+                job,
+                reason:
+                  'The job setup requirement was resolved by another grant.',
+              });
+            } catch (err) {
+              logger.warn(
+                { err, jobId: job.id },
+                'Failed to retire setup-pause permission prompt after job recovery',
+              );
+            }
+          }
           await sendQueuedReceipt(input, job, recoveryTransitionId);
           await publishRecheckEvent(input, job, 'queued', readiness.setupState);
         } finally {

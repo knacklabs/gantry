@@ -46,6 +46,49 @@ export type JobNotificationLifecycleUpdateResult =
 
 export type { SchedulerSetupStorySource } from '../application/jobs/scheduler-setup-story.js';
 
+const LIFECYCLE_EXIT_NOTIFICATION_TIMEOUT_MS = 5_000;
+
+export async function retireSchedulerLifecycleOnExecutionExit(
+  job: Job,
+  runId: string,
+  deleted: boolean,
+  settled: boolean,
+  lifecycle: {
+    updateLifecycleNotification?: (input: {
+      job: Job;
+      runId: string;
+      runStatus: 'failed';
+      summaryMessage: string;
+    }) => Promise<unknown>;
+    discardLifecycleNotification?: (runId: string) => void;
+  },
+): Promise<void> {
+  try {
+    const update =
+      (!settled || deleted) &&
+      lifecycle.updateLifecycleNotification?.({
+        job,
+        runId,
+        runStatus: 'failed',
+        summaryMessage: deleted
+          ? `Job stopped: ${job.name} was deleted.`
+          : `Job stopped unexpectedly: ${job.name}.`,
+      });
+    if (update) {
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        update.catch(() => undefined),
+        new Promise<void>((resolve) => {
+          timeout = setTimeout(resolve, LIFECYCLE_EXIT_NOTIFICATION_TIMEOUT_MS);
+          timeout.unref?.();
+        }),
+      ]).finally(() => clearTimeout(timeout));
+    }
+  } finally {
+    lifecycle.discardLifecycleNotification?.(runId);
+  }
+}
+
 function recoveryActionAffordances(input: {
   job: Job;
   runId: string;

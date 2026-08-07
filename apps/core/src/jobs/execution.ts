@@ -40,7 +40,7 @@ import {
   resolveExecutionMemoryContext,
 } from './execution-context.js';
 // prettier-ignore
-import { logMemoryDreamJobFailure, notifySchedulerTerminalRunState } from './execution-notifications.js';
+import { logMemoryDreamJobFailure, notifySchedulerTerminalRunState, retireSchedulerLifecycleOnExecutionExit as retireExecutionLifecycle } from './execution-notifications.js';
 import type { MemoryReviewCreatedNotification } from './memory-dreaming-job-outcome.js';
 import {
   claimSchedulerRunLease,
@@ -814,7 +814,7 @@ async function runActiveJob(
     }
   } finally {
     leaseHeartbeat.stop();
-    if (!settled && !deleted) {
+    if (!settled && !deleted)
       await completeFailedRunFailsafe({
         opsRepository: deps.opsRepository,
         jobId: currentJob.id,
@@ -825,6 +825,6 @@ async function runActiveJob(
         recordRunnerControlEvent: leaseContext.recordRunnerControlEvent,
         logger,
       });
-    }
+    await retireExecutionLifecycle(currentJob, runId, deleted, settled, deps);
   }
 }

@@ -145,6 +145,7 @@ function terminalDeps(job: Job) {
       heartbeatAt: input.startedAt,
     })),
     settleJobRunLease: vi.fn(async () => true),
+    finalizeJobRunLease: vi.fn(async () => true),
     finalizeJobRunWithLease: vi.fn(async () => true),
     markJobRunNotified: vi.fn(async () => true),
     updateJob: vi.fn(async () => undefined),
@@ -309,6 +310,147 @@ describe('lifecycle retirement', () => {
       expect.any(String),
     );
     expect(primary.repository.finalizeJobRunWithLease).toHaveBeenCalled();
+  });
+
+  it('retires and clears lifecycle ownership after an unexpected post-capture throw', async () => {
+    const job = makeJob();
+    const primary = terminalDeps(job);
+    let rejectRunLookup!: () => void;
+    const runLookupGate = new Promise<void>((_resolve, reject) => {
+      rejectRunLookup = () => reject(new Error('run lookup failed'));
+    });
+    primary.repository.getJobRunById.mockImplementation(async () => {
+      await runLookupGate;
+      throw new Error('unreachable');
+    });
+    let markRunningCardCreated!: () => void;
+    const runningCardCreated = new Promise<void>((resolve) => {
+      markRunningCardCreated = resolve;
+    });
+    const sendProgressUpdate = vi.fn(async (_jid, text: string) => {
+      if (text.startsWith('Running:')) markRunningCardCreated();
+      return true;
+    });
+    const lifecycle = createSchedulerLifecycleNotificationUpdater({
+      channelWiring: { sendProgressUpdate },
+    });
+    const discardLifecycleNotification = vi.fn(
+      lifecycle.discardLifecycleNotification,
+    );
+    Object.assign(primary.deps, lifecycle, { discardLifecycleNotification });
+
+    const execution = runJob(job, primary.deps, 'tg:scheduler');
+    await runningCardCreated;
+    rejectRunLookup();
+
+    await expect(execution).rejects.toThrow('run lookup failed');
+    expect(sendProgressUpdate).toHaveBeenCalledWith(
+      'tg:scheduler',
+      expect.stringContaining('stopped unexpectedly'),
+      expect.objectContaining({ done: true, replaceOnly: true }),
+    );
+    expect(discardLifecycleNotification).toHaveBeenCalledWith(
+      expect.any(String),
+    );
+
+    const callsAfterExit = sendProgressUpdate.mock.calls.length;
+    const runId = discardLifecycleNotification.mock.calls[0]![0];
+    await lifecycle.updateLifecycleNotification?.({
+      job,
+      runId,
+      runStatus: 'failed',
+      summaryMessage: 'Should not find retained ownership.',
+    });
+    expect(sendProgressUpdate).toHaveBeenCalledTimes(callsAfterExit);
+  });
+
+  it('stops heartbeat and persists failure before a stalled lifecycle retirement', async () => {
+    vi.useFakeTimers();
+    const job = makeJob();
+    const primary = terminalDeps(job);
+    const order: string[] = [];
+    let markRetirementStarted!: () => void;
+    const retirementStarted = new Promise<void>((resolve) => {
+      markRetirementStarted = resolve;
+    });
+    primary.repository.getJobRunById.mockRejectedValue(
+      new Error('run lookup failed'),
+    );
+    primary.repository.finalizeJobRunLease.mockImplementation(async () => {
+      order.push('persist');
+      return true;
+    });
+    primary.deps.updateLifecycleNotification = vi.fn(() => {
+      order.push('retire');
+      markRetirementStarted();
+      return new Promise(() => undefined);
+    });
+
+    const execution = runJob(job, primary.deps, 'tg:scheduler');
+    const failedExecution =
+      expect(execution).rejects.toThrow('run lookup failed');
+    await retirementStarted;
+
+    expect(order).toEqual(['persist', 'retire']);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(runtimeStore.heartbeatRunLease).not.toHaveBeenCalled();
+    await failedExecution;
+  });
+
+  it('retires and clears lifecycle ownership when the job is deleted during execution', async () => {
+    const job = makeJob();
+    const primary = terminalDeps(job);
+    primary.repository.getJobById
+      .mockResolvedValueOnce(job)
+      .mockResolvedValue(undefined);
+    const sendProgressUpdate = vi.fn(async () => true);
+    const lifecycle = createSchedulerLifecycleNotificationUpdater({
+      channelWiring: { sendProgressUpdate },
+    });
+    const discardLifecycleNotification = vi.fn(
+      lifecycle.discardLifecycleNotification,
+    );
+    Object.assign(primary.deps, lifecycle, { discardLifecycleNotification });
+
+    await runJob(job, primary.deps, 'tg:scheduler');
+
+    expect(sendProgressUpdate).toHaveBeenCalledWith(
+      'tg:scheduler',
+      expect.stringContaining('was deleted'),
+      expect.objectContaining({ done: true, replaceOnly: true }),
+    );
+    expect(discardLifecycleNotification).toHaveBeenCalledWith(
+      expect.any(String),
+    );
+  });
+
+  it('does not overwrite a normally settled lifecycle card with a failure', async () => {
+    const job = makeJob();
+    const primary = terminalDeps(job);
+    const sendProgressUpdate = vi.fn(async () => true);
+    const lifecycle = createSchedulerLifecycleNotificationUpdater({
+      channelWiring: { sendProgressUpdate },
+    });
+    const discardLifecycleNotification = vi.fn(
+      lifecycle.discardLifecycleNotification,
+    );
+    Object.assign(primary.deps, lifecycle, { discardLifecycleNotification });
+
+    await runJob(job, primary.deps, 'tg:scheduler');
+
+    expect(sendProgressUpdate).toHaveBeenCalledWith(
+      'tg:scheduler',
+      expect.stringContaining('Completed'),
+      expect.objectContaining({ done: true, replaceOnly: true }),
+    );
+    expect(sendProgressUpdate).not.toHaveBeenCalledWith(
+      'tg:scheduler',
+      expect.stringContaining('stopped unexpectedly'),
+      expect.anything(),
+    );
+    expect(discardLifecycleNotification).toHaveBeenCalledWith(
+      expect.any(String),
+    );
   });
 
   it('primary terminal exit retires or replaces the originating running bubble', async () => {

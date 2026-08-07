@@ -570,7 +570,7 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
       if (input.review.toolName === 'request_permission' && isPermanentPermissionDecision(decision)) {
         persistedRules = await persistRequestPermissionRules({ deps: input.deps, appId: input.appId, agentId: input.agentId, sourceAgentFolder: input.sourceAgentFolder, ipcDir: input.ipcDir, runHandle: input.runHandle, requestId, updates: decision.updatedPermissions ?? [], toolInput: input.review.toolInput, semanticCapabilityDefinitions, actor: decision.decidedBy, conversationId: input.targetJid, threadId: input.threadId, jobId: input.jobId, reason: decision.reason });
       }
-      const recovery = persistedRules.length > 0 ? await recheckPausedSetupJobsAfterRequestAccessGrant({ deps: input.deps, appId: input.appId, sourceAgentFolder: input.sourceAgentFolder, targetJid: input.targetJid, jobId: input.jobId, logWarn: (context, message) => logger.warn(context, message) }) : undefined;
+      const recovery = persistedRules.length > 0 ? await recheckPausedSetupJobsAfterRequestAccessGrant({ deps: input.deps, appId: input.appId, sourceAgentFolder: input.sourceAgentFolder, targetJid: input.targetJid, jobId: input.jobId, recoveringPermissionRequestId: requestId, logWarn: (context, message) => logger.warn(context, message) }) : undefined;
       const mcpProposalRequest = isMcpCapabilityProposalRequest({
         toolName: input.review.toolName,
         toolInput: input.review.toolInput,
