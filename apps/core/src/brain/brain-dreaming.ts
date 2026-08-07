@@ -202,11 +202,9 @@ async function runObserverBrainDreamBatch(input: {
     const proposal = normalizeBrainDreamProposal(rawProposal);
     result.pages += 1;
     if (brainPageIds.has(page.id)) {
-      const summary = await applyBrainDreamOperations({
+      const summary = await applyObserverBrainDreamOperations({
         brain: input.brain,
         repository: input.repository,
-        reviews: input.reviews!,
-        notify: input.notify,
         appId: input.appId,
         runId,
         page,
@@ -266,18 +264,55 @@ function compareBrainPages(left: BrainPage, right: BrainPage): number {
   return time || left.id.localeCompare(right.id);
 }
 
-export async function applyBrainDreamOperations(input: {
+interface BrainDreamOperationInput {
   brain: BrainService;
   repository: BrainRepository;
-  reviews: BrainDreamReviewRepository;
-  notify?: BrainReviewNotifier;
   appId: string;
   runId: string;
   page?: BrainPage;
   evidencePages: BrainPage[];
   ops: unknown[];
   signal?: AbortSignal;
-}): Promise<Omit<BrainDreamBatchResult, 'runId' | 'pages'>> {
+}
+
+export async function applyBrainDreamOperations(
+  input: BrainDreamOperationInput & {
+    reviews: BrainDreamReviewRepository;
+    notify?: BrainReviewNotifier;
+  },
+): Promise<Omit<BrainDreamBatchResult, 'runId' | 'pages'>> {
+  return processBrainDreamOperations(input, (destructive) =>
+    handleDestructiveOp({
+      ...destructive,
+      reviews: input.reviews,
+      notify: input.notify,
+      repository: input.repository,
+      appId: input.appId,
+      runId: input.runId,
+      pageId: input.page?.id ?? null,
+    }),
+  );
+}
+
+async function applyObserverBrainDreamOperations(
+  input: BrainDreamOperationInput,
+): Promise<Omit<BrainDreamBatchResult, 'runId' | 'pages'>> {
+  return processBrainDreamOperations(input, ({ action }) => ({
+    outcome: 'proposed',
+    reason: `${action} was journaled by observer dreaming without review`,
+  }));
+}
+
+async function processBrainDreamOperations(
+  input: BrainDreamOperationInput,
+  handleDestructive: (input: {
+    action: string;
+    raw: unknown;
+    decisionId: string;
+  }) =>
+    | { outcome: BrainDreamOutcome; reason: string }
+    | Promise<{ outcome: BrainDreamOutcome; reason: string }>,
+): Promise<Omit<BrainDreamBatchResult, 'runId' | 'pages'>> {
   const evidenceById = new Map(
     input.evidencePages.map((page) => [page.id, page]),
   );
@@ -290,13 +325,7 @@ export async function applyBrainDreamOperations(input: {
     let reason = op.valid ? '' : op.reason;
     if (op.valid) {
       if (op.kind === 'destructive') {
-        const handled = await handleDestructiveOp({
-          reviews: input.reviews,
-          notify: input.notify,
-          repository: input.repository,
-          appId: input.appId,
-          runId: input.runId,
-          pageId: input.page?.id ?? null,
+        const handled = await handleDestructive({
           action: op.action,
           raw,
           decisionId,
