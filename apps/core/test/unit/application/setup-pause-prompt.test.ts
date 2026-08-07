@@ -232,7 +232,7 @@ describe('setup pause prompts', () => {
       'Triggering step: Pre-run setup check',
     );
     expect(request?.decisionReason).toContain(
-      'Run outcome: Died — this run stopped before starting.',
+      'Run outcome: Died — setup was checked before execution; this run did not start.',
     );
     expect(request?.decisionReason).toContain('Blockers (1):');
     expect(request?.description).toContain('Allow once is unavailable');

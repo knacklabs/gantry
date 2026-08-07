@@ -47,9 +47,9 @@ export function formatSchedulerSetupStory(input: {
   const outcome =
     source === 'transient_permission'
       ? 'Degraded — this run completed with temporary access; future runs are paused.'
-      : input.runId
+      : source === 'permission_denied' || source === 'permission_timeout'
         ? 'Died — this run stopped before completing.'
-        : 'Died — this run stopped before starting.';
+        : 'Died — setup was checked before execution; this run did not start.';
   const blockerLines = input.setupState.blockers.map(
     (blocker, index) =>
       `${index + 1}. ${setupBlockerLabel(blocker, input.setupState.state)}`,

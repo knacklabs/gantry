@@ -851,6 +851,34 @@ describe('setup cards', () => {
     sendMessage.mockClear();
     await notifySchedulerSetupRequired({
       job: makeJob({ name: 'Lead maintenance' }),
+      setupState: { ...setupState, fingerprint: 'setup-preflight' },
+      source: 'preflight_setup',
+      runId: 'run-preflight',
+      sendMessage,
+    });
+    const preflightMessage = String(sendMessage.mock.calls[0]?.[1]);
+    expect(preflightMessage).toContain(
+      'Run outcome: Died — setup was checked before execution; this run did not start.',
+    );
+    expect(preflightMessage).not.toContain(
+      'this run stopped before completing',
+    );
+
+    sendMessage.mockClear();
+    await notifySchedulerSetupRequired({
+      job: makeJob({ name: 'Lead maintenance' }),
+      setupState: { ...setupState, fingerprint: 'setup-final' },
+      source: 'final_setup',
+      runId: 'run-final',
+      sendMessage,
+    });
+    expect(String(sendMessage.mock.calls[0]?.[1])).toContain(
+      'Run outcome: Died — setup was checked before execution; this run did not start.',
+    );
+
+    sendMessage.mockClear();
+    await notifySchedulerSetupRequired({
+      job: makeJob({ name: 'Lead maintenance' }),
       setupState: { ...setupState, fingerprint: 'setup-transient' },
       source: 'transient_permission',
       runId: 'run-2',
