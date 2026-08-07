@@ -8,6 +8,8 @@ import {
   isRuntimeEventThreadFkId,
 } from '../../../domain/events/runtime-event-conversation.js';
 import { RUNTIME_EVENT_TYPES } from '../../../domain/events/runtime-event-types.js';
+import type { ModelTransportFailureMetadata } from '../../../domain/ports/async-tasks.js';
+import { recordModelStreamTermination } from '../../../infrastructure/observability/tracing.js';
 import { publishAuditEventWithRunIdFallback } from './gantry-model-gateway-audit.js';
 
 type GatewayUseAuditInput = {
@@ -18,7 +20,19 @@ type GatewayUseAuditInput = {
   upstreamPath?: string;
   credentialFingerprint?: string;
   usage?: ReturnType<typeof normalizeModelUsage>;
+  streamTermination?: ModelTransportFailureMetadata;
 };
+
+function requestsStreamingResponse(body: Buffer): boolean {
+  try {
+    return (
+      (JSON.parse(body.toString('utf8')) as { stream?: unknown }).stream ===
+      true
+    );
+  } catch {
+    return false;
+  }
+}
 import type { AgentCredentialBroker } from '../../../domain/ports/agent-credential-broker.js';
 import type { ModelCredentialRepository } from '../../../domain/ports/repositories.js';
 import type {
@@ -50,6 +64,7 @@ import {
 import { normalizeModelUsage } from '../../../shared/model-usage.js';
 import {
   beginGatewayObservation,
+  classifyModelStreamTermination,
   failGatewayObservation,
   finishGatewayNonStreaming,
   resolveGatewayTap,
@@ -479,6 +494,8 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       upstreamUrl,
       body,
     });
+    const streamingRequest =
+      observation?.isStreaming ?? requestsStreamingResponse(requestBody);
     const headers = sanitizeProxyHeaders(req.headers);
     try {
       await injectProviderAuth({
@@ -495,15 +512,17 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       throw error;
     }
     const upstreamAbort = new AbortController();
-    const timeout = setTimeout(
-      () =>
-        upstreamAbort.abort(
-          new Error('Model gateway upstream request timed out.'),
-        ),
-      this.upstreamTimeoutMs,
-    );
+    let clientDisconnected = false;
+    let upstreamTimedOut = false;
+    const timeout = setTimeout(() => {
+      upstreamTimedOut = true;
+      upstreamAbort.abort(
+        new Error('Model gateway upstream request timed out.'),
+      );
+    }, this.upstreamTimeoutMs);
     const onClientAbort = () => {
       if (!res.writableEnded) {
+        clientDisconnected = true;
         upstreamAbort.abort(new Error('Model gateway client disconnected.'));
       }
     };
@@ -518,12 +537,23 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
         signal: upstreamAbort.signal,
       });
     } catch (error) {
-      failGatewayObservation(observation, error);
-      throw error;
-    } finally {
+      const streamTermination = streamingRequest
+        ? classifyModelStreamTermination({
+            providerId,
+            phase: 'connect',
+            responseStarted: false,
+            clientDisconnected,
+            timedOut: upstreamTimedOut,
+          })
+        : undefined;
+      if (streamTermination) {
+        recordModelStreamTermination(tokenRecord.runId, streamTermination);
+      }
+      failGatewayObservation(observation, error, streamTermination);
       clearTimeout(timeout);
       req.off('aborted', onClientAbort);
       res.off('close', onClientAbort);
+      throw error;
     }
     const parsedResponse = isProviderBatchResultPath(provider, providerPath)
       ? undefined
@@ -571,22 +601,50 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
     });
     const tap = resolveGatewayTap(observation, response);
     let pipeError: unknown;
+    let streamTermination: ModelTransportFailureMetadata | undefined;
     try {
       await pipeUpstreamBody(response, res, tap);
       // Finalize streamed tool calls as soon as the response is complete. The
       // runner can submit the next tool-result request before a slow audit
       // sink settles, and that request must find the pending tool span.
-      if (observation?.isStreaming) observation.finish({ status });
+      if (streamingRequest) {
+        recordModelStreamTermination(tokenRecord.runId, null);
+        observation?.finish({ status, streamTermination: null });
+      }
     } catch (error) {
-      if (observation?.isStreaming)
-        observation.finish({
+      if (streamingRequest) {
+        streamTermination = classifyModelStreamTermination({
+          providerId,
+          phase: 'stream',
+          responseStarted: true,
+          httpStatus: status,
+          clientDisconnected,
+          timedOut: upstreamTimedOut,
+        });
+        recordModelStreamTermination(tokenRecord.runId, streamTermination);
+        observation?.finish({
           status,
           errorMessage: error instanceof Error ? error.message : String(error),
+          streamTermination,
         });
+      }
       pipeError = error;
+    } finally {
+      clearTimeout(timeout);
+      req.off('aborted', onClientAbort);
+      res.off('close', onClientAbort);
     }
     if (auditPromise) await auditPromise;
-    if (pipeError) throw pipeError;
+    if (pipeError) {
+      if (streamTermination) {
+        await this.publishGatewayUseAudit(tokenRecord, {
+          ...auditInput,
+          outcome: 'stream_failed',
+          streamTermination,
+        });
+      }
+      throw pipeError;
+    }
   }
   private async publishGatewayUseAudit(
     tokenRecord: GatewayTokenRecord,
@@ -633,6 +691,9 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
           ...(input.upstreamPath ? { upstreamPath: input.upstreamPath } : {}),
           usage: input.usage,
           modelAlias: input.usage?.model,
+          ...(input.streamTermination
+            ? { streamTermination: input.streamTermination }
+            : {}),
         },
       },
       'Gantry Model Gateway usage audit failed',

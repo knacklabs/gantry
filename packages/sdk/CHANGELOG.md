@@ -1,5 +1,10 @@
 # @gantry/sdk
 
+## 0.6.1
+
+- Added `client.models.credentials` for the existing list, put, patch, and
+  disable model-credential control routes.
+
 ## 0.6.0
 
 - Added app-scoped runtime-event list/stream with durable cursors.

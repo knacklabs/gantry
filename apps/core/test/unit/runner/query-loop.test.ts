@@ -58,9 +58,17 @@ describe('Claude query loop declarative tool names', () => {
 
   it.each([
     'mcp__gantry__delegate_task',
+    'mcp__gantry__task_cancel',
+    'mcp__gantry__task_get',
+    'mcp__gantry__task_list',
     'mcp__gantry__task_message',
+    'mcp__gantry__task_wait',
     'delegate_task',
+    'task_cancel',
+    'task_get',
+    'task_list',
     'task_message',
+    'task_wait',
   ])('canonicalizes %s as AgentDelegation', (toolName) => {
     expect(canonicalGantryToolRuleName(toolName)).toBe('AgentDelegation');
   });

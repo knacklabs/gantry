@@ -6,6 +6,12 @@ import type {
   ModelRecord,
 } from './job-model-types.js';
 import type { RequestOptions } from './types.js';
+import type {
+  ModelCredentialListResponse,
+  ModelCredentialMutationResponse,
+  ModelCredentialPatchRequest,
+  ModelCredentialWriteRequest,
+} from './openapi-types.js';
 
 type ModelsTransport = {
   request<T>(options: RequestOptions): Promise<T>;
@@ -37,5 +43,29 @@ export function createModelsClient(transport: ModelsTransport) {
         path: '/v1/models/preview',
         body: input,
       }),
+    credentials: {
+      list: () =>
+        transport.request<ModelCredentialListResponse>({
+          method: 'GET',
+          path: '/v1/credentials/models',
+        }),
+      put: (providerId: string, input: ModelCredentialWriteRequest) =>
+        transport.request<ModelCredentialMutationResponse>({
+          method: 'PUT',
+          path: `/v1/credentials/models/${encodeURIComponent(providerId)}`,
+          body: input,
+        }),
+      patch: (providerId: string, input: ModelCredentialPatchRequest) =>
+        transport.request<ModelCredentialMutationResponse>({
+          method: 'PATCH',
+          path: `/v1/credentials/models/${encodeURIComponent(providerId)}`,
+          body: input,
+        }),
+      disable: (providerId: string) =>
+        transport.request<ModelCredentialMutationResponse>({
+          method: 'DELETE',
+          path: `/v1/credentials/models/${encodeURIComponent(providerId)}`,
+        }),
+    },
   };
 }

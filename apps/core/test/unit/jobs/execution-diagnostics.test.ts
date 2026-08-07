@@ -236,4 +236,32 @@ describe('execution diagnostics', () => {
       },
     ]);
   });
+
+  it('forwards audited external MCP terminal receipts from scheduled jobs', async () => {
+    const diagnostics = createJobRunDiagnostics();
+    const emitted: Array<{
+      eventType: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const payload = {
+      toolCallId: '7d996d62-e6a3-42de-a858-208817d04174',
+      serverName: 'firecrawl',
+      toolName: 'firecrawl_search',
+      resultClass: 'success',
+    };
+
+    await forwardRunnerRuntimeEvents({
+      events: [
+        { eventType: RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY, payload },
+      ],
+      diagnostics,
+      emitJobEvent: async (eventType, eventPayload) => {
+        emitted.push({ eventType, payload: eventPayload });
+      },
+    });
+
+    expect(emitted).toEqual([
+      { eventType: RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY, payload },
+    ]);
+  });
 });

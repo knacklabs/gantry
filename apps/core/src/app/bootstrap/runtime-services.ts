@@ -378,6 +378,7 @@ export async function startRuntimeServices(
     resolved.startSchedulerLoop({
       processRole,
       conversationRoutes: () => app.getConversationRoutes(),
+      projectConversationRoute: app.projectConversationRoute,
       queue: app.queue,
       onProcess: (groupJid, proc, runHandle, workspaceFolder, stopAliasJids) =>
         app.queue.registerProcess(

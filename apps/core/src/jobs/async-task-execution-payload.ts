@@ -107,12 +107,14 @@ export function asyncDelegatedPrivateCorrelation(input: {
     | 'context'
     | 'expectedOutput'
     | 'objective'
+    | 'taskKey'
     | 'providerAccountId'
     | 'targetAgentId'
     | 'workspaceFolder'
   >;
 }): Record<string, unknown> {
   const base = {
+    taskKey: input.taskInput.taskKey ?? null,
     providerAccountId: input.taskInput.providerAccountId ?? null,
     workspaceFolder: input.taskInput.workspaceFolder,
     targetAgentId: input.taskInput.targetAgentId ?? null,
@@ -124,6 +126,7 @@ export function asyncDelegatedPrivateCorrelation(input: {
     taskId: input.taskId,
     payload: {
       objective: input.taskInput.objective,
+      taskKey: input.taskInput.taskKey,
       context: input.taskInput.context,
       expectedOutput: input.taskInput.expectedOutput,
       providerAccountId: input.taskInput.providerAccountId,

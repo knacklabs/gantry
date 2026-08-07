@@ -46,9 +46,10 @@ export async function executeResolvedDelegation(input: {
 }) {
   const { context } = input;
   let target = input.target;
-  const parentJob = input.trustedJobId
-    ? await context.deps.opsRepository.getJobById(input.trustedJobId)
-    : null;
+  const parentJob =
+    input.trustedJobId && context.deps.opsRepository
+      ? await context.deps.opsRepository.getJobById(input.trustedJobId)
+      : null;
   const selectedSkills = resolveExecutionSkillSelection({
     requiredSkill: parentJob?.agent_task?.requiredSkill,
     snapshot: target.accessSnapshot,
@@ -63,7 +64,9 @@ export async function executeResolvedDelegation(input: {
     enableDelegatedAsyncFollowUp: Boolean(
       target.callableAgentEntry && !input.trustedJobId,
     ),
-    parentRunId: input.trustedJobId ? null : (input.trustedParentRunId ?? null),
+    parentRunId: input.trustedParentRunId ?? null,
+    parentJobId: input.trustedJobId ?? null,
+    parentJobRunId: null,
     workspaceFolder: target.group.folder,
     runDelegatedAgent: async ({
       task,
@@ -196,6 +199,8 @@ export async function executeResolvedDelegation(input: {
     },
   });
   const args = {
+    taskKey:
+      toTrimmedString(input.payload.taskKey, { maxLen: 80 }) ?? undefined,
     objective: input.objective,
     context:
       toTrimmedString(input.payload.context, { maxLen: 20_000 }) ?? undefined,

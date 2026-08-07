@@ -5,6 +5,8 @@ import { parseTriggerRequesterSessionId } from './execution-context.js';
 interface EventAppSession {
   appId: string;
   sessionId: string;
+  chatJid?: string;
+  workspaceKey?: string;
   defaultResponseMode: RuntimeResponseMode | null;
   defaultWebhookId: string | null;
 }

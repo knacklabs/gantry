@@ -186,7 +186,11 @@ export function gatewayTokenScope(
       .filter(Boolean)
       .join(':')}`;
   }
-  if (binding.runId) return `${prefix}run:${String(binding.runId)}`;
+  if (binding.runId) {
+    return `${prefix}run:${String(binding.runId)}${
+      binding.apiRequestId ? `:request:${binding.apiRequestId}` : ''
+    }`;
+  }
   return `${prefix}unscoped`;
 }
 

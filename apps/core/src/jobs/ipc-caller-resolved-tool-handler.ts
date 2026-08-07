@@ -1,15 +1,32 @@
 import { randomUUID } from 'node:crypto';
 
 import { requestCallerResolvedTool } from '../application/interactions/caller-resolved-tool-coordinator.js';
+import { isAsyncTaskTerminal } from '../domain/ports/async-tasks.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
+import { delegatedTaskAgentInScope } from './async-command-task-helpers.js';
 import { taskScope } from './ipc-agent-task-lifecycle-handlers.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import type { TaskHandler } from './ipc-types.js';
+import { readAsyncCommandSandboxPolicy } from '../runtime/async-command-sandbox-policy.js';
 
 const budgets = new Map<
   string,
   { total: number; scopes: Map<string, number> }
 >();
+
+export function resolveCallerResolvedRunId(input: {
+  runId?: string;
+  parentTaskId?: string;
+  sandboxRunId?: string;
+  parentTaskRunId?: string | null;
+}): string | undefined {
+  const direct = input.runId?.trim();
+  if (direct) return direct;
+  if (!input.parentTaskId?.trim()) return undefined;
+  return (
+    input.sandboxRunId?.trim() || input.parentTaskRunId?.trim() || undefined
+  );
+}
 
 export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
   const responder = createTaskResponder(
@@ -18,10 +35,50 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
     context.data.authThreadId,
     context.data.responseKeyId,
   );
-  const scope = taskScope(context);
-  if (!scope || !context.data.runId) {
+  const parentTaskId = toTrimmedString(context.data.parentTaskId, {
+    maxLen: 160,
+  });
+  const parentTask = parentTaskId
+    ? await context.deps.getAsyncTaskRepository?.()?.getTask(parentTaskId)
+    : null;
+  const inheritedRunId = parentTaskId
+    ? readAsyncCommandSandboxPolicy({
+        sourceAgentFolder: context.sourceAgentFolder,
+        runHandle: context.data.runHandle,
+      })?.runId
+    : undefined;
+  const runId = resolveCallerResolvedRunId({
+    runId: context.data.runId,
+    parentTaskId,
+    sandboxRunId: inheritedRunId,
+    parentTaskRunId: parentTask?.parentRunId,
+  });
+  const scopedContext =
+    runId && !context.data.runId
+      ? { ...context, data: { ...context.data, runId } }
+      : context;
+  const scope = taskScope(scopedContext);
+  if (!scope || !runId) {
     responder.reject(
       'Caller-resolved tools require an active run.',
+      'forbidden',
+    );
+    return;
+  }
+  if (
+    parentTaskId &&
+    (!parentTask ||
+      parentTask.kind !== 'delegated_agent' ||
+      parentTask.appId !== scope.appId ||
+      !delegatedTaskAgentInScope(parentTask, scope.agentId) ||
+      parentTask.conversationId !== scope.conversationId ||
+      (parentTask.privateCorrelationJson.providerAccountId ?? null) !==
+        (scope.providerAccountId ?? null) ||
+      (parentTask.threadId ?? null) !== (scope.threadId ?? null) ||
+      isAsyncTaskTerminal(parentTask.status))
+  ) {
+    responder.reject(
+      'Parent delegated task is not active in this scope.',
       'forbidden',
     );
     return;
@@ -47,12 +104,6 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
     return;
   }
 
-  const parentTaskId = toTrimmedString(context.data.parentTaskId, {
-    maxLen: 160,
-  });
-  const parentTask = parentTaskId
-    ? await context.deps.getAsyncTaskRepository?.()?.getTask(parentTaskId)
-    : null;
   const taskKey =
     (typeof parentTask?.privateCorrelationJson.taskKey === 'string'
       ? parentTask.privateCorrelationJson.taskKey
@@ -70,7 +121,7 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
     return;
   }
   const budget = job?.agent_task?.interactionBudget;
-  const budgetKey = `${scope.appId}:${context.data.runId}`;
+  const budgetKey = `${scope.appId}:${runId}`;
   const used = budgets.get(budgetKey) ?? {
     total: 0,
     scopes: new Map<string, number>(),
@@ -99,7 +150,7 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
   try {
     const result = await requestCallerResolvedTool({
       appId: scope.appId,
-      runId: context.data.runId,
+      runId,
       sourceAgentFolder: context.sourceAgentFolder,
       sessionId,
       interactionId,
@@ -112,7 +163,7 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
           appId: scope.appId as never,
           agentId: scope.agentId as never,
           sessionId: sessionId as never,
-          runId: context.data.runId as never,
+          runId: runId as never,
           ...(context.data.jobId ? { jobId: context.data.jobId as never } : {}),
           conversationId: scope.conversationId as never,
           ...(scope.threadId ? { threadId: scope.threadId as never } : {}),

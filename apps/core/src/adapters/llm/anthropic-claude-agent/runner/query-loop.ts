@@ -5,6 +5,7 @@ import {
   type ThinkingConfig,
 } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
 import { composeAgentCapabilities } from '../agent-capabilities.js';
 import {
   SDK_NATIVE_SKILL_DISABLE_ENV,
@@ -58,8 +59,14 @@ import { startJobHeartbeat } from './job-heartbeat.js';
 import { logUsage } from './usage-logging.js';
 import { readContextUsage } from './context-usage.js';
 import {
+  compileSdkResponseSchema,
+  CompletionContinuationError,
   hasTopLevelAssistantContent,
+  isSdkStructuredOutputValidationFailure,
+  sdkResultFailureMessage,
   sdkResultText,
+  sdkStructuredOutputRepairInstruction,
+  StructuredOutputValidationError,
   sdkStructuredOutputOptions,
   shouldPrefixVisibleBoundary,
   topLevelAssistantText,
@@ -81,7 +88,20 @@ import {
 } from '../../../../runner/tool-gate-core.js';
 import { canonicalGantryToolRuleName } from '../../../../shared/gantry-tool-facades.js';
 import { emitJobToolActivity } from './tool-permission-events.js';
-import { recordSuccessfulToolUse } from './query-tool-success-ledger.js';
+import {
+  recordSuccessfulToolUse,
+  toolResponseIsError,
+} from './query-tool-success-ledger.js';
+import { redactString } from '../../../../infrastructure/logging/logger.js';
+import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
+import {
+  auditExternalMcpResult,
+  auditExternalMcpTerminal,
+} from './external-mcp-audit-hook.js';
+import {
+  EXTERNAL_MCP_AUDIT_PREFIX,
+  externalMcpAuditFilePath,
+} from './external-mcp-audit-protocol.js';
 
 export { recordSuccessfulToolUse } from './query-tool-success-ledger.js';
 
@@ -113,6 +133,8 @@ export async function runQuery(
   lastAssistantUuid?: string;
   closedDuringQuery: boolean;
   primeToolAttempts: AgentRunnerToolAttemptOutput[];
+  completionGateAccepted: boolean;
+  structuredResultValidated: boolean;
 }> {
   const enableIpcFollowups = options.enableIpcFollowups ?? true;
   const persistSdkSession = options.persistSdkSession ?? true;
@@ -169,7 +191,10 @@ export async function runQuery(
       }
     : undefined;
   stream.pushInitialPrompt(prompt, memoryBlock);
-  if (!enableIpcFollowups) {
+  const boundedScheduledFollowups =
+    agentInput.isScheduledJob === true &&
+    Boolean(agentInput.delegatedCompletionGate || agentInput.responseSchema);
+  if (!enableIpcFollowups && !boundedScheduledFollowups) {
     stream.end();
   }
   let ipcPolling = true;
@@ -235,6 +260,12 @@ export async function runQuery(
   let sawStructuredTextSinceLastResult = false;
   let visibleTextSinceLastResult = '';
   let pendingStructuredToPartialBoundary = false;
+  let structuredRepairAttempts = 0;
+  let structuredRepairPending = false;
+  let completionGateAccepted = !agentInput.delegatedCompletionGate;
+  let completionContinuationPending = false;
+  let structuredResultValidated = !agentInput.responseSchema;
+  const validateResponse = compileSdkResponseSchema(agentInput.responseSchema);
   const primeToolAttempts: AgentRunnerToolAttemptOutput[] = [];
   const heartbeat = startJobHeartbeat({
     agentInput,
@@ -315,6 +346,8 @@ export async function runQuery(
     externalMcpAlwaysAllowedTools: readExternalMcpAlwaysAllowedTools(),
     isScheduledJob: agentInput.isScheduledJob,
     callerResolvedTools: agentInput.callerResolvedTools,
+    callerResolvedDelegationEnabled:
+      agentInput.toolAccessRequirements?.includes('AgentDelegation') === true,
   });
   const completionGate = agentInput.delegatedCompletionGate
     ? new DelegatedCompletionGate(agentInput.delegatedCompletionGate)
@@ -337,6 +370,107 @@ export async function runQuery(
       `(reason=${toolSearchDecision.reason} tools=${toolSearchDecision.availableToolCount} ` +
       `mcpServers=${toolSearchDecision.mcpServerCount} bytes=${toolSearchDecision.serializedToolConfigBytes})`,
   );
+  const externalMcpServerNames = Object.keys(capabilities.mcpServers ?? {});
+  const pendingExternalMcpToolUses = new Map<
+    string,
+    { name: string; input: unknown }
+  >();
+  const auditedExternalMcpToolCallIds = new Set<string>();
+  const externalMcpAuditFile = externalMcpAuditFilePath();
+  let externalMcpAuditFileOffset = 0;
+  let externalMcpAuditFileBuffer = Buffer.alloc(0);
+  const emitExternalMcpAuditPayload = (payload: Record<string, unknown>) => {
+    const toolCallId =
+      typeof payload.toolCallId === 'string' ? payload.toolCallId : '';
+    if (toolCallId && auditedExternalMcpToolCallIds.has(toolCallId)) return;
+    const serverName =
+      typeof payload.serverName === 'string' ? payload.serverName : '';
+    if (
+      serverName === 'gantry' ||
+      !externalMcpServerNames.includes(serverName)
+    ) {
+      throw new Error('unrecognized external MCP audit server');
+    }
+    writeOutput({
+      status: 'success',
+      result: null,
+      runtimeEventOnly: true,
+      runtimeEvents: [
+        {
+          appId: agentInput.appId,
+          agentId: agentInput.agentId,
+          runId: agentInput.runId,
+          jobId: agentInput.jobId,
+          conversationId: agentInput.chatJid,
+          threadId: agentInput.threadId,
+          eventType: RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
+          actor: 'audited-external-mcp-proxy',
+          responseMode: 'none',
+          payload,
+        },
+      ],
+    });
+    if (toolCallId) auditedExternalMcpToolCallIds.add(toolCallId);
+  };
+  const drainExternalMcpAuditFile = () => {
+    if (!externalMcpAuditFile || !fs.existsSync(externalMcpAuditFile)) return;
+    const contents = fs.readFileSync(externalMcpAuditFile);
+    if (contents.length < externalMcpAuditFileOffset) {
+      externalMcpAuditFileOffset = 0;
+      externalMcpAuditFileBuffer = Buffer.alloc(0);
+    }
+    if (contents.length > externalMcpAuditFileOffset) {
+      externalMcpAuditFileBuffer = Buffer.concat([
+        externalMcpAuditFileBuffer,
+        contents.subarray(externalMcpAuditFileOffset),
+      ]);
+      externalMcpAuditFileOffset = contents.length;
+    }
+    let newlineIndex = externalMcpAuditFileBuffer.indexOf(0x0a);
+    while (newlineIndex >= 0) {
+      const line = externalMcpAuditFileBuffer
+        .subarray(0, newlineIndex)
+        .toString('utf8');
+      externalMcpAuditFileBuffer = externalMcpAuditFileBuffer.subarray(
+        newlineIndex + 1,
+      );
+      if (line.trim()) {
+        try {
+          emitExternalMcpAuditPayload(
+            JSON.parse(line) as Record<string, unknown>,
+          );
+        } catch (error) {
+          log(
+            `Invalid external MCP audit file record: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+      newlineIndex = externalMcpAuditFileBuffer.indexOf(0x0a);
+    }
+  };
+  let stderrBuffer = '';
+  const handleClaudeStderr = (data: string) => {
+    stderrBuffer += data;
+    const lines = stderrBuffer.split('\n');
+    stderrBuffer = lines.pop() ?? '';
+    for (const line of lines) {
+      const prefixIndex = line.indexOf(EXTERNAL_MCP_AUDIT_PREFIX);
+      if (prefixIndex < 0) {
+        log(`[claude-code stderr] ${line}`);
+        continue;
+      }
+      try {
+        const payload = JSON.parse(
+          line.slice(prefixIndex + EXTERNAL_MCP_AUDIT_PREFIX.length),
+        ) as Record<string, unknown>;
+        emitExternalMcpAuditPayload(payload);
+      } catch (error) {
+        log(
+          `[claude-code stderr] invalid external MCP audit: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  };
   const postToolUseHook = async (
     hookInput: HookInput,
     toolUseID: string | undefined,
@@ -345,11 +479,57 @@ export async function runQuery(
     if (hookInput.hook_event_name === 'PostToolUse' && toolSuccessLedger) {
       recordSuccessfulToolUse(hookInput, toolSuccessLedger);
     }
-    return permissionApprovalContext.postToolUse(
+    const permissionResult = await permissionApprovalContext.postToolUse(
       hookInput,
       toolUseID,
       hookOptions,
     );
+    const auditResult = auditExternalMcpTerminal({
+      hookInput,
+      toolUseId: toolUseID,
+      serverNames: externalMcpServerNames,
+      agentInput,
+    });
+    if (auditResult.auditedToolCallId) {
+      auditedExternalMcpToolCallIds.add(auditResult.auditedToolCallId);
+    }
+    if (auditResult.updatedToolOutput === undefined) return permissionResult;
+    const permissionHookOutput =
+      'hookSpecificOutput' in permissionResult
+        ? permissionResult.hookSpecificOutput
+        : undefined;
+    return {
+      ...permissionResult,
+      hookSpecificOutput: {
+        ...(permissionHookOutput ?? {}),
+        hookEventName: 'PostToolUse' as const,
+        updatedToolOutput: auditResult.updatedToolOutput,
+      },
+    };
+  };
+  const canUseTool = createCanUseToolCallback({
+    agentInput,
+    sdkEnv: isolatedSdkEnv,
+    workspaceFolder,
+    memoryBlock,
+    configuredModel,
+    capabilities,
+    primeToolAttempts,
+    getNewSessionId: () => newSessionId,
+    emitInteractionBoundary,
+    recordToolActivity: (toolName) => heartbeat.recordToolActivity(toolName),
+    recordPermissionApprovalContext: permissionApprovalContext.record,
+  });
+  const guardedCanUseTool: typeof canUseTool = async (...args) => {
+    if (structuredRepairPending) {
+      return {
+        behavior: 'deny' as const,
+        message:
+          'Tools are disabled during the bounded response_schema repair turn.',
+        interrupt: false,
+      };
+    }
+    return canUseTool(...args);
   };
   const sdkQuery = query({
     prompt: stream,
@@ -377,7 +557,7 @@ export async function runQuery(
       env: isolatedSdkEnv,
       // Without this the subprocess's own stderr is lost and startup failures
       // surface only as "Claude Code process exited with code 1".
-      stderr: (data: string) => log(`[claude-code stderr] ${data}`),
+      stderr: handleClaudeStderr,
       ...(claudeCodeExecutable
         ? { pathToClaudeCodeExecutable: claudeCodeExecutable }
         : {}),
@@ -413,20 +593,7 @@ export async function runQuery(
           },
         ],
       },
-      canUseTool: createCanUseToolCallback({
-        agentInput,
-        sdkEnv: isolatedSdkEnv,
-        workspaceFolder,
-        memoryBlock,
-        configuredModel,
-        capabilities,
-        primeToolAttempts,
-        getNewSessionId: () => newSessionId,
-        emitInteractionBoundary,
-        recordToolActivity: (toolName) =>
-          heartbeat.recordToolActivity(toolName),
-        recordPermissionApprovalContext: permissionApprovalContext.record,
-      }),
+      canUseTool: guardedCanUseTool,
       // Load only the per-run CLAUDE_CONFIG_DIR settings so Claude discovers
       // Gantry-materialized skills without reading workspace configuration.
       settingSources: ['user'],
@@ -437,6 +604,10 @@ export async function runQuery(
   });
   const sdkQueryIteratorMs = elapsedMs();
   log(`SDK query iterator created in ${sdkQueryIteratorMs}ms`);
+  const externalMcpAuditPump = externalMcpAuditFile
+    ? setInterval(drainExternalMcpAuditFile, 250)
+    : undefined;
+  externalMcpAuditPump?.unref();
   try {
     let firstSdkMessageLogged = false;
     let firstTextDeltaLogged = false;
@@ -477,6 +648,7 @@ export async function runQuery(
     for await (const message of sdkQuery) {
       messageCount++;
       heartbeat.markActivity();
+      drainExternalMcpAuditFile();
       const msgType =
         message.type === 'system'
           ? `system/${(message as { subtype?: string }).subtype}`
@@ -496,6 +668,67 @@ export async function runQuery(
       }
       if (message.type === 'assistant' && 'uuid' in message) {
         lastAssistantUuid = (message as { uuid: string }).uuid;
+      }
+      if (message.type === 'assistant' || message.type === 'user') {
+        const content = (
+          message as {
+            message?: { content?: unknown };
+          }
+        ).message?.content;
+        if (Array.isArray(content)) {
+          if (message.type === 'assistant') {
+            for (const item of content) {
+              if (!item || typeof item !== 'object') continue;
+              const block = item as Record<string, unknown>;
+              if (
+                block.type === 'tool_use' &&
+                typeof block.id === 'string' &&
+                typeof block.name === 'string'
+              ) {
+                pendingExternalMcpToolUses.set(block.id, {
+                  name: block.name,
+                  input: block.input,
+                });
+              }
+            }
+          } else {
+            for (const item of content) {
+              if (!item || typeof item !== 'object') continue;
+              const block = item as Record<string, unknown>;
+              const toolCallId =
+                block.type === 'tool_result' &&
+                typeof block.tool_use_id === 'string'
+                  ? block.tool_use_id
+                  : null;
+              if (!toolCallId) continue;
+              const toolUse = pendingExternalMcpToolUses.get(toolCallId);
+              if (!toolUse) continue;
+              const toolResponse = { content: block.content };
+              const provenanceToolCallId = externalMcpProvenanceToolCallId(
+                block.content,
+              );
+              const auditedToolCallId = provenanceToolCallId ?? toolCallId;
+              if (auditedExternalMcpToolCallIds.has(auditedToolCallId)) {
+                pendingExternalMcpToolUses.delete(toolCallId);
+                continue;
+              }
+              const auditResult = auditExternalMcpResult({
+                toolName: toolUse.name,
+                toolCallId: auditedToolCallId,
+                toolInput: toolUse.input,
+                toolResponse,
+                failed:
+                  block.is_error === true || toolResponseIsError(toolResponse),
+                serverNames: externalMcpServerNames,
+                agentInput,
+              });
+              if (auditResult.auditedToolCallId) {
+                auditedExternalMcpToolCallIds.add(auditedToolCallId);
+              }
+              pendingExternalMcpToolUses.delete(toolCallId);
+            }
+          }
+        }
       }
       if (message.type === 'assistant') {
         if (agentInput.responseSchema) continue;
@@ -529,6 +762,26 @@ export async function runQuery(
       if (message.type === 'system' && message.subtype === 'init') {
         newSessionId = message.session_id;
         assertRequiredMcpServerReady(message);
+        log(
+          `MCP server statuses: ${message.mcp_servers
+            .map((server) => `${server.name}=${server.status}`)
+            .join(',')}`,
+        );
+        const detailedMcpStatuses =
+          typeof sdkQuery.mcpServerStatus === 'function'
+            ? await sdkQuery.mcpServerStatus()
+            : [];
+        const failedMcpServer = detailedMcpStatuses.find(
+          (server) =>
+            server.status === 'failed' ||
+            server.status === 'needs-auth' ||
+            server.status === 'disabled',
+        );
+        if (failedMcpServer?.error) {
+          throw new Error(
+            `Required MCP server "${failedMcpServer.name}" is not ready: ${failedMcpServer.status}: ${redactString(failedMcpServer.error)}`,
+          );
+        }
         providerSessionMs = elapsedMs();
         log(
           `Session initialized after ${providerSessionMs}ms: provider resume handle received`,
@@ -615,7 +868,50 @@ export async function runQuery(
           firstResultMs = elapsedMs();
           log(`First SDK result after ${firstResultMs}ms`);
         }
-        const textResult = sdkResultText(message, agentInput.responseSchema);
+        const resultFailure = sdkResultFailureMessage(message);
+        const structuredSdkFailure =
+          resultFailure && isSdkStructuredOutputValidationFailure(message);
+        if (resultFailure && !structuredSdkFailure) {
+          throw completionContinuationPending
+            ? new CompletionContinuationError(resultFailure)
+            : new Error(resultFailure);
+        }
+        const completionDecision = await completionGate?.check();
+        const continuedByCompletionGate =
+          completionDecision?.decision === 'continue';
+        completionGateAccepted = !completionGate || !continuedByCompletionGate;
+        completionContinuationPending = continuedByCompletionGate;
+        if (continuedByCompletionGate) structuredRepairPending = false;
+        let continuedBySchemaRepair = false;
+        let textResult: string | null = null;
+        if (!continuedByCompletionGate) {
+          try {
+            textResult = sdkResultText(
+              message,
+              agentInput.responseSchema,
+              validateResponse,
+            );
+            structuredResultValidated =
+              !agentInput.responseSchema || textResult !== null;
+            structuredRepairPending = false;
+          } catch (error) {
+            if (
+              error instanceof StructuredOutputValidationError &&
+              agentInput.responseSchema &&
+              structuredRepairAttempts < 1
+            ) {
+              structuredRepairAttempts += 1;
+              structuredRepairPending = true;
+              structuredResultValidated = false;
+              continuedBySchemaRepair = true;
+              steeringGate.accept(
+                sdkStructuredOutputRepairInstruction(error, message),
+              );
+            } else {
+              throw error;
+            }
+          }
+        }
         const emittedVisibleText =
           sawPartialTextSinceLastResult || sawStructuredTextSinceLastResult;
         const canUseResultFallback =
@@ -633,8 +929,7 @@ export async function runQuery(
           fallbackModel: configuredModel,
         });
         const contextUsagePromise = readContextUsage(sdkQuery);
-        const completionDecision = await completionGate?.check();
-        if (completionDecision?.decision === 'continue') {
+        if (continuedByCompletionGate) {
           steeringGate.accept(completionDecision.message);
         }
         const continuedByFollowup = steeringGate.pendingCount() > 0;
@@ -644,6 +939,12 @@ export async function runQuery(
           newSessionId,
           ...(primeToolAttempts.length > 0 ? { primeToolAttempts } : {}),
           ...(continuedByFollowup ? { continuedByFollowup: true } : {}),
+          ...(!continuedByFollowup && completionGate
+            ? { completionGateAccepted }
+            : {}),
+          ...(!continuedByFollowup && agentInput.responseSchema
+            ? { structuredResultValidated }
+            : {}),
           ...(usage
             ? {
                 usage,
@@ -663,6 +964,13 @@ export async function runQuery(
         visibleTextSinceLastResult = '';
         pendingStructuredToPartialBoundary = false;
         steeringGate.markTurnBoundary();
+        if (
+          boundedScheduledFollowups &&
+          !continuedByCompletionGate &&
+          !continuedBySchemaRepair
+        ) {
+          stream.end();
+        }
         const contextUsage = await contextUsagePromise;
         if (contextUsage) {
           writeOutput({
@@ -675,7 +983,19 @@ export async function runQuery(
         }
       }
     }
+    drainExternalMcpAuditFile();
+  } catch (error) {
+    if (
+      completionContinuationPending &&
+      !(error instanceof CompletionContinuationError) &&
+      !(error instanceof StructuredOutputValidationError)
+    ) {
+      throw new CompletionContinuationError(error);
+    }
+    throw error;
   } finally {
+    if (externalMcpAuditPump) clearInterval(externalMcpAuditPump);
+    drainExternalMcpAuditFile();
     ipcPolling = false;
     runtimeSignalPump.stop();
     heartbeat.stop();
@@ -687,6 +1007,20 @@ export async function runQuery(
         ? `No conversation found with session ID: ${agentInput.sessionId}`
         : 'Anthropic SDK query completed without messages or results',
     );
+  if (boundedScheduledFollowups && completionGate && !completionGateAccepted) {
+    throw new CompletionContinuationError(
+      'Claude SDK ended before the configured completion gate accepted the run.',
+    );
+  }
+  if (
+    boundedScheduledFollowups &&
+    agentInput.responseSchema &&
+    !structuredResultValidated
+  ) {
+    throw new StructuredOutputValidationError(
+      'Claude SDK ended without a validated response_schema result.',
+    );
+  }
   log(
     `Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`,
   );
@@ -695,5 +1029,33 @@ export async function runQuery(
     lastAssistantUuid,
     closedDuringQuery,
     primeToolAttempts,
+    completionGateAccepted,
+    structuredResultValidated,
   };
+}
+
+function externalMcpProvenanceToolCallId(content: unknown): string | undefined {
+  const texts =
+    typeof content === 'string'
+      ? [content]
+      : Array.isArray(content)
+        ? content.flatMap((item) => {
+            if (!item || typeof item !== 'object') return [];
+            const text = (item as { text?: unknown }).text;
+            return typeof text === 'string' ? [text] : [];
+          })
+        : [];
+  for (const text of texts) {
+    try {
+      const value = JSON.parse(text) as {
+        gantryProvenance?: { toolCallId?: unknown };
+      };
+      if (typeof value.gantryProvenance?.toolCallId === 'string') {
+        return value.gantryProvenance.toolCallId;
+      }
+    } catch {
+      // Most MCP text results are not JSON provenance records.
+    }
+  }
+  return undefined;
 }

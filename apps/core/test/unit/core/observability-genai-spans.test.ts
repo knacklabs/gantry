@@ -1941,6 +1941,34 @@ describe('observeGatewayCall', () => {
     expect(attributes['gen_ai.usage.total_tokens']).toBeUndefined();
   });
 
+  it('records the structured stream terminator on the model span', () => {
+    const exporter = init();
+    const observation = observe({
+      providerId: 'anthropic',
+      upstreamUrl: MESSAGES_URL,
+      request: { model: 'claude', stream: true },
+    });
+
+    observation.finish({
+      status: 200,
+      errorMessage: 'stream ended early',
+      streamTermination: {
+        source: 'provider',
+        phase: 'stream',
+        providerId: 'anthropic',
+        responseStarted: true,
+        httpStatus: 200,
+      },
+    });
+
+    expect(chatSpan(exporter).attributes).toMatchObject({
+      'gantry.stream.termination_source': 'provider',
+      'gantry.stream.termination_phase': 'stream',
+      'gantry.stream.response_started': true,
+      'gantry.stream.completed': false,
+    });
+  });
+
   it('does nothing when tracing is disabled', () => {
     expect(
       observeGatewayCall({

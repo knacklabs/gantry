@@ -38,6 +38,7 @@ import {
 import type { AgentRunnerInput } from './types.js';
 import { sdkSandboxBlockedRuntimeEvents } from './sandbox-events.js';
 import { setExternalMcpServerEgressEnv } from './mcp-server-validation.js';
+import { sdkResultFailureMetadata } from './sdk-message-output.js';
 
 const SCHEDULED_JOB_REPORT_INSTRUCTIONS = [
   '[SCHEDULED JOB - The following message was sent automatically and is not coming directly from the user or group.]',
@@ -235,18 +236,26 @@ async function runScheduledQuery(opts: {
       status: 'success',
       result: null,
       newSessionId: diagnosticSessionId,
+      ...(opts.agentInput.delegatedCompletionGate
+        ? { completionGateAccepted: queryResult.completionGateAccepted }
+        : {}),
+      ...(opts.agentInput.responseSchema
+        ? { structuredResultValidated: queryResult.structuredResultValidated }
+        : {}),
       ...(queryResult.primeToolAttempts.length > 0
         ? { primeToolAttempts: queryResult.primeToolAttempts }
         : {}),
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
+    const failure = sdkResultFailureMetadata(err);
     log(`Scheduled job error: ${errorMessage}`);
     writeOutput({
       status: 'error',
       result: null,
       newSessionId: diagnosticSessionId,
       error: errorMessage,
+      ...(failure ? { failure } : {}),
       runtimeEvents: sdkSandboxBlockedRuntimeEvents(
         opts.agentInput,
         errorMessage,
@@ -299,12 +308,14 @@ async function runInteractiveQueryLoop(opts: {
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
+    const failure = sdkResultFailureMetadata(err);
     log(`Agent error: ${errorMessage}`);
     writeOutput({
       status: 'error',
       result: null,
       newSessionId: diagnosticSessionId,
       error: errorMessage,
+      ...(failure ? { failure } : {}),
       runtimeEvents: sdkSandboxBlockedRuntimeEvents(
         opts.agentInput,
         errorMessage,

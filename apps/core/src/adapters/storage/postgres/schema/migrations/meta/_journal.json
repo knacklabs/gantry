@@ -925,6 +925,20 @@
       "when": 1785746462812,
       "tag": "20260803084102_job_coordination_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "7",
+      "when": 1785862519781,
+      "tag": "20260804165519_reconcile_merged_settings_migrations",
+      "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1786036206805,
+      "tag": "20260806171006_reconcile_merged_settings_migration_hash",
+      "breakpoints": true
     }
   ]
 }

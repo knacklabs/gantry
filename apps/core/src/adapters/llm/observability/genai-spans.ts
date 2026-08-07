@@ -1,5 +1,6 @@
 import { SpanStatusCode, type Span } from '@opentelemetry/api';
 
+import type { ModelTransportFailureMetadata } from '../../../domain/ports/async-tasks.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
 import { normalizeModelUsage } from '../../../shared/model-usage.js';
 import type { NormalizedModelUsage } from '../../../shared/model-catalog.js';
@@ -81,6 +82,7 @@ export interface GatewayCallObservation {
     responseJson?: unknown;
     normalizedUsage?: NormalizedModelUsage;
     errorMessage?: string;
+    streamTermination?: ModelTransportFailureMetadata | null;
   }) => void;
 }
 
@@ -383,6 +385,22 @@ export function observeGatewayCall(input: {
       finished = true;
       try {
         span.setAttribute('http.response.status_code', result.status);
+        if (isStreaming) {
+          const termination = result.streamTermination;
+          span.setAttribute(
+            'gantry.stream.termination_source',
+            termination?.source ?? 'completed',
+          );
+          span.setAttribute(
+            'gantry.stream.termination_phase',
+            termination?.phase ?? 'stream',
+          );
+          span.setAttribute(
+            'gantry.stream.response_started',
+            termination?.responseStarted ?? true,
+          );
+          span.setAttribute('gantry.stream.completed', !termination);
+        }
         let usage: Record<string, unknown> | undefined;
         let responseModel: string | undefined;
         let assistantMessages: Record<string, unknown>[] = [];

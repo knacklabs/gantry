@@ -24,6 +24,7 @@ import {
   resourceFromAttributes,
 } from '@opentelemetry/resources';
 
+import type { ModelTransportFailureMetadata } from '../../domain/ports/async-tasks.js';
 import { logger } from '../logging/logger.js';
 
 export interface TracingRuntimeConfig {
@@ -51,6 +52,25 @@ interface TracingState {
 
 let state: TracingState | undefined;
 const turnSpans = new Map<string, Span>();
+const modelTransportFailures = new Map<string, ModelTransportFailureMetadata>();
+
+export function recordModelStreamTermination(
+  runId: string | undefined,
+  termination: ModelTransportFailureMetadata | null,
+): void {
+  if (!runId) return;
+  if (termination) modelTransportFailures.set(runId, termination);
+  else modelTransportFailures.delete(runId);
+}
+
+export function takeModelTransportFailure(
+  runId: string,
+): ModelTransportFailureMetadata | undefined {
+  const failure = modelTransportFailures.get(runId);
+  modelTransportFailures.delete(runId);
+  return failure;
+}
+
 const turnSpanEndCallbacks = new Map<string, Set<() => void>>();
 const DELEGATION_PARENT_TTL_MS = 30 * 60_000;
 const MAX_DELEGATION_PARENTS = 1024;

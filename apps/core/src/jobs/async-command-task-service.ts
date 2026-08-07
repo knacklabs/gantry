@@ -297,6 +297,60 @@ export class AsyncCommandTaskService {
           : dto;
       });
   }
+  async wait(input: {
+    taskIds: string[];
+    appId: string;
+    agentId: string;
+    conversationId?: string | null;
+    providerAccountId?: string | null;
+    threadId?: string | null;
+    parentTaskId?: string | null;
+    timeoutMs: number;
+    signal?: AbortSignal;
+  }): Promise<{
+    ok: boolean;
+    message: string;
+    tasks?: PublicAsyncTaskDto[];
+    timedOut?: boolean;
+  }> {
+    const deadline = Date.now() + input.timeoutMs;
+    const signal = input.signal ?? new AbortController().signal;
+    for (;;) {
+      const records = await Promise.all(
+        input.taskIds.map((taskId) => this.repository.getTask(taskId)),
+      );
+      if (
+        records.some(
+          (task) =>
+            !task || !isAgentFacingTask(task) || !taskInScope(task, input),
+        )
+      ) {
+        return { ok: false, message: 'One or more tasks were not found.' };
+      }
+      const tasks = records as AsyncTaskRecord[];
+      const publicTasks = tasks.map(toPublicAsyncTaskDto);
+      if (tasks.every((task) => isAsyncTaskTerminal(task.status))) {
+        return {
+          ok: true,
+          message: 'All selected tasks reached terminal states.',
+          tasks: publicTasks,
+          timedOut: false,
+        };
+      }
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0 || signal.aborted) {
+        return {
+          ok: true,
+          message: signal.aborted
+            ? 'Task wait was cancelled.'
+            : 'Task wait timeout expired.',
+          tasks: publicTasks,
+          timedOut: true,
+        };
+      }
+      await this.taskChanges.wait({ signal, timeoutMs: remainingMs });
+    }
+  }
   async message(input: {
     taskId: string;
     appId: string;

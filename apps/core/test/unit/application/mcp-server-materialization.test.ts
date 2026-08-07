@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import path from 'node:path';
 
 import { materializeMcpRecord } from '@core/application/mcp/mcp-server-materialization.js';
 
@@ -65,7 +66,12 @@ describe('materializeMcpRecord', () => {
       ).config,
     ).toEqual({
       type: 'stdio',
-      command: 'firecrawl-mcp',
+      command: path.join(
+        process.cwd(),
+        'node_modules',
+        '.bin',
+        `firecrawl-mcp${process.platform === 'win32' ? '.cmd' : ''}`,
+      ),
       args: [],
     });
   });

@@ -45,6 +45,7 @@ import { createCoreTaskLifecycleBackend } from '../application/core-tools/task-l
 import { delegatedTaskAgentInScope } from './async-command-task-helpers.js';
 import { resolveDelegatedAgentTarget } from './ipc-agent-delegation-target.js';
 import { executeResolvedDelegation } from './ipc-delegated-agent-execution.js';
+import { createTaskWaitHandler } from './ipc-task-wait-handler.js';
 
 const TODO_STATUSES = new Set([
   'pending',
@@ -471,6 +472,13 @@ const taskCancelHandler: TaskHandler = async (context) => {
   const tasks = taskBackend(context, service, scopedTaskOwner, parentTask);
   respondTaskLifecycleResult(context, await tasks.task_cancel({ taskId }));
 };
+const taskWaitHandler = createTaskWaitHandler({
+  responder,
+  taskScope,
+  taskService,
+  validateParentTaskScope,
+  taskBackend,
+});
 const delegateTaskHandler: TaskHandler = async (context) => {
   const { reject } = responder(context);
   const scope = taskScope(context);
@@ -597,6 +605,7 @@ export const agentTaskLifecycleHandlers: Record<string, TaskHandler> = {
   task_cancel: taskCancelHandler,
   task_get: taskGetHandler,
   task_list: taskListHandler,
+  task_wait: taskWaitHandler,
   task_message: taskMessageHandler,
   todo_update: todoUpdateHandler,
 };

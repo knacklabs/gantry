@@ -1,4 +1,5 @@
 import type { Job } from '../domain/types.js';
+import type { AgentFailureMetadata } from '../domain/ports/async-tasks.js';
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import {
   RUNTIME_EVENT_TYPES,
@@ -170,6 +171,9 @@ export async function publishSchedulerCompletionEvent(input: {
   startNotified: boolean;
   summary: string;
   result?: string | null;
+  failure?: AgentFailureMetadata;
+  completionGateAccepted?: boolean;
+  structuredResultValidated?: boolean;
   nextRun: string | null;
   state: SchedulerRunEventState;
   runtimeAppId: string;
@@ -187,6 +191,9 @@ export async function publishSchedulerCompletionEvent(input: {
     startNotified: input.startNotified,
     summary: input.summary,
     result: input.result,
+    failure: input.failure,
+    completionGateAccepted: input.completionGateAccepted,
+    structuredResultValidated: input.structuredResultValidated,
     nextRun: input.nextRun,
     boundTriggerId: input.state.boundTriggerId,
     eventAppSession: input.state.eventAppSession,

@@ -246,6 +246,7 @@ export function capabilityStatusText(): string {
       toolName === 'task_cancel' ||
       toolName === 'task_get' ||
       toolName === 'task_list' ||
+      toolName === 'task_wait' ||
       toolName === 'task_message' ||
       toolName === 'todo_update' ||
       toolName === 'memory_search' ||

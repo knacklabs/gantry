@@ -68,6 +68,7 @@ describe('getHostRuntimeCredentialEnv', () => {
       agentId: 'main_agent',
       conversationId: 'telegram:group',
       modelRouteId: 'anthropic',
+      apiRequestId: expect.stringMatching(/^model-runtime:/),
       runId: expect.stringMatching(/^credential-run:/),
     });
 
@@ -78,6 +79,7 @@ describe('getHostRuntimeCredentialEnv', () => {
         profile: 'gantry',
         purpose: 'model_runtime',
         appId: 'default',
+        apiRequestId: issuedBinding?.apiRequestId,
         runId: issuedBinding?.runId,
       }),
     });

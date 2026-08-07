@@ -48,7 +48,14 @@ const EXACT_GANTRY_TOOL_RUNTIME_MATCHES: Record<string, readonly string[]> = {
   FileRead: ['Read'],
   FileEdit: ['Edit', 'MultiEdit'],
   FileWrite: ['Write'],
-  AgentDelegation: [],
+  AgentDelegation: [
+    'mcp__gantry__delegate_task',
+    'mcp__gantry__task_cancel',
+    'mcp__gantry__task_get',
+    'mcp__gantry__task_list',
+    'mcp__gantry__task_message',
+    'mcp__gantry__task_wait',
+  ],
 };
 
 const REGISTERED_DURABLE_EXACT_TOOLS = new Set(['Browser']);

@@ -1,6 +1,7 @@
 import {
   executableModelEntry,
   type ModelCacheMode,
+  type ModelEffortLevel,
   providerRoute,
   type ModelCatalogEntry,
   type ModelWorkload,
@@ -65,6 +66,7 @@ export function modelAliasesToCatalogEntries(
       cacheMode: cache.cacheMode,
       cacheTokenFields: cache.cacheTokenFields,
       supportsThinking: alias.supportsThinking,
+      supportedEffortLevels: alias.supportedEffortLevels,
       supportsTools: alias.supportsTools,
       supportedWorkloads: alias.supportedWorkloads,
       experimental: true,
@@ -129,6 +131,7 @@ function parseModelAlias(
       key !== 'cached_input_usd_per_million_tokens' &&
       key !== 'cache_write_usd_per_million_tokens' &&
       key !== 'supports_thinking' &&
+      key !== 'supported_effort_levels' &&
       key !== 'supports_tools' &&
       key !== 'source'
     ) {
@@ -195,12 +198,41 @@ function parseModelAlias(
             map.supports_thinking,
             `${pathPrefix}.supports_thinking`,
           ),
+    supportedEffortLevels: parseEffortLevels(
+      map.supported_effort_levels,
+      pathPrefix,
+    ),
     supportsTools:
       map.supports_tools === undefined
         ? undefined
         : parseBooleanValue(map.supports_tools, `${pathPrefix}.supports_tools`),
     source: parseSource(map.source, pathPrefix, aliasId),
   };
+}
+
+function parseEffortLevels(
+  raw: unknown,
+  pathPrefix: string,
+): ModelEffortLevel[] | undefined {
+  if (raw === undefined) return undefined;
+  const supported: readonly ModelEffortLevel[] = [
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+    'max',
+  ];
+  return parseStringArrayValue(
+    raw,
+    `${pathPrefix}.supported_effort_levels`,
+  ).map((level, index) => {
+    if (supported.includes(level as ModelEffortLevel)) {
+      return level as ModelEffortLevel;
+    }
+    throw new Error(
+      `${pathPrefix}.supported_effort_levels[${index}] must be one of ${supported.join(', ')}`,
+    );
+  });
 }
 
 function parseAliasList(

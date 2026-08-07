@@ -62,6 +62,7 @@ export const LOCKED_DENIED_IPC_TASK_TYPES: ReadonlySet<string> =
     'task_get',
     'task_list',
     'task_cancel',
+    'task_wait',
     'task_message',
     ...ADMIN_MCP_TOOL_NAMES,
   ]);

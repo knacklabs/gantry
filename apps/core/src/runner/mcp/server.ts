@@ -9,9 +9,13 @@ import { registerProfileTools } from './tools/profile.js';
 import { registerSchedulerTools } from './tools/scheduler.js';
 import { registerServiceTools } from './tools/service.js';
 import { registerTaskLifecycleTools } from './tools/task-lifecycle.js';
-import { registerCallerResolvedTools } from './tools/caller-resolved.js';
+import {
+  callerResolvedToolConfig,
+  registerCallerResolvedTools,
+} from './tools/caller-resolved.js';
 import {
   ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
+  ALL_GANTRY_MCP_TOOL_NAMES,
   DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
   NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES,
   parseEnabledGantryMcpToolNames,
@@ -89,6 +93,7 @@ export function createGantryMcpServer(): McpServer {
     process.env.GANTRY_NO_PERMISSION_TOOLS,
     process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked',
     process.env.GANTRY_ASYNC_TASK_TOOLS_ENABLED,
+    process.env.GANTRY_CALLER_RESOLVED_TOOLS_JSON,
   );
   const callableAgentManifest = parseCallableAgentManifest(
     process.env.GANTRY_CALLABLE_AGENT_MANIFEST_JSON,
@@ -146,6 +151,7 @@ export function effectiveEnabledMcpToolNames(
   rawNoPermissionTools = process.env.GANTRY_NO_PERMISSION_TOOLS,
   lockedPreset = process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked',
   rawAsyncTaskToolsEnabled = process.env.GANTRY_ASYNC_TASK_TOOLS_ENABLED,
+  rawCallerResolvedTools = process.env.GANTRY_CALLER_RESOLVED_TOOLS_JSON,
 ): Set<string> {
   const enabledTools = new Set(
     parseEnabledGantryMcpToolNames(rawToolNames, { lockedPreset }),
@@ -179,7 +185,34 @@ export function effectiveEnabledMcpToolNames(
       enabledTools.delete(toolName);
     }
   }
+  const callerResolvedTools = callerResolvedToolConfig(rawCallerResolvedTools);
+  if (callerResolvedTools) {
+    const explicitlySelected = parseExplicitGantryMcpToolNames(rawToolNames);
+    for (const toolName of enabledTools) {
+      if (!explicitlySelected.has(toolName)) enabledTools.delete(toolName);
+    }
+    for (const tool of callerResolvedTools.tools) {
+      enabledTools.add(tool.name);
+    }
+  }
   return enabledTools;
+}
+
+function parseExplicitGantryMcpToolNames(raw: string | undefined): Set<string> {
+  const selected = new Set<string>();
+  if (!raw?.trim()) return selected;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return selected;
+    const knownNames = new Set<string>(ALL_GANTRY_MCP_TOOL_NAMES);
+    for (const item of parsed) {
+      const toolName = typeof item === 'string' ? item.trim() : '';
+      if (knownNames.has(toolName)) selected.add(toolName);
+    }
+  } catch {
+    return selected;
+  }
+  return selected;
 }
 
 function parseSelectedAdminMcpToolNames(raw: string | undefined): Set<string> {

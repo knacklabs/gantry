@@ -1,6 +1,41 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { assertRequiredMcpServerReady } from '@core/adapters/llm/anthropic-claude-agent/runner/mcp-server-validation.js';
+import {
+  assertRequiredMcpServerReady,
+  readExternalMcpServers,
+} from '@core/adapters/llm/anthropic-claude-agent/runner/mcp-server-validation.js';
+
+afterEach(() => vi.unstubAllEnvs());
+
+describe('external MCP execution', () => {
+  it('wraps stdio servers with the Gantry-owned audit proxy', () => {
+    vi.stubEnv(
+      'GANTRY_MCP_SERVERS_JSON',
+      JSON.stringify({
+        firecrawl: {
+          type: 'stdio',
+          command: '/tools/firecrawl-mcp',
+          args: ['--safe'],
+          env: { FIRECRAWL_API_KEY: 'secret' },
+        },
+      }),
+    );
+
+    const firecrawl = readExternalMcpServers().firecrawl as {
+      command: string;
+      args: string[];
+      env: Record<string, string>;
+    };
+    expect(firecrawl.command).toBe(process.execPath);
+    expect(firecrawl.args).toEqual([
+      expect.stringContaining('audited-external-mcp-proxy.js'),
+      'firecrawl',
+      '/tools/firecrawl-mcp',
+      '--safe',
+    ]);
+    expect(firecrawl.env.FIRECRAWL_API_KEY).toBe('secret');
+  });
+});
 
 describe('required Gantry MCP server readiness', () => {
   it('accepts a connected server', () => {
@@ -33,6 +68,20 @@ describe('required Gantry MCP server readiness', () => {
           mcp_servers: [{ name: 'gantry', status }],
         }),
       ).toThrow(`Required Gantry MCP server is not ready: ${status}`);
+    },
+  );
+
+  it.each(['failed', 'needs-auth', 'disabled'])(
+    'rejects the configured external MCP server status %s',
+    (status) => {
+      expect(() =>
+        assertRequiredMcpServerReady({
+          mcp_servers: [
+            { name: 'gantry', status: 'connected' },
+            { name: 'firecrawl', status },
+          ],
+        }),
+      ).toThrow(`Required MCP server "firecrawl" is not ready: ${status}`);
     },
   );
 

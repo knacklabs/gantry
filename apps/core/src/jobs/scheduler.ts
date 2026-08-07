@@ -28,6 +28,7 @@ import {
 import { sweepCompletedOneTimeJobs } from './cleanup.js';
 import { runJob } from './execution.js';
 import { computeNextJobRun } from './schedule-math.js';
+import { PGBOSS_SCHEMA } from '../shared/pgboss-schema.js';
 import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
 import { notifyReleasedStaleJobLeases } from './stale-lease-terminal.js';
 import {
@@ -143,7 +144,7 @@ async function enqueueJobTriggerFromNonExecutingRole(
   // is only consulted on the migrate path, which is disabled.
   const boss = sendOnlyPgBossFactory({
     connectionString: STORAGE_POSTGRES_URL,
-    schema: 'pgboss',
+    schema: PGBOSS_SCHEMA,
     migrate: false,
     schedule: false,
     supervise: false,

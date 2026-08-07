@@ -708,6 +708,124 @@ describe('createCanUseToolCallback', () => {
     },
   );
 
+  it('passes a bounded caller-resolved tool to host-side execution for scheduled jobs', async () => {
+    const decision = await makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'manipal-tender-copilot',
+        agentId: 'agent:test',
+        runId: 'run-1',
+        jobId: 'job-1',
+        chatJid: 'app:manipal-tender-copilot:source-discovery',
+        allowedTools: [],
+        callerResolvedTools: {
+          sessionId: 'session-1',
+          tools: [
+            {
+              name: 'get_source_discovery_seeds',
+              description: 'Load seeds.',
+              inputSchema: { type: 'object' },
+            },
+          ],
+          maxInteractions: 4,
+          interactionTimeoutMs: 30_000,
+        },
+        yoloMode: { enabled: false, denylist: [], denylistPaths: [] },
+      } as never,
+    })(
+      'mcp__gantry__get_source_discovery_seeds',
+      { cursor: null },
+      makePermissionOptions({
+        displayName: 'mcp__gantry__get_source_discovery_seeds',
+      }) as never,
+    );
+
+    expect(decision).toEqual({
+      behavior: 'allow',
+      updatedInput: { cursor: null },
+    });
+    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'mcp__gantry__delegate_task',
+    'mcp__gantry__task_cancel',
+    'mcp__gantry__task_get',
+    'mcp__gantry__task_list',
+    'mcp__gantry__task_message',
+    'mcp__gantry__task_wait',
+  ])(
+    'allows the Gantry delegation lifecycle tool %s for an autonomous run with reviewed AgentDelegation access',
+    async (toolName) => {
+      const decision = await makeCallback({
+        agentInput: {
+          runMode: 'normal',
+          isScheduledJob: true,
+          appId: 'manipal-tender-copilot',
+          agentId: 'agent:test',
+          runId: 'run-1',
+          jobId: 'job-1',
+          chatJid: 'app:manipal-tender-copilot:deep-analysis',
+          allowedTools: ['AgentDelegation'],
+          yoloMode: { enabled: false, denylist: [], denylistPaths: [] },
+        } as never,
+      })(
+        toolName,
+        { task: 'Research the tender evidence.' },
+        makePermissionOptions({
+          displayName: toolName,
+        }) as never,
+      );
+
+      expect(decision).toEqual({
+        behavior: 'allow',
+        updatedInput: { task: 'Research the tender evidence.' },
+      });
+      expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+    },
+  );
+
+  it('allows an explicitly auto-approved reviewed MCP tool for an autonomous run', async () => {
+    process.env.GANTRY_MCP_ALLOWED_TOOLS_JSON = JSON.stringify([
+      'mcp__firecrawl__firecrawl_search',
+    ]);
+    try {
+      const decision = await makeCallback({
+        agentInput: {
+          runMode: 'normal',
+          isScheduledJob: true,
+          appId: 'manipal-tender-copilot',
+          agentId: 'agent:test',
+          runId: 'run-1',
+          jobId: 'job-1',
+          chatJid: 'app:manipal-tender-copilot:source-discovery',
+          allowedTools: [],
+          yoloMode: { enabled: false, denylist: [], denylistPaths: [] },
+        } as never,
+        capabilities: {
+          allowedTools: ['mcp__firecrawl__firecrawl_search'],
+          alwaysAllowedTools: ['mcp__firecrawl__firecrawl_search'],
+          permissionMode: 'default',
+        },
+      })(
+        'mcp__firecrawl__firecrawl_search',
+        { query: 'public tenders' },
+        makePermissionOptions({
+          displayName: 'mcp__firecrawl__firecrawl_search',
+        }) as never,
+      );
+
+      expect(decision).toEqual({
+        behavior: 'allow',
+        updatedInput: { query: 'public tenders' },
+      });
+      expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.GANTRY_MCP_ALLOWED_TOOLS_JSON;
+    }
+  });
+
   it('does not treat a non-Gantry MCP tool as a host-authorized dispatcher', async () => {
     permissionMock.requestPermissionApproval.mockResolvedValueOnce({
       approved: false,

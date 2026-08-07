@@ -30,6 +30,17 @@ export type HealthResponse = JsonResponse<'getHealth', 200>;
 export type DoctorResponse = JsonResponse<'getDoctor', 200>;
 export type ProcessRole = HealthResponse['processRole'];
 
+export type ModelCredentialListResponse = JsonResponse<
+  'listModelCredentials',
+  200
+>;
+export type ModelCredentialWriteRequest = JsonRequest<'putModelCredential'>;
+export type ModelCredentialPatchRequest = JsonRequest<'patchModelCredential'>;
+export type ModelCredentialMutationResponse = JsonResponse<
+  'putModelCredential',
+  200
+>;
+
 export type ListAgentsResponse = JsonResponse<'listAgents', 200>;
 export type CreateAgentRequest = JsonRequest<'createAgent'>;
 export type CreateAgentResponse = JsonResponse<'createAgent', 201>;

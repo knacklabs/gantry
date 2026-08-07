@@ -29,10 +29,25 @@ export type AgentFailureType =
   | 'cancelled'
   | 'child_task';
 
+export type AgentFailureCode =
+  | 'structured_output_validation_failed'
+  | 'completion_continuation_failed'
+  | 'model_transport_failed';
+
+export interface ModelTransportFailureMetadata {
+  source: 'provider' | 'model_client' | 'gantry_timeout' | 'gantry';
+  phase: 'connect' | 'stream';
+  providerId: string;
+  responseStarted: boolean;
+  httpStatus?: number;
+}
+
 export interface AgentFailureMetadata {
   type: AgentFailureType;
+  code?: AgentFailureCode;
   attemptedAction: string;
   partialResult?: string | null;
+  transport?: ModelTransportFailureMetadata;
 }
 
 export interface AsyncTaskRecord {
@@ -64,6 +79,7 @@ export interface AsyncTaskRecord {
 
 export interface PublicAsyncTaskDto {
   id: string;
+  taskKey?: string;
   kind: AsyncTaskKind;
   status: AsyncTaskStatus;
   summary?: string | null;
@@ -217,6 +233,9 @@ export function toPublicAsyncTaskDto(
   );
   return {
     id: task.id,
+    ...(typeof task.privateCorrelationJson.taskKey === 'string'
+      ? { taskKey: task.privateCorrelationJson.taskKey }
+      : {}),
     kind: task.kind,
     status: task.status,
     summary: task.summary,
@@ -248,10 +267,45 @@ function publicFailure(value: unknown): AgentFailureMetadata | null {
   ) {
     return null;
   }
+  const transport = publicTransportFailure(failure.transport);
   return {
     type: type as AgentFailureType,
+    ...(failure.code === 'structured_output_validation_failed' ||
+    failure.code === 'completion_continuation_failed' ||
+    failure.code === 'model_transport_failed'
+      ? { code: failure.code }
+      : {}),
     attemptedAction,
     partialResult: stringValue(failure.partialResult),
+    ...(transport ? { transport } : {}),
+  };
+}
+
+function publicTransportFailure(
+  value: unknown,
+): ModelTransportFailureMetadata | null {
+  const transport = record(value);
+  const source = transport.source;
+  const phase = transport.phase;
+  const providerId = stringValue(transport.providerId);
+  if (
+    !['provider', 'model_client', 'gantry_timeout', 'gantry'].includes(
+      typeof source === 'string' ? source : '',
+    ) ||
+    !['connect', 'stream'].includes(typeof phase === 'string' ? phase : '') ||
+    !providerId ||
+    typeof transport.responseStarted !== 'boolean'
+  ) {
+    return null;
+  }
+  return {
+    source: source as ModelTransportFailureMetadata['source'],
+    phase: phase as ModelTransportFailureMetadata['phase'],
+    providerId,
+    responseStarted: transport.responseStarted,
+    ...(typeof transport.httpStatus === 'number'
+      ? { httpStatus: transport.httpStatus }
+      : {}),
   };
 }
 

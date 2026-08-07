@@ -122,6 +122,9 @@ export function createCanUseToolCallback(
   ];
   const currentAutonomousAllowedToolRules = (): string[] => [
     ...(input.agentInput.isScheduledJob ? ['RunCommand(date *)'] : []),
+    ...(input.agentInput.allowedTools?.includes('AgentDelegation')
+      ? ['AgentDelegation']
+      : []),
     ...readExternalMcpAllowedTools(),
     ...readLiveToolRules({
       ipcDir: process.env.GANTRY_IPC_DIR,
@@ -381,6 +384,14 @@ export function createCanUseToolCallback(
     ) {
       return allowToolUse('host resolves and authorizes the MCP target');
     }
+    if (
+      !yoloDenylistMatch &&
+      input.agentInput.callerResolvedTools?.tools.some(
+        (tool) => `mcp__gantry__${tool.name}` === toolName,
+      )
+    ) {
+      return allowToolUse('host resolves the bounded caller-provided tool');
+    }
 
     const toolExecutionRequest = buildAgentToolExecutionRequest(
       toolExecutionClassifier,
@@ -406,6 +417,25 @@ export function createCanUseToolCallback(
           message: 'Permission request aborted',
           interrupt: true,
         };
+      }
+      if (
+        !yoloDenylistMatch &&
+        toolDecision.status === 'allow' &&
+        input.capabilities.alwaysAllowedTools.includes(toolName)
+      ) {
+        return allowToolUse(toolDecision.reason);
+      }
+      if (
+        !yoloDenylistMatch &&
+        toolDecision.status === 'allow' &&
+        (toolName === 'mcp__gantry__delegate_task' ||
+          toolName === 'mcp__gantry__task_cancel' ||
+          toolName === 'mcp__gantry__task_get' ||
+          toolName === 'mcp__gantry__task_list' ||
+          toolName === 'mcp__gantry__task_message' ||
+          toolName === 'mcp__gantry__task_wait')
+      ) {
+        return allowToolUse(toolDecision.reason);
       }
       const recoveryAction = yoloDenylistReason
         ? undefined

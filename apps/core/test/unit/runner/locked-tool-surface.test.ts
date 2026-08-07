@@ -117,6 +117,44 @@ describe('locked tool surface mounting', () => {
     expect(hasAnyAuthorityOrAdminTool(names)).toBe(false);
   });
 
+  it('excludes generic MCP proxy tools from a caller-bounded surface', () => {
+    const names = selectedGantryMcpToolNames([], {
+      excludeMcpProxyTools: true,
+    });
+    expect(names).not.toContain('mcp_list_tools');
+    expect(names).not.toContain('mcp_search_tools');
+    expect(names).not.toContain('mcp_describe_tool');
+    expect(names).not.toContain('mcp_call_tool');
+    expect(names).toContain('send_message');
+  });
+
+  it('enforces the caller-bounded MCP surface again inside the runner server', () => {
+    const names = effectiveEnabledMcpToolNames(
+      JSON.stringify([]),
+      undefined,
+      undefined,
+      false,
+      undefined,
+      JSON.stringify({
+        sessionId: 'session-1',
+        tools: [
+          {
+            name: 'get_source_discovery_seeds',
+            description: 'Load seeds.',
+            inputSchema: { type: 'object' },
+          },
+        ],
+        maxInteractions: 4,
+        interactionTimeoutMs: 30_000,
+      }),
+    );
+    expect(names.has('mcp_list_tools')).toBe(false);
+    expect(names.has('mcp_search_tools')).toBe(false);
+    expect(names.has('mcp_describe_tool')).toBe(false);
+    expect(names.has('mcp_call_tool')).toBe(false);
+    expect(names.has('get_source_discovery_seeds')).toBe(true);
+  });
+
   it('withholds async task controls unless the executor is enabled', () => {
     const defaultNames = selectedGantryMcpToolNames([]);
     expect(defaultNames).toContain('todo_update');

@@ -82,12 +82,20 @@ export const BASELINE_GANTRY_MCP_TOOL_NAMES = [
   'mcp_call_tool',
 ] as const;
 
+export const MCP_PROXY_GANTRY_MCP_TOOL_NAMES = [
+  'mcp_list_tools',
+  'mcp_search_tools',
+  'mcp_describe_tool',
+  'mcp_call_tool',
+] as const;
+
 export const ASYNC_TASK_GANTRY_MCP_TOOL_NAMES = [
   'async_run_command',
   'async_mcp_call',
   'task_cancel',
   'task_get',
   'task_list',
+  'task_wait',
 ] as const;
 
 export const DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES = [

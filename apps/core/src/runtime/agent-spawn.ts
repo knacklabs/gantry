@@ -17,6 +17,7 @@ import {
 } from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { runSpawnWithLogContext } from '../infrastructure/observability/spawn-log-context.js';
+import { takeModelTransportFailure } from '../infrastructure/observability/tracing.js';
 import type { SpawnTurnTracker } from '../infrastructure/observability/spawn-turn-tracker.js';
 import { ConversationRoute } from '../domain/types.js';
 import * as host from './agent-spawn-host.js';
@@ -218,7 +219,7 @@ async function spawnAgentWithContext(
     agentInput: input,
     appId: input.appId || 'default',
     accessPreset: hideAuthorityTools ? 'locked' : accessPreset,
-    mcpInventoryToolsMounted: true,
+    mcpInventoryToolsMounted: input.callerResolvedTools == null,
     modelIdentity: {
       alias: resolvedModel.value.modelEntry.displayName,
       modelId: resolvedModel.value.runnerModel,
@@ -793,6 +794,21 @@ async function spawnAgentWithContext(
         },
       }),
     });
+    const transport = takeModelTransportFailure(turnTracker.correlationId);
+    if (output.status === 'error' && transport) {
+      output = {
+        ...output,
+        failure: {
+          type: output.failure?.type ?? 'execution',
+          code: output.failure?.code ?? 'model_transport_failed',
+          attemptedAction:
+            output.failure?.attemptedAction ??
+            'Receive a complete response from the configured model',
+          partialResult: output.failure?.partialResult,
+          transport,
+        },
+      };
+    }
     return output;
   } finally {
     unregisterPermissionRunRestriction();

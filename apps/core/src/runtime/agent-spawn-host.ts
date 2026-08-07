@@ -179,7 +179,9 @@ export async function prepareInlineAgentHostContext(
         agentInput: input,
         appId: input.appId || 'default',
         accessPreset: promptAccessPreset,
-        mcpInventoryToolsMounted: inlineCoreToolsMountMcpInventory(),
+        mcpInventoryToolsMounted:
+          inlineCoreToolsMountMcpInventory() &&
+          input.callerResolvedTools == null,
         modelIdentity: {
           alias: resolvedModel.value.modelEntry.displayName,
           modelId: resolvedModel.value.runnerModel,
@@ -229,12 +231,14 @@ export async function getHostRuntimeCredentialEnv(
 }> {
   const brokerConfig = getCredentialBrokerRuntimeConfig();
   const purpose = options.purpose ?? 'model_runtime';
+  const apiRequestId = `model-runtime:${randomUUID()}`;
   const runId =
     options.runId ??
     (options.runContext?.runId as AgentRunId | undefined) ??
     (`credential-run:${randomUUID()}` as AgentRunId);
   const bindingOptions = {
     purpose,
+    apiRequestId,
     appId: options.appId ?? (options.runContext?.appId as never),
     agentId: options.agentId ?? (options.runContext?.agentId as never),
     runId,

@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { sendJson } from '../http.js';
@@ -16,35 +14,9 @@ import {
 } from '../system-health.js';
 import { isDraining } from '../../../app/bootstrap/draining-state.js';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
-import { postgresMigrationsFolder } from '../../../adapters/storage/postgres/storage-service.js';
 import { getRuntimeSettingsForConfig } from '../../../config/index.js';
 import { areSettingsLoaded } from '../../../runtime/settings-load-state.js';
 import type { AppId } from '../../../domain/app/app.js';
-
-let shippedMigrationCountCache: number | undefined;
-
-/** Count of migrations shipped in this build, from the drizzle journal. */
-function shippedMigrationCount(): number {
-  if (shippedMigrationCountCache !== undefined) {
-    return shippedMigrationCountCache;
-  }
-  try {
-    const journalPath = path.join(
-      postgresMigrationsFolder,
-      'meta',
-      '_journal.json',
-    );
-    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
-      entries?: unknown[];
-    };
-    shippedMigrationCountCache = Array.isArray(journal.entries)
-      ? journal.entries.length
-      : 0;
-  } catch {
-    shippedMigrationCountCache = 0;
-  }
-  return shippedMigrationCountCache;
-}
 
 /** Runs a parameterless query against the runtime pool; throws when down. */
 async function runtimeQuery<T>(sql: string): Promise<T[]> {
@@ -82,7 +54,14 @@ export async function handleSystemRoutes(
       role: ctx.processRole,
       requirements: ctx.roleReadinessRequirements,
       query: runtimeQuery,
-      shippedMigrationCount,
+      migrationsCurrent: async () => {
+        try {
+          await getRuntimeStorage().service.assertMigrationsCurrent();
+          return true;
+        } catch {
+          return false;
+        }
+      },
       settingsLoaded,
       isDraining,
       apiKeyCount: () => ctx.keys.length,

@@ -38,6 +38,10 @@ export interface SchedulerDependencies {
     cutoffIso: string,
   ) => Promise<{ deleted: number; more: boolean }>;
   conversationRoutes: () => Record<string, ConversationRoute>;
+  projectConversationRoute?: (
+    conversationJid: string,
+    route: ConversationRoute,
+  ) => Promise<void>;
   queue: GroupQueue;
   onProcess: (
     groupJid: string,

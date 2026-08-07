@@ -652,6 +652,23 @@
         "models with pdfInput/imageInput can be handed the physical file where the runner supports it"
       ],
       "order": 38
+    },
+    {
+      "key": "MANIPAL-DEEP-ANALYSIS-RECOVERY",
+      "title": "Manipal deeper-analysis runtime recovery boundary",
+      "story": "As an application integrating Gantry, I receive stable continuation failures and typed credential administration so that I can recover from durable checkpoints without false completion.",
+      "acceptance_criteria": [
+        "A scheduled continuation provider failure emits completion_continuation_failed and never job.run.completed.",
+        "Gate acceptance plus AJV validation remain mandatory for completion.",
+        "The SDK exposes redacted model-credential administration at client.models.credentials.",
+        "Unrelated failures retain their existing classifications."
+      ],
+      "order": 39,
+      "status": "pending",
+      "epic": "Manipal integration",
+      "skill": "backend",
+      "kind": "feature",
+      "spec": "docs/specs/manipal-deep-analysis-runtime-recovery.md"
     }
   ],
   "epics": [
@@ -740,5 +757,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-03T09:45:48+00:00"
+  "updated_at": "2026-08-06T14:36:15+00:00"
 }

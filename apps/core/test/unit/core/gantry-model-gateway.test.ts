@@ -8,6 +8,7 @@ import {
   GantryModelGatewayBroker,
 } from '@core/adapters/llm/anthropic-claude-agent/gantry-model-gateway.js';
 import { clearAwsDefaultCredentialProviderCacheForTest } from '@core/adapters/llm/anthropic-claude-agent/gantry-model-gateway-auth-aws-default.js';
+import { classifyModelStreamTermination } from '@core/adapters/llm/anthropic-claude-agent/gantry-model-gateway-observability.js';
 import { signAwsSigV4Request } from '@core/adapters/llm/anthropic-claude-agent/gantry-model-gateway-auth-sigv4.js';
 import {
   clearVertexTokenCacheForTest,
@@ -80,6 +81,23 @@ const appId = 'default' as AppId;
 const anthropicBaseUrlKey = ['ANTHROPIC', 'BASE_URL'].join('_');
 const anthropicApiKeyKey = ['ANTHROPIC', 'API_KEY'].join('_');
 const claudeCodeOAuthTokenKey = ['CLAUDE', 'CODE', 'OAUTH', 'TOKEN'].join('_');
+
+describe('model stream termination classification', () => {
+  it.each([
+    [{ clientDisconnected: true, timedOut: false }, 'model_client'],
+    [{ clientDisconnected: false, timedOut: true }, 'gantry_timeout'],
+    [{ clientDisconnected: false, timedOut: false }, 'provider'],
+  ] as const)('classifies %o as %s', (signals, source) => {
+    expect(
+      classifyModelStreamTermination({
+        providerId: 'anthropic',
+        phase: 'stream',
+        responseStarted: true,
+        ...signals,
+      }),
+    ).toMatchObject({ source, providerId: 'anthropic', phase: 'stream' });
+  });
+});
 
 class MutableModelCredentialRepository implements ModelCredentialRepository {
   private readonly rows = new Map<string, ModelCredential>();
@@ -1141,7 +1159,7 @@ describe('GantryModelGatewayBroker', () => {
           modelRouteId: 'anthropic',
         },
       });
-      const req = Object.assign(Readable.from(['{}']), {
+      const req = Object.assign(Readable.from(['{"stream":true}']), {
         url: '/anthropic/v1/messages',
         method: 'POST',
         headers: {
@@ -1190,6 +1208,18 @@ describe('GantryModelGatewayBroker', () => {
       releaseUsageAudit();
       await expect(handlerPromise).rejects.toBe(pipeError);
       expect(usageAuditSettled).toBe(true);
+      expect(audit).toHaveBeenCalledTimes(3);
+      expect(audit.mock.calls[2]?.[0]).toMatchObject({
+        eventType: 'credential.model.used',
+        payload: {
+          outcome: 'stream_failed',
+          streamTermination: {
+            phase: 'stream',
+            providerId: 'anthropic',
+            responseStarted: true,
+          },
+        },
+      });
     } finally {
       await broker.close();
     }
@@ -1379,6 +1409,55 @@ describe('GantryModelGatewayBroker', () => {
         token: injection.env[anthropicApiKeyKey]!,
       });
       expect(response.status).toBe(200);
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it('revokes only one model-runtime request when agents share a run', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'sk-ant-upstream');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{"ok":true}')),
+    );
+    const broker = new GantryModelGatewayBroker(repo);
+    const binding = (apiRequestId: string) => ({
+      profile: 'gantry' as const,
+      purpose: 'model_runtime' as const,
+      appId,
+      runId: 'run:shared' as never,
+      apiRequestId,
+      modelRouteId: 'anthropic' as const,
+    });
+    try {
+      const first = await broker.getInjection({
+        binding: binding('model-runtime:first'),
+      });
+      const sibling = await broker.getInjection({
+        binding: binding('model-runtime:sibling'),
+      });
+
+      await broker.revokeInjection({
+        binding: binding('model-runtime:first'),
+      });
+
+      expect(
+        (
+          await gatewayRequest({
+            url: `${first.env[anthropicBaseUrlKey]}/v1/messages`,
+            token: first.env[anthropicApiKeyKey]!,
+          })
+        ).status,
+      ).toBe(401);
+      expect(
+        (
+          await gatewayRequest({
+            url: `${sibling.env[anthropicBaseUrlKey]}/v1/messages`,
+            token: sibling.env[anthropicApiKeyKey]!,
+          })
+        ).status,
+      ).toBe(200);
     } finally {
       await broker.close();
     }

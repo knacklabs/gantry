@@ -11,7 +11,11 @@ export async function ensureSessionForControl(
   input: Parameters<SessionInteractionModule['ensureSession']>[0],
 ): Promise<Awaited<ReturnType<SessionInteractionModule['ensureSession']>>> {
   const result = await ctx.sessionInteraction.ensureSession(input);
-  await ctx.app.registerGroup(
+  const register =
+    result.session.appId === DEFAULT_JOB_RUNTIME_APP_ID
+      ? ctx.app.registerGroup
+      : ctx.app.projectConversationRoute;
+  await register(
     result.registerGroup.conversationJid,
     result.registerGroup.group,
   );

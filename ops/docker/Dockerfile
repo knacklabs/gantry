@@ -108,8 +108,9 @@ COPY --from=build /app/packages/contracts/package.json ./packages/contracts/pack
 COPY --from=build /app/packages/sdk/dist ./packages/sdk/dist
 COPY --from=build /app/packages/sdk/package.json ./packages/sdk/package.json
 
-# Ops scripts: fleet settings seed + entrypoint.
+# Ops scripts: settings revision seed/import + entrypoint.
 COPY ops/docker/fleet-settings-seed.mjs ./ops/docker/fleet-settings-seed.mjs
+COPY ops/docker/workstation-settings-import.mjs ./ops/docker/workstation-settings-import.mjs
 COPY ops/docker/entrypoint.sh /usr/local/bin/gantry-entrypoint
 RUN sed -i 's/\r$//' /usr/local/bin/gantry-entrypoint \
     && chmod +x /usr/local/bin/gantry-entrypoint

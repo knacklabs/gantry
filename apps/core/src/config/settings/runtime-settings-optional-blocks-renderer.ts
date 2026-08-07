@@ -174,6 +174,11 @@ export function renderModelAliasesYaml(
         `    supports_thinking: ${alias.supportsThinking ? 'true' : 'false'}`,
       );
     }
+    if (alias.supportedEffortLevels !== undefined) {
+      lines.push(
+        `    supported_effort_levels: ${JSON.stringify(alias.supportedEffortLevels)}`,
+      );
+    }
     if (alias.supportsTools !== undefined) {
       lines.push(
         `    supports_tools: ${alias.supportsTools ? 'true' : 'false'}`,

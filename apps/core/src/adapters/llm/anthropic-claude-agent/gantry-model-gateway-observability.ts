@@ -1,4 +1,5 @@
 import type { NormalizedModelUsage } from '../../../shared/model-catalog.js';
+import type { ModelTransportFailureMetadata } from '../../../domain/ports/async-tasks.js';
 import {
   observeGatewayCall,
   type GatewayCallObservation,
@@ -43,6 +44,7 @@ function isBatchTransportPath(providerId: string, pathname: string): boolean {
 export function failGatewayObservation(
   observation: GatewayCallObservation | undefined,
   error: unknown,
+  streamTermination?: ModelTransportFailureMetadata,
 ): void {
   // Credential-resolution failures can name secret references; only export
   // the raw message under content capture.
@@ -52,7 +54,29 @@ export function failGatewayObservation(
     errorMessage: contentCaptureEnabled()
       ? raw.slice(0, 256)
       : 'gateway request failed',
+    streamTermination,
   });
+}
+
+export function classifyModelStreamTermination(input: {
+  providerId: string;
+  phase: 'connect' | 'stream';
+  responseStarted: boolean;
+  httpStatus?: number;
+  clientDisconnected: boolean;
+  timedOut: boolean;
+}): ModelTransportFailureMetadata {
+  return {
+    source: input.clientDisconnected
+      ? 'model_client'
+      : input.timedOut
+        ? 'gantry_timeout'
+        : 'provider',
+    phase: input.phase,
+    providerId: input.providerId,
+    responseStarted: input.responseStarted,
+    ...(input.httpStatus === undefined ? {} : { httpStatus: input.httpStatus }),
+  };
 }
 
 export function finishGatewayNonStreaming(
