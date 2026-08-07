@@ -42,6 +42,7 @@ import {
 } from './pending-message-replay.js';
 import { resolveNonSelfSenderIds } from './session-resume-runtime.js';
 import { groupTurnHasRequiredTrigger } from './group-trigger-policy.js';
+import { acknowledgeContinuationReceipt } from './continuation-receipts.js';
 
 export interface MessageLoopDeps {
   getConversationRoutes: () => Record<string, ConversationRoute>;
@@ -50,17 +51,23 @@ export interface MessageLoopDeps {
   saveState: () => Promise<void> | void;
   hasChannel: (
     chatJid: string,
-    options?: { providerAccountId?: string },
+    options?: { providerAccountId?: string; threadId?: string },
   ) => boolean;
   setTyping: (
     chatJid: string,
     isTyping: boolean,
-    options?: { providerAccountId?: string },
+    options?: { providerAccountId?: string; threadId?: string },
   ) => Promise<void>;
   sendProgressUpdate: (
     chatJid: string,
     text: string,
     options?: ProgressUpdateOptions,
+  ) => Promise<void>;
+  addReaction?: (
+    chatJid: string,
+    messageRef: string,
+    emoji: string,
+    options?: { providerAccountId?: string; threadId?: string },
   ) => Promise<void>;
   queue: {
     sendMessage: (
@@ -399,19 +406,38 @@ async function processQueueMessages(
     toGroupMessageCursor(initialBatch[initialBatch.length - 1]),
   );
 
-  if (
-    !(await deps.queue.sendMessage(queueJid, formatted, {
-      threadId,
-      senderUserIds,
-      idempotencyKey: buildPendingMessagesContinuationIdempotencyKey({
-        queueJid,
-        sinceCursor: recoveredCursor,
-        cursorAfter,
-        messages: initialBatch,
-      }),
+  const accepted = await deps.queue.sendMessage(queueJid, formatted, {
+    threadId,
+    senderUserIds,
+    idempotencyKey: buildPendingMessagesContinuationIdempotencyKey({
+      queueJid,
+      sinceCursor: recoveredCursor,
       cursorAfter,
-    }))
-  ) {
+      messages: initialBatch,
+    }),
+    cursorAfter,
+  });
+  void acknowledgeContinuationReceipt({
+    jid: chatJid,
+    messages: initialBatch,
+    ...(group.providerAccountId || threadId
+      ? {
+          options: {
+            ...(group.providerAccountId
+              ? { providerAccountId: group.providerAccountId }
+              : {}),
+            ...(threadId ? { threadId } : {}),
+          },
+        }
+      : {}),
+    addReaction: deps.addReaction,
+  }).catch((err) => {
+    logger.warn(
+      { err, chatJid, queueJid },
+      'Failed to acknowledge continuation receipt',
+    );
+  });
+  if (!accepted) {
     return enqueueMessageCheck(deps, queueJid);
   }
 
@@ -424,10 +450,17 @@ async function processQueueMessages(
   if (replay.hasMore) {
     return enqueueMessageCheck(deps, queueJid);
   }
-  const typing = group.providerAccountId
-    ? deps.setTyping(chatJid, true, {
-        providerAccountId: group.providerAccountId,
-      })
+  const typingOptions =
+    group.providerAccountId || threadId
+      ? {
+          ...(group.providerAccountId
+            ? { providerAccountId: group.providerAccountId }
+            : {}),
+          ...(threadId ? { threadId } : {}),
+        }
+      : undefined;
+  const typing = typingOptions
+    ? deps.setTyping(chatJid, true, typingOptions)
     : deps.setTyping(chatJid, true);
   typing.catch((err: unknown) =>
     logger.warn({ chatJid, err }, 'Failed to set typing indicator'),

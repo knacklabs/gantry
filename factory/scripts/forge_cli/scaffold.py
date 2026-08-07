@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
 from pathlib import Path
 
-from factory_lib import dump_json, now_iso, repo_root
+from factory_lib import dump_json, head_sha, now_iso, repo_root
 
 from .common import fail
 
@@ -66,10 +67,11 @@ def _would_write(root: Path, target: Path) -> list[Path]:
     return dests
 
 
-# init appends/touches these rather than overwriting: an existing regular file
-# is legal, but a symlink (or symlink/file ancestor) would write outside the
-# target or die midway, so they still join the preflight.
-APPEND_OR_TOUCH = ["README.md", "plans/active/.gitkeep",
+# Init appends, touches, or creates these only when absent: an existing regular
+# file is legal, but a symlink (or symlink/file ancestor) would write outside
+# the target or die midway, so they still join the preflight.
+APPEND_OR_TOUCH = ["README.md", ".factory/record-origin.json",
+                   "plans/active/.gitkeep",
                    "plans/completed/.gitkeep", "plans/debt/.gitkeep"]
 # mkdir-only destinations with no enumerated leaf file: an existing dir is
 # fine, but a file or symlink there would abort init midway.
@@ -197,7 +199,7 @@ arrive by re-vendoring.
 def ensure_onboarding(target: Path, name: str) -> bool:
     """Append the onboarding section to the target README (create if absent).
     Returns True when something was written — idempotent via the heading."""
-    readme = target / "README.md"
+    readme = assert_target_destination(target, target / "README.md")
     if not readme.exists():
         readme.write_text(f"# {name}\n{ONBOARDING_SECTION}")
         return True
@@ -209,15 +211,22 @@ def ensure_onboarding(target: Path, name: str) -> bool:
 
 
 def ensure_jsonl_attributes(target: Path, harness: Path) -> bool:
-    """Add missing harness JSONL merge rules without replacing project rules."""
-    destination = target / ".gitattributes"
+    """Add missing harness JSONL merge rules without replacing project rules.
+
+    Only `merge=union` rules ship. These used to be `merge=jsonl-append`, a
+    driver registered per clone by the SessionStart hook — so scaffolding wrote
+    a rule into a client repo that depended on a hook having run on whatever
+    machine merged it. When the driver was absent the rule was inert; when it
+    was present it hung, and the merge blocked forever instead of failing.
+    """
+    destination = assert_target_file_destination(target, target / ".gitattributes")
     if not destination.exists():
         shutil.copy2(harness / ".gitattributes", destination)
         return True
     current = destination.read_text()
     required = [
         line for line in (harness / ".gitattributes").read_text().splitlines()
-        if "merge=jsonl-append" in line
+        if "merge=union" in line
     ]
     missing = [line for line in required if line not in current.splitlines()]
     if not missing:
@@ -225,6 +234,253 @@ def ensure_jsonl_attributes(target: Path, harness: Path) -> bool:
     with destination.open("a") as handle:
         handle.write("\n" + "\n".join(missing) + "\n")
     return True
+
+
+def record_origin_path(target: Path) -> Path:
+    return target / ".factory" / "record-origin.json"
+
+
+def assert_target_destination(target: Path, dst: Path) -> Path:
+    """Return dst when it resolves inside target; refuse every other path.
+
+    Containment uses resolve(strict=False), which follows symlinks and `..`
+    through dst's existing prefix — a `..` inside a missing tail can still land
+    back on a real in-target symlink, so a purely lexical check is unsafe. A
+    symlink LOOP is caught separately: resolve(strict=False) stopped raising on
+    loops in 3.13+, so the deepest ancestor that IS on disk is resolved STRICTLY,
+    which still raises on a loop or unreadable link on every Python version.
+    """
+    resolved_target = target.resolve()
+    base = dst
+    while True:
+        try:
+            base.lstat()  # a real dir-entry (incl. a symlink) stops the walk;
+            break          # lstat does not follow the final component itself
+        except OSError:
+            if base == base.parent:
+                break
+            base = base.parent
+    loop = False
+    try:
+        base.resolve(strict=True)  # raises on a symlink loop / unreadable link
+    except FileNotFoundError:
+        # A dangling symlink's referent is simply missing — that is NOT a loop,
+        # and it may resolve inside the target (a legal config symlink whose file
+        # copy2 will create). resolve(strict=False) below judges its containment.
+        pass
+    except (OSError, RuntimeError):
+        loop = True  # ELOOP or an unreadable link
+    if loop:
+        resolved_dst = None
+    else:
+        try:
+            resolved_dst = dst.resolve(strict=False)
+        except (OSError, RuntimeError):
+            resolved_dst = None
+    if resolved_dst is None:
+        fail(f"refusing destination with an unresolvable symlink: {dst}")
+    elif not resolved_dst.is_relative_to(resolved_target):
+        fail(f"refusing destination outside the target: {dst}")
+    return dst
+
+
+def assert_target_file_destination(target: Path, dst: Path) -> Path:
+    """assert_target_destination for a destination a FILE is written to.
+
+    Also refuses an existing NON-FILE (a directory or special file), because
+    shutil.copy2 treats a directory dst as a CONTAINER — it writes dst/<src
+    name>, so a crafted directory holding an outward symlink there escapes even
+    though dst itself resolves inside. A symlink dst is judged by where it
+    RESOLVES: assert_target_destination already refuses one pointing outside,
+    while an in-target symlink to an in-target file is legal (copy2 follows it
+    and writes inside the target — a real config-symlink upgrade path).
+
+    Scope (decision 0028): this closes the SYMLINK path-boundary class — a
+    destination or ancestor symlink, a `..` traversal, or a crafted directory
+    that resolves or writes outside the target. Two DEEPER classes are
+    deliberately out of scope and deferred to a follow-up story, not defended
+    here (they are pre-existing and need a different I/O model, not a path check):
+      - HARD LINK inode-aliasing: a regular file hard-linked to an inode outside
+        the target — no path escapes, but copy2 truncates the shared inode.
+      - TOCTOU races: a concurrent writer swapping a validated path for an
+        outward symlink between this check and the write. Closing either needs
+        unlink-before-write / descriptor-relative (openat, O_NOFOLLOW) I/O across
+        all three commands, replacing shutil's path-based copytree/copy2.
+    """
+    assert_target_destination(target, dst)
+    if dst.exists() and not dst.is_file():
+        fail(f"refusing a file destination that is a directory or special file: {dst}")
+    return dst
+
+
+def check_record_origin_writable(target: Path) -> None:
+    """Reject a marker path that would write outside the target or is not a
+    regular file. Called in a caller's preflight so an adopt/init never fails
+    HALFWAY on a bad path — and never lands another repo's history boundary
+    through a symlinked `.factory` (the repository-escape class, D-0003)."""
+    marker = record_origin_path(target)
+    if marker.is_symlink() or (marker.exists() and not marker.is_file()):
+        fail(f"refusing invalid record-origin path: {marker}")
+    assert_target_destination(target, marker)
+
+
+def ensure_record_origin(target: Path) -> bool:
+    """Record where Forge's committed project history begins, once.
+
+    Only when there is no Forge record yet. A repo adopted by an earlier Forge
+    version already has committed events but no marker: stamping one now at HEAD
+    would count that Forge history as "preceding the record" — the board would
+    claim the record begins after work it can already display. The origin is
+    then unknowable, so the honest act is to leave it unclaimed, not to invent
+    a boundary that contradicts the timeline.
+    """
+    marker = record_origin_path(target)
+    check_record_origin_writable(target)
+    if marker.exists():
+        return False
+    events = target / ".factory" / "events.jsonl"
+    if events.is_file() and events.read_text().strip():
+        return False  # a Forge record already exists; its origin predates now
+    # A shallow clone counts only its local commits, so rev-list would report a
+    # truncated number the marker then claims forever. An honest boundary must
+    # not persist a count it cannot trust: record null (unknown) instead, and
+    # the board omits the count rather than stating a false one.
+    shallow = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        cwd=target, capture_output=True, text=True,
+    )
+    is_shallow = shallow.returncode == 0 and shallow.stdout.strip() == "true"
+    count = subprocess.run(
+        ["git", "rev-list", "--count", "HEAD"],
+        cwd=target, capture_output=True, text=True,
+    )
+    # Shallow: count is truncated and unknowable -> null. A repo with no commit
+    # yet (rev-list has no HEAD) genuinely has zero preceding -> 0, honest.
+    if is_shallow:
+        preceding = None
+    elif count.returncode == 0:
+        preceding = int(count.stdout.strip())
+    else:
+        preceding = 0
+    dump_json(marker, {
+        "date": now_iso(),
+        "commit": head_sha(target),
+        "preceding_commits": preceding,
+    })
+    return True
+
+
+def _preflight_copytree(target: Path, src: Path, dst: Path,
+                        follow: bool = True) -> None:
+    """Validate a merging copy's root and every entry before it can mutate.
+
+    A source FILE's destination is validated as a file destination: copytree's
+    own copy2 would treat a crafted directory there as a container and follow a
+    symlink out, so a plain boundary check on the nominal path is not enough.
+    `follow` MUST match copytree's traversal: True for the dereferencing default
+    (symlinks=False), False when source links are preserved (symlinks=True), so
+    the walk enumerates exactly the destinations the copy will create.
+    """
+    assert_target_destination(target, dst)
+    for current, dirnames, filenames in os.walk(src, followlinks=follow):
+        dirnames[:] = [
+            name for name in dirnames
+            if name != "__pycache__" and name != ".DS_Store"
+            and not name.endswith(".pyc")
+        ]
+        filenames = [
+            name for name in filenames
+            if name != ".DS_Store" and not name.endswith(".pyc")
+        ]
+        relative = Path(current).relative_to(src)
+        for name in dirnames:
+            assert_target_destination(target, dst / relative / name)
+        for name in filenames:
+            assert_target_file_destination(target, dst / relative / name)
+
+
+def guarded_copytree(target: Path, src: Path, dst: Path, *,
+                     symlinks: bool = False, **kwargs) -> None:
+    """The single audited directory-tree copy: validate every destination entry
+    against the boundary (matching copytree's own traversal), then copy. Every
+    copytree call routes through here so the anti-reopen scan can REQUIRE it — a
+    raw shutil.copytree anywhere else is the regression the scan refuses, because
+    its root wrapper alone would not prove the leaves were validated."""
+    _preflight_copytree(target, src, dst, follow=not symlinks)
+    shutil.copytree(src, assert_target_destination(target, dst),
+                    symlinks=symlinks, **kwargs)
+
+
+def _preflight_init(root: Path, target: Path) -> None:
+    """Validate every init destination before the first filesystem mutation."""
+    assert_target_destination(target, target)
+
+    for tree in COPY_TREES:
+        src = root / tree
+        if src.exists():
+            _preflight_copytree(target, src, target / tree)
+    for rel in COPY_WORKFLOWS:
+        if (root / rel).exists():
+            dst = target / rel
+            assert_target_destination(target, dst.parent)
+            assert_target_file_destination(target, dst)
+
+    codex = target / ".codex"
+    assert_target_destination(target, codex)
+    for name in COPY_CODEX:
+        assert_target_file_destination(target, codex / name)
+    _preflight_copytree(target, root / ".codex" / "agents", codex / "agents")
+    if (root / ".codex" / "skills").is_dir():
+        _preflight_copytree(target, root / ".codex" / "skills", codex / "skills")
+
+    for name in COPY_FILES:
+        if (root / name).exists():
+            assert_target_file_destination(target, target / name)
+    for src_rel, dst_rel in DOC_CONTRACTS:
+        if (root / src_rel).exists():
+            dst = target / dst_rel
+            assert_target_destination(target, dst.parent)
+            assert_target_file_destination(target, dst)
+    for rel in PROJECT_STARTERS:
+        if (root / rel).exists():
+            dst = target / rel
+            assert_target_destination(target, dst.parent)
+            assert_target_file_destination(target, dst)
+
+    for rel in (
+        "harness.yaml",
+        "constitution/VENDORED_FROM",
+        "constitution/VENDOR_MANIFEST.json",
+        "docs/product/DISCOVERY.md",
+        "prototype/README.md",
+        ".factory/run.json",
+        "AGENTS.md",
+        "README.md",
+    ):
+        assert_target_file_destination(target, target / rel)
+
+    brief_dst = target / "docs" / "product" / "BRIEF.md"
+    assert_target_destination(target, brief_dst.parent)
+    if (root / "harness" / "nestjs-react" / "BRIEF_TEMPLATE.md").exists():
+        assert_target_file_destination(target, brief_dst)
+    for rel in (
+        "docs/decisions",
+        "docs/architecture",
+        "docs/specs",
+        "prototype",
+        "plans/active",
+        "plans/completed",
+        "plans/debt",
+        ".factory/reviews",
+    ):
+        assert_target_destination(target, target / rel)
+    for sub in ("active", "completed", "debt"):
+        assert_target_file_destination(target, target / "plans" / sub / ".gitkeep")
+
+    git_dir = target / ".git"
+    if not git_dir.exists():
+        assert_target_destination(target, git_dir)
+    check_record_origin_writable(target)
 
 
 def cmd_init(args: argparse.Namespace) -> None:
@@ -240,41 +496,53 @@ def cmd_init(args: argparse.Namespace) -> None:
                 f"would overwrite or write through:\n  {listing}{more}\n"
                 "use --force to overwrite them."
             )
-    target.mkdir(parents=True, exist_ok=True)
+    _preflight_init(root, target)
+    assert_target_destination(target, target).mkdir(parents=True, exist_ok=True)
 
-    ignore = shutil.ignore_patterns("__pycache__", "*.pyc")
+    # Same rule as upgrade's VENDOR_IGNORE: build and OS noise never vendors.
+    ignore = shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store")
     for tree in COPY_TREES:
         src = root / tree
         if src.exists():
-            shutil.copytree(src, target / tree, dirs_exist_ok=True, ignore=ignore)
+            # Default symlinks=False MATERIALIZES the trusted source content
+            # guarded_copytree dereferences trusted source content into the
+            # boundary-checked destination and validates every leaf; symlinks=True
+            # would recreate an outward source link as an escape (0028).
+            guarded_copytree(target, src, target / tree,
+                             dirs_exist_ok=True, ignore=ignore)
     for rel in COPY_WORKFLOWS:
         src = root / rel
         if src.exists():
             dst = target / rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-    (target / ".codex").mkdir(exist_ok=True)
+            assert_target_destination(target, dst.parent).mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, assert_target_file_destination(target, dst))
+    assert_target_destination(target, target / ".codex").mkdir(exist_ok=True)
     for name in COPY_CODEX:
-        shutil.copy2(root / ".codex" / name, target / ".codex" / name)
-    shutil.copytree(root / ".codex" / "agents", target / ".codex" / "agents", dirs_exist_ok=True, ignore=ignore)
+        dst = target / ".codex" / name
+        shutil.copy2(root / ".codex" / name, assert_target_file_destination(target, dst))
+    guarded_copytree(target, root / ".codex" / "agents",
+                     target / ".codex" / "agents",
+                     dirs_exist_ok=True, ignore=ignore)
     if (root / ".codex" / "skills").is_dir():
-        shutil.copytree(root / ".codex" / "skills", target / ".codex" / "skills", dirs_exist_ok=True, ignore=ignore)
+        guarded_copytree(target, root / ".codex" / "skills",
+                         target / ".codex" / "skills",
+                         dirs_exist_ok=True, ignore=ignore)
     for name in COPY_FILES:
         src = root / name
         if src.exists():
-            shutil.copy2(src, target / name)
+            shutil.copy2(src, assert_target_file_destination(target, target / name))
     for src_rel, dst_rel in DOC_CONTRACTS:
         src = root / src_rel
         if src.exists():
             dst = target / dst_rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            assert_target_destination(target, dst.parent).mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, assert_target_file_destination(target, dst))
     for rel in PROJECT_STARTERS:
         src = root / rel
         if src.exists():
             dst = target / rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            assert_target_destination(target, dst.parent).mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, assert_target_file_destination(target, dst))
 
     # A new client has signed nothing off: clear the harness's own sign-off pin
     # so a scaffold cannot inherit THIS project's gate. (harness.yaml is
@@ -283,7 +551,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     # so signing off later never shows up as gate drift.)
     manifest_yaml = target / "harness.yaml"
     if manifest_yaml.exists():
-        manifest_yaml.write_text(
+        assert_target_destination(target, manifest_yaml).write_text(
             re.sub(r"^signoff_record:.*$", 'signoff_record: ""',
                    manifest_yaml.read_text(), count=1, flags=re.MULTILINE)
         )
@@ -295,43 +563,55 @@ def cmd_init(args: argparse.Namespace) -> None:
         ).stdout.strip()
     except subprocess.CalledProcessError:
         commit = "unknown"
-    (target / "constitution" / "VENDORED_FROM").write_text(
+    assert_target_destination(target, target / "constitution" / "VENDORED_FROM").write_text(
         f"symphony-forge @ {commit}\nUpdate by re-vendoring from the harness repo; do not edit in place.\n"
     )
     # Freeze the gate surface from birth (frozen-gate-integrity): the manifest
     # is what check_vendor_integrity.py compares against until the next vendoring.
     from check_vendor_integrity import write_manifest
+    assert_target_destination(target, target / "constitution" / "VENDOR_MANIFEST.json")
     write_manifest(target, commit)
 
     brief_src = root / "harness" / "nestjs-react" / "BRIEF_TEMPLATE.md"
     brief_dst = target / "docs" / "product" / "BRIEF.md"
-    brief_dst.parent.mkdir(parents=True, exist_ok=True)
+    assert_target_destination(target, brief_dst.parent).mkdir(parents=True, exist_ok=True)
     if brief_src.exists():
-        shutil.copy2(brief_src, brief_dst)
-    (target / "docs" / "product" / "DISCOVERY.md").write_text(
+        shutil.copy2(brief_src, assert_target_file_destination(target, brief_dst))
+    assert_target_destination(target, target / "docs" / "product" / "DISCOVERY.md").write_text(
         DISCOVERY_TEMPLATE.format(name=args.name)
     )
-    (target / "docs" / "decisions").mkdir(parents=True, exist_ok=True)
-    (target / "docs" / "architecture").mkdir(parents=True, exist_ok=True)
-    (target / "docs" / "specs").mkdir(parents=True, exist_ok=True)
-    (target / "prototype").mkdir(parents=True, exist_ok=True)
-    (target / "prototype" / "README.md").write_text(PROTOTYPE_README)
+    assert_target_destination(
+        target, target / "docs" / "decisions"
+    ).mkdir(parents=True, exist_ok=True)
+    assert_target_destination(
+        target, target / "docs" / "architecture"
+    ).mkdir(parents=True, exist_ok=True)
+    assert_target_destination(target, target / "docs" / "specs").mkdir(parents=True, exist_ok=True)
+    assert_target_destination(target, target / "prototype").mkdir(parents=True, exist_ok=True)
+    assert_target_destination(
+        target, target / "prototype" / "README.md"
+    ).write_text(PROTOTYPE_README)
     for sub in ("active", "completed", "debt"):
         plan_dir = target / "plans" / sub
-        plan_dir.mkdir(parents=True, exist_ok=True)
-        (plan_dir / ".gitkeep").touch()
-    (target / ".factory" / "reviews").mkdir(parents=True, exist_ok=True)
+        assert_target_destination(target, plan_dir).mkdir(parents=True, exist_ok=True)
+        assert_target_destination(target, plan_dir / ".gitkeep").touch()
+    assert_target_destination(
+        target, target / ".factory" / "reviews"
+    ).mkdir(parents=True, exist_ok=True)
     dump_json(
-        target / ".factory" / "run.json",
+        assert_target_destination(target, target / ".factory" / "run.json"),
         {"project": args.name, "created_at": now_iso()},
     )
 
     agents_md = (root / "AGENTS.md").read_text().replace("Symphony Forge", args.name, 1)
-    (target / "AGENTS.md").write_text(agents_md)
+    assert_target_destination(target, target / "AGENTS.md").write_text(agents_md)
     ensure_onboarding(target, args.name)
 
     if not (target / ".git").exists():
-        subprocess.run(["git", "init", "-q"], cwd=target, check=True)
+        assert_target_destination(target, target / ".git")
+        subprocess.run(["git", "init", "-q"],
+                       cwd=assert_target_destination(target, target), check=True)
+    ensure_record_origin(target)
 
     print(f"Scaffolded {args.name} at {target}")
     print("Next steps:")

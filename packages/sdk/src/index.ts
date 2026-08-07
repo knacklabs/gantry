@@ -10,6 +10,7 @@ import type {
 import { createAgentAdminClient } from './agents.js';
 import { createAgentSkillsClient, createSkillsClient } from './skills.js';
 import { createSettingsClient } from './settings.js';
+import { createSessionsClient } from './sessions.js';
 import type {
   ClientOptions,
   MemoryContext,
@@ -31,6 +32,10 @@ import type {
 import { runtimeEventQuery } from './runtime-event-query.js';
 import type * as OpenApi from './openapi-types.js';
 import { parseSessionSseEvent } from './session-events.js';
+export {
+  SessionTypingTracker,
+  type SessionTypingTrackerSeed,
+} from './session-events.js';
 import { createIngressesClient } from './ingresses.js';
 import { querySuffix } from './query-string.js';
 import { createIdentityClient, createPeopleClient } from './people.js';
@@ -365,76 +370,10 @@ export class GantryClient {
       }),
   };
 
-  readonly sessions = {
-    ensure: (input: OpenApi.EnsureSessionRequest) =>
-      this.transport.request<OpenApi.EnsureSessionResponse>({
-        method: 'POST',
-        path: '/v1/sessions/ensure',
-        body: input,
-      }),
-    sendMessage: ({ sessionId, ...body }: OpenApi.SendSessionMessageInput) =>
-      this.transport.request<OpenApi.SendSessionMessageResponse>({
-        method: 'POST',
-        path: `/v1/sessions/${encodeURIComponent(sessionId)}/messages`,
-        body,
-      }),
-    resolveInteraction: (
-      sessionId: string,
-      interactionId: string,
-      body: { idempotencyKey: string; result: unknown; resolvedBy?: string },
-    ) =>
-      this.transport.request<{ accepted: boolean; idempotent: boolean }>({
-        method: 'POST',
-        path: `/v1/sessions/${encodeURIComponent(sessionId)}/interactions/${encodeURIComponent(interactionId)}/resolve`,
-        body,
-      }),
-    rejectInteraction: (
-      sessionId: string,
-      interactionId: string,
-      body: { idempotencyKey: string; reason?: string; resolvedBy?: string },
-    ) =>
-      this.transport.request<{ accepted: boolean; idempotent: boolean }>({
-        method: 'POST',
-        path: `/v1/sessions/${encodeURIComponent(sessionId)}/interactions/${encodeURIComponent(interactionId)}/reject`,
-        body,
-      }),
-    cancelTurn: (sessionId: string, body: { threadId?: string } = {}) =>
-      this.transport.request<{ cancelled: boolean }>({
-        method: 'POST',
-        path: `/v1/sessions/${encodeURIComponent(sessionId)}/turns/current/cancel`,
-        body,
-      }),
-    archive: (sessionId: string) =>
-      this.transport.request<{
-        archived: true;
-        alreadyArchived: boolean;
-        cancelled: boolean;
-      }>({
-        method: 'POST',
-        path: `/v1/sessions/${encodeURIComponent(sessionId)}/archive`,
-      }),
-    listEvents: (
-      sessionId: string,
-      afterEventId?: OpenApi.ListSessionEventsQuery['afterEventId'],
-    ) =>
-      this.transport.request<OpenApi.ListSessionEventsResponse>({
-        method: 'GET',
-        path: `/v1/sessions/${encodeURIComponent(sessionId)}/events${afterEventId ? `?afterEventId=${afterEventId}` : ''}`,
-      }),
-    stream: (
-      sessionId: string,
-      input: OpenApi.SessionEventStreamOptions = {},
-    ) =>
-      this.transport.stream(
-        `/v1/sessions/${encodeURIComponent(sessionId)}/events${input.afterEventId ? `?afterEventId=${input.afterEventId}` : ''}`,
-        input.signal,
-      ),
-    wait: (sessionId: string, input: OpenApi.WaitForSessionEventQuery = {}) =>
-      this.transport.request<OpenApi.WaitForSessionEventResponse>({
-        method: 'GET',
-        path: `/v1/sessions/${encodeURIComponent(sessionId)}/wait?afterEventId=${input.afterEventId || 0}&timeoutMs=${input.timeoutMs || 60_000}`,
-      }),
-  };
+  readonly sessions = createSessionsClient({
+    request: this.request,
+    stream: (pathname, signal) => this.transport.stream(pathname, signal),
+  });
 
   readonly runtimeEvents = {
     list: (input: RuntimeEventQuery = {}) =>

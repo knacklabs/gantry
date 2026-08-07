@@ -694,11 +694,8 @@ export function createCanUseToolCallback(
   };
 }
 
-const SILENT_ALLOW_DECIDERS = new Set([
-  'birthright',
-  'deterministic_read_only',
-]);
-
+// Typed source, never free-form decidedBy (human 'birthright' still surfaces).
+const SILENT_SOURCES = new Set(['birthright', 'deterministic_policy']);
 function permissionAllowedActivityPayload(
   decision: PermissionDecision,
 ): Record<string, unknown> {
@@ -707,6 +704,10 @@ function permissionAllowedActivityPayload(
     ok: true,
     mode: decision.mode,
     ...(decision.decidedBy ? { decided_by: decision.decidedBy } : {}),
+    ...(decision.source ? { source: decision.source } : {}),
+    ...(typeof decision.repeatableForFutureRuns === 'boolean'
+      ? { repeatableForFutureRuns: decision.repeatableForFutureRuns }
+      : {}),
     ...(decision.risk_level ? { risk_level: decision.risk_level } : {}),
     ...(decision.risk_category
       ? { risk_category: decision.risk_category }
@@ -718,11 +719,10 @@ function permissionAllowedActivityPayload(
         : {}),
   };
 }
-
 function formatPermissionAllowedMessage(
   decision: PermissionDecision,
 ): string | undefined {
-  if (decision.decidedBy && SILENT_ALLOW_DECIDERS.has(decision.decidedBy)) {
+  if (decision.source && SILENT_SOURCES.has(decision.source)) {
     return undefined;
   }
   if (!decision.decidedBy && !decision.risk_level) return undefined;

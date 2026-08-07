@@ -46,6 +46,14 @@ for await (const event of client.sessions.stream(sessionId)) {
 }
 ```
 
+`sessions.stream` yields durable events only. Pass a caller-owned typing tracker
+when needed and ask the tracker for current typing state; stream cursors remain
+the caller's durable `afterEventId` contract. When resuming from a persisted
+cursor, call `SessionTypingTracker.seed` before applying resumed events with the
+last durable producer generation and the last sequence seen for each tracked
+thread. The session-wide generation seed prevents a late event from an older
+producer becoming authoritative after the consumer restarts.
+
 `client.health()` returns `{ status, processRole, ... }`; `processRole` tells you
 which deployment role answered (`all` on a workstation; `control` in a fleet,
 where the SDK's `baseUrl` is the ALB / control plane — worker roles serve only

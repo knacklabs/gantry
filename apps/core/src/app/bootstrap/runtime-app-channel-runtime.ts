@@ -31,6 +31,8 @@ export function createMutableChannelRuntime(): {
         current.resetStreaming(chatJid, options),
       setTyping: (chatJid, isTyping, options) =>
         current.setTyping(chatJid, isTyping, options),
+      progressCardIdentity: (chatJid, options) =>
+        current.progressCardIdentity?.(chatJid, options),
       sendProgressUpdate: (chatJid, text, options) =>
         current.sendProgressUpdate(chatJid, text, options),
       renderAgentTodo: (...args) =>

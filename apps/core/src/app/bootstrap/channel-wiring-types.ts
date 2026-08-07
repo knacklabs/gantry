@@ -43,6 +43,10 @@ import type {
   ConversationContextHydrationResult,
   HydrationRequestObservation,
 } from '../../channels/channel-provider.js';
+import type {
+  ContentCanvasAction,
+  ContentCanvasResult,
+} from '../../shared/content-canvas.js';
 import type { BrainChannelHarvestTap } from '../../brain/brain-channel-harvest.js';
 import type {
   HistoricalAttachmentFetcher,
@@ -74,7 +78,10 @@ export type RetryTailRecoveryEnqueue = (
   input: RetryTailRecoveryEnqueueInput,
 ) => Promise<void>;
 
-export type ChannelAccountOptions = { providerAccountId?: string };
+export type ChannelAccountOptions = {
+  providerAccountId?: string;
+  threadId?: string;
+};
 export type ChannelStreamResetOptions = ChannelAccountOptions & {
   threadId?: string;
 };
@@ -226,17 +233,31 @@ export interface ChannelWiring {
     isTyping: boolean,
     options?: ChannelAccountOptions,
   ) => Promise<void>;
+  progressCardIdentity?: (
+    jid: string,
+    options?: ProgressUpdateOptions,
+  ) => string | undefined;
   sendProgressUpdate: (
     jid: string,
     text: string,
     options?: ProgressUpdateOptions,
-  ) => Promise<void>;
+  ) => Promise<void | boolean>;
   addReaction: (
     jid: string,
     messageRef: string,
     emoji: string,
     options?: ChannelAccountOptions,
   ) => Promise<void>;
+  removeReaction: (
+    jid: string,
+    messageRef: string,
+    emoji: string,
+    options?: ChannelAccountOptions,
+  ) => Promise<void>;
+  reactionRemovalMode: (
+    jid: string,
+    options?: Pick<ChannelAccountOptions, 'providerAccountId'>,
+  ) => 'exact' | 'all' | undefined;
   syncGroups: (force: boolean) => Promise<void>;
   requestPermissionApproval: (
     request: PermissionApprovalRequest,
@@ -260,6 +281,11 @@ export interface ChannelWiring {
     request: RichInteractionRequest,
     options?: ChannelAccountOptions,
   ) => Promise<boolean>;
+  executeContentCanvasAction: (
+    jid: string,
+    action: ContentCanvasAction,
+    options?: ChannelAccountOptions,
+  ) => Promise<ContentCanvasResult>;
   hydrateConversationContext?: (
     request: ConversationContextHydrationRequest,
   ) => Promise<ConversationContextHydrationResult>;

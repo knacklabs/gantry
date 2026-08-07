@@ -26,7 +26,6 @@ Output JSON matching `factory/schemas/decomposition.json` (with
 - `doc_roots`
 - `epics`
 - `tasks`
-- `build_waves`
 - `linear_plan`
 - `user_facing` — `true` if ANY part of this task graph changes user-visible
   behavior (UI, API responses users see, flows). The ship gate reads this
@@ -44,7 +43,7 @@ After capability specs are confirmed, derive the project roadmap from them.
 This happens before client sign-off; it is the reviewed PM→EM handoff, never
 a hand-authored backlog.
 
-1. Emit epics + story items in ONE payload (build-wave order = list order).
+1. Emit epics + story items in ONE payload (execution order = list order).
    Give each item `depends_on: ["<KEY>", ...]` for REAL dependencies only
    (story B consumes story A's API) — never blanket wave ordering: every
    edge you omit is a story the orchestrator can run in a parallel worktree

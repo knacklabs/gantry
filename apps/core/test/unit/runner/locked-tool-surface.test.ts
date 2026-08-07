@@ -58,16 +58,42 @@ function expectNoRawDeepAgentsAsyncTools(names: Iterable<string>): void {
 }
 
 describe('locked tool surface mounting', () => {
-  it('full preset keeps the default surface unchanged', () => {
+  it('full preset keeps the default surface unchanged on the interactive lane', () => {
     const names = effectiveEnabledMcpToolNames(
       JSON.stringify([...DEFAULT_GANTRY_MCP_TOOL_NAMES]),
       undefined,
       undefined,
       false,
+      undefined,
+      'sl:test',
+      'interactive',
     );
     for (const toolName of DEFAULT_GANTRY_MCP_TOOL_NAMES) {
       expect(names.has(toolName)).toBe(true);
     }
+  });
+
+  it('a missing permission lane fails closed to autonomous (no scheduler mutations)', () => {
+    const names = effectiveEnabledMcpToolNames(
+      JSON.stringify([...DEFAULT_GANTRY_MCP_TOOL_NAMES]),
+      undefined,
+      undefined,
+      false,
+      undefined,
+      'sl:test',
+      undefined,
+    );
+    for (const toolName of [
+      'scheduler_update_job',
+      'scheduler_upsert_job',
+      'scheduler_pause_job',
+      'scheduler_resume_job',
+      'scheduler_run_now',
+      'scheduler_delete_job',
+    ]) {
+      expect(names.has(toolName)).toBe(false);
+    }
+    expect(names.has('scheduler_get_job')).toBe(true);
   });
 
   it('locked preset excludes every authority and admin tool', () => {
@@ -134,6 +160,8 @@ describe('locked tool surface mounting', () => {
       undefined,
       undefined,
       false,
+      undefined,
+      undefined,
       undefined,
       JSON.stringify({
         sessionId: 'session-1',
@@ -237,6 +265,7 @@ describe('locked tool surface mounting', () => {
       'task_get',
       'task_list',
       'task_message',
+      'task_wait',
     ]);
     expectNoRawDeepAgentsAsyncTools(publicTaskToolNames);
 
@@ -302,7 +331,9 @@ describe('locked fail-closed env parsing', () => {
   });
 
   it('full preset still fails open to the default set on corrupt env', () => {
-    const names = parseEnabledGantryMcpToolNames('{not json');
+    const names = parseEnabledGantryMcpToolNames('{not json', {
+      chatJid: 'sl:test',
+    });
     for (const toolName of DEFAULT_GANTRY_MCP_TOOL_NAMES) {
       expect(names.has(toolName)).toBe(true);
     }

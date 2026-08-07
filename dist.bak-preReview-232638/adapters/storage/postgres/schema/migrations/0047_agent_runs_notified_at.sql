@@ -1,2 +1,0 @@
-ALTER TABLE agent_runs
-  ADD COLUMN IF NOT EXISTS notified_at TIMESTAMPTZ;

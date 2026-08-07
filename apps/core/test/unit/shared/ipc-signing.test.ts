@@ -30,6 +30,8 @@ describe('permission IPC response signing', () => {
       approved: false,
       mode: 'cancel',
       decidedBy: 'human',
+      source: 'human_once',
+      repeatableForFutureRuns: false,
       reason: 'denied',
       risk_level: 'critical',
       risk_category: 'destructive',
@@ -43,6 +45,8 @@ describe('permission IPC response signing', () => {
       approved: false,
       mode: 'cancel',
       decidedBy: 'human',
+      source: 'human_once',
+      repeatableForFutureRuns: false,
       reason: 'denied',
       risk_level: 'critical',
       risk_category: 'destructive',
@@ -55,6 +59,8 @@ describe('permission IPC response signing', () => {
       'approved',
       'mode',
       'decidedBy',
+      'source',
+      'repeatableForFutureRuns',
       'reason',
       'risk_level',
       'risk_category',
@@ -90,17 +96,31 @@ describe('permission IPC response signing', () => {
     ).toBe(true);
   });
 
-  it('rejects tampered risk fields and replayed nonces', () => {
+  it('rejects tampered provenance, risk fields, and replayed nonces', () => {
     const signed = signedPermissionResponse({
       requestId: 'perm-tamper',
       responseNonce: 'nonce-original',
       approved: false,
       mode: 'cancel',
+      source: 'human_once',
+      repeatableForFutureRuns: false,
       risk_level: 'critical',
       risk_category: 'destructive',
     });
     const publicKeyPem = signed.publicKeyPem as string;
 
+    expect(
+      hasValidIpcResponseSignature(publicKeyPem, {
+        ...signed,
+        source: 'auto_classifier',
+      }),
+    ).toBe(false);
+    expect(
+      hasValidIpcResponseSignature(publicKeyPem, {
+        ...signed,
+        repeatableForFutureRuns: true,
+      }),
+    ).toBe(false);
     expect(
       hasValidIpcResponseSignature(publicKeyPem, {
         ...signed,

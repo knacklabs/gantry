@@ -43,6 +43,34 @@ const reviewedAllow: ToolPolicyDecision = {
 };
 
 describe('coordinatePermissionDecision', () => {
+  it('never promotes a human decision whose approverRef collides with a machine decider', async () => {
+    const { decisionForMode } =
+      await import('@core/domain/permission-decision.js');
+    for (const decider of ['auto_classifier', 'reviewed_rule', 'birthright']) {
+      const decision = decisionForMode(
+        { requestId: 'r1' } as never,
+        'allow_once',
+        decider,
+        'human',
+      );
+      expect(decision.source).toBe('human_once');
+      expect(decision.repeatableForFutureRuns).toBe(false);
+    }
+  });
+
+  it('treats prototype-key deciders as unknown (conservative human_once)', async () => {
+    const { decisionForMode } =
+      await import('@core/domain/permission-decision.js');
+    for (const decider of ['constructor', 'toString', 'hasOwnProperty']) {
+      const decision = decisionForMode(
+        { requestId: 'r1' } as never,
+        'allow_once',
+        decider,
+      );
+      expect(decision.source).toBe('human_once');
+      expect(decision.repeatableForFutureRuns).toBe(false);
+    }
+  });
   it.each(['low', 'medium'] as const)(
     'maps %s classifier risk to auto_classifier allow_once',
     async (riskLevel) => {
@@ -644,9 +672,15 @@ describe('coordinatePermissionDecision', () => {
     registerWorkerPermissionRunRestriction({
       ...key,
       hideAuthorityTools: true,
+      runKind: 'scheduled',
+      jobId: 'job-1',
+      runId: 'run-1',
     });
     expect(permissionRunRestriction(key)).toEqual({
       hideAuthorityTools: true,
+      runKind: 'scheduled',
+      jobId: 'job-1',
+      runId: 'run-1',
     });
     unregisterPermissionRunRestriction(key);
     expect(permissionRunRestriction(key)).toBeUndefined();
@@ -690,6 +724,8 @@ describe('coordinatePermissionDecision', () => {
     registerWorkerPermissionRunRestriction({
       ...key,
       hideAuthorityTools: true,
+      runKind: 'interactive',
+      runId: 'run-1',
     });
     const requestPermissionApproval = vi.fn();
     await expect(

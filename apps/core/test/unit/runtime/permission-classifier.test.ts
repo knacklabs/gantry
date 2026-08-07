@@ -792,6 +792,29 @@ describe('permission classifier decision events', () => {
         permissionMode: 'auto',
         requestFamily: 'tool',
         agentFolder: 'researcher',
+        correlationId: 'request:gantry-memory',
+        actor: 'permission',
+        intentSource: 'operator_message',
+        turnIntentSummary: 'Save this note to memory.',
+        canonicalToolName: 'mcp__gantry__memory_save',
+        toolInput: { content: 'Remember this.' },
+        policyDecisionReason: 'No durable rule matched.',
+        approvedCapabilityIds: [],
+        classifierConfig: { memoryExtractorModel: 'extractor-model' },
+        publishRuntimeEvent: vi.fn(async () => undefined),
+        classifierConsult,
+      }),
+    ).resolves.toMatchObject({ decision: 'allow', latencyMs: 0 });
+    expect(classifierConsult).not.toHaveBeenCalled();
+  });
+
+  it('asks for scheduler mutations in auto mode', async () => {
+    const classifierConsult = vi.fn();
+    await expect(
+      consultPermissionClassifierBeforePrompt({
+        permissionMode: 'auto',
+        requestFamily: 'tool',
+        agentFolder: 'researcher',
         correlationId: 'request:gantry-scheduler',
         actor: 'permission',
         intentSource: 'operator_message',
@@ -804,7 +827,7 @@ describe('permission classifier decision events', () => {
         publishRuntimeEvent: vi.fn(async () => undefined),
         classifierConsult,
       }),
-    ).resolves.toMatchObject({ decision: 'allow', latencyMs: 0 });
+    ).resolves.toMatchObject({ decision: 'ask', latencyMs: 0 });
     expect(classifierConsult).not.toHaveBeenCalled();
   });
 
@@ -1432,7 +1455,7 @@ describe('permission classifier decision events', () => {
       latencyMs: 1,
     }));
 
-    await consultPermissionClassifierBeforePrompt({
+    const result = await consultPermissionClassifierBeforePrompt({
       permissionMode: 'auto_strict',
       requestFamily: 'tool',
       appId: 'app:test',
@@ -1472,6 +1495,10 @@ describe('permission classifier decision events', () => {
     expect(classifierConsult).toHaveBeenCalledWith(
       expect.objectContaining({ recentlyApprovedExactToolShape: true }),
     );
+    expect(result).toMatchObject({
+      promotionHintCount: 2,
+      firstAskedAt: '2026-07-12T00:00:00.000Z',
+    });
   });
 
   it('keeps a recent denial authoritative over repeated approvals', async () => {

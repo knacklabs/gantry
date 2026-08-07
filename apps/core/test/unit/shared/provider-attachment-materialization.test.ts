@@ -160,6 +160,67 @@ describe('provider attachment materialization reads', () => {
     });
   });
 
+  it('describes binary attachments with typed guidance instead of base64', async () => {
+    const cases = [
+      { fileName: 'meeting.mp3', contentType: 'audio/mpeg', family: 'audio' },
+      { fileName: 'demo.mp4', contentType: 'video/mp4', family: 'video' },
+      {
+        fileName: 'bundle.zip',
+        contentType: 'application/zip',
+        family: 'archive',
+      },
+      {
+        fileName: 'brief.pages',
+        contentType: 'application/octet-stream',
+        family: 'Apple iWork',
+      },
+      {
+        fileName: 'mail.msg',
+        contentType: 'application/vnd.ms-outlook',
+        family: 'binary',
+      },
+      {
+        fileName: 'mystery.bin',
+        contentType: 'application/octet-stream',
+        family: 'binary',
+      },
+    ];
+    const root = await temporaryMaterializationRoot();
+
+    for (const testCase of cases) {
+      await writeProviderAttachment(
+        root,
+        testCase.fileName,
+        Buffer.from([0, 1, 2, 3, 255]),
+      );
+      const result = await readProviderAttachment({
+        materializationRoot: root,
+        workspaceRoots: [],
+        storageRef: `provider-attachments/${testCase.fileName}`,
+        attachment: testCase,
+      });
+      const content = result.status === 'opened' ? result.content : '';
+      expect(content).toContain(testCase.family);
+      expect(content).not.toContain('base64');
+      expect(content).not.toContain('AAECA/8=');
+    }
+  });
+
+  it('reads .eml attachments as raw text', async () => {
+    const root = await temporaryMaterializationRoot();
+    const rawEmail = 'From: sender@example.com\nSubject: Hello\n\nEmail body';
+    await writeProviderAttachment(root, 'message.eml', Buffer.from(rawEmail));
+
+    const result = await readProviderAttachment({
+      materializationRoot: root,
+      workspaceRoots: [],
+      storageRef: 'provider-attachments/message.eml',
+      attachment: { fileName: 'message.eml', contentType: 'message/rfc822' },
+    });
+
+    expect(result).toMatchObject({ status: 'opened', content: rawEmail });
+  });
+
   it('marks content truncated when short reads reach the output limit', async () => {
     stubReads(Buffer.alloc(80_001, 'a'), 4_096);
 

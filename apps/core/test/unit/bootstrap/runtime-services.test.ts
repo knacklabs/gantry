@@ -183,6 +183,8 @@ function makeChannelWiring(): ChannelWiring {
     setTyping: vi.fn(async () => {}),
     sendProgressUpdate: vi.fn(async () => {}),
     addReaction: vi.fn(async () => {}),
+    removeReaction: vi.fn(async () => {}),
+    reactionRemovalMode: vi.fn(() => 'all'),
     syncGroups: vi.fn(async () => {}),
     requestPermissionApproval: vi.fn(async () => ({ approved: true })),
     requestUserAnswer: vi.fn(async () => ({ requestId: 'q', answers: {} })),
@@ -848,13 +850,18 @@ describe('startRuntimeServices', () => {
       const processMessages = vi.mocked(app.queue.setProcessMessagesFn as any)
         .mock.calls[0]?.[0] as (queueJid: string) => Promise<boolean>;
 
-      const processed = await processMessages('tg:primary');
+      const queueJid = makeAgentThreadQueueKey(
+        'tg:primary',
+        undefined,
+        'thread-1',
+      );
+      const processed = await processMessages(queueJid);
       expect(processed).toBe(true);
       expect(getAgentTurnContext).toHaveBeenCalledOnce();
       expect(createSessionAgentRun).toHaveBeenCalledOnce();
 
       expect(app.processGroupMessages).toHaveBeenCalledWith(
-        'tg:primary',
+        queueJid,
         expect.objectContaining({
           queued: true,
           existingRunId: 'agent-run:live-1',
@@ -863,6 +870,8 @@ describe('startRuntimeServices', () => {
           existingRunLeaseFencingVersion: 1,
           onRunResult: expect.any(Function),
           onFirstProgress: expect.any(Function),
+          onFirstVisibleOutput: expect.any(Function),
+          onTurnTerminal: expect.any(Function),
           onLiveStopActionToken: expect.any(Function),
         }),
       );
@@ -871,12 +880,21 @@ describe('startRuntimeServices', () => {
       await runOptions?.onFirstProgress?.({
         jid: 'tg:primary',
         messageRef: 'message-1',
+        threadId: 'thread-1',
       });
       expect(channelWiring.addReaction).toHaveBeenCalledWith(
         'tg:primary',
         'message-1',
         'seen',
-        undefined,
+        { threadId: 'thread-1' },
+      );
+      await runOptions?.onFirstVisibleOutput?.();
+      expect(channelWiring.removeReaction).not.toHaveBeenCalled();
+      expect(channelWiring.addReaction).toHaveBeenLastCalledWith(
+        'tg:primary',
+        'message-1',
+        'seen',
+        { threadId: 'thread-1' },
       );
       expect([...liveTurns.turns.values()]).toEqual([
         expect.objectContaining({

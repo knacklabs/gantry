@@ -125,6 +125,7 @@ vi.mock('@slack/bolt', () => ({
       },
       reactions: {
         add: vi.fn().mockResolvedValue({ ok: true }),
+        remove: vi.fn().mockResolvedValue({ ok: true }),
       },
       apiCall: vi.fn().mockResolvedValue({ ok: false }),
       views: {
@@ -197,7 +198,6 @@ import {
   SLACK_SOCKET_MODE_DISCONNECTED_EVENT,
   SLACK_SOCKET_MODE_RECONNECT_EVENT,
 } from '@core/channels/slack/channel-connect.js';
-import { asTypingSink } from '@core/app/bootstrap/channel-capability-ports.js';
 import type {
   PermissionApprovalRequest,
   PermissionCallbackClaim,
@@ -771,7 +771,8 @@ describe('Slack channel', () => {
       createOpts() as any,
     );
 
-    expect(asTypingSink(channel)).toBeUndefined();
+    expect(channel.liveUx.typing).toBe('none');
+    expect('setTyping' in channel).toBe(false);
   });
 
   it('distrusts Slack history on socket close and successful reconnect without delivery middleware', async () => {
@@ -979,6 +980,9 @@ describe('Slack channel', () => {
   });
 
   it('adds Slack reactions idempotently', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response('{"ok":true}'));
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -989,12 +993,81 @@ describe('Slack channel', () => {
     await channel.addReaction('sl:C1234567890', '1710000000.000100', 'seen');
     await channel.addReaction('sl:C1234567890', '1710000000.000100', 'seen');
 
-    expect(appRef.current.client.reactions.add).toHaveBeenCalledTimes(1);
-    expect(appRef.current.client.reactions.add).toHaveBeenCalledWith({
-      channel: 'C1234567890',
-      timestamp: '1710000000.000100',
-      name: 'eyes',
-    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://slack.com/api/reactions.add',
+      expect.objectContaining({
+        method: 'POST',
+        body: new URLSearchParams({
+          channel: 'C1234567890',
+          timestamp: '1710000000.000100',
+          name: 'eyes',
+        }),
+      }),
+    );
+  });
+
+  it('removes Slack reactions and permits the same reaction to be re-added', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response('{"ok":true}'));
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect({ inbound: false });
+
+    await channel.addReaction('sl:C1234567890', '1710000000.000100', 'seen');
+    await channel.removeReaction('sl:C1234567890', '1710000000.000100', 'seen');
+    await channel.addReaction('sl:C1234567890', '1710000000.000100', 'seen');
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'https://slack.com/api/reactions.add',
+      'https://slack.com/api/reactions.remove',
+      'https://slack.com/api/reactions.add',
+    ]);
+  });
+
+  it('invalidates Slack reaction cache before failed forced add and remove repairs', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response('{"ok":true}'));
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect({ inbound: false });
+
+    await channel.addReaction('sl:C1234567890', '1710000000.000100', 'seen');
+    fetchMock.mockResolvedValueOnce(
+      new Response('{"ok":false,"error":"internal_error"}'),
+    );
+    await expect(
+      channel.removeReaction('sl:C1234567890', '1710000000.000100', 'seen', {
+        reconcile: true,
+      }),
+    ).rejects.toThrow('Slack live UX request failed: internal_error');
+    await channel.addReaction('sl:C1234567890', '1710000000.000100', 'seen');
+
+    fetchMock.mockResolvedValueOnce(
+      new Response('{"ok":false,"error":"internal_error"}'),
+    );
+    await expect(
+      channel.addReaction('sl:C1234567890', '1710000000.000100', 'seen', {
+        reconcile: true,
+      }),
+    ).rejects.toThrow('Slack live UX request failed: internal_error');
+    await channel.addReaction('sl:C1234567890', '1710000000.000100', 'seen');
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'https://slack.com/api/reactions.add',
+      'https://slack.com/api/reactions.remove',
+      'https://slack.com/api/reactions.add',
+      'https://slack.com/api/reactions.add',
+      'https://slack.com/api/reactions.add',
+    ]);
   });
 
   it('persists standalone metadata for Slack group discovery without a message', async () => {
@@ -4962,6 +5035,116 @@ describe('Slack channel', () => {
     );
   });
 
+  it('uploads large Slack stream text as a UTF-8 snippet before split delivery', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+    );
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+    vi.mocked(appRef.current.client.apiCall).mockResolvedValue({ ok: false });
+
+    await expect(
+      channel.sendStreamingChunk('sl:C1234567890', '🙂'.repeat(8000), {
+        done: true,
+      }),
+    ).resolves.toBe(true);
+
+    expect(
+      appRef.current.client.files.getUploadURLExternal,
+    ).toHaveBeenCalledWith({
+      filename: 'gantry-response.txt',
+      length: 32_000,
+      snippet_type: 'text',
+    });
+    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('uploads Slack text above one UTF-8 MiB as a plain .txt file', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+    );
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+    vi.mocked(appRef.current.client.apiCall).mockResolvedValue({ ok: false });
+    const text = `x${'🙂'.repeat(262_144)}`;
+
+    await expect(
+      channel.sendStreamingChunk('sl:C1234567890', text, { done: true }),
+    ).resolves.toBe(true);
+
+    expect(
+      appRef.current.client.files.getUploadURLExternal,
+    ).toHaveBeenCalledWith({
+      filename: 'gantry-response.txt',
+      length: 1_048_577,
+    });
+  });
+
+  it('falls back to split Slack text when snippet upload fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 503 }),
+    );
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+    vi.mocked(appRef.current.client.apiCall).mockResolvedValue({ ok: false });
+
+    await expect(
+      channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(20_000), {
+        done: true,
+      }),
+    ).resolves.toBe(true);
+
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(5);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'stream_output_too_large' }),
+      'Slack snippet fallback upload failed; using split text delivery',
+    );
+  });
+
+  it('splits the rejected part when a snippet upload fails', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+    vi.mocked(appRef.current.client.chat.postMessage)
+      .mockRejectedValueOnce({ status: 413, message: 'payload too large' })
+      .mockResolvedValue({ ok: true, ts: '1710000000.500600' });
+    vi.mocked(
+      appRef.current.client.files.getUploadURLExternal,
+    ).mockRejectedValueOnce(new Error('upload unavailable'));
+
+    // A 413 is deterministic for the same payload: the fallback must post
+    // smaller chunks, never replay the identical part.
+    await expect(
+      channel.sendMessage('sl:C1234567890', 'replay me'),
+    ).resolves.toMatchObject({ deliveredParts: 1, totalParts: 1 });
+
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(3);
+    const calls = vi
+      .mocked(appRef.current.client.chat.postMessage)
+      .mock.calls.slice(1)
+      .map(([payload]) => (payload as { text: string }).text);
+    expect(calls.join('')).toBe('replay me');
+    expect(calls.every((text) => text.length < 'replay me'.length)).toBe(true);
+  });
+
   it('clears Slack thread status for replace-only done without chat text', async () => {
     const channel = new SlackChannel(
       'xoxb-token',
@@ -5340,6 +5523,25 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
   });
 
+  it('reports a replace-only Slack update without a card handle as not landed', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+
+    const landed = await channel.sendProgressUpdate(
+      'sl:C1234567890',
+      'Still working',
+      { replaceOnly: true },
+    );
+
+    expect(landed).toBe(false);
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+  });
+
   it('edits normal Slack done progress and clears the active handle', async () => {
     const channel = new SlackChannel(
       'xoxb-token',
@@ -5524,6 +5726,227 @@ describe('Slack channel', () => {
         ts: '1710000000.100200',
         text: 'Continuing...',
         blocks: [],
+      });
+    } finally {
+      if (savedHome === undefined) delete process.env.GANTRY_HOME;
+      else process.env.GANTRY_HOME = savedHome;
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('lazily marks a prior-process Slack card stale and posts fresh work', async () => {
+    const runtimeHome = fs.mkdtempSync('/tmp/gantry-slack-progress-');
+    const savedHome = process.env.GANTRY_HOME;
+    process.env.GANTRY_HOME = runtimeHome;
+    try {
+      const first = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await first.connect();
+      await first.sendProgressUpdate('sl:C1234567890', 'Waiting...', {
+        generation: 4,
+      });
+
+      const runDir = `${runtimeHome}/run`;
+      const stateFile = fs
+        .readdirSync(runDir)
+        .find((name) => name.startsWith('slack-progress-state-'));
+      expect(stateFile).toBeTruthy();
+      const statePath = `${runDir}/${stateFile}`;
+      const entries = JSON.parse(fs.readFileSync(statePath, 'utf8')) as any[];
+      entries[0][1].ownerProcessId = process.pid;
+      entries[0][1].ownerBootNonce = 'prior-process-boot';
+      fs.writeFileSync(statePath, JSON.stringify(entries));
+
+      appRef.current.client.chat.postMessage.mockClear();
+      appRef.current.client.chat.update.mockClear();
+      const second = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await second.connect();
+
+      expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+      expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+
+      await second.sendProgressUpdate('sl:C1234567890', 'Working again...', {
+        generation: 5,
+      });
+
+      expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
+        channel: 'C1234567890',
+        ts: '1710000000.100200',
+        text: 'Interrupted by a restart.',
+        blocks: [],
+      });
+      expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith({
+        channel: 'C1234567890',
+        text: 'Working again...',
+      });
+      expect(
+        appRef.current.client.chat.update.mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        appRef.current.client.chat.postMessage.mock.invocationCallOrder[0]!,
+      );
+    } finally {
+      if (savedHome === undefined) delete process.env.GANTRY_HOME;
+      else process.env.GANTRY_HOME = savedHome;
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('cleans up prior-process Slack ownership before comparing reset generations', async () => {
+    const runtimeHome = fs.mkdtempSync('/tmp/gantry-slack-progress-');
+    const savedHome = process.env.GANTRY_HOME;
+    process.env.GANTRY_HOME = runtimeHome;
+    try {
+      const first = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await first.connect();
+      await first.sendProgressUpdate('sl:C1234567890', 'Newer work...', {
+        generation: 5,
+      });
+
+      const runDir = `${runtimeHome}/run`;
+      const stateFile = fs
+        .readdirSync(runDir)
+        .find((name) => name.startsWith('slack-progress-state-'));
+      expect(stateFile).toBeTruthy();
+      const statePath = `${runDir}/${stateFile}`;
+      const entries = JSON.parse(fs.readFileSync(statePath, 'utf8')) as any[];
+      entries[0][1].ownerBootNonce = 'prior-process-boot';
+      fs.writeFileSync(statePath, JSON.stringify(entries));
+
+      const second = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await second.connect();
+      appRef.current.client.chat.postMessage.mockClear();
+      appRef.current.client.chat.update.mockClear();
+
+      await expect(
+        second.sendProgressUpdate('sl:C1234567890', 'Restarted work...', {
+          generation: 1,
+        }),
+      ).resolves.toBe(true);
+
+      expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
+        channel: 'C1234567890',
+        ts: '1710000000.100200',
+        text: 'Interrupted by a restart.',
+        blocks: [],
+      });
+      expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith({
+        channel: 'C1234567890',
+        text: 'Restarted work...',
+      });
+    } finally {
+      if (savedHome === undefined) delete process.env.GANTRY_HOME;
+      else process.env.GANTRY_HOME = savedHome;
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('treats legacy Slack progress without ownership as prior-process work', async () => {
+    const runtimeHome = fs.mkdtempSync('/tmp/gantry-slack-progress-');
+    const savedHome = process.env.GANTRY_HOME;
+    process.env.GANTRY_HOME = runtimeHome;
+    try {
+      const first = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await first.connect();
+      await first.sendProgressUpdate('sl:C1234567890', 'Waiting...');
+
+      const runDir = `${runtimeHome}/run`;
+      const stateFile = fs
+        .readdirSync(runDir)
+        .find((name) => name.startsWith('slack-progress-state-'));
+      expect(stateFile).toBeTruthy();
+      const statePath = `${runDir}/${stateFile}`;
+      const entries = JSON.parse(fs.readFileSync(statePath, 'utf8')) as any[];
+      delete entries[0][1].ownerBootNonce;
+      fs.writeFileSync(statePath, JSON.stringify(entries));
+
+      const second = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await second.connect();
+      appRef.current.client.chat.postMessage.mockClear();
+      appRef.current.client.chat.update.mockClear();
+
+      await second.sendProgressUpdate('sl:C1234567890', 'Working again...');
+
+      expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
+        channel: 'C1234567890',
+        ts: '1710000000.100200',
+        text: 'Interrupted by a restart.',
+        blocks: [],
+      });
+      expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith({
+        channel: 'C1234567890',
+        text: 'Working again...',
+      });
+    } finally {
+      if (savedHome === undefined) delete process.env.GANTRY_HOME;
+      else process.env.GANTRY_HOME = savedHome;
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('posts fresh Slack work when the prior-process stale edit fails', async () => {
+    const runtimeHome = fs.mkdtempSync('/tmp/gantry-slack-progress-');
+    const savedHome = process.env.GANTRY_HOME;
+    process.env.GANTRY_HOME = runtimeHome;
+    try {
+      const first = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await first.connect();
+      await first.sendProgressUpdate('sl:C1234567890', 'Waiting...');
+
+      const runDir = `${runtimeHome}/run`;
+      const stateFile = fs
+        .readdirSync(runDir)
+        .find((name) => name.startsWith('slack-progress-state-'));
+      expect(stateFile).toBeTruthy();
+      const statePath = `${runDir}/${stateFile}`;
+      const entries = JSON.parse(fs.readFileSync(statePath, 'utf8')) as any[];
+      entries[0][1].ownerBootNonce = 'prior-process-boot';
+      fs.writeFileSync(statePath, JSON.stringify(entries));
+
+      const second = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await second.connect();
+      appRef.current.client.chat.postMessage.mockClear();
+      appRef.current.client.chat.update.mockRejectedValueOnce(
+        new Error('stale edit failed'),
+      );
+
+      await expect(
+        second.sendProgressUpdate('sl:C1234567890', 'Working again...'),
+      ).resolves.toBe(true);
+
+      expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith({
+        channel: 'C1234567890',
+        text: 'Working again...',
       });
     } finally {
       if (savedHome === undefined) delete process.env.GANTRY_HOME;
@@ -5828,7 +6251,7 @@ describe('Slack channel', () => {
       2,
       expect.objectContaining({
         replace_original: true,
-        text: expect.stringContaining('Allowed once:'),
+        text: expect.stringContaining('Approved for this run only:'),
       }),
     );
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(

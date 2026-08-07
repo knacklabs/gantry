@@ -7,7 +7,10 @@ import json
 import os
 from pathlib import Path
 
-from factory_lib import dump_json, load_json, now_iso, repo_root
+from factory_lib import (
+    append_ledger_record, dump_json, load_json, now_iso, read_ledger_records,
+    repo_root,
+)
 
 from .common import fail
 
@@ -27,17 +30,32 @@ def load_active(base: Path) -> dict:
 
 
 def load_events(base: Path) -> list[dict]:
-    path = ledger_path(base)
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    # Directory form plus any legacy plans/quickfixes.jsonl (decision 0022).
+    # Order comes from each record's own started_at/completed_at, never from
+    # file position — position was never information, and the union merge that
+    # used to resolve this file rewrote it anyway, which four review rounds
+    # then filed as a state bug.
+    return read_ledger_records(ledger_path(base))
 
 
 def _append(base: Path, event: dict) -> None:
-    path = ledger_path(base)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as handle:
-        handle.write(json.dumps(event) + "\n")
+    stamp = event.get("completed_at") or event.get("started_at") or now_iso()
+    record_id = f"{stamp.replace(':', '').replace('-', '')}-{event.get('id', 'q')}-{event.get('event', '')}"
+    append_ledger_record(ledger_path(base), event, record_id)
+
+
+def _distinct_union(current: list[str], files: list[str]) -> list[str]:
+    return list(dict.fromkeys([*current, *files]))
+
+
+def record_files(base: Path, files: list[str]) -> None:
+    """Passively record distinct files touched by an already-authorized write."""
+    active = load_active(base)
+    if not active:
+        return
+    current = list(active.get("files", []))
+    active["files"] = _distinct_union(current, files)
+    dump_json(quickfix_path(base), active)
 
 
 def claim_files(base: Path, files: list[str]) -> tuple[bool, dict]:
@@ -50,7 +68,7 @@ def claim_files(base: Path, files: list[str]) -> tuple[bool, dict]:
     if not active:
         return False, {}
     current = list(active.get("files", []))
-    combined = current + [path for path in files if path not in current]
+    combined = _distinct_union(current, files)
     if len(combined) > int(active.get("max_files", MAX_FILES)):
         return False, active
     active["files"] = combined

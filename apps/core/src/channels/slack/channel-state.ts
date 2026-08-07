@@ -1,5 +1,3 @@
-import path from 'node:path';
-
 import { App } from '@slack/bolt';
 
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -44,10 +42,18 @@ import {
   downloadSlackAttachmentToFolder,
   type SlackAttachmentDownloadResult,
 } from './inbound-attachment-download.js';
+import {
+  isSlackCanvasFile,
+  SlackCanvasService,
+  type SlackCanvasFileLike,
+} from './canvas.js';
 
 type SlackMessageAttachments = NonNullable<NewMessage['attachments']>;
 type UQSelection = { selected: string | string[]; answeredBy?: string };
 type PendingPermissionPromptMap = Map<string, PendingPermissionPrompt>;
+
+import type { SlackMessageLike } from './message-shapes.js';
+export type { SlackMessageLike } from './message-shapes.js';
 
 export interface ActiveStreamState {
   channelId: string;
@@ -68,6 +74,7 @@ export interface ActiveProgressState {
   messageTs?: string;
   lastText: string;
   generation?: number;
+  ownerBootNonce?: string;
 }
 
 export interface PendingPermissionPrompt {
@@ -102,31 +109,6 @@ export interface PendingUserQuestionState {
   settled: boolean;
 }
 
-export interface SlackMessageLike {
-  channel?: string;
-  ts?: string;
-  thread_ts?: string;
-  user?: string;
-  bot_id?: string;
-  subtype?: string;
-  deleted_ts?: string;
-  previous_message?: {
-    ts?: string;
-    thread_ts?: string;
-  };
-  text?: string;
-  files?: Array<{
-    id?: string;
-    name?: string;
-    title?: string;
-    mimetype?: string;
-    url_private?: string;
-    url_private_download?: string;
-  }>;
-  client_msg_id?: string;
-  edited?: unknown;
-}
-
 export abstract class SlackChannelState {
   name = 'slack';
 
@@ -148,6 +130,7 @@ export abstract class SlackChannelState {
   protected pendingUserQuestions = new Map<string, PendingUserQuestionState>();
   protected pendingTodos = new Map<string, { channel: string; ts: string }>();
   protected pendingRichForms = new Map<string, RichInteractionRequest>();
+  protected readonly canvasService: SlackCanvasService;
 
   dropPendingInteraction(
     kind: 'permission' | 'question',
@@ -207,6 +190,7 @@ export abstract class SlackChannelState {
     this.botToken = botToken;
     this.appToken = appToken;
     this.opts = opts;
+    this.canvasService = new SlackCanvasService(botToken);
   }
 
   protected streamKey(jid: string, threadId?: string): string {
@@ -605,7 +589,15 @@ export abstract class SlackChannelState {
     if (text) lines.push(text);
 
     if (Array.isArray(event.files)) {
+      const captured = await this.canvasService.captureSharedCanvases(
+        jid,
+        event.files,
+      );
+      lines.push(...captured.lines);
       for (const file of event.files) {
+        // Covers hydrated Slack Connect stubs the raw file shape would miss.
+        if (file.id && captured.canvasFileIds.has(file.id)) continue;
+        if (isSlackCanvasFile(file)) continue;
         const downloadResult = await this.downloadSlackAttachment(
           jid,
           file,

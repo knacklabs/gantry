@@ -13,7 +13,7 @@ import {
 } from '../../domain/types.js';
 import { PartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
-import { TelegramChannelConnect } from './channel-connect.js';
+import { TelegramChannelReactions } from './channel-reactions.js';
 import {
   TELEGRAM_MESSAGE_MAX_LENGTH,
   TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
@@ -45,17 +45,15 @@ import { renderTelegramChannelAgentTodo } from './agent-todo-delivery.js';
 import { unescapeTelegramEscapedMarkdownV2 } from './markdown-v2-unescape.js';
 import { sendTelegramTyping } from './typing-indicator.js';
 import { renderTelegramRichInteraction } from './rich-interaction.js';
-import { addTelegramReaction } from './reactions.js';
 import { disconnectTelegramDelivery } from './disconnect.js';
 import { requestTelegramPermissionApproval } from './permission-approval-delivery.js';
 import {
   DurableInteractionPersistenceError,
   recordDurableQuestionAnswerProgress,
 } from '../../application/interactions/pending-interaction-durability.js';
+import { retainTelegramProgressHandleAfterEditFailure } from './progress-edit-failure.js';
 
-export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
-  private readonly reactionKeys = new Set<string>();
-
+export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
   async sendMessage(
     jid: string,
     text: string,
@@ -224,21 +222,6 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     });
   }
 
-  async addReaction(
-    jid: string,
-    messageRef: string,
-    emoji: string,
-  ): Promise<void> {
-    if (!this.bot) return;
-    await addTelegramReaction({
-      bot: this.bot,
-      jid,
-      messageRef,
-      emoji,
-      reactionKeys: this.reactionKeys,
-    });
-  }
-
   async sendStreamingChunk(
     jid: string,
     text: string,
@@ -361,13 +344,13 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     jid: string,
     text: string,
     options: ProgressUpdateOptions = {},
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (!this.bot) {
       logger.info(
         { jid, progressText: text, options },
         'Progress lifecycle telegram skipped without bot',
       );
-      return;
+      return false;
     }
     const numericId = jid.replace(/^tg:/, '');
     const parsedThreadId = options.threadId
@@ -385,7 +368,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     } else if (
       !this.shouldAcceptProgressUpdate(key, options.generation, options.done)
     ) {
-      return;
+      return false;
     }
     const prepared = prepareTelegramProgressHandle({
       activeProgressMessages: this.activeProgressMessages,
@@ -397,7 +380,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       threadId: Number.isFinite(parsedThreadId) ? parsedThreadId : undefined,
       options,
     });
-    if (!prepared.accepted) return;
+    if (!prepared.accepted) return false;
     const existing = prepared.existing;
     if (options.done && nextText === 'Done.') {
       if (existing?.messageId) {
@@ -411,7 +394,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       }
       this.activeProgressMessages.delete(key);
       this.persistProgressMessages();
-      return;
+      return Boolean(existing?.messageId);
     }
     if (!nextText) {
       if (options.done) {
@@ -422,7 +405,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
           'Progress lifecycle telegram cleared empty done',
         );
       }
-      return;
+      return false;
     }
     const actionOptions = progressActionOptions(options);
     const sendOptions = {
@@ -436,7 +419,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
         { jid, key, progressText: nextText, generation: options.generation },
         'Progress lifecycle telegram dropped replaceOnly without handle',
       );
-      return;
+      return false;
     }
     if (!existing) {
       await sendNewProgressMessage({
@@ -451,7 +434,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
         sendOptions,
         threadId: Number.isFinite(parsedThreadId) ? parsedThreadId : undefined,
       });
-      return;
+      return true;
     }
     if (existing.lastText === nextText) {
       if (options.done) {
@@ -499,7 +482,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
           'Progress lifecycle telegram skipped unchanged text',
         );
       }
-      return;
+      return true;
     }
 
     if (existing.messageId) {
@@ -513,6 +496,10 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
           actionOptions.editReplyMarkup,
         );
       } catch (err) {
+        if (options.replaceOnly) {
+          retainTelegramProgressHandleAfterEditFailure({ jid, err });
+          return false;
+        }
         logger.debug(
           { jid, err },
           'Failed to edit progress message, creating a fresh one',
@@ -572,6 +559,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       },
       'Progress lifecycle telegram edited existing message',
     );
+    return true;
   }
 
   async requestPermissionApproval(
@@ -773,7 +761,17 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     this.draftStreamApi = disconnected.draftStreamApi;
   }
 
-  async setTyping(jid: string, isTyping: boolean): Promise<void> {
-    await sendTelegramTyping({ bot: this.bot, jid, isTyping });
-  }
+  setTyping = async (
+    jid: string,
+    isTyping: boolean,
+    options: { threadId?: string; signal?: AbortSignal } = {},
+  ): Promise<void> => {
+    await sendTelegramTyping({
+      bot: this.bot,
+      jid,
+      isTyping,
+      threadId: options.threadId,
+      signal: options.signal,
+    });
+  };
 }

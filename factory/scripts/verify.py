@@ -13,11 +13,30 @@ args = parser.parse_args()
 
 root = repo_root()
 gate(root, signoff=True, approved_plan=True, decomposition=True)
-commands = [
-    ("structural", os.environ.get("FACTORY_STRUCTURAL_CMD") or "pnpm check:all"),
-    ("typecheck", os.environ.get("FACTORY_TYPECHECK_CMD") or "pnpm turbo run typecheck"),
-    ("tests", os.environ.get("FACTORY_TEST_CMD") or "pnpm turbo run test"),
-]
+
+# A default toolchain is a guess about someone else's project. When these are
+# unset the old defaults ran pnpm, so a Python repo recorded a RED verify
+# against a package.json it does not have — a gate failing for a reason that
+# has nothing to do with the code. Worse in the other direction: a project
+# whose pnpm scripts are no-ops would record green having tested nothing.
+# Refuse instead, and say what to set.
+PHASES = (
+    ("structural", "FACTORY_STRUCTURAL_CMD"),
+    ("typecheck", "FACTORY_TYPECHECK_CMD"),
+    ("tests", "FACTORY_TEST_CMD"),
+)
+commands = [(phase, os.environ.get(variable) or "") for phase, variable in PHASES]
+if unset := [variable for (_, variable), (_, command) in zip(PHASES, commands)
+             if not command.strip()]:
+    raise SystemExit(
+        "verification is not configured: " + ", ".join(unset) + "\n"
+        "Set each to the command this project actually runs, e.g.\n"
+        "  FACTORY_STRUCTURAL_CMD='python3 factory/scripts/check_dual_runtime.py' \\\n"
+        "  FACTORY_TYPECHECK_CMD='python3 factory/scripts/check_factory_scaffold.py' \\\n"
+        "  FACTORY_TEST_CMD='uv run --with pytest python -m pytest factory/tests -q' \\\n"
+        "  python3 factory/scripts/verify.py\n"
+        "Put them in .envrc so every run and every worktree agrees."
+    )
 
 results = []
 all_ok = True

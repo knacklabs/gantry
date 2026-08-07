@@ -7,7 +7,9 @@ import {
   getDeploymentMode,
   getRuntimeSettingsForConfig,
 } from '../../config/index.js';
+import { liveUxReactionSinks } from './live-ux-reaction-sinks.js';
 import path from 'node:path';
+import { configureCanvasIpcHandlers } from '../../jobs/ipc-canvas-handlers.js';
 import { agentIdForFolder } from '../../config/settings/desired-state-service-helpers.js';
 import {
   createAgentToolRuleSettingsMirror,
@@ -516,6 +518,13 @@ export async function startRuntimeServices(
           : Promise.resolve(false),
       mcpHostnameLookup: resolved.mcpHostnameLookup,
     });
+  configureCanvasIpcHandlers((input) =>
+    channelWiring.executeContentCanvasAction(
+      input.conversationJid,
+      input.action,
+      { providerAccountId: input.providerAccountId },
+    ),
+  );
   syncGroupSnapshots();
   app.queue.setLiveTurnRunnerRegistrar(
     liveTurnAuthority
@@ -533,8 +542,7 @@ export async function startRuntimeServices(
       timezone: TIMEZONE,
       enqueueMessageCheck: app.queue.enqueueMessageCheck.bind(app.queue),
       warn: (context, message) => resolved.logger.warn(context, message),
-      addReaction: (jid, messageRef, emoji, options) =>
-        channelWiring.addReaction(jid, messageRef, emoji, options),
+      ...liveUxReactionSinks(channelWiring),
       handleActiveControlCommand,
       finalizeAgentTodo: (jid, render, options) =>
         channelWiring.finalizeAgentTodo(jid, render, options),
@@ -1118,8 +1126,10 @@ export async function startRuntimeServices(
       channelWiring.hasChannel(chatJid, options),
     setTyping: (chatJid, isTyping, options) =>
       channelWiring.setTyping(chatJid, isTyping, options),
-    sendProgressUpdate: (chatJid, text, options) =>
-      channelWiring.sendProgressUpdate(chatJid, text, options),
+    sendProgressUpdate: async (chatJid, text, options) =>
+      void (await channelWiring.sendProgressUpdate(chatJid, text, options)),
+    addReaction: (chatJid, messageRef, emoji, options) =>
+      channelWiring.addReaction(chatJid, messageRef, emoji, options),
     queue: liveMessageQueue,
     handleActiveControlCommand,
     opsRepository: resolved.opsRepository,
@@ -1154,8 +1164,8 @@ export async function startRuntimeServices(
                 liveTurns,
                 getConversationJids: () =>
                   Object.keys(app.getConversationRoutes()),
-                sendStatus: (conversationJid, text) =>
-                  channelWiring.sendProgressUpdate(conversationJid, text),
+                sendStatus: async (jid, text) =>
+                  void (await channelWiring.sendProgressUpdate(jid, text)),
                 warn: (context, message) =>
                   resolved.logger.warn(context, message),
               }),

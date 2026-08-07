@@ -1,0 +1,3 @@
+export const TEAMS_SOFT_MESSAGE_BYTES = 78 * 1024;
+export const TEAMS_HARD_MESSAGE_BYTES = 80 * 1024;
+export const TEAMS_413_RETRY_MAX_BYTES = 64 * 1024;

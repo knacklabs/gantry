@@ -21,6 +21,7 @@ import {
   schedulerJobConfirmationToken,
   type SchedulerJobPlanInput,
 } from '../shared/scheduler-job-plan.js';
+import { rejectDisallowedSchedulerMutation } from './ipc-scheduler-mutation-authority.js';
 
 type SchedulerCreateScheduleType = Exclude<JobScheduleType, 'manual'>;
 
@@ -53,6 +54,7 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
     data.authThreadId,
     data.responseKeyId,
   );
+  if (rejectDisallowedSchedulerMutation(context, reject)) return;
 
   if (
     data.scheduleType === undefined ||

@@ -10,6 +10,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # This workflow is VENDORED into every client repo, so each step has to be
+      # true in both places. The checks below are: they lint whatever repo they
+      # find. The last two are not — they exercise the harness's own machinery
+      # against the harness's own fixtures, and fail by construction in a client.
+      # `constitution/VENDORED_FROM` is written by init/upgrade into the client
+      # and never exists here, so its absence IS "this repo is the harness".
+      - name: Identify harness vs vendored client
+        id: repo_kind
+        run: |
+          if [ -f constitution/VENDORED_FROM ]; then
+            echo "is_harness=false" >> "$GITHUB_OUTPUT"
+            echo "Vendored client ($(head -1 constitution/VENDORED_FROM)) — harness self-tests skipped."
+          else
+            echo "is_harness=true" >> "$GITHUB_OUTPUT"
+            echo "Harness repo — running harness self-tests."
+          fi
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -25,11 +41,22 @@ jobs:
         run: python3 factory/scripts/check_repo_budget.py
       - name: Compile factory scripts
         run: python3 -m compileall factory/scripts
+      # Harness-only from here down. These assert on this repo's OWN story keys
+      # (FORGE-INIT-1), its own roadmap, and its own single-skill .claude tree —
+      # none of which a client has. They are the harness's regression suite,
+      # vendored only so `forge upgrade` keeps one copy of this file.
       - name: Gate regression tests
+        if: steps.repo_kind.outputs.is_harness == 'true'
         run: |
           python3 -m pip install --quiet pytest
           python3 -m pytest factory/tests -q
+      # Scaffolds from THIS repo, so it inherits whatever .claude skills the repo
+      # carries. In the harness that is just `forge`, whose canon lives in the
+      # copied factory/ tree. A client's own skills point at repo-root skills/,
+      # which init does not copy, so the smoke scaffold fails check_dual_runtime
+      # on a dangling canon marker that is the client's nothing-to-do-with-CI.
       - name: Smoke test forge init
+        if: steps.repo_kind.outputs.is_harness == 'true'
         run: |
           python3 factory/scripts/forge.py init --name smoke --target "$RUNNER_TEMP/forge-smoke"
           python3 factory/scripts/check_dual_runtime.py "$RUNNER_TEMP/forge-smoke"

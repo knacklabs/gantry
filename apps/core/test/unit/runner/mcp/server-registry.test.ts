@@ -293,6 +293,8 @@ describe('effective enabled MCP tool projection', () => {
       undefined,
       false,
       undefined,
+      undefined,
+      undefined,
       JSON.stringify({
         tools: [
           {

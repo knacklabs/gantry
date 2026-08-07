@@ -271,6 +271,42 @@ describe('validateIpcAuthRequest', () => {
     });
   });
 
+  it('parses signed scheduler source provenance and rejects field tampering', () => {
+    const payload = {
+      requestId: 'scheduler-source-provenance',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      type: 'scheduler_update_job',
+      jobId: 'job-target',
+      context: {
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+        sourceJobId: 'job-source',
+        sourceRunId: 'run-source',
+        sourceRunKind: 'scheduled',
+      },
+    };
+    const signed = signedPayload(payload);
+
+    expect(parseTaskIpcData(signed, 'team')).toMatchObject({
+      sourceJobId: 'job-source',
+      sourceRunId: 'run-source',
+      sourceRunKind: 'scheduled',
+    });
+    clearConsumedIpcRequestIds({ durable: 'consumed' });
+    expect(() =>
+      parseTaskIpcData(
+        {
+          ...signed,
+          context: {
+            ...payload.context,
+            sourceRunKind: 'interactive',
+          },
+        },
+        'team',
+      ),
+    ).toThrow('Invalid IPC task signature');
+  });
+
   it('preserves scheduler notification route provider account scope', () => {
     const payload = signedPayload(
       {
@@ -884,6 +920,7 @@ describe('validateIpcAuthRequest', () => {
       providerAccountId: 'slack-default',
     });
     const openEvidence = createAttachmentOpenProof(originIpcAuthValue, {
+      type: 'attachment_open',
       attachmentId,
       chatJid: 'sl:C1',
       taskId,
@@ -919,6 +956,43 @@ describe('validateIpcAuthRequest', () => {
       'team',
       threadId,
     );
+    const crossTypeReplay = signedPayload(
+      {
+        requestId: 'attachment-cross-type-replay',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'attachment_materialize',
+        taskId,
+        chatJid: 'sl:C1',
+        targetJid: 'sl:C1',
+        context,
+        payload: { attachmentId, conversationProof: openEvidence },
+      },
+      'team',
+      threadId,
+    );
+    const materializeEvidence = createAttachmentOpenProof(originIpcAuthValue, {
+      type: 'attachment_materialize',
+      attachmentId,
+      chatJid: 'sl:C1',
+      taskId,
+      threadId,
+    });
+    const materialize = signedPayload(
+      {
+        requestId: 'attachment-materialize-origin-conversation',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'attachment_materialize',
+        taskId,
+        chatJid: 'sl:C1',
+        targetJid: 'sl:C1',
+        context,
+        payload: { attachmentId, conversationProof: materializeEvidence },
+      },
+      'team',
+      threadId,
+    );
 
     expect(parseTaskIpcData(origin, 'team')).toMatchObject({
       type: 'attachment_open',
@@ -928,6 +1002,14 @@ describe('validateIpcAuthRequest', () => {
     expect(() => parseTaskIpcData(forged, 'team')).toThrow(
       'Invalid attachment open conversation proof',
     );
+    expect(() => parseTaskIpcData(crossTypeReplay, 'team')).toThrow(
+      'Invalid attachment open conversation proof',
+    );
+    expect(parseTaskIpcData(materialize, 'team')).toMatchObject({
+      type: 'attachment_materialize',
+      chatJid: 'sl:C1',
+      providerAccountId: 'slack-default',
+    });
   });
 
   it('preserves memory user ids from signed task requests', () => {

@@ -85,6 +85,11 @@ export function writeResolvedInteractionResponse(
           : {}),
         approved,
         mode,
+        // Structurally human resolution: stamp provenance explicitly so no
+        // downstream layer ever infers it from the free-form approverRef.
+        source:
+          mode === 'allow_persistent_rule' ? 'human_persistent' : 'human_once',
+        repeatableForFutureRuns: mode === 'allow_persistent_rule',
         ...(stringValue(payload.approverRef)
           ? { decidedBy: stringValue(payload.approverRef) }
           : {}),

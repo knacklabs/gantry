@@ -4,6 +4,7 @@ import {
   GroupDiscoverySource,
   InteractionSurface,
   MessageReactionSink,
+  MessageReactionRemovalSink,
   MessageSink,
   OnInboundMessage,
   OnChatMetadata,
@@ -13,6 +14,7 @@ import {
   ProgressSink,
   PermissionApprovalRequest,
   ConversationRoute,
+  ChannelLiveUxCapability,
   RichInteractionSurface,
   StreamingSink,
   StreamingStateSink,
@@ -101,6 +103,7 @@ export interface ChannelOpts {
   conversationRoutes: () => Record<string, ConversationRoute>;
   runtimeSettings?: () => RuntimeSettings;
   runtimeLease?: RuntimeLeasePort;
+  liveUxBindingGeneration?: () => number | undefined;
   runtimeSecrets?: RuntimeSecretProvider;
   groupJoinOnboarding?: GroupJoinOnboardingCoordinator;
   distrustHistoryCoverage?: (providerAccountIds: readonly string[]) => void;
@@ -124,12 +127,16 @@ export type MaybePromise<T> = T | Promise<T>;
 
 export type ChannelAdapter = ChannelLifecyclePort &
   ChannelOwnershipPort &
-  MessageSink & { reportsHistoryCoverageInboundLiveness?: boolean } & Partial<
+  MessageSink & {
+    reportsHistoryCoverageInboundLiveness?: boolean;
+    liveUx?: ChannelLiveUxCapability;
+  } & Partial<
     StreamingSink &
       StreamingStateSink &
       TypingSink &
       ProgressSink &
       MessageReactionSink &
+      MessageReactionRemovalSink &
       GroupDiscoverySource &
       InteractionSurface &
       RichInteractionSurface &

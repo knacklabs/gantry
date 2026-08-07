@@ -8,9 +8,16 @@ import {
   threadId,
 } from '../context.js';
 import { makeIpcId } from '../ipc-ids.js';
-import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
 import {
+  waitForTaskResponse,
+  waitForTaskResponseOutcome,
+  writeIpcFile,
+} from '../ipc.js';
+import {
+  attachmentMaterializeResponsePayload,
+  attachmentMaterializeTaskRequest,
   attachmentOpenResponsePayload,
+  attachmentOpenTimeoutPayload,
   attachmentOpenTaskRequest,
   DELIVERED_IMAGE_TEXT,
   openAttachmentBatch,
@@ -23,7 +30,8 @@ export {
   attachmentOpenTaskRequest,
 } from '../attachment-open-protocol.js';
 
-const ATTACHMENT_OPEN_TASK_TIMEOUT_MS = 120_000;
+export const ATTACHMENT_OPEN_TASK_TIMEOUT_MS = 120_000;
+export const ATTACHMENT_MATERIALIZE_TASK_TIMEOUT_MS = 120_000;
 const MAX_ATTACHMENT_BATCH_SIZE = 12;
 
 export function registerAttachmentTools(server: McpServer): void {
@@ -74,6 +82,27 @@ export function registerAttachmentTools(server: McpServer): void {
       };
     },
   );
+
+  server.tool(
+    'attachment_materialize',
+    'Copy one inbound conversation attachment into the current workspace quarantine. Pass exactly one opaque gantry_attachment id. The host verifies conversation scope and returns a safe workspace-relative path.',
+    {
+      attachment_id: z
+        .string()
+        .min(1)
+        .describe('One opaque gantry_attachment id to materialize.'),
+    },
+    async ({ attachment_id }) => ({
+      content: [
+        {
+          type: 'text' as const,
+          text: (
+            await requestHostAttachmentMaterializePayload(attachment_id.trim())
+          ).text,
+        },
+      ],
+    }),
+  );
 }
 
 function modelSupportsImageToolResults(): boolean {
@@ -106,9 +135,32 @@ export async function requestHostAttachmentOpenPayload(
       authToken: ATTACHMENT_IPC_AUTH_TOKEN,
     }),
   );
-  const response = await waitForTaskResponse(
+  const outcome = await waitForTaskResponseOutcome(
     taskId,
     ATTACHMENT_OPEN_TASK_TIMEOUT_MS,
   );
-  return attachmentOpenResponsePayload(response);
+  return outcome.status === 'timed_out'
+    ? attachmentOpenTimeoutPayload()
+    : attachmentOpenResponsePayload(outcome.response);
+}
+
+export async function requestHostAttachmentMaterializePayload(
+  attachmentId: string,
+) {
+  const taskId = makeIpcId('attachment-materialize');
+  writeIpcFile(
+    TASKS_DIR,
+    attachmentMaterializeTaskRequest({
+      attachmentId,
+      chatJid,
+      threadId,
+      taskId,
+      authToken: ATTACHMENT_IPC_AUTH_TOKEN,
+    }),
+  );
+  const response = await waitForTaskResponse(
+    taskId,
+    ATTACHMENT_MATERIALIZE_TASK_TIMEOUT_MS,
+  );
+  return attachmentMaterializeResponsePayload(response);
 }

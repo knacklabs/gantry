@@ -17,6 +17,7 @@ import {
   selectedGantryMcpToolNames,
   selectedMemoryIpcActions,
 } from '../../../runner/gantry-mcp-tool-surface.js';
+import { applyProviderAffinity } from '../../../runner/mcp/tool-provider-affinity.js';
 import {
   isBrowserActionMcpToolRule,
   isCanonicalBrowserCapabilityRule,
@@ -137,6 +138,8 @@ function gantryMcpAllowedTools(input: {
   callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
   excludeMcpProxyTools?: boolean;
   includeBaselineTools?: boolean;
+  chatJid: string;
+  isScheduledJob?: boolean;
 }): string[] {
   const selectedNames = new Set(
     selectedGantryMcpToolNames(input.configuredTools ?? [], {
@@ -146,6 +149,8 @@ function gantryMcpAllowedTools(input: {
         input.memoryReviewerIsControlApprover === true,
       excludeMcpProxyTools: input.excludeMcpProxyTools === true,
       includeBaselineTools: input.includeBaselineTools !== false,
+      chatJid: input.chatJid,
+      permissionLane: input.isScheduledJob ? 'autonomous' : 'interactive',
     }),
   );
   const defaultAllowedNames = [
@@ -179,6 +184,8 @@ function defaultAllowedTools(input: {
   callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
   excludeMcpProxyTools?: boolean;
   includeBaselineTools?: boolean;
+  chatJid: string;
+  isScheduledJob?: boolean;
 }): string[] {
   return [...SAFE_NATIVE_SDK_TOOLS, ...gantryMcpAllowedTools(input)];
 }
@@ -246,6 +253,8 @@ const sdkToolsProvider: AgentCapabilityProvider = {
                 callableAgentManifest: projectedCallableAgentManifest(ctx),
                 excludeMcpProxyTools: ctx.callerResolvedTools != null,
                 includeBaselineTools: ctx.callerResolvedTools == null,
+                chatJid: ctx.chatJid,
+                isScheduledJob: ctx.isScheduledJob,
               }),
             ]
           : defaultAllowedTools({
@@ -260,6 +269,8 @@ const sdkToolsProvider: AgentCapabilityProvider = {
               callableAgentManifest: projectedCallableAgentManifest(ctx),
               excludeMcpProxyTools: ctx.callerResolvedTools != null,
               includeBaselineTools: ctx.callerResolvedTools == null,
+              chatJid: ctx.chatJid,
+              isScheduledJob: ctx.isScheduledJob,
             }),
       availableTools: baseAvailableTools,
       disallowedTools: UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS,
@@ -289,6 +300,8 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       ...(ctx.runHandle ? { GANTRY_AGENT_RUN_HANDLE: ctx.runHandle } : {}),
       ...(ctx.jobId ? { GANTRY_JOB_ID: ctx.jobId } : {}),
       ...(ctx.runId ? { GANTRY_JOB_RUN_ID: ctx.runId } : {}),
+      ...(ctx.runId ? { GANTRY_RUN_ID: ctx.runId } : {}),
+      GANTRY_PERMISSION_LANE: ctx.isScheduledJob ? 'autonomous' : 'interactive',
       ...(ctx.parentTaskId ? { GANTRY_PARENT_TASK_ID: ctx.parentTaskId } : {}),
       ...(ctx.runLeaseToken
         ? { GANTRY_JOB_RUN_LEASE_TOKEN: ctx.runLeaseToken }
@@ -344,6 +357,8 @@ const gantryMcpProvider: AgentCapabilityProvider = {
             ctx.memoryReviewerIsControlApprover === true,
           excludeMcpProxyTools: ctx.callerResolvedTools != null,
           includeBaselineTools: ctx.callerResolvedTools == null,
+          chatJid: ctx.chatJid,
+          permissionLane: ctx.isScheduledJob ? 'autonomous' : 'interactive',
         }),
         ...callableAgentManifest.map(callableAgentToolName),
         ...(ctx.callerResolvedTools?.tools ?? []).map((tool) => tool.name),
@@ -515,14 +530,20 @@ const configuredToolProvider: AgentCapabilityProvider = {
   id: 'configured-tools',
   provide: (ctx) => {
     if (ctx.callerResolvedTools) return {};
-    const allowedTools = (ctx.configuredAllowedTools ?? [])
-      .flatMap(configuredToolAllowedSdkNames)
-      .filter(
-        (toolName) =>
-          !isRunnerSuppressedFullToolName(toolName) &&
-          (ctx.hideAuthorityTools !== true ||
-            !isHiddenAuthorityFullToolName(toolName)),
-      );
+    if (ctx.callerResolvedTools) return {};
+    const allowedTools = [
+      ...applyProviderAffinity(
+        (ctx.configuredAllowedTools ?? [])
+          .flatMap(configuredToolAllowedSdkNames)
+          .filter(
+            (toolName) =>
+              !isRunnerSuppressedFullToolName(toolName) &&
+              (ctx.hideAuthorityTools !== true ||
+                !isHiddenAuthorityFullToolName(toolName)),
+          ),
+        ctx.chatJid,
+      ),
+    ];
     const availableTools = (ctx.configuredAllowedTools ?? [])
       .flatMap(configuredToolAvailableSdkNames)
       .filter((toolName) => toolName.length > 0);

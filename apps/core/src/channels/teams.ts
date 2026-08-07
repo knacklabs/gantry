@@ -104,6 +104,11 @@ export {
 
 export class TeamsChannel implements ChannelAdapter {
   name = 'teams';
+  readonly liveUx = {
+    typing: 'none',
+    reactions: 'none',
+    canonicalTarget: (target: { jid: string }) => ({ key: target.jid }),
+  } as const;
   private connected = false;
   private outboundReady = false;
   private readonly pendingPermissionPrompts = new Map<
@@ -268,15 +273,13 @@ export class TeamsChannel implements ChannelAdapter {
     });
   }
 
-  async addReaction(): Promise<void> {}
-
   async sendProgressUpdate(
     jid: string,
     text: string,
     options: ProgressUpdateOptions = {},
-  ): Promise<void> {
-    if (!this.outboundReady) return;
-    await sendTeamsProgressUpdate({
+  ): Promise<boolean> {
+    if (!this.outboundReady) return false;
+    return sendTeamsProgressUpdate({
       sdkClient: this.sdkClient,
       pendingProgress: this.pendingProgress,
       jid,

@@ -13,3 +13,6 @@ plans/quickfixes.jsonl merge=jsonl-append
 
 # Migration hashes are content-addressed; keep checkout line endings stable.
 apps/core/src/adapters/storage/postgres/schema/migrations/** text eol=lf
+.gstack/**/*.jsonl merge=union
+plans/lessons.jsonl merge=union
+plans/quickfixes.jsonl merge=union

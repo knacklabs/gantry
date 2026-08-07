@@ -11,6 +11,19 @@ import { splitTelegramDeliveryTextWithLimits } from './channel-delivery-text-spl
 import { escapeTelegramMarkdownV2 } from './telegram-markdown-v2-escape.js';
 import { CHANNEL_STREAM_UPDATE_INTERVAL_MS } from '../channel-provider.js';
 import type { UserQuestionRequest } from '../../domain/types.js';
+import {
+  isDefinitiveTelegramEditTargetFailure,
+  isTelegramMessageNotModified,
+} from './progress-edit-failure.js';
+import {
+  TELEGRAM_MESSAGE_MAX_LENGTH,
+  TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
+} from './text-limits.js';
+
+export {
+  TELEGRAM_MESSAGE_MAX_LENGTH,
+  TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
+} from './text-limits.js';
 
 export { splitTelegramTextByCodeUnits } from './channel-delivery-text-splitting.js';
 export {
@@ -26,8 +39,6 @@ export type TelegramChannelOpts = ChannelOpts;
 export const TELEGRAM_MEDIA_DOWNLOAD_CONCURRENCY = 2;
 export const TELEGRAM_MEDIA_DOWNLOAD_QUEUE_MAX = 512;
 export const TELEGRAM_MEDIA_DRAIN_TIMEOUT_MS = 5000;
-export const TELEGRAM_MESSAGE_MAX_LENGTH = 4096;
-export const TELEGRAM_STREAM_CHUNK_MAX_LENGTH = 3500;
 export const TELEGRAM_GROUP_EDIT_INTERVAL_MS =
   CHANNEL_STREAM_UPDATE_INTERVAL_MS.telegram;
 export const TELEGRAM_INLINE_BUTTON_TEXT_MAX_BYTES = 56;
@@ -322,8 +333,8 @@ export async function editTelegramMessage(
     });
     return;
   } catch (errV2Raw) {
-    const msg = errV2Raw instanceof Error ? errV2Raw.message : String(errV2Raw);
-    if (/message is not modified/i.test(msg)) return;
+    if (isTelegramMessageNotModified(errV2Raw)) return;
+    if (isDefinitiveTelegramEditTargetFailure(errV2Raw)) throw errV2Raw;
     logger.debug(
       { err: errV2Raw },
       'MarkdownV2 edit failed, retrying with escaped text',
@@ -342,11 +353,8 @@ export async function editTelegramMessage(
     );
     return;
   } catch (errV2Escaped) {
-    const msg =
-      errV2Escaped instanceof Error
-        ? errV2Escaped.message
-        : String(errV2Escaped);
-    if (/message is not modified/i.test(msg)) return;
+    if (isTelegramMessageNotModified(errV2Escaped)) return;
+    if (isDefinitiveTelegramEditTargetFailure(errV2Escaped)) throw errV2Escaped;
     logger.debug(
       { err: errV2Escaped },
       'Escaped MarkdownV2 edit failed, falling back to plain text',
@@ -356,8 +364,7 @@ export async function editTelegramMessage(
   try {
     await api.editMessageText(chatId, messageId, text, editOptions);
   } catch (errPlain) {
-    const msg = errPlain instanceof Error ? errPlain.message : String(errPlain);
-    if (/message is not modified/i.test(msg)) return;
+    if (isTelegramMessageNotModified(errPlain)) return;
     throw errPlain;
   }
 }

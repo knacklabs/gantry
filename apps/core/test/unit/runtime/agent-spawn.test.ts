@@ -1083,6 +1083,9 @@ describe('agent-spawn timeout behavior', () => {
     await vi.advanceTimersByTimeAsync(10);
     await resultPromise;
 
+    expect(vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env?.GANTRY_RUN_ID).toBe(
+      'run-one',
+    );
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: 'app-one',
@@ -1164,6 +1167,7 @@ describe('agent-spawn timeout behavior', () => {
     };
     expect(permissionRunRestriction(restrictionKey)).toEqual({
       hideAuthorityTools: true,
+      runKind: 'interactive',
     });
     emitOutputMarker(fakeProc, { status: 'success', result: 'started' });
     await vi.advanceTimersByTimeAsync(10);

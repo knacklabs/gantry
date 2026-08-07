@@ -67,11 +67,6 @@ describe('gantryToolDefaultRisk', () => {
   });
 
   it.each([
-    'mcp__gantry__scheduler_update_job',
-    'mcp__gantry__scheduler_upsert_job',
-    'mcp__gantry__scheduler_pause_job',
-    'mcp__gantry__scheduler_resume_job',
-    'mcp__gantry__scheduler_run_now',
     'mcp__gantry__memory_save',
     'mcp__gantry__brain_write',
     'mcp__gantry__procedure_save',
@@ -93,6 +88,11 @@ describe('gantryToolDefaultRisk', () => {
     'mcp__gantry__service_restart', // service restart
     'mcp__gantry__register_agent', // authority-changing
     'mcp__gantry__scheduler_delete_job', // destructive (delete)
+    'mcp__gantry__scheduler_update_job',
+    'mcp__gantry__scheduler_upsert_job',
+    'mcp__gantry__scheduler_pause_job',
+    'mcp__gantry__scheduler_resume_job',
+    'mcp__gantry__scheduler_run_now',
     'mcp__gantry__mcp_call_tool', // unscoped dispatcher
     'mcp__gantry__async_run_command', // unscoped dispatcher
     'mcp__gantry__async_mcp_call', // unscoped dispatcher

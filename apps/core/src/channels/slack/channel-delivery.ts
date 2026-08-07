@@ -1,4 +1,5 @@
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
+import type { LiveUxOperationOptions } from '../../domain/channel-live-ux.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
   MessageDeliveryResult,
@@ -27,8 +28,6 @@ import {
   sendSlackMessage,
   sendSlackProgressUpdate,
   syncSlackGroups,
-  type SlackSnippetFallbackInput,
-  type SlackSnippetFallbackResult,
 } from './channel-delivery-helpers.js';
 import { SlackChannelInteractions } from './channel-interactions.js';
 import {
@@ -45,9 +44,14 @@ import {
   slackPermissionApproverIds,
 } from './permission-approval-delivery.js';
 import { renderSlackRichInteraction } from './rich-interaction.js';
-import { addSlackReaction } from './reactions.js';
+import { addSlackReaction, removeSlackReaction } from './reactions.js';
 import { requestSlackUserAnswer } from './user-question-delivery.js';
 import { historyCoverageInboundCallbacks } from '../conversation-history-coverage-lifecycle.js';
+import {
+  uploadSlackTextFallback,
+  type SlackSnippetFallbackInput,
+  type SlackSnippetFallbackResult,
+} from './file-delivery.js';
 const SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS = 4;
 
 export abstract class SlackChannelDelivery extends SlackChannelInteractions {
@@ -56,9 +60,29 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
   private deactivateHistoryCoverageInbound: (() => void) | null = null;
   private readonly reactionKeys = new Set<string>();
   protected async sendSnippetFallback(
-    _input: SlackSnippetFallbackInput,
+    input: SlackSnippetFallbackInput,
   ): Promise<SlackSnippetFallbackResult | null> {
-    return null;
+    if (!this.app) return null;
+    try {
+      const uploaded = await uploadSlackTextFallback({
+        app: this.app,
+        channelId: input.channelId,
+        text: input.text,
+        threadTs: input.threadId,
+      });
+      return {
+        fallbackArtifactId: uploaded.fileId,
+        ...(uploaded.externalMessageId
+          ? { externalMessageId: uploaded.externalMessageId }
+          : {}),
+      };
+    } catch (error) {
+      logger.warn(
+        { channelId: input.channelId, reason: input.reason, error },
+        'Slack snippet fallback upload failed; using split text delivery',
+      );
+      return null;
+    }
   }
   async connect(
     options: { inbound?: boolean; interactionCallbacks?: boolean } = {},
@@ -118,17 +142,41 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     jid: string,
     messageRef: string,
     emoji: string,
+    options: LiveUxOperationOptions = {},
   ): Promise<void> {
     if (!this.app) return;
     const parsed = this.parseJid(jid);
     if (!parsed) return;
     await addSlackReaction({
-      app: this.app,
+      botToken: this.botToken,
       jid,
       channelId: parsed.channelId,
       messageRef,
       emoji,
       reactionKeys: this.reactionKeys,
+      signal: options.signal,
+      reconcile: options.reconcile,
+    });
+  }
+
+  async removeReaction(
+    jid: string,
+    messageRef: string,
+    emoji: string,
+    options: LiveUxOperationOptions = {},
+  ): Promise<void> {
+    if (!this.app) return;
+    const parsed = this.parseJid(jid);
+    if (!parsed) return;
+    await removeSlackReaction({
+      botToken: this.botToken,
+      jid,
+      channelId: parsed.channelId,
+      messageRef,
+      emoji,
+      reactionKeys: this.reactionKeys,
+      signal: options.signal,
+      reconcile: options.reconcile,
     });
   }
 
@@ -480,10 +528,10 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     jid: string,
     text: string,
     options: ProgressUpdateOptions = {},
-  ): Promise<void> {
-    if (!this.app) return;
+  ): Promise<boolean> {
+    if (!this.app) return false;
     const parsed = this.parseJid(jid);
-    if (!parsed) return;
+    if (!parsed) return false;
     const key = this.progressKey(jid, options.threadId);
     this.loadPersistedProgress();
     if (options.done) {
@@ -500,9 +548,9 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
         },
         'Progress lifecycle slack dropped sealed generation',
       );
-      return;
+      return false;
     }
-    await sendSlackProgressUpdate({
+    return sendSlackProgressUpdate({
       app: this.app,
       channelId: parsed.channelId,
       key,

@@ -31,6 +31,7 @@ export interface PromptPresentationDescriptor {
   formattingDescription: string;
   maxMessageGuidance?: string;
   attachmentGuidance: string;
+  toolGuidance: readonly string[];
 }
 
 export interface Provider {
@@ -193,13 +194,17 @@ export function renderChannelPromptPresentation(
   if (!descriptor) {
     return `- Channel: ${kind}; outbound workspace file attachments are capped at 25MB.`;
   }
-  return `- Channel: ${descriptor.label} ${kind}. ${[
+  const channelLine = `- Channel: ${descriptor.label} ${kind}. ${[
     descriptor.formattingDescription,
     descriptor.maxMessageGuidance,
     descriptor.attachmentGuidance,
   ]
     .filter(Boolean)
     .join('; ')}.`;
+  return [
+    channelLine,
+    ...descriptor.toolGuidance.map((line) => `- ${line}`),
+  ].join('\n');
 }
 
 registerChannelPromptPresentationRenderer(renderChannelPromptPresentation);

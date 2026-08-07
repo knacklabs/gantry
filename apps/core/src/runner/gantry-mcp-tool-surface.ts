@@ -10,6 +10,7 @@ import {
   MCP_PROXY_GANTRY_MCP_TOOL_NAMES,
   OPTIONAL_GANTRY_MCP_TOOL_NAMES,
   REVIEWED_GANTRY_MCP_TOOL_NAMES,
+  SCHEDULER_MUTATION_MCP_TOOL_NAMES,
 } from '../shared/admin-mcp-tools.js';
 import {
   selectedMemoryIpcActionsFromToolRules,
@@ -17,6 +18,7 @@ import {
   type MemoryIpcActionSelectionOptions,
 } from '../shared/memory-ipc-actions.js';
 import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
+import { applyProviderAffinity } from './mcp/tool-provider-affinity.js';
 
 // Authority-changing Gantry tools let an agent request new install/setup/access
 // authority for itself. In the fixed-image worker product mode they are hidden
@@ -81,6 +83,8 @@ export interface GantryMcpToolSelectionOptions extends MemoryIpcActionSelectionO
   // generic proxy/inventory path so the model cannot escape that closed set.
   excludeMcpProxyTools?: boolean;
   includeBaselineTools?: boolean;
+  chatJid?: string;
+  permissionLane?: 'interactive' | 'autonomous';
 }
 
 export function gantryMcpFullToolName(toolName: string): string {
@@ -144,7 +148,12 @@ export function selectedGantryMcpToolNames(
       names.delete(toolName);
     }
   }
-  return [...names].sort();
+  if (options.permissionLane === 'autonomous') {
+    for (const toolName of SCHEDULER_MUTATION_MCP_TOOL_NAMES) {
+      names.delete(toolName);
+    }
+  }
+  return [...applyProviderAffinity(names, options.chatJid)].sort();
 }
 
 function isBrowserSelected(configuredTools: readonly string[]): boolean {
@@ -176,14 +185,31 @@ function lockedDefaultGantryMcpToolNames(): Set<string> {
 
 export function parseEnabledGantryMcpToolNames(
   raw: string | undefined,
-  options: { lockedPreset?: boolean } = {},
+  options: {
+    lockedPreset?: boolean;
+    chatJid?: string;
+    permissionLane?: 'interactive' | 'autonomous';
+  } = {},
 ): Set<string> {
   // For locked agents a malformed/unset env must fail closed to the locked
   // base set, never to the full default set that still carries authority tools.
+  const applyRunRestrictions = (names: Set<string>): Set<string> => {
+    if (options.permissionLane === 'autonomous') {
+      for (const toolName of SCHEDULER_MUTATION_MCP_TOOL_NAMES) {
+        names.delete(toolName);
+      }
+    }
+    return names;
+  };
   const fallback = (): Set<string> =>
-    options.lockedPreset
-      ? lockedDefaultGantryMcpToolNames()
-      : new Set(DEFAULT_GANTRY_MCP_TOOL_NAMES);
+    applyRunRestrictions(
+      applyProviderAffinity(
+        options.lockedPreset
+          ? lockedDefaultGantryMcpToolNames()
+          : DEFAULT_GANTRY_MCP_TOOL_NAMES,
+        options.chatJid,
+      ),
+    );
   const base = (): Set<string> =>
     options.lockedPreset
       ? lockedDefaultGantryMcpToolNames()
@@ -209,7 +235,9 @@ export function parseEnabledGantryMcpToolNames(
       }
       enabled.add(toolName);
     }
-    return enabled;
+    return applyRunRestrictions(
+      applyProviderAffinity(enabled, options.chatJid),
+    );
   } catch {
     return fallback();
   }

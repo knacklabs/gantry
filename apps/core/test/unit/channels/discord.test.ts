@@ -47,6 +47,8 @@ import {
   type ChannelOpts,
 } from '@core/channels/channel-provider.js';
 import { DISCORD_LIVE_ATTACHMENT_DEADLINE_MS } from '@core/channels/discord-live-attachment-capture.js';
+import { discordMessageContent } from '@core/channels/discord-conversation-context.js';
+import { createLiveReactionLifecycle } from '@core/app/bootstrap/live-reaction-lifecycle.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
 
 class FakeWebSocket {
@@ -302,6 +304,10 @@ describe('DiscordChannel', () => {
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async () => jsonResponse({}));
     const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const messageChannelIds = Reflect.get(channel, 'messageChannelIds') as {
+      remember(jid: string, messageRef: string, channelId: string): void;
+    };
+    messageChannelIds.remember('dc:channel-1', 'message-1', 'channel-1');
 
     await channel.addReaction('dc:channel-1', 'message-1', 'seen');
     await channel.addReaction('dc:channel-1', 'message-1', 'seen');
@@ -310,6 +316,165 @@ describe('DiscordChannel', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       'https://discord.com/api/v10/channels/channel-1/messages/message-1/reactions/%F0%9F%91%80/@me',
       expect.objectContaining({ method: 'PUT' }),
+    );
+    fetchMock.mockRestore();
+  });
+
+  it('reacts in a plain Discord channel when the message cache is cold', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({}));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await channel.addReaction('dc:channel-1', 'queued-message', 'seen');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/channel-1/messages/queued-message/reactions/%F0%9F%91%80/@me',
+      expect.objectContaining({ method: 'PUT' }),
+    );
+    fetchMock.mockRestore();
+  });
+
+  it('uses explicit Discord thread context when the message cache is cold', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({}));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await channel.addReaction('dc:parent-1', 'thread-message', 'seen', {
+      threadId: 'thread-1',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/thread-1/messages/thread-message/reactions/%F0%9F%91%80/@me',
+      expect.objectContaining({ method: 'PUT' }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/parent-1/messages/thread-message/reactions/%F0%9F%91%80/@me',
+      expect.anything(),
+    );
+    fetchMock.mockRestore();
+  });
+
+  it('removes Discord reactions and permits the same reaction to be re-added', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({}));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const messageChannelIds = Reflect.get(channel, 'messageChannelIds') as {
+      remember(jid: string, messageRef: string, channelId: string): void;
+    };
+    messageChannelIds.remember('dc:channel-1', 'message-1', 'channel-1');
+
+    await channel.addReaction('dc:channel-1', 'message-1', 'seen');
+    await channel.removeReaction('dc:channel-1', 'message-1', 'seen');
+    await channel.addReaction('dc:channel-1', 'message-1', 'seen');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/channel-1/messages/message-1/reactions/%F0%9F%91%80/@me',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    fetchMock.mockRestore();
+  });
+
+  it('invalidates Discord reaction cache before failed forced add and remove repairs', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({}));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const messageChannelIds = Reflect.get(channel, 'messageChannelIds') as {
+      remember(jid: string, messageRef: string, channelId: string): void;
+    };
+    messageChannelIds.remember('dc:channel-1', 'message-1', 'channel-1');
+
+    await channel.addReaction('dc:channel-1', 'message-1', 'seen');
+    fetchMock.mockResolvedValueOnce(
+      new Response('{}', {
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    await expect(
+      channel.removeReaction('dc:channel-1', 'message-1', 'seen', {
+        reconcile: true,
+      }),
+    ).rejects.toThrow('Discord reaction removal failed');
+    await channel.addReaction('dc:channel-1', 'message-1', 'seen');
+
+    fetchMock.mockResolvedValueOnce(
+      new Response('{}', {
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    await expect(
+      channel.addReaction('dc:channel-1', 'message-1', 'seen', {
+        reconcile: true,
+      }),
+    ).rejects.toThrow('Discord reaction update failed');
+    await channel.addReaction('dc:channel-1', 'message-1', 'seen');
+
+    expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual([
+      'PUT',
+      'DELETE',
+      'PUT',
+      'PUT',
+      'PUT',
+    ]);
+    fetchMock.mockRestore();
+  });
+
+  it('posts typing to the Discord thread and ignores typing false', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({}));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await channel.setTyping('dc:parent-1', true, { threadId: 'thread-1' });
+    await channel.setTyping('dc:parent-1', false, { threadId: 'thread-1' });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/thread-1/typing',
+      expect.objectContaining({
+        method: 'POST',
+        body: '{}',
+      }),
+    );
+    fetchMock.mockRestore();
+  });
+
+  it('uses the explicit thread over a fresh parent-channel reaction cache entry', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({}));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const messageChannelIds = Reflect.get(channel, 'messageChannelIds') as {
+      remember(jid: string, messageRef: string, channelId: string): void;
+    };
+    messageChannelIds.remember('dc:parent-1', 'cached-message', 'parent-1');
+
+    await channel.addReaction('dc:parent-1', 'cached-message', 'seen', {
+      threadId: 'thread-1',
+    });
+    await channel.removeReaction('dc:parent-1', 'cached-message', 'seen', {
+      threadId: 'thread-1',
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://discord.com/api/v10/channels/thread-1/messages/cached-message/reactions/%F0%9F%91%80/@me',
+      expect.objectContaining({ method: 'PUT' }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://discord.com/api/v10/channels/thread-1/messages/cached-message/reactions/%F0%9F%91%80/@me',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/channels/parent-1/'),
+      expect.anything(),
     );
     fetchMock.mockRestore();
   });
@@ -603,20 +768,134 @@ describe('DiscordChannel', () => {
     fetchMock.mockRestore();
   });
 
+  it('drops replace-only Discord progress when no card handle exists', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({ id: 'unexpected' }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    const landed = await channel.sendProgressUpdate(
+      'dc:channel-1',
+      'Still working',
+      {
+        generation: 1,
+        replaceOnly: true,
+      },
+    );
+
+    expect(landed).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockRestore();
+  });
+
+  it('keeps a terminal replace-only after a completed create returns no message id', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({}));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const stopOptions = {
+      generation: 1,
+      actionOnly: true,
+      actionAffordances: [
+        {
+          kind: 'live_turn_stop' as const,
+          label: 'Stop',
+          actionToken: 'token-1',
+        },
+      ],
+    };
+    const currentIdentity = channel.progressCardIdentity(
+      'dc:channel-1',
+      stopOptions,
+    );
+
+    await expect(
+      channel.sendProgressUpdate('dc:channel-1', '', stopOptions),
+    ).resolves.toBe(true);
+    await expect(
+      channel.sendProgressUpdate('dc:channel-1', 'I hit an issue.', {
+        generation: 1,
+        done: true,
+        progressCardIdentity: currentIdentity,
+      }),
+    ).resolves.toBe(false);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      'https://discord.com/api/v10/channels/channel-1/messages',
+    );
+    fetchMock.mockRestore();
+  });
+
+  it('keeps a terminal replace-only after the initial card POST rejects ambiguously', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new Error('response lost after POST'));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const stopOptions = {
+      generation: 1,
+      actionOnly: true,
+      actionAffordances: [
+        {
+          kind: 'live_turn_stop' as const,
+          label: 'Stop',
+          actionToken: 'token-1',
+        },
+      ],
+    };
+    const currentIdentity = channel.progressCardIdentity(
+      'dc:channel-1',
+      stopOptions,
+    );
+
+    await expect(
+      channel.sendProgressUpdate('dc:channel-1', '', stopOptions),
+    ).rejects.toThrow('response lost after POST');
+    await expect(
+      channel.sendProgressUpdate('dc:channel-1', 'I hit an issue.', {
+        generation: 1,
+        done: true,
+        progressCardIdentity: currentIdentity,
+      }),
+    ).resolves.toBe(false);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fetchMock.mockRestore();
+  });
+
   it('settles the Discord Stop progress message across generation rollover', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(jsonResponse({ id: 'progress-1' }))
       .mockResolvedValue(new Response('{}', { status: 200 }));
     const channel = new DiscordChannel('bot-token', 'app-id', opts());
-
-    await channel.sendProgressUpdate('dc:channel-1', '', {
+    const stopOptions = {
       generation: 1,
       actionOnly: true,
       actionAffordances: [
-        { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+        {
+          kind: 'live_turn_stop' as const,
+          label: 'Stop',
+          actionToken: 'token-1',
+        },
       ],
-    });
+    };
+    const controlIdentity = channel.progressCardIdentity(
+      'dc:channel-1',
+      stopOptions,
+    );
+
+    expect(
+      channel.progressCardIdentity('dc:channel-1', { generation: 1 }),
+    ).not.toBe(channel.progressCardIdentity('dc:channel-1', { generation: 2 }));
+
+    await channel.sendProgressUpdate('dc:channel-1', '', stopOptions);
+    expect(
+      channel.progressCardIdentity('dc:channel-1', {
+        generation: 2,
+        done: true,
+      }),
+    ).toBe(controlIdentity);
     await channel.sendProgressUpdate('dc:channel-1', 'Done', {
       generation: 2,
       done: true,
@@ -632,6 +911,36 @@ describe('DiscordChannel', () => {
       String(fetchMock.mock.calls[1]?.[1]?.body || '{}'),
     );
     expect(doneBody).toMatchObject({ content: 'Done', components: [] });
+    fetchMock.mockRestore();
+  });
+
+  it('honors a queued terminal identity after a newer control card appears', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ id: 'control-progress' }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const oldGenerationIdentity = channel.progressCardIdentity('dc:channel-1', {
+      generation: 1,
+    });
+
+    await channel.sendProgressUpdate('dc:channel-1', 'Working generation 2', {
+      generation: 2,
+      actionAffordances: [
+        { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-2' },
+      ],
+    });
+    const landed = await channel.sendProgressUpdate(
+      'dc:channel-1',
+      'Done generation 1',
+      {
+        generation: 1,
+        done: true,
+        progressCardIdentity: oldGenerationIdentity,
+      },
+    );
+
+    expect(landed).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     fetchMock.mockRestore();
   });
 
@@ -1051,6 +1360,13 @@ describe('DiscordChannel', () => {
             url: 'https://cdn.discordapp.com/attachments/private/file',
           },
           {
+            id: 'attachment-voice',
+            filename: 'voice-message.ogg',
+            content_type: 'audio/ogg',
+            size: 2048,
+            url: 'https://cdn.discordapp.com/attachments/private/voice',
+          },
+          {
             id: 'attachment-ephemeral',
             filename: 'secret.txt',
             content_type: 'text/plain',
@@ -1098,14 +1414,63 @@ describe('DiscordChannel', () => {
               messageId: 'message-2',
             },
           },
+          {
+            id: 'discord-attachment:attachment-voice',
+            kind: 'audio',
+            contentType: 'audio/ogg',
+            sizeBytes: 2048,
+            externalId: 'attachment-voice',
+            file_name: 'voice-message.ogg',
+            provider_fetch: {
+              provider: 'discord',
+              kind: 'attachment_id',
+              id: 'attachment-voice',
+              channelId: 'channel-1',
+              messageId: 'message-2',
+            },
+          },
         ],
       }),
     );
     const delivered = onMessage.mock.calls[0]?.[1];
-    expect(delivered.attachments).toHaveLength(2);
+    expect(delivered.attachments).toHaveLength(3);
     expect(delivered.attachments[0]).not.toHaveProperty('url');
     await channel.disconnect();
     vi.restoreAllMocks();
+  });
+
+  it('folds all human-readable Discord embed text under a UTF-8 byte cap', () => {
+    const content = discordMessageContent({
+      content: 'Body',
+      embeds: [
+        {
+          title: 'Title',
+          description: 'Description',
+          url: 'https://example.com',
+          fields: [{ name: 'Field name', value: 'Field value' }],
+          author: { name: 'Author name' },
+          footer: { text: 'Footer text' },
+          image: { description: 'Image description' },
+          thumbnail: { description: 'Thumbnail description' },
+          video: { description: `Video description ${'🙂'.repeat(2000)}` },
+        },
+      ],
+    });
+    const foldedEmbed = content.slice(content.indexOf('\n\n') + 2);
+
+    expect(content).toContain('Body');
+    expect(content).toContain('Title: Title');
+    expect(content).toContain('Description: Description');
+    expect(content).toContain('URL: https://example.com');
+    expect(content).toContain('Field: Field name');
+    expect(content).toContain('Value: Field value');
+    expect(content).toContain('Author: Author name');
+    expect(content).toContain('Footer: Footer text');
+    expect(content).toContain('Image: Image description');
+    expect(content).toContain('Thumbnail: Thumbnail description');
+    expect(content).toContain('Video: Video description');
+    expect(Buffer.byteLength(foldedEmbed, 'utf8')).toBeLessThanOrEqual(6000);
+    expect(foldedEmbed).toContain('...[truncated]');
   });
 
   it('admits the route before attachment network I/O or materialization', async () => {
@@ -1600,7 +1965,7 @@ describe('DiscordChannel', () => {
     vi.restoreAllMocks();
   });
 
-  it('expires Discord thread message channel ids used for reactions', async () => {
+  it('retains Discord thread message channel ids used after the cache TTL', async () => {
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(0);
     let socket!: FakeWebSocket;
     const fetchMock = vi
@@ -1619,7 +1984,7 @@ describe('DiscordChannel', () => {
         }
         if (
           url ===
-          'https://discord.com/api/v10/channels/parent-1/messages/message-2/reactions/%F0%9F%91%80/@me'
+          'https://discord.com/api/v10/channels/thread-1/messages/message-2/reactions/%F0%9F%91%80/@me'
         ) {
           return jsonResponse({});
         }
@@ -1648,17 +2013,118 @@ describe('DiscordChannel', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     nowSpy.mockReturnValue(11 * 60 * 1000);
-    await channel.addReaction('dc:parent-1', 'message-2', 'seen');
+    const target = channel.liveUx.canonicalTarget({
+      operation: 'reaction',
+      jid: 'dc:parent-1',
+      messageRef: 'message-2',
+      emoji: 'seen',
+    });
+    await channel.addReaction('dc:parent-1', 'message-2', 'seen', {
+      resolvedTarget: target.resolvedTarget,
+    });
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://discord.com/api/v10/channels/parent-1/messages/message-2/reactions/%F0%9F%91%80/@me',
-      expect.objectContaining({ method: 'PUT' }),
-    );
     expect(fetchMock).not.toHaveBeenCalledWith(
-      'https://discord.com/api/v10/channels/thread-1/messages/message-2/reactions/%F0%9F%91%80/@me',
+      'https://discord.com/api/v10/channels/parent-1/messages/message-2/reactions/%F0%9F%91%80/@me',
       expect.anything(),
     );
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/thread-1/messages/message-2/reactions/%F0%9F%91%80/@me',
+      expect.objectContaining({ method: 'PUT' }),
+    );
     await channel.disconnect();
+  });
+
+  it('completes a plain-channel reaction flip after the cache TTL', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({}));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const messageChannelIds = Reflect.get(channel, 'messageChannelIds') as {
+      remember(jid: string, messageRef: string, channelId: string): void;
+    };
+    messageChannelIds.remember('dc:channel-1', 'message-1', 'channel-1');
+    const lifecycle = createLiveReactionLifecycle({
+      addReaction: channel.addReaction.bind(channel),
+      removeReaction: channel.removeReaction.bind(channel),
+      removalMode: 'exact',
+    });
+
+    await lifecycle.onFirstProgress({
+      jid: 'dc:channel-1',
+      messageRef: 'message-1',
+    });
+    vi.setSystemTime(11 * 60 * 1000);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await lifecycle.onTerminal();
+
+    expect(
+      fetchMock.mock.calls.map(([url, init]) => [
+        String(url),
+        (init as RequestInit | undefined)?.method,
+      ]),
+    ).toEqual([
+      [
+        'https://discord.com/api/v10/channels/channel-1/messages/message-1/reactions/%F0%9F%91%80/@me',
+        'PUT',
+      ],
+      [
+        'https://discord.com/api/v10/channels/channel-1/messages/message-1/reactions/%F0%9F%91%80/@me',
+        'DELETE',
+      ],
+      [
+        'https://discord.com/api/v10/channels/channel-1/messages/message-1/reactions/%E2%8F%B3/@me',
+        'PUT',
+      ],
+      [
+        'https://discord.com/api/v10/channels/channel-1/messages/message-1/reactions/%E2%8F%B3/@me',
+        'DELETE',
+      ],
+      [
+        'https://discord.com/api/v10/channels/channel-1/messages/message-1/reactions/%F0%9F%91%80/@me',
+        'PUT',
+      ],
+    ]);
+  });
+
+  it('keeps a thread reaction flip in its thread after the cache TTL', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({}));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const messageChannelIds = Reflect.get(channel, 'messageChannelIds') as {
+      remember(jid: string, messageRef: string, channelId: string): void;
+    };
+    messageChannelIds.remember('dc:parent-1', 'message-1', 'thread-1');
+    const lifecycle = createLiveReactionLifecycle({
+      addReaction: channel.addReaction.bind(channel),
+      removeReaction: channel.removeReaction.bind(channel),
+      removalMode: 'exact',
+      options: { threadId: 'thread-1' },
+    });
+
+    await lifecycle.onFirstProgress({
+      jid: 'dc:parent-1',
+      messageRef: 'message-1',
+    });
+    vi.setSystemTime(11 * 60 * 1000);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await lifecycle.onTerminal();
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(
+      fetchMock.mock.calls.every(([url]) =>
+        String(url).includes('/channels/thread-1/'),
+      ),
+    ).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes('/channels/parent-1/'),
+      ),
+    ).toBe(false);
   });
 
   it('hydrates Discord attachment-only messages with provider metadata only', async () => {
@@ -4218,8 +4684,7 @@ describe('DiscordChannel', () => {
       expect.objectContaining({
         method: 'PATCH',
         body: JSON.stringify({
-          content:
-            'Allowed once: Command (git status). The agent will continue this request.',
+          content: 'Approved for this run only: Command (git status).',
           components: [],
         }),
       }),

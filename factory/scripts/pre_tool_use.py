@@ -9,7 +9,7 @@ from pathlib import Path
 from factory_lib import (
     client_signoff, load_json, read_hook_input, repo_root, run_state_path,
 )
-from forge_cli.quickfix import claim_files, load_active
+from forge_cli.quickfix import claim_files, load_active, record_files
 
 payload = read_hook_input()
 tool_name = payload.get("tool_name", "")
@@ -224,6 +224,11 @@ def guard_product_writes(targets: list[str], state: dict, root: Path) -> None:
     ))
     if not product:
         return
+    if (state.get("plan_status") == "approved"
+            and state.get("decomposition_status") == "recorded"):
+        # The plan already authorizes this write. Recording only observes it:
+        # it neither applies the quickfix budget nor changes the return below.
+        record_files(root, product)
     if state.get("plan_status") == "approved":
         # An approved plan is not yet an implementation licence: the bounded
         # tasks are what implementation is measured against, and a write before
@@ -344,9 +349,72 @@ has_companion = (
            for token in shell_tokens)
     or "codexcompanion" in compact_command
 )
-if tool_name == "Bash" and has_companion:
-    deny("Direct Codex companion commands are off-contract. Use "
-         "`./forge delegate <task-id>`; it owns the argv launch and records "
+# Read-only companion runs are the /codex:rescue exploration lane and
+# pass — but ONLY in a shape whose argv the hook can prove from text: a
+# single simple command, no shell metacharacters, launching the
+# companion directly (optionally via node). Anything else that mentions
+# the companion is either a safe display command (rg/cat/...) or an
+# unverifiable launch, which is denied: shell text cannot bound a child
+# interpreter's computed argv, so we never try.
+COMPANION_WRITE_FLAGS = {
+    "--write", "--full-auto", "--dangerously-bypass-approvals-and-sandbox",
+}
+READONLY_COMPANION_VERBS = {"task", "task-resume-candidate"}
+READONLY_COMPANION_FLAGS = {"--model", "--effort", "--json"}
+COMPANION_METACHARS = re.compile("[;&|<>$`(){}\n*?~\\=\\[\\]]|\x27\x27|\x22\x22")
+COMPANION_NAME = re.compile(r"codex-companion(?:\.mjs)?")
+# No shell-capable pagers (less/more run "+!cmd" startup commands).
+DISPLAY_SAFE_ARGV0 = {
+    "rg", "grep", "cat", "head", "tail", "printf", "echo",
+    "ls", "stat", "wc", "file", "md5", "shasum",
+}
+
+
+def _display_safe(tokens):
+    """Display command with NO option tokens: some display tools grow
+    exec options (rg --pre, tail --pid); bare invocations have none."""
+    return not any(t.startswith(("-", "+")) for t in tokens[1:])
+
+
+def _companion_readonly_launch_ok():
+    """True iff the command is a provably read-only companion launch."""
+    if COMPANION_METACHARS.search(command):
+        return False
+    if not shell_tokens:
+        return False
+    argv0 = Path(shell_tokens[0]).name
+    comp_idx = None
+    for idx, token in enumerate(shell_tokens):
+        if COMPANION_NAME.fullmatch(Path(token).name):
+            comp_idx = idx
+            break
+    if comp_idx is None:
+        # Companion referenced only inside larger tokens (prose/paths):
+        # display commands may show it; anything else is unverifiable.
+        return argv0 in DISPLAY_SAFE_ARGV0 and _display_safe(shell_tokens)
+    if comp_idx == 0 or (comp_idx == 1 and argv0 in ("node", "nodejs")):
+        rest = shell_tokens[comp_idx + 1:]
+        # Verb allowlist, not a flag denylist: other subcommands (setup,
+        # cancel, task-worker) mutate state without any write flag. Options
+        # are default-deny too: --prompt-file and --cwd can exfiltrate
+        # arbitrary local files / retarget other repos, and future flags
+        # should not be trusted implicitly.
+        if not rest or rest[0] not in READONLY_COMPANION_VERBS:
+            return False
+        return all(
+            not token.startswith("-") or token in READONLY_COMPANION_FLAGS
+            for token in rest[1:]
+        )
+    # Companion path appears under another executor (xargs, env, sh -c,
+    # an interpreter): the final argv cannot be established from text.
+    return argv0 in DISPLAY_SAFE_ARGV0 and _display_safe(shell_tokens)
+
+
+if tool_name == "Bash" and has_companion and not _companion_readonly_launch_ok():
+    deny("Companion launches are off-contract unless they are a provably "
+         "read-only direct invocation (no write flags, no shell "
+         "metacharacters, no wrapping executor). Use `./forge delegate "
+         "<task-id>` for write work; it owns the argv launch and records "
          "evidence that `forge stage done` can verify.")
 
 if run_state and not client_signoff(root)[0]:

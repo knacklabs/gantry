@@ -6,12 +6,19 @@ const DISCORD_RETRY_DELAY_MAX_MS = 5000;
 export class DiscordRestError extends Error {
   readonly status: number;
   readonly discordCode: number | undefined;
+  readonly retryDelayMs: number | undefined;
 
-  constructor(message: string, status: number, discordCode?: number) {
+  constructor(
+    message: string,
+    status: number,
+    discordCode?: number,
+    retryDelayMs?: number,
+  ) {
     super(message);
     this.name = 'DiscordRestError';
     this.status = status;
     this.discordCode = discordCode;
+    this.retryDelayMs = retryDelayMs;
   }
 }
 
@@ -20,6 +27,77 @@ export function discordHeaders(token: string): Record<string, string> {
     authorization: `Bot ${token}`,
     accept: 'application/json',
     'content-type': 'application/json',
+  };
+}
+
+type DiscordJsonRequester = <T>(
+  path: string,
+  init: RequestInit,
+  errorMessage: string,
+  parseJson?: boolean,
+) => Promise<T>;
+
+export function editDiscordMessage(
+  requestJson: DiscordJsonRequester,
+  botToken: string,
+  channelId: string,
+  messageId: string,
+  body: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<void> {
+  return requestJson<void>(
+    `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: 'PATCH',
+      headers: discordHeaders(botToken),
+      body: JSON.stringify(body),
+      signal,
+    },
+    'Discord message edit failed',
+    false,
+  );
+}
+
+export function deleteDiscordMessage(
+  requestJson: DiscordJsonRequester,
+  botToken: string,
+  channelId: string,
+  messageId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  return requestJson<void>(
+    `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: 'DELETE',
+      headers: discordHeaders(botToken),
+      signal,
+    },
+    'Discord message delete failed',
+    false,
+  );
+}
+
+export function createDiscordMessageMutations(
+  requestJson: DiscordJsonRequester,
+  botToken: string,
+) {
+  return {
+    edit: (
+      channelId: string,
+      messageId: string,
+      body: Record<string, unknown>,
+      signal?: AbortSignal,
+    ) =>
+      editDiscordMessage(
+        requestJson,
+        botToken,
+        channelId,
+        messageId,
+        body,
+        signal,
+      ),
+    delete: (channelId: string, messageId: string, signal?: AbortSignal) =>
+      deleteDiscordMessage(requestJson, botToken, channelId, messageId, signal),
   };
 }
 
@@ -84,9 +162,11 @@ export async function requestDiscordJson<T>(input: {
   parseJson?: boolean;
   fetcher?: typeof fetch;
   onRetry?: (attempt: number, retryDelayMs: number) => void;
+  maxAttempts?: number;
 }): Promise<T> {
   const fetcher = input.fetcher ?? fetch;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const maxAttempts = input.maxAttempts ?? 3;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const response = await fetcher(input.url, input.init);
     if (response.ok) {
       return input.parseJson === false
@@ -95,11 +175,12 @@ export async function requestDiscordJson<T>(input: {
     }
     const discordCode = await readDiscordErrorCode(response);
     const retryDelayMs = discordRateLimitRetryDelayMs(response);
-    if (retryDelayMs === null || attempt >= 2) {
+    if (retryDelayMs === null || attempt >= maxAttempts - 1) {
       throw new DiscordRestError(
         input.errorMessage,
         response.status,
         discordCode,
+        retryDelayMs ?? undefined,
       );
     }
     input.onRetry?.(attempt + 1, retryDelayMs);

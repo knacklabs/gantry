@@ -9,6 +9,9 @@ import {
 } from '../../domain/file-artifacts/virtual-path.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import { MAX_MESSAGE_FILE_ATTACHMENT_BYTES } from './message-limits.js';
+
+export { MAX_MESSAGE_FILE_ATTACHMENT_BYTES } from './message-limits.js';
 
 export type CoreMessageFile =
   | {
@@ -54,8 +57,6 @@ export type WorkspaceMessageAttachmentResolution =
   | { status: 'resolved'; attachment: MessageFileAttachment }
   | { status: 'missing' }
   | { status: 'failed'; reason: string };
-
-export const MAX_MESSAGE_FILE_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 export async function sendCoreMessage(input: {
   message: CoreSendMessageInput;

@@ -2122,16 +2122,26 @@ describe('createChannelWiring', () => {
   it('routes live UX methods through the requested Provider Account', async () => {
     const app = makeApp();
     const alpha = {
+      liveUx: {
+        typing: 'expiring' as const,
+        reactions: { removal: 'exact' as const },
+      },
       resetStreaming: vi.fn(),
       setTyping: vi.fn(async () => undefined),
       addReaction: vi.fn(async () => undefined),
+      removeReaction: vi.fn(async () => undefined),
       renderAgentTodo: vi.fn(async () => true),
       renderRichInteraction: vi.fn(async () => true),
     };
     const beta = {
+      liveUx: {
+        typing: 'expiring' as const,
+        reactions: { removal: 'exact' as const },
+      },
       resetStreaming: vi.fn(),
       setTyping: vi.fn(async () => undefined),
       addReaction: vi.fn(async () => undefined),
+      removeReaction: vi.fn(async () => undefined),
       renderAgentTodo: vi.fn(async () => true),
       renderRichInteraction: vi.fn(async () => true),
     };
@@ -2165,8 +2175,18 @@ describe('createChannelWiring', () => {
 
     const account = { providerAccountId: 'slack_beta' };
     wiring.resetStreaming('sl:C123', account);
-    await wiring.setTyping('sl:C123', true, account);
-    await wiring.addReaction('sl:C123', 'm-1', 'eyes', account);
+    await wiring.setTyping('sl:C123', true, {
+      ...account,
+      threadId: 'thread-1',
+    });
+    await wiring.addReaction('sl:C123', 'm-1', 'eyes', {
+      ...account,
+      threadId: 'thread-1',
+    });
+    await wiring.removeReaction('sl:C123', 'm-1', 'eyes', {
+      ...account,
+      threadId: 'thread-1',
+    });
     await wiring.renderAgentTodo(
       'sl:C123',
       { summary: null, items: [{ id: '1', title: 'Work', status: 'pending' }] },
@@ -2192,11 +2212,22 @@ describe('createChannelWiring', () => {
     expect(alpha.setTyping).not.toHaveBeenCalled();
     expect(alpha.resetStreaming).not.toHaveBeenCalled();
     expect(alpha.addReaction).not.toHaveBeenCalled();
+    expect(alpha.removeReaction).not.toHaveBeenCalled();
     expect(alpha.renderAgentTodo).not.toHaveBeenCalled();
     expect(alpha.renderRichInteraction).not.toHaveBeenCalled();
     expect(beta.resetStreaming).toHaveBeenCalledWith('sl:C123');
-    expect(beta.setTyping).toHaveBeenCalledWith('sl:C123', true);
-    expect(beta.addReaction).toHaveBeenCalledWith('sl:C123', 'm-1', 'eyes');
+    expect(beta.setTyping).toHaveBeenCalledWith('sl:C123', true, {
+      threadId: 'thread-1',
+      signal: expect.any(AbortSignal),
+    });
+    expect(beta.addReaction).toHaveBeenCalledWith('sl:C123', 'm-1', 'eyes', {
+      threadId: 'thread-1',
+      signal: expect.any(AbortSignal),
+    });
+    expect(beta.removeReaction).toHaveBeenCalledWith('sl:C123', 'm-1', 'eyes', {
+      threadId: 'thread-1',
+      signal: expect.any(AbortSignal),
+    });
     expect(beta.renderAgentTodo).toHaveBeenCalledOnce();
     expect(beta.renderRichInteraction).toHaveBeenCalledOnce();
   });
@@ -3989,6 +4020,62 @@ describe('createChannelWiring', () => {
       'Working on it...',
       { threadId: 'thread-1' },
     );
+  });
+
+  it('propagates a rejected provider progress update as ambiguous', async () => {
+    const app = makeApp({
+      'tg:group': { name: 'Group', folder: 'group' },
+    });
+    const channel = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:group'),
+      sendProgressUpdate: vi.fn(async () => {
+        throw new Error('provider update rejected');
+      }),
+    });
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => channel),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    await expect(
+      wiring.sendProgressUpdate('tg:group', 'Still working', {
+        replaceOnly: true,
+      }),
+    ).rejects.toThrow('provider update rejected');
+  });
+
+  it('preserves an explicit provider false as definitively not landed', async () => {
+    const app = makeApp({
+      'tg:group': { name: 'Group', folder: 'group' },
+    });
+    const channel = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:group'),
+      sendProgressUpdate: vi.fn(async () => false),
+    });
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => channel),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    await expect(
+      wiring.sendProgressUpdate('tg:group', 'Still working', {
+        replaceOnly: true,
+      }),
+    ).resolves.toBe(false);
   });
 
   it('reports agent todo render failure when the channel surface returns false', async () => {
