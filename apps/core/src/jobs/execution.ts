@@ -13,7 +13,7 @@ import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { nowIso, nowMs, toIso } from '../shared/time/datetime.js';
 import { accumulateModelUsage } from '../shared/model-usage.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
-import { AgentOutput, spawnAgent } from '../runtime/agent-spawn.js';
+import { AgentOutput } from '../runtime/agent-spawn.js';
 import { resolveModelFamilyCandidatesForApp } from '../runtime/model-family-resolution.js';
 import { runJobAgentWithFailover } from './execution-failover.js';
 import { publishRunFailoverEvent } from '../runtime/failover-candidate-loop.js';
@@ -178,7 +178,6 @@ async function runActiveJob(
     resolvedModel,
     executionAdapter: deps.executionAdapter,
     executionAdapters: deps.executionAdapters,
-    fallbackForInjectedRunner: Boolean(deps.runAgent),
   });
   const leaseContext = await claimSchedulerRunLease({
     deps,
@@ -447,7 +446,7 @@ async function runActiveJob(
               group: execution.group,
               candidates: jobFailoverCandidates,
               firstModel: resolvedModel.selectedModel,
-              spawn: deps.runAgent ?? spawnAgent,
+              spawn: deps.runAgent,
               runOptions,
               fallbackProviderId: executionProviderId,
               agentHarness,

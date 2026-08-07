@@ -6,7 +6,6 @@ import {
 import { createCoreTaskLifecycleBackend } from '../application/core-tools/task-lifecycle.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import type { AgentOutput } from '../runtime/agent-spawn-types.js';
-import { spawnAgent } from '../runtime/agent-spawn.js';
 import { nowIso } from '../shared/time/datetime.js';
 import { AsyncCommandTaskService } from './async-command-task-service.js';
 import {
@@ -64,7 +63,10 @@ export async function executeResolvedDelegation(input: {
       onProgress,
       timeoutMs,
     }) => {
-      const runAgent = context.deps.runAgent ?? spawnAgent;
+      const runAgent = context.deps.runAgent;
+      if (!runAgent) {
+        throw new Error('Agent runner is unavailable.');
+      }
       let latestResult: string | null = null;
       let processHandlePersisted: Promise<void> | null = null;
       const output = await runAgent(

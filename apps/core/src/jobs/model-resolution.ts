@@ -23,7 +23,6 @@ export function resolveJobExecutionProviderId(input: {
   resolvedModel: ResolvedJobModel;
   executionAdapter?: Pick<AgentExecutionAdapter, 'id'>;
   executionAdapters?: Pick<AgentExecutionAdapterRegistry, 'list'>;
-  fallbackForInjectedRunner?: boolean;
 }): ExecutionProviderId {
   const resolution = input.resolvedModel.resolution;
   let routed: ExecutionProviderId | undefined;
@@ -43,9 +42,6 @@ export function resolveJobExecutionProviderId(input: {
     resolveConfiguredRuntimeExecutionProviderId({
       executionAdapter: input.executionAdapter,
       executionAdapters: input.executionAdapters,
-      fallbackExecutionProviderId: input.fallbackForInjectedRunner
-        ? input.resolvedModel.defaultExecutionProviderId
-        : undefined,
     })
   );
 }

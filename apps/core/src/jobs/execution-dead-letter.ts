@@ -18,7 +18,6 @@ import type {
   SchedulerDispatchPayload,
 } from './types.js';
 import { resolveConfiguredRuntimeExecutionProviderId } from '../runtime/execution-provider-id.js';
-import { resolveDefaultJobExecutionProviderId } from './model-resolution.js';
 
 interface SchedulerDeadLetterControl {
   bindTriggerToRun(
@@ -82,9 +81,6 @@ export async function deadLetterUnresolvedExecutionContext(input: {
     execution_provider_id: resolveConfiguredRuntimeExecutionProviderId({
       executionAdapter: input.deps.executionAdapter,
       executionAdapters: input.deps.executionAdapters,
-      fallbackExecutionProviderId: input.deps.runAgent
-        ? resolveDefaultJobExecutionProviderId(input.currentJob.schedule_type)
-        : undefined,
     }),
     provider_run_id: null,
     provider_session_id: null,

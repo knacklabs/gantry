@@ -66,7 +66,7 @@ const DESTRUCTIVE_ACTIONS = new Set([
 export async function runBrainDreamBatch(input: {
   brain: BrainService;
   repository: BrainRepository;
-  reviews?: BrainDreamReviewRepository;
+  reviews: BrainDreamReviewRepository;
   notify?: BrainReviewNotifier;
   appId: string;
   proposer?: BrainDreamProposalPort;
@@ -77,6 +77,9 @@ export async function runBrainDreamBatch(input: {
 }): Promise<BrainDreamBatchResult> {
   if (input.observer?.enabled) {
     return runObserverBrainDreamBatch({ ...input, observer: input.observer });
+  }
+  if (!input.reviews) {
+    throw new Error('Brain dreaming requires a review repository.');
   }
   const runId = `bdr_${randomUUID().replace(/-/g, '')}`;
   const proposer = input.proposer ?? new MemoryLlmBrainDreamProposer();
@@ -134,7 +137,7 @@ export async function runBrainDreamBatch(input: {
 async function runObserverBrainDreamBatch(input: {
   brain: BrainService;
   repository: BrainRepository;
-  reviews?: BrainDreamReviewRepository;
+  reviews: BrainDreamReviewRepository;
   notify?: BrainReviewNotifier;
   appId: string;
   proposer?: BrainDreamProposalPort;
@@ -266,7 +269,7 @@ function compareBrainPages(left: BrainPage, right: BrainPage): number {
 export async function applyBrainDreamOperations(input: {
   brain: BrainService;
   repository: BrainRepository;
-  reviews?: BrainDreamReviewRepository;
+  reviews: BrainDreamReviewRepository;
   notify?: BrainReviewNotifier;
   appId: string;
   runId: string;
@@ -328,11 +331,10 @@ export async function applyBrainDreamOperations(input: {
 }
 
 // retire_page is deferred in v1 (no review). Every other destructive op runs
-// through validation + snapshot + review creation ONLY when a review repo is
-// wired; without it (e.g. legacy callers/tests) the op is simply journaled
-// `proposed` as before. No mutation is ever executed here.
+// through validation + snapshot + review creation. No mutation is ever
+// executed here.
 async function handleDestructiveOp(input: {
-  reviews?: BrainDreamReviewRepository;
+  reviews: BrainDreamReviewRepository;
   notify?: BrainReviewNotifier;
   repository: BrainRepository;
   appId: string;
@@ -346,12 +348,6 @@ async function handleDestructiveOp(input: {
     return {
       outcome: 'proposed',
       reason: 'retire_page is deferred in v1 (journaled without review)',
-    };
-  }
-  if (!input.reviews) {
-    return {
-      outcome: 'proposed',
-      reason: 'destructive operation is journaled for later review',
     };
   }
   return intakeDestructiveDreamOp(

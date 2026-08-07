@@ -352,6 +352,7 @@ export async function startRuntimeServices(
   const asyncTaskRecoveryDeps = {
     ...resolved,
     conversationRoutes: () => app.getConversationRoutes(),
+    runAgent: app.runAgent,
   };
   await recoverStaleAsyncCommandTasks(
     String(channelWiring.getRuntimeAppId()),
@@ -400,6 +401,7 @@ export async function startRuntimeServices(
       sendStreamingChunk: channelWiring.sendStreamingChunk,
       resetStreaming: channelWiring.resetStreaming,
       onSchedulerChanged,
+      runAgent: app.runAgent,
       opsRepository: resolved.opsRepository,
       collectSessionMemory: resolved.collectSessionMemory,
       getCredentialBroker:
@@ -481,6 +483,7 @@ export async function startRuntimeServices(
       executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
       executionAdapters: resolved.executionAdapters ?? app.executionAdapters,
       runnerSandboxProvider: resolved.runnerSandboxProvider,
+      runAgent: app.runAgent,
       runApprovedCommand: resolved.runApprovedCommand,
       getPermissionRepository: resolved.getPermissionRepository,
       getPermissionPromotionRepository:

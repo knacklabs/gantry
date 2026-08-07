@@ -15,13 +15,10 @@ export function resolveRuntimeExecutionProviderId(
 export function resolveConfiguredRuntimeExecutionProviderId(input: {
   executionAdapter?: Pick<AgentExecutionAdapter, 'id'>;
   executionAdapters?: Pick<AgentExecutionAdapterRegistry, 'list'>;
-  fallbackExecutionProviderId?: ExecutionProviderId;
 }): ExecutionProviderId {
   const executionAdapter =
     input.executionAdapter ?? input.executionAdapters?.list()[0];
   if (executionAdapter)
     return resolveRuntimeExecutionProviderId(executionAdapter);
-  if (input.fallbackExecutionProviderId)
-    return input.fallbackExecutionProviderId;
   return resolveRuntimeExecutionProviderId();
 }
