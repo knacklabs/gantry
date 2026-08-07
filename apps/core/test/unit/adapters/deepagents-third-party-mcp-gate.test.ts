@@ -133,9 +133,9 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
       gateConfig({ signal: controller.signal }),
     );
 
-    await expect(
-      invokeWrapped(wrapped as unknown as FakeTool),
-    ).rejects.toThrow('terminal tool denial');
+    await expect(invokeWrapped(wrapped as unknown as FakeTool)).rejects.toThrow(
+      'terminal tool denial',
+    );
     expect(underlying.invoke).not.toHaveBeenCalled();
   });
 
