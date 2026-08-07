@@ -9,7 +9,7 @@ export function denyNonPromptableAutonomousRecovery(input: {
   recoveryMessage: string;
   toolName: string;
   toolPolicyReason: string;
-}): { behavior: 'deny'; message: string; interrupt: false } | undefined {
+}): { behavior: 'deny'; message: string; interrupt: true } | undefined {
   if (isPromptableAutonomousRecovery(input.recoveryAction)) return undefined;
   const message = `Permission denied: ${input.recoveryMessage}`;
   log(`Autonomous run denied tool ${input.toolName}: ${message}`);
@@ -20,14 +20,14 @@ export function denyNonPromptableAutonomousRecovery(input: {
     input.toolName,
     {
       ok: false,
-      terminal: false,
+      terminal: true,
       reason: input.toolPolicyReason,
       ...(input.recoveryAction
         ? { recovery_action: input.recoveryAction }
         : {}),
     },
   );
-  return { behavior: 'deny', message, interrupt: false };
+  return { behavior: 'deny', message, interrupt: true };
 }
 
 function isPromptableAutonomousRecovery(

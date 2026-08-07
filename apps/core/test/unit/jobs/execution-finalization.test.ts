@@ -53,8 +53,8 @@ function makeDeps(): {
   return { deps, updateJob, sendMessage };
 }
 
-describe('finalizeSchedulerJobRun — permission ASK on a fenced job', () => {
-  it('keeps the run failed on an autonomous ungranted-tool dead-end (job still pauses for setup)', async () => {
+describe('execution finalization', () => {
+  it('a denied-tool terminal failure pauses the job for approval without consuming a retry attempt', async () => {
     const { deps, updateJob } = makeDeps();
     const state = await finalizeSchedulerJobRun({
       currentJob: makeJob(),
@@ -74,10 +74,18 @@ describe('finalizeSchedulerJobRun — permission ASK on a fenced job', () => {
     // is a dead-end (failed). The JOB still pauses for setup so an admin can
     // grant access and the job re-runs.
     expect(state.runStatus).toBe('failed');
+    expect(state.retryCount).toBe(0);
+    expect(state.incrementConsecutiveFailures).toBe(false);
+    expect(state.nextRun).toBeNull();
     expect(updateJob).toHaveBeenCalledWith(
       'job-1',
-      expect.objectContaining({ status: 'paused' }),
-      { incrementConsecutiveFailures: true },
+      expect.objectContaining({
+        status: 'paused',
+        consecutive_failures: 0,
+        setup_state: expect.objectContaining({
+          blockers: [expect.objectContaining({ requirementId: 'RunCommand' })],
+        }),
+      }),
     );
   });
 
@@ -109,7 +117,6 @@ describe('finalizeSchedulerJobRun — permission ASK on a fenced job', () => {
     expect(updateJob).toHaveBeenCalledWith(
       'job-1',
       expect.objectContaining({ status: 'paused' }),
-      { incrementConsecutiveFailures: true },
     );
   });
 
@@ -133,7 +140,6 @@ describe('finalizeSchedulerJobRun — permission ASK on a fenced job', () => {
     expect(updateJob).toHaveBeenCalledWith(
       'job-1',
       expect.objectContaining({ status: 'paused' }),
-      { incrementConsecutiveFailures: true },
     );
   });
 });

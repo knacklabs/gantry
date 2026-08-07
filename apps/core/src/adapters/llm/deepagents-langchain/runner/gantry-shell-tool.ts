@@ -129,6 +129,7 @@ export interface GantryShellToolConfig {
   gateContext: ThirdPartyMcpGateConfig['gateContext'];
   permissionEnv: PermissionIpcRuntimeEnv;
   lockedAccessPreset: boolean;
+  onPermissionDenied?: ThirdPartyMcpGateConfig['onPermissionDenied'];
   // Working directory for the spawned command. Defaults to the runner cwd (the
   // sandboxed group workspace root) when omitted.
   cwd?: string;
@@ -188,6 +189,12 @@ export function createGantryShellTool(
       return runShellCommand(command, config);
     }
     const reason = approval.reason || 'Denied by operator';
+    if (config.onPermissionDenied) {
+      return config.onPermissionDenied({
+        toolName: GANTRY_SHELL_TOOL_NAME,
+        reason,
+      });
+    }
     return denyMessage(`Permission denied: ${reason}`);
   };
 

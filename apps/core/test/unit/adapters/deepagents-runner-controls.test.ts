@@ -141,6 +141,53 @@ describe('DeepAgents worker model controls', () => {
     );
   });
 
+  it('makes scheduled permission denials terminal with the specific DeepAgents tool name', async () => {
+    const emit = vi.fn();
+    await runDeepAgentTurn({
+      agentInput: {
+        prompt: 'run the command',
+        workspaceFolder: '/tmp/workspace',
+        chatJid: 'conversation:test',
+        appId: 'default',
+        agentId: 'agent-1',
+        runId: 'run-1',
+        jobId: 'job-1',
+        isScheduledJob: true,
+        modelCredentialEnv: {
+          OPENAI_BASE_URL: 'http://127.0.0.1:4567/openai',
+          OPENAI_API_KEY: 'gtw_test',
+        },
+      },
+      provider: 'openai',
+      modelId: 'gpt-5.5',
+      newSessionId: 'session-1',
+      includeMemoryContext: true,
+      emit,
+    });
+
+    const denial = mcp.connect.mock.calls[0]?.[0].gate.onPermissionDenied;
+    expect(() =>
+      denial?.({
+        toolName: 'RunCommand',
+        reason: 'Unattended jobs do not wait for approval.',
+      }),
+    ).toThrow('Tool not on autonomous run allowlist: RunCommand.');
+    expect(emit).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        runtimeEvents: [
+          expect.objectContaining({
+            eventType: 'job.tool_activity',
+            payload: expect.objectContaining({
+              phase: 'permission_denied',
+              tool: 'RunCommand',
+              terminal: true,
+            }),
+          }),
+        ],
+      }),
+    );
+  });
+
   it('keeps require_prior success through a continuation but not a new run', async () => {
     const toolRules = [
       {

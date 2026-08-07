@@ -30,6 +30,7 @@ export interface ThirdPartyMcpGateConfig {
   gateContext: NeutralToolGateContext;
   permissionEnv: PermissionIpcRuntimeEnv;
   lockedAccessPreset: boolean;
+  onPermissionDenied?: (input: { toolName: string; reason: string }) => never;
   signal?: AbortSignal;
 }
 
@@ -82,6 +83,9 @@ function wrapOne(
       return invokeUnderlying(underlying, input);
     }
     const reason = approval.reason || 'Denied by operator';
+    if (config.onPermissionDenied) {
+      return config.onPermissionDenied({ toolName, reason });
+    }
     return denyMessage(`Permission denied: ${reason}`);
   };
 

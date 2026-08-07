@@ -108,7 +108,7 @@ function decideWrappedReadOnlyRequest(request: {
       };
 }
 
-describe('createCanUseToolCallback', () => {
+describe('tool permission gate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     permissionMock.requestPermissionApproval.mockResolvedValue({
@@ -1005,7 +1005,7 @@ describe('createCanUseToolCallback', () => {
     expect(decision).toEqual(
       expect.objectContaining({
         behavior: 'deny',
-        interrupt: false,
+        interrupt: true,
         message: expect.stringContaining(
           'Exact tool grants are not accepted as durable authority.',
         ),
@@ -1015,7 +1015,7 @@ describe('createCanUseToolCallback', () => {
     expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
   });
 
-  it('returns nonpersistent autonomous Bash denials without pausing the job', async () => {
+  it('autonomous non-promptable denial is terminal and interrupts the run', async () => {
     const canUseTool = makeCallback({
       agentInput: {
         runMode: 'normal',
@@ -1044,7 +1044,7 @@ describe('createCanUseToolCallback', () => {
     ).resolves.toEqual(
       expect.objectContaining({
         behavior: 'deny',
-        interrupt: false,
+        interrupt: true,
         message: expect.stringContaining(
           'cannot be durably approved for autonomous runs',
         ),
@@ -1056,7 +1056,8 @@ describe('createCanUseToolCallback', () => {
       .mock.calls.map((call) => String(call[0]))
       .join('');
     expect(output).toContain('"phase":"permission_denied"');
-    expect(output).toContain('"terminal":false');
+    expect(output).toContain('"terminal":true');
+    expect(output).toContain('"tool":"RunCommand"');
     expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
   });
 

@@ -52,6 +52,7 @@ export interface GantryFacadeToolsConfig {
   gateContext: ThirdPartyMcpGateConfig['gateContext'];
   permissionEnv: PermissionIpcRuntimeEnv;
   lockedAccessPreset: boolean;
+  onPermissionDenied?: ThirdPartyMcpGateConfig['onPermissionDenied'];
   filesystemToolsEnabled: boolean;
   asyncTaskToolsEnabled?: boolean;
   delegateTaskTool?: StructuredToolInterface;
@@ -124,9 +125,11 @@ function createOneFacadeTool(
         },
       );
       if (!approval.approved) {
-        return gatedToolErrorResult(
-          `Permission denied: ${approval.reason || 'Denied by operator'}`,
-        );
+        const reason = approval.reason || 'Denied by operator';
+        if (config.onPermissionDenied) {
+          return config.onPermissionDenied({ toolName, reason });
+        }
+        return gatedToolErrorResult(`Permission denied: ${reason}`);
       }
       return executeFacadeTool(toolName, input, config);
     },

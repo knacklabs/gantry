@@ -42,6 +42,7 @@ const PERMISSION_ENV: PermissionIpcRuntimeEnv = {
 function makeTool(overrides?: {
   rules?: string[];
   lockedAccessPreset?: boolean;
+  onPermissionDenied?: (input: { toolName: string; reason: string }) => never;
   signal?: AbortSignal;
   toolNetworkEnv?: Record<string, string>;
 }) {
@@ -52,6 +53,9 @@ function makeTool(overrides?: {
     gateContext: { conversationId: 'tg:group' },
     permissionEnv: PERMISSION_ENV,
     lockedAccessPreset: overrides?.lockedAccessPreset ?? false,
+    ...(overrides?.onPermissionDenied
+      ? { onPermissionDenied: overrides.onPermissionDenied }
+      : {}),
     cwd: os.tmpdir(),
     toolNetworkEnv: overrides?.toolNetworkEnv,
     ...(overrides?.signal ? { signal: overrides.signal } : {}),
@@ -102,6 +106,27 @@ describe('Gantry DeepAgents shell tool', () => {
     expect(result).toContain('Permission denied');
     expect(result).not.toContain('should-not-run');
     expect(result).not.toContain('exited with code');
+  });
+
+  it('terminates a scheduled denial instead of returning it to the model', async () => {
+    requestPermissionApprovalViaIpc.mockResolvedValue({
+      approved: false,
+      reason: 'Unattended jobs do not wait for approval.',
+    });
+    const onPermissionDenied = vi.fn(
+      ({ toolName, reason }: { toolName: string; reason: string }): never => {
+        throw new Error(`${toolName}: ${reason}`);
+      },
+    );
+    const tool = makeTool({ onPermissionDenied });
+
+    await expect(invoke(tool, 'echo should-not-run')).rejects.toThrow(
+      'RunCommand: Unattended jobs do not wait for approval.',
+    );
+    expect(onPermissionDenied).toHaveBeenCalledWith({
+      toolName: 'RunCommand',
+      reason: 'Unattended jobs do not wait for approval.',
+    });
   });
 
   it('passes the command through as a Bash policy request to the permission prompt', async () => {

@@ -176,6 +176,9 @@ export async function connectGantryAndThirdPartyMcpTools(
     }),
     ...(input.shellCwd ? { cwd: input.shellCwd } : {}),
     ...(input.gate.signal ? { signal: input.gate.signal } : {}),
+    ...(input.gate.onPermissionDenied
+      ? { onPermissionDenied: input.gate.onPermissionDenied }
+      : {}),
   });
   const reservedToolNames = new Set<string>([
     ...selectedGantrySet,
@@ -391,6 +394,9 @@ function projectGantryShellTool(
       toolNetworkEnv: input.toolNetworkEnv,
       ...(input.shellCwd ? { cwd: input.shellCwd } : {}),
       ...(input.shellSignal ? { signal: input.shellSignal } : {}),
+      ...(input.gate.onPermissionDenied
+        ? { onPermissionDenied: input.gate.onPermissionDenied }
+        : {}),
     }),
   ];
 }

@@ -612,7 +612,6 @@ describe('jobs/execution', () => {
           state: 'missing_capability',
         }),
       }),
-      { incrementConsecutiveFailures: true },
     );
     // Autonomous not-on-allowlist denial: the RUN is a dead-end (failed); the
     // JOB still pauses for setup (asserted above) and notifies the admin.
@@ -691,7 +690,6 @@ describe('jobs/execution', () => {
         pause_reason: 'Setup required',
         lease_run_id: null,
       }),
-      { incrementConsecutiveFailures: true },
     );
     // Autonomous dead-end: run failed, job paused for setup (asserted above).
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
@@ -739,7 +737,6 @@ describe('jobs/execution', () => {
           state: 'missing_capability',
         }),
       }),
-      { incrementConsecutiveFailures: true },
     );
     expect(opsRepository.updateJob).not.toHaveBeenCalledWith(
       job.id,
@@ -2434,7 +2431,6 @@ describe('jobs/execution', () => {
           ],
         }),
       }),
-      { incrementConsecutiveFailures: true },
     );
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),

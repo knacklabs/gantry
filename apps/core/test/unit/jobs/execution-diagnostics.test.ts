@@ -32,7 +32,7 @@ describe('job execution diagnostics', () => {
       expect(diagnostics.transientPermissionApprovals).toHaveLength(1);
     }
   });
-  it('does not turn non-terminal permission denials into run errors', () => {
+  it('retains a terminal permission denial and its specific tool name', () => {
     const diagnostics = createJobRunDiagnostics();
 
     updateDiagnosticsFromRuntimeEvent(
@@ -42,13 +42,19 @@ describe('job execution diagnostics', () => {
         phase: 'permission_denied',
         tool: 'Bash',
         ok: false,
-        terminal: false,
+        terminal: true,
         reason: 'Bash command could not be parsed safely.',
       },
     );
 
-    expect(diagnostics.terminalToolDenial).toBeUndefined();
-    expect(formatTerminalToolDenial(diagnostics)).toBeUndefined();
+    expect(diagnostics.terminalToolDenial).toEqual({
+      toolName: 'Bash',
+      reason: 'Bash command could not be parsed safely.',
+      recoveryAction: undefined,
+    });
+    expect(formatTerminalToolDenial(diagnostics)).toContain(
+      'Permission denied for Bash.',
+    );
   });
 
   it('keeps promptable permission denials terminal by default', () => {
