@@ -7,10 +7,7 @@ import { agentIdForJobWorkspaceKey } from '../application/jobs/job-tool-policy.j
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import type { SchedulerEventAppSession } from './app-session-resolution.js';
-import {
-  isOnlyJobNotificationRoute,
-  notifySchedulerSetupRequired,
-} from './execution-notifications.js';
+import { notifySchedulerSetupRequired } from './execution-notifications.js';
 import { readImageCapabilityInventory } from '../shared/worker-image-inventory.js';
 import { getDeploymentMode } from '../config/index.js';
 import {
@@ -34,7 +31,8 @@ type JobSetupCheckSource =
   | 'final_setup'
   | 'permission_denied'
   | 'permission_timeout'
-  | 'transient_permission';
+  | 'transient_permission'
+  | 'partial_recovery';
 
 export async function pauseJobForSetupIfNeeded(input: {
   currentJob: Job;
@@ -158,10 +156,17 @@ async function pauseAndNotify(input: {
 
 export async function notifyJobSetupRequired(input: {
   currentJob: Job;
-  deps: SchedulerDependencies;
+  deps: {
+    sendMessage: SchedulerDependencies['sendMessage'];
+    opsRepository: Pick<
+      SchedulerDependencies['opsRepository'],
+      'markJobSetupNotified'
+    >;
+  };
   runtimeAppId: string;
   appSession?: SchedulerEventAppSession;
   setupState: NonNullable<Job['setup_state']>;
+  previousFingerprint?: string | null;
   source?: JobSetupCheckSource;
   runId?: string | null;
   publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
@@ -181,7 +186,9 @@ export async function notifyJobSetupRequired(input: {
       prompt = await raiseSetupPausePermissionPrompt({
         jobId: input.currentJob.id,
         setupFingerprint: input.setupState.fingerprint,
-        previousFingerprint: input.currentJob.setup_state?.fingerprint,
+        previousFingerprint:
+          input.previousFingerprint ??
+          input.currentJob.setup_state?.fingerprint,
         source: input.source,
         runId: input.runId,
       });
@@ -216,23 +223,23 @@ export async function notifyJobSetupRequired(input: {
         });
   const promptNotified =
     prompt.status === 'raised' ? await prompt.delivered : false;
-  if (
-    prompt.status === 'raised' &&
-    !promptNotified &&
-    isOnlyJobNotificationRoute(input.currentJob, prompt.approverRoute)
-  ) {
-    await notifySchedulerSetupRequired({
-      job: input.currentJob,
-      setupState: input.setupState,
-      source: input.source,
-      runId: input.runId,
-      includeRoute: prompt.approverRoute,
-      sendMessage: input.deps.sendMessage,
-    });
-  }
+  const fallbackNotified =
+    prompt.status === 'raised' && !promptNotified
+      ? await notifySchedulerSetupRequired({
+          job: {
+            ...input.currentJob,
+            notification_routes: [],
+          },
+          setupState: input.setupState,
+          source: input.source,
+          runId: input.runId,
+          includeRoute: prompt.approverRoute,
+          sendMessage: input.deps.sendMessage,
+        })
+      : false;
   const notified =
     prompt.status === 'raised'
-      ? promptNotified
+      ? promptNotified || fallbackNotified
       : promptPreparationFailed
         ? false
         : cardNotified;

@@ -50,6 +50,11 @@ export interface RecheckPausedJobsAfterCapabilityUpdateInput {
     job: Job,
     recoveryTransitionId: string,
   ) => Promise<unknown> | unknown;
+  notifySetupRequired?: (input: {
+    job: Job;
+    setupState: NonNullable<Job['setup_state']>;
+    previousFingerprint?: string;
+  }) => Promise<boolean>;
   clock?: { now(): string };
 }
 
@@ -239,6 +244,14 @@ async function notifyStillBlockedSetupPrompt(notification: {
     return;
   }
   try {
+    if (notification.recheckInput.notifySetupRequired) {
+      await notification.recheckInput.notifySetupRequired({
+        job: notification.job,
+        setupState: notification.setupState,
+        previousFingerprint: notification.previousFingerprint,
+      });
+      return;
+    }
     const prompt = await raiseSetupPausePermissionPrompt({
       jobId: notification.job.id,
       setupFingerprint: notification.setupState.fingerprint,

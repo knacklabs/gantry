@@ -6,6 +6,7 @@ import {
   setupPausePermissionRequestId,
 } from '@core/application/jobs/setup-pause-permission-prompt.js';
 import { permissionRecoveryNotificationRunId } from '@core/jobs/execution-notifications.js';
+import { notifyJobSetupRequired } from '@core/jobs/execution-readiness.js';
 import type { Job } from '@core/domain/types.js';
 import type {
   JobListFilters,
@@ -684,6 +685,172 @@ describe('permission recovery', () => {
     );
     expect(result).toEqual({ checked: 0, queued: [], stillBlocked: [] });
     expect(job.pause_reason).toBe('Paused by an administrator');
+  });
+
+  it('routes an already-pending partial-recovery outcome through the normal setup notification fallback', async () => {
+    const job = pausedJob(1);
+    job.execution_context = {
+      ...job.execution_context!,
+      conversationJid: 'tg:approver',
+      threadId: 'approval-thread',
+    };
+    job.access_requirements = [
+      { target: { kind: 'tool_rule', rule: 'Browser' } },
+    ];
+    configureSetupPausePermissionPrompt({
+      appId: 'default',
+      getJobById: vi.fn(async () => job),
+      cancelPermissionApproval: vi.fn(async () => 'settled' as const),
+      runPermissionInteraction: vi.fn(async () => ({
+        began: false,
+        decision: {
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'owner-1',
+        },
+        resolved: false,
+      })),
+      reviewStoredRequirement: vi.fn(async () => ({
+        suggestions: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            destination: 'session',
+            rules: [{ toolName: 'Browser' }],
+          },
+        ],
+        decisionOptions: ['allow_persistent_rule', 'cancel'],
+      })),
+    });
+    const sendMessage = vi.fn(async () => undefined);
+    const markJobSetupNotified = vi.fn(
+      async (_jobId: string, fingerprint: string) => {
+        job.setup_state!.notified_fingerprint = fingerprint;
+        return true;
+      },
+    );
+
+    try {
+      await recheckSetupPausedJobsAfterCapabilityUpdate({
+        appId: 'default',
+        sourceAgentFolder: 'team',
+        jobId: job.id,
+        opsRepository: {
+          getJobById: vi.fn(async () => job),
+          refreshSetupPausedJob: vi.fn(async ({ setupState }) => {
+            job.setup_state = setupState;
+            return true;
+          }),
+          markJobSetupNotified,
+        } as unknown as RuntimeJobRepository,
+        scheduler: { requestSchedulerSync: vi.fn() },
+        getBrowserStatus: vi.fn(async () => ({ hasState: false })),
+        notifySetupRequired: ({
+          job: setupJob,
+          setupState,
+          previousFingerprint,
+        }) =>
+          notifyJobSetupRequired({
+            currentJob: setupJob,
+            deps: {
+              sendMessage,
+              opsRepository: { markJobSetupNotified },
+            } as never,
+            runtimeAppId: 'default',
+            setupState,
+            previousFingerprint,
+            source: 'partial_recovery',
+            publishRuntimeEvent: async () => undefined,
+          }),
+      });
+
+      expect(sendMessage).toHaveBeenCalledWith(
+        'tg:team-001',
+        expect.stringContaining('Setup needed'),
+        expect.objectContaining({ threadId: 'thread-001' }),
+      );
+      expect(sendMessage).toHaveBeenCalledWith(
+        'tg:approver',
+        expect.stringContaining('Setup needed'),
+        expect.objectContaining({ threadId: 'approval-thread' }),
+      );
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      expect(markJobSetupNotified).toHaveBeenCalledWith(
+        job.id,
+        job.setup_state!.fingerprint,
+      );
+    } finally {
+      configureSetupPausePermissionPrompt(null);
+    }
+  });
+
+  it('routes an instruction-only partial-recovery outcome through the normal setup notification fallback', async () => {
+    const job = pausedJob(1);
+    job.access_requirements = [
+      { target: { kind: 'tool_rule', rule: 'Browser' } },
+    ];
+    configureSetupPausePermissionPrompt({
+      appId: 'default',
+      getJobById: vi.fn(async () => job),
+      cancelPermissionApproval: vi.fn(async () => 'settled' as const),
+      runPermissionInteraction: vi.fn(),
+      reviewStoredRequirement: vi.fn(async () => null),
+    });
+    const sendMessage = vi.fn(async () => undefined);
+    const markJobSetupNotified = vi.fn(
+      async (_jobId: string, fingerprint: string) => {
+        job.setup_state!.notified_fingerprint = fingerprint;
+        return true;
+      },
+    );
+
+    try {
+      await recheckSetupPausedJobsAfterCapabilityUpdate({
+        appId: 'default',
+        sourceAgentFolder: 'team',
+        jobId: job.id,
+        opsRepository: {
+          getJobById: vi.fn(async () => job),
+          refreshSetupPausedJob: vi.fn(async ({ setupState }) => {
+            job.setup_state = setupState;
+            return true;
+          }),
+          markJobSetupNotified,
+        } as unknown as RuntimeJobRepository,
+        scheduler: { requestSchedulerSync: vi.fn() },
+        getBrowserStatus: vi.fn(async () => ({ hasState: false })),
+        notifySetupRequired: ({
+          job: setupJob,
+          setupState,
+          previousFingerprint,
+        }) =>
+          notifyJobSetupRequired({
+            currentJob: setupJob,
+            deps: {
+              sendMessage,
+              opsRepository: { markJobSetupNotified },
+            } as never,
+            runtimeAppId: 'default',
+            setupState,
+            previousFingerprint,
+            source: 'partial_recovery',
+            publishRuntimeEvent: async () => undefined,
+          }),
+      });
+
+      expect(sendMessage).toHaveBeenCalledWith(
+        'tg:team-001',
+        expect.stringContaining('Setup needed'),
+        expect.objectContaining({ threadId: 'thread-001' }),
+      );
+      expect(sendMessage).toHaveBeenCalledOnce();
+      expect(markJobSetupNotified).toHaveBeenCalledWith(
+        job.id,
+        job.setup_state!.fingerprint,
+      );
+    } finally {
+      configureSetupPausePermissionPrompt(null);
+    }
   });
 
   it('retries an accurate partial-recovery prompt and does not re-raise after confirmed delivery', async () => {

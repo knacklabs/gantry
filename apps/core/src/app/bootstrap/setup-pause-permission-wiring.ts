@@ -29,6 +29,7 @@ import { resolveConversationRoute } from './runtime-app-routes.js';
 import type { RuntimeApp } from './runtime-app.js';
 import type { ChannelWiring } from './channel-wiring-types.js';
 import { notifySchedulerPermissionRecovery } from '../../jobs/execution-notifications.js';
+import { notifyJobSetupRequired } from '../../jobs/execution-readiness.js';
 
 export function configureRuntimeSetupPausePermissions(input: {
   app: Pick<RuntimeApp, 'getConversationRoutes' | 'getCredentialBroker'>;
@@ -80,6 +81,25 @@ export function configureRuntimeSetupPausePermissions(input: {
             throwOnMissing: true,
             ...(options ? { messageOptions: options } : {}),
           }),
+      }),
+    notifySetupRequired: ({ job, setupState, previousFingerprint }) =>
+      notifyJobSetupRequired({
+        currentJob: job,
+        deps: {
+          opsRepository: input.opsRepository,
+          sendMessage: (jid, text, options) =>
+            input.channelWiring.sendMessage(jid, text, {
+              durability: 'required',
+              throwOnMissing: true,
+              ...(options ? { messageOptions: options } : {}),
+            }),
+        },
+        runtimeAppId: String(input.channelWiring.getRuntimeAppId()),
+        setupState,
+        previousFingerprint,
+        source: 'partial_recovery',
+        publishRuntimeEvent:
+          input.publishRuntimeEvent ?? (async () => undefined),
       }),
   });
   configureSetupPausePermissionPrompt({

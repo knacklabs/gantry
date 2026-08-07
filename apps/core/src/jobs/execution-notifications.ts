@@ -261,17 +261,6 @@ export async function notifySchedulerSetupRequired(input: {
   });
 }
 
-export function isOnlyJobNotificationRoute(
-  job: Job,
-  route: {
-    conversationJid: string;
-    threadId: string | null;
-    providerAccountId?: string;
-  },
-): boolean {
-  return withoutNotificationRoute(job, route) === null;
-}
-
 function withNotificationRoute(
   job: Job,
   included: {

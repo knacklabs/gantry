@@ -4,6 +4,7 @@ import { recheckSetupPausedJobsAfterCapabilityUpdate } from '../application/jobs
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import { formatDurableAccessRulesForUser } from './request-permission-review.js';
 import { notifySchedulerPermissionRecovery } from './execution-notifications.js';
+import { notifyJobSetupRequired } from './execution-readiness.js';
 
 type RequestAccessRecoveryResult = Awaited<
   ReturnType<typeof recheckSetupPausedJobsAfterCapabilityUpdate>
@@ -49,6 +50,17 @@ export async function recheckPausedSetupJobsAfterRequestAccessGrant(input: {
           job,
           recoveryTransitionId,
           sendMessage: input.deps.sendMessage,
+        }),
+      notifySetupRequired: ({ job, setupState, previousFingerprint }) =>
+        notifyJobSetupRequired({
+          currentJob: job,
+          deps: input.deps,
+          runtimeAppId: input.appId,
+          setupState,
+          previousFingerprint,
+          source: 'partial_recovery',
+          publishRuntimeEvent:
+            input.deps.publishRuntimeEvent ?? (async () => undefined),
         }),
     });
   } catch (err) {

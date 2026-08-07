@@ -45,6 +45,11 @@ export interface PermissionPersistenceBackend {
     job: import('../../domain/types.js').Job,
     recoveryTransitionId: string,
   ) => Promise<unknown>;
+  notifySetupRequired?: (input: {
+    job: import('../../domain/types.js').Job;
+    setupState: NonNullable<import('../../domain/types.js').Job['setup_state']>;
+    previousFingerprint?: string;
+  }) => Promise<boolean>;
 }
 
 function persistentPermissionScopeRequest(
@@ -119,6 +124,7 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
     getBrowserStatus: input.persistence.getBrowserStatus,
     publishRuntimeEvent: input.persistence.publishRuntimeEvent,
     sendQueuedReceipt: input.persistence.sendQueuedReceipt,
+    notifySetupRequired: input.persistence.notifySetupRequired,
   });
   await input.onApplied?.(recovery);
   return true;

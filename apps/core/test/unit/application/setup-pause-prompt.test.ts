@@ -774,7 +774,7 @@ describe('setup pause prompts', () => {
     );
   });
 
-  it('falls back to an instruction card when the only-route prompt is undelivered and keeps the fingerprint retryable', async () => {
+  it('falls back to an instruction card when the only-route prompt is undelivered', async () => {
     const approverRoute = {
       conversationJid: 'sl:approver',
       threadId: 'approval-thread',
@@ -806,17 +806,20 @@ describe('setup pause prompts', () => {
         } as never,
         publishRuntimeEvent: async () => undefined,
       }),
-    ).resolves.toBe(false);
+    ).resolves.toBe(true);
 
     expect(sendMessage).toHaveBeenCalledWith(
       'sl:approver',
       expect.stringContaining('Setup needed'),
       expect.objectContaining({ threadId: 'approval-thread' }),
     );
-    expect(markJobSetupNotified).not.toHaveBeenCalled();
+    expect(markJobSetupNotified).toHaveBeenCalledWith(
+      job.id,
+      job.setup_state!.fingerprint,
+    );
   });
 
-  it('keeps a raised prompt retryable when only a different job route was notified', async () => {
+  it('sends an undelivered raised-prompt fallback to a divergent approver route without double-carding the job route', async () => {
     const job = makeJob();
     configure({
       job: () => job,
@@ -843,13 +846,64 @@ describe('setup pause prompts', () => {
         } as never,
         publishRuntimeEvent: async () => undefined,
       }),
+    ).resolves.toBe(true);
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      'sl:job-notifications',
+      expect.stringContaining('Setup needed'),
+    );
+    expect(sendMessage).toHaveBeenCalledWith(
+      'sl:approver',
+      expect.stringContaining('Setup needed'),
+      expect.objectContaining({ threadId: 'approval-thread' }),
+    );
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(markJobSetupNotified).toHaveBeenCalledWith(
+      job.id,
+      job.setup_state!.fingerprint,
+    );
+  });
+
+  it('keeps an undelivered raised prompt retryable when its approver fallback also fails', async () => {
+    const job = makeJob();
+    configure({
+      job: () => job,
+      runPermissionInteraction: async (_request, _delivered, began) => {
+        began();
+        return {
+          began: true,
+          decision: cancelledDecision(),
+          resolved: true,
+        };
+      },
+    });
+    const sendMessage = vi.fn(async (jid: string) => {
+      if (jid === 'sl:approver') throw new Error('provider unavailable');
+    });
+    const markJobSetupNotified = vi.fn(async () => true);
+
+    await expect(
+      notifyJobSetupRequired({
+        currentJob: job,
+        runtimeAppId: 'default',
+        setupState: job.setup_state!,
+        deps: {
+          sendMessage,
+          opsRepository: { markJobSetupNotified },
+        } as never,
+        publishRuntimeEvent: async () => undefined,
+      }),
     ).resolves.toBe(false);
 
     expect(sendMessage).toHaveBeenCalledWith(
       'sl:job-notifications',
       expect.stringContaining('Setup needed'),
     );
-    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledWith(
+      'sl:approver',
+      expect.stringContaining('Setup needed'),
+      expect.objectContaining({ threadId: 'approval-thread' }),
+    );
     expect(markJobSetupNotified).not.toHaveBeenCalled();
   });
 
