@@ -29,6 +29,30 @@ SUPPORTED_EXCEPTION_RULES = {
     "wrapper_only_file",
 }
 
+RUNTIME_COMPAT_KINDS = {
+    "silent_stale_state_migration",
+    "dual_read",
+    "ownership_reconstruction",
+    "remote_to_local_fail_open",
+}
+KNOWN_RUNTIME_COMPAT_SYMBOLS = {
+    "migrateLegacyAgentBindings": "silent_stale_state_migration",
+    "findLegacyBindingConversation": "dual_read",
+    "providerAccountForLegacyInstall": "ownership_reconstruction",
+    "readLegacyStateFallback": "dual_read",
+    "reconstructJobOwnerFromJid": "ownership_reconstruction",
+    "readLocalSkillArtifactFallback": "remote_to_local_fail_open",
+}
+RUNTIME_COMPAT_EXCEPTION_FIELDS = {
+    "symbol",
+    "owner",
+    "reason",
+    "introduced",
+    "removal_condition",
+    "remove_by",
+    "kind",
+}
+
 ACTIVE_DOC_FILES = (
     "README.md",
     "AGENTS.md",
@@ -284,11 +308,30 @@ class ExceptionEntry:
     max_violations: int | None = None
 
 
+@dataclass(frozen=True)
+class RuntimeCompatException:
+    symbol: str
+    owner: str
+    reason: str
+    introduced: date
+    removal_condition: str
+    remove_by: date
+    kind: str
+
+
 class ExceptionRegistry:
-    def __init__(self, entries: list[ExceptionEntry]) -> None:
+    def __init__(
+        self,
+        entries: list[ExceptionEntry],
+        runtime_compat_entries: list[RuntimeCompatException] | None = None,
+    ) -> None:
         self.entries = entries
+        self.runtime_compat_entries = runtime_compat_entries or []
         self.by_file_rule: dict[tuple[str, str], ExceptionEntry] = {
             (entry.file, entry.rule): entry for entry in entries
+        }
+        self.runtime_compat_by_symbol = {
+            entry.symbol: entry for entry in self.runtime_compat_entries
         }
 
     def get(self, file: str, rule: str) -> ExceptionEntry | None:
@@ -306,6 +349,13 @@ class ExceptionRegistry:
             if key not in active_keys:
                 stale.append(f"{entry.file} has stale exception for `{entry.rule}`; remove it.")
         return stale
+
+    def stale_runtime_compat_entries(self, active_symbols: set[str]) -> list[str]:
+        return [
+            f"{entry.symbol} has a stale runtime compat exception; remove it."
+            for entry in self.runtime_compat_entries
+            if entry.symbol not in active_symbols
+        ]
 
 
 @dataclass(frozen=True)
@@ -489,11 +539,98 @@ def validate_exceptions(
         return ExceptionRegistry([]), issues
 
     entries: list[ExceptionEntry] = []
+    runtime_compat_entries: list[RuntimeCompatException] = []
     seen: set[tuple[str, str]] = set()
+    seen_runtime_compat_symbols: set[str] = set()
     for index, item in enumerate(payload):
         prefix = f"[{index}]"
         if not isinstance(item, dict):
             issues.append(f"{prefix} must be an object.")
+            continue
+
+        if "symbol" in item or "kind" in item:
+            item_issues: list[str] = []
+            missing = [
+                field
+                for field in sorted(RUNTIME_COMPAT_EXCEPTION_FIELDS)
+                if not str(item.get(field, "")).strip()
+            ]
+            if missing:
+                item_issues.append(
+                    f"{prefix} runtime compat exception is missing required fields: {', '.join(missing)}"
+                )
+            extra = sorted(set(item) - RUNTIME_COMPAT_EXCEPTION_FIELDS)
+            if extra:
+                item_issues.append(
+                    f"{prefix} runtime compat exception has unsupported fields: {', '.join(extra)}"
+                )
+
+            symbol = str(item.get("symbol", "")).strip()
+            kind = str(item.get("kind", "")).strip()
+            expected_kind = KNOWN_RUNTIME_COMPAT_SYMBOLS.get(symbol)
+            if expected_kind is None and symbol:
+                item_issues.append(
+                    f"{prefix} runtime compat exception names unknown symbol `{symbol}`."
+                )
+            if kind not in RUNTIME_COMPAT_KINDS:
+                item_issues.append(
+                    f"{prefix} runtime compat exception has unsupported kind `{kind}`."
+                )
+            elif expected_kind is not None and kind != expected_kind:
+                item_issues.append(
+                    f"{prefix} runtime compat exception kind `{kind}` does not match `{symbol}` ({expected_kind})."
+                )
+            if symbol in seen_runtime_compat_symbols:
+                item_issues.append(
+                    f"{prefix} duplicates runtime compat symbol `{symbol}`."
+                )
+            seen_runtime_compat_symbols.add(symbol)
+
+            introduced = None
+            remove_by = None
+            for field in ("introduced", "remove_by"):
+                raw_value = str(item.get(field, "")).strip()
+                if not raw_value:
+                    continue
+                try:
+                    parsed = date.fromisoformat(raw_value)
+                except ValueError:
+                    item_issues.append(
+                        f"{prefix} runtime compat exception {field} must be an ISO date (YYYY-MM-DD)."
+                    )
+                    continue
+                if field == "introduced":
+                    introduced = parsed
+                else:
+                    remove_by = parsed
+            if introduced is not None and introduced > today:
+                item_issues.append(
+                    f"{prefix} runtime compat exception introduced date cannot be in the future."
+                )
+            if remove_by is not None and remove_by < today:
+                item_issues.append(
+                    f"{prefix} runtime compat exception expired on {remove_by.isoformat()}."
+                )
+            if introduced is not None and remove_by is not None and remove_by <= introduced:
+                item_issues.append(
+                    f"{prefix} runtime compat exception remove_by must be after introduced."
+                )
+
+            if item_issues:
+                issues.extend(item_issues)
+                continue
+            assert introduced is not None and remove_by is not None
+            runtime_compat_entries.append(
+                RuntimeCompatException(
+                    symbol=symbol,
+                    owner=str(item["owner"]).strip(),
+                    reason=str(item["reason"]).strip(),
+                    introduced=introduced,
+                    removal_condition=str(item["removal_condition"]).strip(),
+                    remove_by=remove_by,
+                    kind=kind,
+                )
+            )
             continue
 
         item_issues: list[str] = []
@@ -558,7 +695,7 @@ def validate_exceptions(
             )
         )
 
-    return ExceptionRegistry(entries), sorted(issues)
+    return ExceptionRegistry(entries, runtime_compat_entries), sorted(issues)
 
 
 def load_provider_boundary_exceptions(
@@ -1344,6 +1481,37 @@ def check_old_terms(
             issues.add(f"{source_rel}:{line}: contains old architecture term `{first.group(0)}` ({rule}).")
             active_counts[(source_rel, rule)] = len(matches)
     return sorted(issues), active_counts
+
+
+def check_runtime_compat_branches(
+    production_files: list[Path],
+    root: Path,
+    exceptions: ExceptionRegistry,
+) -> tuple[list[str], set[str]]:
+    issues: list[str] = []
+    active_symbols: set[str] = set()
+    patterns = {
+        symbol: re.compile(
+            rf"(?:\b(?:function|class|const|let|var)\s+{re.escape(symbol)}\b|\b{re.escape(symbol)}\s*\()"
+        )
+        for symbol in KNOWN_RUNTIME_COMPAT_SYMBOLS
+    }
+    for source_file in production_files:
+        source_rel = source_file.relative_to(root).as_posix()
+        source_text = source_file.read_text()
+        for symbol, pattern in patterns.items():
+            match = pattern.search(source_text)
+            if match is None:
+                continue
+            active_symbols.add(symbol)
+            if symbol in exceptions.runtime_compat_by_symbol:
+                continue
+            line = source_text.count("\n", 0, match.start()) + 1
+            kind = KNOWN_RUNTIME_COMPAT_SYMBOLS[symbol]
+            issues.append(
+                f"{source_rel}:{line}: runtime compat symbol `{symbol}` ({kind}) requires a time-boxed architecture exception."
+            )
+    return sorted(issues), active_symbols
 
 
 def check_empty_folders(

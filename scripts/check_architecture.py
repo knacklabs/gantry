@@ -24,6 +24,7 @@ from architecture_rules import (
     check_provider_boundary,
     check_provider_imports,
     check_provider_specific_paths,
+    check_runtime_compat_branches,
     check_wrapper_only_files,
     iter_production_sources,
     iter_provider_boundary_sources,
@@ -69,6 +70,7 @@ def print_grouped_failures(issues: dict[str, list[str]]) -> None:
         ("direct_risky_execution", "Direct Risky Execution"),
         ("browser_default_profile_paths", "Browser Default Profile Paths"),
         ("old_terms", "Old Architecture Terms"),
+        ("runtime_compat_branches", "Runtime Compatibility Branches"),
         ("empty_folders", "Empty Folders"),
         ("wrapper_only_files", "Wrapper-Only Files"),
         ("framework_boundary_imports", "Framework Boundary Imports"),
@@ -110,6 +112,9 @@ def main() -> int:
     )
     exception_hygiene.extend(provider_boundary_exception_hygiene)
     architecture_map, architecture_map_load_issues = load_architecture_map(map_path)
+    runtime_compat_issues, active_runtime_compat_symbols = check_runtime_compat_branches(
+        production_files, root, exceptions
+    )
     architecture_map_hygiene = architecture_map_load_issues
     active_exception_counts = {}
     if architecture_map is not None:
@@ -170,6 +175,7 @@ def main() -> int:
         "direct_risky_execution": risky_execution_issues,
         "browser_default_profile_paths": browser_profile_issues,
         "old_terms": old_term_issues,
+        "runtime_compat_branches": runtime_compat_issues,
         "empty_folders": check_empty_folders(root, architecture_map or {}, exceptions),
         "wrapper_only_files": check_wrapper_only_files(production_files, root, exceptions),
         "framework_boundary_imports": check_framework_boundary_imports(
@@ -193,6 +199,7 @@ def main() -> int:
         "doc_references": check_doc_references(root),
     }
     stale = exceptions.stale_entries(set(active_exception_counts))
+    stale.extend(exceptions.stale_runtime_compat_entries(active_runtime_compat_symbols))
     if stale:
         grouped_issues["exception_hygiene"].extend(stale)
 

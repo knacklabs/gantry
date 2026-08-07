@@ -30,7 +30,7 @@
     "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts": 750,
     "apps/core/src/application/permissions/permission-management-service.ts": 745,
     "apps/core/src/app/bootstrap/runtime-app.ts": 737,
-    "apps/core/src/app/bootstrap/runtime-services.ts": 1185,
+    "apps/core/src/app/bootstrap/runtime-services.ts": 1186,
     "apps/core/src/channels/slack/channel-delivery-helpers.ts": 776,
     "apps/core/src/channels/slack/channel-delivery.ts": 732,
     "apps/core/src/channels/slack/channel-interactions.ts": 712,

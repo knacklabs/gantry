@@ -190,6 +190,92 @@ class CheckArchitectureTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
             self.assertIn("Architecture checks passed.", result.stdout)
 
+    def test_known_runtime_compat_branches_fail_without_exceptions(self) -> None:
+        compat_symbols = {
+            "migrateLegacyAgentBindings": "silent_stale_state_migration",
+            "readLegacyStateFallback": "dual_read",
+            "reconstructJobOwnerFromJid": "ownership_reconstruction",
+            "readLocalSkillArtifactFallback": "remote_to_local_fail_open",
+        }
+        for symbol, kind in compat_symbols.items():
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                root = make_base_fixture(Path(tmp))
+                write_text(
+                    root / "apps/core/src/runtime/compat-branch.ts",
+                    f"export function {symbol}() {{ return true; }}\n",
+                )
+                result = run_architecture_check(root)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("[Runtime Compatibility Branches]", result.stdout)
+                self.assertIn(f"`{symbol}` ({kind})", result.stdout)
+
+    def test_runtime_compat_branch_passes_with_valid_time_boxed_exception(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/compat-branch.ts",
+                "export function migrateLegacyAgentBindings() { return true; }\n",
+            )
+            write_json(
+                root / "scripts/architecture-exceptions.json",
+                [
+                    {
+                        "symbol": "migrateLegacyAgentBindings",
+                        "owner": "runtime-platform",
+                        "reason": "A bounded fixture exception",
+                        "introduced": "2026-01-01",
+                        "removal_condition": "Canonical settings are deployed",
+                        "remove_by": "2099-01-01",
+                        "kind": "silent_stale_state_migration",
+                    }
+                ],
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+    def test_expired_runtime_compat_exception_fails_hygiene(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/compat-branch.ts",
+                "export function migrateLegacyAgentBindings() { return true; }\n",
+            )
+            write_json(
+                root / "scripts/architecture-exceptions.json",
+                [
+                    {
+                        "symbol": "migrateLegacyAgentBindings",
+                        "owner": "runtime-platform",
+                        "reason": "Expired fixture exception",
+                        "introduced": "2025-01-01",
+                        "removal_condition": "Canonical settings are deployed",
+                        "remove_by": "2025-12-31",
+                        "kind": "silent_stale_state_migration",
+                    }
+                ],
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Exception Hygiene]", result.stdout)
+            self.assertIn("runtime compat exception expired", result.stdout)
+
+    def test_allowed_compatibility_categories_do_not_trip_runtime_rule(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/allowed-compat.ts",
+                """const rejectedRuntimeSymbols = ['migrateLegacyAgentBindings'];
+export function rejectUnsupportedLegacyInput() { return rejectedRuntimeSymbols; }
+export function negotiateVendorProtocolCompatibility() { return 'v2'; }
+""",
+            )
+            write_text(
+                root / "apps/core/src/adapters/storage/postgres/schema/migrations/0001_historical.sql",
+                "-- Historical migration retains legacy rows for upgrade ordering.\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
     def test_over_budget_file_fails_without_exception(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = make_base_fixture(Path(tmp))
