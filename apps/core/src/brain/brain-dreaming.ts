@@ -66,7 +66,7 @@ const DESTRUCTIVE_ACTIONS = new Set([
 export async function runBrainDreamBatch(input: {
   brain: BrainService;
   repository: BrainRepository;
-  reviews: BrainDreamReviewRepository;
+  reviews?: BrainDreamReviewRepository;
   notify?: BrainReviewNotifier;
   appId: string;
   proposer?: BrainDreamProposalPort;
@@ -137,7 +137,7 @@ export async function runBrainDreamBatch(input: {
 async function runObserverBrainDreamBatch(input: {
   brain: BrainService;
   repository: BrainRepository;
-  reviews: BrainDreamReviewRepository;
+  reviews?: BrainDreamReviewRepository;
   notify?: BrainReviewNotifier;
   appId: string;
   proposer?: BrainDreamProposalPort;
@@ -205,7 +205,7 @@ async function runObserverBrainDreamBatch(input: {
       const summary = await applyBrainDreamOperations({
         brain: input.brain,
         repository: input.repository,
-        reviews: input.reviews,
+        reviews: input.reviews!,
         notify: input.notify,
         appId: input.appId,
         runId,

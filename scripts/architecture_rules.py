@@ -43,6 +43,13 @@ KNOWN_RUNTIME_COMPAT_SYMBOLS = {
     "reconstructJobOwnerFromJid": "ownership_reconstruction",
     "readLocalSkillArtifactFallback": "remote_to_local_fail_open",
 }
+MIGRATE_LEGACY_SYMBOL_PATTERN = re.compile(
+    r"(?:\b(?:function|class|const|let|var)\s+(migrateLegacy[A-Za-z0-9_$]*)\b|"
+    r"\b(migrateLegacy[A-Za-z0-9_$]*)\s*\()"
+)
+CONNECTION_DUAL_READ_PATTERN = re.compile(
+    r"\?\?\s*([A-Za-z_$][A-Za-z0-9_$]*Connection)\b"
+)
 RUNTIME_COMPAT_EXCEPTION_FIELDS = {
     "symbol",
     "owner",
@@ -52,6 +59,17 @@ RUNTIME_COMPAT_EXCEPTION_FIELDS = {
     "remove_by",
     "kind",
 }
+
+
+def runtime_compat_kind_for_symbol(symbol: str) -> str | None:
+    known_kind = KNOWN_RUNTIME_COMPAT_SYMBOLS.get(symbol)
+    if known_kind is not None:
+        return known_kind
+    if re.fullmatch(r"migrateLegacy[A-Za-z0-9_$]*", symbol):
+        return "silent_stale_state_migration"
+    if re.fullmatch(r"[A-Za-z_$][A-Za-z0-9_$]*Connection", symbol):
+        return "dual_read"
+    return None
 
 ACTIVE_DOC_FILES = (
     "README.md",
@@ -567,7 +585,7 @@ def validate_exceptions(
 
             symbol = str(item.get("symbol", "")).strip()
             kind = str(item.get("kind", "")).strip()
-            expected_kind = KNOWN_RUNTIME_COMPAT_SYMBOLS.get(symbol)
+            expected_kind = runtime_compat_kind_for_symbol(symbol)
             if expected_kind is None and symbol:
                 item_issues.append(
                     f"{prefix} runtime compat exception names unknown symbol `{symbol}`."
@@ -1490,7 +1508,7 @@ def check_runtime_compat_branches(
 ) -> tuple[list[str], set[str]]:
     issues: list[str] = []
     active_symbols: set[str] = set()
-    patterns = {
+    exact_patterns = {
         symbol: re.compile(
             rf"(?:\b(?:function|class|const|let|var)\s+{re.escape(symbol)}\b|\b{re.escape(symbol)}\s*\()"
         )
@@ -1499,15 +1517,24 @@ def check_runtime_compat_branches(
     for source_file in production_files:
         source_rel = source_file.relative_to(root).as_posix()
         source_text = source_file.read_text()
-        for symbol, pattern in patterns.items():
+        matches: dict[str, re.Match[str]] = {}
+        for symbol, pattern in exact_patterns.items():
             match = pattern.search(source_text)
-            if match is None:
-                continue
+            if match is not None:
+                matches[symbol] = match
+        for match in MIGRATE_LEGACY_SYMBOL_PATTERN.finditer(source_text):
+            symbol = match.group(1) or match.group(2)
+            matches.setdefault(symbol, match)
+        for match in CONNECTION_DUAL_READ_PATTERN.finditer(source_text):
+            matches.setdefault(match.group(1), match)
+
+        for symbol, match in matches.items():
             active_symbols.add(symbol)
             if symbol in exceptions.runtime_compat_by_symbol:
                 continue
             line = source_text.count("\n", 0, match.start()) + 1
-            kind = KNOWN_RUNTIME_COMPAT_SYMBOLS[symbol]
+            kind = runtime_compat_kind_for_symbol(symbol)
+            assert kind is not None
             issues.append(
                 f"{source_rel}:{line}: runtime compat symbol `{symbol}` ({kind}) requires a time-boxed architecture exception."
             )

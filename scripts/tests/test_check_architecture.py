@@ -233,6 +233,33 @@ class CheckArchitectureTests(unittest.TestCase):
             result = run_architecture_check(root)
             self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
 
+    def test_migrate_legacy_symbol_family_catches_differently_named_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/compat-branch.ts",
+                "export function migrateLegacyWorkspaceState() { return true; }\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Runtime Compatibility Branches]", result.stdout)
+            self.assertIn(
+                "`migrateLegacyWorkspaceState` (silent_stale_state_migration)",
+                result.stdout,
+            )
+
+    def test_connection_dual_read_family_catches_differently_named_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/compat-branch.ts",
+                "export const active = canonicalConnection ?? retiredConnection;\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Runtime Compatibility Branches]", result.stdout)
+            self.assertIn("`retiredConnection` (dual_read)", result.stdout)
+
     def test_expired_runtime_compat_exception_fails_hygiene(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = make_base_fixture(Path(tmp))
