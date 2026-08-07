@@ -950,13 +950,16 @@
         "verify.py green; one 3-lens branch autoreview clean; no legacy-preserving test remains"
       ],
       "order": 52,
-      "status": "pending",
+      "status": "done",
       "epic": "harness-hygiene",
       "skill": "backend",
-      "kind": "refactor",
+      "kind": "feature",
       "depends_on": [],
       "origin": "adhoc",
-      "spec": "docs/specs/legacy-1-clean-cut.md"
+      "spec": "docs/specs/legacy-1-clean-cut.md",
+      "completed_at": "2026-08-07T13:29:35+00:00",
+      "history": ".factory/history/LEGACY-1/",
+      "outcome": "Every runtime read path now accepts one canonical data shape and nothing else. Legacy-shaped data is rejected with a clear remediation message or ignored \u2014 never silently rewritten \u2014 so disk and code agree and each area stays auditable. Settings with obsolete agent bindings are refused with reset-and-reimport instructions; a missing memory-review snapshot, a skill artifact the remote says is gone, and a malformed permission request all fail safe instead of trusting stale or fabricated data; dead surface (a duplicate export, two provider CLI aliases, an old Slack thread-id parser, test-only seams) is deleted. A new check:architecture guardrail stops these shortcuts creeping back without a dated, owned exception. The providerConnection rename and job-ownership cuts are deferred."
     }
   ],
   "epics": [
@@ -1045,5 +1048,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-06T22:36:02+00:00"
+  "updated_at": "2026-08-07T13:29:35+00:00"
 }
