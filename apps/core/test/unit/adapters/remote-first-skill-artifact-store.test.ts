@@ -103,13 +103,15 @@ describe('RemoteFirstSkillArtifactStore', () => {
     );
   });
 
-  it('falls back to local cache for legacy local-only artifacts during first sync', async () => {
+  it('fails closed when the remote authority reports a local-only artifact missing', async () => {
     const remote = new MemorySkillArtifactStore('object-store');
     const cache = new MemorySkillArtifactStore('local-filesystem');
     cache.bundles.set('skills/Legacy', bundle);
     const store = new RemoteFirstSkillArtifactStore(remote, cache);
 
-    await expect(store.getSkillArtifact('skills/Legacy')).resolves.toBe(bundle);
+    await expect(store.getSkillArtifact('skills/Legacy')).rejects.toThrow(
+      'missing skills/Legacy',
+    );
   });
 
   it('does not fall back to stale local cache when the remote authority is unavailable', async () => {
