@@ -34,15 +34,17 @@ beforeEach(() => {
 });
 
 describe('DeepAgents terminal permission denial', () => {
-  it('aborts the full graph turn before the model can call a fallback tool', async () => {
+  it('a denied tool cancels a concurrent side-effecting sibling tool in the same turn', async () => {
     const [{ fakeModel }, { AIMessage }, { tool }] = await Promise.all([
       import('@langchain' + '/core/testing'),
       import('@langchain' + '/core/messages'),
       import('@langchain' + '/core/tools'),
     ]);
     const model = fakeModel()
-      .respondWithTools([{ name: 'denied_tool', args: {} }])
-      .respondWithTools([{ name: 'fallback_tool', args: {} }])
+      .respondWithTools([
+        { name: 'denied_tool', args: {} },
+        { name: 'fallback_tool', args: {} },
+      ])
       .respond(new AIMessage('silently continued'));
     harness.model = model;
 
@@ -52,16 +54,23 @@ describe('DeepAgents terminal permission denial', () => {
             toolName: string;
             reason: string;
           }) => never;
+          signal?: AbortSignal;
         }
       | undefined;
+    let releaseSibling!: () => void;
+    const denialReached = new Promise<void>((resolve) => {
+      releaseSibling = resolve;
+    });
     let fallbackCalls = 0;
     harness.tools = [
       tool(
-        async () =>
-          gate?.onPermissionDenied?.({
+        async () => {
+          releaseSibling();
+          return gate?.onPermissionDenied?.({
             toolName: 'denied_tool',
             reason: 'Unattended jobs do not wait for approval.',
-          }),
+          });
+        },
         {
           name: 'denied_tool',
           description: 'Always denied during this autonomous turn.',
@@ -70,6 +79,8 @@ describe('DeepAgents terminal permission denial', () => {
       ),
       tool(
         async () => {
+          await denialReached;
+          gate?.signal?.throwIfAborted();
           fallbackCalls += 1;
           return 'fallback ran';
         },

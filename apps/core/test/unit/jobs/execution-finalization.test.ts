@@ -30,10 +30,10 @@ function makeJob(overrides: Partial<Job> = {}): Job {
   } as Job;
 }
 
-// A denied tool on a fenced job run is surfaced as an "autonomous allowlist"
-// error; finalization must pause (resumable) rather than fail the run.
+// Anthropic and DeepAgents surface the same parseable autonomous-denial error;
+// finalization must fail the dead-end run and pause the job for a fresh retry.
 const DENIAL_ERROR =
-  'Tool not on autonomous job allowlist: Bash. Recovery: request_access(capability=shell)';
+  'Tool not on autonomous run allowlist: Bash. Recovery: request_access(capability=shell)';
 
 function makeDeps(): {
   deps: SchedulerDependencies;
@@ -54,7 +54,7 @@ function makeDeps(): {
 }
 
 describe('execution finalization', () => {
-  it('a denied-tool terminal failure pauses the job for approval without consuming a retry attempt', async () => {
+  it('classifies an Anthropic autonomous denial as failed for fresh retry, not resumably paused', async () => {
     const { deps, updateJob } = makeDeps();
     const state = await finalizeSchedulerJobRun({
       currentJob: makeJob(),
@@ -74,6 +74,7 @@ describe('execution finalization', () => {
     // is a dead-end (failed). The JOB still pauses for setup so an admin can
     // grant access and the job re-runs.
     expect(state.runStatus).toBe('failed');
+    expect(state.runStatus).not.toBe('paused');
     expect(state.retryCount).toBe(0);
     expect(state.incrementConsecutiveFailures).toBe(false);
     expect(state.nextRun).toBeNull();

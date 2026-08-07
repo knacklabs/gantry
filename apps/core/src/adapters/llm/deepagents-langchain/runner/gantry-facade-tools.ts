@@ -90,6 +90,7 @@ function createOneFacadeTool(
 ): StructuredToolInterface {
   return tool(
     async (input: unknown): Promise<unknown> => {
+      config.signal?.throwIfAborted();
       if (isConversationAttachmentFacadeRequest(toolName, input)) {
         return gatedToolErrorResult(
           CONVERSATION_ATTACHMENT_TOOL_GUIDANCE,
@@ -131,6 +132,7 @@ function createOneFacadeTool(
         }
         return gatedToolErrorResult(`Permission denied: ${reason}`);
       }
+      config.signal?.throwIfAborted();
       return executeFacadeTool(toolName, input, config);
     },
     {

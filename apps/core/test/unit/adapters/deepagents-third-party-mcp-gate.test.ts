@@ -44,6 +44,7 @@ function gateConfig(
       denylist: string[];
       denylistPaths: string[];
     };
+    signal: AbortSignal;
   }> = {},
 ) {
   return {
@@ -56,6 +57,7 @@ function gateConfig(
     },
     permissionEnv: PERMISSION_ENV,
     lockedAccessPreset: overrides.locked ?? false,
+    ...(overrides.signal ? { signal: overrides.signal } : {}),
   };
 }
 
@@ -116,6 +118,25 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
     });
     expect(result).toBe('underlying-result');
     expect(underlying.invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('honors a terminal turn abort before an approved MCP side effect', async () => {
+    const controller = new AbortController();
+    requestPermissionApprovalViaIpc.mockImplementationOnce(async () => {
+      controller.abort(new Error('terminal tool denial'));
+      return { approved: true };
+    });
+    const underlying = fakeTool('append_record');
+    const [wrapped] = wrapThirdPartyMcpToolsWithGate(
+      [underlying as never],
+      'crm',
+      gateConfig({ signal: controller.signal }),
+    );
+
+    await expect(
+      invokeWrapped(wrapped as unknown as FakeTool),
+    ).rejects.toThrow('terminal tool denial');
+    expect(underlying.invoke).not.toHaveBeenCalled();
   });
 
   it('returns a deny message to the model and does not invoke when approval is denied', async () => {

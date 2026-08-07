@@ -11,7 +11,7 @@ export function denyNonPromptableAutonomousRecovery(input: {
   toolPolicyReason: string;
 }): { behavior: 'deny'; message: string; interrupt: true } | undefined {
   if (isPromptableAutonomousRecovery(input.recoveryAction)) return undefined;
-  const message = `Permission denied: ${input.recoveryMessage}`;
+  const message = `Tool not on autonomous run allowlist: ${input.toolName}. ${input.recoveryMessage}`;
   log(`Autonomous run denied tool ${input.toolName}: ${message}`);
   emitJobToolActivity(
     input.agentInput,

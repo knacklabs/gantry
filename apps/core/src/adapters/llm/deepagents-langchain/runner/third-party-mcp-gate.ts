@@ -48,6 +48,7 @@ function wrapOne(
   config: ThirdPartyMcpGateConfig,
 ): StructuredToolInterface {
   const gatedFunc = async (input: unknown): Promise<unknown> => {
+    config.signal?.throwIfAborted();
     const toolName = canonicalThirdPartyMcpToolName(
       serverName,
       underlying.name,
@@ -80,6 +81,7 @@ function wrapOne(
       },
     );
     if (approval.approved) {
+      config.signal?.throwIfAborted();
       return invokeUnderlying(underlying, input);
     }
     const reason = approval.reason || 'Denied by operator';
