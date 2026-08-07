@@ -19,6 +19,13 @@ export type HistoricalAttachmentUnreachableReason =
   | 'network'
   | 'unknown';
 
+export type HistoricalAttachmentUnreachableEvidence =
+  | { reason: 'missing_scope'; scope: string; providerStatus?: number }
+  | {
+      reason: HistoricalAttachmentUnreachableReason;
+      providerStatus?: number;
+    };
+
 export type HistoricalAttachmentFetchResult =
   | {
       status: 'ok';
@@ -26,11 +33,8 @@ export type HistoricalAttachmentFetchResult =
       fileName?: string;
       contentType?: string;
     }
-  | { status: 'deleted' }
-  | {
-      status: 'unreachable';
-      reason: HistoricalAttachmentUnreachableReason;
-    };
+  | { status: 'deleted'; providerStatus?: number }
+  | ({ status: 'unreachable' } & HistoricalAttachmentUnreachableEvidence);
 
 export interface HistoricalAttachmentFetcher {
   fetchHistoricalAttachment(input: {

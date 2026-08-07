@@ -269,6 +269,7 @@ export async function inspectSlackTokenLiveCheck(input: {
         title: 'Slack Token API Validation',
         status: 'pass',
         message: 'Slack bot/app tokens validated.',
+        warning: botValidation.warning,
       };
     }
     const failed = [botValidation, appValidation].filter((item) => !item.ok);
