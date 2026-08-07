@@ -235,6 +235,34 @@ describe('jobs/execution', () => {
     handleSystemJobMock.mockResolvedValue('System job completed.');
   });
 
+  it('uses the fake execution adapter with the required runner', async () => {
+    const job = makeJob({ model: 'not-a-catalog-model' });
+    const opsRepository = makeOpsRepository(job);
+    const runAgent = vi.fn(async () => ({
+      status: 'success',
+      result: 'fake adapter completed',
+    }));
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        runAgent: runAgent as never,
+        executionAdapter: { id: 'fake:test-execution' },
+      },
+      'tg:scheduler',
+    );
+
+    expect(runAgent).toHaveBeenCalledOnce();
+    expect(opsRepository.claimDueJobRunStart).toHaveBeenCalledWith(
+      expect.objectContaining({ executionProviderId: 'fake:test-execution' }),
+    );
+  });
+
   it('records a failed terminal run when execution throws before normal settlement', async () => {
     const job = makeJob();
     let observedLogContext: ReturnType<typeof currentLogContext> = undefined;

@@ -41,9 +41,7 @@ export type DurablePermissionRecoveryLocator =
 export type DurablePermissionRecoveryReceipt =
   | {
       status: 'resolved';
-      // Null for legacy durable rows recorded without a request snapshot -
-      // adapters must fall back to the generic `text`.
-      request: PermissionApprovalRequest | null;
+      request: PermissionApprovalRequest;
       decision: PermissionApprovalDecision;
       context: DurablePermissionInteractionContext;
       text?: string;
@@ -138,31 +136,18 @@ export async function recoverDurablePermissionDecision(
   const approverRef = expiringReviewEach
     ? 'system'
     : (persistedIntent?.intent.approverRef ?? hooks.incomingApprover);
-  const request = durable.request as PermissionApprovalRequest | null;
+  const request = durable.request;
   const decision = {
-    ...(request
-      ? decisionForMode(request, mode, approverRef, matchKind)
-      : {
-          approved: mode !== 'cancel',
-          mode,
-          decidedBy: approverRef,
-        }),
+    ...decisionForMode(request, mode, approverRef, matchKind),
     permissionCallbackClaim: claimed.claim,
   };
   try {
     if (
       !(await hooks.terminalize({
         status: 'resolved',
-        request: durable.request,
+        request,
         decision,
         context: durable,
-        ...(request
-          ? {}
-          : {
-              text: decision.approved
-                ? 'Permission allowed.'
-                : 'Permission cancelled.',
-            }),
       }))
     ) {
       if (!expiringReviewEach) {

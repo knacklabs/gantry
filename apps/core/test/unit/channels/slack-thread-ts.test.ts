@@ -13,9 +13,6 @@ describe('slackThreadTsFromThreadId', () => {
     expect(
       slackThreadTsFromThreadId('thread:sl:C1234567890:1711111111.000200'),
     ).toBe('1711111111.000200');
-    expect(
-      slackThreadTsFromThreadId('thread:slack:C1234567890:1711111111.000200'),
-    ).toBe('1711111111.000200');
   });
 
   it('omits empty or invalid values instead of sending malformed Slack payloads', () => {

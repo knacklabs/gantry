@@ -70,7 +70,7 @@ export interface SchedulerDependencies {
   ) => Promise<boolean>;
   resetStreaming?: (jid: string) => void;
   onSchedulerChanged?: (jobId?: string) => void;
-  runAgent?: typeof spawnAgent;
+  runAgent: typeof spawnAgent;
   collectSessionMemory?: SessionMemoryCollector;
   opsRepository: RuntimeJobRepository & RuntimeAgentSessionRepository;
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;

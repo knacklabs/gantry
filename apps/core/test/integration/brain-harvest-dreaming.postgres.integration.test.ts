@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 
+import { PostgresBrainDreamReviewRepository } from '@core/adapters/storage/postgres/repositories/brain-dream-review-repository.postgres.js';
 import { PostgresBrainRepository } from '@core/adapters/storage/postgres/repositories/brain-repository.postgres.js';
 import {
   _setRuntimeStorageForTest,
@@ -42,6 +43,7 @@ const fakeProvider: EmbeddingProvider = {
 maybeDescribe('brain harvest and dreaming postgres integration', () => {
   let runtime: PostgresIntegrationRuntime;
   let repo: PostgresBrainRepository;
+  let reviews: PostgresBrainDreamReviewRepository;
   let brain: BrainService;
   let harvester: BrainChannelHarvester;
 
@@ -51,6 +53,7 @@ maybeDescribe('brain harvest and dreaming postgres integration', () => {
     });
     _setRuntimeStorageForTest(runtime.storageRuntime);
     repo = new PostgresBrainRepository(runtime.service.db);
+    reviews = new PostgresBrainDreamReviewRepository(runtime.service.db);
     brain = new BrainService(repo);
     harvester = new BrainChannelHarvester(brain);
     runtimeForHelpers = runtime;
@@ -135,6 +138,7 @@ maybeDescribe('brain harvest and dreaming postgres integration', () => {
     const result = await runBrainDreamBatch({
       brain,
       repository: repo,
+      reviews,
       appId: 'default',
       proposer: {
         propose: async ({ pages }) => dreamOps(pages[0]!.id),
@@ -228,6 +232,7 @@ maybeDescribe('brain harvest and dreaming postgres integration', () => {
       runBrainDreamBatch({
         brain,
         repository: repo,
+        reviews,
         appId: 'default',
         proposer: {
           propose: async () => {
@@ -248,6 +253,7 @@ maybeDescribe('brain harvest and dreaming postgres integration', () => {
       runBrainDreamBatch({
         brain,
         repository: repo,
+        reviews,
         appId: 'default',
         proposer: { propose: async () => [] },
       }),

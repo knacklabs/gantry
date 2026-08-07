@@ -29,6 +29,146 @@ SUPPORTED_EXCEPTION_RULES = {
     "wrapper_only_file",
 }
 
+RUNTIME_COMPAT_KINDS = {
+    "silent_stale_state_migration",
+    "dual_read",
+    "ownership_reconstruction",
+    "remote_to_local_fail_open",
+}
+KNOWN_RUNTIME_COMPAT_SYMBOLS = {
+    "migrateLegacyAgentBindings": "silent_stale_state_migration",
+    "findLegacyBindingConversation": "dual_read",
+    "providerConnection": "dual_read",
+    "providerAccountForLegacyInstall": "ownership_reconstruction",
+    "readLegacyStateFallback": "dual_read",
+    "reconstructJobOwnerFromJid": "ownership_reconstruction",
+    "readLocalSkillArtifactFallback": "remote_to_local_fail_open",
+}
+MIGRATE_LEGACY_SYMBOL_PATTERN = re.compile(r"\bmigrateLegacy[A-Za-z0-9_$]*\b")
+RUNTIME_COMPAT_SYMBOL_PATTERNS = {
+    symbol: re.compile(rf"\b{re.escape(symbol)}\b")
+    for symbol in KNOWN_RUNTIME_COMPAT_SYMBOLS
+}
+RUNTIME_COMPAT_EXCEPTION_FIELDS = {
+    "file",
+    "symbol",
+    "owner",
+    "reason",
+    "introduced",
+    "removal_condition",
+    "remove_by",
+    "kind",
+    "maxViolations",
+}
+
+
+def runtime_compat_kind_for_symbol(symbol: str) -> str | None:
+    known_kind = KNOWN_RUNTIME_COMPAT_SYMBOLS.get(symbol)
+    if known_kind is not None:
+        return known_kind
+    if re.fullmatch(r"migrateLegacy[A-Za-z0-9_$]*", symbol):
+        return "silent_stale_state_migration"
+    return None
+
+
+def mask_comments_and_string_literals(source_text: str) -> str:
+    masked = list(source_text)
+    modes: list[tuple[str, int]] = [("code", 0)]
+    index = 0
+
+    def mask(position: int) -> None:
+        if masked[position] != "\n":
+            masked[position] = " "
+
+    while index < len(source_text):
+        mode, depth = modes[-1]
+        char = source_text[index]
+        next_char = source_text[index + 1] if index + 1 < len(source_text) else ""
+
+        if mode == "line_comment":
+            if char == "\n":
+                modes.pop()
+            else:
+                mask(index)
+            index += 1
+            continue
+
+        if mode == "block_comment":
+            mask(index)
+            if char == "*" and next_char == "/":
+                mask(index + 1)
+                modes.pop()
+                index += 2
+            else:
+                index += 1
+            continue
+
+        if mode in {"single_quote", "double_quote"}:
+            mask(index)
+            if char == "\\" and next_char:
+                mask(index + 1)
+                index += 2
+            else:
+                if (mode == "single_quote" and char == "'") or (
+                    mode == "double_quote" and char == '"'
+                ):
+                    modes.pop()
+                index += 1
+            continue
+
+        if mode == "template":
+            mask(index)
+            if char == "\\" and next_char:
+                mask(index + 1)
+                index += 2
+            elif char == "`":
+                modes.pop()
+                index += 1
+            elif char == "$" and next_char == "{":
+                mask(index + 1)
+                modes.append(("template_expression", 1))
+                index += 2
+            else:
+                index += 1
+            continue
+
+        if char == "/" and next_char == "/":
+            mask(index)
+            mask(index + 1)
+            modes.append(("line_comment", 0))
+            index += 2
+        elif char == "/" and next_char == "*":
+            mask(index)
+            mask(index + 1)
+            modes.append(("block_comment", 0))
+            index += 2
+        elif char == "'":
+            mask(index)
+            modes.append(("single_quote", 0))
+            index += 1
+        elif char == '"':
+            mask(index)
+            modes.append(("double_quote", 0))
+            index += 1
+        elif char == "`":
+            mask(index)
+            modes.append(("template", 0))
+            index += 1
+        elif mode == "template_expression" and char == "{":
+            modes[-1] = (mode, depth + 1)
+            index += 1
+        elif mode == "template_expression" and char == "}":
+            if depth == 1:
+                mask(index)
+                modes.pop()
+            else:
+                modes[-1] = (mode, depth - 1)
+            index += 1
+        else:
+            index += 1
+
+    return "".join(masked)
+
 ACTIVE_DOC_FILES = (
     "README.md",
     "AGENTS.md",
@@ -284,11 +424,33 @@ class ExceptionEntry:
     max_violations: int | None = None
 
 
+@dataclass(frozen=True)
+class RuntimeCompatException:
+    file: str
+    symbol: str
+    owner: str
+    reason: str
+    introduced: date
+    removal_condition: str
+    remove_by: date
+    kind: str
+    max_violations: int
+
+
 class ExceptionRegistry:
-    def __init__(self, entries: list[ExceptionEntry]) -> None:
+    def __init__(
+        self,
+        entries: list[ExceptionEntry],
+        runtime_compat_entries: list[RuntimeCompatException] | None = None,
+    ) -> None:
         self.entries = entries
+        self.runtime_compat_entries = runtime_compat_entries or []
         self.by_file_rule: dict[tuple[str, str], ExceptionEntry] = {
             (entry.file, entry.rule): entry for entry in entries
+        }
+        self.runtime_compat_by_file_symbol = {
+            (entry.file, entry.symbol): entry
+            for entry in self.runtime_compat_entries
         }
 
     def get(self, file: str, rule: str) -> ExceptionEntry | None:
@@ -306,6 +468,15 @@ class ExceptionRegistry:
             if key not in active_keys:
                 stale.append(f"{entry.file} has stale exception for `{entry.rule}`; remove it.")
         return stale
+
+    def stale_runtime_compat_entries(
+        self, active_keys: set[tuple[str, str]]
+    ) -> list[str]:
+        return [
+            f"{entry.file} has a stale runtime compat exception for `{entry.symbol}`; remove it."
+            for entry in self.runtime_compat_entries
+            if (entry.file, entry.symbol) not in active_keys
+        ]
 
 
 @dataclass(frozen=True)
@@ -489,11 +660,122 @@ def validate_exceptions(
         return ExceptionRegistry([]), issues
 
     entries: list[ExceptionEntry] = []
+    runtime_compat_entries: list[RuntimeCompatException] = []
     seen: set[tuple[str, str]] = set()
+    seen_runtime_compat_keys: set[tuple[str, str]] = set()
     for index, item in enumerate(payload):
         prefix = f"[{index}]"
         if not isinstance(item, dict):
             issues.append(f"{prefix} must be an object.")
+            continue
+
+        if "symbol" in item or "kind" in item:
+            item_issues: list[str] = []
+            missing = [
+                field
+                for field in sorted(RUNTIME_COMPAT_EXCEPTION_FIELDS)
+                if not str(item.get(field, "")).strip()
+            ]
+            if missing:
+                item_issues.append(
+                    f"{prefix} runtime compat exception is missing required fields: {', '.join(missing)}"
+                )
+            extra = sorted(set(item) - RUNTIME_COMPAT_EXCEPTION_FIELDS)
+            if extra:
+                item_issues.append(
+                    f"{prefix} runtime compat exception has unsupported fields: {', '.join(extra)}"
+                )
+
+            symbol = str(item.get("symbol", "")).strip()
+            target = normalize_repo_relative(str(item.get("file", "")).strip())
+            kind = str(item.get("kind", "")).strip()
+            expected_kind = runtime_compat_kind_for_symbol(symbol)
+            if expected_kind is None and symbol:
+                item_issues.append(
+                    f"{prefix} runtime compat exception names unknown symbol `{symbol}`."
+                )
+            if kind not in RUNTIME_COMPAT_KINDS:
+                item_issues.append(
+                    f"{prefix} runtime compat exception has unsupported kind `{kind}`."
+                )
+            elif expected_kind is not None and kind != expected_kind:
+                item_issues.append(
+                    f"{prefix} runtime compat exception kind `{kind}` does not match `{symbol}` ({expected_kind})."
+                )
+            target_path = root / target
+            if Path(target).is_absolute():
+                item_issues.append(f"{prefix} file must be repo-relative: {target}")
+            if not target:
+                item_issues.append(f"{prefix} file must be non-empty.")
+            elif not target_path.exists():
+                item_issues.append(f"{prefix} points to a missing file/path: {target}")
+            elif target not in production_files:
+                item_issues.append(f"{prefix} file is not a production source file: {target}")
+
+            key = (target, symbol)
+            if key in seen_runtime_compat_keys:
+                item_issues.append(
+                    f"{prefix} duplicates runtime compat file/symbol pair `{target}:{symbol}`."
+                )
+            seen_runtime_compat_keys.add(key)
+
+            max_violations = item.get("maxViolations")
+            if (
+                not isinstance(max_violations, int)
+                or isinstance(max_violations, bool)
+                or max_violations <= 0
+            ):
+                item_issues.append(
+                    f"{prefix} runtime compat exception maxViolations must be a positive integer."
+                )
+
+            introduced = None
+            remove_by = None
+            for field in ("introduced", "remove_by"):
+                raw_value = str(item.get(field, "")).strip()
+                if not raw_value:
+                    continue
+                try:
+                    parsed = date.fromisoformat(raw_value)
+                except ValueError:
+                    item_issues.append(
+                        f"{prefix} runtime compat exception {field} must be an ISO date (YYYY-MM-DD)."
+                    )
+                    continue
+                if field == "introduced":
+                    introduced = parsed
+                else:
+                    remove_by = parsed
+            if introduced is not None and introduced > today:
+                item_issues.append(
+                    f"{prefix} runtime compat exception introduced date cannot be in the future."
+                )
+            if remove_by is not None and remove_by < today:
+                item_issues.append(
+                    f"{prefix} runtime compat exception expired on {remove_by.isoformat()}."
+                )
+            if introduced is not None and remove_by is not None and remove_by <= introduced:
+                item_issues.append(
+                    f"{prefix} runtime compat exception remove_by must be after introduced."
+                )
+
+            if item_issues:
+                issues.extend(item_issues)
+                continue
+            assert introduced is not None and remove_by is not None
+            runtime_compat_entries.append(
+                RuntimeCompatException(
+                    file=target,
+                    symbol=symbol,
+                    owner=str(item["owner"]).strip(),
+                    reason=str(item["reason"]).strip(),
+                    introduced=introduced,
+                    removal_condition=str(item["removal_condition"]).strip(),
+                    remove_by=remove_by,
+                    kind=kind,
+                    max_violations=max_violations,
+                )
+            )
             continue
 
         item_issues: list[str] = []
@@ -558,7 +840,7 @@ def validate_exceptions(
             )
         )
 
-    return ExceptionRegistry(entries), sorted(issues)
+    return ExceptionRegistry(entries, runtime_compat_entries), sorted(issues)
 
 
 def load_provider_boundary_exceptions(
@@ -1344,6 +1626,49 @@ def check_old_terms(
             issues.add(f"{source_rel}:{line}: contains old architecture term `{first.group(0)}` ({rule}).")
             active_counts[(source_rel, rule)] = len(matches)
     return sorted(issues), active_counts
+
+
+def check_runtime_compat_branches(
+    production_files: list[Path],
+    root: Path,
+    exceptions: ExceptionRegistry,
+) -> tuple[list[str], set[tuple[str, str]]]:
+    issues: list[str] = []
+    active_keys: set[tuple[str, str]] = set()
+    for source_file in production_files:
+        source_rel = source_file.relative_to(root).as_posix()
+        source_text = source_file.read_text()
+        code_text = mask_comments_and_string_literals(source_text)
+        matches: dict[str, dict[tuple[int, int], re.Match[str]]] = {}
+        for symbol, pattern in RUNTIME_COMPAT_SYMBOL_PATTERNS.items():
+            for match in pattern.finditer(code_text):
+                matches.setdefault(symbol, {})[match.span()] = match
+        for match in MIGRATE_LEGACY_SYMBOL_PATTERN.finditer(code_text):
+            symbol = match.group(0)
+            matches.setdefault(symbol, {})[match.span()] = match
+
+        for symbol, matches_by_span in matches.items():
+            active_keys.add((source_rel, symbol))
+            entry = exceptions.runtime_compat_by_file_symbol.get(
+                (source_rel, symbol)
+            )
+            if entry is not None and len(matches_by_span) <= entry.max_violations:
+                continue
+            match = next(iter(matches_by_span.values()))
+            line = source_text.count("\n", 0, match.start()) + 1
+            kind = runtime_compat_kind_for_symbol(symbol)
+            assert kind is not None
+            if entry is None:
+                issues.append(
+                    f"{source_rel}:{line}: runtime compat symbol `{symbol}` ({kind}) requires a time-boxed architecture exception."
+                )
+            else:
+                issues.append(
+                    f"{source_rel}:{line}: runtime compat symbol `{symbol}` ({kind}) has "
+                    f"{len(matches_by_span)} violations but exception maxViolations is "
+                    f"{entry.max_violations}."
+                )
+    return sorted(issues), active_keys
 
 
 def check_empty_folders(
