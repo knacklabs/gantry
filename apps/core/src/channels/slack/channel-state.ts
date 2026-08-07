@@ -605,13 +605,22 @@ export abstract class SlackChannelState {
           targetFolder,
         );
         const label = file.name || file.title || 'attachment';
+        const attachmentId = file.id ? `slack-file:${file.id}` : undefined;
+        const attachmentMetadata = [
+          attachmentId ? `gantry_attachment=${attachmentId}` : undefined,
+          file.mimetype ? `content_type=${file.mimetype}` : undefined,
+        ].filter(Boolean);
+        const attachmentLabel =
+          attachmentMetadata.length > 0
+            ? `${label} (${attachmentMetadata.join(', ')})`
+            : label;
         lines.push(
           downloadResult.status === 'downloaded'
-            ? `Attachment: ${label}`
-            : `Attachment: ${label} (download unavailable: ${downloadResult.reason})`,
+            ? `Attachment: ${attachmentLabel}`
+            : `Attachment: ${attachmentLabel} (download unavailable: ${downloadResult.reason})`,
         );
         const attachment: SlackMessageAttachments[number] = {
-          id: file.id ? `slack-file:${file.id}` : undefined,
+          id: attachmentId,
           kind: file.mimetype?.startsWith('image/') ? 'image' : 'file',
           contentType: file.mimetype,
           externalId: file.id,
