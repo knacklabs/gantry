@@ -168,6 +168,7 @@ function terminalDeps(job: Job) {
     updateLifecycleNotification,
     opsRepository: repository,
     runAgent: vi.fn(),
+    executionAdapter: { id: 'fake:test-execution' },
     runnerSandboxProvider: { id: 'direct', enforcing: false } as never,
   } as unknown as SchedulerDependencies;
   return { deps, repository, sendMessage, updateLifecycleNotification };
