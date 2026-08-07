@@ -39,7 +39,6 @@ KNOWN_RUNTIME_COMPAT_SYMBOLS = {
     "migrateLegacyAgentBindings": "silent_stale_state_migration",
     "findLegacyBindingConversation": "dual_read",
     "providerConnection": "dual_read",
-    "channel-providerConnection:": "dual_read",
     "providerAccountForLegacyInstall": "ownership_reconstruction",
     "readLegacyStateFallback": "dual_read",
     "reconstructJobOwnerFromJid": "ownership_reconstruction",
@@ -47,11 +46,7 @@ KNOWN_RUNTIME_COMPAT_SYMBOLS = {
 }
 MIGRATE_LEGACY_SYMBOL_PATTERN = re.compile(r"\bmigrateLegacy[A-Za-z0-9_$]*\b")
 RUNTIME_COMPAT_SYMBOL_PATTERNS = {
-    symbol: re.compile(
-        rf"\b{re.escape(symbol)}\b"
-        if symbol != "channel-providerConnection:"
-        else rf"\b{re.escape(symbol)}"
-    )
+    symbol: re.compile(rf"\b{re.escape(symbol)}\b")
     for symbol in KNOWN_RUNTIME_COMPAT_SYMBOLS
 }
 RUNTIME_COMPAT_EXCEPTION_FIELDS = {
@@ -74,6 +69,105 @@ def runtime_compat_kind_for_symbol(symbol: str) -> str | None:
     if re.fullmatch(r"migrateLegacy[A-Za-z0-9_$]*", symbol):
         return "silent_stale_state_migration"
     return None
+
+
+def mask_comments_and_string_literals(source_text: str) -> str:
+    masked = list(source_text)
+    modes: list[tuple[str, int]] = [("code", 0)]
+    index = 0
+
+    def mask(position: int) -> None:
+        if masked[position] != "\n":
+            masked[position] = " "
+
+    while index < len(source_text):
+        mode, depth = modes[-1]
+        char = source_text[index]
+        next_char = source_text[index + 1] if index + 1 < len(source_text) else ""
+
+        if mode == "line_comment":
+            if char == "\n":
+                modes.pop()
+            else:
+                mask(index)
+            index += 1
+            continue
+
+        if mode == "block_comment":
+            mask(index)
+            if char == "*" and next_char == "/":
+                mask(index + 1)
+                modes.pop()
+                index += 2
+            else:
+                index += 1
+            continue
+
+        if mode in {"single_quote", "double_quote"}:
+            mask(index)
+            if char == "\\" and next_char:
+                mask(index + 1)
+                index += 2
+            else:
+                if (mode == "single_quote" and char == "'") or (
+                    mode == "double_quote" and char == '"'
+                ):
+                    modes.pop()
+                index += 1
+            continue
+
+        if mode == "template":
+            mask(index)
+            if char == "\\" and next_char:
+                mask(index + 1)
+                index += 2
+            elif char == "`":
+                modes.pop()
+                index += 1
+            elif char == "$" and next_char == "{":
+                mask(index + 1)
+                modes.append(("template_expression", 1))
+                index += 2
+            else:
+                index += 1
+            continue
+
+        if char == "/" and next_char == "/":
+            mask(index)
+            mask(index + 1)
+            modes.append(("line_comment", 0))
+            index += 2
+        elif char == "/" and next_char == "*":
+            mask(index)
+            mask(index + 1)
+            modes.append(("block_comment", 0))
+            index += 2
+        elif char == "'":
+            mask(index)
+            modes.append(("single_quote", 0))
+            index += 1
+        elif char == '"':
+            mask(index)
+            modes.append(("double_quote", 0))
+            index += 1
+        elif char == "`":
+            mask(index)
+            modes.append(("template", 0))
+            index += 1
+        elif mode == "template_expression" and char == "{":
+            modes[-1] = (mode, depth + 1)
+            index += 1
+        elif mode == "template_expression" and char == "}":
+            if depth == 1:
+                mask(index)
+                modes.pop()
+            else:
+                modes[-1] = (mode, depth - 1)
+            index += 1
+        else:
+            index += 1
+
+    return "".join(masked)
 
 ACTIVE_DOC_FILES = (
     "README.md",
@@ -1544,11 +1638,12 @@ def check_runtime_compat_branches(
     for source_file in production_files:
         source_rel = source_file.relative_to(root).as_posix()
         source_text = source_file.read_text()
+        code_text = mask_comments_and_string_literals(source_text)
         matches: dict[str, dict[tuple[int, int], re.Match[str]]] = {}
         for symbol, pattern in RUNTIME_COMPAT_SYMBOL_PATTERNS.items():
-            for match in pattern.finditer(source_text):
+            for match in pattern.finditer(code_text):
                 matches.setdefault(symbol, {})[match.span()] = match
-        for match in MIGRATE_LEGACY_SYMBOL_PATTERN.finditer(source_text):
+        for match in MIGRATE_LEGACY_SYMBOL_PATTERN.finditer(code_text):
             symbol = match.group(0)
             matches.setdefault(symbol, {})[match.span()] = match
 

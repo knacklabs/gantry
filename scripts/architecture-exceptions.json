@@ -1590,17 +1590,6 @@
   "maxViolations": 3
  },
  {
-  "file": "apps/core/src/config/settings/desired-state-current-export.ts",
-  "symbol": "channel-providerConnection:",
-  "owner": "settings",
-  "reason": "Deferred channel-providerConnection prefix reader removal in desired-state export, LEGACY follow-up",
-  "introduced": "2026-08-07",
-  "removal_condition": "The channel-providerConnection prefix reader is removed",
-  "remove_by": "2026-08-28",
-  "kind": "dual_read",
-  "maxViolations": 1
- },
- {
   "file": "apps/core/src/config/settings/runtime-settings-parser.ts",
   "symbol": "providerConnection",
   "owner": "settings",

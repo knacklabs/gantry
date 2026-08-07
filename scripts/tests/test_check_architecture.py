@@ -360,17 +360,34 @@ class CheckArchitectureTests(unittest.TestCase):
                 self.assertIn("[Runtime Compatibility Branches]", result.stdout)
                 self.assertIn("`providerConnection` (dual_read)", result.stdout)
 
-    def test_channel_provider_connection_prefix_is_caught(self) -> None:
+    def test_runtime_compat_tokens_in_comments_and_strings_are_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = make_base_fixture(Path(tmp))
             write_text(
                 root / "apps/core/src/runtime/compat-branch.ts",
-                "export const legacyPrefix = 'channel-providerConnection:';\n",
+                """// providerConnection is rejected below, not read.
+/* migrateLegacyWorkspaceState was removed. */
+export function rejectLegacyInput(): never {
+  throw new Error('providerConnection and channel-providerConnection: are unsupported');
+}
+export const migrationNote = "findLegacyBindingConversation was removed";
+export const explanation = `readLegacyStateFallback is not available`;
+""",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+    def test_runtime_compat_identifier_in_template_expression_is_caught(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/compat-branch.ts",
+                "export const message = `active: ${conversation.providerConnection}`;\n",
             )
             result = run_architecture_check(root)
             self.assertEqual(result.returncode, 1)
             self.assertIn("[Runtime Compatibility Branches]", result.stdout)
-            self.assertIn("`channel-providerConnection:` (dual_read)", result.stdout)
+            self.assertIn("`providerConnection` (dual_read)", result.stdout)
 
     def test_unrelated_connection_fallback_does_not_trip_runtime_rule(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

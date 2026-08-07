@@ -35,8 +35,11 @@ Explicitly **allowed without an exception** (not internal-state compat):
 reject-only validation of a stale field; external protocol / vendor
 compatibility (OTel keys, SDK entry points); a time-boxed rolling-deployment
 bridge (which still needs a record); historical migration files. The rule
-operates on a small exact exception list plus known symbols/files — never a raw
-keyword ban on "legacy"/"compat" (false positives).
+operates on a small exact list of known identifiers after comments and string
+literals are removed — never a raw keyword ban on "legacy"/"compat" (false
+positives). This is an intentional backstop for those exact known symbols, not
+a complete detector for newly invented compatibility names; expanding the
+sentinel list when review finds a new seam is the accepted tradeoff.
 
 ## Consequences
 
