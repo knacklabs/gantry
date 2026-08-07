@@ -21,6 +21,7 @@ import {
 import { agentIdForJobWorkspaceKey } from './job-tool-policy.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import {
+  raiseSetupPausePermissionPrompt,
   retireSetupPausePermissionPrompt,
   setupPausePermissionRequestId,
 } from './setup-pause-permission-prompt.js';
@@ -125,6 +126,7 @@ export async function recheckSetupPausedJobsAfterCapabilityUpdate(
         }
         continue;
       }
+      const previousFingerprint = job.setup_state?.fingerprint;
       const refreshed = await input.opsRepository.refreshSetupPausedJob({
         jobId: job.id,
         expectedSetupCheckedAt: job.setup_state?.checked_at ?? job.updated_at,
@@ -132,6 +134,12 @@ export async function recheckSetupPausedJobsAfterCapabilityUpdate(
         setupState: readiness.setupState,
       });
       if (!refreshed) continue;
+      await notifyStillBlockedSetupPrompt({
+        recheckInput: input,
+        job,
+        setupState: readiness.setupState,
+        previousFingerprint,
+      });
       stillBlocked.push({
         jobId: job.id,
         name: job.name,
@@ -159,6 +167,38 @@ export async function recheckSetupPausedJobsAfterCapabilityUpdate(
     queued,
     stillBlocked,
   };
+}
+
+async function notifyStillBlockedSetupPrompt(notification: {
+  recheckInput: RecheckPausedJobsAfterCapabilityUpdateInput;
+  job: Job;
+  setupState: NonNullable<Job['setup_state']>;
+  previousFingerprint?: string;
+}): Promise<void> {
+  if (
+    notification.setupState.notified_fingerprint ===
+    notification.setupState.fingerprint
+  ) {
+    return;
+  }
+  try {
+    const prompt = await raiseSetupPausePermissionPrompt({
+      jobId: notification.job.id,
+      setupFingerprint: notification.setupState.fingerprint,
+      previousFingerprint: notification.previousFingerprint,
+      source: 'permission_denied',
+    });
+    if (prompt.status !== 'raised' || !(await prompt.delivered)) return;
+    await notification.recheckInput.opsRepository.markJobSetupNotified(
+      notification.job.id,
+      notification.setupState.fingerprint,
+    );
+  } catch (err) {
+    logger.warn(
+      { err, jobId: notification.job.id },
+      'Failed to notify setup pause after partial recovery',
+    );
+  }
 }
 
 async function listCandidateJobs(

@@ -364,6 +364,25 @@ describe('lifecycle retirement', () => {
     expect(sendProgressUpdate).toHaveBeenCalledTimes(callsAfterExit);
   });
 
+  it('retires the lifecycle card when the failed-run failsafe rejects', async () => {
+    const job = makeJob();
+    const primary = terminalDeps(job);
+    primary.repository.getJobRunById.mockRejectedValue(
+      new Error('run lookup failed'),
+    );
+    primary.repository.finalizeJobRunLease.mockRejectedValue(
+      new Error('database unavailable'),
+    );
+
+    await expect(runJob(job, primary.deps, 'tg:scheduler')).rejects.toThrow(
+      'run lookup failed',
+    );
+
+    expect(primary.updateLifecycleNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ job, runStatus: 'failed' }),
+    );
+  });
+
   it('stops heartbeat and persists failure before a stalled lifecycle retirement', async () => {
     vi.useFakeTimers();
     const job = makeJob();

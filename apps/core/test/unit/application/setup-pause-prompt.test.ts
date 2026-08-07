@@ -568,6 +568,76 @@ describe('setup pause prompts', () => {
     );
   });
 
+  it('uses a later mapped blocker when the first has no usable review suggestions', async () => {
+    const job = makeJob({
+      access_requirements: [
+        { target: { kind: 'tool_rule', rule: 'RunCommand(npm run first *)' } },
+        { target: { kind: 'tool_rule', rule: 'RunCommand(npm run second *)' } },
+      ],
+      setup_state: {
+        state: 'missing_capability',
+        checked_at: '2026-08-05T00:00:00.000Z',
+        fingerprint: 'mixed-reviewability',
+        blockers: [
+          {
+            state: 'missing_capability',
+            requirementType: 'tool',
+            requirementId: 'RunCommand(npm run first *)',
+            message: 'First tool missing.',
+            nextAction: 'Review the first tool.',
+          },
+          {
+            state: 'missing_capability',
+            requirementType: 'tool',
+            requirementId: 'RunCommand(npm run second *)',
+            message: 'Second tool missing.',
+            nextAction: 'Review the second tool.',
+          },
+        ],
+      },
+    });
+    let request: PermissionApprovalRequest | undefined;
+    const reviewStoredRequirement = vi.fn(async ({ toolInput }) =>
+      toolInput.rule === 'npm run second *'
+        ? {
+            suggestions: [
+              {
+                type: 'addRules' as const,
+                behavior: 'allow' as const,
+                destination: 'session' as const,
+                rules: [{ toolName: 'RunCommand', rule: 'npm run second *' }],
+              },
+            ],
+            decisionOptions: [
+              'allow_persistent_rule' as const,
+              'cancel' as const,
+            ],
+          }
+        : { suggestions: [], decisionOptions: ['cancel' as const] },
+    );
+    configure({
+      job: () => job,
+      reviewStoredRequirement,
+      requestPermissionApproval: async (input, delivered) => {
+        request = input;
+        delivered('prompt-1');
+        return cancelledDecision();
+      },
+    });
+
+    await expect(
+      raiseSetupPausePermissionPrompt({
+        jobId: job.id,
+        setupFingerprint: job.setup_state!.fingerprint,
+      }),
+    ).resolves.toMatchObject({ status: 'raised' });
+
+    expect(reviewStoredRequirement).toHaveBeenCalledTimes(2);
+    expect(request).toMatchObject({
+      toolInput: { toolName: 'RunCommand', rule: 'npm run second *' },
+    });
+  });
+
   it('does not prompt silent jobs or a fingerprint already marked notified', async () => {
     const runPermissionInteraction = vi.fn();
     let job = makeJob({ silent: true });

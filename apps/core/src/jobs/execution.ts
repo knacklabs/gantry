@@ -814,17 +814,17 @@ async function runActiveJob(
     }
   } finally {
     leaseHeartbeat.stop();
-    if (!settled && !deleted)
-      await completeFailedRunFailsafe({
-        opsRepository: deps.opsRepository,
-        jobId: currentJob.id,
-        runId,
-        leaseToken: leaseContext.lease.leaseToken,
-        workerInstanceId: leaseContext.lease.workerInstanceId,
-        fencingVersion: leaseContext.lease.fencingVersion,
-        recordRunnerControlEvent: leaseContext.recordRunnerControlEvent,
-        logger,
-      });
-    await retireExecutionLifecycle(currentJob, runId, deleted, settled, deps);
+    try {
+      if (!settled && !deleted)
+        await completeFailedRunFailsafe({
+          opsRepository: deps.opsRepository,
+          ...leaseContext.lease,
+          jobId: currentJob.id,
+          recordRunnerControlEvent: leaseContext.recordRunnerControlEvent,
+          logger,
+        });
+    } finally {
+      await retireExecutionLifecycle(currentJob, runId, deleted, settled, deps);
+    }
   }
 }

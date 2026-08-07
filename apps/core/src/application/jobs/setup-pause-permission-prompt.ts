@@ -132,20 +132,33 @@ export async function raiseSetupPausePermissionPrompt(input: {
     return { status: 'instruction_only', notificationEligible: false };
   }
 
-  const requirement = storedGrantableRequirement(job, setupState.blockers);
+  const requirements = storedGrantableRequirements(job, setupState.blockers);
   const approverRoute = setupPauseApproverRoute(job);
-  if (!requirement || !approverRoute) {
+  if (!requirements.length || !approverRoute) {
     return { status: 'instruction_only', notificationEligible: true };
   }
   const agentId = agentIdForJobWorkspaceKey(job.workspace_key);
-  const reviewed = await deps.reviewStoredRequirement({
-    appId,
-    agentId,
-    toolInput: requirement.toolInput,
-  });
-  if (!reviewed?.suggestions.length) {
+  let selected:
+    | {
+        requirement: (typeof requirements)[number];
+        reviewed: SetupPauseReviewedRequirement;
+      }
+    | undefined;
+  for (const requirement of requirements) {
+    const reviewed = await deps.reviewStoredRequirement({
+      appId,
+      agentId,
+      toolInput: requirement.toolInput,
+    });
+    if (reviewed?.suggestions.length) {
+      selected = { requirement, reviewed };
+      break;
+    }
+  }
+  if (!selected) {
     return { status: 'instruction_only', notificationEligible: true };
   }
+  const { requirement, reviewed } = selected;
 
   const requestId = setupPausePermissionRequestId(
     job.id,
@@ -285,14 +298,19 @@ export function setupPauseApproverRoute(
   };
 }
 
-function storedGrantableRequirement(
+function storedGrantableRequirements(
   job: Job,
   blockers: readonly JobSetupBlocker[],
 ): {
   blocker: JobSetupBlocker;
   displayName: string;
   toolInput: Record<string, unknown>;
-} | null {
+}[] {
+  const requirements: {
+    blocker: JobSetupBlocker;
+    displayName: string;
+    toolInput: Record<string, unknown>;
+  }[] = [];
   for (const blocker of blockers) {
     if (
       blocker.state !== 'missing_capability' ||
@@ -306,9 +324,9 @@ function storedGrantableRequirement(
       job.access_requirements ?? [],
       blocker,
     );
-    if (mapped) return { blocker, ...mapped };
+    if (mapped) requirements.push({ blocker, ...mapped });
   }
-  return null;
+  return requirements;
 }
 
 function storedRequirementForBlocker(

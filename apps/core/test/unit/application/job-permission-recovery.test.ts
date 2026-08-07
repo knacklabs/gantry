@@ -538,4 +538,101 @@ describe('permission recovery', () => {
     expect(result).toEqual({ checked: 0, queued: [], stillBlocked: [] });
     expect(job.pause_reason).toBe('Paused by an administrator');
   });
+
+  it('retries a failed replacement prompt and does not re-raise after confirmed delivery', async () => {
+    const job = pausedJob(1);
+    job.access_requirements = [
+      { target: { kind: 'tool_rule', rule: 'Browser' } },
+    ];
+    const oldFingerprint = job.setup_state!.fingerprint;
+    const cancelPermissionApproval = vi.fn(async () => 'settled' as const);
+    let promptAttempt = 0;
+    const runPermissionInteraction = vi.fn(
+      async (_request, delivered: (messageId: string) => void, began) => {
+        promptAttempt += 1;
+        if (promptAttempt === 1) throw new Error('provider unavailable');
+        began();
+        delivered('prompt-2');
+        return {
+          began: true,
+          decision: { approved: false, mode: 'cancel', decidedBy: 'owner-1' },
+          resolved: true,
+        } as const;
+      },
+    );
+    configureSetupPausePermissionPrompt({
+      appId: 'default',
+      getJobById: vi.fn(async () => job),
+      cancelPermissionApproval,
+      runPermissionInteraction,
+      reviewStoredRequirement: vi.fn(async () => ({
+        suggestions: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            destination: 'session',
+            rules: [{ toolName: 'Browser' }],
+          },
+        ],
+        decisionOptions: ['allow_persistent_rule', 'cancel'],
+      })),
+    });
+
+    try {
+      const markJobSetupNotified = vi.fn(
+        async (_jobId: string, expectedFingerprint: string) => {
+          job.setup_state!.notified_fingerprint = expectedFingerprint;
+          return true;
+        },
+      );
+      const input = {
+        appId: 'default',
+        sourceAgentFolder: 'team',
+        jobId: job.id,
+        recoveringPermissionRequestId: setupPausePermissionRequestId(
+          job.id,
+          oldFingerprint,
+        ),
+        opsRepository: {
+          getJobById: vi.fn(async () => job),
+          refreshSetupPausedJob: vi.fn(async ({ setupState }) => {
+            job.setup_state = setupState;
+            return true;
+          }),
+          markJobSetupNotified,
+        } as unknown as RuntimeJobRepository,
+        scheduler: { requestSchedulerSync: vi.fn() },
+        getBrowserStatus: vi.fn(async () => ({ hasState: false })),
+        clock: { now: () => '2026-08-06T00:05:00.000Z' },
+      };
+
+      const first = await recheckSetupPausedJobsAfterCapabilityUpdate(input);
+
+      expect(first.stillBlocked).toHaveLength(1);
+      expect(job.setup_state!.fingerprint).not.toBe(oldFingerprint);
+      expect(markJobSetupNotified).not.toHaveBeenCalled();
+      expect(cancelPermissionApproval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestId: setupPausePermissionRequestId(job.id, oldFingerprint),
+        }),
+      );
+      expect(runPermissionInteraction).toHaveBeenCalledTimes(1);
+
+      await recheckSetupPausedJobsAfterCapabilityUpdate(input);
+
+      const refreshedFingerprint = job.setup_state!.fingerprint;
+      expect(runPermissionInteraction).toHaveBeenCalledTimes(2);
+      expect(markJobSetupNotified).toHaveBeenCalledWith(
+        job.id,
+        refreshedFingerprint,
+      );
+
+      await recheckSetupPausedJobsAfterCapabilityUpdate(input);
+
+      expect(runPermissionInteraction).toHaveBeenCalledTimes(2);
+      expect(markJobSetupNotified).toHaveBeenCalledTimes(1);
+    } finally {
+      configureSetupPausePermissionPrompt(null);
+    }
+  });
 });
