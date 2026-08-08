@@ -49,7 +49,7 @@ export interface DeepAgentsPermissionDenial {
 //   - The hard, non-grantable policy boundaries (protected-capability, memory,
 //     settings-owned yolo denylist) are caught by evaluateNeutralToolPreChecks in
 //     the wrapper BEFORE this helper. On a scheduled run those are routed through
-//     the terminal onPermissionDenied handler via preCheckDenial() with
+//     the terminal onPermissionDenied handler via preCheckDenialResult() with
 //     grantable:false (a legible instruction card), so they terminate the run too
 //     rather than letting the model silently pick another tool.
 //   - Locked-preset / fixed-image agents set capabilityRequestToolsHidden, which
@@ -76,21 +76,26 @@ export function deepAgentsDenial(
   };
 }
 
-// A neutral pre-check failure (protected-capability, memory-boundary, settings
-// yolo denylist) is a hard boundary a durable grant cannot overcome, so it is
-// always non-grantable and routes to a legible instruction-only card. The
-// wrappers pass this to onPermissionDenied on scheduled runs so the denial
-// terminates the turn instead of reaching the model as an ordinary tool message.
-export function preCheckDenial(
+// Resolve a neutral pre-check failure (protected-capability, memory-boundary,
+// settings yolo denylist). These are hard boundaries a durable grant cannot
+// overcome, so on a scheduled run (onPermissionDenied present) they terminate the
+// turn as a non-grantable instruction rather than reaching the model as an
+// ordinary tool message it could ignore and work around; interactive runs keep
+// the ordinary tool-error result.
+export function preCheckDenialResult(
+  config: Pick<ThirdPartyMcpGateConfig, 'onPermissionDenied'>,
   toolName: string,
   preChecks: { reason: string },
-): DeepAgentsPermissionDenial {
-  return {
-    toolName,
-    reason: preChecks.reason,
-    grantable: false,
-    recoveryAction: preChecks.reason,
-  };
+): unknown {
+  if (config.onPermissionDenied) {
+    return config.onPermissionDenied({
+      toolName,
+      reason: preChecks.reason,
+      grantable: false,
+      recoveryAction: preChecks.reason,
+    });
+  }
+  return gatedToolErrorResult(preChecks.reason);
 }
 
 export function wrapThirdPartyMcpToolsWithGate(
@@ -123,10 +128,7 @@ function wrapOne(
       yoloMode: config.gateContext.yoloMode,
     });
     if (preChecks) {
-      if (config.onPermissionDenied) {
-        return config.onPermissionDenied(preCheckDenial(toolName, preChecks));
-      }
-      return denyMessage(preChecks.reason);
+      return preCheckDenialResult(config, toolName, preChecks);
     }
 
     const approval = await requestPermissionApprovalViaIpc(

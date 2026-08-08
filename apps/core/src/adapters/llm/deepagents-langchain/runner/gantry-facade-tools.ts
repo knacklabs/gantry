@@ -27,7 +27,7 @@ import {
 import {
   deepAgentsDenial,
   gatedToolErrorResult,
-  preCheckDenial,
+  preCheckDenialResult,
   type ThirdPartyMcpGateConfig,
 } from './third-party-mcp-gate.js';
 import { evaluateAgentDelegationAsyncBridge } from './agent-delegation-async-bridge.js';
@@ -112,12 +112,7 @@ function createOneFacadeTool(
         memoryBlock: config.memoryBlock,
         yoloMode: config.gateContext.yoloMode,
       });
-      if (preChecks) {
-        if (config.onPermissionDenied) {
-          return config.onPermissionDenied(preCheckDenial(toolName, preChecks));
-        }
-        return gatedToolErrorResult(preChecks.reason);
-      }
+      if (preChecks) return preCheckDenialResult(config, toolName, preChecks);
 
       const approval = await requestPermissionApprovalViaIpc(
         config.permissionEnv,

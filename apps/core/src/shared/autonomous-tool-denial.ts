@@ -55,12 +55,12 @@ export function parseAutonomousToolDenial(
   const recoveryMatch = value.match(/Recovery:\s*([\s\S]+)$/i);
   const grantableMatch = value.match(/Grantable:\s*(true|false)\b/i);
   const recoveryAction = recoveryMatch?.[1]?.trim();
-  // Anthropic denials use the legacy `Recovery: request_access ...` format with no
-  // explicit `Grantable:` marker (the structured formatter is wired only into the
-  // DeepAgents lane). Without inferring grantability here, finalization would see
-  // grantable === undefined, treat it as non-grantable, and downgrade a genuinely
-  // grantable denial to an instruction-only card that never offers the approval
-  // needed to resume the job. Derive it from the recovery action when no marker.
+  // The legacy `Recovery: request_access ...` message format carries no explicit
+  // `Grantable:` marker (only the DeepAgents lane emits the structured formatter).
+  // Without inferring grantability here, finalization would see grantable ===
+  // undefined, treat it as non-grantable, and downgrade a genuinely grantable
+  // denial to an instruction-only card that never offers the approval needed to
+  // resume the job. Derive it from the recovery action when no marker is present.
   const grantable = grantableMatch
     ? grantableMatch[1]?.toLowerCase() === 'true'
     : recoveryAction !== undefined
