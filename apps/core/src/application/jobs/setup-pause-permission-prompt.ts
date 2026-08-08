@@ -388,6 +388,8 @@ function candidateRule(
 function suggestedRequirementForBlocker(
   blocker: JobSetupBlocker,
 ): Omit<GrantableRequirementCandidate, 'blocker'> | null {
+  const scopedRunCommand = scopedRunCommandFromRecoveryAction(blocker);
+  if (scopedRunCommand) return scopedRunCommand;
   if (blocker.requirementType === 'local_cli') return null;
   if (blocker.requirementType === 'semantic_capability') {
     const capabilityId =
@@ -420,6 +422,58 @@ function suggestedRequirementForBlocker(
         permissionKind: 'tool',
         toolName: parsed.toolName,
         ...(parsed.rule ? { rule: parsed.rule } : {}),
+        effect: 'persistent_rule_when_always_allowed',
+      },
+      suggestedRequirement: {
+        target: { kind: 'tool_rule', rule: canonicalRule },
+        reason: `Required after ${setupBlockerLabel(blocker, blocker.state)} was denied.`,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+function scopedRunCommandFromRecoveryAction(
+  blocker: JobSetupBlocker,
+): Omit<GrantableRequirementCandidate, 'blocker'> | null {
+  if (
+    !['local_cli', 'tool'].includes(blocker.requirementType) ||
+    blocker.requirementId !== RUN_COMMAND_TOOL_NAME
+  ) {
+    return null;
+  }
+  const prefix = 'request_access ';
+  const action = blocker.nextAction.trim();
+  if (!action.startsWith(prefix)) return null;
+  try {
+    const request = JSON.parse(action.slice(prefix.length)) as Record<
+      string,
+      unknown
+    >;
+    const target = request.target;
+    if (
+      !target ||
+      typeof target !== 'object' ||
+      (target as Record<string, unknown>).kind !== 'run_command' ||
+      request.temporaryOnly !== false
+    ) {
+      return null;
+    }
+    const argvPattern = (target as Record<string, unknown>).argvPattern;
+    if (typeof argvPattern !== 'string' || !argvPattern.trim()) return null;
+    const canonicalRule = normalizeToolAccessRequirements([
+      `${RUN_COMMAND_TOOL_NAME}(${argvPattern})`,
+    ])[0];
+    if (!canonicalRule) return null;
+    const parsed = splitToolRule(canonicalRule);
+    if (!parsed?.rule || parsed.toolName !== RUN_COMMAND_TOOL_NAME) return null;
+    return {
+      displayName: setupBlockerLabel(blocker, blocker.state),
+      toolInput: {
+        permissionKind: 'tool',
+        toolName: parsed.toolName,
+        rule: parsed.rule,
         effect: 'persistent_rule_when_always_allowed',
       },
       suggestedRequirement: {
