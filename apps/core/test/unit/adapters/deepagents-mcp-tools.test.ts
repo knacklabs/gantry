@@ -132,7 +132,7 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
         memoryBlock: '',
         gateContext: { conversationId: 'tg:group' },
         permissionEnv: {},
-        lockedAccessPreset: false,
+        capabilityRequestToolsHidden: false,
       } as never,
     });
     const config = mcpState.clientConfigs[0] as {
@@ -188,7 +188,7 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
         memoryBlock: '',
         gateContext: { conversationId: 'tg:group' },
         permissionEnv: {},
-        lockedAccessPreset: false,
+        capabilityRequestToolsHidden: false,
       } as never,
     });
 
@@ -243,7 +243,7 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
         memoryBlock: '',
         gateContext: { conversationId: 'tg:group' },
         permissionEnv: {},
-        lockedAccessPreset: false,
+        capabilityRequestToolsHidden: false,
       } as never,
     });
 
@@ -272,7 +272,7 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
         memoryBlock: '',
         gateContext: { conversationId: 'tg:group' },
         permissionEnv: {},
-        lockedAccessPreset: true,
+        capabilityRequestToolsHidden: true,
       } as never,
     });
 
@@ -308,7 +308,7 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
         memoryBlock: '',
         gateContext: { conversationId: 'tg:group' },
         permissionEnv: {},
-        lockedAccessPreset: true,
+        capabilityRequestToolsHidden: true,
       } as never,
     });
 
@@ -347,7 +347,7 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
         memoryBlock: '',
         gateContext: { conversationId: 'tg:group' },
         permissionEnv: {},
-        lockedAccessPreset: true,
+        capabilityRequestToolsHidden: true,
       } as never,
     });
 
@@ -394,7 +394,7 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
         memoryBlock: '',
         gateContext: { conversationId: 'tg:group' },
         permissionEnv: {},
-        lockedAccessPreset: true,
+        capabilityRequestToolsHidden: true,
       } as never,
     });
     const delegated = connected.tools.find(
@@ -449,7 +449,7 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
         memoryBlock: '',
         gateContext: { conversationId: 'tg:group' },
         permissionEnv: {},
-        lockedAccessPreset: true,
+        capabilityRequestToolsHidden: true,
       } as never,
     });
     const shell = connected.tools.find(({ name }) => name === 'RunCommand');
@@ -528,7 +528,7 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
         memoryBlock: '',
         gateContext: { conversationId: 'tg:group' },
         permissionEnv: {},
-        lockedAccessPreset: true,
+        capabilityRequestToolsHidden: true,
       } as never,
     });
     const prior = connected.tools.find(({ name }) => name === 'send_message');

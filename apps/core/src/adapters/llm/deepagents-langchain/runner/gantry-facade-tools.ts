@@ -25,7 +25,9 @@ import {
   writeFileNoFollow,
 } from './gantry-facade-file-safety.js';
 import {
+  deepAgentsDenial,
   gatedToolErrorResult,
+  preCheckDenialResult,
   type ThirdPartyMcpGateConfig,
 } from './third-party-mcp-gate.js';
 import { evaluateAgentDelegationAsyncBridge } from './agent-delegation-async-bridge.js';
@@ -51,7 +53,8 @@ export interface GantryFacadeToolsConfig {
   toolNetworkEnv?: Record<string, string>;
   gateContext: ThirdPartyMcpGateConfig['gateContext'];
   permissionEnv: PermissionIpcRuntimeEnv;
-  lockedAccessPreset: boolean;
+  capabilityRequestToolsHidden: boolean;
+  onPermissionDenied?: ThirdPartyMcpGateConfig['onPermissionDenied'];
   filesystemToolsEnabled: boolean;
   asyncTaskToolsEnabled?: boolean;
   delegateTaskTool?: StructuredToolInterface;
@@ -89,6 +92,7 @@ function createOneFacadeTool(
 ): StructuredToolInterface {
   return tool(
     async (input: unknown): Promise<unknown> => {
+      config.signal?.throwIfAborted();
       if (isConversationAttachmentFacadeRequest(toolName, input)) {
         return gatedToolErrorResult(
           CONVERSATION_ATTACHMENT_TOOL_GUIDANCE,
@@ -108,7 +112,7 @@ function createOneFacadeTool(
         memoryBlock: config.memoryBlock,
         yoloMode: config.gateContext.yoloMode,
       });
-      if (preChecks) return gatedToolErrorResult(preChecks.reason);
+      if (preChecks) return preCheckDenialResult(config, toolName, preChecks);
 
       const approval = await requestPermissionApprovalViaIpc(
         config.permissionEnv,
@@ -124,10 +128,15 @@ function createOneFacadeTool(
         },
       );
       if (!approval.approved) {
-        return gatedToolErrorResult(
-          `Permission denied: ${approval.reason || 'Denied by operator'}`,
-        );
+        const reason = approval.reason || 'Denied by operator';
+        if (config.onPermissionDenied) {
+          return config.onPermissionDenied(
+            deepAgentsDenial(config, toolName, policyRequest, reason),
+          );
+        }
+        return gatedToolErrorResult(`Permission denied: ${reason}`);
       }
+      config.signal?.throwIfAborted();
       return executeFacadeTool(toolName, input, config);
     },
     {

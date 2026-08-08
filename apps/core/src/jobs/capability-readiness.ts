@@ -131,6 +131,7 @@ function missingFleetCapabilityBlocker(capabilityId: string): JobSetupBlocker {
     state: 'missing_capability',
     requirementType: 'semantic_capability',
     requirementId: capabilityId,
+    grantable: false,
     message: `Setup required: ${describeFleetCapability(capabilityId)} is needed by this job but no active worker provides it.`,
     nextAction: fleetCapabilityNextAction(capabilityId),
   };

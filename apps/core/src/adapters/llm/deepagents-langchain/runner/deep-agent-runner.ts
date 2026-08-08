@@ -38,8 +38,10 @@ import type {
   DeepAgentCheckpointTiming,
 } from './session-store.js';
 import type { RunnerOutputFrame } from '../../../../runner/runner-frame.js';
+import { formatAutonomousToolDenial } from '../../../../shared/autonomous-tool-denial.js';
 import { nowMs } from '../../../../shared/time/datetime.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
+import type { DeepAgentsPermissionDenial } from './third-party-mcp-gate.js';
 
 // Raw DeepAgents authority is fully disabled in v1: the default StateBackend has
 // no `execute` tool, and filesystem permissions deny reads/writes unless the
@@ -110,6 +112,11 @@ export async function runDeepAgentTurn(input: {
   signal?: AbortSignal;
 }): Promise<DeepAgentTurnResult> {
   const startedAt = nowMs();
+  const terminalPermissionAbort = new AbortController();
+  const turnSignal = input.signal
+    ? AbortSignal.any([input.signal, terminalPermissionAbort.signal])
+    : terminalPermissionAbort.signal;
+  let terminalPermissionDenial: Error | undefined;
   const logElapsed = (message: string) => {
     input.log?.(`${message} after ${Math.max(0, nowMs() - startedAt)}ms`);
   };
@@ -207,7 +214,7 @@ export async function runDeepAgentTurn(input: {
       // The gated shell tool (when projected) runs commands as a child of this
       // already-sandboxed runner; thread the run-cancellation signal so an
       // in-flight command is killed on STOP/close.
-      ...(input.signal ? { shellSignal: input.signal } : {}),
+      shellSignal: turnSignal,
       gate: {
         workspaceFolder: input.agentInput.workspaceFolder,
         memoryBlock,
@@ -219,8 +226,62 @@ export async function runDeepAgentTurn(input: {
           yoloMode: input.agentInput.yoloMode,
         },
         permissionEnv,
-        lockedAccessPreset: process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked',
-        ...(input.signal ? { signal: input.signal } : {}),
+        capabilityRequestToolsHidden:
+          process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked' ||
+          input.agentInput.hideAuthorityTools === true,
+        ...(input.agentInput.isScheduledJob && input.agentInput.jobId
+          ? {
+              onPermissionDenied: (
+                denial: DeepAgentsPermissionDenial,
+              ): never => {
+                // Parallel tool calls can both reach this callback. The first
+                // denial terminates the turn and owns the recovery card; a
+                // sibling denial that resolves afterward must not emit a second
+                // terminal event or overwrite which tool/grantability the card
+                // reports. Make the first denial sticky and re-throw it.
+                if (terminalPermissionDenial) {
+                  throw terminalPermissionDenial;
+                }
+                input.emit({
+                  status: 'success',
+                  result: null,
+                  newSessionId: input.newSessionId,
+                  runtimeEvents: [
+                    {
+                      appId: input.agentInput.appId,
+                      agentId: input.agentInput.agentId,
+                      runId: input.agentInput.runId,
+                      jobId: input.agentInput.jobId,
+                      conversationId: input.agentInput.chatJid,
+                      threadId: input.agentInput.threadId,
+                      eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+                      actor: 'runner',
+                      responseMode: 'none',
+                      payload: {
+                        phase: 'permission_denied',
+                        tool: denial.toolName,
+                        sdk_tool: denial.toolName,
+                        ok: false,
+                        terminal: true,
+                        reason: denial.reason,
+                        grantable: denial.grantable,
+                        recovery_action: denial.recoveryAction,
+                      },
+                    },
+                  ],
+                });
+                terminalPermissionDenial = new Error(
+                  formatAutonomousToolDenial(denial),
+                );
+                // LangChain's ToolNode converts ordinary tool exceptions into
+                // ToolMessages. Abort the graph-level signal as well so the
+                // model cannot receive that message and choose another tool.
+                terminalPermissionAbort.abort(terminalPermissionDenial);
+                throw terminalPermissionDenial;
+              },
+            }
+          : {}),
+        signal: turnSignal,
       },
     }),
   );
@@ -286,7 +347,7 @@ export async function runDeepAgentTurn(input: {
         },
         {
           version: 'v2',
-          ...(input.signal ? { signal: input.signal } : {}),
+          signal: turnSignal,
           ...(input.threadId
             ? { configurable: { thread_id: input.threadId } }
             : {}),
@@ -294,9 +355,9 @@ export async function runDeepAgentTurn(input: {
       ),
     );
     logElapsed('LangGraph stream iterator created');
-    const normalized = await startupTiming.measureAsync(
-      'streamNormalizeMs',
-      () =>
+    let normalized: Awaited<ReturnType<typeof normalizeDeepAgentStream>>;
+    try {
+      normalized = await startupTiming.measureAsync('streamNormalizeMs', () =>
         normalizeDeepAgentStream({
           events,
           newSessionId: input.newSessionId,
@@ -326,7 +387,14 @@ export async function runDeepAgentTurn(input: {
             input.onToolStart?.(toolName);
           },
         }),
-    );
+      );
+    } catch (error) {
+      // Abort implementations differ in whether they surface signal.reason or
+      // a generic AbortError. Preserve the parseable denied-tool failure that
+      // scheduler finalization routes into the setup pause.
+      throw terminalPermissionDenial ?? error;
+    }
+    if (terminalPermissionDenial) throw terminalPermissionDenial;
     logElapsed('Stream normalized');
     const text = normalized.text;
     const startupRuntimeEvents = [

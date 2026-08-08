@@ -2996,7 +2996,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'scheduled jobs deny unsupported exact tool grants without permission prompts',
+    'scheduled jobs terminate unsupported exact tool grants without permission prompts',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -3019,7 +3019,7 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.permissionDecision).toEqual(
         expect.objectContaining({
           behavior: 'deny',
-          interrupt: false,
+          interrupt: true,
         }),
       );
       expect(String(call?.permissionDecision?.message)).toContain(
@@ -3028,6 +3028,22 @@ describe('agent-runner IPC lifecycle', () => {
       expect(
         fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
       ).toBe(false);
+      const runtimeEvents = readRunnerOutputs(result.stdout).flatMap(
+        (output) =>
+          Array.isArray(output.runtimeEvents) ? output.runtimeEvents : [],
+      ) as Array<{ eventType?: string; payload?: Record<string, unknown> }>;
+      expect(runtimeEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            eventType: 'job.tool_activity',
+            payload: expect.objectContaining({
+              phase: 'permission_denied',
+              tool: 'WebSearch',
+              terminal: true,
+            }),
+          }),
+        ]),
+      );
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );

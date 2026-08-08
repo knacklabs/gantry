@@ -83,6 +83,13 @@ route. The current implementation releases the old lease and schedules new
 work after approval; same-fenced-run tool-call resume and explicit
 `controlApprovers` routing remain D-0008.
 
+Per decision 0115, any autonomous tool denial is terminal for the active run:
+the model cannot silently substitute another tool and continue. Gantry pauses
+the job in `Setup required`, names the denied tool in diagnostics and the setup
+card, and waits for approval or operator instructions before a fresh run. This
+setup pause does not consume retry/backoff or dead-letter budget. The
+zero-timeout permission protocol remains unchanged.
+
 `Allow for future`, when offered, stores a semantic
 `capability:<id>` grant when the request names one; otherwise it may apply
 canonical `Browser`, an exact Gantry file/web facade, an exact Gantry admin

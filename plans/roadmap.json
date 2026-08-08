@@ -230,6 +230,27 @@
     },
     {
       "status": "done",
+      "key": "SCHED-6",
+      "title": "Autonomous jobs pause-and-ask on tool denial instead of silently degrading",
+      "value": "A scheduled job that hits a tool it isn't granted stops silently substituting another tool (e.g. Browser) and burning the run. The denial is terminal: a grantable one pauses the job and raises the approval card naming the tool (one tap grants it, and for an under-declared tool the same tap adds it to the job's requirements), then the job retries; a non-grantable one ends with a legible instruction card. A job waiting for approval never times out or dead-letters; a late grant just reruns it fresh.",
+      "acceptance_criteria": [
+        "an autonomous-job tool denial is terminal and never results in silent continuation with another tool",
+        "a grantable denial pauses the job and raises the SCHED-4B approval card naming the specific tool; approving grants the agent and, for an under-declared tool, also adds it to the job's access_requirements (human-initiated, 0106-consistent), then the job retries",
+        "a non-grantable denial (locked/fixed-image/protected/unmatched-command/unreachable-mcp) ends with a legible instruction card naming the tool and why, never silent",
+        "a denied-tool pause routes to the setup-pause state and does not consume a retry/backoff attempt or dead-letter; a late approval resumes and reruns the job",
+        "the synchronous zero-timeout autonomous permission protocol is unchanged"
+      ],
+      "source_refs": [
+        "docs/architecture/autonomous-jobs.md",
+        "docs/decisions/0115-autonomous-tool-denial-terminal.md"
+      ],
+      "order": 12,
+      "completed_at": "2026-08-08T08:41:19+00:00",
+      "history": ".factory/history/SCHED-6/",
+      "outcome": "Scheduled (autonomous) jobs no longer silently degrade when the agent reaches a tool it lacks. Every such denial is now terminal: a grantable one raises the one-tap approval card (approving grants the agent and, for an under-declared tool, adds it to the job) and the job retries; a non-grantable one ends with a legible instruction card naming the tool and why. Side effects are fenced after cancellation, the first parallel denial is sticky, grantability is carried authoritatively (spoof-proof), the requirement append runs only after the grant commits, and DeepAgents pre-check denials are terminal too (Ravi's 'fix once for good'). Decision 0115 amended; D-0051 resolved; D-0050 (cross-store atomicity) deferred. 8778 unit tests, verify.py, and a 5-round whole-branch autoreview all green."
+    },
+    {
+      "status": "done",
       "key": "CAP-1",
       "title": "Close out the capability-authoring lane",
       "epic": "capability-search",
@@ -1051,5 +1072,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-07T15:25:43+00:00"
+  "updated_at": "2026-08-08T08:41:19+00:00"
 }

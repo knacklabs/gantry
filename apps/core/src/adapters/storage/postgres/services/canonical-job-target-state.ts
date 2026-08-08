@@ -73,6 +73,9 @@ function parseSetupBlocker(
       requirementId,
       message,
       nextAction,
+      ...(typeof record.grantable === 'boolean'
+        ? { grantable: record.grantable }
+        : {}),
     },
   ];
 }

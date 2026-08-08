@@ -334,6 +334,34 @@ describe('PostgresCanonicalJobRepository', () => {
     expect(result).toBe(true);
   });
 
+  it('appends one access requirement only when updated_at matches', async () => {
+    const returning = vi.fn(async () => []);
+    const where = vi.fn(() => ({ returning }));
+    const set = vi.fn(() => ({ where }));
+    const db = { update: vi.fn(() => ({ set })) };
+    const repository = new PostgresCanonicalJobRepository(db as never);
+
+    await expect(
+      repository.appendJobAccessRequirement({
+        jobId: 'job-1',
+        requirement: {
+          target: { kind: 'tool_rule', rule: 'Browser' },
+        },
+        expectedUpdatedAt: '2026-08-05T00:00:00.000Z',
+      }),
+    ).resolves.toBe(false);
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetJson: expect.anything(),
+        updatedAt: expect.any(String),
+      }),
+    );
+    const predicateShape = flattenSqlShape(where.mock.calls[0]?.[0]);
+    expect(predicateShape).toContain('id');
+    expect(predicateShape).toContain('updated_at');
+  });
+
   it('claims setup recovery using updated_at when checked_at is absent', async () => {
     const returning = vi.fn(async () => [{ id: 'job-1' }]);
     const where = vi.fn(() => ({ returning }));

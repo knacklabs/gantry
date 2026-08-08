@@ -1,7 +1,7 @@
 // prettier-ignore
 import type { Job, JobAccessRequirement, JobCapabilityRequirementImplementation, JobEvent, JobRun } from '../../../../domain/repositories/domain-types.js';
 // prettier-ignore
-import type { JobEventListFilters, JobListFilters, JobRunListFilters, JobUpsertInput, ReleasedStaleJobLease, SetupPausedJobRecoveryClaim, SetupPausedJobRecoveryRefresh } from '../../../../domain/repositories/ops-repo.js';
+import type { JobAccessRequirementAppend, JobEventListFilters, JobListFilters, JobRunListFilters, JobUpsertInput, ReleasedStaleJobLease, SetupPausedJobRecoveryClaim, SetupPausedJobRecoveryRefresh } from '../../../../domain/repositories/ops-repo.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import {
   CANONICAL_APP_ID,
@@ -88,8 +88,7 @@ export class CanonicalJobOpsService {
   }
 
   async getAllJobs(): Promise<Job[]> {
-    const rows = await this.repository.listJobs();
-    return rows.map((row) => this.rowToJob(row));
+    return (await this.repository.listJobs()).map((row) => this.rowToJob(row));
   }
 
   async listJobs(filters?: JobListFilters): Promise<Job[]> {
@@ -113,6 +112,10 @@ export class CanonicalJobOpsService {
       }),
       coordinationUpdateFromJob(updates, options),
     );
+  }
+
+  async appendJobAccessRequirement(input: JobAccessRequirementAppend) {
+    return this.repository.appendJobAccessRequirement(input);
   }
 
   async resumeSetupPausedJob(input: SetupPausedJobRecoveryClaim) {

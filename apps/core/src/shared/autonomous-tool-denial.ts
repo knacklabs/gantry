@@ -1,6 +1,34 @@
 export interface AutonomousToolDenial {
   toolName: string;
+  grantable?: boolean;
   recoveryAction?: string;
+}
+
+const STRUCTURED_DENIAL_PREFIX = '\nAutonomousToolDenial: ';
+
+export function isGrantableAutonomousToolRecovery(
+  recoveryAction: string | null | undefined,
+): boolean {
+  if (!recoveryAction?.trim()) return true;
+  return recoveryAction.startsWith('request_access ');
+}
+
+export function formatAutonomousToolDenial(input: {
+  toolName: string;
+  reason: string;
+  grantable: boolean;
+  recoveryAction?: string;
+}): string {
+  const message = [
+    `Tool not on autonomous run allowlist: ${input.toolName}.`,
+    input.reason,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return `${message}${STRUCTURED_DENIAL_PREFIX}${JSON.stringify({
+    grantable: input.grantable,
+    ...(input.recoveryAction ? { recoveryAction: input.recoveryAction } : {}),
+  })}`;
 }
 
 export function parseAutonomousToolDenial(
@@ -20,11 +48,50 @@ export function parseAutonomousToolDenial(
     .replace(/\.$/, '')
     .trim();
   if (!toolName) return null;
+  const structuredDenial = parseStructuredDenial(value);
+  if (structuredDenial) {
+    return { toolName, ...structuredDenial };
+  }
   const recoveryMatch = value.match(/Recovery:\s*([\s\S]+)$/i);
+  const grantableMatch = value.match(/Grantable:\s*(true|false)\b/i);
+  const recoveryAction = recoveryMatch?.[1]?.trim();
+  // The legacy `Recovery: request_access ...` message format carries no explicit
+  // `Grantable:` marker (only the DeepAgents lane emits the structured formatter).
+  // Without inferring grantability here, finalization would see grantable ===
+  // undefined, treat it as non-grantable, and downgrade a genuinely grantable
+  // denial to an instruction-only card that never offers the approval needed to
+  // resume the job. Derive it from the recovery action when no marker is present.
+  const grantable = grantableMatch
+    ? grantableMatch[1]?.toLowerCase() === 'true'
+    : recoveryAction !== undefined
+      ? isGrantableAutonomousToolRecovery(recoveryAction)
+      : undefined;
   return {
     toolName,
-    recoveryAction: recoveryMatch?.[1]?.trim(),
+    ...(grantable !== undefined ? { grantable } : {}),
+    ...(recoveryAction ? { recoveryAction } : {}),
   };
+}
+
+function parseStructuredDenial(
+  value: string,
+): Pick<AutonomousToolDenial, 'grantable' | 'recoveryAction'> | null {
+  const markerIndex = value.lastIndexOf(STRUCTURED_DENIAL_PREFIX);
+  if (markerIndex < 0) return null;
+  try {
+    const parsed = JSON.parse(
+      value.slice(markerIndex + STRUCTURED_DENIAL_PREFIX.length),
+    ) as Record<string, unknown>;
+    if (typeof parsed.grantable !== 'boolean') return null;
+    return {
+      grantable: parsed.grantable,
+      ...(typeof parsed.recoveryAction === 'string'
+        ? { recoveryAction: parsed.recoveryAction }
+        : {}),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function findToolRuleSentenceBoundary(value: string): number {

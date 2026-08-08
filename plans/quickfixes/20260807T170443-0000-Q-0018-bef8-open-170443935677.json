@@ -1,0 +1,8 @@
+{
+  "event": "open",
+  "id": "Q-0018-bef8",
+  "reason": "post-merge boot-smoke: restart runtime to apply LEGACY-1 memory-review NOT NULL migration and confirm green boot",
+  "started_at": "2026-08-07T17:04:43+00:00",
+  "max_files": 5,
+  "files": []
+}

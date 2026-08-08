@@ -9,6 +9,8 @@ import {
   requestPermissionApprovalViaIpc,
   type PermissionIpcRuntimeEnv,
 } from '../../../../runner/permission-ipc-client.js';
+import { isGrantableAutonomousToolRecovery } from '../../../../shared/autonomous-tool-denial.js';
+import { autonomousToolRecoveryAction } from '../../../../shared/tool-execution-policy-service.js';
 
 // Wraps each selected third-party (configured) MCP tool with the provider-neutral
 // runner tool gate before the underlying tool can execute. The decision order
@@ -29,8 +31,71 @@ export interface ThirdPartyMcpGateConfig {
   configuredAllowedTools: readonly string[];
   gateContext: NeutralToolGateContext;
   permissionEnv: PermissionIpcRuntimeEnv;
-  lockedAccessPreset: boolean;
+  capabilityRequestToolsHidden: boolean;
+  onPermissionDenied?: (input: DeepAgentsPermissionDenial) => never;
   signal?: AbortSignal;
+}
+
+export interface DeepAgentsPermissionDenial {
+  toolName: string;
+  reason: string;
+  grantable: boolean;
+  recoveryAction: string;
+}
+
+// Grantability is reconstructed from the tool identity + capabilityRequestToolsHidden
+// rather than the raw gate/IPC reason, and that reconstruction is authoritative for
+// every denial that reaches here:
+//   - The hard, non-grantable policy boundaries (protected-capability, memory,
+//     settings-owned yolo denylist) are caught by evaluateNeutralToolPreChecks in
+//     the wrapper BEFORE this helper. On a scheduled run those are routed through
+//     the terminal onPermissionDenied handler via preCheckDenialResult() with
+//     grantable:false (a legible instruction card), so they terminate the run too
+//     rather than letting the model silently pick another tool.
+//   - Locked-preset / fixed-image agents set capabilityRequestToolsHidden, which
+//     makes autonomousGrantRecovery emit a non-request_access instruction →
+//     non-grantable — so those boundaries are honored too.
+//   - What remains (browser / scoped RunCommand / durable Gantry tool with a
+//     request_access recovery) is genuinely grantable: a durable human-approved
+//     rule overcomes an autonomous "would-ask" denial on the next run.
+export function deepAgentsDenial(
+  config: Pick<ThirdPartyMcpGateConfig, 'capabilityRequestToolsHidden'>,
+  toolName: string,
+  policyRequest: { toolName: string; toolInput: unknown },
+  reason: string,
+): DeepAgentsPermissionDenial {
+  const recoveryAction = autonomousToolRecoveryAction({
+    ...policyRequest,
+    capabilityRequestToolsHidden: config.capabilityRequestToolsHidden,
+  });
+  return {
+    toolName,
+    reason,
+    recoveryAction,
+    grantable: isGrantableAutonomousToolRecovery(recoveryAction),
+  };
+}
+
+// Resolve a neutral pre-check failure (protected-capability, memory-boundary,
+// settings yolo denylist). These are hard boundaries a durable grant cannot
+// overcome, so on a scheduled run (onPermissionDenied present) they terminate the
+// turn as a non-grantable instruction rather than reaching the model as an
+// ordinary tool message it could ignore and work around; interactive runs keep
+// the ordinary tool-error result.
+export function preCheckDenialResult(
+  config: Pick<ThirdPartyMcpGateConfig, 'onPermissionDenied'>,
+  toolName: string,
+  preChecks: { reason: string },
+): unknown {
+  if (config.onPermissionDenied) {
+    return config.onPermissionDenied({
+      toolName,
+      reason: preChecks.reason,
+      grantable: false,
+      recoveryAction: preChecks.reason,
+    });
+  }
+  return gatedToolErrorResult(preChecks.reason);
 }
 
 export function wrapThirdPartyMcpToolsWithGate(
@@ -47,6 +112,7 @@ function wrapOne(
   config: ThirdPartyMcpGateConfig,
 ): StructuredToolInterface {
   const gatedFunc = async (input: unknown): Promise<unknown> => {
+    config.signal?.throwIfAborted();
     const toolName = canonicalThirdPartyMcpToolName(
       serverName,
       underlying.name,
@@ -62,7 +128,7 @@ function wrapOne(
       yoloMode: config.gateContext.yoloMode,
     });
     if (preChecks) {
-      return denyMessage(preChecks.reason);
+      return preCheckDenialResult(config, toolName, preChecks);
     }
 
     const approval = await requestPermissionApprovalViaIpc(
@@ -79,9 +145,20 @@ function wrapOne(
       },
     );
     if (approval.approved) {
+      config.signal?.throwIfAborted();
       return invokeUnderlying(underlying, input);
     }
     const reason = approval.reason || 'Denied by operator';
+    if (config.onPermissionDenied) {
+      return config.onPermissionDenied(
+        deepAgentsDenial(
+          config,
+          toolName,
+          { toolName, toolInput: input },
+          reason,
+        ),
+      );
+    }
     return denyMessage(`Permission denied: ${reason}`);
   };
 

@@ -393,7 +393,6 @@ export function createCanUseToolCallback(
         conversationId: input.agentInput.chatJid,
       },
     );
-
     if (input.agentInput.isScheduledJob) {
       const toolDecision = toolExecutionPolicy.evaluate({
         request: toolExecutionRequest,
@@ -529,6 +528,7 @@ export function createCanUseToolCallback(
         toolName,
         {
           ok: false,
+          grantable: true,
           reason,
           ...(recoveryAction ? { recovery_action: recoveryAction } : {}),
         },

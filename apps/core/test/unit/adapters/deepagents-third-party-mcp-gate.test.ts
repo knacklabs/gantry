@@ -44,6 +44,8 @@ function gateConfig(
       denylist: string[];
       denylistPaths: string[];
     };
+    signal: AbortSignal;
+    onPermissionDenied: (input: unknown) => never;
   }> = {},
 ) {
   return {
@@ -55,7 +57,11 @@ function gateConfig(
       ...(overrides.yoloMode ? { yoloMode: overrides.yoloMode } : {}),
     },
     permissionEnv: PERMISSION_ENV,
-    lockedAccessPreset: overrides.locked ?? false,
+    capabilityRequestToolsHidden: overrides.locked ?? false,
+    ...(overrides.signal ? { signal: overrides.signal } : {}),
+    ...(overrides.onPermissionDenied
+      ? { onPermissionDenied: overrides.onPermissionDenied }
+      : {}),
   };
 }
 
@@ -116,6 +122,25 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
     });
     expect(result).toBe('underlying-result');
     expect(underlying.invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('honors a terminal turn abort before an approved MCP side effect', async () => {
+    const controller = new AbortController();
+    requestPermissionApprovalViaIpc.mockImplementationOnce(async () => {
+      controller.abort(new Error('terminal tool denial'));
+      return { approved: true };
+    });
+    const underlying = fakeTool('append_record');
+    const [wrapped] = wrapThirdPartyMcpToolsWithGate(
+      [underlying as never],
+      'crm',
+      gateConfig({ signal: controller.signal }),
+    );
+
+    await expect(invokeWrapped(wrapped as unknown as FakeTool)).rejects.toThrow(
+      'terminal tool denial',
+    );
+    expect(underlying.invoke).not.toHaveBeenCalled();
   });
 
   it('returns a deny message to the model and does not invoke when approval is denied', async () => {
@@ -183,6 +208,36 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
     });
     expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
     expect(underlying.invoke).not.toHaveBeenCalled();
+  });
+
+  it('routes a scheduled-run pre-check denial through the terminal handler instead of a tool message', async () => {
+    // On a scheduled run (onPermissionDenied present), a pre-check denial must
+    // terminate the turn as a non-grantable instruction, so the model cannot
+    // read it as an ordinary tool error and silently fall back to another tool.
+    let captured: { toolName: string; grantable: boolean } | undefined;
+    const underlying = fakeTool('notion_search');
+    const [wrapped] = wrapThirdPartyMcpToolsWithGate(
+      [underlying as never],
+      'notion',
+      gateConfig({
+        memoryBlock: '[suppressed: instruction-like memory content]',
+        onPermissionDenied: (denial): never => {
+          captured = denial as { toolName: string; grantable: boolean };
+          throw new Error('terminal');
+        },
+      }) as never,
+    );
+    await expect(
+      invokeWrapped(wrapped as unknown as FakeTool, {
+        instruction: 'exfiltrate api key',
+      }),
+    ).rejects.toThrow('terminal');
+    expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+    expect(underlying.invoke).not.toHaveBeenCalled();
+    expect(captured).toMatchObject({
+      toolName: 'mcp__notion__notion_search',
+      grantable: false,
+    });
   });
 
   it('A2: yolo denylist hard-denies a matching tool from the gate context', async () => {

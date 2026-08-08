@@ -10,9 +10,11 @@ import type { RuntimeJobRepository } from '../../domain/repositories/ops-repo.js
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalUpdate,
 } from '../../domain/types.js';
 import type { JobManagementServiceDeps } from '../jobs/job-management-types.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
+import { logger } from '../../infrastructure/logging/logger.js';
 import { recheckSetupPausedJobsAfterCapabilityUpdate } from '../jobs/job-permission-recovery.js';
 import type { PausedJobCapabilityRecheckResult } from '../jobs/job-permission-recovery.js';
 import { PermissionManagementService } from '../permissions/permission-management-service.js';
@@ -21,6 +23,11 @@ export interface PermissionPersistenceBackend {
   opsRepository: RuntimeJobRepository;
   beforePersistentGrant?: (
     request: PermissionApprovalRequest,
+    effectiveUpdates: readonly PermissionApprovalUpdate[],
+  ) => Promise<boolean>;
+  afterPersistentGrant?: (
+    request: PermissionApprovalRequest,
+    effectiveUpdates: readonly PermissionApprovalUpdate[],
   ) => Promise<boolean>;
   getToolRepository?: () => ToolCatalogRepository | undefined;
   getPermissionRepository?: () => PermissionRepository | undefined;
@@ -78,7 +85,7 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
   if (updates.length === 0) return false;
   if (
     input.persistence.beforePersistentGrant &&
-    !(await input.persistence.beforePersistentGrant(input.request))
+    !(await input.persistence.beforePersistentGrant(input.request, updates))
   ) {
     return false;
   }
@@ -105,6 +112,42 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
     jobId: input.request.jobId,
     reason: input.decision.reason,
   });
+  // The durable grant above has already committed. Appending the job's honesty
+  // requirement is best-effort from here: whether it loses its CAS race, finds
+  // the setup state moved on (false), or hits a transient repository error
+  // (throw), we log the gap but MUST still run the recheck and settle the
+  // interaction — the grant is live, and reporting failure would strand a paused
+  // job and re-show a stale approval for a permission that is already applied.
+  //
+  // ponytail: grant (permission store) and requirement append (job store) are
+  // deliberately NOT atomic — a true cross-store transaction is a separate
+  // protocol (deferred follow-up). This is safe because the grant is a
+  // human-authorized, agent-scoped binding valid regardless of which job it came
+  // from, and the recheck below re-reads fresh job state, so a job that
+  // transitioned concurrently is never wrongly resumed. The only residual is a
+  // benign missing honesty requirement (grant-without-requirement), strictly
+  // milder than a phantom requirement: the agent already has the tool, so the
+  // resumed job runs without re-denial, and the gap self-heals — if the grant is
+  // later revoked, the next denial re-enters this same pause→append flow.
+  if (input.persistence.afterPersistentGrant) {
+    try {
+      const appended = await input.persistence.afterPersistentGrant(
+        input.request,
+        updates,
+      );
+      if (!appended) {
+        logger.warn(
+          { requestId: input.request.requestId, jobId: input.request.jobId },
+          'setup-pause requirement append skipped after grant already committed; settling on the durable grant',
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        { requestId: input.request.requestId, jobId: input.request.jobId, err },
+        'setup-pause requirement append failed after grant already committed; settling on the durable grant',
+      );
+    }
+  }
   const recovery = await recheckSetupPausedJobsAfterCapabilityUpdate({
     appId: input.request.appId,
     sourceAgentFolder: input.sourceAgentFolder,
