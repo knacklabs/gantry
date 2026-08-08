@@ -414,6 +414,32 @@ export function createCanUseToolCallback(
         (toolDecision.recoveryAction
           ? `${toolDecision.reason} Recovery: ${toolDecision.recoveryAction}`
           : toolDecision.reason);
+      if (yoloDenylistReason) {
+        // The settings-owned yolo denylist is a hard boundary: it must be
+        // terminal and can NEVER be overridden by a host allow-once/rule. Deny
+        // before consulting the host coordinator (whose reviewed-rule decision
+        // the scheduled miss otherwise defers to).
+        emitJobToolActivity(
+          input.agentInput,
+          input.getNewSessionId,
+          'permission_denied',
+          toolName,
+          {
+            ok: false,
+            terminal: true,
+            grantable: false,
+            reason: yoloDenylistReason,
+          },
+        );
+        log(
+          `Autonomous run denied denylisted tool ${toolName}: ${recoveryMessage}`,
+        );
+        return {
+          behavior: 'deny' as const,
+          message: `Tool not on autonomous run allowlist: ${toolName}. ${recoveryMessage}`,
+          interrupt: true,
+        };
+      }
       const publicToolName = permissionRequestToolName(toolName);
       const permissionPlan = scheduledPermissionSuggestionPlan(
         toolName,

@@ -530,10 +530,11 @@ describe('jobs/execution-notifications', () => {
     expect(updateLifecycleNotification).toHaveBeenCalledOnce();
   });
 
-  it('falls back to a terminal card on routes whose running message cannot be edited', async () => {
+  it('sends no duplicate terminal card even when a running message cannot be edited', async () => {
     const sendMessage = vi.fn(async () => undefined);
     // A backend that cannot edit the running message in place ('unsupported')
-    // must still get a terminal card so it does not sit frozen at "running".
+    // still gets NO duplicate terminal card — the feature requires exactly one
+    // notification (the setup card). The retire is best-effort only.
     const updateLifecycleNotification = vi.fn(async () => [
       {
         route: { conversationJid: 'sl:C999', threadId: null, label: 'Primary' },
@@ -555,10 +556,8 @@ describe('jobs/execution-notifications', () => {
     });
 
     expect(updateLifecycleNotification).toHaveBeenCalledOnce();
-    // The stale route gets one correcting terminal card.
-    expect(notified).toBe(true);
-    expect(sendMessage).toHaveBeenCalledOnce();
-    expect(sendMessage.mock.calls[0]?.[0]).toBe('sl:C999');
+    expect(notified).toBe(false);
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it('sends setup-required notifications with plain user actions', async () => {

@@ -351,57 +351,41 @@ export async function notifySchedulerTerminalRunState(input: {
   }) => Promise<JobNotificationLifecycleUpdateResult>;
 }): Promise<boolean> {
   if (input.job.silent) return false;
-  // The setup card is the single notification for a denied-tool / setup pause:
-  // when it was actually delivered (setupNotified) and the run paused for setup
-  // (pauseReason is set ONLY for setup denials by finalization — a robust
-  // correlation, unlike re-parsing the summary), suppress the terminal card.
-  // Exclude completed runs: a run that finished with only future runs paused
-  // still needs its completed-with-limits outcome. Retire any in-place lifecycle
-  // (running) message so it does not sit frozen at "running", then send nothing
-  // further — no duplicate terminal card.
+  // The delivered setup card is the SINGLE notification for a denied-tool /
+  // setup pause: when it was actually delivered (setupNotified) and the run
+  // paused for setup (pauseReason is set ONLY for setup denials by finalization
+  // — a robust correlation, unlike re-parsing the summary), suppress the
+  // terminal card. Exclude completed runs: a run that finished with only future
+  // runs paused still needs its completed-with-limits outcome.
+  //
+  // Any in-place "running" lifecycle message is retired best-effort (an EDIT of
+  // the existing message, not a new send). We deliberately do NOT fall back to a
+  // fresh terminal card on backends that cannot edit — the feature requires
+  // exactly one notification with no duplicate terminal card, so on those
+  // backends the setup card is it (moot for quiet-until-terminal scheduled jobs,
+  // which have no running message to leave stale).
   if (
     input.runStatus !== 'completed' &&
     input.setupNotified === true &&
     input.pauseReason === SETUP_REQUIRED_PAUSE_REASON
   ) {
-    const summaryMessage = formatRunStatusMessage({
+    await input.updateLifecycleNotification?.({
       job: input.job,
       runId: input.runId,
-      runShortId: input.runShortId,
       runStatus: input.runStatus,
-      summary: input.summary,
-      nextRun: input.nextRun,
-      retryCount: input.retryCount,
-      pauseReason: input.pauseReason,
-      durationMs: input.durationMs,
+      summaryMessage: formatRunStatusMessage({
+        job: input.job,
+        runId: input.runId,
+        runShortId: input.runShortId,
+        runStatus: input.runStatus,
+        summary: input.summary,
+        nextRun: input.nextRun,
+        retryCount: input.retryCount,
+        pauseReason: input.pauseReason,
+        durationMs: input.durationMs,
+      }),
     });
-    const updateOutcomes =
-      input.updateLifecycleNotification === undefined
-        ? undefined
-        : await input.updateLifecycleNotification({
-            job: input.job,
-            runId: input.runId,
-            runStatus: input.runStatus,
-            summaryMessage,
-          });
-    // No running message to retire -> the setup card is the single notification.
-    // Otherwise reuse the lifecycle fallback: null when every route was edited
-    // in place (no duplicate), or a routes-scoped job for backends that could
-    // NOT edit the running message, so those routes still get a terminal card
-    // instead of sitting frozen at "running".
-    const staleJob =
-      updateOutcomes === undefined || updateOutcomes.length === 0
-        ? null
-        : jobForLifecycleFallback(input.job, updateOutcomes);
-    if (!staleJob) return false;
-    return sendJobNotification({
-      job: staleJob,
-      text: summaryMessage,
-      phase: 'summary',
-      runId: input.runId,
-      actionAffordances: [],
-      sendMessage: input.sendMessage,
-    });
+    return false;
   }
   // A review-created run retires its running progress message first, then
   // sends the actual review card + Approve/Reject/Edit buttons separately.
