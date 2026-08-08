@@ -44,6 +44,12 @@ change.
   (the approver acting on the card), not the autonomous run mutating its own job,
   so it stays within decision 0106 (scheduled runs cannot self-mutate).
 - The current tests that assert "denied without pausing" are deliberately updated.
-- Pre-autonomous guards (protected-capability, memory-boundary, model-validation,
-  wait-only, network) that return their own non-terminal denials are a separate
-  sweep, deliberately out of SCHED-6 scope.
+- In the DeepAgents lane, the neutral pre-check denials (protected-capability,
+  memory-boundary, settings yolo-denylist) are also terminal on a scheduled run:
+  they route through the same onPermissionDenied handler with grantable:false and
+  a legible instruction card, so no scheduled DeepAgents tool denial can silently
+  let the model substitute another tool. (Folded in on Ravi's "fix once for good"
+  direction; supersedes the earlier deferral D-0051.)
+- The remaining Anthropic-lane pre-autonomous guards (model-validation, wait-only,
+  network) that return their own non-terminal denials are still a separate sweep,
+  out of SCHED-6 scope.

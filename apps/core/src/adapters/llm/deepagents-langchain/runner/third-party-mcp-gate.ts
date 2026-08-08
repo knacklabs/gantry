@@ -48,12 +48,10 @@ export interface DeepAgentsPermissionDenial {
 // every denial that reaches here:
 //   - The hard, non-grantable policy boundaries (protected-capability, memory,
 //     settings-owned yolo denylist) are caught by evaluateNeutralToolPreChecks in
-//     the wrapper BEFORE this helper and return denyMessage(...) directly, so they
-//     never flow through deepAgentsDenial to be reclassified. (Those pre-check
-//     denials are the pre-autonomous-guard sweep deliberately deferred by decision
-//     0115 and tracked in the deferral ledger: in a scheduled run they still reach
-//     the model as ordinary tool messages rather than terminating it — a known
-//     residual, out of SCHED-6 scope.)
+//     the wrapper BEFORE this helper. On a scheduled run those are routed through
+//     the terminal onPermissionDenied handler via preCheckDenial() with
+//     grantable:false (a legible instruction card), so they terminate the run too
+//     rather than letting the model silently pick another tool.
 //   - Locked-preset / fixed-image agents set capabilityRequestToolsHidden, which
 //     makes autonomousGrantRecovery emit a non-request_access instruction →
 //     non-grantable — so those boundaries are honored too.
@@ -75,6 +73,23 @@ export function deepAgentsDenial(
     reason,
     recoveryAction,
     grantable: isGrantableAutonomousToolRecovery(recoveryAction),
+  };
+}
+
+// A neutral pre-check failure (protected-capability, memory-boundary, settings
+// yolo denylist) is a hard boundary a durable grant cannot overcome, so it is
+// always non-grantable and routes to a legible instruction-only card. The
+// wrappers pass this to onPermissionDenied on scheduled runs so the denial
+// terminates the turn instead of reaching the model as an ordinary tool message.
+export function preCheckDenial(
+  toolName: string,
+  preChecks: { reason: string },
+): DeepAgentsPermissionDenial {
+  return {
+    toolName,
+    reason: preChecks.reason,
+    grantable: false,
+    recoveryAction: preChecks.reason,
   };
 }
 
@@ -108,6 +123,9 @@ function wrapOne(
       yoloMode: config.gateContext.yoloMode,
     });
     if (preChecks) {
+      if (config.onPermissionDenied) {
+        return config.onPermissionDenied(preCheckDenial(toolName, preChecks));
+      }
       return denyMessage(preChecks.reason);
     }
 

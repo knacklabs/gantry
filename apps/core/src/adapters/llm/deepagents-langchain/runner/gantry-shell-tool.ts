@@ -13,6 +13,7 @@ import {
 import {
   deepAgentsDenial,
   gatedToolErrorResult,
+  preCheckDenial,
   type ThirdPartyMcpGateConfig,
 } from './third-party-mcp-gate.js';
 
@@ -169,6 +170,11 @@ export function createGantryShellTool(
       yoloMode: config.gateContext.yoloMode,
     });
     if (preChecks) {
+      if (config.onPermissionDenied) {
+        return config.onPermissionDenied(
+          preCheckDenial(GANTRY_SHELL_TOOL_NAME, preChecks),
+        );
+      }
       return denyMessage(preChecks.reason);
     }
 

@@ -184,6 +184,27 @@ describe('Gantry DeepAgents shell tool', () => {
     expect(result).not.toContain('exited with code');
   });
 
+  it('routes a scheduled-run protected-capability pre-check denial through the terminal handler', async () => {
+    // On a scheduled run (onPermissionDenied present) a pre-check denial must
+    // terminate the turn as a non-grantable instruction, not return an ordinary
+    // tool message the model could ignore and work around.
+    let captured: DeepAgentsPermissionDenial | undefined;
+    const tool = makeTool({
+      rules: [],
+      onPermissionDenied: (denial): never => {
+        captured = denial;
+        throw new Error('terminal');
+      },
+    });
+
+    await expect(
+      invoke(tool, 'echo pwned > ~/.gantry/settings.yaml'),
+    ).rejects.toThrow('terminal');
+    expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+    expect(captured).toMatchObject({ toolName: 'RunCommand', grantable: false });
+    expect(captured?.reason.toLowerCase()).toContain('protected');
+  });
+
   it('returns a structured error with unchanged output for a non-zero exit', async () => {
     // A multi-statement command needs operator approval (it is not coverable by a
     // single scoped rule); the approved path still captures stderr + exit code.
