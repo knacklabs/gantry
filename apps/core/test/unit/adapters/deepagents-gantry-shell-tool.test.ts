@@ -201,7 +201,10 @@ describe('Gantry DeepAgents shell tool', () => {
       invoke(tool, 'echo pwned > ~/.gantry/settings.yaml'),
     ).rejects.toThrow('terminal');
     expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
-    expect(captured).toMatchObject({ toolName: 'RunCommand', grantable: false });
+    expect(captured).toMatchObject({
+      toolName: 'RunCommand',
+      grantable: false,
+    });
     expect(captured?.reason.toLowerCase()).toContain('protected');
   });
 

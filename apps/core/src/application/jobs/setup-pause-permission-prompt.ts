@@ -312,6 +312,12 @@ function grantableRequirementCandidates(
 ): GrantableRequirementCandidate[] {
   const requirements: GrantableRequirementCandidate[] = [];
   for (const blocker of blockers) {
+    // Fail closed on grantability: only an explicit grantable === true blocker
+    // is eligible for an approval card; undefined/false stays instruction-only.
+    // Per decisions 0112/0113 (enforce-no-backcompat) we do NOT add a legacy
+    // fallback that treats unknown grantability as approvable — every blocker
+    // this runtime writes sets the flag, and any stale setup_state is recomputed
+    // with it on the next readiness check rather than compat-shimmed here.
     if (
       blocker.state !== 'missing_capability' ||
       blocker.grantable !== true ||
