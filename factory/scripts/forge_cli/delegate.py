@@ -785,6 +785,23 @@ def pinned_run_config(base: Path) -> tuple[str, str]:
             effort.group(1) if effort else DEFAULT_EFFORT)
 
 
+def mode_run_config(base: Path, mode: str) -> tuple[str, str, int]:
+    """Return the model, effort, and file bound pinned for a workflow mode."""
+    manifest = base / "harness.yaml"
+    text = manifest.read_text() if manifest.is_file() else ""
+    modes = re.search(r"^modes:\n((?:  .*\n|\n)*)", text, re.MULTILINE)
+    body = modes.group(1) if modes else ""
+    selected = re.search(
+        rf"^  {re.escape(mode)}:\n((?:    .*\n|\n)*)", body, re.MULTILINE)
+    config = selected.group(1) if selected else ""
+    model = re.search(r'^    model:\s*"?([\w.-]+)"?', config, re.MULTILINE)
+    effort = re.search(r'^    reasoning:\s*"?(\w+)', config, re.MULTILINE)
+    bound = re.search(r"^    bound:\s*(\d+)", config, re.MULTILINE)
+    if not (model and effort and bound):
+        fail(f"harness.yaml modes.{mode} must pin model, reasoning, and bound")
+    return model.group(1), effort.group(1), int(bound.group(1))
+
+
 def skill_groups(base: Path) -> dict[str, dict[str, list[str]]]:
     """Skills declared by phase, keeping required and advisory lists distinct."""
     text = (base / "harness.yaml").read_text() if (base / "harness.yaml").is_file() else ""
@@ -909,56 +926,24 @@ def argv_digest(argv: list[str]) -> str:
     ).hexdigest()
 
 
-def cmd_delegate(args: argparse.Namespace) -> None:
-    base = Path(args.repo).resolve() if args.repo else repo_root()
-    decomposition = load_json(
-        protected_decomposition_state_path(base), default={})
-    tasks = decomposition.get("tasks") or []
-    if not tasks:
-        fail("no recorded decomposition — a delegation is scoped to a leaf task "
-             "(record_decomposition_from_json.py)")
-    task = next((t for t in tasks if t.get("id") == args.id), None)
-    if task is None:
-        fail(f"{args.id!r} is not a task in the recorded decomposition "
-             f"({', '.join(str(t.get('id')) for t in tasks)})")
-    if any(not isinstance(proof, dict)
-           for proof in task.get("required_tests") or []):
-        fail(f"{args.id} carries legacy string required_tests — re-record the "
-             "decomposition with id, path and command proof objects")
-    stage = next((s for s in load_stages(base).get("stages", [])
-                  if s.get("id") == args.id), {})
-    scope = task.get("write_scope") or []
-    # Derived, not typed: an active stage with somewhere to write is a write
-    # run. --read-only is the explicit exception, for exploration.
-    write = bool(stage.get("status") == "active" and scope) and not args.read_only
-    if write and args.background:
-        fail("background write delegation cannot satisfy a measured stage: the "
-             "worker could keep writing after stage close. Run it in the foreground, "
-             "or use --read-only for background exploration.")
-    state = load_json(run_state_path(base), default={})
-    story = str(state.get("story") or state.get("issue_key") or "")
-    text = compose_brief(base, task, write=write,
-                         user_facing=bool(decomposition.get("user_facing")),
-                         story=story)
-    canonical_path = brief_path(base, args.id)
-    path = (diagnostic_briefs_dir(base) / f"{args.id}.md"
-            if args.print_only or not write else canonical_path)
-    # Prefixed, not bare hex. A 32-character hex string reads as a credential
-    # to every secret scanner — autoreview refused to bundle any diff touching
-    # the delegation ledger, five times in one session, each needing the ledger
-    # stashed before a review could run. The prefix costs nothing and ends it
-    # for every scanner, in every repo, permanently.
+def launch_companion(
+        base: Path, *, task_id: str, text: str, path: Path,
+        task_sha256_value: str, model: str, effort: str, write: bool,
+        story: str = "", background: bool = False, print_only: bool = False,
+        stage_started_at: str = "", mode: str = "") -> dict | None:
+    """Write a brief and run the protected companion launch lifecycle."""
+    # Prefixed, not bare hex: a bare 32-character hex string reads as a
+    # credential to secret scanners.
     launch_id = f"launch-{uuid.uuid4().hex}"
-    lock = (_acquire_delegation_lock(base, args.id, launch_id)
-            if write and not args.print_only else None)
-    if write and not args.print_only:
-        _reconcile_stale_launches(base, args.id)
+    lock = (_acquire_delegation_lock(base, task_id, launch_id)
+            if write and not print_only else None)
+    if write and not print_only:
+        _reconcile_stale_launches(base, task_id)
     rel = path.relative_to(base / ".factory").as_posix()
     if not safe_factory_write_bytes(base, rel, text.encode()):
         fail(f"cannot safely write .factory/{rel}; remove any symlinked brief "
              "path and retry")
     brief_digest = sha256_of(path)
-    model, effort = pinned_run_config(base)
     node = shutil.which("node")
     if not node:
         fail("node is required to launch the Codex companion — run `./forge doctor --fix`")
@@ -970,23 +955,25 @@ def cmd_delegate(args: argparse.Namespace) -> None:
     ]
     if write:
         argv.append("--write")
-    if args.background:
+    if background:
         argv.append("--background")
     print(f"Brief written to {rel} ({len(text.splitlines())} lines)")
-    print(f"Write access: {'YES (stage is active with a write scope)' if write else 'NO'}")
+    write_detail = ("YES (lite window is open)" if mode else
+                    "YES (stage is active with a write scope)")
+    print(f"Write access: {write_detail if write else 'NO'}")
     print(f"Companion argv: {shlex.join(argv)}")
-    if args.print_only:
+    if print_only:
         print("Print-only: companion was not launched and no launch evidence was recorded.")
-        return
+        return None
 
     process_token = f"delegation-{launch_id}"
     record = {
         "generated_by": "orchestrator",
         "at": now_iso(),
         "launch_id": launch_id,
-        "task": args.id,
+        "task": task_id,
         "brief_sha256": brief_digest,
-        "task_sha256": task_digest(task),
+        "task_sha256": task_sha256_value,
         "write": write,
         "model": model,
         "effort": effort,
@@ -994,14 +981,16 @@ def cmd_delegate(args: argparse.Namespace) -> None:
         "argv": argv,
         "argv_sha256": argv_digest(argv),
         "launch_status": "starting",
+        "process_token": process_token,
     }
-    record["process_token"] = process_token
     if story:
         record["story"] = story
-    if args.background:
+    if background:
         record["background"] = True
-    if stage.get("started_at"):
-        record["stage_started_at"] = stage["started_at"]
+    if stage_started_at:
+        record["stage_started_at"] = stage_started_at
+    if mode:
+        record["mode"] = mode
     terminal_recorded = False
     proc: subprocess.Popen[str] | None = None
     process_baseline: dict[int, tuple[int, str]] | None = None
@@ -1083,13 +1072,16 @@ def cmd_delegate(args: argparse.Namespace) -> None:
                 "exit_code": proc.returncode,
             })
             terminal_recorded = True
+            retry = "forge fix" if mode else "forge delegate"
             fail("delegation brief changed while the companion was running; launch "
-                 "evidence was not recorded — rerun `forge delegate`")
-        append_delegation(base, {
+                 f"evidence was not recorded — rerun `{retry}`")
+        terminal = {
             **record, "at": now_iso(), "launch_status": "succeeded",
             "exit_code": proc.returncode,
-        })
+        }
+        append_delegation(base, terminal)
         terminal_recorded = True
+        return terminal
     except BaseException:
         if proc is not None and not terminal_recorded:
             with blocked_termination_signals():
@@ -1109,6 +1101,59 @@ def cmd_delegate(args: argparse.Namespace) -> None:
         if lock is not None and (
                 proc is None or not _process_group_alive(proc.pid)):
             _release_delegation_lock(lock, record["launch_id"])
+
+
+def cmd_delegate(args: argparse.Namespace) -> None:
+    base = Path(args.repo).resolve() if args.repo else repo_root()
+    decomposition = load_json(
+        protected_decomposition_state_path(base), default={})
+    tasks = decomposition.get("tasks") or []
+    if not tasks:
+        fail("no recorded decomposition — a delegation is scoped to a leaf task "
+             "(record_decomposition_from_json.py)")
+    task = next((t for t in tasks if t.get("id") == args.id), None)
+    if task is None:
+        fail(f"{args.id!r} is not a task in the recorded decomposition "
+             f"({', '.join(str(t.get('id')) for t in tasks)})")
+    if any(not isinstance(proof, dict)
+           for proof in task.get("required_tests") or []):
+        fail(f"{args.id} carries legacy string required_tests — re-record the "
+             "decomposition with id, path and command proof objects")
+    stage = next((s for s in load_stages(base).get("stages", [])
+                  if s.get("id") == args.id), {})
+    scope = task.get("write_scope") or []
+    # Derived, not typed: an active stage with somewhere to write is a write
+    # run. --read-only is the explicit exception, for exploration.
+    write = bool(stage.get("status") == "active" and scope) and not args.read_only
+    if write and args.background:
+        fail("background write delegation cannot satisfy a measured stage: the "
+             "worker could keep writing after stage close. Run it in the foreground, "
+             "or use --read-only for background exploration.")
+    state = load_json(run_state_path(base), default={})
+    story = str(state.get("story") or state.get("issue_key") or "")
+    text = compose_brief(base, task, write=write,
+                         user_facing=bool(decomposition.get("user_facing")),
+                         story=story)
+    canonical_path = brief_path(base, args.id)
+    path = (diagnostic_briefs_dir(base) / f"{args.id}.md"
+            if args.print_only or not write else canonical_path)
+    model, effort = pinned_run_config(base)
+    launch_companion(
+        base,
+        task_id=args.id,
+        text=text,
+        path=path,
+        task_sha256_value=task_digest(task),
+        model=model,
+        effort=effort,
+        write=write,
+        story=story,
+        background=args.background,
+        print_only=args.print_only,
+        stage_started_at=str(stage.get("started_at") or ""),
+    )
+    if args.print_only:
+        return
     append_event(base, "delegated", actor="orchestrator", story=story,
                  detail=f"{args.id} ({'write' if write else 'read-only'})")
     print("Then WATCH the event channel: Monitor .factory/signals.jsonl alongside "

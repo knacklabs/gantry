@@ -11,6 +11,7 @@ from factory_lib import (
     dump_json,
     head_sha,
     load_json,
+    load_review_artifacts,
     now_iso,
     protected_decomposition_state_path,
     repo_root,
@@ -25,7 +26,7 @@ from forge_cli.events import append_event, load_events
 from forge_cli.outcome import load_outcome, outcome_path
 from forge_cli.roadmap import load_items, mark_status
 from forge_cli.quickfix import load_active
-from forge_cli.readiness import review_passed, tests_passed
+from forge_cli.readiness import tests_passed
 from forge_cli.signal import open_signals, signals_path
 from forge_cli.stages import load_stages
 
@@ -112,13 +113,8 @@ for kind in ("automated", "functional"):
     elif not tests_passed(entry, functional=(kind == "functional")):
         missing.append(f"{kind} testing must have no blockers, no failed status"
                        + (" and score >= 8" if kind == "functional" else ""))
-for aspect in ("quality", "performance", "security"):
-    path = review_dir(root) / f"{aspect}.json"
-    data = load_json(path, default={})
-    if not data:
-        missing.append(str(path.relative_to(root)))
-    elif not review_passed(data):
-        missing.append(f"{aspect} review must be >= 8 with no blockers")
+_, review_problems = load_review_artifacts(root)
+missing.extend(review_problems)
 
 # The refactor ratchet: a refactor-tagged story that GREW product source is
 # not a refactor — it must shrink or hold the line (decision 0005 doctrine).

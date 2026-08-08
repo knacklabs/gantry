@@ -414,7 +414,7 @@ def story_detail(base: Path, key: str) -> dict | None:
         root = base / ".factory" / "history" / key
     evidence = {
         name: load_json(root / f"{name}.json", default=None)
-        for name in ("decomposition", "verify", "tests", "stages")
+        for name in ("decomposition", "verify", "tests", "stages", "outcome")
     }
     evidence["reviews"] = {
         aspect: load_json(root / "reviews" / f"{aspect}.json", default=None)
@@ -495,9 +495,12 @@ def task_dossiers(detail: dict) -> list[dict]:
     for task in merge_task_detail(decomposition, stages):
         required = task.get("required_tests") or []
         # A required test counts as proven only if a recorded artifact names it;
-        # "tests.json exists" is not evidence that THIS task was covered.
+        # "tests.json exists" is not evidence that THIS task was covered. Entries
+        # are {id, path, command} objects (a legacy plan may still use a bare
+        # string), so match on the test id — never the whole dict.
         covered = [t for t in required
-                   if any(t in str(recorded) for recorded in recorded_tests)]
+                   if isinstance((tid := t.get("id") if isinstance(t, dict) else t), str)
+                   and any(tid in str(recorded) for recorded in recorded_tests)]
         findings = []
         for aspect, review in reviews.items():
             if not isinstance(review, dict):

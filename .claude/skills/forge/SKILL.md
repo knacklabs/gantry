@@ -12,3 +12,5 @@ description: >-
 
 Read `factory/skills/forge.md` and follow it exactly — it is the canonical
 skill body shared by both runtimes. <!-- canon: factory/skills/forge.md -->
+
+When the dev says "use lite mode", run `./forge mode lite`.

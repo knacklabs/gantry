@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 
 from factory_lib import (
-    dump_json, gate, head_sha, load_json, now_iso, repo_root, require_skills,
-    review_dir, run_state_path, validate_payload,
+    dump_json, gate, head_sha, now_iso, repo_root, require_skills, review_dir,
+    run_state_path, validate_payload,
 )
 from forge_cli.events import append_event
 
@@ -60,7 +60,13 @@ else:
     payload = json.loads(raw)
 
 root = repo_root()
-gate(root, signoff=True, approved_plan=True, decomposition=True)
+state = gate(
+    root,
+    signoff=True,
+    approved_plan=True,
+    decomposition=True,
+    lite_window_ok=True,
+)
 validate_payload(root, "review", payload)
 require_skills(root, "review", payload)
 path = review_dir(root) / f"{args.aspect}.json"
@@ -74,8 +80,7 @@ review.setdefault("recommendation", "approve-with-caveats")
 review["recorded_at"] = now_iso()
 review["commit"] = head_sha(root)
 dump_json(path, review)
-state = load_json(run_state_path(root), default={})
-if state:
+if state.get("issue_key"):
     state["review_status"] = "in-progress"
     state["updated_at"] = now_iso()
     dump_json(run_state_path(root), state)

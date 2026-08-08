@@ -1,7 +1,7 @@
 {
   "artifact": "delegation",
   "phase": "implementing",
-  "recorded_by": "forge.py delegate",
+  "recorded_by": "forge.py delegate or forge.py fix",
   "generated_by": ["orchestrator"],
   "required": {
     "generated_by": "str",
@@ -20,6 +20,7 @@
   },
   "optional": {
     "story": "str",
+    "mode": "str",
     "background": "bool",
     "stage_started_at": "str",
     "pid": "int",
@@ -28,5 +29,5 @@
     "process_token": "str",
     "exit_code": "int"
   },
-  "kind_note": "Append-only starting, running, and terminal lines share a launch_id. The starting row is protected before spawn; the running row adds PID identity. Brief, task, stage and argv digests bind the launch to the active contract. Authoritative rows and locks live in Git's protected control directory; .factory/delegations.jsonl is a diagnostic mirror. Per-task and shared-state locks serialize writers; PID start identity prevents reuse mistakes, unverified reused groups are never signalled, and trusted-command cleanup reaps the process group plus descendants observed through a post-exit quiet window. Print-only diagnostics never create a record."
+  "kind_note": "Append-only starting, running, and terminal lines share a launch_id. The starting row is protected before spawn; the running row adds PID identity. Brief, task, stage and argv digests bind a stage delegation to its active contract; lite-fix rows set mode=lite and key task to the open window id. Authoritative rows and locks live in Git's protected control directory; .factory/delegations.jsonl is a diagnostic mirror. Per-task and shared-state locks serialize writers; PID start identity prevents reuse mistakes, unverified reused groups are never signalled, and trusted-command cleanup reaps the process group plus descendants observed through a post-exit quiet window. Print-only diagnostics never create a record."
 }

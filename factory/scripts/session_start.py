@@ -75,11 +75,17 @@ if run_state.get("plan_status") != "approved" and not quickfix:
         "— plan save refuses without it. Codex alternative: the planner-high agent."
     )
 if quickfix:
-    context.append(
-        f"OPEN QUICKFIX {quickfix['id']}: {quickfix['reason']} — "
-        f"{len(quickfix.get('files', []))}/{quickfix.get('max_files', 5)} files; "
-        "close with `./forge quickfix done`."
-    )
+    if quickfix.get("profile", "quickfix") == "lite":
+        context.append(
+            f"OPEN LITE WINDOW {quickfix['id']}: {quickfix['reason']} — "
+            "one review is required to close it with `./forge mode done`."
+        )
+    else:
+        context.append(
+            f"OPEN QUICKFIX {quickfix['id']}: {quickfix['reason']} — "
+            f"{len(quickfix.get('files', []))}/{quickfix.get('max_files', 5)} files; "
+            "close with `./forge quickfix done`."
+        )
 ledger = load_json(root / "docs" / "context" / "ledger.json", default={"files": {}})
 pending = sum(1 for e in ledger.get("files", {}).values() if e.get("status") == "pending")
 if pending:

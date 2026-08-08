@@ -26,6 +26,15 @@ Claude Code coordinates; Codex executes (local sessions and subagents).
 The stack is Claude Code + Codex, deliberately: any future
 orchestration must produce the same `.factory` artifacts.
 
+### Workflow Modes
+
+- **Full** is the standard workflow: an approved plan proceeds through bounded
+  stages, deterministic verification, autoreview, and the remaining gates.
+- **Lite** is a human-opened, bounded write window for a small supervised fix:
+  `./forge mode lite --by "<name>" --reason "<why>"`. It returns to Full when
+  the committed fix is within its file budget, its required review is clean,
+  and `./forge mode done` closes the window.
+
 ## Factory Phases
 0a. `discovery` — lightweight problem, stakeholder, and constraint discovery; no `.factory` ceremony required.
 0b. `prototype` — prototype freely and save capability specs as they emerge; no `.factory` ceremony required.
@@ -233,12 +242,12 @@ as `plan assume` and decision records).
 Gates are deterministic and run at phase transitions (`update_run.py`,
 `record_*` scripts, `pr_ready.py`) and in `pre_tool_use.py` — never on prompt
 keywords or turn ends. Under decision 0013, the planning lock is **always
-armed**: product writes, including heuristic Bash writes, are refused until
-the plan is approved. The two legitimate exits are plan mode or a bounded,
-ledgered `./forge quickfix start "<reason>"` window. Planning surfaces
-(`plans/`, `docs/`, `.factory/`, `factory/`, and `prototype/`) and read-only
-exploration stay open. Everything downstream remains enforced at the artifact
-gates.
+armed**: product writes, including heuristic Bash writes, are refused without
+one of three legitimate exits: an approved plan, a bounded ledgered quickfix
+window (`./forge quickfix start "<reason>"`), or a bounded ledgered lite window
+(`./forge mode lite`). Planning surfaces (`plans/`, `docs/`, `.factory/`,
+`factory/`, and `prototype/`) and read-only exploration stay open. Everything
+downstream remains enforced at the artifact gates.
 
 ## Task Graph Rules
 - The planner owns decomposition.
