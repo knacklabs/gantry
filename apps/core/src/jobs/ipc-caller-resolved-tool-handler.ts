@@ -108,11 +108,8 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
     (typeof parentTask?.privateCorrelationJson.taskKey === 'string'
       ? parentTask.privateCorrelationJson.taskKey
       : null) ?? 'parent';
-  const delegatedGate = job?.agent_task?.delegatedCompletionGate;
-  const isCompletionGate = parentTaskId
-    ? delegatedGate?.toolName === toolName &&
-      delegatedGate.taskKeys.includes(taskKey)
-    : job?.agent_task?.completionGate?.toolName === toolName;
+  const isCompletionGate =
+    !parentTaskId && job?.agent_task?.completionGate?.toolName === toolName;
   if (!definition && !isCompletionGate) {
     responder.reject(
       'Caller-resolved tool is not declared by this run.',
@@ -120,16 +117,14 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
     );
     return;
   }
-  const budget = job?.agent_task?.interactionBudget;
   const budgetKey = `${scope.appId}:${runId}`;
   const used = budgets.get(budgetKey) ?? {
     total: 0,
     scopes: new Map<string, number>(),
   };
   const scopeUsed = used.scopes.get(taskKey) ?? 0;
-  const scopeLimit =
-    budget?.scopes[taskKey] ?? budget?.maxTotal ?? config.maxInteractions;
-  const totalLimit = budget?.maxTotal ?? config.maxInteractions;
+  const scopeLimit = config.maxInteractions;
+  const totalLimit = config.maxInteractions;
   if (
     !isCompletionGate &&
     (used.total >= totalLimit || scopeUsed >= scopeLimit)

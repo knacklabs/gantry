@@ -96,10 +96,13 @@ export function parseRuntimeEventFilter(
   url: URL,
   appId: AppId,
 ): RuntimeEventFilter | string {
-  const afterEventId = Number(url.searchParams.get('afterEventId') ?? '0');
+  const afterStreamPosition = url.searchParams.get('afterStreamPosition');
+  const afterEventId = Number(
+    afterStreamPosition ?? url.searchParams.get('afterEventId') ?? '0',
+  );
   const limit = Number(url.searchParams.get('limit') ?? '100');
   if (!Number.isSafeInteger(afterEventId) || afterEventId < 0) {
-    return 'afterEventId must be a non-negative integer';
+    return 'afterStreamPosition/afterEventId must be a non-negative integer';
   }
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) {
     return 'limit must be an integer between 1 and 500';
@@ -134,6 +137,7 @@ export function parseRuntimeEventFilter(
 function serializeRuntimeEvent(event: RuntimeEvent) {
   return {
     eventId: event.eventId,
+    streamPosition: event.eventId,
     eventType: event.eventType,
     sessionId: event.sessionId ?? null,
     jobId: event.jobId ?? null,

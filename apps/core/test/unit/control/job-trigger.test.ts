@@ -1,5 +1,6 @@
 import net from 'node:net';
 
+import { createClient } from '@gantry/sdk';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const configMocks = vi.hoisted(() => ({
@@ -544,6 +545,101 @@ describe('control job trigger', () => {
       expect(opsRepo.upsertJob).toHaveBeenCalledWith(
         expect.objectContaining({ model: null }),
       );
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('accepts a synthesis-sized job request above the default JSON limit', async () => {
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'app-one',
+      },
+    ]);
+    const handle = startControlServer({
+      app: {
+        queue: { enqueueMessageCheck: vi.fn() },
+        getConversationRoutes: () => ({
+          'chat-1': {
+            name: 'App Folder',
+            folder: 'app-folder',
+            trigger: '@App',
+            requiresTrigger: false,
+            conversationKind: 'channel',
+            agentConfig: { persona: 'generalist' },
+          },
+        }),
+      } as never,
+      getBrowserStatus: browserMocks.getBrowserStatus,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs`,
+        'token-jobs',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            name: 'Deep Analysis V2 synthesis',
+            prompt: 'x'.repeat(67_119),
+            executionContext: {
+              conversationJid: 'chat-1',
+              threadId: null,
+              workspaceKey: 'app-folder',
+              sessionId: 'session-1',
+            },
+          }),
+        },
+      );
+
+      expect(response.status).toBe(201);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('returns a structured SDK error for job requests above 1 MB', async () => {
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'app-one',
+      },
+    ]);
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const client = createClient({
+        apiKey: 'token-jobs',
+        baseUrl: `http://127.0.0.1:${port}`,
+      });
+      await expect(
+        client.jobs.create({
+          name: 'Oversized',
+          prompt: 'x'.repeat(1024 * 1024),
+          executionContext: {
+            conversationJid: 'chat-1',
+            threadId: null,
+            workspaceKey: 'app-folder',
+            sessionId: 'session-1',
+          },
+          kind: 'manual',
+        }),
+      ).rejects.toMatchObject({
+        code: 'PAYLOAD_TOO_LARGE',
+        message: 'Payload too large',
+      });
     } finally {
       await handle.close();
     }

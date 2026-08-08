@@ -35,7 +35,7 @@ import {
 import type { DeepAgentRunnerInput } from './types.js';
 import { nowMs } from '../../../../shared/time/datetime.js';
 import { RunScopedToolSuccessLedger } from '../../../../runner/tool-gate-core.js';
-import { DelegatedCompletionGate } from '../../../../runner/delegated-completion-gate.js';
+import { CompletionGate } from '../../../../runner/completion-gate.js';
 
 function log(message: string): void {
   if (process.env.GANTRY_RUNNER_LOG === '1') {
@@ -113,8 +113,8 @@ async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
   try {
     const maxInputTokens = resolveMaxInputTokens();
     const openRouterProviderRouting = resolveOpenRouterProviderRouting();
-    const completionGate = agentInput.delegatedCompletionGate
-      ? new DelegatedCompletionGate(agentInput.delegatedCompletionGate)
+    const completionGate = agentInput.completionGate
+      ? new CompletionGate(agentInput.completionGate)
       : undefined;
     const toolSuccessLedger = new RunScopedToolSuccessLedger();
     let turnInput = agentInput;

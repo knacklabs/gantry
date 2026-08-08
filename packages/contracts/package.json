@@ -1,6 +1,6 @@
 {
   "name": "@gantry/contracts",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "description": "Canonical DTO and schema contracts for Gantry integrations.",
   "author": "Gantry Contributors",
   "license": "MIT",

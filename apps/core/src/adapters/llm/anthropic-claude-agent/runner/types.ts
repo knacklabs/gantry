@@ -66,7 +66,7 @@ export interface AgentRunnerInput {
   responseSchema?: Record<string, unknown>;
   maxOutputTokens?: number;
   callerResolvedTools?: import('../../../../domain/types.js').CallerResolvedToolsConfig;
-  delegatedCompletionGate?: {
+  completionGate?: {
     toolName: string;
     maxNoProgressContinuations: number;
     interactionTimeoutMs: number;

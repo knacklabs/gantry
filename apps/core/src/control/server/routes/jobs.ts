@@ -50,6 +50,8 @@ import { parseJobRoute, parseTriggerWaitRoute } from '../route-parser.js';
 import { nowMs as currentTimeMs } from '../../../shared/time/datetime.js';
 import { modelPreviewFor, resolveCreateJobModel } from './job-model-preview.js';
 
+const JOB_JSON_BODY_MAX_BYTES = 1024 * 1024;
+
 function sendApplicationError(res: ServerResponse, error: unknown): boolean {
   if (!(error instanceof ApplicationError)) return false;
   switch (error.code) {
@@ -312,7 +314,7 @@ export async function handleJobRoutes(
     if (!auth) return true;
     const body = parseCreateJobRequest(
       res,
-      (await readJson(req)) as Record<string, unknown>,
+      (await readJson(req, JOB_JSON_BODY_MAX_BYTES)) as Record<string, unknown>,
     );
     if (!body) return true;
     const kind = body.kind ?? 'manual';

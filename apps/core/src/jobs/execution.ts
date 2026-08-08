@@ -543,7 +543,7 @@ async function runActiveJob(
                 currentJob.agent_task.callerResolvedTools &&
                 currentJob.session_id
                   ? {
-                      delegatedCompletionGate: {
+                      completionGate: {
                         ...currentJob.agent_task.completionGate,
                         interactionTimeoutMs:
                           currentJob.agent_task.callerResolvedTools

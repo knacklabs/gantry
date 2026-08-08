@@ -1,6 +1,6 @@
 import { submitTaskLifecycleDataRequest } from './mcp/tools/task-lifecycle.js';
 
-export type DelegatedCompletionGateConfig = {
+export type CompletionGateConfig = {
   toolName: string;
   maxNoProgressContinuations: number;
   interactionTimeoutMs: number;
@@ -10,12 +10,12 @@ type Decision =
   | { decision: 'accept'; progressToken: string }
   | { decision: 'continue'; progressToken: string; message: string };
 
-export class DelegatedCompletionGate {
+export class CompletionGate {
   private completionAttempt = 0;
   private lastProgressToken: string | undefined;
   private consecutiveNoProgress = 0;
 
-  constructor(private readonly config: DelegatedCompletionGateConfig) {}
+  constructor(private readonly config: CompletionGateConfig) {}
 
   async check(): Promise<Decision> {
     this.completionAttempt += 1;

@@ -8,9 +8,9 @@ vi.mock('@core/runner/mcp/tools/task-lifecycle.js', () => ({
   submitTaskLifecycleDataRequest,
 }));
 
-import { DelegatedCompletionGate } from '@core/runner/delegated-completion-gate.js';
+import { CompletionGate } from '@core/runner/completion-gate.js';
 
-describe('DelegatedCompletionGate', () => {
+describe('CompletionGate', () => {
   beforeEach(() => submitTaskLifecycleDataRequest.mockReset());
 
   it('forwards a bounded caller gate request and accepts completion', async () => {
@@ -18,7 +18,7 @@ describe('DelegatedCompletionGate', () => {
       ok: true,
       data: { decision: 'accept', progressToken: 'covered-all' },
     });
-    const gate = new DelegatedCompletionGate({
+    const gate = new CompletionGate({
       toolName: 'validate_completion',
       maxNoProgressContinuations: 2,
       interactionTimeoutMs: 90_000,
@@ -47,7 +47,7 @@ describe('DelegatedCompletionGate', () => {
         message: 'Run the next batch.',
       },
     });
-    const gate = new DelegatedCompletionGate({
+    const gate = new CompletionGate({
       toolName: 'validate_completion',
       maxNoProgressContinuations: 2,
       interactionTimeoutMs: 90_000,

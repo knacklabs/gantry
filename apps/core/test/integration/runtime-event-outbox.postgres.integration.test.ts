@@ -12,6 +12,7 @@ import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage
 import type { AppId } from '@core/domain/app/app.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import type { JobId } from '@core/domain/jobs/jobs.js';
+import { parseRuntimeEventFilter } from '@core/control/server/routes/runtime-events.js';
 import { _setRuntimeStorageForTest } from '@core/adapters/storage/postgres/runtime-store.js';
 import { flushWebhookDeliveries } from '@core/control/server/webhook-delivery.js';
 import { recordPendingInteractionRequested } from '@core/application/interactions/pending-interaction-durability.js';
@@ -180,6 +181,57 @@ maybeDescribe('Postgres runtime event outbox', () => {
         payload: { jobId, step: 'missed-wakeup' },
       },
     ]);
+  });
+
+  it('does not expose a later stream position before an earlier transaction commits', async () => {
+    const appId = DEFAULT_APP_ID as AppId;
+    let releaseFirst!: () => void;
+    let firstInserted!: () => void;
+    const release = new Promise<void>((resolve) => (releaseFirst = resolve));
+    const inserted = new Promise<void>((resolve) => (firstInserted = resolve));
+
+    const first = runtime.service.db.transaction(async (tx) => {
+      const event = await runtime.repositories.runtimeEvents.appendRuntimeEventWithExecutor(
+        tx,
+        {
+          appId,
+          eventType: RUNTIME_EVENT_TYPES.JOB_STARTED,
+          actor: 'scheduler',
+          responseMode: 'none',
+          payload: { order: 1 },
+        },
+      );
+      firstInserted();
+      await release;
+      return event;
+    });
+    await inserted;
+
+    const second = runtime.repositories.runtimeEvents.appendRuntimeEvent({
+      appId,
+      eventType: RUNTIME_EVENT_TYPES.JOB_STARTED,
+      actor: 'scheduler',
+      responseMode: 'none',
+      payload: { order: 2 },
+    });
+    await expect(
+      Promise.race([
+        second.then(() => 'committed'),
+        new Promise<string>((resolve) => setTimeout(() => resolve('blocked'), 100)),
+      ]),
+    ).resolves.toBe('blocked');
+
+    releaseFirst();
+    const [firstEvent, secondEvent] = await Promise.all([first, second]);
+    expect(secondEvent.eventId).toBeGreaterThan(firstEvent.eventId);
+    expect(
+      parseRuntimeEventFilter(
+        new URL(
+          `http://gantry/v1/runtime-events?afterStreamPosition=${firstEvent.eventId}`,
+        ),
+        appId,
+      ),
+    ).toMatchObject({ afterEventId: firstEvent.eventId });
   });
 
   it('fans out filtered lifecycle webhooks, emits pending interactions, settles outbox rows, and preserves dead letters', async () => {

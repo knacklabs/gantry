@@ -132,7 +132,7 @@ export function readJson(
         statusCode: 413,
       });
       reject(error);
-      req.destroy();
+      req.resume();
       return;
     }
     req.on('data', (chunk) => {
@@ -144,7 +144,6 @@ export function readJson(
           statusCode: 413,
         });
         reject(error);
-        req.destroy(error);
         return;
       }
       chunks.push(buffer);

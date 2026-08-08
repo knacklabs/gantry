@@ -1791,6 +1791,29 @@ describe('Agent.Tender job task contract', () => {
     expect(parsed.agentTask?.responseSchema?.type).toBe('object');
   });
 
+  it('accepts an explicitly empty caller-resolved tool surface', () => {
+    const parsed = CreateJobRequestSchema.parse({
+      name: 'Review inline analysis',
+      prompt: 'Review the complete inline analysis input.',
+      executionContext: {
+        conversationJid: 'app:manipal:deep-analysis-review',
+        threadId: null,
+        workspaceKey: 'agent:agent-tender',
+        sessionId: 'session-review',
+      },
+      agentTask: {
+        executionPolicy: { totalTimeoutMs: 120_000 },
+        callerResolvedTools: {
+          tools: [],
+          maxInteractions: 1,
+          interactionTimeoutMs: 30_000,
+        },
+      },
+    });
+
+    expect(parsed.agentTask?.callerResolvedTools?.tools).toEqual([]);
+  });
+
   it('rejects unknown executable controls and unbounded timeouts', () => {
     expectInvalid(CreateJobRequestSchema, {
       name: 'Unsafe recipe',
@@ -1808,6 +1831,26 @@ describe('Agent.Tender job task contract', () => {
       },
     });
   });
+
+  it.each(['delegatedCompletionGate', 'interactionBudget'])(
+    'rejects the retired %s control',
+    (retiredControl) => {
+      expectInvalid(CreateJobRequestSchema, {
+        name: 'Retired V1 job',
+        prompt: 'Run the old deeper analysis workflow.',
+        executionContext: {
+          conversationJid: 'app:manipal:deep-analysis-v1',
+          threadId: null,
+          workspaceKey: 'agent:agent-tender',
+          sessionId: 'session-v1',
+        },
+        agentTask: {
+          executionPolicy: { totalTimeoutMs: 120_000 },
+          [retiredControl]: {},
+        },
+      });
+    },
+  );
 
   it('accepts an object-only result union and rejects mixed scalar unions', () => {
     const request = {

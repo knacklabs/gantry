@@ -104,11 +104,6 @@ export interface JobAgentTask {
     maxInteractions: number;
     interactionTimeoutMs: number;
   };
-  delegatedCompletionGate?: {
-    toolName: string;
-    taskKeys: string[];
-    maxNoProgressContinuations: number;
-  };
   completionGate?: {
     toolName: string;
     maxNoProgressContinuations: number;
@@ -122,10 +117,6 @@ export interface JobAgentTask {
     maxOutputTokens?: number;
   };
   requiredSkill?: { name: string; contentHash: string };
-  interactionBudget?: {
-    maxTotal: number;
-    scopes: Record<string, number>;
-  };
 }
 
 export interface Job {

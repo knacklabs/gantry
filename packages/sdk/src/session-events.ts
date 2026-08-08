@@ -239,6 +239,10 @@ export function parseSessionSseEvent(input: {
       : undefined;
   return {
     eventId: input.eventId,
+    streamPosition:
+      typeof envelope?.streamPosition === 'number'
+        ? envelope.streamPosition
+        : input.eventId,
     eventType: input.eventType,
     sessionId:
       typeof envelope?.sessionId === 'string' || envelope?.sessionId === null

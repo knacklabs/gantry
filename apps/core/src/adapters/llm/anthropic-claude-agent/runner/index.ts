@@ -237,7 +237,7 @@ async function runScheduledQuery(opts: {
       status: 'success',
       result: null,
       newSessionId: diagnosticSessionId,
-      ...(opts.agentInput.delegatedCompletionGate
+      ...(opts.agentInput.completionGate
         ? { completionGateAccepted: queryResult.completionGateAccepted }
         : {}),
       ...(opts.agentInput.responseSchema

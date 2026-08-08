@@ -44,7 +44,6 @@ export const JobAgentTaskSchema = z
               })
               .strict(),
           )
-          .min(1)
           .max(32),
         maxInteractions: z.number().int().positive().max(256),
         interactionTimeoutMs: z
@@ -52,14 +51,6 @@ export const JobAgentTaskSchema = z
           .int()
           .positive()
           .max(30 * 60_000),
-      })
-      .strict()
-      .optional(),
-    delegatedCompletionGate: z
-      .object({
-        toolName: z.string().min(1).max(80),
-        taskKeys: z.array(z.string().min(1).max(80)).min(1).max(32),
-        maxNoProgressContinuations: z.number().int().positive().max(10),
       })
       .strict()
       .optional(),
@@ -99,13 +90,6 @@ export const JobAgentTaskSchema = z
       .optional(),
     requiredSkill: z
       .object({ name: z.string().min(1), contentHash: z.string().min(1) })
-      .strict()
-      .optional(),
-    interactionBudget: z
-      .object({
-        maxTotal: z.number().int().positive().max(256),
-        scopes: z.record(z.string().min(1), z.number().int().nonnegative()),
-      })
       .strict()
       .optional(),
   })

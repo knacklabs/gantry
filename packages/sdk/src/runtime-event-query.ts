@@ -2,7 +2,9 @@ import type { RuntimeEventQuery } from './types.js';
 
 export function runtimeEventQuery(input: RuntimeEventQuery): string {
   const query = new URLSearchParams();
-  if (input.afterEventId !== undefined) {
+  if (input.afterStreamPosition !== undefined) {
+    query.set('afterStreamPosition', String(input.afterStreamPosition));
+  } else if (input.afterEventId !== undefined) {
     query.set('afterEventId', String(input.afterEventId));
   }
   if (input.limit !== undefined) query.set('limit', String(input.limit));

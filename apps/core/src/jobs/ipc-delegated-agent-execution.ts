@@ -119,27 +119,6 @@ export async function executeResolvedDelegation(input: {
                 },
               }
             : {}),
-          ...(parentJob?.agent_task?.delegatedCompletionGate &&
-          parentJob.agent_task.callerResolvedTools &&
-          parentJob.session_id &&
-          parentJob.agent_task.delegatedCompletionGate.taskKeys.includes(
-            typeof task.privateCorrelationJson.taskKey === 'string'
-              ? task.privateCorrelationJson.taskKey
-              : '',
-          )
-            ? {
-                delegatedCompletionGate: {
-                  toolName:
-                    parentJob.agent_task.delegatedCompletionGate.toolName,
-                  maxNoProgressContinuations:
-                    parentJob.agent_task.delegatedCompletionGate
-                      .maxNoProgressContinuations,
-                  interactionTimeoutMs:
-                    parentJob.agent_task.callerResolvedTools
-                      .interactionTimeoutMs,
-                },
-              }
-            : {}),
         },
         (proc) => {
           if (!proc.pid) return;

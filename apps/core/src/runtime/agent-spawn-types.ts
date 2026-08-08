@@ -109,7 +109,7 @@ export interface AgentInput {
   deepAgentSkills?: DeepAgentSkillProjection;
   responseSchema?: Record<string, unknown>;
   callerResolvedTools?: import('../domain/types.js').CallerResolvedToolsConfig;
-  delegatedCompletionGate?: {
+  completionGate?: {
     toolName: string;
     maxNoProgressContinuations: number;
     interactionTimeoutMs: number;

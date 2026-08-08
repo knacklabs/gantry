@@ -159,6 +159,13 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
     input: RuntimeEventPublishInput,
   ): Promise<RuntimeEvent> {
     const appId = requiredId(input.appId, 'appId');
+    // PostgreSQL identity values are allocated before commit, so concurrent
+    // transactions can otherwise make a lower event id visible after a
+    // consumer has checkpointed a higher one. Serialize allocation per app;
+    // the transaction-scoped lock is released automatically at commit.
+    await db.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${appId}, 0))`,
+    );
     const conversationId = optionalId(input.conversationId);
     const threadId = optionalId(input.threadId);
     const providerThread = canonicalProviderThreadForIds({

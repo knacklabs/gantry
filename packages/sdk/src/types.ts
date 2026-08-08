@@ -25,6 +25,7 @@ export type TransportResponse<T> = {
 
 export type RuntimeEventEnvelope = {
   eventId: number;
+  streamPosition: number;
   eventType: string;
   sessionId?: string | null;
   jobId?: string | null;
@@ -41,6 +42,8 @@ export type SessionEventEnvelope = RuntimeEventEnvelope;
 export type SseEvent = RuntimeEventEnvelope;
 
 export type RuntimeEventQuery = {
+  afterStreamPosition?: number;
+  /** @deprecated Use afterStreamPosition for durable app event streams. */
   afterEventId?: number;
   limit?: number;
   sessionId?: string;

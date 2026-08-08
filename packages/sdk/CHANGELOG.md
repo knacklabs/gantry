@@ -1,5 +1,11 @@
 # @gantry/sdk
 
+## 0.7.0
+
+- Removed the retired `delegatedCompletionGate` and `interactionBudget` job
+  controls. Use the generic `completionGate` and the caller-resolved tool
+  configuration's `maxInteractions` limit.
+
 ## 0.6.1
 
 - Added `client.models.credentials` for the existing list, put, patch, and

@@ -19,7 +19,7 @@ import {
   shouldClose,
 } from './ipc-input.js';
 import { SteeringDeliveryGate } from './steering-delivery-gate.js';
-import { DelegatedCompletionGate } from '../../../../runner/delegated-completion-gate.js';
+import { CompletionGate } from '../../../../runner/completion-gate.js';
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import {
@@ -193,7 +193,7 @@ export async function runQuery(
   stream.pushInitialPrompt(prompt, memoryBlock);
   const boundedScheduledFollowups =
     agentInput.isScheduledJob === true &&
-    Boolean(agentInput.delegatedCompletionGate || agentInput.responseSchema);
+    Boolean(agentInput.completionGate || agentInput.responseSchema);
   if (!enableIpcFollowups && !boundedScheduledFollowups) {
     stream.end();
   }
@@ -262,7 +262,7 @@ export async function runQuery(
   let pendingStructuredToPartialBoundary = false;
   let structuredRepairAttempts = 0;
   let structuredRepairPending = false;
-  let completionGateAccepted = !agentInput.delegatedCompletionGate;
+  let completionGateAccepted = !agentInput.completionGate;
   let completionContinuationPending = false;
   let structuredResultValidated = !agentInput.responseSchema;
   const validateResponse = compileSdkResponseSchema(agentInput.responseSchema);
@@ -349,8 +349,8 @@ export async function runQuery(
     callerResolvedDelegationEnabled:
       agentInput.toolAccessRequirements?.includes('AgentDelegation') === true,
   });
-  const completionGate = agentInput.delegatedCompletionGate
-    ? new DelegatedCompletionGate(agentInput.delegatedCompletionGate)
+  const completionGate = agentInput.completionGate
+    ? new CompletionGate(agentInput.completionGate)
     : undefined;
   const sdkQueryPreparedMs = elapsedMs();
   log(

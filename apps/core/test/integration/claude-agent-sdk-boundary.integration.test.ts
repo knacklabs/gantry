@@ -692,7 +692,7 @@ describe('Claude Agent SDK boundary integration', () => {
           required: ['version'],
           additionalProperties: false,
         },
-        delegatedCompletionGate: {
+        completionGate: {
           toolName: 'validate_deep_analysis_completion',
           maxNoProgressContinuations: 2,
           interactionTimeoutMs: 90_000,
@@ -759,7 +759,7 @@ describe('Claude Agent SDK boundary integration', () => {
             required: ['version'],
             additionalProperties: false,
           },
-          delegatedCompletionGate: {
+          completionGate: {
             toolName: 'validate_deep_analysis_completion',
             maxNoProgressContinuations: 2,
             interactionTimeoutMs: 90_000,

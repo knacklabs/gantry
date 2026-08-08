@@ -1189,6 +1189,32 @@ describe('agent capability composition', () => {
     expect(profile.allowedTools).toContain('mcp__firecrawl__firecrawl_search');
   });
 
+  it('projects no Gantry tools for an explicitly empty caller-bounded job', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'app:manipal-tender-copilot:deep-analysis',
+      workspaceFolder: 'deep_analysis',
+      isScheduledJob: true,
+      configuredAllowedTools: ['AgentDelegation'],
+      callerResolvedTools: {
+        sessionId: 'session-1',
+        tools: [],
+        maxInteractions: 1,
+        interactionTimeoutMs: 30_000,
+      },
+    });
+
+    expect(
+      JSON.parse(
+        profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON ?? '[]',
+      ),
+    ).toEqual([]);
+    expect(profile.mcpServers.gantry).toBeDefined();
+    expect(profile.allowedTools).not.toContain('mcp__gantry__file');
+    expect(profile.allowedTools).not.toContain('mcp__gantry__memory_search');
+    expect(profile.allowedTools).not.toContain('mcp__gantry__delegate_task');
+  });
+
   it('keeps only caller and delegated task tools for a bounded job with a completion gate', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',

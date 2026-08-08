@@ -9,6 +9,7 @@ import {
   closeEgressGatewaysForTest,
   ensureEgressGateway,
 } from '@core/runtime/egress-gateway.js';
+import { requestDirect } from '@core/runtime/egress-gateway-proxying.js';
 import { SANDBOX_RUNTIME_MODEL_GATEWAY_HOST } from '@core/runtime/agent-spawn-runtime-policy.js';
 
 beforeEach(() => {
@@ -23,6 +24,38 @@ afterEach(async () => {
 });
 
 describe('egress gateway', () => {
+  it('clears the connect deadline after an HTTP stream connects', async () => {
+    const target = await startTargetServer(50);
+    try {
+      const upstream = requestDirect(
+        { headers: {}, method: 'GET' } as http.IncomingMessage,
+        new URL(`http://127.0.0.1:${target.port}/slow-response`),
+      );
+      const socketTimeout = new Promise<number>((resolve) => {
+        upstream.once('socket', (socket) => {
+          const observe = () => resolve(socket.timeout);
+          if (socket.connecting) socket.once('connect', observe);
+          else observe();
+        });
+      });
+      const response = new Promise<string>((resolve, reject) => {
+        upstream.once('response', (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+          res.once('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+        });
+        upstream.once('error', reject);
+      });
+
+      upstream.end();
+
+      await expect(socketTimeout).resolves.toBe(0);
+      await expect(response).resolves.toBe('ok');
+    } finally {
+      await target.close();
+    }
+  });
+
   it.each([
     '127.0.0.1',
     '10.0.0.7',
