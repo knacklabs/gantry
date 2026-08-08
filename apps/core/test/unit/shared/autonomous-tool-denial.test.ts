@@ -2,8 +2,17 @@ import { describe, expect, it } from 'vitest';
 
 import {
   formatAutonomousToolDenial,
+  isGrantableAutonomousToolRecovery,
   parseAutonomousToolDenial,
 } from '@core/shared/autonomous-tool-denial.js';
+
+it('treats MCP server setup as instruction-only autonomous recovery', () => {
+  expect(
+    isGrantableAutonomousToolRecovery(
+      'request_mcp_server {"serverName":"customer-records"}',
+    ),
+  ).toBe(false);
+});
 
 describe('parseAutonomousToolDenial', () => {
   it('does not let denial reason text spoof the structured classification', () => {

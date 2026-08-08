@@ -177,6 +177,7 @@ export async function finalizeSchedulerJobRun(input: {
       runStatus = autonomousToolDenial ? 'failed' : 'paused';
       const setupState = setupStateForDeniedTool({
         toolName: toolDenial.toolName,
+        grantable: toolDenial.grantable === true,
         recoveryAction: toolDenial.recoveryAction,
         checkedAt: input.now,
         previous: currentJob.setup_state,

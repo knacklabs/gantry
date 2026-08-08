@@ -187,6 +187,7 @@ describe('DeepAgents terminal permission denial', () => {
 
     const setupState = setupStateForDeniedTool({
       toolName: denial!.toolName,
+      grantable: denial!.grantable,
       recoveryAction: denial!.recoveryAction,
     });
     const runPermissionInteraction = vi.fn();
@@ -241,6 +242,7 @@ describe('DeepAgents terminal permission denial', () => {
     });
     const setupState = setupStateForDeniedTool({
       toolName: denial.toolName,
+      grantable: denial.grantable,
       recoveryAction: denial.recoveryAction,
     });
     const runPermissionInteraction = vi.fn(

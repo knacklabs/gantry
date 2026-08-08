@@ -73,6 +73,7 @@ export interface JobSetupBlocker {
   state: Exclude<JobSetupReadinessState, 'ready'>;
   message: string;
   nextAction: string;
+  grantable?: boolean;
   requirementType:
     | 'tool'
     | 'semantic_capability'

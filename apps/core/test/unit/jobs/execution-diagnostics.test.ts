@@ -11,19 +11,19 @@ import {
 } from '@core/jobs/execution-diagnostics.js';
 
 describe('job execution diagnostics', () => {
-  it('classifies MCP server requests as persistent capability recovery', () => {
+  it('classifies MCP server requests as instruction-only recovery', () => {
     expect(
       toolDenialEventPayload(
         {
           toolName: 'mcp__acme__records_append',
-          grantable: true,
+          grantable: false,
           recoveryAction: 'request_mcp_server {"serverName":"acme"}',
         },
         null,
       ),
     ).toMatchObject({
-      grantable: true,
-      recovery_kind: 'persistent_capability',
+      grantable: false,
+      recovery_kind: 'job_policy',
     });
   });
 

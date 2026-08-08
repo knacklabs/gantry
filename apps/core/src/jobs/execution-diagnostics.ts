@@ -63,8 +63,8 @@ export function toolDenialEventPayload(
     grantable: toolDenial.grantable ?? null,
     recovery_action: toolDenial.recoveryAction ?? null,
     recovery_kind:
-      toolDenial.recoveryAction?.startsWith('request_access') === true ||
-      toolDenial.recoveryAction?.startsWith('request_mcp_server') === true
+      toolDenial.grantable === true &&
+      toolDenial.recoveryAction?.startsWith('request_access') === true
         ? 'persistent_capability'
         : 'job_policy',
   };

@@ -10,20 +10,7 @@ export function isGrantableAutonomousToolRecovery(
   recoveryAction: string | null | undefined,
 ): boolean {
   if (!recoveryAction?.trim()) return true;
-  return (
-    recoveryAction.startsWith('request_access ') ||
-    recoveryAction.startsWith('request_mcp_server ')
-  );
-}
-
-export function isHiddenAuthorityAutonomousToolRecovery(
-  recoveryAction: string | null | undefined,
-): boolean {
-  return (
-    recoveryAction?.startsWith(
-      'Capability request tools are not available in this run (locked or fixed-image agent).',
-    ) === true
-  );
+  return recoveryAction.startsWith('request_access ');
 }
 
 export function formatAutonomousToolDenial(input: {

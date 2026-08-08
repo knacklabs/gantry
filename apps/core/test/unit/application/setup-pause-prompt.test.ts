@@ -87,6 +87,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
           state: 'missing_capability',
           requirementType: 'semantic_capability',
           requirementId: 'salesforce.leads.append',
+          grantable: true,
           message: 'Capability missing.',
           nextAction: 'Approve the reviewed capability.',
         },
@@ -175,6 +176,122 @@ function configure(input: {
 }
 
 describe('setup pause prompts', () => {
+  it('a non-grantable denial is never turned into an approval candidate', async () => {
+    const job = makeJob({
+      access_requirements: [],
+      setup_state: {
+        state: 'missing_capability',
+        checked_at: '2026-08-08T00:00:00.000Z',
+        fingerprint: 'protected-browser-denial',
+        blockers: [
+          {
+            state: 'missing_capability',
+            requirementType: 'browser',
+            requirementId: 'Browser',
+            grantable: false,
+            message: 'Protected browser access was denied.',
+            nextAction: 'Ask an operator to configure this worker manually.',
+          },
+        ],
+      },
+    });
+    const reviewStoredRequirement = vi.fn();
+    const runPermissionInteraction = vi.fn();
+    configure({
+      job: () => job,
+      reviewStoredRequirement,
+      runPermissionInteraction,
+    });
+
+    await expect(
+      raiseSetupPausePermissionPrompt({
+        jobId: job.id,
+        setupFingerprint: job.setup_state!.fingerprint,
+      }),
+    ).resolves.toEqual({
+      status: 'instruction_only',
+      notificationEligible: true,
+    });
+    expect(reviewStoredRequirement).not.toHaveBeenCalled();
+    expect(runPermissionInteraction).not.toHaveBeenCalled();
+  });
+
+  it('a blocker with undefined grantability is instruction-only', async () => {
+    const job = makeJob({
+      access_requirements: [],
+      setup_state: {
+        state: 'missing_capability',
+        checked_at: '2026-08-08T00:00:00.000Z',
+        fingerprint: 'legacy-browser-denial',
+        blockers: [
+          {
+            state: 'missing_capability',
+            requirementType: 'browser',
+            requirementId: 'Browser',
+            message: 'Browser access was denied.',
+            nextAction: 'Approve lasting Browser access.',
+          },
+        ],
+      },
+    });
+    const reviewStoredRequirement = vi.fn();
+    const runPermissionInteraction = vi.fn();
+    configure({
+      job: () => job,
+      reviewStoredRequirement,
+      runPermissionInteraction,
+    });
+
+    await expect(
+      raiseSetupPausePermissionPrompt({
+        jobId: job.id,
+        setupFingerprint: job.setup_state!.fingerprint,
+      }),
+    ).resolves.toEqual({
+      status: 'instruction_only',
+      notificationEligible: true,
+    });
+    expect(reviewStoredRequirement).not.toHaveBeenCalled();
+    expect(runPermissionInteraction).not.toHaveBeenCalled();
+  });
+
+  it('an MCP-server denial is instruction-only', async () => {
+    const job = makeJob({
+      access_requirements: [],
+      setup_state: {
+        state: 'missing_capability',
+        checked_at: '2026-08-08T00:00:00.000Z',
+        fingerprint: 'mcp-server-denial',
+        blockers: [
+          {
+            state: 'missing_capability',
+            requirementType: 'tool',
+            requirementId: 'mcp__customer_records__append',
+            grantable: false,
+            message: 'The MCP server is not configured.',
+            nextAction: 'request_mcp_server {"serverName":"customer-records"}',
+          },
+        ],
+      },
+    });
+    const reviewStoredRequirement = vi.fn();
+    const runPermissionInteraction = vi.fn();
+    configure({
+      job: () => job,
+      reviewStoredRequirement,
+      runPermissionInteraction,
+    });
+
+    await expect(
+      raiseSetupPausePermissionPrompt({
+        jobId: job.id,
+        setupFingerprint: job.setup_state!.fingerprint,
+      }),
+    ).resolves.toMatchObject({ status: 'instruction_only' });
+    expect(reviewStoredRequirement).not.toHaveBeenCalled();
+    expect(runPermissionInteraction).not.toHaveBeenCalled();
+  });
+
   it('keeps the instruction-only path available when runtime wiring is absent', async () => {
     await expect(
       raiseSetupPausePermissionPrompt({
@@ -267,6 +384,7 @@ describe('setup pause prompts', () => {
             state: 'missing_capability',
             requirementType: 'browser',
             requirementId: 'Browser',
+            grantable: true,
             message: 'Browser access was denied.',
             nextAction: 'Approve lasting Browser access.',
           },
@@ -418,6 +536,7 @@ describe('setup pause prompts', () => {
             state: 'missing_capability',
             requirementType: 'browser',
             requirementId: 'Browser',
+            grantable: true,
             message: 'Browser access was denied.',
             nextAction: 'Approve lasting Browser access.',
           },
@@ -495,6 +614,7 @@ describe('setup pause prompts', () => {
             state: 'missing_capability',
             requirementType: 'browser',
             requirementId: 'Browser',
+            grantable: true,
             message: 'Browser access was denied.',
             nextAction: 'Approve lasting Browser access.',
           },
@@ -568,6 +688,7 @@ describe('setup pause prompts', () => {
             state: 'missing_capability',
             requirementType: 'tool',
             requirementId: 'RunCommand',
+            grantable: false,
             message: 'Unscoped command access was denied.',
             nextAction: 'Declare a reviewed scoped command.',
           },
@@ -884,6 +1005,7 @@ describe('setup pause prompts', () => {
             state: 'missing_capability',
             requirementType: 'semantic_capability',
             requirementId: 'salesforce.leads.append',
+            grantable: true,
             message: 'Capability missing.',
             nextAction: 'Approve the reviewed capability.',
           },
@@ -929,6 +1051,7 @@ describe('setup pause prompts', () => {
             state: 'missing_capability',
             requirementType: 'tool',
             requirementId: 'RunCommand(npm run first *)',
+            grantable: true,
             message: 'First tool missing.',
             nextAction: 'Review the first tool.',
           },
@@ -936,6 +1059,7 @@ describe('setup pause prompts', () => {
             state: 'missing_capability',
             requirementType: 'tool',
             requirementId: 'RunCommand(npm run second *)',
+            grantable: true,
             message: 'Second tool missing.',
             nextAction: 'Review the second tool.',
           },

@@ -24,7 +24,6 @@ import { localCliCommandTemplatePermissionRule } from './job-capability-requirem
 import { normalizeToolAccessRequirements } from './job-tool-access-requirements.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from './job-readiness-service.js';
 import { permissionUpdateAllowedToolRules } from '../../shared/permission-tool-rules.js';
-import { isHiddenAuthorityAutonomousToolRecovery } from '../../shared/autonomous-tool-denial.js';
 
 export interface SetupPauseReviewedRequirement {
   suggestions: PermissionApprovalUpdate[];
@@ -315,7 +314,7 @@ function grantableRequirementCandidates(
   for (const blocker of blockers) {
     if (
       blocker.state !== 'missing_capability' ||
-      isHiddenAuthorityAutonomousToolRecovery(blocker.nextAction) ||
+      blocker.grantable !== true ||
       !['semantic_capability', 'browser', 'local_cli', 'tool'].includes(
         blocker.requirementType,
       )

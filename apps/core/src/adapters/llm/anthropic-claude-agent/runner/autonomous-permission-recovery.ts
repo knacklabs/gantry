@@ -1,4 +1,5 @@
 import type { AgentRunnerInput } from './types.js';
+import { isGrantableAutonomousToolRecovery } from '../../../../shared/autonomous-tool-denial.js';
 import { log } from './logging.js';
 import { emitJobToolActivity } from './tool-permission-events.js';
 
@@ -10,7 +11,7 @@ export function denyNonPromptableAutonomousRecovery(input: {
   toolName: string;
   toolPolicyReason: string;
 }): { behavior: 'deny'; message: string; interrupt: true } | undefined {
-  if (isPromptableAutonomousRecovery(input.recoveryAction)) return undefined;
+  if (isGrantableAutonomousToolRecovery(input.recoveryAction)) return undefined;
   const message = `Tool not on autonomous run allowlist: ${input.toolName}. ${input.recoveryMessage}`;
   log(`Autonomous run denied tool ${input.toolName}: ${message}`);
   emitJobToolActivity(
@@ -21,6 +22,7 @@ export function denyNonPromptableAutonomousRecovery(input: {
     {
       ok: false,
       terminal: true,
+      grantable: false,
       reason: input.toolPolicyReason,
       ...(input.recoveryAction
         ? { recovery_action: input.recoveryAction }
@@ -28,14 +30,4 @@ export function denyNonPromptableAutonomousRecovery(input: {
     },
   );
   return { behavior: 'deny', message, interrupt: true };
-}
-
-function isPromptableAutonomousRecovery(
-  recoveryAction: string | undefined,
-): boolean {
-  if (!recoveryAction) return true;
-  return (
-    recoveryAction.startsWith('request_access ') ||
-    recoveryAction.startsWith('request_mcp_server ')
-  );
 }
