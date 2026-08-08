@@ -9,8 +9,9 @@ import {
 } from '@core/application/jobs/setup-pause-permission-prompt.js';
 import { JobManagementService } from '@core/application/jobs/job-management-service.js';
 import {
-  prepareSetupPausePersistentGrant,
+  appendSetupPauseRequirementAfterPersistentGrant,
   setupPauseGrantIsCurrent,
+  setupPausePersistentGrantIsCurrent,
 } from '@core/app/bootstrap/setup-pause-permission-wiring.js';
 import { runDurablePermissionInteraction } from '@core/application/interactions/durable-interaction-handler.js';
 import { applyRecoveredPersistentPermissionGrant } from '@core/application/interactions/pending-interaction-permission-recovery.js';
@@ -488,7 +489,13 @@ describe('setup pause prompts', () => {
         persistence: {
           opsRepository: opsRepository as never,
           beforePersistentGrant: (candidate, effectiveUpdates) =>
-            prepareSetupPausePersistentGrant(
+            setupPausePersistentGrantIsCurrent(
+              opsRepository as never,
+              candidate,
+              effectiveUpdates,
+            ),
+          afterPersistentGrant: (candidate, effectiveUpdates) =>
+            appendSetupPauseRequirementAfterPersistentGrant(
               opsRepository as never,
               candidate,
               effectiveUpdates,
@@ -522,6 +529,334 @@ describe('setup pause prompts', () => {
     );
     expect(resumeSetupPausedJob).toHaveBeenCalledOnce();
     expect(requestSchedulerSync).toHaveBeenCalledWith(job.id);
+  });
+
+  it('settles and resumes when the requirement append loses its CAS after the grant committed', async () => {
+    const job = makeJob({
+      access_requirements: [],
+      setup_state: {
+        state: 'missing_capability',
+        checked_at: '2026-08-05T00:00:00.000Z',
+        fingerprint: 'under-declared-browser',
+        blockers: [
+          {
+            state: 'missing_capability',
+            requirementType: 'browser',
+            requirementId: 'Browser',
+            grantable: true,
+            message: 'Browser access was denied.',
+            nextAction: 'Approve lasting Browser access.',
+          },
+        ],
+      },
+    });
+    // The durable grant commits, but every append attempt loses its CAS race.
+    const appendJobAccessRequirement = vi.fn(async () => false);
+    const resumeSetupPausedJob = vi.fn(async () => true);
+    const requestSchedulerSync = vi.fn();
+    const bindings: Record<string, unknown>[] = [];
+    const browserTool = {
+      id: 'tool:Browser',
+      appId: 'default',
+      name: 'Browser',
+      kind: 'browser',
+      provider: 'gantry',
+      displayName: 'Browser',
+      category: 'agent',
+      risk: 'medium',
+      selectable: true,
+      status: 'active',
+      adapterRef: 'browser',
+      createdAt: '2026-08-05T00:00:00.000Z',
+      updatedAt: '2026-08-05T00:00:00.000Z',
+    };
+    const toolRepository = {
+      listTools: vi.fn(async () => [browserTool]),
+      getTool: vi.fn(async () => browserTool),
+      listAgentToolBindings: vi.fn(async () => bindings),
+      saveAgentToolBinding: vi.fn(async (binding) => {
+        bindings.push(binding);
+      }),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+    const opsRepository = {
+      getJobById: vi.fn(async () => job),
+      appendJobAccessRequirement,
+      resumeSetupPausedJob,
+      refreshSetupPausedJob: vi.fn(async () => false),
+    };
+    const request = {
+      requestId: 'setup-pause:job-1:under-declared-browser',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      sourceAgentFolder: 'main_agent',
+      jobId: job.id,
+      toolName: 'request_permission',
+      suggestions: [
+        { type: 'addRules', behavior: 'allow', rules: [{ toolName: 'Browser' }] },
+      ],
+    } as unknown as PermissionApprovalRequest;
+    const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
+
+    await expect(
+      applyRecoveredPersistentPermissionGrant({
+        persistence: {
+          opsRepository: opsRepository as never,
+          beforePersistentGrant: (candidate, effectiveUpdates) =>
+            setupPausePersistentGrantIsCurrent(
+              opsRepository as never,
+              candidate,
+              effectiveUpdates,
+            ),
+          afterPersistentGrant: (candidate, effectiveUpdates) =>
+            appendSetupPauseRequirementAfterPersistentGrant(
+              opsRepository as never,
+              candidate,
+              effectiveUpdates,
+            ),
+          getToolRepository: () => toolRepository as never,
+          mirrorAgentToolRulesToSettings,
+          onSchedulerChanged: requestSchedulerSync,
+        },
+        request,
+        sourceAgentFolder: 'main_agent',
+        decision: {
+          approved: true,
+          mode: 'allow_persistent_rule',
+          decidedBy: 'owner-1',
+          decisionClassification: 'user_permanent',
+          updatedPermissions: [
+            {
+              type: 'addRules',
+              behavior: 'allow',
+              rules: [{ toolName: 'Browser' }],
+            },
+          ],
+        },
+      }),
+    ).resolves.toBe(true);
+
+    // Grant committed, append lost its race — the interaction still settles and
+    // the paused job is rechecked/resumed rather than stranded.
+    expect(appendJobAccessRequirement).toHaveBeenCalled();
+    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
+      'main_agent',
+      ['Browser'],
+      { appId: 'default' },
+    );
+    expect(resumeSetupPausedJob).toHaveBeenCalledOnce();
+  });
+
+  it('settles and resumes when the requirement append throws after the grant committed', async () => {
+    const job = makeJob({
+      access_requirements: [],
+      setup_state: {
+        state: 'missing_capability',
+        checked_at: '2026-08-05T00:00:00.000Z',
+        fingerprint: 'under-declared-browser',
+        blockers: [
+          {
+            state: 'missing_capability',
+            requirementType: 'browser',
+            requirementId: 'Browser',
+            grantable: true,
+            message: 'Browser access was denied.',
+            nextAction: 'Approve lasting Browser access.',
+          },
+        ],
+      },
+    });
+    // The durable grant commits, then the append hits a transient repo error.
+    const appendJobAccessRequirement = vi.fn(async () => {
+      throw new Error('job store unavailable');
+    });
+    const resumeSetupPausedJob = vi.fn(async () => true);
+    const requestSchedulerSync = vi.fn();
+    const bindings: Record<string, unknown>[] = [];
+    const browserTool = {
+      id: 'tool:Browser',
+      appId: 'default',
+      name: 'Browser',
+      kind: 'browser',
+      provider: 'gantry',
+      displayName: 'Browser',
+      category: 'agent',
+      risk: 'medium',
+      selectable: true,
+      status: 'active',
+      adapterRef: 'browser',
+      createdAt: '2026-08-05T00:00:00.000Z',
+      updatedAt: '2026-08-05T00:00:00.000Z',
+    };
+    const toolRepository = {
+      listTools: vi.fn(async () => [browserTool]),
+      getTool: vi.fn(async () => browserTool),
+      listAgentToolBindings: vi.fn(async () => bindings),
+      saveAgentToolBinding: vi.fn(async (binding) => {
+        bindings.push(binding);
+      }),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+    const opsRepository = {
+      getJobById: vi.fn(async () => job),
+      appendJobAccessRequirement,
+      resumeSetupPausedJob,
+      refreshSetupPausedJob: vi.fn(async () => false),
+    };
+    const request = {
+      requestId: 'setup-pause:job-1:under-declared-browser',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      sourceAgentFolder: 'main_agent',
+      jobId: job.id,
+      toolName: 'request_permission',
+    } as unknown as PermissionApprovalRequest;
+    const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
+
+    await expect(
+      applyRecoveredPersistentPermissionGrant({
+        persistence: {
+          opsRepository: opsRepository as never,
+          beforePersistentGrant: (candidate, effectiveUpdates) =>
+            setupPausePersistentGrantIsCurrent(
+              opsRepository as never,
+              candidate,
+              effectiveUpdates,
+            ),
+          afterPersistentGrant: (candidate, effectiveUpdates) =>
+            appendSetupPauseRequirementAfterPersistentGrant(
+              opsRepository as never,
+              candidate,
+              effectiveUpdates,
+            ),
+          getToolRepository: () => toolRepository as never,
+          mirrorAgentToolRulesToSettings,
+          onSchedulerChanged: requestSchedulerSync,
+        },
+        request,
+        sourceAgentFolder: 'main_agent',
+        decision: {
+          approved: true,
+          mode: 'allow_persistent_rule',
+          decidedBy: 'owner-1',
+          decisionClassification: 'user_permanent',
+          updatedPermissions: [
+            {
+              type: 'addRules',
+              behavior: 'allow',
+              rules: [{ toolName: 'Browser' }],
+            },
+          ],
+        },
+      }),
+    ).resolves.toBe(true);
+
+    // A throwing append must not escape and strand the already-granted job.
+    expect(appendJobAccessRequirement).toHaveBeenCalled();
+    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
+      'main_agent',
+      ['Browser'],
+      { appId: 'default' },
+    );
+    expect(resumeSetupPausedJob).toHaveBeenCalledOnce();
+  });
+
+  it('a failing permission grant does not append the job requirement', async () => {
+    const job = makeJob({
+      access_requirements: [],
+      setup_state: {
+        state: 'missing_capability',
+        checked_at: '2026-08-05T00:00:00.000Z',
+        fingerprint: 'under-declared-browser',
+        blockers: [
+          {
+            state: 'missing_capability',
+            requirementType: 'browser',
+            requirementId: 'Browser',
+            grantable: true,
+            message: 'Browser access was denied.',
+            nextAction: 'Approve lasting Browser access.',
+          },
+        ],
+      },
+    });
+    const appendJobAccessRequirement = vi.fn(async () => true);
+    const browserTool = {
+      id: 'tool:Browser',
+      appId: 'default',
+      name: 'Browser',
+      kind: 'browser',
+      provider: 'gantry',
+      displayName: 'Browser',
+      category: 'agent',
+      risk: 'medium',
+      selectable: true,
+      status: 'active',
+      adapterRef: 'browser',
+      createdAt: '2026-08-05T00:00:00.000Z',
+      updatedAt: '2026-08-05T00:00:00.000Z',
+    };
+    const toolRepository = {
+      listTools: vi.fn(async () => [browserTool]),
+      getTool: vi.fn(async () => browserTool),
+      listAgentToolBindings: vi.fn(async () => []),
+      saveAgentToolBinding: vi.fn(async () => {
+        throw new Error('binding store unavailable');
+      }),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+    const repository = {
+      getJobById: vi.fn(async () => job),
+      appendJobAccessRequirement,
+    };
+    const request = {
+      requestId: 'setup-pause:job-1:under-declared-browser',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      sourceAgentFolder: 'main_agent',
+      jobId: job.id,
+      toolName: 'request_permission',
+    } as PermissionApprovalRequest;
+
+    await expect(
+      applyRecoveredPersistentPermissionGrant({
+        persistence: {
+          opsRepository: repository as never,
+          beforePersistentGrant: (candidate, effectiveUpdates) =>
+            setupPausePersistentGrantIsCurrent(
+              repository as never,
+              candidate,
+              effectiveUpdates,
+            ),
+          afterPersistentGrant: (candidate, effectiveUpdates) =>
+            appendSetupPauseRequirementAfterPersistentGrant(
+              repository as never,
+              candidate,
+              effectiveUpdates,
+            ),
+          getToolRepository: () => toolRepository as never,
+          mirrorAgentToolRulesToSettings: vi.fn(async () => undefined),
+        },
+        request,
+        sourceAgentFolder: 'main_agent',
+        decision: {
+          approved: true,
+          mode: 'allow_persistent_rule',
+          decidedBy: 'owner-1',
+          decisionClassification: 'user_permanent',
+          updatedPermissions: [
+            {
+              type: 'addRules',
+              behavior: 'allow',
+              rules: [{ toolName: 'Browser' }],
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow('binding store unavailable');
+
+    expect(appendJobAccessRequirement).not.toHaveBeenCalled();
+    expect(job.access_requirements).toEqual([]);
   });
 
   it('an under-declared scoped RunCommand denial offers one-tap approve built from the recovery action', async () => {
@@ -629,7 +964,13 @@ describe('setup pause prompts', () => {
         persistence: {
           opsRepository: opsRepository as never,
           beforePersistentGrant: (candidate, effectiveUpdates) =>
-            prepareSetupPausePersistentGrant(
+            setupPausePersistentGrantIsCurrent(
+              opsRepository as never,
+              candidate,
+              effectiveUpdates,
+            ),
+          afterPersistentGrant: (candidate, effectiveUpdates) =>
+            appendSetupPauseRequirementAfterPersistentGrant(
               opsRepository as never,
               candidate,
               effectiveUpdates,
@@ -715,7 +1056,13 @@ describe('setup pause prompts', () => {
             appendJobAccessRequirement,
           } as never,
           beforePersistentGrant: (candidate, effectiveUpdates) =>
-            prepareSetupPausePersistentGrant(
+            setupPausePersistentGrantIsCurrent(
+              { getJobById: vi.fn(async () => job) } as never,
+              candidate,
+              effectiveUpdates,
+            ),
+          afterPersistentGrant: (candidate, effectiveUpdates) =>
+            appendSetupPauseRequirementAfterPersistentGrant(
               {
                 getJobById: vi.fn(async () => job),
                 appendJobAccessRequirement,
@@ -803,7 +1150,7 @@ describe('setup pause prompts', () => {
     ];
 
     await expect(
-      prepareSetupPausePersistentGrant(
+      appendSetupPauseRequirementAfterPersistentGrant(
         {
           getJobById: vi.fn(async () => job),
           appendJobAccessRequirement,
@@ -1806,7 +2153,13 @@ describe('setup pause prompts', () => {
         persistence: {
           opsRepository: repository as never,
           beforePersistentGrant: (candidate, effectiveUpdates) =>
-            prepareSetupPausePersistentGrant(
+            setupPausePersistentGrantIsCurrent(
+              repository as never,
+              candidate,
+              effectiveUpdates,
+            ),
+          afterPersistentGrant: (candidate, effectiveUpdates) =>
+            appendSetupPauseRequirementAfterPersistentGrant(
               repository as never,
               candidate,
               effectiveUpdates,

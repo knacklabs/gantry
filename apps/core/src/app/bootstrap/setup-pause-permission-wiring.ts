@@ -61,10 +61,16 @@ export function configureRuntimeSetupPausePermissions(input: {
 }): void {
   configurePendingInteractionPermissionPersistence({
     opsRepository: input.opsRepository,
-    // The shared durable path runs this setup-specific guard for both live
-    // settlement and restart recovery immediately before grant persistence.
+    // Revalidate before persistence, then declare the requirement only after
+    // the durable grant has succeeded.
     beforePersistentGrant: (request, effectiveUpdates) =>
-      prepareSetupPausePersistentGrant(
+      setupPausePersistentGrantIsCurrent(
+        input.opsRepository,
+        request,
+        effectiveUpdates,
+      ),
+    afterPersistentGrant: (request, effectiveUpdates) =>
+      appendSetupPauseRequirementAfterPersistentGrant(
         input.opsRepository,
         request,
         effectiveUpdates,
@@ -178,7 +184,22 @@ export async function setupPauseGrantIsCurrent(
   return job ? setupPauseGrantIsCurrentForJob(job, request) : false;
 }
 
-export async function prepareSetupPausePersistentGrant(
+export async function setupPausePersistentGrantIsCurrent(
+  opsRepository: Pick<RuntimeJobRepository, 'getJobById'>,
+  request: PermissionApprovalRequest,
+  effectiveUpdates: readonly PermissionApprovalUpdate[],
+): Promise<boolean> {
+  if (!request.requestId.startsWith('setup-pause:')) return true;
+  if (!request.jobId) return false;
+  const job = await opsRepository.getJobById(request.jobId);
+  if (!job || !setupPauseGrantIsCurrentForJob(job, request)) return false;
+  return setupPauseRequirementForApprovedSuggestions({
+    job,
+    suggestions: effectiveUpdates,
+  }).matched;
+}
+
+export async function appendSetupPauseRequirementAfterPersistentGrant(
   opsRepository: Pick<
     RuntimeJobRepository,
     'getJobById' | 'appendJobAccessRequirement'
