@@ -414,16 +414,21 @@ export function createCanUseToolCallback(
         (toolDecision.recoveryAction
           ? `${toolDecision.reason} Recovery: ${toolDecision.recoveryAction}`
           : toolDecision.reason);
-      const nonPromptableDenial = denyNonPromptableAutonomousRecovery({
-        agentInput: input.agentInput,
-        getNewSessionId: input.getNewSessionId,
-        recoveryAction,
-        recoveryMessage,
-        toolName,
-        toolPolicyReason: yoloDenylistReason ?? toolDecision.reason,
-      });
-      if (nonPromptableDenial) return nonPromptableDenial;
       const publicToolName = permissionRequestToolName(toolName);
+      const permissionPlan = scheduledPermissionSuggestionPlan(
+        toolName,
+        permissionOpts.suggestions,
+        {
+          blockedPath: permissionOpts.blockedPath,
+          toolInput,
+          semanticCapabilityDefinitions: skillActionCapabilities,
+        },
+      );
+      // Same as the interactive branch: a denylist-triggered prompt must not
+      // offer a future grant the denylist would never honor.
+      const suggestions = yoloDenylistReason
+        ? undefined
+        : permissionPlan.suggestions;
       log(
         `Autonomous run requesting permission for tool ${toolName}: ${recoveryMessage}`,
       );
@@ -439,20 +444,6 @@ export function createCanUseToolCallback(
           ...(recoveryAction ? { recovery_action: recoveryAction } : {}),
         },
       );
-      const permissionPlan = scheduledPermissionSuggestionPlan(
-        toolName,
-        permissionOpts.suggestions,
-        {
-          blockedPath: permissionOpts.blockedPath,
-          toolInput,
-          semanticCapabilityDefinitions: skillActionCapabilities,
-        },
-      );
-      // Same as the interactive branch: a denylist-triggered prompt must not
-      // offer a future grant the denylist would never honor.
-      const suggestions = yoloDenylistReason
-        ? undefined
-        : permissionPlan.suggestions;
       const decision = await requestPermissionApprovalWithTrustProvenance({
         appId: input.agentInput.appId,
         agentId: input.agentInput.agentId,
@@ -518,6 +509,15 @@ export function createCanUseToolCallback(
             : {}),
         };
       }
+      const nonPromptableDenial = denyNonPromptableAutonomousRecovery({
+        agentInput: input.agentInput,
+        getNewSessionId: input.getNewSessionId,
+        recoveryAction,
+        recoveryMessage,
+        toolName,
+        toolPolicyReason: yoloDenylistReason ?? toolDecision.reason,
+      });
+      if (nonPromptableDenial) return nonPromptableDenial;
       const reason = decision.reason || 'Denied by operator';
       const message = `Permission denied: ${reason}. ${recoveryMessage}`;
       log(`Autonomous run denied tool ${toolName}: ${message}`);
