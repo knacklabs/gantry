@@ -234,6 +234,14 @@ export async function runDeepAgentTurn(input: {
               onPermissionDenied: (
                 denial: DeepAgentsPermissionDenial,
               ): never => {
+                // Parallel tool calls can both reach this callback. The first
+                // denial terminates the turn and owns the recovery card; a
+                // sibling denial that resolves afterward must not emit a second
+                // terminal event or overwrite which tool/grantability the card
+                // reports. Make the first denial sticky and re-throw it.
+                if (terminalPermissionDenial) {
+                  throw terminalPermissionDenial;
+                }
                 input.emit({
                   status: 'success',
                   result: null,

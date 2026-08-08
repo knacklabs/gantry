@@ -304,4 +304,136 @@ describe('DeepAgents terminal permission denial', () => {
     expect(reviewStoredRequirement).toHaveBeenCalledTimes(1);
     expect(runPermissionInteraction).toHaveBeenCalledTimes(1);
   });
+
+  it('keeps the first parallel denial sticky and does not emit a second terminal event', async () => {
+    const [{ fakeModel }, { AIMessage }, { tool }] = await Promise.all([
+      import('@langchain' + '/core/testing'),
+      import('@langchain' + '/core/messages'),
+      import('@langchain' + '/core/tools'),
+    ]);
+    const model = fakeModel()
+      .respondWithTools([
+        { name: 'denied_a', args: {} },
+        { name: 'denied_b', args: {} },
+      ])
+      .respond(new AIMessage('should never continue'));
+    harness.model = model;
+
+    let gate:
+      | {
+          onPermissionDenied?: (input: {
+            toolName: string;
+            reason: string;
+            grantable: boolean;
+            recoveryAction: string;
+          }) => never;
+          capabilityRequestToolsHidden: boolean;
+          signal?: AbortSignal;
+        }
+      | undefined;
+    let releaseB!: () => void;
+    const bReleased = new Promise<void>((resolve) => {
+      releaseB = resolve;
+    });
+    harness.tools = [
+      tool(
+        async () => {
+          try {
+            return gate!.onPermissionDenied!(
+              deepAgentsDenial(
+                gate!,
+                'mcp__gantry__browser_open',
+                {
+                  toolName: 'mcp__gantry__browser_open',
+                  toolInput: { url: 'https://a.example' },
+                },
+                'first denial',
+              ),
+            );
+          } finally {
+            // Release the sibling only after the first denial has registered.
+            releaseB();
+          }
+        },
+        {
+          name: 'denied_a',
+          description: 'First denial; terminates the turn.',
+          schema: z.object({}),
+        },
+      ),
+      tool(
+        async () => {
+          await bReleased;
+          return gate!.onPermissionDenied!(
+            deepAgentsDenial(
+              gate!,
+              'mcp__gantry__github_search',
+              { toolName: 'mcp__gantry__github_search', toolInput: {} },
+              'second denial',
+            ),
+          );
+        },
+        {
+          name: 'denied_b',
+          description: 'Late sibling denial; must not overwrite the first.',
+          schema: z.object({}),
+        },
+      ),
+    ];
+    harness.connect.mockImplementationOnce(async (input) => {
+      gate = input.gate;
+      return { tools: harness.tools, close: harness.close };
+    });
+    const emit = vi.fn();
+
+    let terminalError: Error | undefined;
+    try {
+      await runDeepAgentTurn({
+        agentInput: {
+          prompt: 'Call both tools in parallel.',
+          workspaceFolder: '/tmp/workspace',
+          chatJid: 'conversation:test',
+          appId: 'default',
+          agentId: 'agent-1',
+          runId: 'run-1',
+          jobId: 'job-1',
+          isScheduledJob: true,
+          modelCredentialEnv: {
+            OPENAI_BASE_URL: 'http://127.0.0.1:4567/openai',
+            OPENAI_API_KEY: 'gtw_test',
+          },
+        },
+        provider: 'openai',
+        modelId: 'gpt-5.5',
+        newSessionId: 'session-1',
+        includeMemoryContext: true,
+        emit,
+      });
+    } catch (error) {
+      terminalError = error as Error;
+    }
+
+    // The first denial owns the terminal error and the single emitted event;
+    // the late sibling re-throws it without emitting a second terminal event.
+    expect(terminalError?.message).toContain(
+      'Tool not on autonomous run allowlist: mcp__gantry__browser_open.',
+    );
+    const terminalEmits = emit.mock.calls.filter(([payload]) =>
+      (
+        payload as {
+          runtimeEvents?: Array<{ payload?: { phase?: string } }>;
+        }
+      )?.runtimeEvents?.some(
+        (event) => event.payload?.phase === 'permission_denied',
+      ),
+    );
+    expect(terminalEmits).toHaveLength(1);
+    expect(
+      (
+        terminalEmits[0]?.[0] as {
+          runtimeEvents?: Array<{ payload?: { tool?: string } }>;
+        }
+      )?.runtimeEvents?.[0]?.payload?.tool,
+    ).toBe('mcp__gantry__browser_open');
+  });
 });

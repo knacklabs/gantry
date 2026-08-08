@@ -49,7 +49,11 @@ export interface DeepAgentsPermissionDenial {
 //   - The hard, non-grantable policy boundaries (protected-capability, memory,
 //     settings-owned yolo denylist) are caught by evaluateNeutralToolPreChecks in
 //     the wrapper BEFORE this helper and return denyMessage(...) directly, so they
-//     never flow through deepAgentsDenial to be reclassified.
+//     never flow through deepAgentsDenial to be reclassified. (Those pre-check
+//     denials are the pre-autonomous-guard sweep deliberately deferred by decision
+//     0115 and tracked in the deferral ledger: in a scheduled run they still reach
+//     the model as ordinary tool messages rather than terminating it — a known
+//     residual, out of SCHED-6 scope.)
 //   - Locked-preset / fixed-image agents set capabilityRequestToolsHidden, which
 //     makes autonomousGrantRecovery emit a non-request_access instruction →
 //     non-grantable — so those boundaries are honored too.
