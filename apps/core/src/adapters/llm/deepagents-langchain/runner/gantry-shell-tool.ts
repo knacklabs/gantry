@@ -151,6 +151,7 @@ export function createGantryShellTool(
   config: GantryShellToolConfig,
 ): StructuredToolInterface {
   const gatedFunc = async (input: { command: string }): Promise<unknown> => {
+    config.signal?.throwIfAborted();
     const command = typeof input?.command === 'string' ? input.command : '';
     if (!command.trim()) {
       return gatedToolErrorResult(
@@ -187,6 +188,12 @@ export function createGantryShellTool(
       },
     );
     if (approval.approved) {
+      // A sibling parallel tool call may have been denied while this approval
+      // was pending, aborting the terminal-turn signal. Re-check before the
+      // side effect so an approval that resolves late cannot launch a shell
+      // command after the run was declared terminal — matching the facade and
+      // third-party MCP wrappers.
+      config.signal?.throwIfAborted();
       return runShellCommand(command, config);
     }
     const reason = approval.reason || 'Denied by operator';

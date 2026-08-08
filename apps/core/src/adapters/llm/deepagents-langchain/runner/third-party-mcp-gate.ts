@@ -43,6 +43,19 @@ export interface DeepAgentsPermissionDenial {
   recoveryAction: string;
 }
 
+// Grantability is reconstructed from the tool identity + capabilityRequestToolsHidden
+// rather than the raw gate/IPC reason, and that reconstruction is authoritative for
+// every denial that reaches here:
+//   - The hard, non-grantable policy boundaries (protected-capability, memory,
+//     settings-owned yolo denylist) are caught by evaluateNeutralToolPreChecks in
+//     the wrapper BEFORE this helper and return denyMessage(...) directly, so they
+//     never flow through deepAgentsDenial to be reclassified.
+//   - Locked-preset / fixed-image agents set capabilityRequestToolsHidden, which
+//     makes autonomousGrantRecovery emit a non-request_access instruction →
+//     non-grantable — so those boundaries are honored too.
+//   - What remains (browser / scoped RunCommand / durable Gantry tool with a
+//     request_access recovery) is genuinely grantable: a durable human-approved
+//     rule overcomes an autonomous "would-ask" denial on the next run.
 export function deepAgentsDenial(
   config: Pick<ThirdPartyMcpGateConfig, 'capabilityRequestToolsHidden'>,
   toolName: string,

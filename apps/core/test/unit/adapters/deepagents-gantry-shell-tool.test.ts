@@ -218,7 +218,7 @@ describe('Gantry DeepAgents shell tool', () => {
     expect(result).not.toContain('exited with code 0');
   });
 
-  it('returns immediately when the run signal is already aborted', async () => {
+  it('throws without launching or prompting when the run signal is already aborted', async () => {
     const controller = new AbortController();
     controller.abort();
     const tool = makeTool({
@@ -226,10 +226,32 @@ describe('Gantry DeepAgents shell tool', () => {
       signal: controller.signal,
     });
 
-    const result = await invoke(tool, 'echo should-not-run');
+    // An already-aborted turn must not launch the command or even request
+    // approval — it throws the abort so the graph tears the turn down, matching
+    // the facade/third-party MCP wrappers.
+    await expect(invoke(tool, 'echo should-not-run')).rejects.toThrow();
+    expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+  });
 
-    expect(result).toContain('aborted');
-    expect(result).not.toContain('should-not-run');
+  it('does not launch the shell command when a sibling denial aborts the turn during approval', async () => {
+    const controller = new AbortController();
+    const marker = path.join(
+      os.tmpdir(),
+      `gantry-shell-siblingabort-${Date.now()}-${Math.random()}.txt`,
+    );
+    // Approval resolves, but a parallel tool call was denied while it was
+    // pending and aborted the terminal-turn signal first.
+    requestPermissionApprovalViaIpc.mockImplementation(async () => {
+      controller.abort();
+      return { approved: true };
+    });
+    const tool = makeTool({ rules: [], signal: controller.signal });
+
+    await expect(
+      invoke(tool, `echo leaked > ${shellQuote(marker)}`),
+    ).rejects.toThrow();
+    // The post-approval fence prevents the side effect entirely.
+    expect(fs.existsSync(marker)).toBe(false);
   });
 
   it('kills the full shell process group on abort so background children do not outlive the command', async () => {

@@ -593,7 +593,11 @@ describe('setup pause prompts', () => {
       jobId: job.id,
       toolName: 'request_permission',
       suggestions: [
-        { type: 'addRules', behavior: 'allow', rules: [{ toolName: 'Browser' }] },
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'Browser' }],
+        },
       ],
     } as unknown as PermissionApprovalRequest;
     const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
