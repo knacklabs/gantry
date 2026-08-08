@@ -18,7 +18,6 @@ import {
   MEMORY_DREAM_SYSTEM_PROMPT,
 } from '../shared/system-job-identity.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from '../application/jobs/job-readiness-service.js';
-import { parseAutonomousToolDenial } from '../shared/autonomous-tool-denial.js';
 import {
   formatSchedulerSetupStory,
   type SchedulerSetupStorySource,
@@ -352,22 +351,19 @@ export async function notifySchedulerTerminalRunState(input: {
   }) => Promise<JobNotificationLifecycleUpdateResult>;
 }): Promise<boolean> {
   if (input.job.silent) return false;
-  // Suppress only when a setup card was actually DELIVERED and the run did
-  // not complete: a completed-but-paused run whose setup card was skipped
-  // must still get its completed-with-limits card, or the pause is silent.
-  // The setup card subsumes the terminal card only when it was DELIVERED
-  // and the semantic gate holds: the pause is the setup requirement and the
-  // summary parses as the autonomous denial — the denial IS the outcome.
-  const suppressTerminalCard =
+  // The setup card is the single notification for a denied-tool / setup pause:
+  // when it was actually delivered (setupNotified) and the run paused for setup
+  // (pauseReason is set ONLY for setup denials by finalization — a robust
+  // correlation, unlike re-parsing the summary), suppress the terminal card.
+  // Exclude completed runs: a run that finished with only future runs paused
+  // still needs its completed-with-limits outcome. Retire any in-place lifecycle
+  // (running) message so it does not sit frozen at "running", then send nothing
+  // further — no duplicate terminal card.
+  if (
     input.runStatus !== 'completed' &&
     input.setupNotified === true &&
-    input.pauseReason === SETUP_REQUIRED_PAUSE_REASON &&
-    parseAutonomousToolDenial(input.summary) !== null;
-  if (suppressTerminalCard) {
-    // An existing lifecycle/progress message must not stay frozen at
-    // "running" next to the setup card — retire it with the terminal
-    // summary. If the updater cannot edit in place, fall through to the
-    // normal send path so the outcome is never lost.
+    input.pauseReason === SETUP_REQUIRED_PAUSE_REASON
+  ) {
     const summaryMessage = formatRunStatusMessage({
       job: input.job,
       runId: input.runId,
@@ -379,27 +375,31 @@ export async function notifySchedulerTerminalRunState(input: {
       pauseReason: input.pauseReason,
       durationMs: input.durationMs,
     });
-    const retired = await input.updateLifecycleNotification?.({
-      job: input.job,
-      runId: input.runId,
-      runStatus: input.runStatus,
-      summaryMessage,
-    });
-    if (retired === undefined) return false;
-    const fallbackJob = jobForLifecycleFallback(input.job, retired);
-    const actionAffordances = recoveryActionAffordances({
-      job: input.job,
-      runId: input.runId,
-    });
-    const notificationJob =
-      actionAffordances.length > 0 ? input.job : fallbackJob;
-    if (!notificationJob) return false;
+    const updateOutcomes =
+      input.updateLifecycleNotification === undefined
+        ? undefined
+        : await input.updateLifecycleNotification({
+            job: input.job,
+            runId: input.runId,
+            runStatus: input.runStatus,
+            summaryMessage,
+          });
+    // No running message to retire -> the setup card is the single notification.
+    // Otherwise reuse the lifecycle fallback: null when every route was edited
+    // in place (no duplicate), or a routes-scoped job for backends that could
+    // NOT edit the running message, so those routes still get a terminal card
+    // instead of sitting frozen at "running".
+    const staleJob =
+      updateOutcomes === undefined || updateOutcomes.length === 0
+        ? null
+        : jobForLifecycleFallback(input.job, updateOutcomes);
+    if (!staleJob) return false;
     return sendJobNotification({
-      job: notificationJob,
+      job: staleJob,
       text: summaryMessage,
       phase: 'summary',
       runId: input.runId,
-      actionAffordances,
+      actionAffordances: [],
       sendMessage: input.sendMessage,
     });
   }

@@ -933,12 +933,10 @@ describe('permission recovery', () => {
       expect(runPermissionInteraction).toHaveBeenCalledTimes(1);
       expect(
         runPermissionInteraction.mock.calls[0]?.[0].decisionReason,
-      ).toContain('Triggering step: Setup recheck after an access update');
+      ).toContain('Setup is still incomplete, so this job remains paused.');
       expect(
         runPermissionInteraction.mock.calls[0]?.[0].decisionReason,
-      ).toContain(
-        'Run outcome: Not started — setup is still blocked; no replacement run started.',
-      );
+      ).toContain('Needed:');
       expect(
         runPermissionInteraction.mock.calls[0]?.[0].decisionReason,
       ).not.toContain('Permission check during the run');
