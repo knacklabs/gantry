@@ -29,43 +29,22 @@ export function formatSchedulerSetupStory(input: {
     primaryBlocker,
     input.setupState.state,
   );
-  const failedAction =
-    source === 'permission_denied' || source === 'permission_timeout'
-      ? `Use ${primaryLabel}`
-      : source === 'transient_permission'
-        ? `Keep ${primaryLabel} available for future runs`
-        : 'Start the scheduled run';
-  const triggeringStep =
-    source === 'permission_denied'
-      ? 'Permission check during the run'
-      : source === 'permission_timeout'
-        ? 'Permission approval wait during the run'
-        : source === 'transient_permission'
-          ? 'Post-run access check'
-          : source === 'partial_recovery'
-            ? 'Setup recheck after an access update'
-            : source === 'final_setup'
-              ? 'Final setup check before execution'
-              : 'Pre-run setup check';
-  const outcome =
+  const status =
     source === 'transient_permission'
-      ? 'Degraded — this run completed with temporary access; future runs are paused.'
+      ? `This run finished, but future runs still need ${primaryLabel}.`
       : source === 'partial_recovery'
-        ? 'Not started — setup is still blocked; no replacement run started.'
+        ? 'Setup is still incomplete, so this job remains paused.'
         : source === 'permission_denied' || source === 'permission_timeout'
-          ? 'Died — this run stopped before completing.'
-          : 'Died — setup was checked before execution; this run did not start.';
+          ? `This job paused because it couldn't use ${primaryLabel}.`
+          : "This job hasn't started because setup is incomplete.";
   const blockerLines = input.setupState.blockers.map(
-    (blocker, index) =>
-      `${index + 1}. ${setupBlockerLabel(blocker, input.setupState.state)}`,
+    (blocker) => `- ${setupBlockerLabel(blocker, input.setupState.state)}`,
   );
   return [
     `**🛠️ Setup needed** · ${input.job.name}`,
-    `Failed action: ${failedAction}`,
-    `Triggering step: ${triggeringStep}`,
-    `Run outcome: ${outcome}`,
-    `Blockers (${blockerLines.length}):`,
+    status,
+    'Needed:',
     ...blockerLines,
-    `Action: ${setupActionLabel(primaryBlocker)}`,
+    setupActionLabel(primaryBlocker),
   ].join('\n');
 }

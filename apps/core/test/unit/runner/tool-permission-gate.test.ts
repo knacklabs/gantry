@@ -807,6 +807,89 @@ describe('tool permission gate', () => {
     expect(output).toContain('"jobId":"job-1"');
   });
 
+  it('scheduled worker-local miss authorizes a host-granted capability command via the host coordinator', async () => {
+    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'reviewed_rule',
+      reason: 'Allowed by selected capability google.sheets.values.get.',
+    });
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'default',
+        agentId: 'agent:test',
+        runId: 'run-1',
+        jobId: 'job-1',
+        chatJid: 'tg:test',
+        threadId: undefined,
+        allowedTools: [],
+      } as never,
+    });
+    const command =
+      '/opt/homebrew/bin/gog sheets get sheet-1 "Bot Recommendation!A1800:K2000" --account operator@example.test';
+
+    await expect(
+      canUseTool(
+        'RunCommand',
+        { command },
+        makePermissionOptions({ displayName: 'RunCommand' }) as never,
+      ),
+    ).resolves.toEqual({
+      behavior: 'allow',
+      updatedInput: {
+        command: expect.stringContaining(command),
+      },
+    });
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: 'RunCommand',
+        toolInput: {
+          command: expect.stringContaining(command),
+        },
+      }),
+    );
+  });
+
+  it('keeps a scheduled worker-local miss terminal when the host denies the ungranted command', async () => {
+    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+      approved: false,
+      reason: 'No reviewed capability or command rule matched.',
+      decidedBy: 'runtime',
+    });
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'default',
+        agentId: 'agent:test',
+        runId: 'run-1',
+        jobId: 'job-1',
+        chatJid: 'tg:test',
+        threadId: undefined,
+        allowedTools: [],
+      } as never,
+    });
+
+    await expect(
+      canUseTool(
+        'RunCommand',
+        { command: '/opt/homebrew/bin/gog sheets delete sheet-1' },
+        makePermissionOptions({ displayName: 'RunCommand' }) as never,
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        behavior: 'deny',
+        interrupt: true,
+        message: expect.stringContaining(
+          'Tool not on autonomous run allowlist: RunCommand',
+        ),
+      }),
+    );
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
+  });
+
   it('allows scheduled jobs to read local time without a custom command grant', async () => {
     const canUseTool = makeCallback({
       agentInput: {
@@ -982,7 +1065,7 @@ describe('tool permission gate', () => {
     expect(recordPermissionApprovalContext).toHaveBeenCalled();
   });
 
-  it('denies exact facade access in autonomous jobs without permission prompts', async () => {
+  it('allows a canonical tool in autonomous jobs when the host coordinator authorizes it', async () => {
     const canUseTool = makeCallback({
       agentInput: {
         runMode: 'normal',
@@ -1002,20 +1085,16 @@ describe('tool permission gate', () => {
       { file_path: 'package.json' },
       makePermissionOptions({ displayName: 'Read' }) as never,
     );
-    expect(decision).toEqual(
-      expect.objectContaining({
-        behavior: 'deny',
-        interrupt: true,
-        message: expect.stringContaining(
-          'Exact tool grants are not accepted as durable authority.',
-        ),
-      }),
-    );
-
-    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(decision).toEqual(expect.objectContaining({ behavior: 'allow' }));
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
   });
 
   it('autonomous non-promptable denial is terminal and interrupts the run', async () => {
+    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+      approved: false,
+      reason: 'No reviewed capability or command rule matched.',
+      decidedBy: 'runtime',
+    });
     const canUseTool = makeCallback({
       agentInput: {
         runMode: 'normal',
@@ -1058,7 +1137,7 @@ describe('tool permission gate', () => {
     expect(output).toContain('"phase":"permission_denied"');
     expect(output).toContain('"terminal":true');
     expect(output).toContain('"tool":"RunCommand"');
-    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
   });
 
   it('auto-denies un-provisioned tools for a locked agent without prompting', async () => {

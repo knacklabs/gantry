@@ -2996,7 +2996,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'scheduled jobs terminate unsupported exact tool grants without permission prompts',
+    'scheduled jobs consult the host then terminate unsupported exact tool grants',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -3025,9 +3025,15 @@ describe('agent-runner IPC lifecycle', () => {
       expect(String(call?.permissionDecision?.message)).toContain(
         'Use a reviewed semantic capability from the Agent Access summary for WebSearch',
       );
+      // Decision 0116: a scheduled worker-local miss now consults the host
+      // coordinator's reviewed-rule decision before the deny becomes terminal
+      // (the worker cannot know which misses the host can authorize without
+      // asking). For a genuinely unsupported tool the host denies, so the run
+      // still terminates with the same recovery message — but a permission
+      // request IS written to the host now.
       expect(
         fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
-      ).toBe(false);
+      ).toBe(true);
       const runtimeEvents = readRunnerOutputs(result.stdout).flatMap(
         (output) =>
           Array.isArray(output.runtimeEvents) ? output.runtimeEvents : [],

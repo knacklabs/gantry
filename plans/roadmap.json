@@ -984,6 +984,26 @@
       "completed_at": "2026-08-07T13:29:35+00:00",
       "history": ".factory/history/LEGACY-1/",
       "outcome": "Every runtime read path now accepts one canonical data shape and nothing else. Legacy-shaped data is rejected with a clear remediation message or ignored \u2014 never silently rewritten \u2014 so disk and code agree and each area stays auditable. Settings with obsolete agent bindings are refused with reset-and-reimport instructions; a missing memory-review snapshot, a skill artifact the remote says is gone, and a malformed permission request all fail safe instead of trusting stale or fabricated data; dead surface (a duplicate export, two provider CLI aliases, an old Slack thread-id parser, test-only seams) is deleted. A new check:architecture guardrail stops these shortcuts creeping back without a dated, owned exception. The providerConnection rename and job-ownership cuts are deferred."
+    },
+    {
+      "key": "CAPRULE-1",
+      "title": "Scheduled runs use granted capability-backed commands; pause with one clear message",
+      "story": "As a job owner, I want my scheduled job to actually use the tools and capabilities I granted it and to get one clear message when it needs my help, so that it completes its work instead of silently stalling and I am not spammed with duplicate technical cards.",
+      "acceptance_criteria": [
+        "A scheduled run whose agent is granted a semantic capability (with its reviewed definition) can invoke that capability's command without denial; an ungranted capability still denies legibly.",
+        "Canonical capabilities like Browser keep working (regression).",
+        "One denied-tool pause emits exactly one plain-language user notification with no duplicate terminal card, and a one-tap approve when the denial is grantable."
+      ],
+      "order": 53,
+      "status": "done",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/caprule-1.md",
+      "completed_at": "2026-08-08T17:05:22+00:00",
+      "history": ".factory/history/CAPRULE-1/",
+      "outcome": "Scheduled jobs can now actually use the tools and capabilities you granted them. A scheduled run that reaches a command its agent is host-granted (like the gog Google Sheets commands) now asks the host coordinator to authorize it instead of dead-ending \u2014 so the job does its work instead of stalling \u2014 while the settings denylist stays a hard, un-overridable boundary and the agent still can't self-grant (PERM-2 preserved; decision 0116). And a job that genuinely must pause now sends you ONE plain-language message (\"This job paused because it couldn't use X. Needed: \u2026\") instead of three overlapping technical cards. Codex validated the root cause read-only; 8781 unit tests, verify.py, and a whole-branch autoreview all green. One cosmetic edge case deferred (D-0052)."
     }
   ],
   "epics": [
@@ -1072,5 +1092,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-08T08:41:19+00:00"
+  "updated_at": "2026-08-08T17:05:22+00:00"
 }

@@ -18,7 +18,6 @@ import {
   MEMORY_DREAM_SYSTEM_PROMPT,
 } from '../shared/system-job-identity.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from '../application/jobs/job-readiness-service.js';
-import { parseAutonomousToolDenial } from '../shared/autonomous-tool-denial.js';
 import {
   formatSchedulerSetupStory,
   type SchedulerSetupStorySource,
@@ -352,56 +351,44 @@ export async function notifySchedulerTerminalRunState(input: {
   }) => Promise<JobNotificationLifecycleUpdateResult>;
 }): Promise<boolean> {
   if (input.job.silent) return false;
-  // Suppress only when a setup card was actually DELIVERED and the run did
-  // not complete: a completed-but-paused run whose setup card was skipped
-  // must still get its completed-with-limits card, or the pause is silent.
-  // The setup card subsumes the terminal card only when it was DELIVERED
-  // and the semantic gate holds: the pause is the setup requirement and the
-  // summary parses as the autonomous denial — the denial IS the outcome.
-  const suppressTerminalCard =
+  // The delivered setup card is the SINGLE notification for a denied-tool /
+  // setup pause: when it was actually delivered (setupNotified) and the run
+  // paused for setup (pauseReason is set ONLY for setup denials by finalization
+  // — a robust correlation, unlike re-parsing the summary), suppress the
+  // terminal card. Exclude completed runs: a run that finished with only future
+  // runs paused still needs its completed-with-limits outcome.
+  //
+  // Any in-place "running" lifecycle message is retired best-effort (an EDIT of
+  // the existing message, not a new send). We deliberately do NOT fall back to a
+  // fresh terminal card on backends that cannot edit — the feature AC requires
+  // exactly one notification with no duplicate terminal card (a fallback would
+  // make it three: running + setup + terminal). The residual — a route that
+  // cannot edit may briefly show a stale "running" beside the authoritative
+  // setup card — is cosmetic and moot for quiet-until-terminal scheduled jobs
+  // (no running message). Tracked as deferral D-0052; do not reintroduce the
+  // fallback send without a lifecycle delete/clear primitive.
+  if (
     input.runStatus !== 'completed' &&
     input.setupNotified === true &&
-    input.pauseReason === SETUP_REQUIRED_PAUSE_REASON &&
-    parseAutonomousToolDenial(input.summary) !== null;
-  if (suppressTerminalCard) {
-    // An existing lifecycle/progress message must not stay frozen at
-    // "running" next to the setup card — retire it with the terminal
-    // summary. If the updater cannot edit in place, fall through to the
-    // normal send path so the outcome is never lost.
-    const summaryMessage = formatRunStatusMessage({
-      job: input.job,
-      runId: input.runId,
-      runShortId: input.runShortId,
-      runStatus: input.runStatus,
-      summary: input.summary,
-      nextRun: input.nextRun,
-      retryCount: input.retryCount,
-      pauseReason: input.pauseReason,
-      durationMs: input.durationMs,
-    });
-    const retired = await input.updateLifecycleNotification?.({
+    input.pauseReason === SETUP_REQUIRED_PAUSE_REASON
+  ) {
+    await input.updateLifecycleNotification?.({
       job: input.job,
       runId: input.runId,
       runStatus: input.runStatus,
-      summaryMessage,
+      summaryMessage: formatRunStatusMessage({
+        job: input.job,
+        runId: input.runId,
+        runShortId: input.runShortId,
+        runStatus: input.runStatus,
+        summary: input.summary,
+        nextRun: input.nextRun,
+        retryCount: input.retryCount,
+        pauseReason: input.pauseReason,
+        durationMs: input.durationMs,
+      }),
     });
-    if (retired === undefined) return false;
-    const fallbackJob = jobForLifecycleFallback(input.job, retired);
-    const actionAffordances = recoveryActionAffordances({
-      job: input.job,
-      runId: input.runId,
-    });
-    const notificationJob =
-      actionAffordances.length > 0 ? input.job : fallbackJob;
-    if (!notificationJob) return false;
-    return sendJobNotification({
-      job: notificationJob,
-      text: summaryMessage,
-      phase: 'summary',
-      runId: input.runId,
-      actionAffordances,
-      sendMessage: input.sendMessage,
-    });
+    return false;
   }
   // A review-created run retires its running progress message first, then
   // sends the actual review card + Approve/Reject/Edit buttons separately.

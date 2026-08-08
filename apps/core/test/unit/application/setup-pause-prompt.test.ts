@@ -350,15 +350,9 @@ describe('setup pause prompts', () => {
     });
     expect(request?.runId).toBeUndefined();
     expect(request?.decisionReason).toContain(
-      'Failed action: Start the scheduled run',
+      "This job hasn't started because setup is incomplete.",
     );
-    expect(request?.decisionReason).toContain(
-      'Triggering step: Pre-run setup check',
-    );
-    expect(request?.decisionReason).toContain(
-      'Run outcome: Died — setup was checked before execution; this run did not start.',
-    );
-    expect(request?.decisionReason).toContain('Blockers (1):');
+    expect(request?.decisionReason).toContain('Needed:');
     expect(request?.description).toContain('Allow once is unavailable');
     expect(settlementOrder).toEqual([
       'persistRequestPermissionRules',
@@ -1526,10 +1520,10 @@ describe('setup pause prompts', () => {
     });
 
     expect(request?.decisionReason).toContain(
-      'Failed action: Use Salesforce Leads Append',
+      "This job paused because it couldn't use Salesforce Leads Append.",
     );
     expect(request?.decisionReason).not.toContain(
-      'Failed action: Use MCP server: Customer Records',
+      "This job paused because it couldn't use MCP server: Customer Records.",
     );
   });
 
