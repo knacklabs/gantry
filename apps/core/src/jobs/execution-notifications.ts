@@ -360,10 +360,13 @@ export async function notifySchedulerTerminalRunState(input: {
   //
   // Any in-place "running" lifecycle message is retired best-effort (an EDIT of
   // the existing message, not a new send). We deliberately do NOT fall back to a
-  // fresh terminal card on backends that cannot edit — the feature requires
-  // exactly one notification with no duplicate terminal card, so on those
-  // backends the setup card is it (moot for quiet-until-terminal scheduled jobs,
-  // which have no running message to leave stale).
+  // fresh terminal card on backends that cannot edit — the feature AC requires
+  // exactly one notification with no duplicate terminal card (a fallback would
+  // make it three: running + setup + terminal). The residual — a route that
+  // cannot edit may briefly show a stale "running" beside the authoritative
+  // setup card — is cosmetic and moot for quiet-until-terminal scheduled jobs
+  // (no running message). Tracked as deferral D-0052; do not reintroduce the
+  // fallback send without a lifecycle delete/clear primitive.
   if (
     input.runStatus !== 'completed' &&
     input.setupNotified === true &&
