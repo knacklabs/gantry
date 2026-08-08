@@ -48,6 +48,7 @@ export interface JobRunDiagnostics {
   terminalToolDenial?: {
     toolName: string;
     reason?: string;
+    grantable?: boolean;
     recoveryAction?: string;
   };
 }
@@ -59,10 +60,13 @@ export function toolDenialEventPayload(
   return {
     error_summary: safeErrorSummary ? safeErrorSummary.slice(0, 500) : null,
     denied_tool: toolDenial.toolName,
+    grantable: toolDenial.grantable ?? null,
     recovery_action: toolDenial.recoveryAction ?? null,
-    recovery_kind: toolDenial.recoveryAction?.startsWith('request_access')
-      ? 'persistent_capability'
-      : 'job_policy',
+    recovery_kind:
+      toolDenial.recoveryAction?.startsWith('request_access') === true ||
+      toolDenial.recoveryAction?.startsWith('request_mcp_server') === true
+        ? 'persistent_capability'
+        : 'job_policy',
   };
 }
 
@@ -172,6 +176,9 @@ export function updateDiagnosticsFromRuntimeEvent(
         matchingWait?.reason && deniedReason
           ? `${matchingWait.reason} Permission denied: ${deniedReason}`
           : (deniedReason ?? matchingWait?.reason),
+      ...(typeof payload.grantable === 'boolean'
+        ? { grantable: payload.grantable }
+        : {}),
       recoveryAction:
         stringValue(payload.recovery_action) ?? matchingWait?.recoveryAction,
     };

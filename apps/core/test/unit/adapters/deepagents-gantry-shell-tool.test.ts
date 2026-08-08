@@ -21,6 +21,7 @@ import {
   GANTRY_SHELL_TOOL_NAME,
   SHELL_CHILD_NETWORK_ENV_KEYS,
 } from '@core/adapters/llm/deepagents-langchain/runner/gantry-shell-tool.js';
+import type { DeepAgentsPermissionDenial } from '@core/adapters/llm/deepagents-langchain/runner/third-party-mcp-gate.js';
 import { buildToolNetworkEnv } from '@core/shared/tool-network-env.js';
 
 const PERMISSION_ENV: PermissionIpcRuntimeEnv = {
@@ -41,8 +42,8 @@ const PERMISSION_ENV: PermissionIpcRuntimeEnv = {
 
 function makeTool(overrides?: {
   rules?: string[];
-  lockedAccessPreset?: boolean;
-  onPermissionDenied?: (input: { toolName: string; reason: string }) => never;
+  capabilityRequestToolsHidden?: boolean;
+  onPermissionDenied?: (input: DeepAgentsPermissionDenial) => never;
   signal?: AbortSignal;
   toolNetworkEnv?: Record<string, string>;
 }) {
@@ -52,7 +53,8 @@ function makeTool(overrides?: {
     configuredAllowedTools: overrides?.rules ?? [],
     gateContext: { conversationId: 'tg:group' },
     permissionEnv: PERMISSION_ENV,
-    lockedAccessPreset: overrides?.lockedAccessPreset ?? false,
+    capabilityRequestToolsHidden:
+      overrides?.capabilityRequestToolsHidden ?? false,
     ...(overrides?.onPermissionDenied
       ? { onPermissionDenied: overrides.onPermissionDenied }
       : {}),
@@ -114,7 +116,7 @@ describe('Gantry DeepAgents shell tool', () => {
       reason: 'Unattended jobs do not wait for approval.',
     });
     const onPermissionDenied = vi.fn(
-      ({ toolName, reason }: { toolName: string; reason: string }): never => {
+      ({ toolName, reason }: DeepAgentsPermissionDenial): never => {
         throw new Error(`${toolName}: ${reason}`);
       },
     );
@@ -126,6 +128,8 @@ describe('Gantry DeepAgents shell tool', () => {
     expect(onPermissionDenied).toHaveBeenCalledWith({
       toolName: 'RunCommand',
       reason: 'Unattended jobs do not wait for approval.',
+      grantable: true,
+      recoveryAction: expect.stringMatching(/^request_access /),
     });
   });
 
@@ -160,7 +164,10 @@ describe('Gantry DeepAgents shell tool', () => {
       approved: false,
       reason: 'locked access preset',
     });
-    const tool = makeTool({ rules: [], lockedAccessPreset: true });
+    const tool = makeTool({
+      rules: [],
+      capabilityRequestToolsHidden: true,
+    });
     const result = await invoke(tool, 'echo locked');
     expect(requestPermissionApprovalViaIpc).toHaveBeenCalledTimes(1);
     expect(result).toContain('locked access preset');

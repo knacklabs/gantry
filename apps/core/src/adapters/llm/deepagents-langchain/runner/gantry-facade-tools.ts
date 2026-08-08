@@ -25,6 +25,7 @@ import {
   writeFileNoFollow,
 } from './gantry-facade-file-safety.js';
 import {
+  deepAgentsDenial,
   gatedToolErrorResult,
   type ThirdPartyMcpGateConfig,
 } from './third-party-mcp-gate.js';
@@ -51,7 +52,7 @@ export interface GantryFacadeToolsConfig {
   toolNetworkEnv?: Record<string, string>;
   gateContext: ThirdPartyMcpGateConfig['gateContext'];
   permissionEnv: PermissionIpcRuntimeEnv;
-  lockedAccessPreset: boolean;
+  capabilityRequestToolsHidden: boolean;
   onPermissionDenied?: ThirdPartyMcpGateConfig['onPermissionDenied'];
   filesystemToolsEnabled: boolean;
   asyncTaskToolsEnabled?: boolean;
@@ -128,7 +129,9 @@ function createOneFacadeTool(
       if (!approval.approved) {
         const reason = approval.reason || 'Denied by operator';
         if (config.onPermissionDenied) {
-          return config.onPermissionDenied({ toolName, reason });
+          return config.onPermissionDenied(
+            deepAgentsDenial(config, toolName, policyRequest, reason),
+          );
         }
         return gatedToolErrorResult(`Permission denied: ${reason}`);
       }

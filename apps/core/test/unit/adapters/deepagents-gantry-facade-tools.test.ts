@@ -63,7 +63,7 @@ function makeTools(
     toolNetworkEnv,
     gateContext: { conversationId: 'tg:group' },
     permissionEnv: PERMISSION_ENV,
-    lockedAccessPreset: false,
+    capabilityRequestToolsHidden: false,
     filesystemToolsEnabled,
     cwd: root,
     ...extra,

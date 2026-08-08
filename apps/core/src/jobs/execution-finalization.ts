@@ -78,6 +78,7 @@ export async function finalizeSchedulerJobRun(input: {
   const diagnosticToolDenial = diagnostics.terminalToolDenial
     ? {
         toolName: diagnostics.terminalToolDenial.toolName,
+        grantable: diagnostics.terminalToolDenial.grantable,
         recoveryAction: diagnostics.terminalToolDenial.recoveryAction,
       }
     : null;

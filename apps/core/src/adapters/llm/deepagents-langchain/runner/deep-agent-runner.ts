@@ -38,8 +38,10 @@ import type {
   DeepAgentCheckpointTiming,
 } from './session-store.js';
 import type { RunnerOutputFrame } from '../../../../runner/runner-frame.js';
+import { formatAutonomousToolDenial } from '../../../../shared/autonomous-tool-denial.js';
 import { nowMs } from '../../../../shared/time/datetime.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
+import type { DeepAgentsPermissionDenial } from './third-party-mcp-gate.js';
 
 // Raw DeepAgents authority is fully disabled in v1: the default StateBackend has
 // no `execute` tool, and filesystem permissions deny reads/writes unless the
@@ -224,13 +226,14 @@ export async function runDeepAgentTurn(input: {
           yoloMode: input.agentInput.yoloMode,
         },
         permissionEnv,
-        lockedAccessPreset: process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked',
+        capabilityRequestToolsHidden:
+          process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked' ||
+          input.agentInput.hideAuthorityTools === true,
         ...(input.agentInput.isScheduledJob && input.agentInput.jobId
           ? {
-              onPermissionDenied: (denial: {
-                toolName: string;
-                reason: string;
-              }): never => {
+              onPermissionDenied: (
+                denial: DeepAgentsPermissionDenial,
+              ): never => {
                 input.emit({
                   status: 'success',
                   result: null,
@@ -253,12 +256,14 @@ export async function runDeepAgentTurn(input: {
                         ok: false,
                         terminal: true,
                         reason: denial.reason,
+                        grantable: denial.grantable,
+                        recovery_action: denial.recoveryAction,
                       },
                     },
                   ],
                 });
                 terminalPermissionDenial = new Error(
-                  `Tool not on autonomous run allowlist: ${denial.toolName}. ${denial.reason}`,
+                  formatAutonomousToolDenial(denial),
                 );
                 // LangChain's ToolNode converts ordinary tool exceptions into
                 // ToolMessages. Abort the graph-level signal as well so the

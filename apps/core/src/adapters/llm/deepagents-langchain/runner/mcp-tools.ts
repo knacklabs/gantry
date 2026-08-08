@@ -168,7 +168,7 @@ export async function connectGantryAndThirdPartyMcpTools(
     toolNetworkEnv: input.toolNetworkEnv,
     gateContext: input.gate.gateContext,
     permissionEnv: input.gate.permissionEnv,
-    lockedAccessPreset: input.gate.lockedAccessPreset,
+    capabilityRequestToolsHidden: input.gate.capabilityRequestToolsHidden,
     asyncTaskToolsEnabled: projection.asyncTaskToolsEnabled,
     delegateTaskTool,
     filesystemToolsEnabled: shouldProjectGantryFilesystemTools({
@@ -390,7 +390,7 @@ function projectGantryShellTool(
       configuredAllowedTools: input.configuredAllowedTools,
       gateContext: input.gate.gateContext,
       permissionEnv: input.gate.permissionEnv,
-      lockedAccessPreset: input.gate.lockedAccessPreset,
+      capabilityRequestToolsHidden: input.gate.capabilityRequestToolsHidden,
       toolNetworkEnv: input.toolNetworkEnv,
       ...(input.shellCwd ? { cwd: input.shellCwd } : {}),
       ...(input.shellSignal ? { signal: input.shellSignal } : {}),

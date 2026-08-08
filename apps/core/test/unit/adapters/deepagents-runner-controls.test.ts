@@ -170,6 +170,9 @@ describe('DeepAgents worker model controls', () => {
       denial?.({
         toolName: 'RunCommand',
         reason: 'Unattended jobs do not wait for approval.',
+        grantable: true,
+        recoveryAction:
+          'request_access { "target": { "kind": "run_command", "argvPattern": "npm test *" } }',
       }),
     ).toThrow('Tool not on autonomous run allowlist: RunCommand.');
     expect(emit).toHaveBeenLastCalledWith(
@@ -181,6 +184,8 @@ describe('DeepAgents worker model controls', () => {
               phase: 'permission_denied',
               tool: 'RunCommand',
               terminal: true,
+              grantable: true,
+              recovery_action: expect.stringMatching(/^request_access /),
             }),
           }),
         ],

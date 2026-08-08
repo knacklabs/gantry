@@ -9,6 +9,8 @@ import {
   requestPermissionApprovalViaIpc,
   type PermissionIpcRuntimeEnv,
 } from '../../../../runner/permission-ipc-client.js';
+import { isGrantableAutonomousToolRecovery } from '../../../../shared/autonomous-tool-denial.js';
+import { autonomousToolRecoveryAction } from '../../../../shared/tool-execution-policy-service.js';
 
 // Wraps each selected third-party (configured) MCP tool with the provider-neutral
 // runner tool gate before the underlying tool can execute. The decision order
@@ -29,9 +31,34 @@ export interface ThirdPartyMcpGateConfig {
   configuredAllowedTools: readonly string[];
   gateContext: NeutralToolGateContext;
   permissionEnv: PermissionIpcRuntimeEnv;
-  lockedAccessPreset: boolean;
-  onPermissionDenied?: (input: { toolName: string; reason: string }) => never;
+  capabilityRequestToolsHidden: boolean;
+  onPermissionDenied?: (input: DeepAgentsPermissionDenial) => never;
   signal?: AbortSignal;
+}
+
+export interface DeepAgentsPermissionDenial {
+  toolName: string;
+  reason: string;
+  grantable: boolean;
+  recoveryAction: string;
+}
+
+export function deepAgentsDenial(
+  config: Pick<ThirdPartyMcpGateConfig, 'capabilityRequestToolsHidden'>,
+  toolName: string,
+  policyRequest: { toolName: string; toolInput: unknown },
+  reason: string,
+): DeepAgentsPermissionDenial {
+  const recoveryAction = autonomousToolRecoveryAction({
+    ...policyRequest,
+    capabilityRequestToolsHidden: config.capabilityRequestToolsHidden,
+  });
+  return {
+    toolName,
+    reason,
+    recoveryAction,
+    grantable: isGrantableAutonomousToolRecovery(recoveryAction),
+  };
 }
 
 export function wrapThirdPartyMcpToolsWithGate(
@@ -86,7 +113,14 @@ function wrapOne(
     }
     const reason = approval.reason || 'Denied by operator';
     if (config.onPermissionDenied) {
-      return config.onPermissionDenied({ toolName, reason });
+      return config.onPermissionDenied(
+        deepAgentsDenial(
+          config,
+          toolName,
+          { toolName, toolInput: input },
+          reason,
+        ),
+      );
     }
     return denyMessage(`Permission denied: ${reason}`);
   };

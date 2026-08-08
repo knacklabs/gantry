@@ -6,10 +6,27 @@ import {
   formatTerminalToolDenial,
   forwardRunnerRuntimeEvents,
   terminalDiagnosticsPayload,
+  toolDenialEventPayload,
   updateDiagnosticsFromRuntimeEvent,
 } from '@core/jobs/execution-diagnostics.js';
 
 describe('job execution diagnostics', () => {
+  it('classifies MCP server requests as persistent capability recovery', () => {
+    expect(
+      toolDenialEventPayload(
+        {
+          toolName: 'mcp__acme__records_append',
+          grantable: true,
+          recoveryAction: 'request_mcp_server {"serverName":"acme"}',
+        },
+        null,
+      ),
+    ).toMatchObject({
+      grantable: true,
+      recovery_kind: 'persistent_capability',
+    });
+  });
+
   it('treats partial or inconsistent human-once provenance as transient (fail closed)', () => {
     for (const provenance of [
       { source: 'human_once' }, // repeatable flag missing

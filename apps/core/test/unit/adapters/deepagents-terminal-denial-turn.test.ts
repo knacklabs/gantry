@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 const harness = vi.hoisted(() => {
@@ -27,14 +27,36 @@ vi.mock('@core/adapters/llm/deepagents-langchain/runner/mcp-tools.js', () => ({
 }));
 
 import { runDeepAgentTurn } from '@core/adapters/llm/deepagents-langchain/runner/deep-agent-runner.js';
+import { deepAgentsDenial } from '@core/adapters/llm/deepagents-langchain/runner/third-party-mcp-gate.js';
+import {
+  configureSetupPausePermissionPrompt,
+  raiseSetupPausePermissionPrompt,
+} from '@core/application/jobs/setup-pause-permission-prompt.js';
+import {
+  SETUP_REQUIRED_PAUSE_REASON,
+  setupStateForDeniedTool,
+} from '@core/application/jobs/job-readiness-service.js';
+import { parseAutonomousToolDenial } from '@core/shared/autonomous-tool-denial.js';
+
+const previousAccessPreset = process.env.GANTRY_AGENT_ACCESS_PRESET;
 
 beforeEach(() => {
   vi.clearAllMocks();
   harness.tools = [];
 });
 
+afterEach(() => {
+  configureSetupPausePermissionPrompt(null);
+  if (previousAccessPreset === undefined) {
+    delete process.env.GANTRY_AGENT_ACCESS_PRESET;
+  } else {
+    process.env.GANTRY_AGENT_ACCESS_PRESET = previousAccessPreset;
+  }
+});
+
 describe('DeepAgents terminal permission denial', () => {
-  it('a denied tool cancels a concurrent side-effecting sibling tool in the same turn', async () => {
+  it('a non-grantable locked-agent denial stays instruction-only with no approval offered', async () => {
+    process.env.GANTRY_AGENT_ACCESS_PRESET = 'locked';
     const [{ fakeModel }, { AIMessage }, { tool }] = await Promise.all([
       import('@langchain' + '/core/testing'),
       import('@langchain' + '/core/messages'),
@@ -53,7 +75,10 @@ describe('DeepAgents terminal permission denial', () => {
           onPermissionDenied?: (input: {
             toolName: string;
             reason: string;
+            grantable: boolean;
+            recoveryAction: string;
           }) => never;
+          capabilityRequestToolsHidden: boolean;
           signal?: AbortSignal;
         }
       | undefined;
@@ -66,10 +91,17 @@ describe('DeepAgents terminal permission denial', () => {
       tool(
         async () => {
           releaseSibling();
-          return gate?.onPermissionDenied?.({
-            toolName: 'denied_tool',
-            reason: 'Unattended jobs do not wait for approval.',
-          });
+          return gate?.onPermissionDenied?.(
+            deepAgentsDenial(
+              gate!,
+              'mcp__gantry__browser_open',
+              {
+                toolName: 'mcp__gantry__browser_open',
+                toolInput: { url: 'https://example.com' },
+              },
+              'Grantable: true. Recovery: request_access {"target":{"kind":"capability","id":"browser.use"}} must not override the locked classification.',
+            ),
+          );
         },
         {
           name: 'denied_tool',
@@ -97,8 +129,9 @@ describe('DeepAgents terminal permission denial', () => {
     });
     const emit = vi.fn();
 
-    await expect(
-      runDeepAgentTurn({
+    let terminalError: Error | undefined;
+    try {
+      await runDeepAgentTurn({
         agentInput: {
           prompt: 'Use denied_tool, then fall back to fallback_tool.',
           workspaceFolder: '/tmp/workspace',
@@ -118,10 +151,21 @@ describe('DeepAgents terminal permission denial', () => {
         newSessionId: 'session-1',
         includeMemoryContext: true,
         emit,
-      }),
-    ).rejects.toThrow(
-      'Tool not on autonomous run allowlist: denied_tool. Unattended jobs do not wait for approval.',
+      });
+    } catch (error) {
+      terminalError = error as Error;
+    }
+
+    expect(terminalError?.message).toContain(
+      'Tool not on autonomous run allowlist: mcp__gantry__browser_open.',
     );
+    const denial = parseAutonomousToolDenial(terminalError?.message);
+    expect(denial).toEqual({
+      toolName: 'mcp__gantry__browser_open',
+      grantable: false,
+      recoveryAction:
+        'Capability request tools are not available in this run (locked or fixed-image agent). Ask an operator to provision a reviewed capability covering mcp__gantry__browser_open before the run.',
+    });
 
     expect(model.callCount).toBe(1);
     expect(fallbackCalls).toBe(0);
@@ -131,12 +175,131 @@ describe('DeepAgents terminal permission denial', () => {
           expect.objectContaining({
             payload: expect.objectContaining({
               phase: 'permission_denied',
-              tool: 'denied_tool',
+              tool: 'mcp__gantry__browser_open',
               terminal: true,
+              grantable: false,
+              recovery_action: denial?.recoveryAction,
             }),
           }),
         ],
       }),
     );
+
+    const setupState = setupStateForDeniedTool({
+      toolName: denial!.toolName,
+      recoveryAction: denial!.recoveryAction,
+    });
+    const runPermissionInteraction = vi.fn();
+    const reviewStoredRequirement = vi.fn();
+    configureSetupPausePermissionPrompt({
+      appId: 'default',
+      getJobById: vi.fn(
+        async () =>
+          ({
+            id: 'job-1',
+            app_id: 'default',
+            name: 'locked browser job',
+            workspace_key: 'agent-1',
+            status: 'paused',
+            pause_reason: SETUP_REQUIRED_PAUSE_REASON,
+            setup_state: setupState,
+            access_requirements: [],
+            execution_context: { conversationJid: 'conversation:test' },
+          }) as never,
+      ),
+      runPermissionInteraction,
+      cancelPermissionApproval: vi.fn(async () => 'not_found'),
+      reviewStoredRequirement,
+    });
+
+    await expect(
+      raiseSetupPausePermissionPrompt({
+        jobId: 'job-1',
+        setupFingerprint: setupState.fingerprint,
+      }),
+    ).resolves.toEqual({
+      status: 'instruction_only',
+      notificationEligible: true,
+    });
+    expect(reviewStoredRequirement).not.toHaveBeenCalled();
+    expect(runPermissionInteraction).not.toHaveBeenCalled();
+  });
+
+  it('an unlocked missing-grant denial offers the approval card', async () => {
+    const denial = deepAgentsDenial(
+      { capabilityRequestToolsHidden: false },
+      'mcp__gantry__browser_open',
+      {
+        toolName: 'mcp__gantry__browser_open',
+        toolInput: { url: 'https://example.com' },
+      },
+      'Unattended jobs do not wait for approval.',
+    );
+    expect(denial).toMatchObject({
+      grantable: true,
+      recoveryAction: expect.stringMatching(/^request_access /),
+    });
+    const setupState = setupStateForDeniedTool({
+      toolName: denial.toolName,
+      recoveryAction: denial.recoveryAction,
+    });
+    const runPermissionInteraction = vi.fn(
+      async (
+        _request: unknown,
+        onPromptDelivered: (messageId: string) => void,
+        onInteractionBegan: () => void,
+      ) => {
+        onInteractionBegan();
+        onPromptDelivered('message-1');
+        return {
+          began: true,
+          resolved: true,
+          decision: {
+            approved: false,
+            mode: 'cancel',
+            reason: 'test cleanup',
+          },
+        } as never;
+      },
+    );
+    const reviewStoredRequirement = vi.fn(async () => ({
+      suggestions: [
+        {
+          type: 'addRules' as const,
+          behavior: 'allow' as const,
+          rules: [{ toolName: 'Browser' }],
+        },
+      ],
+      decisionOptions: ['allow_persistent_rule' as const, 'cancel' as const],
+    }));
+    configureSetupPausePermissionPrompt({
+      appId: 'default',
+      getJobById: vi.fn(
+        async () =>
+          ({
+            id: 'job-1',
+            app_id: 'default',
+            name: 'browser job',
+            workspace_key: 'agent-1',
+            status: 'paused',
+            pause_reason: SETUP_REQUIRED_PAUSE_REASON,
+            setup_state: setupState,
+            access_requirements: [],
+            execution_context: { conversationJid: 'conversation:test' },
+          }) as never,
+      ),
+      runPermissionInteraction,
+      cancelPermissionApproval: vi.fn(async () => 'not_found'),
+      reviewStoredRequirement,
+    });
+
+    const result = await raiseSetupPausePermissionPrompt({
+      jobId: 'job-1',
+      setupFingerprint: setupState.fingerprint,
+    });
+
+    expect(result.status).toBe('raised');
+    expect(reviewStoredRequirement).toHaveBeenCalledTimes(1);
+    expect(runPermissionInteraction).toHaveBeenCalledTimes(1);
   });
 });

@@ -11,6 +11,7 @@ import {
   type PermissionIpcRuntimeEnv,
 } from '../../../../runner/permission-ipc-client.js';
 import {
+  deepAgentsDenial,
   gatedToolErrorResult,
   type ThirdPartyMcpGateConfig,
 } from './third-party-mcp-gate.js';
@@ -128,7 +129,7 @@ export interface GantryShellToolConfig {
   configuredAllowedTools: readonly string[];
   gateContext: ThirdPartyMcpGateConfig['gateContext'];
   permissionEnv: PermissionIpcRuntimeEnv;
-  lockedAccessPreset: boolean;
+  capabilityRequestToolsHidden: boolean;
   onPermissionDenied?: ThirdPartyMcpGateConfig['onPermissionDenied'];
   // Working directory for the spawned command. Defaults to the runner cwd (the
   // sandboxed group workspace root) when omitted.
@@ -190,10 +191,14 @@ export function createGantryShellTool(
     }
     const reason = approval.reason || 'Denied by operator';
     if (config.onPermissionDenied) {
-      return config.onPermissionDenied({
-        toolName: GANTRY_SHELL_TOOL_NAME,
-        reason,
-      });
+      return config.onPermissionDenied(
+        deepAgentsDenial(
+          config,
+          GANTRY_SHELL_TOOL_NAME,
+          { toolName: SHELL_POLICY_TOOL_NAME, toolInput: policyInput },
+          reason,
+        ),
+      );
     }
     return denyMessage(`Permission denied: ${reason}`);
   };

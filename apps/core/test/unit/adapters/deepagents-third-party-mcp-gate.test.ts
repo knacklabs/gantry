@@ -56,7 +56,7 @@ function gateConfig(
       ...(overrides.yoloMode ? { yoloMode: overrides.yoloMode } : {}),
     },
     permissionEnv: PERMISSION_ENV,
-    lockedAccessPreset: overrides.locked ?? false,
+    capabilityRequestToolsHidden: overrides.locked ?? false,
     ...(overrides.signal ? { signal: overrides.signal } : {}),
   };
 }

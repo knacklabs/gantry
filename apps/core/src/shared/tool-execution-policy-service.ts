@@ -618,6 +618,23 @@ function autonomousGrantRecovery(
   return `Use a reviewed semantic capability from the Agent Access summary for ${escapeJson(toolName)}, or use request_access target.kind=run_command only for a scoped command fallback. Exact tool grants are not accepted as durable authority.`;
 }
 
+export function autonomousToolRecoveryAction(input: {
+  toolName: string;
+  toolInput: unknown;
+  capabilityRequestToolsHidden?: boolean;
+}): string {
+  const request = new ToolExecutionClassifier().classify({
+    origin: 'sdk',
+    toolName: input.toolName,
+    toolInput: input.toolInput,
+    executionMode: 'autonomous',
+  });
+  return autonomousGrantRecovery(
+    request,
+    input.capabilityRequestToolsHidden === true,
+  );
+}
+
 function thirdPartyMcpToolServerName(toolName: string): string | undefined {
   const match = /^mcp__([^_][A-Za-z0-9_.-]*)__/.exec(toolName);
   const serverName = match?.[1];
