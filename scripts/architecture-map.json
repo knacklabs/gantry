@@ -56,7 +56,7 @@
     "apps/core/src/runtime/ipc.ts": 833,
     "apps/core/src/session/session-commands.ts": 740,
     "packages/sdk/src/index.ts": 711,
-    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.ts": 725,
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.ts": 760,
     "apps/core/src/adapters/storage/postgres/repositories/worker-coordination-repository.postgres.ts": 721,
     "apps/core/src/application/agents/prompt-profile-service.ts": 783,
     "apps/core/src/application/mcp/mcp-tool-proxy.ts": 800,
