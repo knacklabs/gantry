@@ -92,16 +92,7 @@ export async function resolveAgentToolRuntimeRules(
 export async function resolveAgentToolRuntimePolicy(
   input: AgentToolRuntimeRuleResolutionInput,
 ): Promise<AgentToolRuntimePolicy> {
-  const bindings = await input.repository.listAgentToolBindings({
-    appId: input.appId as never,
-    agentId: input.agentId as never,
-  });
-  const activeBindings = bindings.filter(
-    (binding) => binding.status === 'active',
-  );
-  const tools = await Promise.all(
-    activeBindings.map((binding) => input.repository.getTool(binding.toolId)),
-  );
+  const tools = await selectedToolDefinitionsByBinding(input);
   return projectAgentToolRuntimePolicy({
     appId: input.appId,
     errorSubject: input.errorSubject,
@@ -115,6 +106,34 @@ export function resolveAgentToolRuntimePolicyFromSnapshot(
   input: AgentToolRuntimePolicySnapshotInput,
 ): AgentToolRuntimePolicy {
   return projectAgentToolRuntimePolicy(input);
+}
+
+async function selectedToolDefinitionsByBinding(
+  input: AgentToolRuntimeRuleResolutionInput,
+): Promise<readonly (ToolCatalogItem | null)[]> {
+  const repositoryWithSnapshot = input.repository as ToolCatalogRepository & {
+    listAgentToolAccessSnapshot?: ToolCatalogRepository['listAgentToolAccessSnapshot'];
+  };
+  if (
+    typeof repositoryWithSnapshot.listAgentToolAccessSnapshot === 'function'
+  ) {
+    const snapshot = await repositoryWithSnapshot.listAgentToolAccessSnapshot({
+      appId: input.appId as never,
+      agentId: input.agentId as never,
+    });
+    return snapshot.activeBindings.map((row) => row.definition);
+  }
+
+  const bindings = await input.repository.listAgentToolBindings({
+    appId: input.appId as never,
+    agentId: input.agentId as never,
+  });
+  const activeBindings = bindings.filter(
+    (binding) => binding.status === 'active',
+  );
+  return Promise.all(
+    activeBindings.map((binding) => input.repository.getTool(binding.toolId)),
+  );
 }
 
 function projectAgentToolRuntimePolicy(input: {

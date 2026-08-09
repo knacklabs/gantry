@@ -175,6 +175,58 @@ describe('reviewed MCP pattern projection', () => {
     expect(catalog.readyActions).toEqual([]);
   });
 
+  it('uses access snapshots to ignore stale active binding definitions without per-tool reads', async () => {
+    const getTool = vi.fn(async () => {
+      throw new Error(
+        'getTool should not be called when a snapshot is present',
+      );
+    });
+    const listAgentToolBindings = vi.fn(async () => {
+      throw new Error(
+        'listAgentToolBindings should not be called when a snapshot is present',
+      );
+    });
+    const listAgentToolAccessSnapshot = vi.fn(async () => ({
+      activeBindings: [
+        {
+          binding: {
+            status: 'active',
+            toolId: 'tool:permission-rule:stale',
+          },
+          definition: null,
+        },
+        {
+          binding: { status: 'active', toolId: 'tool:Browser' },
+          definition: {
+            id: 'tool:Browser',
+            appId: 'app-one',
+            name: 'Browser',
+          },
+        },
+      ],
+      appActiveDefinitions: [],
+    }));
+
+    const policy = await resolveAgentToolRuntimePolicy({
+      repository: {
+        getTool,
+        listAgentToolBindings,
+        listAgentToolAccessSnapshot,
+      } as never,
+      appId: 'app-one',
+      agentId: 'agent-one',
+      errorSubject: 'Configured agent tool',
+    });
+
+    expect(listAgentToolAccessSnapshot).toHaveBeenCalledWith({
+      appId: 'app-one',
+      agentId: 'agent-one',
+    });
+    expect(getTool).not.toHaveBeenCalled();
+    expect(listAgentToolBindings).not.toHaveBeenCalled();
+    expect(policy.rules).toEqual(['Browser']);
+  });
+
   it('projects pattern rules and mcp_server runtime access from the selected capability', async () => {
     const policy = await resolveAgentToolRuntimePolicy({
       repository: patternToolRepository(),
