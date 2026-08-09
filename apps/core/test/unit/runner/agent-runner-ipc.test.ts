@@ -3021,6 +3021,37 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
+    'scheduled jobs inspect MCP tool schemas without creating a permission request',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          isScheduledJob: true,
+          jobId: 'job-1',
+          allowedTools: [],
+        }),
+        {
+          TEST_AUTONOMOUS_PERMISSION_REQUEST: '1',
+          TEST_PERMISSION_TOOL_NAME: 'mcp__gantry__mcp_describe_tool',
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+      );
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionDecision).toEqual(
+        expect.objectContaining({ behavior: 'allow' }),
+      );
+      expect(
+        fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
+      ).toBe(false);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
     'scheduled jobs allow materialized selected MCP server tools',
     async () => {
       const fixture = createRunnerFixture();

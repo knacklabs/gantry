@@ -382,6 +382,18 @@ export function createCanUseToolCallback(
       return allowToolUse('host resolves and authorizes the MCP target');
     }
 
+    // mcp_describe_tool is input-independent, read-only MCP inventory. The
+    // host already classifies it as birthright, but the production scheduler
+    // can process that approval after the one-shot runner exits. Allowing this
+    // one deterministic facade locally avoids the cross-process timing race.
+    if (
+      input.agentInput.isScheduledJob &&
+      !yoloDenylistMatch &&
+      toolName === 'mcp__gantry__mcp_describe_tool'
+    ) {
+      return allowToolUse('scheduled MCP schema inspection is read-only');
+    }
+
     const toolExecutionRequest = buildAgentToolExecutionRequest(
       toolExecutionClassifier,
       toolName,

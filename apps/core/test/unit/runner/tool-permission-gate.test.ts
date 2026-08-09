@@ -844,6 +844,35 @@ describe('createCanUseToolCallback', () => {
     expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
   });
 
+  it('allows scheduled jobs to inspect an attached MCP tool without a permission round trip', async () => {
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'default',
+        agentId: 'agent:test',
+        runId: 'run-1',
+        jobId: 'job-1',
+        chatJid: 'tg:test',
+        threadId: undefined,
+        allowedTools: [],
+      } as never,
+    });
+
+    await expect(
+      canUseTool(
+        'mcp__gantry__mcp_describe_tool',
+        { serverName: 'caw-ats', toolName: 'ats_list_positions' },
+        makePermissionOptions({ displayName: 'MCP Describe Tool' }) as never,
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        behavior: 'allow',
+      }),
+    );
+    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
   it('offers persistent access in autonomous job prompts with suggestions', async () => {
     permissionMock.requestPermissionApproval.mockResolvedValueOnce({
       approved: true,
