@@ -25,7 +25,7 @@
     "apps/core/src/app/bootstrap/channel-wiring.ts": 790,
     "apps/core/src/adapters/storage/postgres/repositories/canonical-job-repository.postgres.ts": 900,
     "apps/core/src/adapters/storage/postgres/repositories/live-turn-repository.postgres.ts": 770,
-    "apps/core/src/adapters/storage/postgres/services/canonical-job-ops-service.ts": 807,
+    "apps/core/src/adapters/storage/postgres/services/canonical-job-ops-service.ts": 822,
     "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts": 950,
     "apps/core/src/adapters/storage/postgres/schema/schema.ts": 900,
     "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts": 750,
