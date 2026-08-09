@@ -181,11 +181,40 @@ describe('notifyJobSetupRequired', () => {
     const job = setupBlockedJob('session-2');
     const sendMessage = vi.fn(async () => undefined);
     const publishRuntimeEvent = vi.fn(async () => undefined);
+    // Faithful claim: mutate the reloaded job exactly as Postgres would, so this
+    // proves delivery + session routing survive a real pending claim in place.
+    const claimAt = '2026-08-09T00:00:00.000Z';
     const opsRepository = {
       getJobById: vi.fn(async () => job),
-      markJobSetupNotified: vi.fn(async () => '2026-08-09T00:00:00.000Z'),
-      confirmJobSetupNotified: vi.fn(async () => undefined),
-      clearJobSetupNotified: vi.fn(async () => undefined),
+      markJobSetupNotified: vi.fn(async (_id: string, fp: string) => {
+        if (!job.setup_state || job.setup_state.notified_fingerprint === fp) {
+          return null;
+        }
+        job.setup_state.notified_fingerprint = fp;
+        job.setup_state.notify_claim_at = claimAt;
+        return claimAt;
+      }),
+      confirmJobSetupNotified: vi.fn(
+        async (_id: string, fp: string, token: string) => {
+          if (
+            job.setup_state?.notified_fingerprint === fp &&
+            job.setup_state.notify_claim_at === token
+          ) {
+            job.setup_state.notify_claim_at = null;
+          }
+        },
+      ),
+      clearJobSetupNotified: vi.fn(
+        async (_id: string, fp: string, token: string) => {
+          if (
+            job.setup_state?.notified_fingerprint === fp &&
+            job.setup_state.notify_claim_at === token
+          ) {
+            job.setup_state.notified_fingerprint = null;
+            job.setup_state.notify_claim_at = null;
+          }
+        },
+      ),
     };
     const control = {
       getAppSessionById: vi.fn(async () => ({

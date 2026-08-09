@@ -195,6 +195,12 @@ export async function notifyJobSetupRequired(input: {
   if (notificationEligible && claimAt === null) {
     return false;
   }
+  // The claim above persists notified_fingerprint before delivery. The card
+  // sender (execution-notifications.ts) treats notified_fingerprint===fingerprint
+  // as "already delivered", so hand it a delivery view with the fingerprint
+  // cleared — otherwise the winning claimant would suppress its own card.
+  // (raiseSetupPausePermissionPrompt reloads the job but does NOT gate on
+  // notified_fingerprint, so the pending claim never makes the prompt ineligible.)
   const deliverySetupState = notificationEligible
     ? { ...input.setupState, notified_fingerprint: null }
     : input.setupState;
