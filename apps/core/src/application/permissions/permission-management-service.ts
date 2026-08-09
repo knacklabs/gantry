@@ -36,6 +36,7 @@ import {
   withMcpCapabilityProposalSourceLocks,
 } from './mcp-capability-source-bindings.js';
 import { permissionDecisionExpiresAt } from './permission-decision-expiry.js';
+import { persistentPermissionBindingId } from './permission-management-rules.js';
 import {
   adminMcpToolIdForFullName,
   isDurableGantryMcpToolFullName,
@@ -646,15 +647,6 @@ function gantryMcpToolFullNameFromRule(allowedRule: string): string | null {
   const scoped = parseReadableScopedToolRule(trimmed);
   const toolName = scoped ? scoped.toolName : trimmed;
   return isDurableGantryMcpToolFullName(toolName) ? toolName : null;
-}
-
-function persistentPermissionBindingId(
-  appId: string,
-  agentId: string,
-  toolId: string,
-): AgentToolBinding['id'] {
-  const digest = stableSha256Json({ agentId, appId, toolId }).slice(0, 32);
-  return `agent-tool-binding:permission:${digest}` as AgentToolBinding['id'];
 }
 
 function resolveRevocationTarget(input: {

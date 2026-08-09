@@ -175,8 +175,14 @@ export function persistentPermissionBindingId(
   appId: string,
   agentId: string,
   toolId: string,
+  personId?: string | null,
 ): AgentToolBinding['id'] {
-  const digest = stableSha256Json({ agentId, appId, toolId }).slice(0, 32);
+  const digest = stableSha256Json({
+    agentId,
+    appId,
+    toolId,
+    ...(personId ? { personId } : {}),
+  }).slice(0, 32);
   return `agent-tool-binding:permission:${digest}` as AgentToolBinding['id'];
 }
 
