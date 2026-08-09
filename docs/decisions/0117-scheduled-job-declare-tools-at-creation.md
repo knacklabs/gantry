@@ -41,6 +41,14 @@ unconfirmed claim can be reclaimed after its TTL, so a process crash cannot supp
 card permanently. A detached creation notifier reloads the job and routes through that
 job's current session rather than a captured creation-time session.
 
+The delivery contract is **exactly-once under normal operation, at-least-once across two
+abnormal windows** (a rare duplicate card, never a lost one): a process crash between send
+and confirmation, and a delivery that hangs past the claim TTL and is reclaimed. This is a
+deliberate ceiling — true exactly-once over a channel that can hang would require a durable
+idempotent outbox or reliable send-cancellation, which is disproportionate for a setup
+card. The TTL is the accepted tradeoff: without it, a crashed claim would suppress the card
+permanently.
+
 Delivery is exactly-once during normal operation. It is at-least-once across a crash after
 the send succeeds but before the claim is confirmed: the abandoned token eventually
 expires and a successor may send the card again. Confirm and clear are fenced by the exact

@@ -183,9 +183,15 @@ export async function notifyJobSetupRequired(input: {
     !input.currentJob.silent &&
     (input.setupState.notified_fingerprint !== input.setupState.fingerprint ||
       input.setupState.notify_claim_at != null);
-  // The claim makes ordinary delivery exactly-once. A crash after send but
-  // before confirmation leaves a reclaimable token, so that crash window is
-  // intentionally at-least-once rather than permanently suppressing delivery.
+  // The claim makes ordinary delivery exactly-once. Two abnormal windows are
+  // intentionally at-least-once (a rare duplicate card, never a lost one):
+  //  1. a crash after send but before confirmation leaves a reclaimable token;
+  //  2. a delivery that hangs past the claim TTL is reclaimed by a successor.
+  // This is the accepted ceiling: true exactly-once over a channel that can hang
+  // needs a durable idempotent outbox / send-cancellation, which is
+  // disproportionate for a setup card. The TTL is the deliberate tradeoff —
+  // without it, a crashed claim would suppress the card permanently.
+  // ponytail: revisit only if real duplicate cards or hung deliveries are seen.
   const claimAt = notificationEligible
     ? await input.deps.opsRepository.markJobSetupNotified(
         input.currentJob.id,
