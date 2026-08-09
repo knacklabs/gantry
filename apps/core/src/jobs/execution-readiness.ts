@@ -206,45 +206,60 @@ export async function notifyJobSetupRequired(input: {
       promptPreparationFailed = true;
     }
   }
-  const cardNotified = !notificationEligible
-    ? false
-    : prompt.status === 'instruction_only' &&
-        prompt.notificationEligible === false
+  // The durable setup event MUST publish even when the card send faults —
+  // otherwise a setup-blocked job (parked paused, next_run=null, so the scheduler
+  // never retries) goes invisibly stuck. delivery.ts already swallows per-route
+  // send throws, but a fault in route computation / story formatting here would
+  // otherwise skip publishRuntimeEvent below; this barrier keeps the event durable.
+  // (An indefinite send *hang* is not covered — that stays the accepted channel
+  // class, D-0053; the provider client's own network timeout is the backstop.)
+  let notified = false;
+  try {
+    const cardNotified = !notificationEligible
       ? false
-      : await notifySchedulerSetupRequired({
-          job: input.currentJob,
-          setupState: input.setupState,
-          source: input.source,
-          runId: input.runId,
-          ...(prompt.status === 'raised'
-            ? { excludeRoute: prompt.approverRoute }
-            : prompt.status === 'already_pending'
-              ? { includeRoute: prompt.approverRoute }
-              : {}),
-          sendMessage: input.deps.sendMessage,
-        });
-  const promptNotified =
-    prompt.status === 'raised' ? await prompt.delivered : false;
-  const fallbackNotified =
-    prompt.status === 'raised' && !promptNotified
-      ? await notifySchedulerSetupRequired({
-          job: {
-            ...input.currentJob,
-            notification_routes: [],
-          },
-          setupState: input.setupState,
-          source: input.source,
-          runId: input.runId,
-          includeRoute: prompt.approverRoute,
-          sendMessage: input.deps.sendMessage,
-        })
-      : false;
-  const notified =
-    prompt.status === 'raised'
-      ? promptNotified || fallbackNotified
-      : promptPreparationFailed
+      : prompt.status === 'instruction_only' &&
+          prompt.notificationEligible === false
         ? false
-        : cardNotified;
+        : await notifySchedulerSetupRequired({
+            job: input.currentJob,
+            setupState: input.setupState,
+            source: input.source,
+            runId: input.runId,
+            ...(prompt.status === 'raised'
+              ? { excludeRoute: prompt.approverRoute }
+              : prompt.status === 'already_pending'
+                ? { includeRoute: prompt.approverRoute }
+                : {}),
+            sendMessage: input.deps.sendMessage,
+          });
+    const promptNotified =
+      prompt.status === 'raised' ? await prompt.delivered : false;
+    const fallbackNotified =
+      prompt.status === 'raised' && !promptNotified
+        ? await notifySchedulerSetupRequired({
+            job: {
+              ...input.currentJob,
+              notification_routes: [],
+            },
+            setupState: input.setupState,
+            source: input.source,
+            runId: input.runId,
+            includeRoute: prompt.approverRoute,
+            sendMessage: input.deps.sendMessage,
+          })
+        : false;
+    notified =
+      prompt.status === 'raised'
+        ? promptNotified || fallbackNotified
+        : promptPreparationFailed
+          ? false
+          : cardNotified;
+  } catch (err) {
+    logger.warn(
+      { err, jobId: input.currentJob.id },
+      'Failed to send setup-pause card; publishing setup event as not-notified',
+    );
+  }
   if (notified) {
     await input.deps.opsRepository.markJobSetupNotified(
       input.currentJob.id,
@@ -299,6 +314,9 @@ export async function notifyCreatedJobSetupRequired(input: {
   // claim, so a job that is *run* within this sub-second window could still get a
   // second card from the scheduler's run-path notify. Near-unreachable for normal
   // future-scheduled jobs; atomic claim-before-send hardening is deferred (D-0053).
+  // The captured appSession is the freshly-created job's owner; a re-upsert to a
+  // *different* session inside this window could misroute the card — same deferred
+  // race class (D-0053), accepted rather than re-resolved here.
   const currentSetupState = currentJob.setup_state;
   if (!currentSetupState || currentSetupState.state === 'ready') {
     return false;

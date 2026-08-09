@@ -143,6 +143,59 @@ describe('job creation', () => {
     expect(sendMessage).toHaveBeenCalledOnce();
     expect(publishRuntimeEvent).toHaveBeenCalledTimes(2);
   });
+
+  it('publishes the durable setup event even when the card send throws', async () => {
+    const sendMessage = vi.fn(async () => {
+      throw new Error('provider send failed');
+    });
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+    const markJobSetupNotified = vi.fn(async () => true);
+    const job: Job = persistedJobFrom({
+      id: 'job-throw',
+      name: 'Digest',
+      prompt: 'x',
+      model: 'gpt-5.6-sol',
+      schedule_type: 'interval',
+      schedule_value: '60000',
+      workspace_key: 'team',
+      notification_routes: [
+        { conversationJid: 'tg:team', threadId: null, label: 'Owner' },
+      ],
+      setup_state: {
+        state: 'missing_capability',
+        checked_at: '2026-08-09T00:00:00.000Z',
+        fingerprint: 'fp-throw',
+        notified_fingerprint: null,
+        blockers: [
+          {
+            state: 'missing_capability',
+            message: 'Needs Browser',
+            nextAction: 'grant',
+            requirementType: 'tool',
+            requirementId: 'Browser',
+          },
+        ],
+      },
+    } as JobUpsertInput);
+
+    const notified = await notifyJobSetupRequired({
+      currentJob: job,
+      deps: { sendMessage, opsRepository: { markJobSetupNotified } },
+      runtimeAppId: 'app-1',
+      setupState: job.setup_state!,
+      publishRuntimeEvent,
+    });
+
+    expect(sendMessage).toHaveBeenCalled();
+    expect(notified).toBe(false);
+    expect(markJobSetupNotified).not.toHaveBeenCalled();
+    expect(publishRuntimeEvent).toHaveBeenCalledOnce();
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ notified: false }),
+      }),
+    );
+  });
 });
 
 function persistedJobFrom(input: JobUpsertInput): Job {
