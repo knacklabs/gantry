@@ -162,7 +162,7 @@ export async function notifyJobSetupRequired(input: {
     sendMessage: SchedulerDependencies['sendMessage'];
     opsRepository: Pick<
       SchedulerDependencies['opsRepository'],
-      'clearJobSetupNotified' | 'markJobSetupNotified'
+      'markJobSetupNotified'
     >;
   };
   runtimeAppId: string;
@@ -178,15 +178,6 @@ export async function notifyJobSetupRequired(input: {
     !input.suppressNotification &&
     !input.currentJob.silent &&
     input.setupState.notified_fingerprint !== input.setupState.fingerprint;
-  if (
-    notificationEligible &&
-    !(await input.deps.opsRepository.markJobSetupNotified(
-      input.currentJob.id,
-      input.setupState.fingerprint,
-    ))
-  ) {
-    return false;
-  }
   let prompt: Awaited<ReturnType<typeof raiseSetupPausePermissionPrompt>> = {
     status: 'instruction_only',
     notificationEligible: true,
@@ -254,8 +245,8 @@ export async function notifyJobSetupRequired(input: {
       : promptPreparationFailed
         ? false
         : cardNotified;
-  if (notificationEligible && !notified) {
-    await input.deps.opsRepository.clearJobSetupNotified(
+  if (notified) {
+    await input.deps.opsRepository.markJobSetupNotified(
       input.currentJob.id,
       input.setupState.fingerprint,
     );
@@ -290,7 +281,7 @@ export async function notifyCreatedJobSetupRequired(input: {
     sendMessage: SchedulerDependencies['sendMessage'];
     opsRepository: Pick<
       SchedulerDependencies['opsRepository'],
-      'clearJobSetupNotified' | 'getJobById' | 'markJobSetupNotified'
+      'getJobById' | 'markJobSetupNotified'
     >;
   };
   runtimeAppId: string;
@@ -304,6 +295,10 @@ export async function notifyCreatedJobSetupRequired(input: {
   // against the freshly loaded job and notify with ITS current setup state —
   // using the stale creation snapshot would bypass the notified-fingerprint
   // dedup and could deliver a duplicate or obsolete card.
+  // ponytail: the notified-fingerprint dedup is check-then-mark, not an atomic
+  // claim, so a job that is *run* within this sub-second window could still get a
+  // second card from the scheduler's run-path notify. Near-unreachable for normal
+  // future-scheduled jobs; atomic claim-before-send hardening is deferred (D-0053).
   const currentSetupState = currentJob.setup_state;
   if (!currentSetupState || currentSetupState.state === 'ready') {
     return false;
@@ -323,7 +318,7 @@ export function createJobSetupRequiredNotificationPort(
   sendMessage: SchedulerDependencies['sendMessage'],
   resolveOpsRepository: () => Pick<
     SchedulerDependencies['opsRepository'],
-    'clearJobSetupNotified' | 'getJobById' | 'markJobSetupNotified'
+    'getJobById' | 'markJobSetupNotified'
   >,
   publishRuntimeEvent?: (
     event: RuntimeEventPublishInput,

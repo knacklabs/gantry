@@ -723,8 +723,12 @@ describe('permission recovery', () => {
       })),
     });
     const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
-    const clearJobSetupNotified = vi.fn(async () => true);
+    const markJobSetupNotified = vi.fn(
+      async (_jobId: string, fingerprint: string) => {
+        job.setup_state!.notified_fingerprint = fingerprint;
+        return true;
+      },
+    );
 
     try {
       await recheckSetupPausedJobsAfterCapabilityUpdate({
@@ -738,7 +742,6 @@ describe('permission recovery', () => {
             return true;
           }),
           markJobSetupNotified,
-          clearJobSetupNotified,
         } as unknown as RuntimeJobRepository,
         scheduler: { requestSchedulerSync: vi.fn() },
         getBrowserStatus: vi.fn(async () => ({ hasState: false })),
@@ -751,10 +754,7 @@ describe('permission recovery', () => {
             currentJob: setupJob,
             deps: {
               sendMessage,
-              opsRepository: {
-                markJobSetupNotified,
-                clearJobSetupNotified,
-              },
+              opsRepository: { markJobSetupNotified },
             } as never,
             runtimeAppId: 'default',
             setupState,
@@ -797,8 +797,12 @@ describe('permission recovery', () => {
       reviewStoredRequirement: vi.fn(async () => null),
     });
     const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
-    const clearJobSetupNotified = vi.fn(async () => true);
+    const markJobSetupNotified = vi.fn(
+      async (_jobId: string, fingerprint: string) => {
+        job.setup_state!.notified_fingerprint = fingerprint;
+        return true;
+      },
+    );
 
     try {
       await recheckSetupPausedJobsAfterCapabilityUpdate({
@@ -812,7 +816,6 @@ describe('permission recovery', () => {
             return true;
           }),
           markJobSetupNotified,
-          clearJobSetupNotified,
         } as unknown as RuntimeJobRepository,
         scheduler: { requestSchedulerSync: vi.fn() },
         getBrowserStatus: vi.fn(async () => ({ hasState: false })),
@@ -825,10 +828,7 @@ describe('permission recovery', () => {
             currentJob: setupJob,
             deps: {
               sendMessage,
-              opsRepository: {
-                markJobSetupNotified,
-                clearJobSetupNotified,
-              },
+              opsRepository: { markJobSetupNotified },
             } as never,
             runtimeAppId: 'default',
             setupState,

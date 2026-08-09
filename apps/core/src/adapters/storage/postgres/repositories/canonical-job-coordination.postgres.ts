@@ -67,30 +67,6 @@ export async function markJobSetupNotified(
       and(
         eq(jobs.id, id),
         sql`${jobs.setupState} ->> 'fingerprint' = ${expectedFingerprint}`,
-        sql`${jobs.setupState} ->> 'notified_fingerprint' IS DISTINCT FROM ${expectedFingerprint}`,
-      ),
-    )
-    .returning({ id: jobs.id });
-  return rows.length > 0;
-}
-
-export async function clearJobSetupNotified(
-  db: CanonicalDb,
-  id: string,
-  expectedFingerprint: string,
-): Promise<boolean> {
-  const jobs = pgSchema.canonicalJobsPostgres;
-  const rows = await db
-    .update(jobs)
-    .set({
-      setupState: sql`jsonb_set(${jobs.setupState}, '{notified_fingerprint}', 'null'::jsonb, true)`,
-      updatedAt: currentIso(),
-    })
-    .where(
-      and(
-        eq(jobs.id, id),
-        sql`${jobs.setupState} ->> 'fingerprint' = ${expectedFingerprint}`,
-        sql`${jobs.setupState} ->> 'notified_fingerprint' = ${expectedFingerprint}`,
       ),
     )
     .returning({ id: jobs.id });

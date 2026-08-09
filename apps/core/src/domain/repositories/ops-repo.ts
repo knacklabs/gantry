@@ -232,10 +232,6 @@ export interface RuntimeJobRepository {
     id: string,
     expectedFingerprint: string,
   ): Promise<boolean>;
-  clearJobSetupNotified(
-    id: string,
-    expectedFingerprint: string,
-  ): Promise<boolean>;
   deleteJob(id: string): Promise<void>;
   deleteExpiredCompletedOneTimeJobs(nowIso?: string): Promise<number>;
   claimDueJobRunStart(input: {
