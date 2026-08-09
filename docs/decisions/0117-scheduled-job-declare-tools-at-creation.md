@@ -48,8 +48,14 @@ decision.
 
 - Jobs whose declared tools the agent already has are `ready` and never pause. Jobs needing
   an ungranted tool surface it once, at creation, as an actionable card.
-- Exactly one `JOB_SETUP_REQUIRED` event per blocker fingerprint at creation; the creation
-  card and any later runtime pause for the same blocker are deduped by `notified_fingerprint`.
+- Normally one `JOB_SETUP_REQUIRED` event and one card per blocker fingerprint at creation;
+  the creation card and any later runtime pause for the same blocker are deduped by
+  `notified_fingerprint` (check-then-mark, best-effort). We deliberately do **not** use an
+  atomic claim: exactly-once delivery over a channel that can hang is not achievable without
+  a durable idempotent outbox, and that machinery is disproportionate for a setup card. A
+  rare duplicate card (or a lost one) under a process restart or a concurrent same-job upsert
+  is accepted — the user can act on either copy and the runtime pause remains the fallback
+  (resolves D-0053: live with the rare duplicate).
 - Neutral across both lanes (declaration + shared compiled prompt + shared recovery/card
   path); no `runMode`/prime code is added; no application-to-runtime layer violation (the
   creation notification crosses via an application-owned port wired in runtime composition).
