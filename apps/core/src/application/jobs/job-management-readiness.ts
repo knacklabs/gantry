@@ -1,5 +1,6 @@
 import type { Job } from '../../domain/types.js';
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
+import { logger } from '../../infrastructure/logging/logger.js';
 import { DEFAULT_JOB_RUNTIME_APP_ID } from './job-access.js';
 import type { JobManagementServiceDeps } from './job-management-types.js';
 import {
@@ -70,6 +71,53 @@ export async function pauseJobForSetup(input: {
   });
   await recordJobSetupRequired(input);
   input.deps.scheduler.requestSchedulerSync(input.job.id);
+}
+
+export function notifyJobSetupRequiredAtCreation(input: {
+  deps: JobManagementServiceDeps;
+  job: Pick<Job, 'id' | 'workspace_key'> &
+    Partial<Pick<Job, 'session_id' | 'execution_context' | 'thread_id'>>;
+  appId?: string;
+  appSession?: Parameters<
+    NonNullable<
+      JobManagementServiceDeps['setupRequiredNotifications']
+    >['notify']
+  >[0]['appSession'];
+  readiness: JobReadinessResult;
+}): void {
+  if (input.readiness.ready) return;
+  // Sole-notifier invariant: a setup-blocked job is persisted PAUSED with
+  // next_run=null (job-management-create.ts / job-management-service.ts), so the
+  // scheduler never runs it and pauseJobForSetupIfNeeded (the run-path notifier)
+  // cannot fire concurrently. This creation-time notify is therefore the only
+  // notifier at creation, so the downstream best-effort fingerprint dedup is
+  // sufficient — no atomic claim is needed (D-0053 does not apply here).
+  if (input.deps.setupRequiredNotifications) {
+    input.deps.setupRequiredNotifications.notify({
+      jobId: input.job.id,
+      appId: input.appId ?? DEFAULT_JOB_RUNTIME_APP_ID,
+      appSession: input.appSession,
+      setupState: input.readiness.setupState,
+    });
+    return;
+  }
+  // No creation-time notification port wired: preserve the passive
+  // JOB_SETUP_REQUIRED event so read-model consumers still see the blocker at
+  // creation (the actionable card only comes from the port when present).
+  recordJobSetupRequired({
+    deps: input.deps,
+    job: input.job,
+    readiness: input.readiness,
+    appId: input.appId,
+  }).catch((err) => {
+    // Detached: the job is already persisted setup-paused. Swallow-and-log a
+    // publish failure so it never becomes an unhandled rejection; the runtime
+    // pause path re-surfaces the blocker on the next run.
+    logger.warn(
+      { err, jobId: input.job.id },
+      'Failed to publish passive setup-required event at job creation',
+    );
+  });
 }
 
 export async function recordJobSetupRequired(input: {

@@ -2996,7 +2996,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'scheduled jobs consult the host then terminate unsupported exact tool grants',
+    'scheduled jobs consult the host then terminate an ungranted (but grantable) facade tool',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -3022,15 +3022,17 @@ describe('agent-runner IPC lifecycle', () => {
           interrupt: true,
         }),
       );
+      // PREFLIGHT-1 Part A: WebSearch is a builtin facade tool, so its recovery is
+      // now a grantable request_access (kind:tool) rather than the non-grantable
+      // "exact tool grants are not accepted" fallback. The fixture doesn't grant
+      // it, so the host still denies and the scheduled run still terminates — but
+      // the owner now gets a one-tap grant on the setup card.
+      expect(String(call?.permissionDecision?.message)).toContain('WebSearch');
       expect(String(call?.permissionDecision?.message)).toContain(
-        'Use a reviewed semantic capability from the Agent Access summary for WebSearch',
+        'request_access',
       );
-      // Decision 0116: a scheduled worker-local miss now consults the host
-      // coordinator's reviewed-rule decision before the deny becomes terminal
-      // (the worker cannot know which misses the host can authorize without
-      // asking). For a genuinely unsupported tool the host denies, so the run
-      // still terminates with the same recovery message — but a permission
-      // request IS written to the host now.
+      // The scheduled worker-local miss consults the host reviewed-rule decision
+      // before the deny becomes terminal, so a permission request is written.
       expect(
         fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
       ).toBe(true);
@@ -3045,7 +3047,10 @@ describe('agent-runner IPC lifecycle', () => {
             payload: expect.objectContaining({
               phase: 'permission_denied',
               tool: 'WebSearch',
-              terminal: true,
+              // PREFLIGHT-1 Part A: WebSearch is now a grantable facade tool, so
+              // the denial is grantable (one-tap setup card) rather than a
+              // non-grantable terminal deny.
+              grantable: true,
             }),
           }),
         ]),

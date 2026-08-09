@@ -76,6 +76,7 @@ import { createMutableChannelRuntime } from './runtime-app-channel-runtime.js';
 import { resolveGroupRouteExecutionProviderId } from '../../runtime/group-initial-execution-provider.js';
 import { resolveRuntimeDefaultAdapters } from './runtime-default-adapters.js';
 import { spawnAgent, type AvailableGroup } from '../../runtime/agent-spawn.js';
+import { createJobSetupRequiredNotificationPort } from '../../jobs/execution-readiness.js';
 export type RuntimeAppRepository = RuntimeRouterStateRepository &
   RuntimeMessageRepository &
   RuntimeConversationRouteRepository &
@@ -91,19 +92,16 @@ export interface RuntimeApp {
   saveState: () => Promise<void>;
   getOrRecoverCursor: (chatJid: string) => Promise<string>;
   registerGroup: (jid: string, group: ConversationRoute) => Promise<void>;
-  projectConversationRoute: (
+  projectConversationRoute(
     jid: string,
     group: ConversationRoute,
-  ) => Promise<void>;
+  ): Promise<void>;
   unregisterConversationRoute: (jid: string) => Promise<void>;
-  setGroupModelOverride: (
-    chatJid: string,
-    model: string | undefined,
-  ) => Promise<void>;
-  setGroupThinkingOverride: (
+  setGroupModelOverride(jid: string, model: string | undefined): Promise<void>;
+  setGroupThinkingOverride(
     chatJid: string,
     thinking: ThinkingOverride | undefined,
-  ) => Promise<void>;
+  ): Promise<void>;
   setGroupPermissionModeOverride: GroupProcessingDeps['setGroupPermissionModeOverride'];
   getAvailableGroups: () => Promise<AvailableGroup[]>;
   setConversationRoutesForTest: (
@@ -134,6 +132,7 @@ export interface RuntimeApp {
   setConversationHistoryCoverageRepository: (
     repository: ConversationHistoryCoverageRepository,
   ) => void;
+  setupRequiredNotifications: import('../../application/jobs/job-management-types.js').JobSetupRequiredNotificationPort;
 }
 export interface RuntimeAppOptions {
   ensureCredentialBinding?: (input: {
@@ -699,6 +698,11 @@ export function createRuntimeApp(
     setConversationHistoryCoverageRepository: (repository) => {
       conversationHistoryCoverageRepository = repository;
     },
+    setupRequiredNotifications: createJobSetupRequiredNotificationPort(
+      channelRuntime.proxy.sendMessage,
+      () => getRuntimeRepositories(),
+      options.publishRuntimeEvent,
+    ),
   };
 }
 export const collectRuntimeSessionMemory: import('../../domain/ports/session-memory-collector.js').SessionMemoryCollector =

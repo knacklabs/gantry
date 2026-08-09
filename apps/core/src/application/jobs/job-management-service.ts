@@ -54,6 +54,7 @@ import {
   applyJobReadinessToUpdates,
   evaluateManagedJobReadiness,
   pauseJobForSetup,
+  notifyJobSetupRequiredAtCreation,
   recordJobSetupRequired,
   setupBlockerDetails,
 } from './job-management-readiness.js';
@@ -246,11 +247,12 @@ export class JobManagementService {
     job.setup_state = readiness.setupState;
     const result = await this.deps.ops.upsertJob(job);
     if (!readiness.ready) {
-      await recordJobSetupRequired({
+      notifyJobSetupRequiredAtCreation({
         deps: this.deps,
         job,
         readiness,
-        appId: canonicalSession?.appId,
+        appId: canonicalSession?.appId ?? DEFAULT_JOB_RUNTIME_APP_ID,
+        appSession: canonicalSession,
       });
     }
     this.deps.scheduler.requestSchedulerSync(id);

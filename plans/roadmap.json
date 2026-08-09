@@ -1004,6 +1004,26 @@
       "completed_at": "2026-08-08T17:05:22+00:00",
       "history": ".factory/history/CAPRULE-1/",
       "outcome": "Scheduled jobs can now actually use the tools and capabilities you granted them. A scheduled run that reaches a command its agent is host-granted (like the gog Google Sheets commands) now asks the host coordinator to authorize it instead of dead-ending \u2014 so the job does its work instead of stalling \u2014 while the settings denylist stays a hard, un-overridable boundary and the agent still can't self-grant (PERM-2 preserved; decision 0116). And a job that genuinely must pause now sends you ONE plain-language message (\"This job paused because it couldn't use X. Needed: \u2026\") instead of three overlapping technical cards. Codex validated the root cause read-only; 8781 unit tests, verify.py, and a whole-branch autoreview all green. One cosmetic edge case deferred (D-0052)."
+    },
+    {
+      "key": "PREFLIGHT-1",
+      "title": "Scheduled jobs declare tools upfront (neutral) + grantable setup cards",
+      "story": "As a job owner, I want scheduled jobs to be set up with the tools they need and to grant any missing tool in one tap, so my jobs run without dead-end pauses.",
+      "acceptance_criteria": [
+        "Ungranted builtin facade tools show a one-tap grant button on the setup card, both lanes; tap grants the canonical selection + appends the canonical job requirement.",
+        "Scheduling a job whose task needs an ungranted tool declares it and yields an actionable card shortly after creation; a job needing only granted tools is ready with no card.",
+        "No duplicate card (existing fingerprint dedup); passive setup event retained; behaviour identical across both runner lanes; no prime/runMode introduced."
+      ],
+      "order": 54,
+      "status": "done",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/preflight-1.md",
+      "completed_at": "2026-08-09T08:22:28+00:00",
+      "history": ".factory/history/PREFLIGHT-1/",
+      "outcome": "Scheduled jobs are now set up with the tools they need, and setup pauses are actionable. When a scheduled run needs a builtin tool it wasn't granted (web search/read, file read/write, browser), the Setup-needed card now shows a one-tap Allow-for-future button instead of a dead-end message, on both runner lanes, so the owner grants it from chat; the grant persists the canonical selection and adds it to the job requirements. When an agent schedules a job it now declares the tools the task needs, so a missing tool surfaces as one actionable card shortly after creation (dispatched async, so creating stays fast) rather than only when a run later pauses. Jobs whose tools are all granted run with no pause. Authority stays host-reviewed and human-approved (no agent self-grant)."
     }
   ],
   "epics": [
@@ -1092,5 +1112,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-08T17:05:22+00:00"
+  "updated_at": "2026-08-09T08:22:28+00:00"
 }
