@@ -1,0 +1,8 @@
+{
+  "event": "open",
+  "id": "Q-0022-0e8f",
+  "reason": "Refute D-0053: document the sole-notifier invariant (blocked jobs are created paused, next_run=null), so the creation-time notifier needs only best-effort fingerprint dedup",
+  "started_at": "2026-08-09T09:33:08+00:00",
+  "max_files": 5,
+  "files": []
+}

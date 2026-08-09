@@ -45,7 +45,9 @@ function makeDeps(): {
   const deps = {
     opsRepository: {
       updateJob,
-      markJobSetupNotified: vi.fn(async () => true),
+      markJobSetupNotified: vi.fn(async () => '2026-08-09T00:00:00.000Z'),
+      confirmJobSetupNotified: vi.fn(async () => undefined),
+      clearJobSetupNotified: vi.fn(async () => undefined),
     },
     sendMessage,
     onSchedulerChanged: vi.fn(),

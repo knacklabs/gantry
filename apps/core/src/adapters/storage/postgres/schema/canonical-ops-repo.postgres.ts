@@ -326,8 +326,25 @@ export class PostgresRuntimeRepositoryBundle
   async markJobSetupNotified(
     id: string,
     expectedFingerprint: string,
-  ): Promise<boolean> {
-    return this.jobs.markJobSetupNotified(id, expectedFingerprint);
+    options?: { nowIso?: string; claimTtlMs?: number },
+  ): Promise<string | null> {
+    return this.jobs.markJobSetupNotified(id, expectedFingerprint, options);
+  }
+
+  async confirmJobSetupNotified(
+    id: string,
+    expectedFingerprint: string,
+    claimAt: string,
+  ): Promise<void> {
+    await this.jobs.confirmJobSetupNotified(id, expectedFingerprint, claimAt);
+  }
+
+  async clearJobSetupNotified(
+    id: string,
+    expectedFingerprint: string,
+    claimAt: string,
+  ): Promise<void> {
+    await this.jobs.clearJobSetupNotified(id, expectedFingerprint, claimAt);
   }
 
   async deleteJob(id: string): Promise<void> {

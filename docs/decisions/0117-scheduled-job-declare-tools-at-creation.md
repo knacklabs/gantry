@@ -1,6 +1,6 @@
 ---
 status: accepted
-confirmed_by: "Ravi"
+confirmed_by: 'Ravi'
 date: 2026-08-09
 stories: [PREFLIGHT-1]
 ---
@@ -10,7 +10,7 @@ stories: [PREFLIGHT-1]
 ## Context
 
 A scheduled job runs as its agent and inherits the agent's host-reviewed granted tools,
-but nothing captures the tools the *task* will need. `access_requirements` is optional and
+but nothing captures the tools the _task_ will need. `access_requirements` is optional and
 usually omitted, so creation-time readiness passes even when the task will need a tool the
 agent lacks; the gap surfaces only when a scheduled run hits the tool and pauses. We want
 gaps surfaced at creation, and the pause card to be actionable — without the worker/agent
@@ -35,6 +35,17 @@ a human-initiated action via that card; the worker never self-grants. The runtim
 (`pauseJobForSetupIfNeeded`) remains the fallback for tools the agent under-declares and
 for checks that can only run at run time (worker image, browser launch, fleet).
 
+Setup-pause delivery is gated by a recoverable atomic fingerprint claim. A notifier claims
+before delivery, confirms the claim after delivery, and clears it when delivery fails. An
+unconfirmed claim can be reclaimed after its TTL, so a process crash cannot suppress the
+card permanently. A detached creation notifier reloads the job and routes through that
+job's current session rather than a captured creation-time session.
+
+Delivery is exactly-once during normal operation. It is at-least-once across a crash after
+the send succeeds but before the claim is confirmed: the abandoned token eventually
+expires and a successor may send the card again. Confirm and clear are fenced by the exact
+claim timestamp, so a stale claimant cannot confirm or clear its successor's claim.
+
 Prime-based auto-discovery is rejected (see Context) and must not be reintroduced unless a
 neutral DeepAgents record-without-execute mode is first built.
 
@@ -48,8 +59,8 @@ decision.
 
 - Jobs whose declared tools the agent already has are `ready` and never pause. Jobs needing
   an ungranted tool surface it once, at creation, as an actionable card.
-- Exactly one `JOB_SETUP_REQUIRED` event per blocker fingerprint at creation; the creation
-  card and any later runtime pause for the same blocker are deduped by `notified_fingerprint`.
+- Exactly one `JOB_SETUP_REQUIRED` event per blocker fingerprint at creation; concurrent
+  creation and runtime notification attempts are serialized by the recoverable claim.
 - Neutral across both lanes (declaration + shared compiled prompt + shared recovery/card
   path); no `runMode`/prime code is added; no application-to-runtime layer violation (the
   creation notification crosses via an application-owned port wired in runtime composition).

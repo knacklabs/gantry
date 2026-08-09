@@ -98,6 +98,18 @@ function makeJob(overrides: Partial<Job> = {}): Job {
   };
 }
 
+function notificationOps(
+  markJobSetupNotified: ReturnType<typeof vi.fn> = vi.fn(
+    async () => '2026-08-09T00:00:00.000Z',
+  ),
+) {
+  return {
+    markJobSetupNotified,
+    confirmJobSetupNotified: vi.fn(async () => undefined),
+    clearJobSetupNotified: vi.fn(async () => undefined),
+  };
+}
+
 function permanentDecision(): PermissionApprovalDecision {
   return {
     approved: true,
@@ -175,6 +187,133 @@ function configure(input: {
   configureSetupPausePermissionPrompt(deps);
   return deps;
 }
+
+describe('notifyJobSetupRequired', () => {
+  it('concurrent creation and run notifications deliver exactly one card and one event', async () => {
+    const job = makeJob();
+    const claimAt = '2026-08-09T00:00:00.000Z';
+    let activeClaim: string | null = null;
+    let confirmed = false;
+    const opsRepository = {
+      markJobSetupNotified: vi.fn(async () => {
+        if (activeClaim !== null || confirmed) return null;
+        activeClaim = claimAt;
+        return claimAt;
+      }),
+      confirmJobSetupNotified: vi.fn(async (_id, _fingerprint, token) => {
+        if (activeClaim !== token) return;
+        activeClaim = null;
+        confirmed = true;
+      }),
+      clearJobSetupNotified: vi.fn(async (_id, _fingerprint, token) => {
+        if (activeClaim === token) activeClaim = null;
+      }),
+    };
+    const sendMessage = vi.fn(async () => undefined);
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+
+    const [creationResult, runResult] = await Promise.all([
+      notifyJobSetupRequired({
+        currentJob: job,
+        deps: { sendMessage, opsRepository },
+        runtimeAppId: 'default',
+        setupState: job.setup_state!,
+        source: 'preflight_setup',
+        publishRuntimeEvent,
+      }),
+      notifyJobSetupRequired({
+        currentJob: job,
+        deps: { sendMessage, opsRepository },
+        runtimeAppId: 'default',
+        setupState: job.setup_state!,
+        source: 'final_setup',
+        publishRuntimeEvent,
+      }),
+    ]);
+
+    expect([creationResult, runResult].sort()).toEqual([false, true]);
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(publishRuntimeEvent).toHaveBeenCalledOnce();
+    expect(opsRepository.confirmJobSetupNotified).toHaveBeenCalledWith(
+      job.id,
+      job.setup_state!.fingerprint,
+      claimAt,
+    );
+    expect(opsRepository.clearJobSetupNotified).not.toHaveBeenCalled();
+  });
+
+  it('reclaims a stale pending fingerprint claim', async () => {
+    const fingerprint = makeJob().setup_state!.fingerprint;
+    const job = makeJob({
+      setup_state: {
+        ...makeJob().setup_state!,
+        notified_fingerprint: fingerprint,
+        notify_claim_at: '2026-08-09T00:00:00.000Z',
+      },
+    });
+    const now = Date.parse('2026-08-09T00:06:00.000Z');
+    let activeClaimAt = Date.parse(job.setup_state!.notify_claim_at!);
+    const successorClaimAt = new Date(now).toISOString();
+    const opsRepository = {
+      markJobSetupNotified: vi.fn(async () => {
+        if (activeClaimAt >= now - 5 * 60_000) return null;
+        activeClaimAt = now;
+        return successorClaimAt;
+      }),
+      confirmJobSetupNotified: vi.fn(async () => undefined),
+      clearJobSetupNotified: vi.fn(async () => undefined),
+    };
+    const sendMessage = vi.fn(async () => undefined);
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+
+    await expect(
+      notifyJobSetupRequired({
+        currentJob: job,
+        deps: { sendMessage, opsRepository },
+        runtimeAppId: 'default',
+        setupState: job.setup_state!,
+        publishRuntimeEvent,
+      }),
+    ).resolves.toBe(true);
+
+    expect(opsRepository.markJobSetupNotified).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(publishRuntimeEvent).toHaveBeenCalledOnce();
+    expect(opsRepository.confirmJobSetupNotified).toHaveBeenCalledWith(
+      job.id,
+      fingerprint,
+      successorClaimAt,
+    );
+  });
+
+  it('does not deliver or publish when another pending claim is still fresh', async () => {
+    const job = makeJob({
+      setup_state: {
+        ...makeJob().setup_state!,
+        notified_fingerprint: makeJob().setup_state!.fingerprint,
+        notify_claim_at: '2026-08-09T00:04:00.000Z',
+      },
+    });
+    const opsRepository = notificationOps(vi.fn(async () => null));
+    const sendMessage = vi.fn(async () => undefined);
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+
+    await expect(
+      notifyJobSetupRequired({
+        currentJob: job,
+        deps: { sendMessage, opsRepository },
+        runtimeAppId: 'default',
+        setupState: job.setup_state!,
+        publishRuntimeEvent,
+      }),
+    ).resolves.toBe(false);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(publishRuntimeEvent).not.toHaveBeenCalled();
+    expect(opsRepository.confirmJobSetupNotified).not.toHaveBeenCalled();
+    expect(opsRepository.clearJobSetupNotified).not.toHaveBeenCalled();
+  });
+});
 
 describe('setup pause prompts', () => {
   it('a non-grantable denial is never turned into an approval candidate', async () => {
@@ -1541,7 +1680,7 @@ describe('setup pause prompts', () => {
     });
     configure({ job: () => job });
     const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
+    const markJobSetupNotified = vi.fn(async () => 'claim-token');
 
     await expect(
       notifyJobSetupRequired({
@@ -1550,7 +1689,7 @@ describe('setup pause prompts', () => {
         setupState: job.setup_state!,
         deps: {
           sendMessage,
-          opsRepository: { markJobSetupNotified },
+          opsRepository: notificationOps(markJobSetupNotified),
         } as never,
         publishRuntimeEvent: async () => undefined,
       }),
@@ -1768,13 +1907,16 @@ describe('setup pause prompts', () => {
     let job = makeJob({ silent: true });
     configure({ job: () => job, runPermissionInteraction });
     const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
+    const markJobSetupNotified = vi.fn(async () => 'claim-token');
 
     await notifyJobSetupRequired({
       currentJob: job,
       runtimeAppId: 'default',
       setupState: job.setup_state!,
-      deps: { sendMessage, opsRepository: { markJobSetupNotified } } as never,
+      deps: {
+        sendMessage,
+        opsRepository: notificationOps(markJobSetupNotified),
+      } as never,
       publishRuntimeEvent: async () => undefined,
     });
 
@@ -1788,7 +1930,10 @@ describe('setup pause prompts', () => {
       currentJob: job,
       runtimeAppId: 'default',
       setupState: job.setup_state!,
-      deps: { sendMessage, opsRepository: { markJobSetupNotified } } as never,
+      deps: {
+        sendMessage,
+        opsRepository: notificationOps(markJobSetupNotified),
+      } as never,
       publishRuntimeEvent: async () => undefined,
     });
 
@@ -1834,7 +1979,7 @@ describe('setup pause prompts', () => {
     });
     configure({ job: () => job, requestPermissionApproval });
     const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
+    const markJobSetupNotified = vi.fn(async () => 'claim-token');
 
     await notifyJobSetupRequired({
       currentJob: job,
@@ -1842,7 +1987,7 @@ describe('setup pause prompts', () => {
       setupState: job.setup_state!,
       deps: {
         sendMessage,
-        opsRepository: { markJobSetupNotified },
+        opsRepository: notificationOps(markJobSetupNotified),
       } as never,
       publishRuntimeEvent: async () => undefined,
     });
@@ -1873,7 +2018,7 @@ describe('setup pause prompts', () => {
       }),
     });
     const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
+    const markJobSetupNotified = vi.fn(async () => 'claim-token');
 
     await expect(
       notifyJobSetupRequired({
@@ -1882,7 +2027,7 @@ describe('setup pause prompts', () => {
         setupState: job.setup_state!,
         deps: {
           sendMessage,
-          opsRepository: { markJobSetupNotified },
+          opsRepository: notificationOps(markJobSetupNotified),
         } as never,
         publishRuntimeEvent: async () => undefined,
       }),
@@ -1918,7 +2063,7 @@ describe('setup pause prompts', () => {
       },
     });
     const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
+    const markJobSetupNotified = vi.fn(async () => 'claim-token');
 
     await expect(
       notifyJobSetupRequired({
@@ -1927,7 +2072,7 @@ describe('setup pause prompts', () => {
         setupState: job.setup_state!,
         deps: {
           sendMessage,
-          opsRepository: { markJobSetupNotified },
+          opsRepository: notificationOps(markJobSetupNotified),
         } as never,
         publishRuntimeEvent: async () => undefined,
       }),
@@ -1958,7 +2103,7 @@ describe('setup pause prompts', () => {
       },
     });
     const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
+    const markJobSetupNotified = vi.fn(async () => 'claim-token');
 
     await expect(
       notifyJobSetupRequired({
@@ -1967,7 +2112,7 @@ describe('setup pause prompts', () => {
         setupState: job.setup_state!,
         deps: {
           sendMessage,
-          opsRepository: { markJobSetupNotified },
+          opsRepository: notificationOps(markJobSetupNotified),
         } as never,
         publishRuntimeEvent: async () => undefined,
       }),
@@ -2005,7 +2150,8 @@ describe('setup pause prompts', () => {
     const sendMessage = vi.fn(async (jid: string) => {
       if (jid === 'sl:approver') throw new Error('provider unavailable');
     });
-    const markJobSetupNotified = vi.fn(async () => true);
+    const markJobSetupNotified = vi.fn(async () => 'claim-token');
+    const opsRepository = notificationOps(markJobSetupNotified);
 
     await expect(
       notifyJobSetupRequired({
@@ -2014,7 +2160,7 @@ describe('setup pause prompts', () => {
         setupState: job.setup_state!,
         deps: {
           sendMessage,
-          opsRepository: { markJobSetupNotified },
+          opsRepository,
         } as never,
         publishRuntimeEvent: async () => undefined,
       }),
@@ -2029,7 +2175,13 @@ describe('setup pause prompts', () => {
       expect.stringContaining('Setup needed'),
       expect.objectContaining({ threadId: 'approval-thread' }),
     );
-    expect(markJobSetupNotified).not.toHaveBeenCalled();
+    expect(markJobSetupNotified).toHaveBeenCalledOnce();
+    expect(opsRepository.clearJobSetupNotified).toHaveBeenCalledWith(
+      job.id,
+      job.setup_state!.fingerprint,
+      'claim-token',
+    );
+    expect(opsRepository.confirmJobSetupNotified).not.toHaveBeenCalled();
   });
 
   it('keeps a same-conversation notification route on a different provider account', async () => {
@@ -2052,7 +2204,7 @@ describe('setup pause prompts', () => {
       resolveProviderAccountId: () => 'account-approver',
     });
     const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
+    const markJobSetupNotified = vi.fn(async () => 'claim-token');
 
     await expect(
       notifyJobSetupRequired({
@@ -2061,7 +2213,7 @@ describe('setup pause prompts', () => {
         setupState: job.setup_state!,
         deps: {
           sendMessage,
-          opsRepository: { markJobSetupNotified },
+          opsRepository: notificationOps(markJobSetupNotified),
         } as never,
         publishRuntimeEvent: async () => undefined,
       }),
@@ -2099,7 +2251,7 @@ describe('setup pause prompts', () => {
       resolveProviderAccountId: () => 'account-default',
     });
     const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
+    const markJobSetupNotified = vi.fn(async () => 'claim-token');
 
     await expect(
       notifyJobSetupRequired({
@@ -2108,7 +2260,7 @@ describe('setup pause prompts', () => {
         setupState: job.setup_state!,
         deps: {
           sendMessage,
-          opsRepository: { markJobSetupNotified },
+          opsRepository: notificationOps(markJobSetupNotified),
         } as never,
         publishRuntimeEvent: async () => undefined,
       }),
@@ -2207,7 +2359,7 @@ describe('setup pause prompts', () => {
         }),
     });
     const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
+    const markJobSetupNotified = vi.fn(async () => 'claim-token');
 
     await expect(
       notifyJobSetupRequired({
@@ -2216,7 +2368,7 @@ describe('setup pause prompts', () => {
         setupState: job.setup_state!,
         deps: {
           sendMessage,
-          opsRepository: { markJobSetupNotified },
+          opsRepository: notificationOps(markJobSetupNotified),
         } as never,
         publishRuntimeEvent: async () => undefined,
       }),
@@ -2238,12 +2390,13 @@ describe('setup pause prompts', () => {
     ['silenced', makeJob({ silent: true })],
     ['deleted', undefined],
   ])(
-    'does not send or mark the stale setup card when the job is %s during prompt preparation',
+    'does not send the stale setup card and clears its claim when the job is %s during prompt preparation',
     async (_state, freshJob) => {
       const snapshot = makeJob();
       configure({ job: () => freshJob });
       const sendMessage = vi.fn(async () => undefined);
-      const markJobSetupNotified = vi.fn(async () => true);
+      const markJobSetupNotified = vi.fn(async () => 'claim-token');
+      const opsRepository = notificationOps(markJobSetupNotified);
 
       await expect(
         notifyJobSetupRequired({
@@ -2252,14 +2405,20 @@ describe('setup pause prompts', () => {
           setupState: snapshot.setup_state!,
           deps: {
             sendMessage,
-            opsRepository: { markJobSetupNotified },
+            opsRepository,
           } as never,
           publishRuntimeEvent: async () => undefined,
         }),
       ).resolves.toBe(false);
 
       expect(sendMessage).not.toHaveBeenCalled();
-      expect(markJobSetupNotified).not.toHaveBeenCalled();
+      expect(markJobSetupNotified).toHaveBeenCalledOnce();
+      expect(opsRepository.clearJobSetupNotified).toHaveBeenCalledWith(
+        snapshot.id,
+        snapshot.setup_state!.fingerprint,
+        'claim-token',
+      );
+      expect(opsRepository.confirmJobSetupNotified).not.toHaveBeenCalled();
     },
   );
 
@@ -2424,7 +2583,8 @@ describe('setup pause prompts', () => {
       },
     });
     const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
+    const markJobSetupNotified = vi.fn(async () => 'claim-token');
+    const opsRepository = notificationOps(markJobSetupNotified);
 
     await expect(
       notifyJobSetupRequired({
@@ -2433,7 +2593,7 @@ describe('setup pause prompts', () => {
         setupState: job.setup_state!,
         deps: {
           sendMessage,
-          opsRepository: { markJobSetupNotified },
+          opsRepository,
         } as never,
         publishRuntimeEvent: async () => undefined,
       }),
@@ -2443,6 +2603,12 @@ describe('setup pause prompts', () => {
       'sl:job-notifications',
       expect.stringContaining('Setup needed'),
     );
-    expect(markJobSetupNotified).not.toHaveBeenCalled();
+    expect(markJobSetupNotified).toHaveBeenCalledOnce();
+    expect(opsRepository.clearJobSetupNotified).toHaveBeenCalledWith(
+      job.id,
+      job.setup_state!.fingerprint,
+      'claim-token',
+    );
+    expect(opsRepository.confirmJobSetupNotified).not.toHaveBeenCalled();
   });
 });

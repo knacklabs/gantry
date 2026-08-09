@@ -151,7 +151,9 @@ function makeOpsRepository(job: Job) {
     updateAgentRunProviderMetadata: vi.fn(async () => true),
     createJobRun: vi.fn(async () => true),
     updateJob: vi.fn(async () => undefined),
-    markJobSetupNotified: vi.fn(async () => true),
+    markJobSetupNotified: vi.fn(async () => '2026-08-09T00:00:00.000Z'),
+    confirmJobSetupNotified: vi.fn(async () => undefined),
+    clearJobSetupNotified: vi.fn(async () => undefined),
     completeJobRun: vi.fn(async () => undefined),
     finalizeJobRunLease: vi.fn(async (input) => {
       await repo.completeJobRun(

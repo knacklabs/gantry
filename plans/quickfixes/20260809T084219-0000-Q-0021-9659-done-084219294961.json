@@ -1,0 +1,10 @@
+{
+  "event": "done",
+  "id": "Q-0021-9659",
+  "reason": "PREFLIGHT-1 final-review P2: attach a rejection handler to the detached passive-event fallback in notifyJobSetupRequiredAtCreation to avoid an unhandled promise rejection",
+  "started_at": "2026-08-09T08:40:44+00:00",
+  "completed_at": "2026-08-09T08:42:19+00:00",
+  "files": [
+    "apps/core/src/application/jobs/job-management-readiness.ts"
+  ]
+}

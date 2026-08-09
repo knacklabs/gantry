@@ -1024,6 +1024,23 @@
       "completed_at": "2026-08-09T08:22:28+00:00",
       "history": ".factory/history/PREFLIGHT-1/",
       "outcome": "Scheduled jobs are now set up with the tools they need, and setup pauses are actionable. When a scheduled run needs a builtin tool it wasn't granted (web search/read, file read/write, browser), the Setup-needed card now shows a one-tap Allow-for-future button instead of a dead-end message, on both runner lanes, so the owner grants it from chat; the grant persists the canonical selection and adds it to the job requirements. When an agent schedules a job it now declares the tools the task needs, so a missing tool surfaces as one actionable card shortly after creation (dispatched async, so creating stays fast) rather than only when a run later pauses. Jobs whose tools are all granted run with no pause. Authority stays host-reviewed and human-approved (no agent self-grant)."
+    },
+    {
+      "key": "SETUPRACE-1",
+      "title": "Atomic claim for setup-pause notifications (close D-0053)",
+      "story": "As a job owner, I want a setup pause to notify me exactly once even under concurrency, so I never get duplicate setup cards.",
+      "acceptance_criteria": [
+        "markJobSetupNotified is an atomic CAS claim; notifyJobSetupRequired claims before sending; only the winner delivers the card + event; a loser delivers nothing.",
+        "A failed delivery clears the claim (retryable); concurrent creation+run notify for one fingerprint yields exactly one card and one event.",
+        "verify.py green; whole-branch autoreview reports no actionable findings (D-0053 resolved)."
+      ],
+      "order": 55,
+      "status": "pending",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "refactor",
+      "depends_on": [],
+      "spec": "docs/specs/setuprace-1.md"
     }
   ],
   "epics": [
@@ -1112,5 +1129,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-09T08:22:28+00:00"
+  "updated_at": "2026-08-09T08:57:48+00:00"
 }
