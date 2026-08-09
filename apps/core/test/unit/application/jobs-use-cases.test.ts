@@ -207,6 +207,7 @@ describe('job application use cases', () => {
   it('creates setup-paused jobs when declared durable requirements are missing', async () => {
     const upsertJob = vi.fn(async () => ({ created: true }));
     const runtimeEvents = { publish: vi.fn(async () => undefined) };
+    const setupRequiredNotifications = { notify: vi.fn() };
     const service = new JobManagementService({
       ops: {
         upsertJob,
@@ -220,6 +221,7 @@ describe('job application use cases', () => {
         listAgentToolBindings: vi.fn(async () => []),
       } as never,
       runtimeEvents,
+      setupRequiredNotifications,
       clock: { now: () => '2026-05-14T00:00:00.000Z' },
     });
 
@@ -246,21 +248,8 @@ describe('job application use cases', () => {
         }),
       }),
     );
-    expect(runtimeEvents.publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        appId: 'app-one',
-        eventType: 'job.setup_required',
-        payload: expect.objectContaining({
-          setup_state: 'missing_capability',
-          blockers: expect.arrayContaining([
-            expect.objectContaining({
-              requirementType: 'browser',
-              requirementId: 'Browser',
-            }),
-          ]),
-        }),
-      }),
-    );
+    expect(setupRequiredNotifications.notify).toHaveBeenCalledOnce();
+    expect(runtimeEvents.publish).not.toHaveBeenCalled();
   });
 
   it('rechecks setup-paused jobs after persistent permission approval and queues ready jobs', async () => {

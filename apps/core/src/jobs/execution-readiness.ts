@@ -11,6 +11,8 @@ import { notifySchedulerSetupRequired } from './execution-notifications.js';
 import { readImageCapabilityInventory } from '../shared/worker-image-inventory.js';
 import { getDeploymentMode } from '../config/index.js';
 import {
+  getRuntimeEventExchange,
+  getRuntimeRepositories,
   getRuntimeStorage,
   getWorkerCoordinationRepository,
 } from '../adapters/storage/postgres/runtime-store.js';
@@ -25,6 +27,7 @@ import {
 } from '../application/agent-execution/agent-access-snapshot.js';
 import { raiseSetupPausePermissionPrompt } from '../application/jobs/setup-pause-permission-prompt.js';
 import { logger } from '../infrastructure/logging/logger.js';
+import type { JobSetupRequiredNotificationPort } from '../application/jobs/job-management-types.js';
 
 type JobSetupCheckSource =
   | 'preflight_setup'
@@ -271,4 +274,76 @@ export async function notifyJobSetupRequired(input: {
     webhookId: input.appSession?.defaultWebhookId,
   });
   return notified;
+}
+
+export async function notifyCreatedJobSetupRequired(input: {
+  jobId: string;
+  deps: {
+    sendMessage: SchedulerDependencies['sendMessage'];
+    opsRepository: Pick<
+      SchedulerDependencies['opsRepository'],
+      'getJobById' | 'markJobSetupNotified'
+    >;
+  };
+  runtimeAppId: string;
+  appSession?: SchedulerEventAppSession;
+  publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
+}): Promise<boolean> {
+  const currentJob = await input.deps.opsRepository.getJobById(input.jobId);
+  if (!currentJob) return false;
+  // This runs asynchronously after job creation, so the job may have been
+  // resumed, re-evaluated, or already notified in the meantime. Revalidate
+  // against the freshly loaded job and notify with ITS current setup state —
+  // using the stale creation snapshot would bypass the notified-fingerprint
+  // dedup and could deliver a duplicate or obsolete card.
+  // ponytail: the notified-fingerprint dedup is check-then-mark, not an atomic
+  // claim, so a job that is *run* within this sub-second window could still get a
+  // second card from the scheduler's run-path notify. Near-unreachable for normal
+  // future-scheduled jobs; atomic claim-before-send hardening is deferred (D-0053).
+  const currentSetupState = currentJob.setup_state;
+  if (!currentSetupState || currentSetupState.state === 'ready') {
+    return false;
+  }
+  return notifyJobSetupRequired({
+    currentJob,
+    deps: input.deps,
+    runtimeAppId: input.runtimeAppId,
+    appSession: input.appSession,
+    setupState: currentSetupState,
+    source: 'preflight_setup',
+    publishRuntimeEvent: input.publishRuntimeEvent,
+  });
+}
+
+export function createJobSetupRequiredNotificationPort(
+  sendMessage: SchedulerDependencies['sendMessage'],
+  publishRuntimeEvent?: (
+    event: RuntimeEventPublishInput,
+  ) => void | Promise<void>,
+): JobSetupRequiredNotificationPort {
+  return {
+    notify: (input) => {
+      void notifyCreatedJobSetupRequired({
+        jobId: input.jobId,
+        deps: { sendMessage, opsRepository: getRuntimeRepositories() },
+        runtimeAppId: input.appId,
+        appSession: input.appSession
+          ? {
+              ...input.appSession,
+              defaultResponseMode: input.appSession.defaultResponseMode ?? null,
+            }
+          : undefined,
+        publishRuntimeEvent: async (event) => {
+          await (publishRuntimeEvent
+            ? publishRuntimeEvent(event)
+            : getRuntimeEventExchange().publish(event));
+        },
+      }).catch((err) => {
+        logger.warn(
+          { err, jobId: input.jobId },
+          'Failed to notify setup pause after job creation',
+        );
+      });
+    },
+  };
 }

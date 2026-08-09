@@ -20,7 +20,7 @@ import {
   evaluateJobReadiness,
   SETUP_REQUIRED_PAUSE_REASON,
 } from './job-readiness-service.js';
-import { recordJobSetupRequired } from './job-management-readiness.js';
+import { notifyJobSetupRequiredAtCreation } from './job-management-readiness.js';
 
 export async function createManagedJob(
   deps: JobManagementServiceDeps,
@@ -178,11 +178,12 @@ export async function createManagedJob(
     setup_state: readiness.setupState,
   });
   if (!readiness.ready) {
-    await recordJobSetupRequired({
+    notifyJobSetupRequiredAtCreation({
       deps,
-      job: jobInput,
+      jobId,
       readiness,
-      appId: session.appId,
+      appId: input.appId,
+      appSession: session,
     });
   }
   deps.scheduler.requestSchedulerSync(jobId);

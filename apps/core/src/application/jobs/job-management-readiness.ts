@@ -72,6 +72,26 @@ export async function pauseJobForSetup(input: {
   input.deps.scheduler.requestSchedulerSync(input.job.id);
 }
 
+export function notifyJobSetupRequiredAtCreation(input: {
+  deps: JobManagementServiceDeps;
+  jobId: string;
+  appId: string;
+  appSession?: Parameters<
+    NonNullable<
+      JobManagementServiceDeps['setupRequiredNotifications']
+    >['notify']
+  >[0]['appSession'];
+  readiness: JobReadinessResult;
+}): void {
+  if (input.readiness.ready) return;
+  input.deps.setupRequiredNotifications?.notify({
+    jobId: input.jobId,
+    appId: input.appId,
+    appSession: input.appSession,
+    setupState: input.readiness.setupState,
+  });
+}
+
 export async function recordJobSetupRequired(input: {
   deps: JobManagementServiceDeps;
   job: Pick<Job, 'id' | 'workspace_key'> &

@@ -90,6 +90,17 @@ export interface RuntimeEventPublisherPort {
   };
 }
 
+export interface JobSetupRequiredNotificationInput {
+  jobId: string;
+  appId: string;
+  appSession?: AppSessionRecord;
+  setupState: NonNullable<Job['setup_state']>;
+}
+
+export interface JobSetupRequiredNotificationPort {
+  notify(input: JobSetupRequiredNotificationInput): void;
+}
+
 export interface JobTriggerQueuePort {
   isReady(): boolean;
   enqueue(
@@ -140,6 +151,7 @@ export interface JobManagementServiceDeps {
   clock?: Clock;
   control?: JobControlPort;
   runtimeEvents?: RuntimeEventPublisherPort;
+  setupRequiredNotifications?: JobSetupRequiredNotificationPort;
   triggerQueue?: JobTriggerQueuePort;
   toolRepository?: ToolCatalogRepository;
   skillRepository?: SkillCatalogRepository;
