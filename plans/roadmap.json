@@ -1035,12 +1035,15 @@
         "verify.py green; whole-branch autoreview reports no actionable findings (D-0053 resolved)."
       ],
       "order": 55,
-      "status": "pending",
+      "status": "done",
       "epic": "permission-engine",
       "skill": "backend",
       "kind": "feature",
       "depends_on": [],
-      "spec": "docs/specs/setuprace-1.md"
+      "spec": "docs/specs/setuprace-1.md",
+      "completed_at": "2026-08-09T13:16:20+00:00",
+      "history": ".factory/history/SETUPRACE-1/",
+      "outcome": "Setup-pause notifications are now race-safe. A recoverable atomic fingerprint claim (claim-before-send, ownership-fenced confirm/clear, self-healing after a TTL) makes concurrent creation/update/run notifiers deliver exactly one setup card and one event under normal operation; a stale or crashed claim self-heals instead of permanently suppressing the card, and a detached creation notify routes by the reloaded job's session. Delivery is at-least-once across two abnormal windows only (a post-send crash before confirm; a delivery hanging past the TTL) - a rare duplicate card, never a lost one - an accepted ceiling since true exactly-once over a hangable channel needs a durable idempotent outbox. Resolves D-0053."
     }
   ],
   "epics": [
@@ -1129,5 +1132,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-09T08:57:48+00:00"
+  "updated_at": "2026-08-09T13:16:20+00:00"
 }

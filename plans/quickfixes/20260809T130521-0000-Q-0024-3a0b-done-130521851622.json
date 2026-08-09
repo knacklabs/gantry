@@ -1,0 +1,10 @@
+{
+  "event": "done",
+  "id": "Q-0024-3a0b",
+  "reason": "SETUPRACE-1 test cascade: make ops-service mark/confirm/clearJobSetupNotified lazy delegating methods (matching the original markJobSetupNotified pattern) instead of eager constructor-bound properties, so mock repositories without those methods don't throw at construction",
+  "started_at": "2026-08-09T13:04:00+00:00",
+  "completed_at": "2026-08-09T13:05:21+00:00",
+  "files": [
+    "apps/core/src/adapters/storage/postgres/services/canonical-job-ops-service.ts"
+  ]
+}
