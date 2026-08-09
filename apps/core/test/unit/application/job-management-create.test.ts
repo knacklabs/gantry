@@ -53,6 +53,7 @@ describe('job creation', () => {
           return true;
         },
       ),
+      clearJobSetupNotified: vi.fn(async () => true),
     };
     const setupRequiredNotifications: JobSetupRequiredNotificationPort = {
       notify: (input: JobSetupRequiredNotificationInput) => {

@@ -126,11 +126,11 @@ export class CanonicalJobOpsService {
     return this.repository.refreshSetupPausedJob(input);
   }
 
-  async markJobSetupNotified(
-    id: string,
-    expectedFingerprint: string,
-  ): Promise<boolean> {
+  async markJobSetupNotified(id: string, expectedFingerprint: string) {
     return this.repository.markJobSetupNotified(id, expectedFingerprint);
+  }
+  async clearJobSetupNotified(id: string, expectedFingerprint: string) {
+    return this.repository.clearJobSetupNotified(id, expectedFingerprint);
   }
 
   async deleteJob(id: string): Promise<void> {

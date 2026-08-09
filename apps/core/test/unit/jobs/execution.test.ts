@@ -152,6 +152,7 @@ function makeOpsRepository(job: Job) {
     createJobRun: vi.fn(async () => true),
     updateJob: vi.fn(async () => undefined),
     markJobSetupNotified: vi.fn(async () => true),
+    clearJobSetupNotified: vi.fn(async () => true),
     completeJobRun: vi.fn(async () => undefined),
     finalizeJobRunLease: vi.fn(async (input) => {
       await repo.completeJobRun(

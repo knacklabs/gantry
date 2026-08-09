@@ -10,6 +10,7 @@ import type { RuntimeEventType } from '../../../../domain/events/runtime-event-t
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
 import {
+  clearJobSetupNotified as clearJobSetupNotifiedStatement,
   type CanonicalJobCoordinationUpdate,
   coordinationColumnUpdate,
   markJobSetupNotified as markJobSetupNotifiedStatement,
@@ -280,6 +281,13 @@ export class PostgresCanonicalJobRepository {
     expectedFingerprint: string,
   ): Promise<boolean> {
     return markJobSetupNotifiedStatement(this.db, id, expectedFingerprint);
+  }
+
+  async clearJobSetupNotified(
+    id: string,
+    expectedFingerprint: string,
+  ): Promise<boolean> {
+    return clearJobSetupNotifiedStatement(this.db, id, expectedFingerprint);
   }
 
   async resumeSetupPausedJob(input: {

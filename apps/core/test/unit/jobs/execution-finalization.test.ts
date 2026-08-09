@@ -46,6 +46,7 @@ function makeDeps(): {
     opsRepository: {
       updateJob,
       markJobSetupNotified: vi.fn(async () => true),
+      clearJobSetupNotified: vi.fn(async () => true),
     },
     sendMessage,
     onSchedulerChanged: vi.fn(),
