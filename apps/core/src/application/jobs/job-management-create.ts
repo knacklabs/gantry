@@ -182,7 +182,9 @@ export async function createManagedJob(
       deps,
       job: jobInput,
       readiness,
-      appId: input.appId,
+      // Attribute the setup event/card to the canonical resolved session's app
+      // (matching the IPC creation path), not the raw request app id.
+      appId: session.appId,
       appSession: session,
     });
   }
