@@ -234,8 +234,17 @@ def fast_status(home: Path | None = None) -> tuple[list[str], list[str]]:
             [k for k, ok in advisory.items() if not ok])
 
 
-def _github_slug() -> str:
-    code, out = run_quiet(["git", "remote", "get-url", "origin"])
+def _github_slug(repo: str | None = None) -> str:
+    # Inline (not run_quiet) so the branch-protection lookup can target the
+    # --repo checkout via cwd rather than the process's working directory.
+    try:
+        proc = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=15, cwd=repo,
+        )
+        code, out = proc.returncode, (proc.stdout + proc.stderr).strip()
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        code, out = 1, str(exc)
     if code != 0:
         return ""
     url = out.strip()
@@ -245,7 +254,7 @@ def _github_slug() -> str:
     return ""
 
 
-def _merge_check_status(*, fix: bool) -> tuple[bool, str] | None:
+def _merge_check_status(*, fix: bool, repo: str | None = None) -> tuple[bool, str] | None:
     """Is `scaffold-check` a required status check on the default branch?
 
     Returns None when the question cannot be answered (no gh, no GitHub
@@ -257,7 +266,7 @@ def _merge_check_status(*, fix: bool) -> tuple[bool, str] | None:
     """
     if shutil.which("gh") is None:
         return None
-    slug = _github_slug()
+    slug = _github_slug(repo)
     if not slug:
         return None
     code, out = run_quiet(["gh", "api", f"repos/{slug}", "--jq", ".default_branch"])
@@ -761,7 +770,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     # per-repo GitHub setting — vendored workflow files cannot carry it, so
     # doctor checks it wherever a client repo is set up. Advisory: it needs
     # network + gh auth, and admin rights to fix.
-    protection = _merge_check_status(fix=args.fix)
+    protection = _merge_check_status(fix=args.fix, repo=getattr(args, "repo", None))
     if protection is not None:
         ok, detail = protection
         checks.append(_check(

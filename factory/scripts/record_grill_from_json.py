@@ -24,12 +24,16 @@ from factory_lib import (
 VERDICTS = {"pass", "blocked"}
 
 parser = argparse.ArgumentParser(description="Record a handover/plan grill from structured JSON")
-parser.add_argument("--gate", required=True, choices=["signoff", "spec", "epics", "plan"])
+parser.add_argument("--gate", required=True,
+                    choices=["signoff", "spec", "epics", "plan", "task"])
 parser.add_argument("--input", help="Path to grill JSON. If omitted, read from stdin.")
 parser.add_argument("--input-digest", dest="input_digest",
                     help="Path to the artifact this grill interrogated (roadmap input for "
                          "--gate spec/epics, the plan draft for --gate plan); its sha256 binds "
                          "the grill to THAT version. Required for epics and plan gates.")
+parser.add_argument("--task", help="Task id for --gate task.")
+parser.add_argument("--task-digest", dest="task_digest",
+                    help="Contract digest value for --gate task.")
 args = parser.parse_args()
 
 if args.input:
@@ -67,6 +71,19 @@ if args.gate in ("spec", "epics", "plan"):
     if not digest_target.is_file():
         raise SystemExit(f"--input-digest {digest_target} not found")
     payload["input_sha256"] = sha256_of(digest_target)
+if args.gate == "task":
+    if not args.task:
+        raise SystemExit("--gate task requires --task <id>")
+    if not args.task_digest:
+        raise SystemExit("--gate task requires --task-digest <contract-hash>")
+    if Path(args.task).name != args.task or args.task in (".", ".."):
+        raise SystemExit("--task must be a single task id, not a path")
+    if payload.get("task_id") and payload["task_id"] != args.task:
+        raise SystemExit(
+            f"payload task_id {payload['task_id']!r} does not match --task {args.task!r}"
+        )
+    payload["task_id"] = args.task
+    payload["input_sha256"] = args.task_digest
 if args.gate == "plan":
     # Plan grills are per task: stamp the active issue so a stale grill from
     # a previous task can never satisfy this one's plan save.
@@ -80,7 +97,10 @@ if args.gate == "plan":
     payload["issue"] = issue
 payload["recorded_at"] = now_iso()
 payload["commit"] = head_sha(root)
-dest = root / ".factory" / "grills" / f"{args.gate}.json"
+if args.gate == "task":
+    dest = root / ".factory" / "grills" / "tasks" / f"{args.task}.json"
+else:
+    dest = root / ".factory" / "grills" / f"{args.gate}.json"
 dump_json(dest, payload)
 print(f"Recorded {args.gate} grill: {payload['verdict']} "
       f"({len(payload['gaps'])} gap(s), {len(payload['contradictions'])} contradiction(s), "

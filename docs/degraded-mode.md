@@ -24,8 +24,24 @@ The Codex CLI is itself a sanctioned runtime — a Codex session reads the same
   (gpt-5.6-terra @ high, `.codex/explore.config.toml`).
 - **Planning**: the `planner-high` agent with `factory/prompts/planner.md` —
   the plan grill and `forge plan save` gates apply unchanged.
-- **Implementation**: a Codex session following
-  `factory/prompts/implementer.md`, one bounded task at a time.
+- **Implementation**: decision 0032's JIT task loop applies unchanged, one
+  bounded task at a time. Against completed prior work, author the next task
+  contract, re-record the decomposition, run `factory/prompts/griller.md` with
+  its `task` gate, and record the digest-bound pass before starting or
+  delegating the stage:
+
+```bash
+python3 factory/scripts/record_decomposition_from_json.py --input /tmp/decomposition.json
+python3 factory/scripts/record_grill_from_json.py --gate task --task <id> --task-digest <contract-hash> --input /tmp/task-grill.json
+./forge stage start <id>
+./forge delegate <id>
+```
+
+  The contract hash covers the recorded task's `write_scope`,
+  `required_tests`, `verify_commands`, and `acceptance_criteria`. A write
+  delegation refuses a missing, failed, or stale task grill; read-only
+  delegation remains available for exploration. The Codex implementation
+  session then follows `factory/prompts/implementer.md`.
 - **Testing / review / functional**: same specialist agents, same recorders:
 
 ```bash
@@ -41,3 +57,15 @@ python3 factory/scripts/pr_ready.py
 The artifacts and gates never change — degraded mode swaps the coordinator,
 never the contract. Return to Claude + `/codex:rescue` the moment the plugin
 works again.
+
+## PR-link fallback when CI is unavailable
+
+Gate B normally links a completed story to its pull request automatically
+through `.github/workflows/pr-link.yml`. Use the manual command only when that
+workflow cannot run:
+
+```bash
+./forge pr-link <STORY> <PR-REFERENCE>
+```
+
+This is a CI-unavailable fallback, not the normal PR-linking path.
