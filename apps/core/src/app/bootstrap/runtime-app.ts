@@ -700,7 +700,7 @@ export function createRuntimeApp(
     },
     setupRequiredNotifications: createJobSetupRequiredNotificationPort(
       channelRuntime.proxy.sendMessage,
-      getRuntimeRepositories(),
+      () => getRuntimeRepositories(),
       options.publishRuntimeEvent,
     ),
   };

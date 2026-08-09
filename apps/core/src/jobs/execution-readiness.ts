@@ -316,7 +316,7 @@ export async function notifyCreatedJobSetupRequired(input: {
 
 export function createJobSetupRequiredNotificationPort(
   sendMessage: SchedulerDependencies['sendMessage'],
-  opsRepository: Pick<
+  resolveOpsRepository: () => Pick<
     SchedulerDependencies['opsRepository'],
     'getJobById' | 'markJobSetupNotified'
   >,
@@ -328,10 +328,11 @@ export function createJobSetupRequiredNotificationPort(
     notify: (input) => {
       void notifyCreatedJobSetupRequired({
         jobId: input.jobId,
-        // Bind to the repository the creating service actually persists through
-        // (not the process-global) so the freshly created job is readable in
-        // dependency-injected / alternate-storage compositions.
-        deps: { sendMessage, opsRepository },
+        // Resolve the repository lazily at notify time (not at construction) and
+        // bind to the one the creating service actually persists through, so the
+        // freshly created job is readable in dependency-injected / alternate-
+        // storage compositions without forcing storage to exist at bootstrap.
+        deps: { sendMessage, opsRepository: resolveOpsRepository() },
         runtimeAppId: input.appId,
         appSession: input.appSession
           ? {
