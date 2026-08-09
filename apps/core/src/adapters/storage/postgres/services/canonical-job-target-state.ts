@@ -32,7 +32,6 @@ export function parseSetupState(input: unknown): Job['setup_state'] {
       normalizeString(
         record.notified_fingerprint ?? record.notifiedFingerprint,
       ) ?? null,
-    notify_claim_at: normalizeString(record.notify_claim_at) ?? null,
   };
 }
 

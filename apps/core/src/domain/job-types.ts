@@ -90,7 +90,6 @@ export interface JobSetupState {
   fingerprint: string;
   blockers: JobSetupBlocker[];
   notified_fingerprint?: string | null;
-  notify_claim_at?: string | null;
 }
 
 export interface Job {

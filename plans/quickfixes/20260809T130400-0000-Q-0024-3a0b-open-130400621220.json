@@ -1,8 +1,0 @@
-{
-  "event": "open",
-  "id": "Q-0024-3a0b",
-  "reason": "SETUPRACE-1 test cascade: make ops-service mark/confirm/clearJobSetupNotified lazy delegating methods (matching the original markJobSetupNotified pattern) instead of eager constructor-bound properties, so mock repositories without those methods don't throw at construction",
-  "started_at": "2026-08-09T13:04:00+00:00",
-  "max_files": 5,
-  "files": []
-}

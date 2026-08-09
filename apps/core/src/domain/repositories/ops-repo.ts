@@ -231,18 +231,7 @@ export interface RuntimeJobRepository {
   markJobSetupNotified(
     id: string,
     expectedFingerprint: string,
-    options?: { nowIso?: string; claimTtlMs?: number },
-  ): Promise<string | null>;
-  confirmJobSetupNotified(
-    id: string,
-    expectedFingerprint: string,
-    claimAt: string,
-  ): Promise<void>;
-  clearJobSetupNotified(
-    id: string,
-    expectedFingerprint: string,
-    claimAt: string,
-  ): Promise<void>;
+  ): Promise<boolean>;
   deleteJob(id: string): Promise<void>;
   deleteExpiredCompletedOneTimeJobs(nowIso?: string): Promise<number>;
   claimDueJobRunStart(input: {

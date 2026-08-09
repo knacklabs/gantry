@@ -7,13 +7,11 @@ import { agentIdForJobWorkspaceKey } from '../application/jobs/job-tool-policy.j
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import type { SchedulerEventAppSession } from './app-session-resolution.js';
-import { resolveAppSessionForJob } from './app-session-resolution.js';
 import { notifySchedulerSetupRequired } from './execution-notifications.js';
 import { readImageCapabilityInventory } from '../shared/worker-image-inventory.js';
 import { getDeploymentMode } from '../config/index.js';
 import {
   getRuntimeEventExchange,
-  getRuntimeControlRepository,
   getRuntimeStorage,
   getWorkerCoordinationRepository,
 } from '../adapters/storage/postgres/runtime-store.js';
@@ -164,9 +162,7 @@ export async function notifyJobSetupRequired(input: {
     sendMessage: SchedulerDependencies['sendMessage'];
     opsRepository: Pick<
       SchedulerDependencies['opsRepository'],
-      | 'markJobSetupNotified'
-      | 'confirmJobSetupNotified'
-      | 'clearJobSetupNotified'
+      'markJobSetupNotified'
     >;
   };
   runtimeAppId: string;
@@ -181,35 +177,7 @@ export async function notifyJobSetupRequired(input: {
   const notificationEligible =
     !input.suppressNotification &&
     !input.currentJob.silent &&
-    (input.setupState.notified_fingerprint !== input.setupState.fingerprint ||
-      input.setupState.notify_claim_at != null);
-  // The claim makes ordinary delivery exactly-once. Two abnormal windows are
-  // intentionally at-least-once (a rare duplicate card, never a lost one):
-  //  1. a crash after send but before confirmation leaves a reclaimable token;
-  //  2. a delivery that hangs past the claim TTL is reclaimed by a successor.
-  // This is the accepted ceiling: true exactly-once over a channel that can hang
-  // needs a durable idempotent outbox / send-cancellation, which is
-  // disproportionate for a setup card. The TTL is the deliberate tradeoff —
-  // without it, a crashed claim would suppress the card permanently.
-  // ponytail: revisit only if real duplicate cards or hung deliveries are seen.
-  const claimAt = notificationEligible
-    ? await input.deps.opsRepository.markJobSetupNotified(
-        input.currentJob.id,
-        input.setupState.fingerprint,
-      )
-    : null;
-  if (notificationEligible && claimAt === null) {
-    return false;
-  }
-  // The claim above persists notified_fingerprint before delivery. The card
-  // sender (execution-notifications.ts) treats notified_fingerprint===fingerprint
-  // as "already delivered", so hand it a delivery view with the fingerprint
-  // cleared — otherwise the winning claimant would suppress its own card.
-  // (raiseSetupPausePermissionPrompt reloads the job but does NOT gate on
-  // notified_fingerprint, so the pending claim never makes the prompt ineligible.)
-  const deliverySetupState = notificationEligible
-    ? { ...input.setupState, notified_fingerprint: null }
-    : input.setupState;
+    input.setupState.notified_fingerprint !== input.setupState.fingerprint;
   let prompt: Awaited<ReturnType<typeof raiseSetupPausePermissionPrompt>> = {
     status: 'instruction_only',
     notificationEligible: true,
@@ -238,71 +206,50 @@ export async function notifyJobSetupRequired(input: {
       promptPreparationFailed = true;
     }
   }
-  let notified: boolean;
-  try {
-    const cardNotified = !notificationEligible
+  const cardNotified = !notificationEligible
+    ? false
+    : prompt.status === 'instruction_only' &&
+        prompt.notificationEligible === false
       ? false
-      : prompt.status === 'instruction_only' &&
-          prompt.notificationEligible === false
+      : await notifySchedulerSetupRequired({
+          job: input.currentJob,
+          setupState: input.setupState,
+          source: input.source,
+          runId: input.runId,
+          ...(prompt.status === 'raised'
+            ? { excludeRoute: prompt.approverRoute }
+            : prompt.status === 'already_pending'
+              ? { includeRoute: prompt.approverRoute }
+              : {}),
+          sendMessage: input.deps.sendMessage,
+        });
+  const promptNotified =
+    prompt.status === 'raised' ? await prompt.delivered : false;
+  const fallbackNotified =
+    prompt.status === 'raised' && !promptNotified
+      ? await notifySchedulerSetupRequired({
+          job: {
+            ...input.currentJob,
+            notification_routes: [],
+          },
+          setupState: input.setupState,
+          source: input.source,
+          runId: input.runId,
+          includeRoute: prompt.approverRoute,
+          sendMessage: input.deps.sendMessage,
+        })
+      : false;
+  const notified =
+    prompt.status === 'raised'
+      ? promptNotified || fallbackNotified
+      : promptPreparationFailed
         ? false
-        : await notifySchedulerSetupRequired({
-            job: input.currentJob,
-            setupState: deliverySetupState,
-            source: input.source,
-            runId: input.runId,
-            ...(prompt.status === 'raised'
-              ? { excludeRoute: prompt.approverRoute }
-              : prompt.status === 'already_pending'
-                ? { includeRoute: prompt.approverRoute }
-                : {}),
-            sendMessage: input.deps.sendMessage,
-          });
-    const promptNotified =
-      prompt.status === 'raised' ? await prompt.delivered : false;
-    const fallbackNotified =
-      prompt.status === 'raised' && !promptNotified
-        ? await notifySchedulerSetupRequired({
-            job: {
-              ...input.currentJob,
-              notification_routes: [],
-            },
-            setupState: deliverySetupState,
-            source: input.source,
-            runId: input.runId,
-            includeRoute: prompt.approverRoute,
-            sendMessage: input.deps.sendMessage,
-          })
-        : false;
-    notified =
-      prompt.status === 'raised'
-        ? promptNotified || fallbackNotified
-        : promptPreparationFailed
-          ? false
-          : cardNotified;
-  } catch (err) {
-    if (notificationEligible) {
-      await input.deps.opsRepository.clearJobSetupNotified(
-        input.currentJob.id,
-        input.setupState.fingerprint,
-        claimAt!,
-      );
-    }
-    throw err;
-  }
-  if (notificationEligible) {
-    if (notified) {
-      await input.deps.opsRepository.confirmJobSetupNotified(
-        input.currentJob.id,
-        input.setupState.fingerprint,
-        claimAt!,
-      );
-    } else {
-      await input.deps.opsRepository.clearJobSetupNotified(
-        input.currentJob.id,
-        input.setupState.fingerprint,
-        claimAt!,
-      );
-    }
+        : cardNotified;
+  if (notified) {
+    await input.deps.opsRepository.markJobSetupNotified(
+      input.currentJob.id,
+      input.setupState.fingerprint,
+    );
   }
   await input.publishRuntimeEvent({
     appId: (input.appSession?.appId ?? input.runtimeAppId) as never,
@@ -334,12 +281,8 @@ export async function notifyCreatedJobSetupRequired(input: {
     sendMessage: SchedulerDependencies['sendMessage'];
     opsRepository: Pick<
       SchedulerDependencies['opsRepository'],
-      | 'getJobById'
-      | 'markJobSetupNotified'
-      | 'confirmJobSetupNotified'
-      | 'clearJobSetupNotified'
+      'getJobById' | 'markJobSetupNotified'
     >;
-    control?: Parameters<typeof resolveAppSessionForJob>[1];
   };
   runtimeAppId: string;
   appSession?: SchedulerEventAppSession;
@@ -352,24 +295,19 @@ export async function notifyCreatedJobSetupRequired(input: {
   // against the freshly loaded job and notify with ITS current setup state —
   // using the stale creation snapshot would bypass the notified-fingerprint
   // dedup and could deliver a duplicate or obsolete card.
+  // ponytail: the notified-fingerprint dedup is check-then-mark, not an atomic
+  // claim, so a job that is *run* within this sub-second window could still get a
+  // second card from the scheduler's run-path notify. Near-unreachable for normal
+  // future-scheduled jobs; atomic claim-before-send hardening is deferred (D-0053).
   const currentSetupState = currentJob.setup_state;
   if (!currentSetupState || currentSetupState.state === 'ready') {
     return false;
   }
-  const appSession =
-    currentJob.session_id === input.appSession?.sessionId
-      ? input.appSession
-      : currentJob.session_id
-        ? await resolveAppSessionForJob(
-            currentJob,
-            input.deps.control ?? getRuntimeControlRepository(),
-          )
-        : undefined;
   return notifyJobSetupRequired({
     currentJob,
     deps: input.deps,
     runtimeAppId: input.runtimeAppId,
-    appSession,
+    appSession: input.appSession,
     setupState: currentSetupState,
     source: 'preflight_setup',
     publishRuntimeEvent: input.publishRuntimeEvent,
@@ -380,10 +318,7 @@ export function createJobSetupRequiredNotificationPort(
   sendMessage: SchedulerDependencies['sendMessage'],
   resolveOpsRepository: () => Pick<
     SchedulerDependencies['opsRepository'],
-    | 'getJobById'
-    | 'markJobSetupNotified'
-    | 'confirmJobSetupNotified'
-    | 'clearJobSetupNotified'
+    'getJobById' | 'markJobSetupNotified'
   >,
   publishRuntimeEvent?: (
     event: RuntimeEventPublishInput,
@@ -397,11 +332,7 @@ export function createJobSetupRequiredNotificationPort(
         // bind to the one the creating service actually persists through, so the
         // freshly created job is readable in dependency-injected / alternate-
         // storage compositions without forcing storage to exist at bootstrap.
-        deps: {
-          sendMessage,
-          opsRepository: resolveOpsRepository(),
-          control: getRuntimeControlRepository(),
-        },
+        deps: { sendMessage, opsRepository: resolveOpsRepository() },
         runtimeAppId: input.appId,
         appSession: input.appSession
           ? {

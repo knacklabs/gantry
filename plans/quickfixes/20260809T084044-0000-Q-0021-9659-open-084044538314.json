@@ -1,8 +1,0 @@
-{
-  "event": "open",
-  "id": "Q-0021-9659",
-  "reason": "PREFLIGHT-1 final-review P2: attach a rejection handler to the detached passive-event fallback in notifyJobSetupRequiredAtCreation to avoid an unhandled promise rejection",
-  "started_at": "2026-08-09T08:40:44+00:00",
-  "max_files": 5,
-  "files": []
-}

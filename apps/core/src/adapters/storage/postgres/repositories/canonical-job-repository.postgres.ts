@@ -5,13 +5,11 @@ import type {
   JobRun,
 } from '../../../../domain/repositories/domain-types.js';
 // prettier-ignore
-import type { JobAccessRequirementAppend, JobListFilters, JobRunListFilters, ReleasedStaleJobLease, RuntimeJobRepository } from '../../../../domain/repositories/ops-repo.js';
+import type { JobAccessRequirementAppend, JobListFilters, JobRunListFilters, ReleasedStaleJobLease } from '../../../../domain/repositories/ops-repo.js';
 import type { RuntimeEventType } from '../../../../domain/events/runtime-event-types.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
 import {
-  clearJobSetupNotified as clearJobSetupNotifiedStatement,
-  confirmJobSetupNotified as confirmJobSetupNotifiedStatement,
   type CanonicalJobCoordinationUpdate,
   coordinationColumnUpdate,
   markJobSetupNotified as markJobSetupNotifiedStatement,
@@ -125,12 +123,10 @@ const canonicalRunProjection = {
 
 export class PostgresCanonicalJobRepository {
   private readonly graph: PostgresCanonicalGraphRepository;
-  readonly markJobSetupNotified: RuntimeJobRepository['markJobSetupNotified'];
-  readonly confirmJobSetupNotified: RuntimeJobRepository['confirmJobSetupNotified'];
-  readonly clearJobSetupNotified: RuntimeJobRepository['clearJobSetupNotified'];
 
-  // prettier-ignore
-  constructor(private readonly db: CanonicalDb) { this.graph = new PostgresCanonicalGraphRepository(db); this.markJobSetupNotified = markJobSetupNotifiedStatement.bind(null, db); this.confirmJobSetupNotified = confirmJobSetupNotifiedStatement.bind(null, db); this.clearJobSetupNotified = clearJobSetupNotifiedStatement.bind(null, db); }
+  constructor(private readonly db: CanonicalDb) {
+    this.graph = new PostgresCanonicalGraphRepository(db);
+  }
 
   async findJobById(id: string): Promise<CanonicalJobRecord | undefined> {
     const rows = await this.db
@@ -277,6 +273,13 @@ export class PostgresCanonicalJobRepository {
     input: JobAccessRequirementAppend,
   ): Promise<boolean> {
     return appendCanonicalJobAccessRequirement(this.db, input);
+  }
+
+  async markJobSetupNotified(
+    id: string,
+    expectedFingerprint: string,
+  ): Promise<boolean> {
+    return markJobSetupNotifiedStatement(this.db, id, expectedFingerprint);
   }
 
   async resumeSetupPausedJob(input: {

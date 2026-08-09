@@ -34,7 +34,6 @@ describe('job creation', () => {
     );
     const publishRuntimeEvent = vi.fn(async () => undefined);
     const notificationTasks: Promise<boolean>[] = [];
-    const claimAt = '2026-08-09T00:00:00.000Z';
     const ops = {
       upsertJob: vi.fn(async (input: JobUpsertInput) => {
         persistedJob = persistedJobFrom(input);
@@ -43,45 +42,15 @@ describe('job creation', () => {
       getJobById: vi.fn(async () => persistedJob),
       markJobSetupNotified: vi.fn(
         async (_jobId: string, expectedFingerprint: string) => {
-          if (!persistedJob?.setup_state) return null;
-          if (
-            persistedJob.setup_state.notified_fingerprint ===
-            expectedFingerprint
-          ) {
-            return null;
-          }
+          if (!persistedJob?.setup_state) return false;
           persistedJob = {
             ...persistedJob,
             setup_state: {
               ...persistedJob.setup_state,
               notified_fingerprint: expectedFingerprint,
-              notify_claim_at: claimAt,
             },
           };
-          return claimAt;
-        },
-      ),
-      confirmJobSetupNotified: vi.fn(
-        async (_jobId: string, expectedFingerprint: string, token: string) => {
-          if (
-            persistedJob?.setup_state?.notified_fingerprint ===
-              expectedFingerprint &&
-            persistedJob.setup_state.notify_claim_at === token
-          ) {
-            persistedJob.setup_state.notify_claim_at = null;
-          }
-        },
-      ),
-      clearJobSetupNotified: vi.fn(
-        async (_jobId: string, expectedFingerprint: string, token: string) => {
-          if (
-            persistedJob?.setup_state?.notified_fingerprint ===
-              expectedFingerprint &&
-            persistedJob.setup_state.notify_claim_at === token
-          ) {
-            persistedJob.setup_state.notified_fingerprint = null;
-            persistedJob.setup_state.notify_claim_at = null;
-          }
+          return true;
         },
       ),
     };
@@ -175,112 +144,6 @@ describe('job creation', () => {
     expect(publishRuntimeEvent).toHaveBeenCalledTimes(2);
   });
 });
-
-describe('notifyJobSetupRequired', () => {
-  it('routes a detached creation notification by the reloaded job session', async () => {
-    const job = setupBlockedJob('session-2');
-    const sendMessage = vi.fn(async () => undefined);
-    const publishRuntimeEvent = vi.fn(async () => undefined);
-    // Faithful claim: mutate the reloaded job exactly as Postgres would, so this
-    // proves delivery + session routing survive a real pending claim in place.
-    const claimAt = '2026-08-09T00:00:00.000Z';
-    const opsRepository = {
-      getJobById: vi.fn(async () => job),
-      markJobSetupNotified: vi.fn(async (_id: string, fp: string) => {
-        if (!job.setup_state || job.setup_state.notified_fingerprint === fp) {
-          return null;
-        }
-        job.setup_state.notified_fingerprint = fp;
-        job.setup_state.notify_claim_at = claimAt;
-        return claimAt;
-      }),
-      confirmJobSetupNotified: vi.fn(
-        async (_id: string, fp: string, token: string) => {
-          if (
-            job.setup_state?.notified_fingerprint === fp &&
-            job.setup_state.notify_claim_at === token
-          ) {
-            job.setup_state.notify_claim_at = null;
-          }
-        },
-      ),
-      clearJobSetupNotified: vi.fn(
-        async (_id: string, fp: string, token: string) => {
-          if (
-            job.setup_state?.notified_fingerprint === fp &&
-            job.setup_state.notify_claim_at === token
-          ) {
-            job.setup_state.notified_fingerprint = null;
-            job.setup_state.notify_claim_at = null;
-          }
-        },
-      ),
-    };
-    const control = {
-      getAppSessionById: vi.fn(async () => ({
-        sessionId: 'session-2',
-        appId: 'app-2',
-        defaultResponseMode: 'immediate' as const,
-        defaultWebhookId: null,
-      })),
-    };
-
-    await notifyCreatedJobSetupRequired({
-      jobId: job.id,
-      deps: { sendMessage, opsRepository, control },
-      runtimeAppId: 'app-1',
-      appSession: {
-        sessionId: 'session-1',
-        appId: 'app-1',
-        defaultResponseMode: null,
-        defaultWebhookId: null,
-      },
-      publishRuntimeEvent,
-    });
-
-    expect(control.getAppSessionById).toHaveBeenCalledWith('session-2');
-    expect(publishRuntimeEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ appId: 'app-2', sessionId: 'session-2' }),
-    );
-  });
-});
-
-function setupBlockedJob(sessionId: string | null = 'session-1'): Job {
-  return {
-    ...persistedJobFrom({
-      id: 'job-setup',
-      name: 'Setup blocked',
-      prompt: 'Use the customer records server.',
-      schedule_type: 'interval',
-      schedule_value: '60000',
-      workspace_key: 'team',
-      session_id: sessionId,
-      notification_routes: [
-        {
-          conversationJid: 'tg:team',
-          threadId: null,
-          label: 'Team',
-        },
-      ],
-    }),
-    status: 'paused',
-    pause_reason: 'Setup required',
-    setup_state: {
-      state: 'missing_capability',
-      checked_at: '2026-08-09T00:00:00.000Z',
-      fingerprint: 'mcp:customer-records',
-      blockers: [
-        {
-          state: 'missing_capability',
-          requirementType: 'mcp_server',
-          requirementId: 'customer-records',
-          message: 'Server missing.',
-          nextAction: 'Connect the server.',
-        },
-      ],
-    },
-  };
-}
 
 function persistedJobFrom(input: JobUpsertInput): Job {
   return {

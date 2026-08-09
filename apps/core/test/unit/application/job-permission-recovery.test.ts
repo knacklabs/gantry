@@ -723,7 +723,12 @@ describe('permission recovery', () => {
       })),
     });
     const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => 'claim-token');
+    const markJobSetupNotified = vi.fn(
+      async (_jobId: string, fingerprint: string) => {
+        job.setup_state!.notified_fingerprint = fingerprint;
+        return true;
+      },
+    );
 
     try {
       await recheckSetupPausedJobsAfterCapabilityUpdate({
@@ -749,11 +754,7 @@ describe('permission recovery', () => {
             currentJob: setupJob,
             deps: {
               sendMessage,
-              opsRepository: {
-                markJobSetupNotified,
-                confirmJobSetupNotified: vi.fn(async () => undefined),
-                clearJobSetupNotified: vi.fn(async () => undefined),
-              },
+              opsRepository: { markJobSetupNotified },
             } as never,
             runtimeAppId: 'default',
             setupState,
@@ -796,7 +797,12 @@ describe('permission recovery', () => {
       reviewStoredRequirement: vi.fn(async () => null),
     });
     const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => 'claim-token');
+    const markJobSetupNotified = vi.fn(
+      async (_jobId: string, fingerprint: string) => {
+        job.setup_state!.notified_fingerprint = fingerprint;
+        return true;
+      },
+    );
 
     try {
       await recheckSetupPausedJobsAfterCapabilityUpdate({
@@ -822,11 +828,7 @@ describe('permission recovery', () => {
             currentJob: setupJob,
             deps: {
               sendMessage,
-              opsRepository: {
-                markJobSetupNotified,
-                confirmJobSetupNotified: vi.fn(async () => undefined),
-                clearJobSetupNotified: vi.fn(async () => undefined),
-              },
+              opsRepository: { markJobSetupNotified },
             } as never,
             runtimeAppId: 'default',
             setupState,
@@ -894,7 +896,7 @@ describe('permission recovery', () => {
       const markJobSetupNotified = vi.fn(
         async (_jobId: string, expectedFingerprint: string) => {
           job.setup_state!.notified_fingerprint = expectedFingerprint;
-          return 'claim-token';
+          return true;
         },
       );
       const input = {

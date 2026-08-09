@@ -1,7 +1,7 @@
 // prettier-ignore
 import type { Job, JobAccessRequirement, JobCapabilityRequirementImplementation, JobEvent, JobRun } from '../../../../domain/repositories/domain-types.js';
 // prettier-ignore
-import type { JobAccessRequirementAppend, JobEventListFilters, JobListFilters, JobRunListFilters, JobUpsertInput, ReleasedStaleJobLease, RuntimeJobRepository, SetupPausedJobRecoveryClaim, SetupPausedJobRecoveryRefresh } from '../../../../domain/repositories/ops-repo.js';
+import type { JobAccessRequirementAppend, JobEventListFilters, JobListFilters, JobRunListFilters, JobUpsertInput, ReleasedStaleJobLease, SetupPausedJobRecoveryClaim, SetupPausedJobRecoveryRefresh } from '../../../../domain/repositories/ops-repo.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import {
   CANONICAL_APP_ID,
@@ -34,26 +34,6 @@ type CanonicalNotificationRoute = NonNullable<
 
 export class CanonicalJobOpsService {
   constructor(private readonly repository: PostgresCanonicalJobRepository) {}
-
-  // Delegate lazily (not eager constructor binds) so the repository is only
-  // required to provide these at call time, not at construction.
-  markJobSetupNotified(
-    ...args: Parameters<RuntimeJobRepository['markJobSetupNotified']>
-  ): ReturnType<RuntimeJobRepository['markJobSetupNotified']> {
-    return this.repository.markJobSetupNotified(...args);
-  }
-
-  confirmJobSetupNotified(
-    ...args: Parameters<RuntimeJobRepository['confirmJobSetupNotified']>
-  ): ReturnType<RuntimeJobRepository['confirmJobSetupNotified']> {
-    return this.repository.confirmJobSetupNotified(...args);
-  }
-
-  clearJobSetupNotified(
-    ...args: Parameters<RuntimeJobRepository['clearJobSetupNotified']>
-  ): ReturnType<RuntimeJobRepository['clearJobSetupNotified']> {
-    return this.repository.clearJobSetupNotified(...args);
-  }
 
   async upsertJob(job: JobUpsertInput): Promise<{ created: boolean }> {
     const now = currentIso();
@@ -144,6 +124,13 @@ export class CanonicalJobOpsService {
 
   async refreshSetupPausedJob(input: SetupPausedJobRecoveryRefresh) {
     return this.repository.refreshSetupPausedJob(input);
+  }
+
+  async markJobSetupNotified(
+    id: string,
+    expectedFingerprint: string,
+  ): Promise<boolean> {
+    return this.repository.markJobSetupNotified(id, expectedFingerprint);
   }
 
   async deleteJob(id: string): Promise<void> {
