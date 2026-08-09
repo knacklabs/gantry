@@ -160,7 +160,10 @@ export class JobManagementService {
     // job id and rewrite its prompt/schedule while it keeps running under the
     // victim's person-scoped grants (a confused-deputy escalation).
     const existingPersonId = existingJob?.execution_context?.personId ?? null;
-    if (existingPersonId && existingPersonId !== (access.actingPersonId ?? null)) {
+    if (
+      existingPersonId &&
+      existingPersonId !== (access.actingPersonId ?? null)
+    ) {
       throw new ApplicationError(
         'FORBIDDEN',
         'This scheduled job belongs to another person and cannot be modified from this context.',
