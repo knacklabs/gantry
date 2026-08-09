@@ -33,12 +33,27 @@ type CanonicalNotificationRoute = NonNullable<
 >[number];
 
 export class CanonicalJobOpsService {
-  readonly markJobSetupNotified: RuntimeJobRepository['markJobSetupNotified'];
-  readonly confirmJobSetupNotified: RuntimeJobRepository['confirmJobSetupNotified'];
-  readonly clearJobSetupNotified: RuntimeJobRepository['clearJobSetupNotified'];
+  constructor(private readonly repository: PostgresCanonicalJobRepository) {}
 
-  // prettier-ignore
-  constructor(private readonly repository: PostgresCanonicalJobRepository) { this.markJobSetupNotified = repository.markJobSetupNotified.bind(repository); this.confirmJobSetupNotified = repository.confirmJobSetupNotified.bind(repository); this.clearJobSetupNotified = repository.clearJobSetupNotified.bind(repository); }
+  // Delegate lazily (not eager constructor binds) so the repository is only
+  // required to provide these at call time, not at construction.
+  markJobSetupNotified(
+    ...args: Parameters<RuntimeJobRepository['markJobSetupNotified']>
+  ): ReturnType<RuntimeJobRepository['markJobSetupNotified']> {
+    return this.repository.markJobSetupNotified(...args);
+  }
+
+  confirmJobSetupNotified(
+    ...args: Parameters<RuntimeJobRepository['confirmJobSetupNotified']>
+  ): ReturnType<RuntimeJobRepository['confirmJobSetupNotified']> {
+    return this.repository.confirmJobSetupNotified(...args);
+  }
+
+  clearJobSetupNotified(
+    ...args: Parameters<RuntimeJobRepository['clearJobSetupNotified']>
+  ): ReturnType<RuntimeJobRepository['clearJobSetupNotified']> {
+    return this.repository.clearJobSetupNotified(...args);
+  }
 
   async upsertJob(job: JobUpsertInput): Promise<{ created: boolean }> {
     const now = currentIso();
