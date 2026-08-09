@@ -17,7 +17,9 @@ def events_path(base: Path) -> Path:
     return base / ".factory" / "events.jsonl"
 
 
-def load_events(base: Path, story: str | None = None) -> list[dict]:
+def load_events(base: Path, story: str | None = None,
+                event: str | None = None, since: str | None = None,
+                until: str | None = None) -> list[dict]:
     path = events_path(base)
     if not path.exists():
         return []
@@ -31,7 +33,14 @@ def load_events(base: Path, story: str | None = None) -> list[dict]:
             # A JSONL merge tear across worktrees costs one line, never the
             # whole timeline: the union driver can interleave a partial write.
             continue
-    return [e for e in events if story is None or e.get("story") == story]
+    return [
+        item for item in events
+        if (story is None or item.get("story") == story)
+        and (event is None or item.get("event") == event)
+        and ((since is None and until is None) or bool(item.get("at")))
+        and (since is None or item.get("at", "")[:len(since)] >= since)
+        and (until is None or item.get("at", "")[:len(until)] <= until)
+    ]
 
 
 def append_event(base: Path, event: str, actor: str, story: str = "",

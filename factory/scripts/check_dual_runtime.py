@@ -372,13 +372,20 @@ def check_path_parity(root: Path) -> None:
 
 
 ALLOWED_CLAUDE = {"CLAUDE.md", "settings.json", "settings.local.json", "launch.json"}
+# The adapter rule guards against CANON living in the adapter. An OS artifact
+# is not canon, is not committed (every scaffold gitignores it), and is
+# recreated by the desktop whenever someone opens the folder — so failing on
+# it makes a structural gate, and `verify.py` with it, depend on whether a
+# Finder window was open. Ignored here rather than only at vendoring time,
+# because the file appears locally in repos nothing was ever vendored into.
+OS_ARTIFACTS = {".DS_Store", "Thumbs.db", "desktop.ini"}
 
 
 def check_thin_adapter(root: Path) -> None:
     claude = root / ".claude"
     if claude.is_dir():
         for f in claude.rglob("*"):
-            if not f.is_file():
+            if not f.is_file() or f.name in OS_ARTIFACTS:
                 continue
             rel = f.relative_to(claude)
             # Standard Claude Code project surfaces are allowed: skills may be
@@ -409,7 +416,7 @@ def check_thin_adapter(root: Path) -> None:
     codex = root / ".codex"
     if codex.is_dir():
         for f in codex.rglob("*"):
-            if not f.is_file():
+            if not f.is_file() or f.name in OS_ARTIFACTS:
                 continue
             rel = f.relative_to(codex)
             ok = (

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import platform
 import shlex
@@ -12,9 +13,11 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-from factory_lib import decomposition_state_path, load_json, repo_root
+from factory_lib import decomposition_state_path, load_json, parse_sections, repo_root
+from record_signoff import REQUIRED_BRIEF_HEADINGS
 
 from .common import run_quiet
+from .specs import missing_required_content, parse_frontmatter
 
 DIRENV_VERSION = "2.37.1"
 
@@ -25,7 +28,6 @@ SHELL_BUILTINS = {".", ":", "[", "cd", "echo", "eval", "exec", "exit", "export",
 # Openers of compound commands: the program is not token zero, and `bash -n`
 # has already proved the whole thing parses.
 SHELL_KEYWORDS = {"!", "(", "{", "case", "for", "if", "until", "while"}
-
 
 def unrunnable_reason(command: str) -> str | None:
     """Why this verify_commands entry cannot execute, or None if it can.
@@ -119,6 +121,76 @@ def legacy_required_tests(base: Path) -> list[str]:
     return found
 
 
+def legacy_capture_gaps(base: Path) -> list[tuple[str, str]]:
+    """Brief/spec capture gaps that predate the required-heading contract."""
+    found = []
+    brief = base / "docs" / "product" / "BRIEF.md"
+    # A missing brief is the most incomplete a brief can be. Reporting only
+    # briefs that exist made the one project that needs this line the one
+    # project that never sees it, while sign-off refuses it either way.
+    sections = parse_sections(brief.read_text()) if brief.is_file() else {}
+    missing = [heading for heading in REQUIRED_BRIEF_HEADINGS
+               if not sections.get(heading, "").strip()]
+    if missing:
+        found.append(("brief", f"docs/product/BRIEF.md: {', '.join(missing)}"))
+
+    specs = base / "docs" / "specs"
+    for spec in sorted(specs.glob("*.md")) if specs.is_dir() else []:
+        document = spec.read_text()
+        if parse_frontmatter(document).get("status") != "confirmed":
+            continue
+        missing = missing_required_content(document)
+        if missing:
+            found.append(("spec", f"{spec.relative_to(base)}: {', '.join(missing)}"))
+    return found
+
+
+def report_legacy_capture_gaps(base: Path) -> None:
+    for kind, detail in legacy_capture_gaps(base):
+        print(f"[opt ] capture/{kind:<5} {detail}")
+
+
+def legacy_roadmap_gaps(base: Path) -> list[tuple[str, str]]:
+    """Stored hierarchy gaps that legacy roadmap routes deliberately tolerate."""
+    path = base / "plans" / "roadmap.json"
+    if not path.is_file():
+        return []
+
+    # Defensive on purpose: doctor is what someone runs when the project is
+    # ALREADY broken, so a roadmap that is null, a list, or holds a non-object
+    # item must produce a report rather than a traceback. Crashing here takes
+    # doctor's other checks down with it, at exactly the moment they are what
+    # is being asked for.
+    roadmap = load_json(path, default={})
+    if not isinstance(roadmap, dict):
+        return [("shape", "plans/roadmap.json: not a JSON object")]
+    found = []
+    if not roadmap.get("epics"):
+        found.append(("epics", "plans/roadmap.json: no epics declared"))
+    items = roadmap.get("items")
+    if items is not None and not isinstance(items, list):
+        return [*found, ("shape", "plans/roadmap.json: 'items' is not a list")]
+    for position, item in enumerate(items or [], 1):
+        if not isinstance(item, dict):
+            found.append(("shape", f"item {position}: not an object"))
+            continue
+        if not item.get("epic"):
+            found.append(("story", f"{item.get('key', '?')}: no epic declared"))
+        if (item.get("status") == "done" and not item.get("outcome")
+                and item.get("predates_outcome_contract") is not True):
+            found.append((
+                "outcome",
+                f"{item.get('key', '?')}: done without an outcome or "
+                "predates_outcome_contract marker",
+            ))
+    return found
+
+
+def report_legacy_roadmap_gaps(base: Path) -> None:
+    for kind, detail in legacy_roadmap_gaps(base):
+        print(f"[opt ] roadmap/{kind:<5} {detail}")
+
+
 def _check(name: str, ok: bool, detail: str, fix: str, required: bool = True) -> dict:
     return {"name": name, "ok": ok, "detail": detail, "fix": fix, "required": required}
 
@@ -160,6 +232,95 @@ def fast_status(home: Path | None = None) -> tuple[list[str], list[str]]:
     }
     return ([k for k, ok in required.items() if not ok],
             [k for k, ok in advisory.items() if not ok])
+
+
+def _github_slug(repo: str | None = None) -> str:
+    # Inline (not run_quiet) so the branch-protection lookup can target the
+    # --repo checkout via cwd rather than the process's working directory.
+    try:
+        proc = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=15, cwd=repo,
+        )
+        code, out = proc.returncode, (proc.stdout + proc.stderr).strip()
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        code, out = 1, str(exc)
+    if code != 0:
+        return ""
+    url = out.strip()
+    for prefix in ("git@github.com:", "https://github.com/", "ssh://git@github.com/"):
+        if url.startswith(prefix):
+            return url.removeprefix(prefix).removesuffix(".git")
+    return ""
+
+
+def _merge_check_status(*, fix: bool, repo: str | None = None) -> tuple[bool, str] | None:
+    """Is `scaffold-check` a required status check on the default branch?
+
+    Returns None when the question cannot be answered (no gh, no GitHub
+    remote, offline, unauthenticated) — an unanswerable advisory check is
+    noise, not signal. The fix path is deliberately non-destructive: it PUTs
+    a minimal rule only when NO protection exists, and otherwise ADDs the
+    context to the existing required checks, never overwriting reviewer
+    requirements or other rules an admin configured.
+    """
+    if shutil.which("gh") is None:
+        return None
+    slug = _github_slug(repo)
+    if not slug:
+        return None
+    code, out = run_quiet(["gh", "api", f"repos/{slug}", "--jq", ".default_branch"])
+    if code != 0:
+        return None  # offline or unauthenticated — cannot answer
+    default = out.strip()
+    checks_url = f"repos/{slug}/branches/{default}/protection/required_status_checks"
+
+    def contexts() -> tuple[list[str] | None, bool]:
+        """(contexts, definitive): None contexts = no required checks set."""
+        code, out = run_quiet(["gh", "api", checks_url, "--jq", ".contexts[]"])
+        if code == 0:
+            return out.split(), True
+        if "Branch not protected" in out or "Not Found" in out:
+            return None, True
+        return None, False
+
+    current, definitive = contexts()
+    if not definitive:
+        return None
+    if current is not None and "scaffold-check" in current:
+        return True, f"{slug}@{default}"
+    if fix:
+        if current is None:
+            print(f"[fix ] protecting {default}: scaffold-check required to merge ...")
+            payload = json.dumps({
+                "required_status_checks": {"strict": False,
+                                           "contexts": ["scaffold-check"]},
+                "enforce_admins": False,
+                "required_pull_request_reviews": None,
+                "restrictions": None,
+            })
+            proc = subprocess.run(
+                ["gh", "api", "-X", "PUT",
+                 f"repos/{slug}/branches/{default}/protection", "--input", "-"],
+                input=payload, capture_output=True, text=True, timeout=15)
+            if proc.returncode != 0:
+                return False, f"fix failed (admin rights?): {proc.stderr.strip()[:120]}"
+        else:
+            print(f"[fix ] adding scaffold-check to {default}'s required checks ...")
+            proc = subprocess.run(
+                ["gh", "api", "-X", "POST", f"{checks_url}/contexts",
+                 "--input", "-"],
+                input=json.dumps(["scaffold-check"]),
+                capture_output=True, text=True, timeout=15)
+            if proc.returncode != 0:
+                return False, f"fix failed (admin rights?): {proc.stderr.strip()[:120]}"
+        current, definitive = contexts()
+        if definitive and current is not None and "scaffold-check" in current:
+            return True, f"{slug}@{default}"
+        return False, "fix applied but verification failed"
+    detail = ("no branch protection" if current is None
+              else "protected, but scaffold-check is not required")
+    return False, f"{slug}@{default}: {detail}"
 
 
 def _platform_name() -> str:
@@ -603,6 +764,24 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         "or rerun with --fix",
     ))
 
+    # Merge gate: scaffold-check must be a REQUIRED status check on the
+    # default branch, or a red CI run can still merge (observed: a red suite
+    # reached main with CI failing and nothing enforcing it). This is a
+    # per-repo GitHub setting — vendored workflow files cannot carry it, so
+    # doctor checks it wherever a client repo is set up. Advisory: it needs
+    # network + gh auth, and admin rights to fix.
+    protection = _merge_check_status(fix=args.fix, repo=getattr(args, "repo", None))
+    if protection is not None:
+        ok, detail = protection
+        checks.append(_check(
+            "branch protection: scaffold-check required to merge",
+            ok, detail,
+            "run `gh api -X PUT repos/<owner>/<repo>/branches/<default>/protection"
+            " --input -` with required_status_checks contexts [\"scaffold-check\"]"
+            " (repo admin) — or rerun with --fix",
+            required=False,
+        ))
+
     # Optional tools below are reported but not installed by the normal
     # `doctor --fix` path. This keeps machine setup focused on required items.
 
@@ -722,6 +901,10 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         print("       fix: re-record the decomposition with {id, path, command} "
               "objects; stage done executes the exact command.")
         failures += len(legacy)
+
+    if repo:
+        report_legacy_capture_gaps(repo)
+        report_legacy_roadmap_gaps(repo)
 
     if failures:
         print(f"\nforge doctor: {failures} required item(s) missing.")
