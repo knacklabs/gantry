@@ -1,5 +1,6 @@
 import type { Job } from '../../domain/types.js';
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
+import { logger } from '../../infrastructure/logging/logger.js';
 import { DEFAULT_JOB_RUNTIME_APP_ID } from './job-access.js';
 import type { JobManagementServiceDeps } from './job-management-types.js';
 import {
@@ -97,11 +98,19 @@ export function notifyJobSetupRequiredAtCreation(input: {
   // No creation-time notification port wired: preserve the passive
   // JOB_SETUP_REQUIRED event so read-model consumers still see the blocker at
   // creation (the actionable card only comes from the port when present).
-  void recordJobSetupRequired({
+  recordJobSetupRequired({
     deps: input.deps,
     job: input.job,
     readiness: input.readiness,
     appId: input.appId,
+  }).catch((err) => {
+    // Detached: the job is already persisted setup-paused. Swallow-and-log a
+    // publish failure so it never becomes an unhandled rejection; the runtime
+    // pause path re-surfaces the blocker on the next run.
+    logger.warn(
+      { err, jobId: input.job.id },
+      'Failed to publish passive setup-required event at job creation',
+    );
   });
 }
 
