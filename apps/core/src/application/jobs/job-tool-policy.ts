@@ -44,11 +44,13 @@ export async function resolveJobToolPolicy(input: {
               agentId: input.agentId,
               subject: 'Job tool policy',
             })!,
+            personId: input.job.execution_context?.personId,
           })
         : await resolveAgentToolBindingPolicy({
             repository: input.toolRepository,
             appId: input.appId,
             agentId: input.agentId,
+            personId: input.job.execution_context?.personId,
             skillRepository: input.skillRepository,
           })
       : {
@@ -64,6 +66,7 @@ export async function resolveJobToolPolicy(input: {
 
 function resolveAgentToolBindingPolicyFromSnapshot(input: {
   accessSnapshot: AgentAccessSnapshot;
+  personId?: string | null;
 }): {
   rules: string[];
   runtimeAccess: CapabilityRuntimeAccess[];
@@ -71,8 +74,13 @@ function resolveAgentToolBindingPolicyFromSnapshot(input: {
   const policy = resolveAgentToolRuntimePolicyFromSnapshot({
     appId: input.accessSnapshot.appId,
     errorSubject: 'Inherited agent tool',
-    selectedToolDefinitionsByBinding:
-      input.accessSnapshot.tools.activeBindings.map((row) => row.definition),
+    selectedToolDefinitionsByBinding: input.accessSnapshot.tools.activeBindings
+      .filter(
+        (row) =>
+          row.binding.personId == null ||
+          row.binding.personId === input.personId,
+      )
+      .map((row) => row.definition),
     activeSkillDefinitions: input.accessSnapshot.skills.enabledDefinitions,
     makeError: (message) => new ApplicationError('FORBIDDEN', message),
   });
@@ -87,12 +95,14 @@ export async function resolveAgentToolBindings(input: {
   skillRepository?: SkillCatalogRepository;
   appId: string;
   agentId: string;
+  personId?: string | null;
 }): Promise<string[]> {
   if (!input.repository) return [];
   return resolveAgentToolRuntimeRules({
     repository: input.repository,
     appId: input.appId,
     agentId: input.agentId,
+    personId: input.personId,
     errorSubject: 'Inherited agent tool',
     skillRepository: input.skillRepository,
     makeError: (message) => new ApplicationError('FORBIDDEN', message),
@@ -104,6 +114,7 @@ export async function resolveAgentToolBindingPolicy(input: {
   skillRepository?: SkillCatalogRepository;
   appId: string;
   agentId: string;
+  personId?: string | null;
 }): Promise<{
   rules: string[];
   runtimeAccess: CapabilityRuntimeAccess[];
@@ -118,6 +129,7 @@ export async function resolveAgentToolBindingPolicy(input: {
     repository: input.repository,
     appId: input.appId,
     agentId: input.agentId,
+    personId: input.personId,
     errorSubject: 'Inherited agent tool',
     skillRepository: input.skillRepository,
     makeError: (message) => new ApplicationError('FORBIDDEN', message),

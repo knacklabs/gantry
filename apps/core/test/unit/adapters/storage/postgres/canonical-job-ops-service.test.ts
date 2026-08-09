@@ -22,6 +22,7 @@ describe('CanonicalJobOpsService', () => {
         threadId: null,
         workspaceKey: 'agent_one',
         sessionId: 'session-1',
+        personId: 'person:alice',
       },
       notification_routes: [
         {
@@ -45,6 +46,7 @@ describe('CanonicalJobOpsService', () => {
       threadId: null,
       workspaceKey: 'agent_one',
       sessionId: 'session-1',
+      personId: 'person:alice',
     });
     expect(target.notificationRoutes).toEqual([
       {
@@ -97,6 +99,7 @@ describe('CanonicalJobOpsService', () => {
       threadId: null,
       workspaceKey: 'agent_one',
       sessionId: 'session-canonical',
+      personId: null,
     });
   });
 
@@ -116,6 +119,7 @@ describe('CanonicalJobOpsService', () => {
             threadId: null,
             workspaceKey: 'agent_one',
             sessionId: 'session-1',
+            personId: 'person:alice',
           },
           notificationRoutes: [
             {
@@ -151,6 +155,7 @@ describe('CanonicalJobOpsService', () => {
         threadId: null,
         workspaceKey: 'agent_one',
         sessionId: 'session-1',
+        personId: 'person:alice',
       },
       notification_routes: [
         {

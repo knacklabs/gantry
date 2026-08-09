@@ -571,9 +571,7 @@ export class CanonicalJobOpsService {
   }
 }
 
-function parseExecutionContext(
-  input: unknown,
-): CanonicalExecutionContext | undefined {
+function parseExecutionContext(input: unknown) {
   if (!input || typeof input !== 'object') return undefined;
   const value = input as Record<string, unknown>;
   const conversationJid = normalizeString(value.conversationJid);
@@ -584,6 +582,7 @@ function parseExecutionContext(
     threadId: normalizeNullableString(value.threadId),
     workspaceKey,
     sessionId: normalizeNullableString(value.sessionId),
+    personId: normalizeNullableString(value.personId),
   };
 }
 

@@ -413,6 +413,23 @@ async function activeRunLeaseForInteraction(input: {
   }
 }
 
+/**
+ * Trusted acting-job resolver for an in-flight scheduled run. Returns the
+ * DB-authoritative `jobId` ONLY when the caller presents a run lease whose
+ * token + fencing version match the active lease — a server-issued secret the
+ * worker cannot forge. Callers must use this instead of the worker-supplied
+ * `request.jobId` (which is signed by the worker but not bound to the run, so a
+ * worker could claim another person's job in the same folder). Null when there
+ * is no verified lease.
+ */
+export async function activeRunLeaseJobIdForInteraction(input: {
+  runId?: string | null;
+  runLeaseToken?: string | null;
+  runLeaseFencingVersion?: number | null;
+}): Promise<string | null> {
+  return (await activeRunLeaseForInteraction(input))?.jobId ?? null;
+}
+
 export async function recordRunScopedTransientGrant(input: {
   appId?: string | null;
   runId: string;

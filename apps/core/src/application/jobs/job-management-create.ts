@@ -132,7 +132,7 @@ export async function createManagedJob(
     workspace_key: session.workspaceKey,
     created_by: 'human',
     next_run: schedule.nextRun,
-    execution_context: executionContext,
+    execution_context: { ...executionContext, personId: null },
     notification_routes: notificationRoutes,
     access_requirements: accessRequirements,
   };

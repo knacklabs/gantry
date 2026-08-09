@@ -356,8 +356,10 @@ async function runActiveJob(
             loadAgentAccessSnapshot(deps, snapshotOwner),
             deps.getCredentialBroker?.() ?? Promise.resolve(undefined),
           ]);
-          const inheritedToolPolicy =
-            resolveTurnToolPolicyFromSnapshot(accessSnapshot);
+          const inheritedToolPolicy = resolveTurnToolPolicyFromSnapshot(
+            accessSnapshot,
+            currentJob.execution_context?.personId,
+          );
           const toolPolicy: jobToolPolicy.JobToolPolicyResolution = {
             inheritedTools: inheritedToolPolicy.toolPolicyRules ?? [],
             effectiveAllowedTools: inheritedToolPolicy.toolPolicyRules ?? [],
@@ -485,6 +487,7 @@ async function runActiveJob(
                 agentId: executionAgentId,
                 persona: execution.group.agentConfig?.persona,
                 memoryUserId,
+                actingPersonId: currentJob.execution_context?.personId ?? undefined,
                 memoryDefaultScope,
                 isScheduledJob: true,
                 jobId: currentJob.id,

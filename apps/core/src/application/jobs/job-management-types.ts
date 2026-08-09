@@ -213,6 +213,7 @@ export interface SchedulerJobAccess {
   sourceAgentFolder: string;
   originConversationJid: string;
   originProviderAccountId?: string | null;
+  actingPersonId?: string | null;
   conversationBindings: Record<string, ConversationBinding>;
   sourceConversationJids?: string[];
   authThreadId?: string;

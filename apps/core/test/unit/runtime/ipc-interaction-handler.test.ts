@@ -35,6 +35,10 @@ import {
 } from '@core/runtime/ipc-interaction-processing.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
 import {
+  registerPermissionRunRestriction,
+  unregisterPermissionRunRestriction,
+} from '@core/runtime/permission-decision-coordinator.js';
+import {
   claimPermissionInteractionCallback,
   configurePendingInteractionDurability,
   DurableInteractionPersistenceError,
@@ -2094,6 +2098,10 @@ describe('ipc-interaction-handler', () => {
         listPendingInteractions: vi.fn(async () => []),
         getActiveRunLease: vi
           .fn()
+          // First read: the trusted acting-person derivation in the permission
+          // classifier (PSCOPE-1); the remaining reads drive the existing
+          // lease-active flow, with the final null simulating a stale lease.
+          .mockResolvedValueOnce(activeLease)
           .mockResolvedValueOnce(activeLease)
           .mockResolvedValueOnce(activeLease)
           .mockResolvedValueOnce(activeLease)
@@ -2140,6 +2148,83 @@ describe('ipc-interaction-handler', () => {
       expect.objectContaining({ permissionCallbackClaim: claim }),
     );
     expect(releasePendingPermissionCallback).not.toHaveBeenCalled();
+  });
+
+  it('derives the acting person from the run lease job, never the worker-supplied request.jobId', async () => {
+    const activeLease = {
+      runId: 'run:test',
+      jobId: 'lease-job',
+      workerInstanceId: 'worker-1',
+      leaseToken: 'lease-token',
+      fencingVersion: 7,
+      status: 'active',
+      claimedAt: '2026-06-10T00:00:00.000Z',
+      expiresAt: '2026-06-10T00:05:00.000Z',
+      heartbeatAt: '2026-06-10T00:00:00.000Z',
+    } as const;
+    configurePendingInteractionDurability({
+      repository: {
+        getActiveRunLease: vi.fn(async () => activeLease),
+      } as never,
+    });
+    const getJobById = vi.fn(async (id: string) => ({
+      id,
+      execution_context: {
+        personId: id === 'lease-job' ? 'person:real' : 'person:attacker',
+      },
+    }));
+    // A host-recorded SCHEDULED restriction carrying a decoy person must NOT be
+    // trusted for a scheduled decision — the person still comes from the lease.
+    registerPermissionRunRestriction({
+      sourceAgentFolder: 'main_agent',
+      responseKeyId: 'rk-sched',
+      hideAuthorityTools: false,
+      runKind: 'scheduled',
+      personId: 'person:decoy',
+    });
+
+    try {
+      await resolvePermissionIpcDecision({
+        request: {
+          requestId: 'perm-lease-person',
+          appId: 'app:test',
+          sourceAgentFolder: 'main_agent',
+          responseKeyId: 'rk-sched',
+          toolName: 'RunCommand',
+          toolInput: { command: 'echo hi' },
+          // Worker-forgeable fields: a different job than the lease's.
+          jobId: 'forged-job',
+          runId: 'run:test',
+          runLeaseToken: 'lease-token',
+          runLeaseFencingVersion: 7,
+        },
+        sourceAgentFolder: 'main_agent',
+        deps: {
+          conversationRoutes: () => ({}),
+          opsRepository: { getJobById } as never,
+          getPermissionRuntimeSettings: () => ({
+            agents: { main_agent: { permissionMode: 'ask' as const } },
+            permissions: { autoMode: {} },
+            memory: { llm: { models: { extractor: 'sonnet' } } },
+          }),
+          requestPermissionApproval: vi.fn(async () => ({
+            approved: false,
+            mode: 'cancel' as const,
+            decidedBy: 'owner',
+          })),
+        } as never,
+      });
+    } finally {
+      unregisterPermissionRunRestriction({
+        sourceAgentFolder: 'main_agent',
+        responseKeyId: 'rk-sched',
+      });
+    }
+
+    // The trusted acting person comes from the lease's job — not the forgeable
+    // request.jobId, and not the response-key restriction's decoy person.
+    expect(getJobById).toHaveBeenCalledWith('lease-job');
+    expect(getJobById).not.toHaveBeenCalledWith('forged-job');
   });
 
   it('does not prompt or resume scheduled permission IPC when the run lease is stale', async () => {

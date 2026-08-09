@@ -3,6 +3,7 @@ import type { SchedulerJobAccess } from '../application/jobs/job-management-type
 import { toTrimmedString } from './ipc-shared.js';
 import type { TaskContext } from './ipc-types.js';
 import { parseAgentThreadQueueKey } from '../shared/thread-queue-key.js';
+import { permissionRunRestriction } from '../runtime/permission-decision-coordinator.js';
 
 export function schedulerAccessFromContext(
   context: TaskContext,
@@ -40,10 +41,27 @@ export function schedulerAccessFromContext(
       'Scheduler job operations must originate from the authenticated provider account.',
     );
   }
+  // Trusted acting person: the creating turn's host-set run restriction (keyed
+  // to the authenticated worker), NEVER worker-supplied fields. This encodes
+  // DM-ness by construction — the locked ID-1 DM boundary
+  // (resolveCanonicalMemoryPersonId) leaves a run's person null for every
+  // non-DM turn, so a group-created job resolves to null (shared) and only a
+  // DM turn carries a person. Deriving DM-eligibility from context.data.chatJid
+  // would trust a worker-selectable route, so it is deliberately not used here.
+  const responseKeyId = toTrimmedString(context.data.responseKeyId, {
+    maxLen: 255,
+  });
+  const actingPersonId = responseKeyId
+    ? (permissionRunRestriction({
+        sourceAgentFolder: context.sourceAgentFolder,
+        responseKeyId,
+      })?.personId ?? null)
+    : null;
   return {
     sourceAgentFolder: context.sourceAgentFolder,
     originConversationJid,
     originProviderAccountId,
+    actingPersonId,
     conversationBindings: context.conversationBindings,
     sourceConversationJids: context.sourceAgentFolderJids,
     authThreadId: context.data.authThreadId,

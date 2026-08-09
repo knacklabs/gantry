@@ -26,6 +26,7 @@ import {
   recordHumanPermissionPromotionSignal,
 } from './permission-classifier.js';
 import { runDurablePermissionInteraction } from '../application/interactions/durable-interaction-handler.js';
+import { activeRunLeaseJobIdForInteraction } from '../application/interactions/pending-interaction-durability.js';
 import { resolveAgentToolRuntimePolicy } from '../application/agents/agent-tool-runtime-rules.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import {
@@ -55,6 +56,43 @@ export async function resolvePermissionIpcDecision(input: {
   sourceAgentFolder: string;
   deps: IpcDeps;
 }): Promise<PermissionApprovalDecision> {
+  const runRestriction = input.request.responseKeyId
+    ? permissionRunRestriction({
+        sourceAgentFolder: input.sourceAgentFolder,
+        responseKeyId: input.request.responseKeyId,
+      })
+    : undefined;
+  // Trusted acting person, classified by the HOST-recorded run kind (never by
+  // worker-controlled request fields, which a worker could shape to pick a
+  // branch):
+  //  - INTERACTIVE (host-set restriction says so): use the restriction person —
+  //    the same (folder, responseKeyId) basis the classifier already trusts for
+  //    hideAuthorityTools. No lease exists for interactive turns. Lost on host
+  //    restart -> null -> shared (fail-safe).
+  //  - Otherwise (host-recorded scheduled, OR no restriction after a restart):
+  //    derive EXCLUSIVELY from the server-verified run lease -> job. An
+  //    incomplete or invalid lease yields NO person — it never falls back to a
+  //    response-key identity, and never trusts request.jobId (worker-signed,
+  //    not bound to the run).
+  let actingPersonId: string | null;
+  if (runRestriction?.runKind === 'interactive') {
+    actingPersonId = runRestriction.personId ?? null;
+  } else {
+    const trustedLeaseJobId = input.request.runId
+      ? await activeRunLeaseJobIdForInteraction({
+          runId: input.request.runId,
+          runLeaseToken: input.request.runLeaseToken,
+          runLeaseFencingVersion: input.request.runLeaseFencingVersion,
+        })
+      : null;
+    actingPersonId = trustedLeaseJobId
+      ? ((
+          await input.deps.opsRepository
+            ?.getJobById(trustedLeaseJobId)
+            ?.catch(() => undefined)
+        )?.execution_context?.personId ?? null)
+      : null;
+  }
   const settings = input.deps.getPermissionRuntimeSettings?.();
   const agentSettings = settings?.agents[input.sourceAgentFolder] as
     | {
@@ -66,12 +104,7 @@ export async function resolvePermissionIpcDecision(input: {
   const approvedCapabilityIds =
     agentSettings?.capabilities?.map(({ id }) => id) ?? [];
   const workspaceRoot = resolveWorkspaceFolderPath(input.sourceAgentFolder);
-  const fixedImageRestricted = input.request.responseKeyId
-    ? (permissionRunRestriction({
-        sourceAgentFolder: input.sourceAgentFolder,
-        responseKeyId: input.request.responseKeyId,
-      })?.hideAuthorityTools ?? false)
-    : false;
+  const fixedImageRestricted = runRestriction?.hideAuthorityTools ?? false;
   const protectedCapability = evaluateProtectedCapabilityToolUse(
     input.request.toolName,
     input.request.toolInput,
@@ -126,6 +159,7 @@ export async function resolvePermissionIpcDecision(input: {
         appId: input.request.appId ?? 'default',
         agentId:
           input.request.agentId ?? agentIdForFolder(input.sourceAgentFolder),
+        personId: actingPersonId,
         errorSubject: 'Configured agent tool',
         skillRepository: input.deps.getSkillRepository?.(),
       }).catch(() => undefined);
@@ -164,6 +198,7 @@ export async function resolvePermissionIpcDecision(input: {
         railRisk,
         railRequiresApproval,
         railApprovalReason,
+        actingPersonId,
       }),
   });
 }
@@ -177,6 +212,7 @@ async function resolvePermissionIpcDecisionTail(input: {
   railRisk?: PermissionDeterministicRailRisk;
   railRequiresApproval?: boolean;
   railApprovalReason?: string;
+  actingPersonId?: string | null;
 }): Promise<PermissionApprovalDecision> {
   const route = input.request.targetJid
     ? findConversationRouteForQueue(
@@ -252,6 +288,7 @@ async function resolvePermissionIpcDecisionTail(input: {
             agentId:
               input.request.agentId ??
               agentIdForFolder(input.sourceAgentFolder),
+            personId: input.actingPersonId,
             errorSubject: 'Configured agent tool',
             skillRepository: input.deps.getSkillRepository?.(),
           }).catch(() => undefined)
