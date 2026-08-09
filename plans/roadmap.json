@@ -1038,7 +1038,7 @@
       "status": "pending",
       "epic": "permission-engine",
       "skill": "backend",
-      "kind": "refactor",
+      "kind": "feature",
       "depends_on": [],
       "spec": "docs/specs/setuprace-1.md"
     }
