@@ -1009,6 +1009,170 @@ describe('setup pause prompts', () => {
     expect(requestSchedulerSync).toHaveBeenCalledWith(job.id);
   });
 
+  it('an under-declared canonical facade denial persists the tool and appends its job requirement', async () => {
+    let job = makeJob({
+      access_requirements: [],
+      setup_state: {
+        state: 'missing_capability',
+        checked_at: '2026-08-09T00:00:00.000Z',
+        fingerprint: 'under-declared-web-search',
+        blockers: [
+          {
+            state: 'missing_capability',
+            requirementType: 'tool',
+            requirementId: 'WebSearch',
+            grantable: true,
+            message: 'Web search access was denied.',
+            nextAction:
+              'request_access {"target":{"kind":"tool","name":"WebSearch"},"temporaryOnly":false,"reason":"This autonomous run needs exact Gantry tool access."}',
+          },
+        ],
+      },
+    });
+    const appendJobAccessRequirement = vi.fn(async (input) => {
+      if (input.expectedUpdatedAt !== job.updated_at) return false;
+      job = {
+        ...job,
+        access_requirements: [
+          ...(job.access_requirements ?? []),
+          input.requirement,
+        ],
+        updated_at: '2026-08-09T00:00:01.000Z',
+      };
+      return true;
+    });
+    const resumeSetupPausedJob = vi.fn(async () => true);
+    const requestSchedulerSync = vi.fn();
+    const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
+    const tools: Record<string, unknown>[] = [
+      {
+        id: 'tool:WebSearch',
+        appId: 'default',
+        name: 'WebSearch',
+        kind: 'host',
+        provider: 'gantry',
+        displayName: 'Web search',
+        description: 'Search the web through Gantry.',
+        category: 'web',
+        risk: 'low',
+        selectable: true,
+        status: 'active',
+        adapterRef: 'gantry:WebSearch',
+        createdAt: '2026-08-09T00:00:00.000Z',
+        updatedAt: '2026-08-09T00:00:00.000Z',
+      },
+    ];
+    const bindings: Record<string, unknown>[] = [];
+    const toolRepository = {
+      listTools: vi.fn(async () => tools),
+      getTool: vi.fn(
+        async (toolId) => tools.find((tool) => tool.id === toolId) ?? null,
+      ),
+      saveTool: vi.fn(async (tool) => {
+        tools.push(tool);
+      }),
+      listAgentToolBindings: vi.fn(async () => bindings),
+      saveAgentToolBinding: vi.fn(async (binding) => {
+        bindings.push(binding);
+      }),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+    const opsRepository = {
+      getJobById: vi.fn(async () => job),
+      appendJobAccessRequirement,
+      resumeSetupPausedJob,
+      refreshSetupPausedJob: vi.fn(async () => false),
+    };
+    let request: PermissionApprovalRequest | undefined;
+    configure({
+      job: () => job,
+      reviewStoredRequirement: async ({ toolInput }) => {
+        const suggestions = requestPermissionReviewSuggestions(toolInput);
+        return suggestions
+          ? {
+              suggestions,
+              decisionOptions: requestPermissionSetupDecisionOptions(toolInput),
+            }
+          : null;
+      },
+      requestPermissionApproval: async (input, delivered) => {
+        request = input;
+        delivered('prompt-1');
+        return cancelledDecision();
+      },
+    });
+
+    await expect(
+      raiseSetupPausePermissionPrompt({
+        jobId: job.id,
+        setupFingerprint: job.setup_state!.fingerprint,
+        source: 'permission_denied',
+      }),
+    ).resolves.toMatchObject({ status: 'raised' });
+
+    expect(request).toMatchObject({
+      decisionOptions: ['allow_persistent_rule', 'cancel'],
+      toolInput: {
+        permissionKind: 'tool',
+        toolName: 'WebSearch',
+      },
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'WebSearch' }],
+        },
+      ],
+    });
+
+    await expect(
+      applyRecoveredPersistentPermissionGrant({
+        persistence: {
+          opsRepository: opsRepository as never,
+          beforePersistentGrant: (candidate, effectiveUpdates) =>
+            setupPausePersistentGrantIsCurrent(
+              opsRepository as never,
+              candidate,
+              effectiveUpdates,
+            ),
+          afterPersistentGrant: (candidate, effectiveUpdates) =>
+            appendSetupPauseRequirementAfterPersistentGrant(
+              opsRepository as never,
+              candidate,
+              effectiveUpdates,
+            ),
+          getToolRepository: () => toolRepository as never,
+          mirrorAgentToolRulesToSettings,
+          onSchedulerChanged: requestSchedulerSync,
+        },
+        request: request!,
+        sourceAgentFolder: 'main_agent',
+        decision: {
+          approved: true,
+          mode: 'allow_persistent_rule',
+          decidedBy: 'owner-1',
+          decisionClassification: 'user_permanent',
+          updatedPermissions: request!.suggestions,
+        },
+      }),
+    ).resolves.toBe(true);
+
+    expect(job.access_requirements).toEqual([
+      expect.objectContaining({
+        target: { kind: 'tool_rule', rule: 'WebSearch' },
+      }),
+    ]);
+    expect(toolRepository.saveTool).not.toHaveBeenCalled();
+    expect(toolRepository.saveAgentToolBinding).toHaveBeenCalledOnce();
+    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
+      'main_agent',
+      ['WebSearch'],
+      { appId: 'default' },
+    );
+    expect(resumeSetupPausedJob).toHaveBeenCalledOnce();
+    expect(requestSchedulerSync).toHaveBeenCalledWith(job.id);
+  });
+
   it('matches an under-declared requirement to the effective grant selected by the approver', async () => {
     const job = makeJob({
       access_requirements: [],

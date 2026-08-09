@@ -10,6 +10,7 @@ import {
 } from './bash-command-parser.js';
 import { isDurableGantryMcpToolFullName } from './admin-mcp-tools.js';
 import {
+  isGantryFacadeExactToolRule,
   isKnownProjectedBrowserMcpToolName,
   publicGantryToolNameForSdkTool,
 } from './agent-tool-references.js';
@@ -599,6 +600,7 @@ function autonomousGrantRecovery(
   if (isKnownProjectedBrowserMcpToolName(request.toolName)) {
     return 'request_access { "target": { "kind": "capability", "id": "browser.use" }, "temporaryOnly": false, "reason": "This autonomous run needs browser access." }';
   }
+  const toolName = publicGantryToolNameForSdkTool(request.toolName);
   if (request.toolName === 'Bash') {
     const command = commandText(request.input);
     const rule = command ? persistentBashRecoveryRule(command) : undefined;
@@ -610,11 +612,13 @@ function autonomousGrantRecovery(
   if (isDurableGantryMcpToolFullName(request.toolName)) {
     return `request_access { "target": { "kind": "tool", "name": "${escapeJson(request.toolName)}" }, "temporaryOnly": false, "reason": "This autonomous run needs exact Gantry tool access." }`;
   }
+  if (isGantryFacadeExactToolRule(toolName)) {
+    return `request_access { "target": { "kind": "tool", "name": "${escapeJson(toolName)}" }, "temporaryOnly": false, "reason": "This autonomous run needs exact Gantry tool access." }`;
+  }
   const thirdPartyMcp = thirdPartyMcpToolServerName(request.toolName);
   if (thirdPartyMcp) {
     return `request_mcp_server { "name": "${escapeJson(thirdPartyMcp)}", "transport": "stdio_template", "templateId": "npx-package", "args": ["<reviewed-package>"], "sandboxProfileId": "mcp-stdio", "reason": "This autonomous run needs the ${escapeJson(thirdPartyMcp)} MCP source connected before reviewed action capabilities can be requested." }`;
   }
-  const toolName = publicGantryToolNameForSdkTool(request.toolName);
   return `Use a reviewed semantic capability from the Agent Access summary for ${escapeJson(toolName)}, or use request_access target.kind=run_command only for a scoped command fallback. Exact tool grants are not accepted as durable authority.`;
 }
 
