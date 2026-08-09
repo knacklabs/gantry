@@ -86,6 +86,12 @@ export function notifyJobSetupRequiredAtCreation(input: {
   readiness: JobReadinessResult;
 }): void {
   if (input.readiness.ready) return;
+  // Sole-notifier invariant: a setup-blocked job is persisted PAUSED with
+  // next_run=null (job-management-create.ts / job-management-service.ts), so the
+  // scheduler never runs it and pauseJobForSetupIfNeeded (the run-path notifier)
+  // cannot fire concurrently. This creation-time notify is therefore the only
+  // notifier at creation, so the downstream best-effort fingerprint dedup is
+  // sufficient — no atomic claim is needed (D-0053 does not apply here).
   if (input.deps.setupRequiredNotifications) {
     input.deps.setupRequiredNotifications.notify({
       jobId: input.job.id,
