@@ -1,0 +1,8 @@
+{
+  "event": "open",
+  "id": "Q-0020-422a",
+  "reason": "Grantable one-tap button for builtin facade tools (WebSearch/WebRead/FileRead/Browser) on scheduled-run pauses; neutral fix in autonomousGrantRecovery, both lanes",
+  "started_at": "2026-08-09T02:46:11+00:00",
+  "max_files": 5,
+  "files": []
+}
