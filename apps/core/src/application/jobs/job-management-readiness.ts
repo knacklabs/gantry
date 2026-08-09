@@ -74,8 +74,9 @@ export async function pauseJobForSetup(input: {
 
 export function notifyJobSetupRequiredAtCreation(input: {
   deps: JobManagementServiceDeps;
-  jobId: string;
-  appId: string;
+  job: Pick<Job, 'id' | 'workspace_key'> &
+    Partial<Pick<Job, 'session_id' | 'execution_context' | 'thread_id'>>;
+  appId?: string;
   appSession?: Parameters<
     NonNullable<
       JobManagementServiceDeps['setupRequiredNotifications']
@@ -84,11 +85,23 @@ export function notifyJobSetupRequiredAtCreation(input: {
   readiness: JobReadinessResult;
 }): void {
   if (input.readiness.ready) return;
-  input.deps.setupRequiredNotifications?.notify({
-    jobId: input.jobId,
+  if (input.deps.setupRequiredNotifications) {
+    input.deps.setupRequiredNotifications.notify({
+      jobId: input.job.id,
+      appId: input.appId ?? DEFAULT_JOB_RUNTIME_APP_ID,
+      appSession: input.appSession,
+      setupState: input.readiness.setupState,
+    });
+    return;
+  }
+  // No creation-time notification port wired: preserve the passive
+  // JOB_SETUP_REQUIRED event so read-model consumers still see the blocker at
+  // creation (the actionable card only comes from the port when present).
+  void recordJobSetupRequired({
+    deps: input.deps,
+    job: input.job,
+    readiness: input.readiness,
     appId: input.appId,
-    appSession: input.appSession,
-    setupState: input.readiness.setupState,
   });
 }
 

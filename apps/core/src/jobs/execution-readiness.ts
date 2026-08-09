@@ -12,7 +12,6 @@ import { readImageCapabilityInventory } from '../shared/worker-image-inventory.j
 import { getDeploymentMode } from '../config/index.js';
 import {
   getRuntimeEventExchange,
-  getRuntimeRepositories,
   getRuntimeStorage,
   getWorkerCoordinationRepository,
 } from '../adapters/storage/postgres/runtime-store.js';
@@ -317,6 +316,10 @@ export async function notifyCreatedJobSetupRequired(input: {
 
 export function createJobSetupRequiredNotificationPort(
   sendMessage: SchedulerDependencies['sendMessage'],
+  opsRepository: Pick<
+    SchedulerDependencies['opsRepository'],
+    'getJobById' | 'markJobSetupNotified'
+  >,
   publishRuntimeEvent?: (
     event: RuntimeEventPublishInput,
   ) => void | Promise<void>,
@@ -325,7 +328,10 @@ export function createJobSetupRequiredNotificationPort(
     notify: (input) => {
       void notifyCreatedJobSetupRequired({
         jobId: input.jobId,
-        deps: { sendMessage, opsRepository: getRuntimeRepositories() },
+        // Bind to the repository the creating service actually persists through
+        // (not the process-global) so the freshly created job is readable in
+        // dependency-injected / alternate-storage compositions.
+        deps: { sendMessage, opsRepository },
         runtimeAppId: input.appId,
         appSession: input.appSession
           ? {

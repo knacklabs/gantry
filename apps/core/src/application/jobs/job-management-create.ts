@@ -180,7 +180,7 @@ export async function createManagedJob(
   if (!readiness.ready) {
     notifyJobSetupRequiredAtCreation({
       deps,
-      jobId,
+      job: jobInput,
       readiness,
       appId: input.appId,
       appSession: session,

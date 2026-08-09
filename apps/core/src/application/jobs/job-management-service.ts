@@ -249,7 +249,7 @@ export class JobManagementService {
     if (!readiness.ready) {
       notifyJobSetupRequiredAtCreation({
         deps: this.deps,
-        jobId: id,
+        job,
         readiness,
         appId: canonicalSession?.appId ?? DEFAULT_JOB_RUNTIME_APP_ID,
         appSession: canonicalSession,
