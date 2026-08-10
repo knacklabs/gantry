@@ -415,7 +415,7 @@
       ]
     },
     {
-      "status": "pending",
+      "status": "active",
       "key": "E2E-1",
       "title": "E2E: reconcile the test-matrix tracker",
       "epic": "agent-e2e-gate",
