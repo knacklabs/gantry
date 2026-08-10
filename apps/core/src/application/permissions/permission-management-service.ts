@@ -91,6 +91,8 @@ export interface PersistentPermissionGrantInput {
   threadId?: string;
   runId?: string;
   jobId?: string;
+  /** When set, the durable grant is private to this person (null = shared). */
+  personId?: string | null;
   reason?: string;
 }
 
@@ -262,10 +264,16 @@ export class PermissionManagementService {
           toolId = tool.id as AgentToolBinding['toolId'];
         }
         const binding: AgentToolBinding = {
-          id: persistentPermissionBindingId(input.appId, input.agentId, toolId),
+          id: persistentPermissionBindingId(
+            input.appId,
+            input.agentId,
+            toolId,
+            input.personId,
+          ),
           appId: input.appId,
           agentId: input.agentId,
           toolId,
+          personId: input.personId ?? null,
           status: 'active',
           createdAt: timestamp,
           updatedAt: timestamp,

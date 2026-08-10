@@ -525,6 +525,54 @@ describe('setup pause prompts', () => {
     expect(requestSchedulerSync).toHaveBeenCalledWith(job.id);
   });
 
+  it('fails closed (writes no grant) when a scheduled job cannot be resolved', async () => {
+    const saveAgentToolBinding = vi.fn(async () => undefined);
+    const toolRepository = {
+      getTool: vi.fn(),
+      listTools: vi.fn(async () => []),
+      saveTool: vi.fn(),
+      saveAgentToolBinding,
+      disableAgentToolBinding: vi.fn(),
+      listAgentToolBindings: vi.fn(async () => []),
+      listAgentToolBindingsForAgents: vi.fn(),
+    };
+    // A transient repository failure / stale job id must NOT widen the person's
+    // approval to a shared grant.
+    const opsRepository = { getJobById: vi.fn(async () => undefined) };
+
+    const granted = await applyRecoveredPersistentPermissionGrant({
+      persistence: {
+        opsRepository: opsRepository as never,
+        getToolRepository: () => toolRepository as never,
+        mirrorAgentToolRulesToSettings: vi.fn(async () => undefined),
+      },
+      request: {
+        requestId: 'perm-missing-job',
+        appId: 'default',
+        jobId: 'job:gone',
+        toolName: 'Browser',
+        sourceAgentFolder: 'main_agent',
+      } as never,
+      sourceAgentFolder: 'main_agent',
+      decision: {
+        approved: true,
+        mode: 'allow_persistent_rule',
+        decidedBy: 'owner-1',
+        decisionClassification: 'user_permanent',
+        updatedPermissions: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'Browser' }],
+          },
+        ],
+      },
+    });
+
+    expect(granted).toBe(false);
+    expect(saveAgentToolBinding).not.toHaveBeenCalled();
+  });
+
   it('settles and resumes when the requirement append loses its CAS after the grant committed', async () => {
     const job = makeJob({
       access_requirements: [],
