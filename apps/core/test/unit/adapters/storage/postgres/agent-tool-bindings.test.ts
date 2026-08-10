@@ -33,13 +33,11 @@ describe('agent_tool_bindings repository', () => {
       updatedAt: '2026-08-09T00:00:00.000Z',
     };
     const sharedId = persistentPermissionBindingId(
-      common.appId,
       common.agentId,
       common.toolId,
       null,
     );
     const personBindingId = persistentPermissionBindingId(
-      common.appId,
       common.agentId,
       common.toolId,
       'person:alice',

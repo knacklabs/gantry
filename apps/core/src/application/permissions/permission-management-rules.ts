@@ -171,19 +171,18 @@ export function adminMcpToolFullNameFromRule(
   return isAdminMcpToolFullName(toolName) ? toolName : null;
 }
 
+// Shared grants use the same canonical id every binding importer computes
+// (`agent-tool-binding:<agentId>:<toolId>`), so the permission writer and the
+// settings-import writer upsert ONE row instead of colliding on the unique
+// (agent, tool, config_version, person) tuple. Person-scoped grants append the
+// personId; they are DB-only and never round-trip through settings.
 export function persistentPermissionBindingId(
-  appId: string,
   agentId: string,
   toolId: string,
   personId?: string | null,
 ): AgentToolBinding['id'] {
-  const digest = stableSha256Json({
-    agentId,
-    appId,
-    toolId,
-    ...(personId ? { personId } : {}),
-  }).slice(0, 32);
-  return `agent-tool-binding:permission:${digest}` as AgentToolBinding['id'];
+  const base = `agent-tool-binding:${agentId}:${toolId}`;
+  return (personId ? `${base}:${personId}` : base) as AgentToolBinding['id'];
 }
 
 export function resolveRevocationTarget(input: {

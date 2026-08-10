@@ -265,7 +265,6 @@ export class PermissionManagementService {
         }
         const binding: AgentToolBinding = {
           id: persistentPermissionBindingId(
-            input.appId,
             input.agentId,
             toolId,
             input.personId,
@@ -285,19 +284,22 @@ export class PermissionManagementService {
         }
       }
       const grantToken = input.requestId ?? globalThis.crypto.randomUUID();
-      await input.mirrorAgentToolRulesToSettings(
-        input.sourceAgentFolder,
-        allowedRules,
-        {
-          appId: input.appId,
-          ...(ensuredMcpSources.proposalBindingSnapshots.length > 0
-            ? {
-                expectedMcpBindings: ensuredMcpSources.proposalBindingSnapshots,
-                mcpCapabilityGrantToken: grantToken,
-              }
-            : {}),
-        },
-      );
+      // Person grants are DB-only; mirroring would re-share the rule (0118).
+      if (!input.personId)
+        await input.mirrorAgentToolRulesToSettings(
+          input.sourceAgentFolder,
+          allowedRules,
+          {
+            appId: input.appId,
+            ...(ensuredMcpSources.proposalBindingSnapshots.length > 0
+              ? {
+                  expectedMcpBindings:
+                    ensuredMcpSources.proposalBindingSnapshots,
+                  mcpCapabilityGrantToken: grantToken,
+                }
+              : {}),
+          },
+        );
     } catch (err) {
       await Promise.allSettled(
         savedBindings.map((binding) =>
