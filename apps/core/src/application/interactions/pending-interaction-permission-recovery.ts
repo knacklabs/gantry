@@ -90,12 +90,34 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
     return false;
   }
   const scopedRequest = persistentPermissionScopeRequest(input.request);
+  // A grant approved for a scheduled job is private to that job's person (the
+  // creator's memory identity, persisted at creation). A group job's person is
+  // genuinely null -> a shared grant, as before. But an UNRESOLVABLE job (a
+  // transient repository error or stale id) must FAIL CLOSED: never fall back
+  // to a shared grant, which would widen one job's approval to everyone.
+  // Deliberate (decision 0118): a turn with NO memory person (group, or a DM
+  // the identity model deems ineligible) writes a SHARED grant. There is no
+  // eligibility gate and no downgrade-to-allow-once path — that machinery was
+  // built and intentionally removed. null = shared is the model, not a gap.
+  let actingPersonId: string | null = input.request.personId ?? null;
+  if (input.request.jobId) {
+    const job = await input.persistence.opsRepository
+      .getJobById(input.request.jobId)
+      .catch(() => undefined);
+    if (!job) return false;
+    // A resolved job with no person (null or unset) is a group/legacy job ->
+    // shared, as before. Only an UNRESOLVABLE job (missing / repository error,
+    // handled above) fails closed, so a transient failure can't widen a
+    // person's approval to a shared grant.
+    actingPersonId = job.execution_context?.personId ?? null;
+  }
   const permissionService = new PermissionManagementService();
   await permissionService.applyPersistentToolRuleGrant({
     appId: input.request.appId as never,
     agentId: (input.request.agentId ??
       `agent:${input.sourceAgentFolder}`) as never,
     sourceAgentFolder: input.sourceAgentFolder,
+    personId: actingPersonId,
     updates,
     toolRepository,
     mcpServerRepository: input.persistence.getMcpServerRepository?.(),

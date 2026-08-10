@@ -35,6 +35,10 @@ import {
 } from '@core/runtime/ipc-interaction-processing.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
 import {
+  registerPermissionRunRestriction,
+  unregisterPermissionRunRestriction,
+} from '@core/runtime/permission-decision-coordinator.js';
+import {
   claimPermissionInteractionCallback,
   configurePendingInteractionDurability,
   DurableInteractionPersistenceError,
@@ -1593,6 +1597,17 @@ describe('ipc-interaction-handler', () => {
     async (toolName) => {
       const claimedPath = path.join(tempDir, 'claimed-bash-permission.json');
       fs.writeFileSync(claimedPath, '{}');
+      // The request's jobId is untrusted; the host stamps it from the run
+      // registry, so a scheduled-run test must register its restriction.
+      const envelope = createIpcAuthEnvelope('main_agent', null);
+      registerPermissionRunRestriction({
+        sourceAgentFolder: 'main_agent',
+        responseKeyId: envelope.responseKeyId,
+        hideAuthorityTools: false,
+        runKind: 'scheduled',
+        jobId: 'job:test',
+        runId: 'run:test',
+      });
       const publishRuntimeEvent = vi.fn(async () => undefined);
       const createTransientGrant = vi.fn(async () => true);
       const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -1625,6 +1640,7 @@ describe('ipc-interaction-handler', () => {
           appId: 'app:test',
           agentId: 'agent:test',
           responseNonce: 'nonce',
+          responseKeyId: envelope.responseKeyId,
           sourceAgentFolder: 'main_agent',
           runHandle: 'agent-run-1',
           runId: 'run:test',
@@ -1652,6 +1668,10 @@ describe('ipc-interaction-handler', () => {
         file: 'claimed-bash-permission.json',
         claimedPath,
         logger,
+      });
+      unregisterPermissionRunRestriction({
+        sourceAgentFolder: 'main_agent',
+        responseKeyId: envelope.responseKeyId,
       });
 
       expect(

@@ -14,6 +14,7 @@ export interface JobExecutionContext {
   threadId: string | null;
   workspaceKey: string;
   sessionId?: string | null;
+  personId?: string | null;
 }
 
 export interface JobNotificationRoute {

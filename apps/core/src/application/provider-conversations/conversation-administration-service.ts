@@ -137,11 +137,9 @@ export class ConversationAdministrationService {
         ...(threadId ? { threadId } : {}),
       });
     if (!install || install.status !== 'active') return false;
-    const approvers =
-      await this.repositories.conversations.listConversationApprovers(
-        conversation.id,
-      );
-    if (!approvers.some((approver) => approver.externalUserId === userId)) {
+    const approverUserIds =
+      await this.resolveControlApproverUserIds(conversation);
+    if (!approverUserIds.includes(userId)) {
       return false;
     }
     const providerAccount =
@@ -156,6 +154,21 @@ export class ConversationAdministrationService {
       userIds: [userId],
     });
     return validation.validUserIds.includes(userId);
+  }
+
+  private async resolveControlApproverUserIds(
+    conversation: Conversation,
+  ): Promise<string[]> {
+    if (conversation.kind === 'direct') {
+      return this.repositories.conversations.listParticipantExternalUserIds(
+        conversation.id,
+      );
+    }
+    const approvers =
+      await this.repositories.conversations.listConversationApprovers(
+        conversation.id,
+      );
+    return approvers.map((approver) => approver.externalUserId);
   }
 
   private async requireConversation(input: {

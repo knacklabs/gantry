@@ -374,6 +374,7 @@ export function createGroupAgentRunner(input: {
           turnContext?.agentId ?? memoryAgentIdForWorkspaceFolder(group.folder),
       },
       agentFolder: group.folder,
+      personId: options?.memoryContext?.userId,
       routeScope: {
         conversationId: group.conversationId,
         threadId: sessionThreadId ?? undefined,

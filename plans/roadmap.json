@@ -1058,6 +1058,49 @@
       "history": ".factory/history/PREFLIGHT-1/",
       "outcome": "Scheduled jobs are now set up with the tools they need, and setup pauses are actionable. When a scheduled run needs a builtin tool it wasn't granted (web search/read, file read/write, browser), the Setup-needed card now shows a one-tap Allow-for-future button instead of a dead-end message, on both runner lanes, so the owner grants it from chat; the grant persists the canonical selection and adds it to the job requirements. When an agent schedules a job it now declares the tools the task needs, so a missing tool surfaces as one actionable card shortly after creation (dispatched async, so creating stays fast) rather than only when a run later pauses. Jobs whose tools are all granted run with no pause. Authority stays host-reviewed and human-approved (no agent self-grant).",
       "backfill_evidence_missing": true
+    },
+    {
+      "key": "PSCOPE-1",
+      "title": "Person-scoped grants and kind-aware approval authority",
+      "story": "As anyone talking to the agent, I can approve my agent's tool requests right where I'm talking to it, and a permission I grant in my DM stays private to me and never leaks to other people or shared rooms, so approvals are actionable on every provider without silently widening a shared assistant's access.",
+      "acceptance_criteria": [
+        "In a 1:1 DM the DM's own user can approve a setup/permission card with no allowlist entry; a non-participant cannot; groups still require an allowlisted approver.",
+        "A durable grant approved in one person's DM is used only when the agent acts for that person, never for another DM or a group on the same agent; existing grants keep applying as shared with no regression.",
+        "A job created in a DM uses that person's grants at run time; a job created in a group uses shared grants; the scope a setup-card grant lands in is the scope the job runs in.",
+        "A durable DM self-grant is permitted only for a personal-memory-eligible person; others may approve for the current run only.",
+        "Installing the bot into a new group by a recognised person seeds that person as the first approver with an in-group acknowledgement, on every provider where the installer is identifiable; behaviour is uniform across providers with no per-provider approval logic."
+      ],
+      "order": 55,
+      "status": "done",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [
+        "ID-1"
+      ],
+      "spec": "docs/specs/pscope-1.md",
+      "completed_at": "2026-08-10T09:22:13+00:00",
+      "history": ".factory/history/PSCOPE-1/",
+      "outcome": "Tool grants are now person-scoped where a person exists. In a 1:1 DM the user can approve their own agent's permission requests without being pre-listed, and an 'allow for future' they grant stays private to them instead of widening the shared assistant for every chat. Groups keep the explicit approver allowlist and shared grants. Scheduled jobs inherit the identity of the conversation that created them: a DM-created job's durable grant is written for that person (an unresolvable job fails closed rather than widening to shared); group jobs stay shared. The acting person is simply the memory identity, host-stamped onto the request - the elaborate trust machinery built en route was removed per the accepted 0118 tradeoff. Installer group-onboarding split to PSCOPE-2."
+    },
+    {
+      "key": "PSCOPE-2",
+      "title": "Provider-neutral installer auto-seed and in-group acknowledgement",
+      "story": "As the person who installs the agent into a group, I am seeded as its first approver and the group is told so, so that approvals work out of the box without manual allowlist setup",
+      "acceptance_criteria": [
+        "Installing the bot into a new group by a recognised person seeds that person as the first approver and posts an in-group acknowledgement",
+        "An unrecognised installer seeds nobody; the group gets a clear message on how to set an approver (fail-closed)",
+        "Only installer-id extraction is per-provider; behaviour degrades to manual where the installer is unidentifiable"
+      ],
+      "order": 56,
+      "status": "pending",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [
+        "PSCOPE-1"
+      ],
+      "spec": "docs/specs/pscope-1.md"
     }
   ],
   "epics": [
@@ -1146,5 +1189,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-09T18:42:37+00:00"
+  "updated_at": "2026-08-10T09:22:13+00:00"
 }

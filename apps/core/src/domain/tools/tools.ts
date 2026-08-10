@@ -50,6 +50,7 @@ export interface AgentToolBinding {
   appId: AppId;
   agentId: BrandedId<'AgentId'>;
   toolId: ToolId;
+  personId?: string | null;
   configVersionId?: BrandedId<'AgentConfigVersionId'>;
   status: 'active' | 'disabled';
   createdAt: IsoTimestamp;

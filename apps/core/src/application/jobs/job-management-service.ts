@@ -190,10 +190,15 @@ export class JobManagementService {
       access,
       control: this.deps.control,
     });
-    const storedExecutionContext =
-      canonicalSession?.sessionId && executionContext.sessionId == null
-        ? { ...executionContext, sessionId: canonicalSession.sessionId }
-        : executionContext;
+    const storedExecutionContext = {
+      ...executionContext,
+      ...(canonicalSession?.sessionId && executionContext.sessionId == null
+        ? { sessionId: canonicalSession.sessionId }
+        : {}),
+      personId: existingJob
+        ? (existingJob.execution_context?.personId ?? null)
+        : (access.actingPersonId ?? null),
+    };
     if (input.notificationRoutes !== undefined || !existingJob) {
       await requireJobNotificationRouteApproval({
         deps: this.deps as never,

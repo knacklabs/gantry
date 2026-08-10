@@ -1,14 +1,16 @@
 import {
   boolean,
+  foreignKey,
   index,
   pgTable,
   text,
   timestamp,
+  unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 import { agentsPostgres } from './agents.js';
-import { appsPostgres } from './apps.js';
+import { appsPostgres, usersPostgres } from './apps.js';
 
 export const toolCatalogPostgres = pgTable(
   'tool_catalog',
@@ -60,6 +62,7 @@ export const agentToolBindingsPostgres = pgTable(
     toolId: text('tool_id')
       .notNull()
       .references(() => toolCatalogPostgres.id, { onDelete: 'cascade' }),
+    personId: text('person_id'),
     configVersionId: text('config_version_id'),
     status: text('status').notNull().default('active'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
@@ -70,11 +73,14 @@ export const agentToolBindingsPostgres = pgTable(
       .defaultNow(),
   },
   (table) => ({
-    agentToolUnique: uniqueIndex('idx_agent_tool_bindings_unique').on(
-      table.agentId,
-      table.toolId,
-      table.configVersionId,
-    ),
+    personAppScoped: foreignKey({
+      name: 'agent_tool_bindings_app_person_fk',
+      columns: [table.appId, table.personId],
+      foreignColumns: [usersPostgres.appId, usersPostgres.id],
+    }).onDelete('cascade'),
+    agentToolUnique: unique('idx_agent_tool_bindings_unique')
+      .on(table.agentId, table.toolId, table.configVersionId, table.personId)
+      .nullsNotDistinct(),
   }),
 );
 

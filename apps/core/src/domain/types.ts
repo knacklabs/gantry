@@ -176,6 +176,7 @@ export interface PermissionApprovalRequest {
   appId?: string;
   agentId?: string;
   providerAccountId?: string;
+  personId?: string;
   responseNonce?: string;
   sourceAgentFolder: string;
   requestFamily?: 'tool' | 'admin' | 'review' | 'promotion';
@@ -212,9 +213,8 @@ export interface PermissionApprovalRequest {
   blockedPath?: string;
   toolInput?: Record<string, unknown>;
   hostInjectedCommandPrefix?: string;
-  /** 16K-limit sanitize of the same input; the permission DECISION layers
-   *  (rails + effect-key) evaluate this fuller view, not the 500-char display
-   *  `toolInput`. Set alongside `toolInput` in ipc-parsing. */
+  /** 16K-limit input evaluated by decision rails/effect keys, not the 500-char
+   * display `toolInput`; set alongside it in IPC parsing. */
   classifierToolInput?: Record<string, unknown>;
   toolInputSanitized?: boolean;
   toolInputSanitizedPaths?: string[];

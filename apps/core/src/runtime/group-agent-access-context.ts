@@ -16,6 +16,7 @@ export async function resolveGroupAgentAccessContext(input: {
   turnContext?: { appId: string; agentId: string } | null;
   catalogScope: { appId: string; agentId: string };
   agentFolder: string;
+  personId?: string | null;
   routeScope?: { conversationId?: string; threadId?: string };
 }) {
   const accessSnapshot = await loadAgentAccessSnapshot(
@@ -28,8 +29,10 @@ export async function resolveGroupAgentAccessContext(input: {
   if (!catalogSnapshot) {
     throw new Error('Agent access catalog scope is required.');
   }
-  const configuredToolPolicy =
-    resolveTurnToolPolicyFromSnapshot(accessSnapshot);
+  const configuredToolPolicy = resolveTurnToolPolicyFromSnapshot(
+    accessSnapshot,
+    input.personId,
+  );
   const selectedSkillContext =
     resolveTurnSelectedSkillContextFromSnapshot(accessSnapshot);
   const semanticCapabilities =

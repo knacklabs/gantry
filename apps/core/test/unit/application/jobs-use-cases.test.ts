@@ -1853,6 +1853,7 @@ describe('job application use cases', () => {
           conversationJid: 'tg:team',
           threadId: '2771',
           workspaceKey: 'team',
+          personId: null,
         },
         notification_routes: [
           {

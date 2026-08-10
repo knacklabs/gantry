@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 
 import type {
   AgentToolAccessSnapshot,
@@ -44,6 +44,7 @@ function fromDbJson(value: unknown): Record<string, unknown> {
     appId: row.app_id,
     agentId: row.agent_id,
     toolId: row.tool_id,
+    personId: row.person_id,
     configVersionId: row.config_version_id,
     name: row.name,
     kind: row.kind,
@@ -138,6 +139,7 @@ export class PostgresToolCatalogRepository implements ToolCatalogRepository {
         appId: binding.appId,
         agentId: binding.agentId,
         toolId: binding.toolId,
+        personId: binding.personId ?? null,
         configVersionId: binding.configVersionId ?? null,
         status: binding.status,
         createdAt: binding.createdAt,
@@ -157,6 +159,7 @@ export class PostgresToolCatalogRepository implements ToolCatalogRepository {
     appId: AgentToolBinding['appId'];
     agentId: AgentToolBinding['agentId'];
     toolId: AgentToolBinding['toolId'];
+    personId?: AgentToolBinding['personId'];
     updatedAt: string;
   }): Promise<AgentToolBinding | null> {
     const rows = await this.db
@@ -167,6 +170,9 @@ export class PostgresToolCatalogRepository implements ToolCatalogRepository {
           eq(pgSchema.agentToolBindingsPostgres.appId, input.appId),
           eq(pgSchema.agentToolBindingsPostgres.agentId, input.agentId),
           eq(pgSchema.agentToolBindingsPostgres.toolId, input.toolId),
+          input.personId
+            ? eq(pgSchema.agentToolBindingsPostgres.personId, input.personId)
+            : isNull(pgSchema.agentToolBindingsPostgres.personId),
         ),
       )
       .returning();
@@ -396,6 +402,7 @@ export class PostgresToolCatalogRepository implements ToolCatalogRepository {
       appId: row.appId,
       agentId: row.agentId,
       toolId: row.toolId,
+      personId: row.personId,
       configVersionId: row.configVersionId ?? undefined,
       status: row.status,
       createdAt: row.createdAt,

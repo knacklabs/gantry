@@ -15,6 +15,7 @@ export function durablePermissionRequestSnapshot(
     appId: request.appId,
     agentId: request.agentId,
     providerAccountId: request.providerAccountId,
+    personId: request.personId,
     sourceAgentFolder: request.sourceAgentFolder,
     runHandle: request.runHandle,
     jobId: request.jobId,

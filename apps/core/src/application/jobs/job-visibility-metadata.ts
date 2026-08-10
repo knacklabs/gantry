@@ -197,8 +197,12 @@ export async function buildJobListVisibilityMetadata(input: {
   const nowMs = input.nowMs ?? currentTimeMs();
   const latestRunsByJobId = await loadLatestRunsByJobId(input.jobs, input.ops);
   const inheritedToolsByTarget = new Map<string, Promise<string[]>>();
-  const loadInheritedTools = (appId: string, agentId: string) => {
-    const key = `${appId}\0${agentId}`;
+  const loadInheritedTools = (
+    appId: string,
+    agentId: string,
+    personId?: string | null,
+  ) => {
+    const key = `${appId}\0${agentId}\0${personId ?? ''}`;
     let promise = inheritedToolsByTarget.get(key);
     if (!promise) {
       promise = resolveAgentToolBindings({
@@ -206,6 +210,7 @@ export async function buildJobListVisibilityMetadata(input: {
         skillRepository: input.skillRepository,
         appId,
         agentId,
+        personId,
       });
       inheritedToolsByTarget.set(key, promise);
     }
@@ -222,7 +227,11 @@ export async function buildJobListVisibilityMetadata(input: {
           executionContext,
         );
         const agentId = agentIdForJobWorkspaceKey(job.workspace_key);
-        const inheritedTools = await loadInheritedTools(appId, agentId);
+        const inheritedTools = await loadInheritedTools(
+          appId,
+          agentId,
+          job.execution_context?.personId,
+        );
         const effectiveAllowedTools = mergeUnique(inheritedTools);
         const staleness = schedulerJobStaleness(job, nowMs);
         const latestRun = latestRunsByJobId.get(job.id);

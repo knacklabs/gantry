@@ -421,6 +421,7 @@ export interface ToolCatalogRepository {
     appId: AppId;
     agentId: AgentId;
     toolId: ToolId;
+    personId?: AgentToolBinding['personId'];
     updatedAt: string;
   }): Promise<AgentToolBinding | null>;
   listAgentToolBindings(input: {
