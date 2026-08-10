@@ -2,7 +2,8 @@
 status: accepted
 confirmed_by: "Ravi"
 date: 2026-08-09
-stories: [PSCOPE-1]
+amended: 2026-08-10
+stories: [PSCOPE-1, PSCOPE-2]
 ---
 
 # Provider-neutral group installer auto-seed for the first approver
@@ -26,6 +27,21 @@ control approver and post a short **in-group acknowledgement**. Where a provider
 reliably identify the installer (e.g. Discord/Teams inviter data), fall back to manual with a
 clear in-group message naming how to set an approver. The installer is never granted anything
 beyond becoming an approver, and an unrecognised installer seeds nobody (fail-closed).
+
+**Amendment (2026-08-10, confirmed by Ravi during the PSCOPE-2 grill):**
+
+- **Recognition IS the registration gate.** A recognised installer auto-registers the group
+  and becomes its first approver in one step. This SUPERSEDES the Telegram DM Yes/No
+  propagation gate, which is deleted (not kept alongside) — it could never mint a first
+  approver and never posted in the group.
+- **Recognised = DM-established**, not merely alias-resolvable: the installer's alias must
+  resolve to a person (`createIfMissing: false`; a retired alias counts as unrecognised) AND
+  that person must have an existing direct conversation with the bot. Aliases alone are too
+  loose — they auto-mint for anyone who ever spoke in a shared group.
+- **v1 providers:** Telegram + Slack extract the installer (Slack requires the
+  `member_joined_channel` event + read scopes in the app manifest — an ops step, documented);
+  Discord posts the manual-setup message on new-guild join (its events carry no inviter);
+  Teams is documented-manual until its activity surface exists.
 
 ## Consequences
 
