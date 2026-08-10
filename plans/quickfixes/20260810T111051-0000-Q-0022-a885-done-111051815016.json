@@ -1,0 +1,11 @@
+{
+  "event": "done",
+  "id": "Q-0022-a885",
+  "profile": "quickfix",
+  "reason": "runtime crashloop after #400: migration dedupe kept digest-id binding rows; startup importer collides; add normalizing migration",
+  "started_at": "2026-08-10T11:08:30+00:00",
+  "completed_at": "2026-08-10T11:10:51+00:00",
+  "files": [
+    "apps/core/src/adapters/storage/postgres/schema/migrations/20260810110836_normalize_permission_binding_ids.sql"
+  ]
+}
