@@ -1079,6 +1079,25 @@
         "ID-1"
       ],
       "spec": "docs/specs/pscope-1.md"
+    },
+    {
+      "key": "PSCOPE-2",
+      "title": "Provider-neutral installer auto-seed and in-group acknowledgement",
+      "story": "As the person who installs the agent into a group, I am seeded as its first approver and the group is told so, so that approvals work out of the box without manual allowlist setup",
+      "acceptance_criteria": [
+        "Installing the bot into a new group by a recognised person seeds that person as the first approver and posts an in-group acknowledgement",
+        "An unrecognised installer seeds nobody; the group gets a clear message on how to set an approver (fail-closed)",
+        "Only installer-id extraction is per-provider; behaviour degrades to manual where the installer is unidentifiable"
+      ],
+      "order": 56,
+      "status": "pending",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [
+        "PSCOPE-1"
+      ],
+      "spec": "docs/specs/pscope-1.md"
     }
   ],
   "epics": [
@@ -1167,5 +1186,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-09T18:42:37+00:00"
+  "updated_at": "2026-08-10T08:55:24+00:00"
 }
