@@ -1654,15 +1654,15 @@ describe('job application use cases', () => {
       authThreadId: 'thread-1',
     };
 
-    expectThrowsCode(
-      () =>
-        validateSchedulerUpdate(
-          makeJob({ workspace_key: 'team', thread_id: 'thread-1' }),
-          { thread_id: 'thread-2' },
-          access,
-        ),
-      'FORBIDDEN',
-    );
+    // Threads/topics are delivery routing, not ownership: any thread of the
+    // owning conversation may be set, from any thread of that conversation.
+    expect(() =>
+      validateSchedulerUpdate(
+        makeJob({ workspace_key: 'team', thread_id: 'thread-1' }),
+        { thread_id: 'thread-2' },
+        access,
+      ),
+    ).not.toThrow();
     expect(() =>
       validateSchedulerUpdate(
         makeJob({ workspace_key: 'team', thread_id: 'thread-1' }),
@@ -2009,10 +2009,10 @@ describe('job application use cases', () => {
     expect(ops.upsertJob).not.toHaveBeenCalled();
   });
 
-  it('rejects IPC scheduler upsert thread ids without authenticated thread context', async () => {
+  it('accepts IPC scheduler upsert thread ids without authenticated thread context (threads are delivery routing, not ownership)', async () => {
     const ops = {
       getJobById: vi.fn(),
-      upsertJob: vi.fn(),
+      upsertJob: vi.fn(async (job: unknown) => ({ created: true, job })),
     };
     const service = new JobManagementService({
       ops: ops as unknown as RuntimeJobRepository,
@@ -2036,8 +2036,12 @@ describe('job application use cases', () => {
         scheduleValue: '60000',
         threadId: 'thread-1',
       }),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    expect(ops.upsertJob).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ created: true });
+    expect(ops.upsertJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        execution_context: expect.objectContaining({ threadId: 'thread-1' }),
+      }),
+    );
   });
 
   it('uses the role-specific reason when the process does not claim jobs', async () => {

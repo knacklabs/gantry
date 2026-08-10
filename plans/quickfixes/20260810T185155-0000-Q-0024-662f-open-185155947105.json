@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0024-662f",
+  "profile": "quickfix",
+  "reason": "job ownership/visibility scopes to conversation (DM/group/channel), not thread/topic - thread remains delivery route only (Ravi's directive)",
+  "started_at": "2026-08-10T18:51:55+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

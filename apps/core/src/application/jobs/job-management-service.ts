@@ -126,14 +126,7 @@ export class JobManagementService {
         'Scheduler jobs cannot be created outside the source group.',
       );
     }
-    const authThreadId = normalizeOptional(input.access.authThreadId);
-    const payloadThreadId = normalizeOptional(input.threadId);
-    if (payloadThreadId && payloadThreadId !== authThreadId) {
-      throw new ApplicationError(
-        'FORBIDDEN',
-        'threadId payload does not match authenticated thread binding.',
-      );
-    }
+    // threadId is delivery routing, not ownership (conversation-scoped model).
     const authenticatedContext = authenticatedContextFromAccess(
       access,
       workspaceKey,
@@ -160,11 +153,13 @@ export class JobManagementService {
           ? (existingJob?.execution_context ?? {
               conversationJid: authenticatedContext.conversationJid,
               workspaceKey: authenticatedContext.workspaceKey,
-              threadId: authThreadId ?? null,
+              threadId:
+                normalizeOptional(input.threadId) ??
+                normalizeOptional(input.access.authThreadId) ??
+                null,
             })
           : input.executionContext,
       authenticatedContext,
-      enforceThread: input.executionContext !== undefined,
     });
     const existingNotificationRoutes = normalizeStoredNotificationRoutes(
       existingJob?.notification_routes,

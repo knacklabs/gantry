@@ -69,35 +69,16 @@ export function validateSchedulerUpdate(
       'Scheduler jobs cannot move outside the source group.',
     );
   }
-  if (updates.thread_id !== undefined) {
-    const requestedThreadId = updates.thread_id || null;
-    const authThreadId = normalizeOptional(access.authThreadId) ?? null;
-    if (requestedThreadId && requestedThreadId !== authThreadId) {
-      throw new ApplicationError(
-        'FORBIDDEN',
-        'threadId payload does not match authenticated thread binding.',
-      );
-    }
-  }
   if (updates.execution_context) {
     const contextConversationJid = normalizeOptional(
       updates.execution_context.conversationJid,
     );
-    const contextThreadId =
-      normalizeOptional(updates.execution_context.threadId) ?? null;
-    const authThreadId = normalizeOptional(access.authThreadId) ?? null;
     if (
       contextConversationJid !== normalizeOptional(access.originConversationJid)
     ) {
       throw new ApplicationError(
         'FORBIDDEN',
         'executionContext conversation must match authenticated conversation.',
-      );
-    }
-    if (contextThreadId !== authThreadId) {
-      throw new ApplicationError(
-        'FORBIDDEN',
-        'executionContext threadId must match authenticated thread binding.',
       );
     }
   }

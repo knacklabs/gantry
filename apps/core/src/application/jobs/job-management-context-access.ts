@@ -36,7 +36,6 @@ export async function resolveAuthenticatedRouteContextForUpdate(input: {
     assertExecutionContextMatchesAuthenticatedContext({
       executionContext: input.patchExecutionContext,
       authenticatedContext,
-      enforceThread: input.patchExecutionContext !== undefined,
     });
     return authenticatedContext;
   }

@@ -132,6 +132,42 @@ command templates, auth preflight, protected paths, denied environment
 overrides, and account label before runtime projection can create scoped
 command authority.
 
+### Approval Authority And Person-Scoped Grants
+
+Who may answer a permission prompt is kind-aware (decision 0118):
+
+- In a direct (1:1) conversation the DM participant is the approver - no
+  allowlist entry is needed. The person approving their own agent's request in
+  their own DM is the trust boundary.
+- In a group or channel the explicit `control_approvers` allowlist governs,
+  and an empty allowlist fails closed.
+
+Durable "allow for future" grants carry the acting person: a grant approved
+inside a DM (or for a DM-created scheduled job) is written private to that
+person and never widens the shared agent for other chats. A turn with no
+memory-established person - every group turn, and DMs the identity model deems
+ineligible - writes a shared grant, as before. The acting identity is the
+memory identity, host-stamped onto the permission request at creation from the
+spawn-time run registry; identity fields in worker payloads are never trusted.
+Scheduled grants resolve the person from the host-persisted job row and fail
+closed when the job cannot be resolved.
+
+Group conversations acquire their first approver from the installer
+(decision 0119): when a person the bot already knows from an existing direct
+conversation adds it to a group, the group registers, the installer is seeded
+as its first control approver, and an acknowledgement posts in the group. An
+unrecognised installer seeds nobody and registers nothing (fail-closed); the
+group gets one message naming the manual path. Only installer-identity
+extraction is provider-specific (Telegram and Slack today; Discord and Teams
+degrade to manual).
+
+Scheduled-job ownership scopes to the conversation - a DM, group, or
+channel - never to a thread or topic inside it. Threads share their parent
+conversation's membership, so they are delivery routing only: any topic of the
+owning conversation can view and control its jobs, and a job's notifications
+may target any topic of that conversation. Cross-conversation access still
+fails closed.
+
 ## Privilege Comparison (Host Runtime)
 
 | Capability                          | Authorization source                                        |
@@ -181,7 +217,8 @@ production or remote control mode is active.
 | Browser       | Browser persists only as canonical `Browser`; backend tool names and browser profile details are internal.                                                                                    |
 | Filesystem    | File writes and uploads pass through protected-path, sandbox, artifact, and capability policy before execution.                                                                               |
 | Network       | Model calls use the model gateway; tool egress uses Gantry's egress gateway and audited policy.                                                                                               |
-| Approvals     | Providers may render approval UX, but approver validation, choices, persistence, and audit are Gantry-owned records.                                                                          |
+| Approvals     | Providers may render approval UX, but approver validation, choices, persistence, and audit are Gantry-owned records. DMs are approved by their participant; groups by the control allowlist.  |
+| Persons       | Durable grants are person-scoped when the acting turn carries a memory-established person; person identity is host-stamped, never read from worker payloads (decision 0118).                  |
 | Continuations | Follow-up input enters an active run only when the queue/session/conversation policy admits it.                                                                                               |
 | Stop          | Stop/cancel invalidates stale worker output, permission responses, continuations, and finalization through run ownership and fencing.                                                         |
 
