@@ -135,6 +135,7 @@ maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
             'sessions:write',
             'agents:admin',
             'credentials:admin',
+            'usage:read',
           ],
         });
         api = new AgentE2EApiClient(harness.baseUrl, harness.apiKey);
@@ -221,6 +222,7 @@ maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
         evidence.evidence.sessionId = sessionId;
 
         evidence.phase('turn');
+        const usageFrom = new Date(Date.now() - 1_000).toISOString();
         const accepted = await api.postMessage(
           sessionId,
           'Reply with a single short sentence confirming you are operational.',
@@ -245,6 +247,9 @@ maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
         );
         const runs = await api.listRuns(sessionId);
         expect(runs.length, 'session run is visible').toBeGreaterThan(0);
+        const runId = String(runs[0]?.id ?? runs[0]?.runId ?? '');
+        expect(runId, 'session run has a public id').toBeTruthy();
+        evidence.evidence.runId = runId;
         expect(runs[0]).not.toHaveProperty('executionProviderId');
         expect(runs[0]).not.toHaveProperty('providerSessionId');
         expect(runs[0]).not.toHaveProperty('workerId');
@@ -260,15 +265,47 @@ maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
         ).toBeDefined();
         expect(persistedMessage).toBeDefined();
 
-        // Usage evidence when surfaced: alias/provider consistent with haiku
-        // on anthropic (covers alias or full runner model id).
-        const usage = events.find((e) => e.eventType === 'model.usage');
-        if (usage) {
-          const usagePayload = payloadOf(usage);
-          expect(String(usagePayload.modelAlias ?? '').toLowerCase()).toContain(
-            'haiku',
-          );
-        }
+        const usageEvents = events.filter(
+          (event) => event.eventType === 'model.usage',
+        );
+        expect(
+          usageEvents.length,
+          'real turn emits model usage',
+        ).toBeGreaterThan(0);
+        const expectedUsage = usageEvents.reduce(
+          (totals, event) => {
+            const payload = payloadOf(event);
+            const usage = payload.usage;
+            const values =
+              usage && typeof usage === 'object'
+                ? (usage as Record<string, unknown>)
+                : {};
+            expect(
+              String(payload.modelAlias ?? values.model ?? '').toLowerCase(),
+              'usage event identifies haiku',
+            ).toContain('haiku');
+            expect(
+              String(payload.providerId ?? values.provider ?? ''),
+              'usage event identifies anthropic',
+            ).toBe('anthropic');
+            return {
+              inputTokens: totals.inputTokens + Number(values.inputTokens ?? 0),
+              outputTokens:
+                totals.outputTokens + Number(values.outputTokens ?? 0),
+            };
+          },
+          { inputTokens: 0, outputTokens: 0 },
+        );
+        expect(expectedUsage.inputTokens).toBeGreaterThan(0);
+        expect(expectedUsage.outputTokens).toBeGreaterThan(0);
+
+        const usageRows = await api.queryUsage({
+          from: usageFrom,
+          to: new Date(Date.now() + 1_000).toISOString(),
+          runId,
+        });
+        expect(usageRows, 'usage API returns this run').toHaveLength(1);
+        expect(usageRows[0]).toMatchObject(expectedUsage);
         evidence.finishPhases();
       }),
   );
