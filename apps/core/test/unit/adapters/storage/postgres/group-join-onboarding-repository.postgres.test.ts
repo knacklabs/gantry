@@ -80,6 +80,8 @@ describe('PostgresGroupJoinOnboardingRepository', () => {
     // row whose settings commit never landed) stays reclaimable later.
     const setWhere = flattenSqlShape(conflict.setWhere);
     expect(setWhere).toContain('updated_at');
+    // A left row reclaims immediately (kick + re-add is deliberate).
+    expect(setWhere).toContain('left_at');
     expect(setWhere).not.toContain('registered');
     expect(conflict.set).toMatchObject({
       // A reclaim rotates the id (fencing out stale claimants) and clears

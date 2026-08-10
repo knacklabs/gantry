@@ -67,7 +67,13 @@ export class PostgresGroupJoinOnboardingRepository implements GroupJoinOnboardin
           leftAt: null,
           updatedAt: input.now,
         },
-        setWhere: sql`${table.updatedAt} < ${reclaimAfter}`,
+        // A row marked left is not an active claim - the bot was removed -
+        // so a deliberate kick + re-add reclaims IMMEDIATELY. Everything
+        // else (incl. a reverted transient failure) waits out the window:
+        // that latency is the accepted cost of burst dedup, deliberately
+        // NOT solved with a released-state protocol (review oscillated
+        // here four rounds; this is the pinned shape).
+        setWhere: sql`${table.updatedAt} < ${reclaimAfter} or ${table.leftAt} is not null`,
       })
       .returning();
     return row ? mapRow(row) : null;
