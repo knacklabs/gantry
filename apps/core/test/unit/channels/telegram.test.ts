@@ -7027,3 +7027,36 @@ describe('createTelegramChannel factory', () => {
     expect(result).toBeInstanceOf(TelegramChannel);
   });
 });
+
+describe('telegram group join', () => {
+  it('recognised installer bootstraps in-group; unrecognised gets guidance; DM prompt flow gone', async () => {
+    const recognised = createGroupJoinOnboardingOpts();
+    let channel = new TelegramChannel('test-token', recognised.opts);
+    await channel.connect();
+    await triggerMyChatMember(createMyChatMemberCtx({}));
+    expect(recognised.coordinator.seedInstaller).toHaveBeenCalledWith(
+      expect.objectContaining({ installerExternalId: '111' }),
+    );
+    expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+      -1001234,
+      "I'm set up. The person who added me can approve what I'm allowed to do here.",
+    );
+
+    const unrecognised = createGroupJoinOnboardingOpts();
+    channel = new TelegramChannel('test-token', unrecognised.opts);
+    await channel.connect();
+    await triggerMyChatMember(createMyChatMemberCtx({ fromId: 999 }));
+    expect(unrecognised.coordinator.seedInstaller).not.toHaveBeenCalled();
+    expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+      -1001234,
+      "I don't know who added me. An existing approver can register this group from settings.",
+    );
+
+    // The DM Yes/No propagation flow is deleted outright (0119 amendment):
+    // no callback handler export remains, and every message in both flows
+    // above targeted the GROUP chat - never a DM.
+    const onboarding =
+      await import('@core/channels/telegram/group-join-onboarding.js');
+    expect('handleTelegramGroupJoinCallback' in onboarding).toBe(false);
+  });
+});
