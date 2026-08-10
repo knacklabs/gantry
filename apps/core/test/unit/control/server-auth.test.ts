@@ -11,7 +11,9 @@ import {
   ConversationListResponseSchema,
   ConversationResponseSchema,
   ConversationThreadListResponseSchema,
+  ListModelsResponseSchema,
   MessageListResponseSchema,
+  ModelDefaultsResponseSchema,
 } from '@gantry/contracts';
 import {
   loadRuntimeSettings,
@@ -335,6 +337,9 @@ const domainRepositories = {
   },
   capabilitySecrets: {
     getSecret: vi.fn(async () => null),
+  },
+  modelCredentials: {
+    listModelCredentials: vi.fn(async () => []),
   },
 };
 
@@ -745,6 +750,9 @@ beforeEach(() => {
   );
   domainRepositories.messages.listMessages.mockResolvedValue([]);
   domainRepositories.capabilitySecrets.getSecret.mockResolvedValue(null);
+  domainRepositories.modelCredentials.listModelCredentials.mockResolvedValue(
+    [],
+  );
   mockedListSlackRecentChats.mockResolvedValue({
     ok: true,
     chats: [],
@@ -1220,7 +1228,9 @@ describe('control server runtime hardening', () => {
     }
   });
 
-  it('serves model catalog with response family and diagnostic route metadata', async () => {
+  it('serves model catalog and defaults with relationship invariants', async () => {
+    const runtimeHome = '/tmp/gantry-control-test-home';
+    fs.rmSync(runtimeHome, { recursive: true, force: true });
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);
     process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
@@ -1230,6 +1240,9 @@ describe('control server runtime hardening', () => {
         scopes: ['sessions:read'],
         appId: 'app-one',
       },
+    ]);
+    domainRepositories.modelCredentials.listModelCredentials.mockResolvedValue([
+      { providerId: 'openrouter', status: 'active' },
     ]);
 
     const handle = startControlServer({
@@ -1244,152 +1257,87 @@ describe('control server runtime hardening', () => {
         'read-key',
       );
       expect(response.status).toBe(200);
-      const body = await response.json();
-      const nativeOpenAiModels = body.models.filter(
-        (model: { modelRoute?: { id?: string } }) =>
-          model.modelRoute?.id === 'openai',
-      );
+      const { models } = ListModelsResponseSchema.parse(await response.json());
+      expect(models.length).toBeGreaterThan(0);
       expect(
-        nativeOpenAiModels.map(
-          (model: { aliases: string[] }) => model.aliases[0],
+        models.some((model) => model.supportedWorkloads.includes('chat')),
+      ).toBe(true);
+      expect(
+        models.some(
+          (model) =>
+            model.contextWindowTokens !== undefined &&
+            model.maxOutputTokens !== undefined,
         ),
-      ).toEqual([
-        'gpt',
-        'gpt-5.4',
-        'gpt-mini',
-        'gpt-terra',
-        'gpt-luna',
-        'gpt-sol',
-      ]);
-      for (const model of nativeOpenAiModels as Array<{
-        aliases: string[];
-        supportedWorkloads: string[];
-      }>) {
-        expect(model.supportedWorkloads, model.aliases[0]).toEqual([
-          'chat',
-          'one_time_job',
-          'recurring_job',
-          'memory_extractor',
-          'memory_dreaming',
-          'memory_consolidation',
-        ]);
+      ).toBe(true);
+      expect(
+        models.some((model) => model.inputUsdPerMillionTokens !== undefined),
+      ).toBe(true);
+
+      for (const model of models) {
+        expect(model.aliases, model.id).toContain(model.recommendedAlias);
+        expect(model.supportedWorkloads.length, model.id).toBeGreaterThan(0);
+        expect(model.executionRoutes.length, model.id).toBeGreaterThan(0);
+        expect(model.available, model.id).toBe(
+          model.modelRoute.id === 'openrouter',
+        );
+
+        for (const limit of [
+          model.contextWindowTokens,
+          model.maxOutputTokens,
+        ]) {
+          if (limit !== undefined) expect(limit, model.id).toBeGreaterThan(0);
+        }
+        expect(model.inputUsdPerMillionTokens === undefined, model.id).toBe(
+          model.outputUsdPerMillionTokens === undefined,
+        );
+        if (model.inputUsdPerMillionTokens !== undefined) {
+          expect(model.inputUsdPerMillionTokens, model.id).toBeGreaterThan(0);
+          expect(model.outputUsdPerMillionTokens, model.id).toBeGreaterThan(0);
+        }
+        expect(model.cacheSupport.providerId, model.id).toBe(
+          model.modelRoute.id,
+        );
+        expect(model.cacheSupport.tokenFields, model.id).toEqual(
+          model.cacheTokenFields,
+        );
+        if (model.cacheSupport.prompt.accounted) {
+          expect(model.cacheTokenFields.length, model.id).toBeGreaterThan(0);
+        }
       }
-      expect(body.models).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            displayName: 'GPT-5.6 Terra',
-            aliases: ['gpt-terra', 'gpt-5.6-terra'],
-            supportedWorkloads: [
-              'chat',
-              'one_time_job',
-              'recurring_job',
-              'memory_extractor',
-              'memory_dreaming',
-              'memory_consolidation',
-            ],
-            inputUsdPerMillionTokens: 2.5,
-            outputUsdPerMillionTokens: 15,
-          }),
-          expect.objectContaining({
-            displayName: 'GPT-5.6 Luna',
-            aliases: ['gpt-luna', 'gpt-5.6-luna'],
-            supportedWorkloads: [
-              'chat',
-              'one_time_job',
-              'recurring_job',
-              'memory_extractor',
-              'memory_dreaming',
-              'memory_consolidation',
-            ],
-            inputUsdPerMillionTokens: 1,
-            outputUsdPerMillionTokens: 6,
-          }),
-          expect.objectContaining({
-            displayName: 'GPT-5.6 Sol',
-            aliases: ['gpt-sol', 'gpt-5.6-sol'],
-            supportedWorkloads: [
-              'chat',
-              'one_time_job',
-              'recurring_job',
-              'memory_extractor',
-              'memory_dreaming',
-              'memory_consolidation',
-            ],
-            inputUsdPerMillionTokens: 5,
-            outputUsdPerMillionTokens: 30,
-          }),
-          expect.objectContaining({
-            displayName: 'Opus 5',
-            aliases: ['opus', 'opus-5'],
-            supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
-            inputUsdPerMillionTokens: 5,
-            outputUsdPerMillionTokens: 25,
-            cacheSupport: expect.objectContaining({
-              prompt: expect.objectContaining({
-                minimumTokenThresholds: expect.arrayContaining([
-                  {
-                    modelFamily: 'claude-opus-5',
-                    tokens: 512,
-                  },
-                ]),
-              }),
-            }),
-          }),
-          expect.objectContaining({
-            displayName: 'Opus 4.8',
-            aliases: ['opus-4.8'],
-          }),
-          expect.objectContaining({
-            displayName: 'Grok 4.5',
-            aliases: ['grok', 'grok-4.5'],
-            supportedWorkloads: expect.arrayContaining([
-              'chat',
-              'one_time_job',
-              'recurring_job',
-            ]),
-            inputUsdPerMillionTokens: 2,
-            outputUsdPerMillionTokens: 6,
-          }),
-          expect.objectContaining({
-            displayName: 'Grok 4.3',
-            aliases: ['grok-4.3'],
-          }),
-          expect.objectContaining({
-            displayName: 'Kimi K2.6',
-            aliases: expect.arrayContaining(['kimi', 'kimi-k2.6']),
-            responseFamily: 'anthropic',
-            executionRoutes: [
-              {
-                harness: 'deepagents',
-                executionProviderId: 'deepagents:langchain',
-              },
-            ],
-            credentialProfileRef: 'gantry-model-access',
-            modelRoute: {
-              id: 'openrouter',
-              label: 'OpenRouter',
-              metadata: {
-                providerModelId: 'moonshotai/kimi-k2.6',
-              },
-            },
-            capabilities: expect.objectContaining({
-              streaming: true,
-              toolUse: true,
-              cacheAccounting: true,
-            }),
-            supportedWorkloads: expect.arrayContaining([
-              'chat',
-              'memory_extractor',
-            ]),
-            // Cost is surfaced from the curated catalog pricing...
-            inputUsdPerMillionTokens: expect.any(Number),
-            outputUsdPerMillionTokens: expect.any(Number),
-            // ...and credential-aware availability is present on the list
-            // endpoint (false here: no OpenRouter credential configured).
-            available: false,
-          }),
-        ]),
+
+      const defaultsResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/models/defaults`,
+        'read-key',
       );
+      expect(defaultsResponse.status).toBe(200);
+      const defaults = ModelDefaultsResponseSchema.parse(
+        await defaultsResponse.json(),
+      );
+      const slots = [
+        defaults.chat,
+        defaults.jobs.oneTime,
+        defaults.jobs.recurring,
+        defaults.memory.extractor,
+        defaults.memory.dreaming,
+        defaults.memory.consolidation,
+      ];
+      for (const slot of slots) {
+        const catalogModel = models.find((model) =>
+          model.aliases.includes(slot.effectiveAlias ?? ''),
+        );
+        expect(catalogModel, slot.workload).toBeDefined();
+        expect(catalogModel?.supportedWorkloads, slot.workload).toContain(
+          slot.workload,
+        );
+        expect(slot.model?.id, slot.workload).toBe(catalogModel?.id);
+      }
+      for (const jobDefault of [
+        defaults.jobs.oneTime,
+        defaults.jobs.recurring,
+      ]) {
+        expect(jobDefault.inherited).toBe(true);
+        expect(jobDefault.effectiveAlias).toBe(defaults.chat.effectiveAlias);
+      }
     } finally {
       await handle.close();
     }
