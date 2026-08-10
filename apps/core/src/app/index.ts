@@ -115,6 +115,12 @@ export async function startGantryRuntime(
       repository: () => getRuntimeStorage().repositories.groupJoinOnboarding,
       reloadRuntimeState: () => app.loadState(),
     }),
+    resolvePersonIdentity: resolveRuntimePersonIdentity,
+    hasDirectConversationWithPerson: (appId, personId) =>
+      getRuntimeStorage().repositories.groupJoinOnboarding.hasDirectConversationWithPerson(
+        appId,
+        personId,
+      ),
     publishRuntimeEvent: async (event) => {
       await getRuntimeEventExchange().publish(event);
     },

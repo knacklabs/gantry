@@ -30,6 +30,10 @@ import type {
   ConversationContextHydrationResult,
 } from '../domain/ports/conversation-context-hydration.js';
 import type { InboundAttachmentReader } from '../shared/inbound-attachment-writer.js';
+import type {
+  IdentityResolveInput,
+  IdentityResolveResult,
+} from '../application/identity/person-identity-service.js';
 
 export type {
   ConversationContextHydrationCoverage,
@@ -106,6 +110,13 @@ export interface ChannelOpts {
   liveUxBindingGeneration?: () => number | undefined;
   runtimeSecrets?: RuntimeSecretProvider;
   groupJoinOnboarding?: GroupJoinOnboardingCoordinator;
+  resolvePersonIdentity?: (
+    input: IdentityResolveInput,
+  ) => Promise<IdentityResolveResult>;
+  hasDirectConversationWithPerson?: (
+    appId: string,
+    personId: string,
+  ) => Promise<boolean>;
   distrustHistoryCoverage?: (providerAccountIds: readonly string[]) => void;
   setHistoryCoverageInboundActive?: (
     providerAccountIds: readonly string[],

@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 
 import type {
   GroupJoinOnboardingRecord,
@@ -6,14 +6,21 @@ import type {
   GroupJoinOnboardingStatus,
 } from '../../../../domain/ports/group-join-onboarding.js';
 import * as pgSchema from '../schema/schema.js';
-import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import {
+  PostgresCanonicalGraphRepository,
+  type CanonicalDb,
+} from './canonical-graph-repository.postgres.js';
 
 const table = pgSchema.groupJoinOnboardingPostgres;
+
+// ponytail: fixed 5-minute claim window; make it configurable only if a
+// provider's duplicate-delivery horizon ever proves longer.
+const BOOTSTRAP_CLAIM_WINDOW_MS = 5 * 60_000;
 
 export class PostgresGroupJoinOnboardingRepository implements GroupJoinOnboardingRepository {
   constructor(private readonly db: CanonicalDb) {}
 
-  async recordPrompt(input: {
+  async recordBootstrap(input: {
     id: string;
     providerAccountId: string;
     chatJid: string;
@@ -22,12 +29,18 @@ export class PostgresGroupJoinOnboardingRepository implements GroupJoinOnboardin
     promptConversationJid: string;
     promptAgentFolder: string;
     now: string;
-  }): Promise<GroupJoinOnboardingRecord> {
+  }): Promise<GroupJoinOnboardingRecord | null> {
     // The caller's conversation-route check is the single authority for
-    // "already registered" - a join event only reaches recordPrompt when no
-    // route exists. A stale 'registered' row (conversation later removed from
-    // settings) must be re-prompted, not preserved, or the group could never
-    // re-onboard.
+    // "already registered" — a join
+    // event only reaches this claim when NO route exists, so ANY stale row
+    // here (failed attempt, manual fallback, or a 'registered' row whose
+    // settings commit never landed / was later removed) is reclaimable.
+    // The ownership window is the only guard: duplicate event bursts and
+    // concurrent deliveries inside it collapse to one claim, atomically in
+    // this one statement, while a genuinely later re-add retries cleanly.
+    const reclaimAfter = new Date(
+      Date.parse(input.now) - BOOTSTRAP_CLAIM_WINDOW_MS,
+    ).toISOString();
     const [row] = await this.db
       .insert(table)
       .values({
@@ -40,53 +53,28 @@ export class PostgresGroupJoinOnboardingRepository implements GroupJoinOnboardin
       .onConflictDoUpdate({
         target: [table.providerAccountId, table.chatJid],
         set: {
+          // A reclaim is a genuinely NEW claim: rotate the id so a stale
+          // claimant's markRegistered({id: old}) fences out, and clear the
+          // terminal timestamps so a re-added (previously left/dismissed/
+          // registered) group can complete onboarding again.
           id: input.id,
-          status: 'prompted',
           adder: input.adder,
           approver: input.approver,
-          promptConversationJid: input.promptConversationJid,
-          promptAgentFolder: input.promptAgentFolder,
+          status: 'prompted',
           promptedAt: input.now,
           dismissedAt: null,
           registeredAt: null,
           leftAt: null,
           updatedAt: input.now,
         },
+        // A row marked left is not an active claim - the bot was removed -
+        // so a deliberate kick + re-add reclaims IMMEDIATELY. Everything
+        // else (incl. a reverted transient failure) waits out the window:
+        // that latency is the accepted cost of burst dedup, deliberately
+        // NOT solved with a released-state protocol (review oscillated
+        // here four rounds; this is the pinned shape).
+        setWhere: sql`${table.updatedAt} < ${reclaimAfter} or ${table.leftAt} is not null`,
       })
-      .returning();
-    if (!row) throw new Error('Failed to record group join onboarding prompt');
-    return mapRow(row);
-  }
-
-  async getById(id: string): Promise<GroupJoinOnboardingRecord | null> {
-    const [row] = await this.db
-      .select()
-      .from(table)
-      .where(eq(table.id, id))
-      .limit(1);
-    return row ? mapRow(row) : null;
-  }
-
-  async markDismissed(input: {
-    id: string;
-    now: string;
-  }): Promise<GroupJoinOnboardingRecord | null> {
-    const [row] = await this.db
-      .update(table)
-      .set({
-        status: 'dismissed',
-        dismissedAt: input.now,
-        updatedAt: input.now,
-      })
-      // leftAt guard: once the bot was removed from the group, the stale
-      // prompt's buttons must settle as "no longer active", not act.
-      .where(
-        and(
-          eq(table.id, input.id),
-          eq(table.status, 'prompted'),
-          isNull(table.leftAt),
-        ),
-      )
       .returning();
     return row ? mapRow(row) : null;
   }
@@ -145,6 +133,69 @@ export class PostgresGroupJoinOnboardingRepository implements GroupJoinOnboardin
       )
       .returning();
     return row ? mapRow(row) : null;
+  }
+
+  async hasDirectConversationWithPerson(
+    appId: string,
+    personId: string,
+  ): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: pgSchema.conversationsPostgres.id })
+      .from(pgSchema.userAliasesPostgres)
+      .innerJoin(
+        pgSchema.conversationParticipantsPostgres,
+        and(
+          eq(
+            pgSchema.conversationParticipantsPostgres.appId,
+            pgSchema.userAliasesPostgres.appId,
+          ),
+          eq(
+            pgSchema.conversationParticipantsPostgres.userId,
+            pgSchema.userAliasesPostgres.userId,
+          ),
+        ),
+      )
+      .innerJoin(
+        pgSchema.conversationsPostgres,
+        and(
+          eq(
+            pgSchema.conversationsPostgres.appId,
+            pgSchema.conversationParticipantsPostgres.appId,
+          ),
+          eq(
+            pgSchema.conversationsPostgres.id,
+            pgSchema.conversationParticipantsPostgres.conversationId,
+          ),
+        ),
+      )
+      .where(
+        and(
+          eq(pgSchema.userAliasesPostgres.appId, appId),
+          eq(pgSchema.userAliasesPostgres.userId, personId),
+          isNull(pgSchema.userAliasesPostgres.retiredAt),
+          eq(pgSchema.conversationParticipantsPostgres.status, 'active'),
+          eq(pgSchema.conversationsPostgres.kind, 'direct'),
+          eq(pgSchema.conversationsPostgres.status, 'active'),
+        ),
+      )
+      .limit(1);
+    return Boolean(row);
+  }
+
+  async ensureInstallerParticipant(input: {
+    conversationId: string;
+    provider: string;
+    providerAccountId: string;
+    installerExternalId: string;
+    now: string;
+  }): Promise<void> {
+    await new PostgresCanonicalGraphRepository(this.db).ensureParticipant({
+      conversationId: input.conversationId,
+      providerId: input.provider,
+      providerAccountId: input.providerAccountId,
+      externalUserId: input.installerExternalId,
+      timestamp: input.now,
+    });
   }
 }
 

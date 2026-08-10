@@ -198,6 +198,11 @@ import {
   SLACK_SOCKET_MODE_DISCONNECTED_EVENT,
   SLACK_SOCKET_MODE_RECONNECT_EVENT,
 } from '@core/channels/slack/channel-connect.js';
+import { noticeManualGroupInstall } from '@core/channels/group-install-bootstrap.js';
+import { handleSlackMemberJoinedChannel } from '@core/channels/slack/channel-interactions.js';
+import { handleTelegramGroupMembershipUpdate } from '@core/channels/telegram/group-join-onboarding.js';
+import '@core/channels/register-builtins.js';
+import { listChannelProviders } from '@core/channels/provider-registry.js';
 import type {
   PermissionApprovalRequest,
   PermissionCallbackClaim,
@@ -288,6 +293,25 @@ function createOptsWithApproverHook(
       allowedUsers.includes(input.userId),
     ),
   };
+}
+
+function createGroupJoinOpts() {
+  const coordinator = {
+    beginBootstrap: vi.fn(async () => ({ id: 'join-1' })),
+    seedInstaller: vi.fn(async () => true),
+    markLeft: vi.fn(async () => undefined),
+  };
+  const channelOpts = {
+    ...createOpts(),
+    groupJoinOnboarding: coordinator,
+    resolvePersonIdentity: vi.fn(async ({ externalUserId }) => ({
+      status: 'resolved' as const,
+      personId: `person-${externalUserId}`,
+      memoryHydrationEligible: true,
+    })),
+    hasDirectConversationWithPerson: vi.fn(async () => true),
+  };
+  return { channelOpts, coordinator };
 }
 
 async function flushSlackPromptRegistration(): Promise<void> {
@@ -9516,5 +9540,111 @@ describe('Slack channel', () => {
     await vi.advanceTimersByTimeAsync(300000);
     expect(respond).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
+  });
+});
+
+describe('provider group join parity', () => {
+  it('slack inviter bootstraps; discord manual fallback dedups', async () => {
+    const { channelOpts, coordinator } = createGroupJoinOpts();
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      channelOpts as any,
+    );
+    await channel.connect();
+    const handler = appRef.current.eventHandlers.get(
+      'member_joined_channel',
+    )?.[0];
+    expect(handler).toBeTypeOf('function');
+
+    await handler?.({
+      event: {
+        user: 'U_BOT',
+        channel: 'C_NEW',
+        inviter: 'U_INSTALLER',
+      },
+    });
+
+    expect(channelOpts.onChatMetadata).toHaveBeenCalledWith(
+      'sl:C_NEW',
+      expect.any(String),
+      'ops',
+      'slack',
+      true,
+      { providerAccountId: 'slack_default' },
+    );
+    expect(coordinator.seedInstaller).toHaveBeenCalledWith({
+      id: 'join-1',
+      provider: 'slack',
+      externalId: 'C_NEW',
+      title: 'ops',
+      installerExternalId: 'U_INSTALLER',
+    });
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith({
+      channel: 'C_NEW',
+      text: "I'm set up. The person who added me can approve what I'm allowed to do here.",
+    });
+
+    coordinator.seedInstaller.mockClear();
+    vi.mocked(appRef.current.client.chat.postMessage).mockClear();
+    await handler?.({
+      event: { user: 'U_BOT', channel: 'C_MANUAL' },
+    });
+    expect(coordinator.seedInstaller).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith({
+      channel: 'C_MANUAL',
+      text: "I don't know who added me. An existing approver can register this group from settings.",
+    });
+
+    // Discord manual fallback: one notice per guild, settled terminally so a
+    // reconnect refire (second call) sends nothing.
+    const discordSend = vi.fn(async () => undefined);
+    const seedNoticeSettled = vi.fn(async () => null);
+    const discordCoordinator = {
+      beginBootstrap: vi
+        .fn()
+        .mockResolvedValueOnce({ id: 'notice-1' })
+        .mockResolvedValueOnce(null),
+      seedInstaller: vi.fn(),
+      seedNoticeSettled,
+      markLeft: vi.fn(),
+    };
+    const discordOpts = {
+      groupJoinOnboarding: discordCoordinator,
+    } as never;
+    await expect(
+      noticeManualGroupInstall({
+        opts: discordOpts,
+        providerAccountId: 'discord_default',
+        dedupJid: 'dc:guild:G1',
+        send: discordSend,
+      }),
+    ).resolves.toBe('manual');
+    expect(discordSend).toHaveBeenCalledWith(
+      "I don't know who added me. An existing approver can register this group from settings.",
+    );
+    expect(seedNoticeSettled).toHaveBeenCalledWith({ id: 'notice-1' });
+    discordSend.mockClear();
+    await expect(
+      noticeManualGroupInstall({
+        opts: discordOpts,
+        providerAccountId: 'discord_default',
+        dedupJid: 'dc:guild:G1',
+        send: discordSend,
+      }),
+    ).resolves.toBe('deduplicated');
+    expect(discordSend).not.toHaveBeenCalled();
+
+    const installerExtractors: Record<string, unknown> = {
+      slack: handleSlackMemberJoinedChannel,
+      telegram: handleTelegramGroupMembershipUpdate,
+    };
+    for (const provider of listChannelProviders().filter(
+      (candidate) => candidate.extractsGroupInstaller,
+    )) {
+      expect(installerExtractors[provider.id], provider.id).toBeTypeOf(
+        'function',
+      );
+    }
   });
 });

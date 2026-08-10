@@ -40,6 +40,13 @@ Teams, or Telegram IDs are accepted as a fallback only after Gantry verifies
 the bot can see the conversation and post or, for Telegram, that the bot is a member
 and forum topics are available when topic sessions are requested.
 
+Group installer onboarding is provider-neutral after the adapter extracts what
+its provider can prove. Telegram and Slack can identify the installer and may
+auto-register a group only when that person already has a direct conversation
+with Gantry. Discord does not expose the inviter, so a new guild receives the
+manual-setup message once. Teams remains manual: its current adapter has no live
+activity surface from which to detect an install or extract an installer.
+
 ## InteractionDescriptor
 
 `InteractionDescriptor` is the canonical shape for permission prompts,
@@ -88,7 +95,7 @@ Use these rules in agent prompts, docs, and admin surfaces:
 | Send progress, status, or a normal message while still running | `send_message`                                | Delivers plain channel text using the active channel formatting dialect.                                                                                                                                                                                                                                                        |
 | Ask the user to choose one option                              | `ask_user_question` with `multiSelect: false` | Slack buttons/radio, Telegram inline buttons, Teams action buttons, Web/API single-select control.                                                                                                                                                                                                                              |
 | Ask the user to choose multiple options                        | `ask_user_question` with `multiSelect: true`  | Slack checkboxes/multi-select plus Done, Telegram toggle buttons plus Done, Teams `Input.ChoiceSet` plus Done, Web/API multi-select control.                                                                                                                                                                                    |
-| Inspect current continuity                                     | `continuity_summary`                          | Returns scoped continuity data for agent reasoning (baseline memory tool); channels render any human-facing summary only through normal message descriptors.                                                                                                                                                                |
+| Inspect current continuity                                     | `continuity_summary`                          | Returns scoped continuity data for agent reasoning (baseline memory tool); channels render any human-facing summary only through normal message descriptors.                                                                                                                                                                    |
 | Manage Gantry FileArtifacts                                    | `file`                                        | Uses virtual artifact scopes and compact descriptors; channel adapters never receive host filesystem paths or storage refs as user-facing copy.                                                                                                                                                                                 |
 | Install a skill package                                        | `request_skill_install`                       | Renders `SKILL.md` preview, files, dependencies, or an exact installer command such as `npx ... install <skill>` that will run in host-controlled staging and import the produced package, with activation timing and approve/deny.                                                                                             |
 | Propose agent-created skill files                              | `request_skill_proposal`                      | Renders `SKILL.md` preview, file list, risk summary, approve/deny.                                                                                                                                                                                                                                                              |

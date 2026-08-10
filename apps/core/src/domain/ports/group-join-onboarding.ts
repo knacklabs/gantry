@@ -18,7 +18,7 @@ export interface GroupJoinOnboardingRecord {
 }
 
 export interface GroupJoinOnboardingRepository {
-  recordPrompt(input: {
+  recordBootstrap(input: {
     id: string;
     providerAccountId: string;
     chatJid: string;
@@ -26,11 +26,6 @@ export interface GroupJoinOnboardingRepository {
     approver: string;
     promptConversationJid: string;
     promptAgentFolder: string;
-    now: string;
-  }): Promise<GroupJoinOnboardingRecord>;
-  getById(id: string): Promise<GroupJoinOnboardingRecord | null>;
-  markDismissed(input: {
-    id: string;
     now: string;
   }): Promise<GroupJoinOnboardingRecord | null>;
   markRegistered(input: {
@@ -46,24 +41,36 @@ export interface GroupJoinOnboardingRepository {
     chatJid: string;
     now: string;
   }): Promise<GroupJoinOnboardingRecord | null>;
+  hasDirectConversationWithPerson(
+    appId: string,
+    personId: string,
+  ): Promise<boolean>;
+  ensureInstallerParticipant(input: {
+    conversationId: string;
+    provider: string;
+    providerAccountId: string;
+    installerExternalId: string;
+    now: string;
+  }): Promise<void>;
 }
 
 export interface GroupJoinOnboardingCoordinator {
-  recordPrompt(input: {
+  beginBootstrap(input: {
     providerAccountId: string;
     chatJid: string;
-    adder: string;
-    approver: string;
-    promptConversationJid: string;
-    promptAgentFolder: string;
-  }): Promise<GroupJoinOnboardingRecord>;
-  getById(id: string): Promise<GroupJoinOnboardingRecord | null>;
-  dismiss(id: string): Promise<GroupJoinOnboardingRecord | null>;
-  register(input: {
+    installerExternalId?: string;
+  }): Promise<GroupJoinOnboardingRecord | null>;
+  seedInstaller(input: {
     id: string;
+    provider: string;
     externalId: string;
     title: string;
-    approvedBy: string;
+    installerExternalId: string;
+  }): Promise<GroupJoinOnboardingRecord | null>;
+  /** Settle a manual-fallback notice terminally (no registration, no seed) —
+   * used where the join surface refires on reconnect (Discord). */
+  seedNoticeSettled?(input: {
+    id: string;
   }): Promise<GroupJoinOnboardingRecord | null>;
   markLeft(input: {
     providerAccountId: string;

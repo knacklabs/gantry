@@ -22,6 +22,7 @@ import {
   type ConversationContextHydrationResult,
 } from './channel-provider.js';
 import { discordActionComponents } from './discord-components.js';
+import { noticeManualGroupInstall } from './group-install-bootstrap.js';
 import {
   formatDiscordAgentTodo,
   postDiscordMessageParts,
@@ -92,6 +93,7 @@ export class DiscordChannel implements ChannelAdapter {
   readonly liveUx;
   private gateway: DiscordGatewayConnection | null = null;
   private botUserId = '';
+  private readonly knownGuildIds = new Set<string>();
   private activeProgressMessages = new Map<string, string>();
   private progressIdentityLifecycle = new DiscordProgressIdentityLifecycle();
   private activeStreams = new Map<
@@ -567,11 +569,51 @@ export class DiscordChannel implements ChannelAdapter {
         (this.opts.providerAccountId ? [this.opts.providerAccountId] : []),
       onReady: (ready) => {
         this.botUserId = ready.user?.id || '';
+        // READY lists every guild the bot is ALREADY in; a GUILD_CREATE for
+        // one of these is gateway synchronization, not a new install.
+        for (const guild of ready.guilds ?? []) {
+          if (guild.id) this.knownGuildIds.add(guild.id);
+        }
       },
       onMessageCreate: (message) => this.handleMessageCreate(message),
       onInteraction: (interaction) =>
         this.interactions.handleInteraction(interaction),
       onMessageAttachmentsDeleted: this.opts.onMessageAttachmentsDeleted,
+      onGuildCreate: (guild) => this.handleGuildCreate(guild),
+    });
+  }
+
+  private async handleGuildCreate(guild: {
+    id?: string;
+    system_channel_id?: string | null;
+    unavailable?: boolean;
+  }): Promise<void> {
+    const guildId = guild.id?.trim();
+    const providerAccountId = this.opts.providerAccountId?.trim();
+    if (!guildId || !providerAccountId) return;
+    // An unavailable stub precedes the full payload for a new join; deciding
+    // on it would settle the notice with no channel data. Wait for the full
+    // GUILD_CREATE.
+    if (guild.unavailable) return;
+    // Only a guild NOT announced in READY is a genuine new join; replayed
+    // GUILD_CREATEs for known guilds are connection sync noise. Deliberate
+    // limit (0119, simplicity over machinery): a guild installed while the
+    // bot was OFFLINE appears in the next READY and gets no courtesy notice
+    // - Discord registration is manual either way, and a durable membership
+    // baseline just to guarantee one best-effort message is not worth it.
+    if (this.knownGuildIds.has(guildId)) return;
+    this.knownGuildIds.add(guildId);
+    // GUILD_CREATE carries no inviter, so Discord always takes the manual
+    // path (decision 0119): one notice to the system channel when there is
+    // one, silence otherwise — never guess a channel.
+    const systemChannelId = guild.system_channel_id?.trim();
+    await noticeManualGroupInstall({
+      opts: this.opts,
+      providerAccountId,
+      dedupJid: `dc:guild:${guildId}`,
+      send: systemChannelId
+        ? (text) => this.sendMessage(`dc:${systemChannelId}`, text)
+        : async () => undefined,
     });
   }
 

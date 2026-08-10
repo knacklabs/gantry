@@ -1,4 +1,5 @@
 import { logger } from '../../infrastructure/logging/logger.js';
+import type { ChannelOpts } from '../channel-provider.js';
 import {
   PermissionApprovalCancellation,
   PermissionApprovalDecision,
@@ -37,6 +38,39 @@ import {
   ingestSlackSlashCommand as ingestSlackSlashCommandEvent,
 } from './channel-message-ingest.js';
 import { registerSlackUserQuestionHandlers } from './user-question-interactions.js';
+import { bootstrapGroupInstall } from '../group-install-bootstrap.js';
+
+export interface SlackMemberJoinedChannelEvent {
+  user?: string;
+  channel?: string;
+  inviter?: string;
+}
+
+export async function handleSlackMemberJoinedChannel(input: {
+  event: SlackMemberJoinedChannelEvent;
+  botUserId: string | null;
+  opts: ChannelOpts;
+  resolveChannelName: (channelId: string) => Promise<string>;
+  send: (channelId: string, text: string) => Promise<unknown>;
+}): Promise<void> {
+  const channelId = input.event.channel?.trim();
+  if (!channelId || !input.botUserId || input.event.user !== input.botUserId) {
+    return;
+  }
+  const providerAccountId = input.opts.providerAccountId?.trim();
+  if (!providerAccountId) return;
+
+  await bootstrapGroupInstall({
+    opts: input.opts,
+    provider: 'slack',
+    providerAccountId,
+    chatJid: `sl:${channelId}`,
+    title: await input.resolveChannelName(channelId),
+    installerExternalId: input.event.inviter,
+    send: (text) => input.send(channelId, text),
+  });
+}
+
 export abstract class SlackChannelInteractions extends SlackChannelState {
   async cancelPendingPermission(
     cancellation: PermissionApprovalCancellation,
@@ -270,6 +304,16 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       });
       this.app.event('app_mention', async (args: any) => {
         await this.ingestSlackMessage(args.event as SlackMessageLike);
+      });
+      this.app.event('member_joined_channel', async (args: any) => {
+        await handleSlackMemberJoinedChannel({
+          event: args.event as SlackMemberJoinedChannelEvent,
+          botUserId: this.botUserId,
+          opts: this.opts,
+          resolveChannelName: (channelId) => this.resolveChannelName(channelId),
+          send: (channelId, text) =>
+            this.app!.client.chat.postMessage({ channel: channelId, text }),
+        });
       });
       this.app.command('/gantry', async (args: any) => {
         await args.ack();

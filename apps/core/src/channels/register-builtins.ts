@@ -140,6 +140,7 @@ function isChannelEnabled(
 const telegramProvider: Provider = {
   id: 'telegram',
   label: 'Telegram',
+  extractsGroupInstaller: true,
   jidPrefix: 'tg:',
   folderPrefix: 'telegram_',
   isGroupJid: (jid: string) => jid.startsWith('tg:-'),
@@ -168,6 +169,7 @@ const telegramProvider: Provider = {
 const slackProvider: Provider = {
   id: 'slack',
   label: 'Slack',
+  extractsGroupInstaller: true,
   jidPrefix: 'sl:',
   folderPrefix: 'slack_',
   isGroupJid: () => true,
