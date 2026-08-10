@@ -81,7 +81,15 @@ describe('PostgresGroupJoinOnboardingRepository', () => {
     const setWhere = flattenSqlShape(conflict.setWhere);
     expect(setWhere).toContain('updated_at');
     expect(setWhere).not.toContain('registered');
-    expect(conflict.set).toMatchObject({ status: 'prompted' });
+    expect(conflict.set).toMatchObject({
+      // A reclaim rotates the id (fencing out stale claimants) and clears
+      // every terminal timestamp so the re-add can complete onboarding.
+      id: row.id,
+      status: 'prompted',
+      dismissedAt: null,
+      registeredAt: null,
+      leftAt: null,
+    });
   });
 
   it('recognises only an active person participating in an active direct conversation', async () => {

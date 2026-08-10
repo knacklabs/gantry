@@ -53,10 +53,18 @@ export class PostgresGroupJoinOnboardingRepository implements GroupJoinOnboardin
       .onConflictDoUpdate({
         target: [table.providerAccountId, table.chatJid],
         set: {
+          // A reclaim is a genuinely NEW claim: rotate the id so a stale
+          // claimant's markRegistered({id: old}) fences out, and clear the
+          // terminal timestamps so a re-added (previously left/dismissed/
+          // registered) group can complete onboarding again.
+          id: input.id,
           adder: input.adder,
           approver: input.approver,
           status: 'prompted',
           promptedAt: input.now,
+          dismissedAt: null,
+          registeredAt: null,
+          leftAt: null,
           updatedAt: input.now,
         },
         setWhere: sql`${table.updatedAt} < ${reclaimAfter}`,
