@@ -10,6 +10,7 @@ export function registerWorkerPermissionRunRestriction(input: {
   responseKeyId: string;
   hideAuthorityTools: boolean;
   runKind: 'interactive' | 'scheduled';
+  memoryUserId?: string;
   jobId?: string;
   runId?: string;
 }): void {
@@ -20,7 +21,13 @@ export function setupPermissionRunRestriction(
   sourceAgentFolder: string,
   agentInput: Pick<
     AgentInput,
-    'threadId' | 'appId' | 'agentId' | 'isScheduledJob' | 'jobId' | 'runId'
+    | 'threadId'
+    | 'appId'
+    | 'agentId'
+    | 'isScheduledJob'
+    | 'memoryUserId'
+    | 'jobId'
+    | 'runId'
   >,
   hideAuthorityTools: boolean,
 ) {
@@ -37,6 +44,7 @@ export function setupPermissionRunRestriction(
     responseKeyId: ipcAuth.responseKeyId,
     hideAuthorityTools,
     runKind: agentInput.isScheduledJob ? 'scheduled' : 'interactive',
+    memoryUserId: agentInput.memoryUserId,
     jobId: agentInput.jobId,
     runId: agentInput.runId,
   });

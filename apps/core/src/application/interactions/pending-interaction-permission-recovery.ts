@@ -95,7 +95,7 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
   // genuinely null -> a shared grant, as before. But an UNRESOLVABLE job (a
   // transient repository error or stale id) must FAIL CLOSED: never fall back
   // to a shared grant, which would widen one job's approval to everyone.
-  let actingPersonId: string | null = null;
+  let actingPersonId: string | null = input.request.personId ?? null;
   if (input.request.jobId) {
     const job = await input.persistence.opsRepository
       .getJobById(input.request.jobId)

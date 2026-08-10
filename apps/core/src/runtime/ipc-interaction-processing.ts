@@ -63,6 +63,7 @@ import {
   publishPendingInteractionRuntimeEvent,
   publishPermissionRuntimeEvent,
 } from './ipc-interaction-runtime-events.js';
+import { permissionRunRestriction } from './permission-decision-coordinator.js';
 
 export { publishPendingInteractionRuntimeEvent };
 export {
@@ -127,6 +128,12 @@ export async function processPermissionInteractionIpc(input: {
     await denyLockedPermissionInteraction(input, lockStatus);
     return;
   }
+  input.request.personId = input.request.responseKeyId
+    ? permissionRunRestriction({
+        sourceAgentFolder: input.sourceAgentFolder,
+        responseKeyId: input.request.responseKeyId,
+      })?.memoryUserId
+    : undefined;
   input.request.suggestions ??= synthesizeHostPermissionSuggestions(
     input.request.toolName,
     input.request.toolInput,
