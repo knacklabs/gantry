@@ -5259,6 +5259,30 @@ def test_check_pr_ticket_fails_when_a_completed_record_is_undeclared(repo):
     assert "must be declared" in out and second in out, out
 
 
+def test_vendored_docs_do_not_reference_unvendored_workflows():
+    # Regression guard: a doc that forge upgrade vendors to clients (WORKFLOW.md,
+    # CLAUDE.md, harness.yaml, ...) must not reference a .github/workflows/*.yml
+    # that is NOT vendored. Only COPY_WORKFLOWS travel to clients; referencing a
+    # harness-internal gate workflow (board-invariant/pr-ticket-check/pr-link)
+    # breaks a client's own doc-reference check on upgrade.
+    from forge_cli.scaffold import COPY_FILES, COPY_WORKFLOWS
+    root = Path(__file__).resolve().parents[2]
+    vendored = {Path(w).name for w in COPY_WORKFLOWS}
+    ref = re.compile(r"\.github/workflows/([a-z0-9-]+\.yml)")
+    offenders = []
+    for name in COPY_FILES:
+        doc = root / name
+        if not doc.is_file():
+            continue
+        for m in ref.finditer(doc.read_text(errors="ignore")):
+            if m.group(1) not in vendored:
+                offenders.append(f"{name} -> {m.group(0)}")
+    assert not offenders, (
+        "vendored docs reference un-vendored workflows (breaks client doc-checks): "
+        + "; ".join(offenders)
+    )
+
+
 # -------------------------------------------------- Gate B: board completeness
 
 def board_story(repo: Path, key: str, **over) -> None:
