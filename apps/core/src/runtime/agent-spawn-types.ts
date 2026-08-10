@@ -67,13 +67,6 @@ export interface AgentInput {
   chatJid: string;
   threadId?: string;
   memoryUserId?: string;
-  /**
-   * Trusted acting person for a scheduled run (the job's persisted
-   * execution_context.personId). Distinct from memoryUserId, which for a
-   * scheduled run is the executionJid, not a person. Interactive turns use
-   * memoryUserId as the person and leave this unset.
-   */
-  actingPersonId?: string;
   memoryDefaultScope?: 'user' | 'group';
   memoryReviewerIsControlApprover?: boolean;
   persona?: AgentPersona;

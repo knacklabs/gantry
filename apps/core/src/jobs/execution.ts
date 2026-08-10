@@ -487,8 +487,6 @@ async function runActiveJob(
                 agentId: executionAgentId,
                 persona: execution.group.agentConfig?.persona,
                 memoryUserId,
-                actingPersonId:
-                  currentJob.execution_context?.personId ?? undefined,
                 memoryDefaultScope,
                 isScheduledJob: true,
                 jobId: currentJob.id,

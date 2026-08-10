@@ -154,21 +154,6 @@ export class JobManagementService {
     }
     existingJob ??= await this.deps.ops.getJobById(id);
     if (existingJob) assertSchedulerJobAccess(existingJob, access);
-    // Person-ownership boundary: a person-scoped job (non-null personId) may
-    // only be modified by that same trusted person. Folder access alone is not
-    // enough — otherwise a worker in a shared folder could submit a victim's
-    // job id and rewrite its prompt/schedule while it keeps running under the
-    // victim's person-scoped grants (a confused-deputy escalation).
-    const existingPersonId = existingJob?.execution_context?.personId ?? null;
-    if (
-      existingPersonId &&
-      existingPersonId !== (access.actingPersonId ?? null)
-    ) {
-      throw new ApplicationError(
-        'FORBIDDEN',
-        'This scheduled job belongs to another person and cannot be modified from this context.',
-      );
-    }
     const executionContext = assertExecutionContextMatchesAuthenticatedContext({
       executionContext:
         input.executionContext === undefined

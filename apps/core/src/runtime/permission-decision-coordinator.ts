@@ -272,12 +272,6 @@ export interface PermissionRunRestriction {
   runKind: 'interactive' | 'scheduled';
   jobId?: string;
   runId?: string;
-  /**
-   * Host-set trusted acting person for this run, keyed to the authenticated
-   * (folder, responseKeyId). The single trusted source consumed by job
-   * creation and the permission classifier — never a worker-supplied field.
-   */
-  personId?: string;
 }
 
 const permissionRunRestrictions = new Map<string, PermissionRunRestriction>();
@@ -289,14 +283,12 @@ export function registerPermissionRunRestriction(input: {
   runKind: 'interactive' | 'scheduled';
   jobId?: string;
   runId?: string;
-  personId?: string;
 }): void {
   permissionRunRestrictions.set(restrictionKey(input), {
     hideAuthorityTools: input.hideAuthorityTools,
     runKind: input.runKind,
     ...(input.jobId ? { jobId: input.jobId } : {}),
     ...(input.runId ? { runId: input.runId } : {}),
-    ...(input.personId ? { personId: input.personId } : {}),
   });
 }
 
