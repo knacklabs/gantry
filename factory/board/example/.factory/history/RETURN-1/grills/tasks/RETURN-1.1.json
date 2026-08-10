@@ -1,0 +1,15 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "RETURN-1.1",
+  "verdict": "pass",
+  "questions_asked": 3,
+  "summary": "The task is bounded, testable, and keeps the handoff provenance visible.",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [],
+  "open_items": [],
+  "input_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "recorded_at": "2026-08-08T00:00:00+00:00",
+  "commit": "0000000000000000000000000000000000000000"
+}

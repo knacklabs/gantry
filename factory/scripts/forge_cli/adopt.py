@@ -22,10 +22,12 @@ from factory_lib import dump_json, head_sha, now_iso, repo_root
 
 from .common import fail
 from .scaffold import (
+    COPY_CLAUDE,
     COPY_CODEX,
     COPY_WORKFLOWS,
     DISCOVERY_TEMPLATE,
     DOC_CONTRACTS,
+    HARNESS_OWNED_SKILLS,
     PROJECT_STARTERS,
     PROTOTYPE_README,
     assert_target_destination,
@@ -42,6 +44,11 @@ OWNED_FILES = ["forge", "WORKFLOW.md"]
 # docs/context/migrated-<name> (harvest picks it up), then the harness
 # version is written.
 MERGE_FILES = ["AGENTS.md", "CLAUDE.md"]
+ADOPT_SKILL_TREES = tuple(
+    f"{runtime}/skills/{skill}"
+    for runtime in (".claude", ".codex")
+    for skill in HARNESS_OWNED_SKILLS
+)
 
 
 def _vendor_tree_files(src: Path):
@@ -71,14 +78,18 @@ def _preflight_adopt(harness: Path, target: Path, name: str) -> None:
         for path in _vendor_tree_files(src):
             file(target / path.relative_to(harness))
 
-    for tree in UPGRADE_TREES + [".claude"]:
+    for tree in UPGRADE_TREES:
         vendor_tree(tree)
+    for rel in COPY_CLAUDE:
+        if (harness / ".claude" / rel).exists():
+            file(target / ".claude" / rel)
     for rel in COPY_WORKFLOWS:
         file(target / rel)
     for rel in COPY_CODEX:
         file(target / ".codex" / rel)
-    for sub in ("agents", "skills"):
-        vendor_tree(f".codex/{sub}")
+    vendor_tree(".codex/agents")
+    for tree in ADOPT_SKILL_TREES:
+        vendor_tree(tree)
     for rel in OWNED_FILES:
         file(target / rel)
     for src_rel, dst_rel in DOC_CONTRACTS:
@@ -201,20 +212,24 @@ def cmd_adopt(args: argparse.Namespace) -> None:
         for path in _vendor_tree_files(src):
             vendor_file(path, target / path.relative_to(harness))
 
-    # Machinery trees are MERGED per file, not replaced wholesale — an existing
-    # repo's own .claude/skills/ must survive. (.claude is not in
-    # UPGRADE_TREES anymore — upgrade replaces it surgically — but adopt's
-    # per-file vendor is merge-safe, so the whole tree is fine here.)
-    for tree in UPGRADE_TREES + [".claude"]:
+    # Machinery trees are MERGED per file, not replaced wholesale. Mixed-owned
+    # runtime surfaces are copied from the same harness allowlists as init and
+    # upgrade so source-only skills never leak into an adopted project.
+    for tree in UPGRADE_TREES:
         vendor_tree(tree)
+    for rel in COPY_CLAUDE:
+        src = harness / ".claude" / rel
+        if src.exists():
+            vendor_file(src, target / ".claude" / rel)
     # .github is not a machinery tree (mixed ownership): vendor only the harness
     # factory workflows, so the repo's own workflows (CI, deployment) survive.
     for rel in COPY_WORKFLOWS:
         vendor_file(harness / rel, target / rel)
     for rel in COPY_CODEX:
         vendor_file(harness / ".codex" / rel, target / ".codex" / rel)
-    for sub in ("agents", "skills"):
-        vendor_tree(f".codex/{sub}")
+    vendor_tree(".codex/agents")
+    for tree in ADOPT_SKILL_TREES:
+        vendor_tree(tree)
     for rel in OWNED_FILES:
         vendor_file(harness / rel, target / rel)
     for src_rel, dst_rel in DOC_CONTRACTS:

@@ -12,6 +12,7 @@ from urllib.parse import unquote, urlsplit
 from factory_lib import load_json, now_iso, parse_sections, repo_root, run_state_path
 from record_signoff import REQUIRED_BRIEF_HEADINGS
 
+from . import events
 from .assumptions import open_count as open_assumptions
 from .decisions import decision_records
 from .plans import parse_frontmatter
@@ -164,6 +165,15 @@ def quickfix_ledger(base: Path) -> list[dict]:
     return [event for event in load_events(base) if event.get("event") == "done"]
 
 
+def pr_links(base: Path) -> dict[str, str]:
+    """Latest recorded PR reference for each story."""
+    return {
+        event["story"]: event["detail"]
+        for event in events.load_events(base, event="pr-linked")
+        if event.get("story") and event.get("detail")
+    }
+
+
 def project_identity(base: Path) -> dict:
     """Project identity and capture status, derived from the committed brief.
 
@@ -248,6 +258,7 @@ def aggregate_state(base: Path) -> dict:
     run = load_json(base / ".factory" / "run.json", default={})
     record_origin = load_json(base / ".factory" / "record-origin.json", default=None)
     stages = _stage_summary(base)
+    story_pr_links = pr_links(base)
     done_keys = {item.get("key") for item in items if item.get("status") == "done"}
     unblocks = {item.get("key"): [] for item in items}
     for item in items:
@@ -262,6 +273,8 @@ def aggregate_state(base: Path) -> dict:
         story["ready_to_plan"] = item.get("key") in frontier
         story["plan"] = plan
         story["tasks"] = tasks
+        story["pr_link"] = (story_pr_links.get(item.get("key"))
+                            if item.get("status") == "done" else None)
         story["blocked_by"] = [dep for dep in item.get("depends_on", [])
                                if dep not in done_keys]
         story["unblocks"] = unblocks.get(item.get("key"), [])
@@ -414,7 +427,7 @@ def story_detail(base: Path, key: str) -> dict | None:
         root = base / ".factory" / "history" / key
     evidence = {
         name: load_json(root / f"{name}.json", default=None)
-        for name in ("decomposition", "verify", "tests", "stages")
+        for name in ("decomposition", "verify", "tests", "stages", "outcome")
     }
     evidence["reviews"] = {
         aspect: load_json(root / "reviews" / f"{aspect}.json", default=None)
@@ -423,6 +436,10 @@ def story_detail(base: Path, key: str) -> dict | None:
     evidence["grills"] = {
         path.stem: load_json(path, default=None)
         for path in sorted((root / "grills").glob("*.json"))
+    }
+    evidence["task_grills"] = {
+        path.stem: load_json(path, default=None)
+        for path in sorted((root / "grills" / "tasks").glob("*.json"))
     }
     spec_path = item.get("spec")
     spec = None
@@ -437,8 +454,11 @@ def story_detail(base: Path, key: str) -> dict | None:
          if epic.get("id") == item.get("epic")),
         None,
     )
+    story = dict(item)
+    story["pr_link"] = (pr_links(base).get(key)
+                        if item.get("status") == "done" else None)
     detail = {"key": key, "project": project_identity(base), "epic": epic,
-              "story": item, "plan": plan, "plan_body": plan_body,
+              "story": story, "plan": plan, "plan_body": plan_body,
               "spec": spec, "evidence": evidence}
     detail["tasks"] = task_dossiers(detail)
     detail["readiness"] = approval_readiness(base, detail)
@@ -484,6 +504,7 @@ def task_dossiers(detail: dict) -> list[dict]:
     tests = evidence.get("tests") or {}
     verify = evidence.get("verify") or {}
     reviews = evidence.get("reviews") or {}
+    task_grills = evidence.get("task_grills") or {}
     spec_path = (detail.get("spec") or {}).get("path", "")
 
     recorded_tests = []
@@ -495,9 +516,12 @@ def task_dossiers(detail: dict) -> list[dict]:
     for task in merge_task_detail(decomposition, stages):
         required = task.get("required_tests") or []
         # A required test counts as proven only if a recorded artifact names it;
-        # "tests.json exists" is not evidence that THIS task was covered.
+        # "tests.json exists" is not evidence that THIS task was covered. Entries
+        # are {id, path, command} objects (a legacy plan may still use a bare
+        # string), so match on the test id — never the whole dict.
         covered = [t for t in required
-                   if any(t in str(recorded) for recorded in recorded_tests)]
+                   if isinstance((tid := t.get("id") if isinstance(t, dict) else t), str)
+                   and any(tid in str(recorded) for recorded in recorded_tests)]
         findings = []
         for aspect, review in reviews.items():
             if not isinstance(review, dict):
@@ -516,6 +540,7 @@ def task_dossiers(detail: dict) -> list[dict]:
             "covered_tests": covered,
             "verify_ok": verify.get("ok") is True,
             "verify_at": verify.get("completed_at"),
+            "grill": task_grills.get(task["id"]),
             "findings": findings,
             "spec": spec_path,
         }

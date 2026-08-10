@@ -52,6 +52,8 @@ or route:
 | set up my machine | `./forge doctor` (`--fix` installs the toolchain; logins stay manual) |
 | create a new project / build a new app | prefer the `knacklabs-new-project` skill; without it: `./forge init --name <project> --target <dir>`, then IN `<dir>`: commit and push to its OWN origin (`gh repo create <org>/<repo> --private --source . --push`), `direnv allow`, and open future sessions there. Init writes `.factory/record-origin.json` once so history has an honest starting boundary. The app is a fresh unrelated repo — NEVER fork the harness, NEVER `gh repo create --template`, never build the app inside this clone |
 | migrate an existing repo / make this repo symphony-forge ready | `knacklabs-migrate-project` skill — core: `./forge adopt --target <repo>` from the harness clone (clean tree; old AGENTS/CLAUDE preserved to docs/context/; repo keeps its own origin — never fork/merge the harness into it). Adopt creates the same record-origin boundary if absent and never rewrites it. |
+| update / upgrade an existing project to the latest harness | prefer the `knacklabs-upgrade-project` skill — it verifies and updates the setup-pinned harness, audits a clean committed client, upgrades machinery, repairs tooling, backfills project contracts, guides pending-story re-authoring with `forge roadmap fill`, re-verifies, and hands off through `forge next` |
+| sanitise / check the hygiene of this repo | use the `knacklabs-sanitise-project` skill — run `forge sanitise --check` for an on-demand report or plain `forge sanitise` for safe deterministic fixes, then use the named resolve commands for every reported item needing judgment |
 | migrate my gstack history / gstack outputs are on my machine | `./forge gstack migrate` — union-merges ~/.gstack/projects/<slug>/ into the repo's .gstack/ (then commit). Going forward .envrc + `direnv allow` keeps gstack in-repo |
 | what's left to build / show the roadmap | `./forge roadmap list` (`--pending` for what's next; grouped by epic, shows @assignee) |
 | what can run in parallel / fan out the work | `./forge roadmap parallel` — the dependency-ready frontier, one isolated `git worktree add` + intake per story. Tasks inside each story run sequentially; only separate ready story worktrees run in parallel |
@@ -105,7 +107,7 @@ or route:
 | what did we ship last month | open the board's **Ship log** (`./forge board`) — PR-ready date, story, outcome and the decisions it created, newest first |
 | mine for skills / retro | follow `factory/prompts/skill-miner.md` |
 | improve the animations / motion audit | run the `improve-animations` skill (read-only audit → prioritized plans); land its items via `./forge roadmap add` or a task intake — never apply fixes straight from the audit |
-| update a client repo to the latest harness | from the HARNESS clone: `./forge upgrade --target <client-repo>` (clean tree required; review the diff, run the linter + gate tests, commit) |
+| update a client repo to the latest harness | use the `knacklabs-upgrade-project` skill; its deterministic core is `./forge upgrade --target <client-repo>` from the verified HARNESS clone, followed by client audit/backfill, guided pending-story fill, re-verification, and `forge next` |
 
 ## Show, don't recite
 

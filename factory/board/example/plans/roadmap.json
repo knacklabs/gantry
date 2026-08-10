@@ -64,6 +64,21 @@
       "spec": "docs/specs/workshop-flow.md",
       "order": 3,
       "status": "pending"
+    },
+    {
+      "key": "RETURN-1",
+      "title": "Return a completed repair",
+      "epic": "delivery",
+      "story": "As a service coordinator, I can return a completed repair so that the customer receives traceable finished work.",
+      "acceptance_criteria": [
+        "A completed repair carries its task provenance and pull request link."
+      ],
+      "skill": "fullstack",
+      "depends_on": [],
+      "spec": "docs/specs/workshop-flow.md",
+      "order": 4,
+      "status": "done",
+      "outcome": "The workshop can trace a completed repair back to its reviewed task and pull request."
     }
   ]
 }

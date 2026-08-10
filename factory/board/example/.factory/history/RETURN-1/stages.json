@@ -1,0 +1,12 @@
+{
+  "issue": "RETURN-1",
+  "stages": [
+    {
+      "id": "RETURN-1.1",
+      "title": "Record the completed handoff",
+      "status": "done",
+      "started_at": "2026-08-08T00:00:00+00:00",
+      "completed_at": "2026-08-08T00:30:00+00:00"
+    }
+  ]
+}

@@ -22,6 +22,21 @@ DIR_BUDGETS = {                        # cumulative tracked bytes per tree
     "prototype": 100_000_000,
 }
 WARN_RATIO = 0.7
+TRACKED_CRUFT_GLOBS = (
+    ":(glob)**/__pycache__/**",
+    ":(glob)**/*.pyc",
+    ":(glob)**/*.pyo",
+    ":(glob)**/.DS_Store",
+)
+
+
+def tracked_cruft(root: Path) -> list[str]:
+    """Return tracked build/tool noise selected by the shared git globs."""
+    proc = subprocess.run(
+        ["git", "ls-files", "-z", "--", *TRACKED_CRUFT_GLOBS], cwd=root,
+        capture_output=True, text=True, check=True,
+    )
+    return [path for path in proc.stdout.split("\0") if path]
 
 
 def main() -> int:
@@ -38,9 +53,7 @@ def main() -> int:
     # only guards untracked files, so anything committed once (e.g. vendored
     # bytecode before the vendor-ignore fix) silently stays until a check
     # refuses it.
-    noise = [rel for rel in tracked
-             if "__pycache__/" in rel or rel.endswith((".pyc", ".pyo"))
-             or Path(rel).name == ".DS_Store"]
+    noise = tracked_cruft(root)
     if noise:
         violations.append(
             f"{len(noise)} tracked build/tool noise file(s) (e.g. {noise[0]}) — "

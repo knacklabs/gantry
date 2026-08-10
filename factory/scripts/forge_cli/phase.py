@@ -7,6 +7,7 @@ from pathlib import Path
 from factory_lib import client_signoff, load_json, repo_root, run_state_path
 
 from .context import pending_context
+from .quickfix import load_active, profile_of
 from .roadmap import leverage, load_items, ready_pending
 from .signal import open_signals
 
@@ -29,6 +30,12 @@ def cmd_next(args: argparse.Namespace) -> None:
         steps.append(f"[orchestrator] {len(open_sigs)} OPEN worker signal(s) ({ids}) — a "
                      "paused worker is waiting: forge.py signal list --open, then "
                      "signal resolve <id> --notes \"...\" and resume the rescue")
+    active_window = load_active(base)
+    if active_window and profile_of(active_window) == "lite":
+        steps.append(
+            f"[dev] OPEN LITE WINDOW {active_window['id']} — {active_window['reason']}; "
+            "one review is required to close it with `./forge mode done`"
+        )
     if pending_ctx:
         steps.append(
             f"Harvest {pending_ctx} pending docs/context/ file(s) first "

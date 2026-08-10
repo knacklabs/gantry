@@ -1,0 +1,24 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": true,
+  "doc_roots": [
+    "docs/specs/workshop-flow.md"
+  ],
+  "tasks": [
+    {
+      "id": "RETURN-1.1",
+      "title": "Record the completed handoff",
+      "objective": "Keep the finished repair traceable to its reviewed task and pull request.",
+      "dependencies": [],
+      "write_scope": [
+        "src/handoff.py"
+      ],
+      "acceptance_criteria": [
+        "The completed handoff retains its task provenance."
+      ],
+      "verify_commands": [],
+      "required_tests": [],
+      "reviewer_focus": "The handoff remains traceable after shipment."
+    }
+  ]
+}

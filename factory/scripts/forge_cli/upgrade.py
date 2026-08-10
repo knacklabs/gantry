@@ -19,7 +19,8 @@ from factory_lib import (
 
 from .common import fail
 from .scaffold import (
-    COPY_CODEX, COPY_WORKFLOWS, DOC_CONTRACTS, PROJECT_STARTERS,
+    COPY_CLAUDE, COPY_CODEX, COPY_WORKFLOWS, DOC_CONTRACTS,
+    HARNESS_OWNED_SKILLS, PROJECT_STARTERS,
     assert_target_destination,
     assert_target_file_destination,
     ensure_jsonl_attributes,
@@ -35,7 +36,13 @@ UPGRADE_FILES = ["forge", "CLAUDE.md", "WORKFLOW.md"]
 # the harness ships and never deletes client additions; retiring a
 # harness-shipped path is an explicit upgrade note, not an rmtree side
 # effect. Same rule for .codex/agents and .codex/skills below.
-CLAUDE_HARNESS_OWNED = ["CLAUDE.md", "settings.json", "skills/forge"]
+CLAUDE_HARNESS_OWNED = [
+    *COPY_CLAUDE,
+    *(f"skills/{skill}" for skill in HARNESS_OWNED_SKILLS),
+]
+CODEX_HARNESS_OWNED_SKILLS = tuple(
+    f".codex/skills/{skill}" for skill in HARNESS_OWNED_SKILLS
+)
 # Project-owned: never touched — listed here as the explicit contract.
 # .github/workflows/ is project-owned EXCEPT the harness's own COPY_WORKFLOWS,
 # which are refreshed file-by-file below — the rest of the tree (deployment,
@@ -233,11 +240,14 @@ def _preflight_upgrade(
     directory(target / ".codex")
     for name in COPY_CODEX:
         file(target / ".codex" / name)
-    for sub in ("agents", "skills"):
-        src = harness / ".codex" / sub
-        if src.is_dir():
-            for child in src.iterdir():
-                replacement(child, target / ".codex" / sub / child.name)
+    agents = harness / ".codex" / "agents"
+    if agents.is_dir():
+        for child in agents.iterdir():
+            replacement(child, target / ".codex" / "agents" / child.name)
+    for rel in CODEX_HARNESS_OWNED_SKILLS:
+        src = harness / rel
+        if src.exists():
+            replacement(src, target / rel)
     for name in UPGRADE_FILES:
         if (harness / name).exists():
             file(target / name)
@@ -497,14 +507,17 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
             harness / ".codex" / name,
             assert_target_file_destination(target, target / ".codex" / name),
         )
-    # Same mixed-ownership rule: refresh each harness-shipped agent/skill
-    # entry; leave client-added ones alone.
-    for sub in ("agents", "skills"):
-        src = harness / ".codex" / sub
-        if src.is_dir():
-            for child in src.iterdir():
-                _replace_path(
-                    target, child, target / ".codex" / sub / child.name)
+    # Same mixed-ownership rule: refresh each harness-shipped agent and each
+    # allowlisted harness skill; leave client-added entries alone.
+    agents = harness / ".codex" / "agents"
+    if agents.is_dir():
+        for child in agents.iterdir():
+            _replace_path(
+                target, child, target / ".codex" / "agents" / child.name)
+    for rel in CODEX_HARNESS_OWNED_SKILLS:
+        src = harness / rel
+        if src.exists():
+            _replace_path(target, src, target / rel)
     for name in UPGRADE_FILES:
         src = harness / name
         if src.exists():

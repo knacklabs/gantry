@@ -12,7 +12,16 @@ from factory_lib import dump_json, head_sha, now_iso, repo_root
 
 from .common import fail
 
-COPY_TREES = ["factory", ".claude", "constitution", "harness"]
+COPY_TREES = ["factory", "constitution", "harness"]
+HARNESS_OWNED_SKILLS = ("forge",)
+COPY_CLAUDE = ("CLAUDE.md", "settings.json")
+INIT_COPY_TREES = [
+    *COPY_TREES,
+    ".codex/agents",
+    *(f"{runtime}/skills/{skill}"
+      for runtime in (".claude", ".codex")
+      for skill in HARNESS_OWNED_SKILLS),
+]
 # .github/workflows/ is MIXED ownership: only these generic factory workflows
 # are harness-owned and vendored. A client repo's own workflows (deployment,
 # release, etc.) are project-owned — copied file-by-file so we never clobber or
@@ -53,14 +62,15 @@ def _would_write(root: Path, target: Path) -> list[Path]:
     dirs in ENSURED_DIRS — _collisions preflights those too, just with
     existence allowed. Keep in sync with the copy loops in cmd_init."""
     dests: list[Path] = []
-    trees = [*COPY_TREES, ".codex/agents", ".codex/skills"]
-    for tree in trees:
+    for tree in INIT_COPY_TREES:
         src = root / tree
         if src.exists():
             for f in src.rglob("*"):
                 if f.is_file() and "__pycache__" not in f.parts and f.suffix != ".pyc":
                     dests.append(target / f.relative_to(root))
-    for rel in [*COPY_WORKFLOWS, *(f".codex/{n}" for n in COPY_CODEX),
+    for rel in [*(f".claude/{n}" for n in COPY_CLAUDE
+                  if (root / ".claude" / n).exists()), *COPY_WORKFLOWS,
+                *(f".codex/{n}" for n in COPY_CODEX),
                 *COPY_FILES, *(dst for _, dst in DOC_CONTRACTS), *GENERATED_FILES,
                 *PROJECT_STARTERS]:
         dests.append(target / rel)
@@ -415,7 +425,7 @@ def _preflight_init(root: Path, target: Path) -> None:
     """Validate every init destination before the first filesystem mutation."""
     assert_target_destination(target, target)
 
-    for tree in COPY_TREES:
+    for tree in INIT_COPY_TREES:
         src = root / tree
         if src.exists():
             _preflight_copytree(target, src, target / tree)
@@ -425,13 +435,18 @@ def _preflight_init(root: Path, target: Path) -> None:
             assert_target_destination(target, dst.parent)
             assert_target_file_destination(target, dst)
 
+    # cmd_init creates target/.claude unconditionally; validate that directory
+    # destination here, before the first mutation, even if no optional Claude
+    # file is present to validate it indirectly.
+    assert_target_destination(target, target / ".claude")
+    for name in COPY_CLAUDE:
+        if (root / ".claude" / name).exists():
+            assert_target_file_destination(target, target / ".claude" / name)
+
     codex = target / ".codex"
     assert_target_destination(target, codex)
     for name in COPY_CODEX:
         assert_target_file_destination(target, codex / name)
-    _preflight_copytree(target, root / ".codex" / "agents", codex / "agents")
-    if (root / ".codex" / "skills").is_dir():
-        _preflight_copytree(target, root / ".codex" / "skills", codex / "skills")
 
     for name in COPY_FILES:
         if (root / name).exists():
@@ -501,7 +516,7 @@ def cmd_init(args: argparse.Namespace) -> None:
 
     # Same rule as upgrade's VENDOR_IGNORE: build and OS noise never vendors.
     ignore = shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store")
-    for tree in COPY_TREES:
+    for tree in INIT_COPY_TREES:
         src = root / tree
         if src.exists():
             # Default symlinks=False MATERIALIZES the trusted source content
@@ -510,6 +525,12 @@ def cmd_init(args: argparse.Namespace) -> None:
             # would recreate an outward source link as an escape (0028).
             guarded_copytree(target, src, target / tree,
                              dirs_exist_ok=True, ignore=ignore)
+    assert_target_destination(target, target / ".claude").mkdir(exist_ok=True)
+    for name in COPY_CLAUDE:
+        src = root / ".claude" / name
+        if src.exists():  # a source without an optional harness file is legal
+            dst = target / ".claude" / name
+            shutil.copy2(src, assert_target_file_destination(target, dst))
     for rel in COPY_WORKFLOWS:
         src = root / rel
         if src.exists():
@@ -520,13 +541,6 @@ def cmd_init(args: argparse.Namespace) -> None:
     for name in COPY_CODEX:
         dst = target / ".codex" / name
         shutil.copy2(root / ".codex" / name, assert_target_file_destination(target, dst))
-    guarded_copytree(target, root / ".codex" / "agents",
-                     target / ".codex" / "agents",
-                     dirs_exist_ok=True, ignore=ignore)
-    if (root / ".codex" / "skills").is_dir():
-        guarded_copytree(target, root / ".codex" / "skills",
-                         target / ".codex" / "skills",
-                         dirs_exist_ok=True, ignore=ignore)
     for name in COPY_FILES:
         src = root / name
         if src.exists():
