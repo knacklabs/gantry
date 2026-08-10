@@ -1,6 +1,6 @@
 ---
-status: proposed
-confirmed_by: ""
+status: accepted
+confirmed_by: "Suraj-Bangade"
 date: 2026-08-10
 stories: [E2E-2]
 ---
