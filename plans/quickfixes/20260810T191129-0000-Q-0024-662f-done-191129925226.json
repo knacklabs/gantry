@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0024-662f",
+  "profile": "quickfix",
+  "reason": "job ownership/visibility scopes to conversation (DM/group/channel), not thread/topic - thread remains delivery route only (Ravi's directive)",
+  "started_at": "2026-08-10T18:51:55+00:00",
+  "completed_at": "2026-08-10T19:11:29+00:00",
+  "files": []
+}
