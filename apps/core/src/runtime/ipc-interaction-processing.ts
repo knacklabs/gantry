@@ -128,12 +128,19 @@ export async function processPermissionInteractionIpc(input: {
     await denyLockedPermissionInteraction(input, lockStatus);
     return;
   }
-  input.request.personId = input.request.responseKeyId
+  // The acting identity fields come from the host's own spawn-time run
+  // registry, never the worker payload: a worker-supplied personId is a
+  // forgeable identity claim, and a worker-supplied jobId could point the
+  // grant path at another person's job (or a group job, widening the grant
+  // to shared). Overwrite both from the registry.
+  const runRestriction = input.request.responseKeyId
     ? permissionRunRestriction({
         sourceAgentFolder: input.sourceAgentFolder,
         responseKeyId: input.request.responseKeyId,
-      })?.memoryUserId
+      })
     : undefined;
+  input.request.personId = runRestriction?.memoryUserId;
+  input.request.jobId = runRestriction?.jobId;
   input.request.suggestions ??= synthesizeHostPermissionSuggestions(
     input.request.toolName,
     input.request.toolInput,
