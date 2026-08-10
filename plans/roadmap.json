@@ -1093,14 +1093,17 @@
         "Only installer-id extraction is per-provider; behaviour degrades to manual where the installer is unidentifiable"
       ],
       "order": 56,
-      "status": "active",
+      "status": "done",
       "epic": "permission-engine",
       "skill": "backend",
       "kind": "feature",
       "depends_on": [
         "PSCOPE-1"
       ],
-      "spec": "docs/specs/pscope-1.md"
+      "spec": "docs/specs/pscope-1.md",
+      "completed_at": "2026-08-10T16:14:20+00:00",
+      "history": ".factory/history/PSCOPE-2/",
+      "outcome": "Adding the bot to a group is no longer dead air, and groups can finally bootstrap their first approver. When someone the bot already knows from a 1:1 chat adds it to a Telegram group or Slack channel, the group registers itself, that person becomes its first approver, and the bot says so in the room. Anyone the bot does not recognise gets a clear in-group message naming how to set an approver - and nothing else (fail-closed). Discord posts the same guidance once per new server; Teams stays documented-manual. The old Telegram DM Yes/No flow - which could never mint a first approver and never spoke in the group - is deleted. Approvals themselves are unchanged: the allowlist still governs groups."
     }
   ],
   "epics": [
@@ -1189,5 +1192,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-10T12:02:31+00:00"
+  "updated_at": "2026-08-10T16:14:20+00:00"
 }
