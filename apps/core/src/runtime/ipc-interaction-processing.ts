@@ -132,15 +132,23 @@ export async function processPermissionInteractionIpc(input: {
   // registry, never the worker payload: a worker-supplied personId is a
   // forgeable identity claim, and a worker-supplied jobId could point the
   // grant path at another person's job (or a group job, widening the grant
-  // to shared). Overwrite both from the registry.
+  // to shared). A live signed run always has a registry entry (parsing
+  // requires responseKeyId), so the forge scenario is covered by the
+  // overwrite. On a registry miss (host restarted mid-flight) keep the
+  // request's jobId: the grant path then resolves the job and fails closed,
+  // instead of silently widening to a shared grant.
   const runRestriction = input.request.responseKeyId
     ? permissionRunRestriction({
         sourceAgentFolder: input.sourceAgentFolder,
         responseKeyId: input.request.responseKeyId,
       })
     : undefined;
-  input.request.personId = runRestriction?.memoryUserId;
-  input.request.jobId = runRestriction?.jobId;
+  if (runRestriction) {
+    input.request.personId = runRestriction.memoryUserId;
+    input.request.jobId = runRestriction.jobId;
+  } else {
+    input.request.personId = undefined;
+  }
   input.request.suggestions ??= synthesizeHostPermissionSuggestions(
     input.request.toolName,
     input.request.toolInput,
