@@ -105,6 +105,7 @@ decisions_reviewed:
   - 0114-canonical-job-owner
   - 0115-autonomous-tool-denial-terminal
   - 0117-scheduled-job-declare-tools-at-creation
+  - 0118-e2e-2-api-first-scope
 ---
 
 ## Problem
@@ -162,9 +163,10 @@ Recommendation: implement one deterministic Control API invariant test and one n
 
 ## Decisions
 
-No new decisions.
+The scope refinement is recorded in
+`docs/decisions/0118-e2e-2-api-first-scope.md`.
 
-Relevant existing decisions already cover the choices here:
+Relevant existing decisions also cover the choices here:
 
 - `docs/decisions/0015-model-catalog-and-cache-accounting.md` owns model aliases, catalog metadata, token/cache accounting, and `/v1/models`.
 - `docs/decisions/0018-provider-neutral-agent-execution-adapter.md` owns the provider-neutral runner boundary and keeps provider-native details adapter-private.
