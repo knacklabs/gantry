@@ -299,6 +299,8 @@ function createGroupJoinOnboardingOpts() {
   let nextId = 1;
   const timestamp = '2026-07-18T00:00:00.000Z';
   const coordinator: GroupJoinOnboardingCoordinator = {
+    beginBootstrap: vi.fn(async () => null),
+    seedInstaller: vi.fn(async () => null),
     recordPrompt: vi.fn(async (input) => {
       if (currentRecord?.status === 'registered') return currentRecord;
       currentRecord = {

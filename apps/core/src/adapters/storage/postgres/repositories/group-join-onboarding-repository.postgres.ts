@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 
 import type {
   GroupJoinOnboardingRecord,
@@ -6,12 +6,64 @@ import type {
   GroupJoinOnboardingStatus,
 } from '../../../../domain/ports/group-join-onboarding.js';
 import * as pgSchema from '../schema/schema.js';
-import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import {
+  PostgresCanonicalGraphRepository,
+  type CanonicalDb,
+} from './canonical-graph-repository.postgres.js';
 
 const table = pgSchema.groupJoinOnboardingPostgres;
 
+// ponytail: fixed 5-minute claim window; make it configurable only if a
+// provider's duplicate-delivery horizon ever proves longer.
+const BOOTSTRAP_CLAIM_WINDOW_MS = 5 * 60_000;
+
 export class PostgresGroupJoinOnboardingRepository implements GroupJoinOnboardingRepository {
   constructor(private readonly db: CanonicalDb) {}
+
+  async recordBootstrap(input: {
+    id: string;
+    providerAccountId: string;
+    chatJid: string;
+    adder: string;
+    approver: string;
+    promptConversationJid: string;
+    promptAgentFolder: string;
+    now: string;
+  }): Promise<GroupJoinOnboardingRecord | null> {
+    // The caller's conversation-route check is the single authority for
+    // "already registered" (same reasoning as recordPrompt below) — a join
+    // event only reaches this claim when NO route exists, so ANY stale row
+    // here (failed attempt, manual fallback, or a 'registered' row whose
+    // settings commit never landed / was later removed) is reclaimable.
+    // The ownership window is the only guard: duplicate event bursts and
+    // concurrent deliveries inside it collapse to one claim, atomically in
+    // this one statement, while a genuinely later re-add retries cleanly.
+    const reclaimAfter = new Date(
+      Date.parse(input.now) - BOOTSTRAP_CLAIM_WINDOW_MS,
+    ).toISOString();
+    const [row] = await this.db
+      .insert(table)
+      .values({
+        ...input,
+        status: 'prompted',
+        promptedAt: input.now,
+        createdAt: input.now,
+        updatedAt: input.now,
+      })
+      .onConflictDoUpdate({
+        target: [table.providerAccountId, table.chatJid],
+        set: {
+          adder: input.adder,
+          approver: input.approver,
+          status: 'prompted',
+          promptedAt: input.now,
+          updatedAt: input.now,
+        },
+        setWhere: sql`${table.updatedAt} < ${reclaimAfter}`,
+      })
+      .returning();
+    return row ? mapRow(row) : null;
+  }
 
   async recordPrompt(input: {
     id: string;
@@ -145,6 +197,69 @@ export class PostgresGroupJoinOnboardingRepository implements GroupJoinOnboardin
       )
       .returning();
     return row ? mapRow(row) : null;
+  }
+
+  async hasDirectConversationWithPerson(
+    appId: string,
+    personId: string,
+  ): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: pgSchema.conversationsPostgres.id })
+      .from(pgSchema.userAliasesPostgres)
+      .innerJoin(
+        pgSchema.conversationParticipantsPostgres,
+        and(
+          eq(
+            pgSchema.conversationParticipantsPostgres.appId,
+            pgSchema.userAliasesPostgres.appId,
+          ),
+          eq(
+            pgSchema.conversationParticipantsPostgres.userId,
+            pgSchema.userAliasesPostgres.userId,
+          ),
+        ),
+      )
+      .innerJoin(
+        pgSchema.conversationsPostgres,
+        and(
+          eq(
+            pgSchema.conversationsPostgres.appId,
+            pgSchema.conversationParticipantsPostgres.appId,
+          ),
+          eq(
+            pgSchema.conversationsPostgres.id,
+            pgSchema.conversationParticipantsPostgres.conversationId,
+          ),
+        ),
+      )
+      .where(
+        and(
+          eq(pgSchema.userAliasesPostgres.appId, appId),
+          eq(pgSchema.userAliasesPostgres.userId, personId),
+          isNull(pgSchema.userAliasesPostgres.retiredAt),
+          eq(pgSchema.conversationParticipantsPostgres.status, 'active'),
+          eq(pgSchema.conversationsPostgres.kind, 'direct'),
+          eq(pgSchema.conversationsPostgres.status, 'active'),
+        ),
+      )
+      .limit(1);
+    return Boolean(row);
+  }
+
+  async ensureInstallerParticipant(input: {
+    conversationId: string;
+    provider: string;
+    providerAccountId: string;
+    installerExternalId: string;
+    now: string;
+  }): Promise<void> {
+    await new PostgresCanonicalGraphRepository(this.db).ensureParticipant({
+      conversationId: input.conversationId,
+      providerId: input.provider,
+      providerAccountId: input.providerAccountId,
+      externalUserId: input.installerExternalId,
+      timestamp: input.now,
+    });
   }
 }
 

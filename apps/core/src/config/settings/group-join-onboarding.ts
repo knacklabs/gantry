@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import type {
   GroupJoinOnboardingCoordinator,
+  GroupJoinOnboardingRecord,
   GroupJoinOnboardingRepository,
 } from '../../domain/ports/group-join-onboarding.js';
 import { nowIso } from '../../shared/time/datetime.js';
@@ -47,6 +48,77 @@ export function createGroupJoinOnboardingCoordinator(
   };
 
   return {
+    beginBootstrap: async (input) => {
+      const settings = await resolved.loadSettings();
+      const installerExternalId = input.installerExternalId?.trim() ?? '';
+      return resolved.repository().recordBootstrap({
+        id: resolved.newId(),
+        providerAccountId: input.providerAccountId,
+        chatJid: input.chatJid,
+        adder: installerExternalId,
+        approver: installerExternalId,
+        promptConversationJid: input.chatJid,
+        promptAgentFolder:
+          settings.providerAccounts[input.providerAccountId]?.agentId ?? '',
+        now: resolved.now(),
+      });
+    },
+    seedInstaller: async ({
+      id,
+      provider,
+      externalId,
+      title,
+      installerExternalId,
+    }) => {
+      const repository = resolved.repository();
+      const record = await repository.markRegistered({
+        id,
+        now: resolved.now(),
+      });
+      if (!record) return null;
+
+      let settingsCommitted = false;
+      try {
+        await seedInstaller(resolved, {
+          record,
+          externalId,
+          title,
+          installerExternalId,
+        });
+        settingsCommitted = true;
+        try {
+          await resolved.reloadRuntimeState();
+        } catch {
+          // Managed settings writes already materialize the conversation.
+        }
+        try {
+          await repository.ensureInstallerParticipant({
+            conversationId: `conversation:${record.providerAccountId}:${record.chatJid}`,
+            provider,
+            providerAccountId: record.providerAccountId,
+            installerExternalId,
+            now: resolved.now(),
+          });
+        } catch {
+          // Best effort after the settings commit: the settings are the
+          // authority, and participants self-heal on the installer's first
+          // message (ensureParticipant on ingest), after which the next
+          // reconcile applies the seeded approver. Throwing here would leave
+          // a terminal registered-but-unapproved state instead.
+        }
+      } catch (err) {
+        if (!settingsCommitted) {
+          await repository.revertRegistered({ id, now: resolved.now() });
+        }
+        throw err;
+      }
+      try {
+        await resolved.reloadRuntimeState();
+      } catch {
+        // The settings watcher reconciles the committed desired state later.
+      }
+      return record;
+    },
     recordPrompt: (input) =>
       resolved.repository().recordPrompt({
         id: resolved.newId(),
@@ -72,52 +144,13 @@ export function createGroupJoinOnboardingCoordinator(
       // next approver re-add, which re-prompts and re-registers. Upgrade path
       // if it ever matters: a 'registering' intent state + startup sweep.
       try {
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-          const settings = await resolved.loadSettings();
-          const previousSettings = structuredClone(settings);
-          const account = settings.providerAccounts[record.providerAccountId];
-          if (!account) {
-            throw new Error(
-              `Provider Account not found: ${record.providerAccountId}`,
-            );
-          }
-          applyConversationInstallToSettings({
-            settings,
-            conversation: {
-              id: `conversation:${record.providerAccountId}:${record.chatJid}` as never,
-              externalRef: {
-                kind: 'conversation',
-                value: externalId,
-              },
-              kind: 'channel',
-              title,
-            },
-            providerAccountId: record.providerAccountId,
-            agentFolder: account.agentId,
-            controlApprovers: [record.approver],
-            now: resolved.now(),
-          });
-          try {
-            await resolved.writeSettings({
-              runtimeHome: resolved.runtimeHome,
-              settings,
-              previousSettings,
-              createdBy: `interaction:group-join:${approvedBy}`,
-            });
-            break;
-          } catch (err) {
-            // The same concurrent-writer race surfaces as either error class
-            // depending on where the append loses; retry both once.
-            if (
-              attempt === 0 &&
-              (err instanceof SettingsStaleMutationError ||
-                err instanceof SettingsRevisionConflictError)
-            ) {
-              continue;
-            }
-            throw err;
-          }
-        }
+        await seedInstaller(resolved, {
+          record,
+          externalId,
+          title,
+          installerExternalId: record.approver,
+          approvedBy,
+        });
       } catch (err) {
         // Revert only when the settings write failed - the claim must not
         // outlive a registration that never committed.
@@ -134,4 +167,57 @@ export function createGroupJoinOnboardingCoordinator(
       return record;
     },
   };
+}
+
+async function seedInstaller(
+  deps: GroupJoinCoordinatorDeps,
+  input: {
+    record: GroupJoinOnboardingRecord;
+    externalId: string;
+    title: string;
+    installerExternalId: string;
+    approvedBy?: string;
+  },
+): Promise<void> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const settings = await deps.loadSettings();
+    const previousSettings = structuredClone(settings);
+    const account = settings.providerAccounts[input.record.providerAccountId];
+    if (!account) {
+      throw new Error(
+        `Provider Account not found: ${input.record.providerAccountId}`,
+      );
+    }
+    applyConversationInstallToSettings({
+      settings,
+      conversation: {
+        id: `conversation:${input.record.providerAccountId}:${input.record.chatJid}` as never,
+        externalRef: { kind: 'conversation', value: input.externalId },
+        kind: 'channel',
+        title: input.title,
+      },
+      providerAccountId: input.record.providerAccountId,
+      agentFolder: account.agentId,
+      controlApprovers: [input.installerExternalId],
+      now: deps.now(),
+    });
+    try {
+      await deps.writeSettings({
+        runtimeHome: deps.runtimeHome,
+        settings,
+        previousSettings,
+        createdBy: `interaction:group-join:${input.approvedBy ?? input.installerExternalId}`,
+      });
+      return;
+    } catch (err) {
+      if (
+        attempt === 0 &&
+        (err instanceof SettingsStaleMutationError ||
+          err instanceof SettingsRevisionConflictError)
+      ) {
+        continue;
+      }
+      throw err;
+    }
+  }
 }

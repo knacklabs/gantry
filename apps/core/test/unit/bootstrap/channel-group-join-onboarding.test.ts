@@ -42,6 +42,7 @@ function settingsFixture() {
 function repositoryFixture(record = promptedRecord()) {
   const registered = { ...record, status: 'registered' as const };
   return {
+    recordBootstrap: vi.fn(async () => record),
     recordPrompt: vi.fn(async () => record),
     getById: vi.fn(async () => record),
     markDismissed: vi.fn(async () => ({
@@ -51,12 +52,15 @@ function repositoryFixture(record = promptedRecord()) {
     markRegistered: vi.fn(async () => registered),
     revertRegistered: vi.fn(async () => record),
     markLeft: vi.fn(async () => ({ ...record, leftAt: record.updatedAt })),
+    hasDirectConversationWithPerson: vi.fn(async () => true),
+    ensureInstallerParticipant: vi.fn(async () => undefined),
   } satisfies GroupJoinOnboardingRepository;
 }
 
 function statefulRepositoryFixture(record = promptedRecord()) {
   let current = record;
   const repository = {
+    recordBootstrap: vi.fn(async () => current),
     recordPrompt: vi.fn(async () => current),
     getById: vi.fn(async () => current),
     markDismissed: vi.fn(async (input: { now: string }) => {
@@ -90,6 +94,8 @@ function statefulRepositoryFixture(record = promptedRecord()) {
       return current;
     }),
     markLeft: vi.fn(async () => ({ ...current, leftAt: current.updatedAt })),
+    hasDirectConversationWithPerson: vi.fn(async () => true),
+    ensureInstallerParticipant: vi.fn(async () => undefined),
   } satisfies GroupJoinOnboardingRepository;
   return { repository, current: () => current };
 }
