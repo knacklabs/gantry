@@ -436,9 +436,9 @@
       "outcome": "The Agent E2E matrix now reflects current upstream coverage with direct test and PR evidence, explicitly preserves partial and uncovered behavior, resolves the obsolete persona/topology deferral, discards the superseded Haiku branch, and identifies the smallest deterministic API-first model, control, usage, cost, and semantic-fallback scenarios for E2E-2."
     },
     {
-      "status": "pending",
+      "status": "active",
       "key": "E2E-2",
-      "title": "E2E: remaining matrix rows",
+      "title": "E2E: API-first model controls and usage",
       "epic": "agent-e2e-gate",
       "skill": "backend",
       "order": 17,
@@ -446,8 +446,9 @@
         "E2E-1"
       ],
       "acceptance_criteria": [
-        "packaged boot/restart, haiku model gate, all-tools coverage, security/recovery rows implemented per reconciled gap list",
-        "rows flip with citations per the standing merge-bar discipline"
+        "public Control API tests prove model catalog/default relationships and per-turn control validation/projection without fixed model snapshots",
+        "the existing protected haiku lane requires token-usage evidence and reconciles it through /v1/usage for the isolated run",
+        "section 18 matrix rows flip only with direct test citations; cost and unrelated remaining-matrix work stay explicitly deferred"
       ]
     },
     {
