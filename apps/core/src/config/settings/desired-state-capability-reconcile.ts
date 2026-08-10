@@ -488,11 +488,7 @@ async function configuredMcpSourceBindings(input: {
   )) {
     const serverId = source.id as McpServerId;
     const server = await input.repositories.mcpServers.getServer(serverId);
-    if (
-      !server ||
-      server.appId !== input.appId ||
-      server.status !== 'active'
-    ) {
+    if (!server || server.appId !== input.appId || server.status !== 'active') {
       // One dead source must not fail the whole reconcile: warn and skip the
       // binding; the rest of the desired state still applies.
       console.warn(
