@@ -31,7 +31,7 @@ export class PostgresGroupJoinOnboardingRepository implements GroupJoinOnboardin
     now: string;
   }): Promise<GroupJoinOnboardingRecord | null> {
     // The caller's conversation-route check is the single authority for
-    // "already registered" (same reasoning as recordPrompt below) — a join
+    // "already registered" — a join
     // event only reaches this claim when NO route exists, so ANY stale row
     // here (failed attempt, manual fallback, or a 'registered' row whose
     // settings commit never landed / was later removed) is reclaimable.
@@ -61,84 +61,6 @@ export class PostgresGroupJoinOnboardingRepository implements GroupJoinOnboardin
         },
         setWhere: sql`${table.updatedAt} < ${reclaimAfter}`,
       })
-      .returning();
-    return row ? mapRow(row) : null;
-  }
-
-  async recordPrompt(input: {
-    id: string;
-    providerAccountId: string;
-    chatJid: string;
-    adder: string;
-    approver: string;
-    promptConversationJid: string;
-    promptAgentFolder: string;
-    now: string;
-  }): Promise<GroupJoinOnboardingRecord> {
-    // The caller's conversation-route check is the single authority for
-    // "already registered" - a join event only reaches recordPrompt when no
-    // route exists. A stale 'registered' row (conversation later removed from
-    // settings) must be re-prompted, not preserved, or the group could never
-    // re-onboard.
-    const [row] = await this.db
-      .insert(table)
-      .values({
-        ...input,
-        status: 'prompted',
-        promptedAt: input.now,
-        createdAt: input.now,
-        updatedAt: input.now,
-      })
-      .onConflictDoUpdate({
-        target: [table.providerAccountId, table.chatJid],
-        set: {
-          id: input.id,
-          status: 'prompted',
-          adder: input.adder,
-          approver: input.approver,
-          promptConversationJid: input.promptConversationJid,
-          promptAgentFolder: input.promptAgentFolder,
-          promptedAt: input.now,
-          dismissedAt: null,
-          registeredAt: null,
-          leftAt: null,
-          updatedAt: input.now,
-        },
-      })
-      .returning();
-    if (!row) throw new Error('Failed to record group join onboarding prompt');
-    return mapRow(row);
-  }
-
-  async getById(id: string): Promise<GroupJoinOnboardingRecord | null> {
-    const [row] = await this.db
-      .select()
-      .from(table)
-      .where(eq(table.id, id))
-      .limit(1);
-    return row ? mapRow(row) : null;
-  }
-
-  async markDismissed(input: {
-    id: string;
-    now: string;
-  }): Promise<GroupJoinOnboardingRecord | null> {
-    const [row] = await this.db
-      .update(table)
-      .set({
-        status: 'dismissed',
-        dismissedAt: input.now,
-        updatedAt: input.now,
-      })
-      // leftAt guard: once the bot was removed from the group, the stale
-      // prompt's buttons must settle as "no longer active", not act.
-      .where(
-        and(
-          eq(table.id, input.id),
-          eq(table.status, 'prompted'),
-          isNull(table.leftAt),
-        ),
-      )
       .returning();
     return row ? mapRow(row) : null;
   }

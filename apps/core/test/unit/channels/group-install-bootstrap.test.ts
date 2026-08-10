@@ -65,9 +65,6 @@ function harness(input: {
       };
       return current;
     }),
-    recordPrompt: vi.fn(async () => current!),
-    getById: vi.fn(async () => current),
-    markDismissed: vi.fn(async () => null),
     markRegistered: vi.fn(async ({ now }) => {
       if (!current || current.status !== 'prompted') return null;
       current = {

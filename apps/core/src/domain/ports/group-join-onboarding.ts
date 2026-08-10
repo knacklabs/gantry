@@ -28,21 +28,6 @@ export interface GroupJoinOnboardingRepository {
     promptAgentFolder: string;
     now: string;
   }): Promise<GroupJoinOnboardingRecord | null>;
-  recordPrompt(input: {
-    id: string;
-    providerAccountId: string;
-    chatJid: string;
-    adder: string;
-    approver: string;
-    promptConversationJid: string;
-    promptAgentFolder: string;
-    now: string;
-  }): Promise<GroupJoinOnboardingRecord>;
-  getById(id: string): Promise<GroupJoinOnboardingRecord | null>;
-  markDismissed(input: {
-    id: string;
-    now: string;
-  }): Promise<GroupJoinOnboardingRecord | null>;
   markRegistered(input: {
     id: string;
     now: string;
@@ -81,22 +66,6 @@ export interface GroupJoinOnboardingCoordinator {
     externalId: string;
     title: string;
     installerExternalId: string;
-  }): Promise<GroupJoinOnboardingRecord | null>;
-  recordPrompt(input: {
-    providerAccountId: string;
-    chatJid: string;
-    adder: string;
-    approver: string;
-    promptConversationJid: string;
-    promptAgentFolder: string;
-  }): Promise<GroupJoinOnboardingRecord>;
-  getById(id: string): Promise<GroupJoinOnboardingRecord | null>;
-  dismiss(id: string): Promise<GroupJoinOnboardingRecord | null>;
-  register(input: {
-    id: string;
-    externalId: string;
-    title: string;
-    approvedBy: string;
   }): Promise<GroupJoinOnboardingRecord | null>;
   markLeft(input: {
     providerAccountId: string;
