@@ -1,11 +1,9 @@
-import type {
-  HistoricalAttachmentFetcher,
-  HistoricalAttachmentReader,
-} from '../../domain/ports/historical-attachment-fetcher.js';
+import type { HistoricalAttachmentFetcher } from '../../domain/ports/historical-attachment-fetcher.js';
 import type {
   MessageAttachmentRepository,
   ResolvableMessageAttachment,
 } from '../../domain/ports/message-attachment-repository.js';
+import { logger } from '../../infrastructure/logging/logger.js';
 import {
   workspaceLocalRegularFile,
   createProviderAttachmentStorageRef,
@@ -26,6 +24,10 @@ import {
   classifyAndLogAttachmentFailure,
   type AttachmentFailureEvidence,
 } from './attachment-failure.js';
+import {
+  historicalAttachmentReader,
+  isWorkspaceLocalAttachmentStorageRef,
+} from './attachment-resolver-helpers.js';
 
 export const ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024;
 export const ATTACHMENT_OPEN_TIMEOUT_MS = 110_000;
@@ -221,6 +223,15 @@ export class AttachmentResolver {
             'attachment.bin',
         };
       }
+      logger.info(
+        {
+          attachmentId: attachment.id,
+          storageRef: attachment.storageRef,
+          providerAccountId: attachment.providerAccountId,
+          conversationJid: attachment.conversationJid,
+        },
+        'Workspace attachment ref missing; falling back to provider fetch',
+      );
     }
     if (
       attachment.storageRef &&
@@ -403,6 +414,15 @@ export class AttachmentResolver {
       signal,
     });
     if (fetched.status === 'deleted') {
+      logger.info(
+        {
+          attachmentId: attachment.id,
+          provider: attachment.providerFetch?.provider,
+          providerAccountId: attachment.providerAccountId,
+          conversationJid: attachment.conversationJid,
+        },
+        'Provider attachment fetch reported deleted file',
+      );
       if (signal.aborted) {
         return {
           status: 'unreachable',
@@ -680,19 +700,4 @@ export class AttachmentResolver {
       storageRef,
     });
   }
-}
-
-function isWorkspaceLocalAttachmentStorageRef(storageRef: string): boolean {
-  return (
-    storageRef.startsWith('attachments/') &&
-    storageRef.length > 'attachments/'.length &&
-    !storageRef.includes('\\') &&
-    !storageRef.split('/').includes('..')
-  );
-}
-
-function historicalAttachmentReader(
-  content: Uint8Array | HistoricalAttachmentReader,
-): HistoricalAttachmentReader | undefined {
-  return 'read' in content ? content : undefined;
 }

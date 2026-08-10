@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   ATTACHMENT_IPC_AUTH_TOKEN,
   chatJid,
+  providerAccountId,
   TASKS_DIR,
   threadId,
 } from '../context.js';
@@ -131,6 +132,7 @@ export async function requestHostAttachmentOpenPayload(
       attachmentId,
       chatJid,
       threadId,
+      providerAccountId,
       taskId,
       authToken: ATTACHMENT_IPC_AUTH_TOKEN,
     }),
@@ -154,6 +156,7 @@ export async function requestHostAttachmentMaterializePayload(
       attachmentId,
       chatJid,
       threadId,
+      providerAccountId,
       taskId,
       authToken: ATTACHMENT_IPC_AUTH_TOKEN,
     }),

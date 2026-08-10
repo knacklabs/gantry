@@ -2479,7 +2479,8 @@ describe('Slack channel', () => {
     ]);
     expect(result.messages).toEqual([
       expect.objectContaining({
-        content: 'Attachment: screen.png',
+        content:
+          'Attachment: screen.png (gantry_attachment=slack-file:F_IMAGE, content_type=image/png)',
         attachments: [
           expect.objectContaining({
             kind: 'image',
@@ -2490,7 +2491,8 @@ describe('Slack channel', () => {
         ],
       }),
       expect.objectContaining({
-        content: 'report attached\nAttachment: report.pdf',
+        content:
+          'report attached\nAttachment: report.pdf (gantry_attachment=slack-file:F_FILE, content_type=application/pdf)',
         attachments: [
           expect.objectContaining({
             kind: 'file',
@@ -3835,7 +3837,8 @@ describe('Slack channel', () => {
     expect(opts.onMessage).toHaveBeenCalledWith(
       'sl:C123',
       expect.objectContaining({
-        content: 'see file\nAttachment: report.pdf',
+        content:
+          'see file\nAttachment: report.pdf (gantry_attachment=slack-file:F123, content_type=application/pdf)',
         attachments: [
           expect.objectContaining({
             externalId: 'F123',
@@ -3912,7 +3915,7 @@ describe('Slack channel', () => {
       'sl:C123',
       expect.objectContaining({
         content:
-          'see file\nAttachment: Scout_Agent_Skills.md (download unavailable: slack_http_403)',
+          'see file\nAttachment: Scout_Agent_Skills.md (gantry_attachment=slack-file:F123, content_type=text/markdown) (download unavailable: slack_http_403)',
         attachments: [
           expect.objectContaining({
             externalId: 'F123',
@@ -3977,7 +3980,7 @@ describe('Slack channel', () => {
       'sl:C123',
       expect.objectContaining({
         content:
-          'see file\nAttachment: Scout_Agent_Skills.md (download unavailable: slack_html_response)',
+          'see file\nAttachment: Scout_Agent_Skills.md (gantry_attachment=slack-file:F123, content_type=text/markdown) (download unavailable: slack_html_response)',
         attachments: [
           expect.objectContaining({
             externalId: 'F123',

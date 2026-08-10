@@ -67,16 +67,25 @@
     "apps/core/src/application/sessions/session-interaction-module.ts": 745,
     "apps/core/src/adapters/storage/postgres/repositories/person-identity-repository.postgres.ts": 1150,
     "apps/core/src/adapters/storage/postgres/repositories/message-attachment-repository.postgres.ts": 730,
-    "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts": 705
+    "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts": 705,
+    "apps/core/src/application/attachments/attachment-resolver.ts": 710
   },
   "layers": {
     "domain": {
-      "paths": ["apps/core/src/domain"],
-      "allowedImportLayers": ["domain", "shared", "packages/contracts"],
+      "paths": [
+        "apps/core/src/domain"
+      ],
+      "allowedImportLayers": [
+        "domain",
+        "shared",
+        "packages/contracts"
+      ],
       "allowedExternalImports": []
     },
     "application": {
-      "paths": ["apps/core/src/application"],
+      "paths": [
+        "apps/core/src/application"
+      ],
       "allowedImportLayers": [
         "domain",
         "application",
@@ -130,10 +139,14 @@
         "shared",
         "packages/contracts"
       ],
-      "allowedExternalImports": ["*"]
+      "allowedExternalImports": [
+        "*"
+      ]
     },
     "config": {
-      "paths": ["apps/core/src/config"],
+      "paths": [
+        "apps/core/src/config"
+      ],
       "allowedImportLayers": [
         "config",
         "domain",
@@ -151,8 +164,14 @@
       ]
     },
     "shared": {
-      "paths": ["apps/core/src/shared", "apps/core/src/infrastructure/logging"],
-      "allowedImportLayers": ["shared", "packages/contracts"],
+      "paths": [
+        "apps/core/src/shared",
+        "apps/core/src/infrastructure/logging"
+      ],
+      "allowedImportLayers": [
+        "shared",
+        "packages/contracts"
+      ],
       "allowedExternalImports": [
         "node:",
         "crypto",
@@ -165,14 +184,31 @@
       ]
     },
     "packages/contracts": {
-      "paths": ["packages/contracts/src"],
-      "allowedImportLayers": ["packages/contracts"],
-      "allowedExternalImports": ["zod"]
+      "paths": [
+        "packages/contracts/src"
+      ],
+      "allowedImportLayers": [
+        "packages/contracts"
+      ],
+      "allowedExternalImports": [
+        "zod"
+      ]
     },
     "packages/sdk": {
-      "paths": ["packages/sdk/src"],
-      "allowedImportLayers": ["packages/contracts", "packages/sdk"],
-      "allowedExternalImports": ["node:", "http", "https", "url", "crypto"]
+      "paths": [
+        "packages/sdk/src"
+      ],
+      "allowedImportLayers": [
+        "packages/contracts",
+        "packages/sdk"
+      ],
+      "allowedExternalImports": [
+        "node:",
+        "http",
+        "https",
+        "url",
+        "crypto"
+      ]
     }
   },
   "approvedProviderSpecificPaths": [
@@ -227,5 +263,8 @@
     "registeredGroup": "\\bregisteredGroups?\\b",
     "claude_only": "\\b(?:claude-only|Claude-only|claude only|Claude only|only Claude|only supports Claude)\\b"
   },
-  "emptyFolderScanRoots": ["apps/core/src", "packages"]
+  "emptyFolderScanRoots": [
+    "apps/core/src",
+    "packages"
+  ]
 }

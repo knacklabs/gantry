@@ -553,6 +553,13 @@ function validateAttachmentOpenConversationProof(
   ) {
     throw new Error('Invalid attachment open conversation proof');
   }
+  // Strict single-candidate verification, deliberately: the proof token is
+  // host-minted with full scope (chat, thread, app, agent, provider account),
+  // and the runner env plumbing on this branch guarantees both sides hold the
+  // same scoped token. Accepting a scope-stripped candidate here would let a
+  // providerless proof authenticate a claimed provider account (the binding's
+  // providerAccountId is worker-supplied and outside the request-signing key),
+  // breaking per-account attachment isolation (RACE-3).
   const authToken = computeAttachmentIpcAuthToken(sourceAgentFolder, {
     chatJid,
     threadId: binding.authThreadId,
