@@ -1705,6 +1705,60 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     });
   });
 
+  it('submits request_access durable Gantry MCP tool targets as reviewed permission requests', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: { kind: 'tool', name: 'mcp_describe_tool' },
+      reason: 'Let scheduled jobs inspect attached MCP tool schemas.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'request_permission',
+      payload: {
+        capabilityRequestSource: 'request_access',
+        permissionKind: 'tool',
+        toolName: 'mcp__gantry__mcp_describe_tool',
+      },
+    });
+  });
+
+  it('submits request_access full durable Gantry MCP tool names as reviewed permission requests', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: { kind: 'tool', name: 'mcp__gantry__todo_update' },
+      reason: 'Let scheduled jobs maintain visible progress.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'request_permission',
+      payload: {
+        capabilityRequestSource: 'request_access',
+        permissionKind: 'tool',
+        toolName: 'mcp__gantry__todo_update',
+      },
+    });
+  });
+
   it('rejects browser-control skill install requests with request_permission guidance', async () => {
     const fixture = createMcpFixture();
 

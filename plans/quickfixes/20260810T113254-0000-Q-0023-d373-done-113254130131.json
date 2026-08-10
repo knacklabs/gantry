@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0023-d373",
+  "profile": "quickfix",
+  "reason": "extract PR #402's genuine fix: durable Gantry MCP tool access requests (requester/validator alignment); drop obsolete stale-tolerance and serialize commits",
+  "started_at": "2026-08-10T11:30:26+00:00",
+  "completed_at": "2026-08-10T11:32:54+00:00",
+  "files": []
+}
