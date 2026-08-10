@@ -415,7 +415,7 @@
       ]
     },
     {
-      "status": "active",
+      "status": "done",
       "key": "E2E-1",
       "title": "E2E: reconcile the test-matrix tracker",
       "epic": "agent-e2e-gate",
@@ -430,7 +430,10 @@
         "gap list of genuinely-uncovered rows produced",
         "D-0002 resolved: persona-harness scope re-drafted or explicitly re-deferred",
         "feature/agent-e2e-haiku-turn dispositioned: salvaged into a row or discarded with rationale"
-      ]
+      ],
+      "completed_at": "2026-08-10T10:51:42+00:00",
+      "history": ".factory/history/E2E-1/",
+      "outcome": "The Agent E2E matrix now reflects current upstream coverage with direct test and PR evidence, explicitly preserves partial and uncovered behavior, resolves the obsolete persona/topology deferral, discards the superseded Haiku branch, and identifies the smallest deterministic API-first model, control, usage, cost, and semantic-fallback scenarios for E2E-2."
     },
     {
       "status": "pending",
