@@ -12,6 +12,7 @@ drives that afterwards.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -21,13 +22,19 @@ from factory_lib import dump_json, head_sha, now_iso, repo_root
 
 from .common import fail
 from .scaffold import (
+    COPY_CLAUDE,
     COPY_CODEX,
     COPY_WORKFLOWS,
     DISCOVERY_TEMPLATE,
     DOC_CONTRACTS,
+    HARNESS_OWNED_SKILLS,
     PROJECT_STARTERS,
     PROTOTYPE_README,
+    assert_target_destination,
+    assert_target_file_destination,
+    check_record_origin_writable,
     ensure_jsonl_attributes,
+    ensure_record_origin,
 )
 from .upgrade import UPGRADE_TREES
 
@@ -37,6 +44,132 @@ OWNED_FILES = ["forge", "WORKFLOW.md"]
 # docs/context/migrated-<name> (harvest picks it up), then the harness
 # version is written.
 MERGE_FILES = ["AGENTS.md", "CLAUDE.md"]
+ADOPT_SKILL_TREES = tuple(
+    f"{runtime}/skills/{skill}"
+    for runtime in (".claude", ".codex")
+    for skill in HARNESS_OWNED_SKILLS
+)
+
+
+def _vendor_tree_files(src: Path):
+    """Yield the files a merged tree vendor dereferences and copies."""
+    for current, dirnames, filenames in os.walk(src, followlinks=True):
+        dirnames[:] = [name for name in dirnames if name != "__pycache__"]
+        for name in filenames:
+            path = Path(current) / name
+            if path.suffix != ".pyc" and path.is_file():
+                yield path
+
+
+def _preflight_adopt(harness: Path, target: Path, name: str) -> None:
+    """Validate every possible destination before adopt's first mutation."""
+    def directory(dst: Path) -> None:
+        assert_target_destination(target, dst)
+
+    def file(dst: Path) -> None:
+        assert_target_destination(target, dst.parent)
+        assert_target_file_destination(target, dst)
+
+    def vendor_tree(rel: str) -> None:
+        src = harness / rel
+        if not src.exists():
+            return
+        directory(target / rel)
+        for path in _vendor_tree_files(src):
+            file(target / path.relative_to(harness))
+
+    for tree in UPGRADE_TREES:
+        vendor_tree(tree)
+    for rel in COPY_CLAUDE:
+        if (harness / ".claude" / rel).exists():
+            file(target / ".claude" / rel)
+    for rel in COPY_WORKFLOWS:
+        file(target / rel)
+    for rel in COPY_CODEX:
+        file(target / ".codex" / rel)
+    vendor_tree(".codex/agents")
+    for tree in ADOPT_SKILL_TREES:
+        vendor_tree(tree)
+    for rel in OWNED_FILES:
+        file(target / rel)
+    for src_rel, dst_rel in DOC_CONTRACTS:
+        if (harness / src_rel).exists():
+            file(target / dst_rel)
+
+    context_dir = target / "docs" / "context"
+    for rel in MERGE_FILES:
+        dst = target / rel
+        src_text = (harness / rel).read_text()
+        if rel == "AGENTS.md":
+            src_text = src_text.replace("Symphony Forge", name, 1)
+        variant = next(
+            (path for path in target.iterdir()
+             if path.is_file() and path.name.lower() == rel.lower()
+             and path.name != rel),
+            None,
+        )
+        # Mirror the adoption sequence so every destination it will touch is
+        # validated BEFORE the first mutation. A variant without a canonical is
+        # renamed to dst, so dst's effective content becomes the variant's — the
+        # `migrated-{rel}` backup then depends on the variant, not on dst, which
+        # does not exist yet at preflight time.
+        effective = dst
+        if variant is not None:
+            file(variant)
+            canonical_exists = any(path.name == rel for path in target.iterdir())
+            if canonical_exists:
+                directory(context_dir)
+                file(context_dir / f"migrated-{variant.name}")
+            else:
+                file(dst)
+                effective = variant
+        if effective.exists() and effective.read_text() != src_text:
+            directory(context_dir)
+            file(context_dir / f"migrated-{rel}")
+        file(dst)
+
+    file(target / "constitution" / "VENDORED_FROM")
+    file(target / "constitution" / "VENDOR_MANIFEST.json")
+
+    def ensure(rel: str) -> None:
+        dst = target / rel
+        if not dst.exists():
+            file(dst)
+
+    ensure("harness.yaml")
+    gitignore = target / ".gitignore"
+    if (not gitignore.exists()
+            or ".gstack/sessions/" not in gitignore.read_text()):
+        file(gitignore)
+    envrc = target / ".envrc"
+    if not envrc.exists() or "GSTACK_HOME" not in envrc.read_text():
+        file(envrc)
+    # The helper decides whether content is missing, so treat its destination
+    # as a possible append and validate it before any earlier write can occur.
+    file(target / ".gitattributes")
+    brief = target / "docs" / "product" / "BRIEF.md"
+    if (harness / "harness" / "nestjs-react" / "BRIEF_TEMPLATE.md").exists() \
+            and not brief.exists():
+        directory(brief.parent)
+        file(brief)
+    ensure("docs/product/DISCOVERY.md")
+    ensure("prototype/README.md")
+    for rel in PROJECT_STARTERS:
+        ensure(rel)
+    file(target / "README.md")
+    for sub in ("active", "completed", "debt"):
+        plan_dir = target / "plans" / sub
+        if not plan_dir.exists():
+            directory(plan_dir)
+            file(plan_dir / ".gitkeep")
+    for rel in ("docs/decisions", "docs/architecture", "docs/context",
+                "docs/specs", "docs/memory"):
+        directory(target / rel)
+    run_json = target / ".factory" / "run.json"
+    if not run_json.exists():
+        directory(target / ".factory" / "reviews")
+        file(run_json)
+    check_record_origin_writable(target)
 
 
 def cmd_adopt(args: argparse.Namespace) -> None:
@@ -60,44 +193,43 @@ def cmd_adopt(args: argparse.Namespace) -> None:
             "overwrites harness-owned paths and the diff must be reviewable."
         )
     name = args.name or target.name
+    _preflight_adopt(harness, target, name)
 
     overwritten: list[str] = []
 
     def vendor_file(src: Path, dst: Path) -> None:
-        # Never write through a symlink escape: a tracked link pointing
-        # outside the repo would receive the write with the user's privileges.
-        if dst.is_symlink() or (dst.parent.exists()
-                                and not dst.parent.resolve().is_relative_to(target.resolve())):
-            fail(f"refusing to vendor through a symlink: {dst.relative_to(target)} — "
-                 "replace the link with a real path first.")
+        dst = assert_target_file_destination(target, dst)
         if dst.exists():
             overwritten.append(str(dst.relative_to(target)))
-        dst.parent.mkdir(parents=True, exist_ok=True)
+        assert_target_destination(target, dst.parent).mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
 
     def vendor_tree(rel: str) -> None:
         src = harness / rel
         if not src.exists():
             return
-        for path in src.rglob("*"):
-            if path.is_file() and "__pycache__" not in path.parts \
-                    and path.suffix != ".pyc":
-                vendor_file(path, target / path.relative_to(harness))
+        assert_target_destination(target, target / rel)
+        for path in _vendor_tree_files(src):
+            vendor_file(path, target / path.relative_to(harness))
 
-    # Machinery trees are MERGED per file, not replaced wholesale — an existing
-    # repo's own .claude/skills/ must survive. (.claude is not in
-    # UPGRADE_TREES anymore — upgrade replaces it surgically — but adopt's
-    # per-file vendor is merge-safe, so the whole tree is fine here.)
-    for tree in UPGRADE_TREES + [".claude"]:
+    # Machinery trees are MERGED per file, not replaced wholesale. Mixed-owned
+    # runtime surfaces are copied from the same harness allowlists as init and
+    # upgrade so source-only skills never leak into an adopted project.
+    for tree in UPGRADE_TREES:
         vendor_tree(tree)
+    for rel in COPY_CLAUDE:
+        src = harness / ".claude" / rel
+        if src.exists():
+            vendor_file(src, target / ".claude" / rel)
     # .github is not a machinery tree (mixed ownership): vendor only the harness
     # factory workflows, so the repo's own workflows (CI, deployment) survive.
     for rel in COPY_WORKFLOWS:
         vendor_file(harness / rel, target / rel)
     for rel in COPY_CODEX:
         vendor_file(harness / ".codex" / rel, target / ".codex" / rel)
-    for sub in ("agents", "skills"):
-        vendor_tree(f".codex/{sub}")
+    vendor_tree(".codex/agents")
+    for tree in ADOPT_SKILL_TREES:
+        vendor_tree(tree)
     for rel in OWNED_FILES:
         vendor_file(harness / rel, target / rel)
     for src_rel, dst_rel in DOC_CONTRACTS:
@@ -124,30 +256,38 @@ def cmd_adopt(args: argparse.Namespace) -> None:
         if variant is not None:
             canonical_exists = any(p.name == rel for p in target.iterdir())
             if canonical_exists:
-                context_dir.mkdir(parents=True, exist_ok=True)
-                keep = context_dir / f"migrated-{variant.name}"
+                assert_target_destination(target, context_dir).mkdir(
+                    parents=True, exist_ok=True)
+                keep = assert_target_file_destination(
+                    target, context_dir / f"migrated-{variant.name}")
                 shutil.copy2(variant, keep)
                 preserved.append(str(keep.relative_to(target)))
-                variant.unlink()
+                assert_target_file_destination(target, variant).unlink()
             else:
-                variant.rename(dst)
+                assert_target_file_destination(target, variant).rename(
+                    assert_target_file_destination(target, dst))
         src_text = (harness / rel).read_text()
         if rel == "AGENTS.md":
             src_text = src_text.replace("Symphony Forge", name, 1)
         if dst.exists() and dst.read_text() != src_text:
-            context_dir.mkdir(parents=True, exist_ok=True)
-            keep = context_dir / f"migrated-{rel}"
+            assert_target_destination(target, context_dir).mkdir(
+                parents=True, exist_ok=True)
+            keep = assert_target_file_destination(
+                target, context_dir / f"migrated-{rel}")
             shutil.copy2(dst, keep)
             preserved.append(str(keep.relative_to(target)))
-        dst.write_text(src_text)
+        assert_target_file_destination(target, dst).write_text(src_text)
 
     commit = head_sha(harness) or "unknown"
-    (target / "constitution" / "VENDORED_FROM").write_text(
+    assert_target_file_destination(
+        target, target / "constitution" / "VENDORED_FROM").write_text(
         f"symphony-forge @ {commit}\nUpdate by re-vendoring from the harness repo; do not edit in place.\n"
     )
     # Freeze the gate surface: the manifest is what check_vendor_integrity.py
     # (and the pr_ready gate) compare against until the next vendoring.
     from check_vendor_integrity import write_manifest
+    assert_target_file_destination(
+        target, target / "constitution" / "VENDOR_MANIFEST.json")
     write_manifest(target, commit)
 
     # Project-owned: created only where missing, never overwritten.
@@ -156,23 +296,28 @@ def cmd_adopt(args: argparse.Namespace) -> None:
     def ensure(rel: str, text: str) -> None:
         dst = target / rel
         if not dst.exists():
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            dst.write_text(text)
+            assert_target_destination(target, dst.parent).mkdir(
+                parents=True, exist_ok=True)
+            assert_target_file_destination(target, dst).write_text(text)
             created.append(rel)
 
     if not (target / "harness.yaml").exists():
         # Blank the sign-off pin: the adopting project has signed nothing off,
         # and must not inherit the harness repo's own gate.
-        (target / "harness.yaml").write_text(
+        assert_target_file_destination(target, target / "harness.yaml").write_text(
             re.sub(r"^signoff_record:.*$", 'signoff_record: ""',
                    (harness / "harness.yaml").read_text(), count=1, flags=re.MULTILINE)
         )
         created.append("harness.yaml")
     if not (target / ".gitignore").exists():
-        shutil.copy2(harness / ".gitignore", target / ".gitignore")
+        shutil.copy2(
+            harness / ".gitignore",
+            assert_target_file_destination(target, target / ".gitignore"),
+        )
         created.append(".gitignore")
     elif ".gstack/sessions/" not in (target / ".gitignore").read_text():
-        with (target / ".gitignore").open("a") as fh:
+        with assert_target_file_destination(
+                target, target / ".gitignore").open("a") as fh:
             fh.write("\n# Project-local gstack store: projects/ committed, machine noise not\n"
                      ".gstack/sessions/\n.gstack/analytics/\n.gstack/cdp-profile/\n"
                      ".gstack/tmp/\n.gstack/.*\n.gstack/**/brain-cache/\n"
@@ -180,21 +325,26 @@ def cmd_adopt(args: argparse.Namespace) -> None:
         created.append(".gitignore (gstack entries appended)")
     envrc = target / ".envrc"
     if not envrc.exists():
-        shutil.copy2(harness / ".envrc", envrc)
+        shutil.copy2(harness / ".envrc", assert_target_file_destination(target, envrc))
         created.append(".envrc (run `direnv allow` in the repo)")
     elif "GSTACK_HOME" not in envrc.read_text():
         # Existing repos commonly carry their own .envrc — append, don't skip,
         # or gstack keeps writing to ~/.gstack despite the documented setup.
-        with envrc.open("a") as fh:
+        with assert_target_file_destination(target, envrc).open("a") as fh:
             fh.write('\n# symphony-forge: project-local gstack store\n'
                      'export GSTACK_HOME="$PWD/.gstack"\n')
         created.append(".envrc (GSTACK_HOME appended; re-run `direnv allow`)")
+    assert_target_file_destination(target, target / ".gitattributes")
     if ensure_jsonl_attributes(target, harness):
         created.append(".gitattributes (missing JSONL merge rules added)")
     brief_src = harness / "harness" / "nestjs-react" / "BRIEF_TEMPLATE.md"
     if brief_src.exists() and not (target / "docs" / "product" / "BRIEF.md").exists():
-        (target / "docs" / "product").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(brief_src, target / "docs" / "product" / "BRIEF.md")
+        brief_dir = assert_target_destination(target, target / "docs" / "product")
+        brief_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(
+            brief_src,
+            assert_target_file_destination(target, brief_dir / "BRIEF.md"),
+        )
         created.append("docs/product/BRIEF.md")
     ensure("docs/product/DISCOVERY.md", DISCOVERY_TEMPLATE.format(name=name))
     ensure("prototype/README.md", PROTOTYPE_README)
@@ -203,23 +353,29 @@ def cmd_adopt(args: argparse.Namespace) -> None:
     # Devs land on the README first: tell them the repo is harness-run and
     # that starting is conversational — append, never rewrite (project-owned).
     from .scaffold import ensure_onboarding
+    assert_target_file_destination(target, target / "README.md")
     if ensure_onboarding(target, name):
         created.append("README.md ('Working in this repo — Symphony Forge' section appended)")
     for sub in ("active", "completed", "debt"):
         plan_dir = target / "plans" / sub
         if not plan_dir.exists():
-            plan_dir.mkdir(parents=True, exist_ok=True)
-            (plan_dir / ".gitkeep").touch()
+            assert_target_destination(target, plan_dir).mkdir(
+                parents=True, exist_ok=True)
+            assert_target_file_destination(target, plan_dir / ".gitkeep").touch()
     for rel in ("docs/decisions", "docs/architecture", "docs/context",
                 "docs/specs", "docs/memory"):
-        (target / rel).mkdir(parents=True, exist_ok=True)
+        assert_target_destination(target, target / rel).mkdir(
+            parents=True, exist_ok=True)
     if not (target / ".factory" / "run.json").exists():
-        (target / ".factory" / "reviews").mkdir(parents=True, exist_ok=True)
+        assert_target_destination(target, target / ".factory" / "reviews").mkdir(
+            parents=True, exist_ok=True)
         dump_json(
-            target / ".factory" / "run.json",
+            assert_target_file_destination(target, target / ".factory" / "run.json"),
             {"project": name, "created_at": now_iso()},
         )
         created.append(".factory/run.json")
+    if ensure_record_origin(target):
+        created.append(".factory/record-origin.json")
 
     print(f"Adopted the harness into {target} (symphony-forge @ {commit[:8]})")
     if overwritten:

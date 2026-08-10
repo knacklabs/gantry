@@ -11,11 +11,7 @@ import {
 import {
   normalizePendingReviewLimit,
   normalizePendingReviewOffset,
-  reviewEvidenceIds,
-  reviewItemIds,
   toMemoryReviewDisplayPage,
-  toMemoryReviewEvidenceSnippet,
-  toReadableReviewItem,
   withProposedChanges,
 } from './app-memory-review-readable.js';
 import { isValueGroundedInEvidence } from './app-memory-review-grounding.js';
@@ -29,9 +25,7 @@ import type {
   DeleteAppMemoryInput,
   MemoryLifecycleProposal,
   MemoryReviewDecisionInput,
-  MemoryReviewEvidenceSnippet,
   MemoryReviewPage,
-  MemoryReviewReadableItem,
   MemoryReviewRecord,
   NormalizedMemorySubject,
   PatchAppMemoryInput,
@@ -40,8 +34,6 @@ import type {
 type Db = NodePgDatabase<typeof pgSchema>;
 type MemoryReviewRow =
   typeof pgSchema.memoryReviewRequestsPostgres.$inferSelect;
-type MemoryItemRow = typeof pgSchema.memoryItemsPostgres.$inferSelect;
-type MemoryEvidenceRow = typeof pgSchema.memoryEvidencePostgres.$inferSelect;
 const REVIEW_APPLYABLE_ACTIONS = new Set(
   'promote retire rewrite merge needs_review'.split(' '),
 );
@@ -52,62 +44,6 @@ function pendingMemoryReviewFilter(subject: NormalizedMemorySubject) {
     eq(pgSchema.memoryReviewRequestsPostgres.subjectType, subject.subjectType),
     eq(pgSchema.memoryReviewRequestsPostgres.subjectId, subject.subjectId),
     eq(pgSchema.memoryReviewRequestsPostgres.status, 'pending_review'),
-  );
-}
-async function itemMapForReviews(
-  db: Db,
-  reviews: MemoryReviewRecord[],
-  statementTimeoutMs?: number,
-): Promise<Map<string, MemoryReviewReadableItem>> {
-  const itemIds = [
-    ...new Set(reviews.flatMap((review) => reviewItemIds(review.proposal))),
-  ];
-  if (!itemIds.length) return new Map();
-  const rows = (await withStatementTimeout(
-    db,
-    statementTimeoutMs,
-    (timeoutMs) =>
-      sql`select set_config('statement_timeout', ${String(timeoutMs)}, true)`,
-    (tx) =>
-      tx
-        .select()
-        .from(pgSchema.memoryItemsPostgres)
-        .where(inArray(pgSchema.memoryItemsPostgres.id, itemIds)),
-  )) as MemoryItemRow[];
-  return new Map(rows.map((row) => [row.id, toReadableReviewItem(row)]));
-}
-async function evidenceMapForReviews(
-  db: Db,
-  subject: NormalizedMemorySubject,
-  reviews: MemoryReviewRecord[],
-  statementTimeoutMs?: number,
-): Promise<Map<string, MemoryReviewEvidenceSnippet>> {
-  const evidenceIds = reviewEvidenceIds(reviews);
-  if (!evidenceIds.length) return new Map();
-  const rows = (await withStatementTimeout(
-    db,
-    statementTimeoutMs,
-    (timeoutMs) =>
-      sql`select set_config('statement_timeout', ${String(timeoutMs)}, true)`,
-    (tx) =>
-      tx
-        .select()
-        .from(pgSchema.memoryEvidencePostgres)
-        .where(
-          and(
-            inArray(pgSchema.memoryEvidencePostgres.id, evidenceIds),
-            eq(pgSchema.memoryEvidencePostgres.appId, subject.appId),
-            eq(pgSchema.memoryEvidencePostgres.agentId, subject.agentId),
-            eq(
-              pgSchema.memoryEvidencePostgres.subjectType,
-              subject.subjectType,
-            ),
-            eq(pgSchema.memoryEvidencePostgres.subjectId, subject.subjectId),
-          ),
-        ),
-  )) as MemoryEvidenceRow[];
-  return new Map(
-    rows.map((row) => [row.id, toMemoryReviewEvidenceSnippet(row)]),
   );
 }
 export async function countPendingMemoryReviews(input: {
@@ -155,16 +91,7 @@ export async function listPendingMemoryReviews(input: {
     },
   )) as MemoryReviewRow[];
   const reviews = rows.map(toMemoryReview);
-  // Snapshotted reviews render per-review from their own frozen artifact
-  // (inside withProposedChanges); only rows without a valid snapshot need this
-  // shared live re-query.
-  const legacy = reviews.filter((review) => !review.reviewSnapshot);
-  const legacyItems = await itemMapForReviews(
-    input.db,
-    legacy,
-    input.statementTimeoutMs,
-  );
-  return withProposedChanges(reviews, legacyItems);
+  return withProposedChanges(reviews);
 }
 export async function listPendingMemoryReviewPage(input: {
   db: Db;
@@ -189,15 +116,6 @@ export async function listPendingMemoryReviewPage(input: {
   });
   const returnedCount = reviews.length;
   const nextOffset = offset + returnedCount;
-  // Live evidence only for legacy rows; snapshotted reviews resolve their own
-  // evidence per-review inside toMemoryReviewDisplayPage.
-  const legacy = reviews.filter((review) => !review.reviewSnapshot);
-  const legacyEvidenceById = await evidenceMapForReviews(
-    input.db,
-    input.subject,
-    legacy,
-    input.statementTimeoutMs,
-  );
   return {
     reviews,
     reviewPage: toMemoryReviewDisplayPage({
@@ -209,7 +127,6 @@ export async function listPendingMemoryReviewPage(input: {
       limit,
       offset,
       nextOffset: nextOffset < totalCount ? nextOffset : null,
-      legacyEvidenceById,
     }),
     totalCount,
     returnedCount,

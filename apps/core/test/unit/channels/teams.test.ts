@@ -1589,6 +1589,18 @@ describe('TeamsChannel adapter scaffold', () => {
                 threadId: 'root-message',
               }),
             }),
+            expect.objectContaining({
+              type: 'Action.Execute',
+              title: 'How to pause',
+              verb: 'gantry.scheduler.pause_job',
+              data: expect.objectContaining({
+                action: 'message_action',
+                kind: 'scheduler_pause_job',
+                jobId: 'job-1',
+                targetJid: 'teams:19:abc@thread.v2',
+                threadId: 'root-message',
+              }),
+            }),
           ],
         }),
       }),

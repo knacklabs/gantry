@@ -305,6 +305,24 @@ export class PostgresRuntimeRepositoryBundle
     await this.jobs.updateJob(id, updates, options);
   }
 
+  async appendJobAccessRequirement(
+    input: Parameters<RuntimeJobRepository['appendJobAccessRequirement']>[0],
+  ): Promise<boolean> {
+    return this.jobs.appendJobAccessRequirement(input);
+  }
+
+  async resumeSetupPausedJob(
+    input: import('../../../../domain/repositories/ops-repo.js').SetupPausedJobRecoveryClaim,
+  ): Promise<boolean> {
+    return this.jobs.resumeSetupPausedJob(input);
+  }
+
+  async refreshSetupPausedJob(
+    input: import('../../../../domain/repositories/ops-repo.js').SetupPausedJobRecoveryRefresh,
+  ): Promise<boolean> {
+    return this.jobs.refreshSetupPausedJob(input);
+  }
+
   async markJobSetupNotified(
     id: string,
     expectedFingerprint: string,

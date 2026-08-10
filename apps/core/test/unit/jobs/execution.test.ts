@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ConversationRoute, Job } from '@core/domain/types.js';
 import { currentLogContext } from '@core/infrastructure/logging/logger.js';
+import { formatAutonomousToolDenial } from '@core/shared/autonomous-tool-denial.js';
 import { getOperationalErrorCount } from '@core/shared/operational-error-counters.js';
 
 const runtimeStoreMock = vi.hoisted(() => ({
@@ -233,6 +234,34 @@ describe('jobs/execution', () => {
     runtimeStoreMock.appendRunnerControlEvent.mockResolvedValue('persisted');
     runtimeStoreMock.heartbeatRunLease.mockResolvedValue(true);
     handleSystemJobMock.mockResolvedValue('System job completed.');
+  });
+
+  it('uses the fake execution adapter with the required runner', async () => {
+    const job = makeJob({ model: 'not-a-catalog-model' });
+    const opsRepository = makeOpsRepository(job);
+    const runAgent = vi.fn(async () => ({
+      status: 'success',
+      result: 'fake adapter completed',
+    }));
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        runAgent: runAgent as never,
+        executionAdapter: { id: 'fake:test-execution' },
+      },
+      'tg:scheduler',
+    );
+
+    expect(runAgent).toHaveBeenCalledOnce();
+    expect(opsRepository.claimDueJobRunStart).toHaveBeenCalledWith(
+      expect.objectContaining({ executionProviderId: 'fake:test-execution' }),
+    );
   });
 
   it('records a failed terminal run when execution throws before normal settlement', async () => {
@@ -554,8 +583,13 @@ describe('jobs/execution', () => {
     });
     const opsRepository = makeOpsRepository(job);
     const sendMessage = vi.fn(async () => undefined);
-    const error =
-      'Tool not on autonomous run allowlist: mcp__gantry__browser_act. Recovery: request_access { "target": { "kind": "capability", "id": "browser.use" }, "temporaryOnly": false }';
+    const error = formatAutonomousToolDenial({
+      toolName: 'mcp__gantry__browser_act',
+      reason: 'Browser access is missing.',
+      grantable: true,
+      recoveryAction:
+        'request_access { "target": { "kind": "capability", "id": "browser.use" }, "temporaryOnly": false }',
+    });
     const before = getOperationalErrorCount('jobs', 'agent_run');
 
     await runJob(
@@ -584,7 +618,6 @@ describe('jobs/execution', () => {
           state: 'missing_capability',
         }),
       }),
-      { incrementConsecutiveFailures: true },
     );
     // Autonomous not-on-allowlist denial: the RUN is a dead-end (failed); the
     // JOB still pauses for setup (asserted above) and notifies the admin.
@@ -601,6 +634,7 @@ describe('jobs/execution', () => {
     expect(deniedEvent?.payload).toEqual(
       expect.objectContaining({
         denied_tool: 'mcp__gantry__browser_act',
+        grantable: true,
         recovery_kind: 'persistent_capability',
         recovery_action: expect.stringContaining('request_access'),
       }),
@@ -663,7 +697,6 @@ describe('jobs/execution', () => {
         pause_reason: 'Setup required',
         lease_run_id: null,
       }),
-      { incrementConsecutiveFailures: true },
     );
     // Autonomous dead-end: run failed, job paused for setup (asserted above).
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
@@ -711,7 +744,6 @@ describe('jobs/execution', () => {
           state: 'missing_capability',
         }),
       }),
-      { incrementConsecutiveFailures: true },
     );
     expect(opsRepository.updateJob).not.toHaveBeenCalledWith(
       job.id,
@@ -2406,7 +2438,6 @@ describe('jobs/execution', () => {
           ],
         }),
       }),
-      { incrementConsecutiveFailures: true },
     );
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),

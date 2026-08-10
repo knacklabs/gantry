@@ -63,7 +63,7 @@ function makeTools(
     toolNetworkEnv,
     gateContext: { conversationId: 'tg:group' },
     permissionEnv: PERMISSION_ENV,
-    lockedAccessPreset: false,
+    capabilityRequestToolsHidden: false,
     filesystemToolsEnabled,
     cwd: root,
     ...extra,
@@ -282,6 +282,26 @@ describe('Gantry DeepAgents facade tools', () => {
       });
     },
   );
+
+  it('honors a terminal turn abort before an approved facade side effect', async () => {
+    const controller = new AbortController();
+    requestPermissionApprovalViaIpc.mockImplementationOnce(async () => {
+      controller.abort(new Error('terminal tool denial'));
+      return { approved: true };
+    });
+    const root = makeRoot();
+
+    await expect(
+      invoke(
+        makeTools(root, ['FileWrite'], undefined, true, {
+          signal: controller.signal,
+        }),
+        'FileWrite',
+        { path: 'must-not-exist.txt', content: 'side effect' },
+      ),
+    ).rejects.toThrow('terminal tool denial');
+    expect(fs.existsSync(path.join(root, 'must-not-exist.txt'))).toBe(false);
+  });
 
   it('bridges AgentDelegation to Gantry delegate_task when authorized', async () => {
     const root = makeRoot();

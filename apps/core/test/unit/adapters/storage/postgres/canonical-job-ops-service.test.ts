@@ -214,6 +214,26 @@ describe('CanonicalJobOpsService', () => {
     });
   });
 
+  it('delegates access requirement appends without replacing the job snapshot', async () => {
+    const appendJobAccessRequirement = vi.fn(async () => false);
+    const repository = {
+      appendJobAccessRequirement,
+    } as unknown as PostgresCanonicalJobRepository;
+    const service = new CanonicalJobOpsService(repository);
+    const input = {
+      jobId: 'job-1',
+      requirement: {
+        target: { kind: 'tool_rule' as const, rule: 'Browser' },
+      },
+      expectedUpdatedAt: '2026-08-05T00:00:00.000Z',
+    };
+
+    await expect(service.appendJobAccessRequirement(input)).resolves.toBe(
+      false,
+    );
+    expect(appendJobAccessRequirement).toHaveBeenCalledWith(input);
+  });
+
   it('uses the runtime event app id for run-scoped event queries', async () => {
     const repository = {
       findRuntimeEventAppIdForRun: vi.fn(async () => 'app-two'),

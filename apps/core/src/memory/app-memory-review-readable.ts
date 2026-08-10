@@ -1,4 +1,3 @@
-import { parseJsonObject } from './app-memory-canonical-codec.js';
 import type {
   MemoryReviewDisplayPage,
   MemoryReviewEvidenceSnippet,
@@ -9,21 +8,6 @@ import type {
   MemoryReviewSnapshot,
   NormalizedMemorySubject,
 } from './memory-types.js';
-
-interface MemoryItemValueRow {
-  id: string;
-  kind: string;
-  key: string;
-  valueJson: unknown;
-}
-
-interface MemoryEvidenceSnippetRow {
-  id: string;
-  sourceType: string;
-  sourceId?: string | null;
-  text: string;
-  createdAt: string;
-}
 
 const DEFAULT_PENDING_REVIEW_LIMIT = 20;
 const MAX_PENDING_REVIEW_LIMIT = 50;
@@ -55,20 +39,6 @@ function truncateReviewText(
   return value.length <= maxLength
     ? value
     : `${value.slice(0, maxLength - 1)}…`;
-}
-
-export function reviewItemIds(proposal: MemoryLifecycleProposal): string[] {
-  return [
-    proposal.itemId,
-    proposal.targetItemId,
-    ...(proposal.itemIds || []),
-  ].filter((id): id is string => Boolean(id));
-}
-
-export function reviewEvidenceIds(
-  reviews: Pick<MemoryReviewRecord, 'proposal'>[],
-): string[] {
-  return [...new Set(reviews.flatMap((review) => review.proposal.evidenceIds))];
 }
 
 /**
@@ -117,30 +87,6 @@ export function evidenceSnippetsFromSnapshot(
     });
   }
   return map;
-}
-
-export function toReadableReviewItem(
-  row: MemoryItemValueRow,
-): MemoryReviewReadableItem {
-  const value = parseJsonObject(row.valueJson).value;
-  return {
-    itemId: row.id,
-    kind: row.kind,
-    key: row.key,
-    value: typeof value === 'string' ? value : '',
-  };
-}
-
-export function toMemoryReviewEvidenceSnippet(
-  row: MemoryEvidenceSnippetRow,
-): MemoryReviewEvidenceSnippet {
-  return {
-    evidenceId: row.id,
-    sourceType: row.sourceType,
-    sourceId: row.sourceId ?? null,
-    snippet: truncateReviewText(row.text.replace(/\s+/g, ' '), 240),
-    createdAt: row.createdAt,
-  };
 }
 
 function reviewPageSubject(subject: NormalizedMemorySubject) {
@@ -241,20 +187,19 @@ function buildMemoryReviewProposedChange(
 
 export function withProposedChanges(
   reviews: MemoryReviewRecord[],
-  // Live re-queried items, consumed ONLY by reviews without a snapshot.
-  legacyItemsById: Map<string, MemoryReviewReadableItem>,
 ): MemoryReviewRecord[] {
-  return reviews.map((review) => ({
-    ...review,
-    proposedChange: buildMemoryReviewProposedChange(
-      review.proposal,
-      // Snapshotted reviews render from their OWN frozen artifact; only legacy
-      // rows fall back to the shared live map.
-      review.reviewSnapshot
-        ? readableItemsFromSnapshot(review.reviewSnapshot)
-        : legacyItemsById,
-    ),
-  }));
+  return reviews.map((review) => {
+    if (!review.reviewSnapshot) {
+      throw new Error('memory review snapshot is missing or malformed');
+    }
+    return {
+      ...review,
+      proposedChange: buildMemoryReviewProposedChange(
+        review.proposal,
+        readableItemsFromSnapshot(review.reviewSnapshot),
+      ),
+    };
+  });
 }
 
 export function toMemoryReviewDisplayPage(input: {
@@ -266,20 +211,16 @@ export function toMemoryReviewDisplayPage(input: {
   limit: number;
   offset: number;
   nextOffset: number | null;
-  // Live re-queried evidence, consumed ONLY by reviews without a snapshot.
-  legacyEvidenceById?: Map<string, MemoryReviewEvidenceSnippet>;
 }): MemoryReviewDisplayPage {
-  const legacyEvidenceById = input.legacyEvidenceById || new Map();
   return {
     items: input.reviews.map((review, index) => {
       const change =
         review.proposedChange ||
         buildMemoryReviewProposedChange(review.proposal, new Map());
-      // Each review's evidence comes from its OWN snapshot; legacy rows use the
-      // shared live map. Never a page-wide snapshot map keyed by evidence id.
-      const evidenceById = review.reviewSnapshot
-        ? evidenceSnippetsFromSnapshot(review.reviewSnapshot)
-        : legacyEvidenceById;
+      if (!review.reviewSnapshot) {
+        throw new Error('memory review snapshot is missing or malformed');
+      }
+      const evidenceById = evidenceSnippetsFromSnapshot(review.reviewSnapshot);
       return {
         number: index + 1,
         reviewId: review.id,

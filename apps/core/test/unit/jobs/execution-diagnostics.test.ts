@@ -6,10 +6,27 @@ import {
   formatTerminalToolDenial,
   forwardRunnerRuntimeEvents,
   terminalDiagnosticsPayload,
+  toolDenialEventPayload,
   updateDiagnosticsFromRuntimeEvent,
 } from '@core/jobs/execution-diagnostics.js';
 
 describe('job execution diagnostics', () => {
+  it('classifies MCP server requests as instruction-only recovery', () => {
+    expect(
+      toolDenialEventPayload(
+        {
+          toolName: 'mcp__acme__records_append',
+          grantable: false,
+          recoveryAction: 'request_mcp_server {"serverName":"acme"}',
+        },
+        null,
+      ),
+    ).toMatchObject({
+      grantable: false,
+      recovery_kind: 'job_policy',
+    });
+  });
+
   it('treats partial or inconsistent human-once provenance as transient (fail closed)', () => {
     for (const provenance of [
       { source: 'human_once' }, // repeatable flag missing
@@ -32,7 +49,7 @@ describe('job execution diagnostics', () => {
       expect(diagnostics.transientPermissionApprovals).toHaveLength(1);
     }
   });
-  it('does not turn non-terminal permission denials into run errors', () => {
+  it('retains a terminal permission denial and its specific tool name', () => {
     const diagnostics = createJobRunDiagnostics();
 
     updateDiagnosticsFromRuntimeEvent(
@@ -42,13 +59,19 @@ describe('job execution diagnostics', () => {
         phase: 'permission_denied',
         tool: 'Bash',
         ok: false,
-        terminal: false,
+        terminal: true,
         reason: 'Bash command could not be parsed safely.',
       },
     );
 
-    expect(diagnostics.terminalToolDenial).toBeUndefined();
-    expect(formatTerminalToolDenial(diagnostics)).toBeUndefined();
+    expect(diagnostics.terminalToolDenial).toEqual({
+      toolName: 'Bash',
+      reason: 'Bash command could not be parsed safely.',
+      recoveryAction: undefined,
+    });
+    expect(formatTerminalToolDenial(diagnostics)).toContain(
+      'Permission denied for Bash.',
+    );
   });
 
   it('keeps promptable permission denials terminal by default', () => {

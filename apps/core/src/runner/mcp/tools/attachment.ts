@@ -9,11 +9,16 @@ import {
   threadId,
 } from '../context.js';
 import { makeIpcId } from '../ipc-ids.js';
-import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
+import {
+  waitForTaskResponse,
+  waitForTaskResponseOutcome,
+  writeIpcFile,
+} from '../ipc.js';
 import {
   attachmentMaterializeResponsePayload,
   attachmentMaterializeTaskRequest,
   attachmentOpenResponsePayload,
+  attachmentOpenTimeoutPayload,
   attachmentOpenTaskRequest,
   DELIVERED_IMAGE_TEXT,
   openAttachmentBatch,
@@ -26,7 +31,7 @@ export {
   attachmentOpenTaskRequest,
 } from '../attachment-open-protocol.js';
 
-const ATTACHMENT_OPEN_TASK_TIMEOUT_MS = 120_000;
+export const ATTACHMENT_OPEN_TASK_TIMEOUT_MS = 120_000;
 export const ATTACHMENT_MATERIALIZE_TASK_TIMEOUT_MS = 120_000;
 const MAX_ATTACHMENT_BATCH_SIZE = 12;
 
@@ -132,11 +137,13 @@ export async function requestHostAttachmentOpenPayload(
       authToken: ATTACHMENT_IPC_AUTH_TOKEN,
     }),
   );
-  const response = await waitForTaskResponse(
+  const outcome = await waitForTaskResponseOutcome(
     taskId,
     ATTACHMENT_OPEN_TASK_TIMEOUT_MS,
   );
-  return attachmentOpenResponsePayload(response);
+  return outcome.status === 'timed_out'
+    ? attachmentOpenTimeoutPayload()
+    : attachmentOpenResponsePayload(outcome.response);
 }
 
 export async function requestHostAttachmentMaterializePayload(

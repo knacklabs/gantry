@@ -21,6 +21,5 @@ Return structured JSON with:
 - doc_roots
 - epics
 - tasks
-- build_waves
 - linear_plan
 """

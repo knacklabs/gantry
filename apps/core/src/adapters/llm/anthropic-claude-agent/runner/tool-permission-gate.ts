@@ -393,7 +393,6 @@ export function createCanUseToolCallback(
         conversationId: input.agentInput.chatJid,
       },
     );
-
     if (input.agentInput.isScheduledJob) {
       const toolDecision = toolExecutionPolicy.evaluate({
         request: toolExecutionRequest,
@@ -415,16 +414,47 @@ export function createCanUseToolCallback(
         (toolDecision.recoveryAction
           ? `${toolDecision.reason} Recovery: ${toolDecision.recoveryAction}`
           : toolDecision.reason);
-      const nonPromptableDenial = denyNonPromptableAutonomousRecovery({
-        agentInput: input.agentInput,
-        getNewSessionId: input.getNewSessionId,
-        recoveryAction,
-        recoveryMessage,
-        toolName,
-        toolPolicyReason: yoloDenylistReason ?? toolDecision.reason,
-      });
-      if (nonPromptableDenial) return nonPromptableDenial;
+      if (yoloDenylistReason) {
+        // The settings-owned yolo denylist is a hard boundary: it must be
+        // terminal and can NEVER be overridden by a host allow-once/rule. Deny
+        // before consulting the host coordinator (whose reviewed-rule decision
+        // the scheduled miss otherwise defers to).
+        emitJobToolActivity(
+          input.agentInput,
+          input.getNewSessionId,
+          'permission_denied',
+          toolName,
+          {
+            ok: false,
+            terminal: true,
+            grantable: false,
+            reason: yoloDenylistReason,
+          },
+        );
+        log(
+          `Autonomous run denied denylisted tool ${toolName}: ${recoveryMessage}`,
+        );
+        return {
+          behavior: 'deny' as const,
+          message: `Tool not on autonomous run allowlist: ${toolName}. ${recoveryMessage}`,
+          interrupt: true,
+        };
+      }
       const publicToolName = permissionRequestToolName(toolName);
+      const permissionPlan = scheduledPermissionSuggestionPlan(
+        toolName,
+        permissionOpts.suggestions,
+        {
+          blockedPath: permissionOpts.blockedPath,
+          toolInput,
+          semanticCapabilityDefinitions: skillActionCapabilities,
+        },
+      );
+      // Same as the interactive branch: a denylist-triggered prompt must not
+      // offer a future grant the denylist would never honor.
+      const suggestions = yoloDenylistReason
+        ? undefined
+        : permissionPlan.suggestions;
       log(
         `Autonomous run requesting permission for tool ${toolName}: ${recoveryMessage}`,
       );
@@ -440,20 +470,6 @@ export function createCanUseToolCallback(
           ...(recoveryAction ? { recovery_action: recoveryAction } : {}),
         },
       );
-      const permissionPlan = scheduledPermissionSuggestionPlan(
-        toolName,
-        permissionOpts.suggestions,
-        {
-          blockedPath: permissionOpts.blockedPath,
-          toolInput,
-          semanticCapabilityDefinitions: skillActionCapabilities,
-        },
-      );
-      // Same as the interactive branch: a denylist-triggered prompt must not
-      // offer a future grant the denylist would never honor.
-      const suggestions = yoloDenylistReason
-        ? undefined
-        : permissionPlan.suggestions;
       const decision = await requestPermissionApprovalWithTrustProvenance({
         appId: input.agentInput.appId,
         agentId: input.agentInput.agentId,
@@ -519,6 +535,15 @@ export function createCanUseToolCallback(
             : {}),
         };
       }
+      const nonPromptableDenial = denyNonPromptableAutonomousRecovery({
+        agentInput: input.agentInput,
+        getNewSessionId: input.getNewSessionId,
+        recoveryAction,
+        recoveryMessage,
+        toolName,
+        toolPolicyReason: yoloDenylistReason ?? toolDecision.reason,
+      });
+      if (nonPromptableDenial) return nonPromptableDenial;
       const reason = decision.reason || 'Denied by operator';
       const message = `Permission denied: ${reason}. ${recoveryMessage}`;
       log(`Autonomous run denied tool ${toolName}: ${message}`);
@@ -529,6 +554,7 @@ export function createCanUseToolCallback(
         toolName,
         {
           ok: false,
+          grantable: true,
           reason,
           ...(recoveryAction ? { recovery_action: recoveryAction } : {}),
         },

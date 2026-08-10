@@ -11,7 +11,9 @@ import {
   type PermissionIpcRuntimeEnv,
 } from '../../../../runner/permission-ipc-client.js';
 import {
+  deepAgentsDenial,
   gatedToolErrorResult,
+  preCheckDenialResult,
   type ThirdPartyMcpGateConfig,
 } from './third-party-mcp-gate.js';
 
@@ -128,7 +130,8 @@ export interface GantryShellToolConfig {
   configuredAllowedTools: readonly string[];
   gateContext: ThirdPartyMcpGateConfig['gateContext'];
   permissionEnv: PermissionIpcRuntimeEnv;
-  lockedAccessPreset: boolean;
+  capabilityRequestToolsHidden: boolean;
+  onPermissionDenied?: ThirdPartyMcpGateConfig['onPermissionDenied'];
   // Working directory for the spawned command. Defaults to the runner cwd (the
   // sandboxed group workspace root) when omitted.
   cwd?: string;
@@ -149,6 +152,7 @@ export function createGantryShellTool(
   config: GantryShellToolConfig,
 ): StructuredToolInterface {
   const gatedFunc = async (input: { command: string }): Promise<unknown> => {
+    config.signal?.throwIfAborted();
     const command = typeof input?.command === 'string' ? input.command : '';
     if (!command.trim()) {
       return gatedToolErrorResult(
@@ -166,7 +170,7 @@ export function createGantryShellTool(
       yoloMode: config.gateContext.yoloMode,
     });
     if (preChecks) {
-      return denyMessage(preChecks.reason);
+      return preCheckDenialResult(config, GANTRY_SHELL_TOOL_NAME, preChecks);
     }
 
     const approval = await requestPermissionApprovalViaIpc(
@@ -185,9 +189,25 @@ export function createGantryShellTool(
       },
     );
     if (approval.approved) {
+      // A sibling parallel tool call may have been denied while this approval
+      // was pending, aborting the terminal-turn signal. Re-check before the
+      // side effect so an approval that resolves late cannot launch a shell
+      // command after the run was declared terminal — matching the facade and
+      // third-party MCP wrappers.
+      config.signal?.throwIfAborted();
       return runShellCommand(command, config);
     }
     const reason = approval.reason || 'Denied by operator';
+    if (config.onPermissionDenied) {
+      return config.onPermissionDenied(
+        deepAgentsDenial(
+          config,
+          GANTRY_SHELL_TOOL_NAME,
+          { toolName: SHELL_POLICY_TOOL_NAME, toolInput: policyInput },
+          reason,
+        ),
+      );
+    }
     return denyMessage(`Permission denied: ${reason}`);
   };
 

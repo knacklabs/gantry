@@ -79,6 +79,260 @@ def parse_frontmatter(text: str) -> dict[str, str]:
     return fields
 
 
+# `\r?` before the anchor, matching FRONTMATTER above: multiline `$` sits before
+# the `\n` and cannot consume a `\r`, so without it every heading in a CRLF
+# document misses and the gate refuses a document whose headings are plainly
+# there. `[ \t]+` after the hashes for the same reason a tab is not a typo.
+SECTION_HEADING = re.compile(r"^##[ \t]+([^\r\n]+?)[ \t]*\r?$", re.MULTILINE)
+# The optional ATX closing run: `## Why ##` names Why, `# #` names nothing.
+# Anchored to start-or-whitespace so a hash that belongs to the name survives
+# (`## Sharp C#`). Exported because the H1 check needs the same rule — one
+# answer to "what is this heading called", or the two drift.
+ATX_CLOSING_RUN = re.compile(r"(?:^|[ \t]+)#+[ \t]*\r?$")
+# CommonMark's fence rule, as a line test rather than a document-wide regex.
+# A backtick opener's info string may not contain a backtick, which is why
+# ```` ```json `x` ```` opens nothing.
+FENCE_LINE = re.compile(r"^ {0,3}(?P<run>`{3,}|~{3,})(?P<info>[^\r\n]*)$")
+# A block-level comment opener. Deliberately not any `<!--`: the substring also
+# appears inside inline code (`` `<!--` ``) and prose about comments, and an
+# opener taken from there swallows every heading after it.
+COMMENT_OPEN = re.compile(r" {0,3}<!--")
+# A list marker, because a fence's indentation alone does not say whether it
+# belongs to a list item: CommonMark lets a TOP-LEVEL fence indent up to three
+# spaces too, and closing that one early hands the example's headings to the
+# document.
+LIST_ITEM = re.compile(r"^ {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]")
+# The raw HTML blocks that hold their content VERBATIM until a closing tag.
+# Deliberately not every block tag: a `<div>` block ends at a blank line, so a
+# heading after that blank line really is the document's own, and masking to
+# `</div>` would refuse a complete spec.
+RAW_BLOCK_OPEN = re.compile(r" {0,3}<(pre|script|style|textarea)[ \t>]", re.I)
+# CommonMark's type-6 block tags, verbatim from the spec rather than a list
+# someone picked: a hand-chosen subset invites "why not this one too" forever,
+# and every answer is an argument. These blocks end at a blank line or the end
+# of the document, so a heading after that blank line IS the document's own —
+# masking to `</div>` instead would refuse a complete spec.
+HTML_BLOCK_TAGS = (
+    "address|article|aside|base|basefont|blockquote|body|caption|center|col|"
+    "colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|"
+    "footer|form|frame|frameset|h1|h2|h3|h4|h5|h6|head|header|hr|html|iframe|"
+    "legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|"
+    "param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|"
+    "track|ul"
+)
+HTML_BLOCK_OPEN = re.compile(rf" {{0,3}}</?({HTML_BLOCK_TAGS})[ \t>/]", re.I)
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def example_ranges(text: str) -> list[tuple[int, int]]:
+    """Character spans holding fenced blocks, HTML comments and raw HTML —
+    illustration, not document structure.
+
+    A `## Why` inside an example is an example of a heading, so counting it lets
+    a spec satisfy the capture gate without ever stating why. Both constructs
+    are line-state machines in the spec and only behave when read as one, so
+    this is a SINGLE pass with one state: a fence marker inside a comment and a
+    comment marker inside a fence are both just text, and separate passes made
+    each construct able to change the other's state. Callers exclude headings
+    that START inside a span and still slice bodies from the original text, or
+    a section whose content is only an example would read as empty.
+
+    Every ambiguity resolves toward masking LESS, because the two directions
+    are not symmetric. Masking too little means an author who wrote their
+    sections only inside an example reaches the grill that `spec confirm`
+    requires anyway. Masking too much refuses a document whose sections are
+    plainly present — the failure this gate exists to remove. That is why an
+    unterminated construct masks nothing at all: a stray opener is a typo, and
+    reading everything after it as an example is how earlier attempts turned a
+    complete spec into a refusal.
+    """
+    ranges: list[tuple[int, int]] = []
+    fence: tuple[str, int, int] | None = None
+    # (closing marker, start offset) for the constructs that run verbatim to a
+    # marker rather than to a matching fence line: HTML comments and raw blocks.
+    verbatim: tuple[str, int] | None = None
+    # A container block, which ends at a blank line or the end of the document.
+    html_block_at: int | None = None
+    opened_at = 0
+    offset = 0
+    in_list = False
+    for line in text.splitlines(keepends=True):
+        match = FENCE_LINE.match(line.rstrip("\r\n"))
+        if html_block_at is not None and not line.strip():
+            ranges.append((html_block_at, offset))
+            html_block_at = None
+        if fence is not None and line.strip() and _indent(line) < fence[2]:
+            # A fence opened inside a list item ends when the item does, so an
+            # outdented line closes it. Only fences opened inside a list carry
+            # a non-zero guard (see below), so a top-level fence — which may
+            # itself be indented up to three spaces — is never closed early.
+            ranges.append((opened_at, offset))
+            fence = None
+        if fence is None and verbatim is None:
+            if LIST_ITEM.match(line):
+                in_list = True
+            elif line.strip() and _indent(line) == 0:
+                in_list = False
+        if verbatim is not None:
+            marker, started = verbatim
+            if (closes := line.lower().find(marker)) != -1:
+                ranges.append((started, offset + closes + len(marker)))
+                verbatim = None
+        elif fence is not None:
+            # CommonMark allows only spaces and tabs after a closing fence, so
+            # `strip()` — which also eats NBSP and every other Unicode space —
+            # would close a block the renderer leaves open.
+            if (match
+                    and match.group("run")[0] == fence[0]
+                    and len(match.group("run")) >= fence[1]
+                    and not match.group("info").strip(" \t")):
+                ranges.append((opened_at, offset + len(line)))
+                fence = None
+        elif match and (match.group("run")[0] == "~"
+                        or "`" not in match.group("info")):
+            # The outdent guard is the fence's own indentation ONLY inside a
+            # list; at top level it is 0, which no line can undercut.
+            fence = (match.group("run")[0], len(match.group("run")),
+                     match.start("run") if in_list else 0)
+            opened_at = offset
+        elif opener := COMMENT_OPEN.match(line):
+            verbatim = _verbatim_span(ranges, line, offset, opener.end(), "-->")
+        elif opener := RAW_BLOCK_OPEN.match(line):
+            verbatim = _verbatim_span(
+                ranges, line, offset, opener.end(),
+                f"</{opener.group(1).lower()}>",
+            )
+        elif html_block_at is None and HTML_BLOCK_OPEN.match(line):
+            html_block_at = offset
+        offset += len(line)
+    if html_block_at is not None:
+        # End of document terminates a container block — that is the spec, not
+        # a deviation, so unlike a stray fence there is nothing unterminated
+        # here to be lenient about.
+        ranges.append((html_block_at, len(text)))
+    return ranges
+
+
+def _verbatim_span(
+    ranges: list[tuple[int, int]], line: str, offset: int, start: int, marker: str
+) -> tuple[str, int] | None:
+    """Close the span on this line, or report it still open."""
+    if (closes := line.lower().find(marker, start)) == -1:
+        return marker, offset
+    ranges.append((offset, offset + closes + len(marker)))
+    return None
+
+
+def outside_examples(text: str, matches) -> list:
+    """The matches that start outside every example span (example_ranges)."""
+    ranges = example_ranges(text)
+    return [
+        match for match in matches
+        if not any(start <= match.start() < end for start, end in ranges)
+    ]
+
+
+def ledger_dir(legacy: Path) -> Path:
+    """The directory form of a ledger that used to be one .jsonl file."""
+    return legacy.with_suffix("")
+
+
+def append_ledger_record(legacy: Path, record: dict, record_id: str) -> Path:
+    """Write one record as its own file (decision 0022).
+
+    Many writers appending to ONE file is the only reason these ledgers ever
+    conflicted, and every mechanism built to manage that — a per-clone merge
+    driver, .gitattributes rules, scaffold wiring — existed to paper over it.
+    Distinct files do not conflict, so there is nothing to merge, nothing to
+    order, and no driver to register.
+    """
+    directory = ledger_dir(legacy)
+    directory.mkdir(parents=True, exist_ok=True)
+    safe = re.sub(r"[^A-Za-z0-9._-]", "-", record_id)[:120] or "record"
+    # A microsecond suffix, because two records of the same ledger can be
+    # written inside one second — `quickfix start` then `done` on a fast
+    # machine — and filenames that tie put the ledger in ALPHABETICAL order,
+    # which is how "done" came to precede "open". Filenames are not the
+    # ordering (that is each record's timestamp), but they must not fight it.
+    path = directory / f"{safe}-{datetime.now(timezone.utc):%H%M%S%f}.json"
+    dump_json(path, record)
+    return path
+
+
+def read_ledger_records(legacy: Path) -> list[dict]:
+    """Every record: the directory form plus any legacy .jsonl still present.
+
+    Reading both is what lets a repo adopt the directory form without a
+    migration — history stays readable and nothing is rewritten. Order comes
+    from each record's own timestamp, never from file position, because
+    position was never information and a merge rewrote it anyway.
+    """
+    records: list[dict] = []
+    directory = ledger_dir(legacy)
+    if directory.is_dir():
+        for path in sorted(directory.glob("*.json")):
+            entry = load_json(path, default=None)
+            if isinstance(entry, dict):
+                records.append(entry)
+    if legacy.is_file():
+        for lineno, line in enumerate(legacy.read_text().splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                # LOUD, never skipped: a malformed line is a merge artifact or
+                # a hand edit, and a silently-dropped record is the knowledge
+                # this ledger exists to keep, lost quietly.
+                raise SystemExit(
+                    f"{legacy.name} line {lineno} is not valid JSON (merge "
+                    f"artifact or hand edit?): {line[:80]!r} — repair it; "
+                    "records are managed by the forge commands."
+                )
+            if not isinstance(entry, dict):
+                raise SystemExit(f"{legacy.name} line {lineno} must be a JSON object")
+            records.append(entry)
+    seen: set[str] = set()
+    unique: list[dict] = []
+    for entry in records:
+        key = json.dumps(entry, sort_keys=True)
+        if key not in seen:
+            seen.add(key)
+            unique.append(entry)
+    return sorted(unique, key=_ledger_order)
+
+
+def _ledger_order(record: dict) -> tuple:
+    """Chronological where a record says when it happened, stable otherwise."""
+    for field in ("at", "ts", "timestamp", "started_at", "recorded_at"):
+        value = record.get(field)
+        if isinstance(value, str) and value:
+            return (0, value)
+    return (1, json.dumps(record, sort_keys=True))
+
+
+def parse_sections(text: str) -> dict[str, str]:
+    """Map level-two Markdown heading names to their stripped bodies.
+
+    The single answer to "does this document have this section, with content".
+    Sign-off, spec confirmation and doctor all ask it; when they each decided
+    separately, they disagreed — `##  Why` was a section to one and a section
+    named " Why" to another, so a lookup missed and a gate refused a document
+    that was complete.
+    """
+    headings = outside_examples(text, SECTION_HEADING.finditer(text))
+    return {
+        ATX_CLOSING_RUN.sub("", heading.group(1)).strip(): text[
+            heading.end():headings[index + 1].start()
+            if index + 1 < len(headings) else len(text)
+        ].strip()
+        for index, heading in enumerate(headings)
+    }
+
+
 # A safe slug, deliberately: the pin is read back by the stdlib regex above,
 # which stops at whitespace, quotes and `#`, so any other name would read back
 # TRUNCATED. `forge decision new <slug>` already slugifies.
@@ -384,6 +638,7 @@ def gate(
     signoff: bool = False,
     approved_plan: bool = False,
     decomposition: bool = False,
+    lite_window_ok: bool = False,
 ) -> dict[str, Any]:
     """The factory precondition matrix, in one place.
 
@@ -394,19 +649,21 @@ def gate(
     state = load_json(run_state_path(root), default={})
     if not state:
         raise SystemExit("Missing .factory/run.json. Run intake first.")
+    active_window = load_json(factory_dir(root) / "quickfix.json", default={})
+    lite_open = lite_window_ok and active_window.get("profile") == "lite"
     if signoff:
         ok, why = client_signoff(root)
         if not ok:
             raise SystemExit(why)
     issue = state.get("issue_key", "")
-    if approved_plan:
+    if approved_plan and not lite_open:
         plan_files = list((root / "plans" / "active").glob(f"{issue}-*.md")) if issue else []
         if state.get("plan_status") != "approved" or not plan_files:
             raise SystemExit(
                 "An approved, saved plan is required first "
                 f"(plans/active/{issue or '<issue>'}-*.md via `forge.py plan save`)."
             )
-    if decomposition:
+    if decomposition and not lite_open:
         if (
             state.get("decomposition_status") != "recorded"
             or not protected_decomposition_state_path(root).exists()
@@ -416,6 +673,40 @@ def gate(
                 "(record_decomposition_from_json.py after plan approval)."
             )
     return state
+
+
+def load_review_artifacts(
+    root: Path,
+    *,
+    require_head: bool = False,
+    blockers_only: bool = False,
+) -> tuple[dict[str, dict], list[str]]:
+    """Load the three review artifacts and return any close-gate problems."""
+    from forge_cli.readiness import review_passed
+
+    reviews: dict[str, dict] = {}
+    problems: list[str] = []
+    head = head_sha(root) if require_head else None
+    for aspect in ("quality", "performance", "security"):
+        path = review_dir(root) / f"{aspect}.json"
+        data = load_json(path, default={})
+        if not data:
+            problems.append(str(path.relative_to(root)))
+            continue
+        reviews[aspect] = data
+        if data.get("blocking_findings") or (
+            not blockers_only and not review_passed(data)
+        ):
+            requirement = "have no blockers" if blockers_only else "be >= 8 with no blockers"
+            problems.append(f"{aspect} review must {requirement}")
+        if require_head and data.get("commit") != head:
+            stamp = data.get("commit")
+            shown = stamp[:8] if isinstance(stamp, str) and stamp else "missing"
+            expected = head[:8] if head else "missing"
+            problems.append(
+                f"{aspect} review must be stamped at HEAD {expected} (got {shown})"
+            )
+    return reviews, problems
 
 
 SCHEMA_TYPES = {"str": str, "int": int, "bool": bool, "list": list, "dict": dict}
@@ -572,6 +863,41 @@ def require_grill(
         raise SystemExit(
             f"the {gate} grill is STALE — handover docs changed since it ran: "
             f"{', '.join(stale[:5])}. Re-run the grill against the current docs."
+        )
+
+
+def require_task_grill(
+    root: Path,
+    task_id: str,
+    expect_digest_value: str,
+) -> None:
+    """Require a passing grill bound to the current task contract digest."""
+    path = factory_dir(root) / "grills" / "tasks" / f"{task_id}.json"
+    data = load_json(path, default={})
+    record_command = (
+        "python3 factory/scripts/record_grill_from_json.py --gate task "
+        f"--task {task_id} --task-digest {expect_digest_value}"
+    )
+    if not data:
+        raise SystemExit(
+            f"Task grill required first: grill {task_id}, resolve findings, then record "
+            f"`{record_command}`."
+        )
+    if data.get("verdict") != "pass":
+        raise SystemExit(
+            f".factory/grills/tasks/{task_id}.json verdict is "
+            f"{data.get('verdict')!r} — resolve the recorded findings, re-grill, then "
+            f"record `{record_command}`; this gate needs a pass."
+        )
+    if not data.get("commit"):
+        raise SystemExit(
+            f".factory/grills/tasks/{task_id}.json has no commit stamp — re-record "
+            f"with current tooling using `{record_command}`."
+        )
+    if data.get("input_sha256") != expect_digest_value:
+        raise SystemExit(
+            f"the {task_id} task grill is STALE — it was not recorded against the "
+            f"current task contract. Re-grill and record `{record_command}`."
         )
 
 

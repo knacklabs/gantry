@@ -43,6 +43,7 @@ export interface SlackTokenValidation {
   teamName?: string;
   userId?: string;
   message: string;
+  warning?: string;
   nextAction?: string;
 }
 

@@ -16,10 +16,21 @@ from pathlib import Path
 
 from factory_lib import (
     canonical_signoff_path, insert_signoff_pin, load_json, parse_frontmatter,
-    repo_root, require_grill, signoff_pin,
+    parse_sections, repo_root, require_grill, signoff_pin,
 )
 from forge_cli.events import append_event
 from forge_cli.specs import spec_records
+
+
+REQUIRED_BRIEF_HEADINGS = (
+    "Summary",
+    "Users",
+    "Target Outcome",
+    "Key Flows",
+    "Domain Concepts",
+    "Constraints",
+    "Out of Scope",
+)
 
 
 def pin_into_harness(manifest: Path, relative: str) -> None:
@@ -37,7 +48,7 @@ def pin_into_harness(manifest: Path, relative: str) -> None:
 
 
 def workflow_input_problems(root: Path) -> list[str]:
-    """Sign-off needs confirmed specs and a roadmap that references them."""
+    """Sign-off needs a complete brief, confirmed specs, and their roadmap."""
     specs = spec_records(root)
     roadmap = load_json(root / "plans" / "roadmap.json", default={})
     stories = roadmap.get("items", []) if isinstance(roadmap, dict) else []
@@ -65,6 +76,24 @@ def workflow_input_problems(root: Path) -> list[str]:
             "confirmed specs not referenced by any roadmap story: "
             + ", ".join(missing_refs)
         )
+    brief = root / "docs" / "product" / "BRIEF.md"
+    if not brief.exists():
+        problems.append(
+            "docs/product/BRIEF.md is absent; required headings: "
+            + ", ".join(REQUIRED_BRIEF_HEADINGS)
+        )
+    else:
+        sections = parse_sections(brief.read_text())
+        incomplete = [
+            heading
+            for heading in REQUIRED_BRIEF_HEADINGS
+            if not sections.get(heading, "").strip()
+        ]
+        if incomplete:
+            problems.append(
+                "brief required headings missing or empty: "
+                + ", ".join(incomplete)
+            )
     return problems
 
 

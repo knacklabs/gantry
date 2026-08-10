@@ -75,13 +75,15 @@ import type { ConversationHistoryCoverageRepository } from '../../domain/ports/c
 import { createMutableChannelRuntime } from './runtime-app-channel-runtime.js';
 import { resolveGroupRouteExecutionProviderId } from '../../runtime/group-initial-execution-provider.js';
 import { resolveRuntimeDefaultAdapters } from './runtime-default-adapters.js';
-import type { AvailableGroup } from '../../runtime/agent-spawn.js';
+import { spawnAgent, type AvailableGroup } from '../../runtime/agent-spawn.js';
+import { createJobSetupRequiredNotificationPort } from '../../jobs/execution-readiness.js';
 export type RuntimeAppRepository = RuntimeRouterStateRepository &
   RuntimeMessageRepository &
   RuntimeConversationRouteRepository &
   RuntimeChatMetadataRepository &
   RuntimeAgentSessionRepository;
 export interface RuntimeApp {
+  runAgent: NonNullable<GroupProcessingDeps['runAgent']>;
   executionAdapter: AgentExecutionAdapter;
   executionAdapters: AgentExecutionAdapterRegistry;
   runnerSandboxProvider: RunnerSandboxProvider;
@@ -90,19 +92,16 @@ export interface RuntimeApp {
   saveState: () => Promise<void>;
   getOrRecoverCursor: (chatJid: string) => Promise<string>;
   registerGroup: (jid: string, group: ConversationRoute) => Promise<void>;
-  projectConversationRoute: (
+  projectConversationRoute(
     jid: string,
     group: ConversationRoute,
-  ) => Promise<void>;
+  ): Promise<void>;
   unregisterConversationRoute: (jid: string) => Promise<void>;
-  setGroupModelOverride: (
-    chatJid: string,
-    model: string | undefined,
-  ) => Promise<void>;
-  setGroupThinkingOverride: (
+  setGroupModelOverride(jid: string, model: string | undefined): Promise<void>;
+  setGroupThinkingOverride(
     chatJid: string,
     thinking: ThinkingOverride | undefined,
-  ) => Promise<void>;
+  ): Promise<void>;
   setGroupPermissionModeOverride: GroupProcessingDeps['setGroupPermissionModeOverride'];
   getAvailableGroups: () => Promise<AvailableGroup[]>;
   setConversationRoutesForTest: (
@@ -133,6 +132,7 @@ export interface RuntimeApp {
   setConversationHistoryCoverageRepository: (
     repository: ConversationHistoryCoverageRepository,
   ) => void;
+  setupRequiredNotifications: import('../../application/jobs/job-management-types.js').JobSetupRequiredNotificationPort;
 }
 export interface RuntimeAppOptions {
   ensureCredentialBinding?: (input: {
@@ -142,7 +142,7 @@ export interface RuntimeAppOptions {
     agentName: string;
   }) => Promise<{ created?: boolean } | undefined>;
   queue?: GroupQueue;
-  runAgent?: GroupProcessingDeps['runAgent'];
+  runAgent: NonNullable<GroupProcessingDeps['runAgent']>;
   skillArtifactStore?: GroupProcessingDeps['getSkillArtifactStore'];
   mcpHostnameLookup?: GroupProcessingDeps['getMcpHostnameLookup'];
   collectSessionMemory?: GroupProcessingDeps['collectSessionMemory'];
@@ -153,7 +153,9 @@ export interface RuntimeAppOptions {
   opsRepository?: RuntimeAppRepository;
   processRole?: ProcessRole;
 }
-export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
+export function createRuntimeApp(
+  options: RuntimeAppOptions = { runAgent: spawnAgent },
+): RuntimeApp {
   let conversationRoutes: Record<string, ConversationRoute> = {};
   let lastAgentTimestamp: Record<string, string> = {};
   let normalizeProviderId: GroupProcessingDeps['normalizeProviderId'];
@@ -659,6 +661,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   });
 
   return {
+    runAgent: options.runAgent,
     executionAdapter,
     executionAdapters,
     runnerSandboxProvider,
@@ -695,6 +698,11 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     setConversationHistoryCoverageRepository: (repository) => {
       conversationHistoryCoverageRepository = repository;
     },
+    setupRequiredNotifications: createJobSetupRequiredNotificationPort(
+      channelRuntime.proxy.sendMessage,
+      () => getRuntimeRepositories(),
+      options.publishRuntimeEvent,
+    ),
   };
 }
 export const collectRuntimeSessionMemory: import('../../domain/ports/session-memory-collector.js').SessionMemoryCollector =
@@ -711,9 +719,10 @@ export const collectRuntimeSessionMemory: import('../../domain/ports/session-mem
 let defaultRuntimeApp: RuntimeApp | null = null;
 
 export function getDefaultRuntimeApp(
-  options: RuntimeAppOptions = {},
+  options: Omit<RuntimeAppOptions, 'runAgent'> = {},
 ): RuntimeApp {
-  if (!defaultRuntimeApp) defaultRuntimeApp = createRuntimeApp(options);
+  if (!defaultRuntimeApp)
+    defaultRuntimeApp = createRuntimeApp({ ...options, runAgent: spawnAgent });
   return defaultRuntimeApp;
 }
 

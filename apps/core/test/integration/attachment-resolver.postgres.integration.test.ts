@@ -17,10 +17,12 @@ import { PostgresMessageAttachmentRepository } from '@core/adapters/storage/post
 import { CanonicalMessageOpsService } from '@core/adapters/storage/postgres/services/canonical-message-ops-service.js';
 import {
   ATTACHMENT_DELETED_COPY,
-  ATTACHMENT_MAX_BYTES,
   ATTACHMENT_NOT_FOUND_COPY,
   ATTACHMENT_TOO_LARGE_COPY,
   ATTACHMENT_UNREACHABLE_COPY,
+} from '@core/application/attachments/attachment-failure.js';
+import {
+  ATTACHMENT_MAX_BYTES,
   AttachmentResolver,
 } from '@core/application/attachments/attachment-resolver.js';
 import { fetchSlackHistoricalAttachment } from '@core/channels/slack/historical-attachment-fetcher.js';

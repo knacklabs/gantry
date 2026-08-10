@@ -111,12 +111,12 @@ describe('Slack historical attachment fetch taxonomy', () => {
   it.each([
     ['file_not_found', 'not_found'],
     ['not_visible', 'not_visible'],
-    ['missing_scope', 'auth'],
-    ['invalid_auth', 'auth'],
+    ['invalid_auth', 'unknown'],
     ['ratelimited', 'rate_limit'],
     ['slack_webapi_rate_limited_error', 'rate_limit'],
-    ['slack_webapi_request_error', 'network'],
-    ['slack_webapi_http_error', 'network'],
+    ['not_in_channel', 'unknown'],
+    ['channel_not_found', 'unknown'],
+    ['file_not_visible', 'unknown'],
   ] as const)('keeps Slack %s non-tombstoning as %s', async (error, reason) => {
     const result = await fetchSlackHistoricalAttachment(
       { identity },
@@ -131,6 +131,93 @@ describe('Slack historical attachment fetch taxonomy', () => {
     expect(result).toEqual({ status: 'unreachable', reason });
   });
 
+  it('emits explicit files:read scope evidence for Slack missing_scope', async () => {
+    const result = await fetchSlackHistoricalAttachment(
+      { identity },
+      {
+        filesInfo: vi.fn(async () => {
+          throw Object.assign(slackError('missing_scope'), {
+            code: 'slack_webapi_http_error',
+            statusCode: 403,
+          });
+        }),
+        download: vi.fn(),
+      },
+    );
+
+    expect(result).toEqual({
+      status: 'unreachable',
+      reason: 'missing_scope',
+      scope: 'files:read',
+      providerStatus: 403,
+    });
+  });
+
+  it.each([
+    Object.assign(new Error('unauthorized'), {
+      code: 'slack_webapi_http_error',
+      statusCode: 401,
+    }),
+    Object.assign(new Error('forbidden'), {
+      code: 'slack_webapi_http_error',
+      statusCode: 403,
+    }),
+  ])('keeps SDK HTTP-error authorization status unknown', async (error) => {
+    const result = await fetchSlackHistoricalAttachment(
+      { identity },
+      {
+        filesInfo: vi.fn(async () => {
+          throw error;
+        }),
+        download: vi.fn(),
+      },
+    );
+
+    expect(result).toEqual({
+      status: 'unreachable',
+      reason: 'unknown',
+      providerStatus: error.statusCode,
+    });
+  });
+
+  it('preserves an SDK rate-limit error as rate-limit evidence', async () => {
+    const result = await fetchSlackHistoricalAttachment(
+      { identity },
+      {
+        filesInfo: vi.fn(async () => {
+          throw Object.assign(new Error('rate limited'), {
+            code: 'slack_webapi_rate_limited_error',
+            statusCode: 429,
+            retryAfter: 30,
+          });
+        }),
+        download: vi.fn(),
+      },
+    );
+
+    expect(result).toEqual({
+      status: 'unreachable',
+      reason: 'rate_limit',
+      providerStatus: 429,
+    });
+  });
+
+  it('preserves the SDK request-error code as transport evidence', async () => {
+    const result = await fetchSlackHistoricalAttachment(
+      { identity },
+      {
+        filesInfo: vi.fn(async () => {
+          throw Object.assign(new Error('request failed'), {
+            code: 'slack_webapi_request_error',
+          });
+        }),
+        download: vi.fn(),
+      },
+    );
+
+    expect(result).toEqual({ status: 'unreachable', reason: 'network' });
+  });
+
   it('keeps network download failures unreachable', async () => {
     const result = await fetchSlackHistoricalAttachment(
       { identity },
@@ -139,7 +226,9 @@ describe('Slack historical attachment fetch taxonomy', () => {
           file: { url_private: 'https://files.slack.test/F123' },
         })),
         download: vi.fn(async () => {
-          throw new Error('socket closed');
+          throw Object.assign(new Error('socket closed'), {
+            code: 'ECONNRESET',
+          });
         }),
       },
     );
@@ -158,18 +247,85 @@ describe('Slack historical attachment fetch taxonomy', () => {
           }),
           'report.txt',
         ),
-      ).resolves.toEqual({ status: 'unreachable', reason: 'unknown' });
+      ).resolves.toEqual({
+        status: 'unreachable',
+        reason: 'unknown',
+        providerStatus: status,
+      });
     },
   );
 
-  it('recognizes explicit file_deleted in a failed download body', async () => {
+  it('classifies an HTML-shaped 429 as rate limited before the HTML fallback', async () => {
+    await expect(
+      classifySlackDownloadResponse(
+        new Response('<html>rate limited</html>', {
+          status: 429,
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        }),
+        'report.txt',
+      ),
+    ).resolves.toEqual({
+      status: 'unreachable',
+      reason: 'rate_limit',
+      providerStatus: 429,
+    });
+  });
+
+  it('recognizes explicit file_deleted in a failed download body and carries its status', async () => {
     await expect(
       classifySlackDownloadResponse(
         new Response(JSON.stringify({ ok: false, error: 'file_deleted' }), {
           status: 404,
         }),
       ),
-    ).resolves.toEqual({ status: 'deleted' });
+    ).resolves.toEqual({ status: 'deleted', providerStatus: 404 });
+  });
+
+  it.each([
+    Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }),
+    Object.assign(new TypeError('fetch failed'), {
+      cause: Object.assign(new Error('getaddrinfo ENOTFOUND'), {
+        code: 'ENOTFOUND',
+      }),
+    }),
+    // @slack/web-api WebAPIRequestError stores the socket error in `original`.
+    Object.assign(new Error('A request error occurred'), {
+      code: 'slack_webapi_request_error',
+      original: Object.assign(new Error('socket hang up'), {
+        code: 'ECONNRESET',
+      }),
+    }),
+  ])(
+    'classifies a transport failure on files.info as network, not unknown',
+    async (error) => {
+      const result = await fetchSlackHistoricalAttachment(
+        { identity },
+        {
+          filesInfo: vi.fn(async () => {
+            throw error;
+          }),
+          download: vi.fn(),
+        },
+      );
+
+      expect(result).toEqual({ status: 'unreachable', reason: 'network' });
+    },
+  );
+
+  it('does not mislabel an unrelated caused TypeError as network', async () => {
+    const result = await fetchSlackHistoricalAttachment(
+      { identity },
+      {
+        filesInfo: vi.fn(async () => {
+          throw new TypeError('cannot read property x', {
+            cause: new Error('validation failed'),
+          });
+        }),
+        download: vi.fn(),
+      },
+    );
+
+    expect(result).toEqual({ status: 'unreachable', reason: 'unknown' });
   });
 
   it('does not infer deletion from HTTP status alone', async () => {
@@ -179,16 +335,35 @@ describe('Slack historical attachment fetch taxonomy', () => {
           status: 404,
         }),
       ),
-    ).resolves.toEqual({ status: 'unreachable', reason: 'not_found' });
+    ).resolves.toEqual({
+      status: 'unreachable',
+      reason: 'not_found',
+      providerStatus: 404,
+    });
     await expect(
       classifySlackDownloadResponse(
         new Response('ratelimited', { status: 429 }),
       ),
-    ).resolves.toEqual({ status: 'unreachable', reason: 'rate_limit' });
+    ).resolves.toEqual({
+      status: 'unreachable',
+      reason: 'rate_limit',
+      providerStatus: 429,
+    });
     await expect(
       classifySlackDownloadResponse(
         new Response('invalid_auth', { status: 401 }),
       ),
-    ).resolves.toEqual({ status: 'unreachable', reason: 'auth' });
+    ).resolves.toEqual({
+      status: 'unreachable',
+      reason: 'unknown',
+      providerStatus: 401,
+    });
+    await expect(
+      classifySlackDownloadResponse(new Response('', { status: 403 })),
+    ).resolves.toEqual({
+      status: 'unreachable',
+      reason: 'unknown',
+      providerStatus: 403,
+    });
   });
 });

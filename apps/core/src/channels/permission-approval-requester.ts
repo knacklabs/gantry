@@ -55,7 +55,15 @@ const permissionRequestScopeKey = (
   ]);
 
 export interface PermissionApprovalRequester {
-  (request: PermissionApprovalRequest): Promise<PermissionApprovalDecision>;
+  /**
+   * Reports delivery to the first caller for a request scope. Replays that
+   * coalesce onto the same pending request share its decision but do not
+   * receive a second delivery callback for the same provider prompt.
+   */
+  (
+    request: PermissionApprovalRequest,
+    onPromptDelivered?: (messageId: string) => void,
+  ): Promise<PermissionApprovalDecision>;
   cancel(
     cancellation: PermissionApprovalCancellation,
   ): Promise<'settled' | 'queued' | 'not_found'>;
@@ -106,6 +114,7 @@ export function createPermissionApprovalRequester(input: {
       promise: Promise<PermissionApprovalDecision>;
       resolve: (decision: PermissionApprovalDecision) => void;
       reject: (reason?: unknown) => void;
+      onPromptDelivered?: (messageId: string) => void;
     }
   >();
   const coalescer = new PermissionBatchCoalescer({
@@ -136,8 +145,13 @@ export function createPermissionApprovalRequester(input: {
   async function dispatchSingle(
     request: PermissionApprovalRequest,
     cancellationAliases: PermissionApprovalRequest[] = [],
+    onPromptDelivered?: (messageId: string) => void,
   ): Promise<PermissionApprovalDecision> {
-    const result = await dispatchSingleResult(request, cancellationAliases);
+    const result = await dispatchSingleResult(
+      request,
+      cancellationAliases,
+      onPromptDelivered,
+    );
     return result.delivered
       ? result.decision
       : { approved: false, reason: result.reason };
@@ -146,6 +160,7 @@ export function createPermissionApprovalRequester(input: {
   async function dispatchSingleResult(
     request: PermissionApprovalRequest,
     cancellationAliases: PermissionApprovalRequest[] = [],
+    onPromptDelivered?: (messageId: string) => void,
   ): Promise<
     | { delivered: true; decision: PermissionApprovalDecision }
     | { delivered: false; reason: string }
@@ -210,8 +225,9 @@ export function createPermissionApprovalRequester(input: {
         decision = await approvalSurface.requestPermissionApproval(
           routed.targetJid,
           routed.request,
-          () => {
+          (messageId) => {
             promptDelivered = true;
+            onPromptDelivered?.(messageId);
             input.interactionLifecycle.resetStreaming?.(routed.targetJid, {
               providerAccountId: routed.request.providerAccountId,
               threadId: routed.request.threadId,
@@ -309,7 +325,11 @@ export function createPermissionApprovalRequester(input: {
     if (activePrompt) activePrompts.add(activePrompt);
     try {
       if (batch.requests.length === 1) {
-        const decision = await dispatchSingle(batch.requests[0]);
+        const decision = await dispatchSingle(
+          batch.requests[0],
+          [],
+          promptDeliveredCallback(batch.requests),
+        );
         if (!resolveBatchRequest(batch.requests[0], decision)) {
           await releaseDecisionClaim(decision);
         }
@@ -325,7 +345,11 @@ export function createPermissionApprovalRequester(input: {
       if (!summaries.every((summary) => summary.bulkEligible)) {
         batchRequest.decisionOptions = ['allow_persistent_rule', 'cancel'];
       }
-      batchDecision = await dispatchSingle(batchRequest, batch.requests);
+      batchDecision = await dispatchSingle(
+        batchRequest,
+        batch.requests,
+        promptDeliveredCallback(batch.requests),
+      );
       if (!batch.requests.every(hasBatchResolver)) {
         await releaseDecisionClaim(batchDecision);
         resolveIncompleteBatch(batch.requests);
@@ -409,6 +433,30 @@ export function createPermissionApprovalRequester(input: {
     return pendingResolvers.has(permissionRequestScopeKey(request));
   }
 
+  function promptDeliveredCallback(
+    requests: readonly PermissionApprovalRequest[],
+  ): ((messageId: string) => void) | undefined {
+    const callbacks = [
+      ...new Map(
+        requests.flatMap((request) => {
+          const callback = pendingResolvers.get(
+            permissionRequestScopeKey(request),
+          )?.onPromptDelivered;
+          return callback
+            ? [[permissionRequestScopeKey(request), callback] as const]
+            : [];
+        }),
+      ).values(),
+    ];
+    if (callbacks.length === 0) return undefined;
+    let delivered = false;
+    return (messageId) => {
+      if (delivered) return;
+      delivered = true;
+      for (const callback of callbacks) callback(messageId);
+    };
+  }
+
   function resolveIncompleteBatch(requests: PermissionApprovalRequest[]): void {
     for (const request of requests) {
       resolveBatchRequest(request, {
@@ -443,8 +491,13 @@ export function createPermissionApprovalRequester(input: {
     return true;
   }
 
-  const requestPermissionApproval: PermissionApprovalRequester = (request) => {
-    if (!request.runId) return dispatchSingle(request);
+  const requestPermissionApproval: PermissionApprovalRequester = (
+    request,
+    onPromptDelivered,
+  ) => {
+    if (!request.runId) {
+      return dispatchSingle(request, [], onPromptDelivered);
+    }
     const key = permissionRequestScopeKey(request);
     const existing = pendingResolvers.get(key);
     if (existing) return existing.promise;
@@ -460,6 +513,7 @@ export function createPermissionApprovalRequester(input: {
       promise,
       resolve: resolvePending,
       reject: rejectPending,
+      ...(onPromptDelivered ? { onPromptDelivered } : {}),
     });
     coalescer.enqueue(request);
     return promise;

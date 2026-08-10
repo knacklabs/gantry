@@ -43,6 +43,7 @@ import {
   assertJobModelHarnessCompatible,
   resolveRequestedJobModel,
 } from './job-model-selection.js';
+import { retireSetupPausePermissionPrompt } from './setup-pause-permission-prompt.js';
 // prettier-ignore
 import { requireJobControl, requireRuntimeEvents, requireTriggerQueue } from './job-management-require.js';
 import { runSchedulerJobNowFromMcp } from './job-management-run-now.js';
@@ -53,6 +54,7 @@ import {
   applyJobReadinessToUpdates,
   evaluateManagedJobReadiness,
   pauseJobForSetup,
+  notifyJobSetupRequiredAtCreation,
   recordJobSetupRequired,
   setupBlockerDetails,
 } from './job-management-readiness.js';
@@ -62,6 +64,7 @@ import { createJobVisibilityReaders } from './job-management-visibility-readers.
 import { nowIso } from '../../shared/time/datetime.js';
 import { updateManagedJob } from './job-management-update.js';
 import { isTrustedSystemJob } from '../../shared/system-job-identity.js';
+import { logger } from '../../infrastructure/logging/logger.js';
 
 const DEFAULT_JOB_LIST_LIMIT = 100;
 const MAX_JOB_LIST_LIMIT = 500;
@@ -244,11 +247,12 @@ export class JobManagementService {
     job.setup_state = readiness.setupState;
     const result = await this.deps.ops.upsertJob(job);
     if (!readiness.ready) {
-      await recordJobSetupRequired({
+      notifyJobSetupRequiredAtCreation({
         deps: this.deps,
         job,
         readiness,
-        appId: canonicalSession?.appId,
+        appId: canonicalSession?.appId ?? DEFAULT_JOB_RUNTIME_APP_ID,
+        appSession: canonicalSession,
       });
     }
     this.deps.scheduler.requestSchedulerSync(id);
@@ -316,6 +320,17 @@ export class JobManagementService {
     assertPublicJobNamespace({ jobId: job.id });
     await this.assertAccess(job, input);
     await this.deps.ops.deleteJob(job.id);
+    try {
+      await retireSetupPausePermissionPrompt({
+        job,
+        reason: 'The job was deleted.',
+      });
+    } catch (err) {
+      logger.warn(
+        { err, jobId: job.id },
+        'Failed to retire setup-pause permission prompt during job deletion',
+      );
+    }
     this.deps.scheduler.requestSchedulerSync(job.id);
     return { deleted: true };
   }

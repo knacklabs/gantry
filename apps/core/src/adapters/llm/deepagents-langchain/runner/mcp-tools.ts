@@ -168,7 +168,7 @@ export async function connectGantryAndThirdPartyMcpTools(
     toolNetworkEnv: input.toolNetworkEnv,
     gateContext: input.gate.gateContext,
     permissionEnv: input.gate.permissionEnv,
-    lockedAccessPreset: input.gate.lockedAccessPreset,
+    capabilityRequestToolsHidden: input.gate.capabilityRequestToolsHidden,
     asyncTaskToolsEnabled: projection.asyncTaskToolsEnabled,
     delegateTaskTool,
     filesystemToolsEnabled: shouldProjectGantryFilesystemTools({
@@ -176,6 +176,9 @@ export async function connectGantryAndThirdPartyMcpTools(
     }),
     ...(input.shellCwd ? { cwd: input.shellCwd } : {}),
     ...(input.gate.signal ? { signal: input.gate.signal } : {}),
+    ...(input.gate.onPermissionDenied
+      ? { onPermissionDenied: input.gate.onPermissionDenied }
+      : {}),
   });
   const reservedToolNames = new Set<string>([
     ...selectedGantrySet,
@@ -387,10 +390,13 @@ function projectGantryShellTool(
       configuredAllowedTools: input.configuredAllowedTools,
       gateContext: input.gate.gateContext,
       permissionEnv: input.gate.permissionEnv,
-      lockedAccessPreset: input.gate.lockedAccessPreset,
+      capabilityRequestToolsHidden: input.gate.capabilityRequestToolsHidden,
       toolNetworkEnv: input.toolNetworkEnv,
       ...(input.shellCwd ? { cwd: input.shellCwd } : {}),
       ...(input.shellSignal ? { signal: input.shellSignal } : {}),
+      ...(input.gate.onPermissionDenied
+        ? { onPermissionDenied: input.gate.onPermissionDenied }
+        : {}),
     }),
   ];
 }

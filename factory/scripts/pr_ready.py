@@ -11,6 +11,7 @@ from factory_lib import (
     dump_json,
     head_sha,
     load_json,
+    load_review_artifacts,
     now_iso,
     protected_decomposition_state_path,
     repo_root,
@@ -25,7 +26,7 @@ from forge_cli.events import append_event, load_events
 from forge_cli.outcome import load_outcome, outcome_path
 from forge_cli.roadmap import load_items, mark_status
 from forge_cli.quickfix import load_active
-from forge_cli.readiness import review_passed, tests_passed
+from forge_cli.readiness import tests_passed
 from forge_cli.signal import open_signals, signals_path
 from forge_cli.stages import load_stages
 
@@ -112,13 +113,8 @@ for kind in ("automated", "functional"):
     elif not tests_passed(entry, functional=(kind == "functional")):
         missing.append(f"{kind} testing must have no blockers, no failed status"
                        + (" and score >= 8" if kind == "functional" else ""))
-for aspect in ("quality", "performance", "security"):
-    path = review_dir(root) / f"{aspect}.json"
-    data = load_json(path, default={})
-    if not data:
-        missing.append(str(path.relative_to(root)))
-    elif not review_passed(data):
-        missing.append(f"{aspect} review must be >= 8 with no blockers")
+_, review_problems = load_review_artifacts(root)
+missing.extend(review_problems)
 
 # The refactor ratchet: a refactor-tagged story that GREW product source is
 # not a refactor — it must shrink or hold the line (decision 0005 doctrine).
@@ -293,6 +289,13 @@ plan_grill = root / ".factory" / "grills" / "plan.json"
 if plan_grill.exists():
     (history / "grills").mkdir(exist_ok=True)
     shutil.copy2(plan_grill, history / "grills" / "plan.json")
+# Task grills are task-scoped like plan.json (the JIT per-task grill, 0032/0025):
+# archive the whole tasks/ dir so a story's per-task interrogation is preserved,
+# not cleaned away. (D-0013.)
+task_grills = root / ".factory" / "grills" / "tasks"
+if task_grills.is_dir() and any(task_grills.iterdir()):
+    (history / "grills").mkdir(exist_ok=True)
+    shutil.copytree(task_grills, history / "grills" / "tasks", dirs_exist_ok=True)
 # Recorded before the archive below, or the ship event is left behind.
 append_event(root, "shipped", actor="orchestrator", story=issue_key,
              detail=(outcome_record or {}).get("outcome", "")[:200])
@@ -314,6 +317,14 @@ if outcome_path(root).exists():
 scratchpad_file = root / ".factory" / "scratchpad.md"
 if scratchpad_file.exists():
     scratchpad_file.unlink()
+# The stage baselines go with the stage state they belong to (decision 0023).
+# They are refs, so nothing else prunes them, and a stale one would still
+# resolve for a task id the next story happens to reuse.
+for stage in (load_stages(root) or {}).get("stages", []):
+    subprocess.run(
+        ["git", "update-ref", "-d", f"refs/forge/stage/{stage.get('id', '')}"],
+        cwd=root, capture_output=True,
+    )
 for artifact in (decomposition_state_path(root), verify_state_path(root),
                  tests_state_path(root), root / ".factory" / "grills" / "plan.json",
                  signals_path(root), stages_file, outcome_path(root)):
@@ -321,6 +332,9 @@ for artifact in (decomposition_state_path(root), verify_state_path(root),
         artifact.unlink()
 if review_dir(root).is_dir():
     shutil.rmtree(review_dir(root))
+task_grills_dir = root / ".factory" / "grills" / "tasks"
+if task_grills_dir.is_dir():
+    shutil.rmtree(task_grills_dir)  # archived above (D-0013)
 # STABLE content only: no per-task fields, no timestamps — two story
 # branches shipping in parallel write byte-identical run.json.
 project_state = {

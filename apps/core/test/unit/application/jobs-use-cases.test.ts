@@ -9,7 +9,10 @@ import {
   validateSchedulerUpdate,
 } from '@core/application/jobs/job-management-access.js';
 import type { JobControlPort } from '@core/application/jobs/job-management-types.js';
-import type { RuntimeJobRepository } from '@core/domain/repositories/ops-repo.js';
+import type {
+  RuntimeJobRepository,
+  SetupPausedJobRecoveryClaim,
+} from '@core/domain/repositories/ops-repo.js';
 import type { Job, JobEvent, JobRun } from '@core/domain/types.js';
 import { runtimeJobSchedulePlanner } from '@core/jobs/job-schedule-planner.js';
 import { DEFAULT_AGENT_ENGINE } from '@core/shared/agent-engine.js';
@@ -204,6 +207,7 @@ describe('job application use cases', () => {
   it('creates setup-paused jobs when declared durable requirements are missing', async () => {
     const upsertJob = vi.fn(async () => ({ created: true }));
     const runtimeEvents = { publish: vi.fn(async () => undefined) };
+    const setupRequiredNotifications = { notify: vi.fn() };
     const service = new JobManagementService({
       ops: {
         upsertJob,
@@ -217,6 +221,7 @@ describe('job application use cases', () => {
         listAgentToolBindings: vi.fn(async () => []),
       } as never,
       runtimeEvents,
+      setupRequiredNotifications,
       clock: { now: () => '2026-05-14T00:00:00.000Z' },
     });
 
@@ -243,21 +248,8 @@ describe('job application use cases', () => {
         }),
       }),
     );
-    expect(runtimeEvents.publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        appId: 'app-one',
-        eventType: 'job.setup_required',
-        payload: expect.objectContaining({
-          setup_state: 'missing_capability',
-          blockers: expect.arrayContaining([
-            expect.objectContaining({
-              requirementType: 'browser',
-              requirementId: 'Browser',
-            }),
-          ]),
-        }),
-      }),
-    );
+    expect(setupRequiredNotifications.notify).toHaveBeenCalledOnce();
+    expect(runtimeEvents.publish).not.toHaveBeenCalled();
   });
 
   it('rechecks setup-paused jobs after persistent permission approval and queues ready jobs', async () => {
@@ -293,6 +285,26 @@ describe('job application use cases', () => {
     const updateJob = vi.fn(async (_id: string, updates: Partial<Job>) => {
       job = { ...job, ...updates };
     });
+    const resumeSetupPausedJob = vi.fn(
+      async (input: SetupPausedJobRecoveryClaim) => {
+        if (
+          job.status !== 'paused' ||
+          job.pause_reason !== input.expectedPauseReason ||
+          (job.setup_state?.checked_at ?? job.updated_at) !==
+            input.expectedSetupCheckedAt
+        ) {
+          return false;
+        }
+        job = {
+          ...job,
+          status: 'active',
+          pause_reason: null,
+          next_run: input.nextRun,
+          setup_state: input.setupState,
+        };
+        return true;
+      },
+    );
     const scheduler = { requestSchedulerSync: vi.fn() };
 
     const result = await recheckSetupPausedJobsAfterCapabilityUpdate({
@@ -303,6 +315,7 @@ describe('job application use cases', () => {
         listJobs: vi.fn(async () => [job]),
         getJobById: vi.fn(),
         updateJob,
+        resumeSetupPausedJob,
       } as unknown as RuntimeJobRepository,
       scheduler,
       toolRepository: {
@@ -324,15 +337,16 @@ describe('job application use cases', () => {
       queued: [{ jobId: 'job-browser', name: 'Browser job', state: 'queued' }],
       stillBlocked: [],
     });
-    expect(updateJob).toHaveBeenCalledWith(
-      'job-browser',
+    expect(resumeSetupPausedJob).toHaveBeenCalledWith(
       expect.objectContaining({
-        status: 'active',
-        pause_reason: null,
-        next_run: '2026-05-14T00:05:00.000Z',
-        setup_state: expect.objectContaining({ state: 'ready' }),
+        jobId: 'job-browser',
+        expectedPauseReason: 'Setup required',
+        expectedSetupCheckedAt: '2026-05-14T00:00:00.000Z',
+        nextRun: '2026-05-14T00:05:00.000Z',
+        setupState: expect.objectContaining({ state: 'ready' }),
       }),
     );
+    expect(updateJob).not.toHaveBeenCalled();
     expect(scheduler.requestSchedulerSync).toHaveBeenCalledWith('job-browser');
   });
 
