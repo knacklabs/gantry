@@ -147,6 +147,12 @@ export async function processPermissionInteractionIpc(input: {
     input.request.personId = runRestriction.memoryUserId;
     input.request.jobId = runRestriction.jobId;
   } else {
+    // Deliberate (decision 0118): keeping the request's jobId here is the
+    // safer residual, not an oversight. Stripping it would make EVERY durable
+    // grant on this edge shared; keeping it lets a legitimate scheduled
+    // request still resolve its person (or fail closed on a missing job),
+    // and a forged jobId can at worst reach the same shared endpoint that
+    // stripping would guarantee. Do not flip this to stripping again.
     input.request.personId = undefined;
   }
   input.request.suggestions ??= synthesizeHostPermissionSuggestions(

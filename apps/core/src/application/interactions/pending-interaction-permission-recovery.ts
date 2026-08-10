@@ -95,6 +95,10 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
   // genuinely null -> a shared grant, as before. But an UNRESOLVABLE job (a
   // transient repository error or stale id) must FAIL CLOSED: never fall back
   // to a shared grant, which would widen one job's approval to everyone.
+  // Deliberate (decision 0118): a turn with NO memory person (group, or a DM
+  // the identity model deems ineligible) writes a SHARED grant. There is no
+  // eligibility gate and no downgrade-to-allow-once path — that machinery was
+  // built and intentionally removed. null = shared is the model, not a gap.
   let actingPersonId: string | null = input.request.personId ?? null;
   if (input.request.jobId) {
     const job = await input.persistence.opsRepository
