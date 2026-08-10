@@ -31,6 +31,16 @@ export interface SessionEvent {
   payload: unknown;
 }
 
+export interface UsageAggregate {
+  requestCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  agentId?: string;
+  apiKeyId?: string;
+  model?: string;
+  day?: string;
+}
+
 /** Raw runtime event types that end a run (run-event-projection.ts). */
 export const TERMINAL_RUN_EVENT_TYPES = new Set([
   'run.completed',
@@ -153,6 +163,23 @@ export class AgentE2EApiClient {
       `/v1/sessions/${encodeURIComponent(sessionId)}/runs`,
     );
     return body.runs;
+  }
+
+  async queryUsage(input: {
+    from: string;
+    to: string;
+    runId?: string;
+    model?: string;
+  }): Promise<UsageAggregate[]> {
+    const query = new URLSearchParams({ from: input.from, to: input.to });
+    if (input.runId) query.set('runId', input.runId);
+    if (input.model) query.set('model', input.model);
+    const body = await this.expect<{ usage: UsageAggregate[] }>(
+      200,
+      'GET',
+      `/v1/usage?${query.toString()}`,
+    );
+    return body.usage;
   }
 
   async waitForPersistedAssistantMessage(
