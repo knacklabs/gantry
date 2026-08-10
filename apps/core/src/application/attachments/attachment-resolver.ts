@@ -1,7 +1,4 @@
-import type {
-  HistoricalAttachmentFetcher,
-  HistoricalAttachmentReader,
-} from '../../domain/ports/historical-attachment-fetcher.js';
+import type { HistoricalAttachmentFetcher } from '../../domain/ports/historical-attachment-fetcher.js';
 import type {
   MessageAttachmentRepository,
   ResolvableMessageAttachment,
@@ -27,6 +24,10 @@ import {
   classifyAndLogAttachmentFailure,
   type AttachmentFailureEvidence,
 } from './attachment-failure.js';
+import {
+  historicalAttachmentReader,
+  isWorkspaceLocalAttachmentStorageRef,
+} from './attachment-resolver-helpers.js';
 
 export const ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024;
 export const ATTACHMENT_OPEN_TIMEOUT_MS = 110_000;
@@ -81,9 +82,6 @@ export interface AttachmentResolverDeps {
 
 export class AttachmentResolver {
   private readonly inFlight = new Map<string, InFlightAttachmentOpen>();
-  // One timeout warning per shared logical open (decision 0111): keyed by open
-  // input so it is stable across F1->F2 stale retries and joins, ref-counted so
-  // it lives exactly as long as a concurrent open of this attachment+mode does.
   private readonly timeoutLogs = new Map<
     string,
     { emitted: boolean; openCount: number }
@@ -699,19 +697,4 @@ export class AttachmentResolver {
       storageRef,
     });
   }
-}
-
-function isWorkspaceLocalAttachmentStorageRef(storageRef: string): boolean {
-  return (
-    storageRef.startsWith('attachments/') &&
-    storageRef.length > 'attachments/'.length &&
-    !storageRef.includes('\\') &&
-    !storageRef.split('/').includes('..')
-  );
-}
-
-function historicalAttachmentReader(
-  content: Uint8Array | HistoricalAttachmentReader,
-): HistoricalAttachmentReader | undefined {
-  return 'read' in content ? content : undefined;
 }

@@ -557,8 +557,8 @@ function validateAttachmentOpenConversationProof(
     binding.providerAccountId,
     // Older runner environments computed the attachment auth token before the
     // provider account scope was available. Keep accepting that token shape so
-    // attachment_open remains usable for existing Slack routes while the proof
-    // is still bound to app, agent, chat, thread, attachment id, and task id.
+    // attachment_open remains usable for existing routes while the proof stays
+    // bound to app, agent, chat, thread, attachment id, and task id.
     undefined,
   ].filter(
     (value, index, all): value is string | undefined =>
@@ -569,8 +569,8 @@ function validateAttachmentOpenConversationProof(
     binding.authThreadId,
     // Some attachment_open task payloads are emitted without a thread id even
     // when the surrounding live turn is thread-bound. Keep accepting that token
-    // shape so file reads work for existing Slack attachment tasks while the
-    // proof remains bound to app, agent, chat, attachment id, and task id.
+    // shape so file reads work for existing attachment tasks while the proof
+    // remains bound to app, agent, chat, attachment id, and task id.
     undefined,
   ].filter(
     (value, index, all): value is string | undefined =>
