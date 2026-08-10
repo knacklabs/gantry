@@ -586,8 +586,12 @@ maybeDescribe('attachment resolver with Postgres repositories', () => {
 
     expect(opened).toMatchObject({
       status: 'opened',
-      content: 'fresh provider bytes',
+      content: '',
     });
+    expect(
+      opened.status === 'opened' &&
+        fs.readFileSync(opened.materializedPath, 'utf8'),
+    ).toBe('fresh provider bytes');
     expect(slack.fetchHistoricalAttachment).toHaveBeenCalledOnce();
     const row = await seam.attachments.getResolvableAttachment(attachmentId);
     expect(row?.storageRef).toBe(
