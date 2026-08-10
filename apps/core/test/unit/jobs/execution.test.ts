@@ -1940,11 +1940,21 @@ describe('jobs/execution', () => {
     );
 
     expect(opsRepository.claimDueJobRunStart).toHaveBeenCalled();
-    expect(toolRepository.listAgentToolAccessSnapshot).toHaveBeenCalledOnce();
-    expect(toolRepository.listAgentToolAccessSnapshot).toHaveBeenCalledWith({
-      appId: 'default',
-      agentId: 'agent:scheduler_agent',
-    });
+    expect(toolRepository.listAgentToolAccessSnapshot).toHaveBeenCalledTimes(2);
+    expect(toolRepository.listAgentToolAccessSnapshot).toHaveBeenNthCalledWith(
+      1,
+      {
+        appId: 'default',
+        agentId: 'agent:scheduler_agent',
+      },
+    );
+    expect(toolRepository.listAgentToolAccessSnapshot).toHaveBeenNthCalledWith(
+      2,
+      {
+        appId: 'default',
+        agentId: 'agent:scheduler_agent',
+      },
+    );
     expect(skillRepository.listAgentSkillAccessSnapshot).toHaveBeenCalledOnce();
     expect(skillRepository.listAgentSkillAccessSnapshot).toHaveBeenCalledWith({
       appId: 'default',
@@ -1959,8 +1969,8 @@ describe('jobs/execution', () => {
         agentId: 'agent:scheduler_agent',
       },
     );
-    expect(toolRepository.listAgentToolBindings).toHaveBeenCalledTimes(1);
-    expect(toolRepository.getTool).toHaveBeenCalledTimes(1);
+    expect(toolRepository.listAgentToolBindings).not.toHaveBeenCalled();
+    expect(toolRepository.getTool).not.toHaveBeenCalled();
     expect(toolRepository.listTools).not.toHaveBeenCalled();
     expect(skillRepository.listEnabledSkillsForAgent).toHaveBeenCalledTimes(1);
     expect(skillRepository.listAgentSkillBindings).not.toHaveBeenCalled();
@@ -1972,9 +1982,9 @@ describe('jobs/execution', () => {
     expect(mcpServerRepository.getServer).not.toHaveBeenCalled();
     expect(mcpServerRepository.getServerByName).not.toHaveBeenCalled();
     expect(
-      toolRepository.listAgentToolBindings.mock.invocationCallOrder[0],
-    ).toBeLessThan(
       toolRepository.listAgentToolAccessSnapshot.mock.invocationCallOrder[0]!,
+    ).toBeLessThan(
+      opsRepository.claimDueJobRunStart.mock.invocationCallOrder[0]!,
     );
     expect(
       skillRepository.listEnabledSkillsForAgent.mock.invocationCallOrder[0],
