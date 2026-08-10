@@ -1071,14 +1071,17 @@
         "Installing the bot into a new group by a recognised person seeds that person as the first approver with an in-group acknowledgement, on every provider where the installer is identifiable; behaviour is uniform across providers with no per-provider approval logic."
       ],
       "order": 55,
-      "status": "pending",
+      "status": "done",
       "epic": "permission-engine",
       "skill": "backend",
       "kind": "feature",
       "depends_on": [
         "ID-1"
       ],
-      "spec": "docs/specs/pscope-1.md"
+      "spec": "docs/specs/pscope-1.md",
+      "completed_at": "2026-08-10T09:22:13+00:00",
+      "history": ".factory/history/PSCOPE-1/",
+      "outcome": "Tool grants are now person-scoped where a person exists. In a 1:1 DM the user can approve their own agent's permission requests without being pre-listed, and an 'allow for future' they grant stays private to them instead of widening the shared assistant for every chat. Groups keep the explicit approver allowlist and shared grants. Scheduled jobs inherit the identity of the conversation that created them: a DM-created job's durable grant is written for that person (an unresolvable job fails closed rather than widening to shared); group jobs stay shared. The acting person is simply the memory identity, host-stamped onto the request - the elaborate trust machinery built en route was removed per the accepted 0118 tradeoff. Installer group-onboarding split to PSCOPE-2."
     },
     {
       "key": "PSCOPE-2",
@@ -1186,5 +1189,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-10T08:55:24+00:00"
+  "updated_at": "2026-08-10T09:22:13+00:00"
 }
