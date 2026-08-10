@@ -1,0 +1,14 @@
+{
+  "event": "done",
+  "id": "Q-0021-12e1",
+  "profile": "quickfix",
+  "reason": "PR #400 CI: allow-for-future Postgres integration tests fail after host-stamp change; instrument + fix the persistent-grant regression",
+  "started_at": "2026-08-10T09:59:35+00:00",
+  "completed_at": "2026-08-10T10:19:19+00:00",
+  "files": [
+    "apps/core/test/integration/permission-decision-chain.postgres.integration.test.ts",
+    "apps/core/src/application/permissions/permission-management-rules.ts",
+    "apps/core/src/application/permissions/permission-management-service.ts",
+    "apps/core/test/unit/application/permission-management-service.test.ts"
+  ]
+}
