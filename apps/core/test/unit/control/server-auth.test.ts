@@ -1139,8 +1139,6 @@ describe('control server runtime hardening', () => {
   });
 
   it('serves typed runtime settings to agents admins but keeps them read-only', async () => {
-    const runtimeHome = '/tmp/gantry-control-test-home';
-    fs.rmSync(runtimeHome, { recursive: true, force: true });
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);
     process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
