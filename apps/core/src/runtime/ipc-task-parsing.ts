@@ -548,60 +548,38 @@ function validateAttachmentOpenConversationProof(
     !conversationProof ||
     !chatJid ||
     !taskId ||
-    !binding.appId
+    !binding.appId ||
+    !binding.providerAccountId
   ) {
     throw new Error('Invalid attachment open conversation proof');
   }
-
-  const candidateProviderAccountIds = [
-    binding.providerAccountId,
-    // Older runner environments computed the attachment auth token before the
-    // provider account scope was available. Keep accepting that token shape so
-    // attachment_open remains usable for existing routes while the proof stays
-    // bound to app, agent, chat, thread, attachment id, and task id.
-    undefined,
-  ].filter(
-    (value, index, all): value is string | undefined =>
-      all.indexOf(value) === index,
-  );
-
-  const candidateThreadIds = [
-    binding.authThreadId,
-    // Some attachment_open task payloads are emitted without a thread id even
-    // when the surrounding live turn is thread-bound. Keep accepting that token
-    // shape so file reads work for existing attachment tasks while the proof
-    // remains bound to app, agent, chat, attachment id, and task id.
-    undefined,
-  ].filter(
-    (value, index, all): value is string | undefined =>
-      all.indexOf(value) === index,
-  );
-
-  const hasValidProof = candidateProviderAccountIds.some((providerAccountId) =>
-    candidateThreadIds.some((threadId) => {
-      const authToken = computeAttachmentIpcAuthToken(sourceAgentFolder, {
+  // Strict single-candidate verification, deliberately: the proof token is
+  // host-minted with full scope (chat, thread, app, agent, provider account),
+  // and the runner env plumbing on this branch guarantees both sides hold the
+  // same scoped token. Accepting a scope-stripped candidate here would let a
+  // providerless proof authenticate a claimed provider account (the binding's
+  // providerAccountId is worker-supplied and outside the request-signing key),
+  // breaking per-account attachment isolation (RACE-3).
+  const authToken = computeAttachmentIpcAuthToken(sourceAgentFolder, {
+    chatJid,
+    threadId: binding.authThreadId,
+    appId: binding.appId,
+    agentId: binding.agentId,
+    providerAccountId: binding.providerAccountId,
+  });
+  if (
+    !verifyAttachmentOpenProof(
+      authToken,
+      {
+        type,
+        attachmentId,
         chatJid,
-        threadId,
-        appId: binding.appId,
-        agentId: binding.agentId,
-        providerAccountId,
-      });
-
-      return verifyAttachmentOpenProof(
-        authToken,
-        {
-          type,
-          attachmentId,
-          chatJid,
-          taskId,
-          ...(threadId ? { threadId } : {}),
-        },
-        conversationProof,
-      );
-    }),
-  );
-
-  if (!hasValidProof) {
+        taskId,
+        ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
+      },
+      conversationProof,
+    )
+  ) {
     throw new Error('Invalid attachment open conversation proof');
   }
 }

@@ -440,19 +440,22 @@ async function toolIdsForReplacement(input: {
     ...(await catalogSemanticCapabilityDefinitions(input)),
     ...semanticCapabilityDefinitionsById(input.skillActionDefinitions ?? []),
   };
-  const ids = [];
-  for (const reference of [
-    ...new Set(normalized.capabilities.map(settingsCapabilityToToolReference)),
-  ]) {
-    const tool = await ensureAgentToolCatalogItem({
-      repository: input.repositories.tools,
-      appId: input.appId,
-      reference,
-      now: input.now,
-      semanticCapabilityDefinitions,
-    });
-    ids.push(String(tool.id));
-  }
+  const ids = await Promise.all(
+    [
+      ...new Set(
+        normalized.capabilities.map(settingsCapabilityToToolReference),
+      ),
+    ].map(async (reference) => {
+      const tool = await ensureAgentToolCatalogItem({
+        repository: input.repositories.tools,
+        appId: input.appId,
+        reference,
+        now: input.now,
+        semanticCapabilityDefinitions,
+      });
+      return String(tool.id);
+    }),
+  );
   return ids;
 }
 
@@ -482,41 +485,48 @@ async function configuredMcpSourceBindings(input: {
   const existingByServerId = new Map(
     existingBindings.map((binding) => [binding.serverId, binding]),
   );
-  const bindings = [];
-  for (const source of input.agent.sources.mcpServers.filter(
-    (source) => source.status !== 'disabled',
-  )) {
-    const serverId = source.id as McpServerId;
-    const server = await input.repositories.mcpServers.getServer(serverId);
-    if (!server || server.appId !== input.appId || server.status !== 'active') {
-      // One dead source must not fail the whole reconcile: warn and skip the
-      // binding; the rest of the desired state still applies.
-      console.warn(
-        `[settings] MCP server ${source.id} is not active for agents.${input.agent.folder}.sources.mcp_servers; skipping that binding`,
-      );
-      continue;
-    }
-    const existing = existingByServerId.get(serverId);
-    bindings.push({
-      id: `agent-mcp-binding:${input.agentId}:${serverId}` as never,
-      appId: input.appId,
-      agentId: input.agentId,
-      serverId,
-      status: 'active' as const,
-      required: existing?.required ?? false,
-      permissionPolicyIds: existing?.permissionPolicyIds ?? [],
-      allowedToolPatterns: normalizeMcpToolScope({
-        serverName: server.name,
-        requested: source.tools,
-        definitionPatterns: reviewedMcpToolPatterns(server),
+  const bindings = await Promise.all(
+    input.agent.sources.mcpServers
+      .filter((source) => source.status !== 'disabled')
+      .map(async (source) => {
+        const serverId = source.id as McpServerId;
+        const server = await input.repositories.mcpServers.getServer(serverId);
+        if (
+          !server ||
+          server.appId !== input.appId ||
+          server.status !== 'active'
+        ) {
+          // One dead source must not fail the whole reconcile: warn and skip the
+          // binding; the rest of the desired state still applies.
+          console.warn(
+            `[settings] MCP server ${source.id} is not active for agents.${input.agent.folder}.sources.mcp_servers; skipping that binding`,
+          );
+          return null;
+        }
+        const existing = existingByServerId.get(serverId);
+        return {
+          id: `agent-mcp-binding:${input.agentId}:${serverId}` as never,
+          appId: input.appId,
+          agentId: input.agentId,
+          serverId,
+          status: 'active' as const,
+          required: existing?.required ?? false,
+          permissionPolicyIds: existing?.permissionPolicyIds ?? [],
+          allowedToolPatterns: normalizeMcpToolScope({
+            serverName: server.name,
+            requested: source.tools,
+            definitionPatterns: reviewedMcpToolPatterns(server),
+          }),
+          conversationId: existing?.conversationId,
+          threadId: existing?.threadId,
+          createdAt: existing?.createdAt ?? input.now,
+          updatedAt: input.now,
+        };
       }),
-      conversationId: existing?.conversationId,
-      threadId: existing?.threadId,
-      createdAt: existing?.createdAt ?? input.now,
-      updatedAt: input.now,
-    });
-  }
-  return bindings;
+  );
+  return bindings.filter(
+    (binding): binding is NonNullable<typeof binding> => binding !== null,
+  );
 }
 
 export function settingsCapabilityToToolReference(capability: {

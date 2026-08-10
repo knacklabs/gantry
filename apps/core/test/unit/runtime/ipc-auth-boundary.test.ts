@@ -1012,7 +1012,7 @@ describe('validateIpcAuthRequest', () => {
     });
   });
 
-  it('accepts attachment proofs from legacy runner tokens without provider account scope', () => {
+  it('rejects attachment proofs minted without provider account scope', () => {
     const attachmentId = 'message-attachment:provider-fetch:m1:slack:F1';
     const taskId = 'attachment-open-legacy-provider-token';
     const threadId = '1784545366.449119';
@@ -1052,14 +1052,15 @@ describe('validateIpcAuthRequest', () => {
       threadId,
     );
 
-    expect(parseTaskIpcData(payload, 'team')).toMatchObject({
-      type: 'attachment_open',
-      chatJid: 'sl:C1',
-      providerAccountId: 'slack-default',
-    });
+    // The binding's providerAccountId is worker-supplied and outside the
+    // request-signing key; the proof is the only thing binding the claimed
+    // account to a host-issued credential. A scope-stripped proof must fail.
+    expect(() => parseTaskIpcData(payload, 'team')).toThrow(
+      'Invalid attachment open conversation proof',
+    );
   });
 
-  it('accepts attachment proofs from task payloads without thread scope', () => {
+  it('rejects attachment proofs minted without thread scope for a thread-bound task', () => {
     const attachmentId = 'message-attachment:provider-fetch:m1:slack:F1';
     const taskId = 'attachment-open-threadless-proof';
     const threadId = '1784545366.449119';
@@ -1101,12 +1102,9 @@ describe('validateIpcAuthRequest', () => {
       threadId,
     );
 
-    expect(parseTaskIpcData(payload, 'team')).toMatchObject({
-      type: 'attachment_open',
-      chatJid: 'sl:C1',
-      providerAccountId: 'slack-default',
-      authThreadId: threadId,
-    });
+    expect(() => parseTaskIpcData(payload, 'team')).toThrow(
+      'Invalid attachment open conversation proof',
+    );
   });
 
   it('preserves memory user ids from signed task requests', () => {

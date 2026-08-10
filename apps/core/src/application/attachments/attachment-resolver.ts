@@ -82,6 +82,9 @@ export interface AttachmentResolverDeps {
 
 export class AttachmentResolver {
   private readonly inFlight = new Map<string, InFlightAttachmentOpen>();
+  // One timeout warning per shared logical open (decision 0111): keyed by open
+  // input so it is stable across F1->F2 stale retries and joins, ref-counted so
+  // it lives exactly as long as a concurrent open of this attachment+mode does.
   private readonly timeoutLogs = new Map<
     string,
     { emitted: boolean; openCount: number }
