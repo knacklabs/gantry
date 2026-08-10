@@ -67,6 +67,11 @@ export interface GroupJoinOnboardingCoordinator {
     title: string;
     installerExternalId: string;
   }): Promise<GroupJoinOnboardingRecord | null>;
+  /** Settle a manual-fallback notice terminally (no registration, no seed) —
+   * used where the join surface refires on reconnect (Discord). */
+  seedNoticeSettled?(input: {
+    id: string;
+  }): Promise<GroupJoinOnboardingRecord | null>;
   markLeft(input: {
     providerAccountId: string;
     chatJid: string;

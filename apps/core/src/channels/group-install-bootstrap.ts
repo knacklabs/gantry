@@ -6,6 +6,33 @@ import type { ChannelOpts } from './channel-provider.js';
 export const GROUP_INSTALL_MANUAL_SETUP_MESSAGE =
   "I don't know who added me. An existing approver can register this group from settings.";
 
+// Discord's join surface (GUILD_CREATE) carries no inviter and REFIRES on
+// every gateway reconnect, so it gets this lighter path: one manual-setup
+// notice per guild, ever — no conversation metadata, no registration. The
+// claim row is marked terminal after the notice so reconnects past the claim
+// window can never re-post (unlike a real re-add on Telegram/Slack, which is
+// a deliberate human act and may retry).
+export async function noticeManualGroupInstall(input: {
+  opts: ChannelOpts;
+  providerAccountId: string;
+  dedupJid: string;
+  send: (text: string) => Promise<unknown>;
+}): Promise<'manual' | 'deduplicated'> {
+  const coordinator = input.opts.groupJoinOnboarding;
+  if (!coordinator) return 'deduplicated';
+  const record = await coordinator.beginBootstrap({
+    providerAccountId: input.providerAccountId,
+    chatJid: input.dedupJid,
+    installerExternalId: undefined,
+  });
+  if (!record) return 'deduplicated';
+  await sendBestEffort(input.send, GROUP_INSTALL_MANUAL_SETUP_MESSAGE);
+  // 'registered' here means "this notice is settled", making the row-level
+  // dedup permanent; actual conversation registration for Discord is manual.
+  await coordinator.seedNoticeSettled?.({ id: record.id });
+  return 'manual';
+}
+
 export async function bootstrapGroupInstall(input: {
   opts: ChannelOpts;
   provider: string;

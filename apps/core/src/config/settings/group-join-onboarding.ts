@@ -119,6 +119,10 @@ export function createGroupJoinOnboardingCoordinator(
       }
       return record;
     },
+    seedNoticeSettled: (input) =>
+      resolved
+        .repository()
+        .markRegistered({ id: input.id, now: resolved.now() }),
     markLeft: (input) =>
       resolved.repository().markLeft({ ...input, now: resolved.now() }),
   };
