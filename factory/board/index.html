@@ -742,6 +742,14 @@ const openFile = (rel, label) => rel
   ? `<a class="filelink" href="vscode://file/${esc(repoRoot)}/${esc(rel)}">${esc(label || rel)} ↗</a>`
   : "";
 
+const prReference = (story) => {
+  const reference = String((story || {}).pr_link || "");
+  if (!reference) return "";
+  return /^https?:\/\//i.test(reference)
+    ? `<a class="filelink" href="${esc(reference)}" target="_blank" rel="noopener noreferrer">${esc(reference)} ↗</a>`
+    : `<span>${esc(reference)}</span>`;
+};
+
 /* ═══ lifecycle model ═══════════════════════════════════════════════════ */
 /* The gate sequence, as the drawer's rail reads it. "Story derived" is not a
    station: every card on this board is already a roadmap item, so the flag was
@@ -1463,6 +1471,11 @@ function taskDossier(t) {
     bits.push(`<div><b>Verify</b> passed${proof.verify_at
       ? ` · ${esc(String(proof.verify_at).slice(0, 10))}` : ""}</div>`);
   }
+  if (proof.grill) {
+    bits.push(`<div><b>Grill</b> <span class="verdict ${
+      proof.grill.verdict === "pass" ? "ok" : "bad"}">${
+      esc(proof.grill.verdict || "not recorded")}</span></div>`);
+  }
   if ((t.write_scope || []).length) {
     bits.push(`<div><b>Scope</b> ${t.write_scope.map(p =>
       `<code>${esc(p)}</code>`).join(" ")}</div>`);
@@ -1533,6 +1546,7 @@ const RAW_SOURCE = {
   spec: (d) => d.spec,
   proof: (d) => ({verify: (d.evidence || {}).verify, tests: (d.evidence || {}).tests,
                   reviews: (d.evidence || {}).reviews, grills: (d.evidence || {}).grills,
+                  task_grills: (d.evidence || {}).task_grills,
                   decomposition: (d.evidence || {}).decomposition}),
 };
 
@@ -1578,10 +1592,13 @@ function drawerBody() {
     ? ` · plan saved ${days === 0 ? "today" : plural(days, "day") + " ago"}` : "";
   const blocked = s.state === "blocked" && (s.blocked_by || []).length
     ? `<p class="statline">⊘ blocked by <b>${(s.blocked_by || []).map(esc).join(", ")}</b></p>` : "";
+  const shippedPr = s.state === "shipped" && s.pr_link
+    ? `<p class="statline">PR ${prReference(s)}</p>` : "";
   return `${drawerBreadcrumb(detail)}
     <h2 id="drawer-title"><span class="k">${esc(s.key || drawer.key)}</span>${esc(s.title || "")}</h2>
     <p class="statline">${STATE_GLYPH[s.state] || "·"} <b>${esc(STATE_WORD[s.state] || s.state || "")}</b>${esc(age)}</p>
     ${blocked}
+    ${shippedPr}
     <h3>Gate rail</h3>${railBlock(s)}
     ${readinessBlock(detail)}
     <h3>Tasks</h3>${taskBlock(detail.tasks ? detail : s)}

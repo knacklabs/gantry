@@ -638,6 +638,7 @@ def gate(
     signoff: bool = False,
     approved_plan: bool = False,
     decomposition: bool = False,
+    lite_window_ok: bool = False,
 ) -> dict[str, Any]:
     """The factory precondition matrix, in one place.
 
@@ -648,19 +649,21 @@ def gate(
     state = load_json(run_state_path(root), default={})
     if not state:
         raise SystemExit("Missing .factory/run.json. Run intake first.")
+    active_window = load_json(factory_dir(root) / "quickfix.json", default={})
+    lite_open = lite_window_ok and active_window.get("profile") == "lite"
     if signoff:
         ok, why = client_signoff(root)
         if not ok:
             raise SystemExit(why)
     issue = state.get("issue_key", "")
-    if approved_plan:
+    if approved_plan and not lite_open:
         plan_files = list((root / "plans" / "active").glob(f"{issue}-*.md")) if issue else []
         if state.get("plan_status") != "approved" or not plan_files:
             raise SystemExit(
                 "An approved, saved plan is required first "
                 f"(plans/active/{issue or '<issue>'}-*.md via `forge.py plan save`)."
             )
-    if decomposition:
+    if decomposition and not lite_open:
         if (
             state.get("decomposition_status") != "recorded"
             or not protected_decomposition_state_path(root).exists()
@@ -670,6 +673,40 @@ def gate(
                 "(record_decomposition_from_json.py after plan approval)."
             )
     return state
+
+
+def load_review_artifacts(
+    root: Path,
+    *,
+    require_head: bool = False,
+    blockers_only: bool = False,
+) -> tuple[dict[str, dict], list[str]]:
+    """Load the three review artifacts and return any close-gate problems."""
+    from forge_cli.readiness import review_passed
+
+    reviews: dict[str, dict] = {}
+    problems: list[str] = []
+    head = head_sha(root) if require_head else None
+    for aspect in ("quality", "performance", "security"):
+        path = review_dir(root) / f"{aspect}.json"
+        data = load_json(path, default={})
+        if not data:
+            problems.append(str(path.relative_to(root)))
+            continue
+        reviews[aspect] = data
+        if data.get("blocking_findings") or (
+            not blockers_only and not review_passed(data)
+        ):
+            requirement = "have no blockers" if blockers_only else "be >= 8 with no blockers"
+            problems.append(f"{aspect} review must {requirement}")
+        if require_head and data.get("commit") != head:
+            stamp = data.get("commit")
+            shown = stamp[:8] if isinstance(stamp, str) and stamp else "missing"
+            expected = head[:8] if head else "missing"
+            problems.append(
+                f"{aspect} review must be stamped at HEAD {expected} (got {shown})"
+            )
+    return reviews, problems
 
 
 SCHEMA_TYPES = {"str": str, "int": int, "bool": bool, "list": list, "dict": dict}
@@ -826,6 +863,41 @@ def require_grill(
         raise SystemExit(
             f"the {gate} grill is STALE — handover docs changed since it ran: "
             f"{', '.join(stale[:5])}. Re-run the grill against the current docs."
+        )
+
+
+def require_task_grill(
+    root: Path,
+    task_id: str,
+    expect_digest_value: str,
+) -> None:
+    """Require a passing grill bound to the current task contract digest."""
+    path = factory_dir(root) / "grills" / "tasks" / f"{task_id}.json"
+    data = load_json(path, default={})
+    record_command = (
+        "python3 factory/scripts/record_grill_from_json.py --gate task "
+        f"--task {task_id} --task-digest {expect_digest_value}"
+    )
+    if not data:
+        raise SystemExit(
+            f"Task grill required first: grill {task_id}, resolve findings, then record "
+            f"`{record_command}`."
+        )
+    if data.get("verdict") != "pass":
+        raise SystemExit(
+            f".factory/grills/tasks/{task_id}.json verdict is "
+            f"{data.get('verdict')!r} — resolve the recorded findings, re-grill, then "
+            f"record `{record_command}`; this gate needs a pass."
+        )
+    if not data.get("commit"):
+        raise SystemExit(
+            f".factory/grills/tasks/{task_id}.json has no commit stamp — re-record "
+            f"with current tooling using `{record_command}`."
+        )
+    if data.get("input_sha256") != expect_digest_value:
+        raise SystemExit(
+            f"the {task_id} task grill is STALE — it was not recorded against the "
+            f"current task contract. Re-grill and record `{record_command}`."
         )
 
 

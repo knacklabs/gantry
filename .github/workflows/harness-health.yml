@@ -1,14 +1,13 @@
 name: harness-health
 
-# Calendar-cadence leg of the loop-health doctrine (WORKFLOW.md "Loop Health"):
-# session-start and ship cadence miss idle repos — exactly the window where
-# deferrals go stale and the vendored harness falls behind. Automation only
-# DETECTS and PROPOSES here; merging the upgrade PR and accepting decisions
-# stay human ("nothing self-activates").
+# Update-triggered leg of the loop-health doctrine (WORKFLOW.md "Loop Health"):
+# client activity checks whether the vendored harness has fallen behind.
+# Automation only DETECTS and PROPOSES here; merging the upgrade PR and
+# accepting decisions stay human ("nothing self-activates").
 
 on:
-  schedule:
-    - cron: '30 3 * * *' # daily, after the gardener
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -24,20 +23,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Loop-health audit + gate integrity
+      - name: Loop-health + project audit + gate integrity
         id: health
         run: |
           set +e
           AUDIT_OUT=$(python3 factory/scripts/forge.py audit 2>&1)
           AUDIT_N=$(printf '%s\n' "$AUDIT_OUT" | grep -c '^- ')
+          PROJECT_OUT=$(python3 factory/scripts/forge.py project audit 2>&1)
+          PROJECT_RC=$?
           DRIFT_OUT=$(python3 factory/scripts/check_vendor_integrity.py 2>&1)
           DRIFT_RC=$?
           set -e
           echo "audit_n=${AUDIT_N:-0}" >> "$GITHUB_OUTPUT"
+          echo "project_rc=$PROJECT_RC" >> "$GITHUB_OUTPUT"
           echo "drift_rc=$DRIFT_RC" >> "$GITHUB_OUTPUT"
           {
             echo 'report<<REPORT_EOF'
-            printf '%s\n\n%s\n' "$AUDIT_OUT" "$DRIFT_OUT"
+            printf '%s\n\n%s\n\n%s\n' "$AUDIT_OUT" "$PROJECT_OUT" "$DRIFT_OUT"
             echo 'REPORT_EOF'
           } >> "$GITHUB_OUTPUT"
       - name: Check whether the vendored harness is behind
@@ -78,18 +80,18 @@ jobs:
           EXISTING=$(gh pr list --head chore/harness-upgrade --state open --json number --jq '.[0].number' || true)
           if [ -z "$EXISTING" ]; then
             gh pr create --title "chore: harness upgrade (automated proposal)" --body \
-          "The vendored harness is behind knacklabs/symphony-forge. This PR is \`forge upgrade\` run by the daily harness-health workflow — machinery only, project-owned content untouched, gate manifest re-frozen.
+          "The vendored harness is behind knacklabs/symphony-forge. This PR is \`forge upgrade\` run by the update-triggered harness-health workflow — machinery only, project-owned content untouched, gate manifest re-frozen.
 
           Review it like any harness upgrade: \`git diff\`, then linters + gate tests run in CI. Merging is the human step — the workflow never merges (frozen-gate doctrine, decision 0009)."
           fi
       - name: Open or update the harness-health issue
-        if: steps.health.outputs.audit_n != '0' || steps.health.outputs.drift_rc != '0'
+        if: steps.health.outputs.audit_n != '0' || steps.health.outputs.project_rc != '0' || steps.health.outputs.drift_rc != '0'
         env:
           GH_TOKEN: ${{ github.token }}
           REPORT: ${{ steps.health.outputs.report }}
         run: |
           TITLE="Harness health: the improvement loops need attention"
-          BODY="Daily harness-health report:
+          BODY="Harness-health report:
 
           \`\`\`
           $REPORT
@@ -103,7 +105,7 @@ jobs:
             gh issue create --title "$TITLE" --body "$BODY" --label maintenance || gh issue create --title "$TITLE" --body "$BODY"
           fi
       - name: Close the harness-health issue when clean
-        if: steps.health.outputs.audit_n == '0' && steps.health.outputs.drift_rc == '0'
+        if: steps.health.outputs.audit_n == '0' && steps.health.outputs.project_rc == '0' && steps.health.outputs.drift_rc == '0'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
