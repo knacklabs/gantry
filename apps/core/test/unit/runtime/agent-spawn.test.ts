@@ -7,6 +7,7 @@ const OUTPUT_START_MARKER = '---GANTRY_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---GANTRY_OUTPUT_END---';
 const mockGetBrowserStatus = vi.hoisted(() => vi.fn());
 const mockEnsureBrowserReady = vi.hoisted(() => vi.fn());
+const mockLaunchBrowser = vi.hoisted(() => vi.fn());
 const mockMaterializeClaudeRuntime = vi.hoisted(() => vi.fn());
 const mockEnsureEgressGateway = vi.hoisted(() =>
   vi.fn(async () => ({
@@ -231,6 +232,7 @@ vi.mock('@core/runtime/browser-capability.js', () => ({
   ensureBrowserReady: (...args: unknown[]) => mockEnsureBrowserReady(...args),
   getBrowserStatus: (...args: unknown[]) => mockGetBrowserStatus(...args),
   getKnownBrowserStatus: (...args: unknown[]) => mockGetBrowserStatus(...args),
+  launchBrowser: (...args: unknown[]) => mockLaunchBrowser(...args),
 }));
 
 vi.mock('@core/runtime/egress-gateway.js', () => ({
@@ -659,6 +661,13 @@ function linkedInSkillActionRuntimeAccess(
   ];
 }
 
+function managedBrowserSkillActionRuntimeAccess() {
+  return linkedInSkillActionRuntimeAccess().map((access) => ({
+    ...access,
+    browserAccess: 'managed_browser' as const,
+  }));
+}
+
 function mcpRecord(
   input: {
     allowedToolPatterns?: string[];
@@ -780,11 +789,21 @@ describe('agent-spawn timeout behavior', () => {
     mockCloseEgressGateway.mockClear();
     mockGetBrowserStatus.mockReset();
     mockEnsureBrowserReady.mockReset();
+    mockLaunchBrowser.mockReset();
     mockGetBrowserStatus.mockResolvedValue({
       profile: 'gantry',
       profileName: 'gantry',
       running: false,
       cdpReady: false,
+    });
+    mockLaunchBrowser.mockResolvedValue({
+      profile: 'c-test-group-browser',
+      profileName: 'c-test-group-browser',
+      running: true,
+      cdpReady: true,
+      cdpUrl: 'http://127.0.0.1:4567',
+      port: 4567,
+      headless: false,
     });
     mockMaterializeClaudeRuntime.mockReset();
     mockMaterializeClaudeRuntime.mockImplementation(async (input: any) => ({
@@ -3859,6 +3878,47 @@ describe('agent-spawn timeout behavior', () => {
     expect(env.GANTRY_MCP_CONFIG_FILE).toBeUndefined();
     expect(env.GANTRY_MCP_ALLOWED_TOOLS_JSON).toBeUndefined();
     expect(env.GANTRY_BROWSER_IPC_AUTH_TOKEN).toEqual(expect.any(String));
+  });
+
+  it('projects the loopback endpoint only for a reviewed managed browser action', async () => {
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      {
+        ...testInput,
+        toolPolicyRules: ['Browser'],
+        runtimeAccess: managedBrowserSkillActionRuntimeAccess(),
+      },
+      () => {},
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const profileName = mockLaunchBrowser.mock.calls[0]?.[0]?.profileName;
+    expect(profileName).toMatch(/^c-test-group-/);
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.GANTRY_BROWSER_CDP_ENDPOINT).toBe('http://127.0.0.1:4567');
+    expect(env.GANTRY_BROWSER_PROFILE_NAME).toBe(profileName);
+    expect(env.GANTRY_BROWSER_MANAGED_AUTOMATION).toBe('1');
+  });
+
+  it('fails closed when a managed browser action lacks Browser authority', async () => {
+    await expect(
+      spawnTestAgent(
+        testGroup,
+        {
+          ...testInput,
+          runtimeAccess: managedBrowserSkillActionRuntimeAccess(),
+        },
+        () => {},
+      ),
+    ).rejects.toThrow('canonical Browser capability');
+    expect(mockLaunchBrowser).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
   });
 
   it('fails closed before runner start when a selected capability is missing from the worker image', async () => {

@@ -32,6 +32,7 @@ export interface SkillActionPermission {
   requiredEnvVars: string[];
   commandTemplates: string[];
   networkHosts: string[];
+  browserAccess?: 'managed_browser';
 }
 
 export interface SkillActionSourceMetadata {
@@ -39,6 +40,7 @@ export interface SkillActionSourceMetadata {
   skillId: string;
   skillName: string;
   actionId: string;
+  browserAccess?: 'managed_browser';
 }
 
 export interface SkillActionCapabilitySourceSkill {
@@ -107,6 +109,9 @@ export function skillActionSemanticCapability(input: {
     skillId: input.skillId,
     skillName: input.skillName,
     actionId: input.action.id,
+    ...(input.action.browserAccess
+      ? { browserAccess: input.action.browserAccess }
+      : {}),
   };
   return {
     capabilityId: input.action.capabilityId,
@@ -142,12 +147,15 @@ export function skillActionSource(
   const skillName =
     typeof source.skillName === 'string' ? source.skillName : '';
   const actionId = typeof source.actionId === 'string' ? source.actionId : '';
+  const browserAccess =
+    source.browserAccess === 'managed_browser' ? 'managed_browser' : undefined;
   if (!skillId || !skillName || !actionId) return undefined;
   return {
     kind: 'skill_action',
     skillId,
     skillName,
     actionId,
+    ...(browserAccess ? { browserAccess } : {}),
   };
 }
 
@@ -218,6 +226,12 @@ function parseSkillActionPermission(
   const networkHosts = stringArray(raw.networkHosts, 'networkHosts', {
     optional: true,
   }).map((host) => normalizeSkillActionNetworkHost(host, capabilityId));
+  const browserAccess = raw.browserAccess;
+  if (browserAccess !== undefined && browserAccess !== 'managed_browser') {
+    throw new Error(
+      `Skill action ${capabilityId} browserAccess must be managed_browser.`,
+    );
+  }
   return {
     id,
     capabilityId,
@@ -228,6 +242,7 @@ function parseSkillActionPermission(
     requiredEnvVars: [...new Set(requiredEnvVars)],
     commandTemplates: [...new Set(commandTemplates)],
     networkHosts: [...new Set(networkHosts)],
+    ...(browserAccess ? { browserAccess } : {}),
   };
 }
 

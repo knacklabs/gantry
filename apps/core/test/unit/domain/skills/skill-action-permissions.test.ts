@@ -61,6 +61,19 @@ function parseHosts(networkHosts: unknown): string[] {
   return actions[0].networkHosts;
 }
 
+function manifestAssetWithBrowserAccess(browserAccess: unknown) {
+  const manifest = JSON.parse(
+    new TextDecoder().decode(manifestAsset('${skillRoot}/run.sh')[0].content),
+  );
+  manifest.actions[0].browserAccess = browserAccess;
+  return [
+    {
+      path: SKILL_ACTION_MANIFEST_FILE,
+      content: new TextEncoder().encode(JSON.stringify(manifest)),
+    },
+  ];
+}
+
 describe('parseSkillActionPermissionsFromAssets durable safety', () => {
   it('accepts a concrete command template scoped under the skill dir', () => {
     const actions = parseSkillActionPermissionsFromAssets({
@@ -80,6 +93,30 @@ describe('parseSkillActionPermissionsFromAssets durable safety', () => {
         skillName: 'demo',
       }),
     ).toThrow(/destructive redirection|Invalid skill action command template/i);
+  });
+
+  it('accepts only the host-managed browser mode', () => {
+    const [action] = parseSkillActionPermissionsFromAssets({
+      assets: manifestAssetWithBrowserAccess('managed_browser'),
+      skillName: 'demo',
+    });
+    expect(action.browserAccess).toBe('managed_browser');
+    expect(
+      skillActionSemanticCapability({
+        skillId: 'skill:demo',
+        skillName: 'demo',
+        action,
+      }).source,
+    ).toMatchObject({ browserAccess: 'managed_browser' });
+  });
+
+  it('rejects arbitrary browser access modes', () => {
+    expect(() =>
+      parseSkillActionPermissionsFromAssets({
+        assets: manifestAssetWithBrowserAccess('raw_cdp'),
+        skillName: 'demo',
+      }),
+    ).toThrow('browserAccess must be managed_browser');
   });
 });
 
