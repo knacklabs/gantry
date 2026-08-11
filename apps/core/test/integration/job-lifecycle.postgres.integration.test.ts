@@ -1,4 +1,9 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { PassThrough } from 'node:stream';
 
 import { eq } from 'drizzle-orm';
 import {
@@ -76,8 +81,18 @@ import {
   requestPermissionSetupDecisionOptions,
 } from '@core/jobs/request-permission-review.js';
 import { registerWorkerInstance } from '@core/jobs/worker-identity.js';
+import {
+  recordCapabilityTemplateAmendment,
+  startCapabilityTemplateAmendmentReview,
+} from '@core/jobs/ipc-capability-template-amendment.js';
+import { runStructuredLocalCliCapability } from '@core/jobs/structured-local-cli-invocation.js';
 import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
 import { formatAutonomousToolDenial } from '@core/shared/autonomous-tool-denial.js';
+import {
+  buildLocalCliSemanticCapability,
+  semanticCapabilityFromToolCatalogItem,
+  semanticCapabilityInputSchema,
+} from '@core/shared/semantic-capabilities.js';
 import { registerWorkerPermissionRunRestriction } from '@core/runtime/agent-spawn-permission-run-restriction.js';
 import type { AgentOutput } from '@core/runtime/agent-spawn.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
@@ -204,6 +219,367 @@ maybeDescribe('job lifecycle (Postgres)', () => {
     await schedulerEngine?.stop();
     schedulerEngine = undefined;
   });
+
+  it('CAPFIX-1-2 mismatch proposal card approval amends resumes and runs structured argv', async () => {
+    // The fixture executable must live OUTSIDE the agent-writable workspace
+    // root (which realpaths under os.tmpdir() in this harness): CLIRUN-1's
+    // executable-identity guard rejects workspace-local binaries by design.
+    const executableDir = fs.mkdtempSync(
+      path.join(process.cwd(), '.capfix-exec-'),
+    );
+    fs.chmodSync(executableDir, 0o755);
+    const executable = path.join(executableDir, 'gog');
+    const executableBody = '#!/bin/sh\nexit 0\n';
+    fs.writeFileSync(executable, executableBody, { mode: 0o755 });
+    const executableHash = `sha256:${createHash('sha256')
+      .update(executableBody)
+      .digest('hex')}`;
+    const capabilityId = `google.sheets.values.get.${randomUUID()}`;
+    const agentId = `agent:job_lifecycle_agent` as never;
+    const toolId = `tool:capability:${capabilityId}` as never;
+    const capability = buildLocalCliSemanticCapability({
+      capabilityId,
+      displayName: 'Google Sheets lead reader',
+      category: 'Google Sheets',
+      risk: 'read',
+      can: 'read lead rows from the selected sheet',
+      cannot: 'change unrelated sheets',
+      executablePath: executable,
+      executableVersion: '1.0.0',
+      executableHash,
+      commandTemplates: [`${executable} sheets get *`],
+      authPreflightCommand: `${executable} auth status`,
+    });
+    const job = makeJob(`job:integration:capfix:${randomUUID()}`, {
+      status: 'paused',
+      next_run: null,
+      pause_reason: 'Setup required',
+      access_requirements: [
+        {
+          target: {
+            kind: 'tool_rule',
+            rule: `capability:${capabilityId}`,
+          },
+        },
+      ],
+      setup_state: {
+        state: 'missing_capability',
+        checked_at: now,
+        fingerprint: 'capfix-blocked',
+        blockers: [],
+      },
+    });
+
+    try {
+      await runtime.repositories.agents.saveAgent({
+        id: agentId,
+        appId: 'default' as never,
+        name: 'Job Lifecycle Agent',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await runtime.repositories.tools.saveTool({
+        id: toolId,
+        appId: 'default' as never,
+        name: `capability:${capabilityId}`,
+        kind: 'host',
+        provider: 'gantry',
+        displayName: capability.displayName,
+        category: 'productivity',
+        risk: 'high',
+        selectable: true,
+        status: 'active',
+        adapterRef: `capability/${capabilityId}`,
+        inputSchema: semanticCapabilityInputSchema(capability),
+        createdAt: now,
+        updatedAt: now,
+      });
+      await runtime.repositories.tools.saveAgentToolBinding({
+        id: `binding:${capabilityId}` as never,
+        appId: 'default' as never,
+        agentId,
+        toolId,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await runtime.ops.upsertJob(job);
+
+      const invoke = () => {
+        const child = new EventEmitter() as EventEmitter & {
+          stdout: PassThrough;
+          stderr: PassThrough;
+          pid: number;
+          kill: () => boolean;
+        };
+        child.stdout = new PassThrough();
+        child.stderr = new PassThrough();
+        child.pid = 999_998;
+        child.kill = () => true;
+        const started = new Promise<void>((resolve) => {
+          child.once('spawn', resolve);
+        });
+        const result = runStructuredLocalCliCapability({
+          repository: runtime.repositories.tools,
+          appId: 'default',
+          agentId,
+          capabilityId,
+          args: ['sheets', 'get', 'sheet-1', 'Leads!A:B'],
+          // cwd doubles as the agent-writable root in the executable-identity
+          // guard — it must NOT contain the fixture executable.
+          cwd: fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-capfix-cwd-')),
+          env: { PATH: '/usr/bin', HOME: os.homedir() },
+          runnerSandboxProvider: {
+            id: 'capfix-test-sandbox',
+            enforcing: true,
+            start: () => {
+              queueMicrotask(() => child.emit('spawn'));
+              return child as never;
+            },
+          },
+          signal: new AbortController().signal,
+          conversationId: 'tg:job-lifecycle',
+          jobId: job.id,
+        });
+        return { child, started, result };
+      };
+
+      await expect(invoke().result).rejects.toMatchObject({
+        code: 'invalid_args',
+      });
+      const proposedTemplates = [`${executable} sheets get * *`];
+      const recorded = await recordCapabilityTemplateAmendment({
+        appId: 'default',
+        agentId,
+        requestedBy: 'job_lifecycle_agent',
+        jobId: job.id,
+        conversationJid: 'tg:job-lifecycle',
+        threadId: 'thread-job-lifecycle',
+        payload: {
+          capabilityRequestSource: 'request_access',
+          capabilityProposalKind: 'capability_template_amendment',
+          capabilityId,
+          proposedTemplates,
+          observedArgv: ['sheets', 'get', 'sheet-1', 'Leads!A:B'],
+        },
+        toolRepository: runtime.repositories.tools,
+        proposalRepository: runtime.repositories.capabilityTemplateAmendments,
+        now,
+      });
+      expect(recorded).toMatchObject({
+        ok: true,
+        code: 'capability_amendment_proposal_recorded',
+      });
+      if (!recorded.ok || !recorded.review) {
+        throw new Error('Expected a recorded amendment review.');
+      }
+
+      let finish!: () => void;
+      const finished = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const requestPermissionApproval = vi.fn(
+        async (request: PermissionApprovalRequest) => {
+          expect(request.interaction?.body).not.toMatch(
+            /gog|Observed argv|sha256|capabilityId/i,
+          );
+          expect(request.toolInput?.diffPreview).toContain(
+            proposedTemplates[0],
+          );
+          return {
+            approved: true,
+            mode: 'allow_once' as const,
+            decidedBy: 'person:ravi',
+            decisionClassification: 'user_once' as const,
+          };
+        },
+      );
+      const sendMessage = vi.fn(async (_jid: string, text: string) => {
+        if (text.startsWith('Approved the fix')) finish();
+      });
+      startCapabilityTemplateAmendmentReview({
+        deps: {
+          requestPermissionApproval,
+          sendMessage,
+          opsRepository: runtime.ops,
+          onSchedulerChanged: vi.fn(),
+          getToolRepository: () => runtime.repositories.tools,
+        } as never,
+        repository: runtime.repositories.capabilityTemplateAmendments,
+        review: recorded.review,
+      });
+      await finished;
+
+      const updatedTool = await runtime.repositories.tools.getTool(toolId);
+      const updatedCapability = semanticCapabilityFromToolCatalogItem({
+        name: updatedTool?.name,
+        inputSchema: updatedTool?.inputSchema,
+      });
+      expect(updatedCapability?.implementationBindings[0]).toMatchObject({
+        executablePath: executable,
+        executableHash,
+        executableVersion: '1.0.0',
+        // Amendments ADD reviewed forms; the previously approved template
+        // survives alongside the new one.
+        commandTemplates: [`${executable} sheets get *`, ...proposedTemplates],
+      });
+      const history = await runtime.service.pool.query<{
+        prior_templates: string[];
+        amended_templates: string[];
+        approved_by: string;
+        audit_event_id: string;
+      }>(
+        'select prior_templates, amended_templates, approved_by, audit_event_id from capability_template_amendment_history where proposal_id = $1',
+        [recorded.review.proposal.id],
+      );
+      expect(history.rows[0]).toMatchObject({
+        prior_templates: [`${executable} sheets get *`],
+        amended_templates: [`${executable} sheets get *`, ...proposedTemplates],
+        approved_by: 'person:ravi',
+      });
+      const audit = await runtime.service.pool.query(
+        'select id from permission_audit_events where id = $1',
+        [history.rows[0]!.audit_event_id],
+      );
+      expect(audit.rows).toHaveLength(1);
+      expect((await runtime.ops.getJobById(job.id))?.status).toBe('active');
+      await expect(
+        runtime.repositories.capabilityTemplateAmendments.amendSemanticCapabilityCommandTemplates(
+          {
+            proposalId: recorded.review.proposal.id,
+            appId: 'default',
+            capabilityId,
+            expectedReviewedSchemaHash:
+              recorded.review.proposal.reviewedSchemaHash,
+            proposedTemplates,
+            approvedBy: 'person:ravi',
+            approvedAt: now,
+          },
+        ),
+      ).resolves.toEqual({ status: 'already_amended' });
+
+      const invocation = invoke();
+      await invocation.started;
+      invocation.child.emit('close', 0, null);
+      // Empty stdout maps to the runner's success sentinel
+      // (async-command-sandbox-runner outputSummary fallback).
+      await expect(invocation.result).resolves.toEqual({
+        stdout: 'command completed',
+        stderr: '',
+      });
+
+      const deniedTemplates = [`${executable} sheets get * * *`];
+      const denied = await recordCapabilityTemplateAmendment({
+        appId: 'default',
+        agentId,
+        requestedBy: 'job_lifecycle_agent',
+        conversationJid: 'tg:job-lifecycle',
+        payload: {
+          capabilityRequestSource: 'request_access',
+          capabilityProposalKind: 'capability_template_amendment',
+          capabilityId,
+          proposedTemplates: deniedTemplates,
+          observedArgv: ['sheets', 'get', 'sheet-1', 'Leads!A:B', 'extra'],
+        },
+        toolRepository: runtime.repositories.tools,
+        proposalRepository: runtime.repositories.capabilityTemplateAmendments,
+        now,
+      });
+      if (!denied.ok || !denied.review) {
+        throw new Error('Expected a denyable amendment review.');
+      }
+      let deniedFinish!: () => void;
+      const deniedFinished = new Promise<void>((resolve) => {
+        deniedFinish = resolve;
+      });
+      const deniedApproval = vi.fn(async () => ({
+        approved: false,
+        mode: 'cancel' as const,
+        decidedBy: 'person:ravi',
+        reason: 'Keep the current reviewed shape.',
+        decisionClassification: 'user_reject' as const,
+      }));
+      startCapabilityTemplateAmendmentReview({
+        deps: {
+          requestPermissionApproval: deniedApproval,
+          sendMessage: vi.fn(async (_jid: string, text: string) => {
+            if (text.startsWith('Denied the fix')) deniedFinish();
+          }),
+        } as never,
+        repository: runtime.repositories.capabilityTemplateAmendments,
+        review: denied.review,
+      });
+      await deniedFinished;
+      const deniedAgain = await recordCapabilityTemplateAmendment({
+        appId: 'default',
+        agentId,
+        requestedBy: 'job_lifecycle_agent',
+        conversationJid: 'tg:job-lifecycle',
+        payload: {
+          capabilityRequestSource: 'request_access',
+          capabilityProposalKind: 'capability_template_amendment',
+          capabilityId,
+          proposedTemplates: deniedTemplates,
+          observedArgv: ['sheets', 'get', 'sheet-1', 'Leads!A:B', 'extra'],
+        },
+        toolRepository: runtime.repositories.tools,
+        proposalRepository: runtime.repositories.capabilityTemplateAmendments,
+        now,
+      });
+      expect(deniedAgain).toMatchObject({
+        ok: true,
+        code: 'capability_amendment_proposal_previously_denied',
+      });
+      expect(deniedAgain.ok && deniedAgain.review).toBeUndefined();
+      expect(deniedApproval).toHaveBeenCalledTimes(1);
+      const afterDeny = semanticCapabilityFromToolCatalogItem({
+        inputSchema: (await runtime.repositories.tools.getTool(toolId))
+          ?.inputSchema,
+      });
+      expect(afterDeny?.implementationBindings[0]?.commandTemplates).toEqual([
+        `${executable} sheets get *`,
+        ...proposedTemplates,
+      ]);
+
+      const immutableAttempt = await recordCapabilityTemplateAmendment({
+        appId: 'default',
+        agentId,
+        requestedBy: 'job_lifecycle_agent',
+        payload: {
+          capabilityRequestSource: 'request_access',
+          capabilityProposalKind: 'capability_template_amendment',
+          capabilityId,
+          proposedTemplates,
+          observedArgv: [],
+          executablePath: '/tmp/other',
+        },
+        toolRepository: runtime.repositories.tools,
+        proposalRepository: runtime.repositories.capabilityTemplateAmendments,
+        now,
+      });
+      expect(immutableAttempt).toMatchObject({
+        ok: false,
+        code: 'invalid_request',
+      });
+    } finally {
+      fs.rmSync(executableDir, { recursive: true, force: true });
+      // Shared-schema hygiene: later tests enumerate jobs and resolve the
+      // shared agent's tool policy — leave neither the job nor the binding.
+      await runtime.ops.deleteJob(job.id).catch(() => undefined);
+      await runtime.repositories.tools
+        .saveAgentToolBinding({
+          id: `binding:${capabilityId}` as never,
+          appId: 'default' as never,
+          agentId,
+          toolId,
+          status: 'removed',
+          createdAt: now,
+          updatedAt: now,
+        })
+        .catch(() => undefined);
+    }
+  }, 60_000);
 
   it('projects one latest non-session run for a 500-job listing in one query', async () => {
     const jobs = Array.from({ length: 500 }, (_, index) =>

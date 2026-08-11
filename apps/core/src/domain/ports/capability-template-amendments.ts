@@ -19,6 +19,7 @@ export interface CapabilityTemplateAmendmentProposal {
   jobId?: string | null;
   conversationJid?: string | null;
   threadId?: string | null;
+  providerAccountId?: string | null;
   decidedBy?: string;
   decisionReason?: string;
   createdAt: string;
@@ -49,4 +50,18 @@ export interface CapabilityTemplateAmendmentRepository {
     decisionReason?: string;
     now: string;
   }): Promise<CapabilityTemplateAmendmentProposal | null>;
+  amendSemanticCapabilityCommandTemplates(input: {
+    proposalId: string;
+    appId: string;
+    capabilityId: string;
+    expectedReviewedSchemaHash: string;
+    proposedTemplates: string[];
+    approvedBy: string;
+    approvedAt: string;
+  }): Promise<
+    | { status: 'amended'; historyId: string; auditEventId: string }
+    | { status: 'already_amended' }
+    | { status: 'stale' }
+    | { status: 'not_pending' }
+  >;
 }

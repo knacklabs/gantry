@@ -1,0 +1,11 @@
+{
+  "topic": "capfix-telegram-approval-test",
+  "lesson": "Telegram permission-card tests that await a callback must explicitly configure isControlApproverAllowed; otherwise the promise stays pending until the test timeout.",
+  "source": "CAPFIX-1-2-test",
+  "applies_to": [
+    "apps/core/test/unit/channels/telegram.test.ts"
+  ],
+  "severity": "low",
+  "generated_by": "implementer",
+  "added_at": "2026-08-11T19:40:53+00:00"
+}

@@ -12,6 +12,7 @@ import {
 
 import { agentsPostgres } from './agents.js';
 import { appsPostgres } from './apps.js';
+import { permissionAuditEventsPostgres } from './permissions.js';
 
 export const capabilityTemplateAmendmentProposalsPostgres = pgTable(
   'capability_template_amendment_proposals',
@@ -38,6 +39,7 @@ export const capabilityTemplateAmendmentProposalsPostgres = pgTable(
     jobId: text('job_id'),
     conversationJid: text('conversation_jid'),
     threadId: text('thread_id'),
+    providerAccountId: text('provider_account_id'),
     decidedBy: text('decided_by'),
     decisionReason: text('decision_reason'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
@@ -66,5 +68,41 @@ export const capabilityTemplateAmendmentProposalsPostgres = pgTable(
       'capability_template_amendment_proposals_status_check',
       sql`${table.status} IN ('pending', 'approved', 'denied')`,
     ),
+  }),
+);
+
+export const capabilityTemplateAmendmentHistoryPostgres = pgTable(
+  'capability_template_amendment_history',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    proposalId: text('proposal_id')
+      .notNull()
+      // History follows its proposal: agent deletion cascades proposals, and
+      // the definition-change audit trail lives in permission_audit_events.
+      .references(() => capabilityTemplateAmendmentProposalsPostgres.id, {
+        onDelete: 'cascade',
+      }),
+    capabilityId: text('capability_id').notNull(),
+    priorTemplates: jsonb('prior_templates').$type<string[]>().notNull(),
+    amendedTemplates: jsonb('amended_templates').$type<string[]>().notNull(),
+    approvedBy: text('approved_by').notNull(),
+    auditEventId: text('audit_event_id')
+      .notNull()
+      // Both tables cascade with their app; RESTRICT here can abort app
+      // deletion depending on cascade order. History follows its audit event.
+      .references(() => permissionAuditEventsPostgres.id, {
+        onDelete: 'cascade',
+      }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    proposalUnique: uniqueIndex(
+      'capability_template_amendment_history_proposal_unique',
+    ).on(table.proposalId),
   }),
 );

@@ -98,7 +98,7 @@ import {
 } from './request-access-job-recovery.js';
 import { requestOnlyCapabilityPendingKey } from './request-only-capability-dedupe.js';
 import { resolveRunnerIpcRoute } from '../runtime/ipc-route-authorization.js';
-import { recordCapabilityTemplateAmendment } from './ipc-capability-template-amendment.js';
+import { handleCapabilityTemplateAmendmentRequest } from './ipc-capability-template-amendment.js';
 const pendingRequestOnlyCapabilityReviews = new Set<string>();
 const {
   asyncMcpCallToolHandler,
@@ -334,23 +334,24 @@ const requestOnlyCapabilityHandler: TaskHandler = async (context) => {
     return;
   }
   if (data.payload?.capabilityProposalKind === 'capability_template_amendment') {
-    // conversationJid is the provider-qualified authenticated route target
-    // (not the bare conversation id): the async review card routes by it.
-    const result = await recordCapabilityTemplateAmendment({
+    await handleCapabilityTemplateAmendmentRequest({
+      payload: data.payload,
       appId: data.appId,
       agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
-      requestedBy: sourceAgentFolder,
+      sourceAgentFolder,
       jobId: data.jobId ?? null,
       conversationJid: approvalRoute.targetJid ?? null,
       threadId: data.authThreadId ?? null,
-      payload: data.payload,
+      providerAccountId: approvalRoute.providerAccountId ?? null,
       toolRepository: deps.getToolRepository?.(),
       proposalRepository:
         getRuntimeStorage().repositories.capabilityTemplateAmendments,
-      now: nowIso(),
+      deps,
+      approvalSurfaceReady:
+        typeof deps.requestPermissionApproval === 'function' &&
+        typeof deps.sendMessage === 'function',
+      now: nowIso(), accept, reject,
     });
-    if (!result.ok) { reject(result.error, result.code); return; }
-    accept(result.message, result.code);
     return;
   }
   if (typeof deps.requestPermissionApproval !== 'function' || typeof deps.sendMessage !== 'function') { reject(`${parsed.review.requestKind} requests require a configured approval surface.`, 'preflight_failed'); return; }

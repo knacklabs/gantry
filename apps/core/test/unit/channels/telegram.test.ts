@@ -4855,6 +4855,74 @@ describe('TelegramChannel', () => {
   });
 
   describe('permission approvals', () => {
+    it('CAPFIX-1-2 card keeps ability copy plain and the technical delta expandable', async () => {
+      const channel = new TelegramChannel(
+        'test-token',
+        createTestOpts({
+          isControlApproverAllowed: vi.fn(async () => true),
+        }),
+      );
+      await channel.connect();
+
+      const decisionPromise = channel.requestPermissionApproval(
+        'tg:100200300',
+        {
+          requestId: 'capability-amendment-card',
+          sourceAgentFolder: 'lead_agent',
+          targetJid: 'tg:100200300',
+          toolName: 'capability_template_amendment',
+          displayName: 'Google Sheets lead reader',
+          decisionOptions: ['allow_once', 'cancel'],
+          toolInput: {
+            diffPreview:
+              '--- current-command-templates\n+++ proposed-command-templates\n-/usr/bin/gog sheets get *\n+/usr/bin/gog sheets get * *\n\nObserved argv: ["sheets","get","sheet-1","Leads!A:B"]',
+          },
+          interaction: {
+            id: 'capability-amendment-card',
+            title: 'Fix how Google Sheets lead reader runs',
+            body: [
+              "This also lets the command take an extra input it couldn't before.",
+              'The approved way of using Google Sheets lead reader did not fit what the job needed, so it stopped.',
+              'Approving corrects the allowed command shape. What I can do stays the same: read lead rows from the selected sheet. What I still cannot do: change unrelated sheets.',
+            ].join('\n\n'),
+          },
+        },
+      );
+      await flushPromises();
+
+      const prompt = String(currentBot().api.sendMessage.mock.calls[0]?.[1]);
+      expect(prompt).toContain(
+        "This also lets the command take an extra input it couldn't before.",
+      );
+      expect(prompt).toContain(
+        'What I can do stays the same: read lead rows from the selected sheet.',
+      );
+      expect(prompt).toContain(
+        '<b>View diff</b>\n<blockquote expandable>',
+      );
+      const primaryBody = prompt.split('<b>View diff</b>')[0]!;
+      expect(primaryBody).not.toMatch(
+        /\/usr\/bin\/gog|Observed argv|capability-amendment-card|sha256/i,
+      );
+      expect(
+        currentBot().api.sendMessage.mock.calls[0]?.[2]?.reply_markup
+          .inline_keyboard,
+      ).toEqual([
+        [expect.objectContaining({ text: 'Approve fix' })],
+        [expect.objectContaining({ text: 'Deny' })],
+      ]);
+
+      await triggerCallbackQuery({
+        callbackQuery: {
+          data: latestPermissionCallback('Approve fix'),
+        },
+        chat: { id: 100200300 },
+        from: { id: 12345, first_name: 'Ravi' },
+        answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
+      });
+      await expect(decisionPromise).resolves.toMatchObject({ approved: true });
+    });
+
     it('keeps colliding request ids scoped to the authorized agent', async () => {
       const channel = new TelegramChannel(
         'test-token',

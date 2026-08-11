@@ -22,7 +22,7 @@ CREATE TABLE "capability_template_amendment_proposals" (
 	CONSTRAINT "capability_template_amendment_proposals_status_check" CHECK ("capability_template_amendment_proposals"."status" IN ('pending', 'approved', 'denied'))
 );
 --> statement-breakpoint
-ALTER TABLE "capability_template_amendment_proposals" ADD CONSTRAINT "capability_template_amendment_proposals_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "capability_template_amendment_proposals" ADD CONSTRAINT "capability_template_amendment_proposals_agent_id_agents_id_fk" FOREIGN KEY ("agent_id") REFERENCES "public"."agents"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "capability_template_amendment_proposals" ADD CONSTRAINT "capability_template_amendment_proposals_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "capability_template_amendment_proposals" ADD CONSTRAINT "capability_template_amendment_proposals_agent_id_agents_id_fk" FOREIGN KEY ("agent_id") REFERENCES "agents"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "capability_template_amendment_proposals_canonical_unique" ON "capability_template_amendment_proposals" USING btree ("app_id","canonical_key") WHERE "capability_template_amendment_proposals"."status" = 'pending';--> statement-breakpoint
 CREATE INDEX "idx_capability_template_amendment_proposals_status" ON "capability_template_amendment_proposals" USING btree ("app_id","status","created_at");

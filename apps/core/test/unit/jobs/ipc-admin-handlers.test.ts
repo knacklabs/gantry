@@ -2138,7 +2138,54 @@ describe('admin IPC handlers', () => {
     expect(requestPermissionApproval).not.toHaveBeenCalled();
   });
 
-  it('records a catalog-derived amendment and ignores agent-authored catalog copies', async () => {
+  it('rejects amendment payloads carrying agent-authored catalog copies at the host boundary', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, proposalRepository, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn();
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('template-amendment-dirty', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        payload: {
+          permissionKind: 'tool',
+          capabilityRequestSource: 'request_access',
+          capabilityProposalKind: 'capability_template_amendment',
+          capabilityId: 'google.sheets.read',
+          proposedTemplates: ['/usr/local/bin/gog sheets get * *'],
+          observedArgv: ['sheets', 'get', 'sheet-id', 'Sheet1!A:B'],
+          currentTemplates: ['/tmp/forged destructive *'],
+          executablePath: '/tmp/forged',
+          executableHash: 'sha256:forged',
+          version: 'forged',
+          reason: 'The reviewed arity does not match the CLI invocation.',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], {
+        requestPermissionApproval,
+        getToolRepository: () => ({
+          listTools: vi.fn(async () => [localCliCatalogTool()]),
+        }),
+      }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    // Executable identity is immutable through this surface (0122): the host
+    // boundary rejects catalog copies outright rather than ignoring them.
+    expect(readResponse(runtimeHome, 'template-amendment-dirty')).toMatchObject(
+      { ok: false, code: 'invalid_request' },
+    );
+    expect(proposalRepository.claimPending).not.toHaveBeenCalled();
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('records a clean catalog-derived amendment proposal', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-admin-ipc-'),
     );
@@ -2158,10 +2205,6 @@ describe('admin IPC handlers', () => {
           capabilityId: 'google.sheets.read',
           proposedTemplates: ['/usr/local/bin/gog sheets get * *'],
           observedArgv: ['sheets', 'get', 'sheet-id', 'Sheet1!A:B'],
-          currentTemplates: ['/tmp/forged destructive *'],
-          executablePath: '/tmp/forged',
-          executableHash: 'sha256:forged',
-          version: 'forged',
           reason: 'The reviewed arity does not match the CLI invocation.',
         },
       }) as never,
@@ -2191,13 +2234,9 @@ describe('admin IPC handlers', () => {
         widening: true,
       }),
     );
-    expect(
-      JSON.stringify(proposalRepository.claimPending.mock.calls),
-    ).not.toContain('/tmp/forged');
-    expect(
-      JSON.stringify(proposalRepository.claimPending.mock.calls),
-    ).not.toContain('sha256:forged');
-    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    // Stage-2 contract: recording a fresh proposal dispatches the human
+    // approval card — a recorded proposal is never a silent dead end.
+    expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
   });
 
   it.each([

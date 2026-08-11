@@ -5,10 +5,18 @@ import type {
   CapabilityTemplateAmendmentRepository,
   CapabilityTemplateAmendmentStatus,
 } from '../../../../domain/ports/capability-template-amendments.js';
+import {
+  semanticCapabilityFromToolCatalogItem,
+  semanticCapabilityInputSchema,
+  validateLocalCliCommandTemplate,
+  type SemanticCapabilityDefinition,
+} from '../../../../shared/semantic-capabilities.js';
+import { stableSha256Json } from '../../../../shared/stable-hash.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 
 const table = pgSchema.capabilityTemplateAmendmentProposalsPostgres;
+const historyTable = pgSchema.capabilityTemplateAmendmentHistoryPostgres;
 
 export class PostgresCapabilityTemplateAmendmentRepository implements CapabilityTemplateAmendmentRepository {
   constructor(private readonly db: CanonicalDb) {}
@@ -191,6 +199,227 @@ export class PostgresCapabilityTemplateAmendmentRepository implements Capability
       .returning();
     return row ? mapRow(row) : null;
   }
+
+  async amendSemanticCapabilityCommandTemplates(
+    input: Parameters<
+      CapabilityTemplateAmendmentRepository['amendSemanticCapabilityCommandTemplates']
+    >[0],
+  ): ReturnType<
+    CapabilityTemplateAmendmentRepository['amendSemanticCapabilityCommandTemplates']
+  > {
+    return this.db.transaction(async (tx) => {
+      const [proposal] = await tx
+        .select()
+        .from(table)
+        .where(
+          and(eq(table.id, input.proposalId), eq(table.appId, input.appId)),
+        )
+        .for('update')
+        .limit(1);
+      if (!proposal) return { status: 'not_pending' as const };
+      // Bind the amendment to the LOCKED proposal snapshot FIRST: caller
+      // inputs must exactly match the reviewed row before ANY outcome —
+      // including already_amended — is reported, so approval of one proposal
+      // can never amend (or claim credit for) another capability's change.
+      const rowTemplates = (proposal.proposedTemplates ?? []) as string[];
+      const inputTemplates = [...input.proposedTemplates].sort();
+      const snapshotMismatch =
+        proposal.capabilityId !== input.capabilityId ||
+        proposal.reviewedSchemaHash !== input.expectedReviewedSchemaHash ||
+        rowTemplates.length !== inputTemplates.length ||
+        [...rowTemplates]
+          .sort()
+          .some((template, index) => template !== inputTemplates[index]);
+      if (snapshotMismatch) {
+        return { status: 'not_pending' as const };
+      }
+      if (proposal.status === 'approved') {
+        return { status: 'already_amended' as const };
+      }
+      if (proposal.status !== 'pending') {
+        return { status: 'not_pending' as const };
+      }
+
+      const rows = await tx
+        .select()
+        .from(pgSchema.toolCatalogPostgres)
+        .where(
+          and(
+            eq(pgSchema.toolCatalogPostgres.appId, input.appId),
+            eq(pgSchema.toolCatalogPostgres.status, 'active'),
+          ),
+        )
+        .for('update');
+      const match = rows
+        .map((row) => ({
+          row,
+          definition: semanticCapabilityFromToolCatalogItem({
+            name: row.name,
+            inputSchema: parseJsonObject(row.inputSchemaJson),
+          }),
+        }))
+        .find(
+          (candidate) =>
+            candidate.definition?.capabilityId === input.capabilityId,
+        );
+      if (!match?.definition) return { status: 'stale' as const };
+
+      const currentHash = stableSha256Json(match.definition);
+      const amendedDefinition = amendCommandTemplates(
+        match.definition,
+        input.proposedTemplates,
+      );
+      const priorTemplates = commandTemplates(match.definition);
+      const amendedTemplates = commandTemplates(amendedDefinition);
+      if (currentHash !== input.expectedReviewedSchemaHash) {
+        // A no-op amend is NOT proof of a concurrent approval: a changed
+        // binding can silently reject every proposed template. Only report
+        // already_amended when the proposal is truly contained in the
+        // current template set.
+        // ponytail: priorTemplates aggregates across bindings; capabilities
+        // today carry ONE local_cli binding — revisit if multi-binding
+        // capabilities ever exist (per-binding containment then).
+        const proposedContained = input.proposedTemplates.every((template) =>
+          priorTemplates.includes(template.trim()),
+        );
+        if (
+          !proposedContained ||
+          !sameTemplateSet(amendedTemplates, priorTemplates)
+        ) {
+          return { status: 'stale' as const };
+        }
+        await tx
+          .update(table)
+          .set({
+            status: 'approved',
+            decidedBy: input.approvedBy,
+            decisionReason: 'Already amended by a concurrent approval.',
+            decidedAt: input.approvedAt,
+            updatedAt: input.approvedAt,
+          })
+          .where(
+            and(eq(table.id, input.proposalId), eq(table.status, 'pending')),
+          );
+        return { status: 'already_amended' as const };
+      }
+
+      const nextInputSchemaJson = JSON.stringify(
+        semanticCapabilityInputSchema(amendedDefinition),
+      );
+      const [updated] = await tx
+        .update(pgSchema.toolCatalogPostgres)
+        .set({
+          inputSchemaJson: nextInputSchemaJson,
+          updatedAt: input.approvedAt,
+        })
+        .where(
+          and(
+            eq(pgSchema.toolCatalogPostgres.id, match.row.id),
+            eq(pgSchema.toolCatalogPostgres.appId, input.appId),
+            eq(
+              pgSchema.toolCatalogPostgres.inputSchemaJson,
+              match.row.inputSchemaJson,
+            ),
+          ),
+        )
+        .returning({ id: pgSchema.toolCatalogPostgres.id });
+      if (!updated) return { status: 'stale' as const };
+
+      const auditEventId = `capability-amendment-audit-${globalThis.crypto.randomUUID()}`;
+      const historyId = `capability-amendment-history-${globalThis.crypto.randomUUID()}`;
+      await tx.insert(pgSchema.permissionAuditEventsPostgres).values({
+        id: auditEventId,
+        appId: input.appId,
+        decisionId: null,
+        actorId: input.approvedBy,
+        eventType: 'capability_command_templates_amended',
+        // Self-contained: history rows cascade with their proposal/agent,
+        // so the surviving audit event must itself record what changed.
+        payloadJson: JSON.stringify({
+          proposalId: input.proposalId,
+          historyId,
+          capabilityId: input.capabilityId,
+          priorTemplates,
+          amendedTemplates,
+        }),
+        createdAt: input.approvedAt,
+      });
+      await tx.insert(historyTable).values({
+        id: historyId,
+        appId: input.appId,
+        proposalId: input.proposalId,
+        capabilityId: input.capabilityId,
+        priorTemplates,
+        amendedTemplates,
+        approvedBy: input.approvedBy,
+        auditEventId,
+        createdAt: input.approvedAt,
+      });
+      await tx
+        .update(table)
+        .set({
+          status: 'approved',
+          decidedBy: input.approvedBy,
+          decisionReason: 'Approved capability command template amendment.',
+          decidedAt: input.approvedAt,
+          updatedAt: input.approvedAt,
+        })
+        .where(
+          and(eq(table.id, input.proposalId), eq(table.status, 'pending')),
+        );
+      return { status: 'amended' as const, historyId, auditEventId };
+    });
+  }
+}
+
+function parseJsonObject(value: string): Record<string, unknown> {
+  const parsed = JSON.parse(value) as unknown;
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
+}
+
+function amendCommandTemplates(
+  definition: SemanticCapabilityDefinition,
+  proposedTemplates: string[],
+): SemanticCapabilityDefinition {
+  return {
+    ...definition,
+    implementationBindings: definition.implementationBindings.map((binding) => {
+      if (binding.kind !== 'local_cli' || !binding.executablePath) {
+        return binding;
+      }
+      const matching = proposedTemplates.filter(
+        (template) =>
+          validateLocalCliCommandTemplate(binding.executablePath!, template).ok,
+      );
+      if (matching.length === 0) return binding;
+      // Amendments ADD reviewed command forms — they never remove ones a
+      // human already approved (the card promises an added input, not a
+      // swap). Merge and dedupe with the existing set.
+      const merged = [
+        ...new Set([...(binding.commandTemplates ?? []), ...matching]),
+      ];
+      return { ...binding, commandTemplates: merged };
+    }),
+  };
+}
+
+function commandTemplates(definition: SemanticCapabilityDefinition): string[] {
+  return [
+    ...new Set(
+      definition.implementationBindings.flatMap((binding) =>
+        binding.kind === 'local_cli' ? (binding.commandTemplates ?? []) : [],
+      ),
+    ),
+  ].sort();
+}
+
+function sameTemplateSet(left: string[], right: string[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((template, index) => template === right[index])
+  );
 }
 
 function mapRow(
@@ -210,6 +439,7 @@ function mapRow(
     jobId: row.jobId ?? null,
     conversationJid: row.conversationJid ?? null,
     threadId: row.threadId ?? null,
+    providerAccountId: row.providerAccountId ?? null,
     status: row.status as CapabilityTemplateAmendmentStatus,
     requestedBy: row.requestedBy,
     decidedBy: row.decidedBy ?? undefined,

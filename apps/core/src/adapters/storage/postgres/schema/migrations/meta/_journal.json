@@ -953,6 +953,13 @@
       "when": 1786467698607,
       "tag": "20260811170138_capability_template_amendments",
       "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1786477455322,
+      "tag": "20260811194415_purple_black_queen",
+      "breakpoints": true
     }
   ]
 }
