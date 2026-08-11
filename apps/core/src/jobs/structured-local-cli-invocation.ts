@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 
 import { resolveAgentToolRuntimePolicy } from '../application/agents/agent-tool-runtime-rules.js';
 import type { ToolCatalogRepository } from '../domain/ports/repositories.js';
@@ -65,6 +66,10 @@ export async function runStructuredLocalCliCapability(input: {
     invocation.capability.protectedPaths ?? [],
     input.env,
   );
+  // Refuse to launch if the deadline already elapsed during setup (gateway,
+  // policy resolution, executable verification): a command must never START
+  // after the MCP caller has already been told it timed out.
+  input.signal.throwIfAborted();
   try {
     const result = await runSandboxedAsyncCommand(input.runnerSandboxProvider, {
       structuredCommand: {
@@ -94,6 +99,7 @@ export async function runStructuredLocalCliCapability(input: {
       stderr: sanitizeOutboundLlmText(result.errorSummary ?? '').text,
     };
   } catch (error) {
+    if (error instanceof StructuredLocalCliInvocationError) throw error;
     throw new Error(
       sanitizeOutboundLlmText(
         error instanceof Error ? error.message : 'Capability execution failed.',
@@ -109,6 +115,7 @@ async function resolveGrantedLocalCliInvocation(input: {
   personId?: string | null;
   capabilityId: string;
   args: string[];
+  cwd: string;
 }): Promise<ResolvedLocalCliInvocation> {
   validateStructuredArgs(input.args);
   const capabilityId = input.capabilityId.trim();
@@ -144,10 +151,14 @@ async function resolveGrantedLocalCliInvocation(input: {
         structuredFlagsAreReviewed(template, leaf.argv),
     );
     if (!reviewed) continue;
-    await verifyExecutableIdentity(executable, binding.executableHash);
+    const verifiedExecutable = await verifyImmutableExecutable(
+      executable,
+      binding.executableHash,
+      input.cwd,
+    );
     return {
       capability,
-      executable,
+      executable: verifiedExecutable,
       argv: [...input.args],
     };
   }
@@ -213,10 +224,19 @@ function globMatches(pattern: string, value: string): boolean {
   return new RegExp(`^${escaped}$`).test(value);
 }
 
-async function verifyExecutableIdentity(
+// Bind execution to the verified bytes, TOCTOU-safe, WITHOUT relocating the
+// executable (relocating breaks launchers/native binaries that resolve adjacent
+// files or libraries relative to their own path). Instead we resolve the real
+// path (following symlinks) and prove it cannot be swapped between verify and
+// spawn: it must live OUTSIDE the agent-writable workspace and must not be
+// group/other-writable. A file the agent cannot write cannot be replaced under
+// it, so hashing and spawning that same real path is safe. Returns the resolved
+// path to run in place.
+async function verifyImmutableExecutable(
   executable: string,
   expectedHash: string | undefined,
-): Promise<void> {
+  agentWritableRoot: string,
+): Promise<string> {
   const normalizedExpected = expectedHash?.trim().toLowerCase() ?? '';
   if (!/^sha256:[a-f0-9]{64}$/.test(normalizedExpected)) {
     throw new StructuredLocalCliInvocationError(
@@ -224,20 +244,47 @@ async function verifyExecutableIdentity(
       'Capability executable identity is not pinned to a valid SHA-256 hash.',
     );
   }
-  let actualHash: string;
+  // ponytail: baseline identity binding, sufficient against the AGENT (which
+  // cannot write to the workspace-excluded system paths where capability
+  // executables live). Deferred deep hardening (D-0056): walking the full
+  // parent-directory chain for immutability / fd-binding to defeat a co-resident
+  // local attacker, and preserving the configured argv0 for symlinked
+  // executables. Neither affects the pilot; revisit per D-0056's trigger.
   try {
-    await fs.promises.access(executable, fs.constants.X_OK);
-    actualHash = await sha256File(executable);
-  } catch {
+    const realExecutable = await fs.promises.realpath(executable);
+    const realRoot = await fs.promises
+      .realpath(agentWritableRoot)
+      .catch(() => path.resolve(agentWritableRoot));
+    const within =
+      realExecutable === realRoot ||
+      realExecutable.startsWith(realRoot + path.sep);
+    if (within) {
+      throw new StructuredLocalCliInvocationError(
+        'executable_identity_mismatch',
+        'Capability executable must not live under the agent-writable workspace.',
+      );
+    }
+    const stat = await fs.promises.stat(realExecutable);
+    if ((stat.mode & 0o022) !== 0) {
+      throw new StructuredLocalCliInvocationError(
+        'executable_identity_mismatch',
+        'Capability executable is group/other-writable and cannot be pinned.',
+      );
+    }
+    await fs.promises.access(realExecutable, fs.constants.X_OK);
+    const actualHash = await sha256File(realExecutable);
+    if (`sha256:${actualHash}` !== normalizedExpected) {
+      throw new StructuredLocalCliInvocationError(
+        'executable_identity_mismatch',
+        'Capability executable identity does not match the reviewed hash.',
+      );
+    }
+    return realExecutable;
+  } catch (error) {
+    if (error instanceof StructuredLocalCliInvocationError) throw error;
     throw new StructuredLocalCliInvocationError(
       'executable_identity_mismatch',
       'Capability executable identity could not be verified.',
-    );
-  }
-  if (`sha256:${actualHash}` !== normalizedExpected) {
-    throw new StructuredLocalCliInvocationError(
-      'executable_identity_mismatch',
-      'Capability executable identity does not match the reviewed hash.',
     );
   }
 }

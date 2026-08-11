@@ -14,6 +14,12 @@ import type { TaskHandler } from './ipc-types.js';
 
 const capabilityRunHandler: TaskHandler = async (context) => {
   const { data } = context;
+  // Anchor the end-to-end host deadline at handler ENTRY, so gateway/policy/
+  // executable setup all count against the budget against the MCP caller's
+  // 125s response timeout (capability-run.ts). Held as an absolute time; the
+  // sandbox abort timer below is armed with whatever budget remains after
+  // setup, and the pre-spawn abort check refuses to launch once it is spent.
+  const deadlineAt = Date.now() + 118_000;
   const { acceptData, reject } = createTaskResponder(
     context.sourceAgentFolder,
     data.taskId,
@@ -93,6 +99,13 @@ const capabilityRunHandler: TaskHandler = async (context) => {
       ? { publishRuntimeEvent: context.deps.publishRuntimeEvent }
       : {}),
   });
+  // Arm the sandbox-abort timer with the budget remaining after setup. If
+  // setup already consumed it (0), the pre-spawn abort check refuses to launch.
+  const deadline = new AbortController();
+  const deadlineTimer = setTimeout(
+    () => deadline.abort(),
+    Math.max(0, deadlineAt - Date.now()),
+  );
   try {
     const result = await runStructuredLocalCliCapability({
       repository,
@@ -105,7 +118,7 @@ const capabilityRunHandler: TaskHandler = async (context) => {
       env: buildAsyncCommandEnv(),
       runnerSandboxProvider,
       egressProxyUrl: gateway.proxyUrl,
-      signal: new AbortController().signal,
+      signal: deadline.signal,
       conversationId: data.chatJid,
       threadId: data.authThreadId,
       runId: restriction.runId,
@@ -122,6 +135,7 @@ const capabilityRunHandler: TaskHandler = async (context) => {
       'execution_failed',
     );
   } finally {
+    clearTimeout(deadlineTimer);
     await closeEgressGateway(gateway);
   }
 };

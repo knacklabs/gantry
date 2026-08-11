@@ -116,6 +116,8 @@ function invocation(input: {
   provider?: RunnerSandboxProvider;
   args: string[];
   personId?: string;
+  signal?: AbortSignal;
+  cwd?: string;
 }) {
   return runStructuredLocalCliCapability({
     repository: input.repository as never,
@@ -124,10 +126,10 @@ function invocation(input: {
     personId: input.personId,
     capabilityId: 'acme.records.read',
     args: input.args,
-    cwd: process.cwd(),
+    cwd: input.cwd ?? process.cwd(),
     env: { PATH: '/usr/bin', HOME: os.homedir() },
     runnerSandboxProvider: input.provider ?? fakeProvider().provider,
-    signal: new AbortController().signal,
+    signal: input.signal ?? new AbortController().signal,
     conversationId: 'sl:C123',
     threadId: 'thread-1',
     runId: 'run-1',
@@ -162,7 +164,14 @@ describe('CLIRUN-1-1', () => {
 
     await vi.waitFor(() => expect(start).toHaveBeenCalledOnce());
     const sandboxInput = start.mock.calls[0]?.[0] as RunnerSandboxSpawnInput;
-    expect(sandboxInput.command).toBe(fixture.executable);
+    // TOCTOU-safe: the sandbox runs the executable IN PLACE (its resolved real
+    // path, so launchers/native binaries keep their runtime context), and that
+    // real file hashes to the reviewed hash. Immutability is enforced by the
+    // realpath being outside the workspace and not group/other-writable.
+    expect(sandboxInput.command).toBe(fs.realpathSync(fixture.executable));
+    expect(
+      `sha256:${createHash('sha256').update(fs.readFileSync(sandboxInput.command)).digest('hex')}`,
+    ).toBe(fixture.hash);
     expect(sandboxInput.args).toEqual(['records', 'list', 'customer-42']);
     expect(sandboxInput.env).not.toHaveProperty('GANTRY_ASYNC_COMMAND_SCRIPT');
     child.stdout.write(
@@ -223,5 +232,42 @@ describe('CLIRUN-1-1', () => {
         personId: 'person:caller',
       }),
     ).rejects.toMatchObject({ code: 'permission_denied' });
+
+    // A group/other-writable executable can be swapped after verification, so
+    // it cannot be pinned.
+    const writable = executableFixture();
+    fs.chmodSync(writable.executable, 0o777);
+    await expect(
+      invocation({
+        repository: repository(writable),
+        args: ['records', 'read', 'fixed'],
+      }),
+    ).rejects.toMatchObject({ code: 'executable_identity_mismatch' });
+
+    // An executable under the agent-writable workspace can be swapped, so it is
+    // rejected even with a matching hash.
+    const inWorkspace = executableFixture();
+    await expect(
+      invocation({
+        repository: repository(inWorkspace),
+        args: ['records', 'read', 'fixed'],
+        cwd: path.dirname(inWorkspace.executable),
+      }),
+    ).rejects.toMatchObject({ code: 'executable_identity_mismatch' });
+
+    // Deadline already fired during setup: the command must NOT spawn (a
+    // retried mutating capability cannot double-apply side effects).
+    const expired = fakeProvider();
+    const fired = new AbortController();
+    fired.abort();
+    await expect(
+      invocation({
+        repository: tools,
+        args: ['records', 'read', 'fixed'],
+        provider: expired.provider,
+        signal: fired.signal,
+      }),
+    ).rejects.toThrow();
+    expect(expired.start).not.toHaveBeenCalled();
   });
 });

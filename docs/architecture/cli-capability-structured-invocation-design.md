@@ -147,3 +147,21 @@ real, verified findings. The diff is NOT committed until these are fixed.
 Verdict: the structured-invocation direction and the argv-validation-via-existing-
 matcher approach are sound; these two are execution-binding/lifecycle corrections,
 not a redesign.
+
+## CLIRUN-1-1 review resolution
+
+Autoreview iterated three rounds on this task; the outcomes:
+
+- **FIXED — TOCTOU execution binding.** The executable is verified and run in
+  place at its resolved real path (context-preserving, no relocation), rejected
+  if it lives under the agent-writable workspace or is group/other-writable, and
+  hash-verified. This closes the swap window the agent can reach.
+- **FIXED — timeout/cancellation.** An end-to-end host deadline anchored at
+  handler entry (118s, under the 125s MCP timeout) aborts the sandbox, and a
+  pre-spawn abort check refuses to launch once the budget is spent — a retried
+  mutating capability cannot double-apply side effects.
+- **DEFERRED — deep executable-identity hardening (D-0056).** Full parent-
+  directory-chain immutability (or fd-binding) against a co-resident local
+  attacker, and argv0 preservation for symlinked executables. Both are outside
+  the agent threat model and do not affect the pilot; landing the dispatcher on
+  the baseline is the smallest safe subset (scope-governor). Revisit per D-0056.
