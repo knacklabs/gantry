@@ -946,6 +946,13 @@
       "when": 1786360116264,
       "tag": "20260810110836_normalize_permission_binding_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1786467698607,
+      "tag": "20260811170138_capability_template_amendments",
+      "breakpoints": true
     }
   ]
 }

@@ -133,11 +133,13 @@ import type { PermissionDecisionMemoryRepository } from '../../../../domain/port
 import type { GroupJoinOnboardingRepository } from '../../../../domain/ports/group-join-onboarding.js';
 import type { MessageAttachmentRepository } from '../../../../domain/ports/message-attachment-repository.js';
 import type { ConversationHistoryCoverageRepository } from '../../../../domain/ports/conversation-history-coverage.js';
+import type { CapabilityTemplateAmendmentRepository } from '../../../../domain/ports/capability-template-amendments.js';
 import { PostgresPermissionPromotionRepository } from './permission-promotion-repository.postgres.js';
 import { PostgresPermissionDecisionMemoryRepository } from './permission-decision-memory-repository.postgres.js';
 import { PostgresGroupJoinOnboardingRepository } from './group-join-onboarding-repository.postgres.js';
 import { PostgresMessageAttachmentRepository } from './message-attachment-repository.postgres.js';
 import { PostgresConversationHistoryCoverageRepository } from './conversation-history-coverage-repository.postgres.js';
+import { PostgresCapabilityTemplateAmendmentRepository } from './capability-template-amendment-repository.postgres.js';
 import { deletionMarkerTimestampForMessage } from './message-attachment-deletion-markers.postgres.js';
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
@@ -177,6 +179,7 @@ export interface PostgresDomainRepositoryBundle {
   permissionPromotions: PermissionPromotionRepository;
   permissionDecisionMemory: PermissionDecisionMemoryRepository;
   groupJoinOnboarding: GroupJoinOnboardingRepository;
+  capabilityTemplateAmendments: CapabilityTemplateAmendmentRepository;
 }
 type JsonRecord = Record<string, unknown>;
 function encodeJson(value: unknown): string {
@@ -1981,6 +1984,8 @@ export function createPostgresDomainRepositories(
       db,
     ),
     groupJoinOnboarding: new PostgresGroupJoinOnboardingRepository(db),
+    capabilityTemplateAmendments:
+      new PostgresCapabilityTemplateAmendmentRepository(db),
   };
 }
 

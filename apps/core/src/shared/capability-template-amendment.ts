@@ -1,0 +1,92 @@
+import { stableSha256Json } from './stable-hash.js';
+
+export function canonicalCapabilityTemplateAmendment(input: {
+  capabilityId: string;
+  proposedTemplates: readonly string[];
+  observedArgv: readonly string[];
+}): {
+  proposedTemplates: string[];
+  observedArgv: string[];
+  canonicalKey: string;
+} {
+  const proposedTemplates = [
+    ...new Set(input.proposedTemplates.map((template) => template.trim())),
+  ].sort();
+  const observedArgv = [...input.observedArgv];
+  return {
+    proposedTemplates,
+    observedArgv,
+    canonicalKey: stableSha256Json({
+      capabilityId: input.capabilityId.trim(),
+      proposedTemplates,
+      observedArgv,
+    }),
+  };
+}
+
+const SENSITIVE_ARGV_PATTERN =
+  /(token|secret|password|passwd|api[_-]?key|credential|bearer|authorization)/i;
+// Long opaque blobs (keys, JWTs, signed URLs) that carry entropy, not shape.
+const OPAQUE_ARGV_PATTERN = /^[A-Za-z0-9+/_.=-]{64,}$/;
+
+/**
+ * Argv is review EVIDENCE, not an executable payload — it must never carry
+ * credentials into durable storage or review surfaces. Values are redacted
+ * conservatively: a flag with a sensitive name keeps the flag, loses the
+ * value; a freestanding sensitive-looking or long opaque token is masked
+ * whole. Shape (arity, flag names, subcommands) is preserved for review.
+ */
+export function redactObservedArgv(argv: readonly string[]): string[] {
+  return argv.map((token, index, all) => {
+    // URL-like values: the query string is where credentials ride
+    // (access_token=, signature=, X-Amz-*) — drop it whole, keep the shape.
+    if (token.includes('://')) {
+      let url = token;
+      // Userinfo (postgres://user:pass@host, https://user:token@host).
+      const scheme = url.indexOf('://');
+      const at = url.indexOf('@', scheme + 3);
+      const firstSlash = url.indexOf('/', scheme + 3);
+      if (at !== -1 && (firstSlash === -1 || at < firstSlash)) {
+        url = `${url.slice(0, scheme + 3)}<redacted>@${url.slice(at + 1)}`;
+      }
+      const q = url.indexOf('?');
+      const h = url.indexOf('#');
+      const cut = q === -1 ? h : h === -1 ? q : Math.min(q, h);
+      return cut === -1 ? url : `${url.slice(0, cut)}?<redacted>`;
+    }
+    // Header-style values ("Authorization: Bearer x", "Bearer x").
+    if (/\b(authorization|bearer)\b/i.test(token) && /[:\s]/.test(token)) {
+      return '<redacted>';
+    }
+    const eq = token.indexOf('=');
+    if (token.startsWith('-') && eq > 0) {
+      const name = token.slice(0, eq);
+      return SENSITIVE_ARGV_PATTERN.test(name)
+        ? `${name}=<redacted>`
+        : OPAQUE_ARGV_PATTERN.test(token.slice(eq + 1))
+          ? `${name}=<redacted>`
+          : token;
+    }
+    if (!token.startsWith('-') && eq > 0) {
+      const name = token.slice(0, eq);
+      if (
+        SENSITIVE_ARGV_PATTERN.test(name) ||
+        OPAQUE_ARGV_PATTERN.test(token.slice(eq + 1))
+      ) {
+        return `${name}=<redacted>`;
+      }
+    }
+    const previous = index > 0 ? all[index - 1] : undefined;
+    if (
+      previous?.startsWith('-') &&
+      SENSITIVE_ARGV_PATTERN.test(previous) &&
+      !token.startsWith('-')
+    ) {
+      return '<redacted>';
+    }
+    if (!token.startsWith('-') && OPAQUE_ARGV_PATTERN.test(token)) {
+      return '<redacted>';
+    }
+    return token;
+  });
+}

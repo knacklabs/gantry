@@ -201,7 +201,12 @@ describe('CLIRUN-1-1', () => {
 
     await expect(
       invocation({ repository: tools, args: ['records', 'write', 'fixed'] }),
-    ).rejects.toMatchObject({ code: 'invalid_args' });
+    ).rejects.toMatchObject({
+      code: 'invalid_args',
+      message: expect.stringContaining(
+        'request_access target.kind=capability_template_amendment',
+      ),
+    });
     await expect(
       invocation({
         repository: tools,
