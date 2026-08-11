@@ -23,7 +23,6 @@ import {
 } from '@core/shared/admin-mcp-tools.js';
 import {
   buildLocalCliSemanticCapability,
-  semanticCapabilityRuntimeRules,
   semanticCapabilityInputSchema,
 } from '@core/shared/semantic-capabilities.js';
 import { renderDefaultCapabilityRules } from '@core/shared/capability-guidance.js';
@@ -48,7 +47,10 @@ type FakeChild = EventEmitter & {
 
 const tempDirs: string[] = [];
 
-function executableFixture(name = 'acme'): { executable: string; hash: string } {
+function executableFixture(name = 'acme'): {
+  executable: string;
+  hash: string;
+} {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-capability-run-'));
   tempDirs.push(dir);
   const executable = path.join(dir, name);
@@ -340,9 +342,5 @@ describe('CLIRUN-1-2', () => {
       expect(prompt).toContain('Prefer it over Bash or RunCommand');
       expect(prompt).toContain('do not add shell pipes or redirects');
     }
-
-    expect(semanticCapabilityRuntimeRules(capability)).toEqual([
-      `RunCommand(${fixture.executable} sheets get * *)`,
-    ]);
   });
 });

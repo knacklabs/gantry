@@ -807,12 +807,12 @@ describe('tool permission gate', () => {
     expect(output).toContain('"jobId":"job-1"');
   });
 
-  it('scheduled worker-local miss authorizes a host-granted capability command via the host coordinator', async () => {
+  it('scheduled worker-local miss honors an explicit host-granted RunCommand', async () => {
     permissionMock.requestPermissionApproval.mockResolvedValueOnce({
       approved: true,
       mode: 'allow_once',
       decidedBy: 'reviewed_rule',
-      reason: 'Allowed by selected capability google.sheets.values.get.',
+      reason: 'Allowed once by the host coordinator.',
     });
     const canUseTool = makeCallback({
       agentInput: {

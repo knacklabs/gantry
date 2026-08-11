@@ -52,8 +52,8 @@ string is ever composed.
   (gog/sheets is the pilot).
 - Agent guidance: prefer `capability_run` for granted CLI capabilities; do not
   shell them out.
-- Keep the RunCommand projection working during migration; decide separately
-  whether to retire it for `local_cli` once structured invocation is proven.
+- Retire the `local_cli`-derived `RunCommand` projection after the pilot is
+  wired. Existing scheduled jobs inherit `capability_run`; there is no dual-run.
 
 For the gog pilot, the operator records the exact installed executable path and
 version, then pins the bytes returned by
@@ -66,7 +66,7 @@ invocation fails closed when the installed bytes do not match it.
 - No change to MCP capabilities, skill actions, or general Bash/RunCommand for
   non-capability commands.
 - No new sandbox model; reuse the capability's existing execution controls.
-- Not retiring the RunCommand projection in v1 (a follow-up decision).
+- No compatibility projection from `local_cli` back to `RunCommand`.
 
 ## Open questions (for the critique)
 

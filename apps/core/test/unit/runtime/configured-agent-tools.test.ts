@@ -29,7 +29,7 @@ describe('configured agent tools', () => {
     ).resolves.toEqual(['RunCommand(npm test *)']);
   });
 
-  it('projects reviewed semantic capabilities to runtime rules', async () => {
+  it('projects reviewed local CLI capabilities without RunCommand authority', async () => {
     const repository = {
       listAgentToolBindings: async () => [
         {
@@ -70,10 +70,7 @@ describe('configured agent tools', () => {
         appId: 'default',
         agentId: 'agent:one',
       }),
-    ).resolves.toEqual([
-      'capability:acme.records.append',
-      'RunCommand(/opt/bin/acme records append *)',
-    ]);
+    ).resolves.toEqual(['capability:acme.records.append']);
   });
 
   it('projects skill action command rules only while the selected installed skill still declares the action', async () => {
@@ -295,7 +292,7 @@ describe('configured agent tools', () => {
     });
   });
 
-  it('expands reviewed local CLI capabilities to scoped command rules', async () => {
+  it('keeps reviewed local CLI policy authority semantic-only', async () => {
     const repository = {
       listAgentToolBindings: async () => [
         {
@@ -343,10 +340,7 @@ describe('configured agent tools', () => {
         appId: 'default',
         agentId: 'agent:one',
       }),
-    ).resolves.toEqual([
-      'capability:acme.invoices.read',
-      'RunCommand(/usr/local/bin/acme invoices read *)',
-    ]);
+    ).resolves.toEqual(['capability:acme.invoices.read']);
   });
 
   it('marks reviewed user-defined local CLI capabilities for credential env projection', async () => {
@@ -398,10 +392,7 @@ describe('configured agent tools', () => {
         agentId: 'agent:one',
       }),
     ).resolves.toEqual({
-      toolPolicyRules: [
-        'capability:acme.invoices.read',
-        'RunCommand(/usr/local/bin/acme invoices read *)',
-      ],
+      toolPolicyRules: ['capability:acme.invoices.read'],
       runtimeAccess: [
         {
           selectedCapabilityId: 'acme.invoices.read',
