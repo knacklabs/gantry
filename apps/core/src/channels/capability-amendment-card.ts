@@ -37,9 +37,9 @@ export function amendmentReceiptText(
   // System outcomes (timeout, cancellation) are not human denials: the
   // proposal stays pending and the card may return — say so honestly.
   if (!decision.decidedBy || decision.decidedBy.startsWith('system')) {
-    return `Not decided: ${request.displayName ?? 'capability command'}. I'll ask again when it next comes up.`;
+    return `The fix for ${request.displayName ?? 'this capability'} wasn't decided. I'll ask again when it next comes up.`;
   }
-  return `Denied: ${request.displayName ?? 'capability command'}. Nothing changed.`;
+  return `Denied the fix for ${request.displayName ?? 'this capability'}. Nothing changed.`;
 }
 
 export function amendmentPromptParts(

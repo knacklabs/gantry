@@ -4897,9 +4897,7 @@ describe('TelegramChannel', () => {
       expect(prompt).toContain(
         'What I can do stays the same: read lead rows from the selected sheet.',
       );
-      expect(prompt).toContain(
-        '<b>View diff</b>\n<blockquote expandable>',
-      );
+      expect(prompt).toContain('<b>View diff</b>\n<blockquote expandable>');
       const primaryBody = prompt.split('<b>View diff</b>')[0]!;
       expect(primaryBody).not.toMatch(
         /\/usr\/bin\/gog|Observed argv|capability-amendment-card|sha256/i,

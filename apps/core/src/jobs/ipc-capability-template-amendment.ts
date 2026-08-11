@@ -360,16 +360,22 @@ function capabilityTemplateCardBody(input: {
   cannot: string;
   wideningKind: CapabilityTemplateWideningKind;
 }): string {
-  const warning =
+  // Copy order (design-reviewed): only 'expanded' LEADS with its warning —
+  // a non-technical approver must see it first. The soft added-inputs note
+  // follows the explanation so context comes before caution.
+  const leadWarning =
+    input.wideningKind === 'expanded'
+      ? 'This broadens how the command may be used. Review the technical details before approving.'
+      : null;
+  const trailingNote =
     input.wideningKind === 'added_inputs'
       ? "This also lets the command take an extra input it couldn't before."
-      : input.wideningKind === 'expanded'
-        ? 'This broadens how the command may be used. Review the technical details before approving.'
-        : null;
+      : null;
   return [
-    warning,
+    leadWarning,
     `The approved way of using ${input.displayName} did not fit what the job needed, so it stopped.`,
     `Approving corrects the allowed command shape. What I can do stays the same: ${input.can}. What I still cannot do: ${input.cannot}.`,
+    trailingNote,
   ]
     .filter((line): line is string => Boolean(line))
     .join('\n\n');
