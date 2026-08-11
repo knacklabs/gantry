@@ -1,5 +1,6 @@
 import { PgBoss } from 'pg-boss';
 
+import { resolvePgBossPostgresPoolMax } from '../adapters/storage/postgres/storage-service.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import {
   getRuntimeControlRepository,
@@ -143,6 +144,7 @@ async function enqueueJobTriggerFromNonExecutingRole(
   // is only consulted on the migrate path, which is disabled.
   const boss = sendOnlyPgBossFactory({
     connectionString: STORAGE_POSTGRES_URL,
+    max: resolvePgBossPostgresPoolMax(),
     schema: 'pgboss',
     migrate: false,
     schedule: false,
