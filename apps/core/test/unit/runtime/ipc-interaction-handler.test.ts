@@ -1593,19 +1593,18 @@ describe('ipc-interaction-handler', () => {
   );
 
   it.each(['Bash', 'RunCommand'])(
-    'emits structured permission events, decision reasons, and redacted %s command telemetry',
+    'emits structured interactive permission events, decision reasons, and redacted %s command telemetry',
     async (toolName) => {
       const claimedPath = path.join(tempDir, 'claimed-bash-permission.json');
       fs.writeFileSync(claimedPath, '{}');
-      // The request's jobId is untrusted; the host stamps it from the run
-      // registry, so a scheduled-run test must register its restriction.
+      // The request's jobId is untrusted; an interactive host restriction
+      // strips it and preserves the human-approval telemetry path.
       const envelope = createIpcAuthEnvelope('main_agent', null);
       registerPermissionRunRestriction({
         sourceAgentFolder: 'main_agent',
         responseKeyId: envelope.responseKeyId,
         hideAuthorityTools: false,
-        runKind: 'scheduled',
-        jobId: 'job:test',
+        runKind: 'interactive',
         runId: 'run:test',
       });
       const publishRuntimeEvent = vi.fn(async () => undefined);
@@ -1646,7 +1645,7 @@ describe('ipc-interaction-handler', () => {
           runId: 'run:test',
           runLeaseToken: 'lease-token',
           runLeaseFencingVersion: 7,
-          jobId: 'job:test',
+          jobId: 'worker-forged-job',
           targetJid: 'tg:team',
           threadId: 'thread:test',
           toolName,
@@ -1688,7 +1687,7 @@ describe('ipc-interaction-handler', () => {
           appId: 'app:test',
           agentId: 'agent:test',
           runId: 'run:test',
-          jobId: 'job:test',
+          jobId: undefined,
           conversationId: 'tg:team',
           threadId: 'thread:test',
           correlationId: 'perm-bash-once',

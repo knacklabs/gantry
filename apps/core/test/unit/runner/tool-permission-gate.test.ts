@@ -852,11 +852,13 @@ describe('tool permission gate', () => {
     );
   });
 
-  it('keeps a scheduled worker-local miss terminal when the host denies the ungranted command', async () => {
+  it('AUTODET-1-1 > anthropic lane worker-local miss hands off and observes deterministic terminal outcome', async () => {
+    const hostReason =
+      'Autonomous runs decide deterministically: RunCommand has no declared grant.';
     permissionMock.requestPermissionApproval.mockResolvedValueOnce({
       approved: false,
-      reason: 'No reviewed capability or command rule matched.',
-      decidedBy: 'runtime',
+      reason: hostReason,
+      decidedBy: 'deterministic_rails',
     });
     const canUseTool = makeCallback({
       agentInput: {
@@ -876,7 +878,10 @@ describe('tool permission gate', () => {
       canUseTool(
         'RunCommand',
         { command: '/opt/homebrew/bin/gog sheets delete sheet-1' },
-        makePermissionOptions({ displayName: 'RunCommand' }) as never,
+        makePermissionOptions({
+          displayName: 'RunCommand',
+          decisionReason: undefined,
+        }) as never,
       ),
     ).resolves.toEqual(
       expect.objectContaining({
@@ -888,6 +893,11 @@ describe('tool permission gate', () => {
       }),
     );
     expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
+    const approvalRequest =
+      permissionMock.requestPermissionApproval.mock.calls[0]?.[0];
+    expect(approvalRequest?.decisionReason).toContain(
+      'Tool not on autonomous run allowlist: RunCommand',
+    );
   });
 
   it('allows scheduled jobs to read local time without a custom command grant', async () => {

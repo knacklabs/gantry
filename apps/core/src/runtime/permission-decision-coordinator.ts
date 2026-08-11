@@ -41,6 +41,8 @@ export interface CoordinatePermissionDecisionInput {
   effectHash?: string;
   /** Classifier-verdict cache (Task C); read only on a rail fall-through. */
   decisionMemory?: PermissionDecisionMemoryRepository;
+  /** Host-verified autonomous runs never read classifier verdicts. */
+  skipClassifierVerdictCache?: boolean;
   tail: () => Promise<PermissionApprovalDecision>;
 }
 
@@ -84,6 +86,7 @@ export async function coordinatePermissionDecision(
       ? await input.reviewedRuleDecision()
       : input.reviewedRuleDecision;
   if (reviewedRuleDecision?.status === 'allow') {
+    input.request.decisionReason = reviewedRuleDecision.reason;
     return {
       ...decisionForMode(
         input.request,
@@ -126,7 +129,11 @@ export async function coordinatePermissionDecision(
   }
   // CACHE STAGE (cache-hit-only shortcut). Reachable only past hard-deny/
   // locked/fixed-image (PERM-1 precedence, checked above) and past the rails.
-  if (input.effectHash && input.decisionMemory) {
+  if (
+    !input.skipClassifierVerdictCache &&
+    input.effectHash &&
+    input.decisionMemory
+  ) {
     const cached = await input.decisionMemory.getClassifierVerdict({
       appId: input.request.appId ?? 'default',
       agentFolder: input.request.sourceAgentFolder,
