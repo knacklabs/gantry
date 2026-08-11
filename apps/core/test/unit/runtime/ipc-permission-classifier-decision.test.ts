@@ -136,17 +136,34 @@ describe('IPC permission classifier decision', () => {
             toolName: 'mcp__crm__update_record',
             toolInput: { id: 'customer-1' },
             unattended: true,
+            // Worker-asserted risk must be stripped from the denial: without a
+            // host-derived rail risk, no untrusted low/benign claim may reach
+            // the decision/audit path or the grant card.
+            risk_level: 'low',
+            risk_category: 'benign',
           },
           sourceAgentFolder: 'main_agent',
           deps,
         }),
-      ).resolves.toMatchObject({
-        approved: false,
-        mode: 'cancel',
-        decidedBy: 'deterministic_rails',
-        reason:
-          'Autonomous runs decide deterministically: mcp__crm__update_record has no declared grant.',
-      });
+      ).resolves.toSatisfy(
+        (decision: {
+          approved: boolean;
+          mode: string;
+          decidedBy?: string;
+          reason?: string;
+          risk_level?: string;
+          risk_category?: string;
+        }) =>
+          !decision.approved &&
+          decision.mode === 'cancel' &&
+          decision.decidedBy === 'deterministic_rails' &&
+          decision.reason ===
+            'Autonomous runs decide deterministically: mcp__crm__update_record has no declared grant.' &&
+          // The worker-asserted low/benign claim must never survive: either
+          // trusted rail risk replaced it, or the fields were stripped.
+          decision.risk_level !== 'low' &&
+          decision.risk_category !== 'benign',
+      );
     } finally {
       unregisterPermissionRunRestriction({
         sourceAgentFolder: 'main_agent',

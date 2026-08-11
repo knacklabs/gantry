@@ -184,6 +184,9 @@ async function resolvePermissionIpcDecisionTail(input: {
   hostJobId?: string;
 }): Promise<PermissionApprovalDecision> {
   if (input.hostJobId) {
+    // Only trusted host-derived rail risk may ride an autonomous denial into
+    // the decision/audit path; without one, strip the worker-supplied fields
+    // rather than let an untrusted low/benign claim reach the grant card.
     if (input.railRisk) {
       input.request.risk_level = input.railRisk.level;
       if (input.railRisk.category) {
@@ -191,6 +194,9 @@ async function resolvePermissionIpcDecisionTail(input: {
       } else {
         delete input.request.risk_category;
       }
+    } else {
+      delete input.request.risk_level;
+      delete input.request.risk_category;
     }
     const reason = `Autonomous runs decide deterministically: ${input.request.toolName} has no declared grant.`;
     input.request.decisionReason = reason;
