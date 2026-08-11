@@ -3,6 +3,7 @@ import {
   resolveAgentPersona,
   type AgentPersona,
 } from '../shared/agent-persona.js';
+import { STRUCTURED_LOCAL_CLI_GUIDANCE } from '../shared/capability-guidance.js';
 import { publicGantryToolNameForSdkTool } from '../shared/gantry-tool-facades.js';
 
 export type GantryAgentPromptMode = 'full' | 'minimal' | 'none';
@@ -126,11 +127,13 @@ function toolingSection(mode: GantryAgentPromptMode): string {
       ? [
           'Use only Gantry public tools. Raw harness tools and raw subagents are implementation details.',
           'The agent-scoped ready actions, installed skills, and connected sources are listed under # Capability catalog in the compiled profile.',
+          STRUCTURED_LOCAL_CLI_GUIDANCE,
         ]
       : [
           'Use only Gantry public tools mounted in this run. Raw harness tools and raw subagents are implementation details.',
           'The agent-scoped ready actions, installed skills, and connected sources are listed under # Capability catalog in the compiled profile.',
           'Use matching ready actions first. If policy blocks an action, say so plainly.',
+          STRUCTURED_LOCAL_CLI_GUIDANCE,
           'Never use raw harness subagents. Gantry delegation tools are unavailable until Gantry mounts a real delegated-task executor.',
           'Do not describe raw provider or harness tool names to users unless the user asks for runtime internals.',
         ];

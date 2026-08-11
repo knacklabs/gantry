@@ -3,6 +3,7 @@ import { registerBrainTools } from './tools/brain.js';
 import { registerAttachmentTools } from './tools/attachment.js';
 import { registerBrowserTools } from './tools/browser.js';
 import { registerCanvasTools } from './tools/canvas.js';
+import { registerCapabilityRunTool } from './tools/capability-run.js';
 import { registerFileTools } from './tools/file.js';
 import { registerMemoryTools } from './tools/memory.js';
 import { registerMessagingTools } from './tools/messaging.js';
@@ -124,6 +125,7 @@ export function createGantryMcpServer(): McpServer {
   registerBrainTools(filteredServer);
   registerBrowserTools(filteredServer);
   registerCanvasTools(filteredServer);
+  registerCapabilityRunTool(filteredServer);
   registerFileTools(filteredServer);
   registerProfileTools(filteredServer);
   registerServiceTools(filteredServer);

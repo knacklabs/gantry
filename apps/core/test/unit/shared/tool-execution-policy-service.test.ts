@@ -846,7 +846,7 @@ describe('ToolExecutionPolicyService semantic capability resolution', () => {
     ],
   });
 
-  it('resolves a granted local_cli capability rule to its command bundle without a hand-written RunCommand', () => {
+  it('does not resolve a granted local_cli capability into RunCommand authority', () => {
     const request = classifier.classify({
       origin: 'sdk',
       toolName: 'Bash',
@@ -862,9 +862,10 @@ describe('ToolExecutionPolicyService semantic capability resolution', () => {
         semanticCapabilityDefinitions: definitionsById(sheetsCapability),
       }),
     ).toMatchObject({
-      status: 'allow',
-      reason: 'Allowed by selected capability google.sheets.values.update.',
-      matchedRule: 'RunCommand(/opt/homebrew/bin/gog sheets values update *)',
+      status: 'not_applicable',
+      reason: expect.stringContaining(
+        'did not match any scoped autonomous rule',
+      ),
     });
   });
 

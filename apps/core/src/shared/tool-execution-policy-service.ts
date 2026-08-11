@@ -183,8 +183,9 @@ export class ToolExecutionPolicyService {
     autonomousAllowedToolRules?: readonly string[];
     // Reviewed capability bundles keyed by id. A granted `capability:<id>` tool
     // rule is resolved through these to the concrete authority its bundle
-    // declares (commandRules / allowedTools / runtimeToolRules); a rule whose
-    // definition is absent is skipped instead of poisoning the whole match.
+    // declares. Structured local_cli capabilities authorize capability_run,
+    // not shell execution. A rule whose definition is absent is skipped
+    // instead of poisoning the whole match.
     semanticCapabilityDefinitions?: Record<
       string,
       SemanticCapabilityDefinition

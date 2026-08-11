@@ -905,7 +905,8 @@ Before calling a cutover complete, run targeted searches for:
    identity, command templates, preflight, protected paths, and account label.
 6. After review, run `request_access target.kind=capability` to confirm the capability is visible and
    selected for the target agent. Recurring jobs inherit that agent capability;
-   they must not create job-local authority.
+   they must invoke it through `capability_run` with a structured argument list
+   and must not create job-local authority or shell it through `RunCommand`.
 
 ## Scheduler Capability Requirements
 
@@ -924,7 +925,8 @@ the same path. It must also include pinned executable version and hash so setup
 can ask for one reviewed local CLI capability instead of raw command authority.
 It is not job-owned authority. User-defined semantic `local_cli` capability
 definitions require executable identity, command templates, protected paths, and
-denied environment overrides before runtime projects scoped command authority.
+denied environment overrides before `capability_run` can invoke them. Selection
+authorizes that structured path only; it does not project a `RunCommand` rule.
 Do not replace the reviewed capability with a broad CLI command grant.
 
 Examples:
@@ -940,9 +942,9 @@ Examples:
   target agent, not job-local authority.
 - Reusable user-defined local CLI capability: register a reviewed `local_cli`
   capability definition with pinned executable path, command template, auth
-  preflight, and protected credential paths. Runtime enforces it through the
-  selected semantic capability; do not approve broad CLI command rules as a
-  substitute.
+  preflight, and protected credential paths. Runtime enforces it through
+  `capability_run` and the selected semantic capability; do not invoke it via
+  `RunCommand` or approve broad CLI command rules as a substitute.
 - Unknown business CLI: register `capabilityId=acme.invoices.read`,
   display name `Acme invoices read`, command template
   `/usr/local/bin/acme invoices read *`, and a non-secret account label before

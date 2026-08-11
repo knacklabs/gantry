@@ -93,6 +93,7 @@ export const BASELINE_GANTRY_MCP_TOOL_NAMES = [
   'mcp_search_tools',
   'mcp_describe_tool',
   'mcp_call_tool',
+  'capability_run',
 ] as const;
 
 export const ASYNC_TASK_GANTRY_MCP_TOOL_NAMES = [
@@ -141,6 +142,7 @@ export const DURABLE_GRANT_EXCLUDED_DISPATCHERS = [
   'mcp_call_tool',
   'async_mcp_call',
   'async_run_command',
+  'capability_run',
 ] as const;
 
 // These dispatchers are intentionally never durable grants: their concrete
@@ -151,6 +153,7 @@ export const DURABLE_GRANT_EXCLUDED_DISPATCHERS = [
 export const HOST_AUTHORIZED_MCP_PROXY_DISPATCHERS = [
   'mcp_call_tool',
   'async_mcp_call',
+  'capability_run',
 ] as const;
 
 // Delegation dispatchers start or steer another agent's work. An exact grant

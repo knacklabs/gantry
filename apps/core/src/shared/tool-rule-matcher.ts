@@ -540,7 +540,10 @@ function scopePatternMatches(scope: string, candidate: string): boolean {
   return globPatternMatches(normalizedScope, normalizedCandidate);
 }
 
-function bashScopeMatchesLeaf(scope: string, leaf: BashCommandLeaf): boolean {
+export function bashScopeMatchesLeaf(
+  scope: string,
+  leaf: BashCommandLeaf,
+): boolean {
   const normalizedScope = normalizePersistentBashRuleContent(
     canonicalizeGeneratedRuntimeSkillPaths(scope.trim()),
   );

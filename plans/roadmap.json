@@ -1104,6 +1104,26 @@
       "completed_at": "2026-08-10T16:14:20+00:00",
       "history": ".factory/history/PSCOPE-2/",
       "outcome": "Adding the bot to a group is no longer dead air, and groups can finally bootstrap their first approver. When someone the bot already knows from a 1:1 chat adds it to a Telegram group or Slack channel, the group registers itself, that person becomes its first approver, and the bot says so in the room. Anyone the bot does not recognise gets a clear in-group message naming how to set an approver - and nothing else (fail-closed). Discord posts the same guidance once per new server; Teams stays documented-manual. The old Telegram DM Yes/No flow - which could never mint a first approver and never spoke in the group - is deleted. Approvals themselves are unchanged: the allowlist still governs groups."
+    },
+    {
+      "key": "CLIRUN-1",
+      "title": "Structured invocation for local-CLI capabilities",
+      "story": "As an operator running scheduled jobs that use CLI capabilities, I want the agent to invoke them structurally instead of authoring shell, so benign output-bounding never terminally fails the run",
+      "acceptance_criteria": [
+        "A granted local_cli capability runs via a structured tool with no shell string, no classifier consult, bounded output; unreviewed subcommands/flags/excess args are rejected",
+        "Execution reuses the existing sandbox + output-boundary + timeout/cancellation and verifies the executable identity at invocation",
+        "At cutover the RunCommand projection no longer authorizes these capabilities and existing scheduled jobs invoke via the structured path"
+      ],
+      "order": 57,
+      "status": "done",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/clirun-1.md",
+      "completed_at": "2026-08-11T09:33:53+00:00",
+      "history": ".factory/history/CLIRUN-1/",
+      "outcome": "Local-CLI capabilities (gog/sheets) are now invoked structurally instead of the agent hand-writing shell. The agent calls capability_run with the capability id and an argument list; the host validates the argv arity-exactly against the reviewed template, verifies the executable in place, and runs it in the existing sandbox with bounded output. No shell string exists, so pipes/redirects/chaining/globs are impossible, authorization is the deterministic granted-capability check (no flaky classifier, no autonomous terminal denial), and the RunCommand projection is retired so no shell fallback remains. This closes the class that paused KnackLabs on gog|head, for any CLI. Deep executable-identity hardening is deferred (D-0056)."
     }
   ],
   "epics": [
@@ -1192,5 +1212,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-10T16:14:20+00:00"
+  "updated_at": "2026-08-11T09:33:53+00:00"
 }
