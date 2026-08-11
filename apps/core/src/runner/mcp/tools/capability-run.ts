@@ -28,13 +28,18 @@ export function registerCapabilityRunTool(server: McpServer): void {
     },
     async ({ capabilityId, args }) => {
       const taskId = makeIpcId('capability-run');
+      // Absolute deadline anchored at the CALLER's request time (this process
+      // and the host share a clock). The host bounds execution to this, so an
+      // IPC dispatch delay before the host handler starts cannot let a command
+      // outlive the caller's wait and be double-applied by a retry.
+      const deadlineAt = Date.now() + CAPABILITY_RUN_RESPONSE_TIMEOUT_MS;
       writeIpcFile(TASKS_DIR, {
         type: 'capability_run',
         taskId,
         chatJid,
         providerAccountId,
         authThreadId: threadId,
-        payload: { capabilityId, args },
+        payload: { capabilityId, args, deadlineAt },
       });
       const response = await waitForTaskResponse(
         taskId,

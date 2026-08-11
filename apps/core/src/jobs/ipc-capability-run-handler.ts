@@ -14,12 +14,19 @@ import type { TaskHandler } from './ipc-types.js';
 
 const capabilityRunHandler: TaskHandler = async (context) => {
   const { data } = context;
-  // Anchor the end-to-end host deadline at handler ENTRY, so gateway/policy/
-  // executable setup all count against the budget against the MCP caller's
-  // 125s response timeout (capability-run.ts). Held as an absolute time; the
-  // sandbox abort timer below is armed with whatever budget remains after
-  // setup, and the pre-spawn abort check refuses to launch once it is spent.
-  const deadlineAt = Date.now() + 118_000;
+  // Bound execution to the CALLER's absolute deadline (stamped by the runner
+  // at request time and carried in the payload), minus a margin for the
+  // response trip back — so an IPC dispatch delay before this handler starts
+  // cannot let a command outlive the caller's wait and be double-applied on a
+  // retry. Cap at a local max in case the payload deadline is missing or
+  // (worker-forgeably) far in the future. The abort timer is armed with the
+  // remaining budget and the pre-spawn check refuses to launch once spent.
+  const localMaxDeadline = Date.now() + 118_000;
+  const callerDeadline =
+    typeof data.payload?.deadlineAt === 'number'
+      ? data.payload.deadlineAt - 5_000
+      : localMaxDeadline;
+  const deadlineAt = Math.min(localMaxDeadline, callerDeadline);
   const { acceptData, reject } = createTaskResponder(
     context.sourceAgentFolder,
     data.taskId,
