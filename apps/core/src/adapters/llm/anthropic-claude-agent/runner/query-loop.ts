@@ -389,6 +389,12 @@ export async function runQuery(
               createSafetyPreToolUseHook(
                 memoryBlock,
                 agentInput.toolNetworkEnv ?? {},
+                {
+                  isScheduledJob: agentInput.isScheduledJob,
+                  jobId: agentInput.jobId,
+                  allowedToolRules: agentInput.allowedTools,
+                  semanticCapabilities: agentInput.semanticCapabilities,
+                },
               ),
               ...(declarativePreToolUse ? [declarativePreToolUse] : []),
             ],

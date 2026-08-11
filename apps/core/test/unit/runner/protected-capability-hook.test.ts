@@ -35,6 +35,52 @@ describe('protected capability SDK hook', () => {
     );
   });
 
+  it('lets a scheduled selected skill action reach the canonical permission gate', async () => {
+    const command =
+      '/tmp/work/.claude/skills/ATS_Skills/scripts/cutshort-worker.mjs sync';
+    const hook = createSafetyPreToolUseHook(
+      '',
+      {},
+      {
+        isScheduledJob: true,
+        jobId: 'job-ats-source-sync',
+        allowedToolRules: ['capability:skill.ats-source-sync.cutshort'],
+        semanticCapabilities: [
+          {
+            capabilityId: 'skill.ats-source-sync.cutshort',
+            displayName: 'Sync Cutshort',
+            category: 'ATS_Skills',
+            risk: 'write',
+            can: 'run the reviewed Cutshort sync worker',
+            cannot: 'run other commands',
+            credentialSource: 'skill_secret',
+            implementationBindings: [
+              { kind: 'tool_rule', rule: `RunCommand(${command})` },
+            ],
+            source: {
+              kind: 'skill_action',
+              skillId: 'skill-ats',
+              skillName: 'ATS_Skills',
+              actionId: 'cutshort-sync',
+            },
+          },
+        ],
+      },
+    );
+
+    await expect(
+      hook({
+        hook_event_name: 'PreToolUse',
+        session_id: 'session-1',
+        transcript_path: '/tmp/transcript.jsonl',
+        cwd: '/tmp/work',
+        tool_name: 'Bash',
+        tool_input: { command },
+        tool_use_id: 'toolu_ats_sync',
+      }),
+    ).resolves.toEqual(expect.objectContaining({ continue: true }));
+  });
+
   it('blocks direct MCP configuration changes', () => {
     expect(
       evaluateProtectedCapabilityToolUse('Write', {
