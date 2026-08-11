@@ -1146,6 +1146,21 @@
       "completed_at": "2026-08-11T13:43:58+00:00",
       "history": ".factory/history/AUTODET-1/",
       "outcome": "Scheduled jobs no longer live or die by a model's mood. An autonomous run's tool permissions are now a pure function of what the job was granted: a granted tool always runs, an ungranted one pauses the job once with a single grant card, and tapping Allow resumes the job permanently - the same call gets the same answer every run. The classifier that used to coin-flip these decisions (45 lucky allows, 15 dead jobs in the logs, including the KnackLabs send_message pause) now serves interactive chats only, where a human can actually answer its ask. Decision 0121 pins the contract; the whole loop is proven end to end on live Postgres."
+    },
+    {
+      "key": "GANTRY-WEB-FOUNDATION",
+      "title": "Safe Web UI foundation shell",
+      "story": "As a Gantry maintainer, I can validate a disconnected web shell without changing the hosted runtime or its delivery artifacts.",
+      "acceptance_criteria": [
+        "apps/web builds independently under /ui and renders a responsive accessible Not connected shell with local preferences",
+        "separate root and CI commands validate web formatting, typecheck, lint and build",
+        "the production build does not create or copy dist/ui and runtime serving, APIs, auth, storage, providers and Docker remain unchanged",
+        "architecture docs state the source-only boundary and require a later approved integration PR"
+      ],
+      "order": 47,
+      "status": "pending",
+      "skill": "frontend",
+      "spec": "docs/specs/web-ui-foundation.md"
     }
   ],
   "epics": [
