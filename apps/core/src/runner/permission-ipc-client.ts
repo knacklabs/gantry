@@ -134,11 +134,13 @@ export async function requestPermissionApprovalViaIpc(
     const responseNonce = randomUUID();
     const requestPath = path.join(permissionRequestsDir, `${requestId}.json`);
     const requestTmpPath = `${requestPath}.tmp`;
-    const autoClassifierWait =
+    const autonomousHostDecisionWait =
       permissionLane === 'autonomous' &&
       env.permissionRequestTimeoutMs <= NO_PERMISSION_TIMEOUT_MS &&
-      (env.permissionMode === 'auto' || env.permissionMode === 'auto_strict');
-    const waitMs = autoClassifierWait
+      (env.permissionMode === 'auto' ||
+        env.permissionMode === 'auto_strict' ||
+        Boolean(env.jobId));
+    const waitMs = autonomousHostDecisionWait
       ? AUTO_PERMISSION_CLASSIFIER_WAIT_MS
       : env.permissionRequestTimeoutMs;
     const deadline =
@@ -228,7 +230,7 @@ export async function requestPermissionApprovalViaIpc(
     if (
       permissionLane === 'autonomous' &&
       env.permissionRequestTimeoutMs <= NO_PERMISSION_TIMEOUT_MS &&
-      !autoClassifierWait
+      !autonomousHostDecisionWait
     ) {
       return {
         approved: false,

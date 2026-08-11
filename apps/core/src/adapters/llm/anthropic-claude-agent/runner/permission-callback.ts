@@ -159,11 +159,11 @@ async function requestPermissionApprovalInner(options: {
     const responseNonce = randomUUID();
     const requestPath = path.join(permissionRequestsDir, `${requestId}.json`);
     const requestTmpPath = `${requestPath}.tmp`;
-    const autoClassifierWait =
+    const autonomousHostDecisionWait =
       PERMISSION_LANE === 'autonomous' &&
       PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS &&
-      PERMISSION_MODE === 'auto';
-    const waitMs = autoClassifierWait
+      (PERMISSION_MODE === 'auto' || Boolean(JOB_ID));
+    const waitMs = autonomousHostDecisionWait
       ? AUTO_PERMISSION_CLASSIFIER_WAIT_MS
       : PERMISSION_REQUEST_TIMEOUT_MS;
     const deadline =
@@ -265,7 +265,7 @@ async function requestPermissionApprovalInner(options: {
     if (
       PERMISSION_LANE === 'autonomous' &&
       PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS &&
-      !autoClassifierWait
+      !autonomousHostDecisionWait
     ) {
       return {
         approved: false,

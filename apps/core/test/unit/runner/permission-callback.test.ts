@@ -172,7 +172,7 @@ describe('requestPermissionApproval', () => {
     expect(secondDecision.mode).toBe('allow_once');
   });
 
-  it('still immediately denies zero-timeout ask mode', async () => {
+  it('waits for a bounded reviewed host decision in autonomous ask mode', async () => {
     process.env.GANTRY_PERMISSION_LANE = 'autonomous';
     process.env.GANTRY_JOB_ID = 'job-ask';
     process.env.GANTRY_JOB_RUN_ID = 'run-ask';
@@ -182,7 +182,7 @@ describe('requestPermissionApproval', () => {
     const { requestPermissionApproval } =
       await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
 
-    const result = await requestPermissionApproval({
+    const decision = requestPermissionApproval({
       appId: 'default',
       agentId: 'agent:main_agent',
       workspaceFolder: 'main_agent',
@@ -191,16 +191,43 @@ describe('requestPermissionApproval', () => {
       toolInput: { command: 'git status --short' },
     });
 
-    expect(result).toMatchObject({
-      approved: false,
-      decidedBy: 'runtime',
-      reason:
-        'Permission request was sent to the host. Unattended jobs do not wait for approval during the active tool call; approve the requested capability before retrying the scheduled run.',
-      decisionClassification: 'user_reject',
-    });
-    expect(formatPermissionDeniedMessage(result, result.reason!)).toBe(
-      'Permission denied (decided by: runtime): Permission request was sent to the host. Unattended jobs do not wait for approval during the active tool call; approve the requested capability before retrying the scheduled run.',
+    const requestDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-requests',
     );
+    const [requestFile] = await waitForFiles(requestDir, 1);
+    const request = JSON.parse(
+      fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
+    ) as { requestId: string; responseNonce: string };
+    const responseDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-responses',
+    );
+    fs.mkdirSync(responseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(responseDir, `${request.requestId}.json`),
+      JSON.stringify({
+        requestId: request.requestId,
+        responseNonce: request.responseNonce,
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'reviewed_rule',
+        source: 'reviewed_rule',
+        reason: 'matched the selected job tool policy',
+        decisionClassification: 'policy_allow',
+        signature: 'test-signature',
+      }),
+    );
+
+    await expect(decision).resolves.toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'reviewed_rule',
+    });
   });
 
   it('immediately denies a zero-timeout autonomous run without a job id', async () => {
