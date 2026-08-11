@@ -460,6 +460,183 @@
         font-size: 11px;
       }
 
+      .service-atlas {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .service-card {
+        min-width: 0;
+        overflow: hidden;
+        background: rgba(248, 250, 246, 0.82);
+        border: 1px solid var(--line-strong);
+        border-radius: 10px;
+        box-shadow: 0 12px 32px rgba(31, 51, 51, 0.07);
+      }
+
+      .service-card.wide {
+        grid-column: 1 / -1;
+      }
+
+      .service-card-head {
+        display: grid;
+        grid-template-columns: 46px minmax(0, 1fr) auto;
+        gap: 14px;
+        align-items: start;
+        padding: 18px 20px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .service-index {
+        width: 40px;
+        height: 40px;
+        display: grid;
+        place-items: center;
+        color: var(--white);
+        background: var(--ink);
+        border-radius: 5px;
+        font:
+          800 13px/1 'SFMono-Regular',
+          Consolas,
+          monospace;
+      }
+
+      .service-card h3 {
+        margin: 0 0 5px;
+        font-size: 19px;
+      }
+
+      .service-card-head p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .service-card .source-ref {
+        margin-top: 4px;
+      }
+
+      .service-canvas {
+        overflow-x: auto;
+        padding: 14px;
+        background:
+          linear-gradient(rgba(23, 35, 38, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(23, 35, 38, 0.035) 1px, transparent 1px),
+          #f8faf6;
+        background-size: 18px 18px;
+      }
+
+      .service-svg {
+        width: 100%;
+        min-width: 620px;
+        height: auto;
+        display: block;
+      }
+
+      .service-card.wide .service-svg {
+        min-width: 980px;
+      }
+
+      .service-svg .svc-box {
+        fill: #fbfcf8;
+        stroke: #81908e;
+        stroke-width: 1.4;
+        rx: 7;
+      }
+
+      .service-svg .svc-box.host {
+        fill: #d7eef0;
+        stroke: #087d89;
+      }
+
+      .service-svg .svc-box.durable {
+        fill: #dceee7;
+        stroke: #287b61;
+      }
+
+      .service-svg .svc-box.guard {
+        fill: #f5dfd8;
+        stroke: #a94a35;
+      }
+
+      .service-svg .svc-box.async {
+        fill: #f4e8c9;
+        stroke: #b87916;
+      }
+
+      .service-svg .svc-label {
+        fill: #172326;
+        font:
+          700 13px/1.2 Arial,
+          sans-serif;
+      }
+
+      .service-svg .svc-note {
+        fill: #5d6a6c;
+        font:
+          10px/1.2 'SFMono-Regular',
+          Consolas,
+          monospace;
+      }
+
+      .service-svg .svc-lane {
+        fill: #879193;
+        font:
+          800 9px/1 'SFMono-Regular',
+          Consolas,
+          monospace;
+        letter-spacing: 0.08em;
+      }
+
+      .service-svg .svc-line {
+        fill: none;
+        stroke: #087d89;
+        stroke-width: 2;
+      }
+
+      .service-svg .svc-line.rust {
+        stroke: #a94a35;
+      }
+
+      .service-svg .svc-line.mint {
+        stroke: #287b61;
+      }
+
+      .service-svg .svc-line.amber {
+        stroke: #b87916;
+      }
+
+      .service-svg .svc-line.dashed {
+        stroke-dasharray: 5 5;
+      }
+
+      .service-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        margin: -18px 0 26px;
+        color: var(--muted);
+        font:
+          11px/1.2 'SFMono-Regular',
+          Consolas,
+          monospace;
+      }
+
+      .service-legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .service-legend i {
+        width: 10px;
+        height: 10px;
+        display: inline-block;
+        border: 1px solid currentColor;
+        border-radius: 2px;
+      }
+
       .callout-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
@@ -829,10 +1006,23 @@
         }
 
         .walkthrough,
+        .service-atlas,
         .boundary-grid,
         .failure-grid,
         .callout-grid {
           grid-template-columns: 1fr;
+        }
+
+        .service-card.wide {
+          grid-column: auto;
+        }
+
+        .service-card-head {
+          grid-template-columns: 42px 1fr;
+        }
+
+        .service-card-head .source-ref {
+          grid-column: 2;
         }
 
         .step {
@@ -886,6 +1076,7 @@
         </a>
         <nav aria-label="Page sections">
           <a href="#architecture">Architecture</a>
+          <a href="#services">Services</a>
           <a href="#execution">Execution</a>
           <a href="#authority">Authority</a>
           <a href="#recovery">Recovery</a>
@@ -1889,6 +2080,1491 @@
                 Gantry persists text, delivery items, receipts, and the fenced
                 run outcome separately.
               </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="services" data-searchable>
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Service-level schematics</div>
+              <h2>Inside each machine.</h2>
+            </div>
+            <p class="section-copy">
+              The master diagram above stays intact. These nine schematics zoom
+              into each runtime service: its inputs, durable boundary, authority
+              checks, asynchronous handoffs, and failure path.
+            </p>
+          </div>
+
+          <div class="service-legend" aria-label="Service diagram legend">
+            <span
+              ><i style="color: var(--cyan); background: var(--cyan-soft)"></i>
+              host-owned execution</span
+            >
+            <span
+              ><i style="color: var(--mint); background: var(--mint-soft)"></i>
+              durable state</span
+            >
+            <span
+              ><i style="color: var(--rust); background: var(--rust-soft)"></i>
+              authority boundary</span
+            >
+            <span
+              ><i
+                style="color: var(--amber); background: var(--amber-soft)"
+              ></i>
+              asynchronous work</span
+            >
+          </div>
+
+          <div class="service-atlas">
+            <article class="service-card">
+              <div class="service-card-head">
+                <div class="service-index">S01</div>
+                <div>
+                  <h3>Channel ingress</h3>
+                  <p>
+                    Turns provider-native events into canonical, recoverable
+                    work.
+                  </p>
+                </div>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/app/bootstrap/channel-wiring.ts"
+                  >channel-wiring.ts ↗</a
+                >
+              </div>
+              <div class="service-canvas">
+                <svg
+                  class="service-svg"
+                  viewBox="0 0 720 250"
+                  role="img"
+                  aria-labelledby="svc-ingress-title svc-ingress-desc"
+                >
+                  <title id="svc-ingress-title">Channel ingress service</title>
+                  <desc id="svc-ingress-desc">
+                    Provider events are normalized, routed, and committed with
+                    durable admission work before a wake hint is emitted.
+                  </desc>
+                  <text class="svc-lane" x="16" y="20">PROVIDER EDGE</text>
+                  <rect class="svc-box" x="16" y="38" width="118" height="58" />
+                  <text class="svc-label" x="75" y="62" text-anchor="middle">
+                    Slack · Discord
+                  </text>
+                  <text class="svc-note" x="75" y="80" text-anchor="middle">
+                    Telegram · SDK
+                  </text>
+                  <path class="svc-line" d="M134 67 H166" />
+                  <rect
+                    class="svc-box host"
+                    x="166"
+                    y="38"
+                    width="124"
+                    height="58"
+                  />
+                  <text class="svc-label" x="228" y="62" text-anchor="middle">
+                    Provider adapter
+                  </text>
+                  <text class="svc-note" x="228" y="80" text-anchor="middle">
+                    verify + normalize
+                  </text>
+                  <path class="svc-line" d="M290 67 H322" />
+                  <rect
+                    class="svc-box guard"
+                    x="322"
+                    y="38"
+                    width="128"
+                    height="58"
+                  />
+                  <text class="svc-label" x="386" y="62" text-anchor="middle">
+                    Route resolver
+                  </text>
+                  <text class="svc-note" x="386" y="80" text-anchor="middle">
+                    install · sender · trigger
+                  </text>
+                  <path class="svc-line" d="M450 67 H482" />
+                  <rect
+                    class="svc-box durable"
+                    x="482"
+                    y="30"
+                    width="214"
+                    height="74"
+                  />
+                  <text class="svc-label" x="589" y="57" text-anchor="middle">
+                    Atomic canonical commit
+                  </text>
+                  <text class="svc-note" x="589" y="76" text-anchor="middle">
+                    conversation + message + parts
+                  </text>
+                  <text class="svc-note" x="589" y="91" text-anchor="middle">
+                    participants + admission row
+                  </text>
+                  <text class="svc-lane" x="16" y="142">AFTER COMMIT</text>
+                  <path class="svc-line mint" d="M589 104 V151 H420" />
+                  <rect
+                    class="svc-box async"
+                    x="286"
+                    y="132"
+                    width="134"
+                    height="58"
+                  />
+                  <text class="svc-label" x="353" y="156" text-anchor="middle">
+                    Wake hint
+                  </text>
+                  <text class="svc-note" x="353" y="174" text-anchor="middle">
+                    LISTEN / NOTIFY
+                  </text>
+                  <path class="svc-line amber" d="M286 161 H244" />
+                  <rect
+                    class="svc-box durable"
+                    x="16"
+                    y="132"
+                    width="228"
+                    height="58"
+                  />
+                  <text class="svc-label" x="130" y="156" text-anchor="middle">
+                    Due admission remains claimable
+                  </text>
+                  <text class="svc-note" x="130" y="174" text-anchor="middle">
+                    notification loss does not lose work
+                  </text>
+                  <path
+                    class="svc-line rust dashed"
+                    d="M386 96 V221 H589 V104"
+                  />
+                  <text class="svc-note" x="495" y="215" text-anchor="middle">
+                    multi-route envelopes commit per route
+                  </text>
+                </svg>
+              </div>
+            </article>
+
+            <article class="service-card">
+              <div class="service-card-head">
+                <div class="service-index">S02</div>
+                <div>
+                  <h3>Live-turn coordinator</h3>
+                  <p>
+                    Chooses one fenced owner and turns later messages into
+                    ordered commands.
+                  </p>
+                </div>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/runtime/live-admission-work-loop.ts"
+                  >live-admission-work-loop.ts ↗</a
+                >
+              </div>
+              <div class="service-canvas">
+                <svg
+                  class="service-svg"
+                  viewBox="0 0 720 250"
+                  role="img"
+                  aria-labelledby="svc-live-title svc-live-desc"
+                >
+                  <title id="svc-live-title">
+                    Live-turn coordination service
+                  </title>
+                  <desc id="svc-live-desc">
+                    Durable admission is claimed under capacity, unique active
+                    scope, and a fenced run lease; follow-ups enter the owner
+                    command inbox.
+                  </desc>
+                  <text class="svc-lane" x="16" y="20">ADMISSION</text>
+                  <rect
+                    class="svc-box durable"
+                    x="16"
+                    y="38"
+                    width="112"
+                    height="58"
+                  />
+                  <text class="svc-label" x="72" y="62" text-anchor="middle">
+                    Due work
+                  </text>
+                  <text class="svc-note" x="72" y="80" text-anchor="middle">
+                    claim atomically
+                  </text>
+                  <path class="svc-line mint" d="M128 67 H158" />
+                  <rect
+                    class="svc-box guard"
+                    x="158"
+                    y="30"
+                    width="134"
+                    height="74"
+                  />
+                  <text class="svc-label" x="225" y="54" text-anchor="middle">
+                    Capacity gate
+                  </text>
+                  <text class="svc-note" x="225" y="73" text-anchor="middle">
+                    worker + host slots
+                  </text>
+                  <text class="svc-note" x="225" y="89" text-anchor="middle">
+                    overload → leave due
+                  </text>
+                  <path class="svc-line rust" d="M292 67 H322" />
+                  <rect
+                    class="svc-box guard"
+                    x="322"
+                    y="30"
+                    width="134"
+                    height="74"
+                  />
+                  <text class="svc-label" x="389" y="54" text-anchor="middle">
+                    Active scope
+                  </text>
+                  <text class="svc-note" x="389" y="73" text-anchor="middle">
+                    app · session
+                  </text>
+                  <text class="svc-note" x="389" y="89" text-anchor="middle">
+                    conversation · thread
+                  </text>
+                  <path class="svc-line rust" d="M456 67 H486" />
+                  <rect
+                    class="svc-box durable"
+                    x="486"
+                    y="30"
+                    width="210"
+                    height="74"
+                  />
+                  <text class="svc-label" x="591" y="54" text-anchor="middle">
+                    Run lease + fence
+                  </text>
+                  <text class="svc-note" x="591" y="73" text-anchor="middle">
+                    monotonic generation
+                  </text>
+                  <text class="svc-note" x="591" y="89" text-anchor="middle">
+                    stale owners cannot settle
+                  </text>
+                  <text class="svc-lane" x="16" y="143">OWNER PATH</text>
+                  <rect
+                    class="svc-box host"
+                    x="16"
+                    y="158"
+                    width="142"
+                    height="58"
+                  />
+                  <text class="svc-label" x="87" y="181" text-anchor="middle">
+                    Final context fetch
+                  </text>
+                  <text class="svc-note" x="87" y="199" text-anchor="middle">
+                    never trust old cursor
+                  </text>
+                  <path class="svc-line" d="M158 187 H191" />
+                  <rect
+                    class="svc-box host"
+                    x="191"
+                    y="158"
+                    width="130"
+                    height="58"
+                  />
+                  <text class="svc-label" x="256" y="181" text-anchor="middle">
+                    GroupQueue
+                  </text>
+                  <text class="svc-note" x="256" y="199" text-anchor="middle">
+                    ordered processing
+                  </text>
+                  <path class="svc-line" d="M321 187 H354" />
+                  <rect
+                    class="svc-box durable"
+                    x="354"
+                    y="150"
+                    width="160"
+                    height="74"
+                  />
+                  <text class="svc-label" x="434" y="176" text-anchor="middle">
+                    Command inbox
+                  </text>
+                  <text class="svc-note" x="434" y="195" text-anchor="middle">
+                    continuation · stop
+                  </text>
+                  <text class="svc-note" x="434" y="211" text-anchor="middle">
+                    approval resolution
+                  </text>
+                  <path
+                    class="svc-line amber dashed"
+                    d="M389 104 V128 H434 V150"
+                  />
+                  <path class="svc-line rust dashed" d="M591 104 V187 H548" />
+                  <text class="svc-note" x="622" y="181" text-anchor="middle">
+                    recovery → higher fence
+                  </text>
+                </svg>
+              </div>
+            </article>
+
+            <article class="service-card">
+              <div class="service-card-head">
+                <div class="service-index">S03</div>
+                <div>
+                  <h3>Agent execution + model gateway</h3>
+                  <p>
+                    Materializes an immutable run and keeps provider credentials
+                    outside the child.
+                  </p>
+                </div>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/tree/8c463db/apps/core/src/application/agent-execution"
+                  >agent-execution/ ↗</a
+                >
+              </div>
+              <div class="service-canvas">
+                <svg
+                  class="service-svg"
+                  viewBox="0 0 720 250"
+                  role="img"
+                  aria-labelledby="svc-runner-title svc-runner-desc"
+                >
+                  <title id="svc-runner-title">
+                    Agent execution and model gateway service
+                  </title>
+                  <desc id="svc-runner-desc">
+                    A provider-neutral run projection is materialized into a
+                    supervised child runner which accesses the model through a
+                    loopback credential gateway.
+                  </desc>
+                  <text class="svc-lane" x="16" y="20">TRUSTED HOST</text>
+                  <rect
+                    class="svc-box durable"
+                    x="16"
+                    y="38"
+                    width="128"
+                    height="66"
+                  />
+                  <text class="svc-label" x="80" y="62" text-anchor="middle">
+                    Run projection
+                  </text>
+                  <text class="svc-note" x="80" y="80" text-anchor="middle">
+                    prompt · model · tools
+                  </text>
+                  <text class="svc-note" x="80" y="95" text-anchor="middle">
+                    skills · sandbox · hash
+                  </text>
+                  <path class="svc-line mint" d="M144 71 H176" />
+                  <rect
+                    class="svc-box host"
+                    x="176"
+                    y="38"
+                    width="126"
+                    height="66"
+                  />
+                  <text class="svc-label" x="239" y="62" text-anchor="middle">
+                    Execution adapter
+                  </text>
+                  <text class="svc-note" x="239" y="80" text-anchor="middle">
+                    Claude / DeepAgents
+                  </text>
+                  <text class="svc-note" x="239" y="95" text-anchor="middle">
+                    prepare + cleanup
+                  </text>
+                  <path class="svc-line" d="M302 71 H334" />
+                  <rect
+                    class="svc-box guard"
+                    x="334"
+                    y="30"
+                    width="142"
+                    height="82"
+                  />
+                  <text class="svc-label" x="405" y="55" text-anchor="middle">
+                    Runner boundary
+                  </text>
+                  <text class="svc-note" x="405" y="74" text-anchor="middle">
+                    direct or outer sandbox
+                  </text>
+                  <text class="svc-note" x="405" y="90" text-anchor="middle">
+                    protected paths + env
+                  </text>
+                  <text class="svc-note" x="405" y="105" text-anchor="middle">
+                    supervised child
+                  </text>
+                  <path class="svc-line rust" d="M476 71 H508" />
+                  <rect
+                    class="svc-box host"
+                    x="508"
+                    y="38"
+                    width="188"
+                    height="66"
+                  />
+                  <text class="svc-label" x="602" y="62" text-anchor="middle">
+                    Provider harness loop
+                  </text>
+                  <text class="svc-note" x="602" y="80" text-anchor="middle">
+                    stream input + SDK events
+                  </text>
+                  <text class="svc-note" x="602" y="95" text-anchor="middle">
+                    structured output markers
+                  </text>
+                  <text class="svc-lane" x="16" y="145">
+                    MODEL CREDENTIAL BROKER
+                  </text>
+                  <path class="svc-line" d="M602 104 V168 H476" />
+                  <rect
+                    class="svc-box guard"
+                    x="302"
+                    y="145"
+                    width="174"
+                    height="74"
+                  />
+                  <text class="svc-label" x="389" y="170" text-anchor="middle">
+                    Loopback model gateway
+                  </text>
+                  <text class="svc-note" x="389" y="189" text-anchor="middle">
+                    validate scoped token
+                  </text>
+                  <text class="svc-note" x="389" y="205" text-anchor="middle">
+                    route + account usage
+                  </text>
+                  <path class="svc-line rust" d="M302 182 H270" />
+                  <rect
+                    class="svc-box durable"
+                    x="148"
+                    y="153"
+                    width="122"
+                    height="58"
+                  />
+                  <text class="svc-label" x="209" y="176" text-anchor="middle">
+                    Secret store
+                  </text>
+                  <text class="svc-note" x="209" y="194" text-anchor="middle">
+                    real provider key
+                  </text>
+                  <path class="svc-line mint" d="M148 182 H116" />
+                  <rect
+                    class="svc-box"
+                    x="16"
+                    y="153"
+                    width="100"
+                    height="58"
+                  />
+                  <text class="svc-label" x="66" y="176" text-anchor="middle">
+                    LLM provider
+                  </text>
+                  <text class="svc-note" x="66" y="194" text-anchor="middle">
+                    approved route
+                  </text>
+                </svg>
+              </div>
+            </article>
+
+            <article class="service-card">
+              <div class="service-card-head">
+                <div class="service-index">S04</div>
+                <div>
+                  <h3>Tool authority + MCP</h3>
+                  <p>
+                    Re-authorizes the exact action; model intent never becomes
+                    authority.
+                  </p>
+                </div>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/runner/tool-gate-core.ts"
+                  >tool-gate-core.ts ↗</a
+                >
+              </div>
+              <div class="service-canvas">
+                <svg
+                  class="service-svg"
+                  viewBox="0 0 720 250"
+                  role="img"
+                  aria-labelledby="svc-tool-title svc-tool-desc"
+                >
+                  <title id="svc-tool-title">
+                    Tool authority and MCP service
+                  </title>
+                  <desc id="svc-tool-desc">
+                    Each runner tool request passes hard denies, reviewed
+                    authority, deterministic rails, optional risk advice, and
+                    durable approval before an adapter executes it.
+                  </desc>
+                  <text class="svc-lane" x="16" y="20">REQUEST</text>
+                  <rect class="svc-box" x="16" y="38" width="112" height="58" />
+                  <text class="svc-label" x="72" y="62" text-anchor="middle">
+                    Runner call
+                  </text>
+                  <text class="svc-note" x="72" y="80" text-anchor="middle">
+                    tool + exact input
+                  </text>
+                  <path class="svc-line" d="M128 67 H158" />
+                  <rect
+                    class="svc-box guard"
+                    x="158"
+                    y="26"
+                    width="254"
+                    height="150"
+                  />
+                  <text class="svc-label" x="285" y="50" text-anchor="middle">
+                    Host authorization gate
+                  </text>
+                  <text class="svc-note" x="178" y="75">
+                    1 · hard deny / protected targets
+                  </text>
+                  <text class="svc-note" x="178" y="94">
+                    2 · locked + fixed-image restrictions
+                  </text>
+                  <text class="svc-note" x="178" y="113">
+                    3 · reviewed semantic authority
+                  </text>
+                  <text class="svc-note" x="178" y="132">
+                    4 · deterministic target rails
+                  </text>
+                  <text class="svc-note" x="178" y="151">
+                    5 · cache / risk advice / human tail
+                  </text>
+                  <path class="svc-line rust" d="M412 67 H444" />
+                  <rect
+                    class="svc-box host"
+                    x="444"
+                    y="38"
+                    width="112"
+                    height="58"
+                  />
+                  <text class="svc-label" x="500" y="62" text-anchor="middle">
+                    Adapter
+                  </text>
+                  <text class="svc-note" x="500" y="80" text-anchor="middle">
+                    MCP · browser · file
+                  </text>
+                  <path class="svc-line" d="M556 67 H588" />
+                  <rect
+                    class="svc-box"
+                    x="588"
+                    y="38"
+                    width="108"
+                    height="58"
+                  />
+                  <text class="svc-label" x="642" y="62" text-anchor="middle">
+                    Effect
+                  </text>
+                  <text class="svc-note" x="642" y="80" text-anchor="middle">
+                    external system
+                  </text>
+                  <text class="svc-lane" x="16" y="211">
+                    DURABLE HUMAN TAIL
+                  </text>
+                  <path class="svc-line rust dashed" d="M285 176 V211 H332" />
+                  <rect
+                    class="svc-box durable"
+                    x="332"
+                    y="188"
+                    width="170"
+                    height="46"
+                  />
+                  <text class="svc-label" x="417" y="208" text-anchor="middle">
+                    Pending interaction
+                  </text>
+                  <text class="svc-note" x="417" y="224" text-anchor="middle">
+                    signed decision survives restart
+                  </text>
+                  <path class="svc-line mint dashed" d="M502 211 H538 V96" />
+                  <path
+                    class="svc-line rust dashed"
+                    d="M158 151 H104 V211 H64"
+                  />
+                  <text class="svc-note" x="62" y="229" text-anchor="middle">
+                    deny settles safely
+                  </text>
+                </svg>
+              </div>
+            </article>
+
+            <article class="service-card wide">
+              <div class="service-card-head">
+                <div class="service-index">S05</div>
+                <div>
+                  <h3>Scheduler + autonomous jobs</h3>
+                  <p>
+                    Creates durable definitions, leases due runs, and reuses the
+                    same runner and tool boundaries as chat.
+                  </p>
+                </div>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/jobs/scheduler.ts"
+                  >jobs/scheduler.ts ↗</a
+                >
+              </div>
+              <div class="service-canvas">
+                <svg
+                  class="service-svg"
+                  viewBox="0 0 1100 250"
+                  role="img"
+                  aria-labelledby="svc-job-title svc-job-desc"
+                >
+                  <title id="svc-job-title">
+                    Scheduler and autonomous jobs service
+                  </title>
+                  <desc id="svc-job-desc">
+                    A durable job definition passes readiness, pg-boss
+                    scheduling, fenced run ownership, the shared execution
+                    boundary, and terminal reporting.
+                  </desc>
+                  <text class="svc-lane" x="16" y="20">
+                    DEFINITION + READINESS
+                  </text>
+                  <rect class="svc-box" x="16" y="38" width="112" height="58" />
+                  <text class="svc-label" x="72" y="62" text-anchor="middle">
+                    Create / trigger
+                  </text>
+                  <text class="svc-note" x="72" y="80" text-anchor="middle">
+                    CLI · SDK · tool
+                  </text>
+                  <path class="svc-line" d="M128 67 H158" />
+                  <rect
+                    class="svc-box durable"
+                    x="158"
+                    y="30"
+                    width="150"
+                    height="74"
+                  />
+                  <text class="svc-label" x="233" y="54" text-anchor="middle">
+                    Job definition
+                  </text>
+                  <text class="svc-note" x="233" y="73" text-anchor="middle">
+                    target · schedule · prompt
+                  </text>
+                  <text class="svc-note" x="233" y="89" text-anchor="middle">
+                    context · notifications
+                  </text>
+                  <path class="svc-line mint" d="M308 67 H338" />
+                  <rect
+                    class="svc-box guard"
+                    x="338"
+                    y="30"
+                    width="138"
+                    height="74"
+                  />
+                  <text class="svc-label" x="407" y="54" text-anchor="middle">
+                    Readiness
+                  </text>
+                  <text class="svc-note" x="407" y="73" text-anchor="middle">
+                    existing capabilities
+                  </text>
+                  <text class="svc-note" x="407" y="89" text-anchor="middle">
+                    missing → setup required
+                  </text>
+                  <path class="svc-line rust" d="M476 67 H506" />
+                  <rect
+                    class="svc-box async"
+                    x="506"
+                    y="38"
+                    width="126"
+                    height="58"
+                  />
+                  <text class="svc-label" x="569" y="62" text-anchor="middle">
+                    pg-boss engine
+                  </text>
+                  <text class="svc-note" x="569" y="80" text-anchor="middle">
+                    schedule + due queue
+                  </text>
+                  <path class="svc-line amber" d="M632 67 H662" />
+                  <rect
+                    class="svc-box durable"
+                    x="662"
+                    y="30"
+                    width="140"
+                    height="74"
+                  />
+                  <text class="svc-label" x="732" y="54" text-anchor="middle">
+                    Leased job run
+                  </text>
+                  <text class="svc-note" x="732" y="73" text-anchor="middle">
+                    heartbeat + fence
+                  </text>
+                  <text class="svc-note" x="732" y="89" text-anchor="middle">
+                    job AgentSession
+                  </text>
+                  <path class="svc-line mint" d="M802 67 H832" />
+                  <rect
+                    class="svc-box host"
+                    x="832"
+                    y="30"
+                    width="142"
+                    height="74"
+                  />
+                  <text class="svc-label" x="903" y="54" text-anchor="middle">
+                    Shared execution
+                  </text>
+                  <text class="svc-note" x="903" y="73" text-anchor="middle">
+                    runner · model · tools
+                  </text>
+                  <text class="svc-note" x="903" y="89" text-anchor="middle">
+                    same host authority
+                  </text>
+                  <path class="svc-line" d="M974 67 H1004" />
+                  <rect
+                    class="svc-box durable"
+                    x="1004"
+                    y="38"
+                    width="80"
+                    height="58"
+                  />
+                  <text class="svc-label" x="1044" y="60" text-anchor="middle">
+                    Report
+                  </text>
+                  <text class="svc-note" x="1044" y="78" text-anchor="middle">
+                    terminal
+                  </text>
+                  <text class="svc-lane" x="16" y="153">
+                    RECOVERY + OBSERVATION
+                  </text>
+                  <rect
+                    class="svc-box durable"
+                    x="158"
+                    y="170"
+                    width="170"
+                    height="58"
+                  />
+                  <text class="svc-label" x="243" y="194" text-anchor="middle">
+                    Run events + dead letters
+                  </text>
+                  <text class="svc-note" x="243" y="212" text-anchor="middle">
+                    durable inspection surface
+                  </text>
+                  <path class="svc-line mint dashed" d="M732 104 V199 H328" />
+                  <rect
+                    class="svc-box async"
+                    x="506"
+                    y="170"
+                    width="152"
+                    height="58"
+                  />
+                  <text class="svc-label" x="582" y="194" text-anchor="middle">
+                    Lease recovery
+                  </text>
+                  <text class="svc-note" x="582" y="212" text-anchor="middle">
+                    higher generation owner
+                  </text>
+                  <path class="svc-line amber dashed" d="M658 199 H732 V104" />
+                  <rect
+                    class="svc-box host"
+                    x="832"
+                    y="170"
+                    width="170"
+                    height="58"
+                  />
+                  <text class="svc-label" x="917" y="194" text-anchor="middle">
+                    Notification routes
+                  </text>
+                  <text class="svc-note" x="917" y="212" text-anchor="middle">
+                    quiet until terminal by default
+                  </text>
+                  <path class="svc-line" d="M1044 96 V199 H1002" />
+                </svg>
+              </div>
+            </article>
+
+            <article class="service-card">
+              <div class="service-card-head">
+                <div class="service-index">S06</div>
+                <div>
+                  <h3>App memory + retrieval</h3>
+                  <p>
+                    Builds bounded data-only context and keeps model proposals
+                    non-authoritative.
+                  </p>
+                </div>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/application/sessions/hydrate-agent-context-service.ts"
+                  >hydrate-agent-context-service.ts ↗</a
+                >
+              </div>
+              <div class="service-canvas">
+                <svg
+                  class="service-svg"
+                  viewBox="0 0 720 250"
+                  role="img"
+                  aria-labelledby="svc-memory-title svc-memory-desc"
+                >
+                  <title id="svc-memory-title">
+                    App memory and retrieval service
+                  </title>
+                  <desc id="svc-memory-desc">
+                    Scoped evidence enters lexical and optional vector
+                    retrieval, then a bounded untrusted memory block; dreaming
+                    proposals pass host validation and review.
+                  </desc>
+                  <text class="svc-lane" x="16" y="20">TURN-TIME RECALL</text>
+                  <rect
+                    class="svc-box guard"
+                    x="16"
+                    y="38"
+                    width="126"
+                    height="58"
+                  />
+                  <text class="svc-label" x="79" y="62" text-anchor="middle">
+                    Boundary derivation
+                  </text>
+                  <text class="svc-note" x="79" y="80" text-anchor="middle">
+                    app · agent · subject
+                  </text>
+                  <path class="svc-line rust" d="M142 67 H174" />
+                  <rect
+                    class="svc-box durable"
+                    x="174"
+                    y="30"
+                    width="142"
+                    height="74"
+                  />
+                  <text class="svc-label" x="245" y="54" text-anchor="middle">
+                    Active memory items
+                  </text>
+                  <text class="svc-note" x="245" y="73" text-anchor="middle">
+                    evidence + visibility
+                  </text>
+                  <text class="svc-note" x="245" y="89" text-anchor="middle">
+                    versioned lifecycle
+                  </text>
+                  <path class="svc-line mint" d="M316 52 H348" />
+                  <path class="svc-line mint" d="M316 83 H348" />
+                  <rect
+                    class="svc-box host"
+                    x="348"
+                    y="26"
+                    width="132"
+                    height="40"
+                  />
+                  <text class="svc-label" x="414" y="51" text-anchor="middle">
+                    Lexical search
+                  </text>
+                  <rect
+                    class="svc-box async"
+                    x="348"
+                    y="76"
+                    width="132"
+                    height="40"
+                  />
+                  <text class="svc-label" x="414" y="101" text-anchor="middle">
+                    Vector candidates
+                  </text>
+                  <path class="svc-line" d="M480 46 H512 V67" />
+                  <path class="svc-line amber" d="M480 96 H512 V67" />
+                  <rect
+                    class="svc-box host"
+                    x="512"
+                    y="38"
+                    width="82"
+                    height="58"
+                  />
+                  <text class="svc-label" x="553" y="62" text-anchor="middle">
+                    RRF
+                  </text>
+                  <text class="svc-note" x="553" y="80" text-anchor="middle">
+                    bounded rank
+                  </text>
+                  <path class="svc-line" d="M594 67 H624" />
+                  <rect
+                    class="svc-box guard"
+                    x="624"
+                    y="30"
+                    width="80"
+                    height="74"
+                  />
+                  <text class="svc-label" x="664" y="54" text-anchor="middle">
+                    JSON
+                  </text>
+                  <text class="svc-note" x="664" y="73" text-anchor="middle">
+                    untrusted
+                  </text>
+                  <text class="svc-note" x="664" y="89" text-anchor="middle">
+                    data only
+                  </text>
+                  <text class="svc-lane" x="16" y="151">DREAMING + REVIEW</text>
+                  <rect
+                    class="svc-box async"
+                    x="16"
+                    y="168"
+                    width="112"
+                    height="58"
+                  />
+                  <text class="svc-label" x="72" y="192" text-anchor="middle">
+                    Dream job
+                  </text>
+                  <text class="svc-note" x="72" y="210" text-anchor="middle">
+                    default off
+                  </text>
+                  <path class="svc-line amber" d="M128 197 H160" />
+                  <rect
+                    class="svc-box"
+                    x="160"
+                    y="168"
+                    width="120"
+                    height="58"
+                  />
+                  <text class="svc-label" x="220" y="192" text-anchor="middle">
+                    Proposal
+                  </text>
+                  <text class="svc-note" x="220" y="210" text-anchor="middle">
+                    schema-bounded
+                  </text>
+                  <path class="svc-line" d="M280 197 H312" />
+                  <rect
+                    class="svc-box guard"
+                    x="312"
+                    y="160"
+                    width="132"
+                    height="74"
+                  />
+                  <text class="svc-label" x="378" y="184" text-anchor="middle">
+                    Host validation
+                  </text>
+                  <text class="svc-note" x="378" y="203" text-anchor="middle">
+                    grounding · scope
+                  </text>
+                  <text class="svc-note" x="378" y="219" text-anchor="middle">
+                    target version
+                  </text>
+                  <path class="svc-line rust" d="M444 197 H476" />
+                  <rect
+                    class="svc-box durable"
+                    x="476"
+                    y="168"
+                    width="116"
+                    height="58"
+                  />
+                  <text class="svc-label" x="534" y="192" text-anchor="middle">
+                    Review row
+                  </text>
+                  <text class="svc-note" x="534" y="210" text-anchor="middle">
+                    destructive change
+                  </text>
+                  <path class="svc-line mint" d="M592 197 H624" />
+                  <rect
+                    class="svc-box durable"
+                    x="624"
+                    y="168"
+                    width="80"
+                    height="58"
+                  />
+                  <text class="svc-label" x="664" y="192" text-anchor="middle">
+                    Apply
+                  </text>
+                  <text class="svc-note" x="664" y="210" text-anchor="middle">
+                    recheck
+                  </text>
+                </svg>
+              </div>
+            </article>
+
+            <article class="service-card">
+              <div class="service-card-head">
+                <div class="service-index">S07</div>
+                <div>
+                  <h3>Company brain</h3>
+                  <p>
+                    Maintains app-scoped pages and evidence graphs, separate
+                    from personal memory.
+                  </p>
+                </div>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/tree/8c463db/apps/core/src/brain"
+                  >brain/ ↗</a
+                >
+              </div>
+              <div class="service-canvas">
+                <svg
+                  class="service-svg"
+                  viewBox="0 0 720 250"
+                  role="img"
+                  aria-labelledby="svc-brain-title svc-brain-desc"
+                >
+                  <title id="svc-brain-title">Company brain service</title>
+                  <desc id="svc-brain-desc">
+                    Imports, authorized writes, and opted-in channel harvest
+                    create canonical pages, entities, evidence edges,
+                    embeddings, and grounded query results.
+                  </desc>
+                  <text class="svc-lane" x="16" y="20">INGEST</text>
+                  <rect class="svc-box" x="16" y="30" width="118" height="74" />
+                  <text class="svc-label" x="75" y="54" text-anchor="middle">
+                    Sources
+                  </text>
+                  <text class="svc-note" x="75" y="73" text-anchor="middle">
+                    import · brain_write
+                  </text>
+                  <text class="svc-note" x="75" y="89" text-anchor="middle">
+                    opt-in harvest
+                  </text>
+                  <path class="svc-line" d="M134 67 H166" />
+                  <rect
+                    class="svc-box durable"
+                    x="166"
+                    y="30"
+                    width="132"
+                    height="74"
+                  />
+                  <text class="svc-label" x="232" y="54" text-anchor="middle">
+                    Canonical pages
+                  </text>
+                  <text class="svc-note" x="232" y="73" text-anchor="middle">
+                    app-scoped slugs
+                  </text>
+                  <text class="svc-note" x="232" y="89" text-anchor="middle">
+                    source identity
+                  </text>
+                  <path class="svc-line mint" d="M298 51 H330" />
+                  <path class="svc-line mint" d="M298 83 H330" />
+                  <rect
+                    class="svc-box durable"
+                    x="330"
+                    y="26"
+                    width="132"
+                    height="40"
+                  />
+                  <text class="svc-label" x="396" y="51" text-anchor="middle">
+                    Entities + edges
+                  </text>
+                  <rect
+                    class="svc-box async"
+                    x="330"
+                    y="76"
+                    width="132"
+                    height="40"
+                  />
+                  <text class="svc-label" x="396" y="101" text-anchor="middle">
+                    Content embeddings
+                  </text>
+                  <path class="svc-line mint" d="M462 46 H494 V67" />
+                  <path class="svc-line amber" d="M462 96 H494 V67" />
+                  <rect
+                    class="svc-box host"
+                    x="494"
+                    y="30"
+                    width="94"
+                    height="74"
+                  />
+                  <text class="svc-label" x="541" y="54" text-anchor="middle">
+                    Retrieval
+                  </text>
+                  <text class="svc-note" x="541" y="73" text-anchor="middle">
+                    lexical + hybrid
+                  </text>
+                  <text class="svc-note" x="541" y="89" text-anchor="middle">
+                    direct graph
+                  </text>
+                  <path class="svc-line" d="M588 67 H620" />
+                  <rect
+                    class="svc-box guard"
+                    x="620"
+                    y="30"
+                    width="84"
+                    height="74"
+                  />
+                  <text class="svc-label" x="662" y="54" text-anchor="middle">
+                    Answer
+                  </text>
+                  <text class="svc-note" x="662" y="73" text-anchor="middle">
+                    retrieved
+                  </text>
+                  <text class="svc-note" x="662" y="89" text-anchor="middle">
+                    evidence only
+                  </text>
+                  <text class="svc-lane" x="16" y="151">BRAIN DREAMING</text>
+                  <rect
+                    class="svc-box async"
+                    x="166"
+                    y="168"
+                    width="132"
+                    height="58"
+                  />
+                  <text class="svc-label" x="232" y="192" text-anchor="middle">
+                    Cursor-based job
+                  </text>
+                  <text class="svc-note" x="232" y="210" text-anchor="middle">
+                    pages since last run
+                  </text>
+                  <path class="svc-line amber" d="M298 197 H330" />
+                  <rect
+                    class="svc-box guard"
+                    x="330"
+                    y="160"
+                    width="132"
+                    height="74"
+                  />
+                  <text class="svc-label" x="396" y="184" text-anchor="middle">
+                    Validated ops
+                  </text>
+                  <text class="svc-note" x="396" y="203" text-anchor="middle">
+                    additive may apply
+                  </text>
+                  <text class="svc-note" x="396" y="219" text-anchor="middle">
+                    destructive never auto
+                  </text>
+                  <path class="svc-line rust" d="M462 197 H494" />
+                  <rect
+                    class="svc-box durable"
+                    x="494"
+                    y="168"
+                    width="146"
+                    height="58"
+                  />
+                  <text class="svc-label" x="567" y="192" text-anchor="middle">
+                    Decision journal
+                  </text>
+                  <text class="svc-note" x="567" y="210" text-anchor="middle">
+                    destructive proposals retained
+                  </text>
+                </svg>
+              </div>
+            </article>
+
+            <article class="service-card">
+              <div class="service-card-head">
+                <div class="service-index">S08</div>
+                <div>
+                  <h3>Outbound delivery + runtime events</h3>
+                  <p>
+                    Separates completed generation from provider delivery truth.
+                  </p>
+                </div>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/tree/8c463db/apps/core/src/application/outbound-delivery"
+                  >outbound-delivery/ ↗</a
+                >
+              </div>
+              <div class="service-canvas">
+                <svg
+                  class="service-svg"
+                  viewBox="0 0 720 250"
+                  role="img"
+                  aria-labelledby="svc-delivery-title svc-delivery-desc"
+                >
+                  <title id="svc-delivery-title">
+                    Outbound delivery and runtime events service
+                  </title>
+                  <desc id="svc-delivery-desc">
+                    Persisted generation becomes bounded delivery items, is sent
+                    through the exact provider account, and settles with
+                    receipts independently from run completion.
+                  </desc>
+                  <text class="svc-lane" x="16" y="20">
+                    GENERATION → DELIVERY
+                  </text>
+                  <rect
+                    class="svc-box durable"
+                    x="16"
+                    y="30"
+                    width="126"
+                    height="74"
+                  />
+                  <text class="svc-label" x="79" y="54" text-anchor="middle">
+                    Generation
+                  </text>
+                  <text class="svc-note" x="79" y="73" text-anchor="middle">
+                    assistant message
+                  </text>
+                  <text class="svc-note" x="79" y="89" text-anchor="middle">
+                    usage + run events
+                  </text>
+                  <path class="svc-line mint" d="M142 67 H174" />
+                  <rect
+                    class="svc-box durable"
+                    x="174"
+                    y="30"
+                    width="126"
+                    height="74"
+                  />
+                  <text class="svc-label" x="237" y="54" text-anchor="middle">
+                    Delivery items
+                  </text>
+                  <text class="svc-note" x="237" y="73" text-anchor="middle">
+                    bounded chunks
+                  </text>
+                  <text class="svc-note" x="237" y="89" text-anchor="middle">
+                    claim + idempotency
+                  </text>
+                  <path class="svc-line mint" d="M300 67 H332" />
+                  <rect
+                    class="svc-box guard"
+                    x="332"
+                    y="30"
+                    width="132"
+                    height="74"
+                  />
+                  <text class="svc-label" x="398" y="54" text-anchor="middle">
+                    Exact route
+                  </text>
+                  <text class="svc-note" x="398" y="73" text-anchor="middle">
+                    provider account
+                  </text>
+                  <text class="svc-note" x="398" y="89" text-anchor="middle">
+                    conversation + thread
+                  </text>
+                  <path class="svc-line rust" d="M464 67 H496" />
+                  <rect
+                    class="svc-box host"
+                    x="496"
+                    y="30"
+                    width="112"
+                    height="74"
+                  />
+                  <text class="svc-label" x="552" y="54" text-anchor="middle">
+                    Adapter
+                  </text>
+                  <text class="svc-note" x="552" y="73" text-anchor="middle">
+                    format · attach
+                  </text>
+                  <text class="svc-note" x="552" y="89" text-anchor="middle">
+                    send native
+                  </text>
+                  <path class="svc-line" d="M608 67 H640" />
+                  <rect class="svc-box" x="640" y="38" width="64" height="58" />
+                  <text class="svc-label" x="672" y="62" text-anchor="middle">
+                    User
+                  </text>
+                  <text class="svc-note" x="672" y="80" text-anchor="middle">
+                    provider
+                  </text>
+                  <text class="svc-lane" x="16" y="151">
+                    SETTLEMENT + OBSERVERS
+                  </text>
+                  <rect
+                    class="svc-box durable"
+                    x="174"
+                    y="160"
+                    width="160"
+                    height="74"
+                  />
+                  <text class="svc-label" x="254" y="184" text-anchor="middle">
+                    Delivery receipt
+                  </text>
+                  <text class="svc-note" x="254" y="203" text-anchor="middle">
+                    sent · partial · retryable
+                  </text>
+                  <text class="svc-note" x="254" y="219" text-anchor="middle">
+                    terminal failure
+                  </text>
+                  <path class="svc-line mint dashed" d="M552 104 V197 H334" />
+                  <rect
+                    class="svc-box async"
+                    x="390"
+                    y="168"
+                    width="120"
+                    height="58"
+                  />
+                  <text class="svc-label" x="450" y="192" text-anchor="middle">
+                    Retry claim
+                  </text>
+                  <text class="svc-note" x="450" y="210" text-anchor="middle">
+                    same route only
+                  </text>
+                  <path
+                    class="svc-line amber dashed"
+                    d="M390 197 H366 V67 H332"
+                  />
+                  <rect
+                    class="svc-box host"
+                    x="558"
+                    y="160"
+                    width="146"
+                    height="74"
+                  />
+                  <text class="svc-label" x="631" y="184" text-anchor="middle">
+                    Durable observers
+                  </text>
+                  <text class="svc-note" x="631" y="203" text-anchor="middle">
+                    SSE · SDK wait/list
+                  </text>
+                  <text class="svc-note" x="631" y="219" text-anchor="middle">
+                    webhooks · replay
+                  </text>
+                  <path class="svc-line" d="M334 197 H390" />
+                  <path class="svc-line" d="M510 197 H558" />
+                </svg>
+              </div>
+            </article>
+
+            <article class="service-card">
+              <div class="service-card-head">
+                <div class="service-index">S09</div>
+                <div>
+                  <h3>Settings, fleet + recovery</h3>
+                  <p>
+                    Projects revision authority across workers and prevents
+                    stale owners from writing.
+                  </p>
+                </div>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/tree/8c463db/apps/core/src/config/settings"
+                  >config/settings/ ↗</a
+                >
+              </div>
+              <div class="service-canvas">
+                <svg
+                  class="service-svg"
+                  viewBox="0 0 720 250"
+                  role="img"
+                  aria-labelledby="svc-settings-title svc-settings-desc"
+                >
+                  <title id="svc-settings-title">
+                    Settings, fleet, and recovery service
+                  </title>
+                  <desc id="svc-settings-desc">
+                    Desired-state writes create authoritative revisions which
+                    one projector mirrors to runtime state; workers poll and
+                    retain last-good settings while leases and heartbeats drive
+                    recovery.
+                  </desc>
+                  <text class="svc-lane" x="16" y="20">REVISION AUTHORITY</text>
+                  <rect
+                    class="svc-box guard"
+                    x="16"
+                    y="30"
+                    width="122"
+                    height="74"
+                  />
+                  <text class="svc-label" x="77" y="54" text-anchor="middle">
+                    Desired-state write
+                  </text>
+                  <text class="svc-note" x="77" y="73" text-anchor="middle">
+                    validated full state
+                  </text>
+                  <text class="svc-note" x="77" y="89" text-anchor="middle">
+                    admin ownership
+                  </text>
+                  <path class="svc-line rust" d="M138 67 H170" />
+                  <rect
+                    class="svc-box durable"
+                    x="170"
+                    y="30"
+                    width="116"
+                    height="74"
+                  />
+                  <text class="svc-label" x="228" y="54" text-anchor="middle">
+                    Revision
+                  </text>
+                  <text class="svc-note" x="228" y="73" text-anchor="middle">
+                    monotonic
+                  </text>
+                  <text class="svc-note" x="228" y="89" text-anchor="middle">
+                    authoritative mirror
+                  </text>
+                  <path class="svc-line mint" d="M286 67 H318" />
+                  <rect
+                    class="svc-box guard"
+                    x="318"
+                    y="30"
+                    width="120"
+                    height="74"
+                  />
+                  <text class="svc-label" x="378" y="54" text-anchor="middle">
+                    Projector lease
+                  </text>
+                  <text class="svc-note" x="378" y="73" text-anchor="middle">
+                    one writer
+                  </text>
+                  <text class="svc-note" x="378" y="89" text-anchor="middle">
+                    forward-correct latest
+                  </text>
+                  <path class="svc-line rust" d="M438 67 H470" />
+                  <rect
+                    class="svc-box durable"
+                    x="470"
+                    y="30"
+                    width="118"
+                    height="74"
+                  />
+                  <text class="svc-label" x="529" y="54" text-anchor="middle">
+                    Runtime mirror
+                  </text>
+                  <text class="svc-note" x="529" y="73" text-anchor="middle">
+                    Postgres bindings
+                  </text>
+                  <text class="svc-note" x="529" y="89" text-anchor="middle">
+                    settings.yaml view
+                  </text>
+                  <path class="svc-line mint" d="M588 67 H620" />
+                  <rect
+                    class="svc-box host"
+                    x="620"
+                    y="30"
+                    width="84"
+                    height="74"
+                  />
+                  <text class="svc-label" x="662" y="54" text-anchor="middle">
+                    Workers
+                  </text>
+                  <text class="svc-note" x="662" y="73" text-anchor="middle">
+                    notify + poll
+                  </text>
+                  <text class="svc-note" x="662" y="89" text-anchor="middle">
+                    last-good
+                  </text>
+                  <text class="svc-lane" x="16" y="151">FLEET OWNERSHIP</text>
+                  <rect
+                    class="svc-box durable"
+                    x="16"
+                    y="168"
+                    width="132"
+                    height="58"
+                  />
+                  <text class="svc-label" x="82" y="192" text-anchor="middle">
+                    Worker registry
+                  </text>
+                  <text class="svc-note" x="82" y="210" text-anchor="middle">
+                    heartbeats + health
+                  </text>
+                  <path class="svc-line mint" d="M148 197 H180" />
+                  <rect
+                    class="svc-box async"
+                    x="180"
+                    y="160"
+                    width="160"
+                    height="74"
+                  />
+                  <text class="svc-label" x="260" y="184" text-anchor="middle">
+                    Recovery coordinator
+                  </text>
+                  <text class="svc-note" x="260" y="203" text-anchor="middle">
+                    pending sweep · waits
+                  </text>
+                  <text class="svc-note" x="260" y="219" text-anchor="middle">
+                    unhealthy owner detection
+                  </text>
+                  <path class="svc-line amber" d="M340 197 H372" />
+                  <rect
+                    class="svc-box durable"
+                    x="372"
+                    y="168"
+                    width="142"
+                    height="58"
+                  />
+                  <text class="svc-label" x="443" y="192" text-anchor="middle">
+                    Higher fence
+                  </text>
+                  <text class="svc-note" x="443" y="210" text-anchor="middle">
+                    new owner wins
+                  </text>
+                  <path class="svc-line mint" d="M514 197 H546" />
+                  <rect
+                    class="svc-box guard"
+                    x="546"
+                    y="160"
+                    width="158"
+                    height="74"
+                  />
+                  <text class="svc-label" x="625" y="184" text-anchor="middle">
+                    Readiness truth
+                  </text>
+                  <text class="svc-note" x="625" y="203" text-anchor="middle">
+                    red on projection failure
+                  </text>
+                  <text class="svc-note" x="625" y="219" text-anchor="middle">
+                    stale writes fenced out
+                  </text>
+                  <path
+                    class="svc-line rust dashed"
+                    d="M662 104 V134 H625 V160"
+                  />
+                </svg>
+              </div>
             </article>
           </div>
         </div>
