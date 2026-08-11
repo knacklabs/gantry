@@ -3566,6 +3566,670 @@
                 </svg>
               </div>
             </article>
+
+            <article class="service-card wide">
+              <div class="service-card-head">
+                <div class="service-index">S10</div>
+                <div>
+                  <h3>Async + cron job lifecycle</h3>
+                  <p>
+                    Resolves manual, one-time, interval, and timezone-aware cron
+                    schedules into durable, fenced, recoverable executions.
+                  </p>
+                </div>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/jobs/schedule-math.ts"
+                  >jobs/schedule-math.ts ↗</a
+                >
+              </div>
+              <div class="service-canvas">
+                <svg
+                  class="service-svg"
+                  viewBox="0 0 1100 350"
+                  role="img"
+                  aria-labelledby="svc-cron-title svc-cron-desc"
+                >
+                  <title id="svc-cron-title">
+                    Asynchronous and cron job lifecycle
+                  </title>
+                  <desc id="svc-cron-desc">
+                    Job schedules are validated and projected into durable next
+                    run state, synchronized to pg-boss, claimed under readiness
+                    and capacity, executed with a fenced lease, and settled with
+                    recovery or dead-letter handling.
+                  </desc>
+                  <text class="svc-lane" x="16" y="20">
+                    SCHEDULE CALCULATION
+                  </text>
+                  <rect class="svc-box" x="16" y="34" width="128" height="84" />
+                  <text class="svc-label" x="80" y="56" text-anchor="middle">
+                    Trigger types
+                  </text>
+                  <text class="svc-note" x="80" y="76" text-anchor="middle">
+                    manual · once
+                  </text>
+                  <text class="svc-note" x="80" y="93" text-anchor="middle">
+                    interval · cron
+                  </text>
+                  <text class="svc-note" x="80" y="109" text-anchor="middle">
+                    API · SDK · scheduler tool
+                  </text>
+                  <path class="svc-line" d="M144 76 H174" />
+                  <rect
+                    class="svc-box guard"
+                    x="174"
+                    y="34"
+                    width="144"
+                    height="84"
+                  />
+                  <text class="svc-label" x="246" y="56" text-anchor="middle">
+                    Validate schedule
+                  </text>
+                  <text class="svc-note" x="246" y="76" text-anchor="middle">
+                    cron-parser + TIMEZONE
+                  </text>
+                  <text class="svc-note" x="246" y="93" text-anchor="middle">
+                    interval anchor math
+                  </text>
+                  <text class="svc-note" x="246" y="109" text-anchor="middle">
+                    invalid → reject
+                  </text>
+                  <path class="svc-line rust" d="M318 76 H348" />
+                  <rect
+                    class="svc-box durable"
+                    x="348"
+                    y="34"
+                    width="144"
+                    height="84"
+                  />
+                  <text class="svc-label" x="420" y="56" text-anchor="middle">
+                    Canonical job
+                  </text>
+                  <text class="svc-note" x="420" y="76" text-anchor="middle">
+                    status + next_run
+                  </text>
+                  <text class="svc-note" x="420" y="93" text-anchor="middle">
+                    access requirements
+                  </text>
+                  <text class="svc-note" x="420" y="109" text-anchor="middle">
+                    execution + notify context
+                  </text>
+                  <path class="svc-line mint" d="M492 76 H522" />
+                  <rect
+                    class="svc-box async"
+                    x="522"
+                    y="34"
+                    width="142"
+                    height="84"
+                  />
+                  <text class="svc-label" x="593" y="56" text-anchor="middle">
+                    Scheduler sync
+                  </text>
+                  <text class="svc-note" x="593" y="76" text-anchor="middle">
+                    targeted or full sync
+                  </text>
+                  <text class="svc-note" x="593" y="93" text-anchor="middle">
+                    maintenance every 60s
+                  </text>
+                  <text class="svc-note" x="593" y="109" text-anchor="middle">
+                    missed sync is recoverable
+                  </text>
+                  <path class="svc-line amber" d="M664 76 H694" />
+                  <rect
+                    class="svc-box async"
+                    x="694"
+                    y="34"
+                    width="136"
+                    height="84"
+                  />
+                  <text class="svc-label" x="762" y="56" text-anchor="middle">
+                    pg-boss queues
+                  </text>
+                  <text class="svc-note" x="762" y="76" text-anchor="middle">
+                    gantry.jobs
+                  </text>
+                  <text class="svc-note" x="762" y="93" text-anchor="middle">
+                    startAfter(next_run)
+                  </text>
+                  <text class="svc-note" x="762" y="109" text-anchor="middle">
+                    batch 1 + local concurrency
+                  </text>
+                  <path class="svc-line amber" d="M830 76 H860" />
+                  <rect
+                    class="svc-box guard"
+                    x="860"
+                    y="34"
+                    width="224"
+                    height="84"
+                  />
+                  <text class="svc-label" x="972" y="56" text-anchor="middle">
+                    Pre-spawn readiness
+                  </text>
+                  <text class="svc-note" x="972" y="76" text-anchor="middle">
+                    target agent + capability bindings
+                  </text>
+                  <text class="svc-note" x="972" y="93" text-anchor="middle">
+                    credentials · MCP · browser profile
+                  </text>
+                  <text class="svc-note" x="972" y="109" text-anchor="middle">
+                    blocker → pause as Setup required
+                  </text>
+
+                  <text class="svc-lane" x="16" y="160">
+                    LEASED ASYNC EXECUTION
+                  </text>
+                  <rect
+                    class="svc-box durable"
+                    x="16"
+                    y="178"
+                    width="142"
+                    height="78"
+                  />
+                  <text class="svc-label" x="87" y="202" text-anchor="middle">
+                    Run slot
+                  </text>
+                  <text class="svc-note" x="87" y="221" text-anchor="middle">
+                    host background capacity
+                  </text>
+                  <text class="svc-note" x="87" y="238" text-anchor="middle">
+                    blocked → delayed requeue
+                  </text>
+                  <path class="svc-line mint" d="M158 217 H188" />
+                  <rect
+                    class="svc-box durable"
+                    x="188"
+                    y="178"
+                    width="142"
+                    height="78"
+                  />
+                  <text class="svc-label" x="259" y="202" text-anchor="middle">
+                    Job run lease
+                  </text>
+                  <text class="svc-note" x="259" y="221" text-anchor="middle">
+                    token + monotonic fence
+                  </text>
+                  <text class="svc-note" x="259" y="238" text-anchor="middle">
+                    worker heartbeat
+                  </text>
+                  <path class="svc-line mint" d="M330 217 H360" />
+                  <rect
+                    class="svc-box host"
+                    x="360"
+                    y="178"
+                    width="142"
+                    height="78"
+                  />
+                  <text class="svc-label" x="431" y="202" text-anchor="middle">
+                    Job AgentSession
+                  </text>
+                  <text class="svc-note" x="431" y="221" text-anchor="middle">
+                    job-owned continuity
+                  </text>
+                  <text class="svc-note" x="431" y="238" text-anchor="middle">
+                    host-derived memory subject
+                  </text>
+                  <path class="svc-line" d="M502 217 H532" />
+                  <rect
+                    class="svc-box guard"
+                    x="532"
+                    y="178"
+                    width="158"
+                    height="78"
+                  />
+                  <text class="svc-label" x="611" y="202" text-anchor="middle">
+                    Governed runner
+                  </text>
+                  <text class="svc-note" x="611" y="221" text-anchor="middle">
+                    model + per-tool host gate
+                  </text>
+                  <text class="svc-note" x="611" y="238" text-anchor="middle">
+                    no job-local authority
+                  </text>
+                  <path class="svc-line rust" d="M690 217 H720" />
+                  <rect
+                    class="svc-box durable"
+                    x="720"
+                    y="178"
+                    width="152"
+                    height="78"
+                  />
+                  <text class="svc-label" x="796" y="202" text-anchor="middle">
+                    Terminal outcome
+                  </text>
+                  <text class="svc-note" x="796" y="221" text-anchor="middle">
+                    report + run events
+                  </text>
+                  <text class="svc-note" x="796" y="238" text-anchor="middle">
+                    one terminal notification
+                  </text>
+                  <path class="svc-line mint" d="M872 217 H902" />
+                  <rect
+                    class="svc-box async"
+                    x="902"
+                    y="178"
+                    width="182"
+                    height="78"
+                  />
+                  <text class="svc-label" x="993" y="202" text-anchor="middle">
+                    Advance schedule
+                  </text>
+                  <text class="svc-note" x="993" y="221" text-anchor="middle">
+                    cron → next occurrence
+                  </text>
+                  <text class="svc-note" x="993" y="238" text-anchor="middle">
+                    interval → next future anchor
+                  </text>
+
+                  <text class="svc-lane" x="16" y="301">FAILURE CONTROL</text>
+                  <path class="svc-line rust dashed" d="M972 118 V315 H832" />
+                  <rect
+                    class="svc-box guard"
+                    x="662"
+                    y="286"
+                    width="170"
+                    height="48"
+                  />
+                  <text class="svc-label" x="747" y="306" text-anchor="middle">
+                    Setup required
+                  </text>
+                  <text class="svc-note" x="747" y="323" text-anchor="middle">
+                    paused · next_run cleared
+                  </text>
+                  <path class="svc-line amber dashed" d="M259 256 V310 H374" />
+                  <rect
+                    class="svc-box async"
+                    x="374"
+                    y="286"
+                    width="170"
+                    height="48"
+                  />
+                  <text class="svc-label" x="459" y="306" text-anchor="middle">
+                    Expired lease recovery
+                  </text>
+                  <text class="svc-note" x="459" y="323" text-anchor="middle">
+                    release + higher fence retry
+                  </text>
+                  <path class="svc-line rust dashed" d="M796 256 V310 H1034" />
+                  <rect
+                    class="svc-box durable"
+                    x="914"
+                    y="286"
+                    width="170"
+                    height="48"
+                  />
+                  <text class="svc-label" x="999" y="306" text-anchor="middle">
+                    Dead-letter queue
+                  </text>
+                  <text class="svc-note" x="999" y="323" text-anchor="middle">
+                    inspectable terminal failure
+                  </text>
+                </svg>
+              </div>
+            </article>
+
+            <article class="service-card wide">
+              <div class="service-card-head">
+                <div class="service-index">S11</div>
+                <div>
+                  <h3>Memory + brain dreaming lifecycle</h3>
+                  <p>
+                    Treats every model proposal as untrusted, applies only
+                    host-validated safe mutations, and journals destructive
+                    changes for explicit review.
+                  </p>
+                </div>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/memory/app-memory-trigger-dreaming.ts"
+                  >app-memory-trigger-dreaming.ts ↗</a
+                >
+              </div>
+              <div class="service-canvas">
+                <svg
+                  class="service-svg"
+                  viewBox="0 0 1100 390"
+                  role="img"
+                  aria-labelledby="svc-dream-title svc-dream-desc"
+                >
+                  <title id="svc-dream-title">
+                    Memory and company brain dreaming lifecycle
+                  </title>
+                  <desc id="svc-dream-desc">
+                    Memory dreaming and company brain dreaming run as durable
+                    jobs with deadlines and cursors. Model proposals remain
+                    untrusted until deterministic host validation, after which
+                    safe additions may apply and destructive changes require a
+                    durable review decision.
+                  </desc>
+                  <text class="svc-lane" x="16" y="20">
+                    MEMORY DREAMING · SUBJECT-BOUNDARY MAINTENANCE
+                  </text>
+                  <rect
+                    class="svc-box async"
+                    x="16"
+                    y="34"
+                    width="128"
+                    height="84"
+                  />
+                  <text class="svc-label" x="80" y="56" text-anchor="middle">
+                    Trigger
+                  </text>
+                  <text class="svc-note" x="80" y="76" text-anchor="middle">
+                    scheduled · control
+                  </text>
+                  <text class="svc-note" x="80" y="93" text-anchor="middle">
+                    reviewed agent action
+                  </text>
+                  <text class="svc-note" x="80" y="109" text-anchor="middle">
+                    disabled by default
+                  </text>
+                  <path class="svc-line amber" d="M144 76 H174" />
+                  <rect
+                    class="svc-box guard"
+                    x="174"
+                    y="34"
+                    width="142"
+                    height="84"
+                  />
+                  <text class="svc-label" x="245" y="56" text-anchor="middle">
+                    Scope + deadline
+                  </text>
+                  <text class="svc-note" x="245" y="76" text-anchor="middle">
+                    app · agent · subject
+                  </text>
+                  <text class="svc-note" x="245" y="93" text-anchor="middle">
+                    one abortable timeout
+                  </text>
+                  <text class="svc-note" x="245" y="109" text-anchor="middle">
+                    thread excluded from scope
+                  </text>
+                  <path class="svc-line rust" d="M316 76 H346" />
+                  <rect
+                    class="svc-box durable"
+                    x="346"
+                    y="34"
+                    width="142"
+                    height="84"
+                  />
+                  <text class="svc-label" x="417" y="56" text-anchor="middle">
+                    Dream run lease
+                  </text>
+                  <text class="svc-note" x="417" y="76" text-anchor="middle">
+                    unique running scope
+                  </text>
+                  <text class="svc-note" x="417" y="93" text-anchor="middle">
+                    stale run expiry
+                  </text>
+                  <text class="svc-note" x="417" y="109" text-anchor="middle">
+                    durable summary on settle
+                  </text>
+                  <path class="svc-line mint" d="M488 76 H518" />
+                  <rect
+                    class="svc-box durable"
+                    x="518"
+                    y="34"
+                    width="142"
+                    height="84"
+                  />
+                  <text class="svc-label" x="589" y="56" text-anchor="middle">
+                    Grounded inputs
+                  </text>
+                  <text class="svc-note" x="589" y="76" text-anchor="middle">
+                    evidence + candidates
+                  </text>
+                  <text class="svc-note" x="589" y="93" text-anchor="middle">
+                    active items + patterns
+                  </text>
+                  <text class="svc-note" x="589" y="109" text-anchor="middle">
+                    current target versions
+                  </text>
+                  <path class="svc-line mint" d="M660 76 H690" />
+                  <rect
+                    class="svc-box"
+                    x="690"
+                    y="34"
+                    width="142"
+                    height="84"
+                  />
+                  <text class="svc-label" x="761" y="56" text-anchor="middle">
+                    Advisory models
+                  </text>
+                  <text class="svc-note" x="761" y="76" text-anchor="middle">
+                    dreaming proposals
+                  </text>
+                  <text class="svc-note" x="761" y="93" text-anchor="middle">
+                    consolidation proposals
+                  </text>
+                  <text class="svc-note" x="761" y="109" text-anchor="middle">
+                    strict untrusted JSON
+                  </text>
+                  <path class="svc-line" d="M832 76 H862" />
+                  <rect
+                    class="svc-box guard"
+                    x="862"
+                    y="26"
+                    width="222"
+                    height="100"
+                  />
+                  <text class="svc-label" x="973" y="50" text-anchor="middle">
+                    Deterministic host validation
+                  </text>
+                  <text class="svc-note" x="973" y="70" text-anchor="middle">
+                    evidence grounding · sensitive-data guard
+                  </text>
+                  <text class="svc-note" x="973" y="87" text-anchor="middle">
+                    subject scope · confidence · stale-version check
+                  </text>
+                  <text class="svc-note" x="973" y="104" text-anchor="middle">
+                    retire · rewrite · merge · contradiction → review
+                  </text>
+                  <text class="svc-note" x="973" y="119" text-anchor="middle">
+                    model output alone cannot mutate memory
+                  </text>
+
+                  <text class="svc-lane" x="16" y="166">
+                    MEMORY DECISION BRANCHES
+                  </text>
+                  <rect
+                    class="svc-box durable"
+                    x="16"
+                    y="184"
+                    width="180"
+                    height="78"
+                  />
+                  <text class="svc-label" x="106" y="208" text-anchor="middle">
+                    Safe promotion / update
+                  </text>
+                  <text class="svc-note" x="106" y="227" text-anchor="middle">
+                    revalidated candidate only
+                  </text>
+                  <text class="svc-note" x="106" y="244" text-anchor="middle">
+                    item embedding may be stored
+                  </text>
+                  <path
+                    class="svc-line mint dashed"
+                    d="M973 126 V150 H106 V184"
+                  />
+                  <rect
+                    class="svc-box durable"
+                    x="242"
+                    y="184"
+                    width="170"
+                    height="78"
+                  />
+                  <text class="svc-label" x="327" y="208" text-anchor="middle">
+                    Pending review row
+                  </text>
+                  <text class="svc-note" x="327" y="227" text-anchor="middle">
+                    proposed value + reason
+                  </text>
+                  <text class="svc-note" x="327" y="244" text-anchor="middle">
+                    stable subject-scoped id
+                  </text>
+                  <path
+                    class="svc-line rust dashed"
+                    d="M973 126 V166 H327 V184"
+                  />
+                  <path class="svc-line mint" d="M412 223 H442" />
+                  <rect
+                    class="svc-box guard"
+                    x="442"
+                    y="184"
+                    width="180"
+                    height="78"
+                  />
+                  <text class="svc-label" x="532" y="208" text-anchor="middle">
+                    Trusted reviewer
+                  </text>
+                  <text class="svc-note" x="532" y="227" text-anchor="middle">
+                    control approver identity
+                  </text>
+                  <text class="svc-note" x="532" y="244" text-anchor="middle">
+                    explicit approve / reject only
+                  </text>
+                  <path class="svc-line rust" d="M622 223 H652" />
+                  <rect
+                    class="svc-box guard"
+                    x="652"
+                    y="184"
+                    width="180"
+                    height="78"
+                  />
+                  <text class="svc-label" x="742" y="208" text-anchor="middle">
+                    Apply-time recheck
+                  </text>
+                  <text class="svc-note" x="742" y="227" text-anchor="middle">
+                    scope · status · target version
+                  </text>
+                  <text class="svc-note" x="742" y="244" text-anchor="middle">
+                    stale decision cannot mutate
+                  </text>
+                  <path class="svc-line rust" d="M832 223 H862" />
+                  <rect
+                    class="svc-box durable"
+                    x="862"
+                    y="184"
+                    width="222"
+                    height="78"
+                  />
+                  <text class="svc-label" x="973" y="208" text-anchor="middle">
+                    Decision + outcome ledger
+                  </text>
+                  <text class="svc-note" x="973" y="227" text-anchor="middle">
+                    applied · rejected · blocked · skipped
+                  </text>
+                  <text class="svc-note" x="973" y="244" text-anchor="middle">
+                    review count included in run summary
+                  </text>
+
+                  <text class="svc-lane" x="16" y="307">
+                    COMPANY BRAIN DREAMING · SEPARATE APP-SCOPED SYSTEM
+                  </text>
+                  <rect
+                    class="svc-box durable"
+                    x="16"
+                    y="324"
+                    width="164"
+                    height="52"
+                  />
+                  <text class="svc-label" x="98" y="345" text-anchor="middle">
+                    Pages since cursor
+                  </text>
+                  <text class="svc-note" x="98" y="363" text-anchor="middle">
+                    page + evidence graph
+                  </text>
+                  <path class="svc-line mint" d="M180 350 H210" />
+                  <rect
+                    class="svc-box"
+                    x="210"
+                    y="324"
+                    width="150"
+                    height="52"
+                  />
+                  <text class="svc-label" x="285" y="345" text-anchor="middle">
+                    Schema-bounded ops
+                  </text>
+                  <text class="svc-note" x="285" y="363" text-anchor="middle">
+                    proposer remains advisory
+                  </text>
+                  <path class="svc-line" d="M360 350 H390" />
+                  <rect
+                    class="svc-box guard"
+                    x="390"
+                    y="316"
+                    width="180"
+                    height="68"
+                  />
+                  <text class="svc-label" x="480" y="340" text-anchor="middle">
+                    Host validation
+                  </text>
+                  <text class="svc-note" x="480" y="359" text-anchor="middle">
+                    normalize ids · verify evidence
+                  </text>
+                  <text class="svc-note" x="480" y="376" text-anchor="middle">
+                    classify destructive action
+                  </text>
+                  <path class="svc-line mint" d="M570 336 H600" />
+                  <path class="svc-line rust" d="M570 364 H600" />
+                  <rect
+                    class="svc-box durable"
+                    x="600"
+                    y="308"
+                    width="180"
+                    height="52"
+                  />
+                  <text class="svc-label" x="690" y="329" text-anchor="middle">
+                    Additive operation
+                  </text>
+                  <text class="svc-note" x="690" y="347" text-anchor="middle">
+                    may apply after validation
+                  </text>
+                  <rect
+                    class="svc-box durable"
+                    x="600"
+                    y="366"
+                    width="180"
+                    height="20"
+                  />
+                  <text class="svc-note" x="690" y="380" text-anchor="middle">
+                    destructive → review journal
+                  </text>
+                  <path class="svc-line mint" d="M780 334 H810" />
+                  <path class="svc-line rust" d="M780 376 H810" />
+                  <rect
+                    class="svc-box durable"
+                    x="810"
+                    y="316"
+                    width="132"
+                    height="68"
+                  />
+                  <text class="svc-label" x="876" y="340" text-anchor="middle">
+                    Save cursor
+                  </text>
+                  <text class="svc-note" x="876" y="359" text-anchor="middle">
+                    only after page
+                  </text>
+                  <text class="svc-note" x="876" y="376" text-anchor="middle">
+                    outcome recorded
+                  </text>
+                  <path class="svc-line mint" d="M942 350 H972" />
+                  <rect
+                    class="svc-box async"
+                    x="972"
+                    y="324"
+                    width="112"
+                    height="52"
+                  />
+                  <text class="svc-label" x="1028" y="345" text-anchor="middle">
+                    Next batch
+                  </text>
+                  <text class="svc-note" x="1028" y="363" text-anchor="middle">
+                    bounded pages
+                  </text>
+                </svg>
+              </div>
+            </article>
           </div>
         </div>
       </section>
