@@ -115,3 +115,35 @@ Required corrections:
 8. Simpler alternative check: neither `mcp_call_tool` nor guided-action preview
    fits (one is a generic proxy, the other read-only). One structured capability
    dispatcher remains the smallest coherent solution.
+
+## Implementation review findings — CLIRUN-1-1 (must fix before stage-done)
+
+Local autoreview (codex gpt-5.6-sol high) of the CLIRUN-1-1 diff surfaced two
+real, verified findings. The diff is NOT committed until these are fixed.
+
+1. **[P1] TOCTOU: bind execution to the verified bytes.**
+   `resolveGrantedLocalCliInvocation` hashes the file at `executablePath`
+   (`structured-local-cli-invocation.ts` `verifyExecutableIdentity`), then the
+   sandbox spawns the SAME path string separately. A writable executable or a
+   symlink in its path can be swapped between verify and spawn, running
+   unverified bytes with the capability's credential-read paths and network
+   allowance. Fix: execute an immutable verified copy or fd — e.g. copy the
+   executable to a private per-invocation temp (dir 0700, file 0500), verify the
+   copy's hash, spawn the copy, clean up; or reject executables whose identity
+   cannot be made immutable across verify+spawn. Must integrate with the sandbox
+   provider's path access.
+
+2. **[P2] Cancel host execution when the MCP request expires.**
+   `ipc-capability-run-handler.ts` passes `new AbortController().signal` that is
+   never aborted, and the end-to-end host time (gateway setup + policy resolve +
+   hashing + the 120s sandbox timeout) is not bounded below the 125s MCP response
+   timeout — so a command can start or keep running after the caller has already
+   timed out, and a retry double-applies side effects (`sheets update`). Fix: one
+   end-to-end deadline shorter than the MCP timeout; thread the signal through
+   `runStructuredLocalCliCapability` into `runSandboxedAsyncCommand` (which must
+   abort the child on it); and refuse to launch if setup completes past the
+   deadline.
+
+Verdict: the structured-invocation direction and the argv-validation-via-existing-
+matcher approach are sound; these two are execution-binding/lifecycle corrections,
+not a redesign.

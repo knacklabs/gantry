@@ -53,13 +53,19 @@ export const DEFAULT_ASYNC_RESOURCE_LIMITS: RunnerSandboxResourceLimits = {
 export async function runSandboxedAsyncCommand(
   provider: RunnerSandboxProvider,
   input: {
-    command: string;
+    command?: string;
+    structuredCommand?: {
+      executable: string;
+      args: string[];
+    };
     cwd: string;
     env: NodeJS.ProcessEnv;
     timeoutMs: number;
     outputMaxBytes: number;
     protectedReadPaths: string[];
     protectedWritePaths: string[];
+    runtimeReadPaths?: string[];
+    runtimeWritePaths?: string[];
     allowedNetworkHosts: string[];
     egressProxyUrl?: string;
     resourceLimits: RunnerSandboxResourceLimits;
@@ -78,6 +84,20 @@ export async function runSandboxedAsyncCommand(
   },
 ): Promise<{ outputSummary?: string; errorSummary?: string }> {
   if (input.signal.aborted) throw new Error('Command aborted.');
+  const structuredCommand = input.structuredCommand;
+  if (
+    (!input.command && !structuredCommand) ||
+    (input.command && structuredCommand)
+  ) {
+    throw new Error(
+      'Sandboxed command requires exactly one command or structuredCommand.',
+    );
+  }
+  if (structuredCommand && input.launchControl) {
+    throw new Error(
+      'Structured sandboxed commands do not support the shell launch barrier.',
+    );
+  }
   const configFilePath = input.launchControl
     ? path.join(input.launchControl.directory, 'sandbox-runtime.json')
     : path.join(
@@ -85,8 +105,8 @@ export async function runSandboxedAsyncCommand(
         'sandbox-runtime.json',
       );
   const child = provider.start({
-    command: '/bin/sh',
-    args: ['-c', asyncCommandLaunchScript()],
+    command: structuredCommand?.executable ?? '/bin/sh',
+    args: structuredCommand?.args ?? ['-c', asyncCommandLaunchScript()],
     cwd: input.cwd,
     workspaceRoot: input.cwd,
     configFilePath,
@@ -94,10 +114,12 @@ export async function runSandboxedAsyncCommand(
     allowedNetworkHosts: input.allowedNetworkHosts,
     runtimeReadPaths: [
       input.cwd,
+      ...(input.runtimeReadPaths ?? []),
       ...(input.launchControl ? [input.launchControl.directory] : []),
     ],
     runtimeWritePaths: [
       input.cwd,
+      ...(input.runtimeWritePaths ?? []),
       ...(input.launchControl ? [input.launchControl.directory] : []),
     ],
     protectedReadPaths: input.protectedReadPaths,
@@ -134,7 +156,7 @@ export async function runSandboxedAsyncCommand(
             GANTRY_EGRESS_PROXY_URL: input.egressProxyUrl,
           }
         : {}),
-      GANTRY_ASYNC_COMMAND_SCRIPT: input.command,
+      ...(input.command ? { GANTRY_ASYNC_COMMAND_SCRIPT: input.command } : {}),
       ...(input.launchControl
         ? {
             GANTRY_ASYNC_LAUNCH_DIR: input.launchControl.directory,
