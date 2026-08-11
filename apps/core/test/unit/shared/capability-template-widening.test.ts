@@ -198,7 +198,7 @@ describe('observed argv redaction', () => {
         'Sheet1!A:B',
         '--token=abc123',
         '--api-key',
-        'sk-live-secret',
+        'test-secret-value',
         'A'.repeat(80),
         '--json',
       ]),
