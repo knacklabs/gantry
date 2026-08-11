@@ -171,3 +171,19 @@ Autoreview iterated three rounds on this task; the outcomes:
   attacker, and argv0 preservation for symlinked executables. Both are outside
   the agent threat model and do not affect the pilot; landing the dispatcher on
   the baseline is the smallest safe subset (scope-governor). Revisit per D-0056.
+
+## Whole-branch review — accepted residual
+
+The final whole-branch autoreview re-raised the executable-identity TOCTOU
+(owner-writable file + parent-directory-chain immutability) as a P1. This is the
+same item already triaged and DEFERRED as **D-0056** with explicit human sign-off
+("defer hardening, land the dispatcher"). It is out of the agent threat model:
+the swap requires a co-resident process running as the service user, or an actor
+who can write to a system directory — neither of which the sandboxed agent can
+do. The reviewer's suggested quick mitigation (reject owner-writable executables)
+would reject normal root-owned `0755` system binaries (including the `gog` pilot),
+so it is not viable; the real fix (immutable copy without breaking
+resource-dependent CLIs, or a full ancestor-writability walk / fd-binding) is the
+deferred D-0056 work. Landing the dispatcher on the current baseline — which fully
+constrains the agent — is the smallest safe subset. All other whole-branch
+findings (caller-lifetime deadline, arity-exact argv authorization) were fixed.
