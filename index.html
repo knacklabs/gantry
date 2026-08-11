@@ -3,538 +3,876 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="icon" href="data:," />
     <meta
       name="description"
-      content="A source-derived guide to the Gantry self-hosted agent runtime: architecture, features, security boundaries, data flow, APIs, and code map."
+      content="A source-derived, single-page technical guide to Gantry: its runtime architecture, trust boundaries, durable state, execution flow, permissions, delivery, recovery, and code map."
     />
-    <meta name="theme-color" content="#101612" />
-    <title>Gantry — Project & Architecture Explorer</title>
+    <meta name="theme-color" content="#e7ebe5" />
+    <title>Gantry — Runtime Architecture, From Message to Effect</title>
     <style>
       :root {
-        color-scheme: dark;
-        --ink: #f2f6ee;
-        --muted: #a9b6a8;
-        --faint: #6f7d71;
-        --line: rgba(232, 244, 226, 0.14);
-        --panel: rgba(19, 29, 23, 0.82);
-        --panel-2: #17231b;
-        --bg: #0d120f;
-        --accent: #ffc857;
-        --accent-2: #75d9c2;
-        --warn: #ffcb67;
-        --danger: #ff8f75;
-        --max: 1240px;
-        --radius: 18px;
+        color-scheme: light;
+        --paper: #e7ebe5;
+        --paper-deep: #dce2da;
+        --canvas: #f4f6f1;
+        --ink: #172326;
+        --muted: #5d6a6c;
+        --faint: #879193;
+        --line: #bdc8c5;
+        --line-strong: #81908e;
+        --cyan: #087d89;
+        --cyan-soft: #d7eef0;
+        --rust: #a94a35;
+        --rust-soft: #f5dfd8;
+        --amber: #b87916;
+        --amber-soft: #f4e8c9;
+        --mint: #287b61;
+        --mint-soft: #dceee7;
+        --navy: #173f50;
+        --white: #fbfcf8;
+        --shadow: 0 20px 60px rgba(31, 51, 51, 0.11);
+        --max: 1380px;
+        --radius: 12px;
       }
+
       * {
         box-sizing: border-box;
       }
+
       html {
         scroll-behavior: smooth;
       }
+
       body {
         margin: 0;
         color: var(--ink);
         background:
-          radial-gradient(
-            circle at 78% 4%,
-            rgba(117, 217, 194, 0.13),
-            transparent 28rem
-          ),
-          radial-gradient(
-            circle at 16% 14%,
-            rgba(255, 200, 87, 0.1),
-            transparent 25rem
-          ),
-          var(--bg);
+          linear-gradient(rgba(23, 35, 38, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(23, 35, 38, 0.035) 1px, transparent 1px),
+          var(--paper);
+        background-size: 24px 24px;
         font:
-          16px/1.65 ui-sans-serif,
+          16px/1.65 'Avenir Next',
+          'Segoe UI',
           system-ui,
           -apple-system,
           BlinkMacSystemFont,
-          'Segoe UI',
           sans-serif;
       }
+
       a {
         color: inherit;
       }
+
       a:focus-visible,
-      summary:focus-visible,
-      .search:focus-visible {
-        outline: 2px solid var(--accent);
+      button:focus-visible,
+      input:focus-visible,
+      summary:focus-visible {
+        outline: 3px solid rgba(8, 125, 137, 0.38);
         outline-offset: 4px;
       }
+
       code,
-      pre {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      pre,
+      .utility,
+      .eyebrow,
+      .step-no,
+      .tag,
+      .source-ref,
+      .nav-label {
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
       }
+
       .shell {
-        width: min(calc(100% - 32px), var(--max));
+        width: min(calc(100% - 36px), var(--max));
         margin: 0 auto;
       }
+
       .topbar {
         position: sticky;
         top: 0;
-        z-index: 20;
-        border-bottom: 1px solid var(--line);
-        background: rgba(13, 18, 15, 0.86);
+        z-index: 30;
+        border-bottom: 1px solid rgba(23, 35, 38, 0.15);
+        background: rgba(231, 235, 229, 0.9);
         backdrop-filter: blur(18px);
       }
+
       .topbar-inner {
-        min-height: 68px;
+        min-height: 66px;
         display: flex;
         align-items: center;
-        gap: 22px;
+        gap: 24px;
       }
+
       .brand {
-        display: flex;
+        display: inline-flex;
         align-items: center;
-        gap: 11px;
+        gap: 12px;
         text-decoration: none;
         font-weight: 760;
-        letter-spacing: -0.02em;
+        letter-spacing: -0.025em;
+        white-space: nowrap;
       }
-      .mark {
-        width: 31px;
-        height: 31px;
-        border-radius: 9px;
+
+      .brand-mark {
+        width: 35px;
+        height: 35px;
         display: grid;
         place-items: center;
-        color: #101612;
-        background: var(--accent);
+        color: var(--white);
+        background: var(--ink);
+        border-radius: 3px 12px 3px 3px;
         font:
-          900 17px/1 ui-monospace,
+          800 18px/1 'SFMono-Regular',
+          Consolas,
           monospace;
-        box-shadow: 0 0 34px rgba(255, 200, 87, 0.22);
       }
-      .nav {
+
+      nav {
         display: flex;
         align-items: center;
-        gap: 18px;
+        gap: 5px;
         margin-left: auto;
       }
-      .nav a {
+
+      nav a {
+        padding: 8px 10px;
         color: var(--muted);
+        border-radius: 6px;
         text-decoration: none;
-        font-size: 14px;
+        font-size: 13px;
+        font-weight: 680;
       }
-      .nav a.active {
-        color: var(--accent);
+
+      nav a:hover,
+      nav a.active {
+        color: var(--ink);
+        background: rgba(255, 255, 255, 0.52);
       }
+
       .search {
-        width: 220px;
+        width: 210px;
         padding: 9px 12px;
         color: var(--ink);
-        background: #111a14;
+        background: rgba(255, 255, 255, 0.58);
         border: 1px solid var(--line);
-        border-radius: 999px;
-        outline: none;
+        border-radius: 6px;
+        font: inherit;
+        font-size: 13px;
       }
-      .search:focus {
-        border-color: rgba(255, 200, 87, 0.7);
-        box-shadow: 0 0 0 3px rgba(255, 200, 87, 0.08);
-      }
+
       .hero {
-        padding: 92px 0 66px;
+        position: relative;
+        min-height: 690px;
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+        align-items: end;
+        gap: 56px;
+        padding: 115px 0 82px;
       }
+
+      .hero::before {
+        content: 'HOST AUTHORITY';
+        position: absolute;
+        top: 54px;
+        right: 0;
+        color: rgba(23, 35, 38, 0.055);
+        font:
+          900 clamp(80px, 13vw, 190px) / 0.8 'Arial Narrow',
+          'Avenir Next Condensed',
+          sans-serif;
+        letter-spacing: -0.065em;
+        writing-mode: vertical-rl;
+        pointer-events: none;
+      }
+
       .eyebrow {
-        color: var(--accent);
+        display: inline-flex;
+        gap: 10px;
+        align-items: center;
+        color: var(--cyan);
         text-transform: uppercase;
-        letter-spacing: 0.15em;
-        font-size: 12px;
+        letter-spacing: 0.12em;
+        font-size: 11px;
         font-weight: 800;
       }
+
+      .eyebrow::before {
+        content: '';
+        width: 28px;
+        height: 2px;
+        background: currentColor;
+      }
+
       h1,
       h2,
       h3 {
-        line-height: 1.08;
+        margin-top: 0;
+        line-height: 1.04;
         letter-spacing: -0.045em;
       }
+
       h1 {
-        max-width: 900px;
-        margin: 17px 0 22px;
-        font-size: clamp(48px, 8vw, 94px);
+        max-width: 940px;
+        margin: 22px 0 28px;
+        font-family:
+          'Arial Narrow', 'Avenir Next Condensed', 'Roboto Condensed',
+          sans-serif;
+        font-size: clamp(62px, 9.3vw, 132px);
+        font-stretch: condensed;
+        font-weight: 800;
+        line-height: 0.86;
+        text-transform: uppercase;
       }
-      h1 span {
-        color: var(--accent);
+
+      h1 em {
+        display: block;
+        color: var(--rust);
+        font-style: normal;
       }
+
       .lede {
         max-width: 790px;
-        color: #c6d0c4;
-        font-size: clamp(18px, 2vw, 23px);
-        line-height: 1.55;
+        margin: 0;
+        color: #3e4d50;
+        font-size: clamp(19px, 2vw, 24px);
+        line-height: 1.5;
       }
+
       .hero-actions {
         display: flex;
         flex-wrap: wrap;
-        gap: 12px;
-        margin-top: 30px;
+        gap: 10px;
+        margin-top: 32px;
       }
+
       .button {
+        min-height: 44px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        gap: 8px;
-        padding: 11px 16px;
-        border: 1px solid var(--line);
-        border-radius: 999px;
+        gap: 9px;
+        padding: 10px 15px;
+        color: var(--ink);
+        background: rgba(255, 255, 255, 0.55);
+        border: 1px solid var(--line-strong);
+        border-radius: 6px;
         text-decoration: none;
-        font-weight: 700;
-        font-size: 14px;
-        background: var(--panel);
-        transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1);
+        font-weight: 730;
+        transition:
+          transform 140ms ease,
+          background 140ms ease;
       }
+
+      .button:hover {
+        background: var(--white);
+        transform: translateY(-1px);
+      }
+
       .button.primary {
-        color: #0d120f;
-        background: var(--accent);
-        border-color: var(--accent);
+        color: var(--white);
+        background: var(--ink);
+        border-color: var(--ink);
       }
-      .button:active {
-        transform: scale(0.97);
-      }
-      .audit-strip {
-        display: grid;
-        grid-template-columns: repeat(5, 1fr);
-        gap: 1px;
-        margin-top: 62px;
-        overflow: hidden;
-        border: 1px solid var(--line);
-        border-radius: var(--radius);
-        background: var(--line);
-      }
-      .metric {
+
+      .hero-side {
+        position: relative;
+        z-index: 1;
         padding: 22px;
-        background: #111914;
+        background: rgba(244, 246, 241, 0.76);
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
       }
-      .metric strong {
-        display: block;
-        font-size: 26px;
-        letter-spacing: -0.04em;
+
+      .hero-side .utility {
+        color: var(--rust);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
       }
-      .metric span {
+
+      .manifest {
+        display: grid;
+        gap: 0;
+        margin: 18px 0 0;
+      }
+
+      .manifest div {
+        display: grid;
+        grid-template-columns: 110px 1fr;
+        gap: 14px;
+        padding: 12px 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .manifest dt {
         color: var(--faint);
         font-size: 12px;
         text-transform: uppercase;
-        letter-spacing: 0.09em;
+        letter-spacing: 0.08em;
       }
+
+      .manifest dd {
+        margin: 0;
+        font-weight: 650;
+      }
+
       section {
-        scroll-margin-top: 88px;
-        padding: 72px 0;
-        border-top: 1px solid var(--line);
+        scroll-margin-top: 82px;
+        padding: 92px 0;
+        border-top: 1px solid rgba(23, 35, 38, 0.18);
       }
+
       .section-head {
         display: grid;
-        grid-template-columns: 0.7fr 1.3fr;
-        gap: 50px;
-        margin-bottom: 34px;
+        grid-template-columns: minmax(280px, 0.75fr) minmax(0, 1.25fr);
+        gap: 70px;
+        align-items: end;
+        margin-bottom: 40px;
       }
+
       h2 {
-        margin: 0;
-        font-size: clamp(34px, 5vw, 59px);
+        margin: 16px 0 0;
+        font-family:
+          'Arial Narrow', 'Avenir Next Condensed', 'Roboto Condensed',
+          sans-serif;
+        font-size: clamp(46px, 6.6vw, 86px);
+        font-weight: 800;
+        line-height: 0.92;
+        text-transform: uppercase;
       }
+
       .section-copy {
-        max-width: 720px;
+        max-width: 780px;
+        margin: 0;
         color: var(--muted);
         font-size: 18px;
       }
-      .grid {
+
+      .diagram-frame {
+        overflow: hidden;
+        background: #f8faf6;
+        border: 1px solid var(--line-strong);
+        border-radius: 14px;
+        box-shadow: var(--shadow);
+      }
+
+      .diagram-toolbar {
+        min-height: 55px;
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+        padding: 10px 14px;
+        background: var(--ink);
+        color: var(--white);
+      }
+
+      .diagram-title {
+        margin-right: auto;
+        font-size: 13px;
+        font-weight: 740;
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        color: #d7e0de;
+        font:
+          11px/1.2 'SFMono-Regular',
+          Consolas,
+          monospace;
+      }
+
+      .legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .legend i {
+        width: 9px;
+        height: 9px;
+        display: inline-block;
+        border-radius: 50%;
+      }
+
+      .zoom-controls {
+        display: flex;
+        gap: 4px;
+        margin-left: 8px;
+      }
+
+      .zoom-controls button {
+        width: 31px;
+        height: 31px;
+        color: var(--white);
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 4px;
+        font:
+          700 14px/1 'SFMono-Regular',
+          Consolas,
+          monospace;
+        cursor: pointer;
+      }
+
+      .diagram-scroll {
+        overflow: auto;
+        padding: 12px;
+        background:
+          linear-gradient(rgba(23, 35, 38, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(23, 35, 38, 0.035) 1px, transparent 1px),
+          #f8faf6;
+        background-size: 20px 20px;
+      }
+
+      #runtime-diagram {
+        width: 100%;
+        min-width: 1540px;
+        height: auto;
+        display: block;
+        transform-origin: top left;
+        transition: width 160ms ease;
+      }
+
+      .diagram-caption {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 24px;
+        padding: 18px 20px;
+        color: var(--muted);
+        background: var(--canvas);
+        border-top: 1px solid var(--line);
+        font-size: 13px;
+      }
+
+      .diagram-caption strong {
+        color: var(--ink);
+      }
+
+      .source-ref {
+        white-space: nowrap;
+        color: var(--cyan);
+        font-size: 11px;
+      }
+
+      .callout-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
         gap: 14px;
+        margin-top: 22px;
       }
-      .card {
-        min-height: 190px;
-        padding: 24px;
+
+      .callout {
+        padding: 20px;
+        background: rgba(244, 246, 241, 0.7);
         border: 1px solid var(--line);
-        border-radius: var(--radius);
-        background: linear-gradient(
-          145deg,
-          rgba(24, 36, 28, 0.94),
-          rgba(17, 25, 20, 0.86)
-        );
+        border-left: 5px solid var(--cyan);
+        border-radius: 7px;
       }
-      .card .kicker {
-        color: var(--accent-2);
-        font:
-          700 12px/1.2 ui-monospace,
-          monospace;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
+
+      .callout:nth-child(2) {
+        border-left-color: var(--rust);
       }
-      .card h3 {
-        margin: 16px 0 10px;
-        font-size: 23px;
+
+      .callout:nth-child(3) {
+        border-left-color: var(--mint);
       }
-      .card p {
-        color: var(--muted);
-        margin: 0;
-      }
-      .architecture {
-        display: grid;
-        grid-template-columns: 1fr 70px 1fr 70px 1fr;
-        align-items: stretch;
-        gap: 0;
-      }
-      .layer {
-        display: grid;
-        gap: 10px;
-      }
-      .layer-title {
-        color: var(--faint);
+
+      .callout strong {
+        display: block;
         margin-bottom: 6px;
-        font:
-          700 12px/1 ui-monospace,
-          monospace;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
+        font-size: 15px;
       }
-      .node {
-        padding: 14px 15px;
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        background: var(--panel-2);
+
+      .callout p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
       }
-      .node strong {
-        display: block;
-        margin-bottom: 3px;
+
+      .walkthrough {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        border-top: 1px solid var(--line-strong);
+        border-left: 1px solid var(--line-strong);
       }
-      .node small {
+
+      .step {
+        min-height: 205px;
+        display: grid;
+        grid-template-columns: 74px 1fr;
+        gap: 18px;
+        padding: 24px;
+        background: rgba(244, 246, 241, 0.7);
+        border-right: 1px solid var(--line-strong);
+        border-bottom: 1px solid var(--line-strong);
+      }
+
+      .step-no {
+        color: var(--rust);
+        font-size: 30px;
+        font-weight: 850;
+        line-height: 1;
+      }
+
+      .step h3 {
+        margin-bottom: 9px;
+        font-size: 22px;
+      }
+
+      .step p {
+        margin: 0;
         color: var(--muted);
       }
-      .arrow {
-        display: grid;
-        place-items: center;
-        color: var(--accent);
-        font-size: 27px;
-      }
-      .flow {
-        display: grid;
-        grid-template-columns: repeat(7, minmax(120px, 1fr));
-        gap: 8px;
-        overflow-x: auto;
-        padding-bottom: 8px;
-      }
-      .flow-step {
-        position: relative;
-        min-height: 148px;
-        padding: 17px;
-        border: 1px solid var(--line);
-        border-radius: 14px;
-        background: #121b15;
-      }
-      .flow-step b {
-        display: block;
-        color: var(--accent);
-        font:
-          800 12px/1 ui-monospace,
-          monospace;
-        margin-bottom: 20px;
-      }
-      .flow-step strong {
-        display: block;
-        line-height: 1.25;
-      }
-      .flow-step small {
-        display: block;
-        color: var(--muted);
-        margin-top: 8px;
-        line-height: 1.45;
-      }
-      .flow-step:not(:last-child)::after {
-        content: '→';
-        position: absolute;
-        right: -8px;
-        top: 58px;
-        z-index: 2;
-        color: var(--accent);
-      }
-      .feature-list {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-      }
-      .feature {
-        padding: 18px 20px;
-        border: 1px solid var(--line);
-        border-radius: 14px;
-        background: rgba(18, 27, 21, 0.72);
-      }
-      .feature summary {
-        cursor: pointer;
-        font-weight: 760;
-        font-size: 18px;
-      }
-      .feature p {
-        color: var(--muted);
-        margin: 12px 0 0;
-      }
-      .tag {
+
+      .step .source-ref {
         display: inline-block;
-        margin: 8px 6px 0 0;
-        padding: 4px 8px;
-        color: var(--accent-2);
-        border: 1px solid rgba(117, 217, 194, 0.24);
-        border-radius: 999px;
-        font-size: 11px;
+        margin-top: 14px;
+        white-space: normal;
       }
-      .role-table {
-        width: 100%;
-        border-collapse: collapse;
-        overflow: hidden;
-        border-radius: 14px;
-      }
-      .role-table th,
-      .role-table td {
-        padding: 14px;
-        text-align: left;
-        border-bottom: 1px solid var(--line);
-      }
-      .role-table th {
-        color: var(--faint);
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-      }
-      .yes {
-        color: var(--accent);
-      }
-      .no {
-        color: var(--faint);
-      }
-      .security {
+
+      .boundary-grid {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
         gap: 12px;
       }
-      .security .card {
+
+      .boundary {
         min-height: 250px;
+        padding: 22px;
+        background: var(--canvas);
+        border: 1px solid var(--line);
+        border-top: 5px solid var(--cyan);
+        border-radius: 8px;
       }
+
+      .boundary:nth-child(2) {
+        border-top-color: var(--amber);
+      }
+
+      .boundary:nth-child(3) {
+        border-top-color: var(--rust);
+      }
+
+      .boundary:nth-child(4) {
+        border-top-color: var(--mint);
+      }
+
+      .boundary .utility {
+        color: var(--faint);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .boundary h3 {
+        margin: 14px 0 12px;
+        font-size: 24px;
+      }
+
+      .boundary p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .matrix-wrap {
+        overflow-x: auto;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: rgba(244, 246, 241, 0.74);
+      }
+
+      th,
+      td {
+        padding: 15px 17px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--muted);
+        background: rgba(220, 226, 218, 0.7);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.09em;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      td code {
+        color: var(--navy);
+        font-size: 12px;
+      }
+
+      .state-pill {
+        display: inline-block;
+        padding: 3px 7px;
+        color: var(--mint);
+        background: var(--mint-soft);
+        border-radius: 4px;
+        font:
+          700 10px/1.3 'SFMono-Regular',
+          Consolas,
+          monospace;
+        text-transform: uppercase;
+      }
+
+      .failure-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+      }
+
+      .failure {
+        display: grid;
+        grid-template-columns: 48px 1fr;
+        gap: 15px;
+        padding: 20px;
+        background: rgba(244, 246, 241, 0.74);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+
+      .failure b {
+        width: 38px;
+        height: 38px;
+        display: grid;
+        place-items: center;
+        color: var(--rust);
+        background: var(--rust-soft);
+        border-radius: 50%;
+        font-family: 'SFMono-Regular', Consolas, monospace;
+      }
+
+      .failure h3 {
+        margin-bottom: 7px;
+        font-size: 18px;
+      }
+
+      .failure p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
       .code-map {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
-        gap: 8px;
+        gap: 1px;
+        overflow: hidden;
+        background: var(--line-strong);
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
       }
+
       .path {
+        min-height: 100px;
         display: grid;
-        grid-template-columns: 240px 1fr;
-        gap: 16px;
-        padding: 13px 15px;
-        border: 1px solid var(--line);
-        border-radius: 12px;
+        grid-template-columns: minmax(210px, 0.8fr) 1.2fr;
+        gap: 20px;
+        align-items: center;
+        padding: 19px;
+        background: var(--canvas);
         text-decoration: none;
-        background: rgba(17, 25, 20, 0.7);
       }
+
+      .path:hover {
+        background: var(--cyan-soft);
+      }
+
       .path code {
-        color: var(--accent-2);
-        font-size: 12px;
+        color: var(--navy);
+        font-weight: 740;
       }
+
       .path span {
         color: var(--muted);
+        font-size: 14px;
       }
-      .checks {
+
+      .evidence-box {
         display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 14px;
+        grid-template-columns: 0.8fr 1.2fr;
+        gap: 50px;
+        padding: 32px;
+        color: var(--white);
+        background: var(--ink);
+        border-radius: 10px;
       }
-      .check {
-        padding: 22px;
-        border-radius: var(--radius);
-        border: 1px solid var(--line);
-        background: #121b15;
+
+      .evidence-box h3 {
+        margin-bottom: 12px;
+        font-size: 28px;
       }
-      .check.pass {
-        border-color: rgba(255, 200, 87, 0.28);
+
+      .evidence-box p {
+        margin: 0;
+        color: #bdcac8;
       }
-      .check.fail {
-        border-color: rgba(255, 143, 117, 0.33);
+
+      .evidence-list {
+        display: grid;
+        gap: 9px;
       }
-      .check h3 {
-        margin-top: 0;
+
+      .evidence-list a {
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 10px 0;
+        color: #d8e1df;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+        text-decoration: none;
+        font-size: 13px;
       }
-      .check ul {
-        padding-left: 20px;
-        color: var(--muted);
+
+      .evidence-list a:hover {
+        color: white;
       }
+
+      .evidence-list code {
+        color: #7dd1d8;
+      }
+
       footer {
-        padding: 50px 0 80px;
-        color: var(--faint);
-        border-top: 1px solid var(--line);
+        padding: 34px 0 50px;
+        color: var(--muted);
+        border-top: 1px solid rgba(23, 35, 38, 0.18);
+        font-size: 13px;
       }
+
+      .footer-inner {
+        display: flex;
+        justify-content: space-between;
+        gap: 28px;
+      }
+
       .hidden-by-search {
         display: none !important;
       }
-      @media (hover: hover) and (pointer: fine) {
-        .nav a:hover {
-          color: var(--accent);
-        }
-        .button:hover {
-          transform: translateY(-1px);
-        }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        html {
-          scroll-behavior: auto;
-        }
-        .button {
-          transition: none;
-        }
-      }
-      @media (max-width: 1000px) {
-        .nav a {
+
+      @media (max-width: 1080px) {
+        nav a {
           display: none;
         }
-        .audit-strip {
-          grid-template-columns: repeat(2, 1fr);
-        }
-        .grid,
-        .security {
-          grid-template-columns: repeat(2, 1fr);
-        }
-        .architecture {
+
+        .hero {
           grid-template-columns: 1fr;
-          gap: 10px;
+          min-height: auto;
+          padding-top: 88px;
         }
-        .arrow {
-          transform: rotate(90deg);
-          min-height: 35px;
+
+        .hero-side {
+          max-width: 620px;
         }
+
+        .boundary-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+
         .code-map {
           grid-template-columns: 1fr;
         }
       }
-      @media (max-width: 680px) {
+
+      @media (max-width: 760px) {
         .shell {
-          width: min(calc(100% - 22px), var(--max));
+          width: min(calc(100% - 24px), var(--max));
         }
+
         .topbar-inner {
-          min-height: 60px;
+          gap: 10px;
         }
+
         .brand span:last-child {
           display: none;
         }
+
         .search {
-          width: min(62vw, 250px);
+          width: min(210px, 62vw);
         }
+
         .hero {
-          padding-top: 64px;
+          gap: 34px;
+          padding: 74px 0 60px;
         }
-        .section-head {
+
+        .hero::before {
+          display: none;
+        }
+
+        h1 {
+          font-size: clamp(56px, 20vw, 92px);
+        }
+
+        section {
+          padding: 66px 0;
+        }
+
+        .section-head,
+        .evidence-box {
           grid-template-columns: 1fr;
-          gap: 18px;
+          gap: 24px;
         }
-        .grid,
-        .security,
-        .feature-list,
-        .checks {
+
+        .walkthrough,
+        .boundary-grid,
+        .failure-grid,
+        .callout-grid {
           grid-template-columns: 1fr;
         }
-        .audit-strip {
-          grid-template-columns: 1fr 1fr;
+
+        .step {
+          grid-template-columns: 54px 1fr;
         }
+
         .path {
           grid-template-columns: 1fr;
-          gap: 5px;
+          gap: 8px;
+        }
+
+        .diagram-caption {
+          grid-template-columns: 1fr;
+        }
+
+        .source-ref {
+          white-space: normal;
+        }
+
+        .legend {
+          width: 100%;
+          order: 3;
+        }
+
+        .footer-inner {
+          flex-direction: column;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        *,
+        *::before,
+        *::after {
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
         }
       }
     </style>
@@ -542,433 +880,1586 @@
   <body>
     <header class="topbar">
       <div class="shell topbar-inner">
-        <a class="brand" href="#top"
-          ><span class="mark">G</span><span>Gantry Explorer</span></a
-        >
-        <nav class="nav" aria-label="Project sections">
+        <a class="brand" href="#top">
+          <span class="brand-mark">G</span>
+          <span>Gantry runtime atlas</span>
+        </a>
+        <nav aria-label="Page sections">
           <a href="#architecture">Architecture</a>
-          <a href="#features">Features</a>
-          <a href="#security">Security</a>
+          <a href="#execution">Execution</a>
+          <a href="#authority">Authority</a>
+          <a href="#recovery">Recovery</a>
           <a href="#code">Code map</a>
-          <input
-            id="search"
-            class="search"
-            type="search"
-            placeholder="Search this guide…"
-            aria-label="Search this guide"
-          />
         </nav>
+        <input
+          id="search"
+          class="search"
+          type="search"
+          placeholder="Search this page…"
+          aria-label="Search this documentation"
+        />
       </div>
     </header>
 
     <main id="top">
       <div class="shell hero">
-        <div class="eyebrow">Source-derived project guide · main @ db41baa</div>
-        <h1>
-          The runtime between <span>AI intent</span> and real-world action.
-        </h1>
-        <p class="lede">
-          Gantry is a self-hosted, provider-neutral agent runtime. It accepts
-          work from chat, applications, schedules, and signed ingress; applies
-          memory, policy, permissions, sandboxing, and credential isolation;
-          then records the complete result in durable runtime state.
-        </p>
-        <div class="hero-actions">
-          <a class="button primary" href="#architecture"
-            >Explore the architecture</a
-          >
-          <a class="button" href="docs/CODEBASE_GUIDE.md"
-            >Read the developer guide</a
-          >
-        </div>
-        <div class="audit-strip" aria-label="Code audit statistics">
-          <div class="metric">
-            <strong>2,784</strong><span>tracked files</span>
-          </div>
-          <div class="metric">
-            <strong>792,712</strong><span>text lines scanned</span>
-          </div>
-          <div class="metric">
-            <strong>2,097</strong><span>source files parsed</span>
-          </div>
-          <div class="metric">
-            <strong>7,460</strong><span>unit tests passing</span>
-          </div>
-          <div class="metric">
-            <strong>120</strong><span>OpenAPI operations</span>
+        <div>
+          <div class="eyebrow">Source-derived runtime documentation</div>
+          <h1>Message <em>to effect.</em></h1>
+          <p class="lede">
+            Gantry is the trusted runtime between an agent’s intent and a
+            real-world action. This page traces the actual path: provider
+            ingress, canonical persistence, leased execution, model isolation,
+            per-call authorization, durable delivery, and crash recovery.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#architecture"
+              >Open the system map ↓</a
+            >
+            <a class="button" href="https://github.com/knacklabs/gantry"
+              >Inspect the repository ↗</a
+            >
           </div>
         </div>
+        <aside class="hero-side" aria-label="Documentation provenance">
+          <div class="utility">Evidence manifest</div>
+          <dl class="manifest">
+            <div>
+              <dt>Snapshot</dt>
+              <dd><code>8c463db</code></dd>
+            </div>
+            <div>
+              <dt>Authority</dt>
+              <dd>Production source, contracts, accepted decisions, tests</dd>
+            </div>
+            <div>
+              <dt>Scope</dt>
+              <dd>Interactive turns, jobs, tools, memory, delivery, fleet</dd>
+            </div>
+            <div>
+              <dt>Format</dt>
+              <dd>One page · one complete execution diagram</dd>
+            </div>
+          </dl>
+        </aside>
       </div>
 
       <section id="architecture" data-searchable>
         <div class="shell">
           <div class="section-head">
             <div>
-              <div class="eyebrow">System map</div>
-              <h2>Five boundaries, one runtime.</h2>
+              <div class="eyebrow">The execution interlock</div>
+              <h2>One run, every boundary.</h2>
             </div>
             <p class="section-copy">
-              Inputs are normalized before they reach execution. Model adapters
-              stay behind a provider-neutral contract. Every action crosses
-              policy, sandbox, credential, and audit boundaries owned by the
-              host.
+              Follow the solid numbered rail from an inbound message to its
+              delivery receipt. Dashed rails show side authority: settings,
+              secrets, human review, and recovery. The model never owns durable
+              state, credentials, permission settlement, or delivery.
             </p>
           </div>
-          <div class="architecture">
-            <div class="layer">
-              <div class="layer-title">Inputs</div>
-              <div class="node">
-                <strong>Human channels</strong
-                ><small
-                  >Slack, Telegram, Discord; Teams setup/discovery
-                  scaffold</small
+
+          <div class="diagram-frame">
+            <div class="diagram-toolbar">
+              <div class="diagram-title">
+                Gantry complete runtime path · interactive turn + shared job
+                spine
+              </div>
+              <div class="legend" aria-label="Diagram legend">
+                <span><i style="background: #087d89"></i>Main execution</span>
+                <span
+                  ><i style="background: #b87916"></i>Durable coordination</span
+                >
+                <span><i style="background: #a94a35"></i>Authority check</span>
+                <span
+                  ><i style="background: #287b61"></i>Persisted evidence</span
                 >
               </div>
-              <div class="node">
-                <strong>Product backends</strong
-                ><small>Node SDK, Control API, Unix socket or HTTP</small>
-              </div>
-              <div class="node">
-                <strong>Automation</strong
-                ><small>Jobs, signed ingress, direct LLM API</small>
+              <div class="zoom-controls" aria-label="Diagram zoom">
+                <button type="button" data-zoom="-0.1" aria-label="Zoom out">
+                  −
+                </button>
+                <button type="button" data-zoom="reset" aria-label="Reset zoom">
+                  1:1
+                </button>
+                <button type="button" data-zoom="0.1" aria-label="Zoom in">
+                  +
+                </button>
               </div>
             </div>
-            <div class="arrow" aria-hidden="true">→</div>
-            <div class="layer">
-              <div class="layer-title">Gantry host</div>
-              <div class="node">
-                <strong>Canonical intent</strong
-                ><small
-                  >App, agent, conversation, optional thread, session or
-                  job</small
+            <div class="diagram-scroll" id="diagram-scroll">
+              <svg
+                id="runtime-diagram"
+                viewBox="0 0 2200 1450"
+                role="img"
+                aria-labelledby="diagram-svg-title diagram-svg-desc"
+              >
+                <title id="diagram-svg-title">
+                  Complete Gantry execution architecture
+                </title>
+                <desc id="diagram-svg-desc">
+                  A detailed diagram showing inbound providers, canonical
+                  persistence, live admission, lease fencing, context assembly,
+                  isolated model execution, model credential brokering, tool
+                  permission evaluation, human approval, capability execution,
+                  durable output, delivery, runtime events, and recovery.
+                </desc>
+                <defs>
+                  <marker
+                    id="arrow-cyan"
+                    viewBox="0 0 10 10"
+                    refX="9"
+                    refY="5"
+                    markerWidth="7"
+                    markerHeight="7"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#087d89" />
+                  </marker>
+                  <marker
+                    id="arrow-rust"
+                    viewBox="0 0 10 10"
+                    refX="9"
+                    refY="5"
+                    markerWidth="7"
+                    markerHeight="7"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#a94a35" />
+                  </marker>
+                  <marker
+                    id="arrow-amber"
+                    viewBox="0 0 10 10"
+                    refX="9"
+                    refY="5"
+                    markerWidth="7"
+                    markerHeight="7"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#b87916" />
+                  </marker>
+                  <marker
+                    id="arrow-mint"
+                    viewBox="0 0 10 10"
+                    refX="9"
+                    refY="5"
+                    markerWidth="7"
+                    markerHeight="7"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#287b61" />
+                  </marker>
+                  <filter
+                    id="node-shadow"
+                    x="-20%"
+                    y="-20%"
+                    width="140%"
+                    height="160%"
+                  >
+                    <feDropShadow
+                      dx="0"
+                      dy="5"
+                      stdDeviation="6"
+                      flood-color="#172326"
+                      flood-opacity=".10"
+                    />
+                  </filter>
+                  <style>
+                    .lane {
+                      fill: #eef1eb;
+                      stroke: #bdc8c5;
+                      stroke-width: 1.5;
+                    }
+                    .lane.runner {
+                      fill: #e5edf0;
+                    }
+                    .lane.authority {
+                      fill: #f3e8e3;
+                    }
+                    .lane.evidence {
+                      fill: #e7eee9;
+                    }
+                    .lane-title {
+                      font:
+                        800 17px 'Arial Narrow',
+                        sans-serif;
+                      letter-spacing: 1.8px;
+                      fill: #172326;
+                    }
+                    .lane-note {
+                      font:
+                        12px 'SFMono-Regular',
+                        monospace;
+                      fill: #6f7b7d;
+                    }
+                    .node rect {
+                      fill: #fbfcf8;
+                      stroke: #81908e;
+                      stroke-width: 1.4;
+                      rx: 8;
+                      filter: url(#node-shadow);
+                    }
+                    .node.durable rect {
+                      fill: #f7ebcb;
+                      stroke: #b87916;
+                    }
+                    .node.policy rect {
+                      fill: #f7e0da;
+                      stroke: #a94a35;
+                    }
+                    .node.store rect {
+                      fill: #dfeee8;
+                      stroke: #287b61;
+                    }
+                    .node.runner rect {
+                      fill: #dcecf0;
+                      stroke: #087d89;
+                    }
+                    .node-title {
+                      font:
+                        750 16px 'Avenir Next',
+                        'Segoe UI',
+                        sans-serif;
+                      fill: #172326;
+                    }
+                    .node-copy {
+                      font:
+                        12.5px 'Avenir Next',
+                        'Segoe UI',
+                        sans-serif;
+                      fill: #5d6a6c;
+                    }
+                    .node-code {
+                      font:
+                        11px 'SFMono-Regular',
+                        monospace;
+                      fill: #087d89;
+                    }
+                    .rail {
+                      fill: none;
+                      stroke: #087d89;
+                      stroke-width: 3;
+                      marker-end: url(#arrow-cyan);
+                    }
+                    .rail.rust {
+                      stroke: #a94a35;
+                      marker-end: url(#arrow-rust);
+                    }
+                    .rail.amber {
+                      stroke: #b87916;
+                      marker-end: url(#arrow-amber);
+                    }
+                    .rail.mint {
+                      stroke: #287b61;
+                      marker-end: url(#arrow-mint);
+                    }
+                    .rail.dashed {
+                      stroke-dasharray: 8 7;
+                      stroke-width: 2.2;
+                    }
+                    .rail-label {
+                      font:
+                        700 11px 'SFMono-Regular',
+                        monospace;
+                      fill: #536164;
+                    }
+                    .step-badge {
+                      fill: #172326;
+                    }
+                    .step-text {
+                      font:
+                        800 12px 'SFMono-Regular',
+                        monospace;
+                      fill: #fbfcf8;
+                      text-anchor: middle;
+                      dominant-baseline: middle;
+                    }
+                    .boundary-line {
+                      stroke: #a94a35;
+                      stroke-width: 2;
+                      stroke-dasharray: 5 7;
+                    }
+                    .boundary-label {
+                      font:
+                        800 10px 'SFMono-Regular',
+                        monospace;
+                      letter-spacing: 1px;
+                      fill: #a94a35;
+                    }
+                  </style>
+                </defs>
+
+                <!-- Lanes -->
+                <rect
+                  class="lane"
+                  x="18"
+                  y="44"
+                  width="2164"
+                  height="225"
+                  rx="12"
+                />
+                <text class="lane-title" x="42" y="78">
+                  A · INGRESS &amp; CANONICAL INTENT
+                </text>
+                <text class="lane-note" x="42" y="99">
+                  Untrusted provider payload ends at the adapter boundary.
+                </text>
+
+                <rect
+                  class="lane"
+                  x="18"
+                  y="286"
+                  width="2164"
+                  height="300"
+                  rx="12"
+                />
+                <text class="lane-title" x="42" y="320">
+                  B · DURABLE HOST COORDINATION
+                </text>
+                <text class="lane-note" x="42" y="341">
+                  Postgres state decides what work exists, who owns it, and
+                  which generation may settle it.
+                </text>
+
+                <rect
+                  class="lane runner"
+                  x="18"
+                  y="603"
+                  width="2164"
+                  height="265"
+                  rx="12"
+                />
+                <text class="lane-title" x="42" y="637">
+                  C · ISOLATED EXECUTION &amp; MODEL ACCESS
+                </text>
+                <text class="lane-note" x="42" y="658">
+                  The runner receives a per-run projection—not the durable
+                  secret or settings stores.
+                </text>
+
+                <rect
+                  class="lane authority"
+                  x="18"
+                  y="885"
+                  width="2164"
+                  height="300"
+                  rx="12"
+                />
+                <text class="lane-title" x="42" y="919">
+                  D · PER-CALL AUTHORITY &amp; EFFECTS
+                </text>
+                <text class="lane-note" x="42" y="940">
+                  Every consequential tool request returns to the trusted host
+                  before execution.
+                </text>
+
+                <rect
+                  class="lane evidence"
+                  x="18"
+                  y="1202"
+                  width="2164"
+                  height="220"
+                  rx="12"
+                />
+                <text class="lane-title" x="42" y="1236">
+                  E · DURABLE OUTPUT, DELIVERY &amp; RECOVERY
+                </text>
+                <text class="lane-note" x="42" y="1257">
+                  A visible reply and a completed run are separate, recorded
+                  outcomes.
+                </text>
+
+                <!-- Ingress nodes -->
+                <g class="node" transform="translate(55 126)">
+                  <rect width="235" height="108" />
+                  <text class="node-title" x="18" y="28">Inbound surfaces</text>
+                  <text class="node-copy" x="18" y="53">
+                    Slack · Discord · Telegram
+                  </text>
+                  <text class="node-copy" x="18" y="72">
+                    SDK/App · Control API
+                  </text>
+                  <text class="node-copy" x="18" y="91">
+                    Signed ingress · scheduler
+                  </text>
+                </g>
+                <g class="node" transform="translate(370 126)">
+                  <rect width="245" height="108" />
+                  <text class="node-title" x="18" y="28">Provider adapter</text>
+                  <text class="node-copy" x="18" y="53">
+                    Verify account / transport
+                  </text>
+                  <text class="node-copy" x="18" y="72">
+                    Normalize sender, parts, files
+                  </text>
+                  <text class="node-code" x="18" y="93">ChannelProvider</text>
+                </g>
+                <g class="node" transform="translate(695 126)">
+                  <rect width="255" height="108" />
+                  <text class="node-title" x="18" y="28">Resolve route</text>
+                  <text class="node-copy" x="18" y="53">
+                    App + provider account
+                  </text>
+                  <text class="node-copy" x="18" y="72">
+                    Conversation + thread + agent
+                  </text>
+                  <text class="node-copy" x="18" y="91">
+                    Sender / trigger policy
+                  </text>
+                </g>
+                <g class="node durable" transform="translate(1030 126)">
+                  <rect width="300" height="108" />
+                  <text class="node-title" x="18" y="28">
+                    Atomic canonical commit
+                  </text>
+                  <text class="node-copy" x="18" y="53">
+                    Conversation graph + message + parts
+                  </text>
+                  <text class="node-copy" x="18" y="72">
+                    Participants + admission work row
+                  </text>
+                  <text class="node-code" x="18" y="93">
+                    durability before execution
+                  </text>
+                </g>
+                <g class="node durable" transform="translate(1410 126)">
+                  <rect width="260" height="108" />
+                  <text class="node-title" x="18" y="28">
+                    Wake live admission
+                  </text>
+                  <text class="node-copy" x="18" y="53">
+                    LISTEN / NOTIFY is a hint
+                  </text>
+                  <text class="node-copy" x="18" y="72">
+                    Due-row scan is authoritative
+                  </text>
+                  <text class="node-code" x="18" y="93">
+                    claim after commit
+                  </text>
+                </g>
+                <g class="node durable" transform="translate(1750 126)">
+                  <rect width="365" height="108" />
+                  <text class="node-title" x="18" y="28">
+                    Jobs join the same spine
+                  </text>
+                  <text class="node-copy" x="18" y="53">
+                    Recurring / one-time / maintenance runs
+                  </text>
+                  <text class="node-copy" x="18" y="72">
+                    use leases, access snapshots, runner, tools
+                  </text>
+                  <text class="node-code" x="18" y="93">
+                    different admission · same authority
+                  </text>
+                </g>
+
+                <!-- Main ingress rails -->
+                <path class="rail" d="M290 180 H370" />
+                <path class="rail" d="M615 180 H695" />
+                <path class="rail" d="M950 180 H1030" />
+                <path class="rail amber" d="M1330 180 H1410" />
+                <path class="rail amber dashed" d="M1885 234 V362 H1635" />
+
+                <!-- Number badges -->
+                <g transform="translate(321 180)">
+                  <circle class="step-badge" r="15" />
+                  <text class="step-text">01</text>
+                </g>
+                <g transform="translate(655 180)">
+                  <circle class="step-badge" r="15" />
+                  <text class="step-text">02</text>
+                </g>
+                <g transform="translate(990 180)">
+                  <circle class="step-badge" r="15" />
+                  <text class="step-text">03</text>
+                </g>
+
+                <!-- Coordination nodes -->
+                <g class="node durable" transform="translate(145 382)">
+                  <rect width="270" height="125" />
+                  <text class="node-title" x="18" y="29">
+                    Claim due admission
+                  </text>
+                  <text class="node-copy" x="18" y="55">
+                    Reserve host + worker capacity
+                  </text>
+                  <text class="node-copy" x="18" y="75">
+                    Check unique active scope
+                  </text>
+                  <text class="node-copy" x="18" y="95">
+                    Overload leaves row claimable
+                  </text>
+                  <text class="node-code" x="18" y="116">
+                    live-admission-work-loop
+                  </text>
+                </g>
+                <g class="node durable" transform="translate(500 382)">
+                  <rect width="275" height="125" />
+                  <text class="node-title" x="18" y="29">
+                    Lease + fencing generation
+                  </text>
+                  <text class="node-copy" x="18" y="55">
+                    Claim run lease and slots
+                  </text>
+                  <text class="node-copy" x="18" y="75">
+                    Heartbeat while owner is live
+                  </text>
+                  <text class="node-copy" x="18" y="95">
+                    Stale owner cannot finalize
+                  </text>
+                  <text class="node-code" x="18" y="116">
+                    run_leases · run_slots
+                  </text>
+                </g>
+                <g class="node" transform="translate(860 382)">
+                  <rect width="280" height="125" />
+                  <text class="node-title" x="18" y="29">
+                    Authoritative context fetch
+                  </text>
+                  <text class="node-copy" x="18" y="55">
+                    Re-read current messages
+                  </text>
+                  <text class="node-copy" x="18" y="75">
+                    Bounded channel + thread history
+                  </text>
+                  <text class="node-copy" x="18" y="95">
+                    Resolve canonical AgentSession
+                  </text>
+                  <text class="node-code" x="18" y="116">
+                    no stale admission cursor
+                  </text>
+                </g>
+                <g class="node store" transform="translate(1225 382)">
+                  <rect width="280" height="125" />
+                  <text class="node-title" x="18" y="29">Memory hydration</text>
+                  <text class="node-copy" x="18" y="55">
+                    App + agent + subject scope
+                  </text>
+                  <text class="node-copy" x="18" y="75">
+                    Lexical baseline; optional vector
+                  </text>
+                  <text class="node-copy" x="18" y="95">
+                    Injected as bounded untrusted data
+                  </text>
+                  <text class="node-code" x="18" y="116">
+                    hydrate once per inbound turn
+                  </text>
+                </g>
+                <g class="node durable" transform="translate(1590 382)">
+                  <rect width="290" height="125" />
+                  <text class="node-title" x="18" y="29">
+                    Immutable run projection
+                  </text>
+                  <text class="node-copy" x="18" y="55">
+                    Persona + model + prompt
+                  </text>
+                  <text class="node-copy" x="18" y="75">
+                    Skills + MCP + tools + browser
+                  </text>
+                  <text class="node-copy" x="18" y="95">
+                    Sandbox + permission snapshot
+                  </text>
+                  <text class="node-code" x="18" y="116">
+                    one access fingerprint
+                  </text>
+                </g>
+                <g class="node policy" transform="translate(1940 382)">
+                  <rect width="175" height="125" />
+                  <text class="node-title" x="16" y="29">Active turn?</text>
+                  <text class="node-copy" x="16" y="55">Append ordered</text>
+                  <text class="node-copy" x="16" y="74">
+                    continuation / stop /
+                  </text>
+                  <text class="node-copy" x="16" y="93">
+                    interaction command
+                  </text>
+                  <text class="node-code" x="16" y="115">owner inbox</text>
+                </g>
+
+                <path class="rail amber" d="M1540 234 V330 H280 V382" />
+                <path class="rail amber" d="M415 444 H500" />
+                <path class="rail amber" d="M775 444 H860" />
+                <path class="rail" d="M1140 444 H1225" />
+                <path class="rail" d="M1505 444 H1590" />
+                <path class="rail rust dashed" d="M415 414 H1980 V382" />
+                <text class="rail-label" x="1810" y="402">
+                  scope already owned
+                </text>
+                <path class="rail rust dashed" d="M2025 507 V548 H650 V507" />
+                <text class="rail-label" x="1095" y="542">
+                  durable command pump → current fenced owner
+                </text>
+                <g transform="translate(458 444)">
+                  <circle class="step-badge" r="15" />
+                  <text class="step-text">04</text>
+                </g>
+                <g transform="translate(818 444)">
+                  <circle class="step-badge" r="15" />
+                  <text class="step-text">05</text>
+                </g>
+                <g transform="translate(1182 444)">
+                  <circle class="step-badge" r="15" />
+                  <text class="step-text">06</text>
+                </g>
+
+                <!-- Runner nodes -->
+                <line
+                  class="boundary-line"
+                  x1="820"
+                  y1="662"
+                  x2="820"
+                  y2="843"
+                />
+                <text
+                  class="boundary-label"
+                  x="806"
+                  y="835"
+                  transform="rotate(-90 806 835)"
                 >
-              </div>
-              <div class="node">
-                <strong>Durable admission</strong
-                ><small>Queues, claims, leases, fencing and recovery</small>
-              </div>
-              <div class="node">
-                <strong>Context composition</strong
-                ><small
-                  >Prompt, digests, memory, tools, skills and current
-                  policy</small
-                >
-              </div>
+                  TRUSTED HOST / CHILD RUNNER
+                </text>
+                <g class="node runner" transform="translate(175 691)">
+                  <rect width="300" height="120" />
+                  <text class="node-title" x="18" y="29">
+                    Execution adapter
+                  </text>
+                  <text class="node-copy" x="18" y="55">
+                    Choose compatible harness
+                  </text>
+                  <text class="node-copy" x="18" y="75">
+                    Claude Agent SDK or DeepAgents
+                  </text>
+                  <text class="node-code" x="18" y="101">
+                    provider-neutral contract
+                  </text>
+                </g>
+                <g class="node runner" transform="translate(525 691)">
+                  <rect width="245" height="120" />
+                  <text class="node-title" x="18" y="29">
+                    Spawn &amp; supervise
+                  </text>
+                  <text class="node-copy" x="18" y="55">
+                    Materialized run config
+                  </text>
+                  <text class="node-copy" x="18" y="75">
+                    Direct or sandbox_runtime
+                  </text>
+                  <text class="node-code" x="18" y="101">
+                    child process + signed IPC
+                  </text>
+                </g>
+                <g class="node runner" transform="translate(880 691)">
+                  <rect width="290" height="120" />
+                  <text class="node-title" x="18" y="29">Agent loop</text>
+                  <text class="node-copy" x="18" y="55">
+                    Interpret prompt + context
+                  </text>
+                  <text class="node-copy" x="18" y="75">
+                    Stream text or request a tool
+                  </text>
+                  <text class="node-code" x="18" y="101">
+                    no durable authority
+                  </text>
+                </g>
+                <g class="node policy" transform="translate(1265 691)">
+                  <rect width="290" height="120" />
+                  <text class="node-title" x="18" y="29">
+                    Loopback model gateway
+                  </text>
+                  <text class="node-copy" x="18" y="55">
+                    Validate short-lived run token
+                  </text>
+                  <text class="node-copy" x="18" y="75">
+                    Resolve route + inject real secret
+                  </text>
+                  <text class="node-code" x="18" y="101">
+                    usage + upstream audit
+                  </text>
+                </g>
+                <g class="node" transform="translate(1650 691)">
+                  <rect width="265" height="120" />
+                  <text class="node-title" x="18" y="29">Model provider</text>
+                  <text class="node-copy" x="18" y="55">
+                    Anthropic / OpenAI-compatible /
+                  </text>
+                  <text class="node-copy" x="18" y="75">
+                    Bedrock / Vertex / configured route
+                  </text>
+                  <text class="node-code" x="18" y="101">HTTPS upstream</text>
+                </g>
+                <g class="node store" transform="translate(1970 691)">
+                  <rect width="145" height="120" />
+                  <text class="node-title" x="15" y="29">Secret store</text>
+                  <text class="node-copy" x="15" y="55">Encrypted model</text>
+                  <text class="node-copy" x="15" y="74">credentials stay</text>
+                  <text class="node-copy" x="15" y="93">host-side</text>
+                </g>
+
+                <path class="rail" d="M1735 507 V630 H325 V691" />
+                <path class="rail" d="M475 751 H525" />
+                <path class="rail" d="M770 751 H880" />
+                <path class="rail" d="M1170 724 H1265" />
+                <path class="rail" d="M1555 751 H1650" />
+                <path class="rail rust dashed" d="M1970 751 H1915" />
+                <text class="rail-label" x="1942" y="742">broker</text>
+                <path class="rail" d="M1650 790 H1555" />
+                <path class="rail" d="M1265 790 H1170" />
+                <g transform="translate(500 751)">
+                  <circle class="step-badge" r="15" />
+                  <text class="step-text">07</text>
+                </g>
+                <g transform="translate(1217 724)">
+                  <circle class="step-badge" r="15" />
+                  <text class="step-text">08</text>
+                </g>
+
+                <!-- Authority nodes -->
+                <g class="node policy" transform="translate(100 978)">
+                  <rect width="245" height="135" />
+                  <text class="node-title" x="18" y="29">Tool request</text>
+                  <text class="node-copy" x="18" y="55">
+                    Canonical name + arguments
+                  </text>
+                  <text class="node-copy" x="18" y="75">
+                    Run / agent / conversation identity
+                  </text>
+                  <text class="node-copy" x="18" y="95">
+                    Signed IPC or MCP facade
+                  </text>
+                  <text class="node-code" x="18" y="118">
+                    host re-evaluates every call
+                  </text>
+                </g>
+                <g class="node policy" transform="translate(415 965)">
+                  <rect width="370" height="160" />
+                  <text class="node-title" x="18" y="29">
+                    Tool gate · strongest rule wins
+                  </text>
+                  <text class="node-copy" x="18" y="55">
+                    1. hard deny / protected targets
+                  </text>
+                  <text class="node-copy" x="18" y="76">
+                    2. locked preset + fixed-image limits
+                  </text>
+                  <text class="node-copy" x="18" y="97">
+                    3. reviewed semantic capability
+                  </text>
+                  <text class="node-copy" x="18" y="118">
+                    4. deterministic argument / egress rails
+                  </text>
+                  <text class="node-copy" x="18" y="139">
+                    5. optional risk advice; failure asks
+                  </text>
+                </g>
+                <g class="node policy" transform="translate(855 978)">
+                  <rect width="275" height="135" />
+                  <text class="node-title" x="18" y="29">
+                    Durable interaction
+                  </text>
+                  <text class="node-copy" x="18" y="55">
+                    If no rule allows: request approval
+                  </text>
+                  <text class="node-copy" x="18" y="75">
+                    Authorized control approver decides
+                  </text>
+                  <text class="node-copy" x="18" y="95">
+                    Allow once ≠ durable authority
+                  </text>
+                  <text class="node-code" x="18" y="118">
+                    pending_interactions
+                  </text>
+                </g>
+                <g class="node store" transform="translate(1200 978)">
+                  <rect width="250" height="135" />
+                  <text class="node-title" x="18" y="29">
+                    Capability adapters
+                  </text>
+                  <text class="node-copy" x="18" y="55">
+                    Gantry tools · MCP · browser
+                  </text>
+                  <text class="node-copy" x="18" y="75">
+                    files · commands · delegation
+                  </text>
+                  <text class="node-copy" x="18" y="95">
+                    credential lane rechecked
+                  </text>
+                  <text class="node-code" x="18" y="118">
+                    execute only after allow
+                  </text>
+                </g>
+                <g class="node" transform="translate(1520 978)">
+                  <rect width="245" height="135" />
+                  <text class="node-title" x="18" y="29">
+                    Real-world effect
+                  </text>
+                  <text class="node-copy" x="18" y="55">
+                    Remote MCP / browser / API
+                  </text>
+                  <text class="node-copy" x="18" y="75">
+                    filesystem / approved process
+                  </text>
+                  <text class="node-copy" x="18" y="95">
+                    network host allowlist
+                  </text>
+                  <text class="node-code" x="18" y="118">untrusted target</text>
+                </g>
+                <g class="node durable" transform="translate(1835 978)">
+                  <rect width="280" height="135" />
+                  <text class="node-title" x="18" y="29">
+                    Settlement to runner
+                  </text>
+                  <text class="node-copy" x="18" y="55">
+                    Tool result / denied / cancelled
+                  </text>
+                  <text class="node-copy" x="18" y="75">
+                    Interaction resolution is ordered
+                  </text>
+                  <text class="node-copy" x="18" y="95">
+                    Agent may continue or finish
+                  </text>
+                  <text class="node-code" x="18" y="118">
+                    fenced command + runtime event
+                  </text>
+                </g>
+
+                <path class="rail rust" d="M1025 811 V938 H222 V978" />
+                <path class="rail rust" d="M345 1045 H415" />
+                <path class="rail rust dashed" d="M785 1045 H855" />
+                <text class="rail-label" x="797" y="1034">ask</text>
+                <path class="rail rust dashed" d="M1130 1045 H1200" />
+                <text class="rail-label" x="1140" y="1034">allow</text>
+                <path class="rail mint" d="M785 1085 H1200" />
+                <text class="rail-label" x="950" y="1076">
+                  existing reviewed allow
+                </text>
+                <path class="rail mint" d="M1450 1045 H1520" />
+                <path class="rail amber" d="M1765 1045 H1835" />
+                <path class="rail amber" d="M1975 978 V930 H1025 V811" />
+                <text class="rail-label" x="1450" y="923">
+                  result returns to the same run
+                </text>
+                <g transform="translate(380 1045)">
+                  <circle class="step-badge" r="15" />
+                  <text class="step-text">09</text>
+                </g>
+                <g transform="translate(1485 1045)">
+                  <circle class="step-badge" r="15" />
+                  <text class="step-text">10</text>
+                </g>
+
+                <!-- Evidence and delivery nodes -->
+                <g class="node store" transform="translate(85 1290)">
+                  <rect width="290" height="95" />
+                  <text class="node-title" x="18" y="28">
+                    Persist generation
+                  </text>
+                  <text class="node-copy" x="18" y="53">
+                    Assistant message + usage + events
+                  </text>
+                  <text class="node-code" x="18" y="76">
+                    before run finalization
+                  </text>
+                </g>
+                <g class="node store" transform="translate(455 1290)">
+                  <rect width="285" height="95" />
+                  <text class="node-title" x="18" y="28">
+                    Outbound delivery queue
+                  </text>
+                  <text class="node-copy" x="18" y="53">
+                    Plan segments + idempotency key
+                  </text>
+                  <text class="node-code" x="18" y="76">
+                    claim / retry / partial tail
+                  </text>
+                </g>
+                <g class="node store" transform="translate(820 1290)">
+                  <rect width="270" height="95" />
+                  <text class="node-title" x="18" y="28">
+                    Provider delivery
+                  </text>
+                  <text class="node-copy" x="18" y="53">
+                    Exact account + conversation + thread
+                  </text>
+                  <text class="node-code" x="18" y="76">
+                    format · chunk · attach · send
+                  </text>
+                </g>
+                <g class="node store" transform="translate(1170 1290)">
+                  <rect width="250" height="95" />
+                  <text class="node-title" x="18" y="28">
+                    Receipt + terminal state
+                  </text>
+                  <text class="node-copy" x="18" y="53">
+                    sent / partial / retry / failed
+                  </text>
+                  <text class="node-code" x="18" y="76">fenced finalize</text>
+                </g>
+                <g class="node durable" transform="translate(1500 1290)">
+                  <rect width="260" height="95" />
+                  <text class="node-title" x="18" y="28">
+                    Recovery coordinator
+                  </text>
+                  <text class="node-copy" x="18" y="53">
+                    Reclaim expired lease / due work
+                  </text>
+                  <text class="node-code" x="18" y="76">higher fence wins</text>
+                </g>
+                <g class="node store" transform="translate(1840 1290)">
+                  <rect width="275" height="95" />
+                  <text class="node-title" x="18" y="28">
+                    Durable observers
+                  </text>
+                  <text class="node-copy" x="18" y="53">
+                    SDK wait/list · SSE · webhooks · audit
+                  </text>
+                  <text class="node-code" x="18" y="76">
+                    runtime_events are not commands
+                  </text>
+                </g>
+
+                <path class="rail mint" d="M1025 811 V1258 H230 V1290" />
+                <path class="rail mint" d="M375 1337 H455" />
+                <path class="rail mint" d="M740 1337 H820" />
+                <path class="rail mint" d="M1090 1337 H1170" />
+                <path
+                  class="rail amber dashed"
+                  d="M1630 1290 V1170 H620 V1125"
+                />
+                <path class="rail amber dashed" d="M1630 1290 V570 H640 V507" />
+                <path class="rail mint dashed" d="M1420 1337 H1840" />
+                <g transform="translate(415 1337)">
+                  <circle class="step-badge" r="15" />
+                  <text class="step-text">11</text>
+                </g>
+                <g transform="translate(1130 1337)">
+                  <circle class="step-badge" r="15" />
+                  <text class="step-text">12</text>
+                </g>
+
+                <!-- Side authority: settings -->
+                <g class="node store" transform="translate(1910 548)">
+                  <rect width="205" height="105" />
+                  <text class="node-title" x="16" y="27">
+                    Settings revisions
+                  </text>
+                  <text class="node-copy" x="16" y="51">
+                    Postgres desired state
+                  </text>
+                  <text class="node-copy" x="16" y="70">
+                    ordered fleet projection
+                  </text>
+                  <text class="node-code" x="16" y="92">
+                    last-good on failure
+                  </text>
+                </g>
+                <path class="rail mint dashed" d="M1910 600 H1735 V507" />
+              </svg>
             </div>
-            <div class="arrow" aria-hidden="true">→</div>
-            <div class="layer">
-              <div class="layer-title">Execution & evidence</div>
-              <div class="node">
-                <strong>Model adapters</strong
-                ><small>Claude Agent SDK or DeepAgents + LangChain</small>
-              </div>
-              <div class="node">
-                <strong>Controlled capabilities</strong
-                ><small
-                  >Gantry tools, Browser, MCP, skills, approved commands</small
-                >
-              </div>
-              <div class="node">
-                <strong>Durable result</strong
-                ><small
-                  >Postgres events, messages, runs, usage, delivery and
-                  audit</small
-                >
-              </div>
+            <div class="diagram-caption">
+              <span>
+                <strong>Reading rule:</strong> a provider notification may wake
+                work, a model may propose work, and a classifier may rate work;
+                only durable host state and deterministic policy authorize it.
+              </span>
+              <span class="source-ref">source snapshot · 8c463db</span>
             </div>
+          </div>
+
+          <div class="callout-grid">
+            <article class="callout">
+              <strong>Durability precedes side effects.</strong>
+              <p>
+                Gantry commits the canonical message and admission row before a
+                worker may call a model or tool. NOTIFY improves latency; it
+                does not become the source of truth.
+              </p>
+            </article>
+            <article class="callout">
+              <strong>The runner is powerful, not authoritative.</strong>
+              <p>
+                It receives a bounded projection and short-lived gateway token.
+                Host-owned secrets, reviewed capabilities, and settlements stay
+                outside the child process.
+              </p>
+            </article>
+            <article class="callout">
+              <strong>Completion has two dimensions.</strong>
+              <p>
+                Generation can complete while delivery is partial or failed.
+                Gantry persists text, delivery items, receipts, and the fenced
+                run outcome separately.
+              </p>
+            </article>
           </div>
         </div>
       </section>
 
-      <section id="flow" data-searchable>
+      <section id="execution" data-searchable>
         <div class="shell">
           <div class="section-head">
             <div>
-              <div class="eyebrow">Interactive turn</div>
-              <h2>How one message becomes a governed run.</h2>
+              <div class="eyebrow">Execution walkthrough</div>
+              <h2>The diagram, unpacked.</h2>
             </div>
             <p class="section-copy">
-              The same execution spine serves provider chat, SDK sessions, and
-              application work.
+              These twelve checkpoints correspond to the numbered rail above.
+              Each names the implementation seam that owns the behavior.
             </p>
           </div>
-          <div class="flow">
-            <div class="flow-step">
-              <b>01</b><strong>Normalize</strong
-              ><small
-                >Provider payload becomes canonical app, conversation, thread
-                and sender identity.</small
-              >
-            </div>
-            <div class="flow-step">
-              <b>02</b><strong>Persist</strong
-              ><small
-                >The message is durable before model execution is
-                admitted.</small
-              >
-            </div>
-            <div class="flow-step">
-              <b>03</b><strong>Claim</strong
-              ><small
-                >Queue capacity and Postgres lease fencing serialize the live
-                scope.</small
-              >
-            </div>
-            <div class="flow-step">
-              <b>04</b><strong>Compose</strong
-              ><small
-                >Current agent config, memory, session continuity and
-                capabilities are loaded.</small
-              >
-            </div>
-            <div class="flow-step">
-              <b>05</b><strong>Execute</strong
-              ><small
-                >The compatible model harness starts or resumes a provider
-                session.</small
-              >
-            </div>
-            <div class="flow-step">
-              <b>06</b><strong>Authorize</strong
-              ><small
-                >Each risky tool call is allowed, reviewed, or denied by host
-                policy.</small
-              >
-            </div>
-            <div class="flow-step">
-              <b>07</b><strong>Deliver</strong
-              ><small
-                >Text streams out; final answer, usage, events and receipts
-                become durable.</small
-              >
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="features" data-searchable>
-        <div class="shell">
-          <div class="section-head">
-            <div>
-              <div class="eyebrow">Feature catalog</div>
-              <h2>What the code actually ships.</h2>
-            </div>
-            <p class="section-copy">
-              Open a feature to see its runtime contract. Labels describe
-              current implementation, not roadmap intent.
-            </p>
-          </div>
-          <div class="feature-list">
-            <details class="feature" open>
-              <summary>Three execution surfaces</summary>
-              <p>
-                Sandboxed worker agents, lightweight inline agents, and
-                provider-shaped direct LLM endpoints all share credential and
-                audit authority.
-              </p>
-              <span class="tag">worker</span><span class="tag">inline</span
-              ><span class="tag">direct API</span>
-            </details>
-            <details class="feature">
-              <summary>Provider-neutral model routing</summary>
-              <p>
-                Friendly aliases resolve through a 68-entry catalog across 13
-                providers. Compatible harness selection is derived and validated
-                before spawn.
-              </p>
-              <span class="tag">Anthropic SDK</span
-              ><span class="tag">DeepAgents</span
-              ><span class="tag">Model Gateway</span>
-            </details>
-            <details class="feature">
-              <summary>Conversation and channel routing</summary>
-              <p>
-                Slack, Telegram, Discord and the internal App provider are
-                active. Microsoft Teams is currently setup/discovery-only.
-              </p>
-              <span class="tag">DM</span><span class="tag">channel</span
-              ><span class="tag">thread/topic</span>
-            </details>
-            <details class="feature">
-              <summary>Capability and approval policy</summary>
-              <p>
-                Sources install functionality; versioned capabilities grant
-                authority. Signed IPC and durable pending interactions keep
-                agents from approving themselves.
-              </p>
-              <span class="tag">Allow once</span
-              ><span class="tag">granular grant</span
-              ><span class="tag">locked preset</span>
-            </details>
-            <details class="feature">
-              <summary>Browser automation</summary>
-              <p>
-                A canonical Browser capability projects signed tools into
-                host-managed visible Chrome profiles with CDP, site policy,
-                bounded artifacts and fleet snapshots.
-              </p>
-              <span class="tag">visible Chrome</span
-              ><span class="tag">persistent profiles</span>
-            </details>
-            <details class="feature">
-              <summary>Skills, MCP and approved commands</summary>
-              <p>
-                Reviewed skill artifacts and MCP definitions are inventory until
-                selected. Raw provider tools and raw MCP configuration are never
-                durable authority.
-              </p>
-              <span class="tag">reviewed artifacts</span
-              ><span class="tag">tool allowlists</span>
-            </details>
-            <details class="feature">
-              <summary>Scoped memory and dreaming</summary>
-              <p>
-                Memory is app + agent + user/channel scoped. Lexical recall is
-                always active; optional vectors are fused at read time. Dreaming
-                owns automatic durable promotion.
-              </p>
-              <span class="tag">digests</span><span class="tag">evidence</span
-              ><span class="tag">reviews</span>
-            </details>
-            <details class="feature">
-              <summary>Company brain and observer</summary>
-              <p>
-                Brain pages, entities, edges and embeddings form an
-                organizational knowledge layer. Observer digests surface
-                reviewed proactive insights.
-              </p>
-              <span class="tag">knowledge graph</span
-              ><span class="tag">insights</span>
-            </details>
-            <details class="feature">
-              <summary>Durable jobs and delegation</summary>
-              <p>
-                Jobs carry schedules, setup state, leases, runs and delivery
-                targets. Agent delegation and async tasks use host-owned durable
-                lifecycle rows.
-              </p>
-              <span class="tag">pg-boss trigger</span
-              ><span class="tag">Gantry run evidence</span>
-            </details>
-            <details class="feature">
-              <summary>SDK, events, webhooks and ingress</summary>
-              <p>
-                Backends use typed sessions and numbered runtime events.
-                Webhooks are outbound callbacks; signed ingresses are narrow
-                inbound authority.
-              </p>
-              <span class="tag">SSE</span><span class="tag">HMAC</span
-              ><span class="tag">dead letter</span>
-            </details>
-          </div>
-        </div>
-      </section>
-
-      <section id="security" data-searchable>
-        <div class="shell">
-          <div class="section-head">
-            <div>
-              <div class="eyebrow">Security model</div>
-              <h2>Authority stays in the host.</h2>
-            </div>
-            <p class="section-copy">
-              Model output, providers, browser backends, MCP servers, tools and
-              worker processes are treated as untrusted execution surfaces.
-            </p>
-          </div>
-          <div class="security">
-            <article class="card">
-              <div class="kicker">Identity</div>
-              <h3>Who is asking?</h3>
-              <p>
-                App ownership, sender policy, conversation membership and
-                control approvers are checked independently.
-              </p>
+          <div class="walkthrough">
+            <article class="step">
+              <div class="step-no">01</div>
+              <div>
+                <h3>Normalize the provider event</h3>
+                <p>
+                  A channel adapter verifies its Provider Account and converts
+                  native IDs, sender, text, parts, attachments, and thread
+                  metadata into Gantry’s canonical envelope.
+                </p>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/tree/8c463db/apps/core/src/channels"
+                >
+                  channels/ · channel-provider.ts ↗
+                </a>
+              </div>
             </article>
-            <article class="card">
-              <div class="kicker">Authority</div>
-              <h3>What may run?</h3>
-              <p>
-                Only selected, versioned capabilities and current granular rules
-                can authorize an action.
-              </p>
+            <article class="step">
+              <div class="step-no">02</div>
+              <div>
+                <h3>Resolve identity and reply eligibility</h3>
+                <p>
+                  Routing binds app, provider account, conversation, thread,
+                  installed agent, sender policy, and trigger. Every registered
+                  message may be stored even when it cannot start a reply.
+                </p>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/runtime/live-turn-routing.ts"
+                >
+                  runtime/live-turn-routing.ts ↗
+                </a>
+              </div>
             </article>
-            <article class="card">
-              <div class="kicker">Containment</div>
-              <h3>Where can it run?</h3>
-              <p>
-                Enforcing sandbox providers, protected paths, egress policy and
-                bounded IPC constrain execution.
-              </p>
+            <article class="step">
+              <div class="step-no">03</div>
+              <div>
+                <h3>Commit intent and work together</h3>
+                <p>
+                  Conversation graph state, message, parts, participants, and
+                  live-admission work are committed before the wakeup. A missed
+                  notification cannot erase the durable row.
+                </p>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/application/external-ingress/conversation-message-ingress.ts"
+                >
+                  conversation-message-ingress.ts ↗
+                </a>
+              </div>
             </article>
-            <article class="card">
-              <div class="kicker">Secrets</div>
-              <h3>Which credential lane?</h3>
-              <p>
-                Model tokens stay behind the loopback gateway. Tool credentials
-                use separate reviewed capability bindings.
-              </p>
+            <article class="step">
+              <div class="step-no">04</div>
+              <div>
+                <h3>Claim capacity, scope, and lease</h3>
+                <p>
+                  Admission atomically reserves worker/host slots, enforces one
+                  active turn per durable scope, and issues a monotonically
+                  fenced run lease.
+                </p>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/application/live-turns/live-turn-lease-service.ts"
+                >
+                  live-turn-lease-service.ts ↗
+                </a>
+              </div>
+            </article>
+            <article class="step">
+              <div class="step-no">05</div>
+              <div>
+                <h3>Fetch current context after admission</h3>
+                <p>
+                  The owner re-reads messages rather than trusting an earlier
+                  cursor, then builds bounded thread and background-channel
+                  context around the canonical AgentSession.
+                </p>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/runtime/group-processing-flow.ts"
+                >
+                  runtime/group-processing-flow.ts ↗
+                </a>
+              </div>
+            </article>
+            <article class="step">
+              <div class="step-no">06</div>
+              <div>
+                <h3>Freeze the run’s capability view</h3>
+                <p>
+                  Gantry resolves persona, model, prompt, memory, skills, MCP
+                  sources, tools, browser/files, sandbox, and permissions into
+                  one immutable access snapshot and fingerprint.
+                </p>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/runtime/agent-spawn-runtime-policy.ts"
+                >
+                  agent-spawn-runtime-policy.ts ↗
+                </a>
+              </div>
+            </article>
+            <article class="step">
+              <div class="step-no">07</div>
+              <div>
+                <h3>Materialize and supervise the runner</h3>
+                <p>
+                  The provider-neutral adapter selects Claude Agent SDK or
+                  DeepAgents, writes per-run files, constructs protected paths,
+                  then starts direct or outer-sandboxed execution.
+                </p>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/application/agent-execution/agent-execution-adapter.ts"
+                >
+                  agent-execution-adapter.ts ↗
+                </a>
+              </div>
+            </article>
+            <article class="step">
+              <div class="step-no">08</div>
+              <div>
+                <h3>Broker model access through loopback</h3>
+                <p>
+                  The child sees a short-lived Gantry token. The gateway
+                  validates scope, chooses the approved upstream, injects the
+                  real encrypted credential, and records normalized usage.
+                </p>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/adapters/llm/anthropic-claude-agent/gantry-model-gateway.ts"
+                >
+                  gantry-model-gateway.ts ↗
+                </a>
+              </div>
+            </article>
+            <article class="step">
+              <div class="step-no">09</div>
+              <div>
+                <h3>Re-authorize every tool request</h3>
+                <p>
+                  The host applies hard denies, deployment restrictions,
+                  reviewed authority, deterministic rails, optional risk advice,
+                  and durable human review in strongest-wins order.
+                </p>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/runner/tool-gate-core.ts"
+                >
+                  runner/tool-gate-core.ts ↗
+                </a>
+              </div>
+            </article>
+            <article class="step">
+              <div class="step-no">10</div>
+              <div>
+                <h3>Execute through a capability adapter</h3>
+                <p>
+                  Only an allowed request reaches Gantry tools, remote MCP,
+                  browser, files, approved commands, or delegation. Credential
+                  and network bindings are rechecked at the concrete target.
+                </p>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/shared/capability-runtime-access.ts"
+                >
+                  shared/capability-runtime-access.ts ↗
+                </a>
+              </div>
+            </article>
+            <article class="step">
+              <div class="step-no">11</div>
+              <div>
+                <h3>Persist output before finalization</h3>
+                <p>
+                  Streaming may be visible early, but the assistant generation,
+                  normalized usage, provider session metadata, and runtime
+                  events become canonical before the fenced run settles.
+                </p>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/runtime/group-agent-runner.ts"
+                >
+                  runtime/group-agent-runner.ts ↗
+                </a>
+              </div>
+            </article>
+            <article class="step">
+              <div class="step-no">12</div>
+              <div>
+                <h3>Deliver idempotently and record the truth</h3>
+                <p>
+                  Delivery is planned into bounded items, claimed, sent through
+                  the exact Provider Account, and settled as sent, partial,
+                  retryable, or terminally failed with a receipt.
+                </p>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/application/outbound-delivery/outbound-delivery-service.ts"
+                >
+                  outbound-delivery-service.ts ↗
+                </a>
+              </div>
             </article>
           </div>
         </div>
       </section>
 
-      <section id="roles" data-searchable>
+      <section id="authority" data-searchable>
         <div class="shell">
           <div class="section-head">
             <div>
-              <div class="eyebrow">Deployment</div>
-              <h2>One process locally, split roles in a fleet.</h2>
+              <div class="eyebrow">Trust model</div>
+              <h2>Four things the model cannot grant itself.</h2>
             </div>
             <p class="section-copy">
-              Role capabilities are data-driven and fail closed. Worker roles
-              mount only operations routes.
+              Gantry separates identity, durable ownership, selected authority,
+              and execution containment. A persuasive prompt or successful
+              classifier cannot collapse those boundaries.
             </p>
           </div>
-          <div style="overflow-x: auto">
-            <table class="role-table">
+          <div class="boundary-grid">
+            <article class="boundary">
+              <div class="utility">Identity</div>
+              <h3>Who and where?</h3>
+              <p>
+                App ownership, provider account, conversation route, sender
+                policy, thread identity, installed agent, and control approvers
+                are resolved independently.
+              </p>
+            </article>
+            <article class="boundary">
+              <div class="utility">Ownership</div>
+              <h3>Which generation?</h3>
+              <p>
+                Capacity slots, unique live scope, lease token, worker identity,
+                and fencing version decide which process may act and settle.
+              </p>
+            </article>
+            <article class="boundary">
+              <div class="utility">Authority</div>
+              <h3>Which exact action?</h3>
+              <p>
+                Versioned semantic capabilities and granular rules are durable
+                authority. Inventory, prompts, skill text, MCP metadata, and
+                classifier output are not.
+              </p>
+            </article>
+            <article class="boundary">
+              <div class="utility">Containment</div>
+              <h3>Inside which boundary?</h3>
+              <p>
+                Protected paths, signed IPC, outer sandboxing, egress policy,
+                credential brokering, and bounded artifacts constrain the
+                execution surface.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="state" data-searchable>
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Durable state map</div>
+              <h2>What survives the process.</h2>
+            </div>
+            <p class="section-copy">
+              Postgres is the coordination and product-state authority. Local
+              files may be projections or workstation artifacts; fleet workers
+              require shared visibility for claimable work.
+            </p>
+          </div>
+          <div class="matrix-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>State family</th>
+                  <th>Representative durable records</th>
+                  <th>Why it exists</th>
+                  <th>Authority</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Conversation graph</td>
+                  <td>
+                    <code
+                      >conversations, messages, parts, participants,
+                      routes</code
+                    >
+                  </td>
+                  <td>
+                    Canonical provider-neutral history and routing identity.
+                  </td>
+                  <td><span class="state-pill">product truth</span></td>
+                </tr>
+                <tr>
+                  <td>Live execution</td>
+                  <td>
+                    <code
+                      >live_admission_work, live_turns, live_turn_commands</code
+                    >
+                  </td>
+                  <td>
+                    Durable work, unique active scope, and ordered follow-up
+                    control.
+                  </td>
+                  <td><span class="state-pill">coordination</span></td>
+                </tr>
+                <tr>
+                  <td>Fleet fencing</td>
+                  <td><code>run_leases, run_slots, worker_instances</code></td>
+                  <td>
+                    Capacity, heartbeat, stale-owner rejection, and takeover.
+                  </td>
+                  <td><span class="state-pill">ownership</span></td>
+                </tr>
+                <tr>
+                  <td>Agent continuity</td>
+                  <td>
+                    <code>agent_sessions, agent_runs, provider sessions</code>
+                  </td>
+                  <td>
+                    Stable agent/session identity and provider resume metadata.
+                  </td>
+                  <td><span class="state-pill">execution</span></td>
+                </tr>
+                <tr>
+                  <td>Authority</td>
+                  <td>
+                    <code
+                      >capabilities, agent bindings, tool rules,
+                      pending_interactions</code
+                    >
+                  </td>
+                  <td>
+                    Reviewed grants, transient approvals, questions, and
+                    terminal decisions.
+                  </td>
+                  <td><span class="state-pill">policy</span></td>
+                </tr>
+                <tr>
+                  <td>Jobs</td>
+                  <td>
+                    <code>jobs, job_runs, schedules, execution context</code>
+                  </td>
+                  <td>
+                    Recurring and one-time work with the same runner/tool
+                    boundary.
+                  </td>
+                  <td><span class="state-pill">automation</span></td>
+                </tr>
+                <tr>
+                  <td>Output evidence</td>
+                  <td>
+                    <code
+                      >runtime_events, outbound deliveries, items,
+                      receipts</code
+                    >
+                  </td>
+                  <td>
+                    Inspectable progress, result, retries, partial sends, and
+                    terminal delivery.
+                  </td>
+                  <td><span class="state-pill">audit</span></td>
+                </tr>
+                <tr>
+                  <td>Knowledge</td>
+                  <td>
+                    <code
+                      >memory items/evidence/reviews; brain
+                      pages/entities/edges</code
+                    >
+                  </td>
+                  <td>
+                    Scoped recall and a separate app-level company knowledge
+                    system.
+                  </td>
+                  <td><span class="state-pill">context</span></td>
+                </tr>
+                <tr>
+                  <td>Desired state</td>
+                  <td>
+                    <code>settings revisions and worker projection status</code>
+                  </td>
+                  <td>
+                    Ordered fleet configuration with last-good behavior on
+                    incompatible updates.
+                  </td>
+                  <td><span class="state-pill">control plane</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="recovery" data-searchable>
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Failure semantics</div>
+              <h2>Crashes become state transitions.</h2>
+            </div>
+            <p class="section-copy">
+              Gantry’s recovery story is not “retry everything.” It preserves
+              idempotency, checks ownership, raises the fence, and records when
+              delivery or authority remains unresolved.
+            </p>
+          </div>
+          <div class="failure-grid">
+            <article class="failure">
+              <b>A</b>
+              <div>
+                <h3>Notification is missed</h3>
+                <p>
+                  The durable admission row remains due; the scanner claims it
+                  later.
+                </p>
+              </div>
+            </article>
+            <article class="failure">
+              <b>B</b>
+              <div>
+                <h3>Worker loses its lease</h3>
+                <p>
+                  A recovery owner takes a higher fencing generation; stale
+                  settlement fails.
+                </p>
+              </div>
+            </article>
+            <article class="failure">
+              <b>C</b>
+              <div>
+                <h3>Follow-up reaches another worker</h3>
+                <p>
+                  It appends a sequenced command to the durable owner inbox.
+                </p>
+              </div>
+            </article>
+            <article class="failure">
+              <b>D</b>
+              <div>
+                <h3>Approval crosses restart</h3>
+                <p>
+                  The pending interaction survives and resolves into the current
+                  owner’s fence.
+                </p>
+              </div>
+            </article>
+            <article class="failure">
+              <b>E</b>
+              <div>
+                <h3>Provider delivery is partial</h3>
+                <p>
+                  The sent prefix and retry tail settle separately; duplicates
+                  stay bounded.
+                </p>
+              </div>
+            </article>
+            <article class="failure">
+              <b>F</b>
+              <div>
+                <h3>Settings projection fails</h3>
+                <p>
+                  The worker retains last-good state and stays unready until
+                  forward correction.
+                </p>
+              </div>
+            </article>
+            <article class="failure">
+              <b>G</b>
+              <div>
+                <h3>Embedding provider is unavailable</h3>
+                <p>
+                  Turn-time memory falls back to lexical recall; backfill can
+                  resume later.
+                </p>
+              </div>
+            </article>
+            <article class="failure">
+              <b>H</b>
+              <div>
+                <h3>Tool policy cannot decide safely</h3>
+                <p>
+                  Classifier or metadata failure asks or denies—it does not
+                  silently allow.
+                </p>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="deployment" data-searchable>
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Deployment topology</div>
+              <h2>One binary, four process roles.</h2>
+            </div>
+            <p class="section-copy">
+              Workstation mode can run every surface in one process. Fleet mode
+              separates control, live, and job responsibilities while Postgres
+              leases and settings revisions coordinate them.
+            </p>
+          </div>
+          <div class="matrix-wrap">
+            <table>
               <thead>
                 <tr>
                   <th>Role</th>
-                  <th>Full API</th>
+                  <th>Control API</th>
                   <th>Live turns</th>
                   <th>Jobs</th>
                   <th>Provider inbound</th>
-                  <th>Bake / reconcile</th>
+                  <th>Desired-state work</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
                   <td><code>all</code></td>
-                  <td class="yes">Yes</td>
-                  <td class="yes">Yes</td>
-                  <td class="yes">Yes</td>
-                  <td class="yes">Yes</td>
-                  <td class="yes">Yes</td>
+                  <td>Full</td>
+                  <td>Yes</td>
+                  <td>Yes</td>
+                  <td>Yes</td>
+                  <td>Bake + reconcile</td>
                 </tr>
                 <tr>
                   <td><code>control</code></td>
-                  <td class="yes">Yes</td>
-                  <td class="no">No</td>
-                  <td class="no">No</td>
-                  <td class="no">No</td>
-                  <td class="no">No</td>
+                  <td>Full</td>
+                  <td>No</td>
+                  <td>No</td>
+                  <td>No</td>
+                  <td>Control-plane writes</td>
                 </tr>
                 <tr>
                   <td><code>live-worker</code></td>
-                  <td>Ops only</td>
-                  <td class="yes">Yes</td>
-                  <td class="no">No</td>
-                  <td class="yes">Yes</td>
+                  <td>Operations only</td>
+                  <td>Yes</td>
+                  <td>No</td>
+                  <td>Yes</td>
                   <td>Reconcile</td>
                 </tr>
                 <tr>
                   <td><code>job-worker</code></td>
-                  <td>Ops only</td>
-                  <td class="no">No</td>
-                  <td class="yes">Yes</td>
-                  <td class="no">No</td>
-                  <td class="yes">Yes</td>
+                  <td>Operations only</td>
+                  <td>No</td>
+                  <td>Yes</td>
+                  <td>No</td>
+                  <td>Bake + reconcile</td>
                 </tr>
               </tbody>
             </table>
@@ -981,167 +2472,229 @@
           <div class="section-head">
             <div>
               <div class="eyebrow">Contributor map</div>
-              <h2>Where each responsibility lives.</h2>
+              <h2>Where the behavior lives.</h2>
             </div>
             <p class="section-copy">
-              The modular-monolith boundary is visible in the directory layout:
-              domain ports point inward; adapters and composition stay at the
-              edges.
+              Gantry is a modular monolith: domain types and ports point inward;
+              application services orchestrate policy; adapters and bootstrap
+              own infrastructure and composition.
             </p>
           </div>
           <div class="code-map">
             <a
               class="path"
-              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/app"
-              ><code>apps/core/src/app</code
-              ><span>Composition, boot and lifecycle</span></a
+              href="https://github.com/knacklabs/gantry/tree/8c463db/apps/core/src/app"
             >
+              <code>apps/core/src/app</code
+              ><span>Bootstrap, role selection, composition, lifecycle</span>
+            </a>
             <a
               class="path"
-              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/domain"
-              ><code>apps/core/src/domain</code
-              ><span>Domain types, invariants and ports</span></a
+              href="https://github.com/knacklabs/gantry/tree/8c463db/apps/core/src/domain"
             >
+              <code>apps/core/src/domain</code
+              ><span
+                >Canonical types, invariants, ports, repository contracts</span
+              >
+            </a>
             <a
               class="path"
-              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/application"
-              ><code>apps/core/src/application</code
-              ><span>Use cases and policy orchestration</span></a
+              href="https://github.com/knacklabs/gantry/tree/8c463db/apps/core/src/application"
             >
+              <code>apps/core/src/application</code
+              ><span
+                >Use cases, admission, credentials, permissions, delivery</span
+              >
+            </a>
             <a
               class="path"
-              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/adapters"
-              ><code>apps/core/src/adapters</code
-              ><span>Models, Postgres, browser, sandbox and artifacts</span></a
+              href="https://github.com/knacklabs/gantry/tree/8c463db/apps/core/src/runtime"
             >
+              <code>apps/core/src/runtime</code
+              ><span
+                >Live turns, runner supervision, IPC, recovery, context</span
+              >
+            </a>
             <a
               class="path"
-              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/runtime"
-              ><code>apps/core/src/runtime</code
-              ><span>Live turns, queues, IPC and execution</span></a
+              href="https://github.com/knacklabs/gantry/tree/8c463db/apps/core/src/adapters"
             >
+              <code>apps/core/src/adapters</code
+              ><span>Postgres, model gateway, sandbox, artifacts, browser</span>
+            </a>
             <a
               class="path"
-              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/jobs"
-              ><code>apps/core/src/jobs</code
-              ><span>Scheduler, jobs, tasks and recovery</span></a
+              href="https://github.com/knacklabs/gantry/tree/8c463db/apps/core/src/runner"
             >
+              <code>apps/core/src/runner</code
+              ><span
+                >Child runner, Gantry MCP facade, tool gate, provider loop</span
+              >
+            </a>
             <a
               class="path"
-              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/channels"
-              ><code>apps/core/src/channels</code
-              ><span>Provider adapters and delivery</span></a
+              href="https://github.com/knacklabs/gantry/tree/8c463db/apps/core/src/channels"
             >
+              <code>apps/core/src/channels</code
+              ><span
+                >Provider adapters, inbound identity, replies, progress</span
+              >
+            </a>
             <a
               class="path"
-              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/memory"
-              ><code>apps/core/src/memory</code
-              ><span>Scoped memory, evidence and dreaming</span></a
+              href="https://github.com/knacklabs/gantry/tree/8c463db/apps/core/src/jobs"
             >
+              <code>apps/core/src/jobs</code
+              ><span>Recurring/one-time scheduling, runs, leases, reports</span>
+            </a>
             <a
               class="path"
-              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/brain"
-              ><code>apps/core/src/brain</code
-              ><span>Company knowledge graph</span></a
+              href="https://github.com/knacklabs/gantry/tree/8c463db/apps/core/src/memory"
             >
+              <code>apps/core/src/memory</code
+              ><span
+                >Scoped recall, evidence, extraction, dreaming and review</span
+              >
+            </a>
             <a
               class="path"
-              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/control"
-              ><code>apps/core/src/control</code
-              ><span>Control API and OpenAPI</span></a
+              href="https://github.com/knacklabs/gantry/tree/8c463db/apps/core/src/brain"
             >
+              <code>apps/core/src/brain</code
+              ><span>Company pages, entities, edges, harvest and dreaming</span>
+            </a>
             <a
               class="path"
-              href="https://github.com/knacklabs/gantry/tree/main/packages/sdk"
-              ><code>packages/sdk</code
-              ><span>Node SDK and generated wire types</span></a
+              href="https://github.com/knacklabs/gantry/tree/8c463db/apps/core/src/control"
             >
+              <code>apps/core/src/control</code
+              ><span>Control API, OpenAPI, auth, system/operations routes</span>
+            </a>
             <a
               class="path"
-              href="https://github.com/knacklabs/gantry/tree/main/ops"
-              ><code>ops</code
-              ><span>Docker, launchd, Postgres and Terraform</span></a
+              href="https://github.com/knacklabs/gantry/tree/8c463db/packages/sdk"
             >
+              <code>packages/sdk</code
+              ><span
+                >Typed backend client, session/event and control contracts</span
+              >
+            </a>
           </div>
         </div>
       </section>
 
-      <section id="health" data-searchable>
+      <section id="evidence" data-searchable>
         <div class="shell">
-          <div class="section-head">
+          <div class="evidence-box">
             <div>
-              <div class="eyebrow">Verification scope</div>
-              <h2>What was verified for this guide.</h2>
+              <div class="eyebrow">Evidence policy</div>
+              <h3>Current code outranks historical intent.</h3>
+              <p>
+                Claims on this page were reconciled against the checked-out
+                source. Architecture plans, audits, and superseded decisions are
+                useful context, but they are not silently presented as shipped
+                behavior.
+              </p>
             </div>
-            <p class="section-copy">
-              Executable checks support the source-derived claims. Database
-              suites need an isolated Postgres environment with the required
-              extensions.
-            </p>
-          </div>
-          <div class="checks">
-            <article class="check pass">
-              <h3>Passing</h3>
-              <ul>
-                <li>Architecture boundary checks</li>
-                <li>TypeScript type checking</li>
-                <li>2,097 parsed source files, zero syntax errors</li>
-                <li>574 unit-test files / 7,460 tests</li>
-              </ul>
-            </article>
-            <article class="check">
-              <h3>Environment-dependent</h3>
-              <ul>
-                <li>Postgres integration suites</li>
-                <li>Postgres end-to-end suites</li>
-                <li><code>vector</code> and <code>pg_trgm</code> extensions</li>
-                <li><code>GANTRY_TEST_DATABASE_URL</code> isolation</li>
-              </ul>
-            </article>
+            <div class="evidence-list">
+              <a
+                href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/app/bootstrap/startup.ts"
+              >
+                Runtime bootstrap <code>startup.ts ↗</code>
+              </a>
+              <a
+                href="https://github.com/knacklabs/gantry/blob/8c463db/apps/core/src/app/bootstrap/runtime-services.ts"
+              >
+                Host composition <code>runtime-services.ts ↗</code>
+              </a>
+              <a
+                href="https://github.com/knacklabs/gantry/blob/8c463db/docs/architecture/runtime-flows.md"
+              >
+                Cross-boundary flow guide <code>runtime-flows.md ↗</code>
+              </a>
+              <a
+                href="https://github.com/knacklabs/gantry/blob/8c463db/docs/architecture/atlas/source-evidence.md"
+              >
+                Full source evidence manifest <code>source-evidence.md ↗</code>
+              </a>
+              <a
+                href="https://github.com/knacklabs/gantry/blob/8c463db/docs/SECURITY.md"
+              >
+                Threat and trust model <code>SECURITY.md ↗</code>
+              </a>
+            </div>
           </div>
         </div>
       </section>
     </main>
 
     <footer>
-      <div class="shell">
-        Built from runtime source on 2026-07-27. Historical plans and decisions
-        remain valuable context, but this explorer uses executable code and
-        schemas as the current-behavior authority.
+      <div class="shell footer-inner">
+        <span
+          >Gantry runtime architecture · single-page source-derived guide</span
+        >
+        <span>Snapshot <code>8c463db</code> · generated 2026-08-11</span>
       </div>
     </footer>
 
     <script>
       const search = document.querySelector('#search');
       const searchable = [...document.querySelectorAll('[data-searchable]')];
+
       search.addEventListener('input', () => {
         const query = search.value.trim().toLowerCase();
         for (const section of searchable) {
           section.classList.toggle(
             'hidden-by-search',
-            query && !section.textContent.toLowerCase().includes(query),
+            Boolean(query) &&
+              !section.textContent.toLowerCase().includes(query),
           );
         }
       });
-      const links = [...document.querySelectorAll('.nav a')];
-      const sections = links
+
+      const navLinks = [...document.querySelectorAll('nav a')];
+      const observedSections = navLinks
         .map((link) => document.querySelector(link.getAttribute('href')))
         .filter(Boolean);
-      const observer = new IntersectionObserver(
+
+      const sectionObserver = new IntersectionObserver(
         (entries) => {
           const visible = entries
             .filter((entry) => entry.isIntersecting)
             .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
           if (!visible) return;
-          for (const link of links)
+          for (const link of navLinks) {
             link.classList.toggle(
               'active',
               link.getAttribute('href') === '#' + visible.target.id,
             );
+          }
         },
-        { rootMargin: '-20% 0px -65% 0px', threshold: [0, 0.2, 0.6] },
+        { rootMargin: '-18% 0px -70% 0px', threshold: [0, 0.15, 0.4] },
       );
-      sections.forEach((section) => observer.observe(section));
+      observedSections.forEach((section) => sectionObserver.observe(section));
+
+      const diagram = document.querySelector('#runtime-diagram');
+      const diagramScroll = document.querySelector('#diagram-scroll');
+      let zoom = 1;
+
+      function applyZoom() {
+        diagram.style.width = 100 * zoom + '%';
+        diagram.style.minWidth = 1540 * zoom + 'px';
+      }
+
+      document.querySelectorAll('[data-zoom]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const action = button.dataset.zoom;
+          if (action === 'reset') {
+            zoom = 1;
+            diagramScroll.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
+          } else {
+            zoom = Math.min(1.7, Math.max(0.7, zoom + Number(action)));
+          }
+          applyZoom();
+        });
+      });
     </script>
   </body>
 </html>
