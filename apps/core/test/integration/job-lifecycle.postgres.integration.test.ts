@@ -225,7 +225,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
     // root (which realpaths under os.tmpdir() in this harness): CLIRUN-1's
     // executable-identity guard rejects workspace-local binaries by design.
     const executableDir = fs.mkdtempSync(
-      path.join(process.cwd(), '.capfix-exec-'),
+      path.join(os.homedir(), '.gantry-capfix-exec-'),
     );
     fs.chmodSync(executableDir, 0o755);
     const executable = path.join(executableDir, 'gog');
