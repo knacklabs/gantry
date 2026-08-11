@@ -188,9 +188,8 @@ describe('capability template widening classification', () => {
 
 describe('observed argv redaction', () => {
   it('masks credential-bearing and opaque values while preserving shape', async () => {
-    const { redactObservedArgv } = await import(
-      '@core/shared/capability-template-amendment.js'
-    );
+    const { redactObservedArgv } =
+      await import('@core/shared/capability-template-amendment.js');
     expect(
       redactObservedArgv([
         'sheets',
@@ -217,9 +216,8 @@ describe('observed argv redaction', () => {
   });
 
   it('drops URL query strings so signed URLs cannot carry credentials', async () => {
-    const { redactObservedArgv } = await import(
-      '@core/shared/capability-template-amendment.js'
-    );
+    const { redactObservedArgv } =
+      await import('@core/shared/capability-template-amendment.js');
     expect(
       redactObservedArgv([
         'https://host/path?access_token=secret&signature=abc',

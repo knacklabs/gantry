@@ -334,13 +334,13 @@ const requestOnlyCapabilityHandler: TaskHandler = async (context) => {
     return;
   }
   if (data.payload?.capabilityProposalKind === 'capability_template_amendment') {
+    // conversationJid is the provider-qualified authenticated route target
+    // (not the bare conversation id): the async review card routes by it.
     const result = await recordCapabilityTemplateAmendment({
       appId: data.appId,
       agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
       requestedBy: sourceAgentFolder,
       jobId: data.jobId ?? null,
-      // Provider-qualified JID (authenticated route target), not the bare
-      // conversation id: the async review card routes by this alone.
       conversationJid: approvalRoute.targetJid ?? null,
       threadId: data.authThreadId ?? null,
       payload: data.payload,
@@ -349,10 +349,7 @@ const requestOnlyCapabilityHandler: TaskHandler = async (context) => {
         getRuntimeStorage().repositories.capabilityTemplateAmendments,
       now: nowIso(),
     });
-    if (!result.ok) {
-      reject(result.error, result.code);
-      return;
-    }
+    if (!result.ok) { reject(result.error, result.code); return; }
     accept(result.message, result.code);
     return;
   }

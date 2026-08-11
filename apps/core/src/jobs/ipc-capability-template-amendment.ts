@@ -1,7 +1,9 @@
 import type { CapabilityTemplateAmendmentRepository } from '../domain/ports/capability-template-amendments.js';
 import type { ToolCatalogRepository } from '../domain/ports/repositories.js';
 import { parseBashCommand } from '../shared/bash-command-parser.js';
-import { canonicalCapabilityTemplateAmendment, redactObservedArgv,
+import {
+  canonicalCapabilityTemplateAmendment,
+  redactObservedArgv,
 } from '../shared/capability-template-amendment.js';
 import { isCapabilityTemplateProposalWidening } from '../shared/capability-template-widening.js';
 import {

@@ -69,8 +69,7 @@ export class PostgresCapabilityTemplateAmendmentRepository implements Capability
             .set({
               status: 'denied',
               decidedBy: 'system:superseded',
-              decisionReason:
-                'Superseded by a capability definition change.',
+              decisionReason: 'Superseded by a capability definition change.',
               decidedAt: input.now,
               updatedAt: input.now,
             })
@@ -97,25 +96,25 @@ export class PostgresCapabilityTemplateAmendmentRepository implements Capability
       }
       const [created] = await tx
         .insert(table)
-      .values({
-        id: input.id,
-        appId: input.appId,
-        agentId: input.agentId,
-        capabilityId: input.capabilityId,
-        canonicalKey: input.canonicalKey,
-        currentTemplates: input.currentTemplates,
-        proposedTemplates: input.proposedTemplates,
-        observedArgv: input.observedArgv,
-        reviewedSchemaHash: input.reviewedSchemaHash,
-        widening: input.widening,
-        status: 'pending',
-        requestedBy: input.requestedBy,
-        jobId: input.jobId ?? null,
-        conversationJid: input.conversationJid ?? null,
-        threadId: input.threadId ?? null,
-        createdAt: input.now,
-        updatedAt: input.now,
-      })
+        .values({
+          id: input.id,
+          appId: input.appId,
+          agentId: input.agentId,
+          capabilityId: input.capabilityId,
+          canonicalKey: input.canonicalKey,
+          currentTemplates: input.currentTemplates,
+          proposedTemplates: input.proposedTemplates,
+          observedArgv: input.observedArgv,
+          reviewedSchemaHash: input.reviewedSchemaHash,
+          widening: input.widening,
+          status: 'pending',
+          requestedBy: input.requestedBy,
+          jobId: input.jobId ?? null,
+          conversationJid: input.conversationJid ?? null,
+          threadId: input.threadId ?? null,
+          createdAt: input.now,
+          updatedAt: input.now,
+        })
         .onConflictDoNothing({
           target: [table.appId, table.canonicalKey],
           where: sql`${table.status} = 'pending'`,
