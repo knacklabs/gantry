@@ -26,6 +26,7 @@ import {
 } from '../runtime/session-resume-runtime.js';
 import {
   loadAgentAccessSnapshot,
+  resolveTurnPromptCapabilityCatalogFromSnapshot,
   resolveTurnSemanticCapabilitiesFromSnapshot,
   resolveTurnSelectedMcpServerIdsFromSnapshot,
   resolveTurnSelectedSkillContextFromSnapshot,
@@ -357,6 +358,12 @@ async function runActiveJob(
           ]);
           const inheritedToolPolicy =
             resolveTurnToolPolicyFromSnapshot(accessSnapshot);
+          const capabilityCatalog = accessSnapshot
+            ? resolveTurnPromptCapabilityCatalogFromSnapshot(
+                accessSnapshot,
+                inheritedToolPolicy.semanticCapabilities,
+              )
+            : undefined;
           const toolPolicy: jobToolPolicy.JobToolPolicyResolution = {
             inheritedTools: inheritedToolPolicy.toolPolicyRules ?? [],
             effectiveAllowedTools: inheritedToolPolicy.toolPolicyRules ?? [],
@@ -502,6 +509,7 @@ async function runActiveJob(
                 selectedSkillDisplays: selectedSkillContext.displays,
                 attachedMcpSourceIds,
                 semanticCapabilities,
+                capabilityCatalog,
               },
               onProcess: (proc, runHandle) => {
                 void updateRunProviderMetadata({ providerRunId: runHandle });

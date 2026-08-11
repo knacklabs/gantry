@@ -1479,6 +1479,26 @@ describe('jobs/execution', () => {
         attachedSkillSourceIds: ['skill:release'],
         selectedSkillDisplays: ['release (skill:release)'],
         attachedMcpSourceIds: ['mcp:github'],
+        capabilityCatalog: expect.objectContaining({
+          installedSkills: [
+            expect.objectContaining({
+              stableRef: 'skill:release',
+              displayName: 'release',
+            }),
+          ],
+          readyActions: [
+            expect.objectContaining({
+              stableRef: 'repo.search.repositories',
+              displayName: 'Repo search repositories',
+            }),
+          ],
+          connectedMcpSources: [
+            expect.objectContaining({
+              stableRef: 'mcp:github',
+              displayName: 'github',
+            }),
+          ],
+        }),
       }),
       expect.any(Function),
       expect.any(Function),
