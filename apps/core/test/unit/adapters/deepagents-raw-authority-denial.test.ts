@@ -403,7 +403,7 @@ describe('DeepAgents raw authority denial', () => {
           permissionRequestTimeoutMs: 1000,
           resolveWorkspaceIpcDir: (folder: string) => `/tmp/ipc/${folder}`,
         },
-        lockedAccessPreset: false,
+        capabilityRequestToolsHidden: false,
       });
       expect(tool.name).toBe('RunCommand');
       for (const collidingName of [

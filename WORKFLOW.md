@@ -4,8 +4,8 @@
 - The repo owns workflow policy, prompts, run artifacts, plans, and decisions —
   it is the canonical state.
 - An external tracker (Linear, GitHub Issues, Jira) is OPTIONAL: when one is
-  used, decomposition and task state are mirrored into it; when none is used,
-  `.factory/decomposition.json` and `plans/` are the task graph.
+  used, roadmap stories are mirrored into it. Decomposition and task state
+  remain in the repo under `.factory/decomposition.json` and `plans/`.
 - GitHub mirrors branch, PR, checks, and review evidence.
 - gstack output is PROJECT-LOCAL: `.envrc` pins `GSTACK_HOME` to
   `<repo>/.gstack` (activate with `direnv allow`), so office-hours design
@@ -25,6 +25,15 @@
 Claude Code coordinates; Codex executes (local sessions and subagents).
 The stack is Claude Code + Codex, deliberately: any future
 orchestration must produce the same `.factory` artifacts.
+
+### Workflow Modes
+
+- **Full** is the standard workflow: an approved plan proceeds through bounded
+  stages, deterministic verification, autoreview, and the remaining gates.
+- **Lite** is a human-opened, bounded write window for a small supervised fix:
+  `./forge mode lite --by "<name>" --reason "<why>"`. It returns to Full when
+  the committed fix is within its file budget, its required review is clean,
+  and `./forge mode done` closes the window.
 
 ## Factory Phases
 0a. `discovery` — lightweight problem, stakeholder, and constraint discovery; no `.factory` ceremony required.
@@ -56,12 +65,19 @@ sign-off.
 Every handover gate is preceded by a recorded GRILL
 (`factory/prompts/griller.md`): an adversarial gaps-and-contradictions
 interrogation of what one role hands the next. Confirming each spec requires a
-fresh pass bound to that spec. The existing `signoff`, `epics`, and `plan`
-grills cover client→PM context, the derived backlog, and each task plan
-respectively. The verdict lands in `.factory/grills/<gate>.json` via
-`record_grill_from_json.py` (schema-validated, `generated_by: griller`);
-stale means the handover inputs changed after the grill. Findings must resolve
-into doc edits or decision records before a `pass` is recordable.
+fresh pass bound to that spec. Five scopes are enforced: `spec`, `signoff`,
+`epics`, `plan`, and `task`. The first four cover capability confirmation,
+client→PM context, the derived backlog, and the story plan. The per-leaf
+`task` grill introduced by decision 0032 (JIT task planning) interrogates the
+just-authored task contract against the real state left by completed stages.
+Its verdict lands in `.factory/grills/tasks/<id>.json` and is bound to the
+contract digest over `write_scope`, `required_tests`, `verify_commands`, and
+`acceptance_criteria`; a write `forge delegate <id>` refuses a missing,
+non-passing, or stale record. Other verdicts land in
+`.factory/grills/<gate>.json`. All records go through
+`record_grill_from_json.py` (schema-validated, `generated_by: griller`).
+Findings must resolve into contract/doc edits or decision records before a
+`pass` is recordable.
 
 ## Context Inbox & Doc Upkeep
 
@@ -233,18 +249,45 @@ as `plan assume` and decision records).
 Gates are deterministic and run at phase transitions (`update_run.py`,
 `record_*` scripts, `pr_ready.py`) and in `pre_tool_use.py` — never on prompt
 keywords or turn ends. Under decision 0013, the planning lock is **always
-armed**: product writes, including heuristic Bash writes, are refused until
-the plan is approved. The two legitimate exits are plan mode or a bounded,
-ledgered `./forge quickfix start "<reason>"` window. Planning surfaces
-(`plans/`, `docs/`, `.factory/`, `factory/`, and `prototype/`) and read-only
-exploration stay open. Everything downstream remains enforced at the artifact
-gates.
+armed**: product writes, including heuristic Bash writes, are refused without
+one of three legitimate exits: an approved plan, a bounded ledgered quickfix
+window (`./forge quickfix start "<reason>"`), or a bounded ledgered lite window
+(`./forge mode lite`). Planning surfaces (`plans/`, `docs/`, `.factory/`,
+`factory/`, and `prototype/`) and read-only exploration stay open. Everything
+downstream remains enforced at the artifact gates.
+
+Decision 0032 adds a deterministic per-task grill to Full-mode execution. For
+each pending leaf the prescribed order is author the contract → re-record the
+decomposition → pass the digest-bound `task` grill → `forge stage start`
+→ `forge delegate`. `stage start` establishes the measured work boundary;
+the write-delegation path is the hard enforcement point and refuses a missing,
+non-passing, or stale `.factory/grills/tasks/<id>.json`. Read-only delegation
+does not cross that write gate.
+
+The PR boundary adds two deterministic CI gates, run by the harness's own
+`pr-ticket-check`, `pr-link`, and `board-invariant` workflows — harness-internal,
+NOT part of the client-vendored workflow set. Gate A runs on each pull request
+and requires a PR to declare EVERY completed work record — every `done` roadmap
+story (a done-flip with added history) and every added work-window done record —
+so a single review-driven effort that spans more than one window stays fully
+traceable. For a same-repository story PR, the pr-link gate also records the
+story and PR as a `pr-linked` event, then commits that event to the PR branch;
+an exact-link guard makes subsequent runs a no-op, and CI never writes directly
+to `main`. Gate B runs on `main` and keeps it red until every `done` roadmap
+story has a history directory plus a durable outcome and PR link. Stories
+explicitly marked `predates_outcome_contract` still need history, but are exempt
+from the newer outcome and link requirements.
 
 ## Task Graph Rules
 - The planner owns decomposition.
-- Decomposition is capability-driven; the recorded artifact is canonical
-  (mirror to a tracker if the project uses one).
-- Each leaf task must have write scope, dependencies, acceptance criteria, verify commands, and reviewer focus.
+- Decomposition is capability-driven. Its first recording is the ordered task
+  LIST: stable ids, titles, objectives, acceptance intent, and dependencies.
+  The task list stays in the repo; only stories are mirrored to a tracker.
+- Execution-contract detail is authored just in time for the next leaf task,
+  against the actual output of its completed dependencies: write scope, exact
+  acceptance criteria, verify commands, required tests, and reviewer focus.
+  Re-record the decomposition before grilling that contract. Do not guess
+  later-task detail during the initial decomposition (decision 0032).
 - One task should fit one implementation session and one review package.
 
 ## Project Roadmap
@@ -296,23 +339,30 @@ committed isn't merged.
 
 ## Stage Loop — defects never enter history
 
-Recording the decomposition also creates `.factory/stages.json` — the
-mutable execution twin of the immutable decomposition (decision 0007), one
-stage per leaf task in execution order. The dev works stages strictly
-through the loop:
+Recording the initial task list also creates `.factory/stages.json` — the
+mutable execution twin of the re-recordable decomposition (decision 0007),
+one stage per leaf task in execution order. Decision 0032 makes the pre-work
+sequence a JIT contract loop for every pending task:
 
-1. `forge stage start <id>` (strictly order-enforced; task-level `--parallel`
+1. author the next task's full contract against the approved plan and the real
+   repository state left by completed dependencies
+2. re-record the decomposition with that contract
+3. run `factory/prompts/griller.md` with `--gate task`, resolve its findings,
+   and record the pass for that id and current task-contract digest:
+   `record_grill_from_json.py --gate task --task <id> --task-digest <hash>`
+4. `forge stage start <id>` (strictly order-enforced; task-level `--parallel`
    is refused)
-2. `forge delegate <id>` composes the task brief and launches the installed
-   companion in the foreground with write access derived from stage state
-3. the orchestrator inspects the diff and rejects overbuilt code
-4. that stage's assumption rows are validated (`forge assumptions list --open`)
-5. smallest relevant checks run
-6. **local autoreview on the UNCOMMITTED diff until clean** (`autoreview
+5. `forge delegate <id>` composes the task brief and launches the installed
+   companion in the foreground with write access derived from stage state;
+   this is the hard gate that refuses a missing, failed, or stale task grill
+6. the orchestrator inspects the diff and rejects overbuilt code
+7. that stage's assumption rows are validated (`forge assumptions list --open`)
+8. smallest relevant checks run
+9. **local autoreview on the UNCOMMITTED diff until clean** (`autoreview
    --mode local`, run DIRECTLY by the orchestrator with the autoreview
    skill — never as a Codex handoff, which re-triggers the same skill one
    indirection deeper) — a stage commits only clean
-7. commit, then `forge stage done <id>`
+10. commit, then `forge stage done <id>`
 
 Per-stage local reviews are pre-commit hygiene and record nothing; the ONE
 branch-wide autoreview at the review phase remains the only review gate and
@@ -380,8 +430,10 @@ durable record of what was decided and what was built.
 2. complete discovery; prototype freely and save specs as capabilities emerge
 3. confirm every spec, then derive the roadmap from the specs
 4. record client sign-off
-5. plan one roadmap story and record its decomposition
-6. implement one leaf task — the implementer writes, runs, and records the automated tests
+5. plan one roadmap story and record its ordered task list
+6. for each leaf task: author its contract, re-record the decomposition, pass
+   the `task` grill, start the stage, then delegate it; the implementer writes,
+   runs, and records the automated tests
 7. run `python3 factory/scripts/verify.py`
 8. run ONE autoreview pass (three lenses) and record the three review artifacts
 9. run `functional-checker` when the decomposition has `user_facing: true`

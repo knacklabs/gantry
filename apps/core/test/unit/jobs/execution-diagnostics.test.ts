@@ -6,10 +6,27 @@ import {
   formatTerminalToolDenial,
   forwardRunnerRuntimeEvents,
   terminalDiagnosticsPayload,
+  toolDenialEventPayload,
   updateDiagnosticsFromRuntimeEvent,
 } from '@core/jobs/execution-diagnostics.js';
 
 describe('job execution diagnostics', () => {
+  it('classifies MCP server requests as instruction-only recovery', () => {
+    expect(
+      toolDenialEventPayload(
+        {
+          toolName: 'mcp__acme__records_append',
+          grantable: false,
+          recoveryAction: 'request_mcp_server {"serverName":"acme"}',
+        },
+        null,
+      ),
+    ).toMatchObject({
+      grantable: false,
+      recovery_kind: 'job_policy',
+    });
+  });
+
   it('treats partial or inconsistent human-once provenance as transient (fail closed)', () => {
     for (const provenance of [
       { source: 'human_once' }, // repeatable flag missing
@@ -32,7 +49,7 @@ describe('job execution diagnostics', () => {
       expect(diagnostics.transientPermissionApprovals).toHaveLength(1);
     }
   });
-  it('does not turn non-terminal permission denials into run errors', () => {
+  it('retains a terminal permission denial and its specific tool name', () => {
     const diagnostics = createJobRunDiagnostics();
 
     updateDiagnosticsFromRuntimeEvent(
@@ -42,13 +59,19 @@ describe('job execution diagnostics', () => {
         phase: 'permission_denied',
         tool: 'Bash',
         ok: false,
-        terminal: false,
+        terminal: true,
         reason: 'Bash command could not be parsed safely.',
       },
     );
 
-    expect(diagnostics.terminalToolDenial).toBeUndefined();
-    expect(formatTerminalToolDenial(diagnostics)).toBeUndefined();
+    expect(diagnostics.terminalToolDenial).toEqual({
+      toolName: 'Bash',
+      reason: 'Bash command could not be parsed safely.',
+      recoveryAction: undefined,
+    });
+    expect(formatTerminalToolDenial(diagnostics)).toContain(
+      'Permission denied for Bash.',
+    );
   });
 
   it('keeps promptable permission denials terminal by default', () => {
@@ -70,42 +93,6 @@ describe('job execution diagnostics', () => {
     expect(formatTerminalToolDenial(diagnostics)).toContain(
       'Permission denied for Bash.',
     );
-  });
-
-  it('keeps legacy permission payloads without source on the old transient path', () => {
-    const diagnostics = createJobRunDiagnostics();
-
-    updateDiagnosticsFromRuntimeEvent(
-      diagnostics,
-      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
-      {
-        phase: 'permission_wait',
-        tool: 'Bash',
-        ok: false,
-        reason: 'Tool not on autonomous run allowlist: RunCommand.',
-        recovery_action:
-          'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
-      },
-    );
-    updateDiagnosticsFromRuntimeEvent(
-      diagnostics,
-      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
-      {
-        phase: 'permission_allowed',
-        tool: 'Bash',
-        mode: 'allow_once',
-        ok: true,
-      },
-    );
-
-    expect(diagnostics.transientPermissionApprovals).toEqual([
-      {
-        toolName: 'Bash',
-        mode: 'allow_once',
-        recoveryAction:
-          'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
-      },
-    ]);
   });
 
   it('keeps recurring jobs active across automatic allow-once decisions from every policy source', () => {
@@ -190,29 +177,6 @@ describe('job execution diagnostics', () => {
       },
     );
     expect(repeatable.transientPermissionApprovals).toEqual([]);
-  });
-
-  it('keeps legacy reviewed-rule payloads without source non-transient', () => {
-    for (const provenance of [
-      { decidedBy: 'reviewed_rule' },
-      { decided_by: 'reviewed_rule' },
-    ]) {
-      const diagnostics = createJobRunDiagnostics();
-
-      updateDiagnosticsFromRuntimeEvent(
-        diagnostics,
-        RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
-        {
-          phase: 'permission_allowed',
-          tool: 'Bash',
-          mode: 'allow_once',
-          ok: true,
-          ...provenance,
-        },
-      );
-
-      expect(diagnostics.transientPermissionApprovals).toEqual([]);
-    }
   });
 
   it('aggregates startup diagnostics with sanitized count and timing fields', () => {

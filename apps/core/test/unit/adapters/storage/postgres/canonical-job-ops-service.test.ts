@@ -22,6 +22,7 @@ describe('CanonicalJobOpsService', () => {
         threadId: null,
         workspaceKey: 'agent_one',
         sessionId: 'session-1',
+        personId: 'person:alice',
       },
       notification_routes: [
         {
@@ -45,6 +46,7 @@ describe('CanonicalJobOpsService', () => {
       threadId: null,
       workspaceKey: 'agent_one',
       sessionId: 'session-1',
+      personId: 'person:alice',
     });
     expect(target.notificationRoutes).toEqual([
       {
@@ -97,6 +99,7 @@ describe('CanonicalJobOpsService', () => {
       threadId: null,
       workspaceKey: 'agent_one',
       sessionId: 'session-canonical',
+      personId: null,
     });
   });
 
@@ -116,6 +119,7 @@ describe('CanonicalJobOpsService', () => {
             threadId: null,
             workspaceKey: 'agent_one',
             sessionId: 'session-1',
+            personId: 'person:alice',
           },
           notificationRoutes: [
             {
@@ -151,6 +155,7 @@ describe('CanonicalJobOpsService', () => {
         threadId: null,
         workspaceKey: 'agent_one',
         sessionId: 'session-1',
+        personId: 'person:alice',
       },
       notification_routes: [
         {
@@ -212,6 +217,26 @@ describe('CanonicalJobOpsService', () => {
       pauseReason: 'Setup required',
       setupState: { fingerprint: 'fingerprint-1' },
     });
+  });
+
+  it('delegates access requirement appends without replacing the job snapshot', async () => {
+    const appendJobAccessRequirement = vi.fn(async () => false);
+    const repository = {
+      appendJobAccessRequirement,
+    } as unknown as PostgresCanonicalJobRepository;
+    const service = new CanonicalJobOpsService(repository);
+    const input = {
+      jobId: 'job-1',
+      requirement: {
+        target: { kind: 'tool_rule' as const, rule: 'Browser' },
+      },
+      expectedUpdatedAt: '2026-08-05T00:00:00.000Z',
+    };
+
+    await expect(service.appendJobAccessRequirement(input)).resolves.toBe(
+      false,
+    );
+    expect(appendJobAccessRequirement).toHaveBeenCalledWith(input);
   });
 
   it('uses the runtime event app id for run-scoped event queries', async () => {

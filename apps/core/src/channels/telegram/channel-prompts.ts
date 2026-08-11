@@ -26,6 +26,7 @@ import {
   PendingUserQuestionState,
   TELEGRAM_INLINE_BUTTON_TEXT_MAX_BYTES,
   TELEGRAM_MESSAGE_MAX_LENGTH,
+  telegramPermissionCallbackData,
   splitTelegramTextByCodeUnits,
   telegramThreadOptionsFromString,
   truncateUtf8ToByteLimit,
@@ -211,7 +212,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
       inline_keyboard: permissionDecisionOptions(input.request).map((mode) => [
         {
           text: permissionButtonLabel(mode, input.request),
-          callback_data: `perm:${mode}:${input.callbackId}`,
+          callback_data: telegramPermissionCallbackData(mode, input.callbackId),
         },
       ]),
     };

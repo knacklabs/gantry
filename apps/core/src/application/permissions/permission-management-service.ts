@@ -36,6 +36,7 @@ import {
   withMcpCapabilityProposalSourceLocks,
 } from './mcp-capability-source-bindings.js';
 import { permissionDecisionExpiresAt } from './permission-decision-expiry.js';
+import { persistentPermissionBindingId } from './permission-management-rules.js';
 import {
   adminMcpToolIdForFullName,
   isDurableGantryMcpToolFullName,
@@ -90,6 +91,8 @@ export interface PersistentPermissionGrantInput {
   threadId?: string;
   runId?: string;
   jobId?: string;
+  /** When set, the durable grant is private to this person (null = shared). */
+  personId?: string | null;
   reason?: string;
 }
 
@@ -261,10 +264,15 @@ export class PermissionManagementService {
           toolId = tool.id as AgentToolBinding['toolId'];
         }
         const binding: AgentToolBinding = {
-          id: persistentPermissionBindingId(input.appId, input.agentId, toolId),
+          id: persistentPermissionBindingId(
+            input.agentId,
+            toolId,
+            input.personId,
+          ),
           appId: input.appId,
           agentId: input.agentId,
           toolId,
+          personId: input.personId ?? null,
           status: 'active',
           createdAt: timestamp,
           updatedAt: timestamp,
@@ -276,19 +284,22 @@ export class PermissionManagementService {
         }
       }
       const grantToken = input.requestId ?? globalThis.crypto.randomUUID();
-      await input.mirrorAgentToolRulesToSettings(
-        input.sourceAgentFolder,
-        allowedRules,
-        {
-          appId: input.appId,
-          ...(ensuredMcpSources.proposalBindingSnapshots.length > 0
-            ? {
-                expectedMcpBindings: ensuredMcpSources.proposalBindingSnapshots,
-                mcpCapabilityGrantToken: grantToken,
-              }
-            : {}),
-        },
-      );
+      // Person grants are DB-only; mirroring would re-share the rule (0118).
+      if (!input.personId)
+        await input.mirrorAgentToolRulesToSettings(
+          input.sourceAgentFolder,
+          allowedRules,
+          {
+            appId: input.appId,
+            ...(ensuredMcpSources.proposalBindingSnapshots.length > 0
+              ? {
+                  expectedMcpBindings:
+                    ensuredMcpSources.proposalBindingSnapshots,
+                  mcpCapabilityGrantToken: grantToken,
+                }
+              : {}),
+          },
+        );
     } catch (err) {
       await Promise.allSettled(
         savedBindings.map((binding) =>
@@ -646,15 +657,6 @@ function gantryMcpToolFullNameFromRule(allowedRule: string): string | null {
   const scoped = parseReadableScopedToolRule(trimmed);
   const toolName = scoped ? scoped.toolName : trimmed;
   return isDurableGantryMcpToolFullName(toolName) ? toolName : null;
-}
-
-function persistentPermissionBindingId(
-  appId: string,
-  agentId: string,
-  toolId: string,
-): AgentToolBinding['id'] {
-  const digest = stableSha256Json({ agentId, appId, toolId }).slice(0, 32);
-  return `agent-tool-binding:permission:${digest}` as AgentToolBinding['id'];
 }
 
 function resolveRevocationTarget(input: {

@@ -48,6 +48,7 @@ export interface JobRunDiagnostics {
   terminalToolDenial?: {
     toolName: string;
     reason?: string;
+    grantable?: boolean;
     recoveryAction?: string;
   };
 }
@@ -59,10 +60,13 @@ export function toolDenialEventPayload(
   return {
     error_summary: safeErrorSummary ? safeErrorSummary.slice(0, 500) : null,
     denied_tool: toolDenial.toolName,
+    grantable: toolDenial.grantable ?? null,
     recovery_action: toolDenial.recoveryAction ?? null,
-    recovery_kind: toolDenial.recoveryAction?.startsWith('request_access')
-      ? 'persistent_capability'
-      : 'job_policy',
+    recovery_kind:
+      toolDenial.grantable === true &&
+      toolDenial.recoveryAction?.startsWith('request_access') === true
+        ? 'persistent_capability'
+        : 'job_policy',
   };
 }
 
@@ -172,26 +176,28 @@ export function updateDiagnosticsFromRuntimeEvent(
         matchingWait?.reason && deniedReason
           ? `${matchingWait.reason} Permission denied: ${deniedReason}`
           : (deniedReason ?? matchingWait?.reason),
+      ...(typeof payload.grantable === 'boolean'
+        ? { grantable: payload.grantable }
+        : {}),
       recoveryAction:
         stringValue(payload.recovery_action) ?? matchingWait?.recoveryAction,
     };
   }
-  const decidedBy =
-    stringValue(payload.decidedBy) ?? stringValue(payload.decided_by);
   const source = stringValue(payload.source);
-  // Fail closed: human_once is transient regardless of the (independently
-  // optional) repeatable flag, and an explicit non-repeatable flag is
-  // transient even if the source went missing — a partial payload must never
-  // read as consent for future unattended runs.
+  // Fail closed on PARTIAL provenance: human_once is transient regardless
+  // of the (independently optional) repeatable flag, and an explicit
+  // non-repeatable flag is transient even without a source. Deliberately NO
+  // fallback for payloads carrying NEITHER field: the runtime always stamps
+  // provenance (decision 0107; owner-directed no-legacy policy) — such a
+  // shape cannot come from current code, and the incident this fixes was
+  // spurious pauses, not missed ones.
   const isHumanOnce =
     source === 'human_once' || payload.repeatableForFutureRuns === false;
-  const isLegacyTransient =
-    source === undefined && decidedBy !== 'reviewed_rule';
   if (
     phase === 'permission_allowed' &&
     tool &&
     mode === 'allow_once' &&
-    (isHumanOnce || isLegacyTransient)
+    isHumanOnce
   ) {
     const matchingWait =
       diagnostics.lastPermissionWait?.toolName === tool

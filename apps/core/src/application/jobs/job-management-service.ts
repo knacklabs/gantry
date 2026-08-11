@@ -43,6 +43,7 @@ import {
   assertJobModelHarnessCompatible,
   resolveRequestedJobModel,
 } from './job-model-selection.js';
+import { retireSetupPausePermissionPrompt } from './setup-pause-permission-prompt.js';
 // prettier-ignore
 import { requireJobControl, requireRuntimeEvents, requireTriggerQueue } from './job-management-require.js';
 import { runSchedulerJobNowFromMcp } from './job-management-run-now.js';
@@ -53,6 +54,7 @@ import {
   applyJobReadinessToUpdates,
   evaluateManagedJobReadiness,
   pauseJobForSetup,
+  notifyJobSetupRequiredAtCreation,
   recordJobSetupRequired,
   setupBlockerDetails,
 } from './job-management-readiness.js';
@@ -62,6 +64,7 @@ import { createJobVisibilityReaders } from './job-management-visibility-readers.
 import { nowIso } from '../../shared/time/datetime.js';
 import { updateManagedJob } from './job-management-update.js';
 import { isTrustedSystemJob } from '../../shared/system-job-identity.js';
+import { logger } from '../../infrastructure/logging/logger.js';
 
 const DEFAULT_JOB_LIST_LIMIT = 100;
 const MAX_JOB_LIST_LIMIT = 500;
@@ -123,14 +126,7 @@ export class JobManagementService {
         'Scheduler jobs cannot be created outside the source group.',
       );
     }
-    const authThreadId = normalizeOptional(input.access.authThreadId);
-    const payloadThreadId = normalizeOptional(input.threadId);
-    if (payloadThreadId && payloadThreadId !== authThreadId) {
-      throw new ApplicationError(
-        'FORBIDDEN',
-        'threadId payload does not match authenticated thread binding.',
-      );
-    }
+    // threadId is delivery routing, not ownership (conversation-scoped model).
     const authenticatedContext = authenticatedContextFromAccess(
       access,
       workspaceKey,
@@ -157,11 +153,13 @@ export class JobManagementService {
           ? (existingJob?.execution_context ?? {
               conversationJid: authenticatedContext.conversationJid,
               workspaceKey: authenticatedContext.workspaceKey,
-              threadId: authThreadId ?? null,
+              threadId:
+                normalizeOptional(input.threadId) ??
+                normalizeOptional(input.access.authThreadId) ??
+                null,
             })
           : input.executionContext,
       authenticatedContext,
-      enforceThread: input.executionContext !== undefined,
     });
     const existingNotificationRoutes = normalizeStoredNotificationRoutes(
       existingJob?.notification_routes,
@@ -187,10 +185,15 @@ export class JobManagementService {
       access,
       control: this.deps.control,
     });
-    const storedExecutionContext =
-      canonicalSession?.sessionId && executionContext.sessionId == null
-        ? { ...executionContext, sessionId: canonicalSession.sessionId }
-        : executionContext;
+    const storedExecutionContext = {
+      ...executionContext,
+      ...(canonicalSession?.sessionId && executionContext.sessionId == null
+        ? { sessionId: canonicalSession.sessionId }
+        : {}),
+      personId: existingJob
+        ? (existingJob.execution_context?.personId ?? null)
+        : (access.actingPersonId ?? null),
+    };
     if (input.notificationRoutes !== undefined || !existingJob) {
       await requireJobNotificationRouteApproval({
         deps: this.deps as never,
@@ -244,11 +247,12 @@ export class JobManagementService {
     job.setup_state = readiness.setupState;
     const result = await this.deps.ops.upsertJob(job);
     if (!readiness.ready) {
-      await recordJobSetupRequired({
+      notifyJobSetupRequiredAtCreation({
         deps: this.deps,
         job,
         readiness,
-        appId: canonicalSession?.appId,
+        appId: canonicalSession?.appId ?? DEFAULT_JOB_RUNTIME_APP_ID,
+        appSession: canonicalSession,
       });
     }
     this.deps.scheduler.requestSchedulerSync(id);
@@ -316,6 +320,17 @@ export class JobManagementService {
     assertPublicJobNamespace({ jobId: job.id });
     await this.assertAccess(job, input);
     await this.deps.ops.deleteJob(job.id);
+    try {
+      await retireSetupPausePermissionPrompt({
+        job,
+        reason: 'The job was deleted.',
+      });
+    } catch (err) {
+      logger.warn(
+        { err, jobId: job.id },
+        'Failed to retire setup-pause permission prompt during job deletion',
+      );
+    }
     this.deps.scheduler.requestSchedulerSync(job.id);
     return { deleted: true };
   }

@@ -16,7 +16,8 @@
         "any remaining architecture exception carries an expiry/ratchet note"
       ],
       "completed_at": "2026-07-22T17:32:45+00:00",
-      "history": ".factory/history/PAY-1/"
+      "history": ".factory/history/PAY-1/",
+      "backfill_evidence_missing": true
     },
     {
       "status": "done",
@@ -36,7 +37,8 @@
         "goal-prompt slice-1 acceptance list satisfied with tests pinning the ordering invariant"
       ],
       "completed_at": "2026-07-23T07:39:30+00:00",
-      "history": ".factory/history/PERM-1/"
+      "history": ".factory/history/PERM-1/",
+      "backfill_evidence_missing": true
     },
     {
       "status": "active",
@@ -74,7 +76,8 @@
         "goals-index rows recomputed on close"
       ],
       "completed_at": "2026-07-23T03:18:19+00:00",
-      "history": ".factory/history/OBS-1/"
+      "history": ".factory/history/OBS-1/",
+      "backfill_evidence_missing": true
     },
     {
       "status": "done",
@@ -95,10 +98,11 @@
       "order": 5,
       "completed_at": "2026-08-05T06:09:52+00:00",
       "history": ".factory/history/SCHED-1/",
-      "outcome": "Recurring jobs no longer pause themselves: the runtime now distinguishes automatic policy approvals from genuine human one-time consent, and only the latter pauses a job \u2014 with every automatic path regression-tested and ambiguous records treated safely. Scheduled runs also lost the ability to edit their own future: the six scheduler mutation tools are gone from unattended runs at two independent layers (the tool list they see, and a host-side check they cannot forge because it keys on values only the host mints), scheduler changes now ask a human in auto mode as decision 0058 always required, and every request carries signed source-run provenance for auditing. The self-pausing loop that hit the lead-maintenance job is closed at all four of its causes."
+      "outcome": "Recurring jobs no longer pause themselves: the runtime now distinguishes automatic policy approvals from genuine human one-time consent, and only the latter pauses a job \u2014 with every automatic path regression-tested and ambiguous records treated safely. Scheduled runs also lost the ability to edit their own future: the six scheduler mutation tools are gone from unattended runs at two independent layers (the tool list they see, and a host-side check they cannot forge because it keys on values only the host mints), scheduler changes now ask a human in auto mode as decision 0058 always required, and every request carries signed source-run provenance for auditing. The self-pausing loop that hit the lead-maintenance job is closed at all four of its causes.",
+      "backfill_evidence_missing": true
     },
     {
-      "status": "pending",
+      "status": "done",
       "key": "SCHED-2",
       "title": "Lead-job repair: semantic Sheets dependency + idempotent replay",
       "value": "The live lead-maintenance job runs unattended again: raw Sheets command requirements replaced by the reviewed semantic capability, prompt rewritten semantically, the two missed lead writes replayed idempotently.",
@@ -114,7 +118,30 @@
       "order": 6,
       "depends_on": [
         "SCHED-1"
-      ]
+      ],
+      "completed_at": "2026-08-05T09:40:00+00:00",
+      "outcome": "Repaired by the interactive agent under the new ask-gated approval flow (the attended path decision 0110 intends): raw gog/RunCommand requirements replaced with the three semantic Sheets capabilities, prompt rewritten with hard semantic rules and a 12-minute budget, access approved by Ravi, job resumed once. Proof run 2026-08-05: completed, 2 leads verified and written (rows 1943-1944), job stayed ACTIVE with Setup Ready \u2014 no self-pause, no Setup-needed card. Kai Workspace cleanup sheet deliberately descoped pending a second Google account binding (open item).",
+      "backfill_evidence_missing": true
+    },
+    {
+      "status": "done",
+      "key": "SCHED-4A",
+      "title": "Approval & setup-notification UX: explicit scope, no contradictory cards, match-vs-grant diagnosis",
+      "value": "Kills the confusion that made the pause loop undiagnosable: approvals say whether they are one-time or durable (and confirm 'will ask again next run'), a run that recovers never sends a green Completed card and an orange Setup-needed card as peers, and 'granted but pattern did not match' reads differently from 'not granted' with the attempted-vs-approved diff shown.",
+      "acceptance_criteria": [
+        "approval prompts offer explicit scope (Allow once / Allow for future / Deny \u2014 the locked set) with read-only tools defaulting to the durable option; an Allow-once confirmation states 'Approved for this run only; it will ask again next run'",
+        "when a run completes after a blocked-but-degraded step, the setup card is folded into the completion ('Completed with limits' + degraded line) or suppressed in favor of a completion badge \u2014 never two contradictory peer cards",
+        "permission denials distinguish not-granted from granted-but-unmatched, showing the approved pattern vs the attempted command",
+        "same job + same tool asked more than twice escalates the copy with the ask count and a permanent-approval offer"
+      ],
+      "source_refs": [
+        "docs/architecture/scheduler-incident-assessment-2026-08-05.md"
+      ],
+      "order": 7,
+      "completed_at": "2026-08-05T16:28:29+00:00",
+      "history": ".factory/history/SCHED-4A/",
+      "outcome": "Permission and job notifications now tell the truth plainly. Approving something once says so \u2014 'Approved for this run only; future runs will need approval again' \u2014 instead of leaving you to discover the difference later. A job that finishes despite a blocked step sends ONE card ('Completed with limits', naming what degraded and every one-time approval) instead of a green Completed and an orange Setup-needed contradicting each other, and no path can leave a paused job silent. A command blocked because its shape didn't match shows the approved pattern next to what was attempted \u2014 ending the 'was it even granted?' guessing from the incident. And a repeating permission prompt now says how many times you've approved it and over how many days, offering to make it permanent.",
+      "backfill_evidence_missing": true
     },
     {
       "status": "pending",
@@ -132,6 +159,28 @@
       "order": 8
     },
     {
+      "status": "done",
+      "key": "SCHED-4B",
+      "title": "Actionable job cards: approve-from-card, full setup story, visible recovery, provider parity",
+      "value": "The buttonless 'Setup needed' card gains an approve-this-requirement affordance that settles through the existing permission path on every provider (and survives durable delivery); setup cards say which step broke and whether the run died or degraded, listing every blocker; durable-grant auto-resume drains past 100 and tells the job's conversation; lifecycle bubbles retire on crash/dead-letter/stale-lease exits; discord/teams reach action parity or degrade visibly to text.",
+      "acceptance_criteria": [
+        "setup cards carry an approve-this-requirement affordance (locked option semantics, settling through the existing permission-authorization path \u2014 no new grant path) rendered and parseable on slack, telegram, discord and teams, and preserved through the durable enqueue payload",
+        "setup cards state the failed action, the triggering step, died-vs-degraded, and every distinct blocker (or count + expand); bare tool ids never shown",
+        "durable-grant recovery paginates until drained and emits a route-scoped resumed/queued receipt for each affected job (bounded aggregate allowed)",
+        "lifecycle/progress messages are retired or replaced on ALL terminal exits including crash, dead-letter and stale-lease, with per-exit-path tests",
+        "provider-neutral card actions render on every supported channel or degrade visibly to text \u2014 no silently dropped affordances"
+      ],
+      "source_refs": [
+        "docs/architecture/job-notification-gap-audit-2026-08-06.md",
+        "docs/architecture/scheduler-incident-assessment-2026-08-05.md"
+      ],
+      "order": 8,
+      "completed_at": "2026-08-07T14:05:18+00:00",
+      "history": ".factory/history/SCHED-4B/",
+      "outcome": "Scheduled-job cards are now actionable. When a job pauses for missing access it raises the real permission prompt (Allow for future / Deny) built from the job's stored requirement, settled through the existing durable permission path with a fingerprint fence; setup cards say what failed, at which step, whether the run died or degraded, and list every blocker in plain words; Discord and Teams reach button parity with Slack/Telegram. Durable-grant recovery drains all paused jobs (the 100-cap is gone) with a fail-open 'resumed' receipt per job, and stale 'running' bubbles retire on every terminal exit without blocking execution. Shipped over 11 stages; verify.py caught two full-suite regressions we then fixed. Three bounded, user-revocable residuals are tracked as deferrals (D-0044/45/46).",
+      "backfill_evidence_missing": true
+    },
+    {
       "status": "pending",
       "key": "SCHED-4",
       "title": "Scheduler observability + scheduled-run context parity",
@@ -142,12 +191,18 @@
         "scheduled runs receive the SAME capability catalog resolver as interactive runs plus a job runtime brief (status at claim, revision, ready actions, previous outcome, control policy)",
         "job runs gain structured partial/blocked outcomes; found-but-not-written can no longer be durably recorded as plain completed; paused-job permission recovery paginates past 100",
         "setup-needed messages name the human-readable action, the job step that triggered it, and whether the run died or degraded \u2014 never just the tool id",
-        "job health names the specific gap (e.g. 'missing: memory_search \u2014 declared by job, not granted to agent') computed as the declared-vs-granted diff, shown on the job card"
+        "job health names the specific gap (e.g. 'missing: memory_search \u2014 declared by job, not granted to agent') computed as the declared-vs-granted diff, shown on the job card",
+        "permission batch prompts keep per-request job name/step context (audit gap 3)",
+        "deliveryState reflects persisted delivery settlement, never enqueue success (audit gap 5)",
+        "silent jobs still escalate durable pauses and dead-letters via a deduped health route (audit gap 9)",
+        "permission settlement from any route sends a causal receipt to the affected job's conversation (audit gap 10)",
+        "repeated run failures collapse into a per-job notification window instead of per-run cards (audit gap 11)"
       ],
       "source_refs": [
+        "docs/architecture/job-notification-gap-audit-2026-08-06.md",
         "docs/architecture/scheduler-incident-assessment-2026-08-05.md"
       ],
-      "order": 9
+      "order": 10
     },
     {
       "status": "pending",
@@ -162,7 +217,7 @@
       "source_refs": [
         "docs/decisions/0109-semantic-capability-job-dependencies.md"
       ],
-      "order": 10
+      "order": 11
     },
     {
       "status": "pending",
@@ -170,7 +225,7 @@
       "title": "Observer S3b: xAI Grok + Kimi batch transports",
       "epic": "observer",
       "skill": "backend",
-      "order": 11,
+      "order": 12,
       "depends_on": [
         "OBS-1"
       ],
@@ -181,20 +236,26 @@
       ]
     },
     {
-      "status": "pending",
-      "key": "OBS-3",
-      "title": "Observer S4: digest delivery",
-      "epic": "observer",
-      "skill": "backend",
-      "order": 12,
-      "depends_on": [
-        "OBS-2"
-      ],
+      "status": "done",
+      "key": "SCHED-6",
+      "title": "Autonomous jobs pause-and-ask on tool denial instead of silently degrading",
+      "value": "A scheduled job that hits a tool it isn't granted stops silently substituting another tool (e.g. Browser) and burning the run. The denial is terminal: a grantable one pauses the job and raises the approval card naming the tool (one tap grants it, and for an under-declared tool the same tap adds it to the job's requirements), then the job retries; a non-grantable one ends with a legible instruction card. A job waiting for approval never times out or dead-letters; a late grant just reruns it fresh.",
       "acceptance_criteria": [
-        "staging -> settlement -> freshness revalidation -> delivery pipeline per goal-prompt",
-        "evidence permalinks + feedback capture + delivery artifact recorded",
-        "at most one digest per day, owner-private routing enforced"
-      ]
+        "an autonomous-job tool denial is terminal and never results in silent continuation with another tool",
+        "a grantable denial pauses the job and raises the SCHED-4B approval card naming the specific tool; approving grants the agent and, for an under-declared tool, also adds it to the job's access_requirements (human-initiated, 0106-consistent), then the job retries",
+        "a non-grantable denial (locked/fixed-image/protected/unmatched-command/unreachable-mcp) ends with a legible instruction card naming the tool and why, never silent",
+        "a denied-tool pause routes to the setup-pause state and does not consume a retry/backoff attempt or dead-letter; a late approval resumes and reruns the job",
+        "the synchronous zero-timeout autonomous permission protocol is unchanged"
+      ],
+      "source_refs": [
+        "docs/architecture/autonomous-jobs.md",
+        "docs/decisions/0115-autonomous-tool-denial-terminal.md"
+      ],
+      "order": 12,
+      "completed_at": "2026-08-08T08:41:19+00:00",
+      "history": ".factory/history/SCHED-6/",
+      "outcome": "Scheduled (autonomous) jobs no longer silently degrade when the agent reaches a tool it lacks. Every such denial is now terminal: a grantable one raises the one-tap approval card (approving grants the agent and, for an under-declared tool, adds it to the job) and the job retries; a non-grantable one ends with a legible instruction card naming the tool and why. Side effects are fenced after cancellation, the first parallel denial is sticky, grantability is carried authoritatively (spoof-proof), the requirement append runs only after the grant commits, and DeepAgents pre-check denials are terminal too (Ravi's 'fix once for good'). Decision 0115 amended; D-0051 resolved; D-0050 (cross-store atomicity) deferred. 8778 unit tests, verify.py, and a 5-round whole-branch autoreview all green.",
+      "backfill_evidence_missing": true
     },
     {
       "status": "done",
@@ -202,7 +263,7 @@
       "title": "Close out the capability-authoring lane",
       "epic": "capability-search",
       "skill": "backend",
-      "order": 11,
+      "order": 13,
       "depends_on": [
         "PAY-1"
       ],
@@ -213,7 +274,24 @@
         "mcp-tool-proxy.ts conflict window closed"
       ],
       "completed_at": "2026-08-02T19:08:22+00:00",
-      "outcome": "Merged via PR #376. Agents can author MCP capabilities; approval cards are host-derived and fail-closed (agent input is not risk authority). Formal review fixed 12 findings incl. 3 security Highs (principal-required approvals, route-scoped credentials, tenant-scoped MCP client caches). mcp-tool-proxy conflict window closed."
+      "outcome": "Merged via PR #376. Agents can author MCP capabilities; approval cards are host-derived and fail-closed (agent input is not risk authority). Formal review fixed 12 findings incl. 3 security Highs (principal-required approvals, route-scoped credentials, tenant-scoped MCP client caches). mcp-tool-proxy conflict window closed.",
+      "backfill_evidence_missing": true
+    },
+    {
+      "status": "pending",
+      "key": "OBS-3",
+      "title": "Observer S4: digest delivery",
+      "epic": "observer",
+      "skill": "backend",
+      "order": 14,
+      "depends_on": [
+        "OBS-2"
+      ],
+      "acceptance_criteria": [
+        "staging -> settlement -> freshness revalidation -> delivery pipeline per goal-prompt",
+        "evidence permalinks + feedback capture + delivery artifact recorded",
+        "at most one digest per day, owner-private routing enforced"
+      ]
     },
     {
       "status": "pending",
@@ -221,7 +299,7 @@
       "title": "Observer S5: setup wizard + preview + cold-start backfill",
       "epic": "observer",
       "skill": "backend",
-      "order": 13,
+      "order": 15,
       "depends_on": [
         "OBS-3"
       ],
@@ -237,7 +315,7 @@
       "title": "E2E: reconcile the test-matrix tracker",
       "epic": "agent-e2e-gate",
       "skill": "backend",
-      "order": 14,
+      "order": 16,
       "depends_on": [
         "PAY-1"
       ],
@@ -255,7 +333,7 @@
       "title": "E2E: remaining matrix rows",
       "epic": "agent-e2e-gate",
       "skill": "backend",
-      "order": 15,
+      "order": 17,
       "depends_on": [
         "E2E-1"
       ],
@@ -270,7 +348,7 @@
       "title": "E2E: flip agent-e2e-gate to a required check",
       "epic": "agent-e2e-gate",
       "skill": "backend",
-      "order": 16,
+      "order": 18,
       "depends_on": [
         "E2E-2"
       ],
@@ -280,28 +358,12 @@
       ]
     },
     {
-      "status": "pending",
-      "key": "CAP-2",
-      "title": "MCP hybrid search",
-      "epic": "capability-search",
-      "skill": "backend",
-      "order": 18,
-      "depends_on": [
-        "CAP-1"
-      ],
-      "acceptance_criteria": [
-        "FTS ranking + light stemming on mcp_search_tools",
-        "opt-in semantic layer reusing memory embedding provider + cache, degrading to FTS",
-        "grill-locked goal-prompt acceptance list satisfied"
-      ]
-    },
-    {
       "status": "done",
       "key": "CO-1",
       "title": "Jobs recovery-intent -> columns + CAS",
       "epic": "coordination-hardening",
       "skill": "backend",
-      "order": 17,
+      "order": 19,
       "depends_on": [
         "PAY-1"
       ],
@@ -312,7 +374,24 @@
       ],
       "completed_at": "2026-08-03T00:00:00+00:00",
       "history": ".factory/history/CO-1/",
-      "outcome": "Merged PR #380 per decision 0104 reframe: dead recovery-intent machinery deleted; live coordination fields (failure counter, pause reason, setup state) promoted to race-safe columns with in-DB increments and fingerprint-guarded writes; validated live (migration backfill + full lifecycle on the production runtime). Net -286 lines."
+      "outcome": "Merged PR #380 per decision 0104 reframe: dead recovery-intent machinery deleted; live coordination fields (failure counter, pause reason, setup state) promoted to race-safe columns with in-DB increments and fingerprint-guarded writes; validated live (migration backfill + full lifecycle on the production runtime). Net -286 lines.",
+      "backfill_evidence_missing": true
+    },
+    {
+      "status": "pending",
+      "key": "CAP-2",
+      "title": "MCP hybrid search",
+      "epic": "capability-search",
+      "skill": "backend",
+      "order": 20,
+      "depends_on": [
+        "CAP-1"
+      ],
+      "acceptance_criteria": [
+        "FTS ranking + light stemming on mcp_search_tools",
+        "opt-in semantic layer reusing memory embedding provider + cache, degrading to FTS",
+        "grill-locked goal-prompt acceptance list satisfied"
+      ]
     },
     {
       "status": "pending",
@@ -320,7 +399,7 @@
       "title": "Ponytail Phase-8 offline cutover",
       "epic": "ponytail",
       "skill": "backend",
-      "order": 19,
+      "order": 21,
       "depends_on": [
         "PAY-1"
       ],
@@ -339,7 +418,7 @@
       "title": "OTel permission/decision spans",
       "epic": "observability",
       "skill": "backend",
-      "order": 20,
+      "order": 22,
       "depends_on": [
         "PAY-1"
       ],
@@ -356,7 +435,7 @@
       "title": "Durable-work primitive",
       "epic": "post-cutover",
       "skill": "backend",
-      "order": 21,
+      "order": 23,
       "depends_on": [
         "PONY-1"
       ],
@@ -367,12 +446,23 @@
       ]
     },
     {
+      "key": "SEC-1",
+      "title": "Audit paydown: security blockers (CI runner isolation, inbound attachment writers, LLM concurrency admission)",
+      "order": 24,
+      "status": "done",
+      "epic": "Audit paydown 2026-07",
+      "skill": "backend",
+      "completed_at": "2026-07-24T11:42:10+00:00",
+      "history": ".factory/history/SEC-1/",
+      "backfill_evidence_missing": true
+    },
+    {
       "status": "pending",
       "key": "MDL-1",
       "title": "Model management: unify then UX",
       "epic": "post-cutover",
       "skill": "backend",
-      "order": 22,
+      "order": 25,
       "depends_on": [
         "PONY-1"
       ],
@@ -383,24 +473,15 @@
       ]
     },
     {
-      "key": "SEC-1",
-      "title": "Audit paydown: security blockers (CI runner isolation, inbound attachment writers, LLM concurrency admission)",
-      "order": 21,
-      "status": "done",
-      "epic": "Audit paydown 2026-07",
-      "skill": "backend",
-      "completed_at": "2026-07-24T11:42:10+00:00",
-      "history": ".factory/history/SEC-1/"
-    },
-    {
       "key": "PERF-1",
       "title": "Audit paydown: performance fixes (IPC replay scan, jobs N+1, SSE permit race, live-admission caps)",
-      "order": 22,
+      "order": 26,
       "status": "done",
       "epic": "Audit paydown 2026-07",
       "skill": "backend",
       "completed_at": "2026-07-24T15:06:25+00:00",
-      "history": ".factory/history/PERF-1/"
+      "history": ".factory/history/PERF-1/",
+      "backfill_evidence_missing": true
     },
     {
       "status": "pending",
@@ -408,7 +489,7 @@
       "title": "Coordination hardening batch (locks, TOCTOU, serializer)",
       "epic": "coordination-hardening",
       "skill": "backend",
-      "order": 24,
+      "order": 27,
       "depends_on": [
         "CO-1"
       ],
@@ -423,7 +504,7 @@
       "title": "desired-state-current-export rewrite",
       "epic": "coordination-hardening",
       "skill": "backend",
-      "order": 25,
+      "order": 28,
       "depends_on": [
         "PAY-1"
       ],
@@ -433,12 +514,29 @@
       ]
     },
     {
+      "key": "LAT-5B",
+      "title": "Durable conversation history coverage",
+      "story": "As a teammate chatting with the agent, my turns in fully-synced conversations respond without waiting on redundant provider history fetches, so the agent feels immediate once it has everything.",
+      "acceptance_criteria": [
+        "A conversation attested complete (server-confirmed exhausted, current provider generation) makes zero provider hydration calls and skips the deadline wait; reconnects un-trust coverage fail-safe; request_bounded never promotes"
+      ],
+      "order": 29,
+      "status": "done",
+      "kind": "feature",
+      "origin": "adhoc",
+      "spec": "docs/specs/lat-5b-durable-history-coverage.md",
+      "completed_at": "2026-08-01T01:08:57+00:00",
+      "history": ".factory/history/LAT-5B/",
+      "outcome": "Agent conversations on Slack and Discord now remember, durably in Postgres, what history they have already stored. Once a channel or thread is fully persisted, later turns skip the provider history call (measured 1 to 0 calls, for exactly one extra SQL statement), so replies start faster. The record is trusted only while a live inbound stream is delivering: reconnects, dropped sockets, outbound-only accounts, interaction-only sockets, failed dispatches and account rebinds all invalidate it, and the next turn re-fetches from the provider so nothing said while the agent was away is silently skipped. Telegram is unchanged. Known residual: a brief multi-process stale-trust window, deferred as D-0036.",
+      "backfill_evidence_missing": true
+    },
+    {
       "status": "pending",
       "key": "ART-1",
       "title": "S3/MinIO file-artifact bytes",
       "epic": "artifact-store",
       "skill": "backend",
-      "order": 26,
+      "order": 30,
       "depends_on": [
         "PAY-1"
       ],
@@ -448,22 +546,6 @@
         "TTL janitor covered by tests",
         "local backend remains the default"
       ]
-    },
-    {
-      "key": "LAT-5B",
-      "title": "Durable conversation history coverage",
-      "story": "As a teammate chatting with the agent, my turns in fully-synced conversations respond without waiting on redundant provider history fetches, so the agent feels immediate once it has everything.",
-      "acceptance_criteria": [
-        "A conversation attested complete (server-confirmed exhausted, current provider generation) makes zero provider hydration calls and skips the deadline wait; reconnects un-trust coverage fail-safe; request_bounded never promotes"
-      ],
-      "order": 25,
-      "status": "done",
-      "kind": "feature",
-      "origin": "adhoc",
-      "spec": "docs/specs/lat-5b-durable-history-coverage.md",
-      "completed_at": "2026-08-01T01:08:57+00:00",
-      "history": ".factory/history/LAT-5B/",
-      "outcome": "Agent conversations on Slack and Discord now remember, durably in Postgres, what history they have already stored. Once a channel or thread is fully persisted, later turns skip the provider history call (measured 1 to 0 calls, for exactly one extra SQL statement), so replies start faster. The record is trusted only while a live inbound stream is delivering: reconnects, dropped sockets, outbound-only accounts, interaction-only sockets, failed dispatches and account rebinds all invalidate it, and the next turn re-fetches from the provider so nothing said while the agent was away is silently skipped. Telegram is unchanged. Known residual: a brief multi-process stale-trust window, deferred as D-0036."
     },
     {
       "key": "FILE-1B",
@@ -476,14 +558,15 @@
         "Ephemeral messages and attachments never stored, live or hydrated",
         "Conversation scoping refusal proven on real Postgres for Discord identities"
       ],
-      "order": 26,
+      "order": 31,
       "status": "done",
       "skill": "backend",
       "kind": "feature",
       "spec": "docs/specs/file-1b-discord-file-parity.md",
       "completed_at": "2026-08-01T19:00:59+00:00",
       "history": ".factory/history/FILE-1B/",
-      "outcome": "Files shared in Discord now behave like Slack files. The agent saves the bytes the moment a file is posted, remembers the filename and where it came from, and can fetch an old file it never saved the first time someone needs it. When a message is deleted on Discord, its files are honestly reported as deleted and the stored bytes are removed \u2014 durably, so a deletion that races message ingestion, hits a transient database error, or arrives for a not-yet-stored message still lands. Ephemeral content is never stored, downloads only ever come from Discord's CDN with no credentials attached, and every file stays locked to its own conversation. Remaining edges (attachment removal via message edits, marker retention hygiene) are recorded as deferrals with triggers."
+      "outcome": "Files shared in Discord now behave like Slack files. The agent saves the bytes the moment a file is posted, remembers the filename and where it came from, and can fetch an old file it never saved the first time someone needs it. When a message is deleted on Discord, its files are honestly reported as deleted and the stored bytes are removed \u2014 durably, so a deletion that races message ingestion, hits a transient database error, or arrives for a not-yet-stored message still lands. Ephemeral content is never stored, downloads only ever come from Discord's CDN with no credentials attached, and every file stays locked to its own conversation. Remaining edges (attachment removal via message edits, marker retention hygiene) are recorded as deferrals with triggers.",
+      "backfill_evidence_missing": true
     },
     {
       "key": "ID-1",
@@ -496,22 +579,15 @@
         "verified is system-attested only and unsettable via the People API",
         "Decision-8 boundary/invariant tests pass with reverted-guard negative controls; agents-as-service-kind invariants pinned"
       ],
-      "order": 27,
+      "order": 32,
       "status": "done",
       "epic": "identity",
       "skill": "backend",
       "origin": "adhoc",
       "spec": "docs/specs/person-identity-aliases.md",
       "completed_at": "2026-08-02T10:24:13+00:00",
-      "outcome": "Merged via PR #373 (supersedes #217, credits Suraj). One canonical person per app with provider-neutral exact-match aliases; personal memory DM-only; audited merge with single-use all-or-nothing unmerge; People API + SDK incl. unmerge; boundaries pinned by revert-proven tests; 22 review rounds, ~50 fixes."
-    },
-    {
-      "key": "SIMP-1",
-      "title": "Audit paydown: simplifications (queue defaults, control service construction, test consolidation)",
-      "order": 29,
-      "status": "pending",
-      "epic": "Audit paydown 2026-07",
-      "skill": "backend"
+      "outcome": "Merged via PR #373 (supersedes #217, credits Suraj). One canonical person per app with provider-neutral exact-match aliases; personal memory DM-only; audited merge with single-use all-or-nothing unmerge; People API + SDK incl. unmerge; boundaries pinned by revert-proven tests; 22 review rounds, ~50 fixes.",
+      "backfill_evidence_missing": true
     },
     {
       "key": "FILE-2",
@@ -524,19 +600,20 @@
         "Telegram documented as having no deletion signal for ordinary bot chats; 0094 matrix rows flipped with citations",
         "Real-Postgres proof: Slack deletion event tombstones exactly the tracked attachments and the resolver serves the deleted copy with zero provider calls"
       ],
-      "order": 28,
+      "order": 33,
       "status": "done",
       "skill": "backend",
       "kind": "feature",
       "spec": "docs/specs/file-2-slack-deletion-registration.md",
       "completed_at": "2026-08-02T06:06:47+00:00",
       "history": ".factory/history/FILE-2/",
-      "outcome": "Deleting a Slack message whose files the agent saved now works like Discord: the files are honestly reported as deleted and the stored bytes are removed, durably \u2014 a deletion that races message ingestion or arrives before the message is stored still lands, threads included (Slack threads share the parent channel, so no thread bookkeeping is needed and events without thread metadata are handled). Interaction-only connections never observe deletions. Telegram is honestly documented as having no deletion signal for ordinary bot chats."
+      "outcome": "Deleting a Slack message whose files the agent saved now works like Discord: the files are honestly reported as deleted and the stored bytes are removed, durably \u2014 a deletion that races message ingestion or arrives before the message is stored still lands, threads included (Slack threads share the parent channel, so no thread bookkeeping is needed and events without thread metadata are handled). Interaction-only connections never observe deletions. Telegram is honestly documented as having no deletion signal for ordinary bot chats.",
+      "backfill_evidence_missing": true
     },
     {
-      "key": "SPS-4",
-      "title": "Audit paydown: architecture decisions (cluster rate-limit authority, mandatory durable coordination, LLM loopback collapse, live-admission retention)",
-      "order": 30,
+      "key": "SIMP-1",
+      "title": "Audit paydown: simplifications (queue defaults, control service construction, test consolidation)",
+      "order": 34,
       "status": "pending",
       "epic": "Audit paydown 2026-07",
       "skill": "backend"
@@ -557,9 +634,18 @@
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 29,
+      "order": 35,
       "completed_at": "2026-07-24T00:00:00+00:00",
-      "outcome": "Superseded: SEC-1 (PR #280) shipped shared/inbound-attachment-writer.ts \u2014 O_CREAT|O_EXCL|O_NOFOLLOW(_ANY) open, atomic rename finalize, size caps, sanitized storage refs \u2014 wired into Telegram, Slack, AND the Discord materialization path the Jul-23 lane implementation never covered. Verified by content 2026-08-03; the parallel worktree implementation was discarded."
+      "outcome": "Superseded: SEC-1 (PR #280) shipped shared/inbound-attachment-writer.ts \u2014 O_CREAT|O_EXCL|O_NOFOLLOW(_ANY) open, atomic rename finalize, size caps, sanitized storage refs \u2014 wired into Telegram, Slack, AND the Discord materialization path the Jul-23 lane implementation never covered. Verified by content 2026-08-03; the parallel worktree implementation was discarded.",
+      "backfill_evidence_missing": true
+    },
+    {
+      "key": "SPS-4",
+      "title": "Audit paydown: architecture decisions (cluster rate-limit authority, mandatory durable coordination, LLM loopback collapse, live-admission retention)",
+      "order": 36,
+      "status": "pending",
+      "epic": "Audit paydown 2026-07",
+      "skill": "backend"
     },
     {
       "key": "LAT-4B",
@@ -572,14 +658,15 @@
         "Thread recency message-timestamped per decision 0096; isGroup survives thread traffic",
         "Jobs and binding/setup flows unaffected"
       ],
-      "order": 30,
+      "order": 37,
       "status": "done",
       "skill": "backend",
       "kind": "refactor",
       "spec": "docs/specs/lat-4b-graph-write-reduction.md",
       "completed_at": "2026-08-02T07:41:08+00:00",
       "history": ".factory/history/LAT-4B/",
-      "outcome": "Message persistence stopped re-writing identities the database already knows. A normal message now persists in 15 SQL statements instead of 19, and a thread message in 16 instead of 29 \u2014 the same saving applies to the agent's own replies and to history backfill in threads. Thread activity now orders the chat list by the message's own time, exactly like normal messages (decision 0096), which also means a redelivered old message can no longer jump a conversation to the top, and thread messages no longer corrupt the conversation's group flag. The remaining identity writes need receipt plumbing and are deferred with a measured trigger (D-0041)."
+      "outcome": "Message persistence stopped re-writing identities the database already knows. A normal message now persists in 15 SQL statements instead of 19, and a thread message in 16 instead of 29 \u2014 the same saving applies to the agent's own replies and to history backfill in threads. Thread activity now orders the chat list by the message's own time, exactly like normal messages (decision 0096), which also means a redelivered old message can no longer jump a conversation to the top, and thread messages no longer corrupt the conversation's group flag. The remaining identity writes need receipt plumbing and are deferred with a measured trigger (D-0041).",
+      "backfill_evidence_missing": true
     },
     {
       "status": "done",
@@ -597,9 +684,10 @@
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 31,
+      "order": 38,
       "outcome": "Shipped in SEC-1 / PR #280 (race-free LLM concurrency admission).",
-      "completed_at": "2026-08-03T00:00:00+00:00"
+      "completed_at": "2026-08-03T00:00:00+00:00",
+      "backfill_evidence_missing": true
     },
     {
       "key": "LIVE-1",
@@ -613,14 +701,15 @@
         "Retryable failures edit the same card ('retrying n/max'); only final failure finalizes it",
         "Teams items deferred on the real-client trigger; goal-prompt doc Part B/C truth updated"
       ],
-      "order": 32,
+      "order": 39,
       "status": "done",
       "skill": "backend",
       "kind": "feature",
       "spec": "docs/specs/live-1-ambient-liveness.md",
       "completed_at": "2026-08-04T09:33:18+00:00",
       "history": ".factory/history/LIVE-1/",
-      "outcome": "Gantry now shows truthful, low-noise liveness in chats: typing indicators only while the agent is genuinely working, a single 'Still working' card edit if a turn stalls past 3 minutes, seen-to-running reaction flips on the triggering message, retry status on the same card, and receipts on both continuation routes. Under the hood, progress-card updates are strictly serialized per card with self-healing repair, so slow or failed Discord/Slack/Telegram API calls can no longer leave stale 'Still working' text, duplicate Stop buttons, or lost 'Done.' states."
+      "outcome": "Gantry now shows truthful, low-noise liveness in chats: typing indicators only while the agent is genuinely working, a single 'Still working' card edit if a turn stalls past 3 minutes, seen-to-running reaction flips on the triggering message, retry status on the same card, and receipts on both continuation routes. Under the hood, progress-card updates are strictly serialized per card with self-healing repair, so slow or failed Discord/Slack/Telegram API calls can no longer leave stale 'Still working' text, duplicate Stop buttons, or lost 'Done.' states.",
+      "backfill_evidence_missing": true
     },
     {
       "status": "done",
@@ -638,9 +727,10 @@
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 33,
+      "order": 40,
       "outcome": "Shipped on main as buildJobListVisibilityMetadata / listLatestJobRunsByJobIds (single batched query).",
-      "completed_at": "2026-08-03T00:00:00+00:00"
+      "completed_at": "2026-08-03T00:00:00+00:00",
+      "backfill_evidence_missing": true
     },
     {
       "status": "done",
@@ -658,9 +748,10 @@
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 34,
+      "order": 41,
       "outcome": "Shipped in PERF-1 (c156cf9dd): SSE stream permits reserved before subscription setup.",
-      "completed_at": "2026-08-03T00:00:00+00:00"
+      "completed_at": "2026-08-03T00:00:00+00:00",
+      "backfill_evidence_missing": true
     },
     {
       "status": "done",
@@ -678,9 +769,10 @@
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 35,
+      "order": 42,
       "completed_at": "2026-08-03T00:00:00+00:00",
-      "outcome": "Decided by record 0099: runtime is single-instance-authoritative for rate limits; cluster store deferred behind an explicit multi-instance revisit trigger. No code."
+      "outcome": "Decided by record 0099: runtime is single-instance-authoritative for rate limits; cluster store deferred behind an explicit multi-instance revisit trigger. No code.",
+      "backfill_evidence_missing": true
     },
     {
       "status": "done",
@@ -698,11 +790,12 @@
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 36,
+      "order": 43,
       "notes": "Decision 0103 accepted 2026-08-03: 30-day TTL sweep of terminal rows via existing maintenance machinery. Remaining work is the sweep job + test.",
       "completed_at": "2026-08-03T00:00:00+00:00",
       "history": ".factory/history/PERF-4/",
-      "outcome": "Merged PR #378: 30-day TTL sweep of terminal live-admission rows (bounded advisory-locked batches from scheduler maintenance, 6h cadence, retry-on-failure). Completes PERF-4 with the earlier caps half."
+      "outcome": "Merged PR #378: 30-day TTL sweep of terminal live-admission rows (bounded advisory-locked batches from scheduler maintenance, 6h cadence, retry-on-failure). Completes PERF-4 with the earlier caps half.",
+      "backfill_evidence_missing": true
     },
     {
       "status": "done",
@@ -720,9 +813,10 @@
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 37,
+      "order": 44,
       "completed_at": "2026-08-03T00:00:00+00:00",
-      "outcome": "Branch protection enabled on main: the ci check (unit + integration + postgres + structural gates incl. check:architecture) is REQUIRED before merge; force-pushes and deletions blocked; enforce_admins off so the harness ledger keeps direct-push access."
+      "outcome": "Branch protection enabled on main: the ci check (unit + integration + postgres + structural gates incl. check:architecture) is REQUIRED before merge; force-pushes and deletions blocked; enforce_admins off so the harness ledger keeps direct-push access.",
+      "backfill_evidence_missing": true
     },
     {
       "status": "done",
@@ -740,9 +834,10 @@
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 38,
+      "order": 45,
       "completed_at": "2026-08-03T04:30:48+00:00",
-      "outcome": "Merged PR #377: JobManagementService and SessionInteractionModule constructed once in the control composition root; live deps via getters; liveAdmissionAppId is a method argument."
+      "outcome": "Merged PR #377: JobManagementService and SessionInteractionModule constructed once in the control composition root; live deps via getters; liveAdmissionAppId is a method argument.",
+      "backfill_evidence_missing": true
     },
     {
       "status": "done",
@@ -761,10 +856,11 @@
       "source_refs": [
         "docs/architecture/provider-content-gaps-plan-draft.md"
       ],
-      "order": 41,
+      "order": 46,
       "completed_at": "2026-08-04T16:10:11+00:00",
       "history": ".factory/history/CONTENT-1/",
-      "outcome": "Agents on Slack can now work with canvases: reading a shared canvas returns its text plus safe section handles, and agents can create a channel canvas or edit one section at a time (insert, replace, delete) with a confirmation step before wipe-and-replace. Every edit targets an exact Slack section id captured at read time, so a renamed or deleted section can never be silently overwritten; timeouts, deleted canvases and missing Slack scopes all come back as clear instructions instead of hangs. Slack app installs now list the extra scopes needed (files/canvases) and existing installs keep working with a warning until they are reinstalled. The vendored companion gate also got hardened along the way: the read-only exploration lane is now a provable grammar instead of a text scan."
+      "outcome": "Agents on Slack can now work with canvases: reading a shared canvas returns its text plus safe section handles, and agents can create a channel canvas or edit one section at a time (insert, replace, delete) with a confirmation step before wipe-and-replace. Every edit targets an exact Slack section id captured at read time, so a renamed or deleted section can never be silently overwritten; timeouts, deleted canvases and missing Slack scopes all come back as clear instructions instead of hangs. Slack app installs now list the extra scopes needed (files/canvases) and existing installs keep working with a warning until they are reinstalled. The vendored companion gate also got hardened along the way: the read-only exploration lane is now a provable grammar instead of a text scan.",
+      "backfill_evidence_missing": true
     },
     {
       "status": "done",
@@ -780,10 +876,11 @@
       "source_refs": [
         "docs/architecture/tool-provider-affinity.md"
       ],
-      "order": 42,
+      "order": 47,
       "completed_at": "2026-08-04T18:29:57+00:00",
       "history": ".factory/history/TOOLS-1/",
-      "outcome": "Agents now only see the tools that actually work where they are: Slack agents keep the canvas tools, while Telegram, Discord and other conversations no longer carry three dead tools they could never use \u2014 enforced in both the spawn projection and inside the runner process, and even an operator config entry cannot re-add a tool that cannot function there. Each agent's instructions now also explain, per provider, how its shared tools behave: where long messages split, how rich cards degrade, how many question options fit \u2014 with every number imported from the real code constants so the guidance can never drift. A classification of all 75 tools plus a checklist for wiring future providers landed in docs/architecture."
+      "outcome": "Agents now only see the tools that actually work where they are: Slack agents keep the canvas tools, while Telegram, Discord and other conversations no longer carry three dead tools they could never use \u2014 enforced in both the spawn projection and inside the runner process, and even an operator config entry cannot re-add a tool that cannot function there. Each agent's instructions now also explain, per provider, how its shared tools behave: where long messages split, how rich cards degrade, how many question options fit \u2014 with every number imported from the real code constants so the guidance can never drift. A classification of all 75 tools plus a checklist for wiring future providers landed in docs/architecture.",
+      "backfill_evidence_missing": true
     },
     {
       "status": "done",
@@ -803,10 +900,11 @@
         "models with pdfInput/imageInput can be handed the physical file where the runner supports it",
         "materialization verified for a Slack, a Telegram, and a Discord attachment through the same code path (no provider branches)"
       ],
-      "order": 43,
+      "order": 48,
       "completed_at": "2026-08-04T20:18:18+00:00",
       "history": ".factory/history/CONTENT-2/",
-      "outcome": "Agents can now get the real file, not just a text view: a new attachment_materialize tool copies one conversation attachment at a time into a quarantine folder inside the agent's own workspace, so scripts, converters and capable models can work on the actual bytes. Every copy is explicit, capped at 50 MB, cryptographically tied to the conversation it came from, written through the hardened writer that refuses symlink tricks, and logged. Files Telegram already dropped into the workspace are answered honestly with their existing path instead of a duplicate copy, and a stale reference falls back to re-fetching from the provider. The agent's instructions mark the quarantine folder as untrusted data to process with tools, never instructions to follow."
+      "outcome": "Agents can now get the real file, not just a text view: a new attachment_materialize tool copies one conversation attachment at a time into a quarantine folder inside the agent's own workspace, so scripts, converters and capable models can work on the actual bytes. Every copy is explicit, capped at 50 MB, cryptographically tied to the conversation it came from, written through the hardened writer that refuses symlink tricks, and logged. Files Telegram already dropped into the workspace are answered honestly with their existing path instead of a duplicate copy, and a stale reference falls back to re-fetching from the provider. The agent's instructions mark the quarantine folder as untrusted data to process with tools, never instructions to follow.",
+      "backfill_evidence_missing": true
     },
     {
       "status": "pending",
@@ -827,7 +925,7 @@
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 45
+      "order": 49
     },
     {
       "status": "pending",
@@ -846,23 +944,186 @@
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 46
+      "order": 50
     },
     {
-      "status": "pending",
-      "key": "SCHED-4A",
-      "title": "Approval & setup-notification UX: explicit scope, no contradictory cards, match-vs-grant diagnosis",
-      "value": "Kills the confusion that made the pause loop undiagnosable: approvals say whether they are one-time or durable (and confirm 'will ask again next run'), a run that recovers never sends a green Completed card and an orange Setup-needed card as peers, and 'granted but pattern did not match' reads differently from 'not granted' with the attempted-vs-approved diff shown.",
+      "key": "LIVE-2",
+      "title": "Liveness hardening: unified dispatcher, declared capabilities, deterministic tests",
+      "story": "As a chat user, I always see truthful liveness signals (reactions, typing, progress) while the agent works, so that I never wonder whether it heard me",
       "acceptance_criteria": [
-        "approval prompts offer explicit scope (Allow once / Allow for future / Deny \u2014 the locked set) with read-only tools defaulting to the durable option; an Allow-once confirmation states 'Approved for this run only; it will ask again next run'",
-        "when a run completes after a blocked-but-degraded step, the setup card is folded into the completion ('Completed with limits' + degraded line) or suppressed in favor of a completion badge \u2014 never two contradictory peer cards",
-        "permission denials distinguish not-granted from granted-but-unmatched, showing the approved pattern vs the attempted command",
-        "same job + same tool asked more than twice escalates the copy with the ask count and a permanent-approval offer"
+        "Adapters declare liveness in one liveUx capability object; no advertised no-ops (Teams reactions: none, Slack typing: none)",
+        "One route-aware dispatcher owns reaction/typing delivery: bounded deadlines, catch-and-warn, rate-limit warn+retry-once, loud missing-sink diagnosis; a liveness failure can never fail a turn",
+        "One liveness phase owner; reaction admission and terminal restore share one scope; first-reaction send cannot block the turn; typing resumes on stall recovery",
+        "Provider fixes land: Telegram replace-only/flip/topic-typing, Slack restart stale-and-repost, Discord thread-reaction fallback removal, batch backwards-scan, flip-race settlement",
+        "Proven-dead state deleted (3 dedupe registries, unreachable rollback, unused alias map); tombstone collapse deferred as D-0043",
+        "Liveness suites assert final provider-visible state via a shared stateful fake with failure/latency/restart falsifiers; flow-level chain test; two-account sink tests"
       ],
-      "source_refs": [
-        "docs/architecture/scheduler-incident-assessment-2026-08-05.md"
+      "order": 51,
+      "status": "done",
+      "epic": "Ambient liveness",
+      "skill": "backend",
+      "kind": "feature",
+      "spec": "docs/specs/live-2-liveness-hardening.md",
+      "completed_at": "2026-08-06T06:06:08+00:00",
+      "history": ".factory/history/LIVE-2/",
+      "outcome": "Ambient liveness now behaves the same way everywhere. Each chat app declares honestly what it can do (Slack has no typing; Teams cannot react), one dispatcher delivers every reaction and typing signal with the same rules \u2014 bounded waits, loud logs, provider-respecting backoff, self-correction when a slow request lands late \u2014 and one controller owns a turn's liveness end to end, so signals are never stranded, typing resumes after a stall, and a liveness failure cannot kill a turn. The bugs behind the missed emojis are fixed across Telegram, Slack, Discord and batch turns. The tests that let this ship broken were rebuilt around a stateful fake provider that can fail and stall, asserting what a user would actually see.",
+      "backfill_evidence_missing": true
+    },
+    {
+      "key": "FILE-3",
+      "title": "Attachment failures say which cause: actionable copy, per-cause logs, honest doctor",
+      "story": "As someone sharing a file with the agent, when it can't read the file I am told what went wrong and what would fix it, so that I am not stuck guessing",
+      "acceptance_criteria": [
+        "Each failure cause (permission_scope, not_a_member/not_visible, deleted, too_large, rate_limited, timeout, transport) produces its own plain-English, actionable sentence; unknown is the only path to the legacy generic copy",
+        "Every classified failure logs once at warn with cause, provider, providerAccountId, conversationJid, attachmentId, provider status where present, and elapsed ms \u2014 and no token, URL or file bytes",
+        "The two host-side silent paths gain logs (resolver deadline and incapable routing); the runner no-response timeout gets timeout-specific user copy only, its host log deferred to D-0045 because the runner lacks the account context and application logger",
+        "A Slack token missing files:read yields a named doctor warning that survives aggregation (naming the scope and the reinstall step) while the check still passes",
+        "The reported scenario \u2014 files:read missing, every file type \u2014 yields the permission sentence plus exactly one permission_scope log line"
       ],
-      "order": 7
+      "order": 52,
+      "status": "done",
+      "epic": "Conversation file trust",
+      "skill": "backend",
+      "kind": "feature",
+      "spec": "docs/specs/file-3-attachment-failure-diagnosability.md",
+      "completed_at": "2026-08-06T16:17:19+00:00",
+      "history": ".factory/history/FILE-3/",
+      "outcome": "When Gantry can't open a file someone shared, it now says why in plain language and tells them what to do \u2014 'the app needs the files:read permission; ask an admin to reinstall Gantry', 'that file was deleted', 'the channel is rate-limiting requests, try again in a few minutes', instead of one vague 'I can't get that file right now' for every case. Operators get exactly one diagnostic log per failure, tagged with the specific cause (and the HTTP status when there is one), and the setup doctor now warns loudly when a Slack install is missing files:read instead of passing silently. So a person hitting the reported bug \u2014 every Slack file failing with a generic message and no logs \u2014 now sees the actual reason and the fix.",
+      "backfill_evidence_missing": true
+    },
+    {
+      "key": "LEGACY-1",
+      "title": "Legacy clean-cut: single canonical shape, delete compat readers",
+      "story": "As a maintainer, I want every runtime read path to accept only the one canonical data shape (legacy inputs rejected or reset, never silently migrated), so the codebase honors decision 0003 and job/permission/settings/memory state is auditable.",
+      "acceptance_criteria": [
+        "No runtime read path runs a legacy migration or ownership reconstruction: migrateLegacyAgentBindings, the jobs JID/default-app/sessionId-empty path, and the skill remote-missing->local fallback are gone (greppable + tests)",
+        "Legacy inputs are rejected with a clear error or ignored, never silently migrated: settings agents.*.bindings -> remediation error; memory malformed snapshot -> fail closed; skill remote-missing -> fail closed; permission null-request branch deleted",
+        "One canonical shape per domain: single providerAccount field+prefix; a JobOwner discriminator; review_snapshot_json NOT NULL",
+        "Live gantry data handled per migrate/reset (migrate jobs; reset settings bindings, memory-review nulls, thread:slack ids) and the runtime boots green after migration",
+        "Dead/duplicate surface removed: ./primitives export, provider CLI info/control-allowlist aliases, thread:slack: parser, runAgent prod-type optionality, brain-review optionality",
+        "check:architecture rejects a new compat branch (silent migration/dual-read/ownership-reconstruction/remote-to-local fallback) lacking a time-boxed exception record, and is green for this change",
+        "verify.py green; one 3-lens branch autoreview clean; no legacy-preserving test remains"
+      ],
+      "order": 52,
+      "status": "done",
+      "epic": "harness-hygiene",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec": "docs/specs/legacy-1-clean-cut.md",
+      "completed_at": "2026-08-07T13:29:35+00:00",
+      "history": ".factory/history/LEGACY-1/",
+      "outcome": "Every runtime read path now accepts one canonical data shape and nothing else. Legacy-shaped data is rejected with a clear remediation message or ignored \u2014 never silently rewritten \u2014 so disk and code agree and each area stays auditable. Settings with obsolete agent bindings are refused with reset-and-reimport instructions; a missing memory-review snapshot, a skill artifact the remote says is gone, and a malformed permission request all fail safe instead of trusting stale or fabricated data; dead surface (a duplicate export, two provider CLI aliases, an old Slack thread-id parser, test-only seams) is deleted. A new check:architecture guardrail stops these shortcuts creeping back without a dated, owned exception. The providerConnection rename and job-ownership cuts are deferred.",
+      "backfill_evidence_missing": true
+    },
+    {
+      "key": "CAPRULE-1",
+      "title": "Scheduled runs use granted capability-backed commands; pause with one clear message",
+      "story": "As a job owner, I want my scheduled job to actually use the tools and capabilities I granted it and to get one clear message when it needs my help, so that it completes its work instead of silently stalling and I am not spammed with duplicate technical cards.",
+      "acceptance_criteria": [
+        "A scheduled run whose agent is granted a semantic capability (with its reviewed definition) can invoke that capability's command without denial; an ungranted capability still denies legibly.",
+        "Canonical capabilities like Browser keep working (regression).",
+        "One denied-tool pause emits exactly one plain-language user notification with no duplicate terminal card, and a one-tap approve when the denial is grantable."
+      ],
+      "order": 53,
+      "status": "done",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/caprule-1.md",
+      "completed_at": "2026-08-08T17:05:22+00:00",
+      "history": ".factory/history/CAPRULE-1/",
+      "outcome": "Scheduled jobs can now actually use the tools and capabilities you granted them. A scheduled run that reaches a command its agent is host-granted (like the gog Google Sheets commands) now asks the host coordinator to authorize it instead of dead-ending \u2014 so the job does its work instead of stalling \u2014 while the settings denylist stays a hard, un-overridable boundary and the agent still can't self-grant (PERM-2 preserved; decision 0116). And a job that genuinely must pause now sends you ONE plain-language message (\"This job paused because it couldn't use X. Needed: \u2026\") instead of three overlapping technical cards. Codex validated the root cause read-only; 8781 unit tests, verify.py, and a whole-branch autoreview all green. One cosmetic edge case deferred (D-0052).",
+      "backfill_evidence_missing": true
+    },
+    {
+      "key": "PREFLIGHT-1",
+      "title": "Scheduled jobs declare tools upfront (neutral) + grantable setup cards",
+      "story": "As a job owner, I want scheduled jobs to be set up with the tools they need and to grant any missing tool in one tap, so my jobs run without dead-end pauses.",
+      "acceptance_criteria": [
+        "Ungranted builtin facade tools show a one-tap grant button on the setup card, both lanes; tap grants the canonical selection + appends the canonical job requirement.",
+        "Scheduling a job whose task needs an ungranted tool declares it and yields an actionable card shortly after creation; a job needing only granted tools is ready with no card.",
+        "No duplicate card (existing fingerprint dedup); passive setup event retained; behaviour identical across both runner lanes; no prime/runMode introduced."
+      ],
+      "order": 54,
+      "status": "done",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/preflight-1.md",
+      "completed_at": "2026-08-09T08:22:28+00:00",
+      "history": ".factory/history/PREFLIGHT-1/",
+      "outcome": "Scheduled jobs are now set up with the tools they need, and setup pauses are actionable. When a scheduled run needs a builtin tool it wasn't granted (web search/read, file read/write, browser), the Setup-needed card now shows a one-tap Allow-for-future button instead of a dead-end message, on both runner lanes, so the owner grants it from chat; the grant persists the canonical selection and adds it to the job requirements. When an agent schedules a job it now declares the tools the task needs, so a missing tool surfaces as one actionable card shortly after creation (dispatched async, so creating stays fast) rather than only when a run later pauses. Jobs whose tools are all granted run with no pause. Authority stays host-reviewed and human-approved (no agent self-grant).",
+      "backfill_evidence_missing": true
+    },
+    {
+      "key": "PSCOPE-1",
+      "title": "Person-scoped grants and kind-aware approval authority",
+      "story": "As anyone talking to the agent, I can approve my agent's tool requests right where I'm talking to it, and a permission I grant in my DM stays private to me and never leaks to other people or shared rooms, so approvals are actionable on every provider without silently widening a shared assistant's access.",
+      "acceptance_criteria": [
+        "In a 1:1 DM the DM's own user can approve a setup/permission card with no allowlist entry; a non-participant cannot; groups still require an allowlisted approver.",
+        "A durable grant approved in one person's DM is used only when the agent acts for that person, never for another DM or a group on the same agent; existing grants keep applying as shared with no regression.",
+        "A job created in a DM uses that person's grants at run time; a job created in a group uses shared grants; the scope a setup-card grant lands in is the scope the job runs in.",
+        "A durable DM self-grant is permitted only for a personal-memory-eligible person; others may approve for the current run only.",
+        "Installing the bot into a new group by a recognised person seeds that person as the first approver with an in-group acknowledgement, on every provider where the installer is identifiable; behaviour is uniform across providers with no per-provider approval logic."
+      ],
+      "order": 55,
+      "status": "done",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [
+        "ID-1"
+      ],
+      "spec": "docs/specs/pscope-1.md",
+      "completed_at": "2026-08-10T09:22:13+00:00",
+      "history": ".factory/history/PSCOPE-1/",
+      "outcome": "Tool grants are now person-scoped where a person exists. In a 1:1 DM the user can approve their own agent's permission requests without being pre-listed, and an 'allow for future' they grant stays private to them instead of widening the shared assistant for every chat. Groups keep the explicit approver allowlist and shared grants. Scheduled jobs inherit the identity of the conversation that created them: a DM-created job's durable grant is written for that person (an unresolvable job fails closed rather than widening to shared); group jobs stay shared. The acting person is simply the memory identity, host-stamped onto the request - the elaborate trust machinery built en route was removed per the accepted 0118 tradeoff. Installer group-onboarding split to PSCOPE-2."
+    },
+    {
+      "key": "PSCOPE-2",
+      "title": "Provider-neutral installer auto-seed and in-group acknowledgement",
+      "story": "As the person who installs the agent into a group, I am seeded as its first approver and the group is told so, so that approvals work out of the box without manual allowlist setup",
+      "acceptance_criteria": [
+        "Installing the bot into a new group by a recognised person seeds that person as the first approver and posts an in-group acknowledgement",
+        "An unrecognised installer seeds nobody; the group gets a clear message on how to set an approver (fail-closed)",
+        "Only installer-id extraction is per-provider; behaviour degrades to manual where the installer is unidentifiable"
+      ],
+      "order": 56,
+      "status": "done",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [
+        "PSCOPE-1"
+      ],
+      "spec": "docs/specs/pscope-1.md",
+      "completed_at": "2026-08-10T16:14:20+00:00",
+      "history": ".factory/history/PSCOPE-2/",
+      "outcome": "Adding the bot to a group is no longer dead air, and groups can finally bootstrap their first approver. When someone the bot already knows from a 1:1 chat adds it to a Telegram group or Slack channel, the group registers itself, that person becomes its first approver, and the bot says so in the room. Anyone the bot does not recognise gets a clear in-group message naming how to set an approver - and nothing else (fail-closed). Discord posts the same guidance once per new server; Teams stays documented-manual. The old Telegram DM Yes/No flow - which could never mint a first approver and never spoke in the group - is deleted. Approvals themselves are unchanged: the allowlist still governs groups."
+    },
+    {
+      "key": "CLIRUN-1",
+      "title": "Structured invocation for local-CLI capabilities",
+      "story": "As an operator running scheduled jobs that use CLI capabilities, I want the agent to invoke them structurally instead of authoring shell, so benign output-bounding never terminally fails the run",
+      "acceptance_criteria": [
+        "A granted local_cli capability runs via a structured tool with no shell string, no classifier consult, bounded output; unreviewed subcommands/flags/excess args are rejected",
+        "Execution reuses the existing sandbox + output-boundary + timeout/cancellation and verifies the executable identity at invocation",
+        "At cutover the RunCommand projection no longer authorizes these capabilities and existing scheduled jobs invoke via the structured path"
+      ],
+      "order": 57,
+      "status": "done",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/clirun-1.md",
+      "completed_at": "2026-08-11T09:33:53+00:00",
+      "history": ".factory/history/CLIRUN-1/",
+      "outcome": "Local-CLI capabilities (gog/sheets) are now invoked structurally instead of the agent hand-writing shell. The agent calls capability_run with the capability id and an argument list; the host validates the argv arity-exactly against the reviewed template, verifies the executable in place, and runs it in the existing sandbox with bounded output. No shell string exists, so pipes/redirects/chaining/globs are impossible, authorization is the deterministic granted-capability check (no flaky classifier, no autonomous terminal denial), and the RunCommand projection is retired so no shell fallback remains. This closes the class that paused KnackLabs on gog|head, for any CLI. Deep executable-identity hardening is deferred (D-0056)."
     },
     {
       "key": "GANTRY-WEB-FOUNDATION",
@@ -966,5 +1227,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-05T09:12:59+00:00"
+  "updated_at": "2026-08-11T09:33:53+00:00"
 }

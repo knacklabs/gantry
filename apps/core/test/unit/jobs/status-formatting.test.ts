@@ -114,6 +114,24 @@ describe('job status formatting', () => {
     expect(message).not.toContain('Next:');
   });
 
+  it('presents degraded completion as completed with limits', () => {
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary: 'Imported 3 records.',
+      nextRun: null,
+      retryCount: 0,
+      degradedReason:
+        'Exact command access was approved for this run only; future runs need permanent approval.',
+    });
+
+    expect(message).toContain('**⚠️ Completed with limits**');
+    expect(message).toContain(
+      '⚠️ Degraded: Exact command access was approved for this run only; future runs need permanent approval.',
+    );
+  });
+
   it('keeps the blocker line when the compacted summary truncates it away', () => {
     const message = formatRunStatusMessage({
       job: job(),

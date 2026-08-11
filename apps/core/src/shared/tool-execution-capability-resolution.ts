@@ -18,10 +18,11 @@ export interface ResolvedCapabilityRules {
 
 // A granted `capability:<id>` rule is not itself an executable tool rule; it is
 // an alias for the authority its reviewed bundle declares. Resolve each such
-// rule to that bundle's concrete rules (source-type-agnostic:
-// commandRules/allowedTools/runtimeToolRules all flow through
-// semanticCapabilityRuntimeRules). An unresolvable capability rule is dropped
-// (skip-unknown) so it never converts an unrelated tool's decision into a deny.
+// rule to that bundle's concrete executable rules. Structured local_cli
+// capabilities intentionally resolve to no shell rule; capability_run checks
+// their selected semantic definition directly. An unresolvable capability rule
+// is dropped (skip-unknown) so it never converts an unrelated tool's decision
+// into a deny.
 export function resolveCapabilityRules(
   rules: readonly string[],
   definitions: Record<string, SemanticCapabilityDefinition> | undefined,

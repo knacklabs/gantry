@@ -52,6 +52,9 @@ type SlackMessageAttachments = NonNullable<NewMessage['attachments']>;
 type UQSelection = { selected: string | string[]; answeredBy?: string };
 type PendingPermissionPromptMap = Map<string, PendingPermissionPrompt>;
 
+import type { SlackMessageLike } from './message-shapes.js';
+export type { SlackMessageLike } from './message-shapes.js';
+
 export interface ActiveStreamState {
   channelId: string;
   threadId?: string;
@@ -71,6 +74,7 @@ export interface ActiveProgressState {
   messageTs?: string;
   lastText: string;
   generation?: number;
+  ownerBootNonce?: string;
 }
 
 export interface PendingPermissionPrompt {
@@ -103,24 +107,6 @@ export interface PendingUserQuestionState {
   timer?: ReturnType<typeof setTimeout>;
   resolve: (selection: UQSelection) => void;
   settled: boolean;
-}
-
-export interface SlackMessageLike {
-  channel?: string;
-  ts?: string;
-  thread_ts?: string;
-  user?: string;
-  bot_id?: string;
-  subtype?: string;
-  deleted_ts?: string;
-  previous_message?: {
-    ts?: string;
-    thread_ts?: string;
-  };
-  text?: string;
-  files?: SlackCanvasFileLike[];
-  client_msg_id?: string;
-  edited?: unknown;
 }
 
 export abstract class SlackChannelState {
@@ -619,13 +605,22 @@ export abstract class SlackChannelState {
           targetFolder,
         );
         const label = file.name || file.title || 'attachment';
+        const attachmentId = file.id ? `slack-file:${file.id}` : undefined;
+        const attachmentMetadata = [
+          attachmentId ? `gantry_attachment=${attachmentId}` : undefined,
+          file.mimetype ? `content_type=${file.mimetype}` : undefined,
+        ].filter(Boolean);
+        const attachmentLabel =
+          attachmentMetadata.length > 0
+            ? `${label} (${attachmentMetadata.join(', ')})`
+            : label;
         lines.push(
           downloadResult.status === 'downloaded'
-            ? `Attachment: ${label}`
-            : `Attachment: ${label} (download unavailable: ${downloadResult.reason})`,
+            ? `Attachment: ${attachmentLabel}`
+            : `Attachment: ${attachmentLabel} (download unavailable: ${downloadResult.reason})`,
         );
         const attachment: SlackMessageAttachments[number] = {
-          id: file.id ? `slack-file:${file.id}` : undefined,
+          id: attachmentId,
           kind: file.mimetype?.startsWith('image/') ? 'image' : 'file',
           contentType: file.mimetype,
           externalId: file.id,

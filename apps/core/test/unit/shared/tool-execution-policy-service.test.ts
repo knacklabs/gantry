@@ -9,6 +9,7 @@ import {
   ToolExecutionPolicyService,
   evaluateProtectedCapabilityToolUse,
 } from '@core/shared/tool-execution-policy-service.js';
+import { isGrantableAutonomousToolRecovery } from '@core/shared/autonomous-tool-denial.js';
 import type { SemanticCapabilityDefinition } from '@core/shared/semantic-capabilities.js';
 
 function capability(
@@ -772,6 +773,67 @@ describe('ToolExecutionPolicyService', () => {
   });
 });
 
+describe('autonomousGrantRecovery', () => {
+  it('canonical facade tool WebSearch is grantable via request_access kind:tool', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'WebSearch',
+      toolInput: { query: 'Gantry' },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-web-search' },
+    });
+
+    const result = policy.evaluate({
+      request,
+      autonomousAllowedToolRules: [],
+    });
+
+    expect(result).toMatchObject({
+      status: 'deny',
+      recoveryAction:
+        'request_access { "target": { "kind": "tool", "name": "WebSearch" }, "temporaryOnly": false, "reason": "This autonomous run needs exact Gantry tool access." }',
+    });
+    expect(isGrantableAutonomousToolRecovery(result.recoveryAction)).toBe(true);
+
+    const hidden = policy.evaluate({
+      request,
+      autonomousAllowedToolRules: [],
+      capabilityRequestToolsHidden: true,
+    });
+    expect(hidden.recoveryAction).toContain(
+      'provision a reviewed capability covering WebSearch before the run',
+    );
+    expect(isGrantableAutonomousToolRecovery(hidden.recoveryAction)).toBe(
+      false,
+    );
+  });
+
+  it.each([
+    ['WebFetch', 'WebRead', { url: 'https://example.com' }],
+    ['Read', 'FileRead', { file_path: '/repo/notes.md' }],
+    ['Write', 'FileWrite', { file_path: '/repo/out.md', content: 'done' }],
+    ['Edit', 'FileEdit', { file_path: '/repo/out.md' }],
+  ])(
+    'canonicalizes provider tool %s to facade %s for durable recovery',
+    (toolName, canonicalName, toolInput) => {
+      const request = classifier.classify({
+        origin: 'sdk',
+        toolName,
+        toolInput,
+        executionMode: 'autonomous',
+        runContext: { jobId: 'job-facade-alias' },
+      });
+
+      expect(
+        policy.evaluate({ request, autonomousAllowedToolRules: [] }),
+      ).toMatchObject({
+        status: 'deny',
+        recoveryAction: expect.stringContaining(`"name": "${canonicalName}"`),
+      });
+    },
+  );
+});
+
 describe('ToolExecutionPolicyService semantic capability resolution', () => {
   const sheetsCapability = capability({
     capabilityId: 'google.sheets.values.update',
@@ -784,7 +846,7 @@ describe('ToolExecutionPolicyService semantic capability resolution', () => {
     ],
   });
 
-  it('resolves a granted local_cli capability rule to its command bundle without a hand-written RunCommand', () => {
+  it('does not resolve a granted local_cli capability into RunCommand authority', () => {
     const request = classifier.classify({
       origin: 'sdk',
       toolName: 'Bash',
@@ -800,9 +862,10 @@ describe('ToolExecutionPolicyService semantic capability resolution', () => {
         semanticCapabilityDefinitions: definitionsById(sheetsCapability),
       }),
     ).toMatchObject({
-      status: 'allow',
-      reason: 'Allowed by selected capability google.sheets.values.update.',
-      matchedRule: 'RunCommand(/opt/homebrew/bin/gog sheets values update *)',
+      status: 'not_applicable',
+      reason: expect.stringContaining(
+        'did not match any scoped autonomous rule',
+      ),
     });
   });
 

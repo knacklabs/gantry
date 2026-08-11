@@ -38,6 +38,7 @@ export interface Provider {
   id: string;
   label: string;
   internal?: boolean;
+  extractsGroupInstaller?: boolean;
   controlCapabilityFlags?: readonly string[];
   jidPrefix: string;
   folderPrefix: string;

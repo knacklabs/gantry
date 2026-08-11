@@ -1605,7 +1605,7 @@ describe('admin IPC handlers', () => {
         bindings.push(binding);
       }),
     };
-    let job = {
+    const job = {
       id: 'job-1',
       name: 'Sheet append job',
       workspace_key: 'main_agent',
@@ -1641,10 +1641,12 @@ describe('admin IPC handlers', () => {
         ],
       },
     };
-    const updateJob = vi.fn(async (_jobId: string, updates: object) => {
-      job = { ...job, ...updates };
-    });
+    const listJobs = vi.fn(async () => [job]);
+    const resumeSetupPausedJob = vi.fn(async () => true);
+    const refreshSetupPausedJob = vi.fn(async () => true);
+    const updateJob = vi.fn(async () => undefined);
     const onSchedulerChanged = vi.fn();
+    const publishRuntimeEvent = vi.fn(async () => undefined);
     const sendMessage = vi.fn(async () => undefined);
     const requestPermissionApproval = vi.fn(async () => ({
       approved: true,
@@ -1665,7 +1667,6 @@ describe('admin IPC handlers', () => {
       data: taskData('request-command-access', {
         type: 'request_permission',
         chatJid: 'sl:C123',
-        jobId: 'job-1',
         payload: {
           permissionKind: 'tool',
           capabilityRequestSource: 'request_access',
@@ -1682,8 +1683,11 @@ describe('admin IPC handlers', () => {
         getToolRepository: () => toolRepository,
         mirrorAgentToolRulesToSettings: vi.fn(async () => undefined),
         onSchedulerChanged,
+        publishRuntimeEvent,
         opsRepository: {
-          getJobById: vi.fn(async () => job),
+          listJobs,
+          resumeSetupPausedJob,
+          refreshSetupPausedJob,
           updateJob,
         },
       }) as never,
@@ -1692,16 +1696,32 @@ describe('admin IPC handlers', () => {
     });
 
     await vi.waitFor(() => {
-      expect(updateJob).toHaveBeenCalledWith(
-        'job-1',
+      expect(resumeSetupPausedJob).toHaveBeenCalledWith(
         expect.objectContaining({
-          status: 'active',
-          pause_reason: null,
-          setup_state: expect.objectContaining({ state: 'ready' }),
+          jobId: 'job-1',
+          expectedSetupCheckedAt: '2026-06-02T00:00:00.000Z',
+          expectedPauseReason: 'Setup required',
+          setupState: expect.objectContaining({ state: 'ready' }),
         }),
       );
     });
+    expect(listJobs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationJid: 'sl:C123',
+        statuses: ['paused'],
+        workspaceKey: 'main_agent',
+      }),
+    );
+    expect(refreshSetupPausedJob).not.toHaveBeenCalled();
+    expect(updateJob).not.toHaveBeenCalled();
     expect(onSchedulerChanged).toHaveBeenCalledWith('job-1');
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'permission.final_outcome',
+        jobId: 'job-1',
+        payload: expect.objectContaining({ permissionRecovery: 'queued' }),
+      }),
+    );
     expect(sendMessage).toHaveBeenCalledWith(
       'sl:C123',
       expect.stringContaining('Job resumed: Sheet append job.'),

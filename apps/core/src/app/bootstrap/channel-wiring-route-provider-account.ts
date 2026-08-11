@@ -37,13 +37,19 @@ export function findBoundChannelForProviderAccount<
   jid: string,
   providerAccountId?: string,
 ): T['channel'] | undefined {
+  return findProviderAccountBinding(channels, jid, providerAccountId)?.channel;
+}
+
+export function findProviderAccountBinding<
+  T extends ProviderAccountBoundChannel,
+>(channels: T[], jid: string, providerAccountId?: string): T | undefined {
   const matches = channels.filter(
     (bound) =>
       (!providerAccountId || bound.providerAccountId === providerAccountId) &&
       bound.channel.ownsJid(jid),
   );
-  if (providerAccountId) return matches[0]?.channel;
-  return matches.length === 1 ? matches[0]?.channel : undefined;
+  if (providerAccountId) return matches[0];
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 export function resolveRouteProviderAccountId(

@@ -10,3 +10,7 @@ plans/quickfixes.jsonl merge=jsonl-append
 # driver may not be registered in every clone — the built-in union always is.
 .factory/*.jsonl merge=union
 .factory/history/**/*.jsonl merge=union
+
+.gstack/**/*.jsonl merge=union
+plans/lessons.jsonl merge=union
+plans/quickfixes.jsonl merge=union

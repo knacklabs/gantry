@@ -551,7 +551,7 @@ describe('Teams Adaptive Card payloads', () => {
 });
 
 describe('TeamsChannel adapter scaffold', () => {
-  it('does not post visible Teams reaction text', async () => {
+  it('truthfully declares Teams reactions unsupported', async () => {
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),
       stop: vi.fn(async () => {}),
@@ -568,9 +568,8 @@ describe('TeamsChannel adapter scaffold', () => {
     );
     await channel.connect({ inbound: false });
 
-    await channel.addReaction('teams:19:abc@thread.v2', 'message-1', 'running');
-    await channel.addReaction('teams:19:abc@thread.v2', 'message-1', 'running');
-
+    expect(channel.liveUx.reactions).toBe('none');
+    expect('addReaction' in channel).toBe(false);
     expect(sdkClient.sendMessage).not.toHaveBeenCalled();
   });
 
@@ -1585,6 +1584,18 @@ describe('TeamsChannel adapter scaffold', () => {
               data: expect.objectContaining({
                 action: 'message_action',
                 kind: 'scheduler_run_now',
+                jobId: 'job-1',
+                targetJid: 'teams:19:abc@thread.v2',
+                threadId: 'root-message',
+              }),
+            }),
+            expect.objectContaining({
+              type: 'Action.Execute',
+              title: 'How to pause',
+              verb: 'gantry.scheduler.pause_job',
+              data: expect.objectContaining({
+                action: 'message_action',
+                kind: 'scheduler_pause_job',
                 jobId: 'job-1',
                 targetJid: 'teams:19:abc@thread.v2',
                 threadId: 'root-message',

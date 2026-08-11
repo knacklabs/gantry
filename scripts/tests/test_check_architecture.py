@@ -190,6 +190,260 @@ class CheckArchitectureTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
             self.assertIn("Architecture checks passed.", result.stdout)
 
+    def test_known_runtime_compat_branches_fail_without_exceptions(self) -> None:
+        compat_symbols = {
+            "migrateLegacyAgentBindings": "silent_stale_state_migration",
+            "readLegacyStateFallback": "dual_read",
+            "reconstructJobOwnerFromJid": "ownership_reconstruction",
+            "readLocalSkillArtifactFallback": "remote_to_local_fail_open",
+        }
+        for symbol, kind in compat_symbols.items():
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                root = make_base_fixture(Path(tmp))
+                write_text(
+                    root / "apps/core/src/runtime/compat-branch.ts",
+                    f"export function {symbol}() {{ return true; }}\n",
+                )
+                result = run_architecture_check(root)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("[Runtime Compatibility Branches]", result.stdout)
+                self.assertIn(f"`{symbol}` ({kind})", result.stdout)
+
+    def test_runtime_compat_branch_passes_with_valid_time_boxed_exception(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/compat-branch.ts",
+                "export function migrateLegacyAgentBindings() { return true; }\n",
+            )
+            write_json(
+                root / "scripts/architecture-exceptions.json",
+                [
+                    {
+                        "file": "apps/core/src/runtime/compat-branch.ts",
+                        "symbol": "migrateLegacyAgentBindings",
+                        "owner": "runtime-platform",
+                        "reason": "A bounded fixture exception",
+                        "introduced": "2026-01-01",
+                        "removal_condition": "Canonical settings are deployed",
+                        "remove_by": "2099-01-01",
+                        "kind": "silent_stale_state_migration",
+                        "maxViolations": 1,
+                    }
+                ],
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+    def test_runtime_compat_exception_requires_file_and_max_violations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/compat-branch.ts",
+                "export const active = providerAccount ?? providerConnection;\n",
+            )
+            write_json(
+                root / "scripts/architecture-exceptions.json",
+                [
+                    {
+                        "symbol": "providerConnection",
+                        "owner": "runtime-platform",
+                        "reason": "An obsolete symbol-only fixture exception",
+                        "introduced": "2026-01-01",
+                        "removal_condition": "Canonical settings are deployed",
+                        "remove_by": "2099-01-01",
+                        "kind": "dual_read",
+                    }
+                ],
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Exception Hygiene]", result.stdout)
+            self.assertIn(
+                "missing required fields: file, maxViolations", result.stdout
+            )
+
+    def test_runtime_compat_exception_does_not_cover_a_new_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/compat-branch.ts",
+                "export const active = providerAccount ?? providerConnection;\n",
+            )
+            write_text(
+                root / "apps/core/src/runtime/new-compat-branch.ts",
+                "export const active = providerAccount ?? providerConnection;\n",
+            )
+            write_json(
+                root / "scripts/architecture-exceptions.json",
+                [
+                    {
+                        "file": "apps/core/src/runtime/compat-branch.ts",
+                        "symbol": "providerConnection",
+                        "owner": "runtime-platform",
+                        "reason": "A bounded fixture exception",
+                        "introduced": "2026-01-01",
+                        "removal_condition": "Canonical settings are deployed",
+                        "remove_by": "2099-01-01",
+                        "kind": "dual_read",
+                        "maxViolations": 1,
+                    }
+                ],
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Runtime Compatibility Branches]", result.stdout)
+            self.assertIn(
+                "apps/core/src/runtime/new-compat-branch.ts:1", result.stdout
+            )
+
+    def test_runtime_compat_exception_enforces_max_violations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/compat-branch.ts",
+                "export const first = providerAccount ?? providerConnection;\n"
+                "export const second = providerAccount ?? providerConnection;\n",
+            )
+            write_json(
+                root / "scripts/architecture-exceptions.json",
+                [
+                    {
+                        "file": "apps/core/src/runtime/compat-branch.ts",
+                        "symbol": "providerConnection",
+                        "owner": "runtime-platform",
+                        "reason": "A bounded fixture exception",
+                        "introduced": "2026-01-01",
+                        "removal_condition": "Canonical settings are deployed",
+                        "remove_by": "2099-01-01",
+                        "kind": "dual_read",
+                        "maxViolations": 1,
+                    }
+                ],
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Runtime Compatibility Branches]", result.stdout)
+            self.assertIn(
+                "has 2 violations but exception maxViolations is 1", result.stdout
+            )
+
+    def test_migrate_legacy_symbol_family_catches_differently_named_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/compat-branch.ts",
+                "export function migrateLegacyWorkspaceState() { return true; }\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Runtime Compatibility Branches]", result.stdout)
+            self.assertIn(
+                "`migrateLegacyWorkspaceState` (silent_stale_state_migration)",
+                result.stdout,
+            )
+
+    def test_provider_connection_token_is_caught_qualified_and_unqualified(self) -> None:
+        sources = (
+            "export const active = providerConnection;\n",
+            "export const active = conversation.providerConnection;\n",
+        )
+        for source in sources:
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as tmp:
+                root = make_base_fixture(Path(tmp))
+                write_text(
+                    root / "apps/core/src/runtime/compat-branch.ts",
+                    source,
+                )
+                result = run_architecture_check(root)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("[Runtime Compatibility Branches]", result.stdout)
+                self.assertIn("`providerConnection` (dual_read)", result.stdout)
+
+    def test_runtime_compat_tokens_in_comments_and_strings_are_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/compat-branch.ts",
+                """// providerConnection is rejected below, not read.
+/* migrateLegacyWorkspaceState was removed. */
+export function rejectLegacyInput(): never {
+  throw new Error('providerConnection and channel-providerConnection: are unsupported');
+}
+export const migrationNote = "findLegacyBindingConversation was removed";
+export const explanation = `readLegacyStateFallback is not available`;
+""",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+    def test_runtime_compat_identifier_in_template_expression_is_caught(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/compat-branch.ts",
+                "export const message = `active: ${conversation.providerConnection}`;\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Runtime Compatibility Branches]", result.stdout)
+            self.assertIn("`providerConnection` (dual_read)", result.stdout)
+
+    def test_unrelated_connection_fallback_does_not_trip_runtime_rule(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/canonical-connection.ts",
+                "export const active = configuredConnection ?? defaultConnection;\n"
+                "export const connectionId = conversation.providerConnectionId;\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+    def test_expired_runtime_compat_exception_fails_hygiene(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/compat-branch.ts",
+                "export function migrateLegacyAgentBindings() { return true; }\n",
+            )
+            write_json(
+                root / "scripts/architecture-exceptions.json",
+                [
+                    {
+                        "file": "apps/core/src/runtime/compat-branch.ts",
+                        "symbol": "migrateLegacyAgentBindings",
+                        "owner": "runtime-platform",
+                        "reason": "Expired fixture exception",
+                        "introduced": "2025-01-01",
+                        "removal_condition": "Canonical settings are deployed",
+                        "remove_by": "2025-12-31",
+                        "kind": "silent_stale_state_migration",
+                        "maxViolations": 1,
+                    }
+                ],
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Exception Hygiene]", result.stdout)
+            self.assertIn("runtime compat exception expired", result.stdout)
+
+    def test_allowed_compatibility_categories_do_not_trip_runtime_rule(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/allowed-compat.ts",
+                """export function rejectUnsupportedLegacyInput() { return false; }
+export function negotiateVendorProtocolCompatibility() { return 'v2'; }
+""",
+            )
+            write_text(
+                root / "apps/core/src/adapters/storage/postgres/schema/migrations/0001_historical.sql",
+                "-- Historical migration retains legacy rows for upgrade ordering.\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
     def test_over_budget_file_fails_without_exception(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = make_base_fixture(Path(tmp))

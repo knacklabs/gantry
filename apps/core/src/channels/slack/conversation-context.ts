@@ -647,7 +647,16 @@ function hydratedSlackContent(message: SlackMessageLike): string {
   if (text) lines.push(text);
   for (const file of message.files || []) {
     const label = file.name || file.title || 'attachment';
-    lines.push(`Attachment: ${label}`);
+    const attachmentId = file.id ? `slack-file:${file.id}` : undefined;
+    const attachmentMetadata = [
+      attachmentId ? `gantry_attachment=${attachmentId}` : undefined,
+      file.mimetype ? `content_type=${file.mimetype}` : undefined,
+    ].filter(Boolean);
+    const attachmentLabel =
+      attachmentMetadata.length > 0
+        ? `${label} (${attachmentMetadata.join(', ')})`
+        : label;
+    lines.push(`Attachment: ${attachmentLabel}`);
   }
   return lines.join('\n').trim();
 }

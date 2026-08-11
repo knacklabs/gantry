@@ -2,6 +2,7 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import { ChannelOpts } from '../channel-provider.js';
 import { getProviderRuntimeSecret } from '../provider-runtime-secrets.js';
 import { SlackChannelDelivery } from './channel-delivery.js';
+import { SLACK_LIVE_UX_CAPABILITY } from './live-ux.js';
 import type {
   ContentCanvasAction,
   ContentCanvasResult,
@@ -9,6 +10,7 @@ import type {
 
 export class SlackChannel extends SlackChannelDelivery {
   name = 'slack';
+  readonly liveUx = SLACK_LIVE_UX_CAPABILITY;
 
   executeCanvasAction(
     conversationJid: string,

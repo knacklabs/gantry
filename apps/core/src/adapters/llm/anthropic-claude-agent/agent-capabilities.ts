@@ -42,6 +42,7 @@ export interface AgentCapabilityContext {
   mcpServerPath: string;
   appId?: string;
   agentId?: string;
+  providerAccountId?: string;
   chatJid: string;
   workspaceFolder: string;
   threadId?: string;
@@ -73,6 +74,7 @@ export interface AgentCapabilityContext {
   ipcDir?: string;
   ipcAuthToken?: string;
   browserIpcAuthToken?: string;
+  attachmentIpcAuthToken?: string;
   memoryIpcAuthToken?: string;
   ipcResponseVerifyKey?: string;
   ipcResponseKeyId?: string;
@@ -276,6 +278,9 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       GANTRY_CHAT_JID: ctx.chatJid,
       GANTRY_WORKSPACE_KEY: ctx.workspaceFolder,
       GANTRY_THREAD_ID: ctx.threadId || '',
+      ...(ctx.providerAccountId
+        ? { GANTRY_PROVIDER_ACCOUNT_ID: ctx.providerAccountId }
+        : {}),
       ...(ctx.runHandle ? { GANTRY_AGENT_RUN_HANDLE: ctx.runHandle } : {}),
       ...(ctx.jobId ? { GANTRY_JOB_ID: ctx.jobId } : {}),
       ...(ctx.runId ? { GANTRY_JOB_RUN_ID: ctx.runId } : {}),
@@ -353,6 +358,9 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       ),
       ...(ctx.ipcDir ? { GANTRY_IPC_DIR: ctx.ipcDir } : {}),
       ...(ctx.ipcAuthToken ? { GANTRY_IPC_AUTH_TOKEN: ctx.ipcAuthToken } : {}),
+      ...(ctx.attachmentIpcAuthToken
+        ? { GANTRY_ATTACHMENT_IPC_AUTH_TOKEN: ctx.attachmentIpcAuthToken }
+        : {}),
       ...(ctx.browserIpcAuthToken &&
       (ctx.configuredAllowedTools ?? []).some(isCanonicalBrowserCapabilityRule)
         ? { GANTRY_BROWSER_IPC_AUTH_TOKEN: ctx.browserIpcAuthToken }

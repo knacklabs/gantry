@@ -14,6 +14,7 @@ export interface JobExecutionContext {
   threadId: string | null;
   workspaceKey: string;
   sessionId?: string | null;
+  personId?: string | null;
 }
 
 export interface JobNotificationRoute {
@@ -73,6 +74,7 @@ export interface JobSetupBlocker {
   state: Exclude<JobSetupReadinessState, 'ready'>;
   message: string;
   nextAction: string;
+  grantable?: boolean;
   requirementType:
     | 'tool'
     | 'semantic_capability'

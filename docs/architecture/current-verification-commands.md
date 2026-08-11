@@ -186,6 +186,14 @@ maximum count so `python3 scripts/check_architecture.py` still fails
 when a branch adds new layer, provider, risky-execution, old-term, or
 wrapper-only debt.
 
+Decision 0003 runtime-compat exceptions use a separate exact-symbol record in
+that same list: `{symbol, owner, reason, introduced, removal_condition,
+remove_by, kind}`. Dates are ISO `YYYY-MM-DD`, `remove_by` must be later than
+`introduced` and cannot be expired, and `kind` must match the checker's known
+symbol registry. The checker recognizes declarations and calls of those exact
+symbols in production TypeScript; it does not ban compatibility words, vendor
+or protocol adaptation, reject-only validation, or historical SQL migrations.
+
 Anthropic/Claude provider-boundary debt is tracked separately in
 `scripts/provider-boundary-exceptions.json`. Entries must use exact file paths
 and exact token counts. The checker fails when a new token appears outside

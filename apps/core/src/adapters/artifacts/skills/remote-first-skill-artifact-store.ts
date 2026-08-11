@@ -10,7 +10,7 @@ import type {
  * Fleet deployments can replace their local runtime home on every task start,
  * but selected skill metadata is durable. The object store must therefore be
  * the source of truth once configured; local disk is only a warm cache for
- * faster access and legacy recovery while an old local artifact is being synced.
+ * faster access.
  */
 export class RemoteFirstSkillArtifactStore implements SkillArtifactStore {
   constructor(
@@ -30,24 +30,9 @@ export class RemoteFirstSkillArtifactStore implements SkillArtifactStore {
   }
 
   async getSkillArtifact(storageRef: string): Promise<SkillArtifactBundle> {
-    try {
-      const bundle = await this.authority.getSkillArtifact(storageRef);
-      await this.tryWarmCacheFromStorageRef(storageRef, bundle);
-      return bundle;
-    } catch (authorityError) {
-      if (!isMissingArtifactError(authorityError)) {
-        throw authorityError;
-      }
-      try {
-        return await this.cache.getSkillArtifact(storageRef);
-      } catch (cacheError) {
-        throw new Error(
-          `Skill artifact unavailable from remote authority or local cache: ${storageRef}. ` +
-            `Remote: ${errorMessage(authorityError)}; local: ${errorMessage(cacheError)}`,
-          { cause: authorityError },
-        );
-      }
-    }
+    const bundle = await this.authority.getSkillArtifact(storageRef);
+    await this.tryWarmCacheFromStorageRef(storageRef, bundle);
+    return bundle;
   }
 
   private async tryWarmCache(input: {
@@ -91,18 +76,4 @@ export class RemoteFirstSkillArtifactStore implements SkillArtifactStore {
       // Local cache warming must never block the remote-authoritative read.
     }
   }
-}
-
-function errorMessage(value: unknown): string {
-  return value instanceof Error ? value.message : String(value);
-}
-
-function isMissingArtifactError(value: unknown): boolean {
-  const message = errorMessage(value);
-  return (
-    message.includes('Skill artifact must contain SKILL.md') ||
-    message.includes('NoSuchKey') ||
-    message.includes('not found') ||
-    message.includes('missing ')
-  );
 }

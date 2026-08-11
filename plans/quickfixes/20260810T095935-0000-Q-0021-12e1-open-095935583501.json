@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0021-12e1",
+  "profile": "quickfix",
+  "reason": "PR #400 CI: allow-for-future Postgres integration tests fail after host-stamp change; instrument + fix the persistent-grant regression",
+  "started_at": "2026-08-10T09:59:35+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

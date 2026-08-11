@@ -270,6 +270,7 @@ function grantAllow(
 export interface PermissionRunRestriction {
   hideAuthorityTools: boolean;
   runKind: 'interactive' | 'scheduled';
+  memoryUserId?: string;
   jobId?: string;
   runId?: string;
 }
@@ -281,12 +282,14 @@ export function registerPermissionRunRestriction(input: {
   responseKeyId: string;
   hideAuthorityTools: boolean;
   runKind: 'interactive' | 'scheduled';
+  memoryUserId?: string;
   jobId?: string;
   runId?: string;
 }): void {
   permissionRunRestrictions.set(restrictionKey(input), {
     hideAuthorityTools: input.hideAuthorityTools,
     runKind: input.runKind,
+    ...(input.memoryUserId ? { memoryUserId: input.memoryUserId } : {}),
     ...(input.jobId ? { jobId: input.jobId } : {}),
     ...(input.runId ? { runId: input.runId } : {}),
   });

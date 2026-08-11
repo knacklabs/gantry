@@ -1548,7 +1548,7 @@ describe('durable session resume use cases', () => {
       userId: 'U999' as never,
     });
     await repos.sessionRepo.saveAgentSession(session);
-    const { db } = createInMemoryAppMemoryDb();
+    const { db, rows } = createInMemoryAppMemoryDb();
     const appMemoryService = new AppMemoryService(db as any);
     await appMemoryService.save({
       appId: session.appId,
@@ -1561,6 +1561,16 @@ describe('durable session resume use cases', () => {
       source: 'test',
       actorId: 'test',
       isAdminWrite: false,
+    });
+    rows[0].reviewSnapshotJson = JSON.stringify({
+      schemaVersion: 1,
+      subject: {
+        appId: rows[0].appId,
+        agentId: rows[0].agentId,
+        subjectType: rows[0].subjectType,
+        subjectId: rows[0].subjectId,
+      },
+      evidence: [],
     });
     const getInstance = vi
       .spyOn(AppMemoryService, 'getInstance')

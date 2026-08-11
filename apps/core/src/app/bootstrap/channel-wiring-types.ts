@@ -31,6 +31,10 @@ import type { Provider } from '../../channels/provider-registry.js';
 import type { logger } from '../../infrastructure/logging/logger.js';
 import type { RuntimeSecretProvider } from '../../domain/ports/runtime-secret-provider.js';
 import type { GroupJoinOnboardingCoordinator } from '../../domain/ports/group-join-onboarding.js';
+import type {
+  IdentityResolveInput,
+  IdentityResolveResult,
+} from '../../application/identity/person-identity-service.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
 import type {
@@ -145,6 +149,13 @@ export interface ChannelWiringDeps {
   logger: Pick<typeof logger, 'info' | 'warn' | 'debug' | 'error'>;
   runtimeSecrets: RuntimeSecretProvider;
   groupJoinOnboarding?: GroupJoinOnboardingCoordinator;
+  resolvePersonIdentity?: (
+    input: IdentityResolveInput,
+  ) => Promise<IdentityResolveResult>;
+  hasDirectConversationWithPerson?: (
+    appId: string,
+    personId: string,
+  ) => Promise<boolean>;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<unknown>;
   brainHarvestTap?: BrainChannelHarvestTap;
   historyCoverage?: ConversationHistoryCoverageRepository;
@@ -254,9 +265,14 @@ export interface ChannelWiring {
     emoji: string,
     options?: ChannelAccountOptions,
   ) => Promise<void>;
+  reactionRemovalMode: (
+    jid: string,
+    options?: Pick<ChannelAccountOptions, 'providerAccountId'>,
+  ) => 'exact' | 'all' | undefined;
   syncGroups: (force: boolean) => Promise<void>;
   requestPermissionApproval: (
     request: PermissionApprovalRequest,
+    onPromptDelivered?: (messageId: string) => void,
   ) => Promise<PermissionApprovalDecision>;
   cancelPermissionApproval: (
     cancellation: PermissionApprovalCancellation,

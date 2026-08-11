@@ -949,6 +949,7 @@ describe('job readiness service', () => {
   it('turns runtime denied tool use into setup state', () => {
     const setup = setupStateForDeniedTool({
       toolName: 'mcp__gantry__service_restart',
+      grantable: false,
       recoveryAction: 'request_access ...',
       checkedAt: '2026-05-14T00:00:00.000Z',
     });
@@ -959,6 +960,7 @@ describe('job readiness service', () => {
         {
           requirementType: 'tool',
           requirementId: 'mcp__gantry__service_restart',
+          grantable: false,
           nextAction: 'request_access ...',
         },
       ],
@@ -968,6 +970,7 @@ describe('job readiness service', () => {
   it('canonicalizes projected browser tool denials to Browser setup', () => {
     const setup = setupStateForDeniedTool({
       toolName: 'mcp__gantry__browser_act',
+      grantable: true,
       checkedAt: '2026-05-14T00:00:00.000Z',
     });
 

@@ -349,9 +349,21 @@ describe('semantic capability catalog validation', () => {
     ).toEqual({ ok: true });
   });
 
-  it('projects reviewed local CLI capabilities to scoped command-tool authority', () => {
+  it('does not project local CLI command rules from malformed non-local capability objects', () => {
+    expect(
+      semanticCapabilityRuntimeRules({
+        ...localCliCapability(),
+        credentialSource: 'configured_access',
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe('CLIRUN-1-3', () => {
+  it('RunCommand projection retired for local_cli; structured path authorizes', () => {
     const capability = localCliCapability();
 
+    expect(semanticCapabilityRuntimeRules(capability)).toEqual([]);
     expect(
       projectToolCatalogItemToRuntimeRules({
         name: 'capability:example.records.read',
@@ -360,19 +372,7 @@ describe('semantic capability catalog validation', () => {
           schema: capability,
         },
       }),
-    ).toEqual([
-      'capability:example.records.read',
-      'RunCommand(/usr/local/bin/acme invoices read *)',
-    ]);
-  });
-
-  it('does not project local CLI command rules from malformed non-local capability objects', () => {
-    expect(
-      semanticCapabilityRuntimeRules({
-        ...localCliCapability(),
-        credentialSource: 'configured_access',
-      }),
-    ).toEqual([]);
+    ).toEqual(['capability:example.records.read']);
   });
 });
 

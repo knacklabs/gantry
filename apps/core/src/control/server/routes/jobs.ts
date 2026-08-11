@@ -156,6 +156,7 @@ export function createJobManagementService(
     get runtimeEvents() {
       return getRuntimeEventExchange();
     },
+    setupRequiredNotifications: input.app.setupRequiredNotifications,
     scheduler: { requestSchedulerSync },
     schedulePlanner: runtimeJobSchedulePlanner,
     clock: { now: nowIso },

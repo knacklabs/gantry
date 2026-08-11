@@ -1,10 +1,5 @@
-import { logger } from '../../infrastructure/logging/logger.js';
-
-function telegramReactionEmoji(emoji: string): string {
-  if (emoji === 'seen') return '👀';
-  if (emoji === 'running') return '⏳';
-  return emoji;
-}
+import type { AbortSignal as GrammyAbortSignal } from 'abort-controller';
+import { telegramReactionEmoji } from './live-ux.js';
 
 export async function addTelegramReaction(input: {
   bot: {
@@ -14,6 +9,7 @@ export async function addTelegramReaction(input: {
         messageId: number,
         reactions: Array<{ type: 'emoji'; emoji: never }>,
         options: { is_big: boolean },
+        signal?: GrammyAbortSignal,
       ): Promise<unknown>;
     };
   };
@@ -21,26 +17,37 @@ export async function addTelegramReaction(input: {
   messageRef: string;
   emoji: string;
   reactionKeys: Set<string>;
+  signal?: AbortSignal;
+  reconcile?: boolean;
 }): Promise<void> {
   const numericId = input.jid.replace(/^tg:/, '');
   const messageId = Number.parseInt(input.messageRef, 10);
   if (!Number.isFinite(messageId)) return;
   const reaction = telegramReactionEmoji(input.emoji);
   const key = `${input.jid}:${messageId}:${reaction}`;
-  if (input.reactionKeys.has(key)) return;
+  if (!input.reconcile && input.reactionKeys.has(key)) return;
+  const prefix = `${input.jid}:${messageId}:`;
+  const invalidate = () => {
+    for (const cachedKey of input.reactionKeys) {
+      if (cachedKey.startsWith(prefix)) input.reactionKeys.delete(cachedKey);
+    }
+  };
+  if (input.reconcile) invalidate();
+  input.signal?.addEventListener('abort', invalidate, { once: true });
   try {
     await input.bot.api.setMessageReaction(
       numericId,
       messageId,
       [{ type: 'emoji', emoji: reaction as never }],
       { is_big: false },
+      input.signal as unknown as GrammyAbortSignal | undefined,
     );
-    input.reactionKeys.add(key);
-  } catch (err) {
-    logger.debug(
-      { jid: input.jid, messageRef: input.messageRef, err },
-      'Telegram reaction update failed',
-    );
+    if (!input.signal?.aborted) {
+      invalidate();
+      input.reactionKeys.add(key);
+    }
+  } finally {
+    input.signal?.removeEventListener('abort', invalidate);
   }
 }
 
@@ -51,26 +58,38 @@ export async function removeTelegramReaction(input: {
         chatId: string,
         messageId: number,
         reactions: [],
+        options?: undefined,
+        signal?: GrammyAbortSignal,
       ): Promise<unknown>;
     };
   };
   jid: string;
   messageRef: string;
   reactionKeys: Set<string>;
+  signal?: AbortSignal;
+  reconcile?: boolean;
 }): Promise<void> {
   const numericId = input.jid.replace(/^tg:/, '');
   const messageId = Number.parseInt(input.messageRef, 10);
   if (!Number.isFinite(messageId)) return;
-  try {
-    await input.bot.api.setMessageReaction(numericId, messageId, []);
-    const prefix = `${input.jid}:${messageId}:`;
+  const prefix = `${input.jid}:${messageId}:`;
+  const invalidate = () => {
     for (const key of input.reactionKeys) {
       if (key.startsWith(prefix)) input.reactionKeys.delete(key);
     }
-  } catch (err) {
-    logger.debug(
-      { jid: input.jid, messageRef: input.messageRef, err },
-      'Telegram reaction removal failed',
+  };
+  if (input.reconcile) invalidate();
+  input.signal?.addEventListener('abort', invalidate, { once: true });
+  try {
+    await input.bot.api.setMessageReaction(
+      numericId,
+      messageId,
+      [],
+      undefined,
+      input.signal as unknown as GrammyAbortSignal | undefined,
     );
+    if (!input.signal?.aborted) invalidate();
+  } finally {
+    input.signal?.removeEventListener('abort', invalidate);
   }
 }

@@ -336,7 +336,7 @@ export const memoryReviewRequestsPostgres = pgTable(
       .default('{}'),
     status: text('status').notNull().default('pending_review'),
     validationSummary: text('validation_summary').notNull(),
-    reviewSnapshotJson: text('review_snapshot_json'),
+    reviewSnapshotJson: text('review_snapshot_json').notNull(),
     decisionSource: text('decision_source'),
     flaggedContentHash: text('flagged_content_hash'),
     reviewerId: text('reviewer_id'),

@@ -171,6 +171,43 @@ describe('Slack install scopes', () => {
       warning: expect.stringMatching(/canvases:read, canvases:write/),
     });
   });
+
+  it('warns without failing when a valid Slack token lacks files:read', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ok: true,
+              team: 'Existing workspace',
+              team_id: 'T1',
+              user_id: 'U1',
+            }),
+            {
+              headers: {
+                'content-type': 'application/json',
+                'x-oauth-scopes': [
+                  ...SLACK_REQUIRED_BOT_SCOPES,
+                  ...SLACK_FEATURE_BOT_SCOPES.filter(
+                    (scope) => scope !== 'files:read',
+                  ),
+                ].join(','),
+              },
+            },
+          ),
+      ),
+    );
+
+    await expect(validateSlackBotToken('xoxb-existing')).resolves.toMatchObject(
+      {
+        ok: true,
+        warning: expect.stringMatching(
+          /files:read.*reinstall.*docs\/operations\/slack-app-install\.md/i,
+        ),
+      },
+    );
+  });
 });
 
 vi.mock('@core/cli/runtime-group-db.js', () => ({

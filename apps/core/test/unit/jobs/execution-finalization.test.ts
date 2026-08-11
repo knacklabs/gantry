@@ -30,10 +30,10 @@ function makeJob(overrides: Partial<Job> = {}): Job {
   } as Job;
 }
 
-// A denied tool on a fenced job run is surfaced as an "autonomous allowlist"
-// error; finalization must pause (resumable) rather than fail the run.
+// Anthropic and DeepAgents surface the same parseable autonomous-denial error;
+// finalization must fail the dead-end run and pause the job for a fresh retry.
 const DENIAL_ERROR =
-  'Tool not on autonomous job allowlist: Bash. Recovery: request_access(capability=shell)';
+  'Tool not on autonomous run allowlist: Bash. Recovery: request_access(capability=shell)';
 
 function makeDeps(): {
   deps: SchedulerDependencies;
@@ -53,8 +53,8 @@ function makeDeps(): {
   return { deps, updateJob, sendMessage };
 }
 
-describe('finalizeSchedulerJobRun — permission ASK on a fenced job', () => {
-  it('keeps the run failed on an autonomous ungranted-tool dead-end (job still pauses for setup)', async () => {
+describe('execution finalization', () => {
+  it('classifies an Anthropic autonomous denial as failed for fresh retry, not resumably paused', async () => {
     const { deps, updateJob } = makeDeps();
     const state = await finalizeSchedulerJobRun({
       currentJob: makeJob(),
@@ -74,10 +74,19 @@ describe('finalizeSchedulerJobRun — permission ASK on a fenced job', () => {
     // is a dead-end (failed). The JOB still pauses for setup so an admin can
     // grant access and the job re-runs.
     expect(state.runStatus).toBe('failed');
+    expect(state.runStatus).not.toBe('paused');
+    expect(state.retryCount).toBe(0);
+    expect(state.incrementConsecutiveFailures).toBe(false);
+    expect(state.nextRun).toBeNull();
     expect(updateJob).toHaveBeenCalledWith(
       'job-1',
-      expect.objectContaining({ status: 'paused' }),
-      { incrementConsecutiveFailures: true },
+      expect.objectContaining({
+        status: 'paused',
+        consecutive_failures: 0,
+        setup_state: expect.objectContaining({
+          blockers: [expect.objectContaining({ requirementId: 'RunCommand' })],
+        }),
+      }),
     );
   });
 
@@ -109,7 +118,6 @@ describe('finalizeSchedulerJobRun — permission ASK on a fenced job', () => {
     expect(updateJob).toHaveBeenCalledWith(
       'job-1',
       expect.objectContaining({ status: 'paused' }),
-      { incrementConsecutiveFailures: true },
     );
   });
 
@@ -133,7 +141,6 @@ describe('finalizeSchedulerJobRun — permission ASK on a fenced job', () => {
     expect(updateJob).toHaveBeenCalledWith(
       'job-1',
       expect.objectContaining({ status: 'paused' }),
-      { incrementConsecutiveFailures: true },
     );
   });
 });
@@ -187,7 +194,8 @@ describe('finalizeSchedulerJobRun — transient permission approvals', () => {
   });
 
   it('pauses a successful recurring job after human allow_once', async () => {
-    const { deps, updateJob } = makeDeps();
+    const { deps, updateJob, sendMessage } = makeDeps();
+    const publishRuntimeEvent = vi.fn(async () => undefined);
     const diagnostics = createJobRunDiagnostics();
     updateDiagnosticsFromRuntimeEvent(
       diagnostics,
@@ -197,6 +205,8 @@ describe('finalizeSchedulerJobRun — transient permission approvals', () => {
         tool: 'Bash',
         mode: 'allow_once',
         decidedBy: 'human',
+        source: 'human_once',
+        repeatableForFutureRuns: false,
         ok: true,
       },
     );
@@ -215,11 +225,19 @@ describe('finalizeSchedulerJobRun — transient permission approvals', () => {
       deletedDuringRun: false,
       runtimeAppId: 'default',
       runId: 'run-human',
-      publishRuntimeEvent: vi.fn(async () => undefined),
+      publishRuntimeEvent,
     });
 
     expect(state.runStatus).toBe('completed');
     expect(state.pauseReason).toBe('Setup required');
+    expect(state.setupNotified).toBe(false);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: RUNTIME_EVENT_TYPES.JOB_SETUP_REQUIRED,
+        payload: expect.objectContaining({ notified: false }),
+      }),
+    );
     expect(updateJob).toHaveBeenCalledWith(
       'job-1',
       expect.objectContaining({

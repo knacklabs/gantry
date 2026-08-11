@@ -20,7 +20,7 @@ import {
   evaluateJobReadiness,
   SETUP_REQUIRED_PAUSE_REASON,
 } from './job-readiness-service.js';
-import { recordJobSetupRequired } from './job-management-readiness.js';
+import { notifyJobSetupRequiredAtCreation } from './job-management-readiness.js';
 
 export async function createManagedJob(
   deps: JobManagementServiceDeps,
@@ -132,7 +132,7 @@ export async function createManagedJob(
     workspace_key: session.workspaceKey,
     created_by: 'human',
     next_run: schedule.nextRun,
-    execution_context: executionContext,
+    execution_context: { ...executionContext, personId: null },
     notification_routes: notificationRoutes,
     access_requirements: accessRequirements,
   };
@@ -178,11 +178,14 @@ export async function createManagedJob(
     setup_state: readiness.setupState,
   });
   if (!readiness.ready) {
-    await recordJobSetupRequired({
+    notifyJobSetupRequiredAtCreation({
       deps,
       job: jobInput,
       readiness,
+      // Attribute the setup event/card to the canonical resolved session's app
+      // (matching the IPC creation path), not the raw request app id.
       appId: session.appId,
+      appSession: session,
     });
   }
   deps.scheduler.requestSchedulerSync(jobId);

@@ -1,4 +1,5 @@
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
+import type { LiveUxOperationOptions } from '../../domain/channel-live-ux.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
   MessageDeliveryResult,
@@ -141,17 +142,20 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     jid: string,
     messageRef: string,
     emoji: string,
+    options: LiveUxOperationOptions = {},
   ): Promise<void> {
     if (!this.app) return;
     const parsed = this.parseJid(jid);
     if (!parsed) return;
     await addSlackReaction({
-      app: this.app,
+      botToken: this.botToken,
       jid,
       channelId: parsed.channelId,
       messageRef,
       emoji,
       reactionKeys: this.reactionKeys,
+      signal: options.signal,
+      reconcile: options.reconcile,
     });
   }
 
@@ -159,17 +163,20 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     jid: string,
     messageRef: string,
     emoji: string,
+    options: LiveUxOperationOptions = {},
   ): Promise<void> {
     if (!this.app) return;
     const parsed = this.parseJid(jid);
     if (!parsed) return;
     await removeSlackReaction({
-      app: this.app,
+      botToken: this.botToken,
       jid,
       channelId: parsed.channelId,
       messageRef,
       emoji,
       reactionKeys: this.reactionKeys,
+      signal: options.signal,
+      reconcile: options.reconcile,
     });
   }
 

@@ -36,12 +36,15 @@ export const MAX_IMAGE_BLOCKS_PER_CALL = 4;
 const IMAGE_LIMIT_NOTE = '[image omitted: 4-image limit]';
 export const DELIVERED_IMAGE_TEXT =
   'Image attachment: delivered as an image block in this result.';
+export const RUNNER_ATTACHMENT_TIMEOUT_COPY =
+  'The file took too long to download; try opening it again.';
 const TRUNCATION_SUFFIX = '\n[Attachment content truncated.]';
 
 export function attachmentOpenTaskRequest(input: {
   attachmentId: string;
   chatJid: string;
   threadId?: string;
+  providerAccountId?: string;
   taskId: string;
   authToken: string;
 }) {
@@ -50,6 +53,9 @@ export function attachmentOpenTaskRequest(input: {
     taskId: input.taskId,
     chatJid: input.chatJid,
     targetJid: input.chatJid,
+    ...(input.providerAccountId
+      ? { providerAccountId: input.providerAccountId }
+      : {}),
     payload: {
       attachmentId: input.attachmentId,
       conversationProof: createAttachmentOpenProof(input.authToken, {
@@ -67,6 +73,7 @@ export function attachmentMaterializeTaskRequest(input: {
   attachmentId: string;
   chatJid: string;
   threadId?: string;
+  providerAccountId?: string;
   taskId: string;
   authToken: string;
 }) {
@@ -75,6 +82,9 @@ export function attachmentMaterializeTaskRequest(input: {
     taskId: input.taskId,
     chatJid: input.chatJid,
     targetJid: input.chatJid,
+    ...(input.providerAccountId
+      ? { providerAccountId: input.providerAccountId }
+      : {}),
     payload: {
       attachmentId: input.attachmentId,
       conversationProof: createAttachmentOpenProof(input.authToken, {
@@ -180,6 +190,10 @@ export function attachmentOpenResponsePayload(
         }
       : undefined;
   return { text: data.content, ...(image ? { image } : {}) };
+}
+
+export function attachmentOpenTimeoutPayload(): AttachmentOpenPayload {
+  return { text: RUNNER_ATTACHMENT_TIMEOUT_COPY };
 }
 
 export function attachmentOpenResponseText(

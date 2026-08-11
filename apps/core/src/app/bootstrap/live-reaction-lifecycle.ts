@@ -1,6 +1,6 @@
 const REACTION_FLIP_DELAY_MS = 5_000;
 
-type ReactionTarget = { jid: string; messageRef: string };
+type ReactionTarget = { jid: string; messageRef: string; threadId?: string };
 type ReactionOptions =
   | { providerAccountId?: string; threadId?: string }
   | undefined;
@@ -18,6 +18,7 @@ export function createLiveReactionLifecycle(input: {
     emoji: string,
     options?: ReactionOptions,
   ) => Promise<void>;
+  removalMode?: 'exact' | 'all';
   options?: ReactionOptions;
 }) {
   let target: ReactionTarget | null = null;
@@ -28,6 +29,16 @@ export function createLiveReactionLifecycle(input: {
   const enqueue = (run: () => Promise<void>) => {
     transition = transition.then(run).catch(() => undefined);
     return transition;
+  };
+  const optionsFor = (current: ReactionTarget): ReactionOptions => {
+    const { threadId: _inheritedThreadId, ...baseOptions } =
+      input.options ?? {};
+    return input.options || current.threadId
+      ? {
+          ...baseOptions,
+          ...(current.threadId ? { threadId: current.threadId } : {}),
+        }
+      : undefined;
   };
   const restoreSeen = async () => {
     if (settled) {
@@ -40,16 +51,23 @@ export function createLiveReactionLifecycle(input: {
     if (!target) return;
     const current = target;
     await enqueue(async () => {
+      if (input.removalMode === 'exact') {
+        await input
+          .removeReaction?.(
+            current.jid,
+            current.messageRef,
+            'running',
+            optionsFor(current),
+          )
+          .catch(() => undefined);
+      }
       await input
-        .removeReaction?.(
+        .addReaction?.(
           current.jid,
           current.messageRef,
-          'running',
-          input.options,
+          'seen',
+          optionsFor(current),
         )
-        .catch(() => undefined);
-      await input
-        .addReaction?.(current.jid, current.messageRef, 'seen', input.options)
         .catch(() => undefined);
     });
   };
@@ -59,29 +77,31 @@ export function createLiveReactionLifecycle(input: {
       if (target) return;
       target = next;
       await input
-        .addReaction?.(next.jid, next.messageRef, 'seen', input.options)
+        .addReaction?.(next.jid, next.messageRef, 'seen', optionsFor(next))
         .catch(() => undefined);
-      if (settled || !input.removeReaction) return;
+      if (settled || !input.removalMode) return;
       timer = setTimeout(() => {
         timer = null;
         void enqueue(async () => {
           if (settled || !target) return;
           const current = target;
-          await input
-            .removeReaction?.(
-              current.jid,
-              current.messageRef,
-              'seen',
-              input.options,
-            )
-            .catch(() => undefined);
+          if (input.removalMode === 'exact') {
+            await input
+              .removeReaction?.(
+                current.jid,
+                current.messageRef,
+                'seen',
+                optionsFor(current),
+              )
+              .catch(() => undefined);
+          }
           if (settled) return;
           await input
             .addReaction?.(
               current.jid,
               current.messageRef,
               'running',
-              input.options,
+              optionsFor(current),
             )
             .catch(() => undefined);
         });

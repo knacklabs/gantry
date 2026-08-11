@@ -91,10 +91,7 @@ export async function updateManagedJob(
     (normalizedExecutionContext.conversationJid !==
       authenticatedContext.conversationJid ||
       normalizedExecutionContext.workspaceKey !==
-        authenticatedContext.workspaceKey ||
-      (input.access &&
-        (normalizedExecutionContext.threadId ?? null) !==
-          (authenticatedContext.threadId ?? null)))
+        authenticatedContext.workspaceKey)
   ) {
     throw new ApplicationError(
       'FORBIDDEN',

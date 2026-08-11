@@ -51,6 +51,7 @@ import {
   DurableInteractionPersistenceError,
   recordDurableQuestionAnswerProgress,
 } from '../../application/interactions/pending-interaction-durability.js';
+import { retainTelegramProgressHandleAfterEditFailure } from './progress-edit-failure.js';
 
 export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
   async sendMessage(
@@ -495,6 +496,10 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
           actionOptions.editReplyMarkup,
         );
       } catch (err) {
+        if (options.replaceOnly) {
+          retainTelegramProgressHandleAfterEditFailure({ jid, err });
+          return false;
+        }
         logger.debug(
           { jid, err },
           'Failed to edit progress message, creating a fresh one',
@@ -756,7 +761,17 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     this.draftStreamApi = disconnected.draftStreamApi;
   }
 
-  async setTyping(jid: string, isTyping: boolean): Promise<void> {
-    await sendTelegramTyping({ bot: this.bot, jid, isTyping });
-  }
+  setTyping = async (
+    jid: string,
+    isTyping: boolean,
+    options: { threadId?: string; signal?: AbortSignal } = {},
+  ): Promise<void> => {
+    await sendTelegramTyping({
+      bot: this.bot,
+      jid,
+      isTyping,
+      threadId: options.threadId,
+      signal: options.signal,
+    });
+  };
 }

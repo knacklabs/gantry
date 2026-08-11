@@ -104,6 +104,11 @@ export {
 
 export class TeamsChannel implements ChannelAdapter {
   name = 'teams';
+  readonly liveUx = {
+    typing: 'none',
+    reactions: 'none',
+    canonicalTarget: (target: { jid: string }) => ({ key: target.jid }),
+  } as const;
   private connected = false;
   private outboundReady = false;
   private readonly pendingPermissionPrompts = new Map<
@@ -267,8 +272,6 @@ export class TeamsChannel implements ChannelAdapter {
       sendFallback: (text, options) => this.sendMessage(jid, text, options),
     });
   }
-
-  async addReaction(): Promise<void> {}
 
   async sendProgressUpdate(
     jid: string,

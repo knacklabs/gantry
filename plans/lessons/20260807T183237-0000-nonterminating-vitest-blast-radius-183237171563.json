@@ -1,0 +1,11 @@
+{
+  "topic": "nonterminating-vitest-blast-radius",
+  "lesson": "A jobs or runner directory-wide Vitest invocation can remain live without a summary or exit code in the managed environment; terminate it after bounded polling and report it as unverified, not green.",
+  "source": "SCHED-6-1-verification",
+  "applies_to": [
+    "apps/core/test/unit/**"
+  ],
+  "severity": "medium",
+  "generated_by": "implementer",
+  "added_at": "2026-08-07T18:32:37+00:00"
+}

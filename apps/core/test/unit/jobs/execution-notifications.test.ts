@@ -123,9 +123,18 @@ describe('jobs/execution-notifications', () => {
     );
   });
 
-  it('prefers lifecycle update over summary fallback when update succeeds', async () => {
+  it('retires lifecycle progress and preserves Run again controls', async () => {
     const sendMessage = vi.fn(async () => undefined);
-    const update = vi.fn(async () => 'updated' as const);
+    const update = vi.fn(async () => [
+      {
+        route: {
+          conversationJid: 'sl:C123',
+          threadId: null,
+          label: 'Primary',
+        },
+        status: 'updated' as const,
+      },
+    ]);
 
     const notified = await notifySchedulerTerminalRunState({
       job: makeJob(),
@@ -141,7 +150,18 @@ describe('jobs/execution-notifications', () => {
 
     expect(notified).toBe(true);
     expect(update).toHaveBeenCalledTimes(1);
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith(
+      'tg:scheduler',
+      expect.stringContaining('Completed'),
+      expect.objectContaining({
+        actionAffordances: [
+          expect.objectContaining({
+            kind: 'scheduler_run_now',
+            label: 'Run again',
+          }),
+        ],
+      }),
+    );
   });
 
   it('sends one terminal outcome and no normal start notification', async () => {
@@ -200,7 +220,14 @@ describe('jobs/execution-notifications', () => {
     expect(message).not.toContain('*Mode*');
     expect(message).not.toContain('T08:35:00.000Z');
     expect(sendMessage.mock.calls[0]?.[2]).toMatchObject({
-      actionAffordances: [],
+      actionAffordances: [
+        {
+          kind: 'scheduler_run_now',
+          label: 'Run again',
+          jobId: 'job-1',
+          runId: 'run-1',
+        },
+      ],
     });
   });
 
@@ -276,7 +303,16 @@ describe('jobs/execution-notifications', () => {
 
   it('keeps pending memory review guidance in lifecycle update summaries', async () => {
     const sendMessage = vi.fn(async () => undefined);
-    const updateLifecycleNotification = vi.fn(async () => 'updated' as const);
+    const updateLifecycleNotification = vi.fn(async () => [
+      {
+        route: {
+          conversationJid: 'sl:C123',
+          threadId: null,
+          label: 'Primary',
+        },
+        status: 'updated' as const,
+      },
+    ]);
 
     const notified = await notifySchedulerTerminalRunState({
       job: makeMemoryDreamingJob(),
@@ -434,22 +470,92 @@ describe('jobs/execution-notifications', () => {
     });
   });
 
-  it('suppresses duplicate needs-permission summaries when setup notification owns the action', async () => {
+  it('folds a completed degraded run into one completed-with-limits card', async () => {
     const sendMessage = vi.fn(async () => undefined);
 
     const notified = await notifySchedulerTerminalRunState({
-      job: makeJob(),
-      runId: 'run-1',
-      runStatus: 'failed',
-      summary:
-        'Permission denied for Bash. Tool not on autonomous run allowlist: RunCommand. Recovery: request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
+      job: makeJob({ name: 'Lead maintenance' }),
+      runId: 'run-degraded',
+      runStatus: 'completed',
+      summary: 'Imported 3 records.',
       nextRun: null,
-      retryCount: 1,
+      retryCount: 0,
       pauseReason: 'Setup required',
+      setupNotified: false,
+      diagnostics: {
+        pendingPermissionRequests: 0,
+        pendingPermissionToolNames: [],
+        totalToolCalls: 1,
+        browserActivityCount: 0,
+        transientPermissionApprovals: [
+          { toolName: 'RunCommand', mode: 'allow_once' },
+        ],
+        startupDiagnostics: [],
+        latestStreamedOutputChars: 0,
+        totalStreamedOutputChars: 0,
+      },
       sendMessage,
-      durationMs: 41_000,
     });
 
+    expect(notified).toBe(true);
+    expect(sendMessage).toHaveBeenCalledOnce();
+    const message = String(sendMessage.mock.calls[0]?.[1]);
+    expect(message).toContain('**⚠️ Completed with limits**');
+    expect(message).toContain('⚠️ Degraded:');
+    expect(message).not.toContain('Setup needed');
+  });
+
+  it('keeps only the setup card when a blocker ends the run and retires any running message', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const updateLifecycleNotification = vi.fn(async () => [] as never);
+
+    const notified = await notifySchedulerTerminalRunState({
+      job: makeJob(),
+      runId: 'run-blocked',
+      runStatus: 'paused',
+      summary: 'Tool not on autonomous run allowlist: RunCommand.',
+      nextRun: null,
+      retryCount: 0,
+      pauseReason: 'Setup required',
+      setupNotified: true,
+      sendMessage,
+      updateLifecycleNotification,
+    });
+
+    expect(notified).toBe(false);
+    // The setup card is the single notification: no duplicate terminal card is
+    // sent, but any in-place "running" lifecycle message is retired so it does
+    // not sit stale next to the setup card.
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(updateLifecycleNotification).toHaveBeenCalledOnce();
+  });
+
+  it('sends no duplicate terminal card even when a running message cannot be edited', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+    // A backend that cannot edit the running message in place ('unsupported')
+    // still gets NO duplicate terminal card — the feature requires exactly one
+    // notification (the setup card). The retire is best-effort only.
+    const updateLifecycleNotification = vi.fn(async () => [
+      {
+        route: { conversationJid: 'sl:C999', threadId: null, label: 'Primary' },
+        status: 'unsupported' as const,
+      },
+    ]);
+
+    const notified = await notifySchedulerTerminalRunState({
+      job: makeJob(),
+      runId: 'run-blocked',
+      runStatus: 'paused',
+      summary: 'Tool not on autonomous run allowlist: RunCommand.',
+      nextRun: null,
+      retryCount: 0,
+      pauseReason: 'Setup required',
+      setupNotified: true,
+      sendMessage,
+      updateLifecycleNotification,
+    });
+
+    expect(updateLifecycleNotification).toHaveBeenCalledOnce();
     expect(notified).toBe(false);
     expect(sendMessage).not.toHaveBeenCalled();
   });
@@ -481,11 +587,10 @@ describe('jobs/execution-notifications', () => {
 
     expect(delivered).toBe(true);
     const message = String(sendMessage.mock.calls[0]?.[1]);
-    expect(message).toContain('**🛠️ Setup needed**');
-    expect(message).toContain('· Lead maintenance');
+    expect(message).toContain('**🛠️ Setup needed** · Lead maintenance');
     expect(message).toContain('Acme Records Append');
     expect(message).toContain(
-      'Action: Approve Acme Records Append, then resume the job.',
+      'Approve Acme Records Append, then resume the job.',
     );
     expect(message).not.toContain('request_permission');
     expect(message).not.toContain('/usr/local/bin/acme records append');
@@ -632,9 +737,18 @@ describe('jobs/execution-notifications', () => {
     expect(text).toContain('＋2 more pending reviews.');
   });
 
-  it('bypasses the lifecycle-update path so the review buttons are never swallowed', async () => {
+  it('retires lifecycle progress before sending the actionable review card', async () => {
     const sendMessage = vi.fn(async () => undefined);
-    const updateLifecycleNotification = vi.fn(async () => 'updated' as const);
+    const updateLifecycleNotification = vi.fn(async () => [
+      {
+        route: {
+          conversationJid: 'sl:C123',
+          threadId: null,
+          label: 'Primary',
+        },
+        status: 'updated' as const,
+      },
+    ]);
 
     const notified = await notifySchedulerTerminalRunState({
       job: makeMemoryDreamingJob(),
@@ -650,9 +764,7 @@ describe('jobs/execution-notifications', () => {
     });
 
     expect(notified).toBe(true);
-    // The edit path would replace an existing progress message with plain text
-    // and drop the buttons — it must not run for a review notification.
-    expect(updateLifecycleNotification).not.toHaveBeenCalled();
+    expect(updateLifecycleNotification).toHaveBeenCalledTimes(1);
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(sendMessage.mock.calls[0]?.[2]).toMatchObject({
       actionAffordances: [
@@ -684,6 +796,168 @@ describe('jobs/execution-notifications', () => {
     );
     expect(sendMessage.mock.calls[0]?.[2]).not.toHaveProperty(
       'reviewMessageView',
+    );
+  });
+});
+
+describe('scheduler terminal notifications', () => {
+  it('a denied-tool pause sends exactly one notification and no duplicate terminal card', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const updateLifecycleNotification = vi.fn(async () => []);
+    const setupState: JobSetupState = {
+      state: 'missing_capability',
+      checked_at: '2026-08-08T00:00:00.000Z',
+      fingerprint: 'denied-run-command',
+      blockers: [
+        {
+          state: 'missing_capability',
+          requirementType: 'tool',
+          requirementId: 'run_command',
+          message: 'Run command access missing.',
+          nextAction: 'Approve Run Command, then resume the job.',
+        },
+      ],
+    };
+
+    await notifySchedulerSetupRequired({
+      job: makeJob(),
+      setupState,
+      source: 'permission_denied',
+      runId: 'run-denied',
+      sendMessage,
+    });
+    const notified = await notifySchedulerTerminalRunState({
+      job: makeJob(),
+      runId: 'run-denied',
+      runStatus: 'paused',
+      summary: 'The tool request was denied.',
+      nextRun: null,
+      retryCount: 0,
+      pauseReason: 'Setup required',
+      setupNotified: true,
+      sendMessage,
+      updateLifecycleNotification,
+    });
+
+    expect(notified).toBe(false);
+    // Exactly one NEW notification is sent — the setup card from
+    // notifySchedulerSetupRequired above. The terminal notifier sends nothing
+    // further, but it DOES retire any in-place "running" lifecycle message so it
+    // is not left stale next to the setup card.
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(updateLifecycleNotification).toHaveBeenCalledOnce();
+    const message = String(sendMessage.mock.calls[0]?.[1]);
+    expect(message).toContain('**🛠️ Setup needed** · Daily summary');
+    expect(message).toContain(
+      "This job paused because it couldn't use Tool access: Run Command.",
+    );
+    expect(message).toContain('Approve Run Command, then resume the job.');
+    expect(message).not.toContain('Run outcome:');
+    expect(message).not.toContain('Blockers (');
+    expect(message).not.toContain('Triggering step:');
+  });
+});
+
+describe('setup cards', () => {
+  it('lists every setup need with plain-language status and action', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const setupState: JobSetupState = {
+      state: 'missing_capability',
+      checked_at: '2026-08-05T00:00:00.000Z',
+      fingerprint: 'setup-many-blockers',
+      blockers: [
+        {
+          state: 'missing_capability',
+          requirementType: 'semantic_capability',
+          requirementId: 'salesforce.leads.append',
+          message: 'Capability missing.',
+          nextAction: 'Approve Salesforce Leads Append, then resume the job.',
+        },
+        {
+          state: 'missing_capability',
+          requirementType: 'browser',
+          requirementId: 'Browser',
+          message: 'Browser access missing.',
+          nextAction: 'Approve Browser access.',
+        },
+        {
+          state: 'missing_capability',
+          requirementType: 'tool',
+          requirementId: 'mcp__gantry__scheduler_run_now',
+          message: 'Tool access missing.',
+          nextAction: 'Approve the requested access.',
+        },
+        {
+          state: 'missing_capability',
+          requirementType: 'mcp_server',
+          requirementId: 'customer-records',
+          message: 'MCP server missing.',
+          nextAction: 'Connect the server.',
+        },
+      ],
+    };
+
+    await notifySchedulerSetupRequired({
+      job: makeJob({ name: 'Lead maintenance' }),
+      setupState,
+      source: 'permission_denied',
+      runId: 'run-1',
+      sendMessage,
+    });
+
+    const message = String(sendMessage.mock.calls[0]?.[1]);
+    expect(message).toContain(
+      "This job paused because it couldn't use Salesforce Leads Append.",
+    );
+    expect(message).toContain('Needed:');
+    expect(message).toContain('- Salesforce Leads Append');
+    expect(message).toContain('- Browser access');
+    expect(message).toContain('- Tool access: Mcp Gantry Scheduler Run Now');
+    expect(message).toContain('- MCP server: Customer Records');
+    expect(message).toContain(
+      'Approve Salesforce Leads Append, then resume the job.',
+    );
+    expect(message).not.toContain('Run outcome:');
+    expect(message).not.toContain('Blockers (');
+    expect(message).not.toContain('Triggering step:');
+    expect(message).not.toContain('mcp__gantry__scheduler_run_now');
+
+    sendMessage.mockClear();
+    await notifySchedulerSetupRequired({
+      job: makeJob({ name: 'Lead maintenance' }),
+      setupState: { ...setupState, fingerprint: 'setup-preflight' },
+      source: 'preflight_setup',
+      runId: 'run-preflight',
+      sendMessage,
+    });
+    const preflightMessage = String(sendMessage.mock.calls[0]?.[1]);
+    expect(preflightMessage).toContain(
+      "This job hasn't started because setup is incomplete.",
+    );
+    expect(preflightMessage).not.toContain('This job paused because');
+
+    sendMessage.mockClear();
+    await notifySchedulerSetupRequired({
+      job: makeJob({ name: 'Lead maintenance' }),
+      setupState: { ...setupState, fingerprint: 'setup-final' },
+      source: 'final_setup',
+      runId: 'run-final',
+      sendMessage,
+    });
+    expect(String(sendMessage.mock.calls[0]?.[1])).toContain(
+      "This job hasn't started because setup is incomplete.",
+    );
+
+    sendMessage.mockClear();
+    await notifySchedulerSetupRequired({
+      job: makeJob({ name: 'Lead maintenance' }),
+      setupState: { ...setupState, fingerprint: 'setup-transient' },
+      source: 'transient_permission',
+      runId: 'run-2',
+      sendMessage,
+    });
+    expect(String(sendMessage.mock.calls[0]?.[1])).toContain(
+      'This run finished, but future runs still need Salesforce Leads Append.',
     );
   });
 });

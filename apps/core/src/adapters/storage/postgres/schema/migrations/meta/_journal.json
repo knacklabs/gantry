@@ -925,6 +925,27 @@
       "when": 1785746462812,
       "tag": "20260803084102_job_coordination_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "7",
+      "when": 1786097084172,
+      "tag": "20260807100444_memory_review_snapshot_not_null",
+      "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1786295438222,
+      "tag": "20260809171038_person_scoped_agent_tool_bindings",
+      "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "7",
+      "when": 1786360116264,
+      "tag": "20260810110836_normalize_permission_binding_ids",
+      "breakpoints": true
     }
   ]
 }

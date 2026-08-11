@@ -35,6 +35,10 @@ import {
 } from '@core/runtime/ipc-interaction-processing.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
 import {
+  registerPermissionRunRestriction,
+  unregisterPermissionRunRestriction,
+} from '@core/runtime/permission-decision-coordinator.js';
+import {
   claimPermissionInteractionCallback,
   configurePendingInteractionDurability,
   DurableInteractionPersistenceError,
@@ -368,6 +372,31 @@ describe('ipc-interaction-handler', () => {
     const saveDecision = vi.fn(async () => undefined);
     const publishRuntimeEvent = vi.fn(async () => undefined);
     const sendMessage = vi.fn(async () => undefined);
+    const refreshSetupPausedJob = vi.fn(async () => true);
+    const resumeSetupPausedJob = vi.fn(async () => true);
+    const listJobs = vi.fn(async () => [
+      {
+        id: 'job-still-blocked',
+        name: 'Lead sync',
+        workspace_key: 'main_agent',
+        status: 'paused',
+        pause_reason: 'Setup required',
+        execution_context: {
+          conversationJid: 'tg:team',
+          threadId: 'topic-7',
+          workspaceKey: 'main_agent',
+        },
+        access_requirements: [
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
+        ],
+        setup_state: {
+          state: 'missing_capability',
+          checked_at: '2026-05-14T00:00:00.000Z',
+          fingerprint: 'browser-missing',
+          blockers: [],
+        },
+      },
+    ]);
     const toolRepository = {
       getTool: vi.fn(async () => ({
         id: 'tool:mcp__gantry__admin_permission_list',
@@ -413,30 +442,10 @@ describe('ipc-interaction-handler', () => {
         sendMessage,
         publishRuntimeEvent,
         opsRepository: {
-          listJobs: vi.fn(async () => [
-            {
-              id: 'job-still-blocked',
-              name: 'Lead sync',
-              workspace_key: 'main_agent',
-              status: 'paused',
-              pause_reason: 'Setup required',
-              execution_context: {
-                conversationJid: 'tg:team',
-                threadId: 'topic-7',
-                workspaceKey: 'main_agent',
-              },
-              access_requirements: [
-                { target: { kind: 'tool_rule', rule: 'Browser' } },
-              ],
-              setup_state: {
-                state: 'missing_capability',
-                checked_at: '2026-05-14T00:00:00.000Z',
-                fingerprint: 'browser-missing',
-                blockers: [],
-              },
-            },
-          ]),
+          listJobs,
           getJobById: vi.fn(async () => null),
+          refreshSetupPausedJob,
+          resumeSetupPausedJob,
           updateJob: vi.fn(async () => null),
         } as never,
         getToolRepository: () => toolRepository as never,
@@ -466,9 +475,15 @@ describe('ipc-interaction-handler', () => {
     const publishedEvents = publishRuntimeEvent.mock.calls.map(
       (call) => call[0],
     );
-    expect(publishedEvents.map((event) => event.eventType)).toContain(
+    expect(publishedEvents.map((event) => event.eventType)).toEqual([
+      'interaction.pending',
+      'permission.requested',
+      'permission.allowed',
+      'permission.final_outcome',
       'permission.persisted',
-    );
+      'permission.resumed',
+      'permission.final_outcome',
+    ]);
     const persistedEvent = publishedEvents.find(
       (event) => event.eventType === 'permission.persisted',
     );
@@ -478,6 +493,23 @@ describe('ipc-interaction-handler', () => {
         threadId: undefined,
       }),
     );
+    expect(refreshSetupPausedJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'job-still-blocked',
+        expectedSetupCheckedAt: '2026-05-14T00:00:00.000Z',
+        expectedPauseReason: 'Setup required',
+        setupState: expect.objectContaining({ state: 'missing_capability' }),
+      }),
+    );
+    expect(listJobs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationJid: 'tg:team',
+        orderBy: 'created_at',
+        statuses: ['paused'],
+        workspaceKey: 'main_agent',
+      }),
+    );
+    expect(resumeSetupPausedJob).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:team',
       'Still needs setup: request_access {"target":{"kind":"capability","id":"browser.use"},"temporaryOnly":false,"reason":"This autonomous run requires Browser access."}.',
@@ -1300,6 +1332,7 @@ describe('ipc-interaction-handler', () => {
     expect(requestPermissionApproval).toHaveBeenCalledWith(
       expect.objectContaining({
         promotionHintCount: 2,
+        firstAskedAt: '2026-07-12T00:00:00.000Z',
         decisionOptions: ['allow_persistent_rule', 'allow_once', 'cancel'],
       }),
     );
@@ -1564,6 +1597,17 @@ describe('ipc-interaction-handler', () => {
     async (toolName) => {
       const claimedPath = path.join(tempDir, 'claimed-bash-permission.json');
       fs.writeFileSync(claimedPath, '{}');
+      // The request's jobId is untrusted; the host stamps it from the run
+      // registry, so a scheduled-run test must register its restriction.
+      const envelope = createIpcAuthEnvelope('main_agent', null);
+      registerPermissionRunRestriction({
+        sourceAgentFolder: 'main_agent',
+        responseKeyId: envelope.responseKeyId,
+        hideAuthorityTools: false,
+        runKind: 'scheduled',
+        jobId: 'job:test',
+        runId: 'run:test',
+      });
       const publishRuntimeEvent = vi.fn(async () => undefined);
       const createTransientGrant = vi.fn(async () => true);
       const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -1596,6 +1640,7 @@ describe('ipc-interaction-handler', () => {
           appId: 'app:test',
           agentId: 'agent:test',
           responseNonce: 'nonce',
+          responseKeyId: envelope.responseKeyId,
           sourceAgentFolder: 'main_agent',
           runHandle: 'agent-run-1',
           runId: 'run:test',
@@ -1623,6 +1668,10 @@ describe('ipc-interaction-handler', () => {
         file: 'claimed-bash-permission.json',
         claimedPath,
         logger,
+      });
+      unregisterPermissionRunRestriction({
+        sourceAgentFolder: 'main_agent',
+        responseKeyId: envelope.responseKeyId,
       });
 
       expect(

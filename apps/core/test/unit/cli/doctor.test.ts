@@ -524,7 +524,7 @@ describe('doctor model credential readiness', () => {
     );
   });
 
-  it('validates Slack bot and app tokens in network doctor', async () => {
+  it('keeps a passing Slack feature-scope warning through network doctor aggregation', async () => {
     const now = new Date().toISOString();
     mockListModelCredentials.mockResolvedValue([
       {
@@ -543,6 +543,8 @@ describe('doctor model credential readiness', () => {
     mockValidateSlackBotToken.mockResolvedValue({
       ok: true,
       message: 'bot ok',
+      warning:
+        'Slack is missing files:read. Add it and reinstall the app to this workspace. See docs/operations/slack-app-install.md.',
     });
     mockValidateSlackAppToken.mockResolvedValue({
       ok: true,
@@ -602,7 +604,8 @@ describe('doctor model credential readiness', () => {
         '',
       ].join('\n'),
     );
-    const { runDoctorWithNetwork } = await import('@core/cli/doctor.js');
+    const { formatDoctorReport, runDoctorWithNetwork } =
+      await import('@core/cli/doctor.js');
 
     const report = await runDoctorWithNetwork(import.meta.url, runtimeHome, {
       validateTelegramToken: false,
@@ -620,7 +623,14 @@ describe('doctor model credential readiness', () => {
       expect.objectContaining({
         id: 'slack-token-api',
         status: 'pass',
+        warning: expect.stringMatching(
+          /files:read.*reinstall.*docs\/operations\/slack-app-install\.md/i,
+        ),
       }),
+    );
+    expect(report.warnings).toBe(1);
+    expect(formatDoctorReport(report)).toMatch(
+      /\[PASS\] Slack Token API Validation[\s\S]*Warning:.*files:read.*reinstall.*docs\/operations\/slack-app-install\.md/i,
     );
 
     mockValidateSlackBotToken.mockResolvedValue({

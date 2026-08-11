@@ -1167,6 +1167,51 @@ describe('PermissionManagementService', () => {
     expect(decision.actionPreview).toContain('revoke FileRead');
   });
 
+  it('writes a person-scoped binding when the grant carries a personId', async () => {
+    const service = new PermissionManagementService({
+      now: () => '2026-05-15T12:00:00.000Z',
+    });
+    const tool = toolItem('FileRead');
+    const saveAgentToolBinding = vi.fn(async () => undefined);
+    const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
+
+    await service.applyPersistentToolRuleGrant({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      sourceAgentFolder: 'main_agent',
+      requestId: 'permission_file_read',
+      personId: 'person:alice',
+      updates: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'FileRead' }],
+        },
+      ],
+      toolRepository: {
+        getTool: vi.fn(async () => tool),
+        listTools: vi.fn(async () => [tool]),
+        saveTool: vi.fn(),
+        saveAgentToolBinding,
+        disableAgentToolBinding: vi.fn(),
+        listAgentToolBindings: vi.fn(async () => []),
+        listAgentToolBindingsForAgents: vi.fn(),
+      },
+      mirrorAgentToolRulesToSettings,
+    });
+
+    expect(saveAgentToolBinding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolId: tool.id,
+        personId: 'person:alice',
+        status: 'active',
+      }),
+    );
+    // A person-scoped grant must stay DB-only: mirroring to settings would
+    // re-import it as a shared binding and widen the private grant.
+    expect(mirrorAgentToolRulesToSettings).not.toHaveBeenCalled();
+  });
+
   it('revokes legacy fixed-ID grants for Gantry tools that are no longer grantable', async () => {
     const service = new PermissionManagementService({
       now: () => '2026-05-15T12:00:00.000Z',

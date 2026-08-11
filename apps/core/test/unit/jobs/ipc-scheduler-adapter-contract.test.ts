@@ -283,6 +283,9 @@ describe('scheduler IPC adapter contracts', () => {
     );
 
     const message = mocks.responder.accept.mock.calls[0][0] as string;
+    expect(mocks.jobServiceDeps.at(-1)).toMatchObject({
+      setupRequiredNotifications: { notify: expect.any(Function) },
+    });
     expect(message).toContain('Scheduler job created (job-1).');
     expect(message).toContain('Model:');
     expect(message).toContain('Notifications: this conversation.');

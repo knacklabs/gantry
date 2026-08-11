@@ -386,17 +386,20 @@ function capabilityRequirementBlocker(input: {
     state: 'missing_capability',
     requirementType: 'local_cli',
     requirementId: requirement.capabilityId,
+    grantable: true,
     message: `${formatCapabilityRequirement(requirement)} needs reviewed local CLI access before this job can run on schedule.`,
     nextAction: capabilityRequirementSetupAction(requirement),
   };
 }
 
-export function setupStateForDeniedTool(input: {
-  toolName: string;
-  recoveryAction?: string | null;
-  checkedAt?: string;
-  previous?: JobSetupState;
-}): JobSetupState {
+export function setupStateForDeniedTool(
+  input: Required<Pick<JobSetupBlocker, 'grantable'>> & {
+    toolName: string;
+    recoveryAction?: string | null;
+    checkedAt?: string;
+    previous?: JobSetupState;
+  },
+): JobSetupState {
   const toolName = canonicalSetupToolName(input.toolName);
   return buildJobSetupState({
     checkedAt: input.checkedAt ?? nowIso(),
@@ -406,6 +409,7 @@ export function setupStateForDeniedTool(input: {
         state: 'missing_capability',
         requirementType: requirementTypeForTool(toolName),
         requirementId: toolName,
+        grantable: input.grantable,
         message: `This job needs ${toolRequirementLabel(toolName)} before it can run.`,
         nextAction:
           input.recoveryAction?.trim() ||
@@ -431,6 +435,7 @@ export function setupStateForTransientPermission(input: {
         state: 'missing_capability',
         requirementType: requirementTypeForTool(toolName),
         requirementId: toolName,
+        grantable: true,
         message: `This scheduled job used temporary ${toolRequirementLabel(toolName)}. Approve lasting access before future runs continue.`,
         nextAction:
           input.recoveryAction?.trim() ||
@@ -470,12 +475,7 @@ function buildJobSetupState(input: {
   const state = blockers[0]?.state ?? 'ready';
   const fingerprint = stableSha256Json({
     state,
-    blockers: blockers.map((blocker) => ({
-      state: blocker.state,
-      requirementType: blocker.requirementType,
-      requirementId: blocker.requirementId,
-      nextAction: blocker.nextAction,
-    })),
+    blockers: blockers.map(({ message: _message, ...blocker }) => blocker),
   });
   return {
     state,
@@ -524,6 +524,7 @@ function missingToolBlocker(toolName: string): JobSetupBlocker {
     state: 'missing_capability',
     requirementType: requirementTypeForTool(toolName),
     requirementId: toolName,
+    grantable: true,
     message: `Setup required: capability dependency missing: ${toolRequirementLabel(toolName)}.`,
     nextAction: toolAccessRequirementRecoveryAction(toolName),
   };

@@ -22,5 +22,15 @@ export function formatPermissionDeniedMessage(
   const provenanceSuffix = provenance.length
     ? ` (${provenance.join('; ')})`
     : '';
-  return `Permission denied${provenanceSuffix}: ${reason}`;
+  return `Permission denied${provenanceSuffix}: ${permissionDenialReason(reason)}`;
+}
+
+function permissionDenialReason(reason: string): string {
+  if (/did not match an approved pattern/i.test(reason)) {
+    return 'The attempted command did not match an approved pattern.';
+  }
+  if (/not granted/i.test(reason)) {
+    return 'Access for this tool was not granted.';
+  }
+  return reason;
 }

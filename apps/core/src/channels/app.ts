@@ -70,12 +70,34 @@ function createSessionInteractionModule(): SessionInteractionModule {
 }
 
 export async function createAppChannel(
-  _opts: ChannelOpts,
+  opts: ChannelOpts,
 ): Promise<ChannelAdapter> {
+  const liveUxBindingGeneration = opts.liveUxBindingGeneration;
+  const initialLiveUxBindingGeneration = liveUxBindingGeneration?.();
+  const hasLiveUxBindingGeneration =
+    Number.isSafeInteger(initialLiveUxBindingGeneration) &&
+    Number(initialLiveUxBindingGeneration) >= 1;
   let connected = false;
+  let disconnecting = false;
   let outboundSequence = 0;
+  const outboundGeneration = randomUUID();
+  const activeTypingTargets = new Map<
+    string,
+    { jid: string; threadId?: string }
+  >();
+  const liveUx: NonNullable<ChannelAdapter['liveUx']> = {
+    typing: hasLiveUxBindingGeneration ? 'explicit' : 'none',
+    reactions: 'none',
+    canonicalTarget: (target) => ({
+      key: `typing\n${target.jid}\n${target.threadId ?? ''}`,
+    }),
+  };
 
-  const orderedEnvelope = (kind: string) => ({
+  const orderedEnvelope = (
+    kind: string,
+    generation: number | string = outboundGeneration,
+  ) => ({
+    generation,
     sequence: ++outboundSequence,
     kind,
     partIndex: 1,
@@ -102,15 +124,45 @@ export async function createAppChannel(
       : {};
   };
 
-  return {
+  const channel: ChannelAdapter = {
     name: 'app',
+    liveUx,
     async connect() {
+      disconnecting = false;
       connected = true;
+      liveUx.typing = liveUxBindingGeneration?.() ? 'explicit' : 'none';
     },
     isConnected() {
       return connected;
     },
     async disconnect() {
+      if (disconnecting) return;
+      disconnecting = true;
+      liveUx.typing = 'none';
+      const targets = [...activeTypingTargets.values()];
+      // Terminal appends are best effort: a stuck durable write must not hold
+      // producer teardown or its replacement. The old generation envelope
+      // keeps any late settlement behind the successor producer.
+      targets.forEach((target) => {
+        void emitSessionEvent(target.jid, RUNTIME_EVENT_TYPES.SESSION_TYPING, {
+          isTyping: false,
+          threadId: target.threadId ?? null,
+          orderedEnvelope: orderedEnvelope(
+            'typing',
+            Number(initialLiveUxBindingGeneration),
+          ),
+        }).catch((err) => {
+          logger.warn(
+            {
+              err,
+              jid: target.jid,
+              threadId: target.threadId,
+            },
+            'App channel failed to end typing during producer shutdown',
+          );
+        });
+      });
+      activeTypingTargets.clear();
       connected = false;
     },
     ownsJid(jid: string) {
@@ -137,11 +189,47 @@ export async function createAppChannel(
       return result.emitted;
     },
     resetStreaming(_jid: string, _options?: { threadId?: string }) {},
-    async setTyping(jid: string, isTyping: boolean): Promise<void> {
-      await emitSessionEvent(jid, RUNTIME_EVENT_TYPES.SESSION_TYPING, {
-        isTyping,
-        orderedEnvelope: orderedEnvelope('typing'),
-      });
+    async setTyping(
+      jid: string,
+      isTyping: boolean,
+      options: { threadId?: string; signal?: AbortSignal } = {},
+    ): Promise<void> {
+      if (isTyping && disconnecting) return;
+      const generation = liveUxBindingGeneration?.();
+      if (!Number.isSafeInteger(generation) || Number(generation) < 1) return;
+      const targetKey = `${jid}\n${options.threadId ?? ''}`;
+      const target = {
+        jid,
+        ...(options.threadId ? { threadId: options.threadId } : {}),
+      };
+      const activeTargetBeforePublish = activeTypingTargets.get(targetKey);
+      if (isTyping) {
+        // Record intent before publication so shutdown can fence a start that
+        // is still waiting on the durable append.
+        activeTypingTargets.set(targetKey, target);
+      }
+      // App event publication is deliberately not cancellation-fenced through
+      // the notifier or Postgres transaction. orderedEnvelope is the consumer
+      // fence: a late stale typing event may remain in the event log, but an
+      // order-aware consumer never applies it over a newer typing state.
+      try {
+        await emitSessionEvent(jid, RUNTIME_EVENT_TYPES.SESSION_TYPING, {
+          isTyping,
+          threadId: options.threadId ?? null,
+          orderedEnvelope: orderedEnvelope('typing', Number(generation)),
+        });
+        if (
+          !isTyping &&
+          activeTypingTargets.get(targetKey) === activeTargetBeforePublish
+        ) {
+          activeTypingTargets.delete(targetKey);
+        }
+      } catch (error) {
+        if (isTyping && activeTypingTargets.get(targetKey) === target) {
+          activeTypingTargets.delete(targetKey);
+        }
+        throw error;
+      }
     },
     async sendProgressUpdate(
       jid: string,
@@ -185,4 +273,5 @@ export async function createAppChannel(
       return result.emitted;
     },
   };
+  return channel;
 }

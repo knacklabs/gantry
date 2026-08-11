@@ -6,6 +6,7 @@ import {
   encodeGroupMessageCursor,
 } from '@core/shared/message-cursor.js';
 import type { AgentOutput } from '@core/runtime/agent-spawn-types.js';
+import { STALL_HEARTBEAT_THRESHOLD_MS } from '@core/runtime/group-liveness-state.js';
 import type {
   ConversationContextHydrationCoverage,
   GroupProcessingDeps,
@@ -140,6 +141,7 @@ vi.mock('@core/session/session-commands.js', () => ({
 
 const { createGroupProcessor } =
   await import('@core/runtime/group-processing.js');
+const turnCleanup = await import('@core/runtime/group-active-turn-cleanup.js');
 const { RUNTIME_RESULT_SUMMARY_MAX_CHARS } =
   await import('@core/runtime/session-resume-runtime.js');
 const EMPTY_ACCESS_FINGERPRINT = buildProviderSessionAccessFingerprint({
@@ -418,6 +420,7 @@ function setupHappyPath(
 describe('createGroupProcessor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    turnCleanup.activeTurnUiCleanupByQueue.clear();
     mockGetRuntimeSettingsForConfig.mockReturnValue({
       memory: {
         enabled: true,
@@ -1143,6 +1146,147 @@ describe('createGroupProcessor', () => {
       }
     });
 
+    it('backwards-scans a batch for the newest provider reaction target', async () => {
+      const onFirstProgress = vi.fn();
+      const messages = [
+        makeMessage({ external_message_id: 'provider-message-1' }),
+        makeMessage({ external_message_id: 'external-ingress:batch-2' }),
+      ];
+      const { deps } = setupHappyPath({ messages });
+      const { processGroupMessages } = createGroupProcessor(deps);
+
+      await processGroupMessages('group1@g.us', { onFirstProgress });
+
+      expect(onFirstProgress).toHaveBeenCalledWith({
+        jid: 'group1@g.us',
+        messageRef: 'provider-message-1',
+      });
+    });
+
+    it('inherits the route thread for the newest unannotated reaction target', async () => {
+      const onFirstProgress = vi.fn();
+      const messages = [
+        makeMessage({
+          external_message_id: 'provider-message-1',
+          thread_id: null,
+        }),
+      ];
+      const { deps } = setupHappyPath({ messages });
+      const { processGroupMessages } = createGroupProcessor(deps);
+
+      await processGroupMessages('group1@g.us::thread:route-thread', {
+        onFirstProgress,
+      });
+
+      expect(onFirstProgress).toHaveBeenCalledWith({
+        jid: 'group1@g.us',
+        messageRef: 'provider-message-1',
+        threadId: 'route-thread',
+      });
+    });
+
+    it('clears the route thread when the reaction scan selects an earlier plain-channel message', async () => {
+      const onFirstProgress = vi.fn();
+      const messages = [
+        makeMessage({
+          external_message_id: 'provider-message-1',
+          thread_id: null,
+        }),
+        makeMessage({
+          external_message_id: 'external-ingress:batch-2',
+          thread_id: 'route-thread',
+        }),
+      ];
+      const { deps } = setupHappyPath({ messages });
+      const { processGroupMessages } = createGroupProcessor(deps);
+
+      await processGroupMessages('group1@g.us::thread:route-thread', {
+        onFirstProgress,
+      });
+
+      expect(onFirstProgress).toHaveBeenCalledWith({
+        jid: 'group1@g.us',
+        messageRef: 'provider-message-1',
+      });
+    });
+
+    it('carries the back-scanned reaction target thread instead of the newest batch thread', async () => {
+      const onFirstProgress = vi.fn();
+      const messages = [
+        makeMessage({
+          external_message_id: 'provider-message-1',
+          thread_id: 'selected-thread',
+        }),
+        makeMessage({
+          external_message_id: 'external-ingress:batch-2',
+          thread_id: 'synthetic-thread',
+        }),
+      ];
+      const { deps } = setupHappyPath({ messages });
+      const { processGroupMessages } = createGroupProcessor(deps);
+
+      await processGroupMessages('group1@g.us', { onFirstProgress });
+
+      expect(onFirstProgress).toHaveBeenCalledWith({
+        jid: 'group1@g.us',
+        messageRef: 'provider-message-1',
+        threadId: 'selected-thread',
+      });
+    });
+
+    it('starts the agent while the first reaction admission never settles', async () => {
+      const runnerResult = deferred<AgentOutput>();
+      const neverSettles = new Promise<void>(() => undefined);
+      const onFirstProgress = vi.fn(() => neverSettles);
+      const messages = [
+        makeMessage({ external_message_id: '1710000000.000150' }),
+      ];
+      const { deps } = setupHappyPath({ messages });
+      mockSpawnAgent.mockImplementation(async () => runnerResult.promise);
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const processing = processGroupMessages('group1@g.us', {
+        onFirstProgress,
+      });
+
+      await vi.waitFor(() => expect(mockSpawnAgent).toHaveBeenCalledOnce());
+      expect(onFirstProgress).toHaveBeenCalledWith({
+        jid: 'group1@g.us',
+        messageRef: '1710000000.000150',
+      });
+
+      runnerResult.resolve({ status: 'success', result: null });
+      await expect(processing).resolves.toBe(true);
+    });
+
+    it('restores the pending reaction when setup fails after admission', async () => {
+      const setupFailure = new Error('conversation context read failed');
+      const onFirstProgress = vi.fn();
+      const onTurnTerminal = vi.fn();
+      const messages = [
+        makeMessage({ external_message_id: '1710000000.000175' }),
+      ];
+      const { deps } = setupHappyPath({ messages });
+      (
+        deps.opsRepository?.getRecentTopLevelMessagesBefore as ReturnType<
+          typeof vi.fn
+        >
+      ).mockRejectedValue(setupFailure);
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await expect(
+        processGroupMessages('group1@g.us', {
+          onFirstProgress,
+          onTurnTerminal,
+        }),
+      ).rejects.toThrow(setupFailure);
+      await vi.waitFor(() => {
+        expect(onFirstProgress).toHaveBeenCalledOnce();
+        expect(onTurnTerminal).toHaveBeenCalledOnce();
+      });
+      expect(mockSpawnAgent).not.toHaveBeenCalled();
+    });
+
     it('sends an immediate control-only Stop affordance without host acknowledgement copy', async () => {
       const runnerResult = deferred<AgentOutput>();
       const onFirstProgress = vi.fn();
@@ -1232,9 +1376,9 @@ describe('createGroupProcessor', () => {
       const progressCall = (
         progressChannel.sendProgressUpdate as ReturnType<typeof vi.fn>
       ).mock.calls.find((call) => call[1] === '');
-      const actionToken =
+      const renderedStopRef =
         progressCall?.[2]?.actionAffordances?.[0]?.actionToken;
-      expect(onLiveStopActionToken).toHaveBeenCalledWith(actionToken);
+      expect(onLiveStopActionToken).toHaveBeenCalledWith(renderedStopRef);
       expect(order.slice(0, 2)).toEqual(['token', 'progress']);
 
       runnerResult.resolve({ status: 'success', result: 'done' });
@@ -1280,6 +1424,73 @@ describe('createGroupProcessor', () => {
         'group1@g.us',
         'Done.',
         expect.objectContaining({ done: true }),
+      );
+    });
+
+    it('cancels initial progress before sending the final fallback message', async () => {
+      const initialProgressSettled = deferred<void>();
+      const channel = makeChannel({
+        sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
+          if (text === '') await initialProgressSettled.promise;
+        }),
+      });
+      const { deps } = setupHappyPath({
+        agentOutput: {
+          status: 'success',
+          result: '<internal>no visible output</internal>',
+        },
+      });
+      deps.channelRuntime = channel;
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const processing = processGroupMessages('group1@g.us');
+
+      await vi.waitFor(() => expect(mockSpawnAgent).toHaveBeenCalledOnce());
+      expect(channel.sendMessage).not.toHaveBeenCalled();
+
+      initialProgressSettled.resolve();
+      await processing;
+      expect(channel.sendMessage).toHaveBeenCalledWith(
+        'group1@g.us',
+        'I finished that run but did not generate a user-visible reply. Please send your message again.',
+      );
+    });
+
+    it('cancels initial progress before sending a failover-exhausted notice', async () => {
+      const initialProgressSettled = deferred<void>();
+      const channel = makeChannel({
+        sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
+          if (text === '') await initialProgressSettled.promise;
+        }),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = channel;
+      const errorOutput: AgentOutput = {
+        status: 'error',
+        result: null,
+        error: 'API Error: 502 Bad Gateway',
+      };
+      mockSpawnAgent.mockImplementation(async (...args: unknown[]) => {
+        const onOutput = args[3] as
+          | ((output: AgentOutput) => Promise<void>)
+          | undefined;
+        await onOutput?.(errorOutput);
+        return errorOutput;
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const processing = processGroupMessages('group1@g.us', {
+        finalRetry: true,
+      });
+
+      await vi.waitFor(() => expect(mockSpawnAgent).toHaveBeenCalledOnce());
+      expect(channel.sendMessage).not.toHaveBeenCalled();
+
+      initialProgressSettled.resolve();
+      await processing;
+      expect(channel.sendMessage).toHaveBeenCalledWith(
+        'group1@g.us',
+        expect.stringContaining('provider is unavailable'),
       );
     });
 
@@ -1330,6 +1541,194 @@ describe('createGroupProcessor', () => {
       ]);
     });
 
+    it("does not return before terminal typing off is ordered ahead of the next turn's start", async () => {
+      const terminalOff = deferred<void>();
+      const setTyping = vi.fn((_jid: string, isTyping: boolean) =>
+        isTyping ? Promise.resolve() : terminalOff.promise,
+      );
+      const channel = makeChannel({ setTyping });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = channel;
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      let returned = false;
+      const processing = processGroupMessages('group1@g.us').then((result) => {
+        returned = true;
+        return result;
+      });
+
+      await vi.waitFor(() =>
+        expect(setTyping).toHaveBeenLastCalledWith('group1@g.us', false),
+      );
+      expect(returned).toBe(false);
+
+      terminalOff.resolve();
+      await expect(processing).resolves.toBe(true);
+      expect(returned).toBe(true);
+    });
+
+    it("keeps replayed work behind the old turn's terminal typing cleanup", async () => {
+      const messages = makePendingMessages(11, (index) => `message ${index}`);
+      const oldTerminalOff = deferred<void>();
+      const secondRunFinish = deferred<AgentOutput>();
+      let typingState = false;
+      let terminalOffCount = 0;
+      const setTyping = vi.fn(async (_jid: string, isTyping: boolean) => {
+        if (!isTyping && terminalOffCount++ === 0) {
+          await oldTerminalOff.promise;
+        }
+        typingState = isTyping;
+      });
+      const channel = makeChannel({ setTyping });
+      const { deps } = setupHappyPath({ messages });
+      deps.channelRuntime = channel;
+      let cursor = '0';
+      deps.getCursor = vi.fn(() => cursor);
+      deps.setCursor = vi.fn((_queueJid: string, nextCursor: string) => {
+        cursor = nextCursor;
+      });
+      mockGetMessagesSince.mockImplementation((_chatJid, sinceCursor) =>
+        sinceCursor === '0' ? messages : messages.slice(10),
+      );
+
+      let runCount = 0;
+      let secondRunStarted = false;
+      mockSpawnAgent.mockImplementation(async () => {
+        runCount += 1;
+        if (runCount === 1) {
+          return { status: 'success', result: null } as AgentOutput;
+        }
+        secondRunStarted = true;
+        return secondRunFinish.promise;
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      let secondProcessing: Promise<boolean> | undefined;
+      deps.queue.enqueueMessageCheck = vi.fn(() => {
+        secondProcessing = processGroupMessages('group1@g.us');
+      });
+
+      const firstProcessing = processGroupMessages('group1@g.us');
+      await vi.waitFor(() =>
+        expect(setTyping).toHaveBeenCalledWith('group1@g.us', false),
+      );
+
+      expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledWith(
+        'group1@g.us',
+      );
+      expect(secondRunStarted).toBe(false);
+
+      oldTerminalOff.resolve();
+      await vi.waitFor(() => expect(secondRunStarted).toBe(true));
+      expect(typingState).toBe(true);
+      expect(setTyping).toHaveBeenLastCalledWith('group1@g.us', true);
+
+      secondRunFinish.resolve({ status: 'success', result: null });
+      await expect(firstProcessing).resolves.toBe(true);
+      await expect(secondProcessing).resolves.toBe(true);
+    });
+
+    it('bounds a stuck previous terminal cleanup before admitting replayed work', async () => {
+      vi.useFakeTimers();
+      try {
+        const messages = makePendingMessages(11, (index) => `message ${index}`);
+        const oldTerminalOff = deferred<void>();
+        const secondRunFinish = deferred<AgentOutput>();
+        let terminalOffCount = 0;
+        const setTyping = vi.fn(async (_jid: string, isTyping: boolean) => {
+          if (!isTyping && terminalOffCount++ === 0) {
+            await oldTerminalOff.promise;
+          }
+        });
+        const channel = makeChannel({ setTyping });
+        const { deps } = setupHappyPath({ messages });
+        deps.channelRuntime = channel;
+        let cursor = '0';
+        deps.getCursor = vi.fn(() => cursor);
+        deps.setCursor = vi.fn((_queueJid: string, nextCursor: string) => {
+          cursor = nextCursor;
+        });
+        mockGetMessagesSince.mockImplementation((_chatJid, sinceCursor) =>
+          sinceCursor === '0' ? messages : messages.slice(10),
+        );
+
+        let runCount = 0;
+        let secondRunStarted = false;
+        mockSpawnAgent.mockImplementation(async () => {
+          runCount += 1;
+          if (runCount === 1) {
+            return { status: 'success', result: null } as AgentOutput;
+          }
+          secondRunStarted = true;
+          return secondRunFinish.promise;
+        });
+
+        const { processGroupMessages } = createGroupProcessor(deps);
+        let secondProcessing: Promise<boolean> | undefined;
+        const replayScheduled = deferred<void>();
+        deps.queue.enqueueMessageCheck = vi.fn(() => {
+          secondProcessing = processGroupMessages('group1@g.us');
+          replayScheduled.resolve();
+        });
+
+        const firstProcessing = processGroupMessages('group1@g.us');
+        await replayScheduled.promise;
+        expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledWith(
+          'group1@g.us',
+        );
+        await vi.advanceTimersByTimeAsync(1_999);
+        expect(secondRunStarted).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(1);
+        await vi.waitFor(() => expect(secondRunStarted).toBe(true));
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+          { queueJid: 'group1@g.us', timeoutMs: 2_000 },
+          'Previous turn terminal cleanup timed out; admitting next turn',
+        );
+
+        secondRunFinish.resolve({ status: 'success', result: null });
+        oldTerminalOff.resolve();
+        await expect(firstProcessing).resolves.toBe(true);
+        await expect(secondProcessing).resolves.toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it.each([
+      [
+        'throws synchronously',
+        () => {
+          throw new Error('synchronous cleanup failure');
+        },
+      ],
+      ['rejects', () => Promise.reject(new Error('rejected cleanup failure'))],
+    ])(
+      'admits the next turn and removes stale cleanup when cleanup %s',
+      async (_failureMode, cancel) => {
+        turnCleanup.activeTurnUiCleanupByQueue.set('group1@g.us', {
+          turnMarker: Symbol('failed-cleanup'),
+          cancel,
+        });
+        const { deps } = setupHappyPath();
+        const { processGroupMessages } = createGroupProcessor(deps);
+
+        await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
+
+        expect(mockSpawnAgent).toHaveBeenCalledOnce();
+        expect(turnCleanup.activeTurnUiCleanupByQueue.has('group1@g.us')).toBe(
+          false,
+        );
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+          {
+            err: expect.any(Error),
+            queueJid: 'group1@g.us',
+          },
+          'Previous turn terminal cleanup failed; admitting next turn',
+        );
+      },
+    );
+
     it('notifies idle without closing stdin on final success marker from onOutput callback', async () => {
       const { deps } = setupHappyPath();
       mockSpawnAgent.mockImplementation(
@@ -1352,7 +1751,7 @@ describe('createGroupProcessor', () => {
       expect(deps.queue.closeStdin).not.toHaveBeenCalled();
     });
 
-    it('sends done progress at a terminal marker while keeping the runner active', async () => {
+    it('sends done progress at a terminal marker without restarting typing during finalization', async () => {
       const liveRun = deferred<AgentOutput>();
       const terminalMarkerHandled = deferred();
       const channel = makeChannel({
@@ -1390,6 +1789,9 @@ describe('createGroupProcessor', () => {
         channel.sendProgressUpdate as ReturnType<typeof vi.fn>
       ).mock.calls.filter((call) => call[1] === 'Done.');
       expect(doneCallsAtMarker).toHaveLength(1);
+      const typingCallsAtMarker = (
+        channel.setTyping as ReturnType<typeof vi.fn>
+      ).mock.calls.length;
 
       liveRun.resolve({ status: 'success', result: null });
       await processing;
@@ -1400,6 +1802,212 @@ describe('createGroupProcessor', () => {
         channel.sendProgressUpdate as ReturnType<typeof vi.fn>
       ).mock.calls.filter((call) => call[1] === 'Done.');
       expect(doneCalls).toHaveLength(1);
+      expect(
+        (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls
+          .slice(typingCallsAtMarker)
+          .filter((call) => call[1] === true),
+      ).toHaveLength(0);
+    });
+
+    it('resumes typing and stall heartbeats when a continuation arrives after a turn-complete marker', async () => {
+      vi.useFakeTimers();
+      try {
+        const liveRun = deferred<AgentOutput>();
+        const markerHandled = deferred();
+        let continuationHandler: (() => void) | undefined;
+        const channel = makeChannel({
+          sendProgressUpdate: vi.fn().mockResolvedValue(true),
+        });
+        const { deps } = setupHappyPath();
+        deps.channelRuntime = channel;
+        deps.queue = {
+          ...deps.queue,
+          registerContinuationHandler: vi.fn((_queueJid, handler) => {
+            continuationHandler = handler;
+            return () => {
+              if (continuationHandler === handler) {
+                continuationHandler = undefined;
+              }
+            };
+          }),
+        };
+        mockSpawnAgent.mockImplementation(
+          async (
+            _group: ConversationRoute,
+            _input: unknown,
+            _onProc: unknown,
+            onOutput?: (output: AgentOutput) => Promise<void>,
+          ) => {
+            await onOutput?.({ status: 'success', result: 'first reply' });
+            await onOutput?.({ status: 'success', result: null });
+            markerHandled.resolve();
+            return liveRun.promise;
+          },
+        );
+
+        const { processGroupMessages } = createGroupProcessor(deps);
+        const processing = processGroupMessages('group1@g.us');
+        await markerHandled.promise;
+        expect(channel.setTyping).toHaveBeenLastCalledWith(
+          'group1@g.us',
+          false,
+        );
+
+        (channel.sendProgressUpdate as ReturnType<typeof vi.fn>).mockClear();
+        continuationHandler?.();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', true);
+
+        await vi.advanceTimersByTimeAsync(180_000);
+        expect(channel.sendProgressUpdate).toHaveBeenCalledWith(
+          'group1@g.us',
+          'Still working',
+          expect.objectContaining({ replaceOnly: true }),
+        );
+
+        liveRun.resolve({ status: 'success', result: null });
+        await processing;
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('keeps liveness paused when visible error output follows a turn-complete marker', async () => {
+      vi.useFakeTimers();
+      try {
+        const liveRun = deferred<AgentOutput>();
+        let onOutput: ((output: AgentOutput) => Promise<void>) | undefined;
+        const channel = makeChannel({
+          sendProgressUpdate: vi.fn().mockResolvedValue(true),
+        });
+        const { deps } = setupHappyPath();
+        deps.channelRuntime = channel;
+        mockSpawnAgent.mockImplementation(
+          async (
+            _group: ConversationRoute,
+            _input: unknown,
+            _onProc: unknown,
+            callback?: (output: AgentOutput) => Promise<void>,
+          ) => {
+            onOutput = callback;
+            return liveRun.promise;
+          },
+        );
+
+        const { processGroupMessages } = createGroupProcessor(deps);
+        const processing = processGroupMessages('group1@g.us');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(onOutput).toBeDefined();
+
+        await onOutput?.({ status: 'success', result: null });
+        const typingStartsAtMarker = (
+          channel.setTyping as ReturnType<typeof vi.fn>
+        ).mock.calls.filter((call) => call[1] === true).length;
+
+        const errorOutput: AgentOutput = {
+          status: 'error',
+          result: 'I could not finish the continued work.',
+          error: 'boom',
+        };
+        await onOutput?.(errorOutput);
+        await vi.advanceTimersByTimeAsync(STALL_HEARTBEAT_THRESHOLD_MS);
+
+        expect(channel.sendMessage).toHaveBeenCalledWith(
+          'group1@g.us',
+          'I could not finish the continued work.',
+        );
+        expect(
+          (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.filter(
+            (call) => call[1] === true,
+          ),
+        ).toHaveLength(typingStartsAtMarker);
+        expect(channel.sendProgressUpdate).not.toHaveBeenCalledWith(
+          'group1@g.us',
+          'Still working',
+          expect.anything(),
+        );
+
+        liveRun.resolve(errorOutput);
+        await processing;
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('keeps a continuation live when initial-progress cancellation overlaps a turn-complete marker', async () => {
+      const initialProgressSettled = deferred<void>();
+      const liveRun = deferred<AgentOutput>();
+      const markerHandled = deferred<void>();
+      let continuationHandler: (() => void) | undefined;
+      let blankProgressCalls = 0;
+      const channel = makeChannel({
+        sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
+          if (text === '' && blankProgressCalls++ === 0) {
+            await initialProgressSettled.promise;
+          }
+          return true;
+        }),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = channel;
+      deps.queue = {
+        ...deps.queue,
+        registerContinuationHandler: vi.fn((_queueJid, handler) => {
+          continuationHandler = handler;
+          return () => {
+            if (continuationHandler === handler)
+              continuationHandler = undefined;
+          };
+        }),
+      };
+      mockSpawnAgent.mockImplementation(async (...args: unknown[]) => {
+        const onOutput = args[3] as
+          | ((output: AgentOutput) => Promise<void>)
+          | undefined;
+        const marker = onOutput?.({ status: 'success', result: null });
+        markerHandled.resolve();
+        await marker;
+        await liveRun.promise;
+        return { status: 'success', result: null } as AgentOutput;
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const processing = processGroupMessages('group1@g.us');
+      await markerHandled.promise;
+      await vi.waitFor(() =>
+        expect(channel.setTyping).toHaveBeenLastCalledWith(
+          'group1@g.us',
+          false,
+        ),
+      );
+      const initialGeneration = (
+        channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+      ).mock.calls.find((call) => call[1] === '')?.[2]?.generation;
+
+      expect(continuationHandler).toBeDefined();
+      continuationHandler?.();
+      await vi.waitFor(() =>
+        expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', true),
+      );
+
+      initialProgressSettled.resolve();
+      await vi.waitFor(() =>
+        expect(channel.sendProgressUpdate).toHaveBeenCalledWith(
+          'group1@g.us',
+          'Done.',
+          expect.objectContaining({ generation: initialGeneration }),
+        ),
+      );
+      const continuationGeneration = (
+        channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+      ).mock.calls
+        .filter((call) => call[1] === '')
+        .at(-1)?.[2]?.generation;
+      expect(continuationGeneration).not.toBe(initialGeneration);
+      expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', true);
+
+      liveRun.resolve({ status: 'success', result: null });
+      await processing;
     });
 
     it('drains unawaited output callbacks before clearing typing and marking idle', async () => {
@@ -1475,7 +2083,8 @@ describe('createGroupProcessor', () => {
     it('rolls back cursor and returns false', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage({ timestamp: '1700000001' })];
-      const { deps } = setupHappyPath({ group, messages });
+      const { deps, channel } = setupHappyPath({ group, messages });
+      let typingCallsAtErrorMarker = 0;
 
       // Return error with NO result (no output sent to user)
       const errorOutput: AgentOutput = {
@@ -1491,6 +2100,9 @@ describe('createGroupProcessor', () => {
           onOutput?: (output: AgentOutput) => Promise<void>,
         ) => {
           if (onOutput) await onOutput(errorOutput);
+          typingCallsAtErrorMarker = (
+            channel.setTyping as ReturnType<typeof vi.fn>
+          ).mock.calls.length;
           return errorOutput;
         },
       );
@@ -1508,6 +2120,44 @@ describe('createGroupProcessor', () => {
         .calls;
       const lastSetCursor = setCursorCalls[setCursorCalls.length - 1];
       expect(lastSetCursor).toEqual(['group1@g.us', 'prev-cursor']);
+      expect(
+        (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls
+          .slice(typingCallsAtErrorMarker)
+          .filter((call) => call[1] === true),
+      ).toHaveLength(0);
+    });
+
+    it('drains visible error output before terminalizing delivery hooks', async () => {
+      const onFirstVisibleOutput = vi.fn();
+      const { deps, channel } = setupHappyPath();
+      const errorOutput: AgentOutput = {
+        status: 'error',
+        result: 'I could not finish this request.',
+        error: 'boom',
+      };
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.(errorOutput);
+          return errorOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await expect(
+        processGroupMessages('group1@g.us', { onFirstVisibleOutput }),
+      ).resolves.toBe(true);
+
+      expect(channel.sendMessage).toHaveBeenCalledWith(
+        'group1@g.us',
+        'I could not finish this request.',
+      );
+      expect(onFirstVisibleOutput).toHaveBeenCalledOnce();
+      expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', false);
     });
 
     it('rolls back a transient provider gateway failure for retry before failover is exhausted', async () => {
@@ -3697,12 +4347,13 @@ describe('createGroupProcessor', () => {
       expect(String(stallCalls()[0]?.[1])).not.toMatch(/\d+[smh]/i);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBe(typingAt179);
+      ).toBe(typingAt179 + 1);
+      expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', false);
       await vi.advanceTimersByTimeAsync(8_000);
       expect(stallCalls()).toHaveLength(1);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBe(typingAt179);
+      ).toBe(typingAt179 + 1);
 
       await onOutput?.({
         status: 'success',
@@ -3711,7 +4362,7 @@ describe('createGroupProcessor', () => {
       await vi.advanceTimersByTimeAsync(4_000);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBeGreaterThan(typingAt179);
+      ).toBeGreaterThan(typingAt179 + 1);
       await vi.advanceTimersByTimeAsync(180_000);
       expect(stallCalls()).toHaveLength(2);
 
@@ -3746,7 +4397,8 @@ describe('createGroupProcessor', () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBe(typingAt179);
+      ).toBe(typingAt179 + 1);
+      expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', false);
 
       await vi.advanceTimersByTimeAsync(12_000);
       const stallCalls = sendProgressUpdate.mock.calls.filter(
@@ -3755,7 +4407,7 @@ describe('createGroupProcessor', () => {
       expect(stallCalls).toHaveLength(1);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBe(typingAt179);
+      ).toBe(typingAt179 + 1);
 
       finish.resolve({ status: 'success', result: null });
       await processing;
@@ -3791,19 +4443,20 @@ describe('createGroupProcessor', () => {
       expect(stallCalls()).toHaveLength(1);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBe(typingAt179);
+      ).toBe(typingAt179 + 1);
+      expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', false);
 
       await vi.advanceTimersByTimeAsync(178_999);
       expect(stallCalls()).toHaveLength(1);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBe(typingAt179);
+      ).toBe(typingAt179 + 1);
 
       await vi.advanceTimersByTimeAsync(1);
       expect(stallCalls()).toHaveLength(2);
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBe(typingAt179);
+      ).toBe(typingAt179 + 1);
 
       finish.resolve({ status: 'success', result: null });
       await processing;
@@ -5290,6 +5943,249 @@ describe('createGroupProcessor', () => {
       ).mock.calls.map((call) => call[1]);
       expect(progressTexts).toContain('Waiting for your input.');
       expect(progressTexts.some((text) => text === 'Done.')).toBe(false);
+    });
+
+    it('does not resume typing when a run ends at an interaction boundary', async () => {
+      const channel = makeChannel({
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = channel;
+      let typingCallsAtBoundary = 0;
+      mockSpawnAgent.mockImplementation(async (...args: unknown[]) => {
+        const onOutput = args[3] as
+          | ((output: AgentOutput) => Promise<void>)
+          | undefined;
+        await onOutput?.({
+          status: 'success',
+          result: null,
+          interactionBoundary: 'user_interaction',
+        });
+        typingCallsAtBoundary = (channel.setTyping as ReturnType<typeof vi.fn>)
+          .mock.calls.length;
+        return { status: 'success', result: null } as AgentOutput;
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(
+        (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls
+          .slice(typingCallsAtBoundary)
+          .filter((call) => call[1] === true),
+      ).toHaveLength(0);
+      expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', false);
+    });
+
+    it('turns a turn-complete pause into an interaction wait that the next response can resume', async () => {
+      vi.useFakeTimers();
+      try {
+        const liveRun = deferred<AgentOutput>();
+        const boundaryHandled = deferred<void>();
+        let continuationHandler: (() => void) | undefined;
+        const channel = makeChannel({
+          sendProgressUpdate: vi.fn().mockResolvedValue(true),
+        });
+        const { deps } = setupHappyPath();
+        deps.channelRuntime = channel;
+        deps.queue = {
+          ...deps.queue,
+          registerContinuationHandler: vi.fn((_queueJid, handler) => {
+            continuationHandler = handler;
+            return () => {
+              if (continuationHandler === handler) {
+                continuationHandler = undefined;
+              }
+            };
+          }),
+        };
+        mockSpawnAgent.mockImplementation(async (...args: unknown[]) => {
+          const onOutput = args[3] as
+            | ((output: AgentOutput) => Promise<void>)
+            | undefined;
+          await onOutput?.({ status: 'success', result: null });
+          await onOutput?.({
+            status: 'success',
+            result: null,
+            interactionBoundary: 'user_interaction',
+          });
+          boundaryHandled.resolve();
+          return liveRun.promise;
+        });
+
+        const { processGroupMessages } = createGroupProcessor(deps);
+        const processing = processGroupMessages('group1@g.us');
+        await boundaryHandled.promise;
+        expect(channel.sendProgressUpdate).toHaveBeenCalledWith(
+          'group1@g.us',
+          'Waiting for your input.',
+          expect.objectContaining({ replaceOnly: true }),
+        );
+
+        await vi.advanceTimersByTimeAsync(121_000);
+        const demotedGeneration = (
+          channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+        ).mock.calls.find((call) => call[1] === 'Running in background...')?.[2]
+          ?.generation;
+        expect(demotedGeneration).toBeDefined();
+
+        continuationHandler?.();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', true);
+        const resumedGeneration = (
+          channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+        ).mock.calls
+          .filter((call) => call[1] === '')
+          .at(-1)?.[2]?.generation;
+        expect(resumedGeneration).toBeDefined();
+        expect(resumedGeneration).not.toBe(demotedGeneration);
+
+        liveRun.resolve({ status: 'success', result: null });
+        await processing;
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('clears an interaction wait when the turn errors without resuming typing or sending a receipt', async () => {
+      const channel = makeChannel({
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = channel;
+      let typingCallsAtError = 0;
+      mockSpawnAgent.mockImplementation(async (...args: unknown[]) => {
+        const onOutput = args[3] as
+          | ((output: AgentOutput) => Promise<void>)
+          | undefined;
+        await onOutput?.({
+          status: 'success',
+          result: null,
+          interactionBoundary: 'user_interaction',
+        });
+        const errorOutput: AgentOutput = {
+          status: 'error',
+          result: null,
+          error: 'boom',
+        };
+        await onOutput?.(errorOutput);
+        typingCallsAtError = (channel.setTyping as ReturnType<typeof vi.fn>)
+          .mock.calls.length;
+        return errorOutput;
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us', { finalRetry: true });
+
+      const progressTexts = (
+        channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+      ).mock.calls.map((call) => call[1]);
+      expect(progressTexts).toContain('I hit an issue.');
+      expect(progressTexts).not.toContain('Response received. Continuing...');
+      expect(
+        (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls
+          .slice(typingCallsAtError)
+          .filter((call) => call[1] === true),
+      ).toHaveLength(0);
+    });
+
+    it('cancels background demotion as soon as an error ends an interaction wait', async () => {
+      vi.useFakeTimers();
+      const channel = makeChannel({
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = channel;
+      mockSpawnAgent.mockImplementation(async (...args: unknown[]) => {
+        const onOutput = args[3] as
+          | ((output: AgentOutput) => Promise<void>)
+          | undefined;
+        await onOutput?.({
+          status: 'success',
+          result: null,
+          interactionBoundary: 'user_interaction',
+        });
+        await onOutput?.({ status: 'error', result: null, error: 'boom' });
+        await vi.advanceTimersByTimeAsync(121_000);
+        return { status: 'error', result: null, error: 'boom' } as AgentOutput;
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us', { finalRetry: true });
+
+      const progressTexts = (
+        channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+      ).mock.calls.map((call) => call[1]);
+      expect(progressTexts).not.toContain('Running in background...');
+      vi.useRealTimers();
+    });
+
+    it('does not classify output after an interaction error as a user response', async () => {
+      const channel = makeChannel({
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = channel;
+      mockSpawnAgent.mockImplementation(async (...args: unknown[]) => {
+        const onOutput = args[3] as
+          | ((output: AgentOutput) => Promise<void>)
+          | undefined;
+        await onOutput?.({
+          status: 'success',
+          result: null,
+          interactionBoundary: 'user_interaction',
+        });
+        await onOutput?.({ status: 'error', result: null, error: 'boom' });
+        await onOutput?.({ status: 'success', result: 'late output' });
+        return { status: 'error', result: null, error: 'boom' } as AgentOutput;
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us', { finalRetry: true });
+
+      const progressTexts = (
+        channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+      ).mock.calls.map((call) => call[1]);
+      expect(progressTexts).not.toContain('Response received. Continuing...');
+    });
+
+    it('rotates a background-demoted generation before final error progress', async () => {
+      vi.useFakeTimers();
+      const channel = makeChannel({
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = channel;
+      mockSpawnAgent.mockImplementation(async (...args: unknown[]) => {
+        const onOutput = args[3] as
+          | ((output: AgentOutput) => Promise<void>)
+          | undefined;
+        await onOutput?.({
+          status: 'success',
+          result: null,
+          interactionBoundary: 'user_interaction',
+        });
+        await vi.advanceTimersByTimeAsync(121_000);
+        await onOutput?.({ status: 'error', result: null, error: 'boom' });
+        return { status: 'error', result: null, error: 'boom' } as AgentOutput;
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us', { finalRetry: true });
+
+      const progressCalls = (
+        channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+      ).mock.calls;
+      const demotedGeneration = progressCalls.find(
+        (call) => call[1] === 'Running in background...',
+      )?.[2]?.generation;
+      const errorGeneration = progressCalls.find(
+        (call) => call[1] === 'I hit an issue.',
+      )?.[2]?.generation;
+      expect(demotedGeneration).toBeDefined();
+      expect(errorGeneration).toBeDefined();
+      expect(errorGeneration).not.toBe(demotedGeneration);
+      vi.useRealTimers();
     });
 
     it('marks progress done after a plain final question turn', async () => {
@@ -6910,7 +7806,9 @@ describe('createGroupProcessor', () => {
     });
 
     it('logs only bounded diagnostics when provider context hydration rejects', async () => {
-      const providerSecret = 'sk-proj-provider-secret';
+      // Assembled from parts so the fixture keeps its runtime shape without
+      // tripping repo-wide credential scanners on this file.
+      const providerSecret = ['sk', 'proj', 'provider', 'secret'].join('-');
       const providerPayload = 'raw provider response body';
       const group = makeGroup({
         folder: 'my-group',

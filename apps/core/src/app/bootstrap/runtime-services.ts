@@ -7,6 +7,7 @@ import {
   getDeploymentMode,
   getRuntimeSettingsForConfig,
 } from '../../config/index.js';
+import { liveUxReactionSinks } from './live-ux-reaction-sinks.js';
 import path from 'node:path';
 import { configureCanvasIpcHandlers } from '../../jobs/ipc-canvas-handlers.js';
 import { agentIdForFolder } from '../../config/settings/desired-state-service-helpers.js';
@@ -106,7 +107,7 @@ import { registerRuntimeBrainDreamReviewMessageAction } from './runtime-brain-re
 import { nowIso, nowMs, toIso } from '../../shared/time/datetime.js';
 import { LiveTurnAuthority } from '../../runtime/live-turn-authority.js';
 import type { LiveTurnRecoveryLoop } from '../../runtime/live-turn-recovery.js';
-import { configurePendingInteractionPermissionPersistence } from '../../application/interactions/pending-interaction-durability.js';
+import { configureRuntimeSetupPausePermissions } from './setup-pause-permission-wiring.js';
 import { liveTurnScopeForQueue } from './live-recovery-coordinator.js';
 // prettier-ignore
 import { buildLiveAdmissionProcessor, startLiveExecutionServices, type ActiveControlCommandHandler, type LiveExecutionServicesHandle, type RecoveryCoordinatorPort } from './live-execution.js';
@@ -124,6 +125,7 @@ import type { GroupProcessingDeps } from '../../runtime/group-processing-types.j
 import { createAttachmentOpen } from './attachment-resolver-wiring.js';
 import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { createProviderAttachmentMaterializer } from '../../shared/provider-attachment-materialization.js';
+import { createSchedulerLifecycleNotificationUpdater } from './scheduler-lifecycle-notification.js';
 export { stopAsyncTaskRecoveryLoop } from './runtime-services-async-task-recovery.js';
 
 export function createRuntimeProviderAttachmentMaterializer(app: RuntimeApp) {
@@ -351,6 +353,7 @@ export async function startRuntimeServices(
   const asyncTaskRecoveryDeps = {
     ...resolved,
     conversationRoutes: () => app.getConversationRoutes(),
+    runAgent: app.runAgent,
   };
   await recoverStaleAsyncCommandTasks(
     String(channelWiring.getRuntimeAppId()),
@@ -396,9 +399,11 @@ export async function startRuntimeServices(
           ...(messageOptions ? { messageOptions } : {}),
         });
       },
+      ...createSchedulerLifecycleNotificationUpdater({ channelWiring }),
       sendStreamingChunk: channelWiring.sendStreamingChunk,
       resetStreaming: channelWiring.resetStreaming,
       onSchedulerChanged,
+      runAgent: app.runAgent,
       opsRepository: resolved.opsRepository,
       collectSessionMemory: resolved.collectSessionMemory,
       getCredentialBroker:
@@ -429,16 +434,12 @@ export async function startRuntimeServices(
     reloadRuntimeState: () => app.loadState(),
     leases: resolved.leases,
   });
-  configurePendingInteractionPermissionPersistence({
-    opsRepository: resolved.opsRepository,
-    getToolRepository: resolved.getToolRepository,
-    getPermissionRepository: resolved.getPermissionRepository,
+  configureRuntimeSetupPausePermissions({
+    ...resolved,
+    app,
+    channelWiring,
     mirrorAgentToolRulesToSettings,
     onSchedulerChanged,
-    getSkillRepository: resolved.getSkillRepository,
-    getMcpServerRepository: resolved.getMcpServerRepository,
-    getCapabilitySecretRepository: resolved.getCapabilitySecretRepository,
-    getCredentialBroker: app.getCredentialBroker,
     getBrowserStatus,
     publishRuntimeEvent: resolved.publishRuntimeEvent,
   });
@@ -480,6 +481,7 @@ export async function startRuntimeServices(
       executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
       executionAdapters: resolved.executionAdapters ?? app.executionAdapters,
       runnerSandboxProvider: resolved.runnerSandboxProvider,
+      runAgent: app.runAgent,
       runApprovedCommand: resolved.runApprovedCommand,
       getPermissionRepository: resolved.getPermissionRepository,
       getPermissionPromotionRepository:
@@ -540,10 +542,7 @@ export async function startRuntimeServices(
       timezone: TIMEZONE,
       enqueueMessageCheck: app.queue.enqueueMessageCheck.bind(app.queue),
       warn: (context, message) => resolved.logger.warn(context, message),
-      addReaction: (jid, messageRef, emoji, options) =>
-        channelWiring.addReaction(jid, messageRef, emoji, options),
-      removeReaction: (jid, messageRef, emoji, options) =>
-        channelWiring.removeReaction(jid, messageRef, emoji, options),
+      ...liveUxReactionSinks(channelWiring),
       handleActiveControlCommand,
       finalizeAgentTodo: (jid, render, options) =>
         channelWiring.finalizeAgentTodo(jid, render, options),

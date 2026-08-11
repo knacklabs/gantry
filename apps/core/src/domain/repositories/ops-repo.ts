@@ -53,6 +53,32 @@ export interface JobListFilters {
   kind?: 'manual' | 'once' | 'recurring';
   conversationJid?: string;
   limit?: number;
+  orderBy?: 'created_at';
+  pageAfter?: {
+    createdAt: string;
+    id: string;
+  };
+}
+
+export interface SetupPausedJobRecoveryClaim {
+  jobId: string;
+  expectedSetupCheckedAt: string;
+  expectedPauseReason: string;
+  nextRun: string;
+  setupState: NonNullable<Job['setup_state']>;
+}
+
+export interface SetupPausedJobRecoveryRefresh {
+  jobId: string;
+  expectedSetupCheckedAt: string;
+  expectedPauseReason: string;
+  setupState: NonNullable<Job['setup_state']>;
+}
+
+export interface JobAccessRequirementAppend {
+  jobId: string;
+  requirement: NonNullable<Job['access_requirements']>[number];
+  expectedUpdatedAt: string;
 }
 
 export interface JobRunListFilters {
@@ -197,6 +223,11 @@ export interface RuntimeJobRepository {
     updates: Partial<Job>,
     options?: { incrementConsecutiveFailures?: boolean },
   ): Promise<void>;
+  appendJobAccessRequirement(
+    input: JobAccessRequirementAppend,
+  ): Promise<boolean>;
+  resumeSetupPausedJob(input: SetupPausedJobRecoveryClaim): Promise<boolean>;
+  refreshSetupPausedJob(input: SetupPausedJobRecoveryRefresh): Promise<boolean>;
   markJobSetupNotified(
     id: string,
     expectedFingerprint: string,
