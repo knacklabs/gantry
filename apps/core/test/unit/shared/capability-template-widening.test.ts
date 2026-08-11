@@ -196,7 +196,7 @@ describe('observed argv redaction', () => {
         'get',
         'sheet-id',
         'Sheet1!A:B',
-        '--token=abc123',
+        '--token=test-token',
         '--api-key',
         'test-secret-value',
         'A'.repeat(80),
@@ -220,7 +220,7 @@ describe('observed argv redaction', () => {
       await import('@core/shared/capability-template-amendment.js');
     expect(
       redactObservedArgv([
-        'https://host/path?access_token=secret&signature=abc',
+        'https://host/path?access_token=test-token&signature=test-signature',
         'https://host/plain/path',
       ]),
     ).toEqual(['https://host/path?<redacted>', 'https://host/plain/path']);
