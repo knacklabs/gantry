@@ -35,3 +35,5 @@
 {"event": "done", "id": "Q-0018-146d", "reason": "Reuse existing canonical Gantry tool catalog rows during durable settings reconciliation", "started_at": "2026-08-11T14:42:00+00:00", "completed_at": "2026-08-11T14:42:54+00:00", "files": []}
 {"event": "open", "id": "Q-0019-6c28", "reason": "Let autonomous ask-mode runs receive bounded host reviewed-rule decisions before failing closed", "started_at": "2026-08-11T15:09:41+00:00", "max_files": 5, "files": []}
 {"event": "done", "id": "Q-0019-6c28", "reason": "Let autonomous ask-mode runs receive bounded host reviewed-rule decisions before failing closed", "started_at": "2026-08-11T15:09:41+00:00", "completed_at": "2026-08-11T15:15:58+00:00", "files": []}
+{"event": "open", "id": "Q-0020-03fd", "reason": "Give scheduled autonomous jobs enough time to receive a signed reviewed-rule host decision", "started_at": "2026-08-11T15:35:33+00:00", "max_files": 5, "files": []}
+{"event": "done", "id": "Q-0020-03fd", "reason": "Give scheduled autonomous jobs enough time to receive a signed reviewed-rule host decision", "started_at": "2026-08-11T15:35:33+00:00", "completed_at": "2026-08-11T15:41:04+00:00", "files": []}

@@ -708,7 +708,7 @@ describe('requestPermissionApproval', () => {
     const hostInjectedCommandPrefix =
       "GODEBUG=netdns=go HTTP_PROXY='http://127.0.0.1:18790/'";
 
-    await requestPermissionApproval({
+    const decision = requestPermissionApproval({
       appId: 'default',
       agentId: 'agent:main_agent',
       workspaceFolder: 'main_agent',
@@ -730,11 +730,38 @@ describe('requestPermissionApproval', () => {
     const request = JSON.parse(
       fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
     ) as {
+      requestId: string;
+      responseNonce: string;
       hostInjectedCommandPrefix?: string;
       signature?: string;
     };
     expect(request.hostInjectedCommandPrefix).toBe(hostInjectedCommandPrefix);
     expect(request.signature).toEqual(expect.any(String));
+
+    const responseDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-responses',
+    );
+    fs.mkdirSync(responseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(responseDir, `${request.requestId}.json`),
+      JSON.stringify({
+        requestId: request.requestId,
+        responseNonce: request.responseNonce,
+        approved: false,
+        mode: 'cancel',
+        decidedBy: 'reviewed_rule',
+        reason: 'serialization assertion complete',
+        signature: 'test-signature',
+      }),
+    );
+    await expect(decision).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'reviewed_rule',
+    });
   });
 
   it('waits for and honors a late host allow response for zero-timeout auto mode', async () => {

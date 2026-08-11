@@ -11,7 +11,7 @@ import {
 } from '../shared/ipc-signing.js';
 import { isPlainObject } from '../shared/object.js';
 import { persistentPermissionUpdates } from '../shared/permission-tool-rules.js';
-import { AUTO_PERMISSION_CLASSIFIER_WAIT_MS } from '../shared/permission-mode.js';
+import { resolveAutonomousHostDecisionWaitMs } from '../shared/permission-mode.js';
 import { NO_PERMISSION_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import {
@@ -134,15 +134,18 @@ export async function requestPermissionApprovalViaIpc(
     const responseNonce = randomUUID();
     const requestPath = path.join(permissionRequestsDir, `${requestId}.json`);
     const requestTmpPath = `${requestPath}.tmp`;
-    const autonomousHostDecisionWait =
+    const autonomousHostDecisionWaitMs =
       permissionLane === 'autonomous' &&
-      env.permissionRequestTimeoutMs <= NO_PERMISSION_TIMEOUT_MS &&
-      (env.permissionMode === 'auto' ||
-        env.permissionMode === 'auto_strict' ||
-        Boolean(env.jobId));
-    const waitMs = autonomousHostDecisionWait
-      ? AUTO_PERMISSION_CLASSIFIER_WAIT_MS
-      : env.permissionRequestTimeoutMs;
+      env.permissionRequestTimeoutMs <= NO_PERMISSION_TIMEOUT_MS
+        ? resolveAutonomousHostDecisionWaitMs({
+            isScheduledJob: Boolean(env.jobId),
+            permissionMode: env.permissionMode,
+          })
+        : NO_PERMISSION_TIMEOUT_MS;
+    const waitMs =
+      autonomousHostDecisionWaitMs > NO_PERMISSION_TIMEOUT_MS
+        ? autonomousHostDecisionWaitMs
+        : env.permissionRequestTimeoutMs;
     const deadline =
       waitMs > NO_PERMISSION_TIMEOUT_MS ? nowMs() + waitMs : undefined;
     const payload = {
@@ -230,7 +233,7 @@ export async function requestPermissionApprovalViaIpc(
     if (
       permissionLane === 'autonomous' &&
       env.permissionRequestTimeoutMs <= NO_PERMISSION_TIMEOUT_MS &&
-      !autonomousHostDecisionWait
+      autonomousHostDecisionWaitMs <= NO_PERMISSION_TIMEOUT_MS
     ) {
       return {
         approved: false,

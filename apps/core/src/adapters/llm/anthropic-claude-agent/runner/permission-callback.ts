@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto';
 import { nowIso, nowMs, sleep } from '../../../../shared/time/datetime.js';
 import { isPlainObject } from '../../../../shared/object.js';
 import { persistentPermissionUpdates } from '../../../../shared/permission-tool-rules.js';
-import { AUTO_PERMISSION_CLASSIFIER_WAIT_MS } from '../../../../shared/permission-mode.js';
+import { resolveAutonomousHostDecisionWaitMs } from '../../../../shared/permission-mode.js';
 import { NO_PERMISSION_TIMEOUT_MS } from '../../../../shared/permission-timeout.js';
 import { writePrivateFileSync } from '../../../../shared/private-fs.js';
 import {
@@ -159,13 +159,18 @@ async function requestPermissionApprovalInner(options: {
     const responseNonce = randomUUID();
     const requestPath = path.join(permissionRequestsDir, `${requestId}.json`);
     const requestTmpPath = `${requestPath}.tmp`;
-    const autonomousHostDecisionWait =
+    const autonomousHostDecisionWaitMs =
       PERMISSION_LANE === 'autonomous' &&
-      PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS &&
-      (PERMISSION_MODE === 'auto' || Boolean(JOB_ID));
-    const waitMs = autonomousHostDecisionWait
-      ? AUTO_PERMISSION_CLASSIFIER_WAIT_MS
-      : PERMISSION_REQUEST_TIMEOUT_MS;
+      PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS
+        ? resolveAutonomousHostDecisionWaitMs({
+            isScheduledJob: Boolean(JOB_ID),
+            permissionMode: PERMISSION_MODE,
+          })
+        : NO_PERMISSION_TIMEOUT_MS;
+    const waitMs =
+      autonomousHostDecisionWaitMs > NO_PERMISSION_TIMEOUT_MS
+        ? autonomousHostDecisionWaitMs
+        : PERMISSION_REQUEST_TIMEOUT_MS;
     const deadline =
       waitMs > NO_PERMISSION_TIMEOUT_MS ? nowMs() + waitMs : undefined;
     const unboundedInteractive =
@@ -265,7 +270,7 @@ async function requestPermissionApprovalInner(options: {
     if (
       PERMISSION_LANE === 'autonomous' &&
       PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS &&
-      !autonomousHostDecisionWait
+      autonomousHostDecisionWaitMs <= NO_PERMISSION_TIMEOUT_MS
     ) {
       return {
         approved: false,
