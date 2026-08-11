@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="A source-derived, single-page technical guide to Gantry: its runtime architecture, trust boundaries, durable state, execution flow, permissions, delivery, recovery, and code map."
+      content="A source-derived guide to Gantry: governed multi-agent automation, business value, scalable deployment, runtime architecture, permissions, durable execution, recovery, and code map."
     />
     <meta name="theme-color" content="#e7ebe5" />
-    <title>Gantry — Runtime Architecture, From Message to Effect</title>
+    <title>Gantry — Governed Multi-Agent Automation for Business</title>
     <style>
       :root {
         color-scheme: light;
@@ -317,6 +317,162 @@
       .manifest dd {
         margin: 0;
         font-weight: 650;
+      }
+
+      .business-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .business-card {
+        position: relative;
+        min-height: 220px;
+        padding: 24px;
+        overflow: hidden;
+        background: rgba(244, 246, 241, 0.78);
+        border: 1px solid var(--line);
+        border-top: 5px solid var(--cyan);
+        border-radius: 8px;
+      }
+
+      .business-card:nth-child(2),
+      .business-card:nth-child(5) {
+        border-top-color: var(--rust);
+      }
+
+      .business-card:nth-child(3),
+      .business-card:nth-child(6) {
+        border-top-color: var(--mint);
+      }
+
+      .business-card .utility {
+        color: var(--faint);
+        font-size: 10px;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .business-card h3 {
+        margin: 22px 0 10px;
+        font-size: 25px;
+      }
+
+      .business-card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .business-card b {
+        position: absolute;
+        top: 14px;
+        right: 18px;
+        color: rgba(23, 35, 38, 0.08);
+        font:
+          850 40px/1 'Arial Narrow',
+          sans-serif;
+      }
+
+      .multi-agent-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.55fr);
+        gap: 16px;
+        margin-top: 42px;
+      }
+
+      .multi-agent-layout .service-card {
+        height: 100%;
+      }
+
+      .scale-story {
+        display: grid;
+        align-content: start;
+        gap: 1px;
+        overflow: hidden;
+        background: var(--line-strong);
+        border: 1px solid var(--line-strong);
+        border-radius: 10px;
+        box-shadow: 0 12px 32px rgba(31, 51, 51, 0.07);
+      }
+
+      .scale-step {
+        position: relative;
+        min-height: 112px;
+        padding: 19px 20px 18px 72px;
+        background: rgba(248, 250, 246, 0.96);
+      }
+
+      .scale-step b {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        color: var(--white);
+        background: var(--ink);
+        border-radius: 4px;
+        font:
+          800 11px/1 'SFMono-Regular',
+          Consolas,
+          monospace;
+      }
+
+      .scale-step h3 {
+        margin: 0 0 6px;
+        font-size: 17px;
+      }
+
+      .scale-step p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .product-proof {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 1px;
+        margin-top: 16px;
+        overflow: hidden;
+        color: var(--white);
+        background: rgba(255, 255, 255, 0.18);
+        border: 1px solid var(--ink);
+        border-radius: 8px;
+      }
+
+      .product-proof div {
+        min-height: 118px;
+        padding: 20px;
+        background: var(--ink);
+      }
+
+      .product-proof strong {
+        display: block;
+        margin-bottom: 7px;
+        color: #82d5dc;
+        font-size: 14px;
+      }
+
+      .product-proof span {
+        color: #bdcac8;
+        font-size: 12px;
+      }
+
+      .scale-caveat {
+        margin: 16px 0 0;
+        padding: 15px 18px;
+        color: var(--muted);
+        background: rgba(244, 232, 201, 0.58);
+        border: 1px solid #d7bc7e;
+        border-radius: 6px;
+        font-size: 13px;
+      }
+
+      .scale-caveat strong {
+        color: var(--ink);
       }
 
       section {
@@ -960,6 +1116,15 @@
           grid-template-columns: repeat(2, 1fr);
         }
 
+        .business-grid,
+        .product-proof {
+          grid-template-columns: repeat(2, 1fr);
+        }
+
+        .multi-agent-layout {
+          grid-template-columns: 1fr;
+        }
+
         .code-map {
           grid-template-columns: 1fr;
         }
@@ -1009,7 +1174,9 @@
         .service-atlas,
         .boundary-grid,
         .failure-grid,
-        .callout-grid {
+        .callout-grid,
+        .business-grid,
+        .product-proof {
           grid-template-columns: 1fr;
         }
 
@@ -1075,6 +1242,7 @@
           <span>Gantry runtime atlas</span>
         </a>
         <nav aria-label="Page sections">
+          <a href="#business">Why Gantry</a>
           <a href="#architecture">Architecture</a>
           <a href="#services">Services</a>
           <a href="#execution">Execution</a>
@@ -1104,9 +1272,8 @@
             per-call authorization, durable delivery, and crash recovery.
           </p>
           <div class="hero-actions">
-            <a class="button primary" href="#architecture"
-              >Open the system map ↓</a
-            >
+            <a class="button primary" href="#business">Why Gantry ↓</a>
+            <a class="button" href="#architecture">Open the system map ↓</a>
             <a class="button" href="https://github.com/knacklabs/gantry"
               >Inspect the repository ↗</a
             >
@@ -1134,6 +1301,508 @@
           </dl>
         </aside>
       </div>
+
+      <section id="business" data-searchable>
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">The business case</div>
+              <h2>One runtime. A company of agents.</h2>
+            </div>
+            <p class="section-copy">
+              Gantry turns AI from a standalone chat window into a governed
+              operating layer for the business. Deploy focused agents where
+              people already work, connect them to approved systems, and let
+              every team automate its own workflows without rebuilding identity,
+              permissions, memory, scheduling, delivery, and recovery each time.
+            </p>
+          </div>
+
+          <div class="business-grid">
+            <article class="business-card">
+              <div class="utility">Operational leverage</div>
+              <b>01</b>
+              <h3>Move work, not just words.</h3>
+              <p>
+                Agents can gather context, call business systems, update
+                records, create artifacts, and report the outcome. One request
+                can become a complete, observable workflow.
+              </p>
+            </article>
+            <article class="business-card">
+              <div class="utility">Multi-agent support</div>
+              <b>02</b>
+              <h3>Specialists that work together.</h3>
+              <p>
+                Give each agent a distinct role, model, skills, tools, memory,
+                and communication route. Agents can delegate bounded tasks while
+                the runtime preserves the calling agent’s authority.
+              </p>
+            </article>
+            <article class="business-card">
+              <div class="utility">Governed autonomy</div>
+              <b>03</b>
+              <h3>Control follows every action.</h3>
+              <p>
+                Policies, sender rules, scoped credentials, sandboxing, and
+                human approvals stand between model intent and consequential
+                effects—without slowing down already-approved work.
+              </p>
+            </article>
+            <article class="business-card">
+              <div class="utility">Always-on operations</div>
+              <b>04</b>
+              <h3>Run now, later, or continuously.</h3>
+              <p>
+                Interactive turns, delegated background work, one-time tasks,
+                intervals, and timezone-aware cron schedules all use the same
+                durable execution and evidence model.
+              </p>
+            </article>
+            <article class="business-card">
+              <div class="utility">Institutional knowledge</div>
+              <b>05</b>
+              <h3>Build memory the company can trust.</h3>
+              <p>
+                Conversation memory and company knowledge survive restarts.
+                Dreaming reviews evidence, proposes consolidation, and routes
+                sensitive changes through deterministic checks or review.
+              </p>
+            </article>
+            <article class="business-card">
+              <div class="utility">Reusable platform</div>
+              <b>06</b>
+              <h3>Launch the next workflow faster.</h3>
+              <p>
+                Add a new agent by composing capabilities instead of building
+                another bot stack. Shared runtime services reduce duplicated
+                integration, security, and reliability work.
+              </p>
+            </article>
+          </div>
+
+          <div class="multi-agent-layout">
+            <article class="service-card">
+              <header class="service-card-head">
+                <div class="service-index">M1</div>
+                <div>
+                  <h3>Governed multi-agent operating model</h3>
+                  <p>
+                    Many specialists share one durable runtime without sharing
+                    unchecked authority, credentials, or ephemeral state.
+                  </p>
+                </div>
+                <a
+                  class="source-ref"
+                  href="https://github.com/knacklabs/gantry/blob/main/apps/core/src/control/server/routes/agent-delegate-route-helpers.ts"
+                  >delegation + routes ↗</a
+                >
+              </header>
+              <div class="service-canvas">
+                <svg
+                  class="service-svg"
+                  viewBox="0 0 1120 610"
+                  role="img"
+                  aria-labelledby="multi-agent-title multi-agent-desc"
+                >
+                  <title id="multi-agent-title">
+                    Gantry multi-agent business operating model
+                  </title>
+                  <desc id="multi-agent-desc">
+                    Business requests enter through channels, applications, or
+                    schedules. Gantry resolves identity and routes each request
+                    to a specialist agent with its own capabilities. Agents can
+                    delegate durable bounded tasks while permissions, humans,
+                    Postgres, and delivery remain controlled by the host.
+                  </desc>
+                  <defs>
+                    <marker
+                      id="multi-agent-arrow"
+                      markerWidth="8"
+                      markerHeight="8"
+                      refX="7"
+                      refY="4"
+                      orient="auto"
+                    >
+                      <path d="M0 0 L8 4 L0 8 Z" fill="#087d89" />
+                    </marker>
+                    <marker
+                      id="multi-agent-guard-arrow"
+                      markerWidth="8"
+                      markerHeight="8"
+                      refX="7"
+                      refY="4"
+                      orient="auto"
+                    >
+                      <path d="M0 0 L8 4 L0 8 Z" fill="#a94a35" />
+                    </marker>
+                  </defs>
+
+                  <text class="svc-lane" x="20" y="25">
+                    BUSINESS ENTRY SURFACES
+                  </text>
+                  <rect class="svc-box" x="20" y="42" width="190" height="72" />
+                  <text class="svc-label" x="115" y="69" text-anchor="middle">
+                    Team conversations
+                  </text>
+                  <text class="svc-note" x="115" y="89" text-anchor="middle">
+                    channels · threads · mentions
+                  </text>
+                  <text class="svc-note" x="115" y="105" text-anchor="middle">
+                    provider account identity
+                  </text>
+                  <rect
+                    class="svc-box"
+                    x="236"
+                    y="42"
+                    width="190"
+                    height="72"
+                  />
+                  <text class="svc-label" x="331" y="69" text-anchor="middle">
+                    Business applications
+                  </text>
+                  <text class="svc-note" x="331" y="89" text-anchor="middle">
+                    SDK · signed ingress · API
+                  </text>
+                  <text class="svc-note" x="331" y="105" text-anchor="middle">
+                    durable app conversations
+                  </text>
+                  <rect
+                    class="svc-box async"
+                    x="452"
+                    y="42"
+                    width="190"
+                    height="72"
+                  />
+                  <text class="svc-label" x="547" y="69" text-anchor="middle">
+                    Scheduled operations
+                  </text>
+                  <text class="svc-note" x="547" y="89" text-anchor="middle">
+                    one-time · interval · cron
+                  </text>
+                  <text class="svc-note" x="547" y="105" text-anchor="middle">
+                    resumable background work
+                  </text>
+                  <path
+                    class="svc-line"
+                    d="M115 114 V144 H547"
+                    marker-end="url(#multi-agent-arrow)"
+                  />
+                  <path class="svc-line" d="M331 114 V144" />
+                  <path class="svc-line amber" d="M547 114 V144" />
+
+                  <rect
+                    class="svc-box host"
+                    x="452"
+                    y="144"
+                    width="370"
+                    height="82"
+                  />
+                  <text class="svc-label" x="637" y="171" text-anchor="middle">
+                    Identity + conversation route resolution
+                  </text>
+                  <text class="svc-note" x="637" y="192" text-anchor="middle">
+                    provider account · conversation · thread · sender policy
+                  </text>
+                  <text class="svc-note" x="637" y="209" text-anchor="middle">
+                    installed agent · trigger · durable session
+                  </text>
+
+                  <rect
+                    class="svc-box guard"
+                    x="850"
+                    y="42"
+                    width="250"
+                    height="184"
+                  />
+                  <text class="svc-label" x="975" y="71" text-anchor="middle">
+                    Human + policy control
+                  </text>
+                  <text class="svc-note" x="975" y="96" text-anchor="middle">
+                    sender policy · reviewed capability
+                  </text>
+                  <text class="svc-note" x="975" y="114" text-anchor="middle">
+                    per-call permission decision
+                  </text>
+                  <text class="svc-note" x="975" y="132" text-anchor="middle">
+                    control approver · explicit settlement
+                  </text>
+                  <text class="svc-note" x="975" y="150" text-anchor="middle">
+                    scoped credential projection
+                  </text>
+                  <text class="svc-note" x="975" y="168" text-anchor="middle">
+                    sandbox + network boundary
+                  </text>
+                  <text class="svc-note" x="975" y="195" text-anchor="middle">
+                    Model intent ≠ authority
+                  </text>
+                  <path
+                    class="svc-line rust dashed"
+                    d="M850 185 H822"
+                    marker-end="url(#multi-agent-guard-arrow)"
+                  />
+
+                  <text class="svc-lane" x="20" y="270">
+                    SPECIALIST AGENTS · INDEPENDENT CONFIGURATION AND AUTHORITY
+                  </text>
+                  <path class="svc-line" d="M637 226 V292 H195 V314" />
+                  <path class="svc-line" d="M637 226 V314" />
+                  <path class="svc-line" d="M637 292 H942 V314" />
+                  <rect
+                    class="svc-box host"
+                    x="20"
+                    y="314"
+                    width="350"
+                    height="126"
+                  />
+                  <text class="svc-label" x="195" y="342" text-anchor="middle">
+                    Specialist agent A
+                  </text>
+                  <text class="svc-note" x="195" y="367" text-anchor="middle">
+                    persona · model · skills · MCP sources
+                  </text>
+                  <text class="svc-note" x="195" y="386" text-anchor="middle">
+                    tools · credentials · memory boundary
+                  </text>
+                  <text class="svc-note" x="195" y="414" text-anchor="middle">
+                    owns its conversation + AgentSession
+                  </text>
+                  <rect
+                    class="svc-box host"
+                    x="386"
+                    y="314"
+                    width="350"
+                    height="126"
+                  />
+                  <text class="svc-label" x="561" y="342" text-anchor="middle">
+                    Orchestrator agent
+                  </text>
+                  <text class="svc-note" x="561" y="367" text-anchor="middle">
+                    decomposes objective into bounded work
+                  </text>
+                  <text class="svc-note" x="561" y="386" text-anchor="middle">
+                    sees only conversation-bound delegates
+                  </text>
+                  <text class="svc-note" x="561" y="414" text-anchor="middle">
+                    cannot widen a delegate’s capabilities
+                  </text>
+                  <rect
+                    class="svc-box host"
+                    x="752"
+                    y="314"
+                    width="348"
+                    height="126"
+                  />
+                  <text class="svc-label" x="926" y="342" text-anchor="middle">
+                    Specialist agent B
+                  </text>
+                  <text class="svc-note" x="926" y="367" text-anchor="middle">
+                    separate persona · skills · tools · route
+                  </text>
+                  <text class="svc-note" x="926" y="386" text-anchor="middle">
+                    independently governable and replaceable
+                  </text>
+                  <text class="svc-note" x="926" y="414" text-anchor="middle">
+                    returns structured result to caller
+                  </text>
+
+                  <path
+                    class="svc-line amber dashed"
+                    d="M386 377 H370"
+                    marker-end="url(#multi-agent-arrow)"
+                  />
+                  <path
+                    class="svc-line amber dashed"
+                    d="M736 377 H752"
+                    marker-end="url(#multi-agent-arrow)"
+                  />
+                  <text class="svc-note" x="378" y="362" text-anchor="end">
+                    durable delegated task
+                  </text>
+                  <text class="svc-note" x="744" y="362">
+                    durable delegated task
+                  </text>
+
+                  <text class="svc-lane" x="20" y="487">
+                    SHARED RUNTIME SERVICES · NOT SHARED UNCHECKED AUTHORITY
+                  </text>
+                  <rect
+                    class="svc-box durable"
+                    x="20"
+                    y="505"
+                    width="236"
+                    height="76"
+                  />
+                  <text class="svc-label" x="138" y="532" text-anchor="middle">
+                    Durable Postgres state
+                  </text>
+                  <text class="svc-note" x="138" y="552" text-anchor="middle">
+                    messages · sessions · runs · leases
+                  </text>
+                  <text class="svc-note" x="138" y="569" text-anchor="middle">
+                    jobs · evidence · memory · settings
+                  </text>
+                  <rect
+                    class="svc-box async"
+                    x="278"
+                    y="505"
+                    width="176"
+                    height="76"
+                  />
+                  <text class="svc-label" x="366" y="532" text-anchor="middle">
+                    Queue + scheduler
+                  </text>
+                  <text class="svc-note" x="366" y="552" text-anchor="middle">
+                    live lane · job lane
+                  </text>
+                  <text class="svc-note" x="366" y="569" text-anchor="middle">
+                    claim · retry · recover
+                  </text>
+                  <rect
+                    class="svc-box guard"
+                    x="476"
+                    y="505"
+                    width="190"
+                    height="76"
+                  />
+                  <text class="svc-label" x="571" y="532" text-anchor="middle">
+                    Capability broker
+                  </text>
+                  <text class="svc-note" x="571" y="552" text-anchor="middle">
+                    per-agent tool projection
+                  </text>
+                  <text class="svc-note" x="571" y="569" text-anchor="middle">
+                    secrets stay host-owned
+                  </text>
+                  <rect
+                    class="svc-box durable"
+                    x="688"
+                    y="505"
+                    width="190"
+                    height="76"
+                  />
+                  <text class="svc-label" x="783" y="532" text-anchor="middle">
+                    Memory + brain
+                  </text>
+                  <text class="svc-note" x="783" y="552" text-anchor="middle">
+                    scoped recall · evidence
+                  </text>
+                  <text class="svc-note" x="783" y="569" text-anchor="middle">
+                    reviewed dreaming updates
+                  </text>
+                  <rect
+                    class="svc-box durable"
+                    x="900"
+                    y="505"
+                    width="200"
+                    height="76"
+                  />
+                  <text class="svc-label" x="1000" y="532" text-anchor="middle">
+                    Delivery + audit
+                  </text>
+                  <text class="svc-note" x="1000" y="552" text-anchor="middle">
+                    replies · receipts · events
+                  </text>
+                  <text class="svc-note" x="1000" y="569" text-anchor="middle">
+                    completion follows evidence
+                  </text>
+                  <path class="svc-line mint" d="M195 440 V505" />
+                  <path class="svc-line mint" d="M561 440 V505" />
+                  <path class="svc-line mint" d="M926 440 V505" />
+                </svg>
+              </div>
+            </article>
+
+            <div class="scale-story" aria-label="Gantry scale path">
+              <article class="scale-step">
+                <b>01</b>
+                <h3>Start with one specialist</h3>
+                <p>
+                  Prove a workflow on one runtime while retaining durable state,
+                  permissions, observability, and recovery from day one.
+                </p>
+              </article>
+              <article class="scale-step">
+                <b>02</b>
+                <h3>Add agents, not platforms</h3>
+                <p>
+                  Reuse identity, channels, scheduler, memory, MCP, artifacts,
+                  and policy infrastructure across new business functions.
+                </p>
+              </article>
+              <article class="scale-step">
+                <b>03</b>
+                <h3>Separate workload lanes</h3>
+                <p>
+                  Interactive work and background jobs have independent queue
+                  capacity, claims, sessions, and failure handling.
+                </p>
+              </article>
+              <article class="scale-step">
+                <b>04</b>
+                <h3>Split the same image by role</h3>
+                <p>
+                  Control, live-worker, and job-worker roles let teams isolate
+                  administration, real-time demand, and scheduled throughput.
+                </p>
+              </article>
+              <article class="scale-step">
+                <b>05</b>
+                <h3>Coordinate through durable state</h3>
+                <p>
+                  Postgres leases, fencing, heartbeats, and recovery make work
+                  ownership explicit as deployment topology grows.
+                </p>
+              </article>
+            </div>
+          </div>
+
+          <div class="product-proof" aria-label="Business outcomes">
+            <div>
+              <strong>Faster time to automation</strong>
+              <span
+                >Compose agents from reusable skills, tools, and governed
+                integrations.</span
+              >
+            </div>
+            <div>
+              <strong>Lower platform duplication</strong>
+              <span
+                >One reliability and security layer supports many specialist
+                workflows.</span
+              >
+            </div>
+            <div>
+              <strong>Safer autonomy</strong>
+              <span
+                >Humans review exceptional actions while approved operations
+                continue automatically.</span
+              >
+            </div>
+            <div>
+              <strong>Auditable operations</strong>
+              <span
+                >Durable runs, tool evidence, decisions, and delivery outcomes
+                explain what happened.</span
+              >
+            </div>
+          </div>
+
+          <p class="scale-caveat">
+            <strong>Scale with the real constraints visible.</strong> Gantry’s
+            fleet topology and durable coordination are implemented, while model
+            quotas, provider connection rules, Postgres capacity, artifact
+            bandwidth, runner memory, and the currently process-local
+            rate/concurrency gates still define safe production capacity. The
+            platform exposes these boundaries instead of promising unlimited
+            linear scaling.
+            <a
+              href="https://github.com/knacklabs/gantry/blob/main/docs/architecture/scaling-and-deployment.md"
+              >Read the deployment contract ↗</a
+            >
+          </p>
+        </div>
+      </section>
 
       <section id="architecture" data-searchable>
         <div class="shell">
