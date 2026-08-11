@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -5,6 +9,26 @@ import {
   evaluateProtectedCapabilityToolUse,
   protectedCapabilityPreToolUseHook,
 } from '@core/adapters/llm/anthropic-claude-agent/runner/protected-capability-hook.js';
+
+function materializedAtsCommand(): { command: string; root: string } {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-hook-skill-'));
+  const protectedSkills = path.join(root, 'agents', 'ats', 'skills');
+  const scriptPath = path.join(
+    protectedSkills,
+    'ATS_Skills',
+    'scripts',
+    'cutshort-worker.mjs',
+  );
+  fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+  fs.writeFileSync(scriptPath, '#!/usr/bin/env node\n');
+  const runtimeSkills = path.join(root, '.llm-runtime', 'claude', 'skills');
+  fs.mkdirSync(path.dirname(runtimeSkills), { recursive: true });
+  fs.symlinkSync(protectedSkills, runtimeSkills, 'dir');
+  return {
+    command: `${path.join(runtimeSkills, 'ATS_Skills', 'scripts', 'cutshort-worker.mjs')} sync`,
+    root,
+  };
+}
 
 describe('protected capability SDK hook', () => {
   it('blocks direct skill file writes through the native PreToolUse hook', async () => {
@@ -79,6 +103,110 @@ describe('protected capability SDK hook', () => {
         tool_use_id: 'toolu_ats_sync',
       }),
     ).resolves.toEqual(expect.objectContaining({ continue: true }));
+  });
+
+  it('uses selected runtime capability ids when projected rules are already concrete', async () => {
+    const { command, root } = materializedAtsCommand();
+    const concreteRule =
+      'RunCommand(skills/ATS_Skills/scripts/cutshort-worker.mjs sync)';
+    const hook = createSafetyPreToolUseHook(
+      '',
+      {},
+      {
+        isScheduledJob: true,
+        jobId: 'job-ats-source-sync',
+        allowedToolRules: [concreteRule],
+        selectedCapabilityIds: ['skill.ats-source-sync.cutshort'],
+        semanticCapabilities: [
+          {
+            capabilityId: 'skill.ats-source-sync.cutshort',
+            displayName: 'Sync Cutshort',
+            category: 'ATS_Skills',
+            risk: 'write',
+            can: 'run the reviewed Cutshort sync worker',
+            cannot: 'run other commands',
+            credentialSource: 'skill_secret',
+            implementationBindings: [{ kind: 'tool_rule', rule: concreteRule }],
+            source: {
+              kind: 'skill_action',
+              skillId: 'skill-ats',
+              skillName: 'ATS_Skills',
+              actionId: 'cutshort-sync',
+            },
+          },
+        ],
+      },
+    );
+
+    try {
+      await expect(
+        hook({
+          hook_event_name: 'PreToolUse',
+          session_id: 'session-1',
+          transcript_path: '/tmp/transcript.jsonl',
+          cwd: '/tmp/work',
+          tool_name: 'Bash',
+          tool_input: { command },
+          tool_use_id: 'toolu_ats_sync',
+        }),
+      ).resolves.toEqual(expect.objectContaining({ continue: true }));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not infer selected skill authority from a concrete rule alone', async () => {
+    const { command, root } = materializedAtsCommand();
+    const concreteRule =
+      'RunCommand(skills/ATS_Skills/scripts/cutshort-worker.mjs sync)';
+    const hook = createSafetyPreToolUseHook(
+      '',
+      {},
+      {
+        isScheduledJob: true,
+        jobId: 'job-ats-source-sync',
+        allowedToolRules: [concreteRule],
+        semanticCapabilities: [
+          {
+            capabilityId: 'skill.ats-source-sync.cutshort',
+            displayName: 'Sync Cutshort',
+            category: 'ATS_Skills',
+            risk: 'write',
+            can: 'run the reviewed Cutshort sync worker',
+            cannot: 'run other commands',
+            credentialSource: 'skill_secret',
+            implementationBindings: [{ kind: 'tool_rule', rule: concreteRule }],
+            source: {
+              kind: 'skill_action',
+              skillId: 'skill-ats',
+              skillName: 'ATS_Skills',
+              actionId: 'cutshort-sync',
+            },
+          },
+        ],
+      },
+    );
+
+    try {
+      await expect(
+        hook({
+          hook_event_name: 'PreToolUse',
+          session_id: 'session-1',
+          transcript_path: '/tmp/transcript.jsonl',
+          cwd: '/tmp/work',
+          tool_name: 'Bash',
+          tool_input: { command },
+          tool_use_id: 'toolu_ats_sync',
+        }),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          continue: false,
+          decision: 'block',
+        }),
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('blocks direct MCP configuration changes', () => {

@@ -393,6 +393,9 @@ export async function runQuery(
                   isScheduledJob: agentInput.isScheduledJob,
                   jobId: agentInput.jobId,
                   allowedToolRules: agentInput.allowedTools,
+                  selectedCapabilityIds: agentInput.runtimeAccess?.map(
+                    (access) => access.selectedCapabilityId,
+                  ),
                   semanticCapabilities: agentInput.semanticCapabilities,
                 },
               ),
