@@ -6,6 +6,7 @@ import {
   PostgresStorageService,
   createStorageService,
   postgresMigrationsFolder,
+  resolvePgBossPostgresPoolMax,
   resolvePostgresPoolConfig,
   resolveRuntimePostgresPoolMax,
 } from '@core/adapters/storage/postgres/storage-service.js';
@@ -56,6 +57,16 @@ describe('storage-service', () => {
     expect(
       resolveRuntimePostgresPoolMax({ GANTRY_POSTGRES_POOL_MAX: '10' }),
     ).toBe(10);
+  });
+
+  it('bounds pg-boss pools to a quarter of the configured runtime pool', () => {
+    expect(resolvePgBossPostgresPoolMax({})).toBe(5);
+    expect(
+      resolvePgBossPostgresPoolMax({ GANTRY_POSTGRES_POOL_MAX: '8' }),
+    ).toBe(2);
+    expect(
+      resolvePgBossPostgresPoolMax({ GANTRY_POSTGRES_POOL_MAX: '3' }),
+    ).toBe(1);
   });
 
   it('rejects invalid GANTRY_POSTGRES_POOL_MAX values', () => {
