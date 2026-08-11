@@ -61,8 +61,11 @@ the owning application API; Browser does not receive database credentials.
 The official fleet image includes Chromium and can start headed Chrome on an
 opt-in Xvfb display with `GANTRY_BROWSER_VIRTUAL_DISPLAY_ENABLED=1`. An
 authenticated noVNC viewer can be enabled with
-`GANTRY_BROWSER_VIEWER_ENABLED=1` plus a deployment-mounted
-`GANTRY_BROWSER_VNC_PASSWORD_FILE`. Listener exposure, TLS, routing, and the
+`GANTRY_BROWSER_VIEWER_ENABLED=1` plus either the secret environment variable
+`GANTRY_BROWSER_VNC_PASSWORD` or a deployment-mounted
+`GANTRY_BROWSER_VNC_PASSWORD_FILE`. The entrypoint converts the environment
+secret into a protected VNC auth file and removes it from the runtime
+environment before Gantry starts. Listener exposure, TLS, routing, and the
 public URL remain deployment-owned. These settings do not add headless mode or
 new durable authority to the agent-facing Browser contract.
 

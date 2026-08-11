@@ -193,9 +193,24 @@ start_browser_display() {
     return
   fi
   auth_file="${GANTRY_BROWSER_VNC_PASSWORD_FILE:-}"
-  if [ -z "$auth_file" ] || [ ! -r "$auth_file" ]; then
-    log "GANTRY_BROWSER_VIEWER_ENABLED requires a readable GANTRY_BROWSER_VNC_PASSWORD_FILE"
-    exit 1
+  if [ -n "$auth_file" ]; then
+    if [ ! -r "$auth_file" ]; then
+      log "GANTRY_BROWSER_VNC_PASSWORD_FILE is not readable"
+      exit 1
+    fi
+  else
+    password="${GANTRY_BROWSER_VNC_PASSWORD:-}"
+    if [ -z "$password" ]; then
+      log "GANTRY_BROWSER_VIEWER_ENABLED requires GANTRY_BROWSER_VNC_PASSWORD or a readable GANTRY_BROWSER_VNC_PASSWORD_FILE"
+      exit 1
+    fi
+    auth_file="${GANTRY_HOME:-/var/lib/gantry}/run/vnc-password"
+    mkdir -p "$(dirname "$auth_file")"
+    umask 077
+    x11vnc -storepasswd "$password" "$auth_file" >/dev/null 2>&1
+    chmod 600 "$auth_file"
+    unset password GANTRY_BROWSER_VNC_PASSWORD
+    log "created protected browser viewer password file"
   fi
   x11vnc -display "$DISPLAY" -rfbauth "$auth_file" -forever -shared -localhost -rfbport 5900 >/tmp/gantry-x11vnc.log 2>&1 &
   websockify --web=/usr/share/novnc "${GANTRY_BROWSER_VIEWER_PORT:-6080}" localhost:5900 >/tmp/gantry-websockify.log 2>&1 &
