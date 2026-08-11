@@ -13,7 +13,8 @@ saved: 2026-08-11T10:45:00+00:00
 survey across all scheduled runs: `RunCommand` 45× allowed by `auto_classifier`
 / 15× cancelled; `send_message` 1× allowed / 1× cancelled. Same disease
 CLIRUN-1 (decision 0120) cured for local-CLI capabilities, still live for every
-other tool.
+other tool. The binding auto-mode contract is recorded in
+[decision 0121](../decisions/0121-autodet-no-classifier-autonomous.md).
 
 ## Problem
 

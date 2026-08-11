@@ -75,9 +75,11 @@ must not start arbitrary MCP servers as a readiness side effect.
 ## Execution
 
 Scheduled job execution keeps protected capability and memory guards active
-before autonomous allowance. Eligible `auto`/`auto_strict` requests get a
-bounded classifier decision, but a request that still needs a human cannot hold
-the unattended runner indefinitely. The job enters the setup-required recovery
+before autonomous allowance. Per
+[decision 0121](../decisions/0121-autodet-no-classifier-autonomous.md), a
+host-verified `jobId` makes the permission path deterministic: reviewed agent
+authority allows, while a miss becomes a terminal denial without consulting
+the classifier or its verdict cache. The job enters the setup-required recovery
 path and delivers its approval through the existing job/source-conversation
 route. The current implementation releases the old lease and schedules new
 work after approval; same-fenced-run tool-call resume and explicit
