@@ -1174,12 +1174,15 @@
         "Live proof: the KnackLabs sheets mismatch is fixed from the card and the next run writes leads - no SQL, no restart"
       ],
       "order": 59,
-      "status": "active",
+      "status": "done",
       "epic": "permission-engine",
       "skill": "backend",
       "kind": "feature",
       "depends_on": [],
-      "spec": "docs/specs/capability-template-amendment.md"
+      "spec": "docs/specs/capability-template-amendment.md",
+      "completed_at": "2026-08-11T22:07:51+00:00",
+      "history": ".factory/history/CAPFIX-1/",
+      "outcome": "When a CLI capability's approved command shape doesn't fit how the command really works, the agent now asks for a fix instead of failing forever: one plain-language card lands in chat - what stopped, what approving changes, what the capability still can and cannot do - with Approve fix / Deny buttons and the technical delta collapsed behind them. Approving updates the reviewed definition once, with full provenance and history, and every job blocked on that capability resumes and completes without re-asking. Denying is final for that definition; timeouts just ask again later. The KnackLabs sheets breakage is this feature's live acceptance test: fixing it becomes one tap instead of SQL."
     }
   ],
   "epics": [
@@ -1268,5 +1271,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-11T16:38:21+00:00"
+  "updated_at": "2026-08-11T22:07:51+00:00"
 }
