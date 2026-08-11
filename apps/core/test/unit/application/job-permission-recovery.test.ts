@@ -115,6 +115,7 @@ describe('permission recovery', () => {
         requestPermissionApproval,
         sendMessage,
         opsRepository: {
+          listJobs: vi.fn(async () => [job]),
           getJobById: vi.fn(async () => job),
           resumeSetupPausedJob,
         },
