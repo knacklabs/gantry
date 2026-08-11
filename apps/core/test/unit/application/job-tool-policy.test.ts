@@ -178,9 +178,11 @@ describe('job tool policy', () => {
     });
 
     expect(jobPolicy.effectiveAllowedTools).toEqual(configuredTools);
+    // The local_cli capability no longer projects a RunCommand rule (CLIRUN-1
+    // cutover); it is invoked via capability_run, so only the capability itself
+    // appears here.
     expect(jobPolicy.effectiveAllowedTools).toEqual([
       'capability:acme.records.append',
-      'RunCommand(/usr/local/bin/acme records append *)',
       'Browser',
       'RunCommand(npm test *)',
     ]);
