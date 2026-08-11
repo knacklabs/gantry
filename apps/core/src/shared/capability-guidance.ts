@@ -13,6 +13,9 @@ export const SOURCE_INVENTORY_AUTHORITY_GUIDANCE =
 export const UNREVIEWED_DISCOVERY_GUIDANCE =
   'CLI help, MCP tool lists, skill text, and adapter discovery can guide review, but the agent should use the reviewed action capability as the public contract.';
 
+export const STRUCTURED_LOCAL_CLI_GUIDANCE =
+  'For a granted local CLI capability, use capability_run with the capability id and separate argument entries. Prefer it over Bash or RunCommand, and do not add shell pipes or redirects; Gantry bounds the output.';
+
 export const NO_REVIEWED_CAPABILITY_GUIDANCE = [
   'No reviewed capabilities matched.',
   'Next action:',
@@ -45,6 +48,7 @@ export function renderDefaultCapabilityRules(options?: {
     `- ${SOURCE_INVENTORY_AUTHORITY_GUIDANCE}`,
     '- Use request_access target.kind=capability for an existing reviewed capability id; for an attached MCP source with no reviewed action capability, propose one with target.kind=mcp_capability.',
     '- Use request_access target.kind=run_command only as a scoped temporary exact-command fallback when no reviewed capability fits.',
+    `- ${STRUCTURED_LOCAL_CLI_GUIDANCE}`,
     '- For skills, MCP servers, local CLIs, browser, file/web, and admin tools, ask for the action the user wants; source setup and raw implementation details stay in review metadata.',
     `- ${UNREVIEWED_DISCOVERY_GUIDANCE}`,
     '- Declare requiredEnvVars for secrets the installed skill needs at runtime; they are projected later from Gantry Credentials and are not generic installer env.',

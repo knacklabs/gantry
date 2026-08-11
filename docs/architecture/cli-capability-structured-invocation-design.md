@@ -55,6 +55,12 @@ string is ever composed.
 - Keep the RunCommand projection working during migration; decide separately
   whether to retire it for `local_cli` once structured invocation is proven.
 
+For the gog pilot, the operator records the exact installed executable path and
+version, then pins the bytes returned by
+`shasum -a 256 /opt/homebrew/bin/gog` as `executableHash` in
+`sha256:<hex>` form. Recompute and review that pin whenever gog is upgraded;
+invocation fails closed when the installed bytes do not match it.
+
 ## Non-goals
 
 - No change to MCP capabilities, skill actions, or general Bash/RunCommand for

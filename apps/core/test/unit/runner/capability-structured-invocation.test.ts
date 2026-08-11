@@ -23,8 +23,10 @@ import {
 } from '@core/shared/admin-mcp-tools.js';
 import {
   buildLocalCliSemanticCapability,
+  semanticCapabilityRuntimeRules,
   semanticCapabilityInputSchema,
 } from '@core/shared/semantic-capabilities.js';
+import { renderDefaultCapabilityRules } from '@core/shared/capability-guidance.js';
 import {
   CAPABILITY_RUN_MAX_ARGS,
   CAPABILITY_RUN_MAX_ARG_BYTES,
@@ -35,6 +37,7 @@ import type {
   RunnerSandboxProvider,
   RunnerSandboxSpawnInput,
 } from '@core/shared/runner-sandbox-provider.js';
+import { buildGantryAgentSystemPrompt } from '@core/runner/gantry-agent-system-prompt.js';
 
 type FakeChild = EventEmitter & {
   stdout: PassThrough;
@@ -45,10 +48,10 @@ type FakeChild = EventEmitter & {
 
 const tempDirs: string[] = [];
 
-function executableFixture(): { executable: string; hash: string } {
+function executableFixture(name = 'acme'): { executable: string; hash: string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-capability-run-'));
   tempDirs.push(dir);
-  const executable = path.join(dir, 'acme');
+  const executable = path.join(dir, name);
   const content = '#!/bin/sh\nexit 0\n';
   fs.writeFileSync(executable, content, { mode: 0o700 });
   const hash = createHash('sha256').update(content).digest('hex');
@@ -77,17 +80,24 @@ function repository(input: {
     ],
     authPreflightCommand: `${input.executable} auth status`,
   });
+  return repositoryForCapability(capability, input.personId);
+}
+
+function repositoryForCapability(
+  capability: ReturnType<typeof buildLocalCliSemanticCapability>,
+  personId?: string | null,
+) {
   return {
     listAgentToolBindings: vi.fn(async () => [
       {
         status: 'active',
-        toolId: 'tool:capability:acme.records.read',
-        personId: input.personId ?? null,
+        toolId: `tool:capability:${capability.capabilityId}`,
+        personId: personId ?? null,
       },
     ]),
     getTool: vi.fn(async () => ({
       appId: 'app:test',
-      name: 'capability:acme.records.read',
+      name: `capability:${capability.capabilityId}`,
       inputSchema: semanticCapabilityInputSchema(capability),
     })),
   };
@@ -116,6 +126,7 @@ function invocation(input: {
   provider?: RunnerSandboxProvider;
   args: string[];
   personId?: string;
+  capabilityId?: string;
   signal?: AbortSignal;
   cwd?: string;
 }) {
@@ -124,7 +135,7 @@ function invocation(input: {
     appId: 'app:test',
     agentId: 'agent:test',
     personId: input.personId,
-    capabilityId: 'acme.records.read',
+    capabilityId: input.capabilityId ?? 'acme.records.read',
     args: input.args,
     cwd: input.cwd ?? process.cwd(),
     env: { PATH: '/usr/bin', HOME: os.homedir() },
@@ -269,5 +280,69 @@ describe('CLIRUN-1-1', () => {
       }),
     ).rejects.toThrow();
     expect(expired.start).not.toHaveBeenCalled();
+  });
+});
+
+describe('CLIRUN-1-2', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    for (const dir of tempDirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('pilot gog capability invokes structurally with guidance', async () => {
+    vi.useFakeTimers();
+    const fixture = executableFixture('gog');
+    const capability = buildLocalCliSemanticCapability({
+      capabilityId: 'google.sheets.values.get',
+      displayName: 'Google Sheets values read',
+      category: 'Google Sheets',
+      risk: 'read',
+      can: 'Read reviewed cell ranges from Google Sheets.',
+      cannot: 'Write sheets or change gog configuration.',
+      executablePath: fixture.executable,
+      executableVersion: '0.9.0',
+      executableHash: fixture.hash,
+      commandTemplates: [`${fixture.executable} sheets get * *`],
+      authPreflightCommand: `${fixture.executable} auth status`,
+      protectedPaths: ['~/.config/gog'],
+      networkHosts: ['sheets.googleapis.com'],
+    });
+    const { provider, child, start } = fakeProvider();
+    const resultPromise = invocation({
+      repository: repositoryForCapability(capability),
+      provider,
+      capabilityId: capability.capabilityId,
+      args: ['sheets', 'get', 'sheet-1', 'Leads!A1:B20'],
+    });
+
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce());
+    expect(start.mock.calls[0]?.[0]).toMatchObject({
+      command: fs.realpathSync(fixture.executable),
+      args: ['sheets', 'get', 'sheet-1', 'Leads!A1:B20'],
+    });
+    child.stdout.write('{"values":[["name","email"]]}');
+    child.emit('close', 0, null);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(resultPromise).resolves.toEqual({
+      stdout: '{"values":[["name","email"]]}',
+      stderr: '',
+    });
+
+    const guidance = renderDefaultCapabilityRules();
+    const systemPrompt = buildGantryAgentSystemPrompt({
+      runtimeProjection: 'native-tool-projection',
+      promptMode: 'minimal',
+    }).prompt;
+    for (const prompt of [guidance, systemPrompt]) {
+      expect(prompt).toContain('use capability_run');
+      expect(prompt).toContain('Prefer it over Bash or RunCommand');
+      expect(prompt).toContain('do not add shell pipes or redirects');
+    }
+
+    expect(semanticCapabilityRuntimeRules(capability)).toEqual([
+      `RunCommand(${fixture.executable} sheets get * *)`,
+    ]);
   });
 });
