@@ -7,7 +7,6 @@ import type { ToolCatalogRepository } from '../domain/ports/repositories.js';
 import type { BashCommandLeaf } from '../shared/bash-command-parser.js';
 import { parseBashCommand } from '../shared/bash-command-parser.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
-import { bashScopeMatchesLeaf } from '../shared/tool-rule-matcher.js';
 import type { RunnerSandboxProvider } from '../shared/runner-sandbox-provider.js';
 import { sanitizeOutboundLlmText } from '../shared/sensitive-material.js';
 import {
@@ -145,10 +144,8 @@ async function resolveGrantedLocalCliInvocation(input: {
       commandText: '',
       redirects: [],
     };
-    const reviewed = (binding.commandTemplates ?? []).some(
-      (template) =>
-        bashScopeMatchesLeaf(template, leaf) &&
-        structuredFlagsAreReviewed(template, leaf.argv),
+    const reviewed = (binding.commandTemplates ?? []).some((template) =>
+      structuredArgvMatchesTemplate(template, leaf.argv),
     );
     if (!reviewed) continue;
     const verifiedExecutable = await verifyImmutableExecutable(
@@ -199,18 +196,29 @@ function invalidArgs(message: string): StructuredLocalCliInvocationError {
   return new StructuredLocalCliInvocationError('invalid_args', message);
 }
 
-function structuredFlagsAreReviewed(
+// Structured argv authorization is ARITY-EXACT and positional — deliberately
+// stricter than the shell RunCommand matcher, whose trailing `*` could cover a
+// whole command suffix. Here the invocation argv must have the SAME length as
+// the reviewed template argv, each literal token must match exactly, and each
+// wildcard must match exactly ONE argument that is NOT a flag (a positional
+// wildcard can never absorb an injected `--flag`). This is the structured
+// capability boundary: the agent cannot append extra subcommands, flags, or
+// operands beyond what the reviewed template shape allows.
+function structuredArgvMatchesTemplate(
   template: string,
   argv: readonly string[],
 ): boolean {
   const parsed = parseBashCommand(template.trim());
   if (!parsed.ok || parsed.leaves.length !== 1) return false;
   const patterns = parsed.leaves[0]?.argv ?? [];
-  for (let index = 1; index < argv.length; index += 1) {
+  if (patterns.length !== argv.length) return false; // arity-exact
+  for (let index = 0; index < patterns.length; index += 1) {
+    const pattern = patterns[index] as string;
     const value = argv[index] as string;
-    if (!value.startsWith('-')) continue;
-    const pattern = patterns[index];
-    if (!pattern?.startsWith('-') || !globMatches(pattern, value)) return false;
+    if (!globMatches(pattern, value)) return false;
+    // A non-flag pattern (literal or wildcard) must not match a flag argument,
+    // so a positional `*` cannot absorb an injected flag.
+    if (!pattern.startsWith('-') && value.startsWith('-')) return false;
   }
   return true;
 }

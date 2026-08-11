@@ -214,6 +214,15 @@ describe('CLIRUN-1-1', () => {
         args: ['records', 'read', 'fixed', 'excess'],
       }),
     ).rejects.toMatchObject({ code: 'invalid_args' });
+    // Arity-exact: a wildcard template authorizes exactly one argument in the
+    // wildcard slot, never an extra trailing operand (the shell-glob suffix
+    // gap). `records list *` must NOT authorize an added second operand.
+    await expect(
+      invocation({
+        repository: tools,
+        args: ['records', 'list', 'customer-42', 'extra-operation'],
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_args' });
 
     for (const args of [
       ['records', 'list', 'bad\0value'],
