@@ -1,0 +1,43 @@
+{
+  "name": "@gantry/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run -c vitest.config.ts",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{html,json,ts}\""
+  },
+  "dependencies": {
+    "@fontsource-variable/spline-sans": "5.2.8",
+    "@fontsource-variable/spline-sans-mono": "5.2.8",
+    "@hookform/resolvers": "5.4.0",
+    "@tanstack/react-query": "5.101.2",
+    "@tanstack/react-router": "1.170.18",
+    "@tanstack/react-table": "8.21.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "0.468.0",
+    "radix-ui": "^1.6.7",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-hook-form": "7.81.0",
+    "tailwind-merge": "^3.6.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.2",
+    "@types/react": "19.2.0",
+    "@types/react-dom": "19.2.0",
+    "@vitejs/plugin-react": "6.0.3",
+    "tailwindcss": "4.3.2",
+    "typescript": "^5.7.0",
+    "vite": "8.1.4"
+  },
+  "engines": {
+    "node": ">=24 <26"
+  }
+}

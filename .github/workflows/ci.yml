@@ -69,6 +69,18 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Web format check
+        run: npm run format:check:web
+
+      - name: Web typecheck
+        run: npm run typecheck:web
+
+      - name: Web lint
+        run: npm run lint:web
+
+      - name: Web build
+        run: npm run build:web
+
       - name: Bootstrap Postgres test DB
         run: |
           docker exec ${{ job.services.postgres.id }} psql -U postgres -d gantry_test -v ON_ERROR_STOP=1 \
