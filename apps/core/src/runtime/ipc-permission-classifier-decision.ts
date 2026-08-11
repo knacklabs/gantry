@@ -66,12 +66,14 @@ export async function resolvePermissionIpcDecision(input: {
   const approvedCapabilityIds =
     agentSettings?.capabilities?.map(({ id }) => id) ?? [];
   const workspaceRoot = resolveWorkspaceFolderPath(input.sourceAgentFolder);
-  const fixedImageRestricted = input.request.responseKeyId
-    ? (permissionRunRestriction({
+  const runRestriction = input.request.responseKeyId
+    ? permissionRunRestriction({
         sourceAgentFolder: input.sourceAgentFolder,
         responseKeyId: input.request.responseKeyId,
-      })?.hideAuthorityTools ?? false)
-    : false;
+      })
+    : undefined;
+  const hostJobId = runRestriction?.jobId;
+  const fixedImageRestricted = runRestriction?.hideAuthorityTools ?? false;
   const protectedCapability = evaluateProtectedCapabilityToolUse(
     input.request.toolName,
     input.request.toolInput,
@@ -136,8 +138,8 @@ export async function resolvePermissionIpcDecision(input: {
           input.request.toolName,
           input.request.toolInput,
           {
-            isScheduledJob: Boolean(input.request.jobId),
-            jobId: input.request.jobId,
+            isScheduledJob: Boolean(hostJobId),
+            jobId: hostJobId,
             threadId: input.request.threadId,
             conversationId: input.request.targetJid ?? '',
           },
@@ -151,11 +153,12 @@ export async function resolvePermissionIpcDecision(input: {
             capability,
           ]),
         ),
-        ...(input.request.jobId
+        ...(hostJobId
           ? { autonomousAllowedToolRules: policy.rules }
           : { allowedToolRules: policy.rules }),
       });
     },
+    skipClassifierVerdictCache: Boolean(hostJobId),
     tail: () =>
       resolvePermissionIpcDecisionTail({
         ...input,
@@ -164,6 +167,7 @@ export async function resolvePermissionIpcDecision(input: {
         railRisk,
         railRequiresApproval,
         railApprovalReason,
+        hostJobId,
       }),
   });
 }
@@ -177,7 +181,35 @@ async function resolvePermissionIpcDecisionTail(input: {
   railRisk?: PermissionDeterministicRailRisk;
   railRequiresApproval?: boolean;
   railApprovalReason?: string;
+  hostJobId?: string;
 }): Promise<PermissionApprovalDecision> {
+  if (input.hostJobId) {
+    // Only trusted host-derived rail risk may ride an autonomous denial into
+    // the decision/audit path; without one, strip the worker-supplied fields
+    // rather than let an untrusted low/benign claim reach the grant card.
+    if (input.railRisk) {
+      input.request.risk_level = input.railRisk.level;
+      if (input.railRisk.category) {
+        input.request.risk_category = input.railRisk.category;
+      } else {
+        delete input.request.risk_category;
+      }
+    } else {
+      delete input.request.risk_level;
+      delete input.request.risk_category;
+    }
+    const reason = `Autonomous runs decide deterministically: ${input.request.toolName} has no declared grant.`;
+    input.request.decisionReason = reason;
+    return withRequestRisk(input.request, {
+      ...decisionForMode(
+        input.request,
+        'cancel',
+        'deterministic_rails',
+        'machine',
+      ),
+      reason,
+    });
+  }
   const route = input.request.targetJid
     ? findConversationRouteForQueue(
         input.deps.conversationRoutes?.() ?? {},

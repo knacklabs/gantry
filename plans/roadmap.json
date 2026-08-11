@@ -1126,6 +1126,28 @@
       "outcome": "Local-CLI capabilities (gog/sheets) are now invoked structurally instead of the agent hand-writing shell. The agent calls capability_run with the capability id and an argument list; the host validates the argv arity-exactly against the reviewed template, verifies the executable in place, and runs it in the existing sandbox with bounded output. No shell string exists, so pipes/redirects/chaining/globs are impossible, authorization is the deterministic granted-capability check (no flaky classifier, no autonomous terminal denial), and the RunCommand projection is retired so no shell fallback remains. This closes the class that paused KnackLabs on gog|head, for any CLI. Deep executable-identity hardening is deferred (D-0056)."
     },
     {
+      "key": "AUTODET-1",
+      "title": "Autonomous runs decide permissions deterministically \u2014 no classifier",
+      "story": "As an operator, my scheduled jobs never pause on a tool the job already has \u2014 the same call gets the same decision every run, and only a genuinely undeclared tool produces the one grantable pause card.",
+      "acceptance_criteria": [
+        "No autonomous-run permission decision is made by the classifier (decidedBy=auto_classifier never appears with a jobId run)",
+        "A tool in the job's effective allowed tools always matches the autonomous matcher (granted implies matched)",
+        "send_message to the run's own conversation/thread is deterministically allowed when granted; other destinations terminally deny with the grantable card",
+        "Ungranted tool on an autonomous run: terminal deny + existing pause card, no classifier invocation",
+        "Granting from the pause card resumes the job automatically; the re-run uses the grant and completes without re-asking (fix-and-continue proven end to end)"
+      ],
+      "order": 58,
+      "status": "done",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/autonomous-deterministic-permissions.md",
+      "completed_at": "2026-08-11T13:43:58+00:00",
+      "history": ".factory/history/AUTODET-1/",
+      "outcome": "Scheduled jobs no longer live or die by a model's mood. An autonomous run's tool permissions are now a pure function of what the job was granted: a granted tool always runs, an ungranted one pauses the job once with a single grant card, and tapping Allow resumes the job permanently - the same call gets the same answer every run. The classifier that used to coin-flip these decisions (45 lucky allows, 15 dead jobs in the logs, including the KnackLabs send_message pause) now serves interactive chats only, where a human can actually answer its ask. Decision 0121 pins the contract; the whole loop is proven end to end on live Postgres."
+    },
+    {
       "key": "GANTRY-WEB-FOUNDATION",
       "title": "Safe Web UI foundation shell",
       "story": "As a Gantry maintainer, I can validate a disconnected web shell without changing the hosted runtime or its delivery artifacts.",
@@ -1227,5 +1249,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-11T09:33:53+00:00"
+  "updated_at": "2026-08-11T13:43:58+00:00"
 }

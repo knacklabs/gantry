@@ -7,7 +7,9 @@ import type {
 } from '@core/domain/types.js';
 import type { PermissionDecisionMemoryRepository } from '@core/domain/ports/permission-decision-memory.js';
 import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
+import { registerWorkerPermissionRunRestriction } from '@core/runtime/agent-spawn-permission-run-restriction.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
+import { unregisterPermissionRunRestriction } from '@core/runtime/permission-decision-coordinator.js';
 
 async function resolveWithClassifierRisk(input: {
   toolName: string;
@@ -81,6 +83,120 @@ async function resolveWithClassifierRisk(input: {
 }
 
 describe('IPC permission classifier decision', () => {
+  it('AUTODET-1-1 > jobId requests never reach the classifier; miss is deterministic_rails terminal deny', async () => {
+    const responseKeyId = 'autodet-job-response-key';
+    const classifierConsult = vi.fn(async () => ({
+      risk_level: 'low' as const,
+      risk_category: 'benign' as const,
+      reason: 'Classifier would allow.',
+      latencyMs: 1,
+    }));
+    const getClassifierVerdict = vi.fn(async () => ({
+      decision: 'allow' as const,
+      reason: 'Cached classifier allow.',
+      risk_level: 'low' as const,
+      risk_category: 'benign' as const,
+    }));
+    const putClassifierVerdict = vi.fn(async () => undefined);
+    const requestPermissionApproval = vi.fn();
+    const deps = {
+      conversationRoutes: () => ({}),
+      requestPermissionApproval,
+      classifierConsult,
+      publishRuntimeEvent: vi.fn(async () => undefined),
+      getPermissionDecisionMemoryRepository: () => ({
+        getClassifierVerdict,
+        putClassifierVerdict,
+      }),
+      getPermissionRuntimeSettings: () => ({
+        agents: { main_agent: { permissionMode: 'auto' as const } },
+        permissions: {
+          autoMode: {},
+          trustedRoots: [resolveWorkspaceFolderPath('main_agent')],
+        },
+        memory: { llm: { models: { extractor: 'sonnet' } } },
+      }),
+    } as never;
+
+    registerWorkerPermissionRunRestriction({
+      sourceAgentFolder: 'main_agent',
+      responseKeyId,
+      hideAuthorityTools: false,
+      runKind: 'scheduled',
+      jobId: 'host-job-1',
+      runId: 'host-run-1',
+    });
+    try {
+      await expect(
+        resolvePermissionIpcDecision({
+          request: {
+            requestId: 'autodet-host-job-miss',
+            responseKeyId,
+            sourceAgentFolder: 'main_agent',
+            toolName: 'mcp__crm__update_record',
+            toolInput: { id: 'customer-1' },
+            unattended: true,
+            // Worker-asserted risk must be stripped from the denial: without a
+            // host-derived rail risk, no untrusted low/benign claim may reach
+            // the decision/audit path or the grant card.
+            risk_level: 'low',
+            risk_category: 'benign',
+          },
+          sourceAgentFolder: 'main_agent',
+          deps,
+        }),
+      ).resolves.toSatisfy(
+        (decision: {
+          approved: boolean;
+          mode: string;
+          decidedBy?: string;
+          reason?: string;
+          risk_level?: string;
+          risk_category?: string;
+        }) =>
+          !decision.approved &&
+          decision.mode === 'cancel' &&
+          decision.decidedBy === 'deterministic_rails' &&
+          decision.reason ===
+            'Autonomous runs decide deterministically: mcp__crm__update_record has no declared grant.' &&
+          // The worker-asserted low/benign claim must never survive: either
+          // trusted rail risk replaced it, or the fields were stripped.
+          decision.risk_level !== 'low' &&
+          decision.risk_category !== 'benign',
+      );
+    } finally {
+      unregisterPermissionRunRestriction({
+        sourceAgentFolder: 'main_agent',
+        responseKeyId,
+      });
+    }
+
+    expect(classifierConsult).not.toHaveBeenCalled();
+    expect(getClassifierVerdict).not.toHaveBeenCalled();
+    expect(putClassifierVerdict).not.toHaveBeenCalled();
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+
+    await expect(
+      resolvePermissionIpcDecision({
+        request: {
+          requestId: 'autodet-worker-forged-job-id',
+          sourceAgentFolder: 'main_agent',
+          jobId: 'worker-forged-job',
+          toolName: 'mcp__crm__update_record',
+          toolInput: { id: 'customer-2' },
+          unattended: true,
+        },
+        sourceAgentFolder: 'main_agent',
+        deps,
+      }),
+    ).resolves.toMatchObject({
+      approved: true,
+      decidedBy: 'cached_classifier_verdict',
+    });
+    expect(getClassifierVerdict).toHaveBeenCalledOnce();
+    expect(classifierConsult).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['destructive', 'rm -rf ./build', 'destructive'],
     ['credential', 'cat ~/.ssh/id_rsa', 'secret'],

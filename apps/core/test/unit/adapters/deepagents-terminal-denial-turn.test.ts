@@ -55,6 +55,97 @@ afterEach(() => {
 });
 
 describe('DeepAgents terminal permission denial', () => {
+  it('AUTODET-1-1 > deepagents lane observes identical terminal outcome for same grants', async () => {
+    const [{ fakeModel }, { AIMessage }, { tool }] = await Promise.all([
+      import('@langchain' + '/core/testing'),
+      import('@langchain' + '/core/messages'),
+      import('@langchain' + '/core/tools'),
+    ]);
+    const model = fakeModel()
+      .respondWithTools([{ name: 'denied_tool', args: {} }])
+      .respond(new AIMessage('should never continue'));
+    harness.model = model;
+
+    let gate:
+      | {
+          onPermissionDenied?: (input: {
+            toolName: string;
+            reason: string;
+            grantable: boolean;
+            recoveryAction: string;
+          }) => never;
+        }
+      | undefined;
+    const hostReason =
+      'Autonomous runs decide deterministically: mcp__gantry__browser_open has no declared grant.';
+    harness.tools = [
+      tool(
+        async () =>
+          gate!.onPermissionDenied!(
+            deepAgentsDenial(
+              { capabilityRequestToolsHidden: false },
+              'mcp__gantry__browser_open',
+              {
+                toolName: 'mcp__gantry__browser_open',
+                toolInput: { url: 'https://example.com' },
+              },
+              hostReason,
+            ),
+          ),
+        {
+          name: 'denied_tool',
+          description: 'Host deterministically denies an undeclared tool.',
+          schema: z.object({}),
+        },
+      ),
+    ];
+    harness.connect.mockImplementationOnce(async (input) => {
+      gate = input.gate;
+      return { tools: harness.tools, close: harness.close };
+    });
+    const emit = vi.fn();
+
+    await expect(
+      runDeepAgentTurn({
+        agentInput: {
+          prompt: 'Use denied_tool.',
+          workspaceFolder: '/tmp/workspace',
+          chatJid: 'conversation:test',
+          appId: 'default',
+          agentId: 'agent-1',
+          runId: 'run-1',
+          jobId: 'job-1',
+          isScheduledJob: true,
+          modelCredentialEnv: {
+            OPENAI_BASE_URL: 'http://127.0.0.1:4567/openai',
+            OPENAI_API_KEY: 'gtw_test',
+          },
+        },
+        provider: 'openai',
+        modelId: 'gpt-5.5',
+        newSessionId: 'session-1',
+        includeMemoryContext: true,
+        emit,
+      }),
+    ).rejects.toThrow(
+      'Tool not on autonomous run allowlist: mcp__gantry__browser_open.',
+    );
+    expect(emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtimeEvents: [
+          expect.objectContaining({
+            payload: expect.objectContaining({
+              phase: 'permission_denied',
+              terminal: true,
+              grantable: true,
+              reason: hostReason,
+            }),
+          }),
+        ],
+      }),
+    );
+  });
+
   it('a non-grantable locked-agent denial stays instruction-only with no approval offered', async () => {
     process.env.GANTRY_AGENT_ACCESS_PRESET = 'locked';
     const [{ fakeModel }, { AIMessage }, { tool }] = await Promise.all([

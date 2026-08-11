@@ -54,6 +54,50 @@ function makeDeps(): {
 }
 
 describe('execution finalization', () => {
+  it('AUTODET-1-2 > pause card renders grant-naming reason', async () => {
+    const { deps, sendMessage } = makeDeps();
+    const diagnostics = createJobRunDiagnostics();
+    diagnostics.terminalToolDenial = {
+      toolName: 'RunCommand',
+      grantable: true,
+      reason: 'Worker matcher found no matching allowedTools rule.',
+      recoveryAction:
+        'request_access {"target":{"kind":"run_command","argvPattern":"npm test -- unit"},"temporaryOnly":false,"reason":"Grant exact test command access."}',
+    };
+
+    await finalizeSchedulerJobRun({
+      currentJob: makeJob({
+        silent: false,
+        notification_routes: [
+          {
+            conversationJid: 'tg:job-owner',
+            threadId: 'thread-1',
+            label: 'primary',
+          },
+        ],
+      }),
+      deps,
+      scheduledFor: '2024-01-01T00:00:00.000Z',
+      now: '2024-01-01T00:00:01.000Z',
+      error:
+        'Permission denied. Worker matcher found no matching allowedTools rule.',
+      diagnostics,
+      pausedForSetupDuringRun: false,
+      deletedDuringRun: false,
+      runtimeAppId: 'default',
+      runId: 'run-grant-naming-card',
+      publishRuntimeEvent: vi.fn(async () => undefined),
+    });
+
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage.mock.calls[0]?.[1]).toContain(
+      'Approve exact command access, then resume the job.',
+    );
+    expect(sendMessage.mock.calls[0]?.[1]).not.toContain(
+      'Worker matcher found no matching allowedTools rule.',
+    );
+  });
+
   it('classifies an Anthropic autonomous denial as failed for fresh retry, not resumably paused', async () => {
     const { deps, updateJob } = makeDeps();
     const state = await finalizeSchedulerJobRun({

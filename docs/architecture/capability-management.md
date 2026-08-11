@@ -396,7 +396,7 @@ permissions:
     model: haiku # optional; defaults to the memory extractor slot model
 ```
 
-The full worker IPC order is:
+For interactive runs, the full worker IPC order is:
 
 ```text
 hard deny -> locked preset -> fixed image -> reviewed agent rule/capability
@@ -473,6 +473,12 @@ decision-memory repository. Inline third-party MCP uses the host coordinator
 and classifier without the cache. Core-tool paths use the same hard precedence
 and durable human interaction but do not all invoke classifier or cache.
 
+Autonomous runs are the explicit exception. Per
+[decision 0121](../decisions/0121-autodet-no-classifier-autonomous.md), a
+host-verified `jobId` skips both cached classifier verdicts and classifier
+consultation. Reviewed agent authority still allows; a miss deterministically
+denies and enters the existing setup-pause approval flow.
+
 Conversation-level data exposure is governed by Agent Access and the
 channel's approver configuration, not by this gate: whoever may converse
 with an agent may receive what its granted capabilities can already read.
@@ -485,10 +491,10 @@ Every classifier consultation verdict (including failure-coded asks) is publishe
 `permission.classifier_decision` runtime event, so the audit trail is
 complete and queryable.
 
-Unattended runs (scheduled jobs) get the same treatment: where a zero-timeout
-permission request used to deny immediately, an auto-mode runner waits a
-bounded classifier window; the host answers eligible requests allow-or-deny
-within it and denies ineligible ones immediately.
+Unattended runs (scheduled jobs) do not use auto-mode classification. Their
+zero-timeout tool call is answered from deterministic host authority: a
+reviewed-rule match allows, and a miss denies terminally so the job can pause
+and request a durable grant.
 
 Promotion is based only on explicitly human-attributed approvals; classifier
 auto-allows and system-generated decisions never increment the counter. After

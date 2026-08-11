@@ -1,7 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
 
 import { eq } from 'drizzle-orm';
 import {
@@ -51,13 +48,40 @@ import {
   buildJobListVisibilityMetadata,
   buildJobVisibilityMetadata,
 } from '@core/application/jobs/job-visibility-metadata.js';
+import { runDurablePermissionInteraction } from '@core/application/interactions/durable-interaction-handler.js';
+import {
+  configurePendingInteractionDurability,
+  configurePendingInteractionPermissionPersistence,
+} from '@core/application/interactions/pending-interaction-durability.js';
+import {
+  configureSetupPausePermissionPrompt,
+  type SetupPausePermissionPromptDeps,
+} from '@core/application/jobs/setup-pause-permission-prompt.js';
+import {
+  appendSetupPauseRequirementAfterPersistentGrant,
+  setupPausePersistentGrantIsCurrent,
+} from '@core/app/bootstrap/setup-pause-permission-wiring.js';
 import type { JobUpsertInput } from '@core/domain/repositories/ops-repo.js';
-import type { ConversationRoute, JobRun } from '@core/domain/types.js';
+import type {
+  ConversationRoute,
+  JobRun,
+  PermissionApprovalDecision,
+  PermissionApprovalRequest,
+} from '@core/domain/types.js';
 import { PgBossSchedulerEngine } from '@core/infrastructure/pgboss/scheduler-engine.js';
 import { configureRunSlotBackend } from '@core/jobs/concurrency.js';
 import { _resetSchedulerLoopForTests, runJob } from '@core/jobs/scheduler.js';
+import {
+  requestPermissionReviewSuggestions,
+  requestPermissionSetupDecisionOptions,
+} from '@core/jobs/request-permission-review.js';
 import { registerWorkerInstance } from '@core/jobs/worker-identity.js';
+import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
+import { formatAutonomousToolDenial } from '@core/shared/autonomous-tool-denial.js';
+import { registerWorkerPermissionRunRestriction } from '@core/runtime/agent-spawn-permission-run-restriction.js';
 import type { AgentOutput } from '@core/runtime/agent-spawn.js';
+import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
+import { unregisterPermissionRunRestriction } from '@core/runtime/permission-decision-coordinator.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -174,6 +198,9 @@ maybeDescribe('job lifecycle (Postgres)', () => {
   });
 
   afterEach(async () => {
+    configureSetupPausePermissionPrompt(null);
+    configurePendingInteractionDurability(null);
+    configurePendingInteractionPermissionPersistence(null);
     await schedulerEngine?.stop();
     schedulerEngine = undefined;
   });
@@ -411,27 +438,153 @@ maybeDescribe('job lifecycle (Postgres)', () => {
     });
   });
 
-  it('terminates and audits an autonomous ungranted-tool dead-end', async () => {
+  it('AUTODET-1-2 > deny pause grant resume complete loop with no auto_classifier provenance', async () => {
     const harness = createRuntimeFlowHarness();
-    const permissionRoot = mkdtempSync(
-      join(tmpdir(), 'gantry-job-permission-'),
-    );
-    const ipcDir = join(permissionRoot, 'ipc');
-    vi.stubEnv('GANTRY_WORKSPACE_GROUP_DIR', join(permissionRoot, 'group'));
-    vi.stubEnv('GANTRY_WORKSPACE_EXTRA_DIR', join(permissionRoot, 'extra'));
-    vi.stubEnv('GANTRY_IPC_DIR', ipcDir);
-    vi.stubEnv('GANTRY_IPC_INPUT_DIR', join(ipcDir, 'input'));
-    vi.stubEnv('GANTRY_IPC_AUTH_TOKEN', 'job-lifecycle-test-secret');
-    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '0');
-    vi.stubEnv('GANTRY_JOB_ID', 'job:integration:ungranted-tool');
-    vi.resetModules();
-    const { createCanUseToolCallback } =
-      await import('@core/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.js');
+    const job = makeJob('job:integration:autodet-fix-and-continue', {
+      silent: false,
+    });
+    const command = 'npm test -- unit';
+    const recoveryAction = `request_access ${JSON.stringify({
+      target: { kind: 'run_command', argvPattern: command },
+      temporaryOnly: false,
+      reason: 'Approve exact command access, then resume the job.',
+    })}`;
+    const classifierConsult = vi.fn(async () => ({
+      risk_level: 'low' as const,
+      risk_category: 'benign' as const,
+      reason: 'Classifier would allow this command.',
+      latencyMs: 1,
+    }));
+    const requestPermissionApproval = vi.fn();
+    const decisions: Array<{
+      runId: string;
+      decision: PermissionApprovalDecision;
+    }> = [];
     const runnerInputs: Record<string, unknown>[] = [];
-    const runnerFrames: AgentOutput[] = [];
-    let permissionDecision: Awaited<
-      ReturnType<ReturnType<typeof createCanUseToolCallback>>
-    >;
+    let setupRequest: PermissionApprovalRequest | undefined;
+    let resolveGrantDecision:
+      | ((decision: PermissionApprovalDecision) => void)
+      | undefined;
+    const grantDecision = new Promise<PermissionApprovalDecision>((resolve) => {
+      resolveGrantDecision = resolve;
+    });
+    configurePendingInteractionDurability({
+      repository: runtime.repositories.workerCoordination,
+      warn: vi.fn(),
+    });
+    configurePendingInteractionPermissionPersistence({
+      opsRepository: runtime.ops,
+      beforePersistentGrant: (request, updates) =>
+        setupPausePersistentGrantIsCurrent(runtime.ops, request, updates),
+      afterPersistentGrant: (request, updates) =>
+        appendSetupPauseRequirementAfterPersistentGrant(
+          runtime.ops,
+          request,
+          updates,
+        ),
+      getToolRepository: () => runtime.repositories.tools,
+      getPermissionRepository: () => runtime.repositories.permissions,
+      mirrorAgentToolRulesToSettings: vi.fn(async () => undefined),
+      onSchedulerChanged: vi.fn(),
+      publishRuntimeEvent: (event) =>
+        runtime.storageRuntime.runtimeEvents
+          .publish(event)
+          .then(() => undefined),
+    });
+    const runPermissionInteraction = vi.fn<
+      SetupPausePermissionPromptDeps['runPermissionInteraction']
+    >((request, delivered, began) =>
+      runDurablePermissionInteraction({
+        request,
+        sourceAgentFolder: request.sourceAgentFolder,
+        skipPromptWhenAlreadyPending: true,
+        beforePrompt: began,
+        prompt: async (durableRequest) => {
+          setupRequest = durableRequest;
+          delivered('setup-card-1');
+          return grantDecision;
+        },
+      }),
+    );
+    configureSetupPausePermissionPrompt({
+      appId: 'default',
+      getJobById: async (jobId) =>
+        (await runtime.ops.getJobById(jobId)) ?? undefined,
+      runPermissionInteraction,
+      cancelPermissionApproval: async () => 'not_found',
+      reviewStoredRequirement: async ({ toolInput }) => {
+        const suggestions = requestPermissionReviewSuggestions(toolInput);
+        return suggestions?.length
+          ? {
+              suggestions,
+              decisionOptions: requestPermissionSetupDecisionOptions(toolInput),
+            }
+          : null;
+      },
+    });
+
+    const resolveHostDecision = async (input: Record<string, unknown>) => {
+      const responseKeyId = `autodet-${randomUUID()}`;
+      const runId = String(input.runId);
+      registerWorkerPermissionRunRestriction({
+        sourceAgentFolder: job.workspace_key,
+        responseKeyId,
+        hideAuthorityTools: false,
+        runKind: 'scheduled',
+        jobId: job.id,
+        runId,
+      });
+      try {
+        return await resolvePermissionIpcDecision({
+          request: {
+            requestId: `permission-${randomUUID()}`,
+            responseKeyId,
+            sourceAgentFolder: job.workspace_key,
+            appId: 'default',
+            agentId: String(input.agentId),
+            runId,
+            jobId: job.id,
+            targetJid: 'tg:job-lifecycle',
+            threadId: 'thread-job-lifecycle',
+            toolName: 'RunCommand',
+            toolInput: { command },
+            unattended: true,
+            decisionReason:
+              'Worker matcher found no matching allowedTools rule.',
+          },
+          sourceAgentFolder: job.workspace_key,
+          deps: {
+            conversationRoutes: () => ({}),
+            requestPermissionApproval,
+            classifierConsult,
+            publishRuntimeEvent: (event) =>
+              runtime.storageRuntime.runtimeEvents
+                .publish(event)
+                .then(() => undefined),
+            getToolRepository: () => runtime.repositories.tools,
+            getPermissionRuntimeSettings: () => ({
+              agents: {
+                [job.workspace_key]: {
+                  permissionMode: 'auto' as const,
+                  capabilities: [],
+                },
+              },
+              permissions: {
+                autoMode: {},
+                trustedRoots: [resolveWorkspaceFolderPath(job.workspace_key)],
+              },
+              memory: { llm: { models: { extractor: 'sonnet' } } },
+            }),
+          } as never,
+        });
+      } finally {
+        unregisterPermissionRunRestriction({
+          sourceAgentFolder: job.workspace_key,
+          responseKeyId,
+        });
+      }
+    };
+
     const runAgent = async (
       _group: ConversationRoute,
       input: Record<string, unknown>,
@@ -439,100 +592,111 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       onOutput?: (output: AgentOutput) => void | Promise<void>,
     ): Promise<AgentOutput> => {
       runnerInputs.push(input);
-      const canUseTool = createCanUseToolCallback({
-        agentInput: {
-          prompt: String(input.prompt),
-          appId: String(input.appId),
-          agentId: String(input.agentId),
-          runId: String(input.runId),
-          isScheduledJob: input.isScheduledJob === true,
-          jobId: String(input.jobId),
-          chatJid: String(input.chatJid),
-          threadId: String(input.threadId),
-          workspaceFolder: basename(ipcDir),
-          permissionMode: 'default',
-          allowedTools: Array.isArray(input.toolPolicyRules)
-            ? (input.toolPolicyRules as string[])
-            : [],
-        },
-        sdkEnv: {},
-        workspaceFolder: basename(ipcDir),
-        memoryBlock: '',
-        capabilities: {
-          allowedTools: [],
-          alwaysAllowedTools: [],
-          permissionMode: 'default',
-        },
-        primeToolAttempts: [],
-        getNewSessionId: () => undefined,
-        emitInteractionBoundary: () => undefined,
-        recordToolActivity: () => undefined,
-      });
-      const outputSpy = vi
-        .spyOn(console, 'log')
-        .mockImplementation((value: unknown) => {
-          if (typeof value !== 'string' || !value.startsWith('{"status"')) {
-            return;
-          }
-          const output = JSON.parse(value) as AgentOutput;
-          if (output.runtimeEvents?.length) runnerFrames.push(output);
+      const decision = await resolveHostDecision(input);
+      decisions.push({ runId: String(input.runId), decision });
+      if (decision.approved) {
+        await onOutput?.({
+          status: 'success',
+          result: null,
+          runtimeEvents: [
+            {
+              appId: String(input.appId),
+              agentId: String(input.agentId),
+              runId: String(input.runId),
+              jobId: job.id,
+              conversationId: 'tg:job-lifecycle',
+              threadId: 'thread-job-lifecycle',
+              eventType: 'job.tool_activity',
+              actor: 'runner',
+              responseMode: 'none',
+              payload: {
+                phase: 'permission_allowed',
+                tool: 'RunCommand',
+                mode: decision.mode,
+                decided_by: decision.decidedBy,
+                source: decision.source,
+                repeatableForFutureRuns: decision.repeatableForFutureRuns,
+                reason: decision.reason,
+              },
+            },
+          ],
         });
-      try {
-        permissionDecision = await canUseTool(
-          'Bash',
-          { command: 'npm test -- unit' },
-          {
-            title: 'Run command',
-            displayName: 'Bash',
-            description: 'Run the job command',
-            decisionReason: 'The scheduled job needs this command',
-            suggestions: [],
-            toolUseID: 'tool-use-job-lifecycle',
-            signal: new AbortController().signal,
-          },
-        );
-      } finally {
-        outputSpy.mockRestore();
+        return { status: 'success', result: 'command completed' };
       }
-      for (const frame of runnerFrames) await onOutput?.(frame);
-      return { status: 'success', result: 'blocked' };
-    };
-    const job = makeJob('job:integration:ungranted-tool');
-    await runtime.ops.upsertJob(job);
-
-    try {
-      await runJob(
-        (await runtime.ops.getJobById(job.id))!,
-        {
-          conversationRoutes: () => ({
-            'tg:job-lifecycle': makeConversationRoute(),
-          }),
-          queue: {} as never,
-          onProcess: () => {},
-          sendMessage: harness.channel.sendMessage,
-          opsRepository: runtime.ops,
-          runAgent: runAgent as never,
-          runnerSandboxProvider: {} as never,
-        },
-        'tg:job-lifecycle',
-      );
-
-      const permissionRequestsDir = join(ipcDir, 'permission-requests');
-      const requestFiles = readdirSync(permissionRequestsDir);
-      expect(requestFiles).toHaveLength(1);
-      expect(
-        JSON.parse(
-          readFileSync(join(permissionRequestsDir, requestFiles[0]!), 'utf8'),
-        ),
-      ).toMatchObject({
-        jobId: job.id,
-        toolName: 'RunCommand',
-        unattended: true,
+      await onOutput?.({
+        status: 'success',
+        result: null,
+        runtimeEvents: [
+          {
+            appId: String(input.appId),
+            agentId: String(input.agentId),
+            runId: String(input.runId),
+            jobId: job.id,
+            conversationId: 'tg:job-lifecycle',
+            threadId: 'thread-job-lifecycle',
+            eventType: 'job.tool_activity',
+            actor: 'runner',
+            responseMode: 'none',
+            payload: {
+              phase: 'permission_wait',
+              tool: 'RunCommand',
+              reason: decision.reason,
+              recovery_action: recoveryAction,
+            },
+          },
+          {
+            appId: String(input.appId),
+            agentId: String(input.agentId),
+            runId: String(input.runId),
+            jobId: job.id,
+            conversationId: 'tg:job-lifecycle',
+            threadId: 'thread-job-lifecycle',
+            eventType: 'job.tool_activity',
+            actor: 'runner',
+            responseMode: 'none',
+            payload: {
+              phase: 'permission_denied',
+              tool: 'RunCommand',
+              grantable: true,
+              decided_by: decision.decidedBy,
+              source: decision.source,
+              reason: decision.reason,
+              recovery_action: recoveryAction,
+            },
+          },
+        ],
       });
-    } finally {
-      vi.unstubAllEnvs();
-      rmSync(permissionRoot, { recursive: true, force: true });
-    }
+      return {
+        status: 'error',
+        error: formatAutonomousToolDenial({
+          toolName: 'RunCommand',
+          reason: decision.reason ?? 'Permission denied.',
+          grantable: true,
+          recoveryAction,
+        }),
+      };
+    };
+    await runtime.ops.upsertJob(job);
+    const deps = {
+      conversationRoutes: () => ({
+        'tg:job-lifecycle': makeConversationRoute(),
+      }),
+      queue: {} as never,
+      onProcess: () => {},
+      sendMessage: harness.channel.sendMessage,
+      opsRepository: runtime.ops,
+      runAgent: runAgent as never,
+      runnerSandboxProvider: {} as never,
+      // Readiness preflight resolves the job tool policy through this hook;
+      // without it the granted binding is invisible and the rerun re-pauses.
+      getToolRepository: () => runtime.repositories.tools,
+    };
+
+    await runJob(
+      (await runtime.ops.getJobById(job.id))!,
+      deps,
+      'tg:job-lifecycle',
+    );
 
     expect(runnerInputs).toHaveLength(1);
     expect(runnerInputs[0]).toMatchObject({
@@ -540,53 +704,35 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       jobId: job.id,
       toolPolicyRules: [],
     });
-    expect(permissionDecision).toMatchObject({
-      behavior: 'deny',
-      interrupt: true,
-      message: expect.stringContaining(
-        'Tool not on autonomous run allowlist: RunCommand',
-      ),
+    expect(decisions[0]?.decision).toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'deterministic_rails',
+      reason:
+        'Autonomous runs decide deterministically: RunCommand has no declared grant.',
     });
-    expect(
-      runnerFrames
-        .flatMap((frame) => frame.runtimeEvents ?? [])
-        .map((event) => [event.eventType, event.payload]),
-    ).toEqual(
-      expect.arrayContaining([
-        [
-          'job.tool_activity',
-          expect.objectContaining({
-            phase: 'permission_wait',
-            tool: 'RunCommand',
-            recovery_action: expect.stringContaining('request_access'),
-          }),
-        ],
-        [
-          'job.tool_activity',
-          expect.objectContaining({
-            phase: 'permission_denied',
-            tool: 'RunCommand',
-          }),
-        ],
-      ]),
-    );
-    const runs = await runtime.ops.listJobRuns(job.id);
-    expect(runs).toHaveLength(1);
-    expect(runs[0]).toMatchObject({
+    expect(classifierConsult).not.toHaveBeenCalled();
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(runPermissionInteraction).toHaveBeenCalledOnce();
+    expect(setupRequest).toMatchObject({
+      jobId: job.id,
+      toolName: 'request_permission',
+      decisionOptions: ['allow_persistent_rule', 'cancel'],
+      suggestions: [
+        expect.objectContaining({
+          type: 'addRules',
+          rules: [{ toolName: 'RunCommand', ruleContent: command }],
+        }),
+      ],
+    });
+
+    const deniedRuns = await runtime.ops.listJobRuns(job.id);
+    expect(deniedRuns).toHaveLength(1);
+    expect(deniedRuns[0]).toMatchObject({
       status: 'failed',
       ended_at: expect.any(String),
-      error_summary: expect.stringContaining(
-        'Tool not on autonomous run allowlist: RunCommand',
-      ),
+      error_summary: expect.stringContaining('RunCommand'),
     });
-    expect(runs.some((run) => run.status === 'running')).toBe(false);
-    const leases = await runtime.service.pool.query<{ status: string }>(
-      `SELECT status
-         FROM ${quotePostgresIdentifier(runtime.schemaName)}.run_leases
-        WHERE run_id = $1`,
-      [runs[0]!.run_id],
-    );
-    expect(leases.rows).toEqual([{ status: 'failed' }]);
     await expect(runtime.ops.getJobById(job.id)).resolves.toMatchObject({
       status: 'paused',
       pause_reason: 'Setup required',
@@ -598,25 +744,82 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       lease_expires_at: null,
     });
 
-    const events = await runtime.ops.listRecentJobEvents(20, {
+    const persistentDecision: PermissionApprovalDecision = {
+      approved: true,
+      mode: 'allow_persistent_rule',
+      decidedBy: 'job-owner',
+      decisionClassification: 'user_permanent',
+      updatedPermissions: setupRequest!.suggestions,
+    };
+    resolveGrantDecision?.(persistentDecision);
+    await vi.waitFor(
+      async () => {
+        await expect(runtime.ops.getJobById(job.id)).resolves.toMatchObject({
+          status: 'active',
+          pause_reason: null,
+          setup_state: expect.objectContaining({ state: 'ready' }),
+        });
+      },
+      { timeout: 5_000 },
+    );
+
+    await runJob(
+      (await runtime.ops.getJobById(job.id))!,
+      deps,
+      'tg:job-lifecycle',
+    );
+
+    expect(runnerInputs).toHaveLength(2);
+    expect(decisions[1]?.decision).toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'reviewed_rule',
+      reason: expect.stringContaining('Allowed by'),
+    });
+    expect(runPermissionInteraction).toHaveBeenCalledOnce();
+    expect(classifierConsult).not.toHaveBeenCalled();
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(
+      decisions.every(
+        ({ runId, decision }) =>
+          runId.length > 0 && decision.decidedBy !== 'auto_classifier',
+      ),
+    ).toBe(true);
+
+    const runs = await runtime.ops.listJobRuns(job.id);
+    expect(runs).toHaveLength(2);
+    expect(runs.map((run) => run.status)).toEqual(
+      expect.arrayContaining(['failed', 'completed']),
+    );
+    await expect(runtime.ops.getJobById(job.id)).resolves.toMatchObject({
+      status: 'active',
+      pause_reason: null,
+      setup_state: expect.objectContaining({ state: 'ready' }),
+    });
+
+    const events = await runtime.ops.listRecentJobEvents(100, {
       job_id: job.id,
     });
-    expect(events.map((event) => event.event_type)).toEqual(
+    const toolDecisions = events
+      .filter((event) => event.event_type === 'job.tool_activity')
+      .map((event) => JSON.parse(event.payload ?? '{}'))
+      .filter((payload) =>
+        ['permission_denied', 'permission_allowed'].includes(payload.phase),
+      );
+    expect(toolDecisions).toHaveLength(2);
+    expect(toolDecisions).toEqual(
       expect.arrayContaining([
-        'run.failed',
-        'job.setup_required',
-        'job.tool_denied',
-        'job.failed',
-        'job.run.failed',
+        expect.objectContaining({
+          phase: 'permission_denied',
+          decided_by: 'deterministic_rails',
+        }),
+        expect.objectContaining({
+          phase: 'permission_allowed',
+          decided_by: 'reviewed_rule',
+        }),
       ]),
     );
-    const deniedEvent = events.find(
-      (event) => event.event_type === 'job.tool_denied',
-    );
-    expect(JSON.parse(deniedEvent?.payload ?? '{}')).toMatchObject({
-      denied_tool: 'RunCommand',
-      recovery_kind: 'persistent_capability',
-      recovery_action: expect.stringContaining('request_access'),
-    });
+    expect(events.every((event) => event.job_id === job.id)).toBe(true);
+    expect(JSON.stringify(events)).not.toContain('auto_classifier');
   });
 });

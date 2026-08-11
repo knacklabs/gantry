@@ -43,6 +43,89 @@ const reviewedAllow: ToolPolicyDecision = {
 };
 
 describe('coordinatePermissionDecision', () => {
+  it('AUTODET-1-1 > host allow records host match reason; worker no-match text is diagnostic only', async () => {
+    const hostRequest = {
+      ...request,
+      decisionReason: 'Tool not on autonomous run allowlist: FileRead.',
+    };
+
+    await expect(
+      coordinatePermissionDecision({
+        request: hostRequest,
+        reviewedRuleDecision: reviewedAllow,
+        tail: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
+      approved: true,
+      decidedBy: 'reviewed_rule',
+      reason: reviewedAllow.reason,
+    });
+    expect(hostRequest.decisionReason).toBe(reviewedAllow.reason);
+
+    const responseKeyId = 'autodet-reviewed-rule-response-key';
+    registerWorkerPermissionRunRestriction({
+      sourceAgentFolder: 'main_agent',
+      responseKeyId,
+      hideAuthorityTools: false,
+      runKind: 'scheduled',
+      jobId: 'job-1',
+      runId: 'run-1',
+    });
+    const workerMiss = 'Worker found no local autonomous rule.';
+    const ipcRequest = {
+      requestId: 'autodet-reviewed-rule-allow',
+      responseKeyId,
+      sourceAgentFolder: 'main_agent',
+      appId: 'default',
+      agentId: 'agent:test',
+      toolName: 'mcp__gantry__send_message',
+      toolInput: { text: 'status' },
+      decisionReason: workerMiss,
+      unattended: true,
+    };
+    try {
+      const decision = await resolvePermissionIpcDecision({
+        request: ipcRequest,
+        sourceAgentFolder: 'main_agent',
+        deps: {
+          conversationRoutes: () => ({}),
+          requestPermissionApproval: vi.fn(),
+          getToolRepository: () => ({
+            listAgentToolBindings: vi.fn(async () => [
+              {
+                status: 'active',
+                toolId: 'tool:send-message',
+                personId: null,
+              },
+            ]),
+            getTool: vi.fn(async () => ({
+              appId: 'default',
+              name: 'mcp__gantry__send_message',
+            })),
+          }),
+          getPermissionRuntimeSettings: () => ({
+            agents: { main_agent: { permissionMode: 'auto' as const } },
+            permissions: { autoMode: {}, trustedRoots: [] },
+            memory: { llm: { models: { extractor: 'sonnet' } } },
+          }),
+        } as never,
+      });
+
+      expect(decision).toMatchObject({
+        approved: true,
+        decidedBy: 'reviewed_rule',
+        reason: 'Allowed by autonomous tool rule mcp__gantry__send_message.',
+      });
+      expect(ipcRequest.decisionReason).toBe(decision.reason);
+      expect(ipcRequest.decisionReason).not.toBe(workerMiss);
+    } finally {
+      unregisterPermissionRunRestriction({
+        sourceAgentFolder: 'main_agent',
+        responseKeyId,
+      });
+    }
+  });
+
   it('never promotes a human decision whose approverRef collides with a machine decider', async () => {
     const { decisionForMode } =
       await import('@core/domain/permission-decision.js');
