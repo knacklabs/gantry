@@ -1,7 +1,7 @@
 ---
 slug: clirun-1
 title: Structured invocation for local-CLI capabilities
-status: draft
+status: confirmed
 saved: 2026-08-11T03:45:41+00:00
 ---
 
