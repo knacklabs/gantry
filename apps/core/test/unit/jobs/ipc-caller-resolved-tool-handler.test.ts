@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveCallerResolvedRunId } from '@core/jobs/ipc-caller-resolved-tool-handler.js';
+import {
+  approvedRecipeOriginHost,
+  resolveCallerResolvedRunId,
+} from '@core/jobs/ipc-caller-resolved-tool-handler.js';
 
 describe('caller-resolved tool run correlation', () => {
   it('uses the signed request run id when present', () => {
@@ -35,5 +38,45 @@ describe('caller-resolved tool run correlation', () => {
     expect(
       resolveCallerResolvedRunId({ parentTaskRunId: 'run-parent' }),
     ).toBeUndefined();
+  });
+});
+
+describe('approvedRecipeOriginHost', () => {
+  const request = {
+    type: 'origin',
+    permissionScope: {
+      origin: 'https://documents.example.gov',
+      methods: ['GET', 'HEAD'],
+    },
+  };
+
+  it('returns the exact public host for a matching bounded approval', () => {
+    expect(
+      approvedRecipeOriginHost({
+        request,
+        resolution: {
+          approved: true,
+          permissionScope: {
+            origin: 'https://documents.example.gov',
+            methods: ['GET'],
+          },
+        },
+      }),
+    ).toBe('documents.example.gov');
+  });
+
+  it('rejects broader or different approvals', () => {
+    expect(() =>
+      approvedRecipeOriginHost({
+        request,
+        resolution: {
+          approved: true,
+          permissionScope: {
+            origin: 'https://other.example.gov',
+            methods: ['POST'],
+          },
+        },
+      }),
+    ).toThrow('match the requested exact origin');
   });
 });

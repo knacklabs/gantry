@@ -39,6 +39,32 @@ export function readAsyncCommandSandboxPolicy(input: {
   return policies.get(policyKey(input.sourceAgentFolder, input.runHandle));
 }
 
+export function grantAsyncCommandBrowserHost(input: {
+  sourceAgentFolder: string;
+  runHandle: string;
+  jobId: string;
+  runId: string;
+  host: string;
+}): boolean {
+  const key = policyKey(input.sourceAgentFolder, input.runHandle);
+  const policy = policies.get(key);
+  if (
+    !policy ||
+    policy.browserPolicy !== 'recipe_authoring' ||
+    policy.jobId !== input.jobId ||
+    policy.runId !== input.runId
+  ) {
+    return false;
+  }
+  policies.set(key, {
+    ...policy,
+    allowedNetworkHosts: [
+      ...new Set([...policy.allowedNetworkHosts, input.host]),
+    ],
+  });
+  return true;
+}
+
 export function registerSpawnAsyncCommandSandboxPolicy(input: {
   sourceAgentFolder: string;
   runHandle: string;

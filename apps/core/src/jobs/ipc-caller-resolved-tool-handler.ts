@@ -7,7 +7,13 @@ import { delegatedTaskAgentInScope } from './async-command-task-helpers.js';
 import { taskScope } from './ipc-agent-task-lifecycle-handlers.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import type { TaskHandler } from './ipc-types.js';
-import { readAsyncCommandSandboxPolicy } from '../runtime/async-command-sandbox-policy.js';
+import {
+  grantAsyncCommandBrowserHost,
+  readAsyncCommandSandboxPolicy,
+} from '../runtime/async-command-sandbox-policy.js';
+import { parseDeclaredNetworkHost } from '../shared/network-host-declaration.js';
+
+const WEBSITE_RECIPE_HUMAN_TOOL = 'website_recipe_request_human';
 
 const budgets = new Map<
   string,
@@ -175,6 +181,62 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
         });
       },
     });
+    if (
+      toolName === WEBSITE_RECIPE_HUMAN_TOOL &&
+      context.data.jobId &&
+      context.data.runHandle
+    ) {
+      const host = approvedRecipeOriginHost({
+        request: context.data.payload?.toolInput,
+        resolution: result,
+      });
+      if (host) {
+        const activePolicy = readAsyncCommandSandboxPolicy({
+          sourceAgentFolder: context.sourceAgentFolder,
+          runHandle: context.data.runHandle,
+        });
+        if (
+          activePolicy?.browserPolicy !== 'recipe_authoring' ||
+          activePolicy.jobId !== context.data.jobId ||
+          activePolicy.runId !== runId
+        ) {
+          throw new Error(
+            'Recipe origin grant no longer matches the active run.',
+          );
+        }
+        const currentJob = await context.deps.opsRepository.getJobById(
+          context.data.jobId,
+        );
+        if (!currentJob?.agent_task) {
+          throw new Error('Recipe origin grant job is no longer available.');
+        }
+        const browserAllowedNetworkHosts = [
+          ...new Set([
+            ...(currentJob.agent_task.browserAllowedNetworkHosts ?? []),
+            host,
+          ]),
+        ];
+        await context.deps.opsRepository.updateJob(currentJob.id, {
+          agent_task: {
+            ...currentJob.agent_task,
+            browserAllowedNetworkHosts,
+          },
+        });
+        if (
+          !grantAsyncCommandBrowserHost({
+            sourceAgentFolder: context.sourceAgentFolder,
+            runHandle: context.data.runHandle,
+            jobId: currentJob.id,
+            runId,
+            host,
+          })
+        ) {
+          throw new Error(
+            'Recipe origin grant no longer matches the active run.',
+          );
+        }
+      }
+    }
     responder.acceptData('Caller-resolved tool completed.', result);
   } catch (error) {
     responder.reject(
@@ -183,3 +245,67 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
     );
   }
 };
+
+export function approvedRecipeOriginHost(input: {
+  request: unknown;
+  resolution: unknown;
+}): string | null {
+  const request = record(input.request);
+  const resolution = record(input.resolution);
+  if (request.type !== 'origin' || resolution.approved !== true) return null;
+  const requestedScope = record(request.permissionScope);
+  const resolvedScope = record(resolution.permissionScope);
+  const origin =
+    typeof requestedScope.origin === 'string'
+      ? requestedScope.origin.trim()
+      : '';
+  if (!origin || resolvedScope.origin !== origin) {
+    throw new Error(
+      'Recipe origin approval must match the requested exact origin.',
+    );
+  }
+  const requestedMethods = strings(requestedScope.methods);
+  const resolvedMethods = strings(resolvedScope.methods);
+  if (
+    resolvedMethods.length === 0 ||
+    resolvedMethods.some(
+      (method) =>
+        !requestedMethods.includes(method) || !['GET', 'HEAD'].includes(method),
+    )
+  ) {
+    throw new Error(
+      'Recipe origin approval permits only requested GET or HEAD methods.',
+    );
+  }
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    throw new Error('Recipe origin approval contains an invalid origin.');
+  }
+  if (
+    url.protocol !== 'https:' ||
+    url.origin !== origin ||
+    url.username ||
+    url.password
+  ) {
+    throw new Error('Recipe origin approval requires an exact HTTPS origin.');
+  }
+  const parsed = parseDeclaredNetworkHost(
+    `${url.hostname}${url.port ? `:${url.port}` : ''}`,
+  );
+  if (!parsed.ok) throw new Error(`Recipe origin approval ${parsed.reason}`);
+  return parsed.host;
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
