@@ -32,6 +32,86 @@ function sendFailure(response, code, retryable) {
   });
 }
 
+function sendNotFound(response) {
+  sendJson(response, 404, {
+    error: { code: 'NOT_FOUND', requestId: randomUUID(), retryable: false },
+  });
+}
+
+function projectReadiness(readiness) {
+  return {
+    status: readiness.status,
+    failing: readiness.failing,
+    checks: {
+      database: readiness.checks.database,
+      migrations: readiness.checks.migrations,
+      settings: readiness.checks.settings,
+      draining: readiness.checks.draining,
+      ...(readiness.checks.scheduler === undefined
+        ? {}
+        : { scheduler: readiness.checks.scheduler }),
+      ...(readiness.checks.liveCapacity === undefined
+        ? {}
+        : { liveCapacity: readiness.checks.liveCapacity }),
+    },
+  };
+}
+
+function projectRuntime(runtime) {
+  return {
+    role: runtime.role,
+    status: runtime.status,
+    uptimeSeconds: runtime.uptimeSeconds,
+    capacity: {
+      liveLimit: runtime.capacity.liveLimit,
+      jobLimit: runtime.capacity.jobLimit,
+    },
+    counts: {
+      instances: runtime.counts.instances,
+      liveWorkers: runtime.counts.liveWorkers,
+      jobWorkers: runtime.counts.jobWorkers,
+      stale: runtime.counts.stale,
+    },
+    readiness: projectReadiness(runtime.readiness),
+  };
+}
+
+function projectInstance(instance) {
+  return {
+    id: instance.id,
+    role: instance.role,
+    status: instance.status,
+    heartbeat: {
+      status: instance.heartbeat.status,
+      at: instance.heartbeat.at,
+    },
+    readiness: instance.readiness ? projectReadiness(instance.readiness) : null,
+    capacity: instance.capacity
+      ? {
+          liveLimit: instance.capacity.liveLimit,
+          jobLimit: instance.capacity.jobLimit,
+        }
+      : null,
+    capabilities: instance.capabilities.map(String),
+    startedAt: instance.startedAt,
+    lastSeenAt: instance.lastSeenAt,
+  };
+}
+
+function projectAgent(agent) {
+  return {
+    id: agent.id,
+    name: agent.name,
+    status: agent.status,
+    createdAt: agent.createdAt,
+    updatedAt: agent.updatedAt,
+  };
+}
+
+function projectAccessEntry(entry) {
+  return { label: entry.label, detail: entry.detail };
+}
+
 function createSdkClient(env) {
   const apiKey = env.GANTRY_CONTROL_API_KEY?.trim();
   const baseUrl = env.GANTRY_CONTROL_BASE_URL?.trim();
@@ -53,12 +133,18 @@ async function handleApi(method, pathname, response, env) {
     return;
   }
 
-  if (pathname !== '/ui/api/connection' && pathname !== '/ui/api/agents') {
-    sendJson(response, 404, {
-      error: { code: 'NOT_FOUND', requestId: randomUUID(), retryable: false },
-    });
-    return;
-  }
+  const instanceMatch = pathname.match(/^\/ui\/api\/instances\/([^/]+)$/);
+  const agentMatch = pathname.match(
+    /^\/ui\/api\/agents\/([^/]+)(?:\/(delegation|skills|capabilities|access|activity))?$/,
+  );
+  const knownPath =
+    pathname === '/ui/api/connection' ||
+    pathname === '/ui/api/overview' ||
+    pathname === '/ui/api/instances' ||
+    pathname === '/ui/api/agents' ||
+    instanceMatch ||
+    agentMatch;
+  if (!knownPath) return sendNotFound(response);
 
   let client;
   try {
@@ -88,15 +174,168 @@ async function handleApi(method, pathname, response, env) {
       return;
     }
 
+    if (pathname === '/ui/api/overview') {
+      const [runtimeResult, agentsResult] = await Promise.allSettled([
+        client.getRuntimeSummary(),
+        client.agents.list(),
+      ]);
+      if (
+        runtimeResult.status === 'rejected' &&
+        agentsResult.status === 'rejected'
+      ) {
+        throw new Error('Overview reads unavailable');
+      }
+      const projectedRuntime =
+        runtimeResult.status === 'fulfilled'
+          ? projectRuntime(runtimeResult.value)
+          : null;
+      const projectedAgents =
+        agentsResult.status === 'fulfilled'
+          ? agentsResult.value.agents.map(projectAgent)
+          : null;
+      const attention =
+        projectedRuntime?.status === 'degraded' ||
+        projectedRuntime?.counts.stale > 0
+          ? {
+              status: 'attention',
+              label:
+                projectedRuntime.counts.stale > 0
+                  ? `${projectedRuntime.counts.stale} stale instance${projectedRuntime.counts.stale === 1 ? '' : 's'}`
+                  : 'Deployment readiness is degraded',
+              to: '/instances',
+            }
+          : projectedRuntime
+            ? {
+                status: 'ready',
+                label: 'No instance needs attention',
+                to: '/instances',
+              }
+            : {
+                status: 'attention',
+                label: 'Deployment summary is unavailable',
+                to: '/instances',
+              };
+      sendJson(response, 200, {
+        deployment: projectedRuntime,
+        instanceCounts: projectedRuntime?.counts ?? null,
+        agentCounts: projectedAgents
+          ? {
+              total: projectedAgents.length,
+              active: projectedAgents.filter(
+                (agent) => agent.status === 'active',
+              ).length,
+              disabled: projectedAgents.filter(
+                (agent) => agent.status === 'disabled',
+              ).length,
+            }
+          : null,
+        unavailable: [
+          ...(projectedRuntime ? [] : ['runtime']),
+          ...(projectedAgents ? [] : ['agents']),
+        ],
+        attention,
+      });
+      return;
+    }
+
+    if (pathname === '/ui/api/instances' || instanceMatch) {
+      const result = await client.listRuntimeInstances();
+      const instances = result.instances.map(projectInstance);
+      if (instanceMatch) {
+        const id = decodeURIComponent(instanceMatch[1]);
+        const instance = instances.find((item) => item.id === id);
+        if (!instance) return sendNotFound(response);
+        sendJson(response, 200, { instance });
+        return;
+      }
+      sendJson(response, 200, { instances });
+      return;
+    }
+
     if (pathname === '/ui/api/agents') {
       const result = await client.agents.list();
       sendJson(response, 200, {
-        agents: result.agents.map((agent) => ({
-          id: agent.id,
-          name: agent.name,
-          status: agent.status,
-          createdAt: agent.createdAt,
-          updatedAt: agent.updatedAt,
+        agents: result.agents.map(projectAgent),
+      });
+      return;
+    }
+
+    if (agentMatch) {
+      const agentId = decodeURIComponent(agentMatch[1]);
+      const relation = agentMatch[2];
+      if (!relation) {
+        const result = await client.agents.getAdmin(agentId);
+        sendJson(response, 200, {
+          agent: projectAgent(result.agent),
+          boundConversationCount: result.boundConversations.length,
+        });
+        return;
+      }
+      if (relation === 'delegation') {
+        const result = await client.agents.getDelegates(agentId);
+        sendJson(response, 200, {
+          configured: result.delegates.map(String),
+          resolved: result.resolved.map((delegate) => ({
+            ref: delegate.ref,
+            agentId: delegate.agentId,
+            displayName: delegate.displayName,
+            persona: delegate.persona,
+          })),
+        });
+        return;
+      }
+      if (relation === 'skills') {
+        const result = await client.agents.skills.list(agentId);
+        sendJson(response, 200, {
+          skills: result.bindings.map((binding) => ({
+            id: String(binding.id),
+            skillId: String(binding.skillId),
+            status: String(binding.status),
+            updatedAt: String(binding.updatedAt),
+          })),
+        });
+        return;
+      }
+      if (relation === 'capabilities') {
+        const result = await client.agents.getAdmin(agentId);
+        sendJson(response, 200, {
+          capabilities: (result.capabilities?.capabilities ?? []).map(
+            (capability) => ({
+              id: capability.id,
+              version: capability.version,
+            }),
+          ),
+        });
+        return;
+      }
+      if (relation === 'access') {
+        const result = await client.agents.getAccess(agentId);
+        const summary = result.summary ?? {
+          connected: [],
+          allowed: [],
+          needsAttention: [],
+          suggestedCleanup: [],
+        };
+        sendJson(response, 200, {
+          updatedAt: result.updatedAt,
+          summary: {
+            connected: summary.connected.map(projectAccessEntry),
+            allowed: summary.allowed.map(projectAccessEntry),
+            needsAttention: summary.needsAttention.map(projectAccessEntry),
+            suggestedCleanup: summary.suggestedCleanup.map(projectAccessEntry),
+          },
+        });
+        return;
+      }
+      const result = await client.jobs.list({ agentId, limit: 20 });
+      sendJson(response, 200, {
+        activity: result.jobs.map((job) => ({
+          id: String(job.jobId ?? job.id),
+          name: job.name,
+          kind: job.kind,
+          status: job.status,
+          lastRun: job.lastRun ?? null,
+          nextRun: job.nextRun ?? null,
         })),
       });
       return;

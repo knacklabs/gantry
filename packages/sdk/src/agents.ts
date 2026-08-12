@@ -1,3 +1,4 @@
+import type { AgentAccessResponse } from '@gantry/contracts';
 import type {
   GetAgentDelegatesResponse,
   ReplaceAgentDelegatesRequest,
@@ -68,6 +69,11 @@ export function createAgentAdminClient(transport: TransportLike) {
       transport.request<GetAgentDelegatesResponse>({
         method: 'GET',
         path: `/v1/agents/${encodeURIComponent(agentId)}/delegates`,
+      }),
+    getAccess: (agentId: string) =>
+      transport.request<AgentAccessResponse>({
+        method: 'GET',
+        path: `/v1/agents/${encodeURIComponent(agentId)}/access`,
       }),
     replaceDelegates: (agentId: string, body: ReplaceAgentDelegatesRequest) =>
       transport.request<ReplaceAgentDelegatesResponse>({

@@ -17,6 +17,24 @@ const overviewRoute = createRoute({
   ),
 });
 
+const instancesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'instances',
+  component: lazyRouteComponent(
+    () => import('../../features/operations/routes/instances-route'),
+    'InstancesRoute',
+  ),
+});
+
+const instanceDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'instances/$instanceId',
+  component: lazyRouteComponent(
+    () => import('../../features/operations/routes/instance-detail-route'),
+    'InstanceDetailRoute',
+  ),
+});
+
 const interactionsRoute = import.meta.env.DEV
   ? createRoute({
       getParentRoute: () => rootRoute,
@@ -79,6 +97,8 @@ const diagnosticsRoute = import.meta.env.DEV
 
 export const operationsRoutes = [
   overviewRoute,
+  instancesRoute,
+  instanceDetailRoute,
   interactionsRoute,
   providersRoute,
   conversationsRoute,

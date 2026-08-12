@@ -1,10 +1,13 @@
 import { Link } from '@tanstack/react-router';
-import { Bot, LayoutDashboard } from 'lucide-react';
+import { Bot, LayoutDashboard, Server } from 'lucide-react';
 
 const navigation = [
   {
     label: 'Operations',
-    items: [{ to: '/overview', label: 'Overview', icon: LayoutDashboard }],
+    items: [
+      { to: '/overview', label: 'Overview', icon: LayoutDashboard },
+      { to: '/instances', label: 'Instances', icon: Server },
+    ],
   },
   {
     label: 'Administration',

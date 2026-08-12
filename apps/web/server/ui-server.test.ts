@@ -7,7 +7,14 @@ import { beforeEach, expect, it, vi } from 'vitest';
 const sdk = vi.hoisted(() => ({
   createClient: vi.fn(),
   health: vi.fn(),
+  getRuntimeSummary: vi.fn(),
+  listRuntimeInstances: vi.fn(),
   listAgents: vi.fn(),
+  getAgentAdmin: vi.fn(),
+  getAgentDelegates: vi.fn(),
+  listAgentSkills: vi.fn(),
+  getAgentAccess: vi.fn(),
+  listJobs: vi.fn(),
 }));
 
 vi.mock('@gantry/sdk', () => ({ createClient: sdk.createClient }));
@@ -42,10 +49,26 @@ async function request(
 beforeEach(() => {
   sdk.createClient.mockReset();
   sdk.health.mockReset();
+  sdk.getRuntimeSummary.mockReset();
+  sdk.listRuntimeInstances.mockReset();
   sdk.listAgents.mockReset();
+  sdk.getAgentAdmin.mockReset();
+  sdk.getAgentDelegates.mockReset();
+  sdk.listAgentSkills.mockReset();
+  sdk.getAgentAccess.mockReset();
+  sdk.listJobs.mockReset();
   sdk.createClient.mockReturnValue({
     health: sdk.health,
-    agents: { list: sdk.listAgents },
+    getRuntimeSummary: sdk.getRuntimeSummary,
+    listRuntimeInstances: sdk.listRuntimeInstances,
+    agents: {
+      list: sdk.listAgents,
+      getAdmin: sdk.getAgentAdmin,
+      getDelegates: sdk.getAgentDelegates,
+      getAccess: sdk.getAgentAccess,
+      skills: { list: sdk.listAgentSkills },
+    },
+    jobs: { list: sdk.listJobs },
   });
 });
 
@@ -110,6 +133,133 @@ it('ui-server-api-contract', async () => {
       },
     ],
   });
+  sdk.getRuntimeSummary.mockResolvedValue({
+    role: 'control',
+    status: 'degraded',
+    uptimeSeconds: 120,
+    capacity: { liveLimit: 4, jobLimit: 2 },
+    counts: { instances: 2, liveWorkers: 1, jobWorkers: 0, stale: 1 },
+    readiness: {
+      status: 'degraded',
+      checks: {
+        database: 'pass',
+        migrations: 'pass',
+        settings: 'pass',
+        draining: false,
+        apiAuth: 'pass',
+        scheduler: 'fail',
+        secretCheck: 'upstream-secret',
+      },
+      failing: ['scheduler'],
+    },
+  });
+  sdk.listRuntimeInstances.mockResolvedValue({
+    instances: [
+      {
+        id: 'control:one',
+        role: 'control',
+        status: 'running',
+        heartbeat: { status: 'not-applicable', at: null },
+        readiness: {
+          status: 'degraded',
+          checks: {
+            database: 'pass',
+            migrations: 'pass',
+            settings: 'pass',
+            draining: false,
+            scheduler: 'fail',
+          },
+          failing: ['scheduler'],
+        },
+        capacity: { liveLimit: 4, jobLimit: 2 },
+        capabilities: ['control-api'],
+        startedAt: '2026-08-12T00:00:00.000Z',
+        lastSeenAt: '2026-08-12T01:00:00.000Z',
+        leaseToken: 'upstream-secret',
+      },
+      {
+        id: 'worker:one',
+        role: 'live-worker',
+        status: 'unhealthy',
+        heartbeat: {
+          status: 'stale',
+          at: '2026-08-12T00:30:00.000Z',
+        },
+        readiness: null,
+        capacity: { liveLimit: 1, jobLimit: null },
+        capabilities: ['live-execution'],
+        startedAt: '2026-08-12T00:00:00.000Z',
+        lastSeenAt: '2026-08-12T00:30:00.000Z',
+      },
+    ],
+  });
+  sdk.getAgentAdmin.mockResolvedValue({
+    agent: {
+      id: 'agent:one',
+      appId: 'private-app',
+      name: 'One',
+      status: 'active',
+      createdAt: '2026-08-12T00:00:00.000Z',
+      updatedAt: '2026-08-12T01:00:00.000Z',
+      currentConfigVersionId: 'secret-version',
+    },
+    capabilities: {
+      capabilities: [{ id: 'browser.read', version: '1' }],
+      rawPolicy: 'upstream-secret',
+    },
+    boundConversations: [
+      { conversationId: 'private-conversation', provider: 'slack' },
+    ],
+  });
+  sdk.getAgentDelegates.mockResolvedValue({
+    delegates: ['researcher'],
+    resolved: [
+      {
+        ref: 'researcher',
+        agentId: 'agent:researcher',
+        toolName: 'delegate_secret',
+        displayName: 'Researcher',
+        persona: 'research',
+      },
+    ],
+    revision: 2,
+  });
+  sdk.listAgentSkills.mockResolvedValue({
+    bindings: [
+      {
+        id: 'binding:one',
+        skillId: 'skill:summary',
+        status: 'enabled',
+        updatedAt: '2026-08-12T01:00:00.000Z',
+        configVersionId: 'secret-version',
+      },
+    ],
+  });
+  sdk.getAgentAccess.mockResolvedValue({
+    updatedAt: '2026-08-12T01:00:00.000Z',
+    sources: { privateSource: 'upstream-secret' },
+    selections: [{ id: 'browser.read', version: '1' }],
+    toolAccess: { rawPolicy: 'upstream-secret' },
+    summary: {
+      connected: [{ label: 'Browser', detail: 'Connected' }],
+      allowed: [],
+      needsAttention: [{ label: 'Files', detail: 'Needs approval' }],
+      suggestedCleanup: [],
+    },
+  });
+  sdk.listJobs.mockResolvedValue({
+    jobs: [
+      {
+        jobId: 'job:one',
+        name: 'Daily brief',
+        kind: 'recurring',
+        status: 'active',
+        lastRun: '2026-08-12T00:00:00.000Z',
+        nextRun: '2026-08-13T00:00:00.000Z',
+        prompt: 'upstream-secret',
+      },
+    ],
+  });
   const connected = createUiHandler({
     distRoot: '/missing',
     env: {
@@ -120,6 +270,24 @@ it('ui-server-api-contract', async () => {
 
   const connection = await request(connected, '/ui/api/connection');
   const agents = await request(connected, '/ui/api/agents');
+  const overview = await request(connected, '/ui/api/overview');
+  const instances = await request(connected, '/ui/api/instances');
+  const instance = await request(connected, '/ui/api/instances/worker%3Aone');
+  const agent = await request(connected, '/ui/api/agents/agent%3Aone');
+  const delegation = await request(
+    connected,
+    '/ui/api/agents/agent%3Aone/delegation',
+  );
+  const skills = await request(connected, '/ui/api/agents/agent%3Aone/skills');
+  const capabilities = await request(
+    connected,
+    '/ui/api/agents/agent%3Aone/capabilities',
+  );
+  const access = await request(connected, '/ui/api/agents/agent%3Aone/access');
+  const activity = await request(
+    connected,
+    '/ui/api/agents/agent%3Aone/activity',
+  );
 
   expect(JSON.parse(connection.text)).toEqual({
     status: 'ok',
@@ -137,6 +305,80 @@ it('ui-server-api-contract', async () => {
       },
     ],
   });
+  expect(JSON.parse(overview.text)).toMatchObject({
+    deployment: { role: 'control', status: 'degraded' },
+    instanceCounts: { instances: 2, stale: 1 },
+    agentCounts: { total: 1, active: 1, disabled: 0 },
+    unavailable: [],
+    attention: { status: 'attention', to: '/instances' },
+  });
+  expect(JSON.parse(instances.text)).toEqual({
+    instances: expect.arrayContaining([
+      expect.objectContaining({
+        id: 'worker:one',
+        role: 'live-worker',
+        heartbeat: { status: 'stale', at: '2026-08-12T00:30:00.000Z' },
+      }),
+    ]),
+  });
+  expect(JSON.parse(instance.text)).toEqual({
+    instance: expect.objectContaining({ id: 'worker:one' }),
+  });
+  expect(JSON.parse(agent.text)).toEqual({
+    agent: {
+      id: 'agent:one',
+      name: 'One',
+      status: 'active',
+      createdAt: '2026-08-12T00:00:00.000Z',
+      updatedAt: '2026-08-12T01:00:00.000Z',
+    },
+    boundConversationCount: 1,
+  });
+  expect(JSON.parse(delegation.text)).toEqual({
+    configured: ['researcher'],
+    resolved: [
+      {
+        ref: 'researcher',
+        agentId: 'agent:researcher',
+        displayName: 'Researcher',
+        persona: 'research',
+      },
+    ],
+  });
+  expect(JSON.parse(skills.text)).toEqual({
+    skills: [
+      {
+        id: 'binding:one',
+        skillId: 'skill:summary',
+        status: 'enabled',
+        updatedAt: '2026-08-12T01:00:00.000Z',
+      },
+    ],
+  });
+  expect(JSON.parse(capabilities.text)).toEqual({
+    capabilities: [{ id: 'browser.read', version: '1' }],
+  });
+  expect(JSON.parse(access.text)).toEqual({
+    updatedAt: '2026-08-12T01:00:00.000Z',
+    summary: {
+      connected: [{ label: 'Browser', detail: 'Connected' }],
+      allowed: [],
+      needsAttention: [{ label: 'Files', detail: 'Needs approval' }],
+      suggestedCleanup: [],
+    },
+  });
+  expect(JSON.parse(activity.text)).toEqual({
+    activity: [
+      {
+        id: 'job:one',
+        name: 'Daily brief',
+        kind: 'recurring',
+        status: 'active',
+        lastRun: '2026-08-12T00:00:00.000Z',
+        nextRun: '2026-08-13T00:00:00.000Z',
+      },
+    ],
+  });
   expect(sdk.createClient).toHaveBeenCalledWith({
     apiKey: 'server-secret',
     baseUrl: 'http://control.internal',
@@ -144,9 +386,31 @@ it('ui-server-api-contract', async () => {
     timeoutMs: 10_000,
   });
   expect(sdk.health).toHaveBeenCalledOnce();
-  expect(sdk.listAgents).toHaveBeenCalledOnce();
-  expect(connection.text + agents.text).not.toMatch(
-    /server-secret|control\.internal|runtime\.sock|agents:admin|upstream-secret|private-app/,
+  expect(sdk.listAgents).toHaveBeenCalledTimes(2);
+  expect(sdk.getRuntimeSummary).toHaveBeenCalledOnce();
+  expect(sdk.listRuntimeInstances).toHaveBeenCalledTimes(2);
+  expect(sdk.getAgentAdmin).toHaveBeenCalledTimes(2);
+  expect(sdk.getAgentDelegates).toHaveBeenCalledOnce();
+  expect(sdk.listAgentSkills).toHaveBeenCalledOnce();
+  expect(sdk.getAgentAccess).toHaveBeenCalledOnce();
+  expect(sdk.listJobs).toHaveBeenCalledWith({
+    agentId: 'agent:one',
+    limit: 20,
+  });
+  expect(
+    connection.text +
+      agents.text +
+      overview.text +
+      instances.text +
+      instance.text +
+      agent.text +
+      delegation.text +
+      skills.text +
+      capabilities.text +
+      access.text +
+      activity.text,
+  ).not.toMatch(
+    /server-secret|control\.internal|runtime\.sock|agents:admin|upstream-secret|private-app|secret-version|delegate_secret|private-conversation/,
   );
 
   sdk.listAgents.mockRejectedValue(
@@ -171,4 +435,14 @@ it('ui-server-api-contract', async () => {
   expect(failure.text).not.toMatch(
     /server-secret|runtime\.sock|agents:admin|RAW_CONTROL_ERROR/,
   );
+
+  sdk.listAgents.mockRejectedValue(new Error('agent list unavailable'));
+  const partialOverview = await request(connected, '/ui/api/overview');
+  expect(partialOverview.status).toBe(200);
+  expect(JSON.parse(partialOverview.text)).toMatchObject({
+    deployment: { role: 'control', status: 'degraded' },
+    instanceCounts: { instances: 2, stale: 1 },
+    agentCounts: null,
+    unavailable: ['agents'],
+  });
 });

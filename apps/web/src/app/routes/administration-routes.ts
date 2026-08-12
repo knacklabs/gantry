@@ -21,17 +21,15 @@ const agentsRoute = createRoute({
   ),
 });
 
-const agentDetailRoute = import.meta.env.DEV
-  ? createRoute({
-      getParentRoute: () => rootRoute,
-      path: 'agents/$agentId',
-      validateSearch: agentDetailSearchSchema,
-      component: lazyRouteComponent(
-        () => import('../../features/agents/routes/agent-detail-route'),
-        'AgentDetailRoute',
-      ),
-    })
-  : undefined;
+const agentDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'agents/$agentId',
+  validateSearch: agentDetailSearchSchema,
+  component: lazyRouteComponent(
+    () => import('../../features/agents/routes/runtime-agent-detail-route'),
+    'RuntimeAgentDetailRoute',
+  ),
+});
 
 const sourcesRoute = import.meta.env.DEV
   ? createRoute({

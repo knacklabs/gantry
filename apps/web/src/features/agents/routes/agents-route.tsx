@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Bot, CircleOff, RefreshCw, SearchX } from 'lucide-react';
 import { type FormEvent, useMemo } from 'react';
@@ -53,7 +53,14 @@ export function AgentsRoute() {
         accessorKey: 'name',
         header: 'Agent',
         cell: ({ row }) => (
-          <span className="font-semibold text-text">{row.original.name}</span>
+          <Link
+            className="font-semibold text-text no-underline hover:underline"
+            params={{ agentId: row.original.id }}
+            search={{ tab: 'identity' }}
+            to="/agents/$agentId"
+          >
+            {row.original.name}
+          </Link>
         ),
       },
       {
