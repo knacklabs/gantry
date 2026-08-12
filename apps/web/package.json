@@ -5,13 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "serve": "node server/ui-server.js",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src",
+    "lint": "eslint src server --global process",
     "test": "vitest run -c vitest.config.ts",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{html,json,ts}\""
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"server/**/*.{js,ts}\" \"*.{html,json,ts}\""
   },
   "dependencies": {
+    "@gantry/sdk": "0.4.0",
     "@fontsource-variable/spline-sans": "5.2.8",
     "@fontsource-variable/spline-sans-mono": "5.2.8",
     "@hookform/resolvers": "5.4.0",

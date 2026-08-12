@@ -24,6 +24,7 @@ import type {
   SseEvent,
 } from './types.js';
 import type * as OpenApi from './openapi-types.js';
+import type { components as OpenApiComponents } from './generated/openapi.js';
 import { parseSessionSseEvent } from './session-events.js';
 export {
   SessionTypingTracker,
@@ -70,6 +71,9 @@ export interface HealthResponse {
     webhooks: boolean;
   };
 }
+
+export type AgentListResponse =
+  OpenApiComponents['schemas']['AgentListResponse'];
 
 export interface GantryError extends Error {
   code: string;
@@ -511,6 +515,11 @@ export class GantryClient {
 
   readonly agents = {
     ...createAgentAdminClient({ request: this.request }),
+    list: () =>
+      this.transport.request<AgentListResponse>({
+        method: 'GET',
+        path: '/v1/agents',
+      }),
     skills: createAgentSkillsClient({ request: this.request }),
     mcpServers: mcpServerClients.createAgentMcpServersClient({
       request: this.request,
