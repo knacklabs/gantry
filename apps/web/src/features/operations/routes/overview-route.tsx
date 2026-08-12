@@ -1,208 +1,203 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
-import {
-  AlertTriangle,
-  ArrowRight,
-  CheckCircle2,
-  CircleDotDashed,
-} from 'lucide-react';
+import { Bot, CircleOff, RefreshCw, Server } from 'lucide-react';
 
-import { useConnectionGate } from '../../../ui/compositions/connection-gate';
-import { MetricTile } from '../../../ui/compositions/metric-tile';
+import {
+  agentsQuery,
+  connectionQuery,
+  uiApiErrorMessage,
+} from '../../../lib/ui-api';
 import { PageHeader } from '../../../ui/compositions/page-header';
+import { PageState } from '../../../ui/compositions/page-state';
 import { Panel } from '../../../ui/compositions/panel';
+import { StatusBadge } from '../../../ui/compositions/status-badge';
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from '../../../ui/primitives/alert';
 import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
-import {
-  conversations,
-  overviewMetrics,
-  setupBlockers,
-} from '../operations-preview';
-import {
-  diagnosticPreviewQuery,
-  interactionPreviewQuery,
-  providerPreviewQuery,
-} from '../operations-queries';
 
 export function OverviewRoute() {
-  const { data: providers } = useQuery(providerPreviewQuery);
-  const { data: interactions } = useQuery(interactionPreviewQuery);
-  const { data: diagnostics } = useQuery(diagnosticPreviewQuery);
-  const { requestConnection } = useConnectionGate();
-  const healthyChecks = diagnostics.filter(
-    (check) => check.status === 'passing',
-  ).length;
+  const connection = useQuery(connectionQuery);
+  const agents = useQuery(agentsQuery);
+  const refreshing = connection.isFetching || agents.isFetching;
+
+  function refresh() {
+    void Promise.all([
+      connection.refetch({ cancelRefetch: false }),
+      agents.refetch({ cancelRefetch: false }),
+    ]);
+  }
 
   return (
     <div className="mx-auto grid w-full max-w-[1240px] gap-6">
       <PageHeader
         eyebrow="Operations"
         title="Overview"
-        description="Readiness, activity, and the items that need owner attention."
+        description="Live state reported by this Gantry deployment."
+        action={
+          <Button disabled={refreshing} variant="secondary" onClick={refresh}>
+            <RefreshCw size={16} aria-hidden="true" />
+            {refreshing ? 'Refreshing' : 'Refresh all'}
+          </Button>
+        }
       />
 
-      <section
-        aria-label="Operational metrics"
-        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
-      >
-        {overviewMetrics.map((metric) => (
-          <MetricTile key={metric.label} {...metric} />
-        ))}
-      </section>
-
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,.85fr)]">
+      <div className="grid gap-4 xl:grid-cols-2">
         <Panel
-          title="Setup blockers"
-          description="Resolve these before expecting every route to work."
+          title="Deployment"
+          description="Control API reachability and process role"
           action={
-            <Badge variant="attention">{setupBlockers.length} blockers</Badge>
+            connection.data ? (
+              <StatusBadge status={connection.data.status} />
+            ) : null
           }
         >
-          <div className="divide-y divide-border">
-            {setupBlockers.map((blocker) => (
-              <div
-                className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center"
-                key={blocker.id}
-              >
-                <div className="flex min-w-0 flex-1 gap-3">
-                  <span className="mt-0.5 text-danger">
-                    <AlertTriangle size={17} aria-hidden="true" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="m-0 text-[13px] font-semibold text-text">
-                      {blocker.title}
-                    </p>
-                    <p className="mt-1 mb-0 text-xs leading-5 text-text-secondary">
-                      {blocker.detail}
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  variant="secondary"
-                  onClick={() => requestConnection(blocker.action)}
-                >
-                  {blocker.action}
-                </Button>
-              </div>
-            ))}
-          </div>
+          <PanelContent
+            data={connection.data}
+            error={connection.error}
+            isError={connection.isError}
+            isPending={connection.isPending}
+            loadingTitle="Loading deployment state"
+            unavailableTitle="Deployment is unavailable"
+            onRetry={() => void connection.refetch({ cancelRefetch: false })}
+          >
+            {(data) => {
+              const features = Object.entries(data.features)
+                .filter(([, enabled]) => enabled)
+                .map(([feature]) => feature);
+              return (
+                <dl className="m-0 divide-y divide-border px-4">
+                  <Detail label="Process role" value={data.processRole} />
+                  <Detail
+                    label="Available features"
+                    value={features.length ? features.join(', ') : 'None'}
+                  />
+                </dl>
+              );
+            }}
+          </PanelContent>
         </Panel>
 
         <Panel
-          title="System health"
-          description="Latest checks represented by this preview snapshot."
+          title="Agents"
+          description="Agent directory from the current deployment"
           action={
-            <Badge
-              variant={
-                healthyChecks === diagnostics.length ? 'success' : 'attention'
-              }
-            >
-              {healthyChecks}/{diagnostics.length} passing
-            </Badge>
+            agents.data ? (
+              <Badge variant="neutral">{agents.data.agents.length} total</Badge>
+            ) : null
           }
         >
-          <div className="divide-y divide-border">
-            <HealthRow
-              label="Runtime and storage"
-              detail="Core process and projection are current"
-              healthy
-            />
-            <HealthRow
-              label="Provider accounts"
-              detail={`${providers.filter((item) => item.status === 'ready').length} ready · ${providers.length} total`}
-              healthy={false}
-            />
-            <HealthRow
-              label="Waiting interactions"
-              detail={`${interactions.length} decisions need review`}
-              healthy={false}
-            />
-          </div>
-          <Link
-            className="flex min-h-11 items-center justify-between border-t border-border px-4 text-[13px] font-semibold text-text no-underline hover:bg-surface-muted"
-            search={{ status: 'all' }}
-            to="/diagnostics"
+          <PanelContent
+            data={agents.data}
+            error={agents.error}
+            isError={agents.isError}
+            isPending={agents.isPending}
+            loadingTitle="Loading agents"
+            unavailableTitle="Agent data is unavailable"
+            onRetry={() => void agents.refetch({ cancelRefetch: false })}
           >
-            View diagnostics
-            <ArrowRight size={16} aria-hidden="true" />
-          </Link>
+            {(data) =>
+              data.agents.length ? (
+                <div className="divide-y divide-border">
+                  {data.agents.slice(0, 5).map((agent) => (
+                    <div
+                      className="flex min-h-14 items-center justify-between gap-4 px-4 py-3"
+                      key={agent.id}
+                    >
+                      <span className="truncate text-[13px] font-semibold text-text">
+                        {agent.name}
+                      </span>
+                      <StatusBadge status={agent.status} />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-4">
+                  <PageState
+                    description="This deployment has not reported any agents."
+                    icon={<Bot aria-hidden="true" />}
+                    kind="empty"
+                    title="No agents found"
+                  />
+                </div>
+              )
+            }
+          </PanelContent>
         </Panel>
       </div>
-
-      <Panel
-        title="Recent conversations"
-        description="The channels and direct conversations with the latest activity."
-        action={
-          <Link
-            className="text-xs font-semibold text-text no-underline hover:underline"
-            search={{
-              q: '',
-              status: 'all',
-              page: 1,
-              sort: 'activity',
-              desc: false,
-            }}
-            to="/conversations"
-          >
-            View all
-          </Link>
-        }
-      >
-        <div className="divide-y divide-border">
-          {conversations.slice(0, 4).map((conversation) => (
-            <Link
-              className="grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 text-text no-underline hover:bg-surface-muted"
-              key={conversation.id}
-              params={{ conversationId: conversation.id }}
-              to="/conversations/$conversationId"
-            >
-              <span className="min-w-0">
-                <span className="block truncate text-[13px] font-semibold">
-                  {conversation.name}
-                </span>
-                <span className="mt-1 block truncate text-xs text-text-secondary">
-                  {conversation.provider} · {conversation.agent}
-                </span>
-              </span>
-              <span className="text-xs text-text-muted">
-                {conversation.activity}
-              </span>
-            </Link>
-          ))}
-        </div>
-      </Panel>
     </div>
   );
 }
 
-function HealthRow({
-  label,
-  detail,
-  healthy,
+function PanelContent<T>({
+  children,
+  data,
+  error,
+  isError,
+  isPending,
+  loadingTitle,
+  unavailableTitle,
+  onRetry,
 }: {
-  label: string;
-  detail: string;
-  healthy: boolean;
+  children: (data: T) => React.ReactNode;
+  data: T | undefined;
+  error: unknown;
+  isError: boolean;
+  isPending: boolean;
+  loadingTitle: string;
+  unavailableTitle: string;
+  onRetry: () => void;
 }) {
+  if (isPending) {
+    return (
+      <div className="p-4">
+        <PageState
+          description="Reading the latest state from Gantry."
+          icon={<Server aria-hidden="true" />}
+          kind="loading"
+          title={loadingTitle}
+        />
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="p-4">
+        <PageState
+          action={<Button onClick={onRetry}>Retry</Button>}
+          description={uiApiErrorMessage(error)}
+          icon={<CircleOff aria-hidden="true" />}
+          kind="offline"
+          title={unavailableTitle}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex min-h-16 items-center gap-3 px-4 py-3">
-      <span
-        className={healthy ? 'text-status-success' : 'text-status-attention'}
-      >
-        {healthy ? (
-          <CheckCircle2 size={17} aria-hidden="true" />
-        ) : (
-          <CircleDotDashed size={17} aria-hidden="true" />
-        )}
-      </span>
-      <span className="min-w-0">
-        <span className="block text-[13px] font-semibold text-text">
-          {label}
-        </span>
-        <span className="mt-0.5 block text-xs text-text-secondary">
-          {detail}
-        </span>
-      </span>
+    <>
+      {isError ? (
+        <Alert className="rounded-none border-x-0 border-t-0 border-status-attention/50 bg-status-attention-soft">
+          <RefreshCw aria-hidden="true" />
+          <AlertTitle>Showing the last successful value</AlertTitle>
+          <AlertDescription>{uiApiErrorMessage(error)}</AlertDescription>
+        </Alert>
+      ) : null}
+      {children(data)}
+    </>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid min-h-14 grid-cols-[140px_minmax(0,1fr)] items-center gap-4 py-3 text-[13px]">
+      <dt className="text-text-secondary">{label}</dt>
+      <dd className="m-0 truncate font-mono text-xs font-semibold text-text">
+        {value}
+      </dd>
     </div>
   );
 }

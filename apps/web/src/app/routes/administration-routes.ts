@@ -21,54 +21,64 @@ const agentsRoute = createRoute({
   ),
 });
 
-const agentDetailRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: 'agents/$agentId',
-  validateSearch: agentDetailSearchSchema,
-  component: lazyRouteComponent(
-    () => import('../../features/agents/routes/agent-detail-route'),
-    'AgentDetailRoute',
-  ),
-});
+const agentDetailRoute = import.meta.env.DEV
+  ? createRoute({
+      getParentRoute: () => rootRoute,
+      path: 'agents/$agentId',
+      validateSearch: agentDetailSearchSchema,
+      component: lazyRouteComponent(
+        () => import('../../features/agents/routes/agent-detail-route'),
+        'AgentDetailRoute',
+      ),
+    })
+  : undefined;
 
-const sourcesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: 'sources',
-  validateSearch: sourceSearchSchema,
-  component: lazyRouteComponent(
-    () => import('../../features/agents/routes/sources-route'),
-    'SourcesRoute',
-  ),
-});
+const sourcesRoute = import.meta.env.DEV
+  ? createRoute({
+      getParentRoute: () => rootRoute,
+      path: 'sources',
+      validateSearch: sourceSearchSchema,
+      component: lazyRouteComponent(
+        () => import('../../features/agents/routes/sources-route'),
+        'SourcesRoute',
+      ),
+    })
+  : undefined;
 
-const pauseRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: 'pause',
-  component: lazyRouteComponent(
-    () => import('../../features/agents/routes/pause-route'),
-    'PauseRoute',
-  ),
-});
+const pauseRoute = import.meta.env.DEV
+  ? createRoute({
+      getParentRoute: () => rootRoute,
+      path: 'pause',
+      component: lazyRouteComponent(
+        () => import('../../features/agents/routes/pause-route'),
+        'PauseRoute',
+      ),
+    })
+  : undefined;
 
-const peopleRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: 'people',
-  validateSearch: peopleSearchSchema,
-  component: lazyRouteComponent(
-    () => import('../../features/people/routes/people-route'),
-    'PeopleRoute',
-  ),
-});
+const peopleRoute = import.meta.env.DEV
+  ? createRoute({
+      getParentRoute: () => rootRoute,
+      path: 'people',
+      validateSearch: peopleSearchSchema,
+      component: lazyRouteComponent(
+        () => import('../../features/people/routes/people-route'),
+        'PeopleRoute',
+      ),
+    })
+  : undefined;
 
-const personDetailRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: 'people/$personId',
-  validateSearch: personDetailSearchSchema,
-  component: lazyRouteComponent(
-    () => import('../../features/people/routes/person-detail-route'),
-    'PersonDetailRoute',
-  ),
-});
+const personDetailRoute = import.meta.env.DEV
+  ? createRoute({
+      getParentRoute: () => rootRoute,
+      path: 'people/$personId',
+      validateSearch: personDetailSearchSchema,
+      component: lazyRouteComponent(
+        () => import('../../features/people/routes/person-detail-route'),
+        'PersonDetailRoute',
+      ),
+    })
+  : undefined;
 
 export const administrationRoutes = [
   agentsRoute,
@@ -77,4 +87,4 @@ export const administrationRoutes = [
   pauseRoute,
   peopleRoute,
   personDetailRoute,
-];
+].filter((route) => route !== undefined);

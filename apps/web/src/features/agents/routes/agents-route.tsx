@@ -1,33 +1,43 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Bot, Plus } from 'lucide-react';
+import { Bot, CircleOff, RefreshCw, SearchX } from 'lucide-react';
 import { type FormEvent, useMemo } from 'react';
 
-import { useConnectionGate } from '../../../ui/compositions/connection-gate';
+import {
+  agentsQuery,
+  uiApiErrorMessage,
+  type UiAgent,
+} from '../../../lib/ui-api';
 import { DataTable } from '../../../ui/compositions/data-table';
 import { PageHeader } from '../../../ui/compositions/page-header';
+import { PageState } from '../../../ui/compositions/page-state';
 import { Panel } from '../../../ui/compositions/panel';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
-import { SelectField } from '../../../ui/compositions/select-field';
 import { TextField } from '../../../ui/compositions/text-field';
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from '../../../ui/primitives/alert';
 import { Button } from '../../../ui/primitives/button';
-import type { AgentPreview } from '../agents-preview';
-import { agentPreviewQuery } from '../agents-queries';
+
+const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
 
 export function AgentsRoute() {
   const search = useSearch({ from: '/agents' });
   const navigate = useNavigate({ from: '/agents' });
-  const { data } = useQuery(agentPreviewQuery);
-  const { requestConnection } = useConnectionGate();
-  const query = search.q.toLowerCase();
-  const visible = data.filter(
-    (agent) =>
-      (search.status === 'all' || agent.status === search.status) &&
-      (search.model === 'all' || agent.modelAlias === search.model) &&
-      (!query ||
-        `${agent.name} ${agent.description}`.toLowerCase().includes(query)),
+  const query = useQuery(agentsQuery);
+  const searchText = search.q.toLowerCase();
+  const agents = query.data?.agents ?? [];
+  const visible = agents.filter(
+    (agent) => !searchText || agent.name.toLowerCase().includes(searchText),
   );
+  const sort =
+    search.sort === 'name' || search.sort === 'status' ? search.sort : 'name';
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -37,23 +47,13 @@ export function AgentsRoute() {
     });
   }
 
-  const columns = useMemo<ColumnDef<AgentPreview>[]>(
+  const columns = useMemo<ColumnDef<UiAgent>[]>(
     () => [
       {
         accessorKey: 'name',
         header: 'Agent',
         cell: ({ row }) => (
-          <Link
-            className="grid min-h-9 content-center text-text no-underline hover:underline"
-            params={{ agentId: row.original.id }}
-            search={{ tab: 'identity' }}
-            to="/agents/$agentId"
-          >
-            <span className="font-semibold">{row.original.name}</span>
-            <span className="max-w-[280px] truncate text-xs font-normal text-text-muted">
-              {row.original.description}
-            </span>
-          </Link>
+          <span className="font-semibold text-text">{row.original.name}</span>
         ),
       },
       {
@@ -62,26 +62,17 @@ export function AgentsRoute() {
         cell: ({ getValue }) => <StatusBadge status={String(getValue())} />,
       },
       {
-        accessorKey: 'modelAlias',
-        header: 'Model',
-        cell: ({ row }) => (
-          <span>
-            <span className="block font-medium text-text">
-              {row.original.modelAlias}
-            </span>
-            <span className="font-mono text-[10px] text-text-muted">
-              {row.original.agentHarness}
-            </span>
-          </span>
-        ),
+        accessorKey: 'createdAt',
+        header: 'Created',
+        enableSorting: false,
+        cell: ({ getValue }) => <Timestamp value={String(getValue())} />,
       },
       {
-        accessorKey: 'conversations',
-        header: 'Assignments',
+        accessorKey: 'updatedAt',
+        header: 'Updated',
         enableSorting: false,
-        cell: ({ row }) => `${row.original.conversations.length} conversations`,
+        cell: ({ getValue }) => <Timestamp value={String(getValue())} />,
       },
-      { accessorKey: 'lastRun', header: 'Last run' },
     ],
     [],
   );
@@ -91,101 +82,133 @@ export function AgentsRoute() {
       <PageHeader
         eyebrow="Administration"
         title="Agents"
-        description="Identity, model defaults, attached sources, and conversation installations."
+        description="Agents reported by this Gantry deployment."
         action={
-          <Button onClick={() => requestConnection('Create agent')}>
-            <Plus size={16} aria-hidden="true" />
-            Create agent
+          <Button
+            disabled={query.isFetching}
+            variant="secondary"
+            onClick={() => void query.refetch({ cancelRefetch: false })}
+          >
+            <RefreshCw size={16} aria-hidden="true" />
+            {query.isFetching ? 'Refreshing' : 'Refresh'}
           </Button>
         }
       />
 
-      <form
-        className="grid items-end gap-3 md:grid-cols-[minmax(0,1fr)_170px_150px_auto]"
-        onSubmit={submitSearch}
-      >
-        <TextField
-          defaultValue={search.q}
-          id="agent-search"
-          label="Search agents"
-          name="q"
-          placeholder="Name or purpose"
+      {query.isPending ? (
+        <PageState
+          description="Reading the agent directory from Gantry."
+          icon={<Bot aria-hidden="true" />}
+          kind="loading"
+          title="Loading agents"
         />
-        <FilterSelect
-          label="Status"
-          value={search.status}
-          options={['all', 'deployed', 'draft', 'paused', 'blocked']}
-          onChange={(status) =>
-            void navigate({ search: { ...search, status, page: 1 } })
-          }
-        />
-        <FilterSelect
-          label="Model"
-          value={search.model}
-          options={['all', 'sonnet', 'opus', 'gpt-5']}
-          onChange={(model) =>
-            void navigate({ search: { ...search, model, page: 1 } })
-          }
-        />
-        <Button variant="secondary" type="submit">
-          Search
-        </Button>
-      </form>
+      ) : null}
 
-      <Panel
-        title="Agent directory"
-        description={`${visible.length} of ${data.length} agents shown`}
-        action={<Bot size={16} aria-hidden="true" />}
-      >
-        <DataTable
-          columns={columns}
-          data={visible}
-          emptyMessage="No agents match these filters."
-          page={search.page}
-          sort={search.sort}
-          descending={search.desc}
-          onPageChange={(page) =>
-            void navigate({ search: { ...search, page } })
+      {query.isError && !query.data ? (
+        <PageState
+          action={
+            <Button
+              disabled={query.isFetching}
+              onClick={() => void query.refetch({ cancelRefetch: false })}
+            >
+              Retry
+            </Button>
           }
-          onSortChange={(sort, desc) =>
-            void navigate({
-              search: {
-                ...search,
-                sort: sort as typeof search.sort,
-                desc,
-                page: 1,
-              },
-            })
-          }
+          description={uiApiErrorMessage(query.error)}
+          icon={<CircleOff aria-hidden="true" />}
+          kind="offline"
+          title="Agents are unavailable"
         />
-      </Panel>
+      ) : null}
+
+      {query.data ? (
+        <>
+          {query.isError ? (
+            <Alert className="border-status-attention/50 bg-status-attention-soft">
+              <RefreshCw aria-hidden="true" />
+              <AlertTitle>Showing the last successful agent list</AlertTitle>
+              <AlertDescription>
+                {uiApiErrorMessage(query.error)} Refresh to try again.
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          {agents.length === 0 ? (
+            <PageState
+              description="This deployment has not reported any agents."
+              icon={<Bot aria-hidden="true" />}
+              kind="empty"
+              title="No agents found"
+            />
+          ) : (
+            <>
+              <form
+                className="grid items-end gap-3 md:grid-cols-[minmax(0,1fr)_auto]"
+                onSubmit={submitSearch}
+              >
+                <TextField
+                  defaultValue={search.q}
+                  id="agent-search"
+                  label="Search agents"
+                  name="q"
+                  placeholder="Agent name"
+                />
+                <Button variant="secondary" type="submit">
+                  Search
+                </Button>
+              </form>
+
+              <Panel
+                title="Agent directory"
+                description={`${visible.length} of ${agents.length} agents shown`}
+                action={<Bot size={16} aria-hidden="true" />}
+              >
+                {visible.length === 0 ? (
+                  <div className="p-4">
+                    <PageState
+                      description="Clear or change the search to see agents."
+                      icon={<SearchX aria-hidden="true" />}
+                      kind="empty"
+                      title="No agents match this search"
+                    />
+                  </div>
+                ) : (
+                  <DataTable
+                    columns={columns}
+                    data={visible}
+                    emptyMessage="No agents match this search."
+                    page={search.page}
+                    sort={sort}
+                    descending={search.desc}
+                    onPageChange={(page) =>
+                      void navigate({ search: { ...search, page } })
+                    }
+                    onSortChange={(nextSort, desc) =>
+                      void navigate({
+                        search: {
+                          ...search,
+                          sort: nextSort as 'name' | 'status',
+                          desc,
+                          page: 1,
+                        },
+                      })
+                    }
+                  />
+                )}
+              </Panel>
+            </>
+          )}
+        </>
+      ) : null}
     </div>
   );
 }
 
-function FilterSelect<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: readonly T[];
-  onChange: (value: T) => void;
-}) {
+function Timestamp({ value }: { value: string }) {
+  const date = new Date(value);
   return (
-    <SelectField
-      label={label}
-      onValueChange={onChange}
-      options={options.map((value) => ({
-        label:
-          value === 'all'
-            ? `All ${label.toLowerCase()}s`
-            : value.replaceAll('-', ' '),
-        value,
-      }))}
-      value={value}
-    />
+    <time dateTime={value} title={value}>
+      {Number.isNaN(date.valueOf()) ? value : dateTimeFormatter.format(date)}
+    </time>
   );
 }

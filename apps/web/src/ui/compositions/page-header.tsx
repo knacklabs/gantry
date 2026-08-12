@@ -17,7 +17,7 @@ export function PageHeader({
     <header className="flex min-w-0 flex-wrap items-end justify-between gap-4">
       <div className="min-w-0">
         {eyebrow ? (
-          <span className="font-mono text-[10px] font-semibold tracking-[0.08em] text-text-muted uppercase">
+          <span className="font-mono text-[10px] font-semibold tracking-[0.08em] text-text-secondary uppercase">
             {eyebrow}
           </span>
         ) : null}

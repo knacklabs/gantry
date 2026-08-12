@@ -17,54 +17,65 @@ const overviewRoute = createRoute({
   ),
 });
 
-const interactionsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: 'interactions',
-  validateSearch: interactionSearchSchema,
-  component: lazyRouteComponent(
-    () => import('../../features/operations/routes/interactions-route'),
-    'InteractionsRoute',
-  ),
-});
+const interactionsRoute = import.meta.env.DEV
+  ? createRoute({
+      getParentRoute: () => rootRoute,
+      path: 'interactions',
+      validateSearch: interactionSearchSchema,
+      component: lazyRouteComponent(
+        () => import('../../features/operations/routes/interactions-route'),
+        'InteractionsRoute',
+      ),
+    })
+  : undefined;
 
-const providersRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: 'providers',
-  validateSearch: providerSearchSchema,
-  component: lazyRouteComponent(
-    () => import('../../features/operations/routes/providers-route'),
-    'ProvidersRoute',
-  ),
-});
+const providersRoute = import.meta.env.DEV
+  ? createRoute({
+      getParentRoute: () => rootRoute,
+      path: 'providers',
+      validateSearch: providerSearchSchema,
+      component: lazyRouteComponent(
+        () => import('../../features/operations/routes/providers-route'),
+        'ProvidersRoute',
+      ),
+    })
+  : undefined;
 
-const conversationsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: 'conversations',
-  validateSearch: conversationSearchSchema,
-  component: lazyRouteComponent(
-    () => import('../../features/operations/routes/conversations-route'),
-    'ConversationsRoute',
-  ),
-});
+const conversationsRoute = import.meta.env.DEV
+  ? createRoute({
+      getParentRoute: () => rootRoute,
+      path: 'conversations',
+      validateSearch: conversationSearchSchema,
+      component: lazyRouteComponent(
+        () => import('../../features/operations/routes/conversations-route'),
+        'ConversationsRoute',
+      ),
+    })
+  : undefined;
 
-const conversationDetailRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: 'conversations/$conversationId',
-  component: lazyRouteComponent(
-    () => import('../../features/operations/routes/conversation-detail-route'),
-    'ConversationDetailRoute',
-  ),
-});
+const conversationDetailRoute = import.meta.env.DEV
+  ? createRoute({
+      getParentRoute: () => rootRoute,
+      path: 'conversations/$conversationId',
+      component: lazyRouteComponent(
+        () =>
+          import('../../features/operations/routes/conversation-detail-route'),
+        'ConversationDetailRoute',
+      ),
+    })
+  : undefined;
 
-const diagnosticsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: 'diagnostics',
-  validateSearch: diagnosticSearchSchema,
-  component: lazyRouteComponent(
-    () => import('../../features/operations/routes/diagnostics-route'),
-    'DiagnosticsRoute',
-  ),
-});
+const diagnosticsRoute = import.meta.env.DEV
+  ? createRoute({
+      getParentRoute: () => rootRoute,
+      path: 'diagnostics',
+      validateSearch: diagnosticSearchSchema,
+      component: lazyRouteComponent(
+        () => import('../../features/operations/routes/diagnostics-route'),
+        'DiagnosticsRoute',
+      ),
+    })
+  : undefined;
 
 export const operationsRoutes = [
   overviewRoute,
@@ -73,4 +84,4 @@ export const operationsRoutes = [
   conversationsRoute,
   conversationDetailRoute,
   diagnosticsRoute,
-];
+].filter((route) => route !== undefined);
