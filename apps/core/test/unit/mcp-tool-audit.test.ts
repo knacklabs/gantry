@@ -6,7 +6,7 @@ import {
 } from '../../src/application/mcp/mcp-tool-audit.js';
 
 describe('MCP tool audit projection', () => {
-  it('projects a bounded operation discriminator without argument values', () => {
+  it("projects a bounded discriminator but doesn't retain argument values", () => {
     expect(
       summarizeMcpToolArguments({
         operation: 'recipe.compile',
