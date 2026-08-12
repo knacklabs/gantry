@@ -38,6 +38,26 @@ export function applyBashTrustEnv(
     .toolInput;
 }
 
+export function normalizeReviewedScheduledSkillActionInput(
+  toolName: string,
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  if (toolName !== 'Bash' && toolName !== 'RunCommand') return input;
+  const commandKey = bashCommandKey(input);
+  if (!commandKey) return input;
+  const command = input[commandKey];
+  if (typeof command !== 'string') return input;
+
+  // Claude sometimes appends a redundant stderr-to-stdout merge to an exact
+  // reviewed skill command. The runner already captures both streams, while
+  // the extra shell token changes the durable approval hash. Canonicalize only
+  // this no-op suffix and only after the caller proves the scheduled skill
+  // action itself matched reviewed capability authority.
+  const suffixStripped = command.replace(/\s+2>&1\s*$/, '');
+  if (suffixStripped === command) return input;
+  return { ...input, [commandKey]: suffixStripped.trimEnd() };
+}
+
 export function applyBashTrustEnvWithProvenance(
   toolName: string,
   input: Record<string, unknown>,

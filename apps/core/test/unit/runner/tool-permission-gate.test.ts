@@ -983,6 +983,73 @@ describe('createCanUseToolCallback', () => {
     expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
   });
 
+  it('canonicalizes a redundant stderr merge on a reviewed scheduled skill action', async () => {
+    const concreteRule =
+      'RunCommand(skills/ATS_Skills/scripts/cutshort-worker.mjs sync)';
+    process.env[GANTRY_SKILL_ACTIONS_ENV] = JSON.stringify([
+      {
+        capabilityId: 'skill.ats-source-sync.cutshort',
+        displayName: 'Synchronize Cutshort candidates',
+        category: 'ATS_Skills',
+        risk: 'write',
+        can: 'run the reviewed Cutshort sync worker',
+        cannot: 'run other commands',
+        credentialSource: 'skill_secret',
+        implementationBindings: [{ kind: 'tool_rule', rule: concreteRule }],
+        preflight: { kind: 'none' },
+        sandboxProfile: {
+          network: 'required',
+          filesystem: 'workspace_write',
+        },
+        source: {
+          kind: 'skill_action',
+          skillId: 'skill-ats',
+          skillName: 'ATS_Skills',
+          actionId: 'sync_cutshort',
+        },
+      },
+    ]);
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'default',
+        agentId: 'agent:ats-source-sync',
+        runId: 'run-ats-source-sync',
+        jobId: 'job-ats-source-sync',
+        chatJid: 'app:default:ats-source-sync-dev',
+        allowedTools: ['capability:skill.ats-source-sync.cutshort'],
+        yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
+      } as never,
+    });
+
+    const result = await canUseTool(
+      'Bash',
+      {
+        command:
+          '/srv/reagent/home/agents/ats-source-sync/.llm-runtime/claude/skills/ATS_Skills/scripts/cutshort-worker.mjs sync 2>&1',
+      },
+      makePermissionOptions() as never,
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        behavior: 'allow',
+        updatedInput: expect.objectContaining({
+          command: expect.stringMatching(/cutshort-worker\.mjs sync$/),
+        }),
+      }),
+    );
+    expect(
+      permissionMock.requestPermissionApproval.mock.calls[0]?.[0]?.toolInput
+        ?.command,
+    ).toMatch(/cutshort-worker\.mjs sync$/);
+    expect(
+      permissionMock.requestPermissionApproval.mock.calls[0]?.[0]?.toolInput
+        ?.command,
+    ).not.toContain('2>&1');
+  });
+
   it('allows the live runner shape with a selected definition and expanded concrete rule', async () => {
     const concreteRule =
       'RunCommand(skills/ATS_Skills/scripts/cutshort-worker.mjs sync)';

@@ -30,7 +30,10 @@ import {
 import { sandboxBlockedRuntimeEvents } from './sandbox-events.js';
 import { decideSdkSandboxNetworkAccess } from './sdk-sandbox-network-gate.js';
 import { readExternalMcpAllowedTools } from './external-mcp-tool-rules.js';
-import { applyBashTrustEnvWithProvenance } from './bash-trust-env.js';
+import {
+  applyBashTrustEnvWithProvenance,
+  normalizeReviewedScheduledSkillActionInput,
+} from './bash-trust-env.js';
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
@@ -260,24 +263,6 @@ export function createCanUseToolCallback(
         interrupt: false,
       };
     }
-    const trustedInput = applyBashTrustEnvWithProvenance(
-      toolName,
-      toolInput,
-      input.agentInput.toolNetworkEnv ?? {},
-    );
-    const trustInput = () => trustedInput.toolInput;
-    const requestPermissionApprovalWithTrustProvenance = (
-      approvalInput: ApprovalInput,
-    ) =>
-      requestPermissionApproval({
-        ...approvalInput,
-        toolInput: trustedInput.toolInput,
-        ...(trustedInput.hostInjectedCommandPrefix
-          ? {
-              hostInjectedCommandPrefix: trustedInput.hostInjectedCommandPrefix,
-            }
-          : {}),
-      });
     const sdkApprovalPrincipal =
       permissionOpts.agentID?.trim() ||
       input.agentInput.agentId ||
@@ -351,6 +336,27 @@ export function createCanUseToolCallback(
         ),
         capabilityRequestToolsHidden,
       }).status === 'allow';
+    const approvalToolInput = reviewedScheduledSkillAction
+      ? normalizeReviewedScheduledSkillActionInput(toolName, toolInput)
+      : toolInput;
+    const trustedInput = applyBashTrustEnvWithProvenance(
+      toolName,
+      approvalToolInput,
+      input.agentInput.toolNetworkEnv ?? {},
+    );
+    const trustInput = () => trustedInput.toolInput;
+    const requestPermissionApprovalWithTrustProvenance = (
+      approvalInput: ApprovalInput,
+    ) =>
+      requestPermissionApproval({
+        ...approvalInput,
+        toolInput: trustedInput.toolInput,
+        ...(trustedInput.hostInjectedCommandPrefix
+          ? {
+              hostInjectedCommandPrefix: trustedInput.hostInjectedCommandPrefix,
+            }
+          : {}),
+      });
     const protectedCapabilityDenial = denyProtectedCapabilityToolUse(
       toolName,
       toolInput,
