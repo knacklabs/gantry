@@ -4,6 +4,7 @@ const CONNECTION_REFRESH_MS = 30_000;
 const CONNECTION_ERROR_REFRESH_MS = 5 * 60 * 1000;
 const OVERVIEW_REFRESH_MS = 30_000;
 const INSTANCES_REFRESH_MS = 60_000;
+const METRICS_REFRESH_MS = 5 * 60_000;
 
 export type UiConnection = {
   status: string;
@@ -60,6 +61,35 @@ export type UiOverview = {
   agentCounts: { total: number; active: number; disabled: number } | null;
   unavailable: Array<'runtime' | 'agents'>;
   attention: { status: 'ready' | 'attention'; label: string; to: '/instances' };
+};
+
+export type UiMetricRange = '24h' | '7d' | '30d';
+export type UiMetricUsage = {
+  requestCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  estimatedCostUsd?: number;
+};
+export type UiMetrics = {
+  range: UiMetricRange;
+  from: string;
+  to: string;
+  bucket: 'hour' | 'day';
+  usage: {
+    totals: UiMetricUsage;
+    buckets: Array<UiMetricUsage & { start: string }>;
+    models: Array<UiMetricUsage & { model: string }>;
+  };
+  runs: {
+    total: number;
+    statuses: Array<{
+      status: 'completed' | 'failed' | 'canceled';
+      count: number;
+    }>;
+    p95DurationMs?: number;
+  };
 };
 
 export type UiAgentSummary = { agent: UiAgent; boundConversationCount: number };
@@ -143,6 +173,17 @@ export const instancesQuery = queryOptions({
     document.visibilityState === 'visible' ? INSTANCES_REFRESH_MS : false,
   staleTime: INSTANCES_REFRESH_MS,
 });
+
+export function metricsQuery(range: UiMetricRange) {
+  return queryOptions({
+    queryKey: ['ui-api', 'metrics', range],
+    queryFn: ({ signal }) =>
+      get<UiMetrics>(`/ui/api/metrics?range=${range}`, signal),
+    refetchInterval: () =>
+      document.visibilityState === 'visible' ? METRICS_REFRESH_MS : false,
+    staleTime: METRICS_REFRESH_MS,
+  });
+}
 
 export function instanceQuery(instanceId: string) {
   return queryOptions({

@@ -2,7 +2,7 @@ import { mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 const sdk = vi.hoisted(() => ({
   createClient: vi.fn(),
@@ -15,11 +15,14 @@ const sdk = vi.hoisted(() => ({
   listAgentSkills: vi.fn(),
   getAgentAccess: vi.fn(),
   listJobs: vi.fn(),
+  getMetrics: vi.fn(),
 }));
 
 vi.mock('@gantry/sdk', () => ({ createClient: sdk.createClient }));
 
 import { createUiHandler } from './ui-server.js';
+
+afterEach(() => vi.useRealTimers());
 
 function response() {
   let status = 200;
@@ -57,6 +60,7 @@ beforeEach(() => {
   sdk.listAgentSkills.mockReset();
   sdk.getAgentAccess.mockReset();
   sdk.listJobs.mockReset();
+  sdk.getMetrics.mockReset();
   sdk.createClient.mockReturnValue({
     health: sdk.health,
     getRuntimeSummary: sdk.getRuntimeSummary,
@@ -69,7 +73,104 @@ beforeEach(() => {
       skills: { list: sdk.listAgentSkills },
     },
     jobs: { list: sdk.listJobs },
+    metrics: { get: sdk.getMetrics },
   });
+});
+
+it('caches successful metrics requests and shares concurrent fetches', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-08-12T12:00:00.000Z'));
+
+  const metrics = {
+    range: '24h',
+    from: '2026-08-11T12:00:00.000Z',
+    to: '2026-08-12T12:00:00.000Z',
+    bucket: 'hour',
+    usage: {
+      totals: {
+        requestCount: 8,
+        inputTokens: 120,
+        outputTokens: 40,
+        cacheReadTokens: 12,
+        estimatedCostUsd: 0.42,
+        credential: 'upstream-secret',
+      },
+      buckets: [],
+      models: [],
+    },
+    runs: {
+      total: 3,
+      statuses: [{ status: 'completed', count: 3, runId: 'private-run' }],
+      p95DurationMs: 900,
+      correlationId: 'private-correlation',
+    },
+    rawEvents: [{ payload: 'private-event' }],
+  };
+  let resolveMetrics!: (value: typeof metrics) => void;
+  sdk.getMetrics.mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveMetrics = resolve;
+    }),
+  );
+  const handler = createUiHandler({
+    distRoot: '/missing',
+    env: {
+      GANTRY_CONTROL_API_KEY: 'server-secret',
+      GANTRY_CONTROL_BASE_URL: 'http://control.internal',
+    },
+  });
+
+  const first = request(handler, '/ui/api/metrics?range=24h');
+  const concurrent = request(handler, '/ui/api/metrics?range=24h');
+  expect(sdk.getMetrics).toHaveBeenCalledOnce();
+  resolveMetrics(metrics);
+
+  const [firstResult, concurrentResult] = await Promise.all([
+    first,
+    concurrent,
+  ]);
+  expect(firstResult).toEqual(concurrentResult);
+  expect(JSON.parse(firstResult.text)).toEqual({
+    range: '24h',
+    from: '2026-08-11T12:00:00.000Z',
+    to: '2026-08-12T12:00:00.000Z',
+    bucket: 'hour',
+    usage: {
+      totals: {
+        requestCount: 8,
+        inputTokens: 120,
+        outputTokens: 40,
+        cacheReadTokens: 12,
+        estimatedCostUsd: 0.42,
+      },
+      buckets: [],
+      models: [],
+    },
+    runs: {
+      total: 3,
+      statuses: [{ status: 'completed', count: 3 }],
+      p95DurationMs: 900,
+    },
+  });
+  expect(firstResult.text).not.toMatch(
+    /server-secret|upstream-secret|private-run|private-correlation|private-event|rawEvents/,
+  );
+
+  await request(handler, '/ui/api/metrics');
+  expect(sdk.getMetrics).toHaveBeenCalledOnce();
+
+  expect((await request(handler, '/ui/api/metrics?range=1h')).status).toBe(400);
+  expect(sdk.getMetrics).toHaveBeenCalledOnce();
+
+  vi.advanceTimersByTime(5 * 60_000 + 1);
+  sdk.getMetrics.mockResolvedValueOnce(metrics);
+  await request(handler, '/ui/api/metrics?range=24h');
+  expect(sdk.getMetrics).toHaveBeenCalledTimes(2);
+
+  sdk.getMetrics.mockRejectedValue(new Error('upstream failed'));
+  expect((await request(handler, '/ui/api/metrics?range=7d')).status).toBe(503);
+  expect((await request(handler, '/ui/api/metrics?range=7d')).status).toBe(503);
+  expect(sdk.getMetrics).toHaveBeenCalledTimes(4);
 });
 
 it('ui-server-api-contract', async () => {

@@ -9,6 +9,8 @@ import { createClient } from '@gantry/sdk';
 const DEFAULT_PORT = 4173;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_DIST = fileURLToPath(new URL('../dist', import.meta.url));
+const METRICS_CACHE_TTL_MS = 5 * 60_000;
+const METRICS_RANGES = new Set(['24h', '7d', '30d']);
 const CONTENT_TYPES = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -112,6 +114,53 @@ function projectAccessEntry(entry) {
   return { label: entry.label, detail: entry.detail };
 }
 
+function projectMetricUsage(usage) {
+  return {
+    requestCount: usage.requestCount,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    ...(usage.cacheReadTokens === undefined
+      ? {}
+      : { cacheReadTokens: usage.cacheReadTokens }),
+    ...(usage.cacheWriteTokens === undefined
+      ? {}
+      : { cacheWriteTokens: usage.cacheWriteTokens }),
+    ...(usage.estimatedCostUsd === undefined
+      ? {}
+      : { estimatedCostUsd: usage.estimatedCostUsd }),
+  };
+}
+
+function projectMetrics(metrics) {
+  return {
+    range: metrics.range,
+    from: metrics.from,
+    to: metrics.to,
+    bucket: metrics.bucket,
+    usage: {
+      totals: projectMetricUsage(metrics.usage.totals),
+      buckets: metrics.usage.buckets.map((bucket) => ({
+        start: bucket.start,
+        ...projectMetricUsage(bucket),
+      })),
+      models: metrics.usage.models.map((model) => ({
+        model: model.model,
+        ...projectMetricUsage(model),
+      })),
+    },
+    runs: {
+      total: metrics.runs.total,
+      statuses: metrics.runs.statuses.map(({ status, count }) => ({
+        status,
+        count,
+      })),
+      ...(metrics.runs.p95DurationMs === undefined
+        ? {}
+        : { p95DurationMs: metrics.runs.p95DurationMs }),
+    },
+  };
+}
+
 function createSdkClient(env) {
   const apiKey = env.GANTRY_CONTROL_API_KEY?.trim();
   const baseUrl = env.GANTRY_CONTROL_BASE_URL?.trim();
@@ -126,12 +175,14 @@ function createSdkClient(env) {
   });
 }
 
-async function handleApi(method, pathname, response, env) {
+async function handleApi(method, url, response, env, metricsState) {
   if (method !== 'GET') {
     response.writeHead(405, { allow: 'GET' });
     response.end();
     return;
   }
+
+  const { pathname } = url;
 
   const instanceMatch = pathname.match(/^\/ui\/api\/instances\/([^/]+)$/);
   const agentMatch = pathname.match(
@@ -140,6 +191,7 @@ async function handleApi(method, pathname, response, env) {
   const knownPath =
     pathname === '/ui/api/connection' ||
     pathname === '/ui/api/overview' ||
+    pathname === '/ui/api/metrics' ||
     pathname === '/ui/api/instances' ||
     pathname === '/ui/api/agents' ||
     instanceMatch ||
@@ -235,6 +287,50 @@ async function handleApi(method, pathname, response, env) {
         ],
         attention,
       });
+      return;
+    }
+
+    if (pathname === '/ui/api/metrics') {
+      const requestedRanges = url.searchParams.getAll('range');
+      const range = requestedRanges[0] ?? '24h';
+      if (
+        [...url.searchParams.keys()].some((key) => key !== 'range') ||
+        requestedRanges.length > 1 ||
+        !METRICS_RANGES.has(range)
+      ) {
+        sendJson(response, 400, {
+          error: {
+            code: 'INVALID_METRICS_RANGE',
+            requestId: randomUUID(),
+            retryable: false,
+          },
+        });
+        return;
+      }
+
+      const cached = metricsState.cache.get(range);
+      if (cached && cached.expiresAt > Date.now()) {
+        sendJson(response, 200, cached.value);
+        return;
+      }
+      metricsState.cache.delete(range);
+
+      let pending = metricsState.inFlight.get(range);
+      if (!pending) {
+        pending = client.metrics
+          .get({ range })
+          .then(projectMetrics)
+          .then((value) => {
+            metricsState.cache.set(range, {
+              value,
+              expiresAt: Date.now() + METRICS_CACHE_TTL_MS,
+            });
+            return value;
+          })
+          .finally(() => metricsState.inFlight.delete(range));
+        metricsState.inFlight.set(range, pending);
+      }
+      sendJson(response, 200, await pending);
       return;
     }
 
@@ -382,11 +478,12 @@ async function readStatic(pathname, distRoot) {
 export function createUiHandler(options = {}) {
   const env = options.env ?? process.env;
   const distRoot = options.distRoot ?? DEFAULT_DIST;
+  const metricsState = { cache: new Map(), inFlight: new Map() };
 
   return async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://ui.local');
     if (url.pathname === '/ui/api' || url.pathname.startsWith('/ui/api/')) {
-      await handleApi(request.method, url.pathname, response, env);
+      await handleApi(request.method, url, response, env, metricsState);
       return;
     }
 

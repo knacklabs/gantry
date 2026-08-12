@@ -17,6 +17,15 @@ const overviewRoute = createRoute({
   ),
 });
 
+const metricsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'metrics',
+  component: lazyRouteComponent(
+    () => import('../../features/operations/routes/metrics-route'),
+    'MetricsRoute',
+  ),
+});
+
 const instancesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'instances',
@@ -97,6 +106,7 @@ const diagnosticsRoute = import.meta.env.DEV
 
 export const operationsRoutes = [
   overviewRoute,
+  metricsRoute,
   instancesRoute,
   instanceDetailRoute,
   interactionsRoute,
