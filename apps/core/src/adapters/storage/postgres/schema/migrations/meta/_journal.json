@@ -967,6 +967,13 @@
       "when": 1786559152642,
       "tag": "20260812182552_activity_run_app_created",
       "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1786564522000,
+      "tag": "20260812195521_metrics_run_ended",
+      "breakpoints": true
     }
   ]
 }

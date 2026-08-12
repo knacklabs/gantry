@@ -106,6 +106,10 @@ export const agentRunsPostgres = pgTable(
       table.createdAt.desc(),
       table.id.desc(),
     ),
+    appEndedIdx: index('idx_agent_runs_app_ended').on(
+      table.appId,
+      table.endedAt.desc().nullsLast(),
+    ),
     leaseClaimIdx: index('idx_agent_runs_lease_claim')
       .on(table.status, table.leaseExpiresAt, table.leaseOwner)
       .where(sql`${table.status} IN ('pending', 'leased')`),
