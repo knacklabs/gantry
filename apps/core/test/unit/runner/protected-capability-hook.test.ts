@@ -155,6 +155,59 @@ describe('protected capability SDK hook', () => {
     }
   });
 
+  it('uses preflight-verified capability requirements when runtime access attribution is absent', async () => {
+    const { command, root } = materializedAtsCommand();
+    const concreteRule =
+      'RunCommand(skills/ATS_Skills/scripts/cutshort-worker.mjs sync)';
+    const hook = createSafetyPreToolUseHook(
+      '',
+      {},
+      {
+        isScheduledJob: true,
+        jobId: 'job-ats-source-sync',
+        allowedToolRules: [concreteRule],
+        toolAccessRequirements: [
+          'Browser',
+          'capability:skill.ats-source-sync.cutshort',
+        ],
+        semanticCapabilities: [
+          {
+            capabilityId: 'skill.ats-source-sync.cutshort',
+            displayName: 'Sync Cutshort',
+            category: 'ATS_Skills',
+            risk: 'write',
+            can: 'run the reviewed Cutshort sync worker',
+            cannot: 'run other commands',
+            credentialSource: 'skill_secret',
+            implementationBindings: [{ kind: 'tool_rule', rule: concreteRule }],
+            source: {
+              kind: 'skill_action',
+              skillId: 'skill-ats',
+              skillName: 'ATS_Skills',
+              actionId: 'cutshort-sync',
+            },
+          },
+        ],
+      },
+    );
+
+    try {
+      await expect(
+        hook({
+          hook_event_name: 'PreToolUse',
+          session_id: 'session-1',
+          transcript_path: '/tmp/transcript.jsonl',
+          cwd: '/tmp/work',
+          tool_name: 'Bash',
+          tool_input: { command },
+          tool_use_id: 'toolu_ats_sync',
+        }),
+      ).resolves.toEqual(expect.objectContaining({ continue: true }));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('does not infer selected skill authority from a concrete rule alone', async () => {
     const { command, root } = materializedAtsCommand();
     const concreteRule =

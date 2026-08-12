@@ -396,6 +396,7 @@ export async function runQuery(
                   selectedCapabilityIds: agentInput.runtimeAccess?.map(
                     (access) => access.selectedCapabilityId,
                   ),
+                  toolAccessRequirements: agentInput.toolAccessRequirements,
                   semanticCapabilities: agentInput.semanticCapabilities,
                 },
               ),

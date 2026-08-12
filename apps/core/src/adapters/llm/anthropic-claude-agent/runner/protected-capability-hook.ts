@@ -10,7 +10,10 @@ import {
 import { denyMemoryBoundaryToolUse } from '../../../../shared/memory-boundary.js';
 import { applyBashTrustEnv } from './bash-trust-env.js';
 import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
-import { semanticCapabilityRule } from '../../../../shared/semantic-capability-ids.js';
+import {
+  parseSemanticCapabilityRule,
+  semanticCapabilityRule,
+} from '../../../../shared/semantic-capability-ids.js';
 
 const BLOCK_MESSAGE =
   'Gantry blocks direct edits to agent capability configuration. Request the missing action or source setup through the Gantry access flow so the change is reviewed, stored durably, and activated through approved access.';
@@ -41,6 +44,7 @@ export function createSafetyPreToolUseHook(
     jobId?: string;
     allowedToolRules?: readonly string[];
     selectedCapabilityIds?: readonly string[];
+    toolAccessRequirements?: readonly string[];
     semanticCapabilities?: readonly SemanticCapabilityDefinition[];
   } = {},
 ): (input: HookInput) => Promise<SyncHookJSONOutput> {
@@ -57,6 +61,7 @@ async function safetyPreToolUseHook(
     jobId?: string;
     allowedToolRules?: readonly string[];
     selectedCapabilityIds?: readonly string[];
+    toolAccessRequirements?: readonly string[];
     semanticCapabilities?: readonly SemanticCapabilityDefinition[];
   } = {},
 ): Promise<SyncHookJSONOutput> {
@@ -89,11 +94,18 @@ async function safetyPreToolUseHook(
       capability,
     ]),
   );
+  const selectedCapabilityIds = new Set([
+    ...(selectedAccess.selectedCapabilityIds ?? []),
+    ...(selectedAccess.toolAccessRequirements ?? []).flatMap((requirement) => {
+      const capabilityId = parseSemanticCapabilityRule(requirement);
+      return capabilityId ? [capabilityId] : [];
+    }),
+  ]);
   const selectedToolRules = [
     // Resolve selected semantic aliases first. Runtime policy projection also
     // includes their concrete rules; putting those first would de-duplicate
     // the later alias expansion before it can retain capability attribution.
-    ...(selectedAccess.selectedCapabilityIds ?? []).map(semanticCapabilityRule),
+    ...[...selectedCapabilityIds].map(semanticCapabilityRule),
     ...(selectedAccess.allowedToolRules ?? []),
   ];
   const decision = new ToolExecutionPolicyService().evaluate({
