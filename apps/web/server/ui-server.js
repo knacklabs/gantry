@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 
@@ -115,16 +115,24 @@ async function readStatic(pathname, distRoot) {
     return null;
   }
 
-  const root = resolve(distRoot);
+  let root;
+  try {
+    root = await realpath(resolve(distRoot));
+  } catch {
+    return null;
+  }
   const requested = resolve(root, relativePath);
   if (requested !== root && !requested.startsWith(`${root}${sep}`)) return null;
 
   try {
-    return { path: requested, body: await readFile(requested) };
+    const path = await realpath(requested);
+    if (path !== root && !path.startsWith(`${root}${sep}`)) return null;
+    return { path, body: await readFile(path) };
   } catch {
     if (extname(relativePath)) return null;
     try {
-      const path = resolve(root, 'index.html');
+      const path = await realpath(resolve(root, 'index.html'));
+      if (path !== root && !path.startsWith(`${root}${sep}`)) return null;
       return { path, body: await readFile(path) };
     } catch {
       return null;

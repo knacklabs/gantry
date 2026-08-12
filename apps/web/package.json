@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src server --global process",
     "test": "vitest run -c vitest.config.ts",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"server/**/*.{js,ts}\" \"*.{html,json,ts}\""
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"server/**/*.{js,mjs,ts}\" \"*.{html,json,ts}\""
   },
   "dependencies": {
     "@gantry/sdk": "0.4.0",

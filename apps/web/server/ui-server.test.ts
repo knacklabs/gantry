@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -65,6 +65,10 @@ it('ui-server-api-contract', async () => {
   expect((await request(handler, '/ui/%2e%2e%2fpackage.json')).status).toBe(
     404,
   );
+  const outside = join(distRoot, '..', 'outside.txt');
+  await writeFile(outside, 'server-secret');
+  await symlink(outside, join(distRoot, 'outside.txt'));
+  expect((await request(handler, '/ui/outside.txt')).status).toBe(404);
 
   const missing = await request(
     createUiHandler({
