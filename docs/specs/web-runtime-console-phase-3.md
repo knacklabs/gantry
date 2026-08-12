@@ -1,7 +1,7 @@
 ---
 slug: web-runtime-console-phase-3
 title: Web Runtime Console — Phase 3: Bounded Metrics
-status: draft
+status: confirmed
 saved: 2026-08-12T16:22:42+00:00
 ---
 
