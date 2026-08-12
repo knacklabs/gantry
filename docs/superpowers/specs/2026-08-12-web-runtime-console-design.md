@@ -16,7 +16,7 @@ Turn the existing fixture-backed web foundation into a useful operations console
 - bounded 30-day AI usage and runtime metrics; and
 - live parent/child agent execution hierarchy.
 
-The first implementation milestone is connection correctness, not feature breadth. Each phase below is a separate implementation cycle with its own approved plan, decomposition, tests, review, and functional check.
+The first implementation milestone is connection correctness, not feature breadth. Each phase below is a separate implementation cycle with its own approved plan, decomposition, backend/API verification, review, and required one-pass functional check. UI-side automated tests are excluded.
 
 ## 2. Product Boundaries
 
@@ -366,9 +366,9 @@ Acceptance:
 
 ## 10. Verification Contract
 
-Each phase is one bounded Gantry factory cycle. Before implementation it receives its own approved plan and capability-driven decomposition. The implementer adds the smallest automated tests that protect the new contracts, then runs deterministic verification, one autoreview pass covering quality/performance/security, and a functional browser check because the work is user-facing.
+Each phase is one bounded Gantry factory cycle. Before implementation it receives its own approved plan and capability-driven decomposition. The implementer adds the smallest backend/API automated tests that protect new contracts, aggregation, retention, and credential boundaries, then runs deterministic verification and one autoreview pass covering quality/performance/security.
 
-Verification should reuse existing test helpers and contracts. Do not add a visual-regression platform or generic UI abstraction for these four phases.
+Do not add frontend unit tests, component tests, browser-automation tests, end-to-end UI tests, snapshots, or a visual-regression platform for these four phases. The repository-required functional check remains a single manual-style acceptance pass for the user-visible flow; it is evidence of operability, not a maintained UI test suite. Backend/API verification should reuse existing helpers and contracts. Do not add a generic UI abstraction for testing.
 
 Cross-phase invariants:
 
@@ -378,7 +378,7 @@ Cross-phase invariants:
 - no mutations or restart controls;
 - no unbounded list, chart, event-stream, or retention query;
 - no readiness/metrics text parsing when structured calculations already exist; and
-- connection, empty, stale, partial-failure, and disconnected states remain testable.
+- connection, empty, stale, partial-failure, and disconnected states remain explicitly covered by the phase acceptance checklist.
 
 ## 11. Planned Surface Impact
 
