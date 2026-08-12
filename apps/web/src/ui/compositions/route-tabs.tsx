@@ -1,5 +1,3 @@
-import { Tabs, TabsList, TabsTrigger } from '../primitives/tabs';
-
 export type RouteTab<T extends string> = {
   label: string;
   value: T;
@@ -18,27 +16,27 @@ export function RouteTabs<T extends string>({
   onValueChange: (value: T) => void;
 }) {
   return (
-    <Tabs value={value} onValueChange={(next) => onValueChange(next as T)}>
-      <TabsList
-        variant="line"
-        aria-label={label}
-        className="flex min-w-0 gap-1 overflow-x-auto border-b border-border"
-      >
-        {tabs.map((tab) => (
-          <TabsTrigger
-            className="relative inline-flex h-10 shrink-0 items-center gap-2 border-0 bg-transparent px-3 text-xs font-semibold text-text-secondary hover:text-text data-[state=active]:text-text data-[state=active]:after:absolute data-[state=active]:after:right-2 data-[state=active]:after:bottom-0 data-[state=active]:after:left-2 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-text"
-            key={tab.value}
-            value={tab.value}
-          >
-            {tab.label}
-            {tab.count === undefined ? null : (
-              <span className="font-mono text-[10px] text-text-muted">
-                {tab.count}
-              </span>
-            )}
-          </TabsTrigger>
-        ))}
-      </TabsList>
-    </Tabs>
+    <div
+      aria-label={label}
+      className="flex min-w-0 gap-1 overflow-x-auto border-b border-border"
+      role="group"
+    >
+      {tabs.map((tab) => (
+        <button
+          aria-pressed={tab.value === value}
+          className="relative inline-flex h-10 shrink-0 items-center gap-2 border-0 bg-transparent px-3 text-xs font-semibold text-text-secondary hover:text-text aria-pressed:text-text aria-pressed:after:absolute aria-pressed:after:right-2 aria-pressed:after:bottom-0 aria-pressed:after:left-2 aria-pressed:after:h-0.5 aria-pressed:after:bg-text"
+          key={tab.value}
+          type="button"
+          onClick={() => onValueChange(tab.value)}
+        >
+          {tab.label}
+          {tab.count === undefined ? null : (
+            <span className="font-mono text-[10px] text-text-muted">
+              {tab.count}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
   );
 }

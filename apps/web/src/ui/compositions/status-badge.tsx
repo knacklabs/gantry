@@ -23,6 +23,11 @@ const toneByStatus: Record<string, BadgeVariant> = {
   warning: 'attention',
   waiting: 'attention',
   attention: 'attention',
+  degraded: 'attention',
+  stale: 'attention',
+  unhealthy: 'danger',
+  fresh: 'success',
+  'not-applicable': 'neutral',
 };
 
 export function StatusBadge({ status }: { status: string }) {
