@@ -257,7 +257,10 @@ function linkRuntimeNodeModules(targetDir: string): void {
     path.join(process.cwd(), 'node_modules');
   if (!fs.existsSync(runtimeNodeModules)) return;
   const target = path.join(targetDir, 'node_modules');
-  if (fs.existsSync(target) || fs.lstatSync(target, { throwIfNoEntry: false })) {
+  if (
+    fs.existsSync(target) ||
+    fs.lstatSync(target, { throwIfNoEntry: false })
+  ) {
     return;
   }
   fs.symlinkSync(runtimeNodeModules, target, 'dir');
