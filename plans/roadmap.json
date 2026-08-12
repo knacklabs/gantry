@@ -1183,6 +1183,26 @@
       "completed_at": "2026-08-11T22:07:51+00:00",
       "history": ".factory/history/CAPFIX-1/",
       "outcome": "When a CLI capability's approved command shape doesn't fit how the command really works, the agent now asks for a fix instead of failing forever: one plain-language card lands in chat - what stopped, what approving changes, what the capability still can and cannot do - with Approve fix / Deny buttons and the technical delta collapsed behind them. Approving updates the reviewed definition once, with full provenance and history, and every job blocked on that capability resumes and completes without re-asking. Denying is final for that definition; timeouts just ask again later. The KnackLabs sheets breakage is this feature's live acceptance test: fixing it becomes one tap instead of SQL."
+    },
+    {
+      "key": "CAPFIX-2",
+      "title": "Capability executable update via grantable card",
+      "story": "As an operator, upgrading a CLI tool never silently kills my jobs: one card tells me the tool was updated, I tap Trust update, and everything that uses it resumes.",
+      "acceptance_criteria": [
+        "executable_identity_mismatch raises one host-verified update proposal per executable (agent claims never trusted; host measures the on-disk binary)",
+        "Card is plain-language with version framing; Trust update / Deny; hashes and paths only in the collapsed technical view",
+        "Approval CAS-updates identity for every capability pinned to that executable in one tap; templates untouched; provenance + prior identity in history",
+        "Deny is terminal per (path, observed hash) until the binary changes again; timeouts stay pending and redispatch; blocked jobs resume on approval (fix-and-continue)"
+      ],
+      "order": 60,
+      "status": "pending",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [
+        "CAPFIX-1"
+      ],
+      "spec": "docs/specs/capability-version-bump-card.md"
     }
   ],
   "epics": [
@@ -1271,5 +1291,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-11T22:07:51+00:00"
+  "updated_at": "2026-08-12T03:51:26+00:00"
 }

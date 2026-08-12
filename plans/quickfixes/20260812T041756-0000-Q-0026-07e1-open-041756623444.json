@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0026-07e1",
+  "profile": "quickfix",
+  "reason": "PR #413 CI red: two inline-agent-loop-tools tests assert request_access is non-auto - stale premise after decision 0123 made it input-gated birthright; swap to a still-laddered tool (tool_consent) preserving the tests' intent",
+  "started_at": "2026-08-12T04:17:56+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}
