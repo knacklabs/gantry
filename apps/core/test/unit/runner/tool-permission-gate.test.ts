@@ -923,6 +923,115 @@ describe('createCanUseToolCallback', () => {
     }
   });
 
+  it('allows a scheduled action selected by reviewed semantic alias without a transient live rule', async () => {
+    const concreteRule =
+      'RunCommand(skills/ATS_Skills/scripts/cutshort-worker.mjs sync)';
+    process.env[GANTRY_SKILL_ACTIONS_ENV] = JSON.stringify([
+      {
+        capabilityId: 'skill.ats-source-sync.cutshort',
+        displayName: 'Synchronize Cutshort candidates',
+        category: 'ATS_Skills',
+        risk: 'write',
+        can: 'run the reviewed Cutshort sync worker',
+        cannot: 'run other commands',
+        credentialSource: 'skill_secret',
+        implementationBindings: [{ kind: 'tool_rule', rule: concreteRule }],
+        preflight: { kind: 'none' },
+        sandboxProfile: {
+          network: 'required',
+          filesystem: 'workspace_write',
+        },
+        source: {
+          kind: 'skill_action',
+          skillId: 'skill-ats',
+          skillName: 'ATS_Skills',
+          actionId: 'sync_cutshort',
+        },
+      },
+    ]);
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'default',
+        agentId: 'agent:ats-source-sync',
+        runId: 'run-ats-source-sync',
+        jobId: 'job-ats-source-sync',
+        chatJid: 'app:default:ats-source-sync-dev',
+        allowedTools: ['capability:skill.ats-source-sync.cutshort'],
+        yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
+      } as never,
+    });
+
+    await expect(
+      canUseTool(
+        'Bash',
+        {
+          command:
+            '/srv/reagent/home/agents/ats-source-sync/.llm-runtime/claude/skills/ATS_Skills/scripts/cutshort-worker.mjs sync',
+        },
+        makePermissionOptions() as never,
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        behavior: 'allow',
+        updatedInput: expect.objectContaining({
+          command: expect.stringContaining('cutshort-worker.mjs sync'),
+        }),
+      }),
+    );
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not authorize an unselected reviewed skill action', async () => {
+    const concreteRule =
+      'RunCommand(skills/ATS_Skills/scripts/cutshort-worker.mjs sync)';
+    process.env[GANTRY_SKILL_ACTIONS_ENV] = JSON.stringify([
+      {
+        capabilityId: 'skill.ats-source-sync.cutshort',
+        displayName: 'Synchronize Cutshort candidates',
+        category: 'ATS_Skills',
+        risk: 'write',
+        can: 'run the reviewed Cutshort sync worker',
+        cannot: 'run other commands',
+        credentialSource: 'skill_secret',
+        implementationBindings: [{ kind: 'tool_rule', rule: concreteRule }],
+        preflight: { kind: 'none' },
+        source: {
+          kind: 'skill_action',
+          skillId: 'skill-ats',
+          skillName: 'ATS_Skills',
+          actionId: 'sync_cutshort',
+        },
+      },
+    ]);
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'default',
+        agentId: 'agent:ats-source-sync',
+        runId: 'run-ats-source-sync',
+        jobId: 'job-ats-source-sync',
+        chatJid: 'app:default:ats-source-sync-dev',
+        allowedTools: ['capability:skill.ats-source-sync.instahyre'],
+        hideAuthorityTools: true,
+        yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
+      } as never,
+    });
+
+    await expect(
+      canUseTool(
+        'Bash',
+        {
+          command:
+            '/srv/reagent/home/agents/ats-source-sync/.llm-runtime/claude/skills/ATS_Skills/scripts/cutshort-worker.mjs sync',
+        },
+        makePermissionOptions() as never,
+      ),
+    ).resolves.toEqual(expect.objectContaining({ behavior: 'deny' }));
+  });
+
   it('does not let a skill definition add commands missing from host live rules', () => {
     const cutshortRule =
       'RunCommand(skills/ATS_Skills/scripts/cutshort-worker.mjs sync)';

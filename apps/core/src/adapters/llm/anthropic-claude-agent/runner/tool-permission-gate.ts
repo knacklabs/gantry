@@ -46,6 +46,7 @@ import { evaluateYoloModeDenylist } from '../../../../shared/yolo-mode-policy.js
 import { formatPermissionDeniedMessage } from '../../../../shared/permission-decision-message.js';
 import { isHostAuthorizedMcpProxyDispatcherFullName } from '../../../../shared/admin-mcp-tools.js';
 import { attributedSkillActionRules } from './protected-capability-hook.js';
+import { semanticCapabilityRule } from '../../../../shared/semantic-capability-ids.js';
 type ApprovalInput = Parameters<typeof requestPermissionApproval>[0];
 const WORKSPACE_FOLDER_KEY = WORKSPACE_FOLDER_OPTION_KEY as keyof ApprovalInput;
 const RAW_REQ = /^(Agent|AskUserQuestion|TodoWrite)$/;
@@ -130,8 +131,19 @@ export function createCanUseToolCallback(
     }),
     ...liveApprovedRules,
   ];
+  const selectedReviewedSkillActionAliases = skillActionCapabilities
+    .map((capability) => semanticCapabilityRule(capability.capabilityId))
+    .filter((rule) => input.agentInput.allowedTools?.includes(rule));
   const currentAttributedAutonomousToolRules = (): string[] => {
-    const liveRules = currentAutonomousAllowedToolRules();
+    // A configured tool rule is not normally standing worker authority. The
+    // narrow exception here requires both halves of the reviewed skill-action
+    // boundary: the host-selected semantic alias on this runner input and the
+    // adapter-exported, validated action definition. This cannot authorize an
+    // arbitrary configured command or an unselected action.
+    const liveRules = [
+      ...currentAutonomousAllowedToolRules(),
+      ...selectedReviewedSkillActionAliases,
+    ];
     return attributedSkillActionRules(liveRules, skillActionCapabilities);
   };
   const lockedAccessPreset = input.capabilities.permissionMode === 'deny';
