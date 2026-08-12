@@ -1235,14 +1235,17 @@
         "The UI remains read-only and browser-safe, with no credential or operational internals exposed."
       ],
       "order": 62,
-      "status": "active",
+      "status": "done",
       "epic": "web-runtime-console",
       "skill": "fullstack",
       "kind": "feature",
       "depends_on": [
         "WEB-CONSOLE-1"
       ],
-      "spec": "docs/specs/web-runtime-console-phase-2.md"
+      "spec": "docs/specs/web-runtime-console-phase-2.md",
+      "completed_at": "2026-08-12T16:21:24+00:00",
+      "history": ".factory/history/WEB-CONSOLE-2/",
+      "outcome": "A private Gantry console now shows safe deployment, instance, and agent inventory through server-held Control API credentials, with live and disconnected states that do not expose internal runtime data."
     }
   ],
   "epics": [
@@ -1340,5 +1343,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-12T14:28:12+00:00"
+  "updated_at": "2026-08-12T16:21:24+00:00"
 }
