@@ -2,6 +2,7 @@ import {
   query,
   type EffortLevel,
   type HookInput,
+  type SandboxSettings,
   type ThinkingConfig,
 } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
@@ -257,8 +258,14 @@ export async function runQuery(
   // (runner-sandbox-provider), which is applied out-of-band. Disable the SDK
   // sandbox explicitly: omitting this option lets a provider/user setting enable
   // a nested sandbox whose Linux socat bridge cannot create Unix sockets inside
-  // the outer sandbox's seccomp boundary.
-  const sdkFilesystemSandbox = { enabled: false } as const;
+  // the outer sandbox's seccomp boundary. `excludedCommands` is the SDK-supported
+  // strict-mode backstop: even if another Claude settings tier re-enables its
+  // sandbox, every command remains in Gantry's already-enforcing outer boundary
+  // instead of starting the redundant inner bridge.
+  const sdkFilesystemSandbox: SandboxSettings =
+    process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
+      ? { enabled: false, excludedCommands: ['*'] }
+      : { enabled: false };
   const workspaceFolder = agentInput.workspaceFolder;
   const enabledSdkSkills = readClaudeSdkSkillNamesFromEnv();
   const isolatedSdkEnv: Record<string, string | undefined> = {

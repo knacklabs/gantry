@@ -1355,7 +1355,10 @@ describe('agent-runner IPC lifecycle', () => {
 
       expect(result.exitCode, result.stderr).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
-      expect(call?.sandbox).toEqual({ enabled: false });
+      expect(call?.sandbox).toEqual({
+        enabled: false,
+        excludedCommands: ['*'],
+      });
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
