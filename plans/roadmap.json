@@ -1258,7 +1258,7 @@
         "The browser receives only safe cached UI API projections and no frontend UI test suite is added."
       ],
       "order": 63,
-      "status": "pending",
+      "status": "active",
       "epic": "web-runtime-console",
       "skill": "fullstack",
       "depends_on": [
@@ -1362,5 +1362,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-12T16:23:37+00:00"
+  "updated_at": "2026-08-12T16:23:59+00:00"
 }

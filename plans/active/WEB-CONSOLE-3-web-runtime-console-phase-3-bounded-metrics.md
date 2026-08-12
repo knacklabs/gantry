@@ -1,8 +1,8 @@
 ---
 issue: WEB-CONSOLE-3
 title: Web Runtime Console: Phase 3 bounded metrics
-status: draft
-saved: 2026-08-12T16:27:00+00:00
+status: awaiting-approval
+saved: 2026-08-12T16:27:12+00:00
 story: WEB-CONSOLE-3
 decisions_reviewed:
   - 0000-credential-broker-boundary
