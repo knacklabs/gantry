@@ -1215,7 +1215,7 @@
         "The UI stays responsive and accessible, with bounded visible-only refresh behavior."
       ],
       "order": 61,
-      "status": "pending",
+      "status": "active",
       "epic": "web-runtime-console",
       "skill": "fullstack",
       "depends_on": [],
@@ -1317,5 +1317,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-12T11:33:14+00:00"
+  "updated_at": "2026-08-12T11:34:40+00:00"
 }
