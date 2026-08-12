@@ -1,7 +1,7 @@
 ---
 slug: web-runtime-console-phase-2
 title: Web Runtime Console — Phase 2: Read-only Operations
-status: draft
+status: confirmed
 saved: 2026-08-12T14:25:37+00:00
 ---
 
