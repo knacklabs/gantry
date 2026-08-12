@@ -256,6 +256,20 @@ describe('locked tool surface mounting', () => {
         excludeAuthorityTools: true,
       }),
     ).toContain('external_capability_call');
+    expect(
+      selectedGantryMcpToolNames(
+        [
+          'mcp__gantry__job_checkpoint_status',
+          'mcp__gantry__job_checkpoint_save',
+        ],
+        { excludeAuthorityTools: true },
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        'job_checkpoint_status',
+        'job_checkpoint_save',
+      ]),
+    );
   });
 
   it('registers only Gantry task tools and ignores raw DeepAgents async names', () => {

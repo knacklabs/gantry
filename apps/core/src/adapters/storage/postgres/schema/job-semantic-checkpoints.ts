@@ -41,14 +41,13 @@ export const jobSemanticCheckpointsPostgres = pgTable(
     }).notNull(),
   },
   (table) => ({
-    runSequenceUnique: uniqueIndex(
-      'uq_job_semantic_checkpoints_run_sequence',
-    ).on(table.runId, table.sequence),
+    jobSequenceUnique: uniqueIndex(
+      'uq_job_semantic_checkpoints_job_sequence',
+    ).on(table.jobId, table.sequence),
     scopeSequenceIdx: index('idx_job_semantic_checkpoints_scope_sequence').on(
       table.appId,
       table.agentId,
       table.jobId,
-      table.runId,
       table.sequence,
     ),
   }),

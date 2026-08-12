@@ -312,6 +312,8 @@ export async function startGantryRuntime(
         getToolRepository: () => storage.repositories.tools,
         getSkillRepository: () => storage.repositories.skills,
         getAsyncTaskRepository: () => storage.repositories.asyncTasks,
+        getJobSemanticCheckpointRepository: () =>
+          storage.repositories.jobSemanticCheckpoints,
         getFileArtifactStore: () => storage.fileArtifacts,
         getMcpServerRepository: () => storage.repositories.mcpServers,
         getCapabilitySecretRepository: () =>

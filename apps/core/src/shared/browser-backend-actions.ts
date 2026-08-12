@@ -32,6 +32,8 @@ export const PUBLIC_BROWSER_GATEWAY_TOOL_NAMES = new Set([
   'browser_open',
   'browser_inspect',
   'browser_act',
+  'browser_captcha_challenge',
+  'browser_captcha_settle',
   'browser_close',
 ]);
 
@@ -76,6 +78,12 @@ export function browserBackendActionSatisfiesGatewayActivity(input: {
   }
   if (input.publicToolName === 'browser_act') {
     return BROWSER_ACT_BACKEND_ACTIONS.has(input.action);
+  }
+  if (input.publicToolName === 'browser_captcha_challenge') {
+    return input.action === 'snapshot' || input.action === 'screenshot';
+  }
+  if (input.publicToolName === 'browser_captcha_settle') {
+    return ['snapshot', 'type', 'click'].includes(input.action);
   }
   return false;
 }

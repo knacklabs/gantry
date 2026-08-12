@@ -42,6 +42,12 @@ vi.mock('@core/runtime/browser-cdp-targets.js', () => ({
   foregroundBrowserTarget: vi.fn(async () => undefined),
 }));
 
+vi.mock('@core/runtime/browser-network-policy.js', async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import('@core/runtime/browser-network-policy.js')>();
+  return { ...original, ensureBrowserNetworkPolicy: vi.fn(async () => undefined) };
+});
+
 import type { BrowserBackendAction } from '../../../src/shared/browser-backend-actions.js';
 
 import {
@@ -49,6 +55,7 @@ import {
   verifyIpcResponsePayload,
 } from '@core/infrastructure/ipc/response-signing.js';
 import {
+  enforceBrowserMutationPolicy,
   processBrowserIpcRequest,
   writeBrowserIpcResponse,
 } from '@core/runtime/ipc-browser-handler.js';
@@ -67,6 +74,41 @@ function fileMode(filePath: string): number {
 }
 
 describe('ipc-browser-handler', () => {
+  it('allows only typed read-oriented mutations in recipe-authoring runs', () => {
+    expect(
+      enforceBrowserMutationPolicy({
+        action: 'click',
+        publicToolName: 'browser_act',
+        policy: 'recipe_authoring',
+        payload: { target: '.next', recipe_intent: 'pagination' },
+      }),
+    ).toEqual({ target: '.next' });
+    expect(() =>
+      enforceBrowserMutationPolicy({
+        action: 'click',
+        publicToolName: 'browser_act',
+        policy: 'recipe_authoring',
+        payload: { target: '#submit-tender', recipe_intent: 'detail' },
+      }),
+    ).toThrow('tender-submission controls are prohibited');
+    expect(() =>
+      enforceBrowserMutationPolicy({
+        action: 'file_attach',
+        publicToolName: 'browser_act',
+        policy: 'recipe_authoring',
+        payload: { target: '#file' },
+      }),
+    ).toThrow('prohibited during website recipe authoring');
+    expect(() =>
+      enforceBrowserMutationPolicy({
+        action: 'type',
+        publicToolName: 'browser_act',
+        policy: 'recipe_authoring',
+        payload: { target: '#query', text: 'roads' },
+      }),
+    ).toThrow('requires a typed recipe_intent');
+  });
+
   let tempDir: string;
 
   beforeEach(() => {

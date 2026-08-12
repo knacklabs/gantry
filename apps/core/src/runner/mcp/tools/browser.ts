@@ -4,6 +4,9 @@ import { z } from 'zod';
 import { formatBrowserToolResponse } from '../formatting.js';
 import { requestBrowserAction } from '../ipc.js';
 import { formatOperatorError } from '../../../shared/operator-error.js';
+import { createHash, randomUUID } from 'node:crypto';
+import { nowMs } from '../../../shared/time/datetime.js';
+import fs from 'node:fs';
 
 type BrowserToolSchema = Record<string, z.ZodTypeAny>;
 type PublicBrowserToolName =
@@ -11,9 +14,15 @@ type PublicBrowserToolName =
   | 'browser_open'
   | 'browser_inspect'
   | 'browser_act'
+  | 'browser_captcha_challenge'
+  | 'browser_captcha_settle'
   | 'browser_close';
 type BrowserMcpToolResult = {
-  content: Array<{ type: 'text'; text: string }>;
+  content: Array<
+    | { type: 'text'; text: string }
+    | { type: 'image'; data: string; mimeType: string }
+  >;
+  file?: { path?: string; mimeType?: string; sizeBytes?: number };
   isError?: boolean;
   [key: string]: unknown;
 };
@@ -47,6 +56,19 @@ type BrowserActAction =
   | 'resize';
 
 const DEFAULT_BROWSER_TOOL_TIMEOUT_MS = 120_000;
+const MAX_CAPTCHA_TTL_MS = 10 * 60_000;
+const captchaChallenges = new Map<
+  string,
+  {
+    jobId?: string;
+    runId?: string;
+    origin: string;
+    inputTarget: string;
+    submitTarget?: string;
+    submitWithEnter: boolean;
+    expiresAt: number;
+  }
+>();
 const FULL_INSPECT_MODES = new Set<BrowserInspectMode>([
   'console_messages',
   'network_requests',
@@ -175,6 +197,20 @@ const target = z
 const payload = z
   .record(z.string(), z.unknown())
   .describe('Action-specific payload for the selected compact browser action.');
+const recipeIntent = z
+  .enum([
+    'listing',
+    'pagination',
+    'filter',
+    'detail',
+    'document',
+    'modal_close',
+    'captcha',
+  ])
+  .optional()
+  .describe(
+    'Required for state-changing controls in recipe-authoring jobs; describes the bounded tender-navigation purpose.',
+  );
 const inspectMode = z.enum([
   'snapshot',
   'tabs',
@@ -290,6 +326,7 @@ export function registerBrowserTools(server: McpServer): void {
       action: actAction,
       profile,
       payload,
+      recipe_intent: recipeIntent,
       reason,
     },
     async (args) => {
@@ -306,6 +343,9 @@ export function registerBrowserTools(server: McpServer): void {
         args.payload && typeof args.payload === 'object'
           ? (args.payload as Record<string, unknown>)
           : {};
+      if (typeof args.recipe_intent === 'string') {
+        actionPayload.recipe_intent = args.recipe_intent;
+      }
       return callBrowserBackend(
         'browser_act',
         actBackendAction(action),
@@ -323,6 +363,183 @@ export function registerBrowserTools(server: McpServer): void {
     async (args) =>
       callBrowserBackend('browser_close', 'close', {}, browserTimeoutMs(args)),
   );
+
+  register(
+    server,
+    'browser_captcha_challenge',
+    'Capture a CAPTCHA challenge from the active page and bind a short-lived settlement to this job, run, and origin. Use the returned image with the current vision-capable model.',
+    {
+      image_target: z.string(),
+      input_target: z.string(),
+      submit_target: z.string().optional(),
+      submit_with_enter: z.boolean().optional(),
+      ttl_ms: z.number().int().min(10_000).max(MAX_CAPTCHA_TTL_MS).optional(),
+    },
+    async (args) => {
+      const timeoutMs = browserTimeoutMs(args);
+      const page = await callBrowserBackend(
+        'browser_captcha_challenge',
+        'snapshot',
+        {},
+        timeoutMs,
+      );
+      if (isBrowserErrorResult(page)) return page;
+      const origin = browserResultOrigin(page);
+      if (!origin) {
+        return formatBrowserFailure(
+          'browser_captcha_challenge',
+          'the active page origin could not be verified',
+        );
+      }
+      const screenshot = await callBrowserBackend(
+        'browser_captcha_challenge',
+        'screenshot',
+        { target: args.image_target },
+        timeoutMs,
+      );
+      if (isBrowserErrorResult(screenshot)) return screenshot;
+      const image = captchaImageContent(screenshot);
+      if (!image) {
+        return formatBrowserFailure(
+          'browser_captcha_challenge',
+          'the captured challenge image could not be loaded',
+        );
+      }
+      const challengeId = `captcha_${randomUUID()}`;
+      const expiresAt =
+        nowMs() +
+        Math.min(
+          MAX_CAPTCHA_TTL_MS,
+          typeof args.ttl_ms === 'number' ? args.ttl_ms : 120_000,
+        );
+      captchaChallenges.set(challengeId, {
+        jobId: currentJobId(),
+        runId: currentJobRunId(),
+        origin,
+        inputTarget: String(args.input_target),
+        ...(typeof args.submit_target === 'string'
+          ? { submitTarget: args.submit_target }
+          : {}),
+        submitWithEnter: args.submit_with_enter === true,
+        expiresAt,
+      });
+      const fingerprint = createHash('sha256')
+        .update(`${origin}\0${String(args.image_target)}\0${image.data}`)
+        .digest('hex');
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `CAPTCHA challenge ${challengeId}\nOrigin: ${origin}\nFingerprint: ${fingerprint}\nExpires: ${new Date(expiresAt).toISOString()}`,
+          },
+          image,
+        ],
+      };
+    },
+  );
+
+  register(
+    server,
+    'browser_captcha_settle',
+    'Apply one model- or human-supplied CAPTCHA answer to its bound active browser challenge. The answer is ephemeral and never checkpointed.',
+    {
+      challenge_id: z.string(),
+      answer: z.string().min(1).max(512),
+    },
+    async (args) => {
+      const challengeId = String(args.challenge_id);
+      const challenge = captchaChallenges.get(challengeId);
+      captchaChallenges.delete(challengeId);
+      if (
+        !challenge ||
+        challenge.expiresAt <= nowMs() ||
+        challenge.jobId !== currentJobId() ||
+        challenge.runId !== currentJobRunId()
+      ) {
+        return formatBrowserFailure(
+          'browser_captcha_settle',
+          'the CAPTCHA challenge is missing, expired, or belongs to another run',
+        );
+      }
+      const timeoutMs = browserTimeoutMs(args);
+      const page = await callBrowserBackend(
+        'browser_captcha_settle',
+        'snapshot',
+        {},
+        timeoutMs,
+      );
+      if (browserResultOrigin(page) !== challenge.origin) {
+        return formatBrowserFailure(
+          'browser_captcha_settle',
+          'the active page origin changed after the challenge was captured',
+        );
+      }
+      const typed = await callBrowserBackend(
+        'browser_captcha_settle',
+        'type',
+        {
+          target: challenge.inputTarget,
+          text: String(args.answer),
+          submit: challenge.submitWithEnter && !challenge.submitTarget,
+        },
+        timeoutMs,
+      );
+      if (isBrowserErrorResult(typed) || !challenge.submitTarget) return typed;
+      return callBrowserBackend(
+        'browser_captcha_settle',
+        'click',
+        { target: challenge.submitTarget },
+        timeoutMs,
+      );
+    },
+  );
+}
+
+function browserResultOrigin(result: BrowserMcpToolResult): string | null {
+  const text = result.content
+    .flatMap((item) => (item.type === 'text' ? [item.text] : []))
+    .join('\n');
+  const match = /^URL:\s*(\S+)/mu.exec(text);
+  try {
+    return match?.[1] ? new URL(match[1]).origin : null;
+  } catch {
+    return null;
+  }
+}
+
+function captchaImageContent(
+  result: BrowserMcpToolResult,
+): { type: 'image'; data: string; mimeType: string } | null {
+  const inline = result.content.find((item) => item.type === 'image');
+  if (inline?.type === 'image') return inline;
+  const filePath = result.file?.path;
+  const mimeType = result.file?.mimeType;
+  if (
+    typeof filePath !== 'string' ||
+    typeof mimeType !== 'string' ||
+    !mimeType.startsWith('image/')
+  ) {
+    return null;
+  }
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile() || stat.size > 5 * 1024 * 1024) return null;
+    return {
+      type: 'image',
+      data: fs.readFileSync(filePath).toString('base64'),
+      mimeType,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function currentJobId() {
+  return process.env.GANTRY_JOB_ID?.trim() || undefined;
+}
+
+function currentJobRunId() {
+  return process.env.GANTRY_JOB_RUN_ID?.trim() || undefined;
 }
 
 function isBrowserErrorResult(value: unknown): value is { isError: true } {

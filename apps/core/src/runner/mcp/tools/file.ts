@@ -128,7 +128,11 @@ async function requestHostFileArtifactAction(
   const path = artifact
     ? String(artifact.virtualPath ?? artifact.path ?? '')
     : '';
-  return path ? `Saved ${path}.` : 'Done.';
+  return artifact
+    ? JSON.stringify({ artifact })
+    : path
+      ? `Saved ${path}.`
+      : 'Done.';
 }
 
 function decodeReadContent(value: unknown): string | undefined {

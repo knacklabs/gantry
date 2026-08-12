@@ -146,6 +146,7 @@ type RuntimeDependencyRepositoryFactory = () =>
   | undefined;
 type RuntimeStorageDep =
   | 'getAsyncTaskRepository'
+  | 'getJobSemanticCheckpointRepository'
   | 'getFileArtifactStore'
   | 'getPermissionPromotionRepository'
   | 'getPermissionDecisionMemoryRepository';
@@ -464,6 +465,8 @@ export async function startRuntimeServices(
       getAgentRepository: resolved.getAgentRepository,
       getSkillRepository: resolved.getSkillRepository,
       getAsyncTaskRepository: resolved.getAsyncTaskRepository,
+      getJobSemanticCheckpointRepository:
+        resolved.getJobSemanticCheckpointRepository,
       getMcpServerRepository: resolved.getMcpServerRepository,
       getCapabilitySecretRepository: resolved.getCapabilitySecretRepository,
       getSkillArtifactStore: resolved.getSkillArtifactStore,

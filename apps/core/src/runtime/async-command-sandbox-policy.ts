@@ -13,6 +13,7 @@ export interface AsyncCommandSandboxPolicy {
   protectedReadPaths: readonly string[];
   protectedWritePaths: readonly string[];
   allowedNetworkHosts: readonly string[];
+  browserPolicy?: 'recipe_authoring';
   resourceLimits: RunnerSandboxResourceLimits;
   callerResolvedTools?: CallerResolvedToolsConfig;
 }
@@ -52,6 +53,7 @@ export function registerSpawnAsyncCommandSandboxPolicy(input: {
   protectedReadPaths: readonly string[];
   protectedWritePaths: readonly string[];
   allowedNetworkHosts: readonly string[];
+  browserPolicy?: 'recipe_authoring';
   resourceLimits: RunnerSandboxResourceLimits;
   callerResolvedTools?: CallerResolvedToolsConfig;
 }): void {
@@ -70,6 +72,7 @@ export function registerSpawnAsyncCommandSandboxPolicy(input: {
       protectedReadPaths: input.protectedReadPaths,
       protectedWritePaths: input.protectedWritePaths,
       allowedNetworkHosts: input.allowedNetworkHosts,
+      browserPolicy: input.browserPolicy,
       resourceLimits: input.resourceLimits,
       callerResolvedTools: input.callerResolvedTools,
     },
@@ -92,6 +95,7 @@ export function configureSpawnAsyncCommandSandboxPolicy(input: {
   protectedWritePaths: readonly string[];
   gatewayAllowedNetworkHosts?: readonly string[];
   fallbackAllowedNetworkHosts: readonly string[];
+  browserPolicy?: 'recipe_authoring';
   resourceLimits: RunnerSandboxResourceLimits;
   callerResolvedTools?: CallerResolvedToolsConfig;
 }): readonly string[] {
@@ -116,6 +120,7 @@ export function configureSpawnAsyncCommandSandboxPolicy(input: {
     protectedReadPaths: input.protectedReadPaths,
     protectedWritePaths: input.protectedWritePaths,
     allowedNetworkHosts,
+    browserPolicy: input.browserPolicy,
     resourceLimits: input.resourceLimits,
     callerResolvedTools: input.callerResolvedTools,
   });

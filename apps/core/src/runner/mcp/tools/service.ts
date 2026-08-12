@@ -29,6 +29,7 @@ import { humanizeTechnicalIdentifier } from '../../../shared/user-visible-messag
 import type { SemanticCapabilityDefinition } from '../../../shared/semantic-capabilities.js';
 import { browserWrongLaneRequestGuidance } from './service-browser-guidance.js';
 import { registerMcpProxyTools } from './mcp-proxy-tools.js';
+import { registerJobCheckpointTools } from './job-checkpoint.js';
 
 export function registerServiceTools(server: McpServer): void {
   registerSkillProposalTool(
@@ -418,6 +419,7 @@ export function registerServiceTools(server: McpServer): void {
   );
 
   registerMcpProxyTools(server);
+  registerJobCheckpointTools(server);
 
   server.tool(
     'service_restart',

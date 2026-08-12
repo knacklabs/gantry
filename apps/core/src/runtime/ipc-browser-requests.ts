@@ -13,6 +13,7 @@ import {
 import type { IpcDeps } from './ipc-domain-types.js';
 import { canProcessIpcFile } from './ipc-rate-limit.js';
 import type { RunnerControlPort } from './runner-control-port.js';
+import { readAsyncCommandSandboxPolicy } from './async-command-sandbox-policy.js';
 
 interface IpcBrowserRequestLogger {
   warn: (obj: Record<string, unknown>, message: string) => void;
@@ -134,6 +135,20 @@ function processOneBrowserRequest(input: {
       threadId: request.threadId,
       turnToken: request.browserTurnToken,
     });
+    const sandboxPolicy = request.runHandle
+      ? readAsyncCommandSandboxPolicy({
+          sourceAgentFolder,
+          runHandle: request.runHandle,
+        })
+      : null;
+    const trustedSandboxPolicy =
+      sandboxPolicy &&
+      (!request.jobId || sandboxPolicy.jobId === request.jobId) &&
+      (!request.runId || sandboxPolicy.runId === request.runId)
+        ? sandboxPolicy
+        : undefined;
+    const allowedNetworkHosts =
+      trustedSandboxPolicy?.allowedNetworkHosts ?? [];
     inFlightBrowserIpc += 1;
     void processBrowserIpcRequest(request, {
       sourceAgentFolder,
@@ -147,6 +162,8 @@ function processOneBrowserRequest(input: {
       getBrowserUsageSettings: deps.getBrowserUsageSettings,
       timeoutMs: request.timeoutMs,
       deadlineAtMs: request.deadlineAtMs,
+      allowedNetworkHosts,
+      browserPolicy: trustedSandboxPolicy?.browserPolicy,
     })
       .then((response) => {
         writeBrowserIpcResponse(

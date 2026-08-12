@@ -106,6 +106,11 @@ export const EXTERNAL_CAPABILITY_GANTRY_MCP_TOOL_NAMES = [
   'external_capability_call',
 ] as const;
 
+export const JOB_CHECKPOINT_GANTRY_MCP_TOOL_NAMES = [
+  'job_checkpoint_status',
+  'job_checkpoint_save',
+] as const;
+
 export const ASYNC_TASK_GANTRY_MCP_TOOL_NAMES = [
   'async_run_command',
   'async_mcp_call',
@@ -193,6 +198,8 @@ export const GATED_GANTRY_MCP_TOOL_NAMES = [
   'browser_open',
   'browser_inspect',
   'browser_act',
+  'browser_captcha_challenge',
+  'browser_captcha_settle',
   'browser_close',
 ] as const;
 
@@ -206,6 +213,7 @@ export const ALL_GANTRY_MCP_TOOL_NAMES = [
   ...ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
   ...DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
   ...EXTERNAL_CAPABILITY_GANTRY_MCP_TOOL_NAMES,
+  ...JOB_CHECKPOINT_GANTRY_MCP_TOOL_NAMES,
   ...GATED_GANTRY_MCP_TOOL_NAMES,
   ...REVIEWED_GANTRY_MCP_TOOL_NAMES,
   ...ADMIN_MCP_TOOL_NAMES,

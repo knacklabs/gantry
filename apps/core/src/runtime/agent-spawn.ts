@@ -713,6 +713,13 @@ async function spawnAgentWithContext(
       gatewayAllowedNetworkHosts:
         sandboxRuntimeNetwork.networkProjection.allowedNetworkHosts,
       fallbackAllowedNetworkHosts: sandboxAllowedNetworkHosts,
+      browserPolicy: input.runtimeAccess?.some(
+        (access) =>
+          access.selectedCapabilityId ===
+          'manipal.website-recipe-evaluator@1',
+      )
+        ? 'recipe_authoring'
+        : undefined,
       resourceLimits: runtimeSandbox.resourceLimits,
       callerResolvedTools: input.callerResolvedTools,
     });

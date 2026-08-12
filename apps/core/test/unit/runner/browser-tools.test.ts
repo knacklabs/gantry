@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 const requestBrowserAction = vi.hoisted(() => vi.fn());
@@ -32,6 +32,7 @@ describe('runner browser MCP gateway tools', () => {
   beforeEach(() => {
     requestBrowserAction.mockReset();
   });
+  afterEach(() => vi.unstubAllEnvs());
 
   it('registers only the compact public browser gateway tools', () => {
     const server = new TestMcpServer();
@@ -39,6 +40,8 @@ describe('runner browser MCP gateway tools', () => {
 
     expect([...server.tools.keys()].sort()).toEqual([
       'browser_act',
+      'browser_captcha_challenge',
+      'browser_captcha_settle',
       'browser_close',
       'browser_inspect',
       'browser_open',
@@ -327,6 +330,134 @@ describe('runner browser MCP gateway tools', () => {
     });
 
     expect(result).toBe(compactResult);
+  });
+
+  it('binds a CAPTCHA answer to one challenge and never returns the answer', async () => {
+    vi.stubEnv('GANTRY_JOB_ID', 'job-1');
+    vi.stubEnv('GANTRY_JOB_RUN_ID', 'run-1');
+    requestBrowserAction
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { content: [{ type: 'text', text: 'URL: https://tenders.test/list' }] },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          content: [
+            { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' },
+          ],
+        },
+      });
+    const server = new TestMcpServer();
+    registerBrowserTools(server as never);
+
+    const captured = (await server.tools.get('browser_captcha_challenge')?.({
+      image_target: '#captcha-image',
+      input_target: '#captcha-answer',
+      submit_target: '#captcha-submit',
+    })) as { content: Array<{ text: string }> };
+    const challengeId = /CAPTCHA challenge (captcha_[^\n]+)/u.exec(
+      captured.content[0]!.text,
+    )?.[1];
+    expect(challengeId).toBeTruthy();
+
+    requestBrowserAction
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { content: [{ type: 'text', text: 'URL: https://tenders.test/list' }] },
+      })
+      .mockResolvedValueOnce({ ok: true, data: { typed: true } })
+      .mockResolvedValueOnce({ ok: true, data: { clicked: true } });
+    const settled = await server.tools.get('browser_captcha_settle')?.({
+      challenge_id: challengeId,
+      answer: 'ephemeral-secret',
+    });
+
+    expect(requestBrowserAction).toHaveBeenNthCalledWith(
+      4,
+      'type',
+      {
+        target: '#captcha-answer',
+        text: 'ephemeral-secret',
+        submit: false,
+      },
+      expect.objectContaining({ publicToolName: 'browser_captcha_settle' }),
+    );
+    expect(JSON.stringify(settled)).not.toContain('ephemeral-secret');
+
+    requestBrowserAction.mockClear();
+    const replay = await server.tools.get('browser_captcha_settle')?.({
+      challenge_id: challengeId,
+      answer: 'another-answer',
+    });
+    expect(replay).toMatchObject({ isError: true });
+    expect(requestBrowserAction).not.toHaveBeenCalled();
+  });
+
+  it('rejects CAPTCHA settlement after the run or origin changes', async () => {
+    vi.stubEnv('GANTRY_JOB_ID', 'job-2');
+    vi.stubEnv('GANTRY_JOB_RUN_ID', 'run-2');
+    requestBrowserAction
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { content: [{ type: 'text', text: 'URL: https://tenders.test/list' }] },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          content: [
+            { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' },
+          ],
+        },
+      });
+    const server = new TestMcpServer();
+    registerBrowserTools(server as never);
+    const captured = (await server.tools.get('browser_captcha_challenge')?.({
+      image_target: '#captcha-image',
+      input_target: '#captcha-answer',
+    })) as { content: Array<{ text: string }> };
+    const challengeId = /CAPTCHA challenge (captcha_[^\n]+)/u.exec(
+      captured.content[0]!.text,
+    )?.[1];
+
+    vi.stubEnv('GANTRY_JOB_RUN_ID', 'run-3');
+    const wrongRun = await server.tools.get('browser_captcha_settle')?.({
+      challenge_id: challengeId,
+      answer: 'answer',
+    });
+    expect(wrongRun).toMatchObject({ isError: true });
+    expect(requestBrowserAction).toHaveBeenCalledTimes(2);
+
+    vi.stubEnv('GANTRY_JOB_RUN_ID', 'run-2');
+    requestBrowserAction
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { content: [{ type: 'text', text: 'URL: https://tenders.test/list' }] },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          content: [
+            { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' },
+          ],
+        },
+      });
+    const recaptured = (await server.tools.get('browser_captcha_challenge')?.({
+      image_target: '#captcha-image',
+      input_target: '#captcha-answer',
+    })) as { content: Array<{ text: string }> };
+    const originChallengeId = /CAPTCHA challenge (captcha_[^\n]+)/u.exec(
+      recaptured.content[0]!.text,
+    )?.[1];
+    requestBrowserAction.mockResolvedValueOnce({
+      ok: true,
+      data: { content: [{ type: 'text', text: 'URL: https://evil.test/list' }] },
+    });
+    const wrongOrigin = await server.tools.get('browser_captcha_settle')?.({
+      challenge_id: originChallengeId,
+      answer: 'answer',
+    });
+    expect(wrongOrigin).toMatchObject({ isError: true });
   });
 
   it('keeps public browser gateway schemas parseable', () => {

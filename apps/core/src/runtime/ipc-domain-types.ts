@@ -31,6 +31,7 @@ import type {
   RuntimeEventPublisherPort,
 } from '../application/jobs/job-management-types.js';
 import type { AsyncTaskRepository } from '../domain/ports/async-tasks.js';
+import type { JobSemanticCheckpointRepository } from '../domain/ports/job-semantic-checkpoints.js';
 import type { RunnerSandboxProvider } from '../shared/runner-sandbox-provider.js';
 import type { BrowserBackendAction } from '../shared/browser-backend-actions.js';
 import type { BrowserSessionStatus } from './browser-capability-types.js';
@@ -103,6 +104,9 @@ export interface IpcDeps {
   getAgentRepository?: () => AgentRepository | undefined;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
   getAsyncTaskRepository?: () => AsyncTaskRepository | undefined;
+  getJobSemanticCheckpointRepository?: () =>
+    | JobSemanticCheckpointRepository
+    | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;
   getCapabilitySecretRepository?: () => CapabilitySecretRepository | undefined;
   getSkillArtifactStore?: () => SkillArtifactStore | undefined;

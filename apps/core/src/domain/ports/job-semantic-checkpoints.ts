@@ -67,19 +67,17 @@ export interface JobSemanticCheckpointRepository {
     appId: string;
     agentId: string;
     jobId: string;
-    runId: string;
   }): Promise<JobSemanticCheckpoint | null>;
 
   getCheckpoint(input: {
     appId: string;
     agentId: string;
     jobId: string;
-    runId: string;
     sequence: number;
   }): Promise<JobSemanticCheckpoint | null>;
 }
 
-export function jobRunArtifactScope(jobId: string, runId: string): string {
-  return `job-run-${stableSha256Json({ jobId, runId }).slice(0, 32)}`;
+export function jobArtifactScope(jobId: string): string {
+  return `job-${stableSha256Json({ jobId }).slice(0, 32)}`;
 }
 import { stableSha256Json } from '../../shared/stable-hash.js';

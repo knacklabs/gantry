@@ -63,6 +63,8 @@ export const PROJECTED_BROWSER_MCP_TOOL_NAMES = [
   'mcp__gantry__browser_open',
   'mcp__gantry__browser_inspect',
   'mcp__gantry__browser_act',
+  'mcp__gantry__browser_captcha_challenge',
+  'mcp__gantry__browser_captcha_settle',
   'mcp__gantry__browser_close',
 ] as const;
 

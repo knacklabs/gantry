@@ -36,6 +36,7 @@ import {
 import { type IpcDomainContext } from './ipc-domain-types.js';
 import { resolveBrowserFileAttachPayload } from './browser-file-attach-source.js';
 import { markBrowserProfileActivity } from './browser-profile-sync.js';
+import { ensureBrowserNetworkPolicy } from './browser-network-policy.js';
 
 interface BrowserRequest {
   requestId: string;
@@ -66,6 +67,8 @@ type BrowserContext = Pick<
   getBrowserUsageSettings?: IpcDomainContext['deps']['getBrowserUsageSettings'];
   timeoutMs?: number;
   deadlineAtMs?: number;
+  allowedNetworkHosts?: readonly string[];
+  browserPolicy?: 'recipe_authoring';
 };
 const MIN_BROWSER_BACKEND_TIMEOUT_MS = 1_000;
 const MAX_BROWSER_RESIZE_DIMENSION = 8_192;
@@ -323,6 +326,20 @@ async function handleBrowserToolActionInner(
     profileName,
     deadlineAtMs: deadline.deadlineAtMs,
   });
+  if (
+    context.browserPolicy === 'recipe_authoring' &&
+    (context.allowedNetworkHosts?.length ?? 0) === 0
+  ) {
+    throw new Error(
+      'Website recipe authoring requires at least one approved network host.',
+    );
+  }
+  if (session.port) {
+    await ensureBrowserNetworkPolicy({
+      port: session.port,
+      allowedHosts: context.allowedNetworkHosts ?? [],
+    });
+  }
   if (request.action === 'resize') {
     const { width, height } = browserResizeDimensions(request.payload);
     if (session.port) {
@@ -389,15 +406,84 @@ async function handleBrowserToolActionInner(
     sourceAgentFolder: context.sourceAgentFolder,
     getFileArtifactStore: context.getFileArtifactStore,
   });
+  const guardedPayload = enforceBrowserMutationPolicy({
+    publicToolName: request.publicToolName,
+    action: request.action,
+    payload: backendPayload,
+    policy: context.browserPolicy,
+  });
   markProfileTouched?.();
   const result = await context.callBrowserTool({
     toolName: request.action,
-    arguments: backendPayload,
+    arguments: guardedPayload,
     session,
     fileAccessRoot,
     timeoutMs: backendTimeoutMs,
   });
   return { ok: true, data: result };
+}
+
+const RECIPE_BROWSER_INTENTS = new Set([
+  'listing',
+  'pagination',
+  'filter',
+  'detail',
+  'document',
+  'modal_close',
+  'captcha',
+]);
+const RECIPE_FORBIDDEN_ACTIONS = new Set<BrowserBackendAction>([
+  'evaluate',
+  'file_upload',
+  'file_attach',
+  'drag',
+  'drop',
+  'handle_dialog',
+]);
+const RECIPE_MUTATING_ACTIONS = new Set<BrowserBackendAction>([
+  'click',
+  'type',
+  'press_key',
+  'select_option',
+  'fill_form',
+]);
+const PROHIBITED_RECIPE_TARGET =
+  /(login|log[-_ ]?in|sign[-_ ]?in|register|account|password|purchase|checkout|payment|upload|apply|application|submit[-_ ]?(bid|tender)|place[-_ ]?bid)/iu;
+
+export function enforceBrowserMutationPolicy(input: {
+  publicToolName?: string;
+  action: BrowserBackendAction;
+  payload: Record<string, unknown>;
+  policy?: 'recipe_authoring';
+}): Record<string, unknown> {
+  const { recipe_intent: rawIntent, ...payload } = input.payload;
+  if (input.policy !== 'recipe_authoring') return payload;
+  if (RECIPE_FORBIDDEN_ACTIONS.has(input.action)) {
+    throw new Error(
+      `${input.action} is prohibited during website recipe authoring.`,
+    );
+  }
+  if (
+    input.publicToolName === 'browser_captcha_challenge' ||
+    input.publicToolName === 'browser_captcha_settle'
+  ) {
+    return payload;
+  }
+  const intent = typeof rawIntent === 'string' ? rawIntent.trim() : '';
+  if (
+    RECIPE_MUTATING_ACTIONS.has(input.action) &&
+    !RECIPE_BROWSER_INTENTS.has(intent)
+  ) {
+    throw new Error(
+      `${input.action} requires a typed recipe_intent during website recipe authoring.`,
+    );
+  }
+  if (PROHIBITED_RECIPE_TARGET.test(JSON.stringify(payload))) {
+    throw new Error(
+      'Authentication, account, upload, purchase, application, and tender-submission controls are prohibited during website recipe authoring.',
+    );
+  }
+  return payload;
 }
 
 async function handleBrowserToolAction(

@@ -236,6 +236,9 @@ export async function requestBrowserAction(
       ...(process.env.GANTRY_JOB_RUN_ID
         ? { runId: process.env.GANTRY_JOB_RUN_ID }
         : {}),
+      ...(process.env.GANTRY_AGENT_RUN_HANDLE
+        ? { runHandle: process.env.GANTRY_AGENT_RUN_HANDLE }
+        : {}),
       ...(threadId ? { threadId } : {}),
       ...(appId ? { appId } : {}),
       ...(agentId ? { agentId } : {}),

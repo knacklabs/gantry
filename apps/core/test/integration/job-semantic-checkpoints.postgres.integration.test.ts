@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { JobUpsertInput } from '@core/domain/repositories/ops-repo.js';
-import { jobRunArtifactScope } from '@core/domain/ports/job-semantic-checkpoints.js';
+import { jobArtifactScope } from '@core/domain/ports/job-semantic-checkpoints.js';
 import { nowIso } from '@core/shared/time/datetime.js';
 
 import {
@@ -100,7 +100,7 @@ maybeDescribe('job semantic checkpoints', () => {
       [
         artifact.id,
         agentId,
-        jobRunArtifactScope(jobId, runId),
+        jobArtifactScope(jobId),
         artifact.contentHash,
       ],
     );
@@ -269,7 +269,6 @@ maybeDescribe('job semantic checkpoints', () => {
       appId: 'default',
       agentId,
       jobId,
-      runId,
     });
     expect(latest).toMatchObject({ id: 'checkpoint-candidate', sequence: 2 });
     expect(latest?.payloadHash).toMatch(/^sha256:[a-f0-9]{64}$/);
@@ -307,7 +306,7 @@ maybeDescribe('job semantic checkpoints', () => {
           cumulativeRuntimeMs: 14_000,
         },
       }),
-    ).rejects.toThrow('is not an immutable artifact in this job run');
+    ).rejects.toThrow('is not an immutable artifact in this job');
 
     await expect(
       repository.appendCheckpoint({
@@ -333,7 +332,6 @@ maybeDescribe('job semantic checkpoints', () => {
         appId: 'default',
         agentId,
         jobId,
-        runId,
       }),
     ).rejects.toThrow('failed hash verification');
   });

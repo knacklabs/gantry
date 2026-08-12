@@ -8,7 +8,7 @@ import type {
   JobSemanticCheckpointRepository,
 } from '../../../../domain/ports/job-semantic-checkpoints.js';
 import { JOB_SEMANTIC_CHECKPOINT_MILESTONES } from '../../../../domain/ports/job-semantic-checkpoints.js';
-import { jobRunArtifactScope } from '../../../../domain/ports/job-semantic-checkpoints.js';
+import { jobArtifactScope } from '../../../../domain/ports/job-semantic-checkpoints.js';
 import { stableSha256Json } from '../../../../shared/stable-hash.js';
 import { nowIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
@@ -116,7 +116,6 @@ export class PostgresJobSemanticCheckpointRepository implements JobSemanticCheck
           checkpoint.appId === input.appId &&
           checkpoint.agentId === input.agentId &&
           checkpoint.jobId === input.jobId &&
-          checkpoint.runId === input.runId &&
           checkpoint.milestone === input.milestone &&
           stableSha256Json(checkpoint.payload) === stableSha256Json(payload)
         ) {
@@ -131,7 +130,13 @@ export class PostgresJobSemanticCheckpointRepository implements JobSemanticCheck
       const latestRows = await tx
         .select()
         .from(pgSchema.jobSemanticCheckpointsPostgres)
-        .where(eq(pgSchema.jobSemanticCheckpointsPostgres.runId, input.runId))
+        .where(
+          and(
+            eq(pgSchema.jobSemanticCheckpointsPostgres.appId, input.appId),
+            eq(pgSchema.jobSemanticCheckpointsPostgres.agentId, input.agentId),
+            eq(pgSchema.jobSemanticCheckpointsPostgres.jobId, input.jobId),
+          ),
+        )
         .orderBy(desc(pgSchema.jobSemanticCheckpointsPostgres.sequence))
         .limit(1);
       const latestSequence = latestRows[0]?.sequence ?? 0;
@@ -143,7 +148,6 @@ export class PostgresJobSemanticCheckpointRepository implements JobSemanticCheck
         appId: input.appId,
         agentId: input.agentId,
         jobId: input.jobId,
-        runId: input.runId,
         payload,
       });
 
@@ -185,12 +189,11 @@ export class PostgresJobSemanticCheckpointRepository implements JobSemanticCheck
     appId: string;
     agentId: string;
     jobId: string;
-    runId: string;
   }): Promise<JobSemanticCheckpoint | null> {
     const rows = await this.db
       .select()
       .from(pgSchema.jobSemanticCheckpointsPostgres)
-      .where(scopeClause(input))
+      .where(jobScopeClause(input))
       .orderBy(desc(pgSchema.jobSemanticCheckpointsPostgres.sequence))
       .limit(1);
     return rows[0] ? toCheckpoint(rows[0]) : null;
@@ -200,7 +203,6 @@ export class PostgresJobSemanticCheckpointRepository implements JobSemanticCheck
     appId: string;
     agentId: string;
     jobId: string;
-    runId: string;
     sequence: number;
   }): Promise<JobSemanticCheckpoint | null> {
     const rows = await this.db
@@ -208,7 +210,7 @@ export class PostgresJobSemanticCheckpointRepository implements JobSemanticCheck
       .from(pgSchema.jobSemanticCheckpointsPostgres)
       .where(
         and(
-          scopeClause(input),
+          jobScopeClause(input),
           eq(pgSchema.jobSemanticCheckpointsPostgres.sequence, input.sequence),
         ),
       )
@@ -217,17 +219,15 @@ export class PostgresJobSemanticCheckpointRepository implements JobSemanticCheck
   }
 }
 
-function scopeClause(input: {
+function jobScopeClause(input: {
   appId: string;
   agentId: string;
   jobId: string;
-  runId: string;
 }) {
   return and(
     eq(pgSchema.jobSemanticCheckpointsPostgres.appId, input.appId),
     eq(pgSchema.jobSemanticCheckpointsPostgres.agentId, input.agentId),
     eq(pgSchema.jobSemanticCheckpointsPostgres.jobId, input.jobId),
-    eq(pgSchema.jobSemanticCheckpointsPostgres.runId, input.runId),
   );
 }
 
@@ -314,7 +314,6 @@ async function assertArtifactScope(
     appId: string;
     agentId: string;
     jobId: string;
-    runId: string;
     payload: JobSemanticCheckpointPayload;
   },
 ) {
@@ -325,7 +324,7 @@ async function assertArtifactScope(
     .from(pgSchema.fileArtifactsPostgres)
     .where(inArray(pgSchema.fileArtifactsPostgres.id, ids));
   const byId = new Map(rows.map((row) => [row.id, row]));
-  const expectedScope = jobRunArtifactScope(input.jobId, input.runId);
+  const expectedScope = jobArtifactScope(input.jobId);
   for (const reference of input.payload.artifactRefs) {
     const row = byId.get(reference.artifactId);
     if (
@@ -337,7 +336,7 @@ async function assertArtifactScope(
       row.contentHash !== reference.contentHash
     ) {
       throw new InvalidJobSemanticCheckpointError(
-        `Artifact ${reference.artifactId} is not an immutable artifact in this job run.`,
+        `Artifact ${reference.artifactId} is not an immutable artifact in this job.`,
       );
     }
   }
