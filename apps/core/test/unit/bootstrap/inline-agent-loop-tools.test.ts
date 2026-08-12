@@ -1249,8 +1249,10 @@ describe('inline core tool bootstrap', () => {
 
   it.each([
     ['ask', 'mcp__crm__read'],
-    ['auto', 'mcp__gantry__request_access'],
-    ['auto_strict', 'mcp__gantry__request_access'],
+    // request_access moved to input-gated birthright (0123); tool_consent
+    // stays on the ladder (0052) and keeps this test's intent.
+    ['auto', 'mcp__gantry__tool_consent'],
+    ['auto_strict', 'mcp__gantry__tool_consent'],
   ] as const)(
     'does not consult in mode %s for ineligible/non-auto tool %s',
     async (permissionMode, toolName) => {
