@@ -47,6 +47,7 @@ import { formatPermissionDeniedMessage } from '../../../../shared/permission-dec
 import { isHostAuthorizedMcpProxyDispatcherFullName } from '../../../../shared/admin-mcp-tools.js';
 import { attributedSkillActionRules } from './protected-capability-hook.js';
 import { semanticCapabilityRule } from '../../../../shared/semantic-capability-ids.js';
+import { semanticCapabilityRuntimeRules } from '../../../../shared/semantic-capabilities.js';
 type ApprovalInput = Parameters<typeof requestPermissionApproval>[0];
 const WORKSPACE_FOLDER_KEY = WORKSPACE_FOLDER_OPTION_KEY as keyof ApprovalInput;
 const RAW_REQ = /^(Agent|AskUserQuestion|TodoWrite)$/;
@@ -131,9 +132,28 @@ export function createCanUseToolCallback(
     }),
     ...liveApprovedRules,
   ];
-  const selectedReviewedSkillActionAliases = skillActionCapabilities
-    .map((capability) => semanticCapabilityRule(capability.capabilityId))
-    .filter((rule) => input.agentInput.allowedTools?.includes(rule));
+  const selectedSemanticCapabilityIds = new Set(
+    input.agentInput.semanticCapabilities?.map(
+      (capability) => capability.capabilityId,
+    ) ?? [],
+  );
+  const configuredAllowedToolRuleSet = new Set(
+    input.agentInput.allowedTools ?? [],
+  );
+  const selectedReviewedSkillActionRules = skillActionCapabilities.flatMap(
+    (capability) => {
+      const alias = semanticCapabilityRule(capability.capabilityId);
+      const runtimeRules = semanticCapabilityRuntimeRules(capability);
+      const selectedByAlias = configuredAllowedToolRuleSet.has(alias);
+      const selectedByHostDefinition =
+        selectedSemanticCapabilityIds.has(capability.capabilityId) &&
+        runtimeRules.length > 0 &&
+        runtimeRules.every((rule) => configuredAllowedToolRuleSet.has(rule));
+      return selectedByAlias || selectedByHostDefinition
+        ? [alias, ...runtimeRules]
+        : [];
+    },
+  );
   const currentAttributedAutonomousToolRules = (): string[] => {
     // A configured tool rule is not normally standing worker authority. The
     // narrow exception here requires both halves of the reviewed skill-action
@@ -142,7 +162,7 @@ export function createCanUseToolCallback(
     // arbitrary configured command or an unselected action.
     const liveRules = [
       ...currentAutonomousAllowedToolRules(),
-      ...selectedReviewedSkillActionAliases,
+      ...selectedReviewedSkillActionRules,
     ];
     return attributedSkillActionRules(liveRules, skillActionCapabilities);
   };
