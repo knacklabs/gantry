@@ -12,6 +12,7 @@ import type {
   RuntimeSummaryResponse,
 } from '@gantry/contracts';
 import { createAgentAdminClient } from './agents.js';
+import { createActivityClient } from './activity.js';
 import { createAgentSkillsClient, createSkillsClient } from './skills.js';
 import { createSettingsClient } from './settings.js';
 import { createSessionsClient } from './sessions.js';
@@ -268,6 +269,7 @@ export class GantryClient {
   readonly models: ReturnType<typeof createModelsClient>;
   readonly identity: ReturnType<typeof createIdentityClient>;
   readonly people: ReturnType<typeof createPeopleClient>;
+  readonly activity: ReturnType<typeof createActivityClient>;
 
   constructor(options: ClientOptions) {
     this.transport = new Transport(options);
@@ -275,6 +277,7 @@ export class GantryClient {
     this.models = createModelsClient(this.transport);
     this.identity = createIdentityClient(this.request);
     this.people = createPeopleClient(this.request);
+    this.activity = createActivityClient(this.transport);
   }
 
   health() {
@@ -395,41 +398,6 @@ export class GantryClient {
         method: 'GET',
         path: `/v1/runs/${encodeURIComponent(runId)}`,
       }),
-  };
-
-  readonly activity = {
-    list: () =>
-      this.transport.request<OpenApi.ListActivityResponse>({
-        method: 'GET',
-        path: '/v1/activity',
-      }),
-    get: (runId: string) =>
-      this.transport.request<OpenApi.GetActivityResponse>({
-        method: 'GET',
-        path: `/v1/activity/${encodeURIComponent(runId)}`,
-      }),
-    events: (
-      runId: string,
-      afterEventId?: OpenApi.ListActivityEventsQuery['afterEventId'],
-    ) =>
-      this.transport.request<OpenApi.ListActivityEventsResponse>({
-        method: 'GET',
-        path: activityEventsPath(runId, afterEventId),
-      }),
-    stream: (
-      runId: string,
-      input: OpenApi.ActivityEventStreamOptions = {},
-    ): AsyncIterable<OpenApi.ActivityInvalidation> => {
-      const events = this.transport.stream(
-        activityEventsPath(runId, input.afterEventId),
-        input.signal,
-      );
-      return (async function* () {
-        for await (const event of events) {
-          yield event.payload as OpenApi.ActivityInvalidation;
-        }
-      })();
-    },
   };
 
   readonly usage = {
@@ -718,9 +686,6 @@ export class GantryClient {
   };
 }
 
-function activityEventsPath(runId: string, afterEventId?: number): string {
-  return `/v1/activity/${encodeURIComponent(runId)}/events${afterEventId ? `?afterEventId=${afterEventId}` : ''}`;
-}
 export const createClient = (options: ClientOptions) =>
   new GantryClient(options);
 

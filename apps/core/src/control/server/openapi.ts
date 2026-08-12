@@ -9,6 +9,7 @@ import {
   openApiResponseSchemas,
 } from './openapi-operation-schemas.js';
 import { coreOpenApiRouteDocs } from './openapi-routes-core.js';
+import { activityOpenApiRouteDocs } from './openapi-activity.js';
 import { extendedOpenApiRouteDocs } from './openapi-routes-extended.js';
 import { adminOpenApiSchemas } from './openapi-schemas-admin.js';
 import { automationOpenApiSchemas } from './openapi-schemas-automation.js';
@@ -19,6 +20,7 @@ import { openApiSchemas } from './openapi-schemas.js';
 
 const routeDocs: RouteDoc[] = [
   ...coreOpenApiRouteDocs,
+  ...activityOpenApiRouteDocs,
   ...extendedOpenApiRouteDocs,
 ];
 
