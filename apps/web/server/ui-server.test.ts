@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,6 +17,9 @@ const sdk = vi.hoisted(() => ({
   getAgentAccess: vi.fn(),
   listJobs: vi.fn(),
   getMetrics: vi.fn(),
+  listActivity: vi.fn(),
+  getActivity: vi.fn(),
+  streamActivity: vi.fn(),
 }));
 
 vi.mock('@gantry/sdk', () => ({ createClient: sdk.createClient }));
@@ -61,6 +65,9 @@ beforeEach(() => {
   sdk.getAgentAccess.mockReset();
   sdk.listJobs.mockReset();
   sdk.getMetrics.mockReset();
+  sdk.listActivity.mockReset();
+  sdk.getActivity.mockReset();
+  sdk.streamActivity.mockReset();
   sdk.createClient.mockReturnValue({
     health: sdk.health,
     getRuntimeSummary: sdk.getRuntimeSummary,
@@ -74,8 +81,53 @@ beforeEach(() => {
     },
     jobs: { list: sdk.listJobs },
     metrics: { get: sdk.getMetrics },
+    activity: {
+      list: sdk.listActivity,
+      get: sdk.getActivity,
+      stream: sdk.streamActivity,
+    },
   });
 });
+
+function streamRequest(url: string) {
+  const request = new EventEmitter() as EventEmitter & {
+    method: string;
+    url: string;
+    destroyed: boolean;
+  };
+  request.method = 'GET';
+  request.url = url;
+  request.destroyed = false;
+  return request;
+}
+
+function streamResponse() {
+  const response = new EventEmitter() as EventEmitter & {
+    destroyed: boolean;
+    writableEnded: boolean;
+    writeHead: (status: number) => void;
+    write: (chunk: string) => boolean;
+    end: (chunk?: string) => void;
+    result: () => { status: number; text: string };
+  };
+  let status = 200;
+  let body = '';
+  response.destroyed = false;
+  response.writableEnded = false;
+  response.writeHead = (nextStatus) => {
+    status = nextStatus;
+  };
+  response.write = (chunk) => {
+    body += chunk;
+    return true;
+  };
+  response.end = (chunk) => {
+    body += chunk ?? '';
+    response.writableEnded = true;
+  };
+  response.result = () => ({ status, text: body });
+  return response;
+}
 
 it('caches successful metrics requests and shares concurrent fetches', async () => {
   vi.useFakeTimers();
@@ -171,6 +223,194 @@ it('caches successful metrics requests and shares concurrent fetches', async () 
   expect((await request(handler, '/ui/api/metrics?range=7d')).status).toBe(503);
   expect((await request(handler, '/ui/api/metrics?range=7d')).status).toBe(503);
   expect(sdk.getMetrics).toHaveBeenCalledTimes(4);
+});
+
+it('ui-server-activity-contract', async () => {
+  const run = {
+    id: 'run:one',
+    agentId: 'agent:one',
+    cause: 'message',
+    status: 'running',
+    createdAt: '2026-08-12T10:00:00.000Z',
+    startedAt: '2026-08-12T10:00:01.000Z',
+    endedAt: null,
+    durationMs: 1_000,
+    resultSummary: null,
+    errorSummary: null,
+    conversationId: 'conversation-private',
+    credential: 'upstream-secret',
+  };
+  const task = {
+    id: 'task:one',
+    agentId: 'agent:one',
+    targetAgentId: 'agent:two',
+    kind: 'delegated_agent',
+    status: 'running',
+    summary: 'Researching',
+    outputSummary: null,
+    errorSummary: null,
+    currentPhase: 'Gathering sources',
+    lastProgress: 'Found two sources',
+    lastToolSummary: null,
+    blocker: null,
+    createdAt: '2026-08-12T10:00:02.000Z',
+    updatedAt: '2026-08-12T10:00:03.000Z',
+    startedAt: '2026-08-12T10:00:02.000Z',
+    terminalAt: null,
+    durationMs: 1_000,
+    children: [],
+    authoritySnapshotJson: { credential: 'authority-private' },
+    privateCorrelationJson: { conversationId: 'conversation-private' },
+    logs: ['log-private'],
+  };
+  sdk.listActivity.mockResolvedValue({
+    runs: [run],
+    rawEvents: [{ payload: 'raw-private' }],
+  });
+  sdk.getActivity.mockResolvedValue({
+    run,
+    tasks: [{ ...task, children: [{ ...task, id: 'task:child' }] }],
+    taskTotal: 2,
+    truncated: false,
+    provider: 'provider-private',
+  });
+  sdk.streamActivity.mockImplementation(async function* () {
+    yield {
+      eventId: 7,
+      type: 'agent.run.updated',
+      createdAt: '2026-08-12T10:00:04.000Z',
+      payload: 'raw-private',
+      correlationId: 'correlation-private',
+    };
+  });
+
+  const handler = createUiHandler({
+    distRoot: '/missing',
+    env: {
+      GANTRY_CONTROL_API_KEY: 'server-secret',
+      GANTRY_CONTROL_BASE_URL: 'http://control.internal',
+    },
+  });
+  const list = await request(handler, '/ui/api/activity');
+  const detail = await request(handler, '/ui/api/activity/run%3Aone');
+  const streamReq = streamRequest(
+    '/ui/api/activity/run%3Aone/events?afterEventId=6',
+  );
+  const streamRes = streamResponse();
+  await handler(streamReq, streamRes);
+
+  expect(JSON.parse(list.text)).toEqual({
+    runs: [
+      {
+        id: 'run:one',
+        agentId: 'agent:one',
+        cause: 'message',
+        status: 'running',
+        createdAt: '2026-08-12T10:00:00.000Z',
+        startedAt: '2026-08-12T10:00:01.000Z',
+        endedAt: null,
+        durationMs: 1_000,
+        resultSummary: null,
+        errorSummary: null,
+      },
+    ],
+  });
+  expect(JSON.parse(detail.text)).toEqual({
+    run: JSON.parse(list.text).runs[0],
+    tasks: [
+      {
+        id: 'task:one',
+        agentId: 'agent:one',
+        targetAgentId: 'agent:two',
+        kind: 'delegated_agent',
+        status: 'running',
+        summary: 'Researching',
+        outputSummary: null,
+        errorSummary: null,
+        currentPhase: 'Gathering sources',
+        lastProgress: 'Found two sources',
+        lastToolSummary: null,
+        blocker: null,
+        createdAt: '2026-08-12T10:00:02.000Z',
+        updatedAt: '2026-08-12T10:00:03.000Z',
+        startedAt: '2026-08-12T10:00:02.000Z',
+        terminalAt: null,
+        durationMs: 1_000,
+        children: [expect.objectContaining({ id: 'task:child', children: [] })],
+      },
+    ],
+    taskTotal: 2,
+    truncated: false,
+  });
+  expect(streamRes.result()).toEqual({
+    status: 200,
+    text: 'data: {"eventId":7,"type":"agent.run.updated","createdAt":"2026-08-12T10:00:04.000Z"}\n\n',
+  });
+  expect(sdk.getActivity).toHaveBeenCalledWith('run:one');
+  expect(sdk.streamActivity).toHaveBeenCalledWith('run:one', {
+    afterEventId: 6,
+    signal: expect.any(AbortSignal),
+  });
+  expect(sdk.streamActivity.mock.calls[0][1].signal.aborted).toBe(true);
+  expect(list.text + detail.text + streamRes.result().text).not.toMatch(
+    /server-secret|upstream-secret|conversation-private|authority-private|log-private|raw-private|correlation-private|provider-private/,
+  );
+
+  sdk.getActivity.mockRejectedValue(new Error('server-secret failed'));
+  const failure = await request(handler, '/ui/api/activity/run%3Atwo');
+  expect(failure.status).toBe(503);
+  expect(JSON.parse(failure.text)).toMatchObject({
+    error: { code: 'CONTROL_API_UNAVAILABLE', retryable: true },
+  });
+  expect(failure.text).not.toContain('server-secret');
+
+  const invalid = await request(
+    handler,
+    '/ui/api/activity/run%3Aone/events?afterEventId=-1',
+  );
+  expect(invalid.status).toBe(400);
+  expect(JSON.parse(invalid.text)).toMatchObject({
+    error: { code: 'INVALID_ACTIVITY_CURSOR', retryable: false },
+  });
+
+  let disconnectSignal: AbortSignal | undefined;
+  sdk.streamActivity.mockImplementation((_runId, input) => {
+    disconnectSignal = input.signal;
+    return {
+      [Symbol.asyncIterator]: () => ({
+        next: () =>
+          new Promise<IteratorResult<never>>((resolve) =>
+            input.signal.addEventListener(
+              'abort',
+              () => resolve({ done: true, value: undefined as never }),
+              { once: true },
+            ),
+          ),
+      }),
+    };
+  });
+  const disconnectReq = streamRequest('/ui/api/activity/run%3Aone/events');
+  const disconnectRes = streamResponse();
+  const disconnected = handler(disconnectReq, disconnectRes);
+  await vi.waitFor(() => expect(disconnectSignal).toBeDefined());
+  disconnectRes.destroyed = true;
+  disconnectRes.emit('close');
+  await disconnected;
+  expect(disconnectSignal?.aborted).toBe(true);
+
+  let failureSignal: AbortSignal | undefined;
+  sdk.streamActivity.mockImplementation((_runId, input) => {
+    failureSignal = input.signal;
+    return {
+      [Symbol.asyncIterator]: () => ({
+        next: () => Promise.reject(new Error('upstream stream failed')),
+      }),
+    };
+  });
+  const failedRes = streamResponse();
+  await handler(streamRequest('/ui/api/activity/run%3Aone/events'), failedRes);
+  expect(failureSignal?.aborted).toBe(true);
+  expect(failedRes.writableEnded).toBe(true);
 });
 
 it('ui-server-api-contract', async () => {
