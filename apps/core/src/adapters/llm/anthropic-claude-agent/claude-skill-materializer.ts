@@ -229,6 +229,7 @@ export async function materializeClaudeSkills(input: {
     } else {
       continue;
     }
+    linkRuntimeNodeModules(targetDir);
     makeReviewedActionEntrypointsExecutable({
       targetDir,
       targetName,
@@ -237,6 +238,29 @@ export async function materializeClaudeSkills(input: {
     materialized.push({ ...skill, materializedName: targetName });
   }
   return materialized;
+}
+
+/**
+ * Skill action files are materialized into an isolated directory.  When a
+ * skill ships a package.json, Node's ESM resolver starts at that directory and
+ * cannot see Gantry's application dependencies, even though those packages
+ * are already installed in the runtime image.  Link the runtime dependency
+ * tree only for package-backed skills; this keeps the artifact immutable while
+ * allowing reviewed skill entrypoints to use the dependencies declared by the
+ * skill (for example @aws-sdk/client-s3 and playwright-core).
+ */
+function linkRuntimeNodeModules(targetDir: string): void {
+  const packageJson = path.join(targetDir, 'package.json');
+  if (!fs.existsSync(packageJson)) return;
+  const runtimeNodeModules =
+    process.env.GANTRY_SKILL_NODE_MODULES_DIR?.trim() ||
+    path.join(process.cwd(), 'node_modules');
+  if (!fs.existsSync(runtimeNodeModules)) return;
+  const target = path.join(targetDir, 'node_modules');
+  if (fs.existsSync(target) || fs.lstatSync(target, { throwIfNoEntry: false })) {
+    return;
+  }
+  fs.symlinkSync(runtimeNodeModules, target, 'dir');
 }
 
 function makeReviewedActionEntrypointsExecutable(input: {

@@ -344,6 +344,20 @@ export function createCanUseToolCallback(
       approvalToolInput,
       input.agentInput.toolNetworkEnv ?? {},
     );
+    // The reviewed skill action already runs inside Gantry's enforcing outer
+    // sandbox. Claude's nested Bash sandbox starts a socat/bwrap bridge and
+    // fails under that outer seccomp boundary. Disable only this redundant
+    // inner layer for an exact, reviewed scheduled skill action; ordinary Bash
+    // and interactive commands retain the SDK sandbox.
+    if (
+      reviewedScheduledSkillAction &&
+      (toolName === 'Bash' || toolName === 'RunCommand')
+    ) {
+      trustedInput.toolInput = {
+        ...trustedInput.toolInput,
+        dangerouslyDisableSandbox: true,
+      };
+    }
     const trustInput = () => trustedInput.toolInput;
     const requestPermissionApprovalWithTrustProvenance = (
       approvalInput: ApprovalInput,
