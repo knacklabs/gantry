@@ -218,6 +218,58 @@ describe('Claude config materializer', () => {
     expect(fs.existsSync(path.join(skillsDir, 'invalid'))).toBe(false);
   });
 
+  it('makes only reviewed skill action entrypoints executable', async () => {
+    const skillsDir = path.join(tempRoot, 'skills');
+    await materializeClaudeSkills({
+      skillsDir,
+      skillSource: {
+        listSkills: async () => [
+          {
+            id: 'skill:ats-source-sync',
+            name: 'ATS_Skills',
+            enabled: true,
+            assets: [
+              { path: 'SKILL.md', content: Buffer.from('# ATS Skills') },
+              {
+                path: 'scripts/cutshort-source-sync.mjs',
+                content: Buffer.from('#!/usr/bin/env node\n'),
+              },
+              {
+                path: 'scripts/context.md',
+                content: Buffer.from('not executable'),
+              },
+            ],
+            actionPermissions: [
+              {
+                id: 'cutshort',
+                capabilityId: 'skill.ats-source-sync.cutshort',
+                displayName: 'Cutshort source sync',
+                risk: 'write',
+                can: 'Run the reviewed Cutshort source sync worker.',
+                cannot: 'Run arbitrary commands.',
+                requiredEnvVars: [],
+                commandTemplates: [
+                  'skills/ATS_Skills/scripts/cutshort-source-sync.mjs sync',
+                ],
+                networkHosts: [],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const script = path.join(
+      skillsDir,
+      'ATS_Skills',
+      'scripts',
+      'cutshort-source-sync.mjs',
+    );
+    const context = path.join(skillsDir, 'ATS_Skills', 'scripts', 'context.md');
+    expect(fs.statSync(script).mode & 0o777).toBe(0o700);
+    expect(fs.statSync(context).mode & 0o777).toBe(0o600);
+  });
+
   it('rejects enabled skills that collide with Claude-native skill names', async () => {
     const skillsDir = path.join(tempRoot, 'skills');
     await expect(

@@ -229,9 +229,39 @@ export async function materializeClaudeSkills(input: {
     } else {
       continue;
     }
+    makeReviewedActionEntrypointsExecutable({
+      targetDir,
+      targetName,
+      actionPermissions: skill.actionPermissions ?? [],
+    });
     materialized.push({ ...skill, materializedName: targetName });
   }
   return materialized;
+}
+
+function makeReviewedActionEntrypointsExecutable(input: {
+  targetDir: string;
+  targetName: string;
+  actionPermissions: readonly SkillActionPermission[];
+}): void {
+  const materializedPrefix = `skills/${input.targetName}/`;
+  const root = path.resolve(input.targetDir);
+  for (const action of input.actionPermissions) {
+    for (const template of action.commandTemplates) {
+      const commandPath = template
+        .trim()
+        .split(/\s+/, 1)[0]
+        ?.replace(/^\.\//, '');
+      if (!commandPath?.startsWith(materializedPrefix)) continue;
+      const relativePath = normalizeSkillAssetPath(
+        commandPath.slice(materializedPrefix.length),
+      );
+      const entrypoint = path.resolve(root, relativePath);
+      if (!entrypoint.startsWith(`${root}${path.sep}`)) continue;
+      const stat = fs.statSync(entrypoint, { throwIfNoEntry: false });
+      if (stat?.isFile()) fs.chmodSync(entrypoint, 0o700);
+    }
+  }
 }
 
 function isValidAssetSkill(
