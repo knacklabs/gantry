@@ -327,12 +327,36 @@ export function createCanUseToolCallback(
         };
       }
     }
+    const toolExecutionRequest = buildAgentToolExecutionRequest(
+      toolExecutionClassifier,
+      toolName,
+      toolInput,
+      {
+        isScheduledJob: input.agentInput.isScheduledJob,
+        jobId: input.agentInput.jobId,
+        threadId: input.agentInput.threadId,
+        conversationId: input.agentInput.chatJid,
+      },
+    );
+    const reviewedScheduledSkillAction =
+      input.agentInput.isScheduledJob &&
+      toolExecutionPolicy.evaluate({
+        request: toolExecutionRequest,
+        autonomousAllowedToolRules: currentAttributedAutonomousToolRules(),
+        semanticCapabilityDefinitions: Object.fromEntries(
+          skillActionCapabilities.map((capability) => [
+            capability.capabilityId,
+            capability,
+          ]),
+        ),
+        capabilityRequestToolsHidden,
+      }).status === 'allow';
     const protectedCapabilityDenial = denyProtectedCapabilityToolUse(
       toolName,
       toolInput,
       permissionOpts,
     );
-    if (protectedCapabilityDenial) {
+    if (protectedCapabilityDenial && !reviewedScheduledSkillAction) {
       log(
         `Permission denied by protected capability guard: ${protectedCapabilityDenial}`,
       );
@@ -412,18 +436,6 @@ export function createCanUseToolCallback(
     ) {
       return allowToolUse('host resolves and authorizes the MCP target');
     }
-
-    const toolExecutionRequest = buildAgentToolExecutionRequest(
-      toolExecutionClassifier,
-      toolName,
-      toolInput,
-      {
-        isScheduledJob: input.agentInput.isScheduledJob,
-        jobId: input.agentInput.jobId,
-        threadId: input.agentInput.threadId,
-        conversationId: input.agentInput.chatJid,
-      },
-    );
 
     if (input.agentInput.isScheduledJob) {
       const toolDecision = toolExecutionPolicy.evaluate({
