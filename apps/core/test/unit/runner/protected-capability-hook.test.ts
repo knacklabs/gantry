@@ -155,7 +155,7 @@ describe('protected capability SDK hook', () => {
     }
   });
 
-  it('uses preflight-verified capability requirements when runtime access attribution is absent', async () => {
+  it('attributes host-projected concrete rules to their reviewed skill action', async () => {
     const { command, root } = materializedAtsCommand();
     const concreteRule =
       'RunCommand(skills/ATS_Skills/scripts/cutshort-worker.mjs sync)';
@@ -166,10 +166,6 @@ describe('protected capability SDK hook', () => {
         isScheduledJob: true,
         jobId: 'job-ats-source-sync',
         allowedToolRules: [concreteRule],
-        toolAccessRequirements: [
-          'Browser',
-          'capability:skill.ats-source-sync.cutshort',
-        ],
         semanticCapabilities: [
           {
             capabilityId: 'skill.ats-source-sync.cutshort',
@@ -219,24 +215,6 @@ describe('protected capability SDK hook', () => {
         isScheduledJob: true,
         jobId: 'job-ats-source-sync',
         allowedToolRules: [concreteRule],
-        semanticCapabilities: [
-          {
-            capabilityId: 'skill.ats-source-sync.cutshort',
-            displayName: 'Sync Cutshort',
-            category: 'ATS_Skills',
-            risk: 'write',
-            can: 'run the reviewed Cutshort sync worker',
-            cannot: 'run other commands',
-            credentialSource: 'skill_secret',
-            implementationBindings: [{ kind: 'tool_rule', rule: concreteRule }],
-            source: {
-              kind: 'skill_action',
-              skillId: 'skill-ats',
-              skillName: 'ATS_Skills',
-              actionId: 'cutshort-sync',
-            },
-          },
-        ],
       },
     );
 

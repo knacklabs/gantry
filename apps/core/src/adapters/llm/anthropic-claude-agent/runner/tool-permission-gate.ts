@@ -45,6 +45,7 @@ import { denyNonPromptableAutonomousRecovery } from './autonomous-permission-rec
 import { evaluateYoloModeDenylist } from '../../../../shared/yolo-mode-policy.js';
 import { formatPermissionDeniedMessage } from '../../../../shared/permission-decision-message.js';
 import { isHostAuthorizedMcpProxyDispatcherFullName } from '../../../../shared/admin-mcp-tools.js';
+import { attributedSkillActionRules } from './protected-capability-hook.js';
 type ApprovalInput = Parameters<typeof requestPermissionApproval>[0];
 const WORKSPACE_FOLDER_KEY = WORKSPACE_FOLDER_OPTION_KEY as keyof ApprovalInput;
 const RAW_REQ = /^(Agent|AskUserQuestion|TodoWrite)$/;
@@ -129,6 +130,10 @@ export function createCanUseToolCallback(
     }),
     ...liveApprovedRules,
   ];
+  const currentAttributedAutonomousToolRules = (): string[] => {
+    const liveRules = currentAutonomousAllowedToolRules();
+    return attributedSkillActionRules(liveRules, skillActionCapabilities);
+  };
   const lockedAccessPreset = input.capabilities.permissionMode === 'deny';
   // Locked-preset and fixed-image agents run without the capability request
   // tools; recovery guidance must say "provision before the run" instead of
@@ -397,7 +402,13 @@ export function createCanUseToolCallback(
     if (input.agentInput.isScheduledJob) {
       const toolDecision = toolExecutionPolicy.evaluate({
         request: toolExecutionRequest,
-        autonomousAllowedToolRules: currentAutonomousAllowedToolRules(),
+        autonomousAllowedToolRules: currentAttributedAutonomousToolRules(),
+        semanticCapabilityDefinitions: Object.fromEntries(
+          skillActionCapabilities.map((capability) => [
+            capability.capabilityId,
+            capability,
+          ]),
+        ),
         capabilityRequestToolsHidden,
       });
       if (permissionOpts.signal.aborted) {

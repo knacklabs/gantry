@@ -1,4 +1,7 @@
 import dns from 'node:dns/promises';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -15,12 +18,16 @@ vi.mock(
 
 const { createCanUseToolCallback } =
   await import('@core/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.js');
+const { attributedSkillActionRules } =
+  await import('@core/adapters/llm/anthropic-claude-agent/runner/protected-capability-hook.js');
 const { WORKSPACE_FOLDER_OPTION_KEY } =
   await import('@core/adapters/llm/anthropic-claude-agent/runner/types.js');
 const { evaluatePermissionDeterministicRails } =
   await import('@core/domain/permission-deterministic-rails.js');
 const { stripShellCommandEnvPrefix } =
   await import('@core/runtime/ipc-shell-command-prefix.js');
+const { appendLiveToolRules } = await import('@core/shared/live-tool-rules.js');
+const GANTRY_SKILL_ACTIONS_ENV = 'GANTRY_SKILL_ACTIONS_JSON';
 
 function makePermissionOptions(overrides: Record<string, unknown> = {}) {
   return {
@@ -123,6 +130,9 @@ describe('createCanUseToolCallback', () => {
   });
 
   afterEach(() => {
+    delete process.env.GANTRY_IPC_DIR;
+    delete process.env.GANTRY_AGENT_RUN_HANDLE;
+    delete process.env[GANTRY_SKILL_ACTIONS_ENV];
     vi.restoreAllMocks();
   });
 
@@ -842,6 +852,112 @@ describe('createCanUseToolCallback', () => {
       }),
     );
     expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows a host-selected scheduled skill action at its generated runtime path', async () => {
+    const ipcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-action-ipc-'));
+    const runHandle = 'ats-source-sync-run';
+    const concreteRule =
+      'RunCommand(skills/ATS_Skills/scripts/cutshort-worker.mjs sync)';
+    process.env.GANTRY_IPC_DIR = ipcDir;
+    process.env.GANTRY_AGENT_RUN_HANDLE = runHandle;
+    appendLiveToolRules({ ipcDir, runHandle, rules: [concreteRule] });
+    process.env[GANTRY_SKILL_ACTIONS_ENV] = JSON.stringify([
+      {
+        capabilityId: 'skill.ats-source-sync.cutshort',
+        displayName: 'Synchronize Cutshort candidates',
+        category: 'ATS_Skills',
+        risk: 'write',
+        can: 'run the reviewed Cutshort sync worker',
+        cannot: 'run other commands',
+        credentialSource: 'skill_secret',
+        implementationBindings: [{ kind: 'tool_rule', rule: concreteRule }],
+        preflight: { kind: 'none' },
+        sandboxProfile: {
+          network: 'required',
+          filesystem: 'workspace_write',
+        },
+        source: {
+          kind: 'skill_action',
+          skillId: 'skill-ats',
+          skillName: 'ATS_Skills',
+          actionId: 'sync_cutshort',
+        },
+      },
+    ]);
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'default',
+        agentId: 'agent:ats-source-sync',
+        runId: 'run-ats-source-sync',
+        jobId: 'job-ats-source-sync',
+        chatJid: 'app:default:ats-source-sync-dev',
+        allowedTools: [concreteRule],
+        yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
+      } as never,
+    });
+
+    try {
+      await expect(
+        canUseTool(
+          'Bash',
+          {
+            command:
+              '/srv/reagent/home/agents/ats-source-sync/.llm-runtime/claude/skills/ATS_Skills/scripts/cutshort-worker.mjs sync',
+          },
+          makePermissionOptions() as never,
+        ),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          behavior: 'allow',
+          updatedInput: expect.objectContaining({
+            command: expect.stringContaining('cutshort-worker.mjs sync'),
+          }),
+        }),
+      );
+      expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
+    } finally {
+      fs.rmSync(ipcDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not let a skill definition add commands missing from host live rules', () => {
+    const cutshortRule =
+      'RunCommand(skills/ATS_Skills/scripts/cutshort-worker.mjs sync)';
+    const instahyreRule =
+      'RunCommand(skills/ATS_Skills/scripts/instahyre-worker.mjs sync)';
+    const capabilities = [
+      {
+        capabilityId: 'skill.ats-source-sync.combined',
+        displayName: 'Synchronize sources',
+        category: 'ATS_Skills',
+        risk: 'write',
+        can: 'run both reviewed source workers',
+        cannot: 'run other commands',
+        credentialSource: 'skill_secret',
+        implementationBindings: [
+          { kind: 'tool_rule', rule: cutshortRule },
+          { kind: 'tool_rule', rule: instahyreRule },
+        ],
+        preflight: { kind: 'none' },
+        sandboxProfile: {
+          network: 'required',
+          filesystem: 'workspace_write',
+        },
+        source: {
+          kind: 'skill_action',
+          skillId: 'skill-ats',
+          skillName: 'ATS_Skills',
+          actionId: 'sync_sources',
+        },
+      },
+    ] as never;
+
+    expect(attributedSkillActionRules([cutshortRule], capabilities)).toEqual([
+      cutshortRule,
+    ]);
   });
 
   it('offers persistent access in autonomous job prompts with suggestions', async () => {
