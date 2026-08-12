@@ -9,6 +9,9 @@ const ref = (name: string): JsonSchema => ({
 });
 
 export const openApiResponseSchemas: Record<string, JsonSchema> = {
+  completeCapabilityTask: ref('CapabilityTaskSettlementResponse'),
+  cancelCapabilityTask: ref('CapabilityTaskSettlementResponse'),
+  recoverCapabilityTask: ref('CapabilityTaskRecoveryResponse'),
   bindMcpServerToAgent: ref('AgentMcpServerBindingResponse'),
   bindSkillToAgent: ref('AgentSkillBindingResponse'),
   connectMcpServer: ref('McpServerResponse'),
@@ -133,6 +136,9 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
 };
 
 export const openApiRequestSchemas: Record<string, JsonSchema> = {
+  completeCapabilityTask: ref('CapabilityTaskCompleteRequest'),
+  cancelCapabilityTask: ref('CapabilityTaskCancelRequest'),
+  recoverCapabilityTask: ref('CapabilityTaskRecoverRequest'),
   bindMcpServerToAgent: ref('AgentMcpServerBindingRequest'),
   bindSkillToAgent: ref('AgentSkillBindingRequest'),
   connectMcpServer: ref('McpServerRequest'),

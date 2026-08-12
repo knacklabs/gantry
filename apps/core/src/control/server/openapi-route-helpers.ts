@@ -47,6 +47,7 @@ export const ids = {
   agent: id('agentId', 'Agent id.'),
   alias: id('aliasId', 'Person alias id.'),
   capability: id('capabilityId', 'Capability id.'),
+  capabilityTask: id('taskId', 'Durable external capability task id.'),
   conversation: id('conversationId', 'Conversation id.'),
   file: id('filePath', 'Skill-relative file path.'),
   ingress: id('ingressId', 'Ingress id.'),

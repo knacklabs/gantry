@@ -75,6 +75,8 @@ interface McpToolCallInput {
   serverName: string;
   toolName: string;
   arguments?: Record<string, unknown>;
+  /** Host-only fields may be sent after authority is checked against model arguments. */
+  authorizationArguments?: Record<string, unknown>;
   timeoutMs?: number;
   signal?: AbortSignal;
 }
@@ -453,7 +455,12 @@ export class McpToolProxy {
     };
     let toolReturned = false;
     try {
-      const reviewed = await this.resolveReviewedTool(input, finalize);
+      const reviewed = await this.resolveReviewedTool(
+        input.authorizationArguments
+          ? { ...input, arguments: input.authorizationArguments }
+          : input,
+        finalize,
+      );
       const { capability } = reviewed;
       selectedToolRule = reviewed.selectedToolRule;
       selectedCapability = reviewed.selectedCapability;

@@ -16,6 +16,7 @@ import {
 } from './execution-diagnostics.js';
 import { notifyJobSetupRequired } from './execution-readiness.js';
 import type { SchedulerDependencies } from './types.js';
+import type { AsyncTaskRecord } from '../domain/ports/async-tasks.js';
 
 const MAX_RETRY_BACKOFF_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -45,6 +46,7 @@ export async function finalizeSchedulerJobRun(input: {
   error: string | null;
   diagnostics: JobRunDiagnostics;
   pausedForSetupDuringRun: boolean;
+  externalWaitTask?: AsyncTaskRecord | null;
   setupStateForSetupPause?: NonNullable<Job['setup_state']>;
   deletedDuringRun: boolean;
   runtimeAppId: string;
@@ -136,6 +138,24 @@ export async function finalizeSchedulerJobRun(input: {
 
   if (input.deletedDuringRun) {
     nextRun = null;
+  } else if (input.externalWaitTask) {
+    runStatus = 'paused';
+    const resultAlreadyCommitted =
+      input.externalWaitTask.status === 'completed';
+    nextRun = resultAlreadyCommitted ? input.now : null;
+    retryCount = currentJob.consecutive_failures;
+    pauseReason = resultAlreadyCommitted
+      ? `External capability task ${input.externalWaitTask.id} completed; continuation scheduled.`
+      : `Waiting for external capability task ${input.externalWaitTask.id}.`;
+    await updateJob({
+      status: resultAlreadyCommitted ? 'active' : 'paused',
+      next_run: nextRun,
+      last_run: input.now,
+      consecutive_failures: retryCount,
+      pause_reason: pauseReason,
+      lease_run_id: null,
+      lease_expires_at: null,
+    });
   } else if (input.error) {
     if (pausedForSetupDuringRun) {
       runStatus = 'failed';

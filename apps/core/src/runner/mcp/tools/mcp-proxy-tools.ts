@@ -349,6 +349,74 @@ export function registerMcpProxyTools(server: McpServer): void {
       };
     },
   );
+
+  server.tool(
+    'external_capability_call',
+    'Submit an approved durable external capability operation, checkpoint it, and suspend this scheduled job until the capability completes it.',
+    {
+      serverName: z.string().describe('Connected MCP server name'),
+      toolName: z.string().describe('Raw MCP tool name'),
+      capabilityId: z.string().describe('Versioned capability identifier'),
+      idempotencyKey: z
+        .string()
+        .describe('Stable idempotency key for this logical invocation'),
+      arguments: z.record(z.string(), z.unknown()).optional(),
+      summary: z.string().max(1000).optional(),
+    },
+    async (args) => {
+      if (!jobId || !jobRunId) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: 'This tool requires a scheduled job run.',
+            },
+          ],
+          isError: true,
+        };
+      }
+      const taskId = makeIpcId('external-capability-call');
+      writeIpcFile(TASKS_DIR, {
+        type: 'external_capability_call',
+        taskId,
+        jobId,
+        runId: jobRunId,
+        runHandle: process.env.GANTRY_AGENT_RUN_HANDLE || undefined,
+        runLeaseToken: jobRunLeaseToken,
+        runLeaseFencingVersion:
+          jobRunLeaseFencingVersion === undefined
+            ? undefined
+            : Number(jobRunLeaseFencingVersion),
+        targetJid: chatJid,
+        chatJid,
+        authThreadId: threadId,
+        payload: args,
+        timestamp: nowIso(),
+      });
+      const response = await waitForTaskResponse(taskId, MCP_PROXY_WAIT_MS);
+      if (!response?.ok) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: response?.error || 'External capability submission failed.',
+            },
+          ],
+          isError: true,
+        };
+      }
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text:
+              response.message ||
+              'External capability accepted; this job is suspending.',
+          },
+        ],
+      };
+    },
+  );
 }
 
 function modelVisibleMcpCallResult(data: unknown): CallToolResult {

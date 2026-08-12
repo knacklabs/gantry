@@ -475,6 +475,61 @@ export class GantryClient {
       }),
   };
 
+  readonly capabilityTasks = {
+    complete: (
+      taskId: string,
+      input: {
+        completionToken: string;
+        completionId: string;
+        resultRef: string;
+        summary: string;
+      },
+    ) =>
+      this.transport.request<{
+        outcome: 'completed' | 'idempotent' | 'late_ignored';
+        taskId: string;
+        status: string;
+        resumed: boolean;
+      }>({
+        method: 'POST',
+        path: `/v1/capability-tasks/${encodeURIComponent(taskId)}/complete`,
+        body: input,
+      }),
+    cancel: (
+      taskId: string,
+      input: {
+        completionToken: string;
+        cancellationId: string;
+        reason: string;
+      },
+    ) =>
+      this.transport.request<{
+        outcome: 'completed' | 'idempotent' | 'late_ignored';
+        taskId: string;
+        status: string;
+        resumed: boolean;
+      }>({
+        method: 'POST',
+        path: `/v1/capability-tasks/${encodeURIComponent(taskId)}/cancel`,
+        body: input,
+      }),
+    recover: (input: {
+      idempotencyKey: string;
+      capabilityId: string;
+      operation: string;
+    }) =>
+      this.transport.request<{
+        taskId: string;
+        completionToken: string;
+        status: 'waiting_external';
+        created: false;
+      }>({
+        method: 'POST',
+        path: '/v1/capability-tasks/recover',
+        body: input,
+      }),
+  };
+
   readonly usage = {
     query: (input: OpenApi.QueryUsageQuery) =>
       this.transport.request<OpenApi.QueryUsageResponse>({

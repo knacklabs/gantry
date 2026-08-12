@@ -37,19 +37,25 @@ export const SCHEDULER_RUN_LEASE_LOST_ERROR =
 export function createSchedulerRunLeaseAbort(): {
   signal: AbortSignal;
   error: string;
-  abort: () => void;
+  abort: (reason?: string) => void;
   isAborted: () => boolean;
   errorFor: (err: unknown) => string;
 } {
   const controller = new AbortController();
+  let error = SCHEDULER_RUN_LEASE_LOST_ERROR;
   return {
     signal: controller.signal,
-    error: SCHEDULER_RUN_LEASE_LOST_ERROR,
-    abort: () => controller.abort(new Error(SCHEDULER_RUN_LEASE_LOST_ERROR)),
+    get error() {
+      return error;
+    },
+    abort: (reason) => {
+      error = reason?.trim() || SCHEDULER_RUN_LEASE_LOST_ERROR;
+      controller.abort(new Error(error));
+    },
     isAborted: () => controller.signal.aborted,
     errorFor: (err) =>
       controller.signal.aborted
-        ? SCHEDULER_RUN_LEASE_LOST_ERROR
+        ? error
         : err instanceof Error
           ? err.message
           : String(err),

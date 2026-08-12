@@ -102,6 +102,10 @@ export const MCP_PROXY_GANTRY_MCP_TOOL_NAMES = [
   'mcp_call_tool',
 ] as const;
 
+export const EXTERNAL_CAPABILITY_GANTRY_MCP_TOOL_NAMES = [
+  'external_capability_call',
+] as const;
+
 export const ASYNC_TASK_GANTRY_MCP_TOOL_NAMES = [
   'async_run_command',
   'async_mcp_call',
@@ -148,6 +152,7 @@ export const DECISION_ACTOR_GANTRY_MCP_TOOL_NAMES = [
 export const DURABLE_GRANT_EXCLUDED_DISPATCHERS = [
   'mcp_call_tool',
   'async_mcp_call',
+  'external_capability_call',
   'async_run_command',
 ] as const;
 
@@ -159,6 +164,7 @@ export const DURABLE_GRANT_EXCLUDED_DISPATCHERS = [
 export const HOST_AUTHORIZED_MCP_PROXY_DISPATCHERS = [
   'mcp_call_tool',
   'async_mcp_call',
+  'external_capability_call',
 ] as const;
 
 // Delegation dispatchers start or steer another agent's work. An exact grant
@@ -199,6 +205,7 @@ export const ALL_GANTRY_MCP_TOOL_NAMES = [
   ...DEFAULT_GANTRY_MCP_TOOL_NAMES,
   ...ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
   ...DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
+  ...EXTERNAL_CAPABILITY_GANTRY_MCP_TOOL_NAMES,
   ...GATED_GANTRY_MCP_TOOL_NAMES,
   ...REVIEWED_GANTRY_MCP_TOOL_NAMES,
   ...ADMIN_MCP_TOOL_NAMES,

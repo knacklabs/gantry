@@ -69,6 +69,7 @@ import { handleModelRoutes } from './routes/models.js';
 import { handlePeopleRoutes } from './routes/people.js';
 import { handleOpenApiRoutes } from './routes/openapi.js';
 import { handleRunRoutes } from './routes/runs.js';
+import { handleCapabilityTaskRoutes } from './routes/capability-tasks.js';
 import { handleRuntimeEventRoutes } from './routes/runtime-events.js';
 import { handleSessionRoutes } from './routes/sessions.js';
 import { handleSettingsRoutes } from './routes/settings.js';
@@ -184,6 +185,7 @@ function createControlRequestHandler(
       if (await handleJobRoutes(req, res, ctx, url, pathname)) return;
       if (await handleExternalIngressRoutes(req, res, ctx, pathname)) return;
       if (await handleRunRoutes(req, res, ctx, url, pathname)) return;
+      if (await handleCapabilityTaskRoutes(req, res, ctx, pathname)) return;
       if (await handleRuntimeEventRoutes(req, res, ctx, url, pathname)) return;
       if (await handleUsageRoutes(req, res, ctx, url, pathname)) return;
       if (await handleSettingsRoutes(req, res, ctx, pathname)) return;

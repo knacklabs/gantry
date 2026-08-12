@@ -48,6 +48,7 @@ import {
   createSchedulerRunLeaseAbort,
   startSchedulerRunLeaseHeartbeat,
 } from './execution-lease.js';
+import { registerExternalCapabilitySuspension } from './external-capability-suspension.js';
 import { resolveExecutionContextOrDeadLetter } from './execution-dead-letter.js';
 import { runSystemJobTurn } from './execution-system-job.js';
 import { createJobExecutionDeletionGuard } from './execution-deletion-guard.js';
@@ -205,6 +206,12 @@ async function runActiveJob(
   });
   if (!leaseContext) return;
   const runLeaseAbort = createSchedulerRunLeaseAbort();
+  const unregisterExternalCapabilitySuspension =
+    registerExternalCapabilitySuspension({
+      jobId: currentJob.id,
+      runId,
+      abort: runLeaseAbort.abort,
+    });
   const leaseHeartbeat = startSchedulerRunLeaseHeartbeat({
     runId,
     leaseContext,
@@ -729,6 +736,19 @@ async function runActiveJob(
     const safeResultSummary = deletionGuard.deletedDuringRun
       ? null
       : result || resultSummaryAccumulator.snapshot() || null;
+    const asyncTaskRepository = deps.getAsyncTaskRepository?.();
+    const externalWaitTask = asyncTaskRepository
+      ? (
+          await asyncTaskRepository.listTasks({
+            appId: runtimeAppId,
+            agentId: `agent:${execution.group.folder}`,
+            kind: 'external_capability',
+            parentRunId: runId,
+            statuses: ['waiting_external', 'completed'],
+            limit: 1,
+          })
+        )[0]
+      : null;
     // prettier-ignore
     const {
       runStatus, nextRun, retryCount, pauseReason,
@@ -741,6 +761,7 @@ async function runActiveJob(
       error,
       diagnostics,
       pausedForSetupDuringRun,
+      externalWaitTask,
       setupStateForSetupPause,
       deletedDuringRun: deletionGuard.deletedDuringRun,
       runtimeAppId,
@@ -806,11 +827,12 @@ async function runActiveJob(
       );
       terminalRunRecorded = true;
     }
-    if (runLeaseAbort.isAborted())
+    if (runLeaseAbort.isAborted() && !externalWaitTask)
       await failSessionRun(deps.opsRepository, agentRunId, error);
     if (!deletionGuard.deletedDuringRun) {
       await leaseContext.recordRunnerControlEvent('terminal_state', {
-        outcome: error ? 'failed' : 'completed',
+        outcome:
+          runStatus === 'paused' ? 'paused' : error ? 'failed' : 'completed',
         fencingVersion: leaseContext.lease.fencingVersion,
       });
     }
@@ -921,6 +943,7 @@ async function runActiveJob(
       deps.onSchedulerChanged?.(currentJob.id);
     }
   } finally {
+    unregisterExternalCapabilitySuspension();
     leaseHeartbeat.stop();
     if (!terminalRunRecorded && !deletedDuringRun) {
       await completeFailedRunFailsafe({

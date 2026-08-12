@@ -250,6 +250,12 @@ describe('locked tool surface mounting', () => {
     expect(lockedNames).not.toContain('task_cancel');
     expect(lockedNames).not.toContain('delegate_task');
     expect(lockedNames).not.toContain('task_message');
+
+    expect(
+      selectedGantryMcpToolNames(['mcp__gantry__external_capability_call'], {
+        excludeAuthorityTools: true,
+      }),
+    ).toContain('external_capability_call');
   });
 
   it('registers only Gantry task tools and ignores raw DeepAgents async names', () => {

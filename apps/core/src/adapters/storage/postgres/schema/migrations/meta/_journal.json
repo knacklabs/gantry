@@ -946,6 +946,13 @@
       "when": 1786559732876,
       "tag": "20260812183532_modern_thunderbolts",
       "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1786561593356,
+      "tag": "20260812190633_mighty_korath",
+      "breakpoints": true
     }
   ]
 }

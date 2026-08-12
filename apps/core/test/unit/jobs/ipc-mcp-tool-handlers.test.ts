@@ -22,6 +22,7 @@ import { AsyncCommandTaskService } from '@core/jobs/async-command-task-service.j
 import { createAsyncMcpTask } from '@core/jobs/async-mcp-tool-task.js';
 import { readEncryptedAsyncTaskPayload } from '@core/jobs/async-task-execution-payload.js';
 import { createMcpToolHandlers } from '@core/jobs/ipc-mcp-tool-handlers.js';
+import { registerExternalCapabilitySuspension } from '@core/jobs/external-capability-suspension.js';
 import { registerAsyncCommandSandboxPolicy } from '@core/runtime/async-command-sandbox-policy.js';
 
 const runtimeHomes: string[] = [];
@@ -45,6 +46,95 @@ function asyncRuntimeDeps(repository: AsyncTaskRepository) {
   } as never;
 }
 
+describe('external capability MCP task', () => {
+  it('injects a host completion envelope and suspends the authenticated job run', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const abort = vi.fn();
+    const unregister = registerExternalCapabilitySuspension({
+      jobId: 'job-1',
+      runId: 'run-1',
+      abort,
+    });
+    const assertToolAllowed = vi.fn(async () => undefined);
+    const callTool = vi.fn(async () => ({ evaluationId: 'evaluation-1' }));
+    const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
+      vi.fn(async () => ({
+        assertToolAllowed,
+        callTool,
+        describeTool: vi.fn(),
+        listTools: vi.fn(),
+      })) as never,
+    );
+    configurePendingInteractionDurability({
+      repository: {
+        getActiveRunLease: vi.fn(async () => ({
+          runId: 'run-1',
+          leaseToken: 'lease-1',
+          fencingVersion: 1,
+        })),
+      } as never,
+    });
+
+    await externalCapabilityCallToolHandler({
+      data: {
+        type: 'external_capability_call',
+        appId: 'app:test',
+        agentId: 'agent:signed',
+        chatJid: 'sl:C123',
+        targetJid: 'sl:C123',
+        jobId: 'job-1',
+        runId: 'run-1',
+        sourceJobId: 'job-1',
+        sourceRunId: 'run-1',
+        runLeaseToken: 'lease-1',
+        runLeaseFencingVersion: 1,
+        payload: {
+          serverName: 'manipal-evaluator',
+          toolName: 'evaluation.submit',
+          capabilityId: 'manipal.website-recipe-evaluator@1',
+          idempotencyKey: 'evaluation-submit-1',
+          arguments: { candidateHash: 'candidate-hash' },
+        },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: asyncRuntimeDeps(repository),
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    const task = [...repository.tasks.values()].find(
+      (candidate) => candidate.kind === 'external_capability',
+    );
+    expect(task).toMatchObject({
+      status: 'waiting_external',
+      parentJobId: 'job-1',
+      parentRunId: 'run-1',
+      idempotencyKey: 'evaluation-submit-1',
+    });
+    expect(assertToolAllowed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        arguments: { candidateHash: 'candidate-hash' },
+      }),
+    );
+    expect(callTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorizationArguments: { candidateHash: 'candidate-hash' },
+        arguments: expect.objectContaining({
+          candidateHash: 'candidate-hash',
+          _gantryCapabilityTask: {
+            taskId: task?.id,
+            completionToken: expect.any(String),
+          },
+        }),
+      }),
+    );
+    expect(abort).toHaveBeenCalledWith(
+      `Waiting for external capability task ${task?.id}.`,
+    );
+    unregister();
+  });
+});
+
 class MemoryAsyncTaskRepository implements AsyncTaskRepository {
   readonly tasks = new Map<string, AsyncTaskRecord>();
 
@@ -63,6 +153,7 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
       admissionClass: input.admissionClass,
       authoritySnapshotJson: input.authoritySnapshotJson,
       privateCorrelationJson: input.privateCorrelationJson ?? {},
+      idempotencyKey: input.idempotencyKey ?? null,
       leaseToken: input.leaseToken,
       fencingVersion: input.fencingVersion,
       createdAt: input.now,
@@ -71,6 +162,34 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
     };
     this.tasks.set(task.id, task);
     return task;
+  }
+
+  async createTaskIdempotently(input: AsyncTaskCreateInput) {
+    const existing = input.idempotencyKey
+      ? await this.getTaskByIdempotencyKey({
+          appId: input.appId,
+          kind: input.kind,
+          idempotencyKey: input.idempotencyKey,
+        })
+      : null;
+    return existing
+      ? { task: existing, created: false }
+      : { task: await this.createTask(input), created: true };
+  }
+
+  async getTaskByIdempotencyKey(input: {
+    appId: string;
+    kind: AsyncTaskRecord['kind'];
+    idempotencyKey: string;
+  }) {
+    return (
+      [...this.tasks.values()].find(
+        (task) =>
+          task.appId === input.appId &&
+          task.kind === input.kind &&
+          task.idempotencyKey === input.idempotencyKey,
+      ) ?? null
+    );
   }
 
   async createTaskWithBacklogAdmission(

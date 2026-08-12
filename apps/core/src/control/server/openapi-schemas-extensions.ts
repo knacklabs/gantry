@@ -540,4 +540,58 @@ export const extensionOpenApiSchemas: Record<string, JsonSchema> = {
     type: 'array',
     items: metadata,
   }),
+  CapabilityTaskCompleteRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['completionToken', 'completionId', 'resultRef', 'summary'],
+    properties: {
+      completionToken: { type: 'string' },
+      completionId: { type: 'string' },
+      resultRef: { type: 'string' },
+      summary: { type: 'string' },
+    },
+  },
+  CapabilityTaskCancelRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['completionToken', 'cancellationId', 'reason'],
+    properties: {
+      completionToken: { type: 'string' },
+      cancellationId: { type: 'string' },
+      reason: { type: 'string' },
+    },
+  },
+  CapabilityTaskRecoverRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['idempotencyKey', 'capabilityId', 'operation'],
+    properties: {
+      idempotencyKey: { type: 'string' },
+      capabilityId: { type: 'string' },
+      operation: { type: 'string' },
+    },
+  },
+  CapabilityTaskSettlementResponse: {
+    type: 'object',
+    required: ['outcome', 'taskId', 'status', 'resumed'],
+    properties: {
+      outcome: {
+        type: 'string',
+        enum: ['completed', 'idempotent', 'late_ignored'],
+      },
+      taskId: { type: 'string' },
+      status: { type: 'string' },
+      resumed: { type: 'boolean' },
+    },
+  },
+  CapabilityTaskRecoveryResponse: {
+    type: 'object',
+    required: ['taskId', 'completionToken', 'status', 'created'],
+    properties: {
+      taskId: { type: 'string' },
+      completionToken: { type: 'string' },
+      status: { type: 'string', enum: ['waiting_external'] },
+      created: { type: 'boolean', const: false },
+    },
+  },
 };

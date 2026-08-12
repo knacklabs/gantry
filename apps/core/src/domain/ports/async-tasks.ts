@@ -2,12 +2,14 @@ export type AsyncTaskKind =
   | 'async_command'
   | 'delegated_agent'
   | 'mcp_tool_call'
+  | 'external_capability'
   | 'session_compaction';
 
 export type AsyncTaskStatus =
   | 'queued'
   | 'running'
   | 'needs_attention'
+  | 'waiting_external'
   | 'completed'
   | 'failed'
   | 'cancelled'
@@ -64,6 +66,7 @@ export interface AsyncTaskRecord {
   admissionClass: 'task';
   authoritySnapshotJson: Record<string, unknown>;
   privateCorrelationJson: Record<string, unknown>;
+  idempotencyKey?: string | null;
   leaseToken: string;
   fencingVersion: number;
   heartbeatAt?: string | null;
@@ -85,6 +88,7 @@ export interface PublicAsyncTaskDto {
   summary?: string | null;
   outputSummary?: string | null;
   errorSummary?: string | null;
+  resultRef?: string;
   failure?: AgentFailureMetadata;
   terminalChildren?: PublicAsyncTaskDto[];
   currentPhase?: string | null;
@@ -118,6 +122,7 @@ export interface AsyncTaskCreateInput {
   admissionClass: 'task';
   authoritySnapshotJson: Record<string, unknown>;
   privateCorrelationJson?: Record<string, unknown>;
+  idempotencyKey?: string | null;
   leaseToken: string;
   fencingVersion: number;
   summary?: string | null;
@@ -197,6 +202,15 @@ export interface AsyncTaskRepository {
   createTaskWithScopedAdmission(
     input: AsyncTaskScopedAdmissionInput,
   ): Promise<AsyncTaskScopedAdmissionResult>;
+  createTaskIdempotently(input: AsyncTaskCreateInput): Promise<{
+    task: AsyncTaskRecord;
+    created: boolean;
+  }>;
+  getTaskByIdempotencyKey(input: {
+    appId: string;
+    kind: AsyncTaskKind;
+    idempotencyKey: string;
+  }): Promise<AsyncTaskRecord | null>;
   claimQueuedTask(input: AsyncTaskClaimInput): Promise<AsyncTaskRecord | null>;
   getTask(taskId: string): Promise<AsyncTaskRecord | null>;
   listTasks(filter: AsyncTaskListFilter): Promise<AsyncTaskRecord[]>;
@@ -241,6 +255,10 @@ export function toPublicAsyncTaskDto(
     summary: task.summary,
     outputSummary: task.outputSummary,
     errorSummary: task.errorSummary,
+    ...(task.kind === 'external_capability' &&
+    typeof task.privateCorrelationJson.resultRef === 'string'
+      ? { resultRef: task.privateCorrelationJson.resultRef }
+      : {}),
     ...(failure ? { failure } : {}),
     ...(terminalChildren.length > 0 ? { terminalChildren } : {}),
     ...publicProgress(task),

@@ -24,6 +24,8 @@ import {
   mcpListToolsProxyInput,
 } from './ipc-mcp-list-tools-input.js';
 import { delegatedTaskAgentInScope } from './async-command-task-helpers.js';
+import { ExternalCapabilityTaskService } from './external-capability-task-service.js';
+import { suspendForExternalCapability } from './external-capability-suspension.js';
 type CreateMcpProxyForSourceGroup = (input: {
   appId: import('../domain/app/app.js').AppId;
   agentId: import('../domain/agent/agent.js').AgentId;
@@ -42,6 +44,7 @@ export function createMcpToolHandlers(
   mcpDescribeToolHandler: TaskHandler;
   mcpCallToolHandler: TaskHandler;
   asyncMcpCallToolHandler: TaskHandler;
+  externalCapabilityCallToolHandler: TaskHandler;
 } {
   return {
     mcpListToolsHandler: mcpListToolsHandler(createMcpProxyForSourceGroup),
@@ -53,6 +56,178 @@ export function createMcpToolHandlers(
     asyncMcpCallToolHandler: asyncMcpCallToolHandler(
       createMcpProxyForSourceGroup,
     ),
+    externalCapabilityCallToolHandler: externalCapabilityCallToolHandler(
+      createMcpProxyForSourceGroup,
+    ),
+  };
+}
+
+function externalCapabilityCallToolHandler(
+  createMcpProxyForSourceGroup: CreateMcpProxyForSourceGroup,
+): TaskHandler {
+  return async (context) => {
+    const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
+    const { acceptData, reject } = createTaskResponder(
+      sourceAgentFolder,
+      data.taskId,
+      data.authThreadId,
+      data.responseKeyId,
+    );
+    const jobId = toTrimmedString(data.jobId, { maxLen: 120 });
+    const runId = toTrimmedString(data.runId, { maxLen: 120 });
+    if (
+      !data.appId ||
+      !jobId ||
+      !runId ||
+      jobId !== data.sourceJobId ||
+      runId !== data.sourceRunId
+    ) {
+      reject(
+        'External capability calls require the authenticated scheduled job and run.',
+        'forbidden',
+      );
+      return;
+    }
+    const targetJid = validateSameChannelMcpTarget({
+      data,
+      sourceAgentFolderJids,
+      requestKind: 'External capability call',
+      reject,
+    });
+    if (!targetJid) return;
+    const routeScope = resolveMcpRouteScope(
+      context,
+      targetJid,
+      'External capability call',
+      reject,
+    );
+    if (!routeScope) return;
+    const input = mcpCallToolProxyInput(data.payload || {});
+    const payload = data.payload || {};
+    const capabilityId = toTrimmedString(payload.capabilityId, { maxLen: 512 });
+    const idempotencyKey = toTrimmedString(payload.idempotencyKey, {
+      maxLen: 512,
+    });
+    if (
+      !input.serverName ||
+      !input.toolName ||
+      input.invalidArguments ||
+      !capabilityId ||
+      !idempotencyKey
+    ) {
+      reject(
+        'serverName, toolName, capabilityId, idempotencyKey, and object arguments are required.',
+        'invalid_request',
+      );
+      return;
+    }
+    if (Object.hasOwn(input.arguments ?? {}, '_gantryCapabilityTask')) {
+      reject(
+        '_gantryCapabilityTask is reserved for Gantry.',
+        'invalid_request',
+      );
+      return;
+    }
+    const repository = deps.getAsyncTaskRepository?.();
+    if (!repository) {
+      reject(
+        'Durable external capability tasks are unavailable.',
+        'unavailable',
+      );
+      return;
+    }
+    const activeLease = await isActiveRunLeaseForInteraction({
+      runId,
+      runLeaseToken: data.runLeaseToken,
+      runLeaseFencingVersion: data.runLeaseFencingVersion,
+    });
+    if (!activeLease) {
+      reject(
+        'External capability call rejected because the run lease is no longer active.',
+        'stale_run_lease',
+      );
+      return;
+    }
+    const agentId = agentIdForMcpTask(data, sourceAgentFolder);
+    const proxy = await createMcpProxyForSourceGroup({
+      appId: data.appId as never,
+      agentId,
+      ...routeScope,
+      deps,
+      ipcDir: context.ipcBaseDir
+        ? path.join(context.ipcBaseDir, sourceAgentFolder)
+        : undefined,
+      runHandle: data.runHandle,
+      runId,
+    });
+    const args = input.arguments ?? {};
+    await proxy.assertToolAllowed({
+      appId: data.appId as never,
+      agentId,
+      ...routeScope,
+      serverName: input.serverName,
+      toolName: input.toolName,
+      arguments: args,
+    });
+    const service = new ExternalCapabilityTaskService(repository);
+    const invocationRef = `invocation:${idempotencyKey}`;
+    const acceptance = await service.accept({
+      appId: data.appId,
+      agentId,
+      conversationId: targetJid,
+      threadId: data.authThreadId || data.threadId || null,
+      jobId,
+      runId,
+      capabilityId,
+      operation: input.toolName,
+      invocationRef,
+      idempotencyKey,
+      summary: toTrimmedString(payload.summary, { maxLen: 1000 }) || undefined,
+    });
+    try {
+      if (acceptance.created) {
+        await proxy.callTool({
+          appId: data.appId as never,
+          agentId,
+          ...routeScope,
+          serverName: input.serverName,
+          toolName: input.toolName,
+          arguments: {
+            ...args,
+            _gantryCapabilityTask: {
+              taskId: acceptance.taskId,
+              completionToken: acceptance.completionToken,
+            },
+          },
+          authorizationArguments: args,
+        });
+      }
+    } catch (error) {
+      if (acceptance.completionToken) {
+        await service.cancel({
+          appId: data.appId,
+          taskId: acceptance.taskId,
+          completionToken: acceptance.completionToken,
+          cancellationId: `submit-failed:${data.taskId ?? acceptance.taskId}`,
+          reason:
+            error instanceof Error
+              ? error.message
+              : 'External capability submission failed.',
+        });
+      }
+      reject(
+        error instanceof Error
+          ? error.message
+          : 'External capability submission failed.',
+        'mcp_proxy_failed',
+      );
+      return;
+    }
+    acceptData('External capability accepted; the job is suspending.', {
+      taskId: acceptance.taskId,
+      status: acceptance.status,
+    });
+    suspendForExternalCapability({ jobId, runId, taskId: acceptance.taskId });
   };
 }
 function mcpSearchToolsHandler(

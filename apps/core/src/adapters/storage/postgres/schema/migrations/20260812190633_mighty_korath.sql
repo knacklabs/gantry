@@ -1,0 +1,2 @@
+ALTER TABLE "agent_async_tasks" ADD COLUMN "idempotency_key" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_agent_async_tasks_idempotency" ON "agent_async_tasks" USING btree ("app_id","kind","idempotency_key");

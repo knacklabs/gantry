@@ -54,6 +54,53 @@ function makeDeps(): {
 }
 
 describe('finalizeSchedulerJobRun — permission ASK on a fenced job', () => {
+  it.each([
+    ['waiting_external', 'paused', null],
+    ['completed', 'active', '2024-01-01T00:00:01.000Z'],
+  ] as const)(
+    'settles an externally suspended run when the task is %s',
+    async (taskStatus, expectedJobStatus, expectedNextRun) => {
+      const { deps, updateJob } = makeDeps();
+      const state = await finalizeSchedulerJobRun({
+        currentJob: makeJob(),
+        deps,
+        scheduledFor: '2024-01-01T00:00:00.000Z',
+        now: '2024-01-01T00:00:01.000Z',
+        error: 'Waiting for external capability task task-1.',
+        diagnostics: createJobRunDiagnostics(),
+        pausedForSetupDuringRun: false,
+        externalWaitTask: {
+          id: 'task-1',
+          appId: 'default',
+          agentId: 'agent:test',
+          kind: 'external_capability',
+          status: taskStatus,
+          admissionClass: 'task',
+          authoritySnapshotJson: {},
+          privateCorrelationJson: {},
+          leaseToken: 'task-lease',
+          fencingVersion: 1,
+          createdAt: '2024-01-01T00:00:00.000Z',
+          updatedAt: '2024-01-01T00:00:01.000Z',
+        },
+        deletedDuringRun: false,
+        runtimeAppId: 'default',
+        runId: 'run-1',
+        publishRuntimeEvent: vi.fn(async () => undefined),
+      });
+
+      expect(state.runStatus).toBe('paused');
+      expect(state.nextRun).toBe(expectedNextRun);
+      expect(updateJob).toHaveBeenCalledWith(
+        'job-1',
+        expect.objectContaining({
+          status: expectedJobStatus,
+          next_run: expectedNextRun,
+        }),
+      );
+    },
+  );
+
   it('keeps the run failed on an autonomous ungranted-tool dead-end (job still pauses for setup)', async () => {
     const { deps, updateJob } = makeDeps();
     const state = await finalizeSchedulerJobRun({

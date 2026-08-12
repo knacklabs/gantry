@@ -5,6 +5,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 import { agentsPostgres } from './agents.js';
@@ -36,6 +37,7 @@ export const agentAsyncTasksPostgres = pgTable(
     admissionClass: text('admission_class').notNull(),
     authoritySnapshotJson: jsonb('authority_snapshot_json').notNull(),
     privateCorrelationJson: jsonb('private_correlation_json').notNull(),
+    idempotencyKey: text('idempotency_key'),
     leaseToken: text('lease_token').notNull(),
     fencingVersion: integer('fencing_version').notNull().default(1),
     heartbeatAt: timestamp('heartbeat_at', {
@@ -83,6 +85,11 @@ export const agentAsyncTasksPostgres = pgTable(
     parentJobRunIdx: index('idx_agent_async_tasks_parent_job_run').on(
       table.parentJobRunId,
       table.updatedAt,
+    ),
+    idempotencyUnique: uniqueIndex('uq_agent_async_tasks_idempotency').on(
+      table.appId,
+      table.kind,
+      table.idempotencyKey,
     ),
   }),
 );

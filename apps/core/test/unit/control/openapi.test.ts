@@ -27,6 +27,7 @@ import { getGantryOpenApiDocument } from '@core/control/server/openapi.js';
 import { handleAgentRoutes } from '@core/control/server/routes/agents.js';
 import { handleBrainRoutes } from '@core/control/server/routes/brain.js';
 import { handleCapabilityCatalogRoutes } from '@core/control/server/routes/capability-catalog.js';
+import { handleCapabilityTaskRoutes } from '@core/control/server/routes/capability-tasks.js';
 import { handleCredentialRoutes } from '@core/control/server/routes/credentials.js';
 import { handleExternalIngressRoutes } from '@core/control/server/routes/external-ingress.js';
 import { handleGuidedActionRoutes } from '@core/control/server/routes/guided-actions.js';
@@ -78,6 +79,9 @@ const expectedControlRoutes = [
   'GET /v1/brain/status',
   'GET /v1/capabilities',
   'GET /v1/capabilities/{capabilityId}',
+  'POST /v1/capability-tasks/recover',
+  'POST /v1/capability-tasks/{taskId}/cancel',
+  'POST /v1/capability-tasks/{taskId}/complete',
   'GET /v1/conversations',
   'GET /v1/conversations/{conversationId}',
   'GET /v1/conversations/{conversationId}/approvers',
@@ -391,6 +395,7 @@ async function isRecognizedByRuntime(method: string, pathname: string) {
     () => handleJobRoutes(req, res, ctx, url, pathname),
     () => handleExternalIngressRoutes(req, res, ctx, pathname),
     () => handleRunRoutes(req, res, ctx, url, pathname),
+    () => handleCapabilityTaskRoutes(req, res, ctx, pathname),
     () => handleUsageRoutes(req, res, ctx, url, pathname),
     () => handleSettingsRoutes(req, res, ctx, pathname),
     () => handleSkillRoutes(req, res, ctx, url, pathname),

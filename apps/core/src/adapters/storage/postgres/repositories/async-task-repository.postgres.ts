@@ -38,6 +38,60 @@ export class PostgresAsyncTaskRepository implements AsyncTaskRepository {
     return mapRow(row);
   }
 
+  async createTaskIdempotently(input: AsyncTaskCreateInput): Promise<{
+    task: AsyncTaskRecord;
+    created: boolean;
+  }> {
+    if (!input.idempotencyKey) {
+      throw new Error('Idempotent async task creation requires a key.');
+    }
+    const idempotencyKey = input.idempotencyKey;
+    return this.db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`agent_async_task_idempotency:${input.appId}:${input.kind}:${idempotencyKey}`}))`,
+      );
+      const [existing] = await tx
+        .select()
+        .from(pgSchema.agentAsyncTasksPostgres)
+        .where(
+          and(
+            eq(pgSchema.agentAsyncTasksPostgres.appId, input.appId),
+            eq(pgSchema.agentAsyncTasksPostgres.kind, input.kind),
+            eq(pgSchema.agentAsyncTasksPostgres.idempotencyKey, idempotencyKey),
+          ),
+        )
+        .limit(1);
+      if (existing) return { task: mapRow(existing), created: false };
+      const [row] = await tx
+        .insert(pgSchema.agentAsyncTasksPostgres)
+        .values(taskInsertValues(input))
+        .returning();
+      return { task: mapRow(row!), created: true };
+    });
+  }
+
+  async getTaskByIdempotencyKey(input: {
+    appId: string;
+    kind: AsyncTaskRecord['kind'];
+    idempotencyKey: string;
+  }): Promise<AsyncTaskRecord | null> {
+    const [row] = await this.db
+      .select()
+      .from(pgSchema.agentAsyncTasksPostgres)
+      .where(
+        and(
+          eq(pgSchema.agentAsyncTasksPostgres.appId, input.appId),
+          eq(pgSchema.agentAsyncTasksPostgres.kind, input.kind),
+          eq(
+            pgSchema.agentAsyncTasksPostgres.idempotencyKey,
+            input.idempotencyKey,
+          ),
+        ),
+      )
+      .limit(1);
+    return row ? mapRow(row) : null;
+  }
+
   async createTaskWithBacklogAdmission(
     input: AsyncTaskBacklogAdmissionInput,
   ): Promise<AsyncTaskRecord | null> {
@@ -322,6 +376,7 @@ function taskInsertValues(input: AsyncTaskCreateInput) {
     admissionClass: input.admissionClass,
     authoritySnapshotJson: input.authoritySnapshotJson,
     privateCorrelationJson: input.privateCorrelationJson ?? {},
+    idempotencyKey: input.idempotencyKey ?? null,
     leaseToken: input.leaseToken,
     fencingVersion: input.fencingVersion,
     createdAt: input.now,
@@ -410,6 +465,7 @@ function mapRow(
     admissionClass: row.admissionClass as AsyncTaskRecord['admissionClass'],
     authoritySnapshotJson: objectJson(row.authoritySnapshotJson),
     privateCorrelationJson: objectJson(row.privateCorrelationJson),
+    idempotencyKey: row.idempotencyKey,
     leaseToken: row.leaseToken,
     fencingVersion: row.fencingVersion,
     heartbeatAt: row.heartbeatAt,
