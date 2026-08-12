@@ -86,6 +86,143 @@ const sessionRuntimeEventRequired = [
 ];
 
 export const controlOpenApiSchemas: Record<string, JsonSchema> = {
+  RuntimeReadiness: {
+    type: 'object',
+    required: ['status', 'checks', 'failing'],
+    additionalProperties: false,
+    properties: {
+      status: { type: 'string', enum: ['ready', 'degraded'] },
+      checks: {
+        type: 'object',
+        required: ['database', 'migrations', 'settings', 'draining'],
+        additionalProperties: false,
+        properties: {
+          database: { type: 'string', enum: ['pass', 'fail'] },
+          migrations: { type: 'string', enum: ['pass', 'fail'] },
+          settings: { type: 'string', enum: ['pass', 'fail'] },
+          draining: { type: 'boolean' },
+          apiAuth: { type: 'string', enum: ['pass', 'fail'] },
+          workerRegistered: { type: 'string', enum: ['pass', 'fail'] },
+          scheduler: { type: 'string', enum: ['pass', 'fail'] },
+          liveCapacity: {
+            type: 'string',
+            enum: ['available', 'saturated'],
+          },
+        },
+      },
+      failing: {
+        type: 'array',
+        items: {
+          type: 'string',
+          enum: [
+            'database',
+            'migrations',
+            'settings',
+            'draining',
+            'api_auth',
+            'worker_registered',
+            'scheduler',
+          ],
+        },
+      },
+    },
+  },
+  RuntimeCapacity: {
+    type: 'object',
+    required: ['liveLimit', 'jobLimit'],
+    additionalProperties: false,
+    properties: {
+      liveLimit: count,
+      jobLimit: count,
+    },
+  },
+  RuntimeSummaryResponse: {
+    type: 'object',
+    required: ['role', 'status', 'uptimeSeconds', 'capacity', 'counts', 'readiness'], // prettier-ignore
+    additionalProperties: false,
+    properties: {
+      role: {
+        type: 'string',
+        enum: ['all', 'control', 'live-worker', 'job-worker'],
+      },
+      status: { type: 'string', enum: ['ready', 'degraded'] },
+      uptimeSeconds: { type: 'number', minimum: 0 },
+      capacity: { $ref: '#/components/schemas/RuntimeCapacity' },
+      counts: {
+        type: 'object',
+        required: ['instances', 'liveWorkers', 'jobWorkers', 'stale'],
+        additionalProperties: false,
+        properties: {
+          instances: count,
+          liveWorkers: count,
+          jobWorkers: count,
+          stale: count,
+        },
+      },
+      readiness: { $ref: '#/components/schemas/RuntimeReadiness' },
+    },
+  },
+  RuntimeInstance: {
+    type: 'object',
+    required: ['id', 'role', 'status', 'heartbeat', 'readiness', 'capacity', 'capabilities', 'startedAt', 'lastSeenAt'], // prettier-ignore
+    additionalProperties: false,
+    properties: {
+      id: { type: 'string' },
+      role: {
+        type: 'string',
+        enum: ['all', 'control', 'live-worker', 'job-worker'],
+      },
+      status: {
+        type: 'string',
+        enum: [
+          'running',
+          'starting',
+          'healthy',
+          'unhealthy',
+          'draining',
+          'stopped',
+        ],
+      },
+      heartbeat: {
+        type: 'object',
+        required: ['status', 'at'],
+        additionalProperties: false,
+        properties: {
+          status: {
+            type: 'string',
+            enum: ['fresh', 'stale', 'not-applicable'],
+          },
+          at: { type: ['string', 'null'], format: 'date-time' },
+        },
+      },
+      readiness: {
+        oneOf: [
+          { $ref: '#/components/schemas/RuntimeReadiness' },
+          { type: 'null' },
+        ],
+      },
+      capacity: {
+        oneOf: [
+          { $ref: '#/components/schemas/RuntimeCapacity' },
+          { type: 'null' },
+        ],
+      },
+      capabilities: { type: 'array', items: { type: 'string' } },
+      startedAt: isoDateTime,
+      lastSeenAt: isoDateTime,
+    },
+  },
+  RuntimeInstancesResponse: {
+    type: 'object',
+    required: ['instances'],
+    additionalProperties: false,
+    properties: {
+      instances: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/RuntimeInstance' },
+      },
+    },
+  },
   ControlStatusResponse: {
     type: 'object',
     required: [

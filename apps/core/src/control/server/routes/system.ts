@@ -15,11 +15,21 @@ import {
   type MetricsDeps,
 } from '../system-health.js';
 import { isDraining } from '../../../app/bootstrap/draining-state.js';
-import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
+import {
+  getRuntimeStorage,
+  getWorkerCoordinationRepository,
+} from '../../../adapters/storage/postgres/runtime-store.js';
 import { postgresMigrationsFolder } from '../../../adapters/storage/postgres/storage-service.js';
 import { getRuntimeSettingsForConfig } from '../../../config/index.js';
 import { areSettingsLoaded } from '../../../runtime/settings-load-state.js';
 import type { AppId } from '../../../domain/app/app.js';
+import type {
+  RuntimeCapacity,
+  RuntimeInstance,
+  RuntimeProcessRole,
+  RuntimeReadiness,
+} from '@gantry/contracts';
+import { WORKER_STALE_AFTER_MS } from '../../../shared/worker-heartbeat.js';
 
 let shippedMigrationCountCache: number | undefined;
 
@@ -64,6 +74,113 @@ function settingsLoaded(): boolean {
   }
 }
 
+function readinessDeps(ctx: ControlRouteContext): ReadinessDeps {
+  return {
+    role: ctx.processRole,
+    requirements: ctx.roleReadinessRequirements,
+    query: runtimeQuery,
+    shippedMigrationCount,
+    settingsLoaded,
+    isDraining,
+    apiKeyCount: () => ctx.keys.length,
+    workerRegistered: () => (ctx.currentWorkerInstanceId?.() ?? null) !== null,
+    schedulerReady: () => ctx.isSchedulerReady?.() ?? false,
+    liveCapacityLimit: () => ctx.liveCapacityLimit?.() ?? 0,
+    currentWorkerInstanceId: () => ctx.currentWorkerInstanceId?.() ?? null,
+  };
+}
+
+function safeReadiness(
+  result: Awaited<ReturnType<typeof evaluateReadiness>>,
+): RuntimeReadiness {
+  return {
+    status: result.ready ? 'ready' : 'degraded',
+    checks: {
+      database: result.checks.database,
+      migrations: result.checks.migrations,
+      settings: result.checks.settings,
+      draining: result.checks.draining,
+      ...(result.checks.api_auth ? { apiAuth: result.checks.api_auth } : {}),
+      ...(result.checks.worker_registered
+        ? { workerRegistered: result.checks.worker_registered }
+        : {}),
+      ...(result.checks.scheduler
+        ? { scheduler: result.checks.scheduler }
+        : {}),
+      ...(result.checks.live_capacity
+        ? { liveCapacity: result.checks.live_capacity }
+        : {}),
+    },
+    failing: result.failing as RuntimeReadiness['failing'],
+  };
+}
+
+function currentCapacity(ctx: ControlRouteContext): RuntimeCapacity {
+  const liveLimit =
+    ctx.processRole === 'all' || ctx.processRole === 'live-worker'
+      ? (ctx.liveCapacityLimit?.() ?? 0)
+      : 0;
+  let jobLimit: number | null = 0;
+  if (ctx.processRole === 'all' || ctx.processRole === 'job-worker') {
+    try {
+      jobLimit = getRuntimeSettingsForConfig().runtime.queue.maxJobRuns;
+    } catch {
+      jobLimit = null;
+    }
+  }
+  return { liveLimit, jobLimit };
+}
+
+async function runtimeInventory(ctx: ControlRouteContext) {
+  const nowMs = Date.now();
+  const readiness = safeReadiness(await evaluateReadiness(readinessDeps(ctx)));
+  const capacity = currentCapacity(ctx);
+  const currentId = ctx.currentWorkerInstanceId?.() ?? null;
+  const workers = (
+    await getWorkerCoordinationRepository().listWorkers()
+  ).filter(
+    (worker) =>
+      worker.id === currentId ||
+      worker.processRole === 'all' ||
+      worker.processRole === 'live-worker' ||
+      worker.processRole === 'job-worker',
+  );
+  const instances: RuntimeInstance[] = workers.map((worker) => ({
+    id: worker.id,
+    role: worker.processRole as RuntimeProcessRole,
+    status: worker.status,
+    heartbeat: {
+      status:
+        nowMs - Date.parse(worker.heartbeatAt) >= WORKER_STALE_AFTER_MS
+          ? 'stale'
+          : 'fresh',
+      at: worker.heartbeatAt,
+    },
+    readiness: worker.id === currentId ? readiness : null,
+    capacity: worker.id === currentId ? capacity : null,
+    capabilities: worker.capabilities,
+    startedAt: worker.createdAt,
+    lastSeenAt: worker.lastSeenAt,
+  }));
+
+  if (!currentId || !instances.some((instance) => instance.id === currentId)) {
+    const startedAt = new Date(nowMs - process.uptime() * 1000).toISOString();
+    instances.unshift({
+      id: currentId ?? `${ctx.processRole}:self`,
+      role: ctx.processRole,
+      status: 'running',
+      heartbeat: { status: 'not-applicable', at: null },
+      readiness,
+      capacity,
+      capabilities: [],
+      startedAt,
+      lastSeenAt: new Date(nowMs).toISOString(),
+    });
+  }
+
+  return { readiness, capacity, instances };
+}
+
 export async function handleSystemRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -78,27 +195,50 @@ export async function handleSystemRoutes(
   }
 
   if (pathname === '/readyz' && req.method === 'GET') {
-    const deps: ReadinessDeps = {
-      role: ctx.processRole,
-      requirements: ctx.roleReadinessRequirements,
-      query: runtimeQuery,
-      shippedMigrationCount,
-      settingsLoaded,
-      isDraining,
-      apiKeyCount: () => ctx.keys.length,
-      workerRegistered: () =>
-        (ctx.currentWorkerInstanceId?.() ?? null) !== null,
-      schedulerReady: () => ctx.isSchedulerReady?.() ?? false,
-      liveCapacityLimit: () => ctx.liveCapacityLimit?.() ?? 0,
-      currentWorkerInstanceId: () => ctx.currentWorkerInstanceId?.() ?? null,
-    };
-    const result = await evaluateReadiness(deps);
+    const result = await evaluateReadiness(readinessDeps(ctx));
     sendJson(res, result.ready ? 200 : 503, {
       status: result.ready ? 'ready' : 'not_ready',
       role: result.role,
       checks: result.checks,
       ...(result.ready ? {} : { failing: result.failing }),
     });
+    return true;
+  }
+
+  if (pathname === '/v1/runtime' && req.method === 'GET') {
+    if (!authorizeControlRequest(req, res, ctx.keys, ['sessions:read'])) {
+      return true;
+    }
+    const inventory = await runtimeInventory(ctx);
+    const roles = inventory.instances.map((instance) => instance.role);
+    sendJson(res, 200, {
+      role: ctx.processRole,
+      status: inventory.readiness.status,
+      uptimeSeconds: process.uptime(),
+      capacity: inventory.capacity,
+      counts: {
+        instances: inventory.instances.length,
+        liveWorkers: roles.filter(
+          (role) => role === 'all' || role === 'live-worker',
+        ).length,
+        jobWorkers: roles.filter(
+          (role) => role === 'all' || role === 'job-worker',
+        ).length,
+        stale: inventory.instances.filter(
+          (instance) => instance.heartbeat.status === 'stale',
+        ).length,
+      },
+      readiness: inventory.readiness,
+    });
+    return true;
+  }
+
+  if (pathname === '/v1/runtime/instances' && req.method === 'GET') {
+    if (!authorizeControlRequest(req, res, ctx.keys, ['sessions:read'])) {
+      return true;
+    }
+    const { instances } = await runtimeInventory(ctx);
+    sendJson(res, 200, { instances });
     return true;
   }
 

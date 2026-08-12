@@ -160,6 +160,56 @@ describe('@gantry/sdk ingress signature verification', () => {
 });
 
 describe('@gantry/sdk transport', () => {
+  it('requests typed runtime inventory routes', async () => {
+    const client = new GantryClient({
+      apiKey: 'test-key',
+      baseUrl: 'http://127.0.0.1:3939',
+    });
+    const request = vi
+      .spyOn(
+        (client as unknown as { transport: { request: () => unknown } })
+          .transport,
+        'request',
+      )
+      .mockResolvedValueOnce({
+        role: 'control',
+        status: 'ready',
+        uptimeSeconds: 10,
+        capacity: { liveLimit: 0, jobLimit: 0 },
+        counts: {
+          instances: 1,
+          liveWorkers: 0,
+          jobWorkers: 0,
+          stale: 0,
+        },
+        readiness: {
+          status: 'ready',
+          checks: {
+            database: 'pass',
+            migrations: 'pass',
+            settings: 'pass',
+            draining: false,
+          },
+          failing: [],
+        },
+      })
+      .mockResolvedValueOnce({ instances: [] });
+
+    const summary = await client.getRuntimeSummary();
+    const inventory = await client.listRuntimeInstances();
+
+    expect(summary.role).toBe('control');
+    expect(inventory.instances).toEqual([]);
+    expect(request).toHaveBeenNthCalledWith(1, {
+      method: 'GET',
+      path: '/v1/runtime',
+    });
+    expect(request).toHaveBeenNthCalledWith(2, {
+      method: 'GET',
+      path: '/v1/runtime/instances',
+    });
+  });
+
   it('does not send an undefined content-type header for GET requests', async () => {
     const port = await listen((req, res) => {
       expect(req.method).toBe('GET');

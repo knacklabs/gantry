@@ -1,0 +1,11 @@
+{
+  "topic": "managed-sandbox-sdk-listen",
+  "lesson": "Managed execution can reject SDK unit-test loopback listeners with EPERM; for path-only SDK transport proof, spy on the existing Transport.request seam instead of binding a socket.",
+  "source": "WEB-CONSOLE-2.1 focused SDK test",
+  "applies_to": [
+    "apps/core/test/unit/control/sdk-transport.test.ts"
+  ],
+  "severity": "low",
+  "generated_by": "implementer",
+  "added_at": "2026-08-12T14:48:57+00:00"
+}

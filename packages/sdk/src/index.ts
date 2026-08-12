@@ -7,6 +7,15 @@ import type {
   ProviderAccountInput,
   ProviderAccountPatch,
 } from './provider-types.js';
+import type {
+  RuntimeInstancesResponse,
+  RuntimeSummaryResponse,
+} from '@gantry/contracts';
+export type {
+  RuntimeInstance,
+  RuntimeInstancesResponse,
+  RuntimeSummaryResponse,
+} from '@gantry/contracts';
 import { createAgentAdminClient } from './agents.js';
 import { createAgentSkillsClient, createSkillsClient } from './skills.js';
 import { createSettingsClient } from './settings.js';
@@ -300,6 +309,20 @@ export class GantryClient {
     return this.transport.request<OpenApi.DoctorResponse>({
       method: 'GET',
       path: '/v1/doctor',
+    });
+  }
+
+  getRuntimeSummary() {
+    return this.transport.request<RuntimeSummaryResponse>({
+      method: 'GET',
+      path: '/v1/runtime',
+    });
+  }
+
+  listRuntimeInstances() {
+    return this.transport.request<RuntimeInstancesResponse>({
+      method: 'GET',
+      path: '/v1/runtime/instances',
     });
   }
 
