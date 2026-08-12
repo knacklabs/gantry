@@ -25,12 +25,14 @@ export function summarizeMcpToolArguments(
   args: Record<string, unknown>,
 ): Record<string, unknown> {
   const keys = Object.keys(args).sort();
+  const operation = safeAuditDiscriminator(args.operation);
   return {
     kind: 'object',
     keyCount: keys.length,
     keys: keys.slice(0, 20),
     truncated: keys.length > 20,
     approxBytes: approximateJsonBytes(args),
+    ...(operation ? { discriminators: { operation } } : {}),
   };
 }
 
@@ -64,6 +66,9 @@ export function projectMcpEvidence(value: unknown): Array<{
         key.includes('url') ||
         key === 'title' ||
         key === 'name' ||
+        key === 'checkpointref' ||
+        key === 'evidenceref' ||
+        key === 'traceref' ||
         /^https?:\/\//iu.test(current)
       ) {
         projected.push({ path, value: current.slice(0, 2_048) });
@@ -97,6 +102,12 @@ export function projectMcpEvidence(value: unknown): Array<{
   };
   visit(value, '', 0);
   return projected;
+}
+
+function safeAuditDiscriminator(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const candidate = value.trim();
+  return /^[a-z][a-z0-9_.-]{0,63}$/u.test(candidate) ? candidate : null;
 }
 
 export async function publishInvalidMcpToolRequestAudit(input: {
