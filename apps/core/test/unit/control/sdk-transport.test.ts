@@ -160,6 +160,37 @@ describe('@gantry/sdk ingress signature verification', () => {
 });
 
 describe('@gantry/sdk transport', () => {
+  it('preserves array-wrapped provider errors', async () => {
+    const port = await listen((_req, res) => {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify([
+          {
+            error: {
+              code: 400,
+              status: 'INVALID_ARGUMENT',
+              message: 'Unknown name "metadata": Cannot find field.',
+            },
+          },
+        ]),
+      );
+    });
+    const client = new GantryClient({
+      apiKey: 'test-key',
+      baseUrl: `http://127.0.0.1:${port}`,
+    });
+
+    await expect(
+      client.llm.chatCompletions({
+        model: 'manipal.scrape.workspace_bucket',
+        messages: [{ role: 'user', content: 'Return JSON.' }],
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+      message: 'Unknown name "metadata": Cannot find field.',
+    });
+  });
+
   it('does not send an undefined content-type header for GET requests', async () => {
     const port = await listen((req, res) => {
       expect(req.method).toBe('GET');
