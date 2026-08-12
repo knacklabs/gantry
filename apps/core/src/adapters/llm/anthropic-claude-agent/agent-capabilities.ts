@@ -133,6 +133,7 @@ const RUNNER_SUPPRESSED_GANTRY_MCP_TOOL_NAME_SET = new Set<string>([
 function gantryMcpAllowedTools(input: {
   configuredTools?: readonly string[];
   hideAuthorityTools?: boolean;
+  accessPreset?: string;
   asyncTaskToolsEnabled?: boolean;
   memoryReviewerIsControlApprover?: boolean;
   callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
@@ -142,6 +143,10 @@ function gantryMcpAllowedTools(input: {
   const selectedNames = new Set(
     selectedGantryMcpToolNames(input.configuredTools ?? [], {
       excludeAuthorityTools: input.hideAuthorityTools === true,
+      // Fixed-image hiding must not strip the birthright recovery proposals
+      // (0123); the locked preset routes through the locked base set instead.
+      keepRecoveryProposals:
+        input.hideAuthorityTools === true && input.accessPreset !== 'locked',
       asyncTaskToolsEnabled: input.asyncTaskToolsEnabled === true,
       memoryReviewerIsControlApprover:
         input.memoryReviewerIsControlApprover === true,
@@ -175,6 +180,7 @@ function gantryMcpAllowedTools(input: {
 function defaultAllowedTools(input: {
   configuredTools?: readonly string[];
   hideAuthorityTools?: boolean;
+  accessPreset?: string;
   asyncTaskToolsEnabled?: boolean;
   memoryReviewerIsControlApprover?: boolean;
   callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
@@ -236,6 +242,7 @@ const sdkToolsProvider: AgentCapabilityProvider = {
               ...defaultAllowedTools({
                 configuredTools: ctx.configuredAllowedTools,
                 hideAuthorityTools: ctx.hideAuthorityTools,
+                accessPreset: ctx.accessPreset,
                 asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled,
                 memoryReviewerIsControlApprover:
                   ctx.memoryReviewerIsControlApprover,
@@ -247,6 +254,7 @@ const sdkToolsProvider: AgentCapabilityProvider = {
           : defaultAllowedTools({
               configuredTools: ctx.configuredAllowedTools,
               hideAuthorityTools: ctx.hideAuthorityTools,
+              accessPreset: ctx.accessPreset,
               asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled,
               memoryReviewerIsControlApprover:
                 ctx.memoryReviewerIsControlApprover,

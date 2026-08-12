@@ -160,7 +160,7 @@ describe('buildGantryMcpProjection', () => {
     expect(projection.env.GANTRY_BROWSER_IPC_AUTH_TOKEN).toBeUndefined();
   });
 
-  it('drops authority-changing request tools when hideAuthorityTools is set', () => {
+  it('keeps birthright recovery proposals visible when hideAuthorityTools is set (0123)', () => {
     const open = buildGantryMcpProjection({
       configuredAllowedTools: [],
       hideAuthorityTools: false,
@@ -172,7 +172,22 @@ describe('buildGantryMcpProjection', () => {
       processEnv: BASE_ENV,
     });
     expect(open.selectedToolNames).toContain('request_access');
-    expect(hidden.selectedToolNames).not.toContain('request_access');
-    expect(hidden.selectedToolNames).not.toContain('request_mcp_server');
+    // Recovery proposals only create review metadata — hiding them left
+    // autonomous runs unable to ask for fixes. Other authority tools stay hidden.
+    expect(hidden.selectedToolNames).toContain('request_access');
+    expect(hidden.selectedToolNames).toContain('request_mcp_server');
+    expect(hidden.selectedToolNames).not.toContain(
+      'request_agent_profile_update',
+    );
+    expect(hidden.selectedToolNames).not.toContain('request_settings_update');
+  });
+
+  it('locked agents still hide recovery proposals', () => {
+    const locked = buildGantryMcpProjection({
+      configuredAllowedTools: [],
+      hideAuthorityTools: true,
+      processEnv: { ...BASE_ENV, GANTRY_AGENT_ACCESS_PRESET: 'locked' },
+    });
+    expect(locked.selectedToolNames).not.toContain('request_access');
   });
 });

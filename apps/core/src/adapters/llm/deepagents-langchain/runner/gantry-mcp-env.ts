@@ -65,6 +65,11 @@ export function buildGantryMcpProjection(
     input.configuredAllowedTools,
     {
       excludeAuthorityTools: input.hideAuthorityTools,
+      // 0123: birthright recovery proposals stay visible to no-permission
+      // workers; locked agents never see them.
+      keepRecoveryProposals:
+        input.hideAuthorityTools === true &&
+        env.GANTRY_AGENT_ACCESS_PRESET !== 'locked',
       memoryReviewerIsControlApprover,
       asyncTaskToolsEnabled,
       chatJid: env.GANTRY_CHAT_JID,
@@ -95,6 +100,11 @@ export function buildGantryMcpProjection(
     input.configuredAllowedTools,
     {
       excludeAuthorityTools: input.hideAuthorityTools,
+      // 0123: birthright recovery proposals stay visible to no-permission
+      // workers; locked agents never see them.
+      keepRecoveryProposals:
+        input.hideAuthorityTools === true &&
+        env.GANTRY_AGENT_ACCESS_PRESET !== 'locked',
       memoryReviewerIsControlApprover,
       asyncTaskToolsEnabled,
     },

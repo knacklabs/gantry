@@ -3,6 +3,7 @@ import {
   ALL_GANTRY_MCP_TOOL_NAMES,
   ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
   AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES,
+  RECOVERY_PROPOSAL_GANTRY_MCP_TOOL_NAMES,
   BASELINE_GANTRY_MCP_TOOL_NAMES,
   DEFAULT_GANTRY_MCP_TOOL_NAMES,
   DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
@@ -79,6 +80,10 @@ export interface GantryMcpToolSelectionOptions extends MemoryIpcActionSelectionO
   asyncTaskToolsEnabled?: boolean;
   chatJid?: string;
   permissionLane?: 'interactive' | 'autonomous';
+  // Fixed-image (no-permission) workers keep the birthright recovery
+  // proposals visible (0123); LOCKED agents never set this — locked means
+  // never raising an approval prompt.
+  keepRecoveryProposals?: boolean;
 }
 
 export function gantryMcpFullToolName(toolName: string): string {
@@ -133,6 +138,15 @@ export function selectedGantryMcpToolNames(
     }
     for (const toolName of ADMIN_MCP_TOOL_NAMES) {
       names.delete(toolName);
+    }
+    if (options.keepRecoveryProposals) {
+      // Recovery proposals stay visible (0123): birthright review-metadata
+      // tools raise no worker-side prompt, and hiding them leaves autonomous
+      // runs unable to ask for fixes (the CAPFIX-1 card could never be
+      // raised). Locked agents never pass this flag.
+      for (const toolName of RECOVERY_PROPOSAL_GANTRY_MCP_TOOL_NAMES) {
+        names.add(toolName);
+      }
     }
   }
   if (options.permissionLane === 'autonomous') {
