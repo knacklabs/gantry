@@ -280,7 +280,8 @@ it('ui-server-activity-contract', async () => {
     truncated: false,
     provider: 'provider-private',
   });
-  sdk.streamActivity.mockImplementation(async function* () {
+  sdk.streamActivity.mockImplementation(async function* (_runId, input) {
+    input.onOpen();
     yield {
       eventId: 7,
       type: 'agent.run.updated',
@@ -357,6 +358,7 @@ it('ui-server-activity-contract', async () => {
   expect(sdk.streamActivity).toHaveBeenCalledWith('run:one', {
     afterEventId: 6,
     signal: expect.any(AbortSignal),
+    onOpen: expect.any(Function),
   });
   expect(sdk.streamActivity.mock.calls[0][1].signal.aborted).toBe(true);
   expect(list.text + detail.text + streamRes.result().text).not.toMatch(
@@ -427,6 +429,29 @@ it('ui-server-activity-contract', async () => {
   await handler(streamRequest('/ui/api/activity/run%3Aone/events'), failedRes);
   expect(failureSignal?.aborted).toBe(true);
   expect(failedRes.writableEnded).toBe(true);
+  expect(failedRes.headersFlushed).toBe(false);
+  expect(failedRes.result().status).toBe(503);
+  expect(JSON.parse(failedRes.result().text)).toMatchObject({
+    error: { code: 'CONTROL_API_UNAVAILABLE', retryable: true },
+  });
+
+  sdk.streamActivity.mockImplementation(() => ({
+    [Symbol.asyncIterator]: () => ({
+      next: () =>
+        Promise.reject(
+          Object.assign(new Error('Too many streams'), {
+            code: 'TOO_MANY_STREAMS',
+          }),
+        ),
+    }),
+  }));
+  const cappedRes = streamResponse();
+  await handler(streamRequest('/ui/api/activity/run%3Aone/events'), cappedRes);
+  expect(cappedRes.headersFlushed).toBe(false);
+  expect(cappedRes.result().status).toBe(429);
+  expect(JSON.parse(cappedRes.result().text)).toMatchObject({
+    error: { code: 'ACTIVITY_STREAM_LIMIT', retryable: true },
+  });
 });
 
 it('ui-server-api-contract', async () => {

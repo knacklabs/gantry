@@ -27,6 +27,7 @@ import type {
   MemorySearchInput,
   RequestOptions,
   SseEvent,
+  StreamOptions,
 } from './types.js';
 import type * as OpenApi from './openapi-types.js';
 import type { components as OpenApiComponents } from './generated/openapi.js';
@@ -201,7 +202,7 @@ class Transport {
 
   async *stream(
     pathname: string,
-    signal?: AbortSignal,
+    options: StreamOptions = {},
   ): AsyncIterable<SseEvent> {
     const url = new URL(pathname, this.baseUrl);
     const mod = url.protocol === 'https:' ? https : http;
@@ -217,8 +218,8 @@ class Transport {
         accept: 'text/event-stream',
       },
     });
-    if (signal) {
-      signal.addEventListener(
+    if (options.signal) {
+      options.signal.addEventListener(
         'abort',
         () => req.destroy(new Error('Gantry stream aborted')),
         { once: true },
@@ -238,6 +239,7 @@ class Transport {
       }
       throw toError(parseJsonBody(Buffer.concat(chunks).toString('utf8')));
     }
+    options.onOpen?.();
     let buffer = '';
     for await (const chunk of response) {
       buffer += chunk.toString();
@@ -312,7 +314,7 @@ export class GantryClient {
 
   readonly sessions = createSessionsClient({
     request: this.request,
-    stream: (pathname, signal) => this.transport.stream(pathname, signal),
+    stream: (pathname, signal) => this.transport.stream(pathname, { signal }),
   });
 
   readonly jobs = {

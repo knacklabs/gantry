@@ -101,6 +101,7 @@ export type ListActivityEventsResponse = JsonResponse<
 export type ActivityInvalidation = ListActivityEventsResponse['events'][number];
 export type ActivityEventStreamOptions = ListActivityEventsQuery & {
   signal?: AbortSignal;
+  onOpen?: () => void;
 };
 
 export type GetObserverStatusQuery = Query<'getObserverStatus'>;

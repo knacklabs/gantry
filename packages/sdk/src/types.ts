@@ -26,6 +26,11 @@ export type SessionEventEnvelope = {
 
 export type SseEvent = SessionEventEnvelope;
 
+export type StreamOptions = {
+  signal?: AbortSignal;
+  onOpen?: () => void;
+};
+
 export type MemoryContext = {
   appId?: string;
   agentId?: string;

@@ -1,9 +1,9 @@
 import type * as OpenApi from './openapi-types.js';
-import type { RequestOptions, SseEvent } from './types.js';
+import type { RequestOptions, SseEvent, StreamOptions } from './types.js';
 
 type ActivityTransport = {
   request<T>(options: RequestOptions): Promise<T>;
-  stream(pathname: string, signal?: AbortSignal): AsyncIterable<SseEvent>;
+  stream(pathname: string, options?: StreamOptions): AsyncIterable<SseEvent>;
 };
 
 export function createActivityClient(transport: ActivityTransport) {
@@ -30,10 +30,10 @@ export function createActivityClient(transport: ActivityTransport) {
       runId: string,
       input: OpenApi.ActivityEventStreamOptions = {},
     ): AsyncIterable<OpenApi.ActivityInvalidation> => {
-      const events = transport.stream(
-        eventsPath(runId, input.afterEventId),
-        input.signal,
-      );
+      const events = transport.stream(eventsPath(runId, input.afterEventId), {
+        signal: input.signal,
+        onOpen: input.onOpen,
+      });
       return (async function* () {
         for await (const event of events) {
           yield event.payload as OpenApi.ActivityInvalidation;

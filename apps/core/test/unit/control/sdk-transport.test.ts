@@ -280,6 +280,31 @@ it('requests typed activity list and detail', async () => {
   });
 });
 
+it('signals activity stream acceptance before yielding invalidations', async () => {
+  const port = await listen((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    res.flushHeaders();
+    setImmediate(() => {
+      res.end(
+        'id: 7\nevent: task.progress\ndata: {"eventId":7,"type":"task.progress","createdAt":"2026-08-12T10:00:04.000Z"}\n\n',
+      );
+    });
+  });
+  const client = new GantryClient({
+    apiKey: 'test-key',
+    baseUrl: `http://127.0.0.1:${port}`,
+  });
+  const observed: string[] = [];
+
+  for await (const event of client.activity.stream('agent-run:one', {
+    onOpen: () => observed.push('open'),
+  })) {
+    observed.push(event.type);
+  }
+
+  expect(observed).toEqual(['open', 'task.progress']);
+});
+
 describe('@gantry/sdk transport', () => {
   it('does not send an undefined content-type header for GET requests', async () => {
     const port = await listen((req, res) => {

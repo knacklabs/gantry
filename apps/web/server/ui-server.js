@@ -251,17 +251,24 @@ async function streamActivity(request, response, client, runId, url) {
   request.once('aborted', close);
   response.once('close', close);
 
-  try {
-    if (closed) return;
+  let opened = false;
+  const open = () => {
+    if (closed || opened) return;
+    opened = true;
     response.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-cache',
       connection: 'keep-alive',
     });
     response.flushHeaders();
+  };
+
+  try {
+    if (closed) return;
     for await (const event of client.activity.stream(runId, {
       afterEventId,
       signal: controller.signal,
+      onOpen: open,
     })) {
       if (closed) break;
       const data = JSON.stringify(projectActivityInvalidation(event));
@@ -269,8 +276,32 @@ async function streamActivity(request, response, client, runId, url) {
         await waitForDrainOrClose(response);
       }
     }
-  } catch {
-    // Closing the facade stream is the only safe response after SSE starts.
+  } catch (error) {
+    if (!opened && !closed) {
+      const code =
+        error && typeof error === 'object' && 'code' in error
+          ? error.code
+          : undefined;
+      if (code === 'RUN_NOT_FOUND') {
+        sendJson(response, 404, {
+          error: {
+            code: 'RUN_NOT_FOUND',
+            requestId: randomUUID(),
+            retryable: false,
+          },
+        });
+      } else if (code === 'TOO_MANY_STREAMS') {
+        sendJson(response, 429, {
+          error: {
+            code: 'ACTIVITY_STREAM_LIMIT',
+            requestId: randomUUID(),
+            retryable: true,
+          },
+        });
+      } else {
+        sendFailure(response, 'CONTROL_API_UNAVAILABLE', true);
+      }
+    }
   } finally {
     close();
     request.off('aborted', close);

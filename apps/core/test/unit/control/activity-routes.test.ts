@@ -69,6 +69,7 @@ function responseRecorder(): TestResponse {
       : String(value);
     return res;
   };
+  res.flushHeaders = vi.fn();
   res.write = ((chunk: unknown) => {
     res.body += String(chunk);
     return true;
@@ -146,8 +147,8 @@ async function handle(path: string, accept?: string, ctx = context()) {
   const req = request(accept);
   const res = responseRecorder();
   const url = new URL(path, 'http://localhost');
-  await handleActivityRoutes(req, res, ctx, url, url.pathname);
-  return { req, res, ctx };
+  const handled = await handleActivityRoutes(req, res, ctx, url, url.pathname);
+  return { req, res, ctx, handled };
 }
 
 describe('activity routes', () => {
@@ -262,6 +263,13 @@ describe('activity routes', () => {
     expect(mocks.countTasksByStatus).not.toHaveBeenCalled();
     expect(mocks.listEvents).not.toHaveBeenCalled();
     expect(mocks.subscribe).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed percent-encoding without throwing', async () => {
+    const result = await handle('/v1/activity/%');
+
+    expect(result.handled).toBe(false);
+    expect(mocks.getAgentRunForApp).not.toHaveBeenCalled();
   });
 
   it('replays only safe cursor invalidations and cleans up the capped stream', async () => {

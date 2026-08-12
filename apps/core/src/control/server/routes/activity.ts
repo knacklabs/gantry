@@ -165,6 +165,7 @@ async function handleActivityEvents(
   res.setHeader('content-type', 'text/event-stream');
   res.setHeader('cache-control', 'no-cache');
   res.setHeader('connection', 'keep-alive');
+  res.flushHeaders();
   try {
     for (const event of initial) {
       await writeActivitySseEvent(
@@ -205,10 +206,14 @@ function parseActivityRoute(
 ): { runId: string; action: 'detail' | 'events' } | null {
   const match = /^\/v1\/activity\/([^/]+)(?:\/(events))?$/.exec(pathname);
   if (!match) return null;
-  return {
-    runId: decodeURIComponent(match[1]!),
-    action: match[2] === 'events' ? 'events' : 'detail',
-  };
+  try {
+    return {
+      runId: decodeURIComponent(match[1]!),
+      action: match[2] === 'events' ? 'events' : 'detail',
+    };
+  } catch {
+    return null;
+  }
 }
 
 function parseAfterEventId(url: URL): number | null {
