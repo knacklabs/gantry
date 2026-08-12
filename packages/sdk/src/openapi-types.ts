@@ -91,6 +91,17 @@ export type QueryUsageQuery = Query<'queryUsage'>;
 export type QueryUsageResponse = JsonResponse<'queryUsage', 200>;
 export type GetMetricsQuery = Query<'getMetrics'>;
 export type GetMetricsResponse = JsonResponse<'getMetrics', 200>;
+export type ListActivityResponse = JsonResponse<'listActivity', 200>;
+export type GetActivityResponse = JsonResponse<'getActivity', 200>;
+export type ListActivityEventsQuery = Query<'listOrStreamActivityEvents'>;
+export type ListActivityEventsResponse = JsonResponse<
+  'listOrStreamActivityEvents',
+  200
+>;
+export type ActivityInvalidation = ListActivityEventsResponse['events'][number];
+export type ActivityEventStreamOptions = ListActivityEventsQuery & {
+  signal?: AbortSignal;
+};
 
 export type GetObserverStatusQuery = Query<'getObserverStatus'>;
 export type ObserverStatusResponse = JsonResponse<'getObserverStatus', 200>;

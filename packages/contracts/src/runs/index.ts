@@ -62,3 +62,104 @@ export const AgentRunEventResponseSchema = z.object({
   metadata: ContractMetadataSchema.optional(),
 });
 export type AgentRunEventResponse = z.infer<typeof AgentRunEventResponseSchema>;
+
+export const ActivityRunSchema = z.object({
+  id: z.string(),
+  agentId: z.string(),
+  cause: AgentRunCauseSchema,
+  status: AgentRunStatusSchema,
+  createdAt: IsoDateTimeSchema,
+  startedAt: IsoDateTimeSchema.nullable(),
+  endedAt: IsoDateTimeSchema.nullable(),
+  durationMs: z.number().int().nonnegative().nullable(),
+  resultSummary: z.string().nullable(),
+  errorSummary: z.string().nullable(),
+});
+export type ActivityRun = z.infer<typeof ActivityRunSchema>;
+
+export const ActivityTaskKindSchema = z.enum([
+  'async_command',
+  'delegated_agent',
+  'mcp_tool_call',
+  'session_compaction',
+]);
+export const ActivityTaskStatusSchema = z.enum([
+  'queued',
+  'running',
+  'needs_attention',
+  'completed',
+  'failed',
+  'cancelled',
+  'timed_out',
+]);
+
+export type ActivityTask = {
+  id: string;
+  agentId: string;
+  targetAgentId: string | null;
+  kind: z.infer<typeof ActivityTaskKindSchema>;
+  status: z.infer<typeof ActivityTaskStatusSchema>;
+  summary: string | null;
+  outputSummary: string | null;
+  errorSummary: string | null;
+  currentPhase: string | null;
+  lastProgress: string | null;
+  lastToolSummary: string | null;
+  blocker: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  terminalAt: string | null;
+  durationMs: number | null;
+  children: ActivityTask[];
+};
+
+export const ActivityTaskSchema: z.ZodType<ActivityTask> = z.object({
+  id: z.string(),
+  agentId: z.string(),
+  targetAgentId: z.string().nullable(),
+  kind: ActivityTaskKindSchema,
+  status: ActivityTaskStatusSchema,
+  summary: z.string().nullable(),
+  outputSummary: z.string().nullable(),
+  errorSummary: z.string().nullable(),
+  currentPhase: z.string().nullable(),
+  lastProgress: z.string().nullable(),
+  lastToolSummary: z.string().nullable(),
+  blocker: z.string().nullable(),
+  createdAt: IsoDateTimeSchema,
+  updatedAt: IsoDateTimeSchema,
+  startedAt: IsoDateTimeSchema.nullable(),
+  terminalAt: IsoDateTimeSchema.nullable(),
+  durationMs: z.number().int().nonnegative().nullable(),
+  children: z.lazy(() => z.array(ActivityTaskSchema)),
+});
+
+export const ActivityListResponseSchema = z.object({
+  runs: z.array(ActivityRunSchema).max(50),
+});
+export type ActivityListResponse = z.infer<typeof ActivityListResponseSchema>;
+
+export const ActivityDetailResponseSchema = z.object({
+  run: ActivityRunSchema,
+  tasks: z.array(ActivityTaskSchema),
+  taskTotal: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+});
+export type ActivityDetailResponse = z.infer<
+  typeof ActivityDetailResponseSchema
+>;
+
+export const ActivityInvalidationSchema = z.object({
+  eventId: z.number().int().nonnegative(),
+  type: z.string(),
+  createdAt: IsoDateTimeSchema,
+});
+export type ActivityInvalidation = z.infer<typeof ActivityInvalidationSchema>;
+
+export const ActivityInvalidationListResponseSchema = z.object({
+  events: z.array(ActivityInvalidationSchema).max(100),
+});
+export type ActivityInvalidationListResponse = z.infer<
+  typeof ActivityInvalidationListResponseSchema
+>;

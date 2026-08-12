@@ -237,6 +237,49 @@ it('requests typed fixed-range metrics', async () => {
   });
 });
 
+it('requests typed activity list and detail', async () => {
+  const client = new GantryClient({
+    apiKey: 'test-key',
+    baseUrl: 'http://127.0.0.1:3939',
+  });
+  const request = vi
+    .spyOn(
+      (client as unknown as { transport: { request: () => unknown } })
+        .transport,
+      'request',
+    )
+    .mockResolvedValueOnce({ runs: [] })
+    .mockResolvedValueOnce({
+      run: {
+        id: 'agent-run:one',
+        agentId: 'agent:one',
+        cause: 'message',
+        status: 'completed',
+        createdAt: '2026-08-12T10:00:00.000Z',
+        startedAt: '2026-08-12T10:00:01.000Z',
+        endedAt: '2026-08-12T10:00:02.000Z',
+        durationMs: 1000,
+        resultSummary: 'Done',
+        errorSummary: null,
+      },
+      tasks: [],
+      taskTotal: 0,
+      truncated: false,
+    });
+
+  await client.activity.list();
+  await client.activity.get('agent-run:one/two');
+
+  expect(request).toHaveBeenNthCalledWith(1, {
+    method: 'GET',
+    path: '/v1/activity',
+  });
+  expect(request).toHaveBeenNthCalledWith(2, {
+    method: 'GET',
+    path: '/v1/activity/agent-run%3Aone%2Ftwo',
+  });
+});
+
 describe('@gantry/sdk transport', () => {
   it('does not send an undefined content-type header for GET requests', async () => {
     const port = await listen((req, res) => {

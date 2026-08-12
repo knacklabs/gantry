@@ -335,7 +335,12 @@ export interface AgentSessionDigestRepository {
 
 export interface AgentRunRepository {
   getAgentRun(id: AgentRunId): Promise<AgentRun | null>;
+  getAgentRunForApp(input: {
+    appId: AppId;
+    runId: AgentRunId;
+  }): Promise<AgentRun | null>;
   saveAgentRun(run: AgentRun): Promise<void>;
+  listRecentAgentRuns(appId: AppId): Promise<AgentRun[]>;
   listAgentRunsBySession(input: {
     sessionId: AgentSessionId;
     limit?: number;

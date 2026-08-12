@@ -140,7 +140,7 @@ export interface AsyncTaskListFilter {
   parentTaskId?: string | null;
   statuses?: AsyncTaskStatus[];
   limit?: number;
-  order?: 'newest_first' | 'oldest_first';
+  order?: 'newest_first' | 'oldest_first' | 'created_oldest_first';
 }
 
 export interface AsyncTaskStatusCount {

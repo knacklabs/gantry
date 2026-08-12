@@ -1,0 +1,1 @@
+CREATE INDEX "idx_agent_runs_app_created" ON "agent_runs" USING btree ("app_id","created_at" DESC NULLS LAST,"id" DESC NULLS LAST);

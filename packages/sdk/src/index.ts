@@ -397,6 +397,41 @@ export class GantryClient {
       }),
   };
 
+  readonly activity = {
+    list: () =>
+      this.transport.request<OpenApi.ListActivityResponse>({
+        method: 'GET',
+        path: '/v1/activity',
+      }),
+    get: (runId: string) =>
+      this.transport.request<OpenApi.GetActivityResponse>({
+        method: 'GET',
+        path: `/v1/activity/${encodeURIComponent(runId)}`,
+      }),
+    events: (
+      runId: string,
+      afterEventId?: OpenApi.ListActivityEventsQuery['afterEventId'],
+    ) =>
+      this.transport.request<OpenApi.ListActivityEventsResponse>({
+        method: 'GET',
+        path: activityEventsPath(runId, afterEventId),
+      }),
+    stream: (
+      runId: string,
+      input: OpenApi.ActivityEventStreamOptions = {},
+    ): AsyncIterable<OpenApi.ActivityInvalidation> => {
+      const events = this.transport.stream(
+        activityEventsPath(runId, input.afterEventId),
+        input.signal,
+      );
+      return (async function* () {
+        for await (const event of events) {
+          yield event.payload as OpenApi.ActivityInvalidation;
+        }
+      })();
+    },
+  };
+
   readonly usage = {
     query: (input: OpenApi.QueryUsageQuery) =>
       this.transport.request<OpenApi.QueryUsageResponse>({
@@ -681,6 +716,10 @@ export class GantryClient {
       },
     },
   };
+}
+
+function activityEventsPath(runId: string, afterEventId?: number): string {
+  return `/v1/activity/${encodeURIComponent(runId)}/events${afterEventId ? `?afterEventId=${afterEventId}` : ''}`;
 }
 export const createClient = (options: ClientOptions) =>
   new GantryClient(options);

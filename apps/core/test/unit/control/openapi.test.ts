@@ -25,6 +25,7 @@ import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-sett
 import type { ControlRouteContext } from '@core/control/server/handler-context.js';
 import { getGantryOpenApiDocument } from '@core/control/server/openapi.js';
 import { handleAgentRoutes } from '@core/control/server/routes/agents.js';
+import { handleActivityRoutes } from '@core/control/server/routes/activity.js';
 import { handleBrainRoutes } from '@core/control/server/routes/brain.js';
 import { handleCapabilityCatalogRoutes } from '@core/control/server/routes/capability-catalog.js';
 import { handleCredentialRoutes } from '@core/control/server/routes/credentials.js';
@@ -75,6 +76,9 @@ const expectedControlRoutes = [
   'GET /v1/agents/{agentId}/skills',
   'DELETE /v1/agents/{agentId}/skills/{skillId}',
   'PUT /v1/agents/{agentId}/skills/{skillId}',
+  'GET /v1/activity',
+  'GET /v1/activity/{runId}',
+  'GET /v1/activity/{runId}/events',
   'POST /v1/brain/import',
   'GET /v1/brain/status',
   'GET /v1/capabilities',
@@ -382,6 +386,7 @@ async function isRecognizedByRuntime(method: string, pathname: string) {
     () => handleSystemRoutes(req, res, ctx, pathname),
     () => handleGuidedActionRoutes(req, res, ctx, pathname),
     () => handleAgentRoutes(req, res, ctx, pathname),
+    () => handleActivityRoutes(req, res, ctx, url, pathname),
     () => handleCapabilityCatalogRoutes(req, res, ctx, pathname),
     () => handleSessionRoutes(req, res, ctx, url, pathname),
     () => handleProviderConversationRoutes(req, res, ctx, url, pathname),
@@ -433,6 +438,38 @@ describe('control OpenAPI documentation', () => {
         expect.objectContaining({ name: 'bucket' }),
       ]),
     );
+  });
+
+  it('documents read-only activity routes with the sessions scope', () => {
+    const spec = getGantryOpenApiDocument();
+    const operations = [
+      spec.paths['/v1/activity']?.get,
+      spec.paths['/v1/activity/{runId}']?.get,
+      spec.paths['/v1/activity/{runId}/events']?.get,
+    ];
+
+    for (const operation of operations) {
+      expect(operation?.security).toEqual([{ bearerAuth: ['sessions:read'] }]);
+      expect(operation?.['x-gantry-required-scopes']).toEqual([
+        'sessions:read',
+      ]);
+    }
+    expect(
+      spec.paths['/v1/activity/{runId}/events']?.get.parameters,
+    ).toContainEqual(
+      expect.objectContaining({
+        name: 'afterEventId',
+        schema: { type: 'integer', minimum: 0 },
+      }),
+    );
+    expect(spec.components.schemas.ActivityRun.additionalProperties).toBe(
+      false,
+    );
+    expect(spec.components.schemas.ActivityInvalidation.required).toEqual([
+      'eventId',
+      'type',
+      'createdAt',
+    ]);
   });
 
   it('documents observer insight type filtering and structured evidence', () => {

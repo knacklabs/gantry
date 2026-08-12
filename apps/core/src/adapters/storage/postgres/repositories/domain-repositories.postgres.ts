@@ -1597,6 +1597,22 @@ export class PostgresAgentRunRepository implements AgentRunRepository {
       .limit(1);
     return rows[0] ? this.runFromRow(rows[0]) : null;
   }
+  async getAgentRunForApp(input: {
+    appId: AgentRun['appId'];
+    runId: AgentRun['id'];
+  }): Promise<AgentRun | null> {
+    const rows = await this.db
+      .select()
+      .from(pgSchema.agentRunsPostgres)
+      .where(
+        and(
+          eq(pgSchema.agentRunsPostgres.appId, input.appId),
+          eq(pgSchema.agentRunsPostgres.id, input.runId),
+        ),
+      )
+      .limit(1);
+    return rows[0] ? this.runFromRow(rows[0]) : null;
+  }
   async saveAgentRun(run: AgentRun): Promise<void> {
     assertSafeExecutionProviderId(run.executionProviderId);
     await this.db
@@ -1662,6 +1678,18 @@ export class PostgresAgentRunRepository implements AgentRunRepository {
         desc(pgSchema.agentRunsPostgres.id),
       )
       .limit(input.limit ?? 100);
+    return rows.map((row) => this.runFromRow(row));
+  }
+  async listRecentAgentRuns(appId: AgentRun['appId']): Promise<AgentRun[]> {
+    const rows = await this.db
+      .select()
+      .from(pgSchema.agentRunsPostgres)
+      .where(eq(pgSchema.agentRunsPostgres.appId, appId))
+      .orderBy(
+        desc(pgSchema.agentRunsPostgres.createdAt),
+        desc(pgSchema.agentRunsPostgres.id),
+      )
+      .limit(50);
     return rows.map((row) => this.runFromRow(row));
   }
   async listAgentRunsByConversation(input: {

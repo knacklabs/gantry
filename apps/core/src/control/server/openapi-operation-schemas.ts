@@ -9,6 +9,7 @@ const ref = (name: string): JsonSchema => ({
 });
 
 export const openApiResponseSchemas: Record<string, JsonSchema> = {
+  getActivity: ref('ActivityDetailResponse'),
   bindMcpServerToAgent: ref('AgentMcpServerBindingResponse'),
   bindSkillToAgent: ref('AgentSkillBindingResponse'),
   connectMcpServer: ref('McpServerResponse'),
@@ -63,6 +64,7 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
   listAgentMcpServerBindings: ref('AgentMcpServerBindingListResponse'),
   listAgentSkillBindings: ref('AgentSkillBindingListResponse'),
   listAgents: ref('AgentListResponse'),
+  listActivity: ref('ActivityListResponse'),
   getInventory: ref('InventoryResponse'),
   listCapabilities: ref('CapabilityListResponse'),
   listConversationApprovers: ref('ConversationApproversResponse'),
@@ -83,6 +85,7 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
   listModelCredentials: ref('ModelCredentialListResponse'),
   listModels: ref('ModelListResponse'),
   listOrStreamSessionEvents: ref('SessionRuntimeEventListResponse'),
+  listOrStreamActivityEvents: ref('ActivityInvalidationListResponse'),
   listProviderAccounts: ref('ProviderAccountListResponse'),
   listProviders: ref('ProviderListResponse'),
   listRunEvents: ref('RuntimeEventListResponse'),

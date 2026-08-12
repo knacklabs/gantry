@@ -59,6 +59,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get runtime summary
+         * @description Returns safe serving-process readiness, capacity, and instance counts.
+         */
+        get: operations["getRuntimeSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runtime/instances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List runtime instances
+         * @description Returns sanitized serving-process and registered worker inventory.
+         */
+        get: operations["listRuntimeInstances"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/guided-actions/preview": {
         parameters: {
             query?: never;
@@ -861,6 +901,66 @@ export interface paths {
          * @description Updates install metadata, memory, or thread policy.
          */
         patch: operations["updateConversationInstall"];
+        trace?: never;
+    };
+    "/v1/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List recent activity
+         * @description Returns the newest 50 app-owned agent runs in stable order using a safe activity projection.
+         */
+        get: operations["listActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/activity/{runId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get activity detail
+         * @description Returns one app-owned run and at most 100 safely projected tasks after verifying run ownership.
+         */
+        get: operations["getActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/activity/{runId}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List or stream activity invalidations
+         * @description Replays or streams only event id, type, and creation time for an app-owned run.
+         */
+        get: operations["listOrStreamActivityEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/metrics": {
@@ -2621,6 +2721,9 @@ export interface components {
                 };
             };
             capabilities: {
+                imageInput?: boolean;
+                imageToolResults?: boolean;
+                pdfInput?: boolean;
                 streaming: boolean;
                 toolUse: boolean;
                 mcpProjection: boolean;
@@ -3116,6 +3219,67 @@ export interface components {
             /** @enum {string} */
             status: "manual";
             instruction: string;
+        };
+        ActivityRun: {
+            id: string;
+            agentId: string;
+            /** @enum {string} */
+            cause: "message" | "job" | "control" | "manual" | "system";
+            /** @enum {string} */
+            status: "queued" | "running" | "completed" | "failed" | "canceled" | "timeout";
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            startedAt: string | null;
+            /** Format: date-time */
+            endedAt: string | null;
+            durationMs: number | null;
+            resultSummary: string | null;
+            errorSummary: string | null;
+        };
+        ActivityTask: {
+            id: string;
+            agentId: string;
+            targetAgentId: string | null;
+            /** @enum {string} */
+            kind: "async_command" | "delegated_agent" | "mcp_tool_call" | "session_compaction";
+            /** @enum {string} */
+            status: "queued" | "running" | "needs_attention" | "completed" | "failed" | "cancelled" | "timed_out";
+            summary: string | null;
+            outputSummary: string | null;
+            errorSummary: string | null;
+            currentPhase: string | null;
+            lastProgress: string | null;
+            lastToolSummary: string | null;
+            blocker: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            startedAt: string | null;
+            /** Format: date-time */
+            terminalAt: string | null;
+            durationMs: number | null;
+            children: components["schemas"]["ActivityTask"][];
+        };
+        ActivityListResponse: {
+            runs: components["schemas"]["ActivityRun"][];
+        };
+        ActivityDetailResponse: {
+            run: components["schemas"]["ActivityRun"];
+            tasks: components["schemas"]["ActivityTask"][];
+            taskTotal: number;
+            truncated: boolean;
+        };
+        ActivityInvalidation: {
+            eventId: number;
+            type: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ActivityInvalidationListResponse: {
+            events: components["schemas"]["ActivityInvalidation"][];
         };
         ConsoleMetricUsage: {
             requestCount: number;
@@ -4099,6 +4263,70 @@ export interface components {
             service_tier?: string | null;
             system_fingerprint?: string | null;
         };
+        RuntimeReadiness: {
+            /** @enum {string} */
+            status: "ready" | "degraded";
+            checks: {
+                /** @enum {string} */
+                database: "pass" | "fail";
+                /** @enum {string} */
+                migrations: "pass" | "fail";
+                /** @enum {string} */
+                settings: "pass" | "fail";
+                draining: boolean;
+                /** @enum {string} */
+                apiAuth?: "pass" | "fail";
+                /** @enum {string} */
+                workerRegistered?: "pass" | "fail";
+                /** @enum {string} */
+                scheduler?: "pass" | "fail";
+                /** @enum {string} */
+                liveCapacity?: "available" | "saturated";
+            };
+            failing: ("database" | "migrations" | "settings" | "draining" | "api_auth" | "worker_registered" | "scheduler")[];
+        };
+        RuntimeCapacity: {
+            liveLimit: number;
+            jobLimit: number | null;
+        };
+        RuntimeSummaryResponse: {
+            /** @enum {string} */
+            role: "all" | "control" | "live-worker" | "job-worker";
+            /** @enum {string} */
+            status: "ready" | "degraded";
+            uptimeSeconds: number;
+            capacity: components["schemas"]["RuntimeCapacity"];
+            counts: {
+                instances: number;
+                liveWorkers: number;
+                jobWorkers: number;
+                stale: number;
+            };
+            readiness: components["schemas"]["RuntimeReadiness"];
+        };
+        RuntimeInstance: {
+            id: string;
+            /** @enum {string} */
+            role: "all" | "control" | "live-worker" | "job-worker";
+            /** @enum {string} */
+            status: "running" | "starting" | "healthy" | "unhealthy" | "draining" | "stopped";
+            heartbeat: {
+                /** @enum {string} */
+                status: "fresh" | "stale" | "not-applicable";
+                /** Format: date-time */
+                at: string | null;
+            };
+            readiness: components["schemas"]["RuntimeReadiness"] | null;
+            capacity: components["schemas"]["RuntimeCapacity"] | null;
+            capabilities: string[];
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: date-time */
+            lastSeenAt: string;
+        };
+        RuntimeInstancesResponse: {
+            instances: components["schemas"]["RuntimeInstance"][];
+        };
         ControlStatusResponse: {
             /** @enum {string} */
             title: "Gantry";
@@ -4466,6 +4694,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DoctorResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getRuntimeSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeSummaryResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listRuntimeInstances: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeInstancesResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -6042,6 +6320,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConversationInstall"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listActivity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getActivity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run id. */
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityDetailResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listOrStreamActivityEvents: {
+        parameters: {
+            query?: {
+                /** @description Resume after this durable event id. */
+                afterEventId?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Run id. */
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityInvalidationListResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

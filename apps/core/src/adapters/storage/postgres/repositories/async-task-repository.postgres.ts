@@ -209,9 +209,14 @@ export class PostgresAsyncTaskRepository implements AsyncTaskRepository {
       .from(pgSchema.agentAsyncTasksPostgres)
       .where(asyncTaskFilterWhere(filter))
       .orderBy(
-        filter.order === 'oldest_first'
-          ? asc(pgSchema.agentAsyncTasksPostgres.updatedAt)
-          : desc(pgSchema.agentAsyncTasksPostgres.updatedAt),
+        filter.order === 'created_oldest_first'
+          ? asc(pgSchema.agentAsyncTasksPostgres.createdAt)
+          : filter.order === 'oldest_first'
+            ? asc(pgSchema.agentAsyncTasksPostgres.updatedAt)
+            : desc(pgSchema.agentAsyncTasksPostgres.updatedAt),
+        ...(filter.order === 'created_oldest_first'
+          ? [asc(pgSchema.agentAsyncTasksPostgres.id)]
+          : []),
       )
       .limit(Math.min(Math.max(filter.limit ?? 50, 1), 100));
     return rows.map(mapRow);
