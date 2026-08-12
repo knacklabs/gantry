@@ -2,13 +2,19 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   createSafetyPreToolUseHook,
   evaluateProtectedCapabilityToolUse,
   protectedCapabilityPreToolUseHook,
 } from '@core/adapters/llm/anthropic-claude-agent/runner/protected-capability-hook.js';
+
+const GANTRY_SKILL_ACTIONS_ENV = 'GANTRY_SKILL_ACTIONS_JSON';
+
+afterEach(() => {
+  delete process.env[GANTRY_SKILL_ACTIONS_ENV];
+});
 
 function materializedAtsCommand(): { command: string; root: string } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-hook-skill-'));
@@ -103,6 +109,63 @@ describe('protected capability SDK hook', () => {
         tool_use_id: 'toolu_ats_sync',
       }),
     ).resolves.toEqual(expect.objectContaining({ continue: true }));
+  });
+
+  it('hydrates the early scheduled safety hook from host-exported reviewed skill actions', async () => {
+    const { command, root } = materializedAtsCommand();
+    const concreteRule =
+      'RunCommand(skills/ATS_Skills/scripts/cutshort-worker.mjs sync)';
+    process.env[GANTRY_SKILL_ACTIONS_ENV] = JSON.stringify([
+      {
+        capabilityId: 'skill.ats-source-sync.cutshort',
+        displayName: 'Synchronize Cutshort candidates',
+        category: 'ATS_Skills',
+        risk: 'write',
+        can: 'run the reviewed Cutshort sync worker',
+        cannot: 'run other commands',
+        credentialSource: 'skill_secret',
+        implementationBindings: [{ kind: 'tool_rule', rule: concreteRule }],
+        preflight: { kind: 'none' },
+        sandboxProfile: {
+          network: 'required',
+          filesystem: 'workspace_write',
+        },
+        source: {
+          kind: 'skill_action',
+          skillId: 'skill-ats',
+          skillName: 'ATS_Skills',
+          actionId: 'sync_cutshort',
+        },
+      },
+    ]);
+    const hook = createSafetyPreToolUseHook(
+      '',
+      {},
+      {
+        isScheduledJob: true,
+        jobId: 'job-ats-source-sync',
+        allowedToolRules: ['capability:skill.ats-source-sync.cutshort'],
+        // This reproduces the live boundary: the serialized runner input omitted
+        // the definition even though the host exported the reviewed action.
+        semanticCapabilities: [],
+      },
+    );
+
+    try {
+      await expect(
+        hook({
+          hook_event_name: 'PreToolUse',
+          session_id: 'session-1',
+          transcript_path: '/tmp/transcript.jsonl',
+          cwd: '/tmp/work',
+          tool_name: 'Bash',
+          tool_input: { command },
+          tool_use_id: 'toolu_ats_sync',
+        }),
+      ).resolves.toEqual(expect.objectContaining({ continue: true }));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('uses selected runtime capability ids when projected rules are already concrete', async () => {

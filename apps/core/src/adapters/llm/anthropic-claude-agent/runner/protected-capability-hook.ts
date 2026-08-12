@@ -12,6 +12,7 @@ import { applyBashTrustEnv } from './bash-trust-env.js';
 import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
 import { semanticCapabilityRuntimeRules } from '../../../../shared/semantic-capabilities.js';
 import { semanticCapabilityRule } from '../../../../shared/semantic-capability-ids.js';
+import { readRunnerSkillActionCapabilities } from './permission-suggestions.js';
 
 const BLOCK_MESSAGE =
   'Gantry blocks direct edits to agent capability configuration. Request the missing action or source setup through the Gantry access flow so the change is reviewed, stored durably, and activated through approved access.';
@@ -111,8 +112,12 @@ async function safetyPreToolUseHook(
       ? { jobId: selectedAccess.jobId }
       : undefined,
   });
+  const semanticCapabilities = [
+    ...(selectedAccess.semanticCapabilities ?? []),
+    ...readRunnerSkillActionCapabilities(),
+  ];
   const semanticCapabilityDefinitions = Object.fromEntries(
-    (selectedAccess.semanticCapabilities ?? []).map((capability) => [
+    semanticCapabilities.map((capability) => [
       capability.capabilityId,
       capability,
     ]),
@@ -127,7 +132,7 @@ async function safetyPreToolUseHook(
     ...selectedCapabilityRules,
     ...attributedSkillActionRules(
       selectedAccess.allowedToolRules ?? [],
-      selectedAccess.semanticCapabilities ?? [],
+      semanticCapabilities,
     ),
   ];
   const decision = new ToolExecutionPolicyService().evaluate({
