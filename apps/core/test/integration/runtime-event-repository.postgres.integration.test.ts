@@ -92,7 +92,12 @@ maybeDescribe('Postgres runtime-event metrics and retention', () => {
     expect(metrics.usage.models.at(-1)).toMatchObject({
       model: 'Other',
       requestCount: 1,
+      inputTokens: 15,
+      outputTokens: 5,
+      cacheReadTokens: 5,
+      cacheWriteTokens: 6,
     });
+    expect(metrics.usage.models.at(-1)).not.toHaveProperty('estimatedCostUsd');
     expect(metrics.runs).toMatchObject({
       total: 2,
       statuses: [

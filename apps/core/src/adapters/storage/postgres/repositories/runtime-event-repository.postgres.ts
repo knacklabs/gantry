@@ -468,12 +468,15 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
       cacheReadTokens: sql<
         number | null
       >`sum((${usage}->>'cacheReadTokens')::bigint) filter (where jsonb_typeof(${usage}->'cacheReadTokens') = 'number')::bigint`,
+      cacheReadTokenCount: sql<number>`count(*) filter (where jsonb_typeof(${usage}->'cacheReadTokens') = 'number')::int`,
       cacheWriteTokens: sql<
         number | null
       >`sum((${usage}->>'cacheWriteTokens')::bigint) filter (where jsonb_typeof(${usage}->'cacheWriteTokens') = 'number')::bigint`,
+      cacheWriteTokenCount: sql<number>`count(*) filter (where jsonb_typeof(${usage}->'cacheWriteTokens') = 'number')::int`,
       estimatedCostUsd: sql<
         number | null
       >`sum((${usage}->>'estimatedCostUsd')::double precision) filter (where jsonb_typeof(${usage}->'estimatedCostUsd') = 'number')`,
+      estimatedCostCount: sql<number>`count(*) filter (where jsonb_typeof(${usage}->'estimatedCostUsd') = 'number')::int`,
     };
     const bucketStart =
       input.bucket === 'hour'
@@ -570,6 +573,42 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
         outputTokens:
           totals.outputTokens -
           topModels.reduce((sum, row) => sum + row.outputTokens, 0),
+        ...(Number(totalRows[0]!.cacheReadTokenCount) >
+        modelRows.reduce((sum, row) => sum + Number(row.cacheReadTokenCount), 0)
+          ? {
+              cacheReadTokens:
+                (totals.cacheReadTokens ?? 0) -
+                topModels.reduce(
+                  (sum, row) => sum + (row.cacheReadTokens ?? 0),
+                  0,
+                ),
+            }
+          : {}),
+        ...(Number(totalRows[0]!.cacheWriteTokenCount) >
+        modelRows.reduce(
+          (sum, row) => sum + Number(row.cacheWriteTokenCount),
+          0,
+        )
+          ? {
+              cacheWriteTokens:
+                (totals.cacheWriteTokens ?? 0) -
+                topModels.reduce(
+                  (sum, row) => sum + (row.cacheWriteTokens ?? 0),
+                  0,
+                ),
+            }
+          : {}),
+        ...(Number(totalRows[0]!.estimatedCostCount) >
+        modelRows.reduce((sum, row) => sum + Number(row.estimatedCostCount), 0)
+          ? {
+              estimatedCostUsd:
+                (totals.estimatedCostUsd ?? 0) -
+                topModels.reduce(
+                  (sum, row) => sum + (row.estimatedCostUsd ?? 0),
+                  0,
+                ),
+            }
+          : {}),
       });
     }
     const run = runRows[0]!;
