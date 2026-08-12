@@ -137,6 +137,7 @@ function gantryMcpAllowedTools(input: {
   memoryReviewerIsControlApprover?: boolean;
   callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
   excludeMcpProxyTools?: boolean;
+  allowSelectedMcpToolCalls?: boolean;
   includeBaselineTools?: boolean;
   chatJid: string;
   isScheduledJob?: boolean;
@@ -170,6 +171,9 @@ function gantryMcpAllowedTools(input: {
     ...defaultAllowedNames
       .filter((toolName) => selectedNames.has(toolName))
       .map(gantryMcpFullToolName),
+    ...(input.allowSelectedMcpToolCalls === true
+      ? [gantryMcpFullToolName('mcp_call_tool')]
+      : []),
     ...(input.callableAgentManifest ?? []).map((entry) =>
       gantryMcpFullToolName(callableAgentToolName(entry)),
     ),
@@ -183,6 +187,7 @@ function defaultAllowedTools(input: {
   memoryReviewerIsControlApprover?: boolean;
   callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
   excludeMcpProxyTools?: boolean;
+  allowSelectedMcpToolCalls?: boolean;
   includeBaselineTools?: boolean;
   chatJid: string;
   isScheduledJob?: boolean;
@@ -252,6 +257,8 @@ const sdkToolsProvider: AgentCapabilityProvider = {
                   ctx.memoryReviewerIsControlApprover,
                 callableAgentManifest: projectedCallableAgentManifest(ctx),
                 excludeMcpProxyTools: ctx.callerResolvedTools != null,
+                allowSelectedMcpToolCalls:
+                  ctx.callerResolvedTools?.allowSelectedMcpToolCalls,
                 includeBaselineTools: ctx.callerResolvedTools == null,
                 chatJid: ctx.chatJid,
                 isScheduledJob: ctx.isScheduledJob,
@@ -268,6 +275,8 @@ const sdkToolsProvider: AgentCapabilityProvider = {
                 ctx.memoryReviewerIsControlApprover,
               callableAgentManifest: projectedCallableAgentManifest(ctx),
               excludeMcpProxyTools: ctx.callerResolvedTools != null,
+              allowSelectedMcpToolCalls:
+                ctx.callerResolvedTools?.allowSelectedMcpToolCalls,
               includeBaselineTools: ctx.callerResolvedTools == null,
               chatJid: ctx.chatJid,
               isScheduledJob: ctx.isScheduledJob,
@@ -360,6 +369,9 @@ const gantryMcpProvider: AgentCapabilityProvider = {
           chatJid: ctx.chatJid,
           permissionLane: ctx.isScheduledJob ? 'autonomous' : 'interactive',
         }),
+        ...(ctx.callerResolvedTools?.allowSelectedMcpToolCalls
+          ? ['mcp_call_tool']
+          : []),
         ...callableAgentManifest.map(callableAgentToolName),
         ...(ctx.callerResolvedTools?.tools ?? []).map((tool) => tool.name),
       ]),
@@ -401,12 +413,22 @@ const gantryMcpProvider: AgentCapabilityProvider = {
     };
     applyAgentEgressNoProxyEnv(env);
     return {
-      allowedTools: (ctx.callerResolvedTools?.tools ?? []).map(
-        (tool) => `mcp__gantry__${tool.name}`,
-      ),
-      availableTools: (ctx.callerResolvedTools?.tools ?? []).map(
-        (tool) => `mcp__gantry__${tool.name}`,
-      ),
+      allowedTools: [
+        ...(ctx.callerResolvedTools?.tools ?? []).map(
+          (tool) => `mcp__gantry__${tool.name}`,
+        ),
+        ...(ctx.callerResolvedTools?.allowSelectedMcpToolCalls
+          ? [gantryMcpFullToolName('mcp_call_tool')]
+          : []),
+      ],
+      availableTools: [
+        ...(ctx.callerResolvedTools?.tools ?? []).map(
+          (tool) => `mcp__gantry__${tool.name}`,
+        ),
+        ...(ctx.callerResolvedTools?.allowSelectedMcpToolCalls
+          ? [gantryMcpFullToolName('mcp_call_tool')]
+          : []),
+      ],
       mcpServers: {
         gantry: {
           command: 'node',

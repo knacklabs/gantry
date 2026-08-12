@@ -1791,7 +1791,7 @@ describe('Agent.Tender job task contract', () => {
     expect(parsed.agentTask?.responseSchema?.type).toBe('object');
   });
 
-  it('accepts an explicitly empty caller-resolved tool surface', () => {
+  it('accepts caller-resolved selected MCP call opt-in', () => {
     const parsed = CreateJobRequestSchema.parse({
       name: 'Review inline analysis',
       prompt: 'Review the complete inline analysis input.',
@@ -1807,11 +1807,37 @@ describe('Agent.Tender job task contract', () => {
           tools: [],
           maxInteractions: 1,
           interactionTimeoutMs: 30_000,
+          allowSelectedMcpToolCalls: true,
         },
       },
     });
 
     expect(parsed.agentTask?.callerResolvedTools?.tools).toEqual([]);
+    expect(
+      parsed.agentTask?.callerResolvedTools?.allowSelectedMcpToolCalls,
+    ).toBe(true);
+  });
+
+  it('rejects a non-boolean selected MCP call opt-in', () => {
+    expectInvalid(CreateJobRequestSchema, {
+      name: 'Invalid selected MCP call opt-in',
+      prompt: 'Run a bounded job.',
+      executionContext: {
+        conversationJid: 'app:manipal:recipe-invalid',
+        threadId: null,
+        workspaceKey: 'agent:agent-tender',
+        sessionId: 'session-invalid',
+      },
+      agentTask: {
+        executionPolicy: { totalTimeoutMs: 120_000 },
+        callerResolvedTools: {
+          tools: [],
+          maxInteractions: 1,
+          interactionTimeoutMs: 30_000,
+          allowSelectedMcpToolCalls: 'yes',
+        },
+      },
+    });
   });
 
   it('rejects unknown executable controls and unbounded timeouts', () => {

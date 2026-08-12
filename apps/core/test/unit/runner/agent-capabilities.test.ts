@@ -1215,6 +1215,48 @@ describe('agent capability composition', () => {
     expect(profile.allowedTools).not.toContain('mcp__gantry__delegate_task');
   });
 
+  it('keeps only the reviewed MCP call proxy beside caller-resolved tools', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'app:manipal-tender-copilot:website-recipe',
+      workspaceFolder: 'website_recipe',
+      isScheduledJob: true,
+      configuredAllowedTools: ['Browser', 'WebSearch', 'AgentDelegation'],
+      callerResolvedTools: {
+        sessionId: 'session-1',
+        tools: [
+          {
+            name: 'resolve_recipe_interaction',
+            description: 'Resolve a pending recipe interaction.',
+            inputSchema: { type: 'object' },
+          },
+        ],
+        maxInteractions: 20,
+        interactionTimeoutMs: 30_000,
+        allowSelectedMcpToolCalls: true,
+      },
+    });
+
+    const gantryNames = JSON.parse(
+      profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON ?? '[]',
+    ) as string[];
+    expect(gantryNames).toEqual([
+      'mcp_call_tool',
+      'resolve_recipe_interaction',
+    ]);
+    expect(profile.allowedTools).toContain('mcp__gantry__mcp_call_tool');
+    expect(profile.availableTools).toContain('mcp__gantry__mcp_call_tool');
+    expect(profile.allowedTools).toContain(
+      'mcp__gantry__resolve_recipe_interaction',
+    );
+    expect(profile.allowedTools).not.toContain('mcp__gantry__mcp_list_tools');
+    expect(profile.allowedTools).not.toContain('mcp__gantry__mcp_search_tools');
+    expect(profile.allowedTools).not.toContain(
+      'mcp__gantry__mcp_describe_tool',
+    );
+    expect(profile.allowedTools).not.toContain('Browser');
+  });
+
   it('keeps only caller and delegated task tools for a bounded job with a completion gate', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',

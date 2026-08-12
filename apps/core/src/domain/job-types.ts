@@ -103,6 +103,7 @@ export interface JobAgentTask {
     }>;
     maxInteractions: number;
     interactionTimeoutMs: number;
+    allowSelectedMcpToolCalls?: boolean;
   };
   completionGate?: {
     toolName: string;

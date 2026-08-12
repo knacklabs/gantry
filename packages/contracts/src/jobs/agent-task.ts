@@ -51,6 +51,7 @@ export const JobAgentTaskSchema = z
           .int()
           .positive()
           .max(30 * 60_000),
+        allowSelectedMcpToolCalls: z.boolean().optional(),
       })
       .strict()
       .optional(),

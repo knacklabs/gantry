@@ -156,6 +156,7 @@ export interface CallerResolvedToolsConfig {
   tools: CallerResolvedToolDefinition[];
   maxInteractions: number;
   interactionTimeoutMs: number;
+  allowSelectedMcpToolCalls?: boolean;
 }
 
 export interface NewMessageAttachment {

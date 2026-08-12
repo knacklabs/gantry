@@ -121,10 +121,18 @@ function callerResolvedToolGuidance(agentInput: AgentInput): string {
   const toolNames = (agentInput.callerResolvedTools?.tools ?? [])
     .map((tool) => tool.name.trim())
     .filter((name) => /^[A-Za-z0-9_.-]+$/u.test(name));
-  if (toolNames.length === 0) return '';
+  const allowSelectedMcpToolCalls =
+    agentInput.callerResolvedTools?.allowSelectedMcpToolCalls === true;
+  if (toolNames.length === 0 && !allowSelectedMcpToolCalls) return '';
   return [
     '# Caller-resolved job tools',
     'The following exact names are direct Gantry host tools mounted for this job. Call them directly. Never pass them to mcp_call_tool, and never use MCP inventory or search tools to find them.',
     ...toolNames.map((name) => `- mcp__gantry__${name}`),
+    ...(allowSelectedMcpToolCalls
+      ? [
+          '# Selected remote MCP call',
+          'The only remote MCP proxy available is mcp__gantry__mcp_call_tool. Use it only with the exact serverName and toolName supplied by this job or its required skill. MCP inventory, search, and describe tools are unavailable; authorization is rechecked for every call.',
+        ]
+      : []),
   ].join('\n');
 }

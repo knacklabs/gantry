@@ -140,6 +140,28 @@ describe('compileSpawnSystemPrompt', () => {
     expect(prompt).not.toContain('mcp_list_tools');
   });
 
+  it('explains selected remote MCP calls without exposing inventory guidance', async () => {
+    const prompt = await compile({
+      agentInput: {
+        isScheduledJob: true,
+        callerResolvedTools: {
+          sessionId: 'session-1',
+          tools: [],
+          maxInteractions: 20,
+          interactionTimeoutMs: 30_000,
+          allowSelectedMcpToolCalls: true,
+        },
+      },
+    });
+
+    expect(prompt).toContain('# Selected remote MCP call');
+    expect(prompt).toContain('mcp__gantry__mcp_call_tool');
+    expect(prompt).toContain('exact serverName and toolName');
+    expect(prompt).not.toContain('mcp_list_tools');
+    expect(prompt).not.toContain('mcp_search_tools');
+    expect(prompt).not.toContain('mcp_describe_tool');
+  });
+
   it('threads the resolved capability catalog into the compiled profile', async () => {
     // Model behavioral-corpus coverage is intentionally deferred to the
     // separate evaluation; this unit test pins only prompt projection.
