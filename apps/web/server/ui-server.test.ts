@@ -529,6 +529,7 @@ it('ui-server-api-contract', async () => {
         settings: 'pass',
         draining: false,
         apiAuth: 'pass',
+        workerRegistered: 'fail',
         scheduler: 'fail',
         secretCheck: 'upstream-secret',
       },
@@ -688,7 +689,13 @@ it('ui-server-api-contract', async () => {
     ],
   });
   expect(JSON.parse(overview.text)).toMatchObject({
-    deployment: { role: 'control', status: 'degraded' },
+    deployment: {
+      role: 'control',
+      status: 'degraded',
+      readiness: {
+        checks: { apiAuth: 'pass', workerRegistered: 'fail' },
+      },
+    },
     instanceCounts: { instances: 2, stale: 1 },
     agentCounts: { total: 1, active: 1, disabled: 0 },
     unavailable: [],

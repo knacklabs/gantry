@@ -52,6 +52,12 @@ function projectReadiness(readiness) {
       ...(readiness.checks.scheduler === undefined
         ? {}
         : { scheduler: readiness.checks.scheduler }),
+      ...(readiness.checks.apiAuth === undefined
+        ? {}
+        : { apiAuth: readiness.checks.apiAuth }),
+      ...(readiness.checks.workerRegistered === undefined
+        ? {}
+        : { workerRegistered: readiness.checks.workerRegistered }),
       ...(readiness.checks.liveCapacity === undefined
         ? {}
         : { liveCapacity: readiness.checks.liveCapacity }),
