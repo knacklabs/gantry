@@ -618,6 +618,7 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
             sql`not exists (
               select 1 from ${pgSchema.eventBusOutboxPostgres} outbox
               where outbox.runtime_event_id = ${events.eventId}
+                and outbox.status in ('pending', 'failed', 'in_progress')
             )`,
             sql`not exists (
               select 1 from ${pgSchema.controlHttpWebhookDeliveriesPostgres} delivery

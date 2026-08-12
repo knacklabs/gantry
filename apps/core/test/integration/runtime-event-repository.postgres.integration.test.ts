@@ -131,6 +131,13 @@ maybeDescribe('Postgres runtime-event metrics and retention', () => {
       payload: {},
       createdAt: '2026-07-01T00:00:00.500Z' as never,
     });
+    const publishedOutbox = await append({
+      appId: DEFAULT_APP_ID as never,
+      eventType: RUNTIME_EVENT_TYPES.WEBHOOK_TEST,
+      actor: 'test',
+      payload: {},
+      createdAt: '2026-07-01T00:00:00.750Z' as never,
+    });
     const webhook = await runtime.control.registerWebhook({
       webhookId: 'webhook:runtime-event-retention',
       appId: DEFAULT_APP_ID,
@@ -156,6 +163,11 @@ maybeDescribe('Postgres runtime-event metrics and retention', () => {
       `UPDATE event_bus_outbox SET status = 'failed'
        WHERE runtime_event_id = $1`,
       [retryableOutbox.eventId],
+    );
+    await runtime.service.pool.query(
+      `UPDATE event_bus_outbox SET status = 'published'
+       WHERE runtime_event_id = $1`,
+      [publishedOutbox.eventId],
     );
     await runtime.service.pool.query(
       `UPDATE control_http_webhook_deliveries SET status = 'delivering'
@@ -209,8 +221,8 @@ maybeDescribe('Postgres runtime-event metrics and retention', () => {
     );
     await expect(
       runtime.service.pool.query(
-        `SELECT 1 FROM runtime_events WHERE event_id = $1`,
-        [old.eventId],
+        `SELECT 1 FROM runtime_events WHERE event_id = ANY($1::int[])`,
+        [[old.eventId, publishedOutbox.eventId]],
       ),
     ).resolves.toMatchObject({ rowCount: 0 });
   }, 60_000);
