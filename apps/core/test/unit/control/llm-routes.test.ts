@@ -536,6 +536,10 @@ describe('direct LLM control routes', () => {
         ],
         response_format: { type: 'json_object' },
         reasoning_effort: 'medium',
+        metadata: {
+          correlation_id: 'scrape:run-1:task-1',
+          task_type: 'manipal.scrape.normalization.full',
+        },
       },
     });
     const res = new TestResponse();
@@ -564,6 +568,13 @@ describe('direct LLM control routes', () => {
     expect(upstreamBody.tools[0].type).toBe('function');
     expect(upstreamBody.response_format).toEqual({ type: 'json_object' });
     expect(upstreamBody.reasoning_effort).toBe('medium');
+    expect(upstreamBody.metadata).toBeUndefined();
+    expect(requestLogs).toContainEqual(
+      expect.objectContaining({
+        correlationId: 'scrape:run-1:task-1',
+        taskType: 'manipal.scrape.normalization.full',
+      }),
+    );
   });
 
   it.each([

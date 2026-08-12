@@ -92,18 +92,19 @@ export interface GantryError extends Error {
 function toError(input: unknown): GantryError {
   const fallback = new Error('Gantry request failed') as GantryError;
   fallback.code = 'UNKNOWN_ERROR';
+  const envelope = Array.isArray(input) && input.length > 0 ? input[0] : input;
   if (
-    input &&
-    typeof input === 'object' &&
-    'error' in input &&
-    input.error &&
-    typeof input.error === 'object'
+    envelope &&
+    typeof envelope === 'object' &&
+    'error' in envelope &&
+    envelope.error &&
+    typeof envelope.error === 'object'
   ) {
-    const error = input.error as Record<string, unknown>;
+    const error = envelope.error as Record<string, unknown>;
     const next = new Error(
       String(error.message || 'Gantry request failed'),
     ) as GantryError;
-    next.code = String(error.code || 'UNKNOWN_ERROR');
+    next.code = String(error.status || error.code || 'UNKNOWN_ERROR');
     next.details =
       error.details && typeof error.details === 'object'
         ? (error.details as Record<string, unknown>)

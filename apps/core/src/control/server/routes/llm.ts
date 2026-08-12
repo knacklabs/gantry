@@ -66,6 +66,8 @@ type ResolvedLlmRequest = {
   alias: string;
   provider: ModelProviderDefinition;
   tail: string;
+  correlationId?: string;
+  taskType?: string;
 };
 
 export async function handleLlmRoutes(
@@ -230,6 +232,10 @@ async function handleAdmittedLlmRequest(
       appId: auth.appId,
       modelAlias: resolved.alias,
       modelRouteId: resolved.entry.modelRoute.id,
+      ...(resolved.correlationId
+        ? { correlationId: resolved.correlationId }
+        : {}),
+      ...(resolved.taskType ? { taskType: resolved.taskType } : {}),
       requestBodyBytes: resolved.body.byteLength,
       ...(responseBodyBytes !== undefined ? { responseBodyBytes } : {}),
       ...(clientDisconnected ? { clientDisconnected: true } : {}),
@@ -341,6 +347,9 @@ function resolveLlmRequest(
     sendError(res, 400, 'INVALID_MODEL', compatibilityError);
     return null;
   }
+  const metadata =
+    endpoint === 'chat_completions' ? stringMetadata(body.metadata) : {};
+  if (endpoint === 'chat_completions') delete body.metadata;
   body.model = resolution.entry.modelRoute.providerModelId;
   return {
     endpoint,
@@ -348,6 +357,10 @@ function resolveLlmRequest(
     entry: resolution.entry,
     alias: resolution.alias,
     provider,
+    ...(metadata.correlation_id
+      ? { correlationId: metadata.correlation_id }
+      : {}),
+    ...(metadata.task_type ? { taskType: metadata.task_type } : {}),
     tail:
       endpoint === 'messages'
         ? '/v1/messages'
@@ -355,6 +368,15 @@ function resolveLlmRequest(
           ? '/v1/messages/count_tokens'
           : chatCompletionsTail(provider),
   };
+}
+
+function stringMetadata(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  );
 }
 
 function parseBody(
