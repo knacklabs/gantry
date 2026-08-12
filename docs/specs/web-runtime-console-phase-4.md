@@ -22,7 +22,7 @@ tasks nested by parent task; `agent_runs` owns the root, `agent_async_tasks`
 owns execution edges and progress, and Runtime Event Exchange events are only
 safe invalidation signals for refreshing that durable projection.
 
-## Exact UX contract
+## Behaviour
 
 - Operations navigation adds **Live activity** between Overview and Metrics.
 - `/activity` shows the 50 most recent agent runs for this Gantry deployment,
