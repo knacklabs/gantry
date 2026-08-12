@@ -45,13 +45,13 @@ const developmentRoutes = [
 
 const productRoutes = [
   homeRoute,
-  ...operationsRoutes.slice(0, 4),
+  ...operationsRoutes.slice(0, 6),
   ...administrationRoutes.slice(0, 2),
 ];
 
 const previewRoutes = import.meta.env.DEV
   ? [
-      ...operationsRoutes.slice(4),
+      ...operationsRoutes.slice(6),
       ...administrationRoutes.slice(2),
       ...developmentRoutes,
     ]

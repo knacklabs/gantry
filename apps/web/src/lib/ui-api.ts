@@ -5,6 +5,7 @@ const CONNECTION_ERROR_REFRESH_MS = 5 * 60 * 1000;
 const OVERVIEW_REFRESH_MS = 30_000;
 const INSTANCES_REFRESH_MS = 60_000;
 const METRICS_REFRESH_MS = 5 * 60_000;
+const ACTIVITY_REFRESH_MS = 30_000;
 
 export type UiConnection = {
   status: string;
@@ -90,6 +91,64 @@ export type UiMetrics = {
     }>;
     p95DurationMs?: number;
   };
+};
+
+export type UiActivityRun = {
+  id: string;
+  agentId: string;
+  cause: 'message' | 'job' | 'control' | 'manual' | 'system';
+  status:
+    | 'queued'
+    | 'running'
+    | 'completed'
+    | 'failed'
+    | 'canceled'
+    | 'timeout';
+  createdAt: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  durationMs: number | null;
+  resultSummary: string | null;
+  errorSummary: string | null;
+};
+
+export type UiActivityTask = {
+  id: string;
+  agentId: string;
+  targetAgentId: string | null;
+  kind:
+    | 'async_command'
+    | 'delegated_agent'
+    | 'mcp_tool_call'
+    | 'session_compaction';
+  status:
+    | 'queued'
+    | 'running'
+    | 'needs_attention'
+    | 'completed'
+    | 'failed'
+    | 'cancelled'
+    | 'timed_out';
+  summary: string | null;
+  outputSummary: string | null;
+  errorSummary: string | null;
+  currentPhase: string | null;
+  lastProgress: string | null;
+  lastToolSummary: string | null;
+  blocker: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  terminalAt: string | null;
+  durationMs: number | null;
+  children: UiActivityTask[];
+};
+
+export type UiActivityDetail = {
+  run: UiActivityRun;
+  tasks: UiActivityTask[];
+  taskTotal: number;
+  truncated: boolean;
 };
 
 export type UiAgentSummary = { agent: UiAgent; boundConversationCount: number };
@@ -185,6 +244,37 @@ export function metricsQuery(range: UiMetricRange) {
   });
 }
 
+export const activityQuery = queryOptions({
+  queryKey: ['ui-api', 'activity'],
+  queryFn: ({ signal }) =>
+    get<{ runs: UiActivityRun[] }>('/ui/api/activity', signal),
+  refetchInterval: () =>
+    document.visibilityState === 'visible' ? ACTIVITY_REFRESH_MS : false,
+  staleTime: ACTIVITY_REFRESH_MS,
+});
+
+export function activityDetailQuery(runId: string) {
+  return queryOptions({
+    queryKey: ['ui-api', 'activity', runId],
+    queryFn: ({ signal }) =>
+      get<UiActivityDetail>(
+        `/ui/api/activity/${encodeURIComponent(runId)}`,
+        signal,
+      ),
+    refetchInterval: (query) =>
+      document.visibilityState === 'visible' &&
+      query.state.data &&
+      !isTerminalActivityStatus(query.state.data.run.status)
+        ? ACTIVITY_REFRESH_MS
+        : false,
+    staleTime: ACTIVITY_REFRESH_MS,
+  });
+}
+
+export function isTerminalActivityStatus(status: string) {
+  return ['completed', 'failed', 'canceled', 'timeout'].includes(status);
+}
+
 export function instanceQuery(instanceId: string) {
   return queryOptions({
     queryKey: ['ui-api', 'instances', instanceId],
@@ -240,6 +330,7 @@ export function uiApiErrorMessage(error: unknown): string {
   if (error.code === 'CONTROL_API_UNAVAILABLE') {
     return 'The Gantry Control API is unavailable.';
   }
+  if (error.code === 'RUN_NOT_FOUND') return 'This run no longer exists.';
   return 'The UI API could not load this data.';
 }
 

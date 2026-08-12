@@ -580,7 +580,23 @@ async function handleApi(method, url, request, response, env, metricsState) {
       });
       return;
     }
-  } catch {
+  } catch (error) {
+    if (
+      activityMatch &&
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === 'RUN_NOT_FOUND'
+    ) {
+      sendJson(response, 404, {
+        error: {
+          code: 'RUN_NOT_FOUND',
+          requestId: randomUUID(),
+          retryable: false,
+        },
+      });
+      return;
+    }
     sendFailure(response, 'CONTROL_API_UNAVAILABLE', true);
     return;
   }

@@ -6,6 +6,7 @@ import {
   interactionSearchSchema,
   providerSearchSchema,
 } from '../../features/operations/operations-search';
+import { activitySearchSchema } from '../../features/runtime/runtime-search';
 import { rootRoute } from '../root-route';
 
 const overviewRoute = createRoute({
@@ -14,6 +15,25 @@ const overviewRoute = createRoute({
   component: lazyRouteComponent(
     () => import('../../features/operations/routes/overview-route'),
     'OverviewRoute',
+  ),
+});
+
+const activityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'activity',
+  validateSearch: activitySearchSchema,
+  component: lazyRouteComponent(
+    () => import('../../features/operations/routes/activity-route'),
+    'ActivityRoute',
+  ),
+});
+
+const activityDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'activity/$runId',
+  component: lazyRouteComponent(
+    () => import('../../features/operations/routes/activity-detail-route'),
+    'ActivityDetailRoute',
   ),
 });
 
@@ -106,6 +126,8 @@ const diagnosticsRoute = import.meta.env.DEV
 
 export const operationsRoutes = [
   overviewRoute,
+  activityRoute,
+  activityDetailRoute,
   metricsRoute,
   instancesRoute,
   instanceDetailRoute,

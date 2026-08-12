@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import {
+  Activity,
   Bot,
   ChartNoAxesCombined,
   LayoutDashboard,
@@ -11,6 +12,7 @@ const navigation = [
     label: 'Operations',
     items: [
       { to: '/overview', label: 'Overview', icon: LayoutDashboard },
+      { to: '/activity', label: 'Live activity', icon: Activity },
       { to: '/metrics', label: 'Metrics', icon: ChartNoAxesCombined },
       { to: '/instances', label: 'Instances', icon: Server },
     ],

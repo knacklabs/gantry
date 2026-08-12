@@ -364,6 +364,15 @@ it('ui-server-activity-contract', async () => {
   });
   expect(failure.text).not.toContain('server-secret');
 
+  sdk.getActivity.mockRejectedValue(
+    Object.assign(new Error('Run not found'), { code: 'RUN_NOT_FOUND' }),
+  );
+  const missingRun = await request(handler, '/ui/api/activity/run%3Amissing');
+  expect(missingRun.status).toBe(404);
+  expect(JSON.parse(missingRun.text)).toMatchObject({
+    error: { code: 'RUN_NOT_FOUND', retryable: false },
+  });
+
   const invalid = await request(
     handler,
     '/ui/api/activity/run%3Aone/events?afterEventId=-1',
