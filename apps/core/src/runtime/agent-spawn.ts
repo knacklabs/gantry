@@ -408,6 +408,7 @@ async function spawnAgentWithContext(
     );
     const sandboxAllowedNetworkHosts = uniqueStrings([
       ...sandboxAllowedNetworkHostsFromRuntimeAccess(effectiveRuntimeAccess),
+      ...(input.browserAllowedNetworkHosts ?? []),
       ...(checkpointerNetworkHost ? [checkpointerNetworkHost] : []),
     ]);
     const runtimeSandbox = getRuntimeSettingsForConfig().runtime.sandbox;

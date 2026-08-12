@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
 const JsonObjectSchema = z.record(z.string(), z.unknown());
+const NetworkHostSchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^(?:\*\.)?[a-z0-9.-]+(?::[1-9][0-9]{0,4})?$/iu);
 
 function hasObjectResultRoot(schema: Record<string, unknown>): boolean {
   if (schema.type === 'object') return true;
@@ -71,6 +76,11 @@ export const JobAgentTaskSchema = z
           .max(2 * 60 * 60_000),
       })
       .strict(),
+    browserAllowedNetworkHosts: z
+      .array(NetworkHostSchema)
+      .min(1)
+      .max(50)
+      .optional(),
     modelControls: z
       .object({
         effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),

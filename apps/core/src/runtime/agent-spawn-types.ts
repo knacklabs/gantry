@@ -72,6 +72,7 @@ export interface AgentInput {
   memoryReviewerIsControlApprover?: boolean;
   persona?: AgentPersona;
   browserProfileName?: string;
+  browserAllowedNetworkHosts?: string[];
   /** Per-turn browser credential the host maps to this turn's profile. */
   browserTurnToken?: string;
   toolPolicyRules?: string[];

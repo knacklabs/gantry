@@ -110,6 +110,7 @@ export interface JobAgentTask {
     maxNoProgressContinuations: number;
   };
   executionPolicy: { totalTimeoutMs: number };
+  browserAllowedNetworkHosts?: string[];
   modelControls?: {
     effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
     thinking?:

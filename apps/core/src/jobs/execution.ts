@@ -537,6 +537,12 @@ async function runActiveJob(
                 ...(currentJob.agent_task?.responseSchema
                   ? { responseSchema: currentJob.agent_task.responseSchema }
                   : {}),
+                ...(currentJob.agent_task?.browserAllowedNetworkHosts
+                  ? {
+                      browserAllowedNetworkHosts:
+                        currentJob.agent_task.browserAllowedNetworkHosts,
+                    }
+                  : {}),
                 ...(currentJob.agent_task?.callerResolvedTools &&
                 currentJob.session_id
                   ? {
