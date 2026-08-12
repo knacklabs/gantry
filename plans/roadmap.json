@@ -1268,6 +1268,27 @@
       "completed_at": "2026-08-12T17:57:17+00:00",
       "history": ".factory/history/WEB-CONSOLE-3/",
       "outcome": "Operators can now inspect the serving Gantry deployment's last 24 hours, 7 days, or 30 days of bounded request, token, cache, recorded-cost, model-mix, run-status, and end-to-end run-duration metrics from the private web console. The browser receives only safe same-origin projections, identical requests share a five-minute cache, and a scheduler-owned 30-day cleanup keeps runtime-event storage bounded without deleting pending delivery evidence."
+    },
+    {
+      "key": "WEB-CONSOLE-4",
+      "title": "Web Runtime Console: Phase 4 live execution tree",
+      "story": "As an operator, I can inspect live and recent agent execution as a safe nested run-and-task tree so I can understand delegation, progress, and failures without reading raw runtime data.",
+      "acceptance_criteria": [
+        "Live activity lists at most 50 app-owned agent runs and keeps cross-app runs unreadable.",
+        "Run detail projects at most 100 tasks into the actual parent-run/parent-task execution tree with safe target-agent and progress fields only.",
+        "Visible non-terminal detail uses capped safe invalidation SSE plus a 30-second fallback, and terminal or unmounted detail closes all streaming/polling work.",
+        "The same-origin UI facade exposes no Control key, raw event payload, private correlation, leases, provider IDs, conversation data, logs, or mutations.",
+        "Production Live activity list/detail cover populated, empty, truncated, stale, disconnected, missing-run, keyboard, reduced-motion, and light/dark behavior without a frontend test suite."
+      ],
+      "order": 64,
+      "status": "pending",
+      "epic": "web-runtime-console",
+      "skill": "fullstack",
+      "kind": "feature",
+      "depends_on": [
+        "WEB-CONSOLE-3"
+      ],
+      "spec": "docs/specs/web-runtime-console-phase-4.md"
     }
   ],
   "epics": [
@@ -1365,5 +1386,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-12T17:57:17+00:00"
+  "updated_at": "2026-08-12T18:05:08+00:00"
 }
