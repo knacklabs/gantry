@@ -1203,6 +1203,23 @@
         "CAPFIX-1"
       ],
       "spec": "docs/specs/capability-version-bump-card.md"
+    },
+    {
+      "key": "WEB-CONSOLE-1",
+      "title": "Web Runtime Console: Phase 1 connection foundation",
+      "story": "As a Gantry operator, I can see real connection health and real agents in the private web UI without exposing Control API credentials.",
+      "acceptance_criteria": [
+        "The built UI serves at /ui with deep-route fallback.",
+        "The UI API exposes browser-safe connection and agent reads from the existing Control API using server-held credentials.",
+        "Overview and Agents render loading, empty, stale, disconnected, and retry states with no fixture fallback.",
+        "The UI stays responsive and accessible, with bounded visible-only refresh behavior."
+      ],
+      "order": 61,
+      "status": "pending",
+      "epic": "web-runtime-console",
+      "skill": "fullstack",
+      "depends_on": [],
+      "spec": "docs/specs/web-runtime-console-phase-1.md"
     }
   ],
   "epics": [
@@ -1288,8 +1305,17 @@
       "source_refs": [
         "docs/architecture/artifact-store-s3-goal-prompt.md"
       ]
+    },
+    {
+      "id": "web-runtime-console",
+      "title": "Web Runtime Console",
+      "objective": "Connect the private Gantry web UI to one deployment through browser-safe read models, then add operations visibility in bounded phases.",
+      "source_refs": [
+        "docs/specs/web-runtime-console-phase-1.md",
+        "docs/superpowers/specs/2026-08-12-web-runtime-console-design.md"
+      ]
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-12T03:51:26+00:00"
+  "updated_at": "2026-08-12T11:33:14+00:00"
 }
