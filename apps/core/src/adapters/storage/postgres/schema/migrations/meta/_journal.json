@@ -939,6 +939,13 @@
       "when": 1786036206805,
       "tag": "20260806171006_reconcile_merged_settings_migration_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "7",
+      "when": 1786559732876,
+      "tag": "20260812183532_modern_thunderbolts",
+      "breakpoints": true
     }
   ]
 }

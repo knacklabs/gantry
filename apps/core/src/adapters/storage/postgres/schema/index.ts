@@ -15,6 +15,7 @@ export * from './file-artifacts.js';
 export * from './fleet-capability-state.js';
 export * from './group-join-onboarding.js';
 export * from './jobs.js';
+export * from './job-semantic-checkpoints.js';
 export * from './live-turns.js';
 export * from './memory.js';
 export * from './messages.js';

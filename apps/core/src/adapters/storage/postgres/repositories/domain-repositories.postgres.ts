@@ -113,6 +113,7 @@ import type {
 import { PostgresRuntimeDependencyRepository } from './runtime-dependency-repository.postgres.js';
 import { PostgresSettingsRevisionRepository } from './settings-revision-repository.postgres.js';
 import { PostgresAsyncTaskRepository } from './async-task-repository.postgres.js';
+import { PostgresJobSemanticCheckpointRepository } from './job-semantic-checkpoint-repository.postgres.js';
 import { PostgresPatternCandidateRepository } from './pattern-candidate-repository.postgres.js';
 import { PostgresProactiveSurfacingRepository } from './proactive-surfacing-repository.postgres.js';
 import { PostgresObserverInsightRepository } from './observer-insight-repository.postgres.js';
@@ -124,6 +125,7 @@ import type {
   StaleRuntimeDependencyLister,
 } from '../../../../domain/ports/fleet-capability-state.js';
 import type { AsyncTaskRepository } from '../../../../domain/ports/async-tasks.js';
+import type { JobSemanticCheckpointRepository } from '../../../../domain/ports/job-semantic-checkpoints.js';
 import type { PatternCandidateRepository } from '../../../../domain/ports/pattern-candidates.js';
 import type { ObserverInsightRepository } from '../../../../domain/ports/observer-insights.js';
 import type { BrainDreamReviewRepository } from '../../../../brain/brain-dream-review-repository.js';
@@ -169,6 +171,7 @@ export interface PostgresDomainRepositoryBundle {
     StaleRuntimeDependencyLister;
   settingsRevisions: SettingsRevisionRepository;
   asyncTasks: AsyncTaskRepository;
+  jobSemanticCheckpoints: JobSemanticCheckpointRepository;
   patternCandidates: PatternCandidateRepository;
   proactiveSurfacing: PostgresProactiveSurfacingRepository;
   observerInsights: ObserverInsightRepository;
@@ -1971,6 +1974,7 @@ export function createPostgresDomainRepositories(
     runtimeDependencies: new PostgresRuntimeDependencyRepository(db),
     settingsRevisions: new PostgresSettingsRevisionRepository(db),
     asyncTasks: new PostgresAsyncTaskRepository(db),
+    jobSemanticCheckpoints: new PostgresJobSemanticCheckpointRepository(db),
     patternCandidates: new PostgresPatternCandidateRepository(db),
     proactiveSurfacing: new PostgresProactiveSurfacingRepository(db),
     observerInsights: new PostgresObserverInsightRepository(db),
