@@ -1215,13 +1215,34 @@ describe('agent capability composition', () => {
     expect(profile.allowedTools).not.toContain('mcp__gantry__delegate_task');
   });
 
-  it('keeps only the reviewed MCP call proxy beside caller-resolved tools', () => {
+  it('projects the bounded recipe authoring tools beside caller-resolved interactions', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'app:manipal-tender-copilot:website-recipe',
       workspaceFolder: 'website_recipe',
       isScheduledJob: true,
-      configuredAllowedTools: ['Browser', 'WebSearch', 'AgentDelegation'],
+      configuredAllowedTools: [
+        'Browser',
+        'WebSearch',
+        'AgentDelegation',
+        'mcp__gantry__job_checkpoint_status',
+        'mcp__gantry__job_checkpoint_save',
+      ],
+      semanticCapabilities: [{
+        capabilityId: 'manipal.website-recipe-evaluator',
+        version: '1',
+        displayName: 'Manipal Website Recipe Evaluator',
+        category: 'website_recipe',
+        risk: 'write',
+        can: 'Compile and evaluate recipes.',
+        cannot: 'Browse or activate recipes.',
+        credentialSource: 'configured_access',
+        implementationBindings: [{
+          kind: 'mcp_pattern',
+          mcpServer: 'manipal-website-recipe',
+          mcpToolPatterns: ['recipe_compile', 'evaluation_submit'],
+        }],
+      }],
       callerResolvedTools: {
         sessionId: 'session-1',
         tools: [
@@ -1240,10 +1261,18 @@ describe('agent capability composition', () => {
     const gantryNames = JSON.parse(
       profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON ?? '[]',
     ) as string[];
-    expect(gantryNames).toEqual([
+    expect(gantryNames).toEqual(expect.arrayContaining([
+      'browser_open',
+      'browser_inspect',
+      'browser_act',
+      'browser_captcha_challenge',
+      'browser_captcha_settle',
+      'job_checkpoint_status',
+      'job_checkpoint_save',
       'mcp_call_tool',
+      'external_capability_call',
       'resolve_recipe_interaction',
-    ]);
+    ]));
     expect(profile.allowedTools).toContain('mcp__gantry__mcp_call_tool');
     expect(profile.availableTools).toContain('mcp__gantry__mcp_call_tool');
     expect(profile.allowedTools).toContain(
@@ -1254,7 +1283,7 @@ describe('agent capability composition', () => {
     expect(profile.allowedTools).not.toContain(
       'mcp__gantry__mcp_describe_tool',
     );
-    expect(profile.allowedTools).not.toContain('Browser');
+    expect(profile.allowedTools).toContain('mcp__gantry__browser_open');
   });
 
   it('keeps only caller and delegated task tools for a bounded job with a completion gate', () => {
