@@ -952,6 +952,27 @@
       "skill": "backend",
       "kind": "feature",
       "spec": "docs/specs/manipal-deep-analysis-runtime-recovery.md"
+    },
+    {
+      "key": "GANTRY-WEBSITE-RECIPE-V2",
+      "title": "Caller-bounded jobs with selected remote MCP calls",
+      "story": "As an application running a bounded Gantry job, I can supply exact human-interaction tools while the agent invokes its already reviewed remote MCP capability, so one safe agent loop can continue without application orchestration.",
+      "acceptance_criteria": [
+        "The optional caller-resolved flag exposes only mcp_call_tool plus declared caller tools.",
+        "Omitting the flag preserves the existing exclusive caller-tool surface.",
+        "Remote MCP calls still require attached-source and exact semantic-capability authorization.",
+        "Contract, runtime projection, and prompt tests prove the boundary."
+      ],
+      "order": 54,
+      "status": "done",
+      "epic": "manipal-integration",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/caller-bounded-selected-remote-mcp.md",
+      "completed_at": "2026-08-12T08:24:48+00:00",
+      "history": ".factory/history/GANTRY-WEBSITE-RECIPE-V2/",
+      "outcome": "Caller-bounded Gantry jobs can now opt in to the single reviewed remote MCP call proxy alongside their exact caller-resolved tools, while inventory, authority, browser, shell, and unrelated tools remain excluded. MCP progress events expose only bounded operation discriminators and opaque evidence references, so Agent.Tender can drive Website Recipe V2 through Manipal private capabilities without exposing arguments or broadening Gantry authority."
     }
   ],
   "epics": [
@@ -1037,8 +1058,16 @@
       "source_refs": [
         "docs/architecture/artifact-store-s3-goal-prompt.md"
       ]
+    },
+    {
+      "id": "manipal-integration",
+      "title": "Manipal integration",
+      "objective": "Expose provider-neutral runtime capabilities required by Manipal without adding application-specific workflow logic.",
+      "source_refs": [
+        "docs/specs/caller-bounded-selected-remote-mcp.md"
+      ]
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-06T16:17:19+00:00"
+  "updated_at": "2026-08-12T08:24:48+00:00"
 }
