@@ -863,6 +863,26 @@ export interface paths {
         patch: operations["updateConversationInstall"];
         trace?: never;
     };
+    "/v1/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get bounded console metrics
+         * @description Returns app-scoped usage and completed-run metrics for one server-owned UTC range. Raw events and arbitrary time or bucket filters are not exposed.
+         */
+        get: operations["getMetrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/usage": {
         parameters: {
             query?: never;
@@ -3096,6 +3116,57 @@ export interface components {
             /** @enum {string} */
             status: "manual";
             instruction: string;
+        };
+        ConsoleMetricUsage: {
+            requestCount: number;
+            inputTokens: number;
+            outputTokens: number;
+            cacheReadTokens?: number;
+            cacheWriteTokens?: number;
+            estimatedCostUsd?: number;
+        };
+        ConsoleMetricUsageBucket: {
+            /** Format: date-time */
+            start: string;
+            requestCount: number;
+            inputTokens: number;
+            outputTokens: number;
+            cacheReadTokens?: number;
+            cacheWriteTokens?: number;
+            estimatedCostUsd?: number;
+        };
+        ConsoleMetricModel: {
+            model: string;
+            requestCount: number;
+            inputTokens: number;
+            outputTokens: number;
+            cacheReadTokens?: number;
+            cacheWriteTokens?: number;
+            estimatedCostUsd?: number;
+        };
+        ConsoleMetricsResponse: {
+            /** @enum {string} */
+            range: "24h" | "7d" | "30d";
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            /** @enum {string} */
+            bucket: "hour" | "day";
+            usage: {
+                totals: components["schemas"]["ConsoleMetricUsage"];
+                buckets: components["schemas"]["ConsoleMetricUsageBucket"][];
+                models: components["schemas"]["ConsoleMetricModel"][];
+            };
+            runs: {
+                total: number;
+                statuses: {
+                    /** @enum {string} */
+                    status: "completed" | "failed" | "canceled";
+                    count: number;
+                }[];
+                p95DurationMs?: number;
+            };
         };
         UsageAggregate: {
             requestCount: number;
@@ -5971,6 +6042,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConversationInstall"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getMetrics: {
+        parameters: {
+            query?: {
+                /** @description Fixed UTC lookback range; defaults to 24h. */
+                range?: "24h" | "7d" | "30d";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsoleMetricsResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

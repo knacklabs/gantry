@@ -1,8 +1,8 @@
 ---
 issue: WEB-CONSOLE-3
 title: Web Runtime Console: Phase 3 bounded metrics
-status: awaiting-approval
-saved: 2026-08-12T16:27:12+00:00
+status: approved
+saved: 2026-08-12T16:27:56+00:00
 story: WEB-CONSOLE-3
 decisions_reviewed:
   - 0000-credential-broker-boundary
@@ -283,3 +283,8 @@ maintenance paths are the smaller safe shape.
   five-minute refresh policy, keyboard navigation, reduced motion, and
   light/dark. Do not add a maintained UI test suite.
 - Run one autoreview pass and one functional check before archive.
+
+## Implementation Assumptions
+
+<!-- Made during implementation, NOT part of the approved plan. Dev: review these before merge; promote any that matter to docs/decisions/. -->
+- 2026-08-12: WEB-CONSOLE-3.1 exposes GET /v1/metrics with usage and runs in one response; 24h uses hourly UTC buckets, 7d and 30d use daily UTC buckets, and model mix returns up to five named models plus Other when needed.

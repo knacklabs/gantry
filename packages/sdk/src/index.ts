@@ -421,6 +421,14 @@ export class GantryClient {
       }),
   };
 
+  readonly metrics = {
+    get: (input: OpenApi.GetMetricsQuery = {}) =>
+      this.transport.request<OpenApi.GetMetricsResponse>({
+        method: 'GET',
+        path: `/v1/metrics${querySuffix(input)}`,
+      }),
+  };
+
   readonly observer = {
     status: (input: OpenApi.GetObserverStatusQuery = {}) =>
       this.transport.request<OpenApi.ObserverStatusResponse>({

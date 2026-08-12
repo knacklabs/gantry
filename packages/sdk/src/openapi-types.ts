@@ -89,6 +89,8 @@ export type GetRunResponse = JsonResponse<'getRun', 200>;
 
 export type QueryUsageQuery = Query<'queryUsage'>;
 export type QueryUsageResponse = JsonResponse<'queryUsage', 200>;
+export type GetMetricsQuery = Query<'getMetrics'>;
+export type GetMetricsResponse = JsonResponse<'getMetrics', 200>;
 
 export type GetObserverStatusQuery = Query<'getObserverStatus'>;
 export type ObserverStatusResponse = JsonResponse<'getObserverStatus', 200>;

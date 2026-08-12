@@ -183,6 +183,12 @@ export async function startSchedulerLoop(
         getRuntimeStorage().repositories.liveTurns.deleteExpiredTerminalLiveAdmissionWorkItems(
           cutoffIso,
         )),
+    sweepRuntimeEvents:
+      deps.sweepRuntimeEvents ??
+      ((cutoffIso: string) =>
+        getRuntimeStorage().repositories.runtimeEvents.deleteExpiredRuntimeEvents(
+          cutoffIso,
+        )),
   };
   const warn = (context: Record<string, unknown>, message: string): void =>
     logger.warn(context, message);

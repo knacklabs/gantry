@@ -128,6 +128,9 @@ export interface NormalizedUsageEventPayload {
   usage: {
     inputTokens: number;
     outputTokens: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    estimatedCostUsd?: number;
     model?: string;
     provider?: string;
   };
@@ -157,6 +160,50 @@ export interface UsageAggregate {
   apiKeyId?: string;
   model?: string;
   day?: string;
+}
+
+export type ConsoleMetricRange = '24h' | '7d' | '30d';
+export type ConsoleMetricBucket = 'hour' | 'day';
+export type ConsoleMetricRunStatus = Extract<
+  AgentRun['status'],
+  'completed' | 'failed' | 'canceled'
+>;
+
+export interface ConsoleMetricUsage {
+  requestCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  estimatedCostUsd?: number;
+}
+
+export interface ConsoleMetricUsageBucket extends ConsoleMetricUsage {
+  start: IsoTimestamp;
+}
+
+export interface ConsoleMetricModel extends ConsoleMetricUsage {
+  model: string;
+}
+
+export interface ConsoleMetricsQuery {
+  appId: AppId;
+  from: IsoTimestamp;
+  to: IsoTimestamp;
+  bucket: ConsoleMetricBucket;
+}
+
+export interface ConsoleMetricsProjection {
+  usage: {
+    totals: ConsoleMetricUsage;
+    buckets: ConsoleMetricUsageBucket[];
+    models: ConsoleMetricModel[];
+  };
+  runs: {
+    total: number;
+    statuses: Array<{ status: ConsoleMetricRunStatus; count: number }>;
+    p95DurationMs?: number;
+  };
 }
 
 export interface AgentRun {

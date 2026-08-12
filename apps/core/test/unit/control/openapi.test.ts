@@ -33,6 +33,7 @@ import { handleGuidedActionRoutes } from '@core/control/server/routes/guided-act
 import { handleJobRoutes } from '@core/control/server/routes/jobs.js';
 import { handleLlmRoutes } from '@core/control/server/routes/llm.js';
 import { handleMemoryRoutes } from '@core/control/server/routes/memory.js';
+import { handleMetricsRoutes } from '@core/control/server/routes/metrics.js';
 import { handleObserverRoutes } from '@core/control/server/routes/observer.js';
 import { handleMcpServerRoutes } from '@core/control/server/routes/mcp-servers.js';
 import { handleModelRoutes } from '@core/control/server/routes/models.js';
@@ -126,6 +127,7 @@ const expectedControlRoutes = [
   'GET /v1/memory/dreaming/status',
   'GET /v1/memory/reviews',
   'GET /v1/memory/reviews/{reviewId}',
+  'GET /v1/metrics',
   'POST /v1/memory/dreaming/trigger',
   'POST /v1/memory/reviews/{reviewId}/decision',
   'POST /v1/memory/search',
@@ -385,6 +387,7 @@ async function isRecognizedByRuntime(method: string, pathname: string) {
     () => handleProviderConversationRoutes(req, res, ctx, url, pathname),
     () => handlePeopleRoutes(req, res, ctx, url, pathname),
     () => handleMemoryRoutes(req, res, ctx, url, pathname),
+    () => handleMetricsRoutes(req, res, ctx, url, pathname),
     () => handleObserverRoutes(req, res, ctx, url, pathname),
     () => handleBrainRoutes(req, res, ctx, url, pathname),
     () => handleModelRoutes(req, res, ctx, pathname),
@@ -408,6 +411,28 @@ async function isRecognizedByRuntime(method: string, pathname: string) {
 describe('control OpenAPI documentation', () => {
   it('keeps the OpenAPI route inventory in sync with the control API surface', () => {
     expect(documentedRoutes()).toEqual(expectedControlRoutes);
+  });
+
+  it('documents fixed-range metrics with the usage scope', () => {
+    const operation = getGantryOpenApiDocument().paths['/v1/metrics']?.get;
+
+    expect(operation?.security).toEqual([{ bearerAuth: ['usage:read'] }]);
+    expect(operation?.parameters).toContainEqual(
+      expect.objectContaining({
+        name: 'range',
+        schema: {
+          type: 'string',
+          enum: ['24h', '7d', '30d'],
+          default: '24h',
+        },
+      }),
+    );
+    expect(operation?.parameters).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'from' }),
+        expect.objectContaining({ name: 'bucket' }),
+      ]),
+    );
   });
 
   it('documents observer insight type filtering and structured evidence', () => {

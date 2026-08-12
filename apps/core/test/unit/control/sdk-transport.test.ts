@@ -209,6 +209,34 @@ it('requests typed runtime inventory routes', async () => {
   });
 });
 
+it('requests typed fixed-range metrics', async () => {
+  const client = new GantryClient({
+    apiKey: 'test-key',
+    baseUrl: 'http://127.0.0.1:3939',
+  });
+  const request = vi
+    .spyOn(
+      (client as unknown as { transport: { request: () => unknown } })
+        .transport,
+      'request',
+    )
+    .mockResolvedValue({
+      range: '7d',
+      from: '2026-08-05T00:00:00.000Z',
+      to: '2026-08-12T00:00:00.000Z',
+      bucket: 'day',
+      usage: { totals: {}, buckets: [], models: [] },
+      runs: { total: 0, statuses: [] },
+    });
+
+  await client.metrics.get({ range: '7d' });
+
+  expect(request).toHaveBeenCalledWith({
+    method: 'GET',
+    path: '/v1/metrics?range=7d',
+  });
+});
+
 describe('@gantry/sdk transport', () => {
   it('does not send an undefined content-type header for GET requests', async () => {
     const port = await listen((req, res) => {

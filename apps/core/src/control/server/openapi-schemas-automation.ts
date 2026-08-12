@@ -79,8 +79,91 @@ const arrayEnvelope = (name: string, itemRef: string): JsonSchema =>
     type: 'array',
     items: { $ref: `#/components/schemas/${itemRef}` },
   });
+const consoleMetricUsageProperties = {
+  requestCount: { type: 'integer', minimum: 0 },
+  inputTokens: { type: 'integer', minimum: 0 },
+  outputTokens: { type: 'integer', minimum: 0 },
+  cacheReadTokens: { type: 'integer', minimum: 0 },
+  cacheWriteTokens: { type: 'integer', minimum: 0 },
+  estimatedCostUsd: { type: 'number', minimum: 0 },
+};
 
 export const automationOpenApiSchemas: Record<string, JsonSchema> = {
+  ConsoleMetricUsage: {
+    type: 'object',
+    required: ['requestCount', 'inputTokens', 'outputTokens'],
+    additionalProperties: false,
+    properties: consoleMetricUsageProperties,
+  },
+  ConsoleMetricUsageBucket: {
+    type: 'object',
+    required: ['start', 'requestCount', 'inputTokens', 'outputTokens'],
+    additionalProperties: false,
+    properties: { start: isoDateTime, ...consoleMetricUsageProperties },
+  },
+  ConsoleMetricModel: {
+    type: 'object',
+    required: ['model', 'requestCount', 'inputTokens', 'outputTokens'],
+    additionalProperties: false,
+    properties: {
+      model: { type: 'string' },
+      ...consoleMetricUsageProperties,
+    },
+  },
+  ConsoleMetricsResponse: {
+    type: 'object',
+    required: ['range', 'from', 'to', 'bucket', 'usage', 'runs'],
+    additionalProperties: false,
+    properties: {
+      range: { type: 'string', enum: ['24h', '7d', '30d'] },
+      from: isoDateTime,
+      to: isoDateTime,
+      bucket: { type: 'string', enum: ['hour', 'day'] },
+      usage: {
+        type: 'object',
+        required: ['totals', 'buckets', 'models'],
+        additionalProperties: false,
+        properties: {
+          totals: { $ref: '#/components/schemas/ConsoleMetricUsage' },
+          buckets: {
+            type: 'array',
+            maxItems: 31,
+            items: { $ref: '#/components/schemas/ConsoleMetricUsageBucket' },
+          },
+          models: {
+            type: 'array',
+            maxItems: 6,
+            items: { $ref: '#/components/schemas/ConsoleMetricModel' },
+          },
+        },
+      },
+      runs: {
+        type: 'object',
+        required: ['total', 'statuses'],
+        additionalProperties: false,
+        properties: {
+          total: { type: 'integer', minimum: 0 },
+          statuses: {
+            type: 'array',
+            maxItems: 3,
+            items: {
+              type: 'object',
+              required: ['status', 'count'],
+              additionalProperties: false,
+              properties: {
+                status: {
+                  type: 'string',
+                  enum: ['completed', 'failed', 'canceled'],
+                },
+                count: { type: 'integer', minimum: 0 },
+              },
+            },
+          },
+          p95DurationMs: { type: 'number', minimum: 0 },
+        },
+      },
+    },
+  },
   UsageAggregate: {
     type: 'object',
     required: ['requestCount', 'inputTokens', 'outputTokens'],

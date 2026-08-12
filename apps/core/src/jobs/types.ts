@@ -39,6 +39,9 @@ export interface SchedulerDependencies {
   sweepTerminalLiveAdmissions?: (
     cutoffIso: string,
   ) => Promise<{ deleted: number; more: boolean }>;
+  sweepRuntimeEvents?: (
+    cutoffIso: string,
+  ) => Promise<{ deleted: number; more: boolean }>;
   conversationRoutes: () => Record<string, ConversationRoute>;
   queue: GroupQueue;
   onProcess: (

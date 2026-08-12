@@ -43,6 +43,7 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
   getRuntimeSummary: ref('RuntimeSummaryResponse'),
   getJob: ref('Job'),
   getMemoryDreamingStatus: ref('MemoryDreamingStatusResponse'),
+  getMetrics: ref('ConsoleMetricsResponse'),
   getObserverStatus: ref('ObserverStatusResponse'),
   getMcpServer: ref('McpServerResponse'),
   getModelDefaults: ref('ModelDefaultsResponse'),

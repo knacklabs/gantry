@@ -1,6 +1,17 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, eq, gt, gte, inArray, lt, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  lt,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 
 import type {
   EventBusPublisherPort,
@@ -11,6 +22,9 @@ import type {
   RuntimeEvent,
   RuntimeEventFilter,
   RuntimeEventPublishInput,
+  ConsoleMetricUsage,
+  ConsoleMetricsProjection,
+  ConsoleMetricsQuery,
   UsageAggregate,
   UsageQuery,
 } from '../../../../domain/events/events.js';
@@ -90,6 +104,31 @@ function optionalId(value: unknown): string | null {
 
 const RUNTIME_EVENT_BUS_SOURCE = 'gantry.runtime_events';
 const RUNTIME_EVENT_BUS_VERSION = 1;
+const RUNTIME_EVENT_RETENTION_BATCH_SIZE = 500;
+
+function metricUsage(row: {
+  requestCount: unknown;
+  inputTokens: unknown;
+  outputTokens: unknown;
+  cacheReadTokens: unknown;
+  cacheWriteTokens: unknown;
+  estimatedCostUsd: unknown;
+}): ConsoleMetricUsage {
+  return {
+    requestCount: Number(row.requestCount),
+    inputTokens: Number(row.inputTokens),
+    outputTokens: Number(row.outputTokens),
+    ...(row.cacheReadTokens === null
+      ? {}
+      : { cacheReadTokens: Number(row.cacheReadTokens) }),
+    ...(row.cacheWriteTokens === null
+      ? {}
+      : { cacheWriteTokens: Number(row.cacheWriteTokens) }),
+    ...(row.estimatedCostUsd === null
+      ? {}
+      : { estimatedCostUsd: Number(row.estimatedCostUsd) }),
+  };
+}
 
 export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
   constructor(
@@ -388,6 +427,223 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
         ? { day: String(row.groupKey) }
         : {}),
     }));
+  }
+
+  async queryConsoleMetrics(
+    input: ConsoleMetricsQuery,
+  ): Promise<ConsoleMetricsProjection> {
+    const events = pgSchema.runtimeEventsPostgres;
+    const payload = sql`${events.payloadJson}::jsonb`;
+    const usage = sql`${payload}->'usage'`;
+    const model = sql<string>`coalesce(
+      ${usage}->>'model',
+      ${payload}->>'modelAlias',
+      ${payload}->>'resolved_model_alias',
+      'Unknown'
+    )`;
+    const usageConditions: SQL[] = [
+      eq(events.appId, input.appId),
+      gte(events.createdAt, input.from),
+      lt(events.createdAt, input.to),
+      sql`jsonb_typeof(${usage}->'inputTokens') = 'number'`,
+      sql`jsonb_typeof(${usage}->'outputTokens') = 'number'`,
+      sql`(
+        ${events.eventType} = ${RUNTIME_EVENT_TYPES.MODEL_USAGE}
+        OR ${events.eventType} IN (
+          ${RUNTIME_EVENT_TYPES.JOB_COMPLETED},
+          ${RUNTIME_EVENT_TYPES.JOB_FAILED}
+        )
+        OR (
+          ${events.eventType} = ${RUNTIME_EVENT_TYPES.CREDENTIAL_MODEL_USED}
+          AND ${payload}->>'outcome' = 'forwarded'
+          AND ${payload}->>'apiKeyId' IS NOT NULL
+          AND ${payload}->>'tokenScope' LIKE 'api_key:%'
+        )
+      )`,
+    ];
+    const fields = {
+      requestCount: sql<number>`count(*)::int`,
+      inputTokens: sql<number>`coalesce(sum((${usage}->>'inputTokens')::bigint), 0)::bigint`,
+      outputTokens: sql<number>`coalesce(sum((${usage}->>'outputTokens')::bigint), 0)::bigint`,
+      cacheReadTokens: sql<
+        number | null
+      >`sum((${usage}->>'cacheReadTokens')::bigint) filter (where jsonb_typeof(${usage}->'cacheReadTokens') = 'number')::bigint`,
+      cacheWriteTokens: sql<
+        number | null
+      >`sum((${usage}->>'cacheWriteTokens')::bigint) filter (where jsonb_typeof(${usage}->'cacheWriteTokens') = 'number')::bigint`,
+      estimatedCostUsd: sql<
+        number | null
+      >`sum((${usage}->>'estimatedCostUsd')::double precision) filter (where jsonb_typeof(${usage}->'estimatedCostUsd') = 'number')`,
+    };
+    const bucketStart =
+      input.bucket === 'hour'
+        ? sql<string>`to_char(
+            date_trunc('hour', ${events.createdAt} at time zone 'UTC'),
+            'YYYY-MM-DD"T"HH24:MI:SS"Z"'
+          )`
+        : sql<string>`to_char(
+            date_trunc('day', ${events.createdAt} at time zone 'UTC'),
+            'YYYY-MM-DD"T"HH24:MI:SS"Z"'
+          )`;
+
+    const [totalRows, bucketRows, modelRows, runRows, statusRows] =
+      await Promise.all([
+        this.db
+          .select(fields)
+          .from(events)
+          .where(and(...usageConditions)),
+        this.db
+          .select({ start: bucketStart, ...fields })
+          .from(events)
+          .where(and(...usageConditions))
+          .groupBy(bucketStart)
+          .orderBy(asc(bucketStart)),
+        this.db
+          .select({ model, ...fields })
+          .from(events)
+          .where(and(...usageConditions))
+          .groupBy(model)
+          .orderBy(desc(fields.requestCount), asc(model))
+          .limit(5),
+        this.db
+          .select({
+            total: sql<number>`count(*)::int`,
+            p95DurationMs: sql<
+              number | null
+            >`percentile_cont(0.95) within group (
+              order by extract(epoch from (${pgSchema.agentRunsPostgres.endedAt} - ${pgSchema.agentRunsPostgres.startedAt})) * 1000
+            )`,
+          })
+          .from(pgSchema.agentRunsPostgres)
+          .where(
+            and(
+              eq(pgSchema.agentRunsPostgres.appId, input.appId),
+              inArray(pgSchema.agentRunsPostgres.status, [
+                'completed',
+                'failed',
+                'canceled',
+              ]),
+              gte(pgSchema.agentRunsPostgres.endedAt, input.from),
+              lt(pgSchema.agentRunsPostgres.endedAt, input.to),
+              sql`${pgSchema.agentRunsPostgres.startedAt} is not null`,
+            ),
+          ),
+        this.db
+          .select({
+            status: pgSchema.agentRunsPostgres.status,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(pgSchema.agentRunsPostgres)
+          .where(
+            and(
+              eq(pgSchema.agentRunsPostgres.appId, input.appId),
+              inArray(pgSchema.agentRunsPostgres.status, [
+                'completed',
+                'failed',
+                'canceled',
+              ]),
+              gte(pgSchema.agentRunsPostgres.endedAt, input.from),
+              lt(pgSchema.agentRunsPostgres.endedAt, input.to),
+              sql`${pgSchema.agentRunsPostgres.startedAt} is not null`,
+            ),
+          )
+          .groupBy(pgSchema.agentRunsPostgres.status)
+          .orderBy(asc(pgSchema.agentRunsPostgres.status)),
+      ]);
+
+    const totals = metricUsage(totalRows[0]!);
+    const topModels = modelRows.map((row) => ({
+      model: row.model,
+      ...metricUsage(row),
+    }));
+    const namedRequestCount = topModels.reduce(
+      (sum, row) => sum + row.requestCount,
+      0,
+    );
+    if (namedRequestCount < totals.requestCount) {
+      topModels.push({
+        model: 'Other',
+        requestCount: totals.requestCount - namedRequestCount,
+        inputTokens:
+          totals.inputTokens -
+          topModels.reduce((sum, row) => sum + row.inputTokens, 0),
+        outputTokens:
+          totals.outputTokens -
+          topModels.reduce((sum, row) => sum + row.outputTokens, 0),
+      });
+    }
+    const run = runRows[0]!;
+    return {
+      usage: {
+        totals,
+        buckets: bucketRows.map((row) => ({
+          start:
+            row.start as ConsoleMetricsProjection['usage']['buckets'][number]['start'],
+          ...metricUsage(row),
+        })),
+        models: topModels,
+      },
+      runs: {
+        total: Number(run.total),
+        statuses: statusRows.map((row) => ({
+          status:
+            row.status as ConsoleMetricsProjection['runs']['statuses'][number]['status'],
+          count: Number(row.count),
+        })),
+        ...(run.p95DurationMs === null
+          ? {}
+          : { p95DurationMs: Number(run.p95DurationMs) }),
+      },
+    };
+  }
+
+  async deleteExpiredRuntimeEvents(
+    cutoffIso: string,
+  ): Promise<{ deleted: number; more: boolean }> {
+    return this.db.transaction(async (tx) => {
+      const lock = await tx.execute<{ acquired: boolean }>(sql`
+        select pg_try_advisory_xact_lock(
+          hashtext('gantry.runtime_event_retention')
+        ) as acquired
+      `);
+      if (!lock.rows[0]?.acquired) return { deleted: 0, more: true };
+
+      const events = pgSchema.runtimeEventsPostgres;
+      const candidates = await tx
+        .select({ eventId: events.eventId })
+        .from(events)
+        .where(
+          and(
+            lt(events.createdAt, cutoffIso),
+            sql`not exists (
+              select 1 from ${pgSchema.eventBusOutboxPostgres} outbox
+              where outbox.runtime_event_id = ${events.eventId}
+            )`,
+            sql`not exists (
+              select 1 from ${pgSchema.controlHttpWebhookDeliveriesPostgres} delivery
+              where delivery.event_id = ${events.eventId}
+                and delivery.status in ('pending', 'retrying', 'delivering', 'in_progress')
+            )`,
+          ),
+        )
+        .orderBy(asc(events.createdAt), asc(events.eventId))
+        .limit(RUNTIME_EVENT_RETENTION_BATCH_SIZE)
+        .for('update', { skipLocked: true });
+      if (candidates.length === 0) return { deleted: 0, more: false };
+      const deleted = await tx
+        .delete(events)
+        .where(
+          inArray(
+            events.eventId,
+            candidates.map((candidate) => candidate.eventId),
+          ),
+        )
+        .returning({ eventId: events.eventId });
+      return {
+        deleted: deleted.length,
+        more: candidates.length === RUNTIME_EVENT_RETENTION_BATCH_SIZE,
+      };
+    });
   }
 
   private eventFromRow(row: RuntimeEventRow): RuntimeEvent {

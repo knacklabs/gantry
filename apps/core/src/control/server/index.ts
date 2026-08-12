@@ -63,6 +63,7 @@ import { handleGuidedActionRoutes } from './routes/guided-actions.js';
 import { createJobManagementService, handleJobRoutes } from './routes/jobs.js';
 import { handleLlmRoutes } from './routes/llm.js';
 import { handleMemoryRoutes } from './routes/memory.js';
+import { handleMetricsRoutes } from './routes/metrics.js';
 import { handleObserverRoutes } from './routes/observer.js';
 import { handleMcpServerRoutes } from './routes/mcp-servers.js';
 import { handleModelRoutes } from './routes/models.js';
@@ -175,6 +176,7 @@ function createControlRequestHandler(
         return;
       if (await handlePeopleRoutes(req, res, ctx, url, pathname)) return;
       if (await handleMemoryRoutes(req, res, ctx, url, pathname)) return;
+      if (await handleMetricsRoutes(req, res, ctx, url, pathname)) return;
       if (await handleObserverRoutes(req, res, ctx, url, pathname)) return;
       if (await handleBrainRoutes(req, res, ctx, url, pathname)) return;
       if (await handleCredentialRoutes(req, res, ctx, pathname)) return;

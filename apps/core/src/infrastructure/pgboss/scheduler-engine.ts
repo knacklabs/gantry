@@ -40,6 +40,7 @@ import {
 import { recoverExpiredWorkerLeases } from './scheduler-worker-recovery.js';
 import { pgBossGroupId, pgBossJobKey, pgBossSendId } from './pgboss-keys.js';
 import { sweepTerminalLiveAdmissionsIfDue } from './live-admission-retention.js';
+import { sweepRuntimeEventsIfDue } from './runtime-event-retention.js';
 import type {
   SchedulerDependencies,
   SchedulerDispatchPayload,
@@ -109,6 +110,7 @@ export class PgBossSchedulerEngine {
   private maintenanceTimer: ReturnType<typeof setInterval> | null = null;
   private starvationAlerter: CapabilityStarvationAlerter | null = null;
   private lastLiveAdmissionRetentionSweepAt: number | null = null;
+  private lastRuntimeEventRetentionSweepAt: number | null = null;
 
   constructor(
     private readonly deps: SchedulerDependencies,
@@ -249,6 +251,7 @@ export class PgBossSchedulerEngine {
     const boss = this.requireBoss();
     await this.callbacks.registerSystemJobs(this.deps);
     await this.sweepTerminalLiveAdmissionsIfDue();
+    await this.sweepRuntimeEventsIfDue();
     await this.recoverExpiredWorkerLeases();
     const released = await this.deps.opsRepository.releaseStaleJobLeases();
     if (released.length > 0) {
@@ -289,6 +292,14 @@ export class PgBossSchedulerEngine {
         lastSweepAt: this.lastLiveAdmissionRetentionSweepAt,
         now: currentTimeMs(),
       });
+  }
+
+  private async sweepRuntimeEventsIfDue(): Promise<void> {
+    this.lastRuntimeEventRetentionSweepAt = await sweepRuntimeEventsIfDue({
+      sweep: this.deps.sweepRuntimeEvents,
+      lastSweepAt: this.lastRuntimeEventRetentionSweepAt,
+      now: currentTimeMs(),
+    });
   }
 
   private async scanCapabilityStarvation(jobs: readonly Job[]): Promise<void> {

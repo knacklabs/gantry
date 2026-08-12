@@ -6,6 +6,24 @@ import { peopleOpenApiRouteDocs } from './openapi-people.js';
 export const extendedOpenApiRouteDocs: RouteDoc[] = [
   doc(
     'get',
+    '/v1/metrics',
+    'getMetrics',
+    'Usage',
+    'Get bounded console metrics',
+    'Returns app-scoped usage and completed-run metrics for one server-owned UTC range. Raw events and arbitrary time or bucket filters are not exposed.',
+    ['usage:read'],
+    {
+      parameters: [
+        query('range', 'Fixed UTC lookback range; defaults to 24h.', {
+          type: 'string',
+          enum: ['24h', '7d', '30d'],
+          default: '24h',
+        }),
+      ],
+    },
+  ),
+  doc(
+    'get',
     '/v1/usage',
     'queryUsage',
     'Usage',
