@@ -105,7 +105,9 @@ function streamResponse() {
   const response = new EventEmitter() as EventEmitter & {
     destroyed: boolean;
     writableEnded: boolean;
+    headersFlushed: boolean;
     writeHead: (status: number) => void;
+    flushHeaders: () => void;
     write: (chunk: string) => boolean;
     end: (chunk?: string) => void;
     result: () => { status: number; text: string };
@@ -114,12 +116,16 @@ function streamResponse() {
   let body = '';
   response.destroyed = false;
   response.writableEnded = false;
+  response.headersFlushed = false;
   response.writeHead = (nextStatus) => {
     status = nextStatus;
   };
   response.write = (chunk) => {
     body += chunk;
     return true;
+  };
+  response.flushHeaders = () => {
+    response.headersFlushed = true;
   };
   response.end = (chunk) => {
     body += chunk ?? '';
@@ -346,6 +352,7 @@ it('ui-server-activity-contract', async () => {
     status: 200,
     text: 'data: {"eventId":7,"type":"agent.run.updated","createdAt":"2026-08-12T10:00:04.000Z"}\n\n',
   });
+  expect(streamRes.headersFlushed).toBe(true);
   expect(sdk.getActivity).toHaveBeenCalledWith('run:one');
   expect(sdk.streamActivity).toHaveBeenCalledWith('run:one', {
     afterEventId: 6,

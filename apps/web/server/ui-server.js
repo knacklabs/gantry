@@ -258,6 +258,7 @@ async function streamActivity(request, response, client, runId, url) {
       'cache-control': 'no-cache',
       connection: 'keep-alive',
     });
+    response.flushHeaders();
     for await (const event of client.activity.stream(runId, {
       afterEventId,
       signal: controller.signal,
