@@ -1038,9 +1038,7 @@ describe('agent capability composition', () => {
     ]);
     for (const toolName of NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES) {
       if (recoveryProposals.has(toolName)) {
-        expect(profile.allowedTools).toContain(
-          gantryMcpFullToolName(toolName),
-        );
+        expect(profile.allowedTools).toContain(gantryMcpFullToolName(toolName));
         continue;
       }
       expect(profile.allowedTools).not.toContain(
