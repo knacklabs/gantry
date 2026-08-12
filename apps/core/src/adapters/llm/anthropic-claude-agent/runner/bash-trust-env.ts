@@ -58,12 +58,21 @@ export function applyBashTrustEnvWithProvenance(
   }
 
   const prefix = bashTrustEnvPrefix(toolNetworkEnv);
-  const toolInput = command.startsWith(`${prefix} `)
+  const prefixedInput = command.startsWith(`${prefix} `)
     ? input
     : {
         ...input,
         [commandKey]: `${prefix} ${command}`,
       };
+  // The runner process is already confined by Gantry's enforcing
+  // sandbox_runtime boundary. Claude Code otherwise starts a second Linux
+  // sandbox for Bash and its socat bridge cannot create AF_UNIX sockets after
+  // the outer seccomp filter is active. Skip only that redundant inner layer;
+  // direct-mode commands never receive this escape flag.
+  const toolInput =
+    process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
+      ? { ...prefixedInput, dangerouslyDisableSandbox: true }
+      : prefixedInput;
 
   return {
     toolInput,

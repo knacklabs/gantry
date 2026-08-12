@@ -2406,6 +2406,37 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
+    'skips the redundant SDK Bash sandbox only inside the enforcing outer sandbox',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_PERMISSION_DECISION: 'approve',
+        TEST_EXIT_AFTER_QUERY: '1',
+        GANTRY_SANDBOX_RUNTIME_PROXY: '1',
+      });
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionRequest?.toolInput).toEqual(
+        expect.objectContaining({
+          cmd: 'GODEBUG=netdns=go npm test',
+          dangerouslyDisableSandbox: true,
+        }),
+      );
+      expect(call?.permissionDecision).toEqual({
+        behavior: 'allow',
+        updatedInput: {
+          cmd: 'GODEBUG=netdns=go npm test',
+          apiToken: 'secret-token',
+          dangerouslyDisableSandbox: true,
+        },
+      });
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
     'synthesizes persistent suggestions only for grantable Gantry admin tools',
     async () => {
       const grantableFixture = createRunnerFixture();
