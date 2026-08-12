@@ -1223,6 +1223,26 @@
       "completed_at": "2026-08-12T13:04:11+00:00",
       "history": ".factory/history/WEB-CONSOLE-1/",
       "outcome": "Operators can now open the private Gantry UI at /ui and see the selected deployment's real connection state and agent directory through a server-held Control API credential. The console clearly reports loading, empty, disconnected, stale, retry, and partial states instead of fixture data, while its production navigation is limited to Overview and Agents."
+    },
+    {
+      "key": "WEB-CONSOLE-2",
+      "title": "Web Runtime Console: Phase 2 read-only operations",
+      "story": "As a Gantry operator, I can inspect the serving deployment, its instances, and each agent\u2019s safe configured operational detail in the private web console.",
+      "acceptance_criteria": [
+        "Overview exposes a browser-safe deployment summary and linked attention state.",
+        "Instances show deduplicated all/control and registered worker records with distinct safe health states.",
+        "Agent detail lazily loads configured delegation, skills, capabilities, access, and bounded recent activity without mutations.",
+        "The UI remains read-only and browser-safe, with no credential or operational internals exposed."
+      ],
+      "order": 62,
+      "status": "pending",
+      "epic": "web-runtime-console",
+      "skill": "fullstack",
+      "kind": "feature",
+      "depends_on": [
+        "WEB-CONSOLE-1"
+      ],
+      "spec": "docs/specs/web-runtime-console-phase-2.md"
     }
   ],
   "epics": [
@@ -1320,5 +1340,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-12T13:04:11+00:00"
+  "updated_at": "2026-08-12T14:27:00+00:00"
 }

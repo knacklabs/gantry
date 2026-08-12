@@ -4,6 +4,7 @@ confirmed_by: "Ravi"
 date: 2026-08-12
 stories:
   - WEB-CONSOLE-1
+  - WEB-CONSOLE-2
 ---
 
 # Web Runtime Console: Private Read-only Integration
