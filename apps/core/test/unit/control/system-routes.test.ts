@@ -144,193 +144,193 @@ describe('operational system routes', () => {
     expect(res.body).toContain('gantry_draining 0');
     expect(res.body).toContain('gantry_process_role{role="all"} 1');
   });
+});
 
-  it('serves authenticated runtime summary and sanitized instance inventory', async () => {
-    const now = Date.now();
-    workerRepository.listWorkers.mockResolvedValue([
-      {
-        id: 'current-1',
-        processRole: 'all',
-        status: 'healthy',
-        heartbeatAt: new Date(now).toISOString(),
-        lastSeenAt: new Date(now).toISOString(),
-        createdAt: new Date(now - 60_000).toISOString(),
-        capabilities: ['browser', 'local-cli:git'],
-        bootNonce: 'secret-boot-nonce',
-        imageDigest: 'sha256:secret-image',
-        version: 'secret-version',
-        transport: { port: 3939 },
-        leaseToken: 'secret-lease',
-        rawSettings: { secret: true },
-        rawMetrics: { load: 1 },
-      },
-      {
-        id: 'job-2',
-        processRole: 'job-worker',
-        status: 'healthy',
-        heartbeatAt: new Date(now - 100_000).toISOString(),
-        lastSeenAt: new Date(now - 100_000).toISOString(),
-        createdAt: new Date(now - 120_000).toISOString(),
-        capabilities: ['scheduled-jobs'],
-        bootNonce: 'secret-job-boot-nonce',
-        imageDigest: 'sha256:secret-job-image',
-        version: null,
-      },
-      {
-        id: 'old-control',
-        processRole: 'control',
-        status: 'stopped',
-        heartbeatAt: new Date(now - 200_000).toISOString(),
-        lastSeenAt: new Date(now - 200_000).toISOString(),
-        createdAt: new Date(now - 300_000).toISOString(),
-        capabilities: [],
-        bootNonce: 'secret-old-control-nonce',
-        imageDigest: null,
-        version: null,
-      },
-      {
-        id: 'all-2',
-        processRole: 'all',
-        status: 'healthy',
-        heartbeatAt: new Date(now).toISOString(),
-        lastSeenAt: new Date(now).toISOString(),
-        createdAt: new Date(now - 60_000).toISOString(),
-        capabilities: [],
-        bootNonce: 'secret-all-nonce',
-        imageDigest: null,
-        version: null,
-      },
-    ]);
-    markDraining();
-    const authenticatedCtx = {
-      ...ctx,
-      currentWorkerInstanceId: () => 'current-1',
-      keys: [
-        {
-          kid: 'test',
-          tokenHash: createHash('sha256').update('test-token').digest(),
-          scopes: new Set(['sessions:read' as const]),
-          appId: 'default',
-        },
-      ],
-    } as ControlRouteContext;
-    const headers = { authorization: 'Bearer test-token' };
-
-    const unauthorizedResponse = responseRecorder();
-    await handleSystemRoutes(
-      request('GET'),
-      unauthorizedResponse,
-      authenticatedCtx,
-      '/v1/runtime',
-    );
-    expect(unauthorizedResponse.statusCode).toBe(401);
-    expect(workerRepository.listWorkers).not.toHaveBeenCalled();
-
-    const summaryResponse = responseRecorder();
-    await handleSystemRoutes(
-      request('GET', headers),
-      summaryResponse,
-      authenticatedCtx,
-      '/v1/runtime',
-    );
-    expect(JSON.parse(summaryResponse.body)).toMatchObject({
-      role: 'all',
-      status: 'degraded',
-      capacity: { liveLimit: 3, jobLimit: 5 },
-      counts: {
-        instances: 3,
-        liveWorkers: 2,
-        jobWorkers: 3,
-        stale: 1,
-      },
-      readiness: {
-        status: 'degraded',
-        checks: { draining: true },
-        failing: ['draining'],
-      },
-    });
-
-    const instancesResponse = responseRecorder();
-    await handleSystemRoutes(
-      request('GET', headers),
-      instancesResponse,
-      authenticatedCtx,
-      '/v1/runtime/instances',
-    );
-    const body = JSON.parse(instancesResponse.body);
-    expect(body.instances).toHaveLength(3);
-    expect(body.instances[0]).toEqual({
+it('serves authenticated runtime summary and sanitized instance inventory', async () => {
+  const now = Date.now();
+  workerRepository.listWorkers.mockResolvedValue([
+    {
       id: 'current-1',
-      role: 'all',
+      processRole: 'all',
       status: 'healthy',
-      heartbeat: { status: 'fresh', at: new Date(now).toISOString() },
-      readiness: expect.objectContaining({ status: 'degraded' }),
-      capacity: { liveLimit: 3, jobLimit: 5 },
-      capabilities: ['browser', 'local-cli:git'],
-      startedAt: new Date(now - 60_000).toISOString(),
+      heartbeatAt: new Date(now).toISOString(),
       lastSeenAt: new Date(now).toISOString(),
-    });
-    expect(body.instances[1]).toMatchObject({
+      createdAt: new Date(now - 60_000).toISOString(),
+      capabilities: ['browser', 'local-cli:git'],
+      bootNonce: 'secret-boot-nonce',
+      imageDigest: 'sha256:secret-image',
+      version: 'secret-version',
+      transport: { port: 3939 },
+      leaseToken: 'secret-lease',
+      rawSettings: { secret: true },
+      rawMetrics: { load: 1 },
+    },
+    {
       id: 'job-2',
-      heartbeat: { status: 'stale' },
-      readiness: null,
-      capacity: null,
-    });
-    expect(body.instances[2]).toMatchObject({
+      processRole: 'job-worker',
+      status: 'healthy',
+      heartbeatAt: new Date(now - 100_000).toISOString(),
+      lastSeenAt: new Date(now - 100_000).toISOString(),
+      createdAt: new Date(now - 120_000).toISOString(),
+      capabilities: ['scheduled-jobs'],
+      bootNonce: 'secret-job-boot-nonce',
+      imageDigest: 'sha256:secret-job-image',
+      version: null,
+    },
+    {
+      id: 'old-control',
+      processRole: 'control',
+      status: 'stopped',
+      heartbeatAt: new Date(now - 200_000).toISOString(),
+      lastSeenAt: new Date(now - 200_000).toISOString(),
+      createdAt: new Date(now - 300_000).toISOString(),
+      capabilities: [],
+      bootNonce: 'secret-old-control-nonce',
+      imageDigest: null,
+      version: null,
+    },
+    {
       id: 'all-2',
-      role: 'all',
-      heartbeat: { status: 'fresh' },
-    });
-    expect(JSON.stringify(body)).not.toMatch(
-      /bootNonce|imageDigest|transport|lease|rawSettings|rawMetrics|secret-/,
-    );
-
-    workerRepository.listWorkers.mockResolvedValue([]);
-    const controlResponse = responseRecorder();
-    await handleSystemRoutes(
-      request('GET', headers),
-      controlResponse,
+      processRole: 'all',
+      status: 'healthy',
+      heartbeatAt: new Date(now).toISOString(),
+      lastSeenAt: new Date(now).toISOString(),
+      createdAt: new Date(now - 60_000).toISOString(),
+      capabilities: [],
+      bootNonce: 'secret-all-nonce',
+      imageDigest: null,
+      version: null,
+    },
+  ]);
+  markDraining();
+  const authenticatedCtx = {
+    ...ctx,
+    currentWorkerInstanceId: () => 'current-1',
+    keys: [
       {
-        ...authenticatedCtx,
-        processRole: 'control',
-        currentWorkerInstanceId: () => null,
+        kid: 'test',
+        tokenHash: createHash('sha256').update('test-token').digest(),
+        scopes: new Set(['sessions:read' as const]),
+        appId: 'default',
       },
-      '/v1/runtime/instances',
-    );
-    expect(JSON.parse(controlResponse.body).instances).toEqual([
-      expect.objectContaining({
-        id: 'control:self',
-        role: 'control',
-        heartbeat: { status: 'not-applicable', at: null },
-      }),
-    ]);
+    ],
+  } as ControlRouteContext;
+  const headers = { authorization: 'Bearer test-token' };
+
+  const unauthorizedResponse = responseRecorder();
+  await handleSystemRoutes(
+    request('GET'),
+    unauthorizedResponse,
+    authenticatedCtx,
+    '/v1/runtime',
+  );
+  expect(unauthorizedResponse.statusCode).toBe(401);
+  expect(workerRepository.listWorkers).not.toHaveBeenCalled();
+
+  const summaryResponse = responseRecorder();
+  await handleSystemRoutes(
+    request('GET', headers),
+    summaryResponse,
+    authenticatedCtx,
+    '/v1/runtime',
+  );
+  expect(JSON.parse(summaryResponse.body)).toMatchObject({
+    role: 'all',
+    status: 'degraded',
+    capacity: { liveLimit: 3, jobLimit: 5 },
+    counts: {
+      instances: 3,
+      liveWorkers: 2,
+      jobWorkers: 3,
+      stale: 1,
+    },
+    readiness: {
+      status: 'degraded',
+      checks: { draining: true },
+      failing: ['draining'],
+    },
   });
 
-  it('keeps the runtime inventory readable when settings are unavailable', async () => {
-    runtimeSettings.unavailable = true;
-    const authenticatedCtx = {
-      ...ctx,
-      keys: [
-        {
-          kid: 'test',
-          tokenHash: createHash('sha256').update('test-token').digest(),
-          scopes: new Set(['sessions:read' as const]),
-          appId: 'default',
-        },
-      ],
-    } as ControlRouteContext;
-    const res = responseRecorder();
-    await handleSystemRoutes(
-      request('GET', { authorization: 'Bearer test-token' }),
-      res,
-      authenticatedCtx,
-      '/v1/runtime',
-    );
+  const instancesResponse = responseRecorder();
+  await handleSystemRoutes(
+    request('GET', headers),
+    instancesResponse,
+    authenticatedCtx,
+    '/v1/runtime/instances',
+  );
+  const body = JSON.parse(instancesResponse.body);
+  expect(body.instances).toHaveLength(3);
+  expect(body.instances[0]).toEqual({
+    id: 'current-1',
+    role: 'all',
+    status: 'healthy',
+    heartbeat: { status: 'fresh', at: new Date(now).toISOString() },
+    readiness: expect.objectContaining({ status: 'degraded' }),
+    capacity: { liveLimit: 3, jobLimit: 5 },
+    capabilities: ['browser', 'local-cli:git'],
+    startedAt: new Date(now - 60_000).toISOString(),
+    lastSeenAt: new Date(now).toISOString(),
+  });
+  expect(body.instances[1]).toMatchObject({
+    id: 'job-2',
+    heartbeat: { status: 'stale' },
+    readiness: null,
+    capacity: null,
+  });
+  expect(body.instances[2]).toMatchObject({
+    id: 'all-2',
+    role: 'all',
+    heartbeat: { status: 'fresh' },
+  });
+  expect(JSON.stringify(body)).not.toMatch(
+    /bootNonce|imageDigest|transport|lease|rawSettings|rawMetrics|secret-/,
+  );
 
-    expect(JSON.parse(res.body)).toMatchObject({
-      status: 'degraded',
-      capacity: { liveLimit: 3, jobLimit: null },
-      readiness: { failing: ['settings'] },
-    });
+  workerRepository.listWorkers.mockResolvedValue([]);
+  const controlResponse = responseRecorder();
+  await handleSystemRoutes(
+    request('GET', headers),
+    controlResponse,
+    {
+      ...authenticatedCtx,
+      processRole: 'control',
+      currentWorkerInstanceId: () => null,
+    },
+    '/v1/runtime/instances',
+  );
+  expect(JSON.parse(controlResponse.body).instances).toEqual([
+    expect.objectContaining({
+      id: 'control:self',
+      role: 'control',
+      heartbeat: { status: 'not-applicable', at: null },
+    }),
+  ]);
+});
+
+it('keeps the runtime inventory readable when settings are unavailable', async () => {
+  runtimeSettings.unavailable = true;
+  const authenticatedCtx = {
+    ...ctx,
+    keys: [
+      {
+        kid: 'test',
+        tokenHash: createHash('sha256').update('test-token').digest(),
+        scopes: new Set(['sessions:read' as const]),
+        appId: 'default',
+      },
+    ],
+  } as ControlRouteContext;
+  const res = responseRecorder();
+  await handleSystemRoutes(
+    request('GET', { authorization: 'Bearer test-token' }),
+    res,
+    authenticatedCtx,
+    '/v1/runtime',
+  );
+
+  expect(JSON.parse(res.body)).toMatchObject({
+    status: 'degraded',
+    capacity: { liveLimit: 3, jobLimit: null },
+    readiness: { failing: ['settings'] },
   });
 });

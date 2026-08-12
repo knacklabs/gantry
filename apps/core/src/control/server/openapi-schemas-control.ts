@@ -133,7 +133,7 @@ export const controlOpenApiSchemas: Record<string, JsonSchema> = {
     additionalProperties: false,
     properties: {
       liveLimit: count,
-      jobLimit: count,
+      jobLimit: { type: ['integer', 'null'], minimum: 0 },
     },
   },
   RuntimeSummaryResponse: {

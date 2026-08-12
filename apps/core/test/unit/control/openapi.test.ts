@@ -1602,63 +1602,69 @@ describe('control OpenAPI documentation', () => {
     expect(operationIds).toContain('connectMcpServer');
     expect(new Set(operationIds).size).toBe(operationIds.length);
   });
+});
 
-  it('documents runtime inventory reads with their required scope', () => {
-    const spec = getGantryOpenApiDocument();
+it('documents runtime inventory reads with their required scope', () => {
+  const spec = getGantryOpenApiDocument();
 
-    expect(spec.paths['/v1/runtime']?.get).toMatchObject({
-      operationId: 'getRuntimeSummary',
-      'x-gantry-required-scopes': ['sessions:read'],
-      responses: {
-        '200': {
-          content: {
-            'application/json': {
-              schema: {
-                $ref: '#/components/schemas/RuntimeSummaryResponse',
-              },
+  expect(spec.paths['/v1/runtime']?.get).toMatchObject({
+    operationId: 'getRuntimeSummary',
+    'x-gantry-required-scopes': ['sessions:read'],
+    responses: {
+      '200': {
+        content: {
+          'application/json': {
+            schema: {
+              $ref: '#/components/schemas/RuntimeSummaryResponse',
             },
           },
         },
       },
-    });
-    expect(spec.paths['/v1/runtime/instances']?.get).toMatchObject({
-      operationId: 'listRuntimeInstances',
-      'x-gantry-required-scopes': ['sessions:read'],
-    });
-    expect(spec.components.schemas.RuntimeInstance).toMatchObject({
-      additionalProperties: false,
-      required: [
-        'id',
-        'role',
-        'status',
-        'heartbeat',
-        'readiness',
-        'capacity',
-        'capabilities',
-        'startedAt',
-        'lastSeenAt',
-      ],
-    });
-    expect(
-      spec.components.schemas.RuntimeInstance.properties,
-    ).not.toHaveProperty('transport');
-    expect(
-      spec.components.schemas.RuntimeInstance.properties,
-    ).not.toHaveProperty('bootNonce');
-    expect(
-      spec.components.schemas.RuntimeInstance.properties,
-    ).not.toHaveProperty('imageDigest');
-    expect(
-      spec.components.schemas.RuntimeInstance.properties,
-    ).not.toHaveProperty('leases');
-    expect(
-      spec.components.schemas.RuntimeInstance.properties,
-    ).not.toHaveProperty('settings');
-    expect(
-      spec.components.schemas.RuntimeInstance.properties,
-    ).not.toHaveProperty('metrics');
+    },
   });
+  expect(spec.paths['/v1/runtime/instances']?.get).toMatchObject({
+    operationId: 'listRuntimeInstances',
+    'x-gantry-required-scopes': ['sessions:read'],
+  });
+  expect(spec.components.schemas.RuntimeInstance).toMatchObject({
+    additionalProperties: false,
+    required: [
+      'id',
+      'role',
+      'status',
+      'heartbeat',
+      'readiness',
+      'capacity',
+      'capabilities',
+      'startedAt',
+      'lastSeenAt',
+    ],
+  });
+  expect(spec.components.schemas.RuntimeCapacity.properties.jobLimit).toEqual({
+    type: ['integer', 'null'],
+    minimum: 0,
+  });
+  expect(spec.components.schemas.RuntimeInstance.properties).not.toHaveProperty(
+    'transport',
+  );
+  expect(spec.components.schemas.RuntimeInstance.properties).not.toHaveProperty(
+    'bootNonce',
+  );
+  expect(spec.components.schemas.RuntimeInstance.properties).not.toHaveProperty(
+    'imageDigest',
+  );
+  expect(spec.components.schemas.RuntimeInstance.properties).not.toHaveProperty(
+    'leases',
+  );
+  expect(spec.components.schemas.RuntimeInstance.properties).not.toHaveProperty(
+    'settings',
+  );
+  expect(spec.components.schemas.RuntimeInstance.properties).not.toHaveProperty(
+    'metrics',
+  );
+});
 
+describe('control OpenAPI documentation', () => {
   it('serves the OpenAPI JSON without requiring control API auth', async () => {
     const res = responseRecorder();
 
