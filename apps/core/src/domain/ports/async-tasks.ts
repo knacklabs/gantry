@@ -89,6 +89,7 @@ export interface PublicAsyncTaskDto {
   outputSummary?: string | null;
   errorSummary?: string | null;
   resultRef?: string;
+  result?: Record<string, unknown>;
   failure?: AgentFailureMetadata;
   terminalChildren?: PublicAsyncTaskDto[];
   currentPhase?: string | null;
@@ -259,6 +260,10 @@ export function toPublicAsyncTaskDto(
     typeof task.privateCorrelationJson.resultRef === 'string'
       ? { resultRef: task.privateCorrelationJson.resultRef }
       : {}),
+    ...(task.kind === 'external_capability' &&
+    isRecord(task.privateCorrelationJson.result)
+      ? { result: task.privateCorrelationJson.result }
+      : {}),
     ...(failure ? { failure } : {}),
     ...(terminalChildren.length > 0 ? { terminalChildren } : {}),
     ...publicProgress(task),
@@ -271,6 +276,10 @@ export function toPublicAsyncTaskDto(
     updatedAt: task.updatedAt,
     terminalAt: task.terminalAt,
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function publicFailure(value: unknown): AgentFailureMetadata | null {

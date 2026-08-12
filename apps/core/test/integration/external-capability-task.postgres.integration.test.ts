@@ -159,6 +159,7 @@ maybeDescribe('external capability tasks', () => {
       completionId: 'completion-1',
       resultRef: 'artifact:result-1',
       summary: 'Evaluation passed.',
+      result: { status: 'proven', missingRequirementIds: [] },
     });
     expect(completed).toMatchObject({
       outcome: 'completed',
@@ -169,6 +170,7 @@ maybeDescribe('external capability tasks', () => {
         privateCorrelationJson: {
           completionId: 'completion-1',
           resultRef: 'artifact:result-1',
+          result: { status: 'proven', missingRequirementIds: [] },
         },
       },
     });

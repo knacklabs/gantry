@@ -11,6 +11,7 @@ import { notifyAsyncTaskChange } from './async-task-change-waiter.js';
 
 const MAX_SUMMARY_CHARS = 1_000;
 const MAX_REFERENCE_CHARS = 512;
+const MAX_RESULT_BYTES = 256 * 1024;
 
 export interface ExternalCapabilityTaskAcceptance {
   taskId: string;
@@ -109,6 +110,7 @@ export class ExternalCapabilityTaskService {
     completionId: string;
     resultRef: string;
     summary: string;
+    result?: Record<string, unknown>;
   }): Promise<ExternalCapabilityTaskSettlement> {
     const task = await this.authorize(input);
     if (!task) return { outcome: 'not_found' };
@@ -135,6 +137,7 @@ export class ExternalCapabilityTaskService {
         ...task.privateCorrelationJson,
         completionId: bounded(input.completionId, 'completionId'),
         resultRef: boundedReference(input.resultRef, 'resultRef'),
+        result: boundedResult(input.result ?? {}),
         progress: {
           phase: 'completed',
           lastProgress: bounded(input.summary, 'summary'),
@@ -263,6 +266,16 @@ export class ExternalCapabilityTaskService {
       ? task
       : null;
   }
+}
+
+function boundedResult(value: Record<string, unknown>) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('result must be an object.');
+  }
+  if (Buffer.byteLength(JSON.stringify(value), 'utf8') > MAX_RESULT_BYTES) {
+    throw new Error('result is too large.');
+  }
+  return value;
 }
 
 function validateAcceptance<

@@ -8,7 +8,7 @@ import {
 } from '../handler-context.js';
 import { readJson, sendError, sendJson } from '../http.js';
 
-const BODY_LIMIT_BYTES = 64 * 1024;
+const BODY_LIMIT_BYTES = 512 * 1024;
 const TASK_ROUTE = /^\/v1\/capability-tasks\/([^/]+)\/(complete|cancel)$/u;
 
 export async function handleCapabilityTaskRoutes(
@@ -98,6 +98,7 @@ export async function handleCapabilityTaskRoutes(
           completionId: requiredString(body.completionId) ?? '',
           resultRef: requiredString(body.resultRef) ?? '',
           summary: requiredString(body.summary) ?? '',
+          result: object(body.result),
         })
       : await service.cancel({
           appId: auth.appId,
@@ -155,6 +156,12 @@ export async function handleCapabilityTaskRoutes(
     );
   }
   return true;
+}
+
+function object(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 async function bodyObject(

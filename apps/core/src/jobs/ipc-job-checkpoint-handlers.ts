@@ -8,6 +8,7 @@ import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries
 import { stableSha256Json } from '../shared/stable-hash.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import type { TaskContext, TaskHandler } from './ipc-types.js';
+import { toPublicAsyncTaskDto } from '../domain/ports/async-tasks.js';
 
 const checkpointHandler: TaskHandler = async (context) => {
   const { data, deps, sourceAgentFolder } = context;
@@ -54,9 +55,26 @@ const checkpointHandler: TaskHandler = async (context) => {
       agentId,
       jobId,
     });
+    const asyncTasks = deps.getAsyncTaskRepository?.();
+    const completedExternalTasks = asyncTasks
+      ? (
+          await asyncTasks.listTasks({
+            appId: data.appId,
+            agentId,
+            kind: 'external_capability',
+            statuses: ['completed'],
+            limit: 100,
+            order: 'newest_first',
+          })
+        )
+          .filter((task) => task.parentJobId === jobId)
+          .slice(0, 20)
+          .map(toPublicAsyncTaskDto)
+      : [];
     acceptData('Job checkpoint loaded.', {
       artifactScope: jobArtifactScope(jobId),
       checkpoint,
+      completedExternalTasks,
     });
     return;
   }

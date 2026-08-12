@@ -483,6 +483,7 @@ export class GantryClient {
         completionId: string;
         resultRef: string;
         summary: string;
+        result: Record<string, unknown>;
       },
     ) =>
       this.transport.request<{
