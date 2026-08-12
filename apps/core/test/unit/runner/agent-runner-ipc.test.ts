@@ -1388,6 +1388,7 @@ describe('agent-runner IPC lifecycle', () => {
         allowUnsandboxedCommands: true,
         excludedCommands: [
           `GODEBUG=netdns=go ${cutshortCommand}`,
+          'skills/ATS_Skills/scripts/cutshort-worker.mjs',
           cutshortCommand,
         ],
       });

@@ -10,6 +10,7 @@ import {
   parseReadableScopedToolRule,
   RUN_COMMAND_TOOL_NAME,
 } from '../../../../shared/agent-tool-references.js';
+import { parseBashCommand } from '../../../../shared/bash-command-parser.js';
 import { composeAgentCapabilities } from '../agent-capabilities.js';
 import {
   SDK_NATIVE_SKILL_DISABLE_ENV,
@@ -265,9 +266,11 @@ export async function runQuery(
   // a nested sandbox whose Linux socat bridge cannot create Unix sockets inside
   // the outer sandbox's seccomp boundary. `excludedCommands` is the SDK-supported
   // strict-mode backstop: even if another Claude settings tier re-enables its
-  // sandbox, only the exact commands from selected, reviewed skill actions remain
-  // in Gantry's already-enforcing outer boundary. Never use a blanket wildcard:
-  // it would let unrelated Bash calls skip the SDK's defense-in-depth layer.
+  // sandbox, only executables from selected, reviewed skill actions remain in
+  // Gantry's already-enforcing outer boundary. Claude's `excludedCommands`
+  // matcher is executable-oriented, while Gantry's RunCommand policy continues
+  // to enforce the exact reviewed arguments. Never use a blanket wildcard: it
+  // would let unrelated Bash calls skip the SDK's defense-in-depth layer.
   const reviewedOuterSandboxCommands =
     process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
       ? reviewedSkillActionSandboxExclusions(
@@ -739,6 +742,11 @@ function reviewedSkillActionSandboxExclusions(
       const scoped = parseReadableScopedToolRule(rule);
       if (scoped?.toolName !== RUN_COMMAND_TOOL_NAME || !scoped.scope) continue;
       commands.add(scoped.scope);
+      const parsed = parseBashCommand(scoped.scope);
+      if (parsed.ok && parsed.leaves.length === 1) {
+        const executable = parsed.leaves[0]?.argv[0]?.trim();
+        if (executable) commands.add(executable);
+      }
       const trusted = applyBashTrustEnv(
         'Bash',
         { command: scoped.scope },
