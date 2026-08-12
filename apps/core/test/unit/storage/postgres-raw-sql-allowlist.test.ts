@@ -31,6 +31,9 @@ const ALLOWED_RAW_SQL_FILES = new Set([
   // pg_advisory_xact_lock serializes conversation ownership checks even when
   // the conversation row does not exist yet.
   'apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts',
+  // pg_try_advisory_xact_lock prevents overlapping retention sweeps while
+  // runtime_events remains the durable exchange truth.
+  'apps/core/src/adapters/storage/postgres/repositories/runtime-event-repository.postgres.ts',
   // LISTEN/NOTIFY is wakeup-only; durable rows remain authoritative.
   'apps/core/src/adapters/storage/postgres/live-admission-notify.postgres.ts',
   'apps/core/src/adapters/storage/postgres/runtime-event-notifier.postgres.ts',
