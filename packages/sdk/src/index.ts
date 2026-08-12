@@ -11,11 +11,6 @@ import type {
   RuntimeInstancesResponse,
   RuntimeSummaryResponse,
 } from '@gantry/contracts';
-export type {
-  RuntimeInstance,
-  RuntimeInstancesResponse,
-  RuntimeSummaryResponse,
-} from '@gantry/contracts';
 import { createAgentAdminClient } from './agents.js';
 import { createAgentSkillsClient, createSkillsClient } from './skills.js';
 import { createSettingsClient } from './settings.js';
