@@ -132,11 +132,6 @@ export function createCanUseToolCallback(
     }),
     ...liveApprovedRules,
   ];
-  const selectedSemanticCapabilityIds = new Set(
-    input.agentInput.semanticCapabilities?.map(
-      (capability) => capability.capabilityId,
-    ) ?? [],
-  );
   const configuredAllowedToolRuleSet = new Set(
     input.agentInput.allowedTools ?? [],
   );
@@ -145,11 +140,10 @@ export function createCanUseToolCallback(
       const alias = semanticCapabilityRule(capability.capabilityId);
       const runtimeRules = semanticCapabilityRuntimeRules(capability);
       const selectedByAlias = configuredAllowedToolRuleSet.has(alias);
-      const selectedByHostDefinition =
-        selectedSemanticCapabilityIds.has(capability.capabilityId) &&
+      const selectedByConcreteRule =
         runtimeRules.length > 0 &&
         runtimeRules.every((rule) => configuredAllowedToolRuleSet.has(rule));
-      return selectedByAlias || selectedByHostDefinition
+      return selectedByAlias || selectedByConcreteRule
         ? [alias, ...runtimeRules]
         : [];
     },

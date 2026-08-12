@@ -1035,7 +1035,7 @@ describe('createCanUseToolCallback', () => {
     ).resolves.toEqual(expect.objectContaining({ behavior: 'allow' }));
   });
 
-  it('does not trust an expanded concrete rule without the host-selected definition', async () => {
+  it('does not trust a reviewed action whose concrete rule is not configured', async () => {
     const concreteRule =
       'RunCommand(skills/ATS_Skills/scripts/cutshort-worker.mjs sync)';
     process.env[GANTRY_SKILL_ACTIONS_ENV] = JSON.stringify([
@@ -1066,7 +1066,7 @@ describe('createCanUseToolCallback', () => {
         runId: 'run-ats-source-sync',
         jobId: 'job-ats-source-sync',
         chatJid: 'app:default:ats-source-sync-dev',
-        allowedTools: [concreteRule],
+        allowedTools: [],
         semanticCapabilities: [],
         hideAuthorityTools: true,
         yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
