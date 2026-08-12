@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0028-d314",
+  "profile": "quickfix",
+  "reason": "Correct light-theme status token contrast found in browser audit",
+  "started_at": "2026-08-12T16:03:56+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}
