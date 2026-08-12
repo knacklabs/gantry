@@ -9,7 +9,22 @@ import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilitie
 
 const runtimeHomes: string[] = [];
 
-async function loadAdminHandlers(runtimeHome: string) {
+async function loadAdminHandlers(
+  runtimeHome: string,
+  proposalRepository = {
+    claimPending: vi.fn(async (input: Record<string, unknown>) => ({
+      created: true,
+      proposal: {
+        ...input,
+        status: 'pending',
+        createdAt: input.now,
+        updatedAt: input.now,
+      },
+    })),
+    getById: vi.fn(async () => null),
+    markDecision: vi.fn(async () => null),
+  },
+) {
   vi.resetModules();
   vi.stubEnv('GANTRY_HOME', runtimeHome);
   const syncRuntimeSettingsFromProjection = vi.fn(async () => undefined);
@@ -29,7 +44,10 @@ async function loadAdminHandlers(runtimeHome: string) {
     })),
     getRuntimeRepositories: vi.fn(() => ({})),
     getRuntimeStorage: vi.fn(() => ({
-      repositories: { pendingAccessRequests },
+      repositories: {
+        pendingAccessRequests,
+        capabilityTemplateAmendments: proposalRepository,
+      },
     })),
   }));
   const ipcAuth = await import('@core/runtime/ipc-auth.js');
@@ -37,6 +55,7 @@ async function loadAdminHandlers(runtimeHome: string) {
   return {
     ...handlers,
     pendingAccessRequests,
+    proposalRepository,
     syncRuntimeSettingsFromProjection,
     taskData: (
       taskId: string,
@@ -99,6 +118,44 @@ function depsWithAdminTools(
       }),
     }),
     ...extra,
+  };
+}
+
+function localCliCatalogTool(
+  commandTemplates = ['/usr/local/bin/gog sheets get *'],
+) {
+  return {
+    id: 'tool:google.sheets.read',
+    appId: 'app:test',
+    name: 'google.sheets.read',
+    kind: 'local_cli',
+    provider: 'gantry',
+    displayName: 'Google Sheets read',
+    category: 'productivity',
+    risk: 'low',
+    selectable: true,
+    status: 'active',
+    adapterRef: 'local-cli/gog',
+    inputSchema: semanticCapabilityInputSchema({
+      capabilityId: 'google.sheets.read',
+      displayName: 'Google Sheets read',
+      category: 'Google Sheets',
+      risk: 'read',
+      can: 'Read reviewed spreadsheet ranges.',
+      cannot: 'Write spreadsheets or access unrelated services.',
+      credentialSource: 'local_cli',
+      implementationBindings: [
+        {
+          kind: 'local_cli',
+          executablePath: '/usr/local/bin/gog',
+          executableVersion: '1.0.0',
+          executableHash: 'sha256:gog',
+          commandTemplates,
+        },
+      ],
+    }),
+    createdAt: '2026-08-11T00:00:00.000Z',
+    updatedAt: '2026-08-11T00:00:00.000Z',
   };
 }
 
@@ -2079,5 +2136,214 @@ describe('admin IPC handlers', () => {
       code: 'missing_capability',
     });
     expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('rejects amendment payloads carrying agent-authored catalog copies at the host boundary', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, proposalRepository, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn();
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('template-amendment-dirty', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        payload: {
+          permissionKind: 'tool',
+          capabilityRequestSource: 'request_access',
+          capabilityProposalKind: 'capability_template_amendment',
+          capabilityId: 'google.sheets.read',
+          proposedTemplates: ['/usr/local/bin/gog sheets get * *'],
+          observedArgv: ['sheets', 'get', 'sheet-id', 'Sheet1!A:B'],
+          currentTemplates: ['/tmp/forged destructive *'],
+          executablePath: '/tmp/forged',
+          executableHash: 'sha256:forged',
+          version: 'forged',
+          reason: 'The reviewed arity does not match the CLI invocation.',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], {
+        requestPermissionApproval,
+        getToolRepository: () => ({
+          listTools: vi.fn(async () => [localCliCatalogTool()]),
+        }),
+      }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    // Executable identity is immutable through this surface (0122): the host
+    // boundary rejects catalog copies outright rather than ignoring them.
+    expect(readResponse(runtimeHome, 'template-amendment-dirty')).toMatchObject(
+      { ok: false, code: 'invalid_request' },
+    );
+    expect(proposalRepository.claimPending).not.toHaveBeenCalled();
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('records a clean catalog-derived amendment proposal', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, proposalRepository, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn();
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('template-amendment', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        payload: {
+          permissionKind: 'tool',
+          capabilityRequestSource: 'request_access',
+          capabilityProposalKind: 'capability_template_amendment',
+          capabilityId: 'google.sheets.read',
+          proposedTemplates: ['/usr/local/bin/gog sheets get * *'],
+          observedArgv: ['sheets', 'get', 'sheet-id', 'Sheet1!A:B'],
+          reason: 'The reviewed arity does not match the CLI invocation.',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], {
+        requestPermissionApproval,
+        getToolRepository: () => ({
+          listTools: vi.fn(async () => [localCliCatalogTool()]),
+        }),
+      }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(readResponse(runtimeHome, 'template-amendment')).toMatchObject({
+      ok: true,
+      code: 'capability_amendment_proposal_recorded',
+    });
+    expect(proposalRepository.claimPending).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capabilityId: 'google.sheets.read',
+        currentTemplates: ['/usr/local/bin/gog sheets get *'],
+        proposedTemplates: ['/usr/local/bin/gog sheets get * *'],
+        observedArgv: ['sheets', 'get', 'sheet-id', 'Sheet1!A:B'],
+        // Tiered contract (0122 amendment): added input slots warn too —
+        // only an exact-equivalent reshape is warning-free.
+        widening: true,
+      }),
+    );
+    // Stage-2 contract: recording a fresh proposal dispatches the human
+    // approval card — a recorded proposal is never a silent dead end.
+    expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    '/usr/local/bin/gog sheets get * && echo unsafe',
+    '/usr/local/bin/gog sheets get * > /tmp/output',
+    '/tmp/gog sheets get * *',
+    '/usr/local/bin/gog sheets get * | cat',
+  ])(
+    'rejects invalid proposed template %s before creating a review',
+    async (template) => {
+      const runtimeHome = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+      );
+      runtimeHomes.push(runtimeHome);
+      const { adminTaskHandlers, proposalRepository, taskData } =
+        await loadAdminHandlers(runtimeHome);
+      const requestPermissionApproval = vi.fn();
+
+      await adminTaskHandlers.request_permission({
+        data: taskData('invalid-template-amendment', {
+          type: 'request_permission',
+          chatJid: 'sl:C123',
+          payload: {
+            permissionKind: 'tool',
+            capabilityRequestSource: 'request_access',
+            capabilityProposalKind: 'capability_template_amendment',
+            capabilityId: 'google.sheets.read',
+            proposedTemplates: [template],
+            observedArgv: [],
+            reason: 'Propose a corrected template.',
+          },
+        }) as never,
+        sourceAgentFolder: 'main_agent',
+        deps: depsWithAdminTools([], {
+          requestPermissionApproval,
+          getToolRepository: () => ({
+            listTools: vi.fn(async () => [localCliCatalogTool()]),
+          }),
+        }) as never,
+        conversationBindings: {},
+        sourceAgentFolderJids: ['sl:C123'],
+      });
+
+      expect(
+        readResponse(runtimeHome, 'invalid-template-amendment'),
+      ).toMatchObject({
+        ok: false,
+        code: 'invalid_request',
+      });
+      expect(proposalRepository.claimPending).not.toHaveBeenCalled();
+      expect(requestPermissionApproval).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not re-raise a durably denied proposal after handler restart', async () => {
+    const deniedRepository = {
+      claimPending: vi.fn(async (input: Record<string, unknown>) => ({
+        created: false,
+        proposal: {
+          ...input,
+          status: 'denied',
+          createdAt: input.now,
+          updatedAt: input.now,
+        },
+      })),
+      getById: vi.fn(async () => null),
+      markDecision: vi.fn(async () => null),
+    };
+    for (const suffix of ['before-restart', 'after-restart']) {
+      const runtimeHome = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+      );
+      runtimeHomes.push(runtimeHome);
+      const { adminTaskHandlers, taskData } = await loadAdminHandlers(
+        runtimeHome,
+        deniedRepository,
+      );
+      const requestPermissionApproval = vi.fn();
+      await adminTaskHandlers.request_permission({
+        data: taskData(suffix, {
+          type: 'request_permission',
+          chatJid: 'sl:C123',
+          payload: {
+            permissionKind: 'tool',
+            capabilityRequestSource: 'request_access',
+            capabilityProposalKind: 'capability_template_amendment',
+            capabilityId: 'google.sheets.read',
+            proposedTemplates: ['/usr/local/bin/gog sheets get * *'],
+            observedArgv: ['sheets', 'get', 'sheet-id', 'Sheet1!A:B'],
+            reason: 'The reviewed arity does not match.',
+          },
+        }) as never,
+        sourceAgentFolder: 'main_agent',
+        deps: depsWithAdminTools([], {
+          requestPermissionApproval,
+          getToolRepository: () => ({
+            listTools: vi.fn(async () => [localCliCatalogTool()]),
+          }),
+        }) as never,
+        conversationBindings: {},
+        sourceAgentFolderJids: ['sl:C123'],
+      });
+      expect(readResponse(runtimeHome, suffix)).toMatchObject({
+        ok: true,
+        code: 'capability_amendment_proposal_previously_denied',
+      });
+      expect(requestPermissionApproval).not.toHaveBeenCalled();
+    }
   });
 });

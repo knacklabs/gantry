@@ -7,6 +7,8 @@ import {
 } from '@core/application/jobs/setup-pause-permission-prompt.js';
 import { permissionRecoveryNotificationRunId } from '@core/jobs/execution-notifications.js';
 import { notifyJobSetupRequired } from '@core/jobs/execution-readiness.js';
+import { startCapabilityTemplateAmendmentReview } from '@core/jobs/ipc-capability-template-amendment.js';
+import type { CapabilityTemplateAmendmentRepository } from '@core/domain/ports/capability-template-amendments.js';
 import type { Job } from '@core/domain/types.js';
 import type {
   JobListFilters,
@@ -62,6 +64,92 @@ function pausedJob(index: number): Job {
 }
 
 describe('permission recovery', () => {
+  it('CAPFIX-1-2 approval amends then resumes the paused job without re-asking', async () => {
+    const job = pausedJob(1);
+    const resumeSetupPausedJob = vi.fn(async () => true);
+    const onSchedulerChanged = vi.fn();
+    const amendSemanticCapabilityCommandTemplates = vi.fn(async () => ({
+      status: 'amended' as const,
+      historyId: 'history-1',
+      auditEventId: 'audit-1',
+    }));
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      mode: 'allow_once' as const,
+      decidedBy: 'person:ravi',
+      decisionClassification: 'user_once' as const,
+    }));
+    let finish!: () => void;
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const sendMessage = vi.fn(async (_jid: string, text: string) => {
+      if (text.startsWith('Approved the fix')) finish();
+    });
+    const proposal = {
+      id: 'capability-amendment-1',
+      appId: 'default',
+      agentId: 'agent:team',
+      capabilityId: 'google.sheets.values.get',
+      canonicalKey: 'canonical-1',
+      currentTemplates: ['/usr/bin/gog sheets get *'],
+      proposedTemplates: ['/usr/bin/gog sheets get * *'],
+      observedArgv: ['sheets', 'get', 'sheet-1', 'Leads!A:B'],
+      reviewedSchemaHash: 'schema-hash-1',
+      widening: true,
+      status: 'pending' as const,
+      requestedBy: 'team',
+      jobId: job.id,
+      conversationJid: 'tg:team-001',
+      threadId: 'thread-001',
+      createdAt: '2026-08-06T00:00:00.000Z',
+      updatedAt: '2026-08-06T00:00:00.000Z',
+    };
+    const repository = {
+      amendSemanticCapabilityCommandTemplates,
+      markDecision: vi.fn(),
+    } as unknown as CapabilityTemplateAmendmentRepository;
+
+    startCapabilityTemplateAmendmentReview({
+      deps: {
+        requestPermissionApproval,
+        sendMessage,
+        opsRepository: {
+          listJobs: vi.fn(async () => [job]),
+          getJobById: vi.fn(async () => job),
+          resumeSetupPausedJob,
+        },
+        onSchedulerChanged,
+      } as never,
+      repository,
+      review: {
+        proposal,
+        displayName: 'Google Sheets lead reader',
+        can: 'read lead rows from the selected sheet',
+        cannot: 'change unrelated sheets',
+        wideningKind: 'added_inputs',
+      },
+    });
+    await finished;
+
+    expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
+    expect(amendSemanticCapabilityCommandTemplates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proposalId: proposal.id,
+        expectedReviewedSchemaHash: proposal.reviewedSchemaHash,
+        proposedTemplates: proposal.proposedTemplates,
+        approvedBy: 'person:ravi',
+      }),
+    );
+    expect(resumeSetupPausedJob).toHaveBeenCalledOnce();
+    expect(onSchedulerChanged).toHaveBeenCalledWith(job.id);
+    expect(sendMessage).toHaveBeenCalledWith(
+      proposal.conversationJid,
+      expect.stringContaining('Job resumed'),
+      expect.objectContaining({ threadId: proposal.threadId }),
+    );
+  });
+
   it('drains past 100 paused jobs and sends a route-scoped receipt per resumed job', async () => {
     const jobs = Array.from({ length: 150 }, (_, index) => pausedJob(index));
     const listJobs = vi.fn(async (filters?: JobListFilters) =>

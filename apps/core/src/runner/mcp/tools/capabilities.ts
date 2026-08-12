@@ -93,6 +93,18 @@ const ExactToolTargetSchema = z.object({
     ),
 });
 
+// Strict: identity fields (executablePath/executableHash/version) must be
+// REJECTED, not silently stripped — executable identity is immutable through
+// this surface (decision 0122).
+const CapabilityTemplateAmendmentTargetSchema = z
+  .object({
+    kind: z.literal('capability_template_amendment'),
+    capabilityId: z.string().min(1).max(160),
+    proposedTemplates: z.array(z.string().min(1).max(2048)).min(1).max(8),
+    observedArgv: z.array(z.string().max(8192)).max(128),
+  })
+  .strict();
+
 export function registerAccessRequestTool(
   server: McpServer,
   submitCapabilityReviewTask: CapabilityReviewSubmitter,
@@ -111,6 +123,7 @@ export function registerAccessRequestTool(
       'target.kind=mcp_capability proposes reviewed access to specific tools on an already-connected MCP server; only a human persistent approval creates the capability.',
       'target.kind=tool requests an exact durable Gantry tool rule such as AgentDelegation or mcp__gantry__request_settings_update.',
       'target.kind=run_command requests a scoped temporary exact-command fallback such as "npm test *" when no reviewed capability fits.',
+      'target.kind=capability_template_amendment proposes corrected command templates for an existing local CLI capability; a human must approve any change.',
       'Set temporaryOnly=true for one-off transient access; leave it false for durable grants.',
       'Source setup and raw skill, MCP, CLI, browser, or network details are review metadata, not durable authority.',
     ].join(' '),
@@ -120,6 +133,7 @@ export function registerAccessRequestTool(
         McpCapabilityTargetSchema,
         ExactToolTargetSchema,
         RunCommandTargetSchema,
+        CapabilityTemplateAmendmentTargetSchema,
       ]),
       reason: z.string().describe('Why this access is needed'),
       temporaryOnly: z
@@ -310,6 +324,46 @@ export function registerAccessRequestTool(
               temporaryOnly: args.temporaryOnly ?? false,
               broadAccess: args.broadAccess,
               riskClass: args.riskClass,
+              reason: args.reason,
+            },
+          );
+        }
+        case 'capability_template_amendment': {
+          const parsedTarget =
+            CapabilityTemplateAmendmentTargetSchema.safeParse(target);
+          if (!parsedTarget.success) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Capability template amendment targets accept only capabilityId, proposedTemplates, and observedArgv; executable identity is catalog-owned.',
+                },
+              ],
+            };
+          }
+          if (args.temporaryOnly === true) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Capability template amendments are durable catalog proposals; omit temporaryOnly.',
+                },
+              ],
+            };
+          }
+          return submitCapabilityReviewTask(
+            'request_permission',
+            'Capability template amendment',
+            {
+              permissionKind: 'tool',
+              capabilityRequestSource: 'request_access',
+              capabilityProposalKind: 'capability_template_amendment',
+              capabilityId: parsedTarget.data.capabilityId,
+              proposedTemplates: parsedTarget.data.proposedTemplates,
+              observedArgv: parsedTarget.data.observedArgv,
+              temporaryOnly: false,
               reason: args.reason,
             },
           );

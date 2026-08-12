@@ -533,7 +533,7 @@ function validateLocalCliBinding(
   return { ok: true };
 }
 
-function validateLocalCliCommandTemplate(
+export function validateLocalCliCommandTemplate(
   executablePath: string,
   commandTemplate: string,
   options: { allowWildcard?: boolean } = { allowWildcard: true },

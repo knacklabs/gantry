@@ -98,6 +98,7 @@ import {
 } from './request-access-job-recovery.js';
 import { requestOnlyCapabilityPendingKey } from './request-only-capability-dedupe.js';
 import { resolveRunnerIpcRoute } from '../runtime/ipc-route-authorization.js';
+import { handleCapabilityTemplateAmendmentRequest } from './ipc-capability-template-amendment.js';
 const pendingRequestOnlyCapabilityReviews = new Set<string>();
 const {
   asyncMcpCallToolHandler,
@@ -330,6 +331,27 @@ const requestOnlyCapabilityHandler: TaskHandler = async (context) => {
       : resolveRunnerIpcRoute({ routes: conversationBindings, sourceAgentFolder, targetJid: requestedTargetJid, threadId: data.authThreadId, providerAccountId: data.providerAccountId });
   } catch {
     reject(`${parsed.review.requestKind} requests must use the authenticated provider account for the originating chat.`, 'forbidden');
+    return;
+  }
+  if (data.payload?.capabilityProposalKind === 'capability_template_amendment') {
+    await handleCapabilityTemplateAmendmentRequest({
+      payload: data.payload,
+      appId: data.appId,
+      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
+      sourceAgentFolder,
+      jobId: data.jobId ?? null,
+      conversationJid: approvalRoute.targetJid ?? null,
+      threadId: data.authThreadId ?? null,
+      providerAccountId: approvalRoute.providerAccountId ?? null,
+      toolRepository: deps.getToolRepository?.(),
+      proposalRepository:
+        getRuntimeStorage().repositories.capabilityTemplateAmendments,
+      deps,
+      approvalSurfaceReady:
+        typeof deps.requestPermissionApproval === 'function' &&
+        typeof deps.sendMessage === 'function',
+      now: nowIso(), accept, reject,
+    });
     return;
   }
   if (typeof deps.requestPermissionApproval !== 'function' || typeof deps.sendMessage !== 'function') { reject(`${parsed.review.requestKind} requests require a configured approval surface.`, 'preflight_failed'); return; }

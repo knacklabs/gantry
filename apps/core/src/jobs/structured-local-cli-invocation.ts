@@ -162,7 +162,7 @@ async function resolveGrantedLocalCliInvocation(input: {
 
   throw new StructuredLocalCliInvocationError(
     'invalid_args',
-    `Arguments are outside the reviewed pattern for capability "${capabilityId}".`,
+    `Arguments are outside the reviewed pattern for capability "${capabilityId}". Propose a reviewed fix with request_access target.kind=capability_template_amendment.`,
   );
 }
 

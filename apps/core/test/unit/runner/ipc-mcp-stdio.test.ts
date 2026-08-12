@@ -1527,6 +1527,74 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     });
   });
 
+  it('rejects amendment targets carrying agent-authored catalog metadata (strict contract)', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: {
+        kind: 'capability_template_amendment',
+        capabilityId: 'google.sheets.read',
+        proposedTemplates: ['/usr/local/bin/gog sheets get * *'],
+        observedArgv: ['sheets', 'get', 'sheet-id', 'Sheet1!A:B'],
+        currentTemplates: ['/tmp/forged destructive *'],
+        executablePath: '/tmp/forged',
+        executableHash: 'sha256:forged',
+        version: 'forged',
+      },
+      reason: 'The reviewed arity does not match the CLI invocation.',
+    });
+
+    // Executable identity is immutable through this surface (0122): unknown
+    // fields are REJECTED, not silently stripped, and no IPC task is written.
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskDir = path.join(fixture.ipcDir, 'tasks');
+    const taskFiles = fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : [];
+    expect(taskFiles).toHaveLength(0);
+  });
+
+  it('forwards a clean capability template amendment proposal', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: {
+        kind: 'capability_template_amendment',
+        capabilityId: 'google.sheets.read',
+        proposedTemplates: ['/usr/local/bin/gog sheets get * *'],
+        observedArgv: ['sheets', 'get', 'sheet-id', 'Sheet1!A:B'],
+      },
+      reason: 'The reviewed arity does not match the CLI invocation.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'request_permission',
+      targetJid: 'tg:team',
+      chatJid: 'tg:team',
+      payload: {
+        permissionKind: 'tool',
+        capabilityRequestSource: 'request_access',
+        capabilityProposalKind: 'capability_template_amendment',
+        capabilityId: 'google.sheets.read',
+        proposedTemplates: ['/usr/local/bin/gog sheets get * *'],
+        observedArgv: ['sheets', 'get', 'sheet-id', 'Sheet1!A:B'],
+        temporaryOnly: false,
+        reason: 'The reviewed arity does not match the CLI invocation.',
+      },
+    });
+    expect(task.payload).not.toHaveProperty('currentTemplates');
+    expect(task.payload).not.toHaveProperty('executablePath');
+    expect(task.payload).not.toHaveProperty('executableHash');
+    expect(task.payload).not.toHaveProperty('version');
+  });
+
   it('submits an MCP capability proposal without letting the agent author its definition', async () => {
     const fixture = createMcpFixture();
 

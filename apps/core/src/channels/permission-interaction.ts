@@ -1,3 +1,9 @@
+import {
+  amendmentButtonLabel,
+  amendmentPromptParts,
+  amendmentReceiptText,
+} from './capability-amendment-card.js';
+import { USER_FACING_TOOL_LABELS } from './permission-tool-labels.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalDecisionMode,
@@ -63,33 +69,12 @@ export {
 } from '../domain/permission-decision.js';
 export { decisionForPermissionInteraction as decisionForMode };
 
-const USER_FACING_TOOL_LABELS: Record<string, string> = {
-  RunCommand: 'exact command access',
-  Bash: 'exact command access',
-  Browser: 'Browser',
-  WebSearch: 'web search',
-  WebRead: 'web page access',
-  WebFetch: 'web page access',
-  FileSearch: 'file search',
-  Glob: 'file search',
-  Grep: 'file search',
-  FileRead: 'file reading',
-  Read: 'file reading',
-  FileEdit: 'file editing',
-  Edit: 'file editing',
-  MultiEdit: 'file editing',
-  FileWrite: 'file writing',
-  Write: 'file writing',
-  AgentDelegation: 'agent delegation',
-  Agent: 'agent delegation',
-  Task: 'agent delegation',
-  mcp__gantry__mcp_call_tool: 'MCP Call Tool (any connected server)',
-};
-
 export function permissionButtonLabel(
   mode: PermissionApprovalDecisionMode,
   _request: PermissionApprovalRequest,
 ): string {
+  const amendmentLabel = amendmentButtonLabel(_request, mode);
+  if (amendmentLabel) return amendmentLabel;
   const batchLabel = permissionBatchButtonLabel(_request, mode);
   if (batchLabel) return batchLabel;
   if (mode === 'allow_once')
@@ -149,6 +134,8 @@ export function formatPermissionReceiptText(
   decision: PermissionApprovalDecision,
 ): string {
   const summary = formatPermissionReceiptActionSummary(request); // Existing-prompt settlement, not a new chat receipt.
+  const amendmentReceipt = amendmentReceiptText(request, decision);
+  if (amendmentReceipt) return amendmentReceipt;
   if (!decision.approved || decision.mode === 'cancel') {
     return limitPermissionMessage(`Canceled: ${summary}. Nothing changed.`);
   }
@@ -207,6 +194,13 @@ export function buildPermissionPromptParts(
   const replyInMinutes = Math.max(1, Math.round(timeoutMs / 60000));
   const contextLines = formatPermissionContextLines(request);
   const fullView = buildPermissionPromptFullView(request);
+  const amendmentParts = amendmentPromptParts(request, {
+    contextLines,
+    replyInMinutes,
+    fullView,
+    sanitize: sanitizePermissionText,
+  });
+  if (amendmentParts) return amendmentParts as PermissionPromptParts;
   if (request.interaction) {
     const interaction = request.interaction;
     const rule = firstPersistentRule(request);
