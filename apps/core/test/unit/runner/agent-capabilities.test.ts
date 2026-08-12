@@ -1027,8 +1027,20 @@ describe('agent capability composition', () => {
     });
 
     // Authority-changing, scheduler, and reviewed mutation tools are not
-    // projected as allowed tools.
+    // projected as allowed tools — EXCEPT the birthright recovery proposals
+    // (0123), which must stay visible or autonomous runs cannot ask for fixes.
+    const recoveryProposals = new Set<string>([
+      'request_access',
+      'request_skill_install',
+      'request_skill_proposal',
+      'request_skill_dependency_install',
+      'request_mcp_server',
+    ]);
     for (const toolName of NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES) {
+      if (recoveryProposals.has(toolName)) {
+        expect(profile.allowedTools).toContain(gantryMcpFullToolName(toolName));
+        continue;
+      }
       expect(profile.allowedTools).not.toContain(
         gantryMcpFullToolName(toolName),
       );

@@ -109,6 +109,19 @@ export const DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES = [
   'task_message',
 ] as const;
 
+// Human-gated recovery proposals (decision 0123): these tools only create
+// review metadata — every effect requires an authenticated human decision —
+// so they are input-gated birthright and must stay VISIBLE to no-permission
+// (fixed-image) workers, or autonomous runs cannot ask for fixes. Locked
+// agents still hide them: locked means never raising an approval prompt.
+export const RECOVERY_PROPOSAL_GANTRY_MCP_TOOL_NAMES = [
+  'request_access',
+  'request_skill_install',
+  'request_skill_proposal',
+  'request_skill_dependency_install',
+  'request_mcp_server',
+] as const;
+
 // A tool is excluded from durable grants if granting it durably would let the
 // agent change what it or another agent is permitted to do, alter runtime
 // configuration or topology, or restart the service. The canonical tool-name
