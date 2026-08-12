@@ -1258,13 +1258,16 @@
         "The browser receives only safe cached UI API projections and no frontend UI test suite is added."
       ],
       "order": 63,
-      "status": "active",
+      "status": "done",
       "epic": "web-runtime-console",
       "skill": "fullstack",
       "depends_on": [
         "WEB-CONSOLE-2"
       ],
-      "spec": "docs/specs/web-runtime-console-phase-3.md"
+      "spec": "docs/specs/web-runtime-console-phase-3.md",
+      "completed_at": "2026-08-12T17:57:17+00:00",
+      "history": ".factory/history/WEB-CONSOLE-3/",
+      "outcome": "Operators can now inspect the serving Gantry deployment's last 24 hours, 7 days, or 30 days of bounded request, token, cache, recorded-cost, model-mix, run-status, and end-to-end run-duration metrics from the private web console. The browser receives only safe same-origin projections, identical requests share a five-minute cache, and a scheduler-owned 30-day cleanup keeps runtime-event storage bounded without deleting pending delivery evidence."
     }
   ],
   "epics": [
@@ -1362,5 +1365,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-12T16:23:59+00:00"
+  "updated_at": "2026-08-12T17:57:17+00:00"
 }
