@@ -60,22 +60,6 @@ export type * from './people.js';
 export type ResponseMode = 'sse' | 'webhook' | 'both' | 'none';
 export type MemorySubjectType = 'user' | 'group' | 'channel' | 'common';
 export type DreamPhase = 'light' | 'rem' | 'deep' | 'all';
-export type ProcessRole = 'all' | 'control' | 'live-worker' | 'job-worker';
-
-export interface HealthResponse {
-  status: string;
-  processRole: ProcessRole;
-  transport:
-    | { kind: 'tcp'; port: number }
-    | { kind: 'unix'; socketPath: string };
-  features: {
-    sessions: boolean;
-    jobs: boolean;
-    events: boolean;
-    webhooks: boolean;
-  };
-}
-
 export type AgentListResponse =
   OpenApiComponents['schemas']['AgentListResponse'];
 
