@@ -1331,7 +1331,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'does not request a nested SDK filesystem sandbox inside the outer runner sandbox',
+    'explicitly disables the nested SDK sandbox inside the outer runner sandbox',
     async () => {
       const fixture = createRunnerFixture();
       const protectedSettingsPath = path.join(
@@ -1355,7 +1355,7 @@ describe('agent-runner IPC lifecycle', () => {
 
       expect(result.exitCode, result.stderr).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
-      expect(call?.sandbox).toBeUndefined();
+      expect(call?.sandbox).toEqual({ enabled: false });
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );

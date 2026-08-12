@@ -254,9 +254,11 @@ export async function runQuery(
   // (permission engine + classifier + host-side credential/protected-path rail);
   // no inner SDK Seatbelt, so Chromium's Mach-port register (and the whole class)
   // runs. `sandbox_runtime` confinement is the runner OS sandbox
-  // (runner-sandbox-provider), which is applied out-of-band — this SDK-level
-  // filesystem Seatbelt is never the confinement layer, so it is dropped.
-  const sdkFilesystemSandbox = undefined;
+  // (runner-sandbox-provider), which is applied out-of-band. Disable the SDK
+  // sandbox explicitly: omitting this option lets a provider/user setting enable
+  // a nested sandbox whose Linux socat bridge cannot create Unix sockets inside
+  // the outer sandbox's seccomp boundary.
+  const sdkFilesystemSandbox = { enabled: false } as const;
   const workspaceFolder = agentInput.workspaceFolder;
   const enabledSdkSkills = readClaudeSdkSkillNamesFromEnv();
   const isolatedSdkEnv: Record<string, string | undefined> = {
@@ -374,7 +376,7 @@ export async function runQuery(
       ...(claudeCodeExecutable
         ? { pathToClaudeCodeExecutable: claudeCodeExecutable }
         : {}),
-      ...(sdkFilesystemSandbox ? { sandbox: sdkFilesystemSandbox } : {}),
+      sandbox: sdkFilesystemSandbox,
       // Locked agents map to the SDK 'dontAsk' mode (deny if not pre-approved);
       // the canUseTool gate auto-denies the prompt with "capability not
       // provisioned" before any approval is requested.
