@@ -88,6 +88,18 @@ const GANTRY_INPUT_GATED_BIRTHRIGHT_TOOLS = new Set([
   'procedure_save',
   'task_cancel',
   'task_message',
+  // Human-gated recovery proposals (0052 as amended by 0123, Ravi 2026-08-12:
+  // system tools never need approval). These tools only create review
+  // metadata — every effect requires an authenticated human decision — so
+  // gating them deadlocks recovery: the CAPFIX-1 amendment card could never
+  // be raised by the autonomous runs that need it. Input-gated: complete,
+  // inspectable inputs pass; redacted/truncated inputs still fail closed.
+  // They remain EXCLUDED from durable exact-tool grants (admin-mcp-tools).
+  'request_access',
+  'request_skill_install',
+  'request_skill_proposal',
+  'request_skill_dependency_install',
+  'request_mcp_server',
 ]);
 const DESTRUCTIVE_EXECUTABLE =
   /^(?:dd|mkfs(?:\..+)?|rm|rmdir|shred|truncate|unlink)$/;

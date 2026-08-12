@@ -40,8 +40,15 @@ safely to an ask only on concealed input.
 ## Consequences
 - External/side-effecting tools (`mcp_call_tool`, `async_run_command`,
   `async_mcp_call`, `delegate_task`, `RunCommand`, `FileWrite/Edit`, `file`,
-  `AgentDelegation`) and requests/consents (`request_*`, `*_consent`,
+  `AgentDelegation`) and consents (`*_consent`,
   `pattern_candidate_decision`) STAY on the ladder — unchanged.
+- AMENDED by 0123 (2026-08-12): the five human-gated recovery-proposal tools
+  (`request_access`, `request_skill_install`, `request_skill_proposal`,
+  `request_skill_dependency_install`, `request_mcp_server`) moved to the
+  input-gated birthright set — they only create review metadata, every effect
+  requires a human decision, and gating them deadlocked the CAPFIX-1
+  amendment card on the runs that needed it. Other `request_*`/consent tools
+  stay laddered.
 - The birthright set supersedes `BENIGN_GANTRY_MCP_TOOLS` (a subset); the
   redaction-gated benign shortcut is removed.
 - Memory/brain content-safety stays in the existing memory-review, NOT the

@@ -839,7 +839,6 @@ describe('permission deterministic rails', () => {
     'mcp__gantry__async_run_command',
     'mcp__gantry__async_mcp_call',
     'mcp__gantry__delegate_task',
-    'mcp__gantry__request_access',
     'mcp__gantry__tool_consent',
     'mcp__gantry__scheduler_upsert_job',
     'mcp__gantry__scheduler_update_job',
@@ -861,6 +860,40 @@ describe('permission deterministic rails', () => {
         evaluatePermissionDeterministicRails({
           request: request('unused', {
             toolName,
+            toolInput: undefined,
+          }),
+        }),
+      ).toMatchObject({ railOutcome: 'ask' });
+    },
+  );
+
+  it.each([
+    'request_access',
+    'request_skill_install',
+    'request_skill_proposal',
+    'request_skill_dependency_install',
+    'request_mcp_server',
+  ])(
+    'human-gated recovery proposal %s is input-gated birthright (0052 as amended)',
+    (tool) => {
+      // Complete, inspectable input: birthright — these tools only create
+      // review metadata; every effect requires a human decision.
+      expect(
+        evaluatePermissionDeterministicRails({
+          request: request('unused', {
+            toolName: `mcp__gantry__${tool}`,
+            toolInput: {
+              target: { kind: 'capability', id: 'google.sheets.values.get' },
+              reason: 'recovery',
+            },
+          }),
+        }),
+      ).toMatchObject({ railOutcome: 'allow', decidedBy: 'birthright' });
+      // Missing/redacted input still fails closed.
+      expect(
+        evaluatePermissionDeterministicRails({
+          request: request('unused', {
+            toolName: `mcp__gantry__${tool}`,
             toolInput: undefined,
           }),
         }),
