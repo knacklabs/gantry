@@ -65,6 +65,8 @@ const getConfiguredModelProvidersForAppMock = vi.mocked(
   runtimeStore.getConfiguredModelProvidersForApp,
 );
 const { runJob } = await import('@core/jobs/execution.js');
+const { jobRequiresManagedBrowser } =
+  await import('@core/jobs/execution-browser-prelaunch.js');
 const { evaluateJobReadiness } =
   await import('@core/application/jobs/job-readiness-service.js');
 const { RUNTIME_RESULT_SUMMARY_MAX_CHARS } =
@@ -228,6 +230,41 @@ function makeToolRepository(toolNames: string[]) {
 }
 
 describe('jobs/execution', () => {
+  it('prelaunches a managed profile for a reviewed browser skill without exposing Browser', () => {
+    const job = makeJob({
+      access_requirements: [
+        {
+          target: {
+            kind: 'capability',
+            capabilityId: 'skill.ats-source-sync.cutshort',
+          },
+        },
+      ],
+    });
+
+    expect(
+      jobRequiresManagedBrowser(job, [
+        {
+          capabilityId: 'skill.ats-source-sync.cutshort',
+          displayName: 'Synchronize Cutshort candidates',
+          category: 'ats-skills',
+          risk: 'write',
+          can: 'Synchronize Cutshort candidates.',
+          cannot: 'Use an arbitrary browser.',
+          credentialSource: 'skill_secret',
+          implementationBindings: [],
+          source: {
+            kind: 'skill_action',
+            skillId: 'skill:ats',
+            skillName: 'ats-skills',
+            actionId: 'cutshort',
+            browserAccess: 'managed_browser',
+          },
+        },
+      ]),
+    ).toBe(true);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     runtimeStoreMock.appendRunnerControlEvent.mockResolvedValue('persisted');

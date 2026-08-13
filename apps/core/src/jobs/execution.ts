@@ -401,6 +401,7 @@ async function runActiveJob(
           const browserPrelaunchSetup = finalReadinessPassed
             ? await prelaunchBrowserForJobRun({
                 currentJob,
+                semanticCapabilities,
                 executionGroupFolder: execution.group.folder,
                 executionJid: execution.executionJid,
                 executionProviderAccountId: execution.group.providerAccountId,
