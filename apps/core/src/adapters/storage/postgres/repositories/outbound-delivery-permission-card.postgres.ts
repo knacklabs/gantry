@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 
 import { SETUP_REQUIRED_PAUSE_REASON } from '../../../../domain/jobs/jobs.js';
 import { sanitizeRetryTailProviderPayload } from '../../../../domain/messages/retry-tail-provider-payload.js';
@@ -133,10 +133,9 @@ export async function beginDeliveryItemSend(
             pgSchema.outboundDeliveryItemsPostgres.claimToken,
             input.claimToken,
           ),
-          gt(
-            pgSchema.outboundDeliveryItemsPostgres.claimExpiresAt,
-            input.begunAt,
-          ),
+          // Lease validity is judged by DATABASE time - a stale or skewed
+          // caller timestamp must not revive an expired claim (review R6).
+          sql`${pgSchema.outboundDeliveryItemsPostgres.claimExpiresAt} > now()`,
           isNull(pgSchema.outboundDeliveryItemsPostgres.sendBegunAt),
         ),
       )

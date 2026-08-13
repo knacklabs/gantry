@@ -357,13 +357,16 @@ maybeDescribe('setup permission prompt preparation', () => {
       );
     // Earlier tests may leave their own due items; claim broadly and pick
     // THIS prompt's item.
+    // Lease validity is checked against DATABASE time - claim with a live
+    // timestamp so the checkpoint sees an unexpired lease.
+    const liveNow = new Date().toISOString();
     const claimed =
       await runtime.repositories.outboundDeliveries.claimDueDeliveryItems({
         appId: 'default' as never,
         profileId: 'setup_permission_prompt',
-        now,
+        now: liveNow,
         claimerId: 'test:dispatch',
-        leaseMs: 30_000,
+        leaseMs: 60_000,
         limit: 10,
       });
     const claim = claimed.find(
@@ -484,30 +487,35 @@ maybeDescribe('setup permission prompt preparation', () => {
       );
     expect(expiredBeforeSend).toEqual({ status: 'pending' });
 
+    // beginSend judges the lease by DATABASE time, so the reclaim must hold
+    // a live unexpired lease; the later sweep passes a future `now` to see
+    // that same lease as expired without sleeping.
     const reclaimedAll =
       await runtime.repositories.outboundDeliveries.claimDueDeliveryItems({
         appId: 'default' as never,
         profileId: 'setup_permission_prompt',
-        now: '2026-08-13T10:00:04.000Z',
+        now: new Date().toISOString(),
         claimerId: 'test:expiry-after-begin',
-        leaseMs: 1_000,
+        leaseMs: 5_000,
         limit: 10,
       });
     const reclaimed = reclaimedAll.filter(
       (entry) => entry.item.permissionPromptId === 'prompt:setup:expiry',
     );
     expect(reclaimed).toHaveLength(1);
-    await runtime.repositories.outboundDeliveries.beginDeliveryItemSend?.({
-      deliveryId: reclaimed[0]!.delivery.id,
-      itemId: reclaimed[0]!.item.id,
-      promptId: 'prompt:setup:expiry',
-      claimToken: reclaimed[0]!.item.claimToken!,
-      begunAt: '2026-08-13T10:00:04.500Z',
-    });
+    await expect(
+      runtime.repositories.outboundDeliveries.beginDeliveryItemSend?.({
+        deliveryId: reclaimed[0]!.delivery.id,
+        itemId: reclaimed[0]!.item.id,
+        promptId: 'prompt:setup:expiry',
+        claimToken: reclaimed[0]!.item.claimToken!,
+        begunAt: new Date().toISOString(),
+      }),
+    ).resolves.toBe('begun');
     await runtime.repositories.outboundDeliveries.claimDueDeliveryItems({
       appId: 'default' as never,
       profileId: 'setup_permission_prompt',
-      now: '2026-08-13T10:00:06.000Z',
+      now: new Date(Date.now() + 60_000).toISOString(),
       claimerId: 'test:ambiguous-recovery',
       leaseMs: 1_000,
       limit: 1,
@@ -541,15 +549,19 @@ maybeDescribe('setup permission prompt preparation', () => {
           fingerprint: 'fp:cancelled-before-send',
         }),
       );
-    const [cancelledClaim] =
+    const cancelledClaims =
       await runtime.repositories.outboundDeliveries.claimDueDeliveryItems({
         appId: 'default' as never,
         profileId: 'setup_permission_prompt',
-        now,
+        now: new Date().toISOString(),
         claimerId: 'test:cancelled-before-send',
-        leaseMs: 30_000,
-        limit: 1,
+        leaseMs: 60_000,
+        limit: 10,
       });
+    const cancelledClaim = cancelledClaims.find(
+      (entry) =>
+        entry.item.permissionPromptId === 'prompt:setup:cancelled-before-send',
+    );
     await runtime.service.db
       .update(pgSchema.permissionPromptsPostgres)
       .set({ settlementState: 'cancelled', updatedAt: now })
