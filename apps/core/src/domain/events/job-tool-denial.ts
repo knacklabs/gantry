@@ -182,11 +182,13 @@ export function parseJobSetupActionValue(
         : {}),
     });
   }
+  // A PRESENT destination is validated as-is - a null/empty value must be
+  // rejected by the validator, not silently erased into the default.
   const grant = permissionAuthorityAddition({
     type: grantRecord.type,
     behavior: grantRecord.behavior,
     rules: decodedRules,
-    ...(grantRecord.destination
+    ...('destination' in grantRecord
       ? { destination: grantRecord.destination }
       : {}),
   } as Parameters<typeof permissionAuthorityAddition>[0]);

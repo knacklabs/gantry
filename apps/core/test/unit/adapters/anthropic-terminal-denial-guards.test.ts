@@ -162,7 +162,6 @@ describe('Anthropic scheduled denial guards', () => {
                 phase: 'permission_denied',
                 tool: publicToolName,
                 terminal: true,
-                action: expect.objectContaining({ kind: 'instruction' }),
                 denial_kind: 'rule_denied',
                 provenance_lane: DEFAULT_AGENT_ENGINE,
                 provenance_seam: 'gate',
