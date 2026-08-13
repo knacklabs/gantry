@@ -55,6 +55,63 @@ decisions_reviewed:
   - 0113-enforce-no-backcompat-architecture-check
   - 0114-canonical-job-owner
   - 0124-web-runtime-console-read-only-integration
+  - 0041-client-signoff
+  - 0042-decision-view-16k-prefix-stripped
+  - 0044-ci-runner-isolation
+  - 0045-inbound-attachment-descriptor-writer
+  - 0046-llm-process-local-admission
+  - 0051-client-signoff
+  - 0053-permission-no-timeout-interactive
+  - 0055-client-signoff
+  - 0057-arch1-client-signoff
+  - 0058-readonly-scheduler-birthright
+  - 0062-perm6-client-signoff
+  - 0063-perm7-client-signoff
+  - 0064-client-signoff
+  - 0065-perm8-client-signoff
+  - 0067-client-signoff
+  - 0069-client-signoff
+  - 0070-client-signoff
+  - 0071-race-4-browser-profile-lock-aba
+  - 0072-client-signoff
+  - 0073-race-6-profile-mirror-version-guard
+  - 0075-race-9-serialize-file-backed-settings-write
+  - 0076-client-signoff
+  - 0077-race-5-lease-loss-lifecycle
+  - 0078-lat-3a-single-memory-hydration-per-turn
+  - 0079-client-signoff
+  - 0080-lat-3b-retain-authoritative-second-fetch
+  - 0081-client-signoff
+  - 0082-fence-1-durable-lease-generation
+  - 0083-conv-001-client-signoff
+  - 0084-client-signoff
+  - 0085-lat-4a-fused-inbound-envelope-transaction
+  - 0086-client-signoff
+  - 0087-lat-5-durable-provider-history-coverage
+  - 0088-client-signoff
+  - 0089-thread-turns-read-channel-context
+  - 0090-sender-allowlist-trigger-only
+  - 0091-client-signoff
+  - 0092-client-signoff
+  - 0093-client-signoff-is-a-pinned-project-gate
+  - 0094-conversation-file-trust-program
+  - 0095-client-signoff
+  - 0096-thread-recency-message-timestamp
+  - 0099-rate-limits-singleton-authority
+  - 0100-mig-1-client-signoff
+  - 0102-runtime-hardening-audit-harvest
+  - 0104-co-1-recovery-intent-reframe
+  - 0105-physical-attachment-workspace-handoff
+  - 0108-job-definition-revision-fencing
+  - 0110-live-ux-capability-dispatcher
+  - 0115-autonomous-tool-denial-terminal
+  - 0117-scheduled-job-declare-tools-at-creation
+  - 0118-identity-scoped-approval-and-grants
+  - 0119-provider-neutral-group-approver-bootstrap
+  - 0120-local-cli-structured-invocation
+  - 0121-autodet-no-classifier-autonomous
+  - 0122-capability-template-amendment
+  - 0123-recovery-proposal-birthright
 ---
 
 # WEB-CONSOLE-5 — Agent directory and profile refresh

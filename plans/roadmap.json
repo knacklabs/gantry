@@ -1303,7 +1303,7 @@
         "The browser sees only safe same-origin projections and no Control credential or sensitive catalog/task data."
       ],
       "order": 65,
-      "status": "pending",
+      "status": "active",
       "epic": "web-runtime-console",
       "skill": "fullstack",
       "kind": "feature",
@@ -1408,5 +1408,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-13T15:55:19+00:00"
+  "updated_at": "2026-08-13T15:55:43+00:00"
 }
