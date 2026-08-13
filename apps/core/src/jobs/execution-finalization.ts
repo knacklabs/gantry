@@ -7,7 +7,6 @@ import type { Job } from '../domain/types.js';
 import {
   SETUP_REQUIRED_PAUSE_REASON,
   setupStateForDeniedTool,
-  setupStateForTransientPermission,
 } from '../application/jobs/job-readiness-service.js';
 import {
   parseJobToolDeniedEvent,
@@ -15,6 +14,7 @@ import {
 } from '../domain/events/job-tool-denial.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { redactProviderSessionHandlesInText } from '../shared/provider-session-redaction.js';
+import { setupStateForTransientPermission } from '../application/jobs/job-setup-pause-states.js';
 import { nowMs, toIso } from '../shared/time/datetime.js';
 import type { SchedulerEventAppSession } from './app-session-resolution.js';
 import { computeNextJobRun } from './schedule-math.js';

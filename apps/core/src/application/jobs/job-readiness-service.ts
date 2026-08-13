@@ -426,69 +426,7 @@ export function setupStateForDeniedTool(input: {
   });
 }
 
-export function setupStateForTransientPermission(input: {
-  toolName: string;
-  mode?: string | null;
-  recoveryAction?: string | null;
-  checkedAt?: string;
-  previous?: JobSetupState;
-}): JobSetupState {
-  const toolName = canonicalSetupToolName(input.toolName);
-  return buildJobSetupState({
-    checkedAt: input.checkedAt ?? nowIso(),
-    previous: input.previous,
-    blockers: [
-      {
-        state: 'missing_capability',
-        type: requirementTypeForTool(toolName),
-        id: toolName,
-        summary: `This scheduled job used temporary ${toolRequirementLabel(toolName)}. Approve lasting access before future runs continue.`,
-        // R9: a transient allow pauses with the TYPED one-tap grant whenever
-        // the durable rule is derivable from the tool identity alone (scoped
-        // rules parse; exact tools stand as-is). Only a bare command tool -
-        // where any durable rule would be too broad - falls to a
-        // plain-language instruction (never the raw recovery protocol text).
-        action: transientPermissionSetupAction(toolName),
-      },
-    ],
-  });
-}
-
-function transientPermissionSetupAction(toolName: string) {
-  const scoped = parseReadableScopedToolRule(toolName);
-  const bareCommandTool =
-    (scoped?.toolName ?? toolName) === RUN_COMMAND_TOOL_NAME && !scoped?.scope;
-  if (bareCommandTool || toolName === 'Bash') {
-    return instructionSetupAction(
-      'This job used temporary command access. Approve a scoped command grant from its approval card, then resume the job.',
-    );
-  }
-  return approveRuleSetupAction(toolName);
-}
-
-export function setupStateForBrowserPrelaunchFailure(input: {
-  checkedAt?: string;
-  previous?: JobSetupState;
-}): JobSetupState {
-  return buildJobSetupState({
-    checkedAt: input.checkedAt ?? nowIso(),
-    previous: input.previous,
-    blockers: [
-      {
-        state: 'browser_login_may_be_required',
-        type: 'browser',
-        id: 'Browser',
-        summary:
-          'Browser could not be launched for this scheduled job before the agent run started.',
-        action: instructionSetupAction(
-          'Run `gantry browser status`, fix the Browser profile if needed, then resume the job.',
-        ),
-      },
-    ],
-  });
-}
-
-function buildJobSetupState(input: {
+export function buildJobSetupState(input: {
   blockers: readonly JobSetupBlocker[];
   checkedAt: string;
   previous?: JobSetupState;
@@ -603,19 +541,21 @@ function invalidAgentToolPolicyBlocker(message: string): JobSetupBlocker {
   };
 }
 
-function requirementTypeForTool(toolName: string): JobSetupBlocker['type'] {
+export function requirementTypeForTool(
+  toolName: string,
+): JobSetupBlocker['type'] {
   if (isCanonicalBrowserCapabilityRule(toolName)) return 'browser';
   if (parseSemanticCapabilityRule(toolName)) return 'semantic_capability';
   return 'tool';
 }
 
-function canonicalSetupToolName(toolName: string): string {
+export function canonicalSetupToolName(toolName: string): string {
   return isProjectedBrowserMcpToolRule(toolName)
     ? 'Browser'
     : publicGantryToolNameForSdkTool(toolName);
 }
 
-function toolRequirementLabel(toolName: string): string {
+export function toolRequirementLabel(toolName: string): string {
   if (isCanonicalBrowserCapabilityRule(toolName)) return 'Browser access';
   const semanticCapabilityId = parseSemanticCapabilityRule(toolName);
   if (semanticCapabilityId) {

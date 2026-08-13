@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
+import {
+  setupStateForTransientPermission,
+  setupStateForBrowserPrelaunchFailure,
+} from '@core/application/jobs/job-setup-pause-states.js';
 
 import {
   evaluateJobReadiness,
   setupStateForDeniedTool,
-  setupStateForTransientPermission,
 } from '@core/application/jobs/job-readiness-service.js';
 import type {
   CapabilitySecretRepository,
