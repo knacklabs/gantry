@@ -27,14 +27,6 @@ const BLOCKER_TYPES = new Set<JobSetupBlocker['type']>([
   'credential',
   'local_cli',
 ]);
-const GRANT_DESTINATIONS = new Set([
-  'userSettings',
-  'projectSettings',
-  'localSettings',
-  'session',
-  'cliArg',
-]);
-
 export function parseSetupState(
   input: unknown,
   jobId = 'unknown',

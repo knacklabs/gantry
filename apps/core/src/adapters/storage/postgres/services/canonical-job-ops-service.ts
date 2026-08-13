@@ -18,7 +18,6 @@ import type { RunLease } from '../../../../domain/ports/worker-coordination.js';
 import type { ExecutionProviderId } from '../../../../domain/sessions/sessions.js';
 // prettier-ignore
 import type { CanonicalJobEventRecord, CanonicalJobRecord, CanonicalRunRecord, JobRecordInput, PostgresCanonicalJobRepository } from '../repositories/canonical-job-repository.postgres.js';
-import type { CanonicalJobCoordinationUpdate } from '../repositories/canonical-job-coordination.postgres.js';
 import { redactProviderSessionHandlesInText } from '../../../../shared/provider-session-redaction.js';
 import {
   parseRequiredCapabilities,
