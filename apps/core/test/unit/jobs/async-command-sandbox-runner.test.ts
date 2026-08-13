@@ -233,6 +233,22 @@ describe('async command sandbox runner', () => {
     });
   });
 
+  it('executes without an async-task launch barrier', async () => {
+    const result = await runSandboxedAsyncCommand(
+      new DirectRunnerSandboxProvider(),
+      {
+        ...baseInput(),
+        command: 'printf deterministic',
+        env: { PATH: process.env.PATH },
+      },
+    );
+
+    expect(result).toEqual({
+      outputSummary: 'deterministic',
+      errorSummary: '',
+    });
+  });
+
   it('kills a direct command process group on timeout', async () => {
     let pid: number | undefined;
     const resultPromise = runSandboxedAsyncCommand(

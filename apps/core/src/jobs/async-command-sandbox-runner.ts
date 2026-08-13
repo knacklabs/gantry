@@ -296,11 +296,16 @@ export function buildAsyncCommandEnv(): Record<string, string> {
 function asyncCommandLaunchScript(): string {
   return [
     'set -eu',
-    'mkdir -p "$GANTRY_ASYNC_LAUNCH_DIR"',
-    'echo "$$" > "$GANTRY_ASYNC_PID_FILE"',
-    '(ps -o pgid= -p "$$" | tr -d " " > "$GANTRY_ASYNC_PGID_FILE") 2>/dev/null || echo "$$" > "$GANTRY_ASYNC_PGID_FILE"',
-    ': > "$GANTRY_ASYNC_READY_FILE"',
-    'while [ ! -f "$GANTRY_ASYNC_CONTINUE_FILE" ]; do sleep 0.05; done',
+    // launchControl is only used by the durable async-task service. The
+    // synchronous deterministic skill runner intentionally has no launch
+    // barrier, so its sandbox process must not dereference those unset vars.
+    'if [ -n "${GANTRY_ASYNC_LAUNCH_DIR:-}" ]; then',
+    '  mkdir -p "$GANTRY_ASYNC_LAUNCH_DIR"',
+    '  echo "$$" > "$GANTRY_ASYNC_PID_FILE"',
+    '  (ps -o pgid= -p "$$" | tr -d " " > "$GANTRY_ASYNC_PGID_FILE") 2>/dev/null || echo "$$" > "$GANTRY_ASYNC_PGID_FILE"',
+    '  : > "$GANTRY_ASYNC_READY_FILE"',
+    '  while [ ! -f "$GANTRY_ASYNC_CONTINUE_FILE" ]; do sleep 0.05; done',
+    'fi',
     'exec /bin/sh -c "$GANTRY_ASYNC_COMMAND_SCRIPT"',
   ].join('\n');
 }
