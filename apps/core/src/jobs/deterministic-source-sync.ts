@@ -1,7 +1,18 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { getRuntimeSettingsForConfig } from '../config/index.js';
 import { resolveSelectedSkillEnvForAgent } from '../application/capability-secrets/skill-secret-projection.js';
+import { resolveSelectedSkillProjection } from '../application/skills/selected-skill-projection.js';
 import { splitAccessRequirements } from '../application/jobs/job-access-requirements.js';
+import { materializedSkillDirectoryNameFor } from '../domain/skills/skills.js';
+import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
+import type { SkillCatalogRepository } from '../domain/ports/repositories.js';
 import { skillActionSource } from '../domain/skills/skill-action-permissions.js';
+import {
+  normalizeSkillAssetPath,
+  writeSkillAssets,
+} from '../shared/skill-artifact-helpers.js';
 import type { Job } from '../domain/types.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
@@ -23,6 +34,8 @@ type DeterministicManagedBrowserAction = {
   capabilityId: string;
   command: string;
   networkHosts: string[];
+  skillId: string;
+  skillName: string;
 };
 
 export function resolveDeterministicManagedBrowserActions(
@@ -60,6 +73,8 @@ export function resolveDeterministicManagedBrowserActions(
       capabilityId,
       command,
       networkHosts: capability.networkHosts ?? [],
+      skillId: source.skillId,
+      skillName: source.skillName,
     });
   }
   return actions;
@@ -85,8 +100,9 @@ export async function runDeterministicManagedBrowserActions(input: {
   runId: string;
 }): Promise<string> {
   const skills = input.deps.getSkillRepository?.();
+  const skillArtifacts = input.deps.getSkillArtifactStore?.();
   const secrets = input.deps.getCapabilitySecretRepository?.();
-  if (!skills || !secrets)
+  if (!skills || !skillArtifacts || !secrets)
     throw new Error('Managed skill repositories are unavailable.');
   if (!input.deps.openBrowserSession || !input.deps.runnerSandboxProvider) {
     throw new Error(
@@ -111,6 +127,16 @@ export async function runDeterministicManagedBrowserActions(input: {
     skills,
     secrets,
     runtimeAccess: input.runtimeAccess,
+    accessSnapshot: input.accessSnapshot,
+  });
+  const workspacePath = resolveWorkspaceFolderPath(input.groupFolder);
+  await materializeDeterministicSkillActions({
+    actions: input.actions,
+    workspacePath,
+    skills,
+    skillArtifacts,
+    appId: input.appId,
+    agentId: input.agentId,
     accessSnapshot: input.accessSnapshot,
   });
   const allowedNetworkHosts = [
@@ -142,7 +168,7 @@ export async function runDeterministicManagedBrowserActions(input: {
         input.deps.runnerSandboxProvider,
         {
           command: action.command,
-          cwd: resolveWorkspaceFolderPath(input.groupFolder),
+          cwd: workspacePath,
           env,
           timeoutMs: Math.min(input.timeoutMs, 240_000),
           outputMaxBytes: 4_000,
@@ -167,4 +193,102 @@ export async function runDeterministicManagedBrowserActions(input: {
   } finally {
     await closeEgressGateway(gateway);
   }
+}
+
+/**
+ * Agent adapters project selected skills before an LLM can run a reviewed
+ * command. Deterministic actions use no adapter, so they make the same trusted
+ * projection explicitly in their workspace before invoking the command.
+ */
+async function materializeDeterministicSkillActions(input: {
+  actions: readonly DeterministicManagedBrowserAction[];
+  workspacePath: string;
+  skills: SkillCatalogRepository;
+  skillArtifacts: SkillArtifactStore;
+  appId: string;
+  agentId: string;
+  accessSnapshot: Parameters<
+    typeof resolveSelectedSkillProjection
+  >[0]['accessSnapshot'];
+}): Promise<void> {
+  const selectedSkillIds = [
+    ...new Set(input.actions.map((action) => action.skillId)),
+  ];
+  const projection = await resolveSelectedSkillProjection({
+    selectedSkillIds,
+    skillRepository: input.skills,
+    skillArtifactStore: input.skillArtifacts,
+    skillContext: { appId: input.appId, agentId: input.agentId },
+    accessSnapshot: input.accessSnapshot,
+  });
+  const projectedById = new Map(
+    (projection?.skills ?? []).map((skill) => [skill.id, skill]),
+  );
+
+  for (const action of input.actions) {
+    const skill = projectedById.get(action.skillId);
+    if (!skill) {
+      throw new Error(
+        `Selected deterministic skill ${action.skillId} could not be materialized.`,
+      );
+    }
+    const materializedName = materializedSkillDirectoryNameFor(skill.name);
+    if (
+      materializedName !== materializedSkillDirectoryNameFor(action.skillName)
+    ) {
+      throw new Error(
+        `Selected deterministic skill ${action.skillId} has an unexpected materialized name.`,
+      );
+    }
+    const skillDirectory = path.join(
+      input.workspacePath,
+      'skills',
+      materializedName,
+    );
+    writeSkillAssets(skill.assets, skillDirectory);
+    linkDeterministicSkillNodeModules(skillDirectory);
+    makeDeterministicEntrypointExecutable({
+      command: action.command,
+      workspacePath: input.workspacePath,
+      materializedName,
+    });
+  }
+}
+
+function linkDeterministicSkillNodeModules(skillDirectory: string): void {
+  if (!fs.existsSync(path.join(skillDirectory, 'package.json'))) return;
+  const runtimeNodeModules =
+    process.env.GANTRY_SKILL_NODE_MODULES_DIR?.trim() ||
+    path.join(process.cwd(), 'node_modules');
+  if (!fs.existsSync(runtimeNodeModules)) return;
+  const target = path.join(skillDirectory, 'node_modules');
+  if (
+    fs.existsSync(target) ||
+    fs.lstatSync(target, { throwIfNoEntry: false })
+  ) {
+    return;
+  }
+  fs.symlinkSync(runtimeNodeModules, target, 'dir');
+}
+
+function makeDeterministicEntrypointExecutable(input: {
+  command: string;
+  workspacePath: string;
+  materializedName: string;
+}): void {
+  const commandPath = input.command.trim().split(/\s+/, 1)[0];
+  const prefix = `skills/${input.materializedName}/`;
+  if (!commandPath?.startsWith(prefix)) return;
+  const relativePath = normalizeSkillAssetPath(
+    commandPath.slice(prefix.length),
+  );
+  const root = path.resolve(
+    input.workspacePath,
+    'skills',
+    input.materializedName,
+  );
+  const entrypoint = path.resolve(root, relativePath);
+  if (!entrypoint.startsWith(`${root}${path.sep}`)) return;
+  const stat = fs.statSync(entrypoint, { throwIfNoEntry: false });
+  if (stat?.isFile()) fs.chmodSync(entrypoint, 0o700);
 }
