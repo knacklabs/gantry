@@ -100,6 +100,8 @@ import { PostgresRuntimeEventRepository } from './runtime-event-repository.postg
 import { PostgresToolCatalogRepository } from './tool-repository.postgres.js';
 import { PostgresAgentRepository } from './agent-repository.postgres.js';
 import { PostgresOutboundDeliveryRepository } from './outbound-delivery-repository.postgres.js';
+import { PostgresSetupPermissionPromptRepository } from './setup-permission-prompt-repository.postgres.js';
+import type { SetupPermissionPromptRepository } from '../../../../domain/ports/setup-permission-prompts.js';
 import { PostgresCapabilitySecretRepository } from './capability-secret-repository.postgres.js';
 import { PostgresModelCredentialRepository } from './model-credential-repository.postgres.js';
 import { PostgresPendingAccessRequestsRepository } from './pending-access-request-repository.postgres.js';
@@ -165,6 +167,7 @@ export interface PostgresDomainRepositoryBundle {
   pendingAccessRequests: PendingAccessRequestsRepository;
   sandboxes: SandboxRepository;
   outboundDeliveries: OutboundDeliveryRepository;
+  setupPermissionPrompts: SetupPermissionPromptRepository;
   workerCoordination: WorkerCoordinationRepository;
   liveTurns: LiveTurnCoordinationRepository;
   runtimeDependencies: RuntimeDependencyRepository &
@@ -1962,6 +1965,7 @@ export function createPostgresDomainRepositories(
     pendingAccessRequests: new PostgresPendingAccessRequestsRepository(db),
     sandboxes: new PostgresSandboxRepository(db),
     outboundDeliveries: new PostgresOutboundDeliveryRepository(db),
+    setupPermissionPrompts: new PostgresSetupPermissionPromptRepository(db),
     workerCoordination: new PostgresWorkerCoordinationRepository(
       db,
       options.liveTurnCommandNotifier,

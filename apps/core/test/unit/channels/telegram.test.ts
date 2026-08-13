@@ -5433,6 +5433,8 @@ describe('TelegramChannel', () => {
       expect(claims.bindPendingPermissionPrompt).toHaveBeenCalledWith({
         id: expect.any(String),
         appId: 'default',
+        jobId: null,
+        setupFingerprint: null,
         sourceAgentFolder: 'whatsapp_main',
         interactionId: batch.requestId,
         matchKind: 'batch',

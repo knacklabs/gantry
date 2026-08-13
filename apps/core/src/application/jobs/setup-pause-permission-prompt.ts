@@ -177,6 +177,7 @@ export async function raiseSetupPausePermissionPrompt(input: {
     agentId,
     sourceAgentFolder: job.workspace_key,
     jobId: job.id,
+    setupFingerprint: setupState.fingerprint,
     jobName: job.name,
     targetJid: approverRoute.conversationJid,
     approvalContextJid: approverRoute.conversationJid,

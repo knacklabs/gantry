@@ -80,6 +80,7 @@ export class PostgresOutboundDeliveryRepository implements OutboundDeliveryRepos
             status: input.delivery.status,
             settledAt: input.delivery.settledAt ?? null,
             lastError: input.delivery.lastError ?? null,
+            cancellationReasonJson: input.delivery.cancellationReason ?? null,
             createdAt: input.delivery.createdAt,
             updatedAt: input.delivery.updatedAt,
           })
@@ -110,6 +111,8 @@ export class PostgresOutboundDeliveryRepository implements OutboundDeliveryRepos
             input.items.map((item) => ({
               id: item.id,
               deliveryId: item.deliveryId,
+              permissionPromptId: item.permissionPromptId ?? null,
+              generation: item.generation ?? 0,
               ordinal: item.ordinal,
               canonicalText: item.canonicalText,
               providerPayloadJson:
@@ -123,10 +126,12 @@ export class PostgresOutboundDeliveryRepository implements OutboundDeliveryRepos
               claimToken: item.claimToken ?? null,
               claimOwner: null,
               claimExpiresAt: item.claimExpiresAt ?? null,
+              sendBegunAt: item.sendBegunAt ?? null,
               nextAttemptAt: item.nextAttemptAt,
               sentAt: item.sentAt ?? null,
               failedAt: item.failedAt ?? null,
               lastError: item.lastError ?? null,
+              cancellationReasonJson: item.cancellationReason ?? null,
               createdAt: item.createdAt,
               updatedAt: item.updatedAt,
             })),

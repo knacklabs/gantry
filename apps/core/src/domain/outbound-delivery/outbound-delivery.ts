@@ -18,14 +18,16 @@ export type OutboundDeliveryStatus =
   | 'claimed'
   | 'sent'
   | 'partially_delivered'
-  | 'failed';
+  | 'failed'
+  | 'cancelled';
 
 export type OutboundDeliveryItemStatus =
   | 'pending'
   | 'claimed'
   | 'sent'
   | 'failed'
-  | 'partially_delivered';
+  | 'partially_delivered'
+  | 'cancelled';
 
 export interface OutboundDelivery {
   id: OutboundDeliveryId;
@@ -42,6 +44,7 @@ export interface OutboundDelivery {
   updatedAt: IsoTimestamp;
   settledAt?: IsoTimestamp;
   lastError?: string;
+  cancellationReason?: Record<string, unknown>;
 }
 
 export interface OutboundDeliveryItem {
@@ -54,10 +57,14 @@ export interface OutboundDeliveryItem {
   attemptCount: number;
   claimToken?: string;
   claimExpiresAt?: IsoTimestamp;
+  permissionPromptId?: string;
+  generation?: number;
+  sendBegunAt?: IsoTimestamp;
   nextAttemptAt: IsoTimestamp;
   sentAt?: IsoTimestamp;
   failedAt?: IsoTimestamp;
   lastError?: string;
+  cancellationReason?: Record<string, unknown>;
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;
 }

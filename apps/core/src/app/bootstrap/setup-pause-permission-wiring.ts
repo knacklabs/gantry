@@ -176,7 +176,7 @@ export async function setupPauseGrantIsCurrent(
   opsRepository: Pick<RuntimeJobRepository, 'getJobById'>,
   request: PermissionApprovalRequest,
 ): Promise<boolean> {
-  if (!request.requestId.startsWith('setup-pause:')) return true;
+  if (!request.setupFingerprint) return true;
   if (!request.jobId) return false;
   const job = await opsRepository.getJobById(request.jobId);
   // The shared persistence backend invokes this one setup-specific guard for
@@ -189,7 +189,7 @@ export async function setupPausePersistentGrantIsCurrent(
   request: PermissionApprovalRequest,
   effectiveUpdates: readonly PermissionApprovalUpdate[],
 ): Promise<boolean> {
-  if (!request.requestId.startsWith('setup-pause:')) return true;
+  if (!request.setupFingerprint) return true;
   if (!request.jobId) return false;
   const job = await opsRepository.getJobById(request.jobId);
   if (!job || !setupPauseGrantIsCurrentForJob(job, request)) return false;
@@ -207,7 +207,7 @@ export async function appendSetupPauseRequirementAfterPersistentGrant(
   request: PermissionApprovalRequest,
   effectiveUpdates: readonly PermissionApprovalUpdate[],
 ): Promise<boolean> {
-  if (!request.requestId.startsWith('setup-pause:')) return true;
+  if (!request.setupFingerprint) return true;
   if (!request.jobId) return false;
   for (
     let attempt = 0;
@@ -258,7 +258,7 @@ function setupPauseGrantIsCurrentForJob(
     job.pause_reason === SETUP_REQUIRED_PAUSE_REASON &&
     job.setup_state &&
     job.setup_state.state !== 'ready' &&
-    request.requestId ===
-      `setup-pause:${job.id}:${job.setup_state.fingerprint}`,
+    request.jobId === job.id &&
+    request.setupFingerprint === job.setup_state.fingerprint,
   );
 }

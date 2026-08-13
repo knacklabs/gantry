@@ -170,7 +170,6 @@ export type PermissionRiskCategory =
   | 'network'
   | 'filesystem'
   | 'benign';
-
 export interface PermissionApprovalRequest {
   requestId: string;
   appId?: string;
@@ -182,6 +181,7 @@ export interface PermissionApprovalRequest {
   requestFamily?: 'tool' | 'admin' | 'review' | 'promotion';
   runHandle?: string;
   jobId?: string;
+  setupFingerprint?: string;
   jobName?: string;
   runId?: string;
   runLeaseToken?: string;

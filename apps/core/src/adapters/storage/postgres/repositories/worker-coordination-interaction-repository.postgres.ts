@@ -118,6 +118,8 @@ export abstract class PostgresInteractionRepositoryMethods {
     appId: string;
     sourceAgentFolder: string;
     interactionId: string;
+    jobId?: string | null;
+    setupFingerprint?: string | null;
     matchKind: 'individual' | 'batch';
     members: Array<{
       idempotencyKey: string;

@@ -53,6 +53,7 @@ import {
   localCliCommandTemplatePermissionRule,
 } from './job-capability-requirements.js';
 import { CapabilitySecretService } from '../capability-secrets/capability-secret-service.js';
+import { SETUP_REQUIRED_PAUSE_REASON } from '../../domain/jobs/jobs.js';
 import {
   formatMissingGantrySecretsMessage,
   humanizeTechnicalIdentifier,
@@ -61,7 +62,7 @@ import {
   assertHostAccessSnapshot,
   type AgentAccessSnapshot,
 } from '../agent-execution/agent-access-snapshot.js';
-export const SETUP_REQUIRED_PAUSE_REASON = 'Setup required';
+export { SETUP_REQUIRED_PAUSE_REASON } from '../../domain/jobs/jobs.js';
 export interface JobReadinessBrowserStatus {
   hasState?: boolean;
   authMarkers?: string[];

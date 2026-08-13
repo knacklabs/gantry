@@ -267,7 +267,6 @@ describe('permission recovery', () => {
         appId: 'default',
         sourceAgentFolder: 'team',
         jobId: job.id,
-        recoveringPermissionRequestId: 'request-access:another-flow',
         opsRepository: {
           getJobById: vi.fn(async () => job),
           resumeSetupPausedJob: vi.fn(async () => true),
@@ -292,10 +291,6 @@ describe('permission recovery', () => {
 
   it('does not cancel the setup prompt interaction performing the recovery', async () => {
     const job = pausedJob(1);
-    const requestId = setupPausePermissionRequestId(
-      job.id,
-      job.setup_state!.fingerprint,
-    );
     const cancelPermissionApproval = vi.fn(async () => 'settled' as const);
     configureSetupPausePermissionPrompt({
       appId: 'default',
@@ -307,7 +302,10 @@ describe('permission recovery', () => {
         appId: 'default',
         sourceAgentFolder: 'team',
         jobId: job.id,
-        recoveringPermissionRequestId: requestId,
+        recoveringPermissionPrompt: {
+          jobId: job.id,
+          setupFingerprint: job.setup_state!.fingerprint,
+        },
         opsRepository: {
           getJobById: vi.fn(async () => job),
           resumeSetupPausedJob: vi.fn(async () => true),
@@ -339,7 +337,6 @@ describe('permission recovery', () => {
         appId: 'default',
         sourceAgentFolder: 'team',
         jobId: job.id,
-        recoveringPermissionRequestId: 'request-access:another-flow',
         opsRepository: {
           getJobById: vi.fn(async () => job),
           resumeSetupPausedJob: vi.fn(async () => true),
@@ -991,10 +988,10 @@ describe('permission recovery', () => {
         appId: 'default',
         sourceAgentFolder: 'team',
         jobId: job.id,
-        recoveringPermissionRequestId: setupPausePermissionRequestId(
-          job.id,
-          oldFingerprint,
-        ),
+        recoveringPermissionPrompt: {
+          jobId: job.id,
+          setupFingerprint: oldFingerprint,
+        },
         opsRepository: {
           getJobById: vi.fn(async () => job),
           refreshSetupPausedJob: vi.fn(async ({ setupState }) => {

@@ -24,7 +24,6 @@ import { formatJobSetupAction } from '../../shared/job-setup-labels.js';
 import {
   raiseSetupPausePermissionPrompt,
   retireSetupPausePermissionPrompt,
-  setupPausePermissionRequestId,
 } from './setup-pause-permission-prompt.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 
@@ -33,6 +32,12 @@ export interface RecheckPausedJobsAfterCapabilityUpdateInput {
   sourceAgentFolder: string;
   conversationJid?: string;
   jobId?: string;
+  recoveringPermissionPrompt?: {
+    jobId: string;
+    setupFingerprint: string;
+  };
+  // Non-setup recovery callers still correlate their own request lifecycle;
+  // setup-prompt retirement no longer derives authority from this value.
   recoveringPermissionRequestId?: string;
   opsRepository: RuntimeJobRepository;
   scheduler: SchedulerCoordinationPort;
@@ -149,8 +154,9 @@ async function recheckCandidateJob(
       queued.push({ jobId: job.id, name: job.name, state: 'queued' });
       try {
         if (
-          input.recoveringPermissionRequestId !==
-          setupPausePermissionRequestId(job.id, job.setup_state!.fingerprint)
+          input.recoveringPermissionPrompt?.jobId !== job.id ||
+          input.recoveringPermissionPrompt.setupFingerprint !==
+            job.setup_state!.fingerprint
         ) {
           try {
             await retireSetupPausePermissionPrompt({

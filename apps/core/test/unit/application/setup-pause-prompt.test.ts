@@ -660,6 +660,7 @@ describe('setup pause prompts', () => {
       agentId: 'agent:main_agent',
       sourceAgentFolder: 'main_agent',
       jobId: job.id,
+      setupFingerprint: job.setup_state!.fingerprint,
       toolName: 'request_permission',
       suggestions: [
         {
@@ -780,6 +781,7 @@ describe('setup pause prompts', () => {
       agentId: 'agent:main_agent',
       sourceAgentFolder: 'main_agent',
       jobId: job.id,
+      setupFingerprint: job.setup_state!.fingerprint,
       toolName: 'request_permission',
     } as unknown as PermissionApprovalRequest;
     const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
@@ -884,6 +886,7 @@ describe('setup pause prompts', () => {
       agentId: 'agent:main_agent',
       sourceAgentFolder: 'main_agent',
       jobId: job.id,
+      setupFingerprint: job.setup_state!.fingerprint,
       toolName: 'request_permission',
     } as PermissionApprovalRequest;
 
@@ -1264,6 +1267,7 @@ describe('setup pause prompts', () => {
       agentId: 'agent:main_agent',
       sourceAgentFolder: 'main_agent',
       jobId: job.id,
+      setupFingerprint: job.setup_state!.fingerprint,
       toolName: 'request_permission',
       suggestions: [
         {
@@ -1364,6 +1368,7 @@ describe('setup pause prompts', () => {
     const request = {
       requestId: 'setup-pause:job-1:under-declared-browser',
       jobId: job.id,
+      setupFingerprint: job.setup_state!.fingerprint,
     } as PermissionApprovalRequest;
     const browserGrant = [
       {
@@ -2320,8 +2325,9 @@ describe('setup pause prompts', () => {
       getJobById: vi.fn(async () => job ?? null),
     };
     const request = {
-      requestId: 'setup-pause:job-1:fingerprint-1',
+      requestId: 'persisted-prompt-member-1',
       jobId: 'job-1',
+      setupFingerprint: 'fingerprint-1',
     } as PermissionApprovalRequest;
 
     await expect(
@@ -2353,11 +2359,12 @@ describe('setup pause prompts', () => {
     };
     const mirrorAgentToolRulesToSettings = vi.fn();
     const request = {
-      requestId: 'setup-pause:job-1:fingerprint-1',
+      requestId: 'persisted-prompt-member-1',
       appId: 'default',
       agentId: 'agent:main_agent',
       sourceAgentFolder: 'main_agent',
       jobId: 'job-1',
+      setupFingerprint: 'fingerprint-1',
       toolName: 'request_permission',
     } as PermissionApprovalRequest;
 
