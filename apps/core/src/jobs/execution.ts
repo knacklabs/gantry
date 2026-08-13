@@ -380,7 +380,7 @@ async function runActiveJob(
           ]);
           const inheritedToolPolicy =
             resolveTurnToolPolicyFromSnapshot(accessSnapshot);
-          const toolPolicy: jobToolPolicy.JobToolPolicyResolution = {
+          let toolPolicy: jobToolPolicy.JobToolPolicyResolution = {
             inheritedTools: inheritedToolPolicy.toolPolicyRules ?? [],
             effectiveAllowedTools: inheritedToolPolicy.toolPolicyRules ?? [],
             runtimeAccess: inheritedToolPolicy.runtimeAccess,
@@ -394,6 +394,10 @@ async function runActiveJob(
           });
           const semanticCapabilities =
             resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot);
+          toolPolicy = jobToolPolicy.addSemanticJobToolRules(
+            toolPolicy,
+            semanticCapabilities,
+          );
           const attachedMcpSourceIds =
             resolveTurnSelectedMcpServerIdsFromSnapshot(accessSnapshot, {
               conversationId: execution.group.conversationId,

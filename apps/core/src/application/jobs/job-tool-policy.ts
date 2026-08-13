@@ -10,6 +10,7 @@ import {
   resolveAgentToolRuntimeRules,
 } from '../agents/agent-tool-runtime-rules.js';
 import type { CapabilityRuntimeAccess } from '../../shared/capability-runtime-access.js';
+import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
 import {
   assertHostAccessSnapshot,
   type AgentAccessSnapshot,
@@ -19,6 +20,28 @@ export interface JobToolPolicyResolution {
   inheritedTools: string[];
   effectiveAllowedTools: string[];
   runtimeAccess: CapabilityRuntimeAccess[];
+}
+
+const RECIPE_MILESTONE_TOOL_RULES = [
+  'mcp__gantry__file',
+  'mcp__gantry__job_checkpoint_status',
+  'mcp__gantry__job_checkpoint_save',
+] as const;
+
+export function addSemanticJobToolRules(
+  policy: JobToolPolicyResolution,
+  capabilities: readonly SemanticCapabilityDefinition[],
+): JobToolPolicyResolution {
+  if (!capabilities.some((capability) =>
+    capability.capabilityId === 'manipal.website-recipe-evaluator' &&
+    capability.version === '1')) return policy;
+  return {
+    ...policy,
+    effectiveAllowedTools: mergeUnique([
+      ...policy.effectiveAllowedTools,
+      ...RECIPE_MILESTONE_TOOL_RULES,
+    ]),
+  };
 }
 
 export function agentIdForJobWorkspaceKey(workspaceKey: string): string {

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveJobToolPolicy } from '@core/application/jobs/job-tool-policy.js';
+import {
+  addSemanticJobToolRules,
+  resolveJobToolPolicy,
+} from '@core/application/jobs/job-tool-policy.js';
 import type { Job } from '@core/domain/types.js';
 import { resolveConfiguredAllowedTools } from '@core/runtime/configured-agent-tools.js';
 import {
@@ -73,6 +76,30 @@ function toolRepositoryFor(names: string[]) {
 }
 
 describe('job tool policy', () => {
+  it('adds milestone tools only for the reviewed recipe evaluator capability', () => {
+    const policy = {
+      inheritedTools: ['Browser'],
+      effectiveAllowedTools: ['Browser'],
+      runtimeAccess: [],
+    };
+    const capability = {
+      ...reviewedAcmeAppendCapability,
+      capabilityId: 'manipal.website-recipe-evaluator',
+      version: '1',
+    };
+
+    expect(addSemanticJobToolRules(policy, [capability])).toMatchObject({
+      effectiveAllowedTools: [
+        'Browser',
+        'mcp__gantry__file',
+        'mcp__gantry__job_checkpoint_status',
+        'mcp__gantry__job_checkpoint_save',
+      ],
+    });
+    expect(addSemanticJobToolRules(policy, [reviewedAcmeAppendCapability]))
+      .toBe(policy);
+  });
+
   it('resolves scheduled job tools from the target agent only', async () => {
     await expect(
       resolveJobToolPolicy({
