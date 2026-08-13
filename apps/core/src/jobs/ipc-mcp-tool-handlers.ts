@@ -228,7 +228,9 @@ function externalCapabilityCallToolHandler(
       taskId: acceptance.taskId,
       status: acceptance.status,
     });
-    suspendForExternalCapability({ jobId, runId, taskId: acceptance.taskId });
+    if (acceptance.status === 'waiting_external') {
+      suspendForExternalCapability({ jobId, runId, taskId: acceptance.taskId });
+    }
   };
 }
 function mcpSearchToolsHandler(

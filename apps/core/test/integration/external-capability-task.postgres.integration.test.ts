@@ -174,6 +174,12 @@ maybeDescribe('external capability tasks', () => {
         },
       },
     });
+    await expect(service.accept(acceptanceInput)).resolves.toEqual({
+      taskId: created.taskId,
+      completionToken: '',
+      status: 'completed',
+      created: false,
+    });
 
     await expect(
       service.complete({

@@ -16,7 +16,7 @@ const MAX_RESULT_BYTES = 256 * 1024;
 export interface ExternalCapabilityTaskAcceptance {
   taskId: string;
   completionToken: string;
-  status: 'waiting_external';
+  status: 'waiting_external' | 'completed';
   created: boolean;
 }
 
@@ -80,6 +80,14 @@ export class ExternalCapabilityTaskService {
     });
     if (!created.created) {
       assertSameAcceptance(created.task, normalized);
+      if (
+        created.task.status !== 'waiting_external' &&
+        created.task.status !== 'completed'
+      ) {
+        throw new Error(
+          `Existing external capability task is ${created.task.status}; retry with a new idempotency key after correcting the submission.`,
+        );
+      }
       const existingToken =
         created.task.privateCorrelationJson.completionTokenHash;
       if (typeof existingToken !== 'string') {
@@ -90,7 +98,7 @@ export class ExternalCapabilityTaskService {
       return {
         taskId: created.task.id,
         completionToken: '',
-        status: 'waiting_external',
+        status: created.task.status,
         created: false,
       };
     }
