@@ -391,7 +391,7 @@ maybeDescribe('setup permission prompt preparation', () => {
         claimToken: 'stale-claim-token',
         begunAt: '2026-08-13T10:00:01.000Z',
       }),
-    ).resolves.toBe(false);
+    ).resolves.toBe('lease_lost');
     await expect(
       runtime.repositories.outboundDeliveries.beginDeliveryItemSend?.({
         deliveryId: prepared.delivery.id,
@@ -400,7 +400,7 @@ maybeDescribe('setup permission prompt preparation', () => {
         claimToken: item.claimToken!,
         begunAt: '2026-08-13T10:00:01.000Z',
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBe('begun');
     await expect(
       runtime.repositories.outboundDeliveries.markDeliveryItemSent({
         deliveryId: prepared.delivery.id,
@@ -567,7 +567,7 @@ maybeDescribe('setup permission prompt preparation', () => {
         claimToken: cancelledClaim!.item.claimToken!,
         begunAt: '2026-08-13T10:00:01.000Z',
       }),
-    ).resolves.toBe(false);
+    ).resolves.toBe('prompt_closed');
 
     await insertSetupPausedJob(
       runtime,

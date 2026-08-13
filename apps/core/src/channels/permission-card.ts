@@ -48,7 +48,9 @@ export function buildBoundedPermissionCard(
   const title = source.title.slice(0, PERMISSION_CARD_TITLE_BUDGET);
   const bodyLines: string[] = [];
   const contextLines: string[] = [];
-  let overflowed = false;
+  // A truncated title IS overflow: the owner must know the pending list
+  // holds the full text (review R3).
+  let overflowed = source.title.length > PERMISSION_CARD_TITLE_BUDGET;
   for (const [kind, line] of [
     ...source.bodyLines.map((value) => ['body', value] as const),
     ...source.contextLines.map((value) => ['context', value] as const),
