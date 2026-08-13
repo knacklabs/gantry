@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 
 import { SETUP_REQUIRED_PAUSE_REASON } from '../../../../domain/jobs/jobs.js';
 import { sanitizeRetryTailProviderPayload } from '../../../../domain/messages/retry-tail-provider-payload.js';
@@ -58,7 +58,9 @@ export async function getSetupPermissionPromptForDispatch(
         eq(pgSchema.pendingInteractionsPostgres.appId, input.appId),
         eq(pgSchema.pendingInteractionsPostgres.kind, 'permission'),
         eq(pgSchema.pendingInteractionsPostgres.status, 'pending'),
-        gt(pgSchema.pendingInteractionsPostgres.expiresAt, input.now),
+        // Member validity is judged by DATABASE time, same as the send
+        // checkpoint's lease check (review R7).
+        sql`${pgSchema.pendingInteractionsPostgres.expiresAt} > now()`,
       ),
     )
     .limit(1);
