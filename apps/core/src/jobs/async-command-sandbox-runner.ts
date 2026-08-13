@@ -86,7 +86,12 @@ export async function runSandboxedAsyncCommand(
       );
   const child = provider.start({
     command: '/bin/sh',
-    args: ['-c', asyncCommandLaunchScript()],
+    // Only durable async tasks need a launch barrier and PID handoff. A
+    // synchronous deterministic skill command can run directly, which keeps
+    // its invocation independent of the async-task control environment.
+    args: input.launchControl
+      ? ['-c', asyncCommandLaunchScript()]
+      : ['-c', input.command],
     cwd: input.cwd,
     workspaceRoot: input.cwd,
     configFilePath,
@@ -134,7 +139,9 @@ export async function runSandboxedAsyncCommand(
             GANTRY_EGRESS_PROXY_URL: input.egressProxyUrl,
           }
         : {}),
-      GANTRY_ASYNC_COMMAND_SCRIPT: input.command,
+      ...(input.launchControl
+        ? { GANTRY_ASYNC_COMMAND_SCRIPT: input.command }
+        : {}),
       ...(input.launchControl
         ? {
             GANTRY_ASYNC_LAUNCH_DIR: input.launchControl.directory,
