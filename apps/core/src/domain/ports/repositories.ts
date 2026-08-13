@@ -391,7 +391,7 @@ export interface OutboundDeliveryRepository {
     promptId: string;
     claimToken: string;
     begunAt: string;
-  }): Promise<boolean>;
+  }): Promise<'begun' | 'lease_lost' | 'prompt_closed'>;
   markDeliveryItemCancelled?(input: {
     deliveryId: OutboundDeliveryId;
     itemId: OutboundDeliveryItemId;

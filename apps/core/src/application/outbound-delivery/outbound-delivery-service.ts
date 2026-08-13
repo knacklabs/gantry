@@ -280,7 +280,7 @@ export class OutboundDeliveryService {
     promptId: string;
     claimToken: string;
     begunAt?: string;
-  }): Promise<boolean> {
+  }): Promise<'begun' | 'lease_lost' | 'prompt_closed'> {
     const begin = this.deps.repository.beginDeliveryItemSend;
     if (!begin) {
       throw new Error(

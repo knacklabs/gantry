@@ -65,7 +65,15 @@ export async function dispatchPreparedPermissionCard(input: {
     claimToken,
     begunAt: input.now(),
   });
-  if (!begun) {
+  if (begun === 'prompt_closed') {
+    // The fenced revalidation found the prompt no longer open: TERMINAL
+    // cancellation, never a retry.
+    return {
+      status: 'cancelled',
+      reason: { code: 'prompt_closed_at_checkpoint' },
+    };
+  }
+  if (begun !== 'begun') {
     return {
       status: 'failed',
       error:

@@ -112,7 +112,7 @@ export async function beginDeliveryItemSend(
     claimToken: string;
     begunAt: string;
   },
-): Promise<boolean> {
+): Promise<'begun' | 'lease_lost' | 'prompt_closed'> {
   return db.transaction(async (tx) => {
     const [item] = await tx
       .select()
@@ -142,13 +142,13 @@ export async function beginDeliveryItemSend(
       )
       .for('update')
       .limit(1);
-    if (!item) return false;
+    if (!item) return 'lease_lost';
     const [delivery] = await tx
       .select({ appId: pgSchema.outboundDeliveriesPostgres.appId })
       .from(pgSchema.outboundDeliveriesPostgres)
       .where(eq(pgSchema.outboundDeliveriesPostgres.id, input.deliveryId))
       .limit(1);
-    if (!delivery) return false;
+    if (!delivery) return 'lease_lost';
     // Lock the prompt row so a concurrent cancellation serializes against
     // the checkpoint: cancel-before-lock wins (we bail), cancel-after waits
     // until send_begun_at is stamped and takes the post-checkpoint path.
@@ -161,7 +161,7 @@ export async function beginDeliveryItemSend(
       .for('update')
       .limit(1);
     if (!lockedPrompt || lockedPrompt.settlementState !== 'open') {
-      return false;
+      return 'prompt_closed';
     }
     if (
       !(await getSetupPermissionPromptForDispatch(tx, {
@@ -170,7 +170,7 @@ export async function beginDeliveryItemSend(
         now: input.begunAt,
       }))
     ) {
-      return false;
+      return 'prompt_closed';
     }
     const updated = await tx
       .update(pgSchema.outboundDeliveryItemsPostgres)
@@ -187,7 +187,7 @@ export async function beginDeliveryItemSend(
         ),
       )
       .returning({ id: pgSchema.outboundDeliveryItemsPostgres.id });
-    return Boolean(updated[0]);
+    return updated[0] ? 'begun' : 'lease_lost';
   });
 }
 

@@ -1032,12 +1032,14 @@ export async function startRuntimeServices(
           canonicalText: claimed.item.canonicalText,
           ...(destinationThreadId ? { threadId: destinationThreadId } : {}),
         });
-        // Dormancy gate (S3): inert until S3-RESULT flips the flag.
-        // prettier-ignore
-        const permissionCardResult = PERMISSION_CARD_DISPATCH_ACTIVE
-          ? await dispatchRuntimePermissionCard({ service: outboundDeliveryService, claimed, channelWiring, destinationJid, destinationThreadId, providerAccountId: destinationAccount.providerAccountId, permit: recoveryPermit })
-          : null;
-        if (permissionCardResult) return permissionCardResult;
+        // Permission items NEVER fall through to generic text dispatch:
+        // dormant -> failed-without-send; active -> specialized result only.
+        if (claimed.item.permissionPromptId) {
+          // prettier-ignore
+          return !PERMISSION_CARD_DISPATCH_ACTIVE
+            ? { status: 'failed', error: 'Permission-card dispatch is dormant until its activation stage.' } as const
+            : (await dispatchRuntimePermissionCard({ service: outboundDeliveryService, claimed, channelWiring, destinationJid, destinationThreadId, providerAccountId: destinationAccount.providerAccountId, permit: recoveryPermit })) ?? { status: 'failed', error: 'Permission-card dispatch returned no result.' } as const;
+        }
         try {
           const observerDigestView = payload?.observerDigestView as
             | MessageSendOptions['observerDigestView']

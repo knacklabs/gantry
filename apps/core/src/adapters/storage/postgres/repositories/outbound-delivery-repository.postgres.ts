@@ -195,7 +195,7 @@ export class PostgresOutboundDeliveryRepository implements OutboundDeliveryRepos
     promptId: string;
     claimToken: string;
     begunAt: string;
-  }): Promise<boolean> {
+  }): Promise<'begun' | 'lease_lost' | 'prompt_closed'> {
     return beginDeliveryItemSend(this.db, input);
   }
   async markDeliveryItemSent(input: {

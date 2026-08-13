@@ -24,7 +24,7 @@ function service(overrides: Record<string, unknown> = {}) {
       },
       providerAlias: 'alias:1',
     })),
-    beginSend: vi.fn(async () => true),
+    beginSend: vi.fn(async () => 'begun' as const),
     ...overrides,
   } as any;
 }
@@ -53,7 +53,7 @@ describe('prepared permission-card dispatch', () => {
     const outbound = service({
       beginSend: vi.fn(async () => {
         order.push('begin');
-        return true;
+        return 'begun' as const;
       }),
     });
     const send = vi.fn(async () => {
@@ -102,7 +102,7 @@ describe('prepared permission-card dispatch', () => {
   it('does not call the provider when the lease-fenced checkpoint is rejected', async () => {
     const send = vi.fn();
     const result = await dispatchPreparedPermissionCard({
-      service: service({ beginSend: vi.fn(async () => false) }),
+      service: service({ beginSend: vi.fn(async () => 'lease_lost' as const) }),
       claimed: claimed(),
       now: () => '2026-08-13T10:00:00.000Z',
       prepare: () => ({ send }),
