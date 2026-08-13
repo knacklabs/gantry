@@ -1,4 +1,7 @@
 import { NEUTRAL_CA_TRUST_ENV_KEYS } from '../../../../shared/neutral-ca-trust-env.js';
+import { skillActionCapabilityRuleForToolRule } from '../../../../shared/skill-action-capability-rules.js';
+import { semanticCapabilityRule } from '../../../../shared/semantic-capability-ids.js';
+import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
 
 export { NEUTRAL_CA_TRUST_ENV_KEYS };
 
@@ -77,7 +80,7 @@ export function applyBashTrustEnvWithProvenance(
     return { toolInput: input };
   }
 
-  const prefix = bashTrustEnvPrefix(toolNetworkEnv);
+  const prefix = bashTrustEnvPrefix(toolNetworkEnv, command);
   const prefixedInput = command.startsWith(`${prefix} `)
     ? input
     : {
@@ -108,6 +111,7 @@ function bashCommandKey(input: Record<string, unknown>): BashCommandKey | null {
 
 function bashTrustEnvPrefix(
   toolNetworkEnv: Record<string, string | undefined>,
+  command: string,
 ): string {
   const entries = [GO_DNS_RESOLVER_ENV];
   for (const key of TOOL_NETWORK_COMMAND_ENV_KEYS) {
@@ -115,7 +119,41 @@ function bashTrustEnvPrefix(
     if (!value) continue;
     entries.push(`${key}=${shellSingleQuote(value)}`);
   }
+  for (const key of reviewedSkillActionEnvKeys(command)) {
+    const value = process.env[key]?.trim();
+    if (!value) continue;
+    entries.push(`${key}=${shellSingleQuote(value)}`);
+  }
   return entries.join(' ');
+}
+
+function reviewedSkillActionEnvKeys(command: string): string[] {
+  const definitions = readSkillActionDefinitions();
+  const matchedRule = skillActionCapabilityRuleForToolRule(
+    `RunCommand(${command.trim()})`,
+    definitions,
+  );
+  if (!matchedRule) return [];
+  const definition = definitions.find(
+    (item) => semanticCapabilityRule(item.capabilityId) === matchedRule,
+  );
+  return [...new Set(definition?.redactionPolicy?.env ?? [])].sort();
+}
+
+function readSkillActionDefinitions(): SemanticCapabilityDefinition[] {
+  const raw = process.env.GANTRY_SKILL_ACTIONS_JSON?.trim();
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter(
+          (item): item is SemanticCapabilityDefinition =>
+            Boolean(item) && typeof item === 'object',
+        )
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 function shellSingleQuote(value: string): string {

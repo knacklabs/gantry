@@ -73,6 +73,18 @@ describe('Claude config materializer', () => {
     expect(
       fs.existsSync(path.join(materialization.skillsDir, 'enabled-skill')),
     ).toBe(true);
+    expect(materialization.skillsDir).toBe(
+      path.join(tempRoot, 'agents', 'test', 'skills'),
+    );
+    expect(
+      fs.realpathSync(path.join(materialization.claudeConfigDir, 'skills')),
+    ).toBe(fs.realpathSync(materialization.skillsDir));
+    expect(materialization.protectedFilesystemDenyReadPaths).not.toContain(
+      path.resolve(materialization.skillsDir),
+    );
+    expect(materialization.protectedFilesystemDenyWritePaths).toContain(
+      path.resolve(materialization.skillsDir),
+    );
     expect(
       fs.existsSync(path.join(materialization.skillsDir, 'disabled-skill')),
     ).toBe(false);
