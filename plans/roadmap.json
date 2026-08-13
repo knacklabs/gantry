@@ -1167,7 +1167,7 @@
       "title": "Capability template amendment via grantable card",
       "story": "As an operator, when a CLI capability's approved command shape doesn't fit reality, I get one plain-language card in chat \u2014 approve it and the blocked job fixes itself and continues; I never touch SQL or restart anything.",
       "acceptance_criteria": [
-        "Agent-raised amendment proposal on template mismatch (new request_access target kind); proposals are review metadata, never self-applying",
+        "HISTORICAL (superseded by decision 0125): agent-raised amendment proposal on template mismatch (new request_access target kind); proposals are review metadata, never self-applying",
         "Card is plain-language: ability-terms body from displayName/can/cannot, one-sentence warning when the delta widens ability, technical detail collapsed; no template strings, argv, ids, or hashes in the body",
         "Human approval updates the durable capability definition with provenance (who, when, prior templates in history); deny is terminal and deduped for the same template/argv pair",
         "Amendment covers commandTemplates only; hash/path/version attempts through this surface are rejected",

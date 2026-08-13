@@ -211,8 +211,10 @@ export async function notifyJobSetupRequired(input: {
   // never retries) goes invisibly stuck. delivery.ts already swallows per-route
   // send throws, but a fault in route computation / story formatting here would
   // otherwise skip publishRuntimeEvent below; this barrier keeps the event durable.
-  // (An indefinite send *hang* is not covered — that stays the accepted channel
-  // class, D-0053; the provider client's own network timeout is the backstop.)
+  // Decision 0124 replaces the accepted-hang contract with outbound-backed delivery:
+  // at most four attempts and defined delivered/ambiguous/exhausted/expired/cancelled
+  // recovery. Until that cutover, this barrier guarantees the event is still durably
+  // published below even when the notification attempt above it fails.
   let notified = false;
   try {
     const cardNotified = !notificationEligible

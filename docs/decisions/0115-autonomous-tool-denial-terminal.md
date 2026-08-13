@@ -2,7 +2,7 @@
 status: accepted
 confirmed_by: "Ravi"
 date: 2026-08-07
-stories: [SCHED-6]
+stories: [SCHED-6, JOBFLOW-1]
 ---
 
 # Autonomous Tool Denial Terminal
@@ -32,6 +32,18 @@ the tool and why it cannot be granted. The synchronous zero-timeout autonomous
 permission protocol is unchanged; only the deny result's terminality and routing
 change.
 
+Decision 0126 supersedes the blanket scope wording above. Declarative-rule denials are
+terminal on scheduled runs, including the DeepAgents protected-capability, memory-boundary,
+and settings-denylist guards and the Anthropic protected-capability and memory-boundary
+guards. The only excluded Anthropic guards are model validation, wait-only, and network.
+`JOB_TOOL_DENIED` is the required typed durable source of terminal-denial truth and is
+appended before finalization; a recognized capability-template mismatch carries the
+`fix_proposal` action defined by decisions 0125 and 0127.
+
+Decision 0127 supersedes the `grantable`/`non-grantable` boolean split in this record with
+the tagged `approve_grant`, `fix_proposal`, or `instruction` action union. Eligibility and
+card behavior derive from the action variant rather than a boolean.
+
 ## Consequences
 
 - The run that hit the denial is a failed run; its partial work is lost
@@ -50,6 +62,5 @@ change.
   a legible instruction card, so no scheduled DeepAgents tool denial can silently
   let the model substitute another tool. (Folded in on Ravi's "fix once for good"
   direction; supersedes the earlier deferral D-0051.)
-- The remaining Anthropic-lane pre-autonomous guards (model-validation, wait-only,
-  network) that return their own non-terminal denials are still a separate sweep,
-  out of SCHED-6 scope.
+- The Anthropic model-validation, wait-only, and network guards remain outside the terminal
+  sweep. Decisions 0126 and 0127 supersede all broader scope and grantability wording above.

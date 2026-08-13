@@ -1,11 +1,11 @@
 ---
 slug: capability-template-amendment
-title: Capability template amendment via grantable card
+title: Capability template amendment via human-approved card
 status: confirmed
 saved: 2026-08-11T17:10:00+00:00
 ---
 
-# Capability template amendment via grantable card
+# Capability template amendment via human-approved card
 
 **Status:** confirmed — Ravi, in chat, 2026-08-11 (plain-language card locked: ability-terms body, technical delta collapsed)
 **Origin:** live incident 2026-08-11. After the CLIRUN-1 cutover, the KnackLabs
@@ -24,8 +24,8 @@ the product path, leaving the job broken until it lands.
 A local_cli capability's `commandTemplates` are its authorization boundary
 (decision 0120: arity-exact, deliberately rigid). When a template doesn't fit
 the CLI's real argv shape, every invocation fails with a pattern error, the
-job produces nothing, and the agent has no recovery path: it can neither amend
-the definition (by design) nor ask a human to. The mismatch class is permanent:
+job produces nothing, and the system has no safe recovery path: the agent cannot amend
+the definition (by design), while no host flow files a human-reviewable fix. The mismatch class is permanent:
 every new CLI capability, CLI version bump, or template authoring mistake
 lands here.
 
@@ -33,11 +33,12 @@ lands here.
 
 The fix-and-continue pattern, applied to capability definitions:
 
-1. **Agent-raised amendment proposal.** When `capability_run` rejects with a
-   template mismatch, the agent can request a template amendment for the
-   capability (new `request_access` target kind), carrying the proposed
-   template(s) and the observed argv shape as evidence. The proposal NEVER
-   takes effect on its own — it is review metadata.
+1. **Host-compiled amendment proposal.** When `capability_run` rejects with a
+   recognized template mismatch, the verified host handler compiles and records the only
+   proposal entry. The agent-authored `request_access` amendment target is removed. A
+   flagged observation proposes both full pinned-path templates: the base positional form
+   and the flagged variant with flag values wildcarded. The proposal NEVER takes effect on
+   its own — it is review metadata.
 2. **Human approval card — plain language, not technical.** The card reads in
    ability terms, built from the capability's existing human-facing fields
    (displayName, category, can/cannot):
@@ -59,11 +60,12 @@ The fix-and-continue pattern, applied to capability definitions:
      (provider-native expandable where supported) for whoever wants it.
 3. **Approval updates the catalog.** On approve, the durable capability
    definition (tool_catalog row) is updated with the reviewed template(s),
-   provenance recorded (who, when, from which request). Deny is terminal for
-   the proposal; the capability stays as reviewed.
-4. **Fix-and-continue.** For a paused/blocked scheduled job, approval flows
-   into the existing recovery: the job resumes and the re-run invokes the CLI
-   through the amended template without re-asking.
+   provenance recorded (who, when, from which request). Proposal identity is
+   `(appId, capabilityId, canonical proposedTemplates)`; one redacted argv sample is
+   evidence only. Deny is terminal for the proposal; the capability stays as reviewed.
+4. **Durable fix-and-continue.** Approval inserts an app-wide recovery intent in the
+   amendment transaction. Recovery retries until every affected paused job is resumed or
+   superseded; the re-run invokes the CLI through the amended template without re-asking.
 5. **Executable identity unchanged.** Amendment covers `commandTemplates`
    only. `executablePath`/`executableHash`/version stay immutable through this
    surface — binary changes remain a separate, deliberate re-review.
@@ -78,12 +80,11 @@ The fix-and-continue pattern, applied to capability definitions:
 
 ## Acceptance
 
-- Live proof: the KnackLabs job — agent hits the sheets template mismatch,
-  raises the amendment proposal, Ravi approves from the card, catalog updates
-  to the real `get <id> <range>` / `append|update <id> <range> [values]`
-  shapes, the job's next run writes leads. No SQL, no restart.
-- A denied proposal changes nothing and is not re-raised for the same
-  template/argv pair (dedup).
+- Live proof: the KnackLabs job — the host recognizes the sheets template mismatch and
+  files the compiled proposal, Ravi approves from the card, both full pinned-path templates
+  are applied, and durable recovery resumes the job to write leads. No SQL, no restart.
+- A denied proposal changes nothing and is not re-raised for the same canonical proposed
+  templates within the reviewed definition (observed argv is not dedup identity).
 - Amendment provenance is recorded and visible (who approved, when, prior
   templates retained in history).
 - Card copy contains no template strings, argv, ids, or hashes in the primary

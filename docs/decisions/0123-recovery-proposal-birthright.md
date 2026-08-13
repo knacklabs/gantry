@@ -2,7 +2,7 @@
 status: accepted
 confirmed_by: "Ravi"
 date: 2026-08-12
-stories: [CAPFIX-1]
+stories: [CAPFIX-1, JOBFLOW-1]
 ---
 
 # Human-Gated Recovery Proposals Are Birthright — System Tools Never Need Approval
@@ -33,19 +33,25 @@ decision, so the human decision IS the authority and pre-gating the ask is a
 deadlock by construction. Input-gating is retained: complete, inspectable
 inputs pass; redacted/truncated inputs still fail closed.
 
+Decision 0125 supersedes this record only where it made capability-template amendments
+reachable through an agent-authored `request_access` target. That amendment target is
+removed and template-mismatch proposals are host-compiled only. `request_access` remains
+input-gated birthright for its other human-gated recovery targets, and the other four
+birthright recovery tools are unchanged.
+
 Explicitly unchanged:
 - These tools remain EXCLUDED from durable exact-tool grants
   (admin-mcp-tools): birthright at decision time, never a grantable
   authority.
-- 0115 (autonomous denial terminal), 0121 (no classifier on autonomous runs),
-  and 0122 (amendment card) all stand — this decision is what makes 0122
-  reachable from the runs that need it.
+- 0115 (as amended by 0126/0127) and 0121 (no classifier on autonomous runs)
+  stand. Decision 0125 owns the host-only template-amendment entry path.
 - Fixed-image/locked-agent tool hiding and the yolo denylist still apply.
 
 ## Consequences
 
-- Autonomous runs can always ASK: template amendments, skill installs, MCP
-  server requests all surface as human cards instead of buttonless dead ends.
+- Autonomous runs can always ask for the remaining human-gated access, skill, and MCP
+  recovery proposals. Capability-template mismatch proposals are filed by the host under
+  decision 0125.
 - Amends 0052: its "all request_* tools stay on the ladder" clause is
   superseded for exactly this five-tool set; the input-independent birthright
   list is unchanged.

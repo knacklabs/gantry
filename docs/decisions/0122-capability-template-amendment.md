@@ -2,10 +2,10 @@
 status: accepted
 confirmed_by: "Ravi"
 date: 2026-08-11
-stories: [CAPFIX-1]
+stories: [CAPFIX-1, JOBFLOW-1]
 ---
 
-# Capability Command Templates Are Amendable Only by Human-Approved, Agent-Proposed Amendment
+# Capability Command Templates Are Amendable Only by Human-Approved, Host-Compiled Amendment
 
 ## Context
 
@@ -22,12 +22,14 @@ CAPFIX-1's live acceptance test.
 
 ## Decision
 
-Template amendment is a first-class, human-gated flow:
+Decision 0125 supersedes agent authorship, the `request_access` amendment target, observed
+argv in proposal identity, and best-effort post-approval recovery in this record. Template
+amendment is a first-class, human-gated flow:
 
-- The agent may PROPOSE an amendment (new `request_access` target kind
-  carrying capabilityId, proposed templates, observed argv — evidence, never
-  authority). The host derives current templates and executable identity from
-  the catalog; agent copies are never trusted.
+- The host compiles the only amendment proposal directly from verified mismatch context.
+  The agent-authored `request_access` amendment target is removed. The compiler emits both
+  full pinned-path templates for a flagged observation: the base positional form and the
+  flagged variant with flag values wildcarded.
 - A plain-language card renders in chat: ability-terms body from the
   capability's displayName/can/cannot, buttons "Approve fix"/"Deny"; no
   template strings, argv, ids, or hashes in the body — the technical delta
@@ -39,10 +41,12 @@ Template amendment is a first-class, human-gated flow:
   exact-equivalent reshape is warning-free. Nothing under-warns.
 - Human approval performs a transactional CAS amendment of
   `implementationBindings[*].commandTemplates` ONLY, with provenance and prior
-  templates in a durable history row; then the existing paused-job
-  recheck/resume runs (fix-and-continue, no re-ask).
-- Deny is terminal and durable, deduped per (appId, capabilityId, canonical
-  proposed templates, canonical observed argv) WITHIN a reviewed definition:
+  templates in a durable history row. The same transaction inserts a durable app-wide
+  approval intent; recovery retries until every affected paused job is resumed or
+  superseded (fix-and-continue, no re-ask).
+- Deny is terminal and durable, deduped per (appId, capabilityId, canonical proposed
+  templates) WITHIN a reviewed definition. Observed argv is stored only as one redacted
+  evidence sample and is not part of identity. Within a reviewed definition,
   the stored reviewedSchemaHash scopes terminality, so a later catalog
   revision supersedes stale rows (pending and system-superseded bookkeeping
   alike) and reopens review — a human "no" binds the definition it judged,
@@ -61,6 +65,8 @@ Template amendment is a first-class, human-gated flow:
   permanently recoverable in-product.
 - Agent self-amendment stays impossible; arity-exact matching (0120) is not
   relaxed — templates get richer, the matcher does not get looser.
+- Approval-to-resume is durable under decision 0125; it is not a fire-and-forget recovery
+  step.
 - Rejected alternatives (do NOT re-propose): agent self-amendment under any
   condition; relaxing the matcher instead of fixing templates; operator SQL as
   the sanctioned path (Ravi rejected it explicitly).

@@ -148,6 +148,59 @@ stabilizes contracts, merged before any code story)
   is marked HISTORICAL, superseded by host-only authorship.
 - 0121 unchanged. JobPrimingService cleanup out of scope.
 
+### S1 normative transition graph
+
+The two axes are independent. Prompt lifecycle says whether a human decision is still
+meaningful; the outbound item/aggregate is the operational delivery projection for one
+generation. Terminal delivery does not by itself settle an open prompt.
+
+| Axis | From | Trigger | To | Required effect |
+|---|---|---|---|---|
+| Prompt lifecycle | open | Human claim acquired | claimed | Exclude from blind expiry/cancel sweeps; preserve the claim for settlement retry. |
+| Prompt lifecycle | open | Full durable decision settlement | settled | Terminalize the provider card only after authority application and prompt/member settlement both complete. |
+| Prompt lifecycle | claimed | Full durable decision settlement | settled | Same full-settlement fence; authority application alone is insufficient. |
+| Prompt lifecycle | open | 24-hour TTL | expired | Expire the pending member, clear `notified_fingerprint`, append the expiry event; resume creates a new prompt row. |
+| Prompt lifecycle | open | Job/delivery cancellation | cancelled | Cancel the pending member and make callbacks answer inactive. |
+| Prompt lifecycle | open | Fingerprint or target invalidation | superseded | Supersede the pending member and make callbacks answer inactive. |
+| Prompt lifecycle | claimed | Authoritative target invalidation only | superseded | Observe supersession before applying authority; blind sweeps never clobber a claim. |
+| Delivery generation | pending | Lease-fenced `beginSend` | dispatching | Persist `send_begun_at` before the provider call. |
+| Delivery generation | dispatching | Provider send settles successfully | delivered | Attach the provider locator in the settlement transaction; keep the prompt active until decision settlement. |
+| Delivery generation | dispatching | Claim expires after `send_begun_at`, or transmission is unknown | ambiguous | Never retry this generation; keep the prompt open and expose owner recovery through `setup.deliveryNotice`. |
+| Delivery generation | dispatching | Provably-pre-transmission failure (delivered:'no', retryable) or claim expires with `send_begun_at` NULL, below the attempt cap | pending | Increment the attempt count, set `next_attempt_at` backoff, clear `send_begun_at`; the recovery tick re-claims and `beginSend` runs attempt N+1. |
+| Delivery generation | pending or dispatching | Attempt cap 4 reached without delivery | exhausted | Keep the prompt open, clear `notified_fingerprint`; resume enqueues a new generation on the same prompt. |
+| Delivery generation | pending or dispatching | Cancellation wins the send fence | cancelled | Terminalize this generation and cancel the prompt only while it is open. |
+| Delivery generation | exhausted | Owner resumes | pending (new generation) | Allocate the next generation under the prompt lock; never reopen a terminal outbound item. |
+
+### S1 normative idempotency-key table
+
+| Record | Key | Uniqueness / allocation | Replay or conflict result |
+|---|---|---|---|
+| `JOB_TOOL_DENIED` runtime event | `tool_denied:<runId>:<denialFingerprint>` | Partial unique `(app_id, idempotency_key)` where the key is non-null. | Return already-recorded success and skip every downstream side effect, including event-bus outbox and webhook enqueue. |
+| `job.setup_card_delivery` terminal generation event | `card_delivery_terminal:<promptId>:<generation>` | Same runtime-event partial unique; one terminal outcome per delivery generation, first wins. | Return already-recorded success and skip downstream side effects. |
+| `job.setup_card_delivery` prompt-expiry event | `card_delivery_expired:<promptId>` | Same runtime-event partial unique; one expiry truth per prompt. | Return already-recorded success and skip downstream side effects. |
+| Permission-card outbound aggregate | `setup_permission_prompt:<promptId>:<generation>` | Existing unique `(app_id, idempotency_key)`; allocate generation under the prompt lock in the enqueue transaction. | Same-generation replay returns the same aggregate; a successor generation creates a distinct aggregate. |
+
+Null runtime-event idempotency keys retain the existing append behavior. The lowest
+persisted `event_id` per run is authoritative for terminal-denial reads.
+
+### S1 canonical eleven-surface matrix
+
+| Surface | Classification | Contract |
+|---|---|---|
+| Runtime behavior | Changed | S2a/S3/S4 change scheduler execution, terminal-denial handling, card delivery, and host-filed recovery. |
+| `settings.yaml` | Unchanged by design | Capability definitions remain in `tool_catalog`; settings selects capabilities and never mirrors command-template definitions (0122/0125). |
+| Postgres/runtime projection | Changed | Add event idempotency, prompt identity, outbound generation/checkpoint/cancellation, approval-intent state, and their migrations. |
+| Control API | Changed | S2b carries the tagged setup action and `setup.deliveryNotice`; the pending-list concept remains. |
+| SDK/contracts | Changed | Author the setup schema and regenerate the typed contract. |
+| CLI | Changed | Render the tagged action and delivery notice through the shared formatter. |
+| Gantry MCP tools/admin skill | Changed | Update scheduler formatters and remove the agent-authored capability-amendment tool target. |
+| Channel/provider adapters | Changed | Telegram, Slack, Teams, and Discord adopt the typed result, prepared-send ports, and bounded single-card render. |
+| Docs/prompts | Changed | S1 reconciles decisions/specs/architecture; S4 adds the shared scheduled-run guidance block. |
+| Audit/events | Changed | Extend `JOB_TOOL_DENIED`, add `job.setup_card_delivery`, and enforce namespaced idempotency. |
+| Tests/verification | Changed | Replace obsolete pins, add story-level falsifiers, and run the S5 live fault matrix. |
+
+Web/UI is an auxiliary `Not applicable` surface: no web UI exists for this flow.
+
 ## S2a — Typed terminal-denial EVENT cutover
 
 - REUSE JOB_TOOL_DENIED (runtime-event-types.ts:21; emitted
