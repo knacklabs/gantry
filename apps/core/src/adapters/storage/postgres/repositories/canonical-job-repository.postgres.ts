@@ -1,4 +1,10 @@
 import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import {
+  listEventsForOwnerApp,
+  listFirstEventPerRun,
+} from './canonical-job-events-first-per-run.postgres.js';
+// prettier-ignore
+const eventIdOrder = (order?: 'asc' | 'desc') => (order === 'asc' ? asc(pgSchema.runtimeEventsPostgres.eventId) : desc(pgSchema.runtimeEventsPostgres.eventId));
 
 import type {
   Job,
@@ -704,51 +710,23 @@ export class PostgresCanonicalJobRepository {
       jobIds?: string[];
       ownerAppId?: string;
       runId?: string;
+      // prettier-ignore
       runIds?: string[];
       firstPerRun?: boolean;
+      order?: 'asc' | 'desc';
       eventType?: RuntimeEventType;
       sinceId?: number;
       since?: string;
-      order?: 'asc' | 'desc';
     },
   ): Promise<CanonicalJobEventRecord[]> {
     if (!filters?.jobId && filters?.jobIds?.length === 0) return [];
-    if (filters?.runIds && filters.runIds.length === 0) return [];
     if (!filters?.jobId && filters?.ownerAppId) {
-      return this.listEventsForOwnerApp(limit, filters);
+      // prettier-ignore
+      return listEventsForOwnerApp(this.db, limit, filters, canonicalJobSessionJoinClause(), eventIdOrder(filters?.order));
     }
-    // Batched primary read: one DISTINCT ON query returns the FIRST persisted
-    // event per run (0126 primary-denial rule) for a whole listing - never an
-    // N+1 per run and never a cap that can truncate the authoritative row.
-    if (filters?.runIds?.length && filters.firstPerRun) {
-      const rows = await this.db
-        .selectDistinctOn([pgSchema.runtimeEventsPostgres.runId])
-        .from(pgSchema.runtimeEventsPostgres)
-        .where(
-          and(
-            inArray(pgSchema.runtimeEventsPostgres.runId, filters.runIds),
-            filters.eventType
-              ? eq(pgSchema.runtimeEventsPostgres.eventType, filters.eventType)
-              : undefined,
-            filters.appId
-              ? eq(pgSchema.runtimeEventsPostgres.appId, filters.appId)
-              : undefined,
-          ),
-        )
-        .orderBy(
-          asc(pgSchema.runtimeEventsPostgres.runId),
-          asc(pgSchema.runtimeEventsPostgres.eventId),
-        )
-        .limit(limit);
-      return rows.map((row) => ({
-        id: String(row.eventId),
-        appId: row.appId,
-        runId: row.runId ?? '',
-        jobId: row.jobId ?? '',
-        type: row.eventType,
-        payloadJson: row.payloadJson,
-        createdAt: row.createdAt,
-      }));
+    if (filters?.runIds && filters.firstPerRun) {
+      // prettier-ignore
+      return filters.runIds.length === 0 ? [] : listFirstEventPerRun(this.db, limit, { runIds: filters.runIds, eventType: filters.eventType, appId: filters.appId });
     }
     const query = this.db
       .select()
@@ -790,81 +768,7 @@ export class PostgresCanonicalJobRepository {
     ].filter(Boolean);
     const filtered = clauses.length > 0 ? query.where(and(...clauses)) : query;
     const rows = await filtered
-      .orderBy(
-        filters?.order === 'asc'
-          ? asc(pgSchema.runtimeEventsPostgres.eventId)
-          : desc(pgSchema.runtimeEventsPostgres.eventId),
-      )
-      .limit(limit);
-    return rows.map((row) => ({
-      id: String(row.eventId),
-      appId: row.appId,
-      runId: row.runId ?? '',
-      jobId: row.jobId ?? '',
-      type: row.eventType,
-      payloadJson: row.payloadJson,
-      createdAt: row.createdAt,
-    }));
-  }
-
-  private async listEventsForOwnerApp(
-    limit: number,
-    filters: NonNullable<
-      Parameters<PostgresCanonicalJobRepository['listEvents']>[1]
-    >,
-  ): Promise<CanonicalJobEventRecord[]> {
-    const clauses = [
-      eq(pgSchema.controlHttpSessionsPostgres.appId, filters.ownerAppId ?? ''),
-      filters.appId
-        ? eq(pgSchema.runtimeEventsPostgres.appId, filters.appId)
-        : undefined,
-      filters.runId
-        ? eq(pgSchema.runtimeEventsPostgres.runId, filters.runId)
-        : undefined,
-      filters.jobIds?.length
-        ? inArray(pgSchema.runtimeEventsPostgres.jobId, filters.jobIds)
-        : undefined,
-      filters.eventType
-        ? eq(pgSchema.runtimeEventsPostgres.eventType, filters.eventType)
-        : inArray(
-            pgSchema.runtimeEventsPostgres.eventType,
-            CANONICAL_JOB_EVENT_TYPES,
-          ),
-      filters.sinceId !== undefined
-        ? gt(pgSchema.runtimeEventsPostgres.eventId, filters.sinceId)
-        : undefined,
-      filters.since
-        ? gt(pgSchema.runtimeEventsPostgres.createdAt, filters.since)
-        : undefined,
-    ].filter(Boolean);
-    const rows = await this.db
-      .select({
-        eventId: pgSchema.runtimeEventsPostgres.eventId,
-        appId: pgSchema.runtimeEventsPostgres.appId,
-        runId: pgSchema.runtimeEventsPostgres.runId,
-        jobId: pgSchema.runtimeEventsPostgres.jobId,
-        eventType: pgSchema.runtimeEventsPostgres.eventType,
-        payloadJson: pgSchema.runtimeEventsPostgres.payloadJson,
-        createdAt: pgSchema.runtimeEventsPostgres.createdAt,
-      })
-      .from(pgSchema.controlHttpSessionsPostgres)
-      .innerJoin(
-        pgSchema.canonicalJobsPostgres,
-        canonicalJobSessionJoinClause(),
-      )
-      .innerJoin(
-        pgSchema.runtimeEventsPostgres,
-        eq(
-          pgSchema.runtimeEventsPostgres.jobId,
-          pgSchema.canonicalJobsPostgres.id,
-        ),
-      )
-      .where(and(...clauses))
-      .orderBy(
-        filters?.order === 'asc'
-          ? asc(pgSchema.runtimeEventsPostgres.eventId)
-          : desc(pgSchema.runtimeEventsPostgres.eventId),
-      )
+      .orderBy(eventIdOrder(filters?.order))
       .limit(limit);
     return rows.map((row) => ({
       id: String(row.eventId),

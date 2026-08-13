@@ -127,9 +127,27 @@ export function parseJobSetupActionValue(
   ) {
     return null;
   }
-  const grant = permissionAuthorityAddition(
-    action.grant as Parameters<typeof permissionAuthorityAddition>[0],
-  );
+  // The wire grant is snake_case (tool_name/rule_content); decode to the
+  // domain rule shape BEFORE validating - a camelCase-only validator would
+  // silently drop every persisted approve_grant denial.
+  const wireGrant = action.grant as Record<string, unknown>;
+  const wireRules = Array.isArray(wireGrant?.rules) ? wireGrant.rules : null;
+  if (!wireRules) return null;
+  const decodedRules = wireRules.map((rule) => {
+    const record = rule as Record<string, unknown>;
+    return {
+      toolName: record.tool_name ?? record.toolName,
+      ...(record.rule_content !== undefined || record.ruleContent !== undefined
+        ? { ruleContent: record.rule_content ?? record.ruleContent }
+        : {}),
+    };
+  });
+  const grant = permissionAuthorityAddition({
+    type: wireGrant.type,
+    behavior: wireGrant.behavior,
+    rules: decodedRules,
+    ...(wireGrant.destination ? { destination: wireGrant.destination } : {}),
+  } as Parameters<typeof permissionAuthorityAddition>[0]);
   return grant ? { kind: 'approve_grant', grant } : null;
 }
 

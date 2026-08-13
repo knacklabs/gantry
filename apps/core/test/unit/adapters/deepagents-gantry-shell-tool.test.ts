@@ -134,7 +134,9 @@ describe('Gantry DeepAgents shell tool', () => {
           type: 'addRules',
           behavior: 'allow',
           destination: 'session',
-          rules: [{ toolName: 'RunCommand', ruleContent: 'echo should-not-run' }],
+          rules: [
+            { toolName: 'RunCommand', ruleContent: 'echo should-not-run' },
+          ],
         },
       },
       denialKind: 'permission_denied',

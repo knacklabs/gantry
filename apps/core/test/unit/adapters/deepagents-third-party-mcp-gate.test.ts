@@ -214,9 +214,7 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
     // On a scheduled run (onPermissionDenied present), a pre-check denial must
     // terminate the turn as a non-grantable instruction, so the model cannot
     // read it as an ordinary tool error and silently fall back to another tool.
-    let captured:
-      | { toolName: string; action: { kind: string } }
-      | undefined;
+    let captured: { toolName: string; action: { kind: string } } | undefined;
     const underlying = fakeTool('notion_search');
     const [wrapped] = wrapThirdPartyMcpToolsWithGate(
       [underlying as never],

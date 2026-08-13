@@ -84,6 +84,17 @@ export function parseSetupState(
   if (highestPriority?.state !== state && state !== 'ready') {
     remediation(jobId, 'setup_state top-level priority');
   }
+  // Review R1: consumers read blockers[0] as the primary action, so stored
+  // order MUST be canonical - the first blocker carries the highest-priority
+  // action identity, not merely a matching state.
+  if (
+    blockers.length > 0 &&
+    highestPriority &&
+    jobSetupActionIdentity(blockers[0]!.action) !==
+      jobSetupActionIdentity(highestPriority.action)
+  ) {
+    remediation(jobId, 'setup_state blocker order');
+  }
   const notified = record.notified_fingerprint;
   if (
     notified !== null &&

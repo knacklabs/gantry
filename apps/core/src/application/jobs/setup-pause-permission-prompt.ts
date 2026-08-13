@@ -8,7 +8,7 @@ import type {
   PermissionApprovalRequest,
   PermissionApprovalUpdate,
 } from '../../domain/types.js';
-import { RUN_COMMAND_TOOL_NAME } from '../../shared/agent-tool-references.js';
+import { SEMANTIC_CAPABILITY_RULE_PREFIX } from '../../shared/semantic-capability-ids.js';
 import { setupBlockerLabel } from '../../shared/job-setup-labels.js';
 import {
   formatSchedulerSetupStory,
@@ -393,34 +393,46 @@ function requirementForAction(
   job: Job,
   blocker: JobSetupBlocker,
 ): JobAccessRequirement | undefined {
+  // Review R1: blocker.id may carry the canonical capability: rule prefix -
+  // requirements store the BARE capability id, so normalize before matching
+  // and before appending (a prefixed id would both miss the existing
+  // requirement and append an invalid duplicate).
+  const capabilityId = blocker.id.startsWith(SEMANTIC_CAPABILITY_RULE_PREFIX)
+    ? blocker.id.slice(SEMANTIC_CAPABILITY_RULE_PREFIX.length)
+    : blocker.id;
+  const grantRule =
+    blocker.action.kind === 'approve_grant'
+      ? blocker.action.grant.rules[0]
+      : undefined;
+  const canonicalRule = grantRule
+    ? grantRule.ruleContent
+      ? `${grantRule.toolName}(${grantRule.ruleContent})`
+      : grantRule.toolName
+    : undefined;
   const existing = (job.access_requirements ?? []).find((requirement) => {
     if (requirement.target.kind === 'capability') {
-      return requirement.target.capabilityId === blocker.id;
+      return requirement.target.capabilityId === capabilityId;
     }
+    // Review R1: an existing tool_rule only satisfies this blocker when it
+    // matches the EXACT canonical rule the grant carries - a differently
+    // scoped RunCommand rule must not suppress the new declaration.
     return (
       requirement.target.kind === 'tool_rule' &&
-      (requirement.target.rule === blocker.id ||
-        blocker.id === RUN_COMMAND_TOOL_NAME)
+      requirement.target.rule === (canonicalRule ?? blocker.id)
     );
   });
   if (existing) return undefined;
   if (blocker.type === 'semantic_capability') {
     return {
-      target: { kind: 'capability', capabilityId: blocker.id },
+      target: { kind: 'capability', capabilityId },
       reason: `Required after ${setupBlockerLabel(blocker, blocker.state)} was denied.`,
     };
   }
-  const rule =
-    blocker.action.kind === 'approve_grant'
-      ? blocker.action.grant.rules[0]
-      : undefined;
-  if (!rule) return undefined;
+  if (!grantRule || !canonicalRule) return undefined;
   return {
     target: {
       kind: 'tool_rule',
-      rule: rule.ruleContent
-        ? `${rule.toolName}(${rule.ruleContent})`
-        : rule.toolName,
+      rule: canonicalRule,
     },
     reason: `Required after ${setupBlockerLabel(blocker, blocker.state)} was denied.`,
   };

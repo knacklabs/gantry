@@ -402,13 +402,14 @@ export class CanonicalJobOpsService {
       ownerAppId: filters?.owner_app_id,
       jobId: filters?.job_id,
       jobIds: filters?.job_ids,
+      // prettier-ignore
       runId: filters?.run_id,
       runIds: filters?.run_ids,
       firstPerRun: filters?.first_per_run,
+      order: filters?.order,
       eventType: filters?.event_type,
       sinceId: filters?.since_id,
       since: filters?.since,
-      order: filters?.order,
     });
     return rows.map((row, index) => this.mapEvent(row, index, filters?.job_id));
   }
@@ -428,14 +429,6 @@ export class CanonicalJobOpsService {
       );
       if (eventAppId) return eventAppId;
     }
-
-    const jobId =
-      filters?.job_id ??
-      (filters?.run_id
-        ? (await this.repository.findRunById(filters.run_id))?.jobId
-        : undefined);
-    if (!jobId) return CANONICAL_APP_ID;
-
     return CANONICAL_APP_ID;
   }
 
