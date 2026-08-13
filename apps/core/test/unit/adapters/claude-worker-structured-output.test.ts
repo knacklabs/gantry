@@ -34,10 +34,32 @@ describe('Claude worker structured output', () => {
   it('fails closed when the SDK omits validated structured output', () => {
     expect(() =>
       sdkResultText(
-        { subtype: 'success', result: '{"recipeVersion":"invented"}' },
+        { subtype: 'success', result: 'unvalidated narration' },
         schema,
       ),
     ).toThrow('without validated structured output');
+  });
+
+  it('accepts SDK result JSON only after response-schema validation', () => {
+    const schema = {
+      type: 'object',
+      properties: { version: { const: 2 } },
+      required: ['version'],
+      additionalProperties: false,
+    };
+
+    expect(
+      sdkResultText(
+        { subtype: 'success', result: '{"version":2}' },
+        schema,
+      ),
+    ).toBe('{"version":2}');
+    expect(() =>
+      sdkResultText(
+        { subtype: 'success', result: '{"version":1}' },
+        schema,
+      ),
+    ).toThrow('failed response_schema validation');
   });
 
   it('validates SDK structured output with AJV instead of trusting the provider flag', () => {

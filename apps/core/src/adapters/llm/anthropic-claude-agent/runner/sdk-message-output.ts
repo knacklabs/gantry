@@ -148,10 +148,20 @@ export function sdkResultText(
       : new Error(failure);
   }
   if (responseSchema) {
-    const structured =
+    let structured =
       message && typeof message === 'object'
         ? (message as { structured_output?: unknown }).structured_output
         : undefined;
+    if (structured === undefined && message && typeof message === 'object') {
+      const result = (message as { result?: unknown }).result;
+      if (typeof result === 'string') {
+        try {
+          structured = JSON.parse(result);
+        } catch {
+          // Preserve the stable missing-structured-output failure below.
+        }
+      }
+    }
     if (structured === undefined) {
       throw new StructuredOutputValidationError();
     }
