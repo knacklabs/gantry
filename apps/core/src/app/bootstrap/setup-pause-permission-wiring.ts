@@ -176,6 +176,10 @@ export async function setupPauseGrantIsCurrent(
   opsRepository: Pick<RuntimeJobRepository, 'getJobById'>,
   request: PermissionApprovalRequest,
 ): Promise<boolean> {
+  // Not a setup-pause request. Safe without a legacy classifier: the S3-PREP
+  // migration RETIRES every pre-identity setup prompt outright (no runtime
+  // legacy handling, 0112/0113) - a request lacking this field cannot be a
+  // surviving setup request.
   if (!request.setupFingerprint) return true;
   if (!request.jobId) return false;
   const job = await opsRepository.getJobById(request.jobId);

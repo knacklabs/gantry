@@ -11,15 +11,20 @@ CREATE UNIQUE INDEX "uq_outbound_delivery_items_active_prompt" ON "outbound_deli
 CREATE INDEX "idx_permission_prompts_job" ON "permission_prompts" USING btree ("job_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_permission_prompts_active_setup" ON "permission_prompts" USING btree ("job_id","setup_fingerprint") WHERE "permission_prompts"."job_id" IS NOT NULL AND "permission_prompts"."setup_fingerprint" IS NOT NULL AND "permission_prompts"."settlement_state" IN ('open', 'claimed');
 --> statement-breakpoint
--- Migrate-once backfill (0112): open setup prompts persisted before the
--- identity columns existed carry the deterministic 'setup-pause:<job>:<fp>'
--- interaction id; parse it HERE (never at runtime) so recovery correlation
--- keeps excluding self-retirement across the upgrade.
+-- No legacy support (0112/0113, owner directive): setup prompts persisted
+-- before the identity columns are RETIRED here, not parsed or preserved.
+-- Their jobs simply re-issue a fresh identity-bearing prompt on the next
+-- readiness evaluation; runtime code carries zero legacy handling.
 UPDATE "permission_prompts"
-SET
-  "job_id" = split_part("interaction_id", ':', 2),
-  "setup_fingerprint" = split_part("interaction_id", ':', 3)
+SET "settlement_state" = 'superseded', "settled_at" = now(), "updated_at" = now()
 WHERE "job_id" IS NULL
   AND "interaction_id" LIKE 'setup-pause:%'
-  AND split_part("interaction_id", ':', 2) <> ''
-  AND split_part("interaction_id", ':', 3) <> '';
+  AND "settlement_state" IN ('open', 'claimed');
+--> statement-breakpoint
+UPDATE "pending_interactions"
+SET "status" = 'cancelled'
+WHERE "status" = 'pending'
+  AND "request_id" LIKE 'setup-pause:%'
+  AND "envelope_id" IN (
+    SELECT "id" FROM "permission_prompts" WHERE "job_id" IS NULL
+  );
