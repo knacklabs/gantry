@@ -3,7 +3,7 @@ import { ChildProcess, spawn } from 'child_process';
 import { createServer } from 'net';
 
 import { logger } from '../infrastructure/logging/logger.js';
-import { DEFAULT_CHROME_ARGS } from './browser-config.js';
+import { buildChromeLaunchArgs } from './browser-config.js';
 import { resolveChromeExecutablePath } from '../shared/chrome-executable.js';
 import { ensureBrowserTarget } from './browser-cdp-targets.js';
 import type {
@@ -475,10 +475,11 @@ async function launchBrowserInner(
     assertProfileLockValid(lock);
     const headless = process.env.GANTRY_BROWSER_HEADLESS === '1';
     const chromeFlags = [
-      ...DEFAULT_CHROME_ARGS,
+      ...buildChromeLaunchArgs({
+        userDataDir: profile.userDataDir,
+        port: debuggingPort,
+      }),
       ...(headless ? ['--headless=new'] : []),
-      `--user-data-dir=${profile.userDataDir}`,
-      `--remote-debugging-port=${debuggingPort}`,
     ];
 
     chromeProcess = spawn(findChrome(), chromeFlags, {

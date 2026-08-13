@@ -98,6 +98,12 @@ vi.mock('net', () => ({
 vi.mock('@core/runtime/browser-config.js', () => ({
   DEFAULT_BROWSER_KEEPALIVE_MS: 60_000,
   DEFAULT_CHROME_ARGS: ['--no-first-run', '--window-size=1280,900'],
+  buildChromeLaunchArgs: (input: { userDataDir: string; port: number }) => [
+    '--no-first-run',
+    '--window-size=1280,900',
+    `--user-data-dir=${input.userDataDir}`,
+    `--remote-debugging-port=${input.port}`,
+  ],
 }));
 
 vi.mock('@core/shared/chrome-executable.js', () => ({
