@@ -465,7 +465,10 @@ export function startSetupPromptReconciliationLoop(input: {
         (err) => {
           // Always count: a persistent failure must be operationally
           // visible even when no warn sink is wired.
-          incrementOperationalError('delivery', 'permission_card_reconciliation');
+          incrementOperationalError(
+            'delivery',
+            'permission_card_reconciliation',
+          );
           input.warn?.({ err }, 'Permission-card reconciliation run failed');
         },
       )

@@ -452,7 +452,11 @@ function setupMetadataForJob(
   deliveryEvents: readonly JobEvent[] = [],
   activePromptId: string | null = null,
 ): JobSetupMetadata {
-  return jobSetupMetadataForState(job.setup_state, deliveryEvents, activePromptId);
+  return jobSetupMetadataForState(
+    job.setup_state,
+    deliveryEvents,
+    activePromptId,
+  );
 }
 
 export function jobSetupMetadataForState(

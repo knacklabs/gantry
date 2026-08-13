@@ -22,16 +22,14 @@ export function setupDeliveryNoticeFromEvents(input: {
   if (!input.setupFingerprint) return null;
   // Select the latest matching event explicitly - callers are not required
   // to pre-sort.
-  let latest:
-    | {
-        event: JobEvent;
-        payload: {
-          outcome: JobSetupCardDeliveryOutcome;
-          attempt: number;
-          generation: number;
-        };
-      }
-    | null = null;
+  let latest: {
+    event: JobEvent;
+    payload: {
+      outcome: JobSetupCardDeliveryOutcome;
+      attempt: number;
+      generation: number;
+    };
+  } | null = null;
   for (const event of input.events) {
     if (event.event_type !== RUNTIME_EVENT_TYPES.JOB_SETUP_CARD_DELIVERY) {
       continue;

@@ -274,3 +274,55 @@ export function coordinationUpdateFromJob(
       : {}),
   };
 }
+
+type CanonicalNotificationRoute = NonNullable<
+  Job['notification_routes']
+>[number];
+
+function normalizeNullableString(input: unknown): string | null {
+  return input === null || input === undefined
+    ? null
+    : (normalizeString(input) ?? null);
+}
+
+export function parseExecutionContext(input: unknown) {
+  if (!input || typeof input !== 'object') return undefined;
+  const value = input as Record<string, unknown>;
+  const conversationJid = normalizeString(value.conversationJid);
+  const workspaceKey = normalizeString(value.workspaceKey);
+  if (!conversationJid || !workspaceKey) return undefined;
+  return {
+    conversationJid,
+    threadId: normalizeNullableString(value.threadId),
+    workspaceKey,
+    sessionId: normalizeNullableString(value.sessionId),
+    personId: normalizeNullableString(value.personId),
+  };
+}
+
+export function parseNotificationRoutes(
+  input: unknown,
+): CanonicalNotificationRoute[] {
+  if (!Array.isArray(input)) return [];
+  const routes: CanonicalNotificationRoute[] = [];
+  for (const item of input) {
+    if (!item || typeof item !== 'object') continue;
+    const value = item as Record<string, unknown>;
+    const conversationJid = normalizeString(value.conversationJid);
+    const label = normalizeString(value.label);
+    const providerAccountId = Object.prototype.hasOwnProperty.call(
+      value,
+      'providerAccountId',
+    )
+      ? normalizeNullableString(value.providerAccountId)
+      : undefined;
+    if (!conversationJid || !label) continue;
+    routes.push({
+      conversationJid,
+      threadId: normalizeNullableString(value.threadId),
+      ...(providerAccountId !== undefined ? { providerAccountId } : {}),
+      label,
+    });
+  }
+  return routes;
+}
