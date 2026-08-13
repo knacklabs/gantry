@@ -59,6 +59,13 @@ let activeRunnerControlPort: FilesystemRunnerControlPort | undefined;
 let activeRequestWakeups: IpcRequestWakeupRegistry | undefined;
 const MAX_IN_FLIGHT_INTERACTION_IPC = 100;
 const inFlightInteractionIpc = new Set<string>();
+const LATENCY_SENSITIVE_TASK_TYPES = new Set([
+  'mcp_call_tool',
+  'external_capability_call',
+  'file_artifact',
+  'job_checkpoint_status',
+  'job_checkpoint_save',
+]);
 
 export function startIpcWatcher(deps: IpcDeps): void {
   if (ipcWatcherRunning) {
@@ -150,14 +157,16 @@ export function startIpcWatcher(deps: IpcDeps): void {
   // bounded independent scan is the authoritative fallback.
   browserIpcWatcherTimer = setInterval(() => {
     if (!ipcWatcherRunning) return;
-    for (const sourceAgentFolder of fs.readdirSync(ipcBaseDir, {
-      withFileTypes: true,
-    }).flatMap((entry) =>
-      entry.isDirectory() &&
-      runnerControlPort.isTrustedRequestDir(entry.name, 'browser-requests')
-        ? [entry.name]
-        : [],
-    )) {
+    for (const sourceAgentFolder of fs
+      .readdirSync(ipcBaseDir, {
+        withFileTypes: true,
+      })
+      .flatMap((entry) =>
+        entry.isDirectory() &&
+        runnerControlPort.isTrustedRequestDir(entry.name, 'browser-requests')
+          ? [entry.name]
+          : [],
+      )) {
       processBrowserRequestDirectory({
         ipcBaseDir,
         sourceAgentFolder,
@@ -174,14 +183,16 @@ export function startIpcWatcher(deps: IpcDeps): void {
   browserIpcWatcherTimer.unref?.();
   toolTaskIpcWatcherTimer = setInterval(() => {
     if (!ipcWatcherRunning) return;
-    for (const sourceAgentFolder of fs.readdirSync(ipcBaseDir, {
-      withFileTypes: true,
-    }).flatMap((entry) =>
-      entry.isDirectory() &&
-      runnerControlPort.isTrustedRequestDir(entry.name, 'tasks')
-        ? [entry.name]
-        : [],
-    )) {
+    for (const sourceAgentFolder of fs
+      .readdirSync(ipcBaseDir, {
+        withFileTypes: true,
+      })
+      .flatMap((entry) =>
+        entry.isDirectory() &&
+        runnerControlPort.isTrustedRequestDir(entry.name, 'tasks')
+          ? [entry.name]
+          : [],
+      )) {
       for (const file of runnerControlPort.listPendingRequests(
         sourceAgentFolder,
         'tasks',
@@ -194,11 +205,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
           const preview = JSON.parse(fs.readFileSync(pendingPath, 'utf8')) as {
             type?: unknown;
           };
-          if (
-            preview.type !== 'mcp_call_tool' &&
-            preview.type !== 'external_capability_call'
-          )
-            continue;
+          if (!LATENCY_SENSITIVE_TASK_TYPES.has(String(preview.type))) continue;
         } catch {
           continue;
         }
