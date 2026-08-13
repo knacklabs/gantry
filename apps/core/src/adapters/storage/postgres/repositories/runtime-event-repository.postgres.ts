@@ -204,7 +204,7 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
         .onConflictDoNothing();
     }
 
-        // Round-2 fix: one normalization for insert AND conflict lookup - a
+    // Round-2 fix: one normalization for insert AND conflict lookup - a
     // whitespace-bearing key must conflict with and resolve to the same row.
     const normalizedIdempotencyKey = input.idempotencyKey?.trim() || null;
     const rows = await db
@@ -245,7 +245,10 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
       .where(
         and(
           eq(pgSchema.runtimeEventsPostgres.appId, appId),
-          eq(pgSchema.runtimeEventsPostgres.idempotencyKey, normalizedIdempotencyKey),
+          eq(
+            pgSchema.runtimeEventsPostgres.idempotencyKey,
+            normalizedIdempotencyKey,
+          ),
         ),
       )
       .limit(1);

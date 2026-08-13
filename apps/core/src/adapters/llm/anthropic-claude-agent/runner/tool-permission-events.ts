@@ -92,6 +92,7 @@ export function emitGateDenialActivity(input: {
   denialKind?: 'rule_denied' | 'permission_denied';
   grantable?: boolean;
   recoveryAction?: string;
+  recoveryKind?: 'persistent_capability' | 'job_policy';
 }): void {
   const scheduled = input.agentInput.isScheduledJob;
   emitJobToolActivity(
@@ -113,6 +114,12 @@ export function emitGateDenialActivity(input: {
             ...(input.recoveryAction !== undefined
               ? { recovery_action: input.recoveryAction }
               : {}),
+            recovery_kind:
+              input.recoveryKind ??
+              ((input.grantable ?? false) &&
+              input.recoveryAction?.startsWith('request_access') === true
+                ? 'persistent_capability'
+                : 'job_policy'),
           }
         : {}),
     },

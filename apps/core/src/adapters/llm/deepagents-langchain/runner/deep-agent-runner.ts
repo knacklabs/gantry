@@ -151,6 +151,12 @@ export async function runDeepAgentTurn(input: {
             denial_kind: denial.denialKind,
             provenance_lane: DEEPAGENTS_ENGINE,
             provenance_seam: denial.provenanceSeam,
+            recovery_kind:
+              denial.recoveryKind ??
+              (denial.grantable &&
+              denial.recoveryAction?.startsWith('request_access') === true
+                ? 'persistent_capability'
+                : 'job_policy'),
           },
         },
       ],

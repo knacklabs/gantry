@@ -18,7 +18,7 @@ describe('job execution diagnostics', () => {
       toolName: 'RunCommand',
       reason: 'Denied by operator.',
       denialKind: 'permission_denied' as const,
-      provenanceLane: DEFAULT_AGENT_ENGINE as const,
+      provenanceLane: DEFAULT_AGENT_ENGINE,
       provenanceSeam: 'gate' as const,
       grantable: true,
     };

@@ -481,7 +481,10 @@ async function loadPrimaryDenialsByRun(
   const result = new Map<string, JobToolDenial>();
   await Promise.all(
     input.runIds.map(async (runId) => {
-      const events = await ops.listRecentJobEvents!(50, {
+      // ponytail: 1000-cap per run; a terminal denial aborts the run, so the
+      // real per-run count is parallel-batch sized. Page via since_id if a
+      // run ever legitimately exceeds this.
+      const events = await ops.listRecentJobEvents!(1_000, {
         app_id: input.appId,
         run_id: runId,
         event_type: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,

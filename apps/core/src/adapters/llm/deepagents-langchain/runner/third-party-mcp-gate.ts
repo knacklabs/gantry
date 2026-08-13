@@ -43,6 +43,7 @@ export interface DeepAgentsPermissionDenial {
   recoveryAction: string;
   denialKind: 'permission_denied' | 'rule_denied';
   provenanceSeam: 'gate' | 'declarative';
+  recoveryKind?: 'persistent_capability' | 'job_policy';
 }
 
 // Grantability is reconstructed from the tool identity + capabilityRequestToolsHidden
