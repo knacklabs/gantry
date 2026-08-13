@@ -206,13 +206,21 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => {
           decisionReason: 'Repair attempt',
         },
       );
-      yield {
-        type: 'result',
-        subtype: 'success',
-        structured_output: {
-          version: sdkState.mode === 'structured-schema-repair' ? 2 : 1,
-        },
-      };
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        yield {
+          type: 'result',
+          subtype: 'success',
+          structured_output: {
+            version: sdkState.mode === 'structured-schema-repair' ? 2 : 1,
+          },
+        };
+        if (sdkState.mode === 'structured-schema-repair' || attempt === 2)
+          return;
+        const retry = await nextWithTimeout(iterator, 1_500);
+        if (retry && !retry.done) {
+          call.streamMessages.push(retry.value.message.content);
+        }
+      }
       return;
     }
 
@@ -818,7 +826,7 @@ describe('Claude Agent SDK boundary integration', () => {
     expect(outputs.map((output) => output.result)).toContain('{"version":2}');
   });
 
-  it('fails with the stable code after the single schema repair is exhausted', async () => {
+  it('fails with the stable code after bounded schema repairs are exhausted', async () => {
     sdkState.mode = 'structured-schema-terminal-failure';
     const env = prepareRuntimeEnv();
     const { runQuery } = await importRunQuery();
@@ -845,7 +853,7 @@ describe('Claude Agent SDK boundary integration', () => {
     ).rejects.toMatchObject({
       code: 'structured_output_validation_failed',
     });
-    expect(sdkState.calls[0]?.streamMessages).toHaveLength(2);
+    expect(sdkState.calls[0]?.streamMessages).toHaveLength(4);
   });
 
   it('logs SDK startup timing with the shared clock helper', async () => {
