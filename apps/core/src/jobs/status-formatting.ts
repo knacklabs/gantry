@@ -1,8 +1,5 @@
 import type { Job } from '../domain/types.js';
-import {
-  parseAutonomousToolDenial,
-  type AutonomousToolDenial,
-} from '../shared/autonomous-tool-denial.js';
+import type { JobToolDenial } from '../domain/events/job-tool-denial.js';
 import { formatDuration } from '../shared/human-format.js';
 import { humanizeTechnicalIdentifier } from '../shared/user-visible-messages.js';
 
@@ -17,8 +14,9 @@ export function formatRunStatusMessage(args: {
   pauseReason?: string | null;
   durationMs?: number;
   degradedReason?: string;
+  toolDenial?: JobToolDenial | null;
 }): string {
-  const denial = parseAutonomousToolDenial(args.summary);
+  const denial = args.toolDenial ?? null;
   const displaySummary = selectJobNotificationSummary(args.summary);
   const statusText = statusLabel(
     args.runStatus,
@@ -101,7 +99,7 @@ export function selectJobNotificationSummary(summary: string): string {
 function statusLabel(
   status: 'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered',
   summary: string,
-  denial: AutonomousToolDenial | null,
+  denial: JobToolDenial | null,
   degraded: boolean,
 ): string {
   // A completed run that degraded reads as a completion, not a permission
@@ -215,7 +213,7 @@ function labelFromKey(key: string): string {
 function notificationOutcome(
   summary: string,
   status: 'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered',
-  denial: AutonomousToolDenial | null,
+  denial: JobToolDenial | null,
 ): string {
   if (denial) {
     if (denial.toolName.startsWith('mcp__gantry__browser_')) {
@@ -247,7 +245,7 @@ function notificationOutcome(
 function notificationAction(
   status: 'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered',
   summary: string,
-  denial: AutonomousToolDenial | null,
+  denial: JobToolDenial | null,
 ): string | null {
   if (denial) {
     if (denial.toolName.startsWith('mcp__gantry__browser_')) {

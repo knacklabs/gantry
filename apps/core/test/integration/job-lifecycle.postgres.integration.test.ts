@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { DEFAULT_AGENT_ENGINE } from '../../src/shared/agent-engine.js';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -87,7 +88,6 @@ import {
 } from '@core/jobs/ipc-capability-template-amendment.js';
 import { runStructuredLocalCliCapability } from '@core/jobs/structured-local-cli-invocation.js';
 import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
-import { formatAutonomousToolDenial } from '@core/shared/autonomous-tool-denial.js';
 import {
   buildLocalCliSemanticCapability,
   semanticCapabilityFromToolCatalogItem,
@@ -1033,23 +1033,22 @@ maybeDescribe('job lifecycle (Postgres)', () => {
             payload: {
               phase: 'permission_denied',
               tool: 'RunCommand',
+              terminal: true,
               grantable: true,
               decided_by: decision.decidedBy,
               source: decision.source,
               reason: decision.reason,
               recovery_action: recoveryAction,
+              denial_kind: 'permission_denied',
+              provenance_lane: DEFAULT_AGENT_ENGINE,
+              provenance_seam: 'gate',
             },
           },
         ],
       });
       return {
         status: 'error',
-        error: formatAutonomousToolDenial({
-          toolName: 'RunCommand',
-          reason: decision.reason ?? 'Permission denied.',
-          grantable: true,
-          recoveryAction,
-        }),
+        error: `Permission denied for RunCommand. ${decision.reason ?? 'Permission denied.'}`,
       };
     };
     await runtime.ops.upsertJob(job);

@@ -129,6 +129,8 @@ describe('Gantry DeepAgents shell tool', () => {
       toolName: 'RunCommand',
       reason: 'Unattended jobs do not wait for approval.',
       grantable: true,
+      denialKind: 'permission_denied',
+      provenanceSeam: 'gate',
       recoveryAction: expect.stringMatching(/^request_access /),
     });
   });

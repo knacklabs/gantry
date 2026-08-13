@@ -13,6 +13,7 @@ import {
 } from '../memory/review-message-view.js';
 import { formatRunStatusMessage } from './status-formatting.js';
 import type { JobRunDiagnostics } from './execution-diagnostics.js';
+import type { JobToolDenial } from '../domain/events/job-tool-denial.js';
 import {
   isMemoryDreamingSystemJob,
   MEMORY_DREAM_SYSTEM_PROMPT,
@@ -341,6 +342,7 @@ export async function notifySchedulerTerminalRunState(input: {
   durationMs?: number;
   setupNotified?: boolean;
   diagnostics?: JobRunDiagnostics;
+  toolDenial?: JobToolDenial | null;
   sendMessage: SchedulerSendMessage;
   memoryReviewNotification?: MemoryReviewCreatedNotification;
   updateLifecycleNotification?: (input: {
@@ -386,6 +388,7 @@ export async function notifySchedulerTerminalRunState(input: {
         retryCount: input.retryCount,
         pauseReason: input.pauseReason,
         durationMs: input.durationMs,
+        toolDenial: input.toolDenial,
       }),
     });
     return false;
@@ -407,6 +410,7 @@ export async function notifySchedulerTerminalRunState(input: {
         retryCount: input.retryCount,
         pauseReason: input.pauseReason,
         durationMs: input.durationMs,
+        toolDenial: input.toolDenial,
       }),
     });
     return sendMemoryReviewNotification({
@@ -433,6 +437,7 @@ export async function notifySchedulerTerminalRunState(input: {
         input.diagnostics,
         input.pauseReason,
       ),
+      toolDenial: input.toolDenial,
     });
   const updateOutcomes =
     input.updateLifecycleNotification === undefined

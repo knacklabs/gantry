@@ -35,6 +35,7 @@ import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import {
+  emitGateDenialActivity,
   emitJobToolActivity,
   emitYoloDenylistHit,
   yoloDenylistPromptReason,
@@ -150,7 +151,19 @@ export function createCanUseToolCallback(
     if (REMOVED_NATIVE_SUBAGENT_TOOL.test(toolName)) {
       const message =
         'Native SDK Task subagent tools are not supported. Use the Agent tool for native subagents, or request the Gantry AgentDelegation facade.';
-      return { behavior: 'deny' as const, message, interrupt: false };
+      emitGateDenialActivity({
+        agentInput: input.agentInput,
+        getNewSessionId: input.getNewSessionId,
+        toolName,
+        reason: message,
+        decision: 'removed_native_subagent_tool',
+        recoveryAction: message,
+      });
+      return {
+        behavior: 'deny' as const,
+        message,
+        interrupt: input.agentInput.isScheduledJob,
+      };
     }
     const waitOnlyDenial = waitOnlyBashMonitoringDenial(toolName, toolInput);
     if (waitOnlyDenial) {
@@ -314,21 +327,18 @@ export function createCanUseToolCallback(
           decision: 'protected_capability_denied',
         }),
       });
-      emitJobToolActivity(
-        input.agentInput,
-        input.getNewSessionId,
-        'deny',
+      emitGateDenialActivity({
+        agentInput: input.agentInput,
+        getNewSessionId: input.getNewSessionId,
         toolName,
-        {
-          ok: false,
-          reason: protectedCapabilityDenial,
-          decision: 'protected_capability_denied',
-        },
-      );
+        reason: protectedCapabilityDenial,
+        decision: 'protected_capability_denied',
+        recoveryAction: protectedCapabilityDenial,
+      });
       return {
         behavior: 'deny' as const,
         message: protectedCapabilityDenial,
-        interrupt: false,
+        interrupt: input.agentInput.isScheduledJob,
       };
     }
     const memoryGuardDenial = denyMemoryBoundaryToolUse(
@@ -339,21 +349,18 @@ export function createCanUseToolCallback(
     );
     if (memoryGuardDenial) {
       log(`Permission denied by memory boundary guard: ${memoryGuardDenial}`);
-      emitJobToolActivity(
-        input.agentInput,
-        input.getNewSessionId,
-        'deny',
+      emitGateDenialActivity({
+        agentInput: input.agentInput,
+        getNewSessionId: input.getNewSessionId,
         toolName,
-        {
-          ok: false,
-          reason: memoryGuardDenial,
-          decision: 'memory_boundary_guard',
-        },
-      );
+        reason: memoryGuardDenial,
+        decision: 'memory_boundary_guard',
+        recoveryAction: memoryGuardDenial,
+      });
       return {
         behavior: 'deny' as const,
         message: memoryGuardDenial,
-        interrupt: false,
+        interrupt: input.agentInput.isScheduledJob,
       };
     }
     const yoloDenylistMatch = evaluateYoloModeDenylist({
@@ -419,18 +426,13 @@ export function createCanUseToolCallback(
         // terminal and can NEVER be overridden by a host allow-once/rule. Deny
         // before consulting the host coordinator (whose reviewed-rule decision
         // the scheduled miss otherwise defers to).
-        emitJobToolActivity(
-          input.agentInput,
-          input.getNewSessionId,
-          'permission_denied',
+        emitGateDenialActivity({
+          agentInput: input.agentInput,
+          getNewSessionId: input.getNewSessionId,
           toolName,
-          {
-            ok: false,
-            terminal: true,
-            grantable: false,
-            reason: yoloDenylistReason,
-          },
-        );
+          reason: yoloDenylistReason,
+          recoveryAction: yoloDenylistReason,
+        });
         log(
           `Autonomous run denied denylisted tool ${toolName}: ${recoveryMessage}`,
         );
@@ -547,18 +549,15 @@ export function createCanUseToolCallback(
       const reason = decision.reason || 'Denied by operator';
       const message = `Permission denied: ${reason}. ${recoveryMessage}`;
       log(`Autonomous run denied tool ${toolName}: ${message}`);
-      emitJobToolActivity(
-        input.agentInput,
-        input.getNewSessionId,
-        'permission_denied',
+      emitGateDenialActivity({
+        agentInput: input.agentInput,
+        getNewSessionId: input.getNewSessionId,
         toolName,
-        {
-          ok: false,
-          grantable: true,
-          reason,
-          ...(recoveryAction ? { recovery_action: recoveryAction } : {}),
-        },
-      );
+        reason,
+        denialKind: 'permission_denied',
+        grantable: true,
+        ...(recoveryAction ? { recoveryAction } : {}),
+      });
       return {
         behavior: 'deny' as const,
         message,

@@ -1,4 +1,5 @@
 import type { AgentRunnerInput } from './types.js';
+import { DEFAULT_AGENT_ENGINE } from '../../../../shared/agent-engine.js';
 import { isGrantableAutonomousToolRecovery } from '../../../../shared/autonomous-tool-denial.js';
 import { log } from './logging.js';
 import { emitJobToolActivity } from './tool-permission-events.js';
@@ -24,6 +25,9 @@ export function denyNonPromptableAutonomousRecovery(input: {
       terminal: true,
       grantable: false,
       reason: input.toolPolicyReason,
+      denial_kind: 'permission_denied',
+      provenance_lane: DEFAULT_AGENT_ENGINE,
+      provenance_seam: 'recovery',
       ...(input.recoveryAction
         ? { recovery_action: input.recoveryAction }
         : {}),

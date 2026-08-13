@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { DEFAULT_AGENT_ENGINE } from '../../../src/shared/agent-engine.js';
 
 import type { Job, JobSetupState } from '@core/domain/types.js';
 import {
@@ -380,6 +381,16 @@ describe('jobs/execution-notifications', () => {
       pauseReason: null,
       sendMessage,
       durationMs: 180_000,
+      toolDenial: {
+        toolName: 'Browser',
+        reason: 'Browser access is missing.',
+        denialKind: 'permission_denied',
+        provenanceLane: DEFAULT_AGENT_ENGINE,
+        provenanceSeam: 'gate',
+        grantable: true,
+        recoveryAction:
+          'request_access {"target":{"kind":"capability","id":"browser.use"}}',
+      },
     });
 
     const message = String(sendMessage.mock.calls[0]?.[1]);
@@ -447,6 +458,16 @@ describe('jobs/execution-notifications', () => {
       pauseReason: 'Needs permission: mcp__gantry__browser_act',
       sendMessage,
       durationMs: 41_000,
+      toolDenial: {
+        toolName: 'mcp__gantry__browser_act',
+        reason: 'Browser access is missing.',
+        denialKind: 'permission_denied',
+        provenanceLane: DEFAULT_AGENT_ENGINE,
+        provenanceSeam: 'gate',
+        grantable: true,
+        recoveryAction:
+          'request_access {"target":{"kind":"capability","id":"browser.use"}}',
+      },
     });
 
     const message = String(sendMessage.mock.calls[0]?.[1]);

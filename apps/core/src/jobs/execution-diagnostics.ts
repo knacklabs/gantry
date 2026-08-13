@@ -1,9 +1,19 @@
+import { createHash } from 'node:crypto';
+
 import {
   RUNTIME_EVENT_TYPES,
   isRuntimeEventType,
   type RuntimeEventType,
 } from '../domain/events/runtime-event-types.js';
+import type {
+  JobToolDenial,
+  JobToolDeniedEventPayload,
+} from '../domain/events/job-tool-denial.js';
 import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
+import {
+  DEFAULT_AGENT_ENGINE,
+  DEEPAGENTS_ENGINE,
+} from '../shared/agent-engine.js';
 
 export const FORWARDED_RUNNER_EVENT_TYPES = new Set<RuntimeEventType>([
   RUNTIME_EVENT_TYPES.JOB_HEARTBEAT,
@@ -45,21 +55,20 @@ export interface JobRunDiagnostics {
     reason?: string;
     recoveryAction?: string;
   };
-  terminalToolDenial?: {
-    toolName: string;
-    reason?: string;
-    grantable?: boolean;
-    recoveryAction?: string;
-  };
+  terminalToolDenial?: JobToolDenial;
 }
 
 export function toolDenialEventPayload(
   toolDenial: NonNullable<JobRunDiagnostics['terminalToolDenial']>,
   safeErrorSummary: string | null,
-): Record<string, unknown> {
+): JobToolDeniedEventPayload {
   return {
     error_summary: safeErrorSummary ? safeErrorSummary.slice(0, 500) : null,
     denied_tool: toolDenial.toolName,
+    reason: toolDenial.reason,
+    denial_kind: toolDenial.denialKind,
+    provenance_lane: toolDenial.provenanceLane,
+    provenance_seam: toolDenial.provenanceSeam,
     grantable: toolDenial.grantable ?? null,
     recovery_action: toolDenial.recoveryAction ?? null,
     recovery_kind:
@@ -68,6 +77,23 @@ export function toolDenialEventPayload(
         ? 'persistent_capability'
         : 'job_policy',
   };
+}
+
+export function jobToolDenialIdempotencyKey(
+  runId: string,
+  denial: JobToolDenial,
+): string {
+  const fingerprint = createHash('sha256')
+    .update(
+      JSON.stringify([
+        runId,
+        denial.toolName,
+        denial.denialKind,
+        denial.provenanceSeam,
+      ]),
+    )
+    .digest('hex');
+  return `tool_denied:${runId}:${fingerprint}`;
 }
 
 export interface StreamingEventFlusher {
@@ -164,18 +190,35 @@ export function updateDiagnosticsFromRuntimeEvent(
       recoveryAction: stringValue(payload.recovery_action),
     };
   }
-  if (phase === 'permission_denied' && tool && payload.terminal !== false) {
+  if (
+    (phase === 'permission_denied' || phase === 'deny') &&
+    tool &&
+    payload.terminal === true
+  ) {
     const matchingWait =
       diagnostics.lastPermissionWait?.toolName === tool
         ? diagnostics.lastPermissionWait
         : undefined;
     const deniedReason = stringValue(payload.reason);
+    const denialKind = stringValue(payload.denial_kind);
+    const provenanceLane = stringValue(payload.provenance_lane);
+    const provenanceSeam = stringValue(payload.provenance_seam);
+    if (
+      !isJobToolDenialKind(denialKind) ||
+      !isJobToolDenialProvenanceLane(provenanceLane) ||
+      !isJobToolDenialProvenanceSeam(provenanceSeam)
+    ) {
+      return;
+    }
     diagnostics.terminalToolDenial = {
       toolName: tool,
       reason:
         matchingWait?.reason && deniedReason
           ? `${matchingWait.reason} Permission denied: ${deniedReason}`
-          : (deniedReason ?? matchingWait?.reason),
+          : (deniedReason ?? matchingWait?.reason ?? 'Permission denied.'),
+      denialKind,
+      provenanceLane,
+      provenanceSeam,
       ...(typeof payload.grantable === 'boolean'
         ? { grantable: payload.grantable }
         : {}),
@@ -322,6 +365,37 @@ export function formatTerminalToolDenial(
   if (denial.reason) parts.push(denial.reason);
   if (denial.recoveryAction) parts.push(`Recovery: ${denial.recoveryAction}`);
   return parts.join(' ');
+}
+
+function isJobToolDenialKind(
+  value: string | undefined,
+): value is JobToolDenial['denialKind'] {
+  return (
+    value === 'permission_denied' ||
+    value === 'rule_denied' ||
+    value === 'capability_template_mismatch'
+  );
+}
+
+function isJobToolDenialProvenanceLane(
+  value: string | undefined,
+): value is JobToolDenial['provenanceLane'] {
+  return (
+    value === DEFAULT_AGENT_ENGINE ||
+    value === DEEPAGENTS_ENGINE ||
+    value === 'host'
+  );
+}
+
+function isJobToolDenialProvenanceSeam(
+  value: string | undefined,
+): value is JobToolDenial['provenanceSeam'] {
+  return (
+    value === 'gate' ||
+    value === 'recovery' ||
+    value === 'declarative' ||
+    value === 'capability_run'
+  );
 }
 
 export function toolAccessRequirementsIncludeBrowser(

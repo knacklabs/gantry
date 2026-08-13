@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { denyNonPromptableAutonomousRecovery } from '@core/adapters/llm/anthropic-claude-agent/runner/autonomous-permission-recovery.js';
-import { parseAutonomousToolDenial } from '@core/shared/autonomous-tool-denial.js';
 
 describe('Anthropic autonomous permission recovery', () => {
   it('classifies a non-promptable denial for failed-run fresh retry', () => {
@@ -22,13 +21,8 @@ describe('Anthropic autonomous permission recovery', () => {
     });
 
     expect(result).toMatchObject({ behavior: 'deny', interrupt: true });
-    expect(parseAutonomousToolDenial(result?.message)).toEqual({
-      toolName: 'Bash',
-      // manual_configuration_required is not a request_access recovery, so the
-      // parser now infers non-grantable (matching the emitted grantable:false)
-      // instead of leaving it undefined.
-      grantable: false,
-      recoveryAction: 'manual_configuration_required',
-    });
+    expect(result?.message).toContain(
+      'Tool not on autonomous run allowlist: Bash.',
+    );
   });
 });

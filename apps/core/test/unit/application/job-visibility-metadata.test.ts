@@ -1,11 +1,35 @@
 import { describe, expect, it, vi } from 'vitest';
+import { DEFAULT_AGENT_ENGINE } from '../../../src/shared/agent-engine.js';
 
 import {
   buildJobListVisibilityMetadata,
   buildJobVisibilityMetadata,
 } from '@core/application/jobs/job-visibility-metadata.js';
 import type { RuntimeJobRepository } from '@core/domain/repositories/ops-repo.js';
-import type { Job, JobRun } from '@core/domain/types.js';
+import type { Job, JobEvent, JobRun } from '@core/domain/types.js';
+
+function makeDenialEvent(overrides: Partial<JobEvent> = {}): JobEvent {
+  return {
+    id: 1,
+    job_id: 'job-1',
+    run_id: 'run-1',
+    event_type: 'job.tool_denied',
+    payload: JSON.stringify({
+      denied_tool: 'mcp__gantry__browser_act',
+      reason: 'Browser access is missing.',
+      denial_kind: 'permission_denied',
+      provenance_lane: DEFAULT_AGENT_ENGINE,
+      provenance_seam: 'gate',
+      grantable: true,
+      recovery_action:
+        'request_access {"target":{"kind":"capability","id":"browser.use"},"temporaryOnly":false,"reason":"This autonomous run requires Browser access."}',
+      recovery_kind: 'persistent_capability',
+      error_summary: 'Permission denied.',
+    }),
+    created_at: '2026-04-24T09:00:05.000Z',
+    ...overrides,
+  };
+}
 
 function makeRun(overrides: Partial<JobRun> = {}): JobRun {
   return {
@@ -180,6 +204,7 @@ describe('job visibility metadata', () => {
             result_summary: null,
           }),
         ]),
+        listRecentJobEvents: vi.fn(async () => [makeDenialEvent()]),
       } as unknown as RuntimeJobRepository,
       nowMs: Date.parse('2026-04-24T09:10:00.000Z'),
     });
@@ -193,7 +218,8 @@ describe('job visibility metadata', () => {
     });
   });
 
-  it('surfaces missing-permission list health from persisted pause reason without run history', async () => {
+  it('surfaces missing-permission list health from the typed denial event', async () => {
+    const run = makeRun({ status: 'failed', result_summary: null });
     const metadata = await buildJobListVisibilityMetadata({
       jobs: [
         makeJob({
@@ -201,18 +227,23 @@ describe('job visibility metadata', () => {
           pause_reason: 'Needs permission: mcp__gantry__browser_act',
         }),
       ],
+      ops: {
+        listLatestJobRunsByJobIds: vi.fn(async () => new Map([['job-1', run]])),
+        listRecentJobEvents: vi.fn(async () => [makeDenialEvent()]),
+      },
       nowMs: Date.parse('2026-04-24T09:10:00.000Z'),
     });
 
     expect(metadata.get('job-1')?.health).toMatchObject({
       state: 'needs_permission',
-      latestRunId: null,
-      latestRunStatus: null,
-      nextAction: 'Approve Browser access, then rerun the job.',
+      latestRunId: 'run-1',
+      latestRunStatus: 'failed',
+      nextAction: expect.stringMatching(/^request_access /),
     });
   });
 
   it('keeps raw tool ids out of needs-permission next-action copy', async () => {
+    const run = makeRun({ status: 'failed', result_summary: null });
     const metadata = await buildJobListVisibilityMetadata({
       jobs: [
         makeJob({
@@ -220,6 +251,24 @@ describe('job visibility metadata', () => {
           pause_reason: 'Needs permission: RunCommand',
         }),
       ],
+      ops: {
+        listLatestJobRunsByJobIds: vi.fn(async () => new Map([['job-1', run]])),
+        listRecentJobEvents: vi.fn(async () => [
+          makeDenialEvent({
+            payload: JSON.stringify({
+              denied_tool: 'RunCommand',
+              reason: 'Command access is missing.',
+              denial_kind: 'permission_denied',
+              provenance_lane: DEFAULT_AGENT_ENGINE,
+              provenance_seam: 'gate',
+              grantable: true,
+              recovery_action: null,
+              recovery_kind: 'persistent_capability',
+              error_summary: 'Permission denied.',
+            }),
+          }),
+        ]),
+      },
       nowMs: Date.parse('2026-04-24T09:10:00.000Z'),
     });
 

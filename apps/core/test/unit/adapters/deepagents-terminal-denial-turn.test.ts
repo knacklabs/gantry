@@ -36,7 +36,6 @@ import {
   SETUP_REQUIRED_PAUSE_REASON,
   setupStateForDeniedTool,
 } from '@core/application/jobs/job-readiness-service.js';
-import { parseAutonomousToolDenial } from '@core/shared/autonomous-tool-denial.js';
 
 const previousAccessPreset = process.env.GANTRY_AGENT_ACCESS_PRESET;
 
@@ -127,9 +126,7 @@ describe('DeepAgents terminal permission denial', () => {
         includeMemoryContext: true,
         emit,
       }),
-    ).rejects.toThrow(
-      'Tool not on autonomous run allowlist: mcp__gantry__browser_open.',
-    );
+    ).rejects.toThrow('Permission denied for mcp__gantry__browser_open.');
     expect(emit).toHaveBeenCalledWith(
       expect.objectContaining({
         runtimeEvents: [
@@ -248,15 +245,10 @@ describe('DeepAgents terminal permission denial', () => {
     }
 
     expect(terminalError?.message).toContain(
-      'Tool not on autonomous run allowlist: mcp__gantry__browser_open.',
+      'Permission denied for mcp__gantry__browser_open.',
     );
-    const denial = parseAutonomousToolDenial(terminalError?.message);
-    expect(denial).toEqual({
-      toolName: 'mcp__gantry__browser_open',
-      grantable: false,
-      recoveryAction:
-        'Capability request tools are not available in this run (locked or fixed-image agent). Ask an operator to provision a reviewed capability covering mcp__gantry__browser_open before the run.',
-    });
+    const recoveryAction =
+      'Capability request tools are not available in this run (locked or fixed-image agent). Ask an operator to provision a reviewed capability covering mcp__gantry__browser_open before the run.';
 
     expect(model.callCount).toBe(1);
     expect(fallbackCalls).toBe(0);
@@ -269,7 +261,10 @@ describe('DeepAgents terminal permission denial', () => {
               tool: 'mcp__gantry__browser_open',
               terminal: true,
               grantable: false,
-              recovery_action: denial?.recoveryAction,
+              recovery_action: recoveryAction,
+              denial_kind: 'permission_denied',
+              provenance_lane: 'deepagents',
+              provenance_seam: 'gate',
             }),
           }),
         ],
@@ -277,9 +272,9 @@ describe('DeepAgents terminal permission denial', () => {
     );
 
     const setupState = setupStateForDeniedTool({
-      toolName: denial!.toolName,
-      grantable: denial!.grantable,
-      recoveryAction: denial!.recoveryAction,
+      toolName: 'mcp__gantry__browser_open',
+      grantable: false,
+      recoveryAction,
     });
     const runPermissionInteraction = vi.fn();
     const reviewStoredRequirement = vi.fn();
@@ -507,7 +502,7 @@ describe('DeepAgents terminal permission denial', () => {
     // The first denial owns the terminal error and the single emitted event;
     // the late sibling re-throws it without emitting a second terminal event.
     expect(terminalError?.message).toContain(
-      'Tool not on autonomous run allowlist: mcp__gantry__browser_open.',
+      'Permission denied for mcp__gantry__browser_open.',
     );
     const terminalEmits = emit.mock.calls.filter(([payload]) =>
       (

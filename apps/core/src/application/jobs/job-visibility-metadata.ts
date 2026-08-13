@@ -1,6 +1,7 @@
 import type {
   Job,
   JobCapabilityRequirement,
+  JobEvent,
   JobRun,
 } from '../../domain/types.js';
 import { splitAccessRequirements } from './job-access-requirements.js';
@@ -29,9 +30,10 @@ import {
 } from '../../shared/tool-access-view.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 import {
-  parseAutonomousToolDenial,
-  type AutonomousToolDenial,
-} from '../../shared/autonomous-tool-denial.js';
+  parseJobToolDeniedEvent,
+  type JobToolDenial,
+} from '../../domain/events/job-tool-denial.js';
+import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 import {
   setupActionLabel,
   setupActionLabelFromNextAction,
@@ -112,7 +114,7 @@ export interface JobSetupMetadata {
 
 export async function buildJobVisibilityMetadata(input: {
   job: Job;
-  ops: Pick<RuntimeJobRepository, 'listJobRuns'>;
+  ops: Pick<RuntimeJobRepository, 'listJobRuns' | 'listRecentJobEvents'>;
   toolRepository?: ToolCatalogRepository;
   skillRepository?: SkillCatalogRepository;
   appId?: string;
@@ -139,11 +141,17 @@ export async function buildJobVisibilityMetadata(input: {
     typeof input.ops.listJobRuns === 'function'
       ? await input.ops.listJobRuns(input.job.id, input.recentRunLimit ?? 5)
       : [];
+  const denialsByRun = await loadPrimaryDenialsByRun(input.ops, {
+    jobId: input.job.id,
+    appId,
+  });
+  const latestRun = runs[0];
   const health = buildJobHealth({
     job: input.job,
     runs,
     staleness,
     nowMs,
+    denial: latestRun ? (denialsByRun.get(latestRun.run_id) ?? null) : null,
   });
   const setup = setupMetadataForJob(input.job);
   const displayLabels = deriveJobDisplayLabels({
@@ -188,7 +196,10 @@ export async function buildJobVisibilityMetadata(input: {
 
 export async function buildJobListVisibilityMetadata(input: {
   jobs: Job[];
-  ops?: Pick<RuntimeJobRepository, 'listLatestJobRunsByJobIds'>;
+  ops?: Pick<
+    RuntimeJobRepository,
+    'listLatestJobRunsByJobIds' | 'listRecentJobEvents'
+  >;
   toolRepository?: ToolCatalogRepository;
   skillRepository?: SkillCatalogRepository;
   appId?: string;
@@ -196,6 +207,10 @@ export async function buildJobListVisibilityMetadata(input: {
 }): Promise<Map<string, JobVisibilityMetadata>> {
   const nowMs = input.nowMs ?? currentTimeMs();
   const latestRunsByJobId = await loadLatestRunsByJobId(input.jobs, input.ops);
+  const denialsByRun = await loadPrimaryDenialsByRun(input.ops, {
+    jobIds: input.jobs.map((job) => job.id),
+    appId: input.appId ?? DEFAULT_JOB_RUNTIME_APP_ID,
+  });
   const inheritedToolsByTarget = new Map<string, Promise<string[]>>();
   const loadInheritedTools = (
     appId: string,
@@ -242,6 +257,9 @@ export async function buildJobListVisibilityMetadata(input: {
           runs,
           staleness,
           nowMs,
+          denial: latestRun
+            ? (denialsByRun.get(latestRun.run_id) ?? null)
+            : null,
         });
         const displayLabels = deriveJobDisplayLabels({
           executionContext,
@@ -304,13 +322,12 @@ function buildJobHealth(input: {
   runs: JobRun[];
   staleness: SchedulerJobStaleness | null;
   nowMs: number;
+  denial: JobToolDenial | null;
 }): JobHealthMetadata {
   const latestRun = input.runs[0];
   const latestSummary =
     latestRun?.error_summary ?? latestRun?.result_summary ?? null;
-  const denial =
-    parseAutonomousToolDenial(latestSummary) ??
-    parsePermissionPauseReason(input.job.pause_reason);
+  const denial = input.denial;
   const setupBlocker =
     input.job.pause_reason === 'Setup required'
       ? input.job.setup_state?.blockers[0]
@@ -426,17 +443,9 @@ function setupMetadataForJob(job: Job): JobSetupMetadata {
   };
 }
 
-function parsePermissionPauseReason(
-  value: string | null | undefined,
-): AutonomousToolDenial | null {
-  if (!value) return null;
-  const match = value.match(/^Needs permission:\s*(\S+)/i);
-  return match?.[1] ? { toolName: match[1] } : null;
-}
-
 function nextJobHealthAction(
   state: JobHealthMetadata['state'],
-  denial: ReturnType<typeof parseAutonomousToolDenial>,
+  denial: JobToolDenial | null,
 ): string | null {
   if (denial?.recoveryAction) return denial.recoveryAction;
   if (state === 'needs_permission' && denial?.toolName) {
@@ -458,6 +467,38 @@ function nextJobHealthAction(
     return 'Run the job now or update its schedule.';
   }
   return null;
+}
+
+async function loadPrimaryDenialsByRun(
+  ops: Pick<RuntimeJobRepository, 'listRecentJobEvents'> | undefined,
+  input: { appId: string; jobId?: string; jobIds?: string[] },
+): Promise<Map<string, JobToolDenial>> {
+  if (!ops?.listRecentJobEvents) return new Map();
+  const events = await ops.listRecentJobEvents(1_000, {
+    app_id: input.appId,
+    job_id: input.jobId,
+    job_ids: input.jobIds,
+    event_type: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+  });
+  const result = new Map<string, JobToolDenial>();
+  for (const event of [...events].sort((left, right) => left.id - right.id)) {
+    if (!event.run_id || result.has(event.run_id)) continue;
+    const denial = parseJobEventDenial(event);
+    if (denial) result.set(event.run_id, denial);
+  }
+  return result;
+}
+
+function parseJobEventDenial(event: JobEvent): JobToolDenial | null {
+  if (!event.payload) return null;
+  try {
+    return parseJobToolDeniedEvent({
+      eventType: event.event_type as never,
+      payload: JSON.parse(event.payload),
+    });
+  } catch {
+    return null;
+  }
 }
 
 function isRestartInterruptedRun(summary: string | null): boolean {

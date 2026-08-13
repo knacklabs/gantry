@@ -39,7 +39,10 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
     getAppSessionById: runtimeStore.getAppSessionById,
     markTriggerCompleted: runtimeStore.markTriggerCompleted,
   }),
-  getRuntimeEventExchange: () => ({ publish: runtimeStore.publish }),
+  getRuntimeEventExchange: () => ({
+    publish: runtimeStore.publish,
+    list: async () => [],
+  }),
   getWorkerCoordinationRepository: () => ({
     appendRunnerControlEvent: runtimeStore.appendRunnerControlEvent,
     heartbeatRunLease: runtimeStore.heartbeatRunLease,

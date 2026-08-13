@@ -41,6 +41,8 @@ export interface DeepAgentsPermissionDenial {
   reason: string;
   grantable: boolean;
   recoveryAction: string;
+  denialKind: 'permission_denied' | 'rule_denied';
+  provenanceSeam: 'gate' | 'declarative';
 }
 
 // Grantability is reconstructed from the tool identity + capabilityRequestToolsHidden
@@ -73,6 +75,8 @@ export function deepAgentsDenial(
     reason,
     recoveryAction,
     grantable: isGrantableAutonomousToolRecovery(recoveryAction),
+    denialKind: 'permission_denied',
+    provenanceSeam: 'gate',
   };
 }
 
@@ -93,6 +97,8 @@ export function preCheckDenialResult(
       reason: preChecks.reason,
       grantable: false,
       recoveryAction: preChecks.reason,
+      denialKind: 'rule_denied',
+      provenanceSeam: 'gate',
     });
   }
   return gatedToolErrorResult(preChecks.reason);

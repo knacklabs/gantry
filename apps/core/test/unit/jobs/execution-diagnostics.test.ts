@@ -1,21 +1,53 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_AGENT_ENGINE } from '../../../src/shared/agent-engine.js';
 
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import {
   createJobRunDiagnostics,
   formatTerminalToolDenial,
   forwardRunnerRuntimeEvents,
+  jobToolDenialIdempotencyKey,
   terminalDiagnosticsPayload,
   toolDenialEventPayload,
   updateDiagnosticsFromRuntimeEvent,
 } from '@core/jobs/execution-diagnostics.js';
 
 describe('job execution diagnostics', () => {
+  it('fingerprints a denial from the run, tool, kind, and provenance seam', () => {
+    const denial = {
+      toolName: 'RunCommand',
+      reason: 'Denied by operator.',
+      denialKind: 'permission_denied' as const,
+      provenanceLane: DEFAULT_AGENT_ENGINE as const,
+      provenanceSeam: 'gate' as const,
+      grantable: true,
+    };
+
+    const key = jobToolDenialIdempotencyKey('run-1', denial);
+    expect(key).toMatch(/^tool_denied:run-1:[a-f0-9]{64}$/);
+    expect(
+      jobToolDenialIdempotencyKey('run-1', {
+        ...denial,
+        reason: 'Equivalent denial wording changed.',
+      }),
+    ).toBe(key);
+    expect(
+      jobToolDenialIdempotencyKey('run-1', {
+        ...denial,
+        provenanceSeam: 'recovery',
+      }),
+    ).not.toBe(key);
+  });
+
   it('classifies MCP server requests as instruction-only recovery', () => {
     expect(
       toolDenialEventPayload(
         {
           toolName: 'mcp__acme__records_append',
+          reason: 'Server access is unavailable.',
+          denialKind: 'permission_denied',
+          provenanceLane: DEFAULT_AGENT_ENGINE,
+          provenanceSeam: 'recovery',
           grantable: false,
           recoveryAction: 'request_mcp_server {"serverName":"acme"}',
         },
@@ -61,12 +93,18 @@ describe('job execution diagnostics', () => {
         ok: false,
         terminal: true,
         reason: 'Bash command could not be parsed safely.',
+        denial_kind: 'rule_denied',
+        provenance_lane: DEFAULT_AGENT_ENGINE,
+        provenance_seam: 'gate',
       },
     );
 
     expect(diagnostics.terminalToolDenial).toEqual({
       toolName: 'Bash',
       reason: 'Bash command could not be parsed safely.',
+      denialKind: 'rule_denied',
+      provenanceLane: DEFAULT_AGENT_ENGINE,
+      provenanceSeam: 'gate',
       recoveryAction: undefined,
     });
     expect(formatTerminalToolDenial(diagnostics)).toContain(
@@ -85,6 +123,10 @@ describe('job execution diagnostics', () => {
         tool: 'Bash',
         ok: false,
         reason: 'Denied by operator.',
+        terminal: true,
+        denial_kind: 'permission_denied',
+        provenance_lane: DEFAULT_AGENT_ENGINE,
+        provenance_seam: 'gate',
         recovery_action:
           'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
       },

@@ -41,7 +41,14 @@ interface LiveAdmissionActivatingRuntimeEventRepository extends RuntimeEventRepo
   ): Promise<{
     event: RuntimeEvent;
     liveAdmissionResult: LiveAdmissionWorkItemEnqueueResult | undefined;
+    inserted?: boolean;
   }>;
+}
+
+interface OutcomeAwareRuntimeEventRepository extends RuntimeEventRepository {
+  appendRuntimeEventWithOutcome?(
+    input: RuntimeEventPublishInput,
+  ): Promise<{ event: RuntimeEvent; inserted: boolean }>;
 }
 
 export class RuntimeEventExchange {
@@ -51,16 +58,22 @@ export class RuntimeEventExchange {
   ) {}
 
   async publish(input: RuntimeEventPublishInput): Promise<RuntimeEvent> {
-    const event = await this.repository.appendRuntimeEvent(
-      normalizeRuntimeEventPublishInput(input),
-    );
+    const repository = this.repository as OutcomeAwareRuntimeEventRepository;
+    const normalized = normalizeRuntimeEventPublishInput(input);
+    const result = repository.appendRuntimeEventWithOutcome
+      ? await repository.appendRuntimeEventWithOutcome(normalized)
+      : {
+          event: await repository.appendRuntimeEvent(normalized),
+          inserted: true,
+        };
+    if (!result.inserted) return result.event;
     try {
-      await this.notifier.notify(event);
+      await this.notifier.notify(result.event);
     } catch {
       // Wakeups are best-effort; durable consumers recover by cursor polling.
     }
     notifyWebhookDeliveryReady();
-    return event;
+    return result.event;
   }
 
   async publishWithLiveAdmissionMessage(
@@ -91,6 +104,7 @@ export class RuntimeEventExchange {
       normalized,
       admission,
     );
+    if (result.inserted === false) return result;
     try {
       await this.notifier.notify(result.event);
     } catch {

@@ -1,11 +1,19 @@
-import type { RuntimeEventPublishInput } from '../domain/events/events.js';
+import type {
+  RuntimeEvent,
+  RuntimeEventFilter,
+  RuntimeEventPublishInput,
+} from '../domain/events/events.js';
 import type { Job } from '../domain/types.js';
 import {
   SETUP_REQUIRED_PAUSE_REASON,
   setupStateForDeniedTool,
   setupStateForTransientPermission,
 } from '../application/jobs/job-readiness-service.js';
-import { parseAutonomousToolDenial } from '../shared/autonomous-tool-denial.js';
+import {
+  parseJobToolDeniedEvent,
+  type JobToolDenial,
+} from '../domain/events/job-tool-denial.js';
+import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { redactProviderSessionHandlesInText } from '../shared/provider-session-redaction.js';
 import { nowMs, toIso } from '../shared/time/datetime.js';
 import type { SchedulerEventAppSession } from './app-session-resolution.js';
@@ -33,7 +41,7 @@ export interface FinalizedJobRunState {
   incrementConsecutiveFailures: boolean;
   pauseReason: string | null;
   safeErrorSummary: string | null;
-  toolDenial: ReturnType<typeof parseAutonomousToolDenial>;
+  toolDenial: JobToolDenial | null;
   setupNotified: boolean;
 }
 
@@ -51,6 +59,7 @@ export async function finalizeSchedulerJobRun(input: {
   runId: string;
   appSession?: SchedulerEventAppSession;
   publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
+  listRuntimeEvents: (filter: RuntimeEventFilter) => Promise<RuntimeEvent[]>;
   beforeJobStateUpdate?: (state: FinalizedJobRunState) => Promise<void>;
   updateJobState?: (
     updates: Partial<Job>,
@@ -75,20 +84,20 @@ export async function finalizeSchedulerJobRun(input: {
   const safePrimaryErrorSummary = input.error
     ? redactProviderSessionHandlesInText(input.error)
     : null;
-  const diagnosticToolDenial = diagnostics.terminalToolDenial
-    ? {
-        toolName: diagnostics.terminalToolDenial.toolName,
-        grantable: diagnostics.terminalToolDenial.grantable,
-        recoveryAction: diagnostics.terminalToolDenial.recoveryAction,
-      }
-    : null;
   // An autonomous not-on-allowlist denial is a hard dead-end: the run cannot
   // resume and must FAIL. The job pauses for setup without spending its retry
   // budget so an approval can trigger a fresh run later (decision 0115).
-  const autonomousToolDenial = parseAutonomousToolDenial(
-    safePrimaryErrorSummary,
-  );
-  const toolDenial = autonomousToolDenial ?? diagnosticToolDenial;
+  const denialEvents = await input.listRuntimeEvents({
+    appId: (appSession?.appId ?? runtimeAppId) as never,
+    runId: input.runId as never,
+    eventTypes: [RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED],
+    limit: 100,
+  });
+  const toolDenial =
+    [...denialEvents]
+      .sort((left, right) => left.eventId - right.eventId)
+      .map(parseJobToolDeniedEvent)
+      .find(Boolean) ?? null;
   const transientPermissionApproval =
     diagnostics.transientPermissionApprovals[0] ?? null;
   const safeErrorSummary = safePrimaryErrorSummary
@@ -174,7 +183,7 @@ export async function finalizeSchedulerJobRun(input: {
     if (!pausedForSetupDuringRun && toolDenial) {
       // An attended, resumable denial pauses the run. A zero-timeout autonomous
       // denial fails this run and waits for approval before a fresh run.
-      runStatus = autonomousToolDenial ? 'failed' : 'paused';
+      runStatus = 'failed';
       const setupState = setupStateForDeniedTool({
         toolName: toolDenial.toolName,
         grantable: toolDenial.grantable === true,

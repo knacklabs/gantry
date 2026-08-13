@@ -3,6 +3,7 @@ import { writeOutput } from './output.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import { permissionRequestToolName } from './permission-suggestions.js';
 import type { YoloModeMatch } from '../../../../shared/yolo-mode-policy.js';
+import { DEFAULT_AGENT_ENGINE } from '../../../../shared/agent-engine.js';
 
 export function yoloDenylistPromptReason(match: YoloModeMatch): string {
   return `A YOLO-mode denylist rule matched "${match.pattern}", so this tool needs explicit approval.`;
@@ -77,4 +78,43 @@ export function emitJobToolActivity(
       },
     ],
   });
+}
+
+// S2a (decision 0126): one authoring site for the gate lane's terminal-denial
+// activity so the five gate guards stay uniform and the provider-boundary
+// token count stays stable (A-0060: lane = DEFAULT_AGENT_ENGINE).
+export function emitGateDenialActivity(input: {
+  agentInput: AgentRunnerInput;
+  getNewSessionId: () => string | undefined;
+  toolName: string;
+  reason: string;
+  decision?: string;
+  denialKind?: 'rule_denied' | 'permission_denied';
+  grantable?: boolean;
+  recoveryAction?: string;
+}): void {
+  const scheduled = input.agentInput.isScheduledJob;
+  emitJobToolActivity(
+    input.agentInput,
+    input.getNewSessionId,
+    scheduled ? 'permission_denied' : 'deny',
+    input.toolName,
+    {
+      ok: false,
+      reason: input.reason,
+      ...(input.decision ? { decision: input.decision } : {}),
+      ...(scheduled
+        ? {
+            terminal: true,
+            grantable: input.grantable ?? false,
+            denial_kind: input.denialKind ?? 'rule_denied',
+            provenance_lane: DEFAULT_AGENT_ENGINE,
+            provenance_seam: 'gate',
+            ...(input.recoveryAction !== undefined
+              ? { recovery_action: input.recoveryAction }
+              : {}),
+          }
+        : {}),
+    },
+  );
 }
