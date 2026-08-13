@@ -67,6 +67,8 @@ const getConfiguredModelProvidersForAppMock = vi.mocked(
 const { runJob } = await import('@core/jobs/execution.js');
 const { jobRequiresManagedBrowser } =
   await import('@core/jobs/execution-browser-prelaunch.js');
+const { resolveDeterministicManagedBrowserActions } =
+  await import('@core/jobs/deterministic-source-sync.js');
 const { evaluateJobReadiness } =
   await import('@core/application/jobs/job-readiness-service.js');
 const { RUNTIME_RESULT_SUMMARY_MAX_CHARS } =
@@ -230,6 +232,116 @@ function makeToolRepository(toolNames: string[]) {
 }
 
 describe('jobs/execution', () => {
+  it('uses only the reviewed ATS source actions for deterministic source sync', () => {
+    const job = makeJob({
+      access_requirements: [
+        {
+          target: {
+            kind: 'capability',
+            capabilityId: 'skill.ats-source-sync.cutshort',
+          },
+        },
+        {
+          target: {
+            kind: 'capability',
+            capabilityId: 'skill.ats-source-sync.instahyre',
+          },
+        },
+      ],
+    });
+    const capability = (id: string, command: string, actionId: string) => ({
+      capabilityId: id,
+      displayName: id,
+      category: 'ats-skills',
+      risk: 'write' as const,
+      can: 'sync',
+      cannot: 'run arbitrary commands',
+      credentialSource: 'skill_secret' as const,
+      implementationBindings: [
+        { kind: 'tool_rule' as const, rule: `RunCommand(${command})` },
+      ],
+      networkHosts: ['scout-dev.knacklabs.ai:443'],
+      source: {
+        kind: 'skill_action' as const,
+        skillId: 'skill:ats',
+        skillName: 'ats-skills',
+        actionId,
+        browserAccess: 'managed_browser' as const,
+        executionMode: 'deterministic' as const,
+      },
+    });
+
+    expect(
+      resolveDeterministicManagedBrowserActions(job, [
+        capability(
+          'skill.ats-source-sync.cutshort',
+          'skills/ats-skills/scripts/cutshort-worker.mjs sync',
+          'cutshort',
+        ),
+        capability(
+          'skill.ats-source-sync.instahyre',
+          'skills/ats-skills/scripts/instahyre-worker.mjs sync',
+          'instahyre',
+        ),
+      ]),
+    ).toEqual([
+      expect.objectContaining({
+        capabilityId: 'skill.ats-source-sync.cutshort',
+      }),
+      expect.objectContaining({
+        capabilityId: 'skill.ats-source-sync.instahyre',
+      }),
+    ]);
+  });
+
+  it('does not activate deterministic source sync for an unreviewed command', () => {
+    const job = makeJob({
+      access_requirements: [
+        {
+          target: {
+            kind: 'capability',
+            capabilityId: 'skill.ats-source-sync.cutshort',
+          },
+        },
+        {
+          target: {
+            kind: 'capability',
+            capabilityId: 'skill.ats-source-sync.instahyre',
+          },
+        },
+      ],
+    });
+    const unsafe = (id: string) => ({
+      capabilityId: id,
+      displayName: id,
+      category: 'ats-skills',
+      risk: 'write' as const,
+      can: 'sync',
+      cannot: 'run arbitrary commands',
+      credentialSource: 'skill_secret' as const,
+      implementationBindings: [
+        {
+          kind: 'tool_rule' as const,
+          rule: 'RunCommand(curl https://example.com)',
+        },
+      ],
+      source: {
+        kind: 'skill_action' as const,
+        skillId: 'skill:ats',
+        skillName: 'ats-skills',
+        actionId: 'source',
+        browserAccess: 'managed_browser' as const,
+        executionMode: 'deterministic' as const,
+      },
+    });
+    expect(
+      resolveDeterministicManagedBrowserActions(job, [
+        unsafe('skill.ats-source-sync.cutshort'),
+        unsafe('skill.ats-source-sync.instahyre'),
+      ]),
+    ).toBeNull();
+  });
+
   it('prelaunches a managed profile for a reviewed browser skill without exposing Browser', () => {
     const job = makeJob({
       access_requirements: [

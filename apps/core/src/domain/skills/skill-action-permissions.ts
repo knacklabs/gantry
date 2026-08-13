@@ -33,6 +33,7 @@ export interface SkillActionPermission {
   commandTemplates: string[];
   networkHosts: string[];
   browserAccess?: 'managed_browser';
+  executionMode?: 'deterministic';
 }
 
 export interface SkillActionSourceMetadata {
@@ -41,6 +42,7 @@ export interface SkillActionSourceMetadata {
   skillName: string;
   actionId: string;
   browserAccess?: 'managed_browser';
+  executionMode?: 'deterministic';
 }
 
 export interface SkillActionCapabilitySourceSkill {
@@ -112,6 +114,9 @@ export function skillActionSemanticCapability(input: {
     ...(input.action.browserAccess
       ? { browserAccess: input.action.browserAccess }
       : {}),
+    ...(input.action.executionMode
+      ? { executionMode: input.action.executionMode }
+      : {}),
   };
   return {
     capabilityId: input.action.capabilityId,
@@ -149,6 +154,8 @@ export function skillActionSource(
   const actionId = typeof source.actionId === 'string' ? source.actionId : '';
   const browserAccess =
     source.browserAccess === 'managed_browser' ? 'managed_browser' : undefined;
+  const executionMode =
+    source.executionMode === 'deterministic' ? 'deterministic' : undefined;
   if (!skillId || !skillName || !actionId) return undefined;
   return {
     kind: 'skill_action',
@@ -156,6 +163,7 @@ export function skillActionSource(
     skillName,
     actionId,
     ...(browserAccess ? { browserAccess } : {}),
+    ...(executionMode ? { executionMode } : {}),
   };
 }
 
@@ -232,6 +240,17 @@ function parseSkillActionPermission(
       `Skill action ${capabilityId} browserAccess must be managed_browser.`,
     );
   }
+  const executionMode = raw.executionMode;
+  if (executionMode !== undefined && executionMode !== 'deterministic') {
+    throw new Error(
+      `Skill action ${capabilityId} executionMode must be deterministic.`,
+    );
+  }
+  if (executionMode && browserAccess !== 'managed_browser') {
+    throw new Error(
+      `Skill action ${capabilityId} deterministic execution requires managed_browser access.`,
+    );
+  }
   return {
     id,
     capabilityId,
@@ -243,6 +262,7 @@ function parseSkillActionPermission(
     commandTemplates: [...new Set(commandTemplates)],
     networkHosts: [...new Set(networkHosts)],
     ...(browserAccess ? { browserAccess } : {}),
+    ...(executionMode ? { executionMode } : {}),
   };
 }
 

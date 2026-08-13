@@ -118,6 +118,45 @@ describe('parseSkillActionPermissionsFromAssets durable safety', () => {
       }),
     ).toThrow('browserAccess must be managed_browser');
   });
+
+  it('projects deterministic execution only for a managed browser action', () => {
+    const assets = manifestAssetWithBrowserAccess('managed_browser');
+    const manifest = JSON.parse(new TextDecoder().decode(assets[0].content));
+    manifest.actions[0].executionMode = 'deterministic';
+    const [action] = parseSkillActionPermissionsFromAssets({
+      assets: [
+        {
+          ...assets[0],
+          content: new TextEncoder().encode(JSON.stringify(manifest)),
+        },
+      ],
+      skillName: 'demo',
+    });
+    expect(
+      skillActionSemanticCapability({
+        skillId: 'skill:demo',
+        skillName: 'demo',
+        action,
+      }).source,
+    ).toMatchObject({ executionMode: 'deterministic' });
+  });
+
+  it('rejects deterministic execution without a managed browser', () => {
+    const assets = manifestAsset('${skillRoot}/run.sh');
+    const manifest = JSON.parse(new TextDecoder().decode(assets[0].content));
+    manifest.actions[0].executionMode = 'deterministic';
+    expect(() =>
+      parseSkillActionPermissionsFromAssets({
+        assets: [
+          {
+            ...assets[0],
+            content: new TextEncoder().encode(JSON.stringify(manifest)),
+          },
+        ],
+        skillName: 'demo',
+      }),
+    ).toThrow('deterministic execution requires managed_browser access');
+  });
 });
 
 describe('parseSkillActionPermissionsFromAssets networkHosts', () => {
