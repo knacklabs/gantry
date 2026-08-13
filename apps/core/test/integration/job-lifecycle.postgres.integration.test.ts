@@ -54,7 +54,7 @@ import {
   buildJobListVisibilityMetadata,
   buildJobVisibilityMetadata,
 } from '@core/application/jobs/job-visibility-metadata.js';
-import { runDurablePermissionInteraction } from '@core/application/interactions/durable-interaction-handler.js';
+import { applyPermissionInteractionDecision } from '@core/application/interactions/pending-interaction-durability.js';
 import {
   configurePendingInteractionDurability,
   configurePendingInteractionPermissionPersistence,
@@ -400,10 +400,13 @@ maybeDescribe('job lifecycle (Postgres)', () => {
             proposedTemplates[0],
           );
           return {
-            approved: true,
-            mode: 'allow_once' as const,
-            decidedBy: 'person:ravi',
-            decisionClassification: 'user_once' as const,
+            kind: 'decision' as const,
+            decision: {
+              approved: true,
+              mode: 'allow_once' as const,
+              decidedBy: 'person:ravi',
+              decisionClassification: 'user_once' as const,
+            },
           };
         },
       );
@@ -506,11 +509,14 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         deniedFinish = resolve;
       });
       const deniedApproval = vi.fn(async () => ({
-        approved: false,
-        mode: 'cancel' as const,
-        decidedBy: 'person:ravi',
-        reason: 'Keep the current reviewed shape.',
-        decisionClassification: 'user_reject' as const,
+        kind: 'decision' as const,
+        decision: {
+          approved: false,
+          mode: 'cancel' as const,
+          decidedBy: 'person:ravi',
+          reason: 'Keep the current reviewed shape.',
+          decisionClassification: 'user_reject' as const,
+        },
       }));
       startCapabilityTemplateAmendmentReview({
         deps: {
@@ -687,16 +693,18 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       ops: runtime.ops,
     });
 
-    // Three CONSTANT queries for a 500-job listing: jobs, latest runs, and
-    // the batched first-denial-per-run read (0126) - never an N+1 per job.
-    expect(querySpy).toHaveBeenCalledTimes(3);
+    // Five CONSTANT queries for a 500-job listing: jobs, latest runs, the
+    // batched first-denial-per-run read (0126), the windowed per-job setup
+    // delivery-notice read, and the latest-prompt-per-job read (S3) -
+    // never an N+1 per job.
+    expect(querySpy).toHaveBeenCalledTimes(5);
     expect(
       querySpy.mock.calls.filter(([query]) =>
         String(
           typeof query === 'string' ? query : (query as { text?: string }).text,
         ).includes('distinct on'),
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(4);
     querySpy.mockRestore();
     for (const job of equivalenceJobs) {
       expect(listMetadata.get(job.id)).toMatchObject({
@@ -852,12 +860,6 @@ maybeDescribe('job lifecycle (Postgres)', () => {
     }> = [];
     const runnerInputs: Record<string, unknown>[] = [];
     let setupRequest: PermissionApprovalRequest | undefined;
-    let resolveGrantDecision:
-      | ((decision: PermissionApprovalDecision) => void)
-      | undefined;
-    const grantDecision = new Promise<PermissionApprovalDecision>((resolve) => {
-      resolveGrantDecision = resolve;
-    });
     configurePendingInteractionDurability({
       repository: runtime.repositories.workerCoordination,
       warn: vi.fn(),
@@ -881,21 +883,16 @@ maybeDescribe('job lifecycle (Postgres)', () => {
           .publish(event)
           .then(() => undefined),
     });
+    // Post-activation contract: setup pause ENQUEUES the card through the
+    // composite preparation and returns immediately - the decision arrives
+    // later through the durable callback path, simulated below with
+    // applyPermissionInteractionDecision.
     const preparePermissionInteraction = vi.fn<
       SetupPausePermissionPromptDeps['preparePermissionInteraction']
-    >((request, delivered, began) =>
-      runDurablePermissionInteraction({
-        request,
-        sourceAgentFolder: request.sourceAgentFolder,
-        skipPromptWhenAlreadyPending: true,
-        beforePrompt: began,
-        prompt: async (durableRequest) => {
-          setupRequest = durableRequest;
-          delivered('setup-card-1');
-          return grantDecision;
-        },
-      }),
-    );
+    >(async (request) => {
+      setupRequest = request;
+      return { created: true };
+    });
     configureSetupPausePermissionPrompt({
       appId: 'default',
       getJobById: async (jobId) =>
@@ -1154,7 +1151,16 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       decisionClassification: 'user_permanent',
       updatedPermissions: setupRequest!.suggestions,
     };
-    resolveGrantDecision?.(persistentDecision);
+    await expect(
+      applyPermissionInteractionDecision({
+        request: setupRequest!,
+        sourceAgentFolder: setupRequest!.sourceAgentFolder,
+        decision: persistentDecision,
+        appId: setupRequest!.appId,
+        toolName: setupRequest!.toolName,
+        requestId: setupRequest!.requestId,
+      }),
+    ).resolves.toBe(true);
     await vi.waitFor(
       async () => {
         await expect(runtime.ops.getJobById(job.id)).resolves.toMatchObject({
