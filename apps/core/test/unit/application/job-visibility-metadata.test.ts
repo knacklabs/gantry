@@ -25,7 +25,7 @@ function makeDenialEvent(overrides: Partial<JobEvent> = {}): JobEvent {
         grant: {
           type: 'addRules',
           behavior: 'allow',
-          rules: [{ toolName: 'Browser' }],
+          rules: [{ tool_name: 'Browser' }],
         },
       },
       error_summary: 'Permission denied.',
@@ -270,7 +270,7 @@ describe('job visibility metadata', () => {
                   type: 'addRules',
                   behavior: 'allow',
                   rules: [
-                    { toolName: 'RunCommand', ruleContent: 'npm test *' },
+                    { tool_name: 'RunCommand', rule_content: 'npm test *' },
                   ],
                 },
               },
@@ -284,10 +284,10 @@ describe('job visibility metadata', () => {
 
     const view = metadata.get('job-1');
     expect(view?.health.nextAction).toBe(
-      'Approve exact command access, then resume the job.',
+      'Approve scoped command access, then resume the job.',
     );
     expect(view?.nextActionLabel).toBe(
-      'Approve exact command access, then resume the job.',
+      'Approve scoped command access, then resume the job.',
     );
     expect(view?.nextActionLabel).not.toContain('RunCommand');
   });

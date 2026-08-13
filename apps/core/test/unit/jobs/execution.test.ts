@@ -133,7 +133,7 @@ function terminalDenialRuntimeEvents(tool = 'RunCommand') {
           grant: {
             type: 'addRules',
             behavior: 'allow',
-            rules: [{ toolName: 'RunCommand', ruleContent: 'npm test *' }],
+            rules: [{ tool_name: 'RunCommand', rule_content: 'npm test *' }],
           },
         },
         reason: 'Denied by operator.',
@@ -667,7 +667,7 @@ describe('jobs/execution', () => {
                   grant: {
                     type: 'addRules',
                     behavior: 'allow',
-                    rules: [{ toolName: 'Browser' }],
+                    rules: [{ tool_name: 'Browser' }],
                   },
                 },
                 reason: 'Browser access is missing.',
@@ -2433,7 +2433,7 @@ describe('jobs/execution', () => {
                   type: 'addRules',
                   behavior: 'allow',
                   rules: [
-                    { toolName: 'RunCommand', ruleContent: 'npm test *' },
+                    { tool_name: 'RunCommand', rule_content: 'npm test *' },
                   ],
                 },
               },
@@ -2517,7 +2517,7 @@ describe('jobs/execution', () => {
                   type: 'addRules',
                   behavior: 'allow',
                   rules: [
-                    { toolName: 'RunCommand', ruleContent: 'npm test *' },
+                    { tool_name: 'RunCommand', rule_content: 'npm test *' },
                   ],
                 },
               },

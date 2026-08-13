@@ -127,26 +127,44 @@ export function parseJobSetupActionValue(
   ) {
     return null;
   }
-  // The wire grant is snake_case (tool_name/rule_content); decode to the
-  // domain rule shape BEFORE validating - a camelCase-only validator would
-  // silently drop every persisted approve_grant denial.
-  const wireGrant = action.grant as Record<string, unknown>;
-  const wireRules = Array.isArray(wireGrant?.rules) ? wireGrant.rules : null;
-  if (!wireRules) return null;
-  const decodedRules = wireRules.map((rule) => {
+  // The wire grant is STRICTLY snake_case (tool_name/rule_content) - the
+  // producers cut over in the same stage, so a camelCase fallback would be a
+  // forbidden dual format (0113). Malformed shapes return null, never throw.
+  const wireGrant = action.grant;
+  if (!wireGrant || typeof wireGrant !== 'object' || Array.isArray(wireGrant)) {
+    return null;
+  }
+  const grantRecord = wireGrant as Record<string, unknown>;
+  if (!Array.isArray(grantRecord.rules)) return null;
+  const decodedRules: Array<{ toolName: string; ruleContent?: string }> = [];
+  for (const rule of grantRecord.rules) {
+    if (!rule || typeof rule !== 'object' || Array.isArray(rule)) return null;
     const record = rule as Record<string, unknown>;
-    return {
-      toolName: record.tool_name ?? record.toolName,
-      ...(record.rule_content !== undefined || record.ruleContent !== undefined
-        ? { ruleContent: record.rule_content ?? record.ruleContent }
+    const allowed = new Set(['tool_name', 'rule_content']);
+    if (!Object.keys(record).every((key) => allowed.has(key))) return null;
+    if (typeof record.tool_name !== 'string' || !record.tool_name.trim()) {
+      return null;
+    }
+    if (
+      record.rule_content !== undefined &&
+      typeof record.rule_content !== 'string'
+    ) {
+      return null;
+    }
+    decodedRules.push({
+      toolName: record.tool_name,
+      ...(record.rule_content !== undefined
+        ? { ruleContent: record.rule_content }
         : {}),
-    };
-  });
+    });
+  }
   const grant = permissionAuthorityAddition({
-    type: wireGrant.type,
-    behavior: wireGrant.behavior,
+    type: grantRecord.type,
+    behavior: grantRecord.behavior,
     rules: decodedRules,
-    ...(wireGrant.destination ? { destination: wireGrant.destination } : {}),
+    ...(grantRecord.destination
+      ? { destination: grantRecord.destination }
+      : {}),
   } as Parameters<typeof permissionAuthorityAddition>[0]);
   return grant ? { kind: 'approve_grant', grant } : null;
 }

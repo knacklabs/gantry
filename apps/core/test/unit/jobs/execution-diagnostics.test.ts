@@ -191,7 +191,7 @@ describe('job execution diagnostics', () => {
           grant: {
             type: 'addRules',
             behavior: 'allow',
-            rules: [{ toolName: 'RunCommand', ruleContent: 'npm test *' }],
+            rules: [{ tool_name: 'RunCommand', rule_content: 'npm test *' }],
           },
         },
       },
@@ -201,7 +201,7 @@ describe('job execution diagnostics', () => {
       'Permission denied for Bash.',
     );
     expect(formatTerminalToolDenial(diagnostics)).toContain(
-      'Recovery: Approve exact command access, then resume the job.',
+      'Recovery: Approve scoped command access, then resume the job.',
     );
   });
 

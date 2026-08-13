@@ -295,6 +295,7 @@ export function setupPauseApproverRoute(
 
 interface GrantableRequirementCandidate {
   blocker: JobSetupBlocker;
+  rule: { toolName: string; ruleContent?: string };
   displayName: string;
   toolInput: Record<string, unknown>;
   suggestedRequirement?: JobAccessRequirement;
@@ -311,31 +312,33 @@ function grantableRequirementCandidates(
     ) {
       return [];
     }
-    const rule = blocker.action.grant.rules[0];
-    if (!rule) return [];
-    const toolInput = rule.toolName.startsWith('capability:')
-      ? {
-          permissionKind: 'tool',
-          capabilityId: rule.toolName.slice('capability:'.length),
-          capabilityRequestSource: 'request_access',
-          toolNames: [],
-          effect: 'persistent_rule_when_always_allowed',
-        }
-      : {
-          permissionKind: 'tool',
-          toolName: rule.toolName,
-          ...(rule.ruleContent ? { rule: rule.ruleContent } : {}),
-          effect: 'persistent_rule_when_always_allowed',
-        };
-    const suggestedRequirement = requirementForAction(job, blocker);
-    return [
-      {
+    // A valid grant may carry up to five rules - EVERY rule becomes a
+    // candidate; consuming only rules[0] would silently drop the rest from
+    // the approval request and the suggested requirements (review R2).
+    return blocker.action.grant.rules.map((rule) => {
+      const toolInput = rule.toolName.startsWith('capability:')
+        ? {
+            permissionKind: 'tool',
+            capabilityId: rule.toolName.slice('capability:'.length),
+            capabilityRequestSource: 'request_access',
+            toolNames: [],
+            effect: 'persistent_rule_when_always_allowed',
+          }
+        : {
+            permissionKind: 'tool',
+            toolName: rule.toolName,
+            ...(rule.ruleContent ? { rule: rule.ruleContent } : {}),
+            effect: 'persistent_rule_when_always_allowed',
+          };
+      const suggestedRequirement = requirementForRule(job, blocker, rule);
+      return {
         blocker,
+        rule,
         displayName: setupBlockerLabel(blocker, blocker.state),
         toolInput,
         ...(suggestedRequirement ? { suggestedRequirement } : {}),
-      },
-    ];
+      };
+    });
   });
 }
 
@@ -344,23 +347,23 @@ export function setupPauseRequirementForApprovedSuggestions(input: {
   suggestions: readonly PermissionApprovalUpdate[];
 }): { matched: boolean; requirement?: JobAccessRequirement } {
   const approvedRules = permissionUpdateAllowedToolRules(input.suggestions);
-  for (const candidate of grantableRequirementCandidates(
+  if (approvedRules.length === 0) return { matched: false };
+  const candidates = grantableRequirementCandidates(
     input.job,
     input.job.setup_state?.blockers ?? [],
-  )) {
-    if (
-      approvedRules.length === 1 &&
-      candidateRule(candidate) === approvedRules[0]
-    ) {
-      return {
-        matched: true,
-        ...(candidate.suggestedRequirement
-          ? { requirement: candidate.suggestedRequirement }
-          : {}),
-      };
-    }
+  );
+  // Review R2: a grant may carry several rules - EVERY approved rule must
+  // correspond to a candidate for the approval to satisfy the action.
+  const matchedCandidates = approvedRules.map((approved) =>
+    candidates.find((candidate) => candidateRule(candidate) === approved),
+  );
+  if (matchedCandidates.some((candidate) => !candidate)) {
+    return { matched: false };
   }
-  return { matched: false };
+  const requirement = matchedCandidates.find(
+    (candidate) => candidate?.suggestedRequirement,
+  )?.suggestedRequirement;
+  return { matched: true, ...(requirement ? { requirement } : {}) };
 }
 
 function candidateRule(
@@ -389,9 +392,10 @@ function candidateRule(
   ])[0];
 }
 
-function requirementForAction(
+function requirementForRule(
   job: Job,
   blocker: JobSetupBlocker,
+  grantRule: { toolName: string; ruleContent?: string },
 ): JobAccessRequirement | undefined {
   // Review R1: blocker.id may carry the canonical capability: rule prefix -
   // requirements store the BARE capability id, so normalize before matching
@@ -400,15 +404,9 @@ function requirementForAction(
   const capabilityId = blocker.id.startsWith(SEMANTIC_CAPABILITY_RULE_PREFIX)
     ? blocker.id.slice(SEMANTIC_CAPABILITY_RULE_PREFIX.length)
     : blocker.id;
-  const grantRule =
-    blocker.action.kind === 'approve_grant'
-      ? blocker.action.grant.rules[0]
-      : undefined;
-  const canonicalRule = grantRule
-    ? grantRule.ruleContent
-      ? `${grantRule.toolName}(${grantRule.ruleContent})`
-      : grantRule.toolName
-    : undefined;
+  const canonicalRule = grantRule.ruleContent
+    ? `${grantRule.toolName}(${grantRule.ruleContent})`
+    : grantRule.toolName;
   const existing = (job.access_requirements ?? []).find((requirement) => {
     if (requirement.target.kind === 'capability') {
       return requirement.target.capabilityId === capabilityId;
@@ -418,7 +416,7 @@ function requirementForAction(
     // scoped RunCommand rule must not suppress the new declaration.
     return (
       requirement.target.kind === 'tool_rule' &&
-      requirement.target.rule === (canonicalRule ?? blocker.id)
+      requirement.target.rule === canonicalRule
     );
   });
   if (existing) return undefined;
@@ -428,7 +426,7 @@ function requirementForAction(
       reason: `Required after ${setupBlockerLabel(blocker, blocker.state)} was denied.`,
     };
   }
-  if (!grantRule || !canonicalRule) return undefined;
+
   return {
     target: {
       kind: 'tool_rule',

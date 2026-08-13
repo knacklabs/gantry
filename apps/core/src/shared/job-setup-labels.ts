@@ -59,12 +59,16 @@ export function formatJobSetupAction(
   if (action.kind === 'fix_proposal') {
     return 'Review the proposed setup fix, then resume the job.';
   }
-  if (
-    action.grant.rules.some(
-      (rule) => rule.toolName === 'RunCommand' && rule.ruleContent,
-    )
-  ) {
-    return 'Approve exact command access, then resume the job.';
+  const commandRules = action.grant.rules.filter(
+    (rule) => rule.toolName === 'RunCommand' && rule.ruleContent,
+  );
+  if (commandRules.length > 0) {
+    // A rule containing a wildcard is a reviewed prefix SCOPE, not one exact
+    // argv - never describe broader authority as exact at the approval
+    // boundary.
+    return commandRules.some((rule) => rule.ruleContent?.includes('*'))
+      ? 'Approve scoped command access, then resume the job.'
+      : 'Approve exact command access, then resume the job.';
   }
   const label = setupBlockerLabel(blocker, 'required capability');
   return `Approve ${label}, then resume the job.`;

@@ -50,7 +50,7 @@ function listDenialEvents(
       grant: {
         type: 'addRules',
         behavior: 'allow',
-        rules: [{ toolName: 'RunCommand', ruleContent: 'npm test -- unit' }],
+        rules: [{ tool_name: 'RunCommand', rule_content: 'npm test -- unit' }],
       },
     },
     ...denial,
@@ -105,7 +105,9 @@ describe('execution finalization', () => {
         grant: {
           type: 'addRules',
           behavior: 'allow',
-          rules: [{ toolName: 'RunCommand', ruleContent: 'npm test -- unit' }],
+          rules: [
+            { tool_name: 'RunCommand', rule_content: 'npm test -- unit' },
+          ],
         },
       },
       denialKind: 'permission_denied',
@@ -236,7 +238,7 @@ describe('execution finalization', () => {
             type: 'addRules',
             behavior: 'allow',
             rules: [
-              { toolName: 'RunCommand', ruleContent: 'npm test -- unit' },
+              { tool_name: 'RunCommand', rule_content: 'npm test -- unit' },
             ],
           },
         },
