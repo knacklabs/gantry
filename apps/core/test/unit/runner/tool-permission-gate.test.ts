@@ -775,6 +775,40 @@ describe('createCanUseToolCallback', () => {
   });
 
   it.each([
+    'mcp__gantry__file',
+    'mcp__gantry__job_checkpoint_status',
+    'mcp__gantry__job_checkpoint_save',
+  ])(
+    'allows recipe milestone tool %s only with the reviewed evaluator capability',
+    async (toolName) => {
+      const decision = await makeCallback({
+        agentInput: {
+          runMode: 'normal',
+          isScheduledJob: true,
+          appId: 'manipal-tender-copilot',
+          agentId: 'agent:test',
+          runId: 'run-1',
+          jobId: 'job-1',
+          chatJid: 'app:manipal-tender-copilot:website-recipe',
+          allowedTools: [toolName],
+          semanticCapabilities: [{
+            capabilityId: 'manipal.website-recipe-evaluator',
+            version: '1',
+          }],
+          yoloMode: { enabled: false, denylist: [], denylistPaths: [] },
+        } as never,
+      })(
+        toolName,
+        {},
+        makePermissionOptions({ displayName: toolName }) as never,
+      );
+
+      expect(decision).toEqual({ behavior: 'allow', updatedInput: {} });
+      expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
     'mcp__gantry__delegate_task',
     'mcp__gantry__task_cancel',
     'mcp__gantry__task_get',
