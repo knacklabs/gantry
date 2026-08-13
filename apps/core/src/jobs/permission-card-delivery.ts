@@ -74,11 +74,9 @@ export async function dispatchPreparedPermissionCard(input: {
     };
   }
   if (begun !== 'begun') {
-    return {
-      status: 'failed',
-      error:
-        'Permission card send checkpoint was rejected by the active lease.',
-    };
+    // lease_lost: the expired-claim sweep owns recovery (requeue + attempt
+    // refund) - settling failed here would burn a transmission attempt.
+    return { status: 'stale_claim' };
   }
   try {
     const sent = await prepared.send();

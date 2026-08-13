@@ -108,10 +108,9 @@ describe('prepared permission-card dispatch', () => {
       prepare: () => ({ send }),
     });
 
-    expect(result).toMatchObject({
-      status: 'failed',
-      error: expect.stringContaining('active lease'),
-    });
+    // A lapsed claim defers to the expired-claim sweep (requeue + attempt
+    // refund) - never a settled failure.
+    expect(result).toMatchObject({ status: 'stale_claim' });
     expect(send).not.toHaveBeenCalled();
   });
 });

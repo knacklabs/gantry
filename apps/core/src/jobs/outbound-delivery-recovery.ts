@@ -33,6 +33,12 @@ export type OutboundDeliveryDispatchResult =
       reason: Record<string, unknown>;
     }
   | {
+      // The claim lapsed before the send checkpoint: leave the item to the
+      // expired-claim sweep (which requeues and refunds the attempt) - do
+      // NOT settle failed, which would consume the bounded attempt budget.
+      status: 'stale_claim';
+    }
+  | {
       status: 'partially_delivered';
       error?: string;
       deliveredParts?: number;
@@ -308,6 +314,9 @@ export async function runBoundedOutboundDeliveryRecovery(
         continue;
       }
 
+      if (dispatchResult.status === 'stale_claim') {
+        continue;
+      }
       if (dispatchResult.status === 'cancelled') {
         // A rejected pre-send revalidation is TERMINAL cancellation, never
         // the failed/retry path (a superseded card must not resend).
