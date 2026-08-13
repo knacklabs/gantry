@@ -83,6 +83,110 @@ function makeJob(overrides: Partial<Job> = {}): Job {
 }
 
 describe('job visibility metadata', () => {
+  it('surfaces the latest delivery notice for the current setup fingerprint', async () => {
+    const listRecentJobEvents = vi.fn(async () => [
+      makeDenialEvent({
+        id: 3,
+        run_id: null,
+        event_type: 'job.setup_card_delivery',
+        payload: JSON.stringify({
+          prompt_id: 'prompt:current',
+          generation: 1,
+          job_id: 'job-1',
+          setup_fingerprint: 'fp:current',
+          outcome: 'ambiguous',
+          attempt: 1,
+          provider: 'telegram',
+        }),
+      }),
+    ]);
+    const metadata = await buildJobVisibilityMetadata({
+      job: makeJob({
+        status: 'paused',
+        pause_reason: 'Setup required',
+        setup_state: {
+          state: 'missing_capability',
+          checked_at: '2026-04-24T09:00:00.000Z',
+          fingerprint: 'fp:current',
+          blockers: [
+            {
+              state: 'missing_capability',
+              type: 'semantic_capability',
+              id: 'capability:test',
+              summary: 'Test capability is missing.',
+              action: { kind: 'instruction', text: 'Install capability.' },
+            },
+          ],
+        },
+      }),
+      ops: {
+        listJobRuns: vi.fn(async () => []),
+        listRecentJobEvents,
+      } as unknown as RuntimeJobRepository,
+    });
+
+    expect(metadata.setup.deliveryNotice).toMatchObject({
+      outcome: 'ambiguous',
+      attempt: 1,
+    });
+    // Fixture fallback path: one bounded query (the postgres repo uses the
+    // set-based per-job window read instead).
+    expect(listRecentJobEvents).toHaveBeenCalledWith(200, {
+      app_id: 'default',
+      job_ids: ['job-1'],
+      event_type: 'job.setup_card_delivery',
+      order: 'desc',
+    });
+  });
+
+  it('ignores a retired prompt notice while a fresh prompt is live', async () => {
+    const listRecentJobEvents = vi.fn(async () => [
+      makeDenialEvent({
+        id: 3,
+        run_id: null,
+        event_type: 'job.setup_card_delivery',
+        payload: JSON.stringify({
+          prompt_id: 'prompt:retired',
+          generation: 1,
+          job_id: 'job-1',
+          setup_fingerprint: 'fp:current',
+          outcome: 'expired',
+          attempt: 1,
+          provider: 'telegram',
+        }),
+      }),
+    ]);
+    const metadata = await buildJobVisibilityMetadata({
+      job: makeJob({
+        status: 'paused',
+        pause_reason: 'Setup required',
+        setup_state: {
+          state: 'missing_capability',
+          checked_at: '2026-04-24T09:00:00.000Z',
+          fingerprint: 'fp:current',
+          blockers: [
+            {
+              state: 'missing_capability',
+              type: 'semantic_capability',
+              id: 'capability:test',
+              summary: 'Test capability is missing.',
+              action: { kind: 'instruction', text: 'Install capability.' },
+            },
+          ],
+        },
+      }),
+      ops: {
+        listJobRuns: vi.fn(async () => []),
+        listRecentJobEvents,
+        listLatestSetupPromptIds: vi.fn(
+          async () => new Map([['job-1', 'prompt:fresh']]),
+        ),
+      } as unknown as RuntimeJobRepository,
+    });
+
+    expect(metadata.setup.deliveryNotice).toBeNull();
+  });
+
   it('marks active pending once jobs with a missed fire window', async () => {
     const job = makeJob();
     const metadata = await buildJobVisibilityMetadata({

@@ -2,6 +2,7 @@
 import type { Job, JobAccessRequirement, JobCapabilityRequirementImplementation, JobEvent, JobRun } from '../../../../domain/repositories/domain-types.js';
 // prettier-ignore
 import type { JobAccessRequirementAppend, JobEventListFilters, JobListFilters, JobRunListFilters, JobUpsertInput, ReleasedStaleJobLease, SetupPausedJobRecoveryClaim, SetupPausedJobRecoveryRefresh } from '../../../../domain/repositories/ops-repo.js';
+import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import {
   CANONICAL_APP_ID,
@@ -388,6 +389,27 @@ export class CanonicalJobOpsService {
   async listDeadLetterRuns(limit = 50): Promise<JobRun[]> {
     const rows = await this.repository.listDeadLetterRuns(limit);
     return rows.map((row) => this.mapRun(row));
+  }
+
+  async listLatestSetupPromptIds(
+    appId: string,
+    jobIds: readonly string[],
+  ): Promise<Map<string, string>> {
+    return this.repository.listLatestSetupPromptIds(appId, jobIds);
+  }
+
+  async listSetupDeliveryEventsPerJob(
+    appId: string,
+    jobIds: readonly string[],
+    perJobLimit: number,
+  ): Promise<JobEvent[]> {
+    const rows = await this.repository.listSetupDeliveryEventsPerJob(
+      appId,
+      jobIds,
+      RUNTIME_EVENT_TYPES.JOB_SETUP_CARD_DELIVERY,
+      perJobLimit,
+    );
+    return rows.map((row, index) => this.mapEvent(row, index));
   }
 
   async listRecentJobEvents(

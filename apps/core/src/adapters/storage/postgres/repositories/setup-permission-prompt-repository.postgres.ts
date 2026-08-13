@@ -17,6 +17,11 @@ import {
   encodeJson,
   mapDelivery,
 } from './outbound-delivery-repository.postgres.helpers.js';
+import { PostgresRuntimeEventRepository } from './runtime-event-repository.postgres.js';
+import {
+  reconcileSetupPermissionPrompts,
+  type SetupPermissionPromptReconcileResult,
+} from './setup-permission-prompt-reconciliation.postgres.js';
 
 const ACTIVE_PROMPT_STATES = ['open', 'claimed'] as const;
 const ACTIVE_ITEM_STATES = ['pending', 'claimed'] as const;
@@ -29,7 +34,17 @@ export function setupPermissionPromptDeliveryKey(
 }
 
 export class PostgresSetupPermissionPromptRepository implements SetupPermissionPromptRepository {
-  constructor(private readonly db: CanonicalDb) {}
+  constructor(
+    private readonly db: CanonicalDb,
+    private readonly runtimeEvents = new PostgresRuntimeEventRepository(db),
+  ) {}
+
+  async reconcileSetupPermissionPrompts(input: {
+    now: string;
+    limit?: number;
+  }): Promise<SetupPermissionPromptReconcileResult> {
+    return reconcileSetupPermissionPrompts(this.db, this.runtimeEvents, input);
+  }
 
   async prepareSetupPermissionPrompt(
     input: SetupPermissionPromptPreparation,

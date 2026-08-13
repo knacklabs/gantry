@@ -111,6 +111,7 @@ export function schedulerJobSummary(job: unknown): string {
     `Owned by: ${ownerLabelText}`,
     `Delivers to: ${deliveryLabelText}`,
     `Setup: ${setupLabelText}`,
+    `Setup delivery: ${setupDeliveryNoticeSummary(setup)}`,
     `Next action: ${nextActionLabelText}`,
     `Health: ${String(health.state ?? 'unknown')} | latest ${String(health.latestRunStatus ?? 'none')} | action ${nextAction}`,
     `Recovery: ${recoverySummary(recovery)}`,
@@ -170,6 +171,16 @@ function setupActionSummary(setup: Record<string, any>): string {
   if (blocker) return formatJobSetupAction(blocker.action, blocker);
   return typeof setup.nextAction === 'string' && setup.nextAction.trim()
     ? setup.nextAction
+    : 'none';
+}
+
+function setupDeliveryNoticeSummary(setup: Record<string, any>): string {
+  const notice =
+    typeof setup.deliveryNotice === 'object' && setup.deliveryNotice !== null
+      ? (setup.deliveryNotice as Record<string, unknown>)
+      : undefined;
+  return typeof notice?.text === 'string' && notice.text.trim()
+    ? notice.text
     : 'none';
 }
 

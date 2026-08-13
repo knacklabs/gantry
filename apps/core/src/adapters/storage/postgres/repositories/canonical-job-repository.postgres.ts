@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import {
   listEventsForOwnerApp,
   listFirstEventPerRun,
+  listLatestEventsPerJob,
 } from './canonical-job-events-first-per-run.postgres.js';
 // prettier-ignore
 const eventIdOrder = (order?: 'asc' | 'desc') => (order === 'asc' ? asc(pgSchema.runtimeEventsPostgres.eventId) : desc(pgSchema.runtimeEventsPostgres.eventId));
@@ -700,6 +701,52 @@ export class PostgresCanonicalJobRepository {
       .orderBy(desc(pgSchema.runtimeEventsPostgres.eventId))
       .limit(1);
     return rows[0]?.appId;
+  }
+
+  async listSetupDeliveryEventsPerJob(
+    appId: string,
+    jobIds: readonly string[],
+    eventType: RuntimeEventType,
+    perJobLimit: number,
+  ) {
+    return listLatestEventsPerJob(this.db, {
+      appId,
+      jobIds: [...jobIds],
+      eventType,
+      perJobLimit,
+    });
+  }
+
+  async listLatestSetupPromptIds(
+    appId: string,
+    jobIds: readonly string[],
+  ): Promise<Map<string, string>> {
+    if (jobIds.length === 0) return new Map();
+    // Latest prompt per job INCLUDING settled ones: after expiry the
+    // retired prompt is still the newest, and its own 'expired' notice is
+    // exactly what the owner should see until resume issues a fresh row.
+    const rows = await this.db
+      .selectDistinctOn([pgSchema.permissionPromptsPostgres.jobId], {
+        jobId: pgSchema.permissionPromptsPostgres.jobId,
+        promptId: pgSchema.permissionPromptsPostgres.id,
+      })
+      .from(pgSchema.permissionPromptsPostgres)
+      .where(
+        and(
+          eq(pgSchema.permissionPromptsPostgres.appId, appId),
+          inArray(pgSchema.permissionPromptsPostgres.jobId, [...jobIds]),
+        ),
+      )
+      .orderBy(
+        pgSchema.permissionPromptsPostgres.jobId,
+        desc(pgSchema.permissionPromptsPostgres.createdAt),
+        desc(pgSchema.permissionPromptsPostgres.id),
+      );
+    return new Map(
+      rows.flatMap((row) =>
+        row.jobId ? [[row.jobId, row.promptId] as const] : [],
+      ),
+    );
   }
 
   async listEvents(

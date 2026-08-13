@@ -2,6 +2,7 @@ export interface OperationalErrorKindsBySubsystem {
   channels: 'permission_prompt';
   delivery:
     | 'ambiguous_settlement'
+    | 'permission_card_reconciliation'
     | 'notification_enqueue'
     | 'notification_send'
     | 'outbound_dispatch'

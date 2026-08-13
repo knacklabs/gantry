@@ -83,7 +83,7 @@ import { LIVE_SEND_PROFILE_ID, OBSERVER_DIGEST_PROFILE_ID, BRAIN_REVIEW_PROFILE_
 import { splitLiveSendProfileText } from './runtime-services-live-send-segmentation.js';
 import { createDurableOutboundAttempt } from './runtime-services-durable-outbound-attempt.js';
 // prettier-ignore
-import { dispatchRuntimePermissionCard, PERMISSION_CARD_DISPATCH_ACTIVE, setupPermissionCardProfile } from './runtime-services-permission-card.js';
+import { dispatchRuntimePermissionCard, PERMISSION_CARD_DISPATCH_ACTIVE, startRuntimePermissionCardReconciliation, setupPermissionCardProfile } from './runtime-services-permission-card.js';
 import { resolveConversationRoute } from './runtime-app-routes.js';
 import { handleActiveNewSessionCommand } from './runtime-services-active-new.js';
 import {
@@ -917,6 +917,7 @@ export async function startRuntimeServices(
         },
       });
     });
+    startRuntimePermissionCardReconciliation(outboundDeliveryRepository);
     resolved.startOutboundDeliveryRecoveryLoop({
       service: outboundDeliveryService,
       claimerId: `runtime-recovery:${process.pid}`,

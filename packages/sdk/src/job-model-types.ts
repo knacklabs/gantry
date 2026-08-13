@@ -62,6 +62,11 @@ export interface JobSetup {
     id: string;
   }>;
   nextAction: string | null;
+  deliveryNotice: {
+    outcome: 'delivered' | 'ambiguous' | 'exhausted' | 'cancelled' | 'expired';
+    attempt: number;
+    text: string;
+  } | null;
 }
 
 export type JobSetupAction =

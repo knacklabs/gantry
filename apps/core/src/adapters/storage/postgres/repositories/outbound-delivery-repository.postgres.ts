@@ -50,8 +50,22 @@ export class PostgresOutboundDeliveryRepository implements OutboundDeliveryRepos
     private readonly deps: {
       now?: () => string;
       createClaimToken?: () => string;
+      setupPermissionPrompts?: {
+        reconcileSetupPermissionPrompts(input: {
+          now: string;
+          limit?: number;
+        }): Promise<unknown>;
+      };
     } = {},
   ) {}
+  async reconcileSetupPermissionPrompts(input: {
+    now: string;
+    limit?: number;
+  }): Promise<unknown> {
+    return this.deps.setupPermissionPrompts?.reconcileSetupPermissionPrompts(
+      input,
+    );
+  }
   async enqueueDelivery(input: {
     delivery: OutboundDelivery;
     finalAnswer: OutboundDeliveryFinalAnswer;

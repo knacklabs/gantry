@@ -1929,6 +1929,16 @@ export function createPostgresDomainRepositories(
     cleanupProviderAttachment?: ProviderAttachmentCleanup;
   } = {},
 ): PostgresDomainRepositoryBundle {
+  const runtimeEvents = new PostgresRuntimeEventRepository(
+    db,
+    undefined,
+    options.maxLiveAdmissionBacklog,
+    options.cleanupProviderAttachment,
+  );
+  const setupPermissionPrompts = new PostgresSetupPermissionPromptRepository(
+    db,
+    runtimeEvents,
+  );
   return {
     apps: new PostgresAppRepository(db),
     agents: new PostgresAgentRepository(db),
@@ -1950,12 +1960,7 @@ export function createPostgresDomainRepositories(
     providerSessions: new PostgresProviderSessionRepository(db),
     agentSessionSummaries: new PostgresAgentSessionSummaryRepository(db),
     agentRuns: new PostgresAgentRunRepository(db),
-    runtimeEvents: new PostgresRuntimeEventRepository(
-      db,
-      undefined,
-      options.maxLiveAdmissionBacklog,
-      options.cleanupProviderAttachment,
-    ),
+    runtimeEvents,
     tools: new PostgresToolCatalogRepository(db),
     skills: new PostgresSkillCatalogRepository(db),
     capabilitySecrets: new PostgresCapabilitySecretRepository(db),
@@ -1964,8 +1969,10 @@ export function createPostgresDomainRepositories(
     permissions: new PostgresPermissionRepository(db),
     pendingAccessRequests: new PostgresPendingAccessRequestsRepository(db),
     sandboxes: new PostgresSandboxRepository(db),
-    outboundDeliveries: new PostgresOutboundDeliveryRepository(db),
-    setupPermissionPrompts: new PostgresSetupPermissionPromptRepository(db),
+    outboundDeliveries: new PostgresOutboundDeliveryRepository(db, {
+      setupPermissionPrompts,
+    }),
+    setupPermissionPrompts,
     workerCoordination: new PostgresWorkerCoordinationRepository(
       db,
       options.liveTurnCommandNotifier,

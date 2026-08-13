@@ -153,7 +153,14 @@ const SETUP_BLOCKER_TYPES = [
 ];
 const jobSetup = {
   type: 'object',
-  required: ['state', 'checkedAt', 'fingerprint', 'blockers', 'nextAction'],
+  required: [
+    'state',
+    'checkedAt',
+    'fingerprint',
+    'blockers',
+    'nextAction',
+    'deliveryNotice',
+  ],
   additionalProperties: false,
   properties: {
     state: { type: 'string', enum: SETUP_READINESS_STATES },
@@ -178,6 +185,30 @@ const jobSetup = {
       },
     },
     nextAction: { type: ['string', 'null'] },
+    deliveryNotice: {
+      oneOf: [
+        {
+          type: 'object',
+          required: ['outcome', 'attempt', 'text'],
+          additionalProperties: false,
+          properties: {
+            outcome: {
+              type: 'string',
+              enum: [
+                'delivered',
+                'ambiguous',
+                'exhausted',
+                'cancelled',
+                'expired',
+              ],
+            },
+            attempt: { type: 'integer', minimum: 0 },
+            text: { type: 'string' },
+          },
+        },
+        { type: 'null' },
+      ],
+    },
   },
 };
 const envelope = (name: string, schema: JsonSchema): JsonSchema => ({

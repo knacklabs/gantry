@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { setupPermissionPromptDeliveryKey } from '@core/adapters/storage/postgres/repositories/setup-permission-prompt-repository.postgres.js';
 import * as pgSchema from '@core/adapters/storage/postgres/schema/schema.js';
 import type { SetupPermissionPromptPreparation } from '@core/domain/ports/setup-permission-prompts.js';
+import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -666,6 +667,385 @@ maybeDescribe('setup permission prompt preparation', () => {
     expect(atomicItem).toEqual({ status: 'claimed' });
     expect(conflictingReceipts).toEqual([]);
   });
+
+  it('reconciles terminal truth independently from the job projection and expires prompts idempotently', async () => {
+    await insertSetupPausedJob(
+      runtime,
+      'job:setup-prompt:exhausted',
+      'fp:exhausted',
+    );
+    const exhaustedSetupState = persistedSetupState(
+      'fp:exhausted',
+      'fp:exhausted',
+    );
+    await runtime.service.db
+      .update(pgSchema.canonicalJobsPostgres)
+      .set({ setupState: exhaustedSetupState })
+      .where(
+        eq(pgSchema.canonicalJobsPostgres.id, 'job:setup-prompt:exhausted'),
+      );
+    const exhausted = preparation({
+      jobId: 'job:setup-prompt:exhausted',
+      promptId: 'prompt:setup:exhausted',
+      interactionId: 'interaction:setup:exhausted',
+      fingerprint: 'fp:exhausted',
+    });
+    await runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
+      exhausted,
+    );
+    await runtime.service.db
+      .update(pgSchema.outboundDeliveryItemsPostgres)
+      .set({
+        status: 'failed',
+        attemptCount: 4,
+        failedAt: later,
+        lastError: 'attempts exhausted',
+        updatedAt: later,
+      })
+      .where(
+        eq(
+          pgSchema.outboundDeliveryItemsPostgres.permissionPromptId,
+          'prompt:setup:exhausted',
+        ),
+      );
+    await runtime.service.db
+      .update(pgSchema.outboundDeliveriesPostgres)
+      .set({ status: 'failed', settledAt: later, updatedAt: later })
+      .where(eq(pgSchema.outboundDeliveriesPostgres.id, exhausted.delivery.id));
+
+    await insertSetupPausedJob(
+      runtime,
+      'job:setup-prompt:ambiguous',
+      'fp:ambiguous',
+    );
+    const ambiguousSetupState = persistedSetupState(
+      'fp:ambiguous',
+      'fp:ambiguous',
+    );
+    await runtime.service.db
+      .update(pgSchema.canonicalJobsPostgres)
+      .set({ setupState: ambiguousSetupState })
+      .where(
+        eq(pgSchema.canonicalJobsPostgres.id, 'job:setup-prompt:ambiguous'),
+      );
+    const ambiguous = preparation({
+      jobId: 'job:setup-prompt:ambiguous',
+      promptId: 'prompt:setup:ambiguous',
+      interactionId: 'interaction:setup:ambiguous',
+      fingerprint: 'fp:ambiguous',
+    });
+    await runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
+      ambiguous,
+    );
+    await runtime.service.db
+      .update(pgSchema.outboundDeliveryItemsPostgres)
+      .set({
+        status: 'partially_delivered',
+        attemptCount: 1,
+        failedAt: later,
+        lastError: 'provider outcome unknown',
+        updatedAt: later,
+      })
+      .where(
+        eq(
+          pgSchema.outboundDeliveryItemsPostgres.permissionPromptId,
+          'prompt:setup:ambiguous',
+        ),
+      );
+    await runtime.service.db
+      .update(pgSchema.outboundDeliveriesPostgres)
+      .set({
+        status: 'partially_delivered',
+        settledAt: later,
+        updatedAt: later,
+      })
+      .where(eq(pgSchema.outboundDeliveriesPostgres.id, ambiguous.delivery.id));
+
+    await insertSetupPausedJob(runtime, 'job:setup-prompt:stale', 'fp:stale');
+    const stale = preparation({
+      jobId: 'job:setup-prompt:stale',
+      promptId: 'prompt:setup:stale',
+      interactionId: 'interaction:setup:stale',
+      fingerprint: 'fp:stale',
+    });
+    await runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
+      stale,
+    );
+    await runtime.service.db
+      .update(pgSchema.outboundDeliveryItemsPostgres)
+      .set({
+        status: 'failed',
+        attemptCount: 4,
+        failedAt: later,
+        lastError: 'attempts exhausted',
+        updatedAt: later,
+      })
+      .where(
+        eq(
+          pgSchema.outboundDeliveryItemsPostgres.permissionPromptId,
+          'prompt:setup:stale',
+        ),
+      );
+    await runtime.service.db
+      .update(pgSchema.outboundDeliveriesPostgres)
+      .set({ status: 'failed', settledAt: later, updatedAt: later })
+      .where(eq(pgSchema.outboundDeliveriesPostgres.id, stale.delivery.id));
+    await runtime.service.db
+      .update(pgSchema.canonicalJobsPostgres)
+      .set({
+        setupState: persistedSetupState('fp:newer', 'fp:newer'),
+      })
+      .where(eq(pgSchema.canonicalJobsPostgres.id, 'job:setup-prompt:stale'));
+
+    await insertSetupPausedJob(runtime, 'job:setup-prompt:deleted', 'fp:gone');
+    const deleted = preparation({
+      jobId: 'job:setup-prompt:deleted',
+      promptId: 'prompt:setup:deleted',
+      interactionId: 'interaction:setup:deleted',
+      fingerprint: 'fp:gone',
+    });
+    await runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
+      deleted,
+    );
+    await runtime.service.db
+      .update(pgSchema.outboundDeliveryItemsPostgres)
+      .set({
+        status: 'partially_delivered',
+        attemptCount: 1,
+        failedAt: later,
+        updatedAt: later,
+      })
+      .where(
+        eq(
+          pgSchema.outboundDeliveryItemsPostgres.permissionPromptId,
+          'prompt:setup:deleted',
+        ),
+      );
+    await runtime.service.db
+      .update(pgSchema.outboundDeliveriesPostgres)
+      .set({
+        status: 'partially_delivered',
+        settledAt: later,
+        updatedAt: later,
+      })
+      .where(eq(pgSchema.outboundDeliveriesPostgres.id, deleted.delivery.id));
+    await runtime.service.db
+      .delete(pgSchema.canonicalJobsPostgres)
+      .where(eq(pgSchema.canonicalJobsPostgres.id, 'job:setup-prompt:deleted'));
+
+    await insertSetupPausedJob(
+      runtime,
+      'job:setup-prompt:cancelled',
+      'fp:cancelled',
+    );
+    const cancelled = preparation({
+      jobId: 'job:setup-prompt:cancelled',
+      promptId: 'prompt:setup:cancelled',
+      interactionId: 'interaction:setup:cancelled',
+      fingerprint: 'fp:cancelled',
+    });
+    await runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
+      cancelled,
+    );
+    await runtime.service.db
+      .update(pgSchema.outboundDeliveryItemsPostgres)
+      .set({
+        status: 'cancelled',
+        cancellationReasonJson: { code: 'target_invalidated' },
+        updatedAt: later,
+      })
+      .where(
+        eq(
+          pgSchema.outboundDeliveryItemsPostgres.permissionPromptId,
+          'prompt:setup:cancelled',
+        ),
+      );
+    await runtime.service.db
+      .update(pgSchema.outboundDeliveriesPostgres)
+      .set({
+        status: 'cancelled',
+        cancellationReasonJson: { code: 'target_invalidated' },
+        settledAt: later,
+        updatedAt: later,
+      })
+      .where(eq(pgSchema.outboundDeliveriesPostgres.id, cancelled.delivery.id));
+
+    const reconciled = await reconcileSetupPrompts(runtime, later);
+    expect(reconciled.terminalDeliveries).toBeGreaterThanOrEqual(5);
+    await expect(reconcileSetupPrompts(runtime, later)).resolves.toMatchObject({
+      terminalDeliveries: 0,
+      expiredPrompts: 0,
+    });
+    const terminalEvents =
+      await runtime.repositories.runtimeEvents.listRuntimeEvents({
+        appId: 'default' as never,
+        eventTypes: [RUNTIME_EVENT_TYPES.JOB_SETUP_CARD_DELIVERY],
+        limit: 100,
+      });
+    expect(
+      terminalEvents.find(
+        (event) =>
+          event.idempotencyKey ===
+          'card_delivery_terminal:prompt:setup:stale:1',
+      )?.payload,
+    ).toMatchObject({
+      outcome: 'exhausted',
+      attempt: 4,
+      job_id: 'job:setup-prompt:stale',
+      setup_fingerprint: 'fp:stale',
+    });
+    expect(
+      terminalEvents.find(
+        (event) =>
+          event.idempotencyKey ===
+          'card_delivery_terminal:prompt:setup:deleted:1',
+      )?.payload,
+    ).toMatchObject({
+      outcome: 'ambiguous',
+      job_id: 'job:setup-prompt:deleted',
+    });
+    const [staleJob] = await runtime.service.db
+      .select({ setupState: pgSchema.canonicalJobsPostgres.setupState })
+      .from(pgSchema.canonicalJobsPostgres)
+      .where(eq(pgSchema.canonicalJobsPostgres.id, 'job:setup-prompt:stale'));
+    expect(staleJob?.setupState).toMatchObject({
+      fingerprint: 'fp:newer',
+      notified_fingerprint: 'fp:newer',
+    });
+    const [exhaustedJob] = await runtime.service.db
+      .select({ setupState: pgSchema.canonicalJobsPostgres.setupState })
+      .from(pgSchema.canonicalJobsPostgres)
+      .where(
+        eq(pgSchema.canonicalJobsPostgres.id, 'job:setup-prompt:exhausted'),
+      );
+    const [exhaustedPrompt] = await runtime.service.db
+      .select({ state: pgSchema.permissionPromptsPostgres.settlementState })
+      .from(pgSchema.permissionPromptsPostgres)
+      .where(
+        eq(pgSchema.permissionPromptsPostgres.id, 'prompt:setup:exhausted'),
+      );
+    const [exhaustedMember] = await runtime.service.db
+      .select({ status: pgSchema.pendingInteractionsPostgres.status })
+      .from(pgSchema.pendingInteractionsPostgres)
+      .where(
+        eq(
+          pgSchema.pendingInteractionsPostgres.envelopeId,
+          'prompt:setup:exhausted',
+        ),
+      );
+    expect(exhaustedJob?.setupState).toEqual({
+      ...exhaustedSetupState,
+      notified_fingerprint: null,
+    });
+    expect(exhaustedPrompt).toEqual({ state: 'open' });
+    expect(exhaustedMember).toEqual({ status: 'pending' });
+    await expect(
+      runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
+        preparation({
+          jobId: 'job:setup-prompt:exhausted',
+          promptId: 'prompt:setup:exhausted',
+          interactionId: 'interaction:setup:exhausted',
+          fingerprint: 'fp:exhausted',
+        }),
+      ),
+    ).resolves.toMatchObject({ created: true, generation: 2 });
+    const [ambiguousJob] = await runtime.service.db
+      .select({ setupState: pgSchema.canonicalJobsPostgres.setupState })
+      .from(pgSchema.canonicalJobsPostgres)
+      .where(
+        eq(pgSchema.canonicalJobsPostgres.id, 'job:setup-prompt:ambiguous'),
+      );
+    const [ambiguousPrompt] = await runtime.service.db
+      .select({ state: pgSchema.permissionPromptsPostgres.settlementState })
+      .from(pgSchema.permissionPromptsPostgres)
+      .where(
+        eq(pgSchema.permissionPromptsPostgres.id, 'prompt:setup:ambiguous'),
+      );
+    const [ambiguousMember] = await runtime.service.db
+      .select({ status: pgSchema.pendingInteractionsPostgres.status })
+      .from(pgSchema.pendingInteractionsPostgres)
+      .where(
+        eq(
+          pgSchema.pendingInteractionsPostgres.envelopeId,
+          'prompt:setup:ambiguous',
+        ),
+      );
+    expect(ambiguousJob?.setupState).toEqual(ambiguousSetupState);
+    expect(ambiguousPrompt).toEqual({ state: 'open' });
+    expect(ambiguousMember).toEqual({ status: 'pending' });
+    const [cancelledPrompt] = await runtime.service.db
+      .select({ state: pgSchema.permissionPromptsPostgres.settlementState })
+      .from(pgSchema.permissionPromptsPostgres)
+      .where(
+        eq(pgSchema.permissionPromptsPostgres.id, 'prompt:setup:cancelled'),
+      );
+    const [cancelledMember] = await runtime.service.db
+      .select({ status: pgSchema.pendingInteractionsPostgres.status })
+      .from(pgSchema.pendingInteractionsPostgres)
+      .where(
+        eq(
+          pgSchema.pendingInteractionsPostgres.envelopeId,
+          'prompt:setup:cancelled',
+        ),
+      );
+    expect(cancelledPrompt).toEqual({ state: 'cancelled' });
+    expect(cancelledMember).toEqual({ status: 'cancelled' });
+
+    await insertSetupPausedJob(runtime, 'job:setup-prompt:ttl', 'fp:ttl');
+    const expiring = preparation({
+      jobId: 'job:setup-prompt:ttl',
+      promptId: 'prompt:setup:ttl:a',
+      interactionId: 'interaction:setup:ttl:a',
+      fingerprint: 'fp:ttl',
+    });
+    await runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
+      expiring,
+    );
+    await runtime.service.db
+      .update(pgSchema.canonicalJobsPostgres)
+      .set({
+        setupState: persistedSetupState('fp:ttl', 'fp:ttl'),
+      })
+      .where(eq(pgSchema.canonicalJobsPostgres.id, 'job:setup-prompt:ttl'));
+    const expired = await reconcileSetupPrompts(
+      runtime,
+      '2026-08-15T10:00:00.000Z',
+    );
+    expect(expired.expiredPrompts).toBeGreaterThanOrEqual(1);
+    const [expiredPrompt] = await runtime.service.db
+      .select({ state: pgSchema.permissionPromptsPostgres.settlementState })
+      .from(pgSchema.permissionPromptsPostgres)
+      .where(eq(pgSchema.permissionPromptsPostgres.id, 'prompt:setup:ttl:a'));
+    const [expiredMember] = await runtime.service.db
+      .select({ status: pgSchema.pendingInteractionsPostgres.status })
+      .from(pgSchema.pendingInteractionsPostgres)
+      .where(
+        eq(
+          pgSchema.pendingInteractionsPostgres.envelopeId,
+          'prompt:setup:ttl:a',
+        ),
+      );
+    const [expiryJob] = await runtime.service.db
+      .select({ setupState: pgSchema.canonicalJobsPostgres.setupState })
+      .from(pgSchema.canonicalJobsPostgres)
+      .where(eq(pgSchema.canonicalJobsPostgres.id, 'job:setup-prompt:ttl'));
+    expect(expiredPrompt).toEqual({ state: 'expired' });
+    expect(expiredMember).toEqual({ status: 'expired' });
+    expect(expiryJob?.setupState).toEqual(persistedSetupState('fp:ttl', null));
+    await expect(
+      reconcileSetupPrompts(runtime, '2026-08-15T10:00:00.000Z'),
+    ).resolves.toMatchObject({ expiredPrompts: 0 });
+    await expect(
+      runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
+        preparation({
+          jobId: 'job:setup-prompt:ttl',
+          promptId: 'prompt:setup:ttl:b',
+          interactionId: 'interaction:setup:ttl:b',
+          fingerprint: 'fp:ttl',
+        }),
+      ),
+    ).resolves.toMatchObject({ created: true, promptId: 'prompt:setup:ttl:b' });
+  });
 });
 
 async function insertSetupPausedJob(
@@ -684,10 +1064,47 @@ async function insertSetupPausedJob(
     targetJson: {},
     status: 'paused',
     pauseReason: 'Setup required',
-    setupState: { state: 'blocked', fingerprint },
+    setupState: persistedSetupState(fingerprint, null),
     createdAt: now,
     updatedAt: now,
   });
+}
+
+function persistedSetupState(
+  fingerprint: string,
+  notifiedFingerprint: string | null,
+) {
+  return {
+    state: 'missing_capability',
+    checked_at: now,
+    fingerprint,
+    notified_fingerprint: notifiedFingerprint,
+    blockers: [
+      {
+        state: 'missing_capability',
+        type: 'semantic_capability',
+        id: 'capability:test.setup',
+        summary: 'Test setup capability is missing.',
+        action: {
+          kind: 'instruction',
+          text: 'Install the test setup capability.',
+        },
+      },
+    ],
+  } as const;
+}
+
+function reconcileSetupPrompts(
+  runtime: PostgresIntegrationRuntime,
+  reconcileAt: string,
+) {
+  const repository = runtime.repositories
+    .setupPermissionPrompts as typeof runtime.repositories.setupPermissionPrompts & {
+    reconcileSetupPermissionPrompts(input: {
+      now: string;
+    }): Promise<{ terminalDeliveries: number; expiredPrompts: number }>;
+  };
+  return repository.reconcileSetupPermissionPrompts({ now: reconcileAt });
 }
 
 let preparationAttempt = 0;

@@ -47,6 +47,11 @@ interface JobRecord {
       summary?: string;
       action?: unknown;
     }>;
+    deliveryNotice?: {
+      outcome?: string;
+      attempt?: number;
+      text?: string;
+    } | null;
   };
   recovery?: {
     state?: string;
@@ -337,7 +342,7 @@ function jobNextActionLabel(job: JobRecord): string {
   return formatJobNextAction(job.setup, nextAction);
 }
 
-function formatJobDetail(job: JobRecord): string {
+export function formatJobDetail(job: JobRecord): string {
   const lines = [
     `ID: ${job.jobId}`,
     `Name: ${job.name}`,
@@ -350,6 +355,7 @@ function formatJobDetail(job: JobRecord): string {
     `Conversation: ${jobConversationLabel(job)}`,
     `Thread: ${jobThreadId(job) ?? 'none'}`,
     `Setup: ${setupReadinessLabel(job.setup?.state)}`,
+    `Setup delivery: ${job.setup?.deliveryNotice?.text ?? 'none'}`,
     `Next action: ${jobNextActionLabel(job)}`,
     `Access requirements: ${jobAccessRequirementsLabel(job)}`,
     formatJobToolAccess(job.toolAccess),

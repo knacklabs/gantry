@@ -284,6 +284,20 @@ export const JobSetupSchema = z
         .strict(),
     ),
     nextAction: z.string().nullable(),
+    deliveryNotice: z
+      .object({
+        outcome: z.enum([
+          'delivered',
+          'ambiguous',
+          'exhausted',
+          'cancelled',
+          'expired',
+        ]),
+        attempt: z.number().int().nonnegative(),
+        text: z.string(),
+      })
+      .strict()
+      .nullable(),
   })
   .strict();
 export type JobSetup = z.infer<typeof JobSetupSchema>;

@@ -124,7 +124,7 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
     ).event;
   }
 
-  private async appendRuntimeEventWithOutcomeAndExecutor(
+  async appendRuntimeEventWithOutcomeAndExecutor(
     executor: CanonicalExecutor,
     input: RuntimeEventPublishInput,
   ): Promise<{ event: RuntimeEvent; inserted: boolean }> {

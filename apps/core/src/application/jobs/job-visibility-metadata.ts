@@ -38,6 +38,10 @@ import {
   formatJobSetupAction,
   setupReadinessLabel,
 } from '../../shared/job-setup-labels.js';
+import {
+  setupDeliveryNoticeFromEvents,
+  type JobSetupDeliveryNotice,
+} from './job-setup-delivery-notice.js';
 
 export interface JobVisibilityMetadata {
   executionContext: JobExecutionContextInput;
@@ -109,6 +113,7 @@ export interface JobSetupMetadata {
     id: string;
   }>;
   nextAction: string | null;
+  deliveryNotice: JobSetupDeliveryNotice | null;
 }
 
 export async function buildJobVisibilityMetadata(input: {
@@ -152,7 +157,15 @@ export async function buildJobVisibilityMetadata(input: {
     nowMs,
     denial: latestRun ? (denialsByRun.get(latestRun.run_id) ?? null) : null,
   });
-  const setup = setupMetadataForJob(input.job);
+  const deliveryContext = await loadSetupDeliveryEvents(input.ops, {
+    appId,
+    jobIds: [input.job.id],
+  });
+  const setup = setupMetadataForJob(
+    input.job,
+    deliveryContext.events,
+    deliveryContext.activePromptIds.get(input.job.id) ?? null,
+  );
   const displayLabels = deriveJobDisplayLabels({
     executionContext,
     notificationRoutes,
@@ -212,6 +225,10 @@ export async function buildJobListVisibilityMetadata(input: {
       .map((run) => run?.run_id)
       .filter((runId): runId is string => typeof runId === 'string'),
   });
+  const deliveryContext = await loadSetupDeliveryEvents(input.ops, {
+    appId: input.appId ?? DEFAULT_JOB_RUNTIME_APP_ID,
+    jobIds: input.jobs.map((job) => job.id),
+  });
   const inheritedToolsByTarget = new Map<string, Promise<string[]>>();
   const loadInheritedTools = (
     appId: string,
@@ -252,7 +269,11 @@ export async function buildJobListVisibilityMetadata(input: {
         const staleness = schedulerJobStaleness(job, nowMs);
         const latestRun = latestRunsByJobId.get(job.id);
         const runs = latestRun ? [latestRun] : [];
-        const setup = setupMetadataForJob(job);
+        const setup = setupMetadataForJob(
+          job,
+          deliveryContext.events.filter((event) => event.job_id === job.id),
+          deliveryContext.activePromptIds.get(job.id) ?? null,
+        );
         const health = buildJobHealth({
           job,
           runs,
@@ -426,12 +447,18 @@ function genericConversationDeliveryLabel(
 
 // "Needs approval" only fits capability/permission grants; broker, credential,
 // and browser-login blockers are not approvals, so they read as "Needs setup".
-function setupMetadataForJob(job: Job): JobSetupMetadata {
-  return jobSetupMetadataForState(job.setup_state);
+function setupMetadataForJob(
+  job: Job,
+  deliveryEvents: readonly JobEvent[] = [],
+  activePromptId: string | null = null,
+): JobSetupMetadata {
+  return jobSetupMetadataForState(job.setup_state, deliveryEvents, activePromptId);
 }
 
 export function jobSetupMetadataForState(
   setup: Job['setup_state'],
+  deliveryEvents: readonly JobEvent[] = [],
+  activePromptId: string | null = null,
 ): JobSetupMetadata {
   const blockers = setup?.blockers ?? [];
   return {
@@ -448,7 +475,59 @@ export function jobSetupMetadataForState(
     nextAction: blockers[0]
       ? formatJobSetupAction(blockers[0].action, blockers[0])
       : null,
+    deliveryNotice: setupDeliveryNoticeFromEvents({
+      events: deliveryEvents,
+      setupFingerprint: setup?.fingerprint,
+      activePromptId,
+    }),
   };
+}
+
+interface SetupDeliveryContext {
+  events: JobEvent[];
+  activePromptIds: Map<string, string>;
+}
+
+const EMPTY_SETUP_DELIVERY_CONTEXT: SetupDeliveryContext = {
+  events: [],
+  activePromptIds: new Map(),
+};
+
+async function loadSetupDeliveryEvents(
+  ops:
+    | Pick<
+        RuntimeJobRepository,
+        | 'listRecentJobEvents'
+        | 'listLatestSetupPromptIds'
+        | 'listSetupDeliveryEventsPerJob'
+      >
+    | undefined,
+  input: { appId: string; jobIds: string[] },
+): Promise<SetupDeliveryContext> {
+  if (
+    !ops ||
+    typeof ops.listRecentJobEvents !== 'function' ||
+    input.jobIds.length === 0
+  ) {
+    return EMPTY_SETUP_DELIVERY_CONTEXT;
+  }
+  // ONE set-based query with a per-job window cap: no per-job fan-out,
+  // and no shared limit one job's history can starve. Fixtures without
+  // the method fall back to a single bounded query.
+  const [events, activePromptIds] = await Promise.all([
+    typeof ops.listSetupDeliveryEventsPerJob === 'function'
+      ? ops.listSetupDeliveryEventsPerJob(input.appId, input.jobIds, 10)
+      : ops.listRecentJobEvents(Math.max(200, input.jobIds.length * 10), {
+          app_id: input.appId,
+          job_ids: input.jobIds,
+          event_type: RUNTIME_EVENT_TYPES.JOB_SETUP_CARD_DELIVERY,
+          order: 'desc',
+        }),
+    typeof ops.listLatestSetupPromptIds === 'function'
+      ? ops.listLatestSetupPromptIds(input.appId, input.jobIds)
+      : Promise.resolve(new Map<string, string>()),
+  ]);
+  return { events, activePromptIds };
 }
 
 function nextJobHealthAction(

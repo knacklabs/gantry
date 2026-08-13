@@ -422,4 +422,77 @@ export function startOutboundDeliveryRecoveryLoop(
 
 export async function stopOutboundDeliveryRecoveryLoop(): Promise<void> {
   await activeRecoveryLoop?.stop();
+  // The reconciliation loop shares the outbound-delivery lifecycle: a
+  // restart in the same process must not leave the old singleton polling
+  // a closed repository.
+  await activeReconciliationLoop?.stop();
+}
+
+// Reconciliation runs as its OWN supervised loop on the same cadence: a
+// slow or lock-blocked reconciliation pass must never gate delivery
+// claims, and a failed pass only skips its own tick.
+let activeReconciliationLoop: OutboundDeliveryRecoveryLoopController | null =
+  null;
+
+export function startSetupPromptReconciliationLoop(input: {
+  run: () => Promise<unknown>;
+  intervalMs?: number;
+  warn?: (meta: Record<string, unknown>, message: string) => void;
+}): OutboundDeliveryRecoveryLoopController {
+  if (activeReconciliationLoop) {
+    return activeReconciliationLoop;
+  }
+  const intervalMs = Math.max(250, input.intervalMs ?? 5_000);
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let running: Promise<void> | undefined;
+
+  const schedule = (delayMs: number) => {
+    if (stopped) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      void tick();
+    }, delayMs);
+    timer.unref?.();
+  };
+
+  const tick = async () => {
+    if (stopped || running) return;
+    running = input
+      .run()
+      .then(
+        () => undefined,
+        (err) => {
+          // Always count: a persistent failure must be operationally
+          // visible even when no warn sink is wired.
+          incrementOperationalError('delivery', 'permission_card_reconciliation');
+          input.warn?.({ err }, 'Permission-card reconciliation run failed');
+        },
+      )
+      .finally(() => {
+        running = undefined;
+        schedule(intervalMs);
+      });
+    await running;
+  };
+
+  const controller: OutboundDeliveryRecoveryLoopController = {
+    isRunning: () => !stopped,
+    stop: async () => {
+      if (stopped) return;
+      stopped = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      await running;
+      if (activeReconciliationLoop === controller) {
+        activeReconciliationLoop = null;
+      }
+    },
+  };
+
+  activeReconciliationLoop = controller;
+  schedule(intervalMs);
+  return controller;
 }

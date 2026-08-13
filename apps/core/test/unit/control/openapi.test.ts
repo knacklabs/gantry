@@ -1284,6 +1284,31 @@ describe('control OpenAPI documentation', () => {
     expect(spec.components.schemas.JobCreateRequest).toMatchObject({
       required: ['name', 'prompt', 'executionContext'],
     });
+    expect(spec.components.schemas.Job.properties.setup).toMatchObject({
+      required: expect.arrayContaining(['deliveryNotice']),
+      properties: {
+        deliveryNotice: {
+          oneOf: [
+            expect.objectContaining({
+              required: ['outcome', 'attempt', 'text'],
+              properties: expect.objectContaining({
+                outcome: {
+                  type: 'string',
+                  enum: [
+                    'delivered',
+                    'ambiguous',
+                    'exhausted',
+                    'cancelled',
+                    'expired',
+                  ],
+                },
+              }),
+            }),
+            { type: 'null' },
+          ],
+        },
+      },
+    });
     expect(spec.components.schemas.Model).toMatchObject({
       properties: expect.objectContaining({
         responseFamily: { type: 'string' },

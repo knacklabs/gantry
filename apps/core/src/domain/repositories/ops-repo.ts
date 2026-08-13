@@ -333,6 +333,21 @@ export interface RuntimeJobRepository {
     limit?: number,
     filters?: JobEventListFilters,
   ): Promise<JobEvent[]>;
+  // LATEST setup permission prompt per job, including settled ones (the
+  // retired prompt's own notice is the current story until resume issues
+  // a fresh row). Optional so in-memory fixtures without a prompt store
+  // stay valid; callers treat absence as "no prompt known".
+  listLatestSetupPromptIds?(
+    appId: string,
+    jobIds: readonly string[],
+  ): Promise<Map<string, string>>;
+  // Set-based per-job read for setup delivery notices (window function,
+  // one query). Optional: fixtures fall back to listRecentJobEvents.
+  listSetupDeliveryEventsPerJob?(
+    appId: string,
+    jobIds: readonly string[],
+    perJobLimit: number,
+  ): Promise<JobEvent[]>;
 }
 
 export interface ReleasedStaleJobLease {
