@@ -9,6 +9,7 @@ import { stableSha256Json } from '../shared/stable-hash.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import type { TaskContext, TaskHandler } from './ipc-types.js';
 import { toPublicAsyncTaskDto } from '../domain/ports/async-tasks.js';
+import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 
 const checkpointHandler: TaskHandler = async (context) => {
   const { data, deps, sourceAgentFolder } = context;
@@ -115,6 +116,20 @@ const checkpointHandler: TaskHandler = async (context) => {
       cumulativeRuntimeMs: payload.cumulativeRuntimeMs,
     } as JobSemanticCheckpointPayload,
   });
+  if (result.outcome === 'persisted' || result.outcome === 'replayed') {
+    await deps.publishRuntimeEvent?.({
+      appId: data.appId as never,
+      agentId: agentId as never,
+      runId: runId as never,
+      jobId: jobId as never,
+      eventType: RUNTIME_EVENT_TYPES.TASK_UPDATED,
+      actor: 'gantry-runtime',
+      payload: {
+        type: 'job_checkpoint_saved',
+        checkpoint: result.checkpoint,
+      },
+    });
+  }
   acceptData('Job checkpoint request completed.', result);
 };
 

@@ -76,6 +76,7 @@ describe('external capability MCP task', () => {
         chatJid: 'app:manipal-tender-copilot:conversation-1',
         targetJid: 'app:manipal-tender-copilot:conversation-1',
         sourceRunKind: 'scheduled',
+        providerAccountId: 'provider-account-1',
         jobId: 'job-1',
         runId: 'run-1',
         sourceJobId: 'job-1',
@@ -92,7 +93,12 @@ describe('external capability MCP task', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: asyncRuntimeDeps(repository),
-      conversationBindings: {},
+      conversationBindings: {
+        unrelated_agent: {
+          conversationId: 'unrelated-conversation',
+          source: 'sl:unrelated',
+        },
+      } as never,
       sourceAgentFolderJids: [],
     });
 

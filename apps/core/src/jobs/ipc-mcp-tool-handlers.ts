@@ -858,6 +858,9 @@ function resolveMcpRouteScope(
 ): { conversationId?: string; threadId?: string } | null {
   const threadId =
     context.data.authThreadId || context.data.threadId || undefined;
+  if (isAuthenticatedScheduledAppConversation(context.data, targetJid)) {
+    return { threadId };
+  }
   if (
     Object.keys(context.conversationBindings).length === 0 &&
     !context.data.providerAccountId
