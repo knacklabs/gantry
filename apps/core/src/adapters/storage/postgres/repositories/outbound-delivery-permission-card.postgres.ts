@@ -472,6 +472,9 @@ export async function markDeliveryItemCancelled(
             pgSchema.outboundDeliveryItemsPostgres.claimToken,
             input.claimToken,
           ),
+          // A send that already began must resolve through settlement or
+          // the ambiguity rules - cancellation only lands pre-checkpoint.
+          isNull(pgSchema.outboundDeliveryItemsPostgres.sendBegunAt),
         ),
       )
       .returning({ id: pgSchema.outboundDeliveryItemsPostgres.id });
