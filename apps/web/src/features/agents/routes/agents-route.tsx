@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Bot, CircleOff, RefreshCw, SearchX } from 'lucide-react';
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   agentsQuery,
@@ -31,8 +31,9 @@ export function AgentsRoute() {
   const search = useSearch({ from: '/agents' });
   const navigate = useNavigate({ from: '/agents' });
   const query = useQuery(agentsQuery);
-  const [searchInput, setSearchInput] = useState(search.q);
   const [searchText, setSearchText] = useState(search.q);
+  const searchInput = useRef(search.q);
+  const searchTimeout = useRef<number | undefined>(undefined);
   const agents = query.data?.agents ?? [];
   const visible = useMemo(() => {
     const normalized = searchText.trim().toLowerCase();
@@ -44,13 +45,22 @@ export function AgentsRoute() {
     search.sort === 'name' || search.sort === 'status' ? search.sort : 'name';
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => setSearchText(searchInput), 200);
-    return () => window.clearTimeout(timeout);
-  }, [searchInput]);
+    return () => window.clearTimeout(searchTimeout.current);
+  }, []);
+
+  function updateSearch(value: string) {
+    searchInput.current = value;
+    window.clearTimeout(searchTimeout.current);
+    searchTimeout.current = window.setTimeout(
+      () => setSearchText(searchInput.current),
+      200,
+    );
+  }
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSearchText(searchInput);
+    window.clearTimeout(searchTimeout.current);
+    setSearchText(searchInput.current);
   }
 
   const columns = useMemo<ColumnDef<UiAgent>[]>(
@@ -160,12 +170,12 @@ export function AgentsRoute() {
                 onSubmit={submitSearch}
               >
                 <TextField
+                  defaultValue={search.q}
                   id="agent-search"
                   label="Search agents"
                   name="q"
-                  onChange={(event) => setSearchInput(event.target.value)}
+                  onChange={(event) => updateSearch(event.target.value)}
                   placeholder="Agent name"
-                  value={searchInput}
                 />
                 <Button variant="secondary" type="submit">
                   Search
