@@ -198,6 +198,9 @@ function isReviewEachClaim(
 export interface DurablePermissionInteractionContext {
   scope: PermissionCallbackScope;
   requestId: string;
+  // Review-each expiry hides the claim below but the recovery path still
+  // needs to know the settled outcome to terminalize a stranded card.
+  reviewEachExpired?: boolean;
   batchCallbackId: string | null;
   sourceAgentFolder: string;
   targetJid: string | null;
@@ -261,9 +264,11 @@ export async function findDurablePermissionInteractionByRequestId(input: {
       externalPromptThreadId: prompt.externalPromptThreadId,
       providerAliases,
       request: prompt.envelope.renderedRequest,
-      ...(prompt.settlementState !== 'review_each_expired' && prompt.claim
-        ? { claim: prompt.claim }
-        : {}),
+      ...(prompt.settlementState === 'review_each_expired'
+        ? { reviewEachExpired: true }
+        : prompt.claim
+          ? { claim: prompt.claim }
+          : {}),
       ...(fullView ? { fullView } : {}),
     };
   } catch (err) {

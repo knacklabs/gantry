@@ -121,37 +121,50 @@ export async function recoverDurablePermissionDecision(
     ...(recoveredClaim ? { recoveredClaim } : {}),
   });
   if (claimed.status === 'already_decided') {
-    // Batch review-each: settlement (member expiry) completes BEFORE the
-    // provider card terminalizes, and terminalization can fail retryably -
-    // a later tap must finish the card instead of stranding it active. The
-    // settled review-each outcome is always the system cancel.
-    if (matchKind === 'batch') {
-      try {
-        if (
-          !(await hooks.terminalize({
-            status: 'resolved',
-            request: durable.request,
-            decision: decisionForMode(
-              durable.request,
-              'cancel',
-              'system',
-              matchKind,
-            ),
-            context: durable,
-          }))
-        ) {
-          await feedback(hooks, RETRY_FEEDBACK);
-          return 'retryable';
-        }
-      } catch {
+    // Settlement completes BEFORE the provider card terminalizes, and
+    // terminalization can fail retryably - a later tap must finish the
+    // card with the SETTLED outcome instead of stranding it active. The
+    // settled intent lives on the persisted claim; a review-each expiry
+    // (batch claim settled as allow_persistent_rule) terminalizes as the
+    // system cancel, everything else replays its recorded decision.
+    const settledMode =
+      expiringReviewEach || durable.reviewEachExpired
+        ? 'cancel'
+        : recoveredClaim?.intent.mode;
+    if (!settledMode) {
+      // No recoverable outcome (card already terminalized or claim gone).
+      await feedback(hooks, 'This permission request was already decided.');
+      return 'already_decided';
+    }
+    const settledDecision = {
+      ...decisionForMode(
+        durable.request,
+        settledMode,
+        expiringReviewEach || durable.reviewEachExpired
+          ? 'system'
+          : (recoveredClaim?.intent.approverRef ?? 'system'),
+        matchKind,
+      ),
+      ...(recoveredClaim ? { permissionCallbackClaim: recoveredClaim } : {}),
+    };
+    try {
+      if (
+        !(await hooks.terminalize({
+          status: 'resolved',
+          request: durable.request,
+          decision: settledDecision,
+          context: durable,
+        }))
+      ) {
         await feedback(hooks, RETRY_FEEDBACK);
         return 'retryable';
       }
-      await feedback(hooks, 'Decision recorded.');
-      return 'resolved';
+    } catch {
+      await feedback(hooks, RETRY_FEEDBACK);
+      return 'retryable';
     }
-    await feedback(hooks, 'This permission request was already decided.');
-    return 'already_decided';
+    await feedback(hooks, 'Decision recorded.');
+    return 'resolved';
   }
   if (claimed.status === 'retryable') {
     await feedback(hooks, RETRY_FEEDBACK);
