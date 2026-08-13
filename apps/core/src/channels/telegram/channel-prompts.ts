@@ -134,6 +134,10 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
     callbackId: string;
     timeoutMs: number;
     threadOpts: { message_thread_id?: number };
+    // Fired immediately before the FIRST Telegram API call: everything
+    // before it is local preparation and stays retryable (0128
+    // transmission boundary).
+    onTransmissionBegin?: () => void;
   }): Promise<{ message_id: number }> {
     if (!this.bot) throw new Error('Telegram bot is not connected');
     const parts = buildPermissionPromptParts(input.request, input.timeoutMs);
@@ -146,6 +150,9 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
         TELEGRAM_PERMISSION_FULL_VIEW_INLINE_MAX &&
       promptHtmlWithFullView.length <= TELEGRAM_MESSAGE_MAX_LENGTH,
     );
+    if (parts.fullView && !includeInlineFullView) {
+      input.onTransmissionBegin?.();
+    }
     const fullViewSent =
       parts.fullView && !includeInlineFullView
         ? await this.sendPermissionFullViewDocument({
@@ -216,6 +223,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
         },
       ]),
     };
+    input.onTransmissionBegin?.();
     if (promptHtml.length > TELEGRAM_MESSAGE_MAX_LENGTH) {
       await this.sendSplitPermissionReviewMessages({
         chatId: input.chatId,

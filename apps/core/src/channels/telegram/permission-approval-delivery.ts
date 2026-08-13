@@ -36,6 +36,7 @@ export async function requestTelegramPermissionApproval(input: {
   timeoutMs: number;
   pendingPrompts: Map<string, PendingTelegramPermission>;
   sendPrompt: (input: {
+    onTransmissionBegin?: () => void;
     chatId: string;
     request: PermissionApprovalRequest;
     callbackId: string;
@@ -160,13 +161,17 @@ export async function requestTelegramPermissionApproval(input: {
     ) {
       throw new Error('Telegram permission callback binding failed');
     }
-    transmissionBegan = true;
     const sent = await input.sendPrompt({
       chatId,
       request: input.request,
       callbackId: callback.providerAlias,
       timeoutMs: input.timeoutMs,
       threadOpts: telegramThreadOptionsFromString(input.request.threadId),
+      // The prompt sender flips this immediately before the FIRST Telegram
+      // API call - local preparation failures stay retryable (0128).
+      onTransmissionBegin: () => {
+        transmissionBegan = true;
+      },
     });
     const registered = await registerAndBindTelegramPermissionPrompt({
       jid: input.jid,

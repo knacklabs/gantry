@@ -195,7 +195,16 @@ export async function raiseSetupPausePermissionPrompt(input: {
       : {}),
   };
 
-  const prepared = await deps.preparePermissionInteraction(request);
+  let prepared: { created: boolean };
+  try {
+    prepared = await deps.preparePermissionInteraction(request);
+  } catch {
+    // A runtime without the outbound prompt repository (or a failed
+    // preparation) must not leave the job silently stranded: fall back to
+    // the plain setup-required notification so the owner still learns
+    // about the pause (review R5).
+    return { status: 'instruction_only', notificationEligible: true };
+  }
   if (prepared.created) {
     return {
       status: 'raised',
