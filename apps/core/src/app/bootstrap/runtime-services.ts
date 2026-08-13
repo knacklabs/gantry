@@ -1032,19 +1032,10 @@ export async function startRuntimeServices(
           canonicalText: claimed.item.canonicalText,
           ...(destinationThreadId ? { threadId: destinationThreadId } : {}),
         });
-        // Dormancy gate (S3): the permission-card dispatcher stays provably
-        // inert until S3-RESULT flips PERMISSION_CARD_DISPATCH_ACTIVE with
-        // the enqueue cutover.
+        // Dormancy gate (S3): inert until S3-RESULT flips the flag.
+        // prettier-ignore
         const permissionCardResult = PERMISSION_CARD_DISPATCH_ACTIVE
-          ? await dispatchRuntimePermissionCard({
-              service: outboundDeliveryService,
-              claimed,
-              channelWiring,
-              destinationJid,
-              destinationThreadId,
-              providerAccountId: destinationAccount.providerAccountId,
-              permit: recoveryPermit,
-            })
+          ? await dispatchRuntimePermissionCard({ service: outboundDeliveryService, claimed, channelWiring, destinationJid, destinationThreadId, providerAccountId: destinationAccount.providerAccountId, permit: recoveryPermit })
           : null;
         if (permissionCardResult) return permissionCardResult;
         try {
