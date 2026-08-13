@@ -11,6 +11,7 @@ import {
 } from './app-session-resolution.js';
 import { publishSchedulerRunCompletion } from './execution-completion-events.js';
 import type { JobToolDenial } from '../domain/events/job-tool-denial.js';
+import { redactProviderSessionHandlesInText } from '../shared/provider-session-redaction.js';
 import {
   jobToolDenialIdempotencyKey,
   toolDenialEventPayload,
@@ -208,8 +209,8 @@ export async function publishSchedulerCompletionEvent(input: {
 // S2a (decision 0126): the required terminal-denial append, extracted from the
 // run epilogue. Returns the run-error string on append failure so the caller
 // routes it into finalization's retry branch (never past it into the failsafe).
-export async function publishTerminalToolDenied(input: {
-  denial: JobToolDenial;
+export async function publishTerminalToolDenials(input: {
+  denials: JobToolDenial[];
   error: string | null;
   currentJob: Job;
   runId: string;
@@ -218,25 +219,32 @@ export async function publishTerminalToolDenied(input: {
   eventControl: Parameters<typeof resolveAppSessionForJob>[1];
   publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<void>;
 }): Promise<string | null> {
-  try {
-    const appSession =
-      input.eventState.eventAppSession ??
-      (await resolveAppSessionForJob(input.currentJob, input.eventControl));
-    await input.publishRuntimeEvent({
-      appId: (appSession?.appId ?? input.runtimeAppId) as never,
-      eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
-      payload: toolDenialEventPayload(input.denial, input.error),
-      actor: 'scheduler',
-      sessionId: appSession?.sessionId as never,
-      jobId: input.currentJob.id as never,
-      runId: input.runId as never,
-      triggerId: input.eventState.boundTriggerId,
-      responseMode: appSession?.defaultResponseMode,
-      webhookId: appSession?.defaultWebhookId,
-      idempotencyKey: jobToolDenialIdempotencyKey(input.runId, input.denial),
-    });
-    return null;
-  } catch (appendError) {
-    return `Failed to record terminal tool denial: ${appendError instanceof Error ? appendError.message : String(appendError)}`;
+  let failure: string | null = null;
+  const safeError =
+    input.error === null
+      ? null
+      : redactProviderSessionHandlesInText(input.error);
+  for (const denial of input.denials) {
+    try {
+      const appSession =
+        input.eventState.eventAppSession ??
+        (await resolveAppSessionForJob(input.currentJob, input.eventControl));
+      await input.publishRuntimeEvent({
+        appId: (appSession?.appId ?? input.runtimeAppId) as never,
+        eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+        payload: toolDenialEventPayload(denial, safeError),
+        actor: 'scheduler',
+        sessionId: appSession?.sessionId as never,
+        jobId: input.currentJob.id as never,
+        runId: input.runId as never,
+        triggerId: input.eventState.boundTriggerId,
+        responseMode: appSession?.defaultResponseMode,
+        webhookId: appSession?.defaultWebhookId,
+        idempotencyKey: jobToolDenialIdempotencyKey(input.runId, denial),
+      });
+    } catch (appendError) {
+      failure = `Failed to record terminal tool denial: ${appendError instanceof Error ? appendError.message : String(appendError)}`;
+    }
   }
+  return failure;
 }

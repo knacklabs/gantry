@@ -162,7 +162,7 @@ export function createCanUseToolCallback(
       return {
         behavior: 'deny' as const,
         message,
-        interrupt: input.agentInput.isScheduledJob,
+        interrupt: input.agentInput.isScheduledJob === true,
       };
     }
     const waitOnlyDenial = waitOnlyBashMonitoringDenial(toolName, toolInput);
@@ -338,7 +338,7 @@ export function createCanUseToolCallback(
       return {
         behavior: 'deny' as const,
         message: protectedCapabilityDenial,
-        interrupt: input.agentInput.isScheduledJob,
+        interrupt: input.agentInput.isScheduledJob === true,
       };
     }
     const memoryGuardDenial = denyMemoryBoundaryToolUse(
@@ -360,7 +360,7 @@ export function createCanUseToolCallback(
       return {
         behavior: 'deny' as const,
         message: memoryGuardDenial,
-        interrupt: input.agentInput.isScheduledJob,
+        interrupt: input.agentInput.isScheduledJob === true,
       };
     }
     const yoloDenylistMatch = evaluateYoloModeDenylist({

@@ -56,6 +56,9 @@ export interface JobRunDiagnostics {
     recoveryAction?: string;
   };
   terminalToolDenial?: JobToolDenial;
+  // 0126: every terminal denial in arrival order; the scalar above stays the
+  // FIRST (primary) denial - later ones are still persisted by the epilogue.
+  terminalToolDenials: JobToolDenial[];
 }
 
 export function toolDenialEventPayload(
@@ -141,6 +144,7 @@ export function createJobRunDiagnostics(): JobRunDiagnostics {
     startupDiagnostics: [],
     latestStreamedOutputChars: 0,
     totalStreamedOutputChars: 0,
+    terminalToolDenials: [],
   };
 }
 
@@ -210,7 +214,7 @@ export function updateDiagnosticsFromRuntimeEvent(
     ) {
       return;
     }
-    diagnostics.terminalToolDenial = {
+    const typedDenial: JobToolDenial = {
       toolName: tool,
       reason:
         matchingWait?.reason && deniedReason
@@ -225,6 +229,10 @@ export function updateDiagnosticsFromRuntimeEvent(
       recoveryAction:
         stringValue(payload.recovery_action) ?? matchingWait?.recoveryAction,
     };
+    diagnostics.terminalToolDenials.push(typedDenial);
+    // First denial wins the primary slot (0126); later ones are recorded
+    // by the epilogue but never displace the authoritative selection.
+    diagnostics.terminalToolDenial ??= typedDenial;
   }
   const source = stringValue(payload.source);
   // Fail closed on PARTIAL provenance: human_once is transient regardless

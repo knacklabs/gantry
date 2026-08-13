@@ -64,7 +64,7 @@ import { createJobRunDiagnostics, createStreamingEventFlusher, filterUnforwarded
 import { pauseJobForSetupIfNeeded } from './execution-readiness.js';
 import {
   bindSchedulerRunEventState,
-  publishTerminalToolDenied,
+  publishTerminalToolDenials,
   createRuntimeEventPublisher as createEventPublisher,
   createSchedulerJobEventEmitter,
   publishSchedulerCompletionEvent,
@@ -627,11 +627,10 @@ async function runActiveJob(
     const safeResultSummary = deletionGuard.deletedDuringRun
       ? null
       : result || resultSummaryAccumulator.snapshot() || null;
-    if (!deletionGuard.deletedDuringRun && diagnostics.terminalToolDenial) {
-      // prettier-ignore
-      const appendError = await publishTerminalToolDenied({ denial: diagnostics.terminalToolDenial, error, currentJob, runId, runtimeAppId, eventState, eventControl, publishRuntimeEvent });
-      if (appendError) error = appendError;
-    }
+    // prettier-ignore
+    const denialAppendError = deletionGuard.deletedDuringRun ? null : await publishTerminalToolDenials({ denials: diagnostics.terminalToolDenials, error, currentJob, runId, runtimeAppId, eventState, eventControl, publishRuntimeEvent });
+    const denialAppendFailed = denialAppendError !== null;
+    if (denialAppendError) error = denialAppendError;
     // prettier-ignore
     const {
       runStatus, nextRun, retryCount, pauseReason,
@@ -650,6 +649,7 @@ async function runActiveJob(
       runId,
       appSession: eventState.eventAppSession ?? preflightAppSession,
       publishRuntimeEvent,
+      denialAppendFailed,
       listRuntimeEvents: (filter) => getRuntimeEventExchange().list(filter),
       updateJobState: async (jobUpdates, state) => {
         if (deletionGuard.deletedDuringRun) return;

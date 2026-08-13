@@ -60,6 +60,9 @@ export async function finalizeSchedulerJobRun(input: {
   appSession?: SchedulerEventAppSession;
   publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
   listRuntimeEvents: (filter: RuntimeEventFilter) => Promise<RuntimeEvent[]>;
+  // 0126: true when the required pre-finalization denial append failed - the
+  // durable denial read is skipped and the run error drives the retry branch.
+  denialAppendFailed?: boolean;
   beforeJobStateUpdate?: (state: FinalizedJobRunState) => Promise<void>;
   updateJobState?: (
     updates: Partial<Job>,
@@ -87,12 +90,18 @@ export async function finalizeSchedulerJobRun(input: {
   // An autonomous not-on-allowlist denial is a hard dead-end: the run cannot
   // resume and must FAIL. The job pauses for setup without spending its retry
   // budget so an approval can trigger a fresh run later (decision 0115).
-  const denialEvents = await input.listRuntimeEvents({
-    appId: (appSession?.appId ?? runtimeAppId) as never,
-    runId: input.runId as never,
-    eventTypes: [RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED],
-    limit: 100,
-  });
+  // 0126: when the REQUIRED denial append failed, the event store is suspect
+  // and the run is already carrying the append error - do not reread (a store
+  // outage would throw past finalization into the failsafe) and do not consume
+  // any older readable denial: the error/no-toolDenial branch must retry.
+  const denialEvents = input.denialAppendFailed
+    ? []
+    : await input.listRuntimeEvents({
+        appId: (appSession?.appId ?? runtimeAppId) as never,
+        runId: input.runId as never,
+        eventTypes: [RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED],
+        limit: 100,
+      });
   const toolDenial =
     [...denialEvents]
       .sort((left, right) => left.eventId - right.eventId)

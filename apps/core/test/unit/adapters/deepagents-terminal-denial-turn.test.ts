@@ -391,7 +391,7 @@ describe('DeepAgents terminal permission denial', () => {
     expect(runPermissionInteraction).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the first parallel denial sticky and does not emit a second terminal event', async () => {
+  it('keeps the first parallel denial sticky while recording the late sibling denial', async () => {
     const [{ fakeModel }, { AIMessage }, { tool }] = await Promise.all([
       import('@langchain' + '/core/testing'),
       import('@langchain' + '/core/messages'),
@@ -499,8 +499,9 @@ describe('DeepAgents terminal permission denial', () => {
       terminalError = error as Error;
     }
 
-    // The first denial owns the terminal error and the single emitted event;
-    // the late sibling re-throws it without emitting a second terminal event.
+    // 0126 primary-denial rule: the FIRST denial owns the terminal error and
+    // stays authoritative, but the late sibling is still RECORDED as its own
+    // typed event before rethrowing the first error.
     expect(terminalError?.message).toContain(
       'Permission denied for mcp__gantry__browser_open.',
     );
@@ -513,13 +514,16 @@ describe('DeepAgents terminal permission denial', () => {
         (event) => event.payload?.phase === 'permission_denied',
       ),
     );
-    expect(terminalEmits).toHaveLength(1);
-    expect(
-      (
-        terminalEmits[0]?.[0] as {
-          runtimeEvents?: Array<{ payload?: { tool?: string } }>;
-        }
-      )?.runtimeEvents?.[0]?.payload?.tool,
-    ).toBe('mcp__gantry__browser_open');
+    expect(terminalEmits).toHaveLength(2);
+    const emittedTools = terminalEmits.map(
+      ([payload]) =>
+        (
+          payload as {
+            runtimeEvents?: Array<{ payload?: { tool?: string } }>;
+          }
+        )?.runtimeEvents?.[0]?.payload?.tool,
+    );
+    expect(emittedTools[0]).toBe('mcp__gantry__browser_open');
+    expect(emittedTools[1]).toBe('mcp__gantry__github_search');
   });
 });

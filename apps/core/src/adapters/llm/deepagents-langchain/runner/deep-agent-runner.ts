@@ -39,6 +39,7 @@ import type {
 } from './session-store.js';
 import type { RunnerOutputFrame } from '../../../../runner/runner-frame.js';
 import { nowMs } from '../../../../shared/time/datetime.js';
+import { DEEPAGENTS_ENGINE } from '../../../../shared/agent-engine.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import type { DeepAgentsPermissionDenial } from './third-party-mcp-gate.js';
 
@@ -119,7 +120,10 @@ export async function runDeepAgentTurn(input: {
   const terminateScheduledDenial = (
     denial: DeepAgentsPermissionDenial,
   ): never => {
-    if (terminalPermissionDenial) throw terminalPermissionDenial;
+    // Primary-denial rule (0126): the FIRST denial stays the terminal error,
+    // but every later parallel denial is still recorded as its own typed
+    // event before rethrowing so the durable record is complete.
+    const priorDenial = terminalPermissionDenial;
     input.emit({
       status: 'success',
       result: null,
@@ -145,12 +149,13 @@ export async function runDeepAgentTurn(input: {
             grantable: denial.grantable,
             recovery_action: denial.recoveryAction,
             denial_kind: denial.denialKind,
-            provenance_lane: 'deepagents',
+            provenance_lane: DEEPAGENTS_ENGINE,
             provenance_seam: denial.provenanceSeam,
           },
         },
       ],
     });
+    if (priorDenial) throw priorDenial;
     terminalPermissionDenial = new Error(
       `Permission denied for ${denial.toolName}. ${denial.reason}`,
     );
