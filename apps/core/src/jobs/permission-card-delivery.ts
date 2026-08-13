@@ -35,9 +35,11 @@ export async function dispatchPreparedPermissionCard(input: {
     now: input.now(),
   });
   if (!view) {
+    // Failed revalidation = the target moved on (cancelled/superseded/
+    // resumed). TERMINAL cancellation - never the failed/retry path.
     return {
-      status: 'failed',
-      error: 'Setup permission prompt is no longer dispatchable.',
+      status: 'cancelled',
+      reason: { code: 'prompt_not_dispatchable' },
     };
   }
   let prepared: PreparedPermissionCardSend;

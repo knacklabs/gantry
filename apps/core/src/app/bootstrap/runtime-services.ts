@@ -83,7 +83,7 @@ import { LIVE_SEND_PROFILE_ID, OBSERVER_DIGEST_PROFILE_ID, BRAIN_REVIEW_PROFILE_
 import { splitLiveSendProfileText } from './runtime-services-live-send-segmentation.js';
 import { createDurableOutboundAttempt } from './runtime-services-durable-outbound-attempt.js';
 // prettier-ignore
-import { dispatchRuntimePermissionCard, setupPermissionCardProfile } from './runtime-services-permission-card.js';
+import { dispatchRuntimePermissionCard, PERMISSION_CARD_DISPATCH_ACTIVE, setupPermissionCardProfile } from './runtime-services-permission-card.js';
 import { resolveConversationRoute } from './runtime-app-routes.js';
 import { handleActiveNewSessionCommand } from './runtime-services-active-new.js';
 import {
@@ -1032,15 +1032,20 @@ export async function startRuntimeServices(
           canonicalText: claimed.item.canonicalText,
           ...(destinationThreadId ? { threadId: destinationThreadId } : {}),
         });
-        const permissionCardResult = await dispatchRuntimePermissionCard({
-          service: outboundDeliveryService,
-          claimed,
-          channelWiring,
-          destinationJid,
-          destinationThreadId,
-          providerAccountId: destinationAccount.providerAccountId,
-          permit: recoveryPermit,
-        });
+        // Dormancy gate (S3): the permission-card dispatcher stays provably
+        // inert until S3-RESULT flips PERMISSION_CARD_DISPATCH_ACTIVE with
+        // the enqueue cutover.
+        const permissionCardResult = PERMISSION_CARD_DISPATCH_ACTIVE
+          ? await dispatchRuntimePermissionCard({
+              service: outboundDeliveryService,
+              claimed,
+              channelWiring,
+              destinationJid,
+              destinationThreadId,
+              providerAccountId: destinationAccount.providerAccountId,
+              permit: recoveryPermit,
+            })
+          : null;
         if (permissionCardResult) return permissionCardResult;
         try {
           const observerDigestView = payload?.observerDigestView as

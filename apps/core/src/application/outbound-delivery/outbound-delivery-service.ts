@@ -293,6 +293,22 @@ export class OutboundDeliveryService {
     });
   }
 
+  async settleCancelled(input: {
+    deliveryId: OutboundDelivery['id'];
+    itemId: OutboundDeliveryItem['id'];
+    claimToken: string;
+    reason: Record<string, unknown>;
+    cancelledAt?: string;
+  }) {
+    return this.deps.repository.markDeliveryItemCancelled?.({
+      deliveryId: input.deliveryId,
+      itemId: input.itemId,
+      claimToken: input.claimToken,
+      reason: input.reason,
+      cancelledAt: input.cancelledAt ?? this.deps.now(),
+    });
+  }
+
   async settleFailed(input: {
     deliveryId: OutboundDelivery['id'];
     itemId: OutboundDeliveryItem['id'];

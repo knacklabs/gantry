@@ -29,6 +29,10 @@ export type OutboundDeliveryDispatchResult =
       error?: string;
     }
   | {
+      status: 'cancelled';
+      reason: Record<string, unknown>;
+    }
+  | {
       status: 'partially_delivered';
       error?: string;
       deliveredParts?: number;
@@ -304,6 +308,19 @@ export async function runBoundedOutboundDeliveryRecovery(
         continue;
       }
 
+      if (dispatchResult.status === 'cancelled') {
+        // A rejected pre-send revalidation is TERMINAL cancellation, never
+        // the failed/retry path (a superseded card must not resend).
+        const settled = await input.service.settleCancelled?.({
+          deliveryId: claimedItem.delivery.id,
+          itemId: claimedItem.item.id,
+          claimToken,
+          reason: dispatchResult.reason,
+          cancelledAt: now(),
+        });
+        if (settled?.applied) failed += 1;
+        continue;
+      }
       const settled = await input.service.settleFailed({
         deliveryId: claimedItem.delivery.id,
         itemId: claimedItem.item.id,

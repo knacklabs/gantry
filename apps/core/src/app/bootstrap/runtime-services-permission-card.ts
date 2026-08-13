@@ -8,6 +8,11 @@ import type {
   RecoveryDispatchPermit,
 } from './channel-wiring-types.js';
 
+// DORMANT until S3-RESULT activates the enqueue path: nothing feeds the
+// permission profile yet, and this gate keeps the dispatcher provably inert
+// even against stray data (flip in S3-RESULT).
+export const PERMISSION_CARD_DISPATCH_ACTIVE = false;
+
 export function dispatchRuntimePermissionCard(input: {
   service: OutboundDeliveryService;
   claimed: ClaimedOutboundDeliveryItem;

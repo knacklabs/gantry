@@ -84,18 +84,13 @@ export async function claimDueOutboundDeliveryItems(
         of: pgSchema.outboundDeliveryItemsPostgres,
         skipLocked: true,
       });
+    // A claim that never reached beginSend consumed no SEND attempt: it is
+    // always retryable (the cap bounds transmission attempts, not lease
+    // churn) and the claim-time increment is refunded below.
     const retryablePermissionClaims = expiredClaimCandidates.filter(
-      (row) =>
-        row.permissionPromptId !== null &&
-        row.sendBegunAt === null &&
-        row.attemptCount < PERMISSION_CARD_MAX_ATTEMPTS,
+      (row) => row.permissionPromptId !== null && row.sendBegunAt === null,
     );
-    const exhaustedPermissionClaims = expiredClaimCandidates.filter(
-      (row) =>
-        row.permissionPromptId !== null &&
-        row.sendBegunAt === null &&
-        row.attemptCount >= PERMISSION_CARD_MAX_ATTEMPTS,
-    );
+    const exhaustedPermissionClaims: typeof expiredClaimCandidates = [];
     const ambiguousClaims = expiredClaimCandidates.filter(
       (row) => row.permissionPromptId === null || row.sendBegunAt !== null,
     );
@@ -118,6 +113,7 @@ export async function claimDueOutboundDeliveryItems(
           claimOwner: null,
           claimExpiresAt: null,
           sendBegunAt: null,
+          attemptCount: sql`greatest(${pgSchema.outboundDeliveryItemsPostgres.attemptCount} - 1, 0)`,
           nextAttemptAt,
           updatedAt: input.now,
         })

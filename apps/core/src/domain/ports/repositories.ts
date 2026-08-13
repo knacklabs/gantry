@@ -392,6 +392,13 @@ export interface OutboundDeliveryRepository {
     claimToken: string;
     begunAt: string;
   }): Promise<boolean>;
+  markDeliveryItemCancelled?(input: {
+    deliveryId: OutboundDeliveryId;
+    itemId: OutboundDeliveryItemId;
+    claimToken: string;
+    reason: Record<string, unknown>;
+    cancelledAt: string;
+  }): Promise<{ applied: boolean }>;
   markDeliveryItemFailed(input: {
     deliveryId: OutboundDeliveryId;
     itemId: OutboundDeliveryItemId;

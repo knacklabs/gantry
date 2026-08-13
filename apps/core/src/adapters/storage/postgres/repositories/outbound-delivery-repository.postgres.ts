@@ -28,6 +28,7 @@ import { resolveOutboundDeliveryDestination } from './outbound-delivery-reposito
 import {
   beginDeliveryItemSend,
   getSetupPermissionPromptForDispatch,
+  markDeliveryItemCancelled,
   markDeliveryItemSent,
 } from './outbound-delivery-permission-card.postgres.js';
 import {
@@ -292,6 +293,15 @@ export class PostgresOutboundDeliveryRepository implements OutboundDeliveryRepos
       });
       return { applied: true, delivery };
     });
+  }
+  async markDeliveryItemCancelled(input: {
+    deliveryId: OutboundDeliveryId;
+    itemId: OutboundDeliveryItemId;
+    claimToken: string;
+    reason: Record<string, unknown>;
+    cancelledAt: string;
+  }): Promise<{ applied: boolean }> {
+    return markDeliveryItemCancelled(this.db, input);
   }
   async markDeliveryItemPartiallyDelivered(input: {
     deliveryId: OutboundDeliveryId;

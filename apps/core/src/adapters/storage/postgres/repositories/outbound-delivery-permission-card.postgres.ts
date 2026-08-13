@@ -148,8 +148,22 @@ export async function beginDeliveryItemSend(
       .from(pgSchema.outboundDeliveriesPostgres)
       .where(eq(pgSchema.outboundDeliveriesPostgres.id, input.deliveryId))
       .limit(1);
+    if (!delivery) return false;
+    // Lock the prompt row so a concurrent cancellation serializes against
+    // the checkpoint: cancel-before-lock wins (we bail), cancel-after waits
+    // until send_begun_at is stamped and takes the post-checkpoint path.
+    const [lockedPrompt] = await tx
+      .select({
+        settlementState: pgSchema.permissionPromptsPostgres.settlementState,
+      })
+      .from(pgSchema.permissionPromptsPostgres)
+      .where(eq(pgSchema.permissionPromptsPostgres.id, input.promptId))
+      .for('update')
+      .limit(1);
+    if (!lockedPrompt || lockedPrompt.settlementState !== 'open') {
+      return false;
+    }
     if (
-      !delivery ||
       !(await getSetupPermissionPromptForDispatch(tx, {
         appId: delivery.appId as OutboundDelivery['appId'],
         promptId: input.promptId,
@@ -420,4 +434,54 @@ async function getDeliveryById(
     .where(eq(pgSchema.outboundDeliveriesPostgres.id, id))
     .limit(1);
   return row ? mapDelivery(row) : null;
+}
+
+// Claim-fenced cancellation settle: a rejected pre-send revalidation makes
+// the item TERMINAL cancelled (never the failed/retry path) and recomputes
+// the parent status.
+export async function markDeliveryItemCancelled(
+  db: CanonicalDb,
+  input: {
+    deliveryId: OutboundDeliveryId;
+    itemId: OutboundDeliveryItemId;
+    claimToken: string;
+    reason: Record<string, unknown>;
+    cancelledAt: string;
+  },
+): Promise<{ applied: boolean }> {
+  return db.transaction(async (tx) => {
+    const updated = await tx
+      .update(pgSchema.outboundDeliveryItemsPostgres)
+      .set({
+        status: 'cancelled',
+        cancellationReasonJson: input.reason,
+        claimToken: null,
+        claimOwner: null,
+        claimExpiresAt: null,
+        updatedAt: input.cancelledAt,
+      })
+      .where(
+        and(
+          eq(pgSchema.outboundDeliveryItemsPostgres.id, input.itemId),
+          eq(
+            pgSchema.outboundDeliveryItemsPostgres.deliveryId,
+            input.deliveryId,
+          ),
+          eq(pgSchema.outboundDeliveryItemsPostgres.status, 'claimed'),
+          eq(
+            pgSchema.outboundDeliveryItemsPostgres.claimToken,
+            input.claimToken,
+          ),
+        ),
+      )
+      .returning({ id: pgSchema.outboundDeliveryItemsPostgres.id });
+    if (!updated[0]) return { applied: false };
+    await recomputeOutboundDeliveryStatus(tx, {
+      deliveryId: input.deliveryId,
+      now: input.cancelledAt,
+      fallbackNow: () => input.cancelledAt,
+      getDeliveryById,
+    });
+    return { applied: true };
+  });
 }
