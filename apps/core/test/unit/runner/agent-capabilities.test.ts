@@ -1225,8 +1225,6 @@ describe('agent capability composition', () => {
         'Browser',
         'WebSearch',
         'AgentDelegation',
-        'mcp__gantry__job_checkpoint_status',
-        'mcp__gantry__job_checkpoint_save',
       ],
       semanticCapabilities: [{
         capabilityId: 'manipal.website-recipe-evaluator',
@@ -1267,6 +1265,7 @@ describe('agent capability composition', () => {
       'browser_act',
       'browser_captcha_challenge',
       'browser_captcha_settle',
+      'file',
       'job_checkpoint_status',
       'job_checkpoint_save',
       'mcp_call_tool',
@@ -1274,6 +1273,13 @@ describe('agent capability composition', () => {
       'resolve_recipe_interaction',
     ]));
     expect(profile.allowedTools).toContain('mcp__gantry__mcp_call_tool');
+    expect(profile.allowedTools).toContain('mcp__gantry__file');
+    expect(profile.allowedTools).toContain(
+      'mcp__gantry__job_checkpoint_status',
+    );
+    expect(profile.allowedTools).toContain(
+      'mcp__gantry__job_checkpoint_save',
+    );
     expect(profile.availableTools).toContain('mcp__gantry__mcp_call_tool');
     expect(profile.allowedTools).toContain(
       'mcp__gantry__resolve_recipe_interaction',

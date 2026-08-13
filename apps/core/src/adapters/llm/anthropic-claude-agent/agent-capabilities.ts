@@ -130,6 +130,12 @@ const RUNNER_SUPPRESSED_GANTRY_MCP_TOOL_NAME_SET = new Set<string>([
   'memory_dream',
   'memory_consolidate',
 ]);
+const RECIPE_AUTHORING_GANTRY_MCP_TOOL_NAMES = [
+  'file',
+  'job_checkpoint_status',
+  'job_checkpoint_save',
+  'external_capability_call',
+] as const;
 function gantryMcpAllowedTools(input: {
   configuredTools?: readonly string[];
   hideAuthorityTools?: boolean;
@@ -176,7 +182,7 @@ function gantryMcpAllowedTools(input: {
       ? [gantryMcpFullToolName('mcp_call_tool')]
       : []),
     ...(input.recipeAuthoring === true
-      ? [gantryMcpFullToolName('external_capability_call')]
+      ? RECIPE_AUTHORING_GANTRY_MCP_TOOL_NAMES.map(gantryMcpFullToolName)
       : []),
     ...(input.callableAgentManifest ?? []).map((entry) =>
       gantryMcpFullToolName(callableAgentToolName(entry)),
@@ -327,7 +333,9 @@ const gantryMcpProvider: AgentCapabilityProvider = {
             ? [gantryMcpFullToolName('mcp_call_tool')]
             : []),
           ...(isRecipeAuthoringContext(ctx)
-            ? [gantryMcpFullToolName('external_capability_call')]
+            ? RECIPE_AUTHORING_GANTRY_MCP_TOOL_NAMES.map(
+                gantryMcpFullToolName,
+              )
             : []),
           ...callableAgentManifest.map((entry) =>
             gantryMcpFullToolName(callableAgentToolName(entry)),
@@ -398,7 +406,7 @@ const gantryMcpProvider: AgentCapabilityProvider = {
           ? ['mcp_call_tool']
           : []),
         ...(isRecipeAuthoringContext(ctx)
-          ? ['external_capability_call']
+          ? RECIPE_AUTHORING_GANTRY_MCP_TOOL_NAMES
           : []),
         ...callableAgentManifest.map(callableAgentToolName),
         ...(ctx.callerResolvedTools?.tools ?? []).map((tool) => tool.name),
