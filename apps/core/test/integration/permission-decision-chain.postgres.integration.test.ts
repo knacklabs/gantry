@@ -287,9 +287,7 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
   function buttonDecision(
     mode: PermissionApprovalDecisionMode,
     beforeBind?: (request: PermissionApprovalRequest) => Promise<void>,
-  ): (
-    request: PermissionApprovalRequest,
-  ) => Promise<PermissionApprovalResult> {
+  ): (request: PermissionApprovalRequest) => Promise<PermissionApprovalResult> {
     return async (request) => {
       await beforeBind?.(request);
       const decisionOptions: PermissionApprovalDecisionMode[] =

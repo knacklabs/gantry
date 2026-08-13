@@ -239,7 +239,11 @@ export function createPermissionApprovalRequester(input: {
       const cancellation = cancellationAliases.length
         ? undefined
         : queuedCancellations.get(requestKey);
-      if (cancellation) {
+      // Only a real decision may be replaced by the queued cancellation: a
+      // post-transmission delivery_failure must stay a delivery failure -
+      // synthesizing a user_reject here would settle a durable row whose
+      // card may still be live (transmission-boundary rule, 0128).
+      if (cancellation && result.kind === 'decision') {
         result = {
           kind: 'decision',
           decision: {
@@ -261,6 +265,12 @@ export function createPermissionApprovalRequester(input: {
         message: 'Target channel permission approval flow failed',
       });
       if (err instanceof DurableInteractionPersistenceError) {
+        // Deliberately NOT a delivery_failure: this is OUR durable row
+        // failing, not the provider call - there is no durable interaction
+        // a tap could resolve, so the request is dropped and the rejection
+        // propagates to the durable IPC lane, which owns the retry
+        // (pinned batch-persistence behavior; D-0046 tracks the
+        // record-before-delivery crash window).
         approvalSurface.dropPendingInteraction?.('permission', routed.request);
         throw err;
       }
