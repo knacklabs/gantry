@@ -38,6 +38,15 @@ type DeterministicManagedBrowserAction = {
   skillName: string;
 };
 
+// A managed Chrome profile is already resident in the same task when this
+// command starts. Node's normal virtual-memory reservation cannot initialize
+// under the 1 GB generic command limit, so browser-backed reviewed skills get
+// a still-bounded, browser-appropriate limit.
+const MANAGED_BROWSER_ACTION_RESOURCE_LIMITS = {
+  ...DEFAULT_ASYNC_RESOURCE_LIMITS,
+  memoryMb: 4_096,
+};
+
 export function resolveDeterministicManagedBrowserActions(
   job: Job,
   capabilities: readonly SemanticCapabilityDefinition[],
@@ -176,7 +185,7 @@ export async function runDeterministicManagedBrowserActions(input: {
           protectedWritePaths: [],
           allowedNetworkHosts,
           egressProxyUrl: gateway.proxyUrl,
-          resourceLimits: DEFAULT_ASYNC_RESOURCE_LIMITS,
+          resourceLimits: MANAGED_BROWSER_ACTION_RESOURCE_LIMITS,
           signal: input.signal,
           appId: input.appId,
           agentId: input.agentId,
