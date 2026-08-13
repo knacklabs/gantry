@@ -178,14 +178,12 @@ it('lists agent-scoped activity in newest order', async () => {
     agentId: 'agent:owner',
     limit: 20,
   });
-  expect(JSON.parse(res.body).runs.map(({ id }: { id: string }) => id)).toEqual([
-    'agent-run:newest',
-    'agent-run:older',
-  ]);
+  expect(JSON.parse(res.body).runs.map(({ id }: { id: string }) => id)).toEqual(
+    ['agent-run:newest', 'agent-run:older'],
+  );
 });
 
 describe('activity routes', () => {
-
   it('keeps the activity list app-scoped, bounded, and safe', async () => {
     mocks.listRecentAgentRuns.mockResolvedValue(
       Array.from({ length: 51 }, (_, index) => ({
