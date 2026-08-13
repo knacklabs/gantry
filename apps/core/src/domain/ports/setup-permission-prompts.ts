@@ -9,7 +9,6 @@ export interface SetupPermissionPromptPreparation {
   appId: string;
   jobId: string;
   setupFingerprint: string;
-  generation: number;
   interaction: {
     id: string;
     runId?: string | null;
@@ -29,7 +28,9 @@ export interface SetupPermissionPromptPreparation {
   };
   delivery: Omit<OutboundDelivery, 'appId' | 'idempotencyKey'>;
   finalAnswer: OutboundDeliveryFinalAnswer;
-  item: OutboundDeliveryItem;
+  // Generation authority is INTERNAL: the repository allocates the next
+  // generation under the prompt lock (an active generation replays instead).
+  item: Omit<OutboundDeliveryItem, 'generation'>;
 }
 
 export interface PreparedSetupPermissionPrompt {

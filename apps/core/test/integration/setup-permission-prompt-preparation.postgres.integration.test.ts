@@ -101,7 +101,6 @@ maybeDescribe('setup permission prompt preparation', () => {
       jobId: 'job:setup-prompt:retention',
       promptId: 'prompt:setup:a',
       interactionId: 'interaction:setup:a',
-      generation: 1,
       fingerprint: 'fp:a',
     });
 
@@ -118,7 +117,6 @@ maybeDescribe('setup permission prompt preparation', () => {
       created: true,
       promptId: 'prompt:setup:a',
       interactionId: 'request:setup:a',
-      generation: 1,
     });
     expect(created.delivery.idempotencyKey).toBe(
       setupPermissionPromptDeliveryKey('prompt:setup:a', 1),
@@ -126,7 +124,6 @@ maybeDescribe('setup permission prompt preparation', () => {
     expect(replay).toMatchObject({
       created: false,
       promptId: 'prompt:setup:a',
-      generation: 1,
       delivery: { id: created.delivery.id },
     });
 
@@ -134,14 +131,15 @@ maybeDescribe('setup permission prompt preparation', () => {
       jobId: 'job:setup-prompt:retention',
       promptId: 'prompt:setup:a',
       interactionId: 'interaction:setup:a',
-      generation: 2,
       fingerprint: 'fp:a',
     });
+    // Internal generation authority: while generation 1 is ACTIVE, another
+    // preparation replays it instead of allocating a second generation.
     await expect(
       runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
         secondGeneration,
       ),
-    ).rejects.toBeTruthy();
+    ).resolves.toMatchObject({ created: false, generation: 1 });
     await runtime.service.db
       .update(pgSchema.outboundDeliveryItemsPostgres)
       .set({ status: 'failed', failedAt: later, updatedAt: later })
@@ -169,7 +167,6 @@ maybeDescribe('setup permission prompt preparation', () => {
     );
     expect(regeneratedReplay).toMatchObject({
       created: false,
-      generation: 2,
       delivery: { id: regenerated.delivery.id },
     });
 
@@ -228,7 +225,6 @@ maybeDescribe('setup permission prompt preparation', () => {
       jobId: 'job:setup-prompt:retention',
       promptId: 'prompt:setup:b',
       interactionId: 'interaction:setup:b',
-      generation: 1,
       fingerprint: 'fp:a',
     });
     await runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
@@ -273,7 +269,6 @@ maybeDescribe('setup permission prompt preparation', () => {
       jobId: 'job:setup-prompt:rollback',
       promptId: 'prompt:setup:stale',
       interactionId: 'interaction:setup:stale',
-      generation: 1,
       fingerprint: 'fp:stale',
     });
     await expect(
@@ -286,7 +281,6 @@ maybeDescribe('setup permission prompt preparation', () => {
       jobId: 'job:setup-prompt:rollback',
       promptId: 'prompt:setup:cross-app',
       interactionId: 'interaction:setup:cross-app',
-      generation: 1,
       fingerprint: 'fp:current',
     });
     crossApp.delivery.conversationId =
@@ -301,7 +295,6 @@ maybeDescribe('setup permission prompt preparation', () => {
       jobId: 'job:setup-prompt:rollback',
       promptId: 'prompt:setup:rollback',
       interactionId: 'interaction:setup:rollback',
-      generation: 1,
       fingerprint: 'fp:current',
     });
     await runtime.service.db
@@ -369,20 +362,22 @@ async function insertSetupPausedJob(
   });
 }
 
+let preparationAttempt = 0;
+
 function preparation(input: {
   jobId: string;
   promptId: string;
   interactionId: string;
-  generation: number;
   fingerprint: string;
 }): SetupPermissionPromptPreparation {
+  // Row ids are per-attempt (generation is repository-internal now).
+  const attempt = ++preparationAttempt;
   const requestId = input.interactionId.replace('interaction:', 'request:');
-  const deliveryId = `delivery:${input.promptId}:${input.generation}` as never;
+  const deliveryId = `delivery:${input.promptId}:${attempt}` as never;
   return {
     appId: 'default',
     jobId: input.jobId,
     setupFingerprint: input.fingerprint,
-    generation: input.generation,
     interaction: {
       id: input.interactionId,
       sourceAgentFolder: 'main_agent',
@@ -417,7 +412,7 @@ function preparation(input: {
       id: deliveryId,
       conversationId: 'conversation:setup-prompt' as never,
       profileId: 'setup_permission_prompt',
-      idempotencyFingerprint: `delivery-fingerprint:${input.promptId}:${input.generation}`,
+      idempotencyFingerprint: `delivery-fingerprint:${input.promptId}`,
       status: 'pending',
       createdAt: now,
       updatedAt: now,
@@ -430,10 +425,9 @@ function preparation(input: {
       updatedAt: now,
     },
     item: {
-      id: `item:${input.promptId}:${input.generation}` as never,
+      id: `item:${input.promptId}:${attempt}` as never,
       deliveryId,
       permissionPromptId: input.promptId,
-      generation: input.generation,
       ordinal: 0,
       canonicalText: 'Approve setup',
       status: 'pending',

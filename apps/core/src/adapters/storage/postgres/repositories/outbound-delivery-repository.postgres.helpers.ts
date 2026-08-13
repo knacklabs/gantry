@@ -231,7 +231,9 @@ export function deriveOutboundDeliveryStatus(input: {
   if (earliestUnsentStatus === 'failed') {
     return counts.sent > 0 ? 'partially_delivered' : 'failed';
   }
-  if (earliestUnsentStatus === 'cancelled') return 'cancelled';
+  if (earliestUnsentStatus === 'cancelled') {
+    return counts.sent > 0 ? 'partially_delivered' : 'cancelled';
+  }
 
   if (counts.pending > 0) {
     return counts.claimed > 0 ? 'claimed' : 'pending';

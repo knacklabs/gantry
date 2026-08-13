@@ -10,3 +10,16 @@ CREATE UNIQUE INDEX "uq_outbound_delivery_items_prompt_generation" ON "outbound_
 CREATE UNIQUE INDEX "uq_outbound_delivery_items_active_prompt" ON "outbound_delivery_items" USING btree ("permission_prompt_id") WHERE "outbound_delivery_items"."permission_prompt_id" IS NOT NULL AND "outbound_delivery_items"."status" IN ('pending', 'claimed');--> statement-breakpoint
 CREATE INDEX "idx_permission_prompts_job" ON "permission_prompts" USING btree ("job_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_permission_prompts_active_setup" ON "permission_prompts" USING btree ("job_id","setup_fingerprint") WHERE "permission_prompts"."job_id" IS NOT NULL AND "permission_prompts"."setup_fingerprint" IS NOT NULL AND "permission_prompts"."settlement_state" IN ('open', 'claimed');
+--> statement-breakpoint
+-- Migrate-once backfill (0112): open setup prompts persisted before the
+-- identity columns existed carry the deterministic 'setup-pause:<job>:<fp>'
+-- interaction id; parse it HERE (never at runtime) so recovery correlation
+-- keeps excluding self-retirement across the upgrade.
+UPDATE "permission_prompts"
+SET
+  "job_id" = split_part("interaction_id", ':', 2),
+  "setup_fingerprint" = split_part("interaction_id", ':', 3)
+WHERE "job_id" IS NULL
+  AND "interaction_id" LIKE 'setup-pause:%'
+  AND split_part("interaction_id", ':', 2) <> ''
+  AND split_part("interaction_id", ':', 3) <> '';

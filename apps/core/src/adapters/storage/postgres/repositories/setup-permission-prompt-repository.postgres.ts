@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 
 import type { OutboundDelivery } from '../../../../domain/outbound-delivery/outbound-delivery.js';
 import type {
@@ -19,6 +19,7 @@ import {
 } from './outbound-delivery-repository.postgres.helpers.js';
 
 const ACTIVE_PROMPT_STATES = ['open', 'claimed'] as const;
+const ACTIVE_ITEM_STATES = ['pending', 'claimed'] as const;
 
 export function setupPermissionPromptDeliveryKey(
   promptId: string,
@@ -95,19 +96,20 @@ export class PostgresSetupPermissionPromptRepository implements SetupPermissionP
 
       if (activePrompt) {
         this.assertPromptIdentity(activePrompt, input);
-        const replay = await this.findGenerationDelivery(tx, {
+        // Generation authority lives HERE, under the prompt lock: an ACTIVE
+        // generation replays its aggregate; otherwise the next generation is
+        // max(existing)+1 - callers never propose generations.
+        const active = await this.findActiveGenerationDelivery(tx, {
           appId: input.appId,
           promptId: activePrompt.id,
-          generation: input.generation,
         });
-        if (replay) {
-          this.assertDeliveryReplay(replay, input, activePrompt.id);
+        if (active) {
           return {
             created: false,
             promptId: activePrompt.id,
             interactionId: activePrompt.interactionId,
-            generation: input.generation,
-            delivery: replay,
+            generation: active.generation,
+            delivery: active.delivery,
           };
         }
         if (
@@ -119,7 +121,14 @@ export class PostgresSetupPermissionPromptRepository implements SetupPermissionP
             'A terminal setup permission prompt cannot be reopened.',
           );
         }
-        return this.insertDeliveryAggregate(tx, input, activePrompt.id);
+        const nextGeneration =
+          (await this.maxGeneration(tx, activePrompt.id)) + 1;
+        return this.insertDeliveryAggregate(
+          tx,
+          input,
+          activePrompt.id,
+          nextGeneration,
+        );
       }
 
       await tx.insert(pgSchema.permissionPromptsPostgres).values({
@@ -160,15 +169,13 @@ export class PostgresSetupPermissionPromptRepository implements SetupPermissionP
         createdAt: input.delivery.createdAt,
         expiresAt: input.interaction.expiresAt,
       });
-      return this.insertDeliveryAggregate(tx, input, input.prompt.id);
+      return this.insertDeliveryAggregate(tx, input, input.prompt.id, 1);
     });
   }
 
   private validateInput(input: SetupPermissionPromptPreparation): void {
     const request = input.prompt.envelope.renderedRequest;
     if (
-      !Number.isSafeInteger(input.generation) ||
-      input.generation < 1 ||
       input.prompt.providerAliases.length === 0 ||
       input.prompt.interactionId !== input.interaction.requestId ||
       request.appId !== input.appId ||
@@ -177,7 +184,6 @@ export class PostgresSetupPermissionPromptRepository implements SetupPermissionP
       input.finalAnswer.deliveryId !== input.delivery.id ||
       input.item.deliveryId !== input.delivery.id ||
       input.item.permissionPromptId !== input.prompt.id ||
-      input.item.generation !== input.generation ||
       input.delivery.status !== 'pending' ||
       input.item.status !== 'pending' ||
       input.delivery.profileId.length === 0
@@ -278,12 +284,15 @@ export class PostgresSetupPermissionPromptRepository implements SetupPermissionP
     }
   }
 
-  private async findGenerationDelivery(
+  private async findActiveGenerationDelivery(
     tx: CanonicalExecutor,
-    input: { appId: string; promptId: string; generation: number },
-  ): Promise<OutboundDelivery | null> {
+    input: { appId: string; promptId: string },
+  ): Promise<{ generation: number; delivery: OutboundDelivery } | null> {
     const [row] = await tx
-      .select({ delivery: pgSchema.outboundDeliveriesPostgres })
+      .select({
+        delivery: pgSchema.outboundDeliveriesPostgres,
+        generation: pgSchema.outboundDeliveryItemsPostgres.generation,
+      })
       .from(pgSchema.outboundDeliveryItemsPostgres)
       .innerJoin(
         pgSchema.outboundDeliveriesPostgres,
@@ -298,43 +307,42 @@ export class PostgresSetupPermissionPromptRepository implements SetupPermissionP
             pgSchema.outboundDeliveryItemsPostgres.permissionPromptId,
             input.promptId,
           ),
-          eq(
-            pgSchema.outboundDeliveryItemsPostgres.generation,
-            input.generation,
-          ),
+          inArray(pgSchema.outboundDeliveryItemsPostgres.status, [
+            ...ACTIVE_ITEM_STATES,
+          ]),
           eq(pgSchema.outboundDeliveriesPostgres.appId, input.appId),
         ),
       )
       .limit(1);
-    return row ? mapDelivery(row.delivery) : null;
+    return row
+      ? { generation: row.generation, delivery: mapDelivery(row.delivery) }
+      : null;
   }
 
-  private assertDeliveryReplay(
-    delivery: OutboundDelivery,
-    input: SetupPermissionPromptPreparation,
+  private async maxGeneration(
+    tx: CanonicalExecutor,
     promptId: string,
-  ): void {
-    if (
-      delivery.idempotencyKey !==
-        setupPermissionPromptDeliveryKey(promptId, input.generation) ||
-      delivery.idempotencyFingerprint !==
-        input.delivery.idempotencyFingerprint ||
-      delivery.profileId !== input.delivery.profileId ||
-      delivery.conversationId !== input.delivery.conversationId ||
-      delivery.threadId !== input.delivery.threadId
-    ) {
-      throw new Error('Setup permission delivery idempotency conflict.');
-    }
+  ): Promise<number> {
+    const [row] = await tx
+      .select({
+        max: sql<number>`coalesce(max(${pgSchema.outboundDeliveryItemsPostgres.generation}), 0)`,
+      })
+      .from(pgSchema.outboundDeliveryItemsPostgres)
+      .where(
+        eq(pgSchema.outboundDeliveryItemsPostgres.permissionPromptId, promptId),
+      );
+    return Number(row?.max ?? 0);
   }
 
   private async insertDeliveryAggregate(
     tx: CanonicalExecutor,
     input: SetupPermissionPromptPreparation,
     promptId: string,
+    generation: number,
   ): Promise<PreparedSetupPermissionPrompt> {
     const idempotencyKey = setupPermissionPromptDeliveryKey(
       promptId,
-      input.generation,
+      generation,
     );
     const [deliveryRow] = await tx
       .insert(pgSchema.outboundDeliveriesPostgres)
@@ -367,7 +375,7 @@ export class PostgresSetupPermissionPromptRepository implements SetupPermissionP
       id: input.item.id,
       deliveryId: input.item.deliveryId,
       permissionPromptId: promptId,
-      generation: input.generation,
+      generation,
       ordinal: input.item.ordinal,
       canonicalText: input.item.canonicalText,
       providerPayloadJson:
@@ -394,7 +402,7 @@ export class PostgresSetupPermissionPromptRepository implements SetupPermissionP
       created: true,
       promptId,
       interactionId: input.prompt.interactionId,
-      generation: input.generation,
+      generation,
       delivery: mapDelivery(deliveryRow!),
     };
   }
