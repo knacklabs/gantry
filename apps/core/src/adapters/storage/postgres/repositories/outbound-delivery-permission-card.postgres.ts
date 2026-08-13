@@ -58,9 +58,10 @@ export async function getSetupPermissionPromptForDispatch(
         eq(pgSchema.pendingInteractionsPostgres.appId, input.appId),
         eq(pgSchema.pendingInteractionsPostgres.kind, 'permission'),
         eq(pgSchema.pendingInteractionsPostgres.status, 'pending'),
-        // Member validity is judged by DATABASE time, same as the send
-        // checkpoint's lease check (review R7).
-        sql`${pgSchema.pendingInteractionsPostgres.expiresAt} > now()`,
+        // Member validity is judged by DATABASE wall-clock time -
+        // clock_timestamp(), not now(): now() freezes at transaction start
+        // and lock waits can outlive the lease (review R7/R8).
+        sql`${pgSchema.pendingInteractionsPostgres.expiresAt} > clock_timestamp()`,
       ),
     )
     .limit(1);
@@ -135,9 +136,10 @@ export async function beginDeliveryItemSend(
             pgSchema.outboundDeliveryItemsPostgres.claimToken,
             input.claimToken,
           ),
-          // Lease validity is judged by DATABASE time - a stale or skewed
-          // caller timestamp must not revive an expired claim (review R6).
-          sql`${pgSchema.outboundDeliveryItemsPostgres.claimExpiresAt} > now()`,
+          // Lease validity is judged by DATABASE wall-clock time - a stale
+          // caller timestamp must not revive an expired claim, and now()
+          // would freeze at transaction start across lock waits (R6/R8).
+          sql`${pgSchema.outboundDeliveryItemsPostgres.claimExpiresAt} > clock_timestamp()`,
           isNull(pgSchema.outboundDeliveryItemsPostgres.sendBegunAt),
         ),
       )
@@ -184,6 +186,10 @@ export async function beginDeliveryItemSend(
             pgSchema.outboundDeliveryItemsPostgres.claimToken,
             input.claimToken,
           ),
+          // Re-check the lease AFTER every lock wait: the prompt lock can
+          // block past claim_expires_at, and the earlier read's predicate
+          // would not notice (review R8).
+          sql`${pgSchema.outboundDeliveryItemsPostgres.claimExpiresAt} > clock_timestamp()`,
           isNull(pgSchema.outboundDeliveryItemsPostgres.sendBegunAt),
         ),
       )

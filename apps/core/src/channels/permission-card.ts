@@ -30,7 +30,9 @@ export function buildBoundedPermissionCard(
   const boundedFullView = fullView
     ? {
         ...fullView,
-        label: fullView.label.slice(0, 80),
+        // 75, not 80: Slack button plain_text caps at 75 chars and the
+        // deterministic rejection would land after beginSend (review R8).
+        label: fullView.label.slice(0, 75),
         title: fullView.title.slice(0, 150),
         filename: fullView.filename.slice(0, 120),
         content:
