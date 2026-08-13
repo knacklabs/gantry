@@ -308,7 +308,13 @@ function grantableRequirementCandidates(
   return blockers.flatMap((blocker) => {
     if (
       blocker.state !== 'missing_capability' ||
-      blocker.action.kind !== 'approve_grant'
+      blocker.action.kind !== 'approve_grant' ||
+      // Prompt candidates and completion agree (R8/R9): only a plain
+      // addRules grant without an explicit destination gets the one-tap
+      // card + auto-append path. Other accepted variants surface as
+      // display-only blockers - no card promise this path cannot complete.
+      blocker.action.grant.type !== 'addRules' ||
+      blocker.action.grant.destination !== undefined
     ) {
       return [];
     }
@@ -359,16 +365,6 @@ export function setupPauseRequirementForApprovedSuggestions(input: {
   const approvedSet = new Set(approvedRules);
   const byBlocker = new Map<JobSetupBlocker, GrantableRequirementCandidate[]>();
   for (const candidate of candidates) {
-    // Only plain addRules grants without an explicit destination take the
-    // auto-append shortcut: a replaceRules or destination-bearing grant must
-    // never be silently applied as a rule addition (review R8).
-    if (
-      candidate.blocker.action.kind !== 'approve_grant' ||
-      candidate.blocker.action.grant.type !== 'addRules' ||
-      candidate.blocker.action.grant.destination !== undefined
-    ) {
-      continue;
-    }
     const group = byBlocker.get(candidate.blocker) ?? [];
     group.push(candidate);
     byBlocker.set(candidate.blocker, group);

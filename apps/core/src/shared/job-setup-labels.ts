@@ -43,12 +43,15 @@ function isDisplayableSetupAction(value: unknown): boolean {
     grant &&
     typeof grant === 'object' &&
     Array.isArray(grant.rules) &&
-    grant.rules.every(
-      (rule) =>
-        rule &&
-        typeof rule === 'object' &&
-        typeof (rule as Record<string, unknown>).toolName === 'string',
-    ),
+    grant.rules.every((rule) => {
+      if (!rule || typeof rule !== 'object') return false;
+      const record = rule as Record<string, unknown>;
+      return (
+        typeof record.toolName === 'string' &&
+        (record.ruleContent === undefined ||
+          typeof record.ruleContent === 'string')
+      );
+    }),
   );
 }
 

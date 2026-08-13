@@ -29,6 +29,7 @@ import { splitAccessRequirements } from './job-access-requirements.js';
 import {
   isCanonicalBrowserCapabilityRule,
   isProjectedBrowserMcpToolRule,
+  parseReadableScopedToolRule,
   publicGantryToolNameForSdkTool,
   RUN_COMMAND_TOOL_NAME,
 } from '../../shared/agent-tool-references.js';
@@ -442,13 +443,27 @@ export function setupStateForTransientPermission(input: {
         type: requirementTypeForTool(toolName),
         id: toolName,
         summary: `This scheduled job used temporary ${toolRequirementLabel(toolName)}. Approve lasting access before future runs continue.`,
-        action: instructionSetupAction(
-          input.recoveryAction?.trim() ||
-            toolAccessRequirementRecoveryAction(toolName),
-        ),
+        // R9: a transient allow pauses with the TYPED one-tap grant whenever
+        // the durable rule is derivable from the tool identity alone (scoped
+        // rules parse; exact tools stand as-is). Only a bare command tool -
+        // where any durable rule would be too broad - falls to a
+        // plain-language instruction (never the raw recovery protocol text).
+        action: transientPermissionSetupAction(toolName),
       },
     ],
   });
+}
+
+function transientPermissionSetupAction(toolName: string) {
+  const scoped = parseReadableScopedToolRule(toolName);
+  const bareCommandTool =
+    (scoped?.toolName ?? toolName) === RUN_COMMAND_TOOL_NAME && !scoped?.scope;
+  if (bareCommandTool || toolName === 'Bash') {
+    return instructionSetupAction(
+      'This job used temporary command access. Approve a scoped command grant from its approval card, then resume the job.',
+    );
+  }
+  return approveRuleSetupAction(toolName);
 }
 
 export function setupStateForBrowserPrelaunchFailure(input: {

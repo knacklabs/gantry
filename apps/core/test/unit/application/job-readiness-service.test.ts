@@ -984,7 +984,7 @@ describe('job readiness service', () => {
     });
   });
 
-  it('preserves scoped recovery actions for transient permission setup blockers', () => {
+  it('pauses a bare command transient with plain-language instruction (never protocol text)', () => {
     const setup = setupStateForTransientPermission({
       toolName: 'Bash',
       mode: 'allow_once',
@@ -998,7 +998,7 @@ describe('job readiness service', () => {
       id: 'RunCommand',
       action: {
         kind: 'instruction',
-        text: 'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
+        text: 'This job used temporary command access. Approve a scoped command grant from its approval card, then resume the job.',
       },
     });
   });
