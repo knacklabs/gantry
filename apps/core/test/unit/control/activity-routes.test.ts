@@ -151,20 +151,40 @@ async function handle(path: string, accept?: string, ctx = context()) {
   return { req, res, ctx, handled };
 }
 
-describe('activity routes', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.getAgentRunForApp.mockResolvedValue(run);
-    mocks.listRecentAgentRuns.mockResolvedValue([run]);
-    mocks.listTasks.mockResolvedValue([]);
-    mocks.countTasksByStatus.mockResolvedValue([]);
-    mocks.listEvents.mockResolvedValue([]);
-    mocks.nextEvents.mockReturnValue(new Promise(() => undefined));
-    mocks.subscribe.mockReturnValue({
-      next: mocks.nextEvents,
-      close: mocks.closeSubscription,
-    });
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.getAgentRunForApp.mockResolvedValue(run);
+  mocks.listRecentAgentRuns.mockResolvedValue([run]);
+  mocks.listTasks.mockResolvedValue([]);
+  mocks.countTasksByStatus.mockResolvedValue([]);
+  mocks.listEvents.mockResolvedValue([]);
+  mocks.nextEvents.mockReturnValue(new Promise(() => undefined));
+  mocks.subscribe.mockReturnValue({
+    next: mocks.nextEvents,
+    close: mocks.closeSubscription,
   });
+});
+
+it('lists agent-scoped activity in newest order', async () => {
+  mocks.listRecentAgentRuns.mockResolvedValue([
+    { ...run, id: 'agent-run:newest' },
+    { ...run, id: 'agent-run:older' },
+  ]);
+  const { res } = await handle('/v1/activity?agentId=agent%3Aowner&limit=20');
+
+  expect(res.statusCode).toBe(200);
+  expect(mocks.listRecentAgentRuns).toHaveBeenCalledWith({
+    appId: 'app-one',
+    agentId: 'agent:owner',
+    limit: 20,
+  });
+  expect(JSON.parse(res.body).runs.map(({ id }: { id: string }) => id)).toEqual([
+    'agent-run:newest',
+    'agent-run:older',
+  ]);
+});
+
+describe('activity routes', () => {
 
   it('keeps the activity list app-scoped, bounded, and safe', async () => {
     mocks.listRecentAgentRuns.mockResolvedValue(
@@ -186,24 +206,6 @@ describe('activity routes', () => {
     expect(res.body).not.toMatch(
       /private|conversationId|sessionId|permissionDecision|workerId/i,
     );
-  });
-
-  it('lists agent-scoped activity in newest order', async () => {
-    mocks.listRecentAgentRuns.mockResolvedValue([
-      { ...run, id: 'agent-run:newest' },
-      { ...run, id: 'agent-run:older' },
-    ]);
-    const { res } = await handle('/v1/activity?agentId=agent%3Aowner&limit=20');
-
-    expect(res.statusCode).toBe(200);
-    expect(mocks.listRecentAgentRuns).toHaveBeenCalledWith({
-      appId: 'app-one',
-      agentId: 'agent:owner',
-      limit: 20,
-    });
-    expect(
-      JSON.parse(res.body).runs.map(({ id }: { id: string }) => id),
-    ).toEqual(['agent-run:newest', 'agent-run:older']);
   });
 
   it.each([
