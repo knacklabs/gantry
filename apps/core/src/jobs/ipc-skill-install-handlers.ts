@@ -213,7 +213,7 @@ async function completeSkillInstallCommandReview(input: {
   const { data, deps, sourceAgentFolder } = context;
   const agentId = resolveTaskAgentId(data, sourceAgentFolder);
   try {
-    const decision = await deps.requestPermissionApproval({
+    const approvalResult = await deps.requestPermissionApproval({
       requestId: `skill-install-command-${globalThis.crypto.randomUUID()}`,
       appId: data.appId as never,
       agentId,
@@ -237,6 +237,14 @@ async function completeSkillInstallCommandReview(input: {
           'prepares_or_imports_skill_package_and_enables_skill_after_approval',
       },
     });
+    if (approvalResult.kind === 'delivery_failure') {
+      input.responder.reject(
+        `Couldn't deliver the skill install approval prompt: ${approvalResult.userMessage}.`,
+        'permission_review_failed',
+      );
+      return;
+    }
+    const decision = approvalResult.decision;
     getRuntimeDeps().logInfo(
       {
         appId: data.appId,

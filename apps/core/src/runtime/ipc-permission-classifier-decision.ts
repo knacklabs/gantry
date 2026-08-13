@@ -23,9 +23,7 @@ import type { ParsedPermissionIpcRequest } from './ipc-parsing.js';
 import {
   consultPermissionClassifierBeforePrompt,
   permissionPromotionHint,
-  recordHumanPermissionPromotionSignal,
 } from './permission-classifier.js';
-import { runDurablePermissionInteraction } from '../application/interactions/durable-interaction-handler.js';
 import { resolveAgentToolRuntimePolicy } from '../application/agents/agent-tool-runtime-rules.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import {
@@ -248,25 +246,7 @@ async function resolvePermissionIpcDecisionTail(input: {
   );
   const promotionRepository = input.deps.getPermissionPromotionRepository?.();
   const promotion = promotionRepository
-    ? {
-        repository: promotionRepository,
-        offer: async (request: PermissionApprovalRequest) => {
-          const interaction = await runDurablePermissionInteraction({
-            request,
-            sourceAgentFolder: input.sourceAgentFolder,
-            prompt: input.deps.requestPermissionApproval,
-          });
-          if (interaction.resolved)
-            recordHumanPermissionPromotionSignal({
-              repository: promotionRepository,
-              appId: request.appId,
-              agentFolder: input.sourceAgentFolder,
-              request,
-              decision: interaction.decision,
-            });
-          return interaction;
-        },
-      }
+    ? { repository: promotionRepository }
     : undefined;
   const shouldConsultClassifier =
     input.deps.publishRuntimeEvent &&
@@ -426,10 +406,13 @@ async function resolvePermissionIpcDecisionTail(input: {
     // would never be honored while the denylist blocks rule-based auto-allows.
     input.request.suggestions = undefined;
     input.request.decisionOptions = ['allow_once', 'cancel'];
-    return withRequestRisk(
-      input.request,
-      await input.deps.requestPermissionApproval(input.request),
-    );
+    const result = await input.deps.requestPermissionApproval(input.request);
+    if (result.kind === 'delivery_failure') {
+      throw new Error(
+        `Couldn't deliver the approval prompt: ${result.userMessage}`,
+      );
+    }
+    return withRequestRisk(input.request, result.decision);
   }
   const promotionHint = classifierDecision?.promotionHintCount
     ? {
@@ -461,10 +444,13 @@ async function resolvePermissionIpcDecisionTail(input: {
       'cancel',
     ];
   }
-  return withRequestRisk(
-    input.request,
-    await input.deps.requestPermissionApproval(input.request),
-  );
+  const result = await input.deps.requestPermissionApproval(input.request);
+  if (result.kind === 'delivery_failure') {
+    throw new Error(
+      `Couldn't deliver the approval prompt: ${result.userMessage}`,
+    );
+  }
+  return withRequestRisk(input.request, result.decision);
 }
 
 function withRequestRisk(

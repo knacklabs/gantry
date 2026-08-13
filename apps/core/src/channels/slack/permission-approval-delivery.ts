@@ -3,6 +3,7 @@ import type {
   MessageSendOptions,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
 } from '../../domain/types.js';
 import type { PreparedPermissionCardSend } from '../../domain/permission-card.js';
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -143,7 +144,7 @@ export async function requestSlackPermissionApproval(input: {
     retryWindowMs: number,
   ) => Promise<void>;
   onPromptDelivered?: (messageId: string) => void;
-}): Promise<PermissionApprovalDecision> {
+}): Promise<PermissionApprovalResult> {
   const parts = buildPermissionPromptParts(input.request, input.timeoutMs);
   const decisionOptions = permissionDecisionOptions(input.request);
   const callback = {
@@ -215,20 +216,6 @@ export async function requestSlackPermissionApproval(input: {
     },
     actionsBlock,
   ];
-  const postPromptDeliveryFailureNotice = async (reason: string) => {
-    try {
-      await input.app.client.chat.postMessage({
-        channel: input.channelId,
-        text: reason,
-        ...threadPayload,
-      });
-    } catch (err) {
-      logger.warn(
-        { jid: input.jid, requestId: input.request.requestId, err },
-        'Slack permission prompt failure notice could not be delivered',
-      );
-    }
-  };
   const postVisiblePrompt = async (): Promise<{ ts?: string } | null> => {
     const sent = (await input.app.client.chat.postMessage({
       channel: input.channelId,
@@ -256,12 +243,18 @@ export async function requestSlackPermissionApproval(input: {
       }
     }
   };
+  let transmissionBegan = false;
   try {
     if (userIds.length === 0) {
       const reason =
         'Approval prompt could not be shown because this Slack conversation has no configured approvers. Add at least one conversation approver and retry.';
-      await postPromptDeliveryFailureNotice(reason);
-      return { approved: false, reason };
+      return {
+        kind: 'delivery_failure',
+        code: 'surface_unsupported',
+        retryable: true,
+        delivered: 'no',
+        userMessage: reason,
+      };
     }
     const binding = {
       request: input.request,
@@ -276,6 +269,7 @@ export async function requestSlackPermissionApproval(input: {
     }
     let response: { ts?: string } | null;
     try {
+      transmissionBegan = true;
       response = await postVisiblePrompt();
     } catch (blocksErr) {
       logger.warn(
@@ -284,16 +278,17 @@ export async function requestSlackPermissionApproval(input: {
       );
       const reason =
         'Approval prompt could not be posted to this Slack thread. Check that the Slack app can post messages here and retry.';
-      await postPromptDeliveryFailureNotice(reason);
       throw blocksErr;
     }
     const messageTs = response?.ts;
     if (!messageTs) {
       const reason = 'Slack did not accept the approval prompt.';
-      await postPromptDeliveryFailureNotice(reason);
       return {
-        approved: false,
-        reason,
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        retryable: false,
+        delivered: 'unknown',
+        userMessage: reason,
       };
     }
     let resolveDecision!: (decision: PermissionApprovalDecision) => void;
@@ -348,22 +343,24 @@ export async function requestSlackPermissionApproval(input: {
         ) {
           input.pendingPermissionPrompts.delete(callback.providerAlias);
         }
-        resolveDecision({
-          approved: false,
-          reason: 'Failed to send approval prompt to Slack',
-        });
       }
       logger.error(
         { jid: input.jid, requestId: input.request.requestId, err },
         'Failed to send Slack permission prompt',
       );
-      return await decision;
+      return {
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        retryable: false,
+        delivered: 'unknown',
+        userMessage: 'Failed to send approval prompt to Slack',
+      };
     }
     input.onPromptDelivered?.(messageTs);
     // Ephemeral details preserve the richer prompt for active approvers, but the
     // durable thread card above is the sole required action surface.
     await postPrivateDetails(contentBlocks);
-    return await decision;
+    return { kind: 'decision', decision: await decision };
   } catch (err) {
     if (err instanceof DurableInteractionPersistenceError) throw err;
     incrementOperationalError('channels', 'permission_prompt');
@@ -372,8 +369,11 @@ export async function requestSlackPermissionApproval(input: {
       'Failed to send Slack permission prompt',
     );
     return {
-      approved: false,
-      reason: 'Failed to send approval prompt to Slack',
+      kind: 'delivery_failure',
+      code: 'provider_failed',
+      retryable: !transmissionBegan,
+      delivered: transmissionBegan ? 'unknown' : 'no',
+      userMessage: 'Failed to send approval prompt to Slack',
     };
   }
 }

@@ -13,7 +13,6 @@ import {
   setupPauseGrantIsCurrent,
   setupPausePersistentGrantIsCurrent,
 } from '@core/app/bootstrap/setup-pause-permission-wiring.js';
-import { runDurablePermissionInteraction } from '@core/application/interactions/durable-interaction-handler.js';
 import { applyRecoveredPersistentPermissionGrant } from '@core/application/interactions/pending-interaction-permission-recovery.js';
 import {
   requestPermissionReviewSuggestions,
@@ -151,44 +150,19 @@ function permanentDecision(): PermissionApprovalDecision {
   };
 }
 
-function cancelledDecision(): PermissionApprovalDecision {
-  return { approved: false, mode: 'cancel', decidedBy: 'owner-1' };
-}
-
 function configure(input: {
   appId?: string;
   job: () => Job | undefined;
-  runPermissionInteraction?: SetupPausePermissionPromptDeps['runPermissionInteraction'];
-  requestPermissionApproval?: (
-    request: PermissionApprovalRequest,
-    onPromptDelivered: (messageId: string) => void,
-  ) => Promise<PermissionApprovalDecision>;
+  preparePermissionInteraction?: SetupPausePermissionPromptDeps['preparePermissionInteraction'];
   cancelPermissionApproval?: SetupPausePermissionPromptDeps['cancelPermissionApproval'];
   reviewStoredRequirement?: SetupPausePermissionPromptDeps['reviewStoredRequirement'];
   resolveProviderAccountId?: SetupPausePermissionPromptDeps['resolveProviderAccountId'];
 }) {
-  const requestPermissionApproval =
-    input.requestPermissionApproval ??
-    (async (
-      _request: PermissionApprovalRequest,
-      onPromptDelivered: (messageId: string) => void,
-    ) => {
-      onPromptDelivered('prompt-1');
-      return permanentDecision();
-    });
   const deps: SetupPausePermissionPromptDeps = {
     appId: input.appId ?? 'default',
     getJobById: async () => input.job(),
-    runPermissionInteraction:
-      input.runPermissionInteraction ??
-      (async (request, onPromptDelivered, onInteractionBegan) => {
-        onInteractionBegan();
-        return {
-          began: true,
-          decision: await requestPermissionApproval(request, onPromptDelivered),
-          resolved: true,
-        };
-      }),
+    preparePermissionInteraction:
+      input.preparePermissionInteraction ?? (async () => ({ created: true })),
     cancelPermissionApproval:
       input.cancelPermissionApproval ?? (async () => 'not_found'),
     reviewStoredRequirement:
@@ -231,11 +205,11 @@ describe('setup pause prompts', () => {
       },
     });
     const reviewStoredRequirement = vi.fn();
-    const runPermissionInteraction = vi.fn();
+    const preparePermissionInteraction = vi.fn();
     configure({
       job: () => job,
       reviewStoredRequirement,
-      runPermissionInteraction,
+      preparePermissionInteraction,
     });
 
     await expect(
@@ -248,7 +222,7 @@ describe('setup pause prompts', () => {
       notificationEligible: true,
     });
     expect(reviewStoredRequirement).not.toHaveBeenCalled();
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
   });
 
   it('an instruction action is instruction-only', async () => {
@@ -269,11 +243,11 @@ describe('setup pause prompts', () => {
       },
     });
     const reviewStoredRequirement = vi.fn();
-    const runPermissionInteraction = vi.fn();
+    const preparePermissionInteraction = vi.fn();
     configure({
       job: () => job,
       reviewStoredRequirement,
-      runPermissionInteraction,
+      preparePermissionInteraction,
     });
 
     await expect(
@@ -286,7 +260,7 @@ describe('setup pause prompts', () => {
       notificationEligible: true,
     });
     expect(reviewStoredRequirement).not.toHaveBeenCalled();
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
   });
 
   it('an MCP-server denial is instruction-only', async () => {
@@ -307,11 +281,11 @@ describe('setup pause prompts', () => {
       },
     });
     const reviewStoredRequirement = vi.fn();
-    const runPermissionInteraction = vi.fn();
+    const preparePermissionInteraction = vi.fn();
     configure({
       job: () => job,
       reviewStoredRequirement,
-      runPermissionInteraction,
+      preparePermissionInteraction,
     });
 
     await expect(
@@ -321,7 +295,7 @@ describe('setup pause prompts', () => {
       }),
     ).resolves.toMatchObject({ status: 'instruction_only' });
     expect(reviewStoredRequirement).not.toHaveBeenCalled();
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
   });
 
   it('keeps the instruction-only path available when runtime wiring is absent', async () => {
@@ -340,19 +314,14 @@ describe('setup pause prompts', () => {
     ).resolves.toBeUndefined();
   });
 
-  it("raises one standard permission prompt from the job's stored requirement and settles through the existing grant chain", async () => {
+  it("prepares one durable permission prompt from the job's stored requirement", async () => {
     const job = makeJob();
     let request: PermissionApprovalRequest | undefined;
-    const settlementOrder: string[] = [];
-    const runPermissionInteraction = vi.fn(async (input, delivered, began) => {
+    const preparePermissionInteraction = vi.fn(async (input) => {
       request = input;
-      began();
-      delivered('prompt-1');
-      settlementOrder.push('persistRequestPermissionRules');
-      settlementOrder.push('recheckSetupPausedJobsAfterCapabilityUpdate');
-      return { began: true, decision: permanentDecision(), resolved: true };
+      return { created: true };
     });
-    configure({ job: () => job, runPermissionInteraction });
+    configure({ job: () => job, preparePermissionInteraction });
 
     await expect(
       raiseSetupPausePermissionPrompt({
@@ -367,7 +336,7 @@ describe('setup pause prompts', () => {
       },
     });
 
-    expect(runPermissionInteraction).toHaveBeenCalledOnce();
+    expect(preparePermissionInteraction).toHaveBeenCalledOnce();
     expect(request).toMatchObject({
       jobId: 'job-1',
       targetJid: 'sl:approver',
@@ -385,10 +354,6 @@ describe('setup pause prompts', () => {
     );
     expect(request?.decisionReason).toContain('Needed:');
     expect(request?.description).toContain('Allow once is unavailable');
-    expect(settlementOrder).toEqual([
-      'persistRequestPermissionRules',
-      'recheckSetupPausedJobsAfterCapabilityUpdate',
-    ]);
     expect(request?.decisionOptions).not.toContain('allow_once');
     expect(
       requestPermissionSetupDecisionOptions({
@@ -472,10 +437,9 @@ describe('setup pause prompts', () => {
             }
           : null;
       },
-      requestPermissionApproval: async (input, delivered) => {
+      preparePermissionInteraction: async (input) => {
         request = input;
-        delivered('prompt-1');
-        return cancelledDecision();
+        return { created: true };
       },
     });
 
@@ -997,10 +961,9 @@ describe('setup pause prompts', () => {
             }
           : null;
       },
-      requestPermissionApproval: async (input, delivered) => {
+      preparePermissionInteraction: async (input) => {
         request = input;
-        delivered('prompt-1');
-        return cancelledDecision();
+        return { created: true };
       },
     });
 
@@ -1164,10 +1127,9 @@ describe('setup pause prompts', () => {
             }
           : null;
       },
-      requestPermissionApproval: async (input, delivered) => {
+      preparePermissionInteraction: async (input) => {
         request = input;
-        delivered('prompt-1');
-        return cancelledDecision();
+        return { created: true };
       },
     });
 
@@ -1415,11 +1377,11 @@ describe('setup pause prompts', () => {
         ],
       },
     });
-    const runPermissionInteraction = vi.fn();
+    const preparePermissionInteraction = vi.fn();
     const reviewStoredRequirement = vi.fn();
     configure({
       job: () => job,
-      runPermissionInteraction,
+      preparePermissionInteraction,
       reviewStoredRequirement,
     });
 
@@ -1433,31 +1395,21 @@ describe('setup pause prompts', () => {
       notificationEligible: true,
     });
     expect(reviewStoredRequirement).not.toHaveBeenCalled();
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
   });
 
   it('same fingerprint does not re-prompt and a changed blocker set retires the old prompt', async () => {
     let job = makeJob();
     const pending = new Set<string>();
     const providerPrompt = vi.fn();
-    const runPermissionInteraction = vi.fn(
-      async (
-        request: PermissionApprovalRequest,
-        delivered: (messageId: string) => void,
-        began: () => void,
-      ) => {
+    const preparePermissionInteraction = vi.fn(
+      async (request: PermissionApprovalRequest) => {
         if (pending.has(request.requestId)) {
-          return {
-            began: false,
-            decision: cancelledDecision(),
-            resolved: false,
-          };
+          return { created: false };
         }
         pending.add(request.requestId);
-        began();
         providerPrompt(request.requestId);
-        delivered(`prompt:${request.requestId}`);
-        return new Promise<never>(() => undefined);
+        return { created: true };
       },
     );
     const cancelPermissionApproval = vi.fn(async (cancellation) => {
@@ -1466,7 +1418,7 @@ describe('setup pause prompts', () => {
     });
     configure({
       job: () => job,
-      runPermissionInteraction,
+      preparePermissionInteraction,
       cancelPermissionApproval,
     });
 
@@ -1533,8 +1485,8 @@ describe('setup pause prompts', () => {
         ],
       },
     });
-    const runPermissionInteraction = vi.fn();
-    configure({ job: () => job, runPermissionInteraction });
+    const preparePermissionInteraction = vi.fn();
+    configure({ job: () => job, preparePermissionInteraction });
 
     await expect(
       raiseSetupPausePermissionPrompt({
@@ -1545,7 +1497,7 @@ describe('setup pause prompts', () => {
       status: 'instruction_only',
       notificationEligible: true,
     });
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
   });
 
   it('keeps operator instruction blockers on the instruction-only path', async () => {
@@ -1567,8 +1519,8 @@ describe('setup pause prompts', () => {
         ],
       },
     });
-    const runPermissionInteraction = vi.fn();
-    configure({ job: () => job, runPermissionInteraction });
+    const preparePermissionInteraction = vi.fn();
+    configure({ job: () => job, preparePermissionInteraction });
 
     await expect(
       raiseSetupPausePermissionPrompt({
@@ -1579,7 +1531,7 @@ describe('setup pause prompts', () => {
       status: 'instruction_only',
       notificationEligible: true,
     });
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
   });
 
   it('marks a delivered instruction card for a genuinely non-grantable blocker', async () => {
@@ -1728,10 +1680,9 @@ describe('setup pause prompts', () => {
     let request: PermissionApprovalRequest | undefined;
     configure({
       job: () => job,
-      requestPermissionApproval: async (input, delivered) => {
+      preparePermissionInteraction: async (input) => {
         request = input;
-        delivered('prompt-1');
-        return cancelledDecision();
+        return { created: true };
       },
     });
 
@@ -1799,10 +1750,9 @@ describe('setup pause prompts', () => {
     configure({
       job: () => job,
       reviewStoredRequirement,
-      requestPermissionApproval: async (input, delivered) => {
+      preparePermissionInteraction: async (input) => {
         request = input;
-        delivered('prompt-1');
-        return cancelledDecision();
+        return { created: true };
       },
     });
 
@@ -1820,9 +1770,9 @@ describe('setup pause prompts', () => {
   });
 
   it('does not prompt silent jobs or a fingerprint already marked notified', async () => {
-    const runPermissionInteraction = vi.fn();
+    const preparePermissionInteraction = vi.fn();
     let job = makeJob({ silent: true });
-    configure({ job: () => job, runPermissionInteraction });
+    configure({ job: () => job, preparePermissionInteraction });
     const sendMessage = vi.fn(async () => undefined);
     const markJobSetupNotified = vi.fn(async () => true);
 
@@ -1848,15 +1798,15 @@ describe('setup pause prompts', () => {
       publishRuntimeEvent: async () => undefined,
     });
 
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
     expect(markJobSetupNotified).not.toHaveBeenCalled();
   });
 
   it('does not dispatch after the job is silenced or leaves the setup-required pause', async () => {
-    const runPermissionInteraction = vi.fn();
+    const preparePermissionInteraction = vi.fn();
     let job = makeJob({ silent: true });
-    configure({ job: () => job, runPermissionInteraction });
+    configure({ job: () => job, preparePermissionInteraction });
 
     await expect(
       raiseSetupPausePermissionPrompt({
@@ -1879,188 +1829,53 @@ describe('setup pause prompts', () => {
       notificationEligible: false,
     });
 
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
   });
 
-  it('routes the prompt to the approver and keeps the instruction card on a divergent job route', async () => {
+  it('prepares the approver card and keeps only the divergent job notification path', async () => {
     const job = makeJob();
-    const requestPermissionApproval = vi.fn(async (_request, delivered) => {
-      delivered('prompt-1');
-      return cancelledDecision();
-    });
-    configure({ job: () => job, requestPermissionApproval });
+    const preparePermissionInteraction = vi.fn(async () => ({ created: true }));
+    configure({ job: () => job, preparePermissionInteraction });
     const sendMessage = vi.fn(async () => undefined);
     const markJobSetupNotified = vi.fn(async () => true);
 
-    await notifyJobSetupRequired({
-      currentJob: job,
-      runtimeAppId: 'default',
-      setupState: job.setup_state!,
-      deps: {
-        sendMessage,
-        opsRepository: { markJobSetupNotified },
-      } as never,
-      publishRuntimeEvent: async () => undefined,
-    });
+    await expect(
+      notifyJobSetupRequired({
+        currentJob: job,
+        runtimeAppId: 'default',
+        setupState: job.setup_state!,
+        deps: { sendMessage, opsRepository: { markJobSetupNotified } } as never,
+        publishRuntimeEvent: async () => undefined,
+      }),
+    ).resolves.toBe(false);
 
-    expect(requestPermissionApproval).toHaveBeenCalledWith(
-      expect.objectContaining({ targetJid: 'sl:approver' }),
-      expect.any(Function),
-    );
+    expect(preparePermissionInteraction).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledOnce();
     expect(sendMessage).toHaveBeenCalledWith(
       'sl:job-notifications',
       expect.stringContaining('Setup needed'),
     );
+    expect(sendMessage).not.toHaveBeenCalledWith(
+      'sl:approver',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(markJobSetupNotified).not.toHaveBeenCalled();
   });
 
-  it('covers the approver with an instruction card when another durable prompt owner may be undelivered', async () => {
+  it('does not send a prose fallback on the approver route while durable delivery is pending', async () => {
     const approverRoute = {
       conversationJid: 'sl:approver',
       threadId: 'approval-thread',
       label: 'Approver',
     };
     const job = makeJob({ notification_routes: [approverRoute] });
+    const preparePermissionInteraction = vi.fn(async () => ({ created: true }));
     configure({
       job: () => job,
-      runPermissionInteraction: async () => ({
-        began: false,
-        decision: cancelledDecision(),
-        resolved: false,
-      }),
+      preparePermissionInteraction,
     });
     const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
-
-    await expect(
-      notifyJobSetupRequired({
-        currentJob: job,
-        runtimeAppId: 'default',
-        setupState: job.setup_state!,
-        deps: {
-          sendMessage,
-          opsRepository: { markJobSetupNotified },
-        } as never,
-        publishRuntimeEvent: async () => undefined,
-      }),
-    ).resolves.toBe(true);
-
-    expect(sendMessage).toHaveBeenCalledWith(
-      'sl:approver',
-      expect.stringContaining('Setup needed'),
-      expect.objectContaining({ threadId: 'approval-thread' }),
-    );
-    expect(markJobSetupNotified).toHaveBeenCalledWith(
-      job.id,
-      job.setup_state!.fingerprint,
-    );
-  });
-
-  it('falls back to an instruction card when the only-route prompt is undelivered', async () => {
-    const approverRoute = {
-      conversationJid: 'sl:approver',
-      threadId: 'approval-thread',
-      label: 'Approver',
-    };
-    const job = makeJob({ notification_routes: [approverRoute] });
-    configure({
-      job: () => job,
-      runPermissionInteraction: async (_request, _delivered, began) => {
-        began();
-        return {
-          began: true,
-          decision: cancelledDecision(),
-          resolved: true,
-        };
-      },
-    });
-    const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
-
-    await expect(
-      notifyJobSetupRequired({
-        currentJob: job,
-        runtimeAppId: 'default',
-        setupState: job.setup_state!,
-        deps: {
-          sendMessage,
-          opsRepository: { markJobSetupNotified },
-        } as never,
-        publishRuntimeEvent: async () => undefined,
-      }),
-    ).resolves.toBe(true);
-
-    expect(sendMessage).toHaveBeenCalledWith(
-      'sl:approver',
-      expect.stringContaining('Setup needed'),
-      expect.objectContaining({ threadId: 'approval-thread' }),
-    );
-    expect(markJobSetupNotified).toHaveBeenCalledWith(
-      job.id,
-      job.setup_state!.fingerprint,
-    );
-  });
-
-  it('sends an undelivered raised-prompt fallback to a divergent approver route without double-carding the job route', async () => {
-    const job = makeJob();
-    configure({
-      job: () => job,
-      runPermissionInteraction: async (_request, _delivered, began) => {
-        began();
-        return {
-          began: true,
-          decision: cancelledDecision(),
-          resolved: true,
-        };
-      },
-    });
-    const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
-
-    await expect(
-      notifyJobSetupRequired({
-        currentJob: job,
-        runtimeAppId: 'default',
-        setupState: job.setup_state!,
-        deps: {
-          sendMessage,
-          opsRepository: { markJobSetupNotified },
-        } as never,
-        publishRuntimeEvent: async () => undefined,
-      }),
-    ).resolves.toBe(true);
-
-    expect(sendMessage).toHaveBeenCalledWith(
-      'sl:job-notifications',
-      expect.stringContaining('Setup needed'),
-    );
-    expect(sendMessage).toHaveBeenCalledWith(
-      'sl:approver',
-      expect.stringContaining('Setup needed'),
-      expect.objectContaining({ threadId: 'approval-thread' }),
-    );
-    expect(sendMessage).toHaveBeenCalledTimes(2);
-    expect(markJobSetupNotified).toHaveBeenCalledWith(
-      job.id,
-      job.setup_state!.fingerprint,
-    );
-  });
-
-  it('keeps an undelivered raised prompt retryable when its approver fallback also fails', async () => {
-    const job = makeJob();
-    configure({
-      job: () => job,
-      runPermissionInteraction: async (_request, _delivered, began) => {
-        began();
-        return {
-          began: true,
-          decision: cancelledDecision(),
-          resolved: true,
-        };
-      },
-    });
-    const sendMessage = vi.fn(async (jid: string) => {
-      if (jid === 'sl:approver') throw new Error('provider unavailable');
-    });
     const markJobSetupNotified = vi.fn(async () => true);
 
     await expect(
@@ -2076,218 +1891,25 @@ describe('setup pause prompts', () => {
       }),
     ).resolves.toBe(false);
 
-    expect(sendMessage).toHaveBeenCalledWith(
-      'sl:job-notifications',
-      expect.stringContaining('Setup needed'),
-    );
-    expect(sendMessage).toHaveBeenCalledWith(
-      'sl:approver',
-      expect.stringContaining('Setup needed'),
-      expect.objectContaining({ threadId: 'approval-thread' }),
-    );
+    expect(preparePermissionInteraction).toHaveBeenCalledOnce();
+    expect(sendMessage).not.toHaveBeenCalled();
     expect(markJobSetupNotified).not.toHaveBeenCalled();
   });
 
-  it('keeps a same-conversation notification route on a different provider account', async () => {
+  it('reports an existing composite prompt as already pending without another send', async () => {
     const job = makeJob();
-    job.notification_routes = [
-      {
-        conversationJid: 'sl:approver',
-        threadId: 'approval-thread',
-        providerAccountId: 'account-job',
-        label: 'Job notifications',
-      },
-    ];
-    configure({
-      job: () => job,
-      runPermissionInteraction: async (_request, delivered, began) => {
-        began();
-        delivered('prompt-1');
-        return new Promise<never>(() => undefined);
-      },
-      resolveProviderAccountId: () => 'account-approver',
-    });
-    const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
+    const preparePermissionInteraction = vi.fn(async () => ({
+      created: false,
+    }));
+    configure({ job: () => job, preparePermissionInteraction });
 
     await expect(
-      notifyJobSetupRequired({
-        currentJob: job,
-        runtimeAppId: 'default',
-        setupState: job.setup_state!,
-        deps: {
-          sendMessage,
-          opsRepository: { markJobSetupNotified },
-        } as never,
-        publishRuntimeEvent: async () => undefined,
+      raiseSetupPausePermissionPrompt({
+        jobId: job.id,
+        setupFingerprint: job.setup_state!.fingerprint,
       }),
-    ).resolves.toBe(true);
-
-    expect(sendMessage).toHaveBeenCalledWith(
-      'sl:approver',
-      expect.stringContaining('Setup needed'),
-      expect.objectContaining({
-        threadId: 'approval-thread',
-        providerAccountId: 'account-job',
-      }),
-    );
-    expect(sendMessage).toHaveBeenCalledOnce();
-    expect(markJobSetupNotified).toHaveBeenCalledWith(
-      job.id,
-      job.setup_state!.fingerprint,
-    );
-  });
-
-  it('treats an omitted notification account as the resolved default account', async () => {
-    const approverRoute = {
-      conversationJid: 'sl:approver',
-      threadId: 'approval-thread',
-      label: 'Approver',
-    };
-    const job = makeJob({ notification_routes: [approverRoute] });
-    configure({
-      job: () => job,
-      runPermissionInteraction: async (_request, delivered, began) => {
-        began();
-        delivered('prompt-1');
-        return new Promise<never>(() => undefined);
-      },
-      resolveProviderAccountId: () => 'account-default',
-    });
-    const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
-
-    await expect(
-      notifyJobSetupRequired({
-        currentJob: job,
-        runtimeAppId: 'default',
-        setupState: job.setup_state!,
-        deps: {
-          sendMessage,
-          opsRepository: { markJobSetupNotified },
-        } as never,
-        publishRuntimeEvent: async () => undefined,
-      }),
-    ).resolves.toBe(true);
-
-    expect(sendMessage).not.toHaveBeenCalled();
-    expect(markJobSetupNotified).toHaveBeenCalledWith(
-      job.id,
-      job.setup_state!.fingerprint,
-    );
-  });
-
-  it('deduplicates concurrent readiness checks through the durable interaction owner', async () => {
-    const job = makeJob();
-    let durableInteractionId: string | undefined;
-    const providerPrompt = vi.fn();
-    const operations = {
-      record: vi.fn(async (input: { interactionId?: string }) => {
-        if (!durableInteractionId) {
-          durableInteractionId = input.interactionId;
-        }
-        return {
-          id: durableInteractionId,
-          status: 'pending',
-        } as never;
-      }),
-      resolve: vi.fn(async () => true),
-      cancelPendingQuestionInteractionIfRunLeaseInactive: vi.fn(
-        async () => false,
-      ),
-    };
-    configure({
-      job: () => job,
-      runPermissionInteraction: (request, delivered, began) =>
-        runDurablePermissionInteraction({
-          request,
-          sourceAgentFolder: request.sourceAgentFolder,
-          operations: operations as never,
-          skipPromptWhenAlreadyPending: true,
-          beforePrompt: began,
-          prompt: async () => {
-            providerPrompt(request.requestId);
-            delivered('prompt-1');
-            return new Promise<never>(() => undefined);
-          },
-        }),
-    });
-
-    await expect(
-      Promise.all([
-        raiseSetupPausePermissionPrompt({
-          jobId: job.id,
-          setupFingerprint: job.setup_state!.fingerprint,
-        }),
-        raiseSetupPausePermissionPrompt({
-          jobId: job.id,
-          setupFingerprint: job.setup_state!.fingerprint,
-        }),
-      ]),
-    ).resolves.toEqual([
-      expect.objectContaining({ status: 'raised' }),
-      expect.objectContaining({ status: 'already_pending' }),
-    ]);
-    expect(providerPrompt).toHaveBeenCalledOnce();
-  });
-
-  it('treats an ambiguous durable record result as already pending and keeps the approver carded', async () => {
-    const approverRoute = {
-      conversationJid: 'sl:approver',
-      threadId: 'approval-thread',
-      label: 'Approver',
-    };
-    const job = makeJob({ notification_routes: [approverRoute] });
-    const providerPrompt = vi.fn();
-    const operations = {
-      record: vi.fn(async () => true),
-      resolve: vi.fn(async () => true),
-      cancelPendingQuestionInteractionIfRunLeaseInactive: vi.fn(
-        async () => false,
-      ),
-    };
-    configure({
-      job: () => job,
-      runPermissionInteraction: (request, delivered, began) =>
-        runDurablePermissionInteraction({
-          request,
-          sourceAgentFolder: request.sourceAgentFolder,
-          operations: operations as never,
-          skipPromptWhenAlreadyPending: true,
-          beforePrompt: began,
-          prompt: async () => {
-            providerPrompt(request.requestId);
-            delivered('prompt-1');
-            return new Promise<never>(() => undefined);
-          },
-        }),
-    });
-    const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
-
-    await expect(
-      notifyJobSetupRequired({
-        currentJob: job,
-        runtimeAppId: 'default',
-        setupState: job.setup_state!,
-        deps: {
-          sendMessage,
-          opsRepository: { markJobSetupNotified },
-        } as never,
-        publishRuntimeEvent: async () => undefined,
-      }),
-    ).resolves.toBe(true);
-
-    expect(providerPrompt).not.toHaveBeenCalled();
-    expect(sendMessage).toHaveBeenCalledWith(
-      'sl:approver',
-      expect.stringContaining('Setup needed'),
-      expect.objectContaining({ threadId: 'approval-thread' }),
-    );
-    expect(markJobSetupNotified).toHaveBeenCalledWith(
-      job.id,
-      job.setup_state!.fingerprint,
-    );
+    ).resolves.toMatchObject({ status: 'already_pending' });
+    expect(preparePermissionInteraction).toHaveBeenCalledOnce();
   });
 
   it.each([

@@ -123,7 +123,7 @@ export const serviceRestartHandler: TaskHandler = async (context) => {
     const reason =
       toTrimmedString(data.payload?.reason, { maxLen: 2000 }) ||
       'Agent requested a runtime service restart.';
-    const decision = await deps.requestPermissionApproval({
+    const approvalResult = await deps.requestPermissionApproval({
       requestId: `service-restart-${randomUUID()}`,
       appId: data.appId as never,
       agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
@@ -143,6 +143,14 @@ export const serviceRestartHandler: TaskHandler = async (context) => {
         activation: 'immediate_service_restart',
       },
     });
+    if (approvalResult.kind === 'delivery_failure') {
+      reject(
+        `Couldn't deliver the service restart approval prompt: ${approvalResult.userMessage}.`,
+        'permission_review_failed',
+      );
+      return;
+    }
+    const decision = approvalResult.decision;
     if (!decision.approved || !decision.decidedBy) {
       const message = `Rejected service restart: ${decision.reason || 'not approved'}.`;
       reject(message, 'permission_denied');
@@ -367,7 +375,7 @@ export const requestSettingsUpdateHandler: TaskHandler = async (context) => {
         threadId: data.authThreadId,
         providerAccountId: data.providerAccountId,
       });
-      const decision = await deps.requestPermissionApproval({
+      const approvalResult = await deps.requestPermissionApproval({
         requestId: `settings-${randomUUID()}`,
         appId: data.appId as never,
         agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
@@ -392,6 +400,14 @@ export const requestSettingsUpdateHandler: TaskHandler = async (context) => {
           activation: 'local_settings_yaml',
         },
       });
+      if (approvalResult.kind === 'delivery_failure') {
+        reject(
+          `Couldn't deliver the settings approval prompt: ${approvalResult.userMessage}.`,
+          'permission_review_failed',
+        );
+        return;
+      }
+      const decision = approvalResult.decision;
       if (!decision.approved || !decision.decidedBy) {
         message = `Rejected settings update: ${decision.reason || 'not approved'}.`;
         reject(message, 'permission_denied');

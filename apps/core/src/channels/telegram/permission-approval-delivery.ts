@@ -1,6 +1,7 @@
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
   PermissionCallbackScope,
 } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -49,21 +50,34 @@ export async function requestTelegramPermissionApproval(input: {
   ) => Promise<'settled' | 'already_decided' | 'ownerless' | 'retryable'>;
   onPromptDelivered?: (messageId: string) => void;
   sanitizeErrorMessage: (err: unknown) => string;
-}): Promise<PermissionApprovalDecision> {
+}): Promise<PermissionApprovalResult> {
   if (!input.interactionCallbacksEnabled) {
     return {
-      approved: false,
-      reason: 'This Telegram connection cannot collect approvals right now.',
+      kind: 'delivery_failure',
+      code: 'surface_unsupported',
+      retryable: true,
+      delivered: 'no',
+      userMessage:
+        'This Telegram connection cannot collect approvals right now.',
     };
   }
   if (!input.botConnected) {
-    return { approved: false, reason: 'Telegram bot is not connected' };
+    return {
+      kind: 'delivery_failure',
+      code: 'surface_unsupported',
+      retryable: true,
+      delivered: 'no',
+      userMessage: 'Telegram bot is not connected',
+    };
   }
   const chatId = input.jid.replace(/^tg:/, '');
   if (!chatId) {
     return {
-      approved: false,
-      reason: 'This Telegram conversation could not be identified.',
+      kind: 'delivery_failure',
+      code: 'target_missing',
+      retryable: true,
+      delivered: 'no',
+      userMessage: 'This Telegram conversation could not be identified.',
     };
   }
   if (
@@ -76,8 +90,11 @@ export async function requestTelegramPermissionApproval(input: {
     )
   ) {
     return {
-      approved: false,
-      reason: 'This approval request is already awaiting a decision.',
+      kind: 'delivery_failure',
+      code: 'surface_unsupported',
+      retryable: true,
+      delivered: 'no',
+      userMessage: 'This approval request is already awaiting a decision.',
     };
   }
   const callback = {
@@ -131,6 +148,7 @@ export async function requestTelegramPermissionApproval(input: {
       reason: 'timed out',
     });
   };
+  let transmissionBegan = false;
   try {
     if (
       !(await bindTelegramPermission(
@@ -142,6 +160,7 @@ export async function requestTelegramPermissionApproval(input: {
     ) {
       throw new Error('Telegram permission callback binding failed');
     }
+    transmissionBegan = true;
     const sent = await input.sendPrompt({
       chatId,
       request: input.request,
@@ -161,7 +180,7 @@ export async function requestTelegramPermissionApproval(input: {
       onPromptDelivered: input.onPromptDelivered,
       sanitizeErrorMessage: input.sanitizeErrorMessage,
     });
-    return await registered.decision;
+    return { kind: 'decision', decision: await registered.decision };
   } catch (err) {
     if (err instanceof DurableInteractionPersistenceError) throw err;
     logger.error(
@@ -173,8 +192,11 @@ export async function requestTelegramPermissionApproval(input: {
       'Failed to send Telegram permission prompt',
     );
     return {
-      approved: false,
-      reason: 'Failed to send approval prompt to Telegram',
+      kind: 'delivery_failure',
+      code: 'provider_failed',
+      retryable: !transmissionBegan,
+      delivered: transmissionBegan ? 'unknown' : 'no',
+      userMessage: 'Failed to send approval prompt to Telegram',
     };
   }
 }

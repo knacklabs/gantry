@@ -1,7 +1,7 @@
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 // prettier-ignore
-import { MessageDeliveryResult, MessageSendOptions, PermissionApprovalDecision, PermissionApprovalRequest, ProgressUpdateOptions, RichInteractionRequest, StreamingChunkOptions, UserQuestionRequest, UserQuestionResponse } from '../../domain/types.js';
+import { MessageDeliveryResult, MessageSendOptions, PermissionApprovalDecision, PermissionApprovalRequest, PermissionApprovalResult, ProgressUpdateOptions, RichInteractionRequest, StreamingChunkOptions, UserQuestionRequest, UserQuestionResponse } from '../../domain/types.js';
 import { PartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import { TelegramChannelReactions } from './channel-reactions.js';
@@ -567,7 +567,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     jid: string,
     request: PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
-  ): Promise<PermissionApprovalDecision> {
+  ): Promise<PermissionApprovalResult> {
     return requestTelegramPermissionApproval({
       interactionCallbacksEnabled: this.interactionCallbacksEnabled,
       botConnected: this.bot !== null,

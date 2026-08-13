@@ -881,8 +881,8 @@ maybeDescribe('job lifecycle (Postgres)', () => {
           .publish(event)
           .then(() => undefined),
     });
-    const runPermissionInteraction = vi.fn<
-      SetupPausePermissionPromptDeps['runPermissionInteraction']
+    const preparePermissionInteraction = vi.fn<
+      SetupPausePermissionPromptDeps['preparePermissionInteraction']
     >((request, delivered, began) =>
       runDurablePermissionInteraction({
         request,
@@ -900,7 +900,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       appId: 'default',
       getJobById: async (jobId) =>
         (await runtime.ops.getJobById(jobId)) ?? undefined,
-      runPermissionInteraction,
+      preparePermissionInteraction,
       cancelPermissionApproval: async () => 'not_found',
       reviewStoredRequirement: async ({ toolInput }) => {
         const suggestions = requestPermissionReviewSuggestions(toolInput);
@@ -1110,7 +1110,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
     });
     expect(classifierConsult).not.toHaveBeenCalled();
     expect(requestPermissionApproval).not.toHaveBeenCalled();
-    expect(runPermissionInteraction).toHaveBeenCalledOnce();
+    expect(preparePermissionInteraction).toHaveBeenCalledOnce();
     expect(setupRequest).toMatchObject({
       jobId: job.id,
       toolName: 'request_permission',
@@ -1179,7 +1179,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       decidedBy: 'reviewed_rule',
       reason: expect.stringContaining('Allowed by'),
     });
-    expect(runPermissionInteraction).toHaveBeenCalledOnce();
+    expect(preparePermissionInteraction).toHaveBeenCalledOnce();
     expect(classifierConsult).not.toHaveBeenCalled();
     expect(requestPermissionApproval).not.toHaveBeenCalled();
     expect(

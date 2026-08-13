@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 import type { SkillArtifactStore } from '@core/domain/ports/skill-artifact-store.js';
 import type { SkillCatalogRepository } from '@core/domain/ports/repositories.js';
@@ -528,10 +529,12 @@ describe('approved command skill installs', () => {
       sourceAgentFolderJids: ['chat:one'],
       conversationBindings: {},
       deps: {
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: true,
-          decidedBy: 'user:approver',
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: true,
+            decidedBy: 'user:approver',
+          }),
+        ),
         sendMessage: input.sendMessage,
         runApprovedCommand: input.runApprovedCommand,
       },
@@ -541,10 +544,12 @@ describe('approved command skill installs', () => {
   it('binds proposed package skills to the signed agent id, not the workspace folder', async () => {
     const { skills, syncApprovedCapabilitySettings } = setup();
     const sendMessage = vi.fn(async () => undefined);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'user:approver',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'user:approver',
+      }),
+    );
 
     await requestSkillProposalHandler({
       data: {

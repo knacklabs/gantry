@@ -276,7 +276,9 @@ describe('DeepAgents terminal permission denial', () => {
       toolName: 'mcp__gantry__browser_open',
       action: { kind: 'instruction', text: recoveryAction },
     });
-    const runPermissionInteraction = vi.fn();
+    const preparePermissionInteraction = vi.fn(async () => ({
+      created: true,
+    }));
     const reviewStoredRequirement = vi.fn();
     configureSetupPausePermissionPrompt({
       appId: 'default',
@@ -294,7 +296,7 @@ describe('DeepAgents terminal permission denial', () => {
             execution_context: { conversationJid: 'conversation:test' },
           }) as never,
       ),
-      runPermissionInteraction,
+      preparePermissionInteraction,
       cancelPermissionApproval: vi.fn(async () => 'not_found'),
       reviewStoredRequirement,
     });
@@ -309,7 +311,7 @@ describe('DeepAgents terminal permission denial', () => {
       notificationEligible: true,
     });
     expect(reviewStoredRequirement).not.toHaveBeenCalled();
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
   });
 
   it('an unlocked missing-grant denial offers the approval card', async () => {
@@ -329,25 +331,9 @@ describe('DeepAgents terminal permission denial', () => {
       toolName: denial.toolName,
       action: denial.action,
     });
-    const runPermissionInteraction = vi.fn(
-      async (
-        _request: unknown,
-        onPromptDelivered: (messageId: string) => void,
-        onInteractionBegan: () => void,
-      ) => {
-        onInteractionBegan();
-        onPromptDelivered('message-1');
-        return {
-          began: true,
-          resolved: true,
-          decision: {
-            approved: false,
-            mode: 'cancel',
-            reason: 'test cleanup',
-          },
-        } as never;
-      },
-    );
+    const preparePermissionInteraction = vi.fn(async () => ({
+      created: true,
+    }));
     const reviewStoredRequirement = vi.fn(async () => ({
       suggestions: [
         {
@@ -374,7 +360,7 @@ describe('DeepAgents terminal permission denial', () => {
             execution_context: { conversationJid: 'conversation:test' },
           }) as never,
       ),
-      runPermissionInteraction,
+      preparePermissionInteraction,
       cancelPermissionApproval: vi.fn(async () => 'not_found'),
       reviewStoredRequirement,
     });
@@ -386,7 +372,7 @@ describe('DeepAgents terminal permission denial', () => {
 
     expect(result.status).toBe('raised');
     expect(reviewStoredRequirement).toHaveBeenCalledTimes(1);
-    expect(runPermissionInteraction).toHaveBeenCalledTimes(1);
+    expect(preparePermissionInteraction).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the first parallel denial sticky while recording the late sibling denial', async () => {

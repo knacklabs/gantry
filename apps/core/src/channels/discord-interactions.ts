@@ -1,5 +1,5 @@
 // prettier-ignore
-import { MessageDeliveryResult, MessageSendOptions, PermissionApprovalCancellation, PermissionApprovalDecision, PermissionApprovalDecisionMode, PermissionApprovalRequest, RichInteractionRequest, UserQuestionCancellation, UserQuestionRequest } from '../domain/types.js';
+import { MessageDeliveryResult, MessageSendOptions, PermissionApprovalCancellation, PermissionApprovalDecision, PermissionApprovalDecisionMode, PermissionApprovalRequest, PermissionApprovalResult, RichInteractionRequest, UserQuestionCancellation, UserQuestionRequest } from '../domain/types.js';
 import {
   claimPermissionInteractionCallback,
   DurableInteractionPersistenceError,
@@ -9,6 +9,8 @@ import {
 } from '../application/interactions/pending-interaction-durability.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import { resolveInteractionSettlementDelayMs } from './interaction-settlement.js';
+// prettier-ignore
+import { deliveryNotSent, deliveryUnknown } from './permission-approval-result.js';
 import { cancelPendingDiscordPermission } from './discord-permission-cancellation.js';
 import { cancelPendingDiscordQuestion } from './discord-question-cancellation.js';
 import {
@@ -138,7 +140,7 @@ export class DiscordInteractionHandler {
     jid: string,
     request: PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
-  ): Promise<PermissionApprovalDecision> {
+  ): Promise<PermissionApprovalResult> {
     const callback = {
       providerAlias: globalThis.crypto.randomUUID(),
       scope: {
@@ -173,6 +175,11 @@ export class DiscordInteractionHandler {
         custom_id: permissionCustomId(callback.providerAlias, mode),
       })),
     ];
+    if (!(request.threadId || discordChannelIdFromJid(jid)))
+      return deliveryNotSent(
+        'target_missing',
+        'This Discord conversation could not be identified.',
+      );
     const conversationId = discordChannelIdFromJid(jid) || jid;
     if (
       !(await bindDiscordPermissionPrompt(
@@ -181,20 +188,25 @@ export class DiscordInteractionHandler {
         callback.providerAlias,
       ))
     ) {
-      return {
-        approved: false,
-        mode: 'cancel',
-        reason: 'Discord permission callback binding failed',
-      };
+      return deliveryNotSent(
+        'provider_failed',
+        'Discord permission callback binding failed',
+      );
     }
-    const sent = await this.sendDiscordPrompt(
-      jid,
-      formatPermissionPromptPartsText(parts),
-      {
-        threadId: request.threadId,
-        components: buttonRows(buttons),
-      },
-    );
+    let sent: MessageDeliveryResult;
+    try {
+      sent = await this.sendDiscordPrompt(
+        jid,
+        formatPermissionPromptPartsText(parts),
+        {
+          threadId: request.threadId,
+          components: buttonRows(buttons),
+        },
+      );
+    } catch (err) {
+      if (err instanceof DurableInteractionPersistenceError) throw err;
+      return deliveryUnknown('Failed to send approval prompt to Discord');
+    }
     let resolveDecision!: (decision: PermissionApprovalDecision) => void;
     const decision = new Promise<PermissionApprovalDecision>((resolve) => {
       resolveDecision = resolve;
@@ -242,26 +254,16 @@ export class DiscordInteractionHandler {
         clearTimeout(timeout);
         if (this.pendingPermissions.get(callback.providerAlias) === livePending)
           this.pendingPermissions.delete(callback.providerAlias);
-        resolveDecision({
-          approved: false,
-          mode: 'cancel',
-          reason: 'Failed to bind Discord approval prompt',
-        });
-        return decision;
+        return deliveryUnknown('Failed to bind Discord approval prompt');
       }
     } else {
       clearTimeout(timeout);
       if (this.pendingPermissions.get(callback.providerAlias) === livePending)
         this.pendingPermissions.delete(callback.providerAlias);
-      resolveDecision({
-        approved: false,
-        mode: 'cancel',
-        reason: 'Discord permission message id missing',
-      });
-      return decision;
+      return deliveryUnknown('Discord permission message id missing');
     }
     if (sent.externalMessageId) onPromptDelivered?.(sent.externalMessageId);
-    return decision;
+    return { kind: 'decision', decision: await decision };
   }
 
   // prettier-ignore

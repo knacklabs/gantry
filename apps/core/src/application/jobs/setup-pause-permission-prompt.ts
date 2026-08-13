@@ -3,7 +3,6 @@ import type {
   JobAccessRequirement,
   JobSetupBlocker,
   PermissionApprovalCancellation,
-  PermissionApprovalDecision,
   PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
   PermissionApprovalUpdate,
@@ -28,15 +27,9 @@ export interface SetupPauseReviewedRequirement {
 export interface SetupPausePermissionPromptDeps {
   appId: string;
   getJobById(jobId: string): Promise<Job | undefined>;
-  runPermissionInteraction(
+  preparePermissionInteraction(
     request: PermissionApprovalRequest,
-    onPromptDelivered: (messageId: string) => void,
-    onInteractionBegan: () => void,
-  ): Promise<{
-    began: boolean;
-    decision: PermissionApprovalDecision;
-    resolved: boolean;
-  }>;
+  ): Promise<{ created: boolean }>;
   cancelPermissionApproval(
     cancellation: PermissionApprovalCancellation,
   ): Promise<'settled' | 'queued' | 'not_found'>;
@@ -52,7 +45,6 @@ export type SetupPausePromptResult =
   | {
       status: 'raised';
       approverRoute: SetupPausePromptRoute;
-      delivered: Promise<boolean>;
     }
   | { status: 'already_pending'; approverRoute: SetupPausePromptRoute }
   | { status: 'instruction_only'; notificationEligible?: boolean };
@@ -203,43 +195,14 @@ export async function raiseSetupPausePermissionPrompt(input: {
       : {}),
   };
 
-  let markDelivered!: () => void;
-  const delivered = new Promise<void>((resolve) => {
-    markDelivered = resolve;
-  });
-  let markBegan!: () => void;
-  const began = new Promise<void>((resolve) => {
-    markBegan = resolve;
-  });
-  const interaction = deps.runPermissionInteraction(
-    request,
-    markDelivered,
-    markBegan,
-  );
-  const deliveryResult = Promise.race([
-    delivered.then(() => true),
-    interaction.then(
-      () => false,
-      () => false,
-    ),
-  ]);
-  const first = await Promise.race([
-    began.then(() => 'raised' as const),
-    interaction.then((result) =>
-      result.began ? ('raised' as const) : ('already_pending' as const),
-    ),
-  ]);
-  if (first === 'raised') {
+  const prepared = await deps.preparePermissionInteraction(request);
+  if (prepared.created) {
     return {
       status: 'raised',
       approverRoute: deliveredRoute,
-      delivered: deliveryResult,
     };
   }
-  if (first === 'already_pending') {
-    return { status: 'already_pending', approverRoute: deliveredRoute };
-  }
-  return { status: 'instruction_only', notificationEligible: true };
+  return { status: 'already_pending', approverRoute: deliveredRoute };
 }
 
 export async function retireSetupPausePermissionPrompt(input: {

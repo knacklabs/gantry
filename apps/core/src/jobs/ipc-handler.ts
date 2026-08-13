@@ -34,6 +34,7 @@ import {
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
 } from '../domain/types.js';
 
 const DENIED_BY_PROFILE_REASON = 'denied_by_profile';
@@ -42,8 +43,8 @@ export async function requestDurableTaskPermissionApproval(
   request: PermissionApprovalRequest,
   prompt: (
     request: PermissionApprovalRequest,
-  ) => Promise<PermissionApprovalDecision>,
-): Promise<PermissionApprovalDecision> {
+  ) => Promise<PermissionApprovalResult>,
+): Promise<PermissionApprovalResult> {
   await beginDurablePermissionInteraction({
     request,
     sourceAgentFolder: request.sourceAgentFolder,

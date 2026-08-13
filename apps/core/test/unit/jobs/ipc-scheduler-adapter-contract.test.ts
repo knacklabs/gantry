@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 import { ApplicationError } from '@core/application/common/application-error.js';
 import type { TaskContext, TaskIpcData } from '@core/jobs/ipc-types.js';
@@ -105,9 +106,11 @@ function makeContext(data: TaskIpcData): TaskContext {
         getJobById: vi.fn(),
       },
       onSchedulerChanged: vi.fn(),
-      requestPermissionApproval: vi.fn(async () => ({
-        approved: true,
-      })),
+      requestPermissionApproval: vi.fn(async () =>
+        permissionDecisionResult({
+          approved: true,
+        }),
+      ),
       getJobControl: () => ({
         getAppSessionById: async (sessionId: string) =>
           adaptAppSession(

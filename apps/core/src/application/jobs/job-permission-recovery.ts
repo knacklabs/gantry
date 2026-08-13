@@ -264,17 +264,12 @@ async function notifyStillBlockedSetupPrompt(notification: {
       });
       return;
     }
-    const prompt = await raiseSetupPausePermissionPrompt({
+    await raiseSetupPausePermissionPrompt({
       jobId: notification.job.id,
       setupFingerprint: notification.setupState.fingerprint,
       previousFingerprint: notification.previousFingerprint,
       source: 'partial_recovery',
     });
-    if (prompt.status !== 'raised' || !(await prompt.delivered)) return;
-    await notification.recheckInput.opsRepository.markJobSetupNotified(
-      notification.job.id,
-      notification.setupState.fingerprint,
-    );
   } catch (err) {
     logger.warn(
       { err, jobId: notification.job.id },

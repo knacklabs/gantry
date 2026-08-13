@@ -9,7 +9,6 @@ import type {
 import {
   claimPermissionInteractionCallback,
   findDurablePermissionInteractionByRequestId,
-  releasePermissionInteractionCallback,
   resolveDurablePermissionInteractionByRequestId,
   type DurablePermissionInteractionContext,
 } from './pending-interaction-permission-callback.js';
@@ -122,6 +121,35 @@ export async function recoverDurablePermissionDecision(
     ...(recoveredClaim ? { recoveredClaim } : {}),
   });
   if (claimed.status === 'already_decided') {
+    // Batch review-each: settlement (member expiry) completes BEFORE the
+    // provider card terminalizes, and terminalization can fail retryably -
+    // a later tap must finish the card instead of stranding it active. The
+    // settled review-each outcome is always the system cancel.
+    if (matchKind === 'batch') {
+      try {
+        if (
+          !(await hooks.terminalize({
+            status: 'resolved',
+            request: durable.request,
+            decision: decisionForMode(
+              durable.request,
+              'cancel',
+              'system',
+              matchKind,
+            ),
+            context: durable,
+          }))
+        ) {
+          await feedback(hooks, RETRY_FEEDBACK);
+          return 'retryable';
+        }
+      } catch {
+        await feedback(hooks, RETRY_FEEDBACK);
+        return 'retryable';
+      }
+      await feedback(hooks, 'Decision recorded.');
+      return 'resolved';
+    }
     await feedback(hooks, 'This permission request was already decided.');
     return 'already_decided';
   }
@@ -141,6 +169,13 @@ export async function recoverDurablePermissionDecision(
     ...decisionForMode(request, mode, approverRef, matchKind),
     permissionCallbackClaim: claimed.claim,
   };
+  const resolved = await resolveDurablePermissionInteractionByRequestId({
+    claim: claimed.claim,
+  });
+  if (!resolved) {
+    await feedback(hooks, RETRY_FEEDBACK);
+    return 'retryable';
+  }
   try {
     if (
       !(await hooks.terminalize({
@@ -150,24 +185,15 @@ export async function recoverDurablePermissionDecision(
         context: durable,
       }))
     ) {
-      if (!expiringReviewEach) {
-        await releasePermissionInteractionCallback({ claim: claimed.claim });
-      }
       await feedback(hooks, RETRY_FEEDBACK);
       return 'retryable';
     }
   } catch {
-    if (!expiringReviewEach) {
-      await releasePermissionInteractionCallback({ claim: claimed.claim });
-    }
     await feedback(hooks, RETRY_FEEDBACK);
     return 'retryable';
   }
-  const resolved = await resolveDurablePermissionInteractionByRequestId({
-    claim: claimed.claim,
-  });
-  await feedback(hooks, resolved ? 'Decision recorded.' : INACTIVE_FEEDBACK);
-  return resolved ? 'resolved' : 'inactive';
+  await feedback(hooks, 'Decision recorded.');
+  return 'resolved';
 }
 
 function decisionForMode(

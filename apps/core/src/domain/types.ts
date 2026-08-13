@@ -4,7 +4,8 @@ import type { ReviewMessageView } from './review-message-view.js';
 import type { MessageActionAffordance } from './message-actions.js';
 import type { ObserverDigestMessageView } from './observer-digest-view.js';
 import type { BrainReviewCardView } from './brain-review-card.js';
-
+import type { PermissionApprovalResult } from './permission-approval-result.js';
+export type { PermissionApprovalResult } from './permission-approval-result.js';
 export type {
   MessageActionAffordanceKind,
   MemoryReviewActionDecision,
@@ -327,7 +328,6 @@ export interface PermissionApprovalDecision {
   batchDecision?: 'review_each';
   permissionCallbackClaim?: PermissionCallbackClaimReference;
 }
-
 export interface UserQuestionOption {
   label: string;
   description: string;
@@ -649,7 +649,7 @@ export interface InteractionSurface {
     jid: string,
     request: PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
-  ): Promise<PermissionApprovalDecision>;
+  ): Promise<PermissionApprovalResult>;
   requestUserAnswer(
     jid: string,
     request: UserQuestionRequest,

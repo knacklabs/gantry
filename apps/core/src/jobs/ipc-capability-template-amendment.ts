@@ -237,7 +237,7 @@ async function completeCapabilityTemplateAmendmentReview(input: {
     throw new Error('Capability amendment approval route is missing.');
   }
   const requestId = proposal.id;
-  const decision = await input.deps.requestPermissionApproval({
+  const approvalResult = await input.deps.requestPermissionApproval({
     requestId,
     appId: proposal.appId,
     agentId: proposal.agentId,
@@ -262,6 +262,18 @@ async function completeCapabilityTemplateAmendmentReview(input: {
       body: capabilityTemplateCardBody(input.review),
     },
   });
+  if (approvalResult.kind === 'delivery_failure') {
+    logger.warn(
+      {
+        proposalId: proposal.id,
+        delivered: approvalResult.delivered,
+        retryable: approvalResult.retryable,
+      },
+      `Capability template amendment prompt could not be delivered: ${approvalResult.userMessage}`,
+    );
+    return;
+  }
+  const decision = approvalResult.decision;
   const decidedAt = new Date().toISOString();
   if (
     decision.approved &&

@@ -19,6 +19,7 @@ import {
 } from '@core/application/interactions/pending-interaction-durability.js';
 import type {
   PermissionApprovalDecision,
+  PermissionApprovalResult,
   PermissionApprovalRequest,
 } from '@core/domain/types.js';
 
@@ -443,8 +444,9 @@ describe('PermissionBatchCoalescer', () => {
       async (_jid, approvalRequest, onPromptDelivered) => {
         activeBatchRequest = approvalRequest;
         onPromptDelivered?.('batch-prompt');
-        return new Promise<PermissionApprovalDecision>((resolve) => {
-          resolveBatchDecision = resolve;
+        return new Promise<PermissionApprovalResult>((resolve) => {
+          resolveBatchDecision = (decision: PermissionApprovalDecision) =>
+            resolve({ kind: 'decision', decision });
         });
       },
     );
@@ -491,8 +493,14 @@ describe('PermissionBatchCoalescer', () => {
       }),
     );
     await expect(Promise.all(decisions)).resolves.toEqual([
-      expect.objectContaining({ approved: false, mode: 'cancel' }),
-      expect.objectContaining({ approved: false, mode: 'cancel' }),
+      expect.objectContaining({
+        kind: 'decision',
+        decision: expect.objectContaining({ approved: false, mode: 'cancel' }),
+      }),
+      expect.objectContaining({
+        kind: 'decision',
+        decision: expect.objectContaining({ approved: false, mode: 'cancel' }),
+      }),
     ]);
 
     resolveBatchDecision({
@@ -510,8 +518,8 @@ describe('PermissionBatchCoalescer', () => {
     });
     await Promise.resolve();
     await expect(decisions[1]).resolves.toMatchObject({
-      approved: false,
-      mode: 'cancel',
+      kind: 'decision',
+      decision: { approved: false, mode: 'cancel' },
     });
   });
 
@@ -544,8 +552,14 @@ describe('PermissionBatchCoalescer', () => {
     await vi.advanceTimersByTimeAsync(DEFAULT_PERMISSION_BATCH_WINDOW_MS);
 
     await expect(Promise.all(decisions)).resolves.toEqual([
-      expect.objectContaining({ approved: false, mode: 'cancel' }),
-      expect.objectContaining({ approved: false, mode: 'cancel' }),
+      expect.objectContaining({
+        kind: 'decision',
+        decision: expect.objectContaining({ approved: false, mode: 'cancel' }),
+      }),
+      expect.objectContaining({
+        kind: 'decision',
+        decision: expect.objectContaining({ approved: false, mode: 'cancel' }),
+      }),
     ]);
     expect(requestPermissionApproval).not.toHaveBeenCalled();
   });
@@ -575,10 +589,13 @@ describe('PermissionBatchCoalescer', () => {
           ) => {
             onPromptDelivered?.('prompt');
             return {
-              approved,
-              mode,
-              decidedBy: 'owner',
-              permissionCallbackClaim: claim,
+              kind: 'decision' as const,
+              decision: {
+                approved,
+                mode,
+                decidedBy: 'owner',
+                permissionCallbackClaim: claim,
+              },
             };
           },
         }),
@@ -592,8 +609,20 @@ describe('PermissionBatchCoalescer', () => {
       await vi.advanceTimersByTimeAsync(DEFAULT_PERMISSION_BATCH_WINDOW_MS);
 
       await expect(Promise.all(decisions)).resolves.toEqual([
-        expect.objectContaining({ mode, permissionCallbackClaim: claim }),
-        expect.objectContaining({ mode, permissionCallbackClaim: claim }),
+        expect.objectContaining({
+          kind: 'decision',
+          decision: expect.objectContaining({
+            mode,
+            permissionCallbackClaim: claim,
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'decision',
+          decision: expect.objectContaining({
+            mode,
+            permissionCallbackClaim: claim,
+          }),
+        }),
       ]);
     },
   );
@@ -645,12 +674,15 @@ describe('PermissionBatchCoalescer', () => {
         ) => {
           onPromptDelivered?.('prompt');
           return {
-            mode: 'allow_once',
-            permissionCallbackClaim: claim,
-            get approved(): boolean {
-              throw new Error('simulated fan-out failure');
-            },
-          } as PermissionApprovalDecision;
+            kind: 'decision' as const,
+            decision: {
+              mode: 'allow_once',
+              permissionCallbackClaim: claim,
+              get approved(): boolean {
+                throw new Error('simulated fan-out failure');
+              },
+            } as PermissionApprovalDecision,
+          };
         },
       }),
       interactionLifecycle: { logger: { error: vi.fn() } },
@@ -663,8 +695,16 @@ describe('PermissionBatchCoalescer', () => {
     await vi.advanceTimersByTimeAsync(DEFAULT_PERMISSION_BATCH_WINDOW_MS);
 
     await expect(Promise.all(decisions)).resolves.toEqual([
-      { approved: false, reason: 'Permission batch dispatch failed' },
-      { approved: false, reason: 'Permission batch dispatch failed' },
+      expect.objectContaining({
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        userMessage: 'Permission batch dispatch failed',
+      }),
+      expect.objectContaining({
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        userMessage: 'Permission batch dispatch failed',
+      }),
     ]);
     expect(releasePendingPermissionCallback).toHaveBeenCalledWith({ claim });
   });
@@ -747,21 +787,27 @@ describe('PermissionBatchCoalescer', () => {
           if (approvalRequest.permissionBatch) {
             events.push('claim');
             return {
-              approved: true,
-              mode: 'allow_persistent_rule' as const,
-              batchDecision: 'review_each' as const,
-              decidedBy: 'first-approver',
-              permissionCallbackClaim: {
-                id: 'review-each-claim',
-                scope: {
-                  appId: 'default',
-                  sourceAgentFolder: 'main_agent',
-                  interactionId: approvalRequest.requestId,
+              kind: 'decision' as const,
+              decision: {
+                approved: true,
+                mode: 'allow_persistent_rule' as const,
+                batchDecision: 'review_each' as const,
+                decidedBy: 'first-approver',
+                permissionCallbackClaim: {
+                  id: 'review-each-claim',
+                  scope: {
+                    appId: 'default',
+                    sourceAgentFolder: 'main_agent',
+                    interactionId: approvalRequest.requestId,
+                  },
                 },
               },
             };
           }
-          return { approved: false, mode: 'cancel' as const };
+          return {
+            kind: 'decision' as const,
+            decision: { approved: false, mode: 'cancel' as const },
+          };
         },
       }),
       interactionLifecycle: { logger: { error: vi.fn() } },
@@ -770,8 +816,14 @@ describe('PermissionBatchCoalescer', () => {
     const decisions = [requester(first), requester(second)];
     await vi.advanceTimersByTimeAsync(DEFAULT_PERMISSION_BATCH_WINDOW_MS);
     await expect(Promise.all(decisions)).resolves.toEqual([
-      expect.objectContaining({ approved: false, mode: 'cancel' }),
-      expect.objectContaining({ approved: false, mode: 'cancel' }),
+      expect.objectContaining({
+        kind: 'decision',
+        decision: expect.objectContaining({ approved: false, mode: 'cancel' }),
+      }),
+      expect.objectContaining({
+        kind: 'decision',
+        decision: expect.objectContaining({ approved: false, mode: 'cancel' }),
+      }),
     ]);
 
     expect(events).toEqual([
@@ -804,10 +856,13 @@ describe('PermissionBatchCoalescer', () => {
       async (_jid, _request, onPromptDelivered) => {
         onPromptDelivered?.('prompt');
         return {
-          approved: true,
-          mode: 'allow_persistent_rule' as const,
-          batchDecision: 'review_each' as const,
-          permissionCallbackClaim: claim,
+          kind: 'decision' as const,
+          decision: {
+            approved: true,
+            mode: 'allow_persistent_rule' as const,
+            batchDecision: 'review_each' as const,
+            permissionCallbackClaim: claim,
+          },
         };
       },
     );
@@ -824,8 +879,16 @@ describe('PermissionBatchCoalescer', () => {
     await vi.advanceTimersByTimeAsync(DEFAULT_PERMISSION_BATCH_WINDOW_MS);
 
     await expect(Promise.all(decisions)).resolves.toEqual([
-      { approved: false, reason: 'Permission batch dispatch failed' },
-      { approved: false, reason: 'Permission batch dispatch failed' },
+      expect.objectContaining({
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        userMessage: 'Permission batch dispatch failed',
+      }),
+      expect.objectContaining({
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        userMessage: 'Permission batch dispatch failed',
+      }),
     ]);
     expect(requestPermissionApproval).toHaveBeenCalledOnce();
     expect(releasePendingPermissionCallback).toHaveBeenCalledWith({ claim });

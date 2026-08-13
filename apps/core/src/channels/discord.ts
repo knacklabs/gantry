@@ -4,6 +4,7 @@ import {
   PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
   ProgressUpdateOptions,
   RichInteractionRequest,
   StreamingChunkOptions,
@@ -471,7 +472,7 @@ export class DiscordChannel implements ChannelAdapter {
     jid: string,
     request: PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
-  ): Promise<PermissionApprovalDecision> {
+  ): Promise<PermissionApprovalResult> {
     return this.interactions.requestPermissionApproval(
       jid,
       request,

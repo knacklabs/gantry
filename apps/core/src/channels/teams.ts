@@ -9,6 +9,7 @@ import type {
   PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
   ProgressUpdateOptions,
   RichInteractionRequest,
   StreamingChunkOptions,
@@ -473,7 +474,7 @@ export class TeamsChannel implements ChannelAdapter {
     jid: string,
     request: PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
-  ): Promise<PermissionApprovalDecision> {
+  ): Promise<PermissionApprovalResult> {
     return requestTeamsPermissionApproval({
       connected: this.connected,
       jid,

@@ -6,6 +6,7 @@ import type {
   MessageSendOptions,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
 } from '../domain/types.js';
 import type { PreparedPermissionCardSend } from '../domain/permission-card.js';
 import { logger } from '../infrastructure/logging/logger.js';
@@ -107,21 +108,33 @@ export async function requestTeamsPermissionApproval(input: {
   settleTimeout: (
     providerAlias: string,
   ) => Promise<'settled' | 'already_decided' | 'ownerless' | 'retryable'>;
-}): Promise<PermissionApprovalDecision> {
+}): Promise<PermissionApprovalResult> {
   if (!input.connected) {
-    return { approved: false, reason: 'Teams channel is not connected' };
+    return {
+      kind: 'delivery_failure',
+      code: 'surface_unsupported',
+      retryable: true,
+      delivered: 'no',
+      userMessage: 'Teams channel is not connected',
+    };
   }
   const conversationId = teamsConversationIdFromJid(input.jid);
   if (!conversationId) {
     return {
-      approved: false,
-      reason: 'This Teams conversation could not be identified.',
+      kind: 'delivery_failure',
+      code: 'target_missing',
+      retryable: true,
+      delivered: 'no',
+      userMessage: 'This Teams conversation could not be identified.',
     };
   }
   if (!input.sdkClient.sendAdaptiveCard) {
     return {
-      approved: false,
-      reason:
+      kind: 'delivery_failure',
+      code: 'surface_unsupported',
+      retryable: true,
+      delivered: 'no',
+      userMessage:
         'This Teams conversation cannot display approval cards right now.',
     };
   }
@@ -135,8 +148,11 @@ export async function requestTeamsPermissionApproval(input: {
     )
   ) {
     return {
-      approved: false,
-      reason: 'This approval request is already awaiting a decision.',
+      kind: 'delivery_failure',
+      code: 'surface_unsupported',
+      retryable: true,
+      delivered: 'no',
+      userMessage: 'This approval request is already awaiting a decision.',
     };
   }
 
@@ -186,6 +202,7 @@ export async function requestTeamsPermissionApproval(input: {
       reason: 'timed out',
     });
   };
+  let transmissionBegan = false;
   try {
     if (
       !(await bindPendingPermissionInteractionMessage({
@@ -198,6 +215,7 @@ export async function requestTeamsPermissionApproval(input: {
     ) {
       throw new Error('Teams permission callback binding failed');
     }
+    transmissionBegan = true;
     const sent = await input.sdkClient.sendAdaptiveCard({
       conversationId,
       card: buildTeamsApprovalAdaptiveCard(approvalRequest, callback),
@@ -253,10 +271,16 @@ export async function requestTeamsPermissionApproval(input: {
           reason: 'This permission request was already decided.',
         });
       }
-      return await decision;
+      return {
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        retryable: false,
+        delivered: 'unknown',
+        userMessage: 'Failed to bind Teams approval prompt',
+      };
     }
     if (messageId) input.onPromptDelivered?.(messageId);
-    return await decision;
+    return { kind: 'decision', decision: await decision };
   } catch (err) {
     if (err instanceof DurableInteractionPersistenceError) {
       logger.error(
@@ -271,8 +295,11 @@ export async function requestTeamsPermissionApproval(input: {
       'Failed to send Teams permission prompt',
     );
     return {
-      approved: false,
-      reason: 'Failed to send approval prompt to Teams',
+      kind: 'delivery_failure',
+      code: 'provider_failed',
+      retryable: !transmissionBegan,
+      delivered: transmissionBegan ? 'unknown' : 'no',
+      userMessage: 'Failed to send approval prompt to Teams',
     };
   }
 }

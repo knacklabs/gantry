@@ -98,7 +98,7 @@ import { registerRuntimeBrainDreamReviewMessageAction } from './runtime-brain-re
 import { nowIso, nowMs, toIso } from '../../shared/time/datetime.js';
 import { LiveTurnAuthority } from '../../runtime/live-turn-authority.js';
 import type { LiveTurnRecoveryLoop } from '../../runtime/live-turn-recovery.js';
-import { configureRuntimeSetupPausePermissions } from './setup-pause-permission-wiring.js';
+import * as setupPause from './setup-pause-permission-wiring.js';
 import { liveTurnScopeForQueue } from './live-recovery-coordinator.js';
 // prettier-ignore
 import { buildLiveAdmissionProcessor, startLiveExecutionServices, type ActiveControlCommandHandler, type LiveExecutionServicesHandle, type RecoveryCoordinatorPort } from './live-execution.js';
@@ -118,7 +118,6 @@ import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { createProviderAttachmentMaterializer } from '../../shared/provider-attachment-materialization.js';
 import { createSchedulerLifecycleNotificationUpdater } from './scheduler-lifecycle-notification.js';
 export { stopAsyncTaskRecoveryLoop } from './runtime-services-async-task-recovery.js';
-
 export function createRuntimeProviderAttachmentMaterializer(app: RuntimeApp) {
   return createProviderAttachmentMaterializer({
     materializationRoot: path.join(DATA_DIR, 'provider-attachments'),
@@ -128,7 +127,6 @@ export function createRuntimeProviderAttachmentMaterializer(app: RuntimeApp) {
       ),
   });
 }
-
 type RuntimeBootstrapRepository = RuntimeAppRepository & RuntimeJobRepository;
 type LiveTurnCommandWakeupSourceFactory = () =>
   | LiveTurnCommandWakeupSource
@@ -425,7 +423,9 @@ export async function startRuntimeServices(
     reloadRuntimeState: () => app.loadState(),
     leases: resolved.leases,
   });
-  configureRuntimeSetupPausePermissions({
+  // prettier-ignore
+  const setupPrompts = setupPause.asSetupPrompts(resolved.getOutboundDeliveryRepository?.());
+  setupPause.configureRuntimeSetupPausePermissions({
     ...resolved,
     app,
     channelWiring,
@@ -433,6 +433,7 @@ export async function startRuntimeServices(
     onSchedulerChanged,
     getBrowserStatus,
     publishRuntimeEvent: resolved.publishRuntimeEvent,
+    setupPermissionPromptRepository: setupPrompts,
   });
   const startIpcWatcher = () =>
     resolved.startIpcWatcher({

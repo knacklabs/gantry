@@ -16,6 +16,11 @@ import {
 import { sanitizeRetryTailProviderPayload } from '../../../../domain/messages/retry-tail-provider-payload.js';
 import type { OutboundDeliveryRepository } from '../../../../domain/ports/repositories.js';
 import type { PermissionCardMessageView } from '../../../../domain/permission-card.js';
+import type {
+  PreparedSetupPermissionPrompt,
+  SetupPermissionPromptPreparation,
+  SetupPermissionPromptRepository,
+} from '../../../../domain/ports/setup-permission-prompts.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
 import {
@@ -50,7 +55,7 @@ export class PostgresOutboundDeliveryRepository implements OutboundDeliveryRepos
     private readonly deps: {
       now?: () => string;
       createClaimToken?: () => string;
-      setupPermissionPrompts?: {
+      setupPermissionPrompts?: SetupPermissionPromptRepository & {
         reconcileSetupPermissionPrompts(input: {
           now: string;
           limit?: number;
@@ -65,6 +70,14 @@ export class PostgresOutboundDeliveryRepository implements OutboundDeliveryRepos
     return this.deps.setupPermissionPrompts?.reconcileSetupPermissionPrompts(
       input,
     );
+  }
+  async prepareSetupPermissionPrompt(
+    input: SetupPermissionPromptPreparation,
+  ): Promise<PreparedSetupPermissionPrompt> {
+    if (!this.deps.setupPermissionPrompts) {
+      throw new Error('Setup permission prompt repository is unavailable.');
+    }
+    return this.deps.setupPermissionPrompts.prepareSetupPermissionPrompt(input);
   }
   async enqueueDelivery(input: {
     delivery: OutboundDelivery;

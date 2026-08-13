@@ -11,19 +11,13 @@ import type {
   RecoveryDispatchPermit,
 } from './channel-wiring-types.js';
 
-// DORMANT until S3-RESULT activates the enqueue path: nothing feeds the
-// permission profile yet, and this gate keeps the dispatcher provably inert
-// even against stray data (flip in S3-RESULT).
-export const PERMISSION_CARD_DISPATCH_ACTIVE = false;
+export const PERMISSION_CARD_DISPATCH_ACTIVE = true;
 
 // Separate supervised loop: reconciliation must never gate delivery
 // claims (its lock waits and failures stay its own).
 export function startRuntimePermissionCardReconciliation(
   repository: OutboundDeliveryRepository,
 ): void {
-  // DORMANT with the dispatcher: the reconciler mutates prompt/member/
-  // delivery/job rows, so it must not run until S3-RESULT activates the
-  // feature end to end.
   if (!PERMISSION_CARD_DISPATCH_ACTIVE) return;
   startSetupPromptReconciliationLoop({
     run: () => reconcileRuntimePermissionCards(repository),

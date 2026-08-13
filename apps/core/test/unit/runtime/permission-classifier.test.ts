@@ -578,7 +578,6 @@ describe('permission classifier decision events', () => {
       repository: {
         incrementAndGet: vi.fn(),
         get: vi.fn(),
-        markOffered: vi.fn(),
         markDenied,
       },
       appId: 'app:test',
@@ -622,7 +621,6 @@ describe('permission classifier decision events', () => {
       const repository = {
         incrementAndGet,
         get: vi.fn(),
-        markOffered: vi.fn(),
         markDenied,
       };
       const request = {
@@ -1429,15 +1427,12 @@ describe('permission classifier decision events', () => {
             agentFolder: 'researcher',
             suggestionKey: 'researcher|RunCommand(cat README.md)',
             allowCount: 0,
-            lastOfferedAt: null,
             deniedAt: new Date().toISOString(),
             createdAt: '2026-07-12T00:00:00.000Z',
             updatedAt: '2026-07-12T00:00:00.000Z',
           })),
-          markOffered: vi.fn(),
           markDenied: vi.fn(),
         },
-        offer: vi.fn(),
       },
     });
 
@@ -1480,15 +1475,12 @@ describe('permission classifier decision events', () => {
             agentFolder: 'researcher',
             suggestionKey: 'researcher|RunCommand(cat README.md)',
             allowCount: 2,
-            lastOfferedAt: null,
             deniedAt: null,
             createdAt: '2026-07-12T00:00:00.000Z',
             updatedAt: new Date().toISOString(),
           })),
-          markOffered: vi.fn(),
           markDenied: vi.fn(),
         },
-        offer: vi.fn(),
       },
     });
 
@@ -1533,15 +1525,12 @@ describe('permission classifier decision events', () => {
             agentFolder: 'researcher',
             suggestionKey: 'researcher|RunCommand(cat README.md)',
             allowCount: 2,
-            lastOfferedAt: null,
             deniedAt: new Date().toISOString(),
             createdAt: '2026-07-12T00:00:00.000Z',
             updatedAt: new Date().toISOString(),
           })),
-          markOffered: vi.fn(),
           markDenied: vi.fn(),
         },
-        offer: vi.fn(),
       },
     });
 
@@ -1618,18 +1607,15 @@ describe('permission classifier decision events', () => {
   });
 
   it('does not count classifier auto-allows as operator approvals', async () => {
-    const offer = vi.fn(async () => undefined);
     const incrementAndGet = vi.fn(async () => ({
       appId: 'app:test',
       agentFolder: 'researcher',
       suggestionKey: 'researcher|RunCommand(cat README.md)',
       allowCount: 3,
-      lastOfferedAt: null,
       deniedAt: null,
       createdAt: '2026-07-12T00:00:00.000Z',
       updatedAt: '2026-07-12T00:00:00.000Z',
     }));
-    const markOffered = vi.fn(async () => true);
     const publishRuntimeEvent = vi.fn(async () => undefined);
 
     await expect(
@@ -1662,10 +1648,8 @@ describe('permission classifier decision events', () => {
           repository: {
             incrementAndGet,
             get: vi.fn(async () => null),
-            markOffered,
             markDenied: vi.fn(async () => undefined),
           },
-          offer,
         },
       }),
     ).resolves.toMatchObject({
@@ -1682,8 +1666,6 @@ describe('permission classifier decision events', () => {
       }),
     );
     expect(incrementAndGet).not.toHaveBeenCalled();
-    expect(markOffered).not.toHaveBeenCalled();
-    expect(offer).not.toHaveBeenCalled();
   });
 
   it('publishes an allow verdict with the exact runtime envelope and payload', async () => {

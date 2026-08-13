@@ -207,15 +207,10 @@ export async function notifyJobSetupRequired(input: {
       promptPreparationFailed = true;
     }
   }
-  // The durable setup event MUST publish even when the card send faults —
-  // otherwise a setup-blocked job (parked paused, next_run=null, so the scheduler
-  // never retries) goes invisibly stuck. delivery.ts already swallows per-route
-  // send throws, but a fault in route computation / story formatting here would
-  // otherwise skip publishRuntimeEvent below; this barrier keeps the event durable.
-  // Decision 0124 replaces the accepted-hang contract with outbound-backed delivery:
-  // at most four attempts and defined delivered/ambiguous/exhausted/expired/cancelled
-  // recovery. Until that cutover, this barrier guarantees the event is still durably
-  // published below even when the notification attempt above it fails.
+  // The durable setup event MUST publish even when preparation or notification
+  // faults. Approval-card delivery is now owned solely by the prepared outbound
+  // aggregate; this path may still notify other configured routes, but it never
+  // sends a synchronous fallback to the approver route.
   let notified = false;
   try {
     const cardNotified = !notificationEligible
@@ -228,32 +223,15 @@ export async function notifyJobSetupRequired(input: {
             setupState: input.setupState,
             source: input.source,
             runId: input.runId,
-            ...(prompt.status === 'raised'
+            ...(prompt.status === 'raised' ||
+            prompt.status === 'already_pending'
               ? { excludeRoute: prompt.approverRoute }
-              : prompt.status === 'already_pending'
-                ? { includeRoute: prompt.approverRoute }
-                : {}),
+              : {}),
             sendMessage: input.deps.sendMessage,
           });
-    const promptNotified =
-      prompt.status === 'raised' ? await prompt.delivered : false;
-    const fallbackNotified =
-      prompt.status === 'raised' && !promptNotified
-        ? await notifySchedulerSetupRequired({
-            job: {
-              ...input.currentJob,
-              notification_routes: [],
-            },
-            setupState: input.setupState,
-            source: input.source,
-            runId: input.runId,
-            includeRoute: prompt.approverRoute,
-            sendMessage: input.deps.sendMessage,
-          })
-        : false;
     notified =
-      prompt.status === 'raised'
-        ? promptNotified || fallbackNotified
+      prompt.status === 'raised' || prompt.status === 'already_pending'
+        ? false
         : promptPreparationFailed
           ? false
           : cardNotified;

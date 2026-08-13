@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 import { formatPermissionPromptText } from '@core/channels/permission-interaction.js';
 import type {
@@ -24,11 +25,13 @@ async function resolveWithClassifierRisk(input: {
   decisionMemory?: PermissionDecisionMemoryRepository;
   unattended?: boolean;
 }) {
-  const requestPermissionApproval = vi.fn(async () => ({
-    approved: false,
-    mode: 'cancel' as const,
-    decidedBy: 'owner',
-  }));
+  const requestPermissionApproval = vi.fn(async () =>
+    permissionDecisionResult({
+      approved: false,
+      mode: 'cancel' as const,
+      decidedBy: 'owner',
+    }),
+  );
   const classifierConsult = vi.fn(async () => ({
     risk_level: input.riskLevel,
     risk_category: input.riskCategory,
@@ -563,11 +566,13 @@ describe('IPC permission classifier decision', () => {
   ] as const)(
     'renders deterministic %s rail risk without a classifier verdict',
     async (_label, command, level, category) => {
-      const requestPermissionApproval = vi.fn(async () => ({
-        approved: false,
-        mode: 'cancel' as const,
-        decidedBy: 'owner',
-      }));
+      const requestPermissionApproval = vi.fn(async () =>
+        permissionDecisionResult({
+          approved: false,
+          mode: 'cancel' as const,
+          decidedBy: 'owner',
+        }),
+      );
 
       const decision = await resolvePermissionIpcDecision({
         request: {

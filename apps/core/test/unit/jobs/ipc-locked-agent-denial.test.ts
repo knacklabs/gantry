@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 
@@ -104,10 +105,12 @@ function makeDeps(extra: Record<string, unknown> = {}) {
     getAvailableGroups: vi.fn(async () => []),
     writeGroupsSnapshot: vi.fn(async () => undefined),
     onSchedulerChanged: vi.fn(() => undefined),
-    requestPermissionApproval: vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    })),
+    requestPermissionApproval: vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    ),
     requestUserAnswer: vi.fn(async () => ({ response: '' })),
     opsRepository: {},
     ...extra,
@@ -153,10 +156,12 @@ describe('locked agent parent-side IPC denial', () => {
         runtimeHome,
         lockedSettings('support_agent'),
       );
-      const requestPermissionApproval = vi.fn(async () => ({
-        approved: true,
-        decidedBy: 'U_APPROVER',
-      }));
+      const requestPermissionApproval = vi.fn(async () =>
+        permissionDecisionResult({
+          approved: true,
+          decidedBy: 'U_APPROVER',
+        }),
+      );
       const publishRuntimeEvent = vi.fn(async () => undefined);
       const deps = makeDeps({ requestPermissionApproval, publishRuntimeEvent });
 
@@ -296,10 +301,12 @@ describe('locked agent parent-side IPC denial', () => {
       runtimeHome,
       'throw',
     );
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
     const publishRuntimeEvent = vi.fn(async () => undefined);
     const deps = makeDeps({ requestPermissionApproval, publishRuntimeEvent });
 

@@ -8,6 +8,7 @@ import type {
   PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
   ProgressUpdateOptions,
   RichInteractionRequest,
   StreamingChunkOptions,
@@ -286,7 +287,7 @@ export interface ChannelWiring {
   requestPermissionApproval: (
     request: PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
-  ) => Promise<PermissionApprovalDecision>;
+  ) => Promise<PermissionApprovalResult>;
   cancelPermissionApproval: (
     cancellation: PermissionApprovalCancellation,
   ) => Promise<'settled' | 'queued' | 'not_found'>;

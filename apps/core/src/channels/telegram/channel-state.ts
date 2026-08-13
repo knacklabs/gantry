@@ -687,7 +687,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     jid: string,
     request: PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
-  ): Promise<PermissionApprovalDecision>;
+  ): Promise<import('../../domain/types.js').PermissionApprovalResult>;
   abstract requestUserAnswer(
     jid: string,
     request: UserQuestionRequest,

@@ -1,11 +1,13 @@
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import type { LiveUxOperationOptions } from '../../domain/channel-live-ux.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import { deliveryNotSent } from '../permission-approval-result.js';
 import {
   MessageDeliveryResult,
   MessageSendOptions,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
   ProgressUpdateOptions,
   RichInteractionRequest,
   StreamingChunkOptions,
@@ -569,23 +571,25 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     jid: string,
     request: PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
-  ): Promise<PermissionApprovalDecision> {
+  ): Promise<PermissionApprovalResult> {
     if (!this.interactionCallbacksEnabled) {
-      return {
-        approved: false,
-        reason: 'This Slack connection cannot collect approvals right now.',
-      };
+      return deliveryNotSent(
+        'surface_unsupported',
+        'This Slack connection cannot collect approvals right now.',
+      );
     }
     if (!this.app) {
-      return { approved: false, reason: 'Slack app is not connected' };
+      return deliveryNotSent(
+        'surface_unsupported',
+        'Slack app is not connected',
+      );
     }
-
     const parsed = this.parseJid(jid);
     if (!parsed) {
-      return {
-        approved: false,
-        reason: 'This Slack conversation could not be identified.',
-      };
+      return deliveryNotSent(
+        'target_missing',
+        'This Slack conversation could not be identified.',
+      );
     }
 
     if (
@@ -597,10 +601,10 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
           pending.sourceAgentFolder === request.sourceAgentFolder,
       )
     ) {
-      return {
-        approved: false,
-        reason: 'This approval request is already awaiting a decision.',
-      };
+      return deliveryNotSent(
+        'surface_unsupported',
+        'This approval request is already awaiting a decision.',
+      );
     }
 
     const timeoutMs = PERMISSION_APPROVAL_TIMEOUT_MS;

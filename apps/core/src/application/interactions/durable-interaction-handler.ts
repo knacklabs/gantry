@@ -1,6 +1,7 @@
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../../domain/types.js';
@@ -125,23 +126,33 @@ export async function resolveDurablePermissionInteractionOutcome(input: {
   return resolvePendingInteractionRecordOutcome(resolution);
 }
 
+export type DurablePermissionInteractionResult =
+  | {
+      kind: 'decision';
+      began: boolean;
+      decision: PermissionApprovalDecision;
+      resolved: boolean;
+    }
+  | {
+      kind: 'delivery_failure';
+      began: boolean;
+      failure: Extract<PermissionApprovalResult, { kind: 'delivery_failure' }>;
+      resolved: false;
+    };
+
 export async function runDurablePermissionInteraction(input: {
   request: PermissionApprovalRequest;
   sourceAgentFolder: string;
   prompt: (
     request: PermissionApprovalRequest,
-  ) => Promise<PermissionApprovalDecision>;
+  ) => Promise<PermissionApprovalResult>;
   beforePrompt?: () => Promise<void> | void;
   afterDecision?: (
     decision: PermissionApprovalDecision,
   ) => Promise<void> | void;
   skipPromptWhenAlreadyPending?: boolean;
   operations?: DurableInteractionOperations;
-}): Promise<{
-  began: boolean;
-  decision: PermissionApprovalDecision;
-  resolved: boolean;
-}> {
+}): Promise<DurablePermissionInteractionResult> {
   const began = await beginDurablePermissionInteraction({
     request: input.request,
     sourceAgentFolder: input.sourceAgentFolder,
@@ -163,6 +174,7 @@ export async function runDurablePermissionInteraction(input: {
   // readiness check does not re-raise a prompt and can route via `began`.
   if (!began && input.skipPromptWhenAlreadyPending) {
     return {
+      kind: 'decision',
       began: false,
       decision: {
         approved: false,
@@ -173,7 +185,16 @@ export async function runDurablePermissionInteraction(input: {
     };
   }
   await input.beforePrompt?.();
-  const decision = await input.prompt(input.request);
+  const result = await input.prompt(input.request);
+  if (result.kind === 'delivery_failure') {
+    return {
+      kind: 'delivery_failure',
+      began,
+      failure: result,
+      resolved: false,
+    };
+  }
+  const decision = result.decision;
   try {
     await input.afterDecision?.(decision);
   } catch (err) {
@@ -187,7 +208,7 @@ export async function runDurablePermissionInteraction(input: {
     updatedPermissions: decision.updatedPermissions,
     operations: input.operations,
   });
-  return { began, decision, resolved };
+  return { kind: 'decision', began, decision, resolved };
 }
 
 async function releaseDecisionClaim(

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 import type { ToolPolicyDecision } from '@core/shared/tool-execution-policy-service.js';
@@ -784,10 +785,12 @@ describe('coordinatePermissionDecision', () => {
       sourceAgentFolder: 'main_agent',
       deps: {
         conversationRoutes: () => ({}),
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: false,
-          mode: 'cancel' as const,
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: false,
+            mode: 'cancel' as const,
+          }),
+        ),
         getPermissionRuntimeSettings: () => ({
           agents: { main_agent: { permissionMode: 'ask' as const } },
           permissions: { autoMode: {} },
