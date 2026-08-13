@@ -182,6 +182,10 @@ export async function runDeterministicManagedBrowserActions(input: {
     ],
   });
   try {
+    const egressProxyPort = new URL(gateway.proxyUrl).port;
+    if (!egressProxyPort) {
+      throw new Error('Managed browser egress gateway did not expose a port.');
+    }
     const env = {
       ...buildAsyncCommandEnv(),
       ...buildToolNetworkEnv({ proxyUrl: gateway.proxyUrl }),
@@ -202,6 +206,7 @@ export async function runDeterministicManagedBrowserActions(input: {
             command: action.command,
             bridgePort,
             browserPort: browser.port,
+            egressProxyPort,
           }),
           cwd: workspacePath,
           env,
@@ -249,11 +254,12 @@ function managedBrowserSandboxBridgeCommand(input: {
   command: string;
   bridgePort: number;
   browserPort: number;
+  egressProxyPort: string;
 }): string {
   const target = `${MANAGED_BROWSER_CDP_GATEWAY_HOST}:${input.browserPort}`;
   return [
     'set -eu',
-    `socat "TCP-LISTEN:${input.bridgePort},bind=127.0.0.1,reuseaddr,fork" "PROXY:${target},proxyport=3128" >/dev/null 2>&1 &`,
+    `socat "TCP-LISTEN:${input.bridgePort},bind=127.0.0.1,reuseaddr,fork" "PROXY:${target},proxyport=${input.egressProxyPort}" >/dev/null 2>&1 &`,
     'gantry_browser_bridge_pid=$!',
     'cleanup_gantry_browser_bridge() {',
     '  kill "$gantry_browser_bridge_pid" 2>/dev/null || true',
