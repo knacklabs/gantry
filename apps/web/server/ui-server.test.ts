@@ -460,6 +460,78 @@ it('ui-server-activity-contract', async () => {
   });
 });
 
+it('ui-server-profile-contract', async () => {
+  sdk.getAgentAdmin.mockResolvedValue({
+    agent: {
+      id: 'agent:one',
+      appId: 'private-app',
+      name: 'One',
+      status: 'active',
+      createdAt: '2026-08-12T00:00:00.000Z',
+      updatedAt: '2026-08-12T01:00:00.000Z',
+      currentConfigVersionId: 'secret-version',
+    },
+    capabilities: { rawPolicy: 'upstream-secret' },
+    boundConversations: [
+      { conversationId: 'private-conversation', provider: 'slack' },
+    ],
+  });
+  sdk.getAgentDelegates.mockResolvedValue({
+    delegates: ['researcher'],
+    resolved: [{ toolName: 'delegate_secret' }],
+  });
+  sdk.listAgentSkills.mockResolvedValue({
+    bindings: [{ configVersionId: 'secret-version' }],
+  });
+  sdk.getAgentAccess.mockResolvedValue({
+    sources: { privateSource: 'upstream-secret' },
+    summary: {
+      connected: [{ label: 'Browser', detail: 'Connected' }],
+      allowed: [],
+      needsAttention: [{ label: 'Files', detail: 'Needs approval' }],
+      suggestedCleanup: [],
+    },
+  });
+
+  const profile = await request(
+    createUiHandler({
+      distRoot: '/missing',
+      env: {
+        GANTRY_CONTROL_API_KEY: 'server-secret',
+        GANTRY_CONTROL_BASE_URL: 'http://control.internal',
+      },
+    }),
+    '/ui/api/agents/agent%3Aone',
+  );
+
+  expect(profile.status).toBe(200);
+  expect(JSON.parse(profile.text)).toEqual({
+    agent: {
+      id: 'agent:one',
+      name: 'One',
+      status: 'active',
+      createdAt: '2026-08-12T00:00:00.000Z',
+      updatedAt: '2026-08-12T01:00:00.000Z',
+    },
+    boundConversationCount: 1,
+    counts: {
+      configuredDelegates: 1,
+      boundSkills: 1,
+      selectedCapabilities: 0,
+      access: {
+        connected: 1,
+        allowed: 0,
+        needsAttention: 1,
+        suggestedCleanup: 0,
+      },
+    },
+    unavailable: [],
+  });
+  expect(profile.text).not.toMatch(
+    /server-secret|control\.internal|upstream-secret|private-app|secret-version|delegate_secret|private-conversation|rawPolicy|privateSource/,
+  );
+});
+
 it('ui-server-api-contract', async () => {
   const distRoot = await mkdtemp(join(tmpdir(), 'gantry-ui-'));
   await writeFile(join(distRoot, 'index.html'), '<main>Gantry</main>');
