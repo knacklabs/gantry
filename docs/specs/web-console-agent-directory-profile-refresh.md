@@ -1,7 +1,7 @@
 ---
 slug: web-console-agent-directory-profile-refresh
 title: Web Runtime Console: Agent directory and profile refresh
-status: draft
+status: confirmed
 saved: 2026-08-13T15:51:19+00:00
 ---
 

@@ -1292,6 +1292,25 @@
       "completed_at": "2026-08-12T20:08:51+00:00",
       "history": ".factory/history/WEB-CONSOLE-4/",
       "outcome": "Operators can use a private, read-only Gantry web console to inspect deployment health and instances, browse agents with hierarchy, skills, capabilities and access, review bounded 24-hour/7-day/30-day metrics, and follow live agent-run task trees through a same-origin UI API without exposing Control credentials to the browser."
+    },
+    {
+      "key": "WEB-CONSOLE-5",
+      "title": "Web Runtime Console: Agent directory and profile refresh",
+      "story": "As a Gantry operator, I can inspect an agent's safe configuration and real recent work from one clear profile.",
+      "acceptance_criteria": [
+        "The Agents directory remains responsive and the profile separates configuration, access, and observed runs.",
+        "Agent-scoped activity is app-owned, bounded, indexed, and safe for the browser facade.",
+        "The browser sees only safe same-origin projections and no Control credential or sensitive catalog/task data."
+      ],
+      "order": 65,
+      "status": "pending",
+      "epic": "web-runtime-console",
+      "skill": "fullstack",
+      "kind": "feature",
+      "depends_on": [
+        "WEB-CONSOLE-4"
+      ],
+      "spec": "docs/specs/web-console-agent-directory-profile-refresh.md"
     }
   ],
   "epics": [
@@ -1389,5 +1408,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-12T20:08:51+00:00"
+  "updated_at": "2026-08-13T15:55:19+00:00"
 }
