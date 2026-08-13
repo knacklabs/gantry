@@ -748,6 +748,32 @@ describe('createCanUseToolCallback', () => {
     expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
   });
 
+  it('passes a reviewed scheduled Browser action to the host browser boundary', async () => {
+    const decision = await makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'manipal-tender-copilot',
+        agentId: 'agent:test',
+        runId: 'run-1',
+        jobId: 'job-1',
+        chatJid: 'app:manipal-tender-copilot:website-recipe',
+        allowedTools: ['Browser'],
+        yoloMode: { enabled: false, denylist: [], denylistPaths: [] },
+      } as never,
+    })(
+      'mcp__gantry__browser_open',
+      { url: 'https://example.com/tenders' },
+      makePermissionOptions({ displayName: 'Browser' }) as never,
+    );
+
+    expect(decision).toEqual({
+      behavior: 'allow',
+      updatedInput: { url: 'https://example.com/tenders' },
+    });
+    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
   it.each([
     'mcp__gantry__delegate_task',
     'mcp__gantry__task_cancel',

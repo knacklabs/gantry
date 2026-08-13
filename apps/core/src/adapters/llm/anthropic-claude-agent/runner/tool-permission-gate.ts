@@ -45,6 +45,10 @@ import { denyNonPromptableAutonomousRecovery } from './autonomous-permission-rec
 import { evaluateYoloModeDenylist } from '../../../../shared/yolo-mode-policy.js';
 import { formatPermissionDeniedMessage } from '../../../../shared/permission-decision-message.js';
 import { isHostAuthorizedMcpProxyDispatcherFullName } from '../../../../shared/admin-mcp-tools.js';
+import {
+  isCanonicalBrowserCapabilityRule,
+  isKnownProjectedBrowserMcpToolName,
+} from '../../../../shared/agent-tool-references.js';
 type ApprovalInput = Parameters<typeof requestPermissionApproval>[0];
 const WORKSPACE_FOLDER_KEY = WORKSPACE_FOLDER_OPTION_KEY as keyof ApprovalInput;
 const RAW_REQ = /^(Agent|AskUserQuestion|TodoWrite)$/;
@@ -391,6 +395,14 @@ export function createCanUseToolCallback(
       )
     ) {
       return allowToolUse('host resolves the bounded caller-provided tool');
+    }
+    if (
+      !yoloDenylistMatch &&
+      input.agentInput.isScheduledJob &&
+      isKnownProjectedBrowserMcpToolName(toolName) &&
+      input.agentInput.allowedTools?.some(isCanonicalBrowserCapabilityRule)
+    ) {
+      return allowToolUse('host selected and enforces the Browser capability');
     }
 
     const toolExecutionRequest = buildAgentToolExecutionRequest(
