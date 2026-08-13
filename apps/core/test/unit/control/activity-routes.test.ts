@@ -188,7 +188,11 @@ describe('activity routes', () => {
     );
   });
 
-  it("lists one agent's app-owned activity with a bounded limit", async () => {
+  it('lists agent-scoped activity in newest order', async () => {
+    mocks.listRecentAgentRuns.mockResolvedValue([
+      { ...run, id: 'agent-run:newest' },
+      { ...run, id: 'agent-run:older' },
+    ]);
     const { res } = await handle('/v1/activity?agentId=agent%3Aowner&limit=20');
 
     expect(res.statusCode).toBe(200);
@@ -197,6 +201,9 @@ describe('activity routes', () => {
       agentId: 'agent:owner',
       limit: 20,
     });
+    expect(
+      JSON.parse(res.body).runs.map(({ id }: { id: string }) => id),
+    ).toEqual(['agent-run:newest', 'agent-run:older']);
   });
 
   it.each([
