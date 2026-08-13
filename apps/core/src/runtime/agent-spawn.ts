@@ -625,9 +625,9 @@ async function spawnAgentWithContext(
         access.browserAccess === 'managed_browser',
     );
     if (browserAutomationActions.length > 0) {
-      if (!browserIpcEnabled || !browserProfileForRun) {
+      if (!browserProfileForRun) {
         throw new Error(
-          'Managed browser skill actions require the canonical Browser capability.',
+          'Managed browser skill actions require a scoped browser profile.',
         );
       }
       const browserStatus = await launchBrowser({

@@ -3906,19 +3906,27 @@ describe('agent-spawn timeout behavior', () => {
     expect(env.GANTRY_BROWSER_MANAGED_AUTOMATION).toBe('1');
   });
 
-  it('fails closed when a managed browser action lacks Browser authority', async () => {
-    await expect(
-      spawnTestAgent(
-        testGroup,
-        {
-          ...testInput,
-          runtimeAccess: managedBrowserSkillActionRuntimeAccess(),
-        },
-        () => {},
-      ),
-    ).rejects.toThrow('canonical Browser capability');
-    expect(mockLaunchBrowser).not.toHaveBeenCalled();
-    expect(spawn).not.toHaveBeenCalled();
+  it('projects the loopback endpoint for a managed browser action without Browser authority', async () => {
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      {
+        ...testInput,
+        runtimeAccess: managedBrowserSkillActionRuntimeAccess(),
+      },
+      () => {},
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    expect(mockLaunchBrowser).toHaveBeenCalledOnce();
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.GANTRY_BROWSER_CDP_ENDPOINT).toBe('http://127.0.0.1:4567');
+    expect(env.GANTRY_BROWSER_MANAGED_AUTOMATION).toBe('1');
   });
 
   it('fails closed before runner start when a selected capability is missing from the worker image', async () => {
