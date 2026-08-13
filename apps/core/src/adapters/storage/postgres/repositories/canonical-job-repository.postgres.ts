@@ -704,6 +704,8 @@ export class PostgresCanonicalJobRepository {
       jobIds?: string[];
       ownerAppId?: string;
       runId?: string;
+      runIds?: string[];
+      firstPerRun?: boolean;
       eventType?: RuntimeEventType;
       sinceId?: number;
       since?: string;
@@ -711,8 +713,42 @@ export class PostgresCanonicalJobRepository {
     },
   ): Promise<CanonicalJobEventRecord[]> {
     if (!filters?.jobId && filters?.jobIds?.length === 0) return [];
+    if (filters?.runIds && filters.runIds.length === 0) return [];
     if (!filters?.jobId && filters?.ownerAppId) {
       return this.listEventsForOwnerApp(limit, filters);
+    }
+    // Batched primary read: one DISTINCT ON query returns the FIRST persisted
+    // event per run (0126 primary-denial rule) for a whole listing - never an
+    // N+1 per run and never a cap that can truncate the authoritative row.
+    if (filters?.runIds?.length && filters.firstPerRun) {
+      const rows = await this.db
+        .selectDistinctOn([pgSchema.runtimeEventsPostgres.runId])
+        .from(pgSchema.runtimeEventsPostgres)
+        .where(
+          and(
+            inArray(pgSchema.runtimeEventsPostgres.runId, filters.runIds),
+            filters.eventType
+              ? eq(pgSchema.runtimeEventsPostgres.eventType, filters.eventType)
+              : undefined,
+            filters.appId
+              ? eq(pgSchema.runtimeEventsPostgres.appId, filters.appId)
+              : undefined,
+          ),
+        )
+        .orderBy(
+          asc(pgSchema.runtimeEventsPostgres.runId),
+          asc(pgSchema.runtimeEventsPostgres.eventId),
+        )
+        .limit(limit);
+      return rows.map((row) => ({
+        id: String(row.eventId),
+        appId: row.appId,
+        runId: row.runId ?? '',
+        jobId: row.jobId ?? '',
+        type: row.eventType,
+        payloadJson: row.payloadJson,
+        createdAt: row.createdAt,
+      }));
     }
     const query = this.db
       .select()

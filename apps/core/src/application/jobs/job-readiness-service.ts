@@ -33,6 +33,12 @@ import {
   RUN_COMMAND_TOOL_NAME,
 } from '../../shared/agent-tool-references.js';
 import {
+  approveRuleSetupAction,
+  compareJobSetupBlockers,
+  instructionSetupAction,
+  jobSetupActionIdentity,
+} from '../../shared/job-setup-action.js';
+import {
   parseSemanticCapabilityRule,
   semanticCapabilityRule,
 } from '../../shared/semantic-capability-ids.js';
@@ -309,22 +315,24 @@ function invalidWorkspaceConfigBlocker(
 function brokerUnreachableBlocker(message: string): JobSetupBlocker {
   return {
     state: 'broker_unreachable',
-    requirementType: 'tool',
-    requirementId: 'job_runtime',
-    message,
-    nextAction:
+    type: 'tool',
+    id: 'job_runtime',
+    summary: message,
+    action: instructionSetupAction(
       'Fix the job configuration or restore the runtime broker, then recheck the job.',
+    ),
   };
 }
 
 function malformedRequirementBlocker(message: string): JobSetupBlocker {
   return {
     state: 'broker_unreachable',
-    requirementType: 'tool',
-    requirementId: 'access_requirements',
-    message: `Job access requirements are invalid: ${message}`,
-    nextAction:
+    type: 'tool',
+    id: 'access_requirements',
+    summary: `Job access requirements are invalid: ${message}`,
+    action: instructionSetupAction(
       'Update the job to valid access requirements, then recheck the job.',
+    ),
   };
 }
 
@@ -358,10 +366,12 @@ function capabilityRequirementBlocker(input: {
   if (!rule) {
     return {
       state: 'missing_capability',
-      requirementType: 'local_cli',
-      requirementId: requirement.capabilityId,
-      message: `${formatCapabilityRequirement(requirement)} has an invalid local CLI job requirement.`,
-      nextAction: capabilityRequirementSetupAction(requirement),
+      type: 'local_cli',
+      id: requirement.capabilityId,
+      summary: `${formatCapabilityRequirement(requirement)} has an invalid local CLI job requirement.`,
+      action: instructionSetupAction(
+        capabilityRequirementSetupAction(requirement),
+      ),
     };
   }
   if (
@@ -370,10 +380,12 @@ function capabilityRequirementBlocker(input: {
   ) {
     return {
       state: 'missing_capability',
-      requirementType: 'local_cli',
-      requirementId: requirement.capabilityId,
-      message: `${formatCapabilityRequirement(requirement)} needs pinned executable version and hash before this job can request reviewed local CLI access.`,
-      nextAction: capabilityRequirementSetupAction(requirement),
+      type: 'local_cli',
+      id: requirement.capabilityId,
+      summary: `${formatCapabilityRequirement(requirement)} needs pinned executable version and hash before this job can request reviewed local CLI access.`,
+      action: instructionSetupAction(
+        capabilityRequirementSetupAction(requirement),
+      ),
     };
   }
   if (
@@ -384,22 +396,19 @@ function capabilityRequirementBlocker(input: {
   }
   return {
     state: 'missing_capability',
-    requirementType: 'local_cli',
-    requirementId: requirement.capabilityId,
-    grantable: true,
-    message: `${formatCapabilityRequirement(requirement)} needs reviewed local CLI access before this job can run on schedule.`,
-    nextAction: capabilityRequirementSetupAction(requirement),
+    type: 'local_cli',
+    id: requirement.capabilityId,
+    summary: `${formatCapabilityRequirement(requirement)} needs reviewed local CLI access before this job can run on schedule.`,
+    action: approveRuleSetupAction(`${RUN_COMMAND_TOOL_NAME}(${rule})`),
   };
 }
 
-export function setupStateForDeniedTool(
-  input: Required<Pick<JobSetupBlocker, 'grantable'>> & {
-    toolName: string;
-    recoveryAction?: string | null;
-    checkedAt?: string;
-    previous?: JobSetupState;
-  },
-): JobSetupState {
+export function setupStateForDeniedTool(input: {
+  toolName: string;
+  action: JobSetupBlocker['action'];
+  checkedAt?: string;
+  previous?: JobSetupState;
+}): JobSetupState {
   const toolName = canonicalSetupToolName(input.toolName);
   return buildJobSetupState({
     checkedAt: input.checkedAt ?? nowIso(),
@@ -407,13 +416,10 @@ export function setupStateForDeniedTool(
     blockers: [
       {
         state: 'missing_capability',
-        requirementType: requirementTypeForTool(toolName),
-        requirementId: toolName,
-        grantable: input.grantable,
-        message: `This job needs ${toolRequirementLabel(toolName)} before it can run.`,
-        nextAction:
-          input.recoveryAction?.trim() ||
-          toolAccessRequirementRecoveryAction(toolName),
+        type: requirementTypeForTool(toolName),
+        id: toolName,
+        summary: `This job needs ${toolRequirementLabel(toolName)} before it can run.`,
+        action: input.action,
       },
     ],
   });
@@ -433,13 +439,13 @@ export function setupStateForTransientPermission(input: {
     blockers: [
       {
         state: 'missing_capability',
-        requirementType: requirementTypeForTool(toolName),
-        requirementId: toolName,
-        grantable: true,
-        message: `This scheduled job used temporary ${toolRequirementLabel(toolName)}. Approve lasting access before future runs continue.`,
-        nextAction:
+        type: requirementTypeForTool(toolName),
+        id: toolName,
+        summary: `This scheduled job used temporary ${toolRequirementLabel(toolName)}. Approve lasting access before future runs continue.`,
+        action: instructionSetupAction(
           input.recoveryAction?.trim() ||
-          toolAccessRequirementRecoveryAction(toolName),
+            toolAccessRequirementRecoveryAction(toolName),
+        ),
       },
     ],
   });
@@ -455,12 +461,13 @@ export function setupStateForBrowserPrelaunchFailure(input: {
     blockers: [
       {
         state: 'browser_login_may_be_required',
-        requirementType: 'browser',
-        requirementId: 'Browser',
-        message:
+        type: 'browser',
+        id: 'Browser',
+        summary:
           'Browser could not be launched for this scheduled job before the agent run started.',
-        nextAction:
+        action: instructionSetupAction(
           'Run `gantry browser status`, fix the Browser profile if needed, then resume the job.',
+        ),
       },
     ],
   });
@@ -475,7 +482,7 @@ function buildJobSetupState(input: {
   const state = blockers[0]?.state ?? 'ready';
   const fingerprint = stableSha256Json({
     state,
-    blockers: blockers.map(({ message: _message, ...blocker }) => blocker),
+    blockers: blockers.map(({ summary: _summary, ...blocker }) => blocker),
   });
   return {
     state,
@@ -495,38 +502,21 @@ function dedupeBlockers(
   const out: JobSetupBlocker[] = [];
   const seen = new Set<string>();
   for (const blocker of blockers) {
-    const key = [
-      blocker.state,
-      blocker.requirementType,
-      blocker.requirementId,
-      blocker.nextAction,
-    ].join('\0');
+    const key = jobSetupActionIdentity(blocker.action);
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(blocker);
   }
-  return out.sort((left, right) =>
-    [left.state, left.requirementType, left.requirementId, left.nextAction]
-      .join('\0')
-      .localeCompare(
-        [
-          right.state,
-          right.requirementType,
-          right.requirementId,
-          right.nextAction,
-        ].join('\0'),
-      ),
-  );
+  return out.sort(compareJobSetupBlockers);
 }
 
 function missingToolBlocker(toolName: string): JobSetupBlocker {
   return {
     state: 'missing_capability',
-    requirementType: requirementTypeForTool(toolName),
-    requirementId: toolName,
-    grantable: true,
-    message: `Setup required: capability dependency missing: ${toolRequirementLabel(toolName)}.`,
-    nextAction: toolAccessRequirementRecoveryAction(toolName),
+    type: requirementTypeForTool(toolName),
+    id: toolName,
+    summary: `Setup required: capability dependency missing: ${toolRequirementLabel(toolName)}.`,
+    action: approveRuleSetupAction(toolName),
   };
 }
 
@@ -562,11 +552,12 @@ function selectedCapabilityIdsMissingFromImage(input: {
 function imageInventoryMissingBlocker(capabilityId: string): JobSetupBlocker {
   return {
     state: 'missing_capability',
-    requirementType: 'semantic_capability',
-    requirementId: capabilityId,
-    message: `Setup required: ${humanizeTechnicalIdentifier(capabilityId)} is selected for this agent but is not available in the worker image.`,
-    nextAction:
+    type: 'semantic_capability',
+    id: capabilityId,
+    summary: `Setup required: ${humanizeTechnicalIdentifier(capabilityId)} is selected for this agent but is not available in the worker image.`,
+    action: instructionSetupAction(
       'Rebuild or deploy a worker image that includes this capability, or deselect it for this agent.',
+    ),
   };
 }
 
@@ -575,29 +566,29 @@ function unreviewedSemanticCapabilityBlocker(
 ): JobSetupBlocker {
   return {
     state: 'missing_capability',
-    requirementType: 'semantic_capability',
-    requirementId: capabilityId,
-    message:
+    type: 'semantic_capability',
+    id: capabilityId,
+    summary:
       'This job references a capability that is not reviewed in the capability catalog.',
-    nextAction:
+    action: instructionSetupAction(
       'Refresh attached source inventory, then update the job to a reviewed source-neutral capability (request it with request_access target.kind=capability).',
+    ),
   };
 }
 
 function invalidAgentToolPolicyBlocker(message: string): JobSetupBlocker {
   return {
     state: 'missing_capability',
-    requirementType: 'tool',
-    requirementId: 'agent_tool_policy',
-    message: `Agent tool policy is invalid: ${message}`,
-    nextAction:
+    type: 'tool',
+    id: 'agent_tool_policy',
+    summary: `Agent tool policy is invalid: ${message}`,
+    action: instructionSetupAction(
       'Review the agent selected capabilities, then remove or reapprove the invalid tool binding.',
+    ),
   };
 }
 
-function requirementTypeForTool(
-  toolName: string,
-): JobSetupBlocker['requirementType'] {
+function requirementTypeForTool(toolName: string): JobSetupBlocker['type'] {
   if (isCanonicalBrowserCapabilityRule(toolName)) return 'browser';
   if (parseSemanticCapabilityRule(toolName)) return 'semantic_capability';
   return 'tool';
@@ -629,24 +620,26 @@ async function semanticCapabilityCredentialBlocker(input: {
   if (!capability) {
     return {
       state: 'missing_capability',
-      requirementType: 'semantic_capability',
-      requirementId: input.capabilityId,
-      message:
+      type: 'semantic_capability',
+      id: input.capabilityId,
+      summary:
         'Semantic capability is not registered in the capability catalog.',
-      nextAction:
+      action: instructionSetupAction(
         'Refresh attached source inventory, then update the job to a reviewed source-neutral capability (request it with request_access target.kind=capability).',
+      ),
     };
   }
   if (capability.credentialSource === 'local_cli') return null;
   if (capability.preflight?.kind === 'broker') {
     return {
       state: 'credential_unknown',
-      requirementType: 'credential',
-      requirementId: input.capabilityId,
-      message:
+      type: 'credential',
+      id: input.capabilityId,
+      summary:
         'Capability account readiness is unknown because no safe non-mutating preflight exists.',
-      nextAction:
+      action: instructionSetupAction(
         'Confirm the account connection is ready, then resume or recheck the job.',
+      ),
     };
   }
   return null;
@@ -665,10 +658,10 @@ async function mcpReadinessBlockers(input: {
   if (!input.repository && !input.accessSnapshot) {
     return required.map((requirement) => ({
       state: 'missing_capability',
-      requirementType: 'mcp_server',
-      requirementId: requirement,
-      message: `Required MCP server is not available to verify: ${requirement}.`,
-      nextAction: mcpRequestAction(requirement),
+      type: 'mcp_server',
+      id: requirement,
+      summary: `Required MCP server is not available to verify: ${requirement}.`,
+      action: instructionSetupAction(mcpRequestAction(requirement)),
     }));
   }
   const blockers: JobSetupBlocker[] = [];
@@ -695,13 +688,13 @@ async function mcpReadinessBlockers(input: {
         : null;
       blockers.push({
         state: 'missing_capability',
-        requirementType: 'mcp_server',
-        requirementId: requirement,
-        message:
+        type: 'mcp_server',
+        id: requirement,
+        summary:
           definition?.status === 'disabled'
             ? `Required MCP server is disabled: ${requirement}.`
             : `Required MCP server is not bound to this agent: ${requirement}.`,
-        nextAction: mcpRequestAction(requirement),
+        action: instructionSetupAction(mcpRequestAction(requirement)),
       });
       continue;
     }
@@ -741,11 +734,12 @@ function mcpCredentialBlocker(
 ): JobSetupBlocker {
   return {
     state: 'mcp_missing_credential',
-    requirementType: 'mcp_server',
-    requirementId: serverName,
-    message: formatMissingGantrySecretsMessage(secretNames),
-    nextAction:
+    type: 'mcp_server',
+    id: serverName,
+    summary: formatMissingGantrySecretsMessage(secretNames),
+    action: instructionSetupAction(
       'Add the required credentials in Credential Center, then resume or recheck the job.',
+    ),
   };
 }
 

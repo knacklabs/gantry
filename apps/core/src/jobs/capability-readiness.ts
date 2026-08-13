@@ -4,6 +4,7 @@ import type { SkillCatalogRepository } from '../domain/ports/repositories.js';
 import type { WorkerRegistryRepository } from '../domain/ports/worker-coordination.js';
 import type { RuntimeDeploymentMode } from '../shared/runtime-deployment-mode.js';
 import { stableSha256Json } from '../shared/stable-hash.js';
+import { instructionSetupAction } from '../shared/job-setup-action.js';
 import { nowIso } from '../shared/time/datetime.js';
 import { humanizeTechnicalIdentifier } from '../shared/user-visible-messages.js';
 import { WORKER_STALE_AFTER_MS } from '../shared/worker-heartbeat.js';
@@ -109,9 +110,9 @@ export function fleetCapabilitySetupState(input: {
     state,
     blockers: blockers.map((blocker) => ({
       state: blocker.state,
-      requirementType: blocker.requirementType,
-      requirementId: blocker.requirementId,
-      nextAction: blocker.nextAction,
+      type: blocker.type,
+      id: blocker.id,
+      action: blocker.action,
     })),
   });
   return {
@@ -129,11 +130,10 @@ export function fleetCapabilitySetupState(input: {
 function missingFleetCapabilityBlocker(capabilityId: string): JobSetupBlocker {
   return {
     state: 'missing_capability',
-    requirementType: 'semantic_capability',
-    requirementId: capabilityId,
-    grantable: false,
-    message: `Setup required: ${describeFleetCapability(capabilityId)} is needed by this job but no active worker provides it.`,
-    nextAction: fleetCapabilityNextAction(capabilityId),
+    type: 'semantic_capability',
+    id: capabilityId,
+    summary: `Setup required: ${describeFleetCapability(capabilityId)} is needed by this job but no active worker provides it.`,
+    action: instructionSetupAction(fleetCapabilityNextAction(capabilityId)),
   };
 }
 

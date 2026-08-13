@@ -42,6 +42,8 @@ import { nowMs } from '../../../../shared/time/datetime.js';
 import { DEEPAGENTS_ENGINE } from '../../../../shared/agent-engine.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import type { DeepAgentsPermissionDenial } from './third-party-mcp-gate.js';
+import { instructionSetupAction } from '../../../../shared/job-setup-action.js';
+import { jobSetupActionEventPayload } from '../../../../domain/events/job-setup-action.js';
 
 // Raw DeepAgents authority is fully disabled in v1: the default StateBackend has
 // no `execute` tool, and filesystem permissions deny reads/writes unless the
@@ -146,17 +148,10 @@ export async function runDeepAgentTurn(input: {
             ok: false,
             terminal: true,
             reason: denial.reason,
-            grantable: denial.grantable,
-            recovery_action: denial.recoveryAction,
+            action: jobSetupActionEventPayload(denial.action),
             denial_kind: denial.denialKind,
             provenance_lane: DEEPAGENTS_ENGINE,
             provenance_seam: denial.provenanceSeam,
-            recovery_kind:
-              denial.recoveryKind ??
-              (denial.grantable &&
-              denial.recoveryAction?.startsWith('request_access') === true
-                ? 'persistent_capability'
-                : 'job_policy'),
           },
         },
       ],
@@ -232,8 +227,7 @@ export async function runDeepAgentTurn(input: {
               terminateScheduledDenial({
                 toolName,
                 reason: denial.error.message,
-                grantable: false,
-                recoveryAction: denial.error.message,
+                action: instructionSetupAction(denial.error.message),
                 denialKind: 'rule_denied',
                 provenanceSeam: 'declarative',
               });

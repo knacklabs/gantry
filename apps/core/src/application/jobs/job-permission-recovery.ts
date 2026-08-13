@@ -20,6 +20,7 @@ import {
 } from './job-readiness-service.js';
 import { agentIdForJobWorkspaceKey } from './job-tool-policy.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import { formatJobSetupAction } from '../../shared/job-setup-labels.js';
 import {
   raiseSetupPausePermissionPrompt,
   retireSetupPausePermissionPrompt,
@@ -202,7 +203,12 @@ async function recheckCandidateJob(
       jobId: job.id,
       name: job.name,
       state: 'still_blocked',
-      nextAction: readiness.setupState.blockers[0]?.nextAction,
+      nextAction: readiness.setupState.blockers[0]
+        ? formatJobSetupAction(
+            readiness.setupState.blockers[0].action,
+            readiness.setupState.blockers[0],
+          )
+        : undefined,
     });
     await publishRecheckEvent(
       input,

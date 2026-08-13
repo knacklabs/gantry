@@ -69,6 +69,96 @@ const accessRequirement = {
     reason: { type: 'string' },
   },
 };
+const permissionAuthorityAddition = {
+  type: 'object',
+  required: ['type', 'behavior', 'rules'],
+  additionalProperties: false,
+  properties: {
+    type: { type: 'string', enum: ['addRules', 'replaceRules'] },
+    behavior: { type: 'string', enum: ['allow'] },
+    rules: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 5,
+      items: {
+        type: 'object',
+        required: ['toolName'],
+        additionalProperties: false,
+        properties: {
+          toolName: { type: 'string' },
+          ruleContent: { type: 'string' },
+        },
+      },
+    },
+    destination: {
+      type: 'string',
+      enum: [
+        'userSettings',
+        'projectSettings',
+        'localSettings',
+        'session',
+        'cliArg',
+      ],
+    },
+  },
+};
+const setupAction = {
+  oneOf: [
+    {
+      type: 'object',
+      required: ['kind', 'grant'],
+      additionalProperties: false,
+      properties: {
+        kind: { type: 'string', enum: ['approve_grant'] },
+        grant: permissionAuthorityAddition,
+      },
+    },
+    {
+      type: 'object',
+      required: ['kind', 'proposalId'],
+      additionalProperties: false,
+      properties: {
+        kind: { type: 'string', enum: ['fix_proposal'] },
+        proposalId: { type: 'string' },
+      },
+    },
+    {
+      type: 'object',
+      required: ['kind', 'text'],
+      additionalProperties: false,
+      properties: {
+        kind: { type: 'string', enum: ['instruction'] },
+        text: { type: 'string' },
+      },
+    },
+  ],
+};
+const jobSetup = {
+  type: 'object',
+  required: ['state', 'checkedAt', 'fingerprint', 'blockers', 'nextAction'],
+  additionalProperties: false,
+  properties: {
+    state: { type: 'string' },
+    checkedAt: { type: ['string', 'null'], format: 'date-time' },
+    fingerprint: { type: ['string', 'null'] },
+    blockers: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['state', 'summary', 'action', 'type', 'id'],
+        additionalProperties: false,
+        properties: {
+          state: { type: 'string' },
+          summary: { type: 'string' },
+          action: setupAction,
+          type: { type: 'string' },
+          id: { type: 'string' },
+        },
+      },
+    },
+    nextAction: { type: ['string', 'null'] },
+  },
+};
 const envelope = (name: string, schema: JsonSchema): JsonSchema => ({
   type: 'object',
   required: [name],
@@ -123,7 +213,7 @@ export const automationOpenApiSchemas: Record<string, JsonSchema> = {
         type: 'array',
         items: accessRequirement,
       },
-      setup: metadata,
+      setup: jobSetup,
       modelAlias: { type: 'string' },
     },
   },
@@ -153,7 +243,7 @@ export const automationOpenApiSchemas: Record<string, JsonSchema> = {
       jobId: { type: 'string' },
       dryRun: { type: 'boolean' },
       status: { type: 'string' },
-      setup: metadata,
+      setup: jobSetup,
       runtimeContext: metadata,
       modelAlias: { type: 'string' },
       modelSource: { type: 'string' },
@@ -190,7 +280,7 @@ export const automationOpenApiSchemas: Record<string, JsonSchema> = {
     required: ['resumed'],
     properties: {
       resumed: { type: 'boolean' },
-      setup: metadata,
+      setup: jobSetup,
     },
   },
   JobTriggerResponse: {

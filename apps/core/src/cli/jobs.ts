@@ -7,8 +7,7 @@ import {
 } from '../shared/tool-access-view.js';
 import {
   jobSetupBlockerFromUnknown,
-  setupActionLabel,
-  setupActionLabelFromNextAction,
+  formatJobSetupAction,
   setupReadinessLabel,
 } from '../shared/job-setup-labels.js';
 import { agentIdForJobWorkspaceKey } from '../application/jobs/job-tool-policy.js';
@@ -43,10 +42,10 @@ interface JobRecord {
     state?: string;
     nextAction?: string | null;
     blockers?: Array<{
-      requirementType?: string;
-      requirementId?: string;
-      message?: string;
-      nextAction?: string;
+      type?: string;
+      id?: string;
+      summary?: string;
+      action?: unknown;
     }>;
   };
   recovery?: {
@@ -181,7 +180,7 @@ async function resumeJob(runtimeHome: string, jobId: string): Promise<number> {
       'Setup Blockers:',
       ...setup.blockers.map(
         (blocker) =>
-          `  ${blocker.requirementType ?? 'requirement'}:${blocker.requirementId ?? 'unknown'} ${blocker.message ?? ''}`,
+          `  ${blocker.type ?? 'requirement'}:${blocker.id ?? 'unknown'} ${blocker.summary ?? ''}`,
       ),
     );
   }
@@ -368,7 +367,7 @@ function formatJobDetail(job: JobRecord): string {
       'Setup Blockers:',
       ...job.setup.blockers.map(
         (blocker) =>
-          `  ${blocker.requirementType ?? 'requirement'}:${blocker.requirementId ?? 'unknown'} ${blocker.message ?? ''}`,
+          `  ${blocker.type ?? 'requirement'}:${blocker.id ?? 'unknown'} ${blocker.summary ?? ''}`,
       ),
     );
   }
@@ -403,11 +402,11 @@ function formatJobNextAction(
   fallbackNextAction?: unknown,
 ): string {
   const blocker = jobSetupBlockerFromUnknown(setup?.blockers?.[0]);
-  if (blocker) return setupActionLabel(blocker);
-  return setupActionLabelFromNextAction(
-    setup?.nextAction ?? fallbackNextAction,
-    'Fix setup, then resume the job.',
-  );
+  if (blocker) return formatJobSetupAction(blocker.action, blocker);
+  const nextAction = setup?.nextAction ?? fallbackNextAction;
+  return typeof nextAction === 'string' && nextAction.trim()
+    ? nextAction
+    : 'Fix setup, then resume the job.';
 }
 
 function formatJobEvents(

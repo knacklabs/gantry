@@ -20,7 +20,7 @@ describe('job execution diagnostics', () => {
       denialKind: 'permission_denied' as const,
       provenanceLane: DEFAULT_AGENT_ENGINE,
       provenanceSeam: 'gate' as const,
-      grantable: true,
+      action: { kind: 'instruction' as const, text: 'Review job setup.' },
     };
 
     const key = jobToolDenialIdempotencyKey('run-1', denial);
@@ -39,7 +39,7 @@ describe('job execution diagnostics', () => {
     ).not.toBe(key);
   });
 
-  it('classifies MCP server requests as instruction-only recovery', () => {
+  it('carries instruction-only recovery as a typed action', () => {
     expect(
       toolDenialEventPayload(
         {
@@ -48,14 +48,36 @@ describe('job execution diagnostics', () => {
           denialKind: 'permission_denied',
           provenanceLane: DEFAULT_AGENT_ENGINE,
           provenanceSeam: 'recovery',
-          grantable: false,
-          recoveryAction: 'request_mcp_server {"serverName":"acme"}',
+          action: {
+            kind: 'instruction',
+            text: 'Connect the Acme MCP server.',
+          },
         },
         null,
       ),
     ).toMatchObject({
-      grantable: false,
-      recovery_kind: 'job_policy',
+      action: {
+        kind: 'instruction',
+        text: 'Connect the Acme MCP server.',
+      },
+    });
+  });
+
+  it('uses snake_case proposal identity in denial events', () => {
+    expect(
+      toolDenialEventPayload(
+        {
+          toolName: 'capability_run',
+          reason: 'The reviewed command template does not match.',
+          denialKind: 'capability_template_mismatch',
+          provenanceLane: 'host',
+          provenanceSeam: 'capability_run',
+          action: { kind: 'fix_proposal', proposalId: 'proposal-1' },
+        },
+        null,
+      ),
+    ).toMatchObject({
+      action: { kind: 'fix_proposal', proposal_id: 'proposal-1' },
     });
   });
 
@@ -81,7 +103,7 @@ describe('job execution diagnostics', () => {
       expect(diagnostics.transientPermissionApprovals).toHaveLength(1);
     }
   });
-  it('retains a terminal permission denial and its specific tool name', () => {
+  it('rejects a terminal permission denial without a typed action', () => {
     const diagnostics = createJobRunDiagnostics();
 
     updateDiagnosticsFromRuntimeEvent(
@@ -99,17 +121,54 @@ describe('job execution diagnostics', () => {
       },
     );
 
-    expect(diagnostics.terminalToolDenial).toEqual({
-      toolName: 'Bash',
-      reason: 'Bash command could not be parsed safely.',
-      denialKind: 'rule_denied',
-      provenanceLane: DEFAULT_AGENT_ENGINE,
-      provenanceSeam: 'gate',
-      recoveryAction: undefined,
-    });
-    expect(formatTerminalToolDenial(diagnostics)).toContain(
-      'Permission denied for Bash.',
+    expect(diagnostics.terminalToolDenial).toBeUndefined();
+  });
+
+  it('rejects camelCase proposal identity in runner events', () => {
+    const diagnostics = createJobRunDiagnostics();
+
+    updateDiagnosticsFromRuntimeEvent(
+      diagnostics,
+      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      {
+        phase: 'permission_denied',
+        tool: 'capability_run',
+        ok: false,
+        terminal: true,
+        reason: 'Template mismatch.',
+        denial_kind: 'capability_template_mismatch',
+        provenance_lane: 'host',
+        provenance_seam: 'capability_run',
+        action: { kind: 'fix_proposal', proposalId: 'proposal-1' },
+      },
     );
+
+    expect(diagnostics.terminalToolDenial).toBeUndefined();
+  });
+
+  it('accepts snake_case proposal identity in runner events', () => {
+    const diagnostics = createJobRunDiagnostics();
+
+    updateDiagnosticsFromRuntimeEvent(
+      diagnostics,
+      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      {
+        phase: 'permission_denied',
+        tool: 'capability_run',
+        ok: false,
+        terminal: true,
+        reason: 'Template mismatch.',
+        denial_kind: 'capability_template_mismatch',
+        provenance_lane: 'host',
+        provenance_seam: 'capability_run',
+        action: { kind: 'fix_proposal', proposal_id: 'proposal-1' },
+      },
+    );
+
+    expect(diagnostics.terminalToolDenial?.action).toEqual({
+      kind: 'fix_proposal',
+      proposalId: 'proposal-1',
+    });
   });
 
   it('keeps promptable permission denials terminal by default', () => {
@@ -127,13 +186,22 @@ describe('job execution diagnostics', () => {
         denial_kind: 'permission_denied',
         provenance_lane: DEFAULT_AGENT_ENGINE,
         provenance_seam: 'gate',
-        recovery_action:
-          'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
+        action: {
+          kind: 'approve_grant',
+          grant: {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'RunCommand', ruleContent: 'npm test *' }],
+          },
+        },
       },
     );
 
     expect(formatTerminalToolDenial(diagnostics)).toContain(
       'Permission denied for Bash.',
+    );
+    expect(formatTerminalToolDenial(diagnostics)).toContain(
+      'Recovery: Approve exact command access, then resume the job.',
     );
   });
 

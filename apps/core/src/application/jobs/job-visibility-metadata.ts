@@ -35,8 +35,7 @@ import {
 } from '../../domain/events/job-tool-denial.js';
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 import {
-  setupActionLabel,
-  setupActionLabelFromNextAction,
+  formatJobSetupAction,
   setupReadinessLabel,
 } from '../../shared/job-setup-labels.js';
 
@@ -103,11 +102,11 @@ export interface JobSetupMetadata {
   checkedAt: string | null;
   fingerprint: string | null;
   blockers: Array<{
-    state: string;
-    message: string;
-    nextAction: string;
-    requirementType: string;
-    requirementId: string;
+    state: NonNullable<Job['setup_state']>['blockers'][number]['state'];
+    summary: string;
+    action: NonNullable<Job['setup_state']>['blockers'][number]['action'];
+    type: NonNullable<Job['setup_state']>['blockers'][number]['type'];
+    id: string;
   }>;
   nextAction: string | null;
 }
@@ -368,7 +367,9 @@ function buildJobHealth(input: {
       input.job.lease_run_id ??
       (latestRun?.status === 'running' ? latestRun.run_id : null),
     leaseExpiresAt: input.job.lease_expires_at,
-    nextAction: setupBlocker?.nextAction ?? nextJobHealthAction(state, denial),
+    nextAction: setupBlocker
+      ? formatJobSetupAction(setupBlocker.action, setupBlocker)
+      : nextJobHealthAction(state, denial),
   };
 }
 
@@ -396,10 +397,8 @@ function deriveJobDisplayLabels(input: {
     primaryRoute?.threadId ?? input.executionContext.threadId;
   const blocker = input.setup.blockers[0];
   const nextActionLabel = blocker
-    ? setupActionLabel(blocker)
-    : input.health.nextAction
-      ? setupActionLabelFromNextAction(input.health.nextAction)
-      : null;
+    ? formatJobSetupAction(blocker.action, blocker)
+    : input.health.nextAction;
   return {
     ownerLabel: genericConversationOwnerLabel(ownerJid),
     deliveryLabel: genericConversationDeliveryLabel(
@@ -428,7 +427,12 @@ function genericConversationDeliveryLabel(
 // "Needs approval" only fits capability/permission grants; broker, credential,
 // and browser-login blockers are not approvals, so they read as "Needs setup".
 function setupMetadataForJob(job: Job): JobSetupMetadata {
-  const setup = job.setup_state;
+  return jobSetupMetadataForState(job.setup_state);
+}
+
+export function jobSetupMetadataForState(
+  setup: Job['setup_state'],
+): JobSetupMetadata {
   const blockers = setup?.blockers ?? [];
   return {
     state: setup?.state ?? 'ready',
@@ -436,12 +440,14 @@ function setupMetadataForJob(job: Job): JobSetupMetadata {
     fingerprint: setup?.fingerprint ?? null,
     blockers: blockers.map((blocker) => ({
       state: blocker.state,
-      message: blocker.message,
-      nextAction: blocker.nextAction,
-      requirementType: blocker.requirementType,
-      requirementId: blocker.requirementId,
+      summary: blocker.summary,
+      action: blocker.action,
+      type: blocker.type,
+      id: blocker.id,
     })),
-    nextAction: blockers[0]?.nextAction ?? null,
+    nextAction: blockers[0]
+      ? formatJobSetupAction(blockers[0].action, blockers[0])
+      : null,
   };
 }
 
@@ -449,9 +455,8 @@ function nextJobHealthAction(
   state: JobHealthMetadata['state'],
   denial: JobToolDenial | null,
 ): string | null {
-  if (denial?.recoveryAction) return denial.recoveryAction;
-  if (state === 'needs_permission' && denial?.toolName) {
-    return `Approve ${neutralToolAccessLabel(denial.toolName)}, then rerun the job.`;
+  if (state === 'needs_permission' && denial) {
+    return formatJobSetupAction(denial.action);
   }
   if (state === 'timed_out') {
     return 'Rerun with a longer job timeout if this work is expected to take more time.';
@@ -478,21 +483,20 @@ async function loadPrimaryDenialsByRun(
   // Scoped per displayed latest run (review round 2): one global history cap
   // let a busy job crowd out another job's authoritative denial.
   if (!ops?.listRecentJobEvents || input.runIds.length === 0) return new Map();
+  // ONE batched DISTINCT ON query: the FIRST persisted denial per run (the
+  // authoritative primary, 0126) - no N+1 per run, no truncating cap.
+  const events = await ops.listRecentJobEvents(input.runIds.length, {
+    app_id: input.appId,
+    run_ids: input.runIds,
+    first_per_run: true,
+    event_type: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+  });
   const result = new Map<string, JobToolDenial>();
-  await Promise.all(
-    input.runIds.map(async (runId) => {
-      // Ascending order makes the FIRST persisted denial (the authoritative
-      // primary, 0126) the first row - no history cap can truncate it away.
-      const events = await ops.listRecentJobEvents!(20, {
-        app_id: input.appId,
-        run_id: runId,
-        event_type: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
-        order: 'asc',
-      });
-      const primary = events.map(parseJobEventDenial).find(Boolean);
-      if (primary) result.set(runId, primary);
-    }),
-  );
+  for (const event of events) {
+    if (result.has(event.run_id ?? '')) continue;
+    const denial = parseJobEventDenial(event);
+    if (denial && event.run_id) result.set(event.run_id, denial);
+  }
   return result;
 }
 
@@ -510,18 +514,6 @@ function parseJobEventDenial(event: JobEvent): JobToolDenial | null {
 
 function isRestartInterruptedRun(summary: string | null): boolean {
   return /runtime restarted|gantry restarted/i.test(summary ?? '');
-}
-
-// Keep raw implementation tool ids (RunCommand, Bash, mcp__server__tool) out of
-// user-facing next-action copy; map them to provider-neutral access labels.
-function neutralToolAccessLabel(toolName: string): string {
-  if (toolName.startsWith('mcp__gantry__browser_') || toolName === 'Browser') {
-    return 'Browser access';
-  }
-  if (toolName === 'RunCommand' || toolName === 'Bash') {
-    return 'exact command access';
-  }
-  return 'the requested access';
 }
 
 function resolveExecutionContext(job: Job): JobExecutionContextInput {

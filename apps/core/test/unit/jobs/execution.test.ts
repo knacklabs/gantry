@@ -128,10 +128,15 @@ function terminalDenialRuntimeEvents(tool = 'RunCommand') {
         phase: 'permission_denied',
         tool,
         terminal: true,
-        grantable: true,
+        action: {
+          kind: 'approve_grant',
+          grant: {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'RunCommand', ruleContent: 'npm test *' }],
+          },
+        },
         reason: 'Denied by operator.',
-        recovery_action:
-          'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false}',
         denial_kind: 'permission_denied',
         provenance_lane: DEFAULT_AGENT_ENGINE,
         provenance_seam: 'gate',
@@ -621,8 +626,6 @@ describe('jobs/execution', () => {
     });
     const opsRepository = makeOpsRepository(job);
     const sendMessage = vi.fn(async () => undefined);
-    const recoveryAction =
-      'request_access { "target": { "kind": "capability", "id": "browser.use" }, "temporaryOnly": false }';
     const error = 'Permission denied for mcp__gantry__browser_act.';
     runtimeStoreMock.list.mockImplementation(async () => {
       const deniedEvent = runtimeStoreMock.publish.mock.calls.find(
@@ -659,9 +662,15 @@ describe('jobs/execution', () => {
                 phase: 'permission_denied',
                 tool: 'mcp__gantry__browser_act',
                 terminal: true,
-                grantable: true,
+                action: {
+                  kind: 'approve_grant',
+                  grant: {
+                    type: 'addRules',
+                    behavior: 'allow',
+                    rules: [{ toolName: 'Browser' }],
+                  },
+                },
                 reason: 'Browser access is missing.',
-                recovery_action: recoveryAction,
                 denial_kind: 'permission_denied',
                 provenance_lane: DEFAULT_AGENT_ENGINE,
                 provenance_seam: 'gate',
@@ -698,9 +707,7 @@ describe('jobs/execution', () => {
     expect(deniedEvent?.payload).toEqual(
       expect.objectContaining({
         denied_tool: 'mcp__gantry__browser_act',
-        grantable: true,
-        recovery_kind: 'persistent_capability',
-        recovery_action: expect.stringContaining('request_access'),
+        action: expect.objectContaining({ kind: 'approve_grant' }),
       }),
     );
     const messages = sendMessage.mock.calls.map((call) => String(call[1]));
@@ -935,8 +942,8 @@ describe('jobs/execution', () => {
           state: 'missing_capability',
           blockers: expect.arrayContaining([
             expect.objectContaining({
-              requirementId: 'RunCommand',
-              nextAction: expect.stringContaining('request_access'),
+              id: 'RunCommand',
+              action: expect.objectContaining({ kind: 'instruction' }),
             }),
           ]),
         }),
@@ -946,7 +953,7 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          setup_state: 'missing_capability',
+          setup_fingerprint: expect.any(String),
         }),
       }),
     );
@@ -1957,7 +1964,7 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          setup_state: 'missing_capability',
+          setup_fingerprint: expect.any(String),
         }),
       }),
     );
@@ -2193,7 +2200,7 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          notified: false,
+          setup_fingerprint: readiness.setupState.fingerprint,
         }),
       }),
     );
@@ -2366,7 +2373,7 @@ describe('jobs/execution', () => {
           state: 'missing_capability',
           blockers: [
             expect.objectContaining({
-              requirementId: 'RunCommand(acme records update *)',
+              id: 'RunCommand(acme records update *)',
             }),
           ],
         }),
@@ -2377,10 +2384,10 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          setup_state: 'missing_capability',
+          setup_fingerprint: expect.any(String),
           blockers: [
             expect.objectContaining({
-              requirement_id: 'RunCommand(acme records update *)',
+              id: 'RunCommand(acme records update *)',
             }),
           ],
         }),
@@ -2420,10 +2427,17 @@ describe('jobs/execution', () => {
               tool: 'Bash',
               ok: false,
               terminal: true,
-              grantable: true,
+              action: {
+                kind: 'approve_grant',
+                grant: {
+                  type: 'addRules',
+                  behavior: 'allow',
+                  rules: [
+                    { toolName: 'RunCommand', ruleContent: 'npm test *' },
+                  ],
+                },
+              },
               reason: 'Denied by approver.',
-              recovery_action:
-                'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false}',
               denial_kind: 'permission_denied',
               provenance_lane: DEFAULT_AGENT_ENGINE,
               provenance_seam: 'gate',
@@ -2497,11 +2511,18 @@ describe('jobs/execution', () => {
               tool: 'Bash',
               ok: false,
               terminal: true,
-              grantable: true,
+              action: {
+                kind: 'approve_grant',
+                grant: {
+                  type: 'addRules',
+                  behavior: 'allow',
+                  rules: [
+                    { toolName: 'RunCommand', ruleContent: 'npm test *' },
+                  ],
+                },
+              },
               reason:
                 'Autonomous permission approval is disabled for unattended jobs.',
-              recovery_action:
-                'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false}',
               denial_kind: 'permission_denied',
               provenance_lane: DEFAULT_AGENT_ENGINE,
               provenance_seam: 'gate',
@@ -2541,8 +2562,8 @@ describe('jobs/execution', () => {
           state: 'missing_capability',
           blockers: [
             expect.objectContaining({
-              requirementType: 'tool',
-              requirementId: 'RunCommand',
+              type: 'tool',
+              id: 'RunCommand',
             }),
           ],
         }),
@@ -2564,7 +2585,7 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          setup_state: 'missing_capability',
+          setup_fingerprint: expect.any(String),
         }),
       }),
     );
@@ -2795,9 +2816,12 @@ describe('jobs/execution', () => {
           state: 'browser_login_may_be_required',
           blockers: expect.arrayContaining([
             expect.objectContaining({
-              requirementType: 'browser',
-              requirementId: 'Browser',
-              nextAction: expect.stringContaining('gantry browser status'),
+              type: 'browser',
+              id: 'Browser',
+              action: expect.objectContaining({
+                kind: 'instruction',
+                text: expect.stringContaining('gantry browser status'),
+              }),
             }),
           ]),
         }),
@@ -2821,11 +2845,11 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          setup_state: 'browser_login_may_be_required',
+          setup_fingerprint: expect.any(String),
           blockers: expect.arrayContaining([
             expect.objectContaining({
-              requirement_type: 'browser',
-              requirement_id: 'Browser',
+              type: 'browser',
+              id: 'Browser',
             }),
           ]),
         }),

@@ -21,6 +21,7 @@ import {
   ToolExecutionClassifier,
   ToolExecutionPolicyService,
 } from '../../../../shared/tool-execution-policy-service.js';
+import { instructionSetupAction } from '../../../../shared/job-setup-action.js';
 import {
   livePermissionRulesForUpdates,
   permissionRequestToolName,
@@ -42,7 +43,10 @@ import {
 } from './tool-permission-events.js';
 import { waitOnlyBashMonitoringDenial } from './wait-only-bash-guard.js';
 import { forceBackgroundNativeAgentInput } from './native-agent-tool-input.js';
-import { denyNonPromptableAutonomousRecovery } from './autonomous-permission-recovery.js';
+import {
+  autonomousDenialSetupAction,
+  denyNonPromptableAutonomousRecovery,
+} from './autonomous-permission-recovery.js';
 import { evaluateYoloModeDenylist } from '../../../../shared/yolo-mode-policy.js';
 import { formatPermissionDeniedMessage } from '../../../../shared/permission-decision-message.js';
 import { isHostAuthorizedMcpProxyDispatcherFullName } from '../../../../shared/admin-mcp-tools.js';
@@ -157,7 +161,7 @@ export function createCanUseToolCallback(
         toolName,
         reason: message,
         decision: 'removed_native_subagent_tool',
-        recoveryAction: message,
+        action: instructionSetupAction(message),
       });
       return {
         behavior: 'deny' as const,
@@ -333,7 +337,7 @@ export function createCanUseToolCallback(
         toolName,
         reason: protectedCapabilityDenial,
         decision: 'protected_capability_denied',
-        recoveryAction: protectedCapabilityDenial,
+        action: instructionSetupAction(protectedCapabilityDenial),
       });
       return {
         behavior: 'deny' as const,
@@ -355,7 +359,7 @@ export function createCanUseToolCallback(
         toolName,
         reason: memoryGuardDenial,
         decision: 'memory_boundary_guard',
-        recoveryAction: memoryGuardDenial,
+        action: instructionSetupAction(memoryGuardDenial),
       });
       return {
         behavior: 'deny' as const,
@@ -431,7 +435,7 @@ export function createCanUseToolCallback(
           getNewSessionId: input.getNewSessionId,
           toolName,
           reason: yoloDenylistReason,
-          recoveryAction: yoloDenylistReason,
+          action: instructionSetupAction(yoloDenylistReason),
         });
         log(
           `Autonomous run denied denylisted tool ${toolName}: ${recoveryMessage}`,
@@ -541,6 +545,8 @@ export function createCanUseToolCallback(
         agentInput: input.agentInput,
         getNewSessionId: input.getNewSessionId,
         recoveryAction,
+        toolInput,
+        capabilityRequestToolsHidden,
         recoveryMessage,
         toolName,
         toolPolicyReason: yoloDenylistReason ?? toolDecision.reason,
@@ -555,8 +561,12 @@ export function createCanUseToolCallback(
         toolName,
         reason,
         denialKind: 'permission_denied',
-        grantable: true,
-        ...(recoveryAction ? { recoveryAction } : {}),
+        action: autonomousDenialSetupAction({
+          toolName,
+          toolInput,
+          capabilityRequestToolsHidden,
+          instruction: recoveryAction ?? 'Review the denied job tool.',
+        }),
       });
       return {
         behavior: 'deny' as const,

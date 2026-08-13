@@ -92,6 +92,10 @@ export interface JobEventListFilters {
   job_id?: string;
   job_ids?: string[];
   run_id?: string;
+  // Batched primary read: with first_per_run, ONE query returns the first
+  // persisted event per run in run_ids (0126 primary-denial rule).
+  run_ids?: string[];
+  first_per_run?: boolean;
   event_type?: RuntimeEventType;
   since_id?: number;
   since?: string;

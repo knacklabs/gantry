@@ -195,8 +195,7 @@ export async function finalizeSchedulerJobRun(input: {
       runStatus = 'failed';
       const setupState = setupStateForDeniedTool({
         toolName: toolDenial.toolName,
-        grantable: toolDenial.grantable === true,
-        recoveryAction: toolDenial.recoveryAction,
+        action: toolDenial.action,
         checkedAt: input.now,
         previous: currentJob.setup_state,
       });

@@ -19,6 +19,7 @@ import {
   type GuidedActionType,
 } from '../../../application/guided-actions/guided-action-model.js';
 import type { AppId } from '../../../domain/app/app.js';
+import { formatJobSetupAction } from '../../../shared/job-setup-labels.js';
 
 const GUIDED_ACTION_TYPES = new Set<string>(
   Object.keys(GUIDED_ACTION_DESCRIPTORS),
@@ -135,8 +136,12 @@ export async function handleGuidedActionRoutes(
                 savedTo: 'runtime state',
                 restartRequired: false,
                 nextAction:
-                  result.job.setup_state?.blockers?.[0]?.nextAction ??
-                  'Resolve job setup blockers.',
+                  (result.job.setup_state?.blockers?.[0]
+                    ? formatJobSetupAction(
+                        result.job.setup_state.blockers[0].action,
+                        result.job.setup_state.blockers[0],
+                      )
+                    : null) ?? 'Resolve job setup blockers.',
               },
         );
       } catch (err) {

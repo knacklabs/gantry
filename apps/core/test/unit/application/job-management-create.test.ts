@@ -128,7 +128,15 @@ describe('job creation', () => {
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: 'job.setup_required',
-        payload: expect.objectContaining({ notified: true }),
+        payload: {
+          setup_fingerprint: persistedJob!.setup_state!.fingerprint,
+          blockers: [
+            expect.objectContaining({
+              id: 'Browser',
+              action: expect.objectContaining({ kind: 'approve_grant' }),
+            }),
+          ],
+        },
       }),
     );
 
@@ -169,10 +177,17 @@ describe('job creation', () => {
         blockers: [
           {
             state: 'missing_capability',
-            message: 'Needs Browser',
-            nextAction: 'grant',
-            requirementType: 'tool',
-            requirementId: 'Browser',
+            type: 'browser',
+            id: 'Browser',
+            summary: 'Needs Browser',
+            action: {
+              kind: 'approve_grant',
+              grant: {
+                type: 'addRules',
+                behavior: 'allow',
+                rules: [{ toolName: 'Browser' }],
+              },
+            },
           },
         ],
       },
@@ -192,7 +207,15 @@ describe('job creation', () => {
     expect(publishRuntimeEvent).toHaveBeenCalledOnce();
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        payload: expect.objectContaining({ notified: false }),
+        payload: {
+          setup_fingerprint: 'fp-throw',
+          blockers: [
+            expect.objectContaining({
+              id: 'Browser',
+              action: expect.objectContaining({ kind: 'approve_grant' }),
+            }),
+          ],
+        },
       }),
     );
   });

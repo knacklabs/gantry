@@ -455,9 +455,11 @@ describe('job application use cases', () => {
           blockers: expect.arrayContaining([
             expect.objectContaining({
               state: 'missing_capability',
-              requirementType: 'local_cli',
-              requirementId: 'acme.records.append',
-              nextAction: expect.stringContaining('request_access'),
+              type: 'local_cli',
+              id: 'acme.records.append',
+              action: expect.objectContaining({
+                kind: 'approve_grant',
+              }),
             }),
           ]),
         }),

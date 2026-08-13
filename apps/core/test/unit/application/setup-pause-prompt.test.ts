@@ -32,6 +32,45 @@ afterEach(() => {
   configureSetupPausePermissionPrompt(null);
 });
 
+function instructionBlocker(
+  type: 'tool' | 'semantic_capability' | 'browser' | 'mcp_server',
+  id: string,
+  summary: string,
+  text: string,
+) {
+  return {
+    state: 'missing_capability' as const,
+    type,
+    id,
+    summary,
+    action: { kind: 'instruction' as const, text },
+  };
+}
+
+function approveBlocker(
+  type: 'tool' | 'semantic_capability' | 'browser',
+  id: string,
+  summary: string,
+  toolName: string,
+  ruleContent?: string,
+) {
+  return {
+    state: 'missing_capability' as const,
+    type,
+    id,
+    summary,
+    action: {
+      kind: 'approve_grant' as const,
+      grant: {
+        type: 'addRules' as const,
+        behavior: 'allow' as const,
+        destination: 'session' as const,
+        rules: [{ toolName, ...(ruleContent ? { ruleContent } : {}) }],
+      },
+    },
+  };
+}
+
 function makeJob(overrides: Partial<Job> = {}): Job {
   return {
     id: 'job-1',
@@ -84,14 +123,12 @@ function makeJob(overrides: Partial<Job> = {}): Job {
       checked_at: '2026-08-05T00:00:00.000Z',
       fingerprint: 'fingerprint-1',
       blockers: [
-        {
-          state: 'missing_capability',
-          requirementType: 'semantic_capability',
-          requirementId: 'salesforce.leads.append',
-          grantable: true,
-          message: 'Capability missing.',
-          nextAction: 'Approve the reviewed capability.',
-        },
+        approveBlocker(
+          'semantic_capability',
+          'salesforce.leads.append',
+          'Capability missing.',
+          'capability:salesforce.leads.append',
+        ),
       ],
     },
     ...overrides,
@@ -185,14 +222,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-08T00:00:00.000Z',
         fingerprint: 'protected-browser-denial',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'browser',
-            requirementId: 'Browser',
-            grantable: false,
-            message: 'Protected browser access was denied.',
-            nextAction: 'Ask an operator to configure this worker manually.',
-          },
+          instructionBlocker(
+            'browser',
+            'Browser',
+            'Protected browser access was denied.',
+            'Ask an operator to configure this worker manually.',
+          ),
         ],
       },
     });
@@ -217,7 +252,7 @@ describe('setup pause prompts', () => {
     expect(runPermissionInteraction).not.toHaveBeenCalled();
   });
 
-  it('a blocker with undefined grantability is instruction-only', async () => {
+  it('an instruction action is instruction-only', async () => {
     const job = makeJob({
       access_requirements: [],
       setup_state: {
@@ -225,13 +260,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-08T00:00:00.000Z',
         fingerprint: 'legacy-browser-denial',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'browser',
-            requirementId: 'Browser',
-            message: 'Browser access was denied.',
-            nextAction: 'Approve lasting Browser access.',
-          },
+          instructionBlocker(
+            'browser',
+            'Browser',
+            'Browser access was denied.',
+            'Ask an operator to configure Browser access.',
+          ),
         ],
       },
     });
@@ -264,14 +298,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-08T00:00:00.000Z',
         fingerprint: 'mcp-server-denial',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'tool',
-            requirementId: 'mcp__customer_records__append',
-            grantable: false,
-            message: 'The MCP server is not configured.',
-            nextAction: 'request_mcp_server {"serverName":"customer-records"}',
-          },
+          instructionBlocker(
+            'tool',
+            'mcp__customer_records__append',
+            'The MCP server is not configured.',
+            'Connect the customer-records MCP server.',
+          ),
         ],
       },
     });
@@ -375,14 +407,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'under-declared-browser',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'browser',
-            requirementId: 'Browser',
-            grantable: true,
-            message: 'Browser access was denied.',
-            nextAction: 'Approve lasting Browser access.',
-          },
+          approveBlocker(
+            'browser',
+            'Browser',
+            'Browser access was denied.',
+            'Browser',
+          ),
         ],
       },
     });
@@ -581,14 +611,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'under-declared-browser',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'browser',
-            requirementId: 'Browser',
-            grantable: true,
-            message: 'Browser access was denied.',
-            nextAction: 'Approve lasting Browser access.',
-          },
+          approveBlocker(
+            'browser',
+            'Browser',
+            'Browser access was denied.',
+            'Browser',
+          ),
         ],
       },
     });
@@ -701,14 +729,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'under-declared-browser',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'browser',
-            requirementId: 'Browser',
-            grantable: true,
-            message: 'Browser access was denied.',
-            nextAction: 'Approve lasting Browser access.',
-          },
+          approveBlocker(
+            'browser',
+            'Browser',
+            'Browser access was denied.',
+            'Browser',
+          ),
         ],
       },
     });
@@ -815,14 +841,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'under-declared-browser',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'browser',
-            requirementId: 'Browser',
-            grantable: true,
-            message: 'Browser access was denied.',
-            nextAction: 'Approve lasting Browser access.',
-          },
+          approveBlocker(
+            'browser',
+            'Browser',
+            'Browser access was denied.',
+            'Browser',
+          ),
         ],
       },
     });
@@ -913,15 +937,13 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-08T00:00:00.000Z',
         fingerprint: 'under-declared-run-command',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'tool',
-            requirementId: 'RunCommand',
-            grantable: true,
-            message: 'Scoped command access was denied.',
-            nextAction:
-              'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run needs scoped command access."}',
-          },
+          approveBlocker(
+            'tool',
+            'RunCommand',
+            'Scoped command access was denied.',
+            'RunCommand',
+            'npm test *',
+          ),
         ],
       },
     });
@@ -1065,15 +1087,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-09T00:00:00.000Z',
         fingerprint: 'under-declared-web-search',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'tool',
-            requirementId: 'WebSearch',
-            grantable: true,
-            message: 'Web search access was denied.',
-            nextAction:
-              'request_access {"target":{"kind":"tool","name":"WebSearch"},"temporaryOnly":false,"reason":"This autonomous run needs exact Gantry tool access."}',
-          },
+          approveBlocker(
+            'tool',
+            'WebSearch',
+            'Web search access was denied.',
+            'WebSearch',
+          ),
         ],
       },
     });
@@ -1229,14 +1248,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'under-declared-browser',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'browser',
-            requirementId: 'Browser',
-            grantable: true,
-            message: 'Browser access was denied.',
-            nextAction: 'Approve lasting Browser access.',
-          },
+          approveBlocker(
+            'browser',
+            'Browser',
+            'Browser access was denied.',
+            'Browser',
+          ),
         ],
       },
     });
@@ -1313,14 +1330,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'under-declared-browser',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'browser',
-            requirementId: 'Browser',
-            grantable: true,
-            message: 'Browser access was denied.',
-            nextAction: 'Approve lasting Browser access.',
-          },
+          approveBlocker(
+            'browser',
+            'Browser',
+            'Browser access was denied.',
+            'Browser',
+          ),
         ],
       },
     });
@@ -1379,7 +1394,7 @@ describe('setup pause prompts', () => {
     ]);
   });
 
-  it('keeps an under-declared non-grantable denial instruction-only', async () => {
+  it('keeps an under-declared instruction denial instruction-only', async () => {
     const job = makeJob({
       access_requirements: [],
       setup_state: {
@@ -1387,14 +1402,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'under-declared-unscoped-command',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'tool',
-            requirementId: 'RunCommand',
-            grantable: false,
-            message: 'Unscoped command access was denied.',
-            nextAction: 'Declare a reviewed scoped command.',
-          },
+          instructionBlocker(
+            'tool',
+            'RunCommand',
+            'Unscoped command access was denied.',
+            'Declare a reviewed scoped command.',
+          ),
         ],
       },
     });
@@ -1507,13 +1520,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'mcp-only',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'mcp_server',
-            requirementId: 'customer-records',
-            message: 'Server missing.',
-            nextAction: 'Connect the server.',
-          },
+          instructionBlocker(
+            'mcp_server',
+            'customer-records',
+            'Server missing.',
+            'Connect the server.',
+          ),
         ],
       },
     });
@@ -1532,7 +1544,7 @@ describe('setup pause prompts', () => {
     expect(runPermissionInteraction).not.toHaveBeenCalled();
   });
 
-  it('keeps config blockers on the instruction-only path', async () => {
+  it('keeps operator instruction blockers on the instruction-only path', async () => {
     const job = makeJob({
       access_requirements: [
         { target: { kind: 'tool_rule', rule: 'RunCommand(npm test *)' } },
@@ -1542,13 +1554,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'config-only',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'config' as never,
-            requirementId: 'RunCommand(npm test *)',
-            message: 'Configuration is missing.',
-            nextAction: 'Configure the runtime.',
-          },
+          instructionBlocker(
+            'tool',
+            'RunCommand(npm test *)',
+            'Configuration is missing.',
+            'Configure the runtime.',
+          ),
         ],
       },
     });
@@ -1577,13 +1588,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'mcp-only',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'mcp_server',
-            requirementId: 'customer-records',
-            message: 'Server missing.',
-            nextAction: 'Connect the server.',
-          },
+          instructionBlocker(
+            'mcp_server',
+            'customer-records',
+            'Server missing.',
+            'Connect the server.',
+          ),
         ],
       },
     });
@@ -1618,13 +1628,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'mcp-only',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'mcp_server',
-            requirementId: 'customer-records',
-            message: 'Server missing.',
-            nextAction: 'Connect the server.',
-          },
+          instructionBlocker(
+            'mcp_server',
+            'customer-records',
+            'Server missing.',
+            'Connect the server.',
+          ),
         ],
       },
     });
@@ -1697,21 +1706,18 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'mixed-blockers',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'mcp_server',
-            requirementId: 'customer-records',
-            message: 'Server missing.',
-            nextAction: 'Connect the server.',
-          },
-          {
-            state: 'missing_capability',
-            requirementType: 'semantic_capability',
-            requirementId: 'salesforce.leads.append',
-            grantable: true,
-            message: 'Capability missing.',
-            nextAction: 'Approve the reviewed capability.',
-          },
+          instructionBlocker(
+            'mcp_server',
+            'customer-records',
+            'Server missing.',
+            'Connect the server.',
+          ),
+          approveBlocker(
+            'semantic_capability',
+            'salesforce.leads.append',
+            'Capability missing.',
+            'capability:salesforce.leads.append',
+          ),
         ],
       },
     });
@@ -1750,22 +1756,20 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'mixed-reviewability',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'tool',
-            requirementId: 'RunCommand(npm run first *)',
-            grantable: true,
-            message: 'First tool missing.',
-            nextAction: 'Review the first tool.',
-          },
-          {
-            state: 'missing_capability',
-            requirementType: 'tool',
-            requirementId: 'RunCommand(npm run second *)',
-            grantable: true,
-            message: 'Second tool missing.',
-            nextAction: 'Review the second tool.',
-          },
+          approveBlocker(
+            'tool',
+            'RunCommand(npm run first *)',
+            'First tool missing.',
+            'RunCommand',
+            'npm run first *',
+          ),
+          approveBlocker(
+            'tool',
+            'RunCommand(npm run second *)',
+            'Second tool missing.',
+            'RunCommand',
+            'npm run second *',
+          ),
         ],
       },
     });

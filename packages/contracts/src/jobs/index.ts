@@ -203,6 +203,48 @@ export const JobRecoveryMetadataSchema = z
   .strict();
 export type JobRecoveryMetadata = z.infer<typeof JobRecoveryMetadataSchema>;
 
+export const PermissionAuthorityAdditionSchema = z
+  .object({
+    type: z.enum(['addRules', 'replaceRules']),
+    behavior: z.literal('allow'),
+    rules: z
+      .array(
+        z
+          .object({
+            toolName: z.string().min(1),
+            ruleContent: z.string().min(1).optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(5),
+    destination: z
+      .enum([
+        'userSettings',
+        'projectSettings',
+        'localSettings',
+        'session',
+        'cliArg',
+      ])
+      .optional(),
+  })
+  .strict();
+
+export const JobSetupActionSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('approve_grant'),
+      grant: PermissionAuthorityAdditionSchema,
+    })
+    .strict(),
+  z
+    .object({ kind: z.literal('fix_proposal'), proposalId: z.string().min(1) })
+    .strict(),
+  z
+    .object({ kind: z.literal('instruction'), text: z.string().min(1) })
+    .strict(),
+]);
+
 export const JobSetupSchema = z
   .object({
     state: z.enum([
@@ -219,10 +261,10 @@ export const JobSetupSchema = z
       z
         .object({
           state: z.string(),
-          message: z.string(),
-          nextAction: z.string(),
-          requirementType: z.string(),
-          requirementId: z.string(),
+          summary: z.string(),
+          action: JobSetupActionSchema,
+          type: z.string(),
+          id: z.string(),
         })
         .strict(),
     ),

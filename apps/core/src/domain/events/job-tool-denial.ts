@@ -5,6 +5,9 @@ import {
   DEEPAGENTS_ENGINE,
   type AgentEngine,
 } from '../../shared/agent-engine.js';
+import type { JobSetupAction } from '../job-types.js';
+import { permissionAuthorityAddition } from '../permission-decision.js';
+import type { JobSetupActionEventPayload } from './job-setup-action.js';
 
 export type JobToolDenialKind =
   | 'permission_denied'
@@ -28,9 +31,7 @@ export interface JobToolDenial {
   denialKind: JobToolDenialKind;
   provenanceLane: JobToolDenialProvenanceLane;
   provenanceSeam: JobToolDenialProvenanceSeam;
-  grantable?: boolean;
-  recoveryAction?: string;
-  recoveryKind?: string;
+  action: JobSetupAction;
 }
 
 export interface JobToolDeniedEventPayload {
@@ -39,9 +40,7 @@ export interface JobToolDeniedEventPayload {
   denial_kind: JobToolDenialKind;
   provenance_lane: JobToolDenialProvenanceLane;
   provenance_seam: JobToolDenialProvenanceSeam;
-  grantable: boolean | null;
-  recovery_action: string | null;
-  recovery_kind: string | null;
+  action: JobSetupActionEventPayload;
   error_summary: string | null;
 }
 
@@ -74,6 +73,7 @@ export function parseJobToolDeniedEvent(
     return null;
   }
   const payload = event.payload as Record<string, unknown>;
+  const action = parseJobSetupActionValue(payload.action);
   if (
     typeof payload.denied_tool !== 'string' ||
     !payload.denied_tool.trim() ||
@@ -86,9 +86,7 @@ export function parseJobToolDeniedEvent(
     !PROVENANCE_SEAMS.has(
       payload.provenance_seam as JobToolDenialProvenanceSeam,
     ) ||
-    !isNullableBoolean(payload.grantable) ||
-    !isNullableString(payload.recovery_action) ||
-    !isNullableString(payload.recovery_kind)
+    !action
   ) {
     return null;
   }
@@ -98,22 +96,50 @@ export function parseJobToolDeniedEvent(
     denialKind: payload.denial_kind as JobToolDenialKind,
     provenanceLane: payload.provenance_lane as JobToolDenialProvenanceLane,
     provenanceSeam: payload.provenance_seam as JobToolDenialProvenanceSeam,
-    ...(typeof payload.grantable === 'boolean'
-      ? { grantable: payload.grantable }
-      : {}),
-    ...(typeof payload.recovery_action === 'string'
-      ? { recoveryAction: payload.recovery_action }
-      : {}),
-    ...(typeof payload.recovery_kind === 'string'
-      ? { recoveryKind: payload.recovery_kind }
-      : {}),
+    action,
   };
 }
 
-function isNullableBoolean(value: unknown): value is boolean | null {
-  return value === null || typeof value === 'boolean';
+export function parseJobSetupActionValue(
+  value: unknown,
+): JobSetupAction | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const action = value as Record<string, unknown>;
+  if (
+    action.kind === 'instruction' &&
+    exactKeys(action, ['kind', 'text']) &&
+    typeof action.text === 'string' &&
+    action.text.trim()
+  ) {
+    return { kind: 'instruction', text: action.text };
+  }
+  if (
+    action.kind === 'fix_proposal' &&
+    exactKeys(action, ['kind', 'proposal_id']) &&
+    typeof action.proposal_id === 'string' &&
+    action.proposal_id.trim()
+  ) {
+    return { kind: 'fix_proposal', proposalId: action.proposal_id };
+  }
+  if (
+    action.kind !== 'approve_grant' ||
+    !exactKeys(action, ['kind', 'grant'])
+  ) {
+    return null;
+  }
+  const grant = permissionAuthorityAddition(
+    action.grant as Parameters<typeof permissionAuthorityAddition>[0],
+  );
+  return grant ? { kind: 'approve_grant', grant } : null;
 }
 
-function isNullableString(value: unknown): value is string | null {
-  return value === null || typeof value === 'string';
+function exactKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+): boolean {
+  const expected = new Set(keys);
+  return (
+    Object.keys(value).length === expected.size &&
+    Object.keys(value).every((key) => expected.has(key))
+  );
 }

@@ -76,7 +76,7 @@ export class CanonicalJobOpsService {
         consecutiveFailures: job.consecutive_failures ?? 0,
         maxConsecutiveFailures: job.max_consecutive_failures ?? null,
         pauseReason: job.pause_reason ?? null,
-        setupState: parseSetupState(job.setup_state) ?? null,
+        setupState: parseSetupState(job.setup_state, job.id) ?? null,
       },
     );
     return { created: !existing };
@@ -403,6 +403,8 @@ export class CanonicalJobOpsService {
       jobId: filters?.job_id,
       jobIds: filters?.job_ids,
       runId: filters?.run_id,
+      runIds: filters?.run_ids,
+      firstPerRun: filters?.first_per_run,
       eventType: filters?.event_type,
       sinceId: filters?.since_id,
       since: filters?.since,
@@ -488,7 +490,7 @@ export class CanonicalJobOpsService {
       execution_context: executionContext,
       notification_routes: notificationRoutes,
       access_requirements: accessRequirements,
-      setup_state: parseSetupState(row.setupState),
+      setup_state: parseSetupState(row.setupState, row.id),
       required_capabilities: requiredCapabilities,
     };
   }

@@ -28,6 +28,7 @@ vi.mock('@core/adapters/llm/deepagents-langchain/runner/mcp-tools.js', () => ({
 
 import { runDeepAgentTurn } from '@core/adapters/llm/deepagents-langchain/runner/deep-agent-runner.js';
 import { deepAgentsDenial } from '@core/adapters/llm/deepagents-langchain/runner/third-party-mcp-gate.js';
+import type { JobSetupAction } from '@core/domain/job-types.js';
 import {
   configureSetupPausePermissionPrompt,
   raiseSetupPausePermissionPrompt,
@@ -70,8 +71,7 @@ describe('DeepAgents terminal permission denial', () => {
           onPermissionDenied?: (input: {
             toolName: string;
             reason: string;
-            grantable: boolean;
-            recoveryAction: string;
+            action: JobSetupAction;
           }) => never;
         }
       | undefined;
@@ -134,7 +134,7 @@ describe('DeepAgents terminal permission denial', () => {
             payload: expect.objectContaining({
               phase: 'permission_denied',
               terminal: true,
-              grantable: true,
+              action: expect.objectContaining({ kind: 'approve_grant' }),
               reason: hostReason,
             }),
           }),
@@ -163,8 +163,7 @@ describe('DeepAgents terminal permission denial', () => {
           onPermissionDenied?: (input: {
             toolName: string;
             reason: string;
-            grantable: boolean;
-            recoveryAction: string;
+            action: JobSetupAction;
           }) => never;
           capabilityRequestToolsHidden: boolean;
           signal?: AbortSignal;
@@ -260,8 +259,10 @@ describe('DeepAgents terminal permission denial', () => {
               phase: 'permission_denied',
               tool: 'mcp__gantry__browser_open',
               terminal: true,
-              grantable: false,
-              recovery_action: recoveryAction,
+              action: expect.objectContaining({
+                kind: 'instruction',
+                text: recoveryAction,
+              }),
               denial_kind: 'permission_denied',
               provenance_lane: 'deepagents',
               provenance_seam: 'gate',
@@ -273,8 +274,7 @@ describe('DeepAgents terminal permission denial', () => {
 
     const setupState = setupStateForDeniedTool({
       toolName: 'mcp__gantry__browser_open',
-      grantable: false,
-      recoveryAction,
+      action: { kind: 'instruction', text: recoveryAction },
     });
     const runPermissionInteraction = vi.fn();
     const reviewStoredRequirement = vi.fn();
@@ -323,13 +323,11 @@ describe('DeepAgents terminal permission denial', () => {
       'Unattended jobs do not wait for approval.',
     );
     expect(denial).toMatchObject({
-      grantable: true,
-      recoveryAction: expect.stringMatching(/^request_access /),
+      action: expect.objectContaining({ kind: 'approve_grant' }),
     });
     const setupState = setupStateForDeniedTool({
       toolName: denial.toolName,
-      grantable: denial.grantable,
-      recoveryAction: denial.recoveryAction,
+      action: denial.action,
     });
     const runPermissionInteraction = vi.fn(
       async (
@@ -410,8 +408,7 @@ describe('DeepAgents terminal permission denial', () => {
           onPermissionDenied?: (input: {
             toolName: string;
             reason: string;
-            grantable: boolean;
-            recoveryAction: string;
+            action: JobSetupAction;
           }) => never;
           capabilityRequestToolsHidden: boolean;
           signal?: AbortSignal;

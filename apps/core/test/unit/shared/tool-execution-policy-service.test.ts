@@ -7,9 +7,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ToolExecutionClassifier,
   ToolExecutionPolicyService,
+  autonomousToolAuthorityAddition,
   evaluateProtectedCapabilityToolUse,
 } from '@core/shared/tool-execution-policy-service.js';
-import { isGrantableAutonomousToolRecovery } from '@core/shared/autonomous-tool-denial.js';
 import type { SemanticCapabilityDefinition } from '@core/shared/semantic-capabilities.js';
 
 function capability(
@@ -793,7 +793,16 @@ describe('autonomousGrantRecovery', () => {
       recoveryAction:
         'request_access { "target": { "kind": "tool", "name": "WebSearch" }, "temporaryOnly": false, "reason": "This autonomous run needs exact Gantry tool access." }',
     });
-    expect(isGrantableAutonomousToolRecovery(result.recoveryAction)).toBe(true);
+    expect(
+      autonomousToolAuthorityAddition({
+        toolName: 'WebSearch',
+        toolInput: { query: 'Gantry' },
+      }),
+    ).toMatchObject({
+      type: 'addRules',
+      behavior: 'allow',
+      rules: [{ toolName: 'WebSearch' }],
+    });
 
     const hidden = policy.evaluate({
       request,
@@ -803,9 +812,13 @@ describe('autonomousGrantRecovery', () => {
     expect(hidden.recoveryAction).toContain(
       'provision a reviewed capability covering WebSearch before the run',
     );
-    expect(isGrantableAutonomousToolRecovery(hidden.recoveryAction)).toBe(
-      false,
-    );
+    expect(
+      autonomousToolAuthorityAddition({
+        toolName: 'WebSearch',
+        toolInput: { query: 'Gantry' },
+        capabilityRequestToolsHidden: true,
+      }),
+    ).toBeNull();
   });
 
   it.each([

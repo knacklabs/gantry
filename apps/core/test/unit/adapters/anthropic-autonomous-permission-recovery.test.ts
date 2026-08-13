@@ -14,6 +14,8 @@ describe('Anthropic autonomous permission recovery', () => {
       } as never,
       getNewSessionId: vi.fn(() => 'session-1'),
       recoveryAction: 'manual_configuration_required',
+      toolInput: {},
+      capabilityRequestToolsHidden: false,
       recoveryMessage:
         'Protected capability cannot be granted. Recovery: manual_configuration_required',
       toolName: 'Bash',

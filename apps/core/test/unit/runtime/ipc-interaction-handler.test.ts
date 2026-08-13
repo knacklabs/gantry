@@ -512,7 +512,7 @@ describe('ipc-interaction-handler', () => {
     expect(resumeSetupPausedJob).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:team',
-      'Still needs setup: request_access {"target":{"kind":"capability","id":"browser.use"},"temporaryOnly":false,"reason":"This autonomous run requires Browser access."}.',
+      'Still needs setup: Approve Browser access, then resume the job.',
       { threadId: 'topic-7' },
     );
   });

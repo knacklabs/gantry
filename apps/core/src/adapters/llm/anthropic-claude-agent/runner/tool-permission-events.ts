@@ -1,4 +1,6 @@
 import type { AgentRunnerInput } from './types.js';
+import type { JobSetupAction } from '../../../../domain/job-types.js';
+import { jobSetupActionEventPayload } from '../../../../domain/events/job-setup-action.js';
 import { writeOutput } from './output.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import { permissionRequestToolName } from './permission-suggestions.js';
@@ -90,9 +92,7 @@ export function emitGateDenialActivity(input: {
   reason: string;
   decision?: string;
   denialKind?: 'rule_denied' | 'permission_denied';
-  grantable?: boolean;
-  recoveryAction?: string;
-  recoveryKind?: 'persistent_capability' | 'job_policy';
+  action: JobSetupAction;
 }): void {
   const scheduled = input.agentInput.isScheduledJob;
   emitJobToolActivity(
@@ -107,19 +107,10 @@ export function emitGateDenialActivity(input: {
       ...(scheduled
         ? {
             terminal: true,
-            grantable: input.grantable ?? false,
+            action: jobSetupActionEventPayload(input.action),
             denial_kind: input.denialKind ?? 'rule_denied',
             provenance_lane: DEFAULT_AGENT_ENGINE,
             provenance_seam: 'gate',
-            ...(input.recoveryAction !== undefined
-              ? { recovery_action: input.recoveryAction }
-              : {}),
-            recovery_kind:
-              input.recoveryKind ??
-              ((input.grantable ?? false) &&
-              input.recoveryAction?.startsWith('request_access') === true
-                ? 'persistent_capability'
-                : 'job_policy'),
           }
         : {}),
     },

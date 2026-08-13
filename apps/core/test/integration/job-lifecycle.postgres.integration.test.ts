@@ -266,7 +266,19 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         state: 'missing_capability',
         checked_at: now,
         fingerprint: 'capfix-blocked',
-        blockers: [],
+        notified_fingerprint: null,
+        blockers: [
+          {
+            state: 'missing_capability',
+            type: 'semantic_capability',
+            id: `capability:${capabilityId}`,
+            summary: 'Capability template mismatch blocks this job.',
+            action: {
+              kind: 'instruction',
+              text: 'Approve the capability fix proposal to continue.',
+            },
+          },
+        ],
       },
     });
 
@@ -675,14 +687,16 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       ops: runtime.ops,
     });
 
-    expect(querySpy).toHaveBeenCalledTimes(2);
+    // Three CONSTANT queries for a 500-job listing: jobs, latest runs, and
+    // the batched first-denial-per-run read (0126) - never an N+1 per job.
+    expect(querySpy).toHaveBeenCalledTimes(3);
     expect(
       querySpy.mock.calls.filter(([query]) =>
         String(
           typeof query === 'string' ? query : (query as { text?: string }).text,
         ).includes('distinct on'),
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     querySpy.mockRestore();
     for (const job of equivalenceJobs) {
       expect(listMetadata.get(job.id)).toMatchObject({
@@ -1034,11 +1048,19 @@ maybeDescribe('job lifecycle (Postgres)', () => {
               phase: 'permission_denied',
               tool: 'RunCommand',
               terminal: true,
-              grantable: true,
+              action: {
+                kind: 'approve_grant',
+                grant: {
+                  type: 'addRules',
+                  behavior: 'allow',
+                  rules: [
+                    { toolName: 'RunCommand', ruleContent: 'npm test *' },
+                  ],
+                },
+              },
               decided_by: decision.decidedBy,
               source: decision.source,
               reason: decision.reason,
-              recovery_action: recoveryAction,
               denial_kind: 'permission_denied',
               provenance_lane: DEFAULT_AGENT_ENGINE,
               provenance_seam: 'gate',
@@ -1094,9 +1116,13 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       toolName: 'request_permission',
       decisionOptions: ['allow_persistent_rule', 'cancel'],
       suggestions: [
+        // S2b typed grant: the durable suggestion carries the reviewed
+        // prefix scope (persistentAutonomousBashRecoveryRule), not the
+        // transient exact argv.
         expect.objectContaining({
           type: 'addRules',
-          rules: [{ toolName: 'RunCommand', ruleContent: command }],
+          behavior: 'allow',
+          rules: [{ toolName: 'RunCommand', ruleContent: 'npm test *' }],
         }),
       ],
     });

@@ -6,6 +6,7 @@ import {
 import { agentIdForJobWorkspaceKey } from '../application/jobs/job-tool-policy.js';
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
+import { jobSetupRequiredEventPayload } from '../domain/events/job-setup-required.js';
 import type { SchedulerEventAppSession } from './app-session-resolution.js';
 import { notifySchedulerSetupRequired } from './execution-notifications.js';
 import { readImageCapabilityInventory } from '../shared/worker-image-inventory.js';
@@ -271,18 +272,9 @@ export async function notifyJobSetupRequired(input: {
   await input.publishRuntimeEvent({
     appId: (input.appSession?.appId ?? input.runtimeAppId) as never,
     eventType: RUNTIME_EVENT_TYPES.JOB_SETUP_REQUIRED,
-    payload: {
-      jobId: input.currentJob.id,
-      setup_state: input.setupState.state,
-      blocker_fingerprint: input.setupState.fingerprint,
-      notified,
-      blockers: input.setupState.blockers.map((blocker) => ({
-        state: blocker.state,
-        requirement_type: blocker.requirementType,
-        requirement_id: blocker.requirementId,
-        next_action: blocker.nextAction,
-      })),
-    },
+    payload: jobSetupRequiredEventPayload({
+      setupState: input.setupState,
+    }),
     actor: 'scheduler',
     sessionId: input.appSession?.sessionId as never,
     jobId: input.currentJob.id as never,

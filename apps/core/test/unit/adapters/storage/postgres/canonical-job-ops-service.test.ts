@@ -201,7 +201,23 @@ describe('CanonicalJobOpsService', () => {
         state: 'missing_capability',
         checked_at: '2026-04-24T00:00:00.000Z',
         fingerprint: 'fingerprint-1',
-        blockers: [],
+        notified_fingerprint: null,
+        blockers: [
+          {
+            state: 'missing_capability',
+            type: 'browser',
+            id: 'Browser',
+            summary: 'Browser access is missing.',
+            action: {
+              kind: 'approve_grant',
+              grant: {
+                type: 'addRules',
+                behavior: 'allow',
+                rules: [{ toolName: 'Browser' }],
+              },
+            },
+          },
+        ],
       },
     });
 

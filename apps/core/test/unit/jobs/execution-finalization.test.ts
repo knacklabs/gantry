@@ -45,8 +45,14 @@ function listDenialEvents(
     denialKind: 'permission_denied',
     provenanceLane: DEFAULT_AGENT_ENGINE,
     provenanceSeam: 'gate',
-    grantable: true,
-    recoveryAction: 'request_access(capability=shell)',
+    action: {
+      kind: 'approve_grant',
+      grant: {
+        type: 'addRules',
+        behavior: 'allow',
+        rules: [{ toolName: 'RunCommand', ruleContent: 'npm test -- unit' }],
+      },
+    },
     ...denial,
   };
   return vi.fn(async () => [
@@ -61,9 +67,7 @@ function listDenialEvents(
         denial_kind: value.denialKind,
         provenance_lane: value.provenanceLane,
         provenance_seam: value.provenanceSeam,
-        grantable: value.grantable ?? null,
-        recovery_action: value.recoveryAction ?? null,
-        recovery_kind: value.recoveryKind ?? null,
+        action: value.action,
         error_summary: DENIAL_ERROR,
       },
       createdAt: '2024-01-01T00:00:00.000Z',
@@ -95,10 +99,15 @@ describe('execution finalization', () => {
     const diagnostics = createJobRunDiagnostics();
     diagnostics.terminalToolDenial = {
       toolName: 'RunCommand',
-      grantable: true,
       reason: 'Worker matcher found no matching allowedTools rule.',
-      recoveryAction:
-        'request_access {"target":{"kind":"run_command","argvPattern":"npm test -- unit"},"temporaryOnly":false,"reason":"Grant exact test command access."}',
+      action: {
+        kind: 'approve_grant',
+        grant: {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'RunCommand', ruleContent: 'npm test -- unit' }],
+        },
+      },
       denialKind: 'permission_denied',
       provenanceLane: DEFAULT_AGENT_ENGINE,
       provenanceSeam: 'gate',
@@ -169,7 +178,7 @@ describe('execution finalization', () => {
         status: 'paused',
         consecutive_failures: 0,
         setup_state: expect.objectContaining({
-          blockers: [expect.objectContaining({ requirementId: 'RunCommand' })],
+          blockers: [expect.objectContaining({ id: 'RunCommand' })],
         }),
       }),
     );
@@ -184,7 +193,7 @@ describe('execution finalization', () => {
       denialKind: 'permission_denied',
       provenanceLane: DEFAULT_AGENT_ENGINE,
       provenanceSeam: 'gate',
-      recoveryAction: 'request_access(capability=shell)',
+      action: { kind: 'instruction', text: 'Review job setup.' },
     };
     const state = await finalizeSchedulerJobRun({
       currentJob: makeJob(),
@@ -221,9 +230,16 @@ describe('execution finalization', () => {
         denial_kind: 'permission_denied',
         provenance_lane: DEFAULT_AGENT_ENGINE,
         provenance_seam: 'gate',
-        grantable: true,
-        recovery_action: 'request_access(capability=shell)',
-        recovery_kind: 'persistent_capability',
+        action: {
+          kind: 'approve_grant',
+          grant: {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [
+              { toolName: 'RunCommand', ruleContent: 'npm test -- unit' },
+            ],
+          },
+        },
         error_summary: DENIAL_ERROR,
       },
       createdAt: '2024-01-01T00:00:00.000Z',
@@ -367,7 +383,9 @@ describe('finalizeSchedulerJobRun — transient permission approvals', () => {
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: RUNTIME_EVENT_TYPES.JOB_SETUP_REQUIRED,
-        payload: expect.objectContaining({ notified: false }),
+        payload: expect.objectContaining({
+          setup_fingerprint: expect.any(String),
+        }),
       }),
     );
     expect(updateJob).toHaveBeenCalledWith(

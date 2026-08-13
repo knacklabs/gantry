@@ -20,10 +20,14 @@ function makeDenialEvent(overrides: Partial<JobEvent> = {}): JobEvent {
       denial_kind: 'permission_denied',
       provenance_lane: DEFAULT_AGENT_ENGINE,
       provenance_seam: 'gate',
-      grantable: true,
-      recovery_action:
-        'request_access {"target":{"kind":"capability","id":"browser.use"},"temporaryOnly":false,"reason":"This autonomous run requires Browser access."}',
-      recovery_kind: 'persistent_capability',
+      action: {
+        kind: 'approve_grant',
+        grant: {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'Browser' }],
+        },
+      },
       error_summary: 'Permission denied.',
     }),
     created_at: '2026-04-24T09:00:05.000Z',
@@ -213,8 +217,7 @@ describe('job visibility metadata', () => {
       state: 'needs_permission',
       latestRunId: 'run-1',
       latestRunStatus: 'dead_lettered',
-      nextAction:
-        'request_access {"target":{"kind":"capability","id":"browser.use"},"temporaryOnly":false,"reason":"This autonomous run requires Browser access."}',
+      nextAction: 'Approve Required Capability, then resume the job.',
     });
   });
 
@@ -238,7 +241,7 @@ describe('job visibility metadata', () => {
       state: 'needs_permission',
       latestRunId: 'run-1',
       latestRunStatus: 'failed',
-      nextAction: expect.stringMatching(/^request_access /),
+      nextAction: 'Approve Required Capability, then resume the job.',
     });
   });
 
@@ -261,9 +264,16 @@ describe('job visibility metadata', () => {
               denial_kind: 'permission_denied',
               provenance_lane: DEFAULT_AGENT_ENGINE,
               provenance_seam: 'gate',
-              grantable: true,
-              recovery_action: null,
-              recovery_kind: 'persistent_capability',
+              action: {
+                kind: 'approve_grant',
+                grant: {
+                  type: 'addRules',
+                  behavior: 'allow',
+                  rules: [
+                    { toolName: 'RunCommand', ruleContent: 'npm test *' },
+                  ],
+                },
+              },
               error_summary: 'Permission denied.',
             }),
           }),
@@ -274,10 +284,10 @@ describe('job visibility metadata', () => {
 
     const view = metadata.get('job-1');
     expect(view?.health.nextAction).toBe(
-      'Approve exact command access, then rerun the job.',
+      'Approve exact command access, then resume the job.',
     );
     expect(view?.nextActionLabel).toBe(
-      'Approve exact command access, then rerun the job.',
+      'Approve exact command access, then resume the job.',
     );
     expect(view?.nextActionLabel).not.toContain('RunCommand');
   });

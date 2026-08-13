@@ -387,9 +387,14 @@ describe('jobs/execution-notifications', () => {
         denialKind: 'permission_denied',
         provenanceLane: DEFAULT_AGENT_ENGINE,
         provenanceSeam: 'gate',
-        grantable: true,
-        recoveryAction:
-          'request_access {"target":{"kind":"capability","id":"browser.use"}}',
+        action: {
+          kind: 'approve_grant',
+          grant: {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'capability:browser.use' }],
+          },
+        },
       },
     });
 
@@ -464,9 +469,14 @@ describe('jobs/execution-notifications', () => {
         denialKind: 'permission_denied',
         provenanceLane: DEFAULT_AGENT_ENGINE,
         provenanceSeam: 'gate',
-        grantable: true,
-        recoveryAction:
-          'request_access {"target":{"kind":"capability","id":"browser.use"}}',
+        action: {
+          kind: 'approve_grant',
+          grant: {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'capability:browser.use' }],
+          },
+        },
       },
     });
 
@@ -590,12 +600,18 @@ describe('jobs/execution-notifications', () => {
       blockers: [
         {
           state: 'missing_capability',
-          requirementType: 'local_cli',
-          requirementId: 'acme.records.append',
-          message:
+          type: 'local_cli',
+          id: 'acme.records.append',
+          summary:
             'Acme records append using acme needs reviewed local CLI access before this job can run autonomously.',
-          nextAction:
-            'request_access {"target":{"kind":"capability","id":"acme.records.append"},"reason":"Approve reviewed Acme records access."}',
+          action: {
+            kind: 'approve_grant',
+            grant: {
+              type: 'addRules',
+              behavior: 'allow',
+              rules: [{ toolName: 'capability:acme.records.append' }],
+            },
+          },
         },
       ],
     };
@@ -832,10 +848,17 @@ describe('scheduler terminal notifications', () => {
       blockers: [
         {
           state: 'missing_capability',
-          requirementType: 'tool',
-          requirementId: 'run_command',
-          message: 'Run command access missing.',
-          nextAction: 'Approve Run Command, then resume the job.',
+          type: 'tool',
+          id: 'run_command',
+          summary: 'Run command access missing.',
+          action: {
+            kind: 'approve_grant',
+            grant: {
+              type: 'addRules',
+              behavior: 'allow',
+              rules: [{ toolName: 'RunCommand' }],
+            },
+          },
         },
       ],
     };
@@ -872,7 +895,9 @@ describe('scheduler terminal notifications', () => {
     expect(message).toContain(
       "This job paused because it couldn't use Tool access: Run Command.",
     );
-    expect(message).toContain('Approve Run Command, then resume the job.');
+    expect(message).toContain(
+      'Approve Tool access: Run Command, then resume the job.',
+    );
     expect(message).not.toContain('Run outcome:');
     expect(message).not.toContain('Blockers (');
     expect(message).not.toContain('Triggering step:');
@@ -889,31 +914,52 @@ describe('setup cards', () => {
       blockers: [
         {
           state: 'missing_capability',
-          requirementType: 'semantic_capability',
-          requirementId: 'salesforce.leads.append',
-          message: 'Capability missing.',
-          nextAction: 'Approve Salesforce Leads Append, then resume the job.',
+          type: 'semantic_capability',
+          id: 'salesforce.leads.append',
+          summary: 'Capability missing.',
+          action: {
+            kind: 'approve_grant',
+            grant: {
+              type: 'addRules',
+              behavior: 'allow',
+              rules: [{ toolName: 'capability:salesforce.leads.append' }],
+            },
+          },
         },
         {
           state: 'missing_capability',
-          requirementType: 'browser',
-          requirementId: 'Browser',
-          message: 'Browser access missing.',
-          nextAction: 'Approve Browser access.',
+          type: 'browser',
+          id: 'Browser',
+          summary: 'Browser access missing.',
+          action: {
+            kind: 'approve_grant',
+            grant: {
+              type: 'addRules',
+              behavior: 'allow',
+              rules: [{ toolName: 'Browser' }],
+            },
+          },
         },
         {
           state: 'missing_capability',
-          requirementType: 'tool',
-          requirementId: 'mcp__gantry__scheduler_run_now',
-          message: 'Tool access missing.',
-          nextAction: 'Approve the requested access.',
+          type: 'tool',
+          id: 'mcp__gantry__scheduler_run_now',
+          summary: 'Tool access missing.',
+          action: {
+            kind: 'approve_grant',
+            grant: {
+              type: 'addRules',
+              behavior: 'allow',
+              rules: [{ toolName: 'mcp__gantry__scheduler_run_now' }],
+            },
+          },
         },
         {
           state: 'missing_capability',
-          requirementType: 'mcp_server',
-          requirementId: 'customer-records',
-          message: 'MCP server missing.',
-          nextAction: 'Connect the server.',
+          type: 'mcp_server',
+          id: 'customer-records',
+          summary: 'MCP server missing.',
+          action: { kind: 'instruction', text: 'Connect the server.' },
         },
       ],
     };

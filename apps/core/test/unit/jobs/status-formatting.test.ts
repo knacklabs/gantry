@@ -189,9 +189,14 @@ describe('job status formatting', () => {
         denialKind: 'permission_denied',
         provenanceLane: DEFAULT_AGENT_ENGINE,
         provenanceSeam: 'gate',
-        grantable: true,
-        recoveryAction:
-          'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false}',
+        action: {
+          kind: 'approve_grant',
+          grant: {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'RunCommand', ruleContent: 'npm test *' }],
+          },
+        },
       },
       nextRun: null,
       retryCount: 1,

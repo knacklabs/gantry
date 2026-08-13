@@ -1,7 +1,6 @@
 import {
   jobSetupBlockerFromUnknown,
-  setupActionLabel,
-  setupActionLabelFromNextAction,
+  formatJobSetupAction,
   setupReadinessLabel,
 } from '../../../shared/job-setup-labels.js';
 import {
@@ -77,7 +76,7 @@ export function schedulerJobSummary(job: unknown): string {
       : {};
   const nextAction =
     typeof health.nextAction === 'string' && health.nextAction.trim()
-      ? setupActionLabelFromNextAction(health.nextAction, 'none')
+      ? health.nextAction
       : 'none';
   const setupAction = setupActionSummary(setup);
   const primaryRoute =
@@ -168,8 +167,10 @@ function preferredDeliveryLabel(input: {
 function setupActionSummary(setup: Record<string, any>): string {
   const blockers = Array.isArray(setup.blockers) ? setup.blockers : [];
   const blocker = jobSetupBlockerFromUnknown(blockers[0]);
-  if (blocker) return setupActionLabel(blocker);
-  return setupActionLabelFromNextAction(setup.nextAction, 'none');
+  if (blocker) return formatJobSetupAction(blocker.action, blocker);
+  return typeof setup.nextAction === 'string' && setup.nextAction.trim()
+    ? setup.nextAction
+    : 'none';
 }
 
 export function schedulerJobsSummary(jobs: unknown[]): string {
@@ -197,7 +198,9 @@ export function schedulerJobsSummary(jobs: unknown[]): string {
         ? visibility.nextActionLabel
         : setupAction !== 'none'
           ? setupAction
-          : setupActionLabelFromNextAction(health.nextAction, 'none');
+          : typeof health.nextAction === 'string' && health.nextAction.trim()
+            ? health.nextAction
+            : 'none';
     const setupLabel =
       typeof visibility.setupLabel === 'string' && visibility.setupLabel
         ? visibility.setupLabel
@@ -216,7 +219,7 @@ function recoverySummary(recovery: Record<string, any>): string {
       : '';
   const nextAction =
     typeof recovery.nextAction === 'string' && recovery.nextAction.trim()
-      ? ` | action ${setupActionLabelFromNextAction(recovery.nextAction, 'review setup')}`
+      ? ` | action ${recovery.nextAction}`
       : '';
   return `${state}${recovery.kind ? ` (${String(recovery.kind)})` : ''}${target} attempts=${String(recovery.attempts ?? 0)}${nextAction}`;
 }

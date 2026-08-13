@@ -14,7 +14,7 @@ import {
   findModelByRunnerModel,
   resolveModelSelectionForWorkload,
 } from '../shared/model-catalog.js';
-import { setupActionLabel } from '../shared/job-setup-labels.js';
+import { formatJobSetupAction } from '../shared/job-setup-labels.js';
 import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
 import {
   formatSchedulerJobPlan,
@@ -209,7 +209,7 @@ function formatSetupOutcome(
 ): string {
   if (!setupState || setupState.state === 'ready') return '';
   const blocker = setupState.blockers[0];
-  return ` Setup needed: ${setupActionLabel(blocker)}.`;
+  return ` Setup needed: ${formatJobSetupAction(blocker?.action, blocker)}.`;
 }
 
 export const schedulerCreateTaskHandlers: Record<string, TaskHandler> = {

@@ -136,7 +136,7 @@ describe('DeepAgents worker model controls', () => {
             payload: expect.objectContaining({
               phase: 'permission_denied',
               terminal: true,
-              grantable: false,
+              action: expect.objectContaining({ kind: 'instruction' }),
               denial_kind: 'rule_denied',
               provenance_lane: 'deepagents',
               provenance_seam: 'declarative',
@@ -177,9 +177,14 @@ describe('DeepAgents worker model controls', () => {
       denial?.({
         toolName: 'RunCommand',
         reason: 'Unattended jobs do not wait for approval.',
-        grantable: true,
-        recoveryAction:
-          'request_access { "target": { "kind": "run_command", "argvPattern": "npm test *" } }',
+        action: {
+          kind: 'approve_grant',
+          grant: {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'RunCommand', ruleContent: 'npm test *' }],
+          },
+        },
         denialKind: 'permission_denied',
         provenanceSeam: 'gate',
       }),
@@ -193,11 +198,10 @@ describe('DeepAgents worker model controls', () => {
               phase: 'permission_denied',
               tool: 'RunCommand',
               terminal: true,
-              grantable: true,
+              action: expect.objectContaining({ kind: 'approve_grant' }),
               denial_kind: 'permission_denied',
               provenance_lane: 'deepagents',
               provenance_seam: 'gate',
-              recovery_action: expect.stringMatching(/^request_access /),
             }),
           }),
         ],

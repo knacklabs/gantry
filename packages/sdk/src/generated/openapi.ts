@@ -2601,6 +2601,9 @@ export interface components {
                 };
             };
             capabilities: {
+                imageInput?: boolean;
+                imageToolResults?: boolean;
+                pdfInput?: boolean;
                 streaming: boolean;
                 toolUse: boolean;
                 mcpProjection: boolean;
@@ -3157,7 +3160,41 @@ export interface components {
                 reason?: string;
             }[];
             setup?: {
-                [key: string]: unknown;
+                state: string;
+                /** Format: date-time */
+                checkedAt: string | null;
+                fingerprint: string | null;
+                blockers: {
+                    state: string;
+                    summary: string;
+                    action: {
+                        /** @enum {string} */
+                        kind: "approve_grant";
+                        grant: {
+                            /** @enum {string} */
+                            type: "addRules" | "replaceRules";
+                            /** @enum {string} */
+                            behavior: "allow";
+                            rules: {
+                                toolName: string;
+                                ruleContent?: string;
+                            }[];
+                            /** @enum {string} */
+                            destination?: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg";
+                        };
+                    } | {
+                        /** @enum {string} */
+                        kind: "fix_proposal";
+                        proposalId: string;
+                    } | {
+                        /** @enum {string} */
+                        kind: "instruction";
+                        text: string;
+                    };
+                    type: string;
+                    id: string;
+                }[];
+                nextAction: string | null;
             };
             modelAlias?: string;
         };
@@ -3215,7 +3252,41 @@ export interface components {
             dryRun?: boolean;
             status?: string;
             setup?: {
-                [key: string]: unknown;
+                state: string;
+                /** Format: date-time */
+                checkedAt: string | null;
+                fingerprint: string | null;
+                blockers: {
+                    state: string;
+                    summary: string;
+                    action: {
+                        /** @enum {string} */
+                        kind: "approve_grant";
+                        grant: {
+                            /** @enum {string} */
+                            type: "addRules" | "replaceRules";
+                            /** @enum {string} */
+                            behavior: "allow";
+                            rules: {
+                                toolName: string;
+                                ruleContent?: string;
+                            }[];
+                            /** @enum {string} */
+                            destination?: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg";
+                        };
+                    } | {
+                        /** @enum {string} */
+                        kind: "fix_proposal";
+                        proposalId: string;
+                    } | {
+                        /** @enum {string} */
+                        kind: "instruction";
+                        text: string;
+                    };
+                    type: string;
+                    id: string;
+                }[];
+                nextAction: string | null;
             };
             runtimeContext?: {
                 [key: string]: unknown;
@@ -3272,7 +3343,41 @@ export interface components {
         JobResumeResponse: {
             resumed: boolean;
             setup?: {
-                [key: string]: unknown;
+                state: string;
+                /** Format: date-time */
+                checkedAt: string | null;
+                fingerprint: string | null;
+                blockers: {
+                    state: string;
+                    summary: string;
+                    action: {
+                        /** @enum {string} */
+                        kind: "approve_grant";
+                        grant: {
+                            /** @enum {string} */
+                            type: "addRules" | "replaceRules";
+                            /** @enum {string} */
+                            behavior: "allow";
+                            rules: {
+                                toolName: string;
+                                ruleContent?: string;
+                            }[];
+                            /** @enum {string} */
+                            destination?: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg";
+                        };
+                    } | {
+                        /** @enum {string} */
+                        kind: "fix_proposal";
+                        proposalId: string;
+                    } | {
+                        /** @enum {string} */
+                        kind: "instruction";
+                        text: string;
+                    };
+                    type: string;
+                    id: string;
+                }[];
+                nextAction: string | null;
             };
         };
         JobTriggerResponse: {

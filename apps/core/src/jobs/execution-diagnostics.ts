@@ -9,7 +9,10 @@ import type {
   JobToolDenial,
   JobToolDeniedEventPayload,
 } from '../domain/events/job-tool-denial.js';
+import { parseJobSetupActionValue } from '../domain/events/job-tool-denial.js';
+import { jobSetupActionEventPayload } from '../domain/events/job-setup-action.js';
 import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
+import { formatJobSetupAction } from '../shared/job-setup-labels.js';
 import {
   DEFAULT_AGENT_ENGINE,
   DEEPAGENTS_ENGINE,
@@ -72,15 +75,7 @@ export function toolDenialEventPayload(
     denial_kind: toolDenial.denialKind,
     provenance_lane: toolDenial.provenanceLane,
     provenance_seam: toolDenial.provenanceSeam,
-    grantable: toolDenial.grantable ?? null,
-    recovery_action: toolDenial.recoveryAction ?? null,
-    // Producer-supplied recovery kind wins; the heuristic only fills gaps.
-    recovery_kind:
-      toolDenial.recoveryKind ??
-      (toolDenial.grantable === true &&
-      toolDenial.recoveryAction?.startsWith('request_access') === true
-        ? 'persistent_capability'
-        : 'job_policy'),
+    action: jobSetupActionEventPayload(toolDenial.action),
   };
 }
 
@@ -216,6 +211,8 @@ export function updateDiagnosticsFromRuntimeEvent(
     ) {
       return;
     }
+    const action = parseJobSetupActionValue(payload.action);
+    if (!action) return;
     const typedDenial: JobToolDenial = {
       toolName: tool,
       reason:
@@ -225,14 +222,7 @@ export function updateDiagnosticsFromRuntimeEvent(
       denialKind,
       provenanceLane,
       provenanceSeam,
-      ...(typeof payload.grantable === 'boolean'
-        ? { grantable: payload.grantable }
-        : {}),
-      recoveryAction:
-        stringValue(payload.recovery_action) ?? matchingWait?.recoveryAction,
-      ...(stringValue(payload.recovery_kind)
-        ? { recoveryKind: stringValue(payload.recovery_kind) }
-        : {}),
+      action,
     };
     diagnostics.terminalToolDenials.push(typedDenial);
     // First denial wins the primary slot (0126); later ones are recorded
@@ -376,7 +366,7 @@ export function formatTerminalToolDenial(
   if (!denial) return undefined;
   const parts = [`Permission denied for ${denial.toolName}.`];
   if (denial.reason) parts.push(denial.reason);
-  if (denial.recoveryAction) parts.push(`Recovery: ${denial.recoveryAction}`);
+  parts.push(`Recovery: ${formatJobSetupAction(denial.action)}`);
   return parts.join(' ');
 }
 
