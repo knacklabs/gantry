@@ -12,6 +12,12 @@ describe('runtime event types', () => {
     expect(RUNTIME_EVENT_TYPES.JOB_HEARTBEAT).toBe('job.heartbeat');
   });
 
+  it('keeps persisted rejected-message events readable', () => {
+    expect(RUNTIME_EVENT_TYPES.SESSION_MESSAGE_REJECTED).toBe(
+      'session.message.rejected',
+    );
+  });
+
   it('accepts the permission classifier decision event type', () => {
     const eventType = 'permission.classifier_decision';
 

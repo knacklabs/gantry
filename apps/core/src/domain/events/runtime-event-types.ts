@@ -1,6 +1,7 @@
 export const RUNTIME_EVENT_TYPES = {
   SESSION_MESSAGE_INBOUND: 'session.message.inbound',
   SESSION_MESSAGE_OUTBOUND: 'session.message.outbound',
+  SESSION_MESSAGE_REJECTED: 'session.message.rejected',
   SESSION_MESSAGE_STREAMING: 'session.message.streaming',
   SESSION_TYPING: 'session.typing',
   SESSION_PROGRESS: 'session.progress',
