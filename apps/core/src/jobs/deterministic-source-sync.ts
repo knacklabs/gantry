@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 
 import { getRuntimeSettingsForConfig } from '../config/index.js';
@@ -265,12 +266,38 @@ async function materializeDeterministicSkillActions(input: {
   }
 }
 
+const resolveThisModule = createRequire(import.meta.url);
+
+export function resolveDeterministicSkillNodeModulesDir(): string | null {
+  const configuredDirectory = process.env.GANTRY_SKILL_NODE_MODULES_DIR?.trim();
+  if (configuredDirectory && fs.existsSync(configuredDirectory)) {
+    return configuredDirectory;
+  }
+
+  const workingDirectoryModules = path.join(process.cwd(), 'node_modules');
+  if (fs.existsSync(workingDirectoryModules)) return workingDirectoryModules;
+
+  // Jobs run from an agent workspace (for example /srv/reagent/home), not
+  // necessarily the application directory. Resolve a package that Gantry owns
+  // to find the installed runtime dependency tree without tying this to any
+  // particular skill or application.
+  try {
+    const sandboxRuntimePackage = resolveThisModule.resolve(
+      '@anthropic-ai/sandbox-runtime/package.json',
+    );
+    const runtimeModules = path.dirname(
+      path.dirname(path.dirname(sandboxRuntimePackage)),
+    );
+    return fs.existsSync(runtimeModules) ? runtimeModules : null;
+  } catch {
+    return null;
+  }
+}
+
 function linkDeterministicSkillNodeModules(skillDirectory: string): void {
   if (!fs.existsSync(path.join(skillDirectory, 'package.json'))) return;
-  const runtimeNodeModules =
-    process.env.GANTRY_SKILL_NODE_MODULES_DIR?.trim() ||
-    path.join(process.cwd(), 'node_modules');
-  if (!fs.existsSync(runtimeNodeModules)) return;
+  const runtimeNodeModules = resolveDeterministicSkillNodeModulesDir();
+  if (!runtimeNodeModules) return;
   const target = path.join(skillDirectory, 'node_modules');
   if (
     fs.existsSync(target) ||
