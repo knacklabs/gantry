@@ -7,8 +7,18 @@ export const activityOpenApiRouteDocs: RouteDoc[] = [
     'listActivity',
     'Sessions',
     'List recent activity',
-    'Returns the newest 50 app-owned agent runs in stable order using a safe activity projection.',
+    'Returns the newest app-owned agent runs in stable order using a safe activity projection. Without query parameters it returns 50 runs.',
     ['sessions:read'],
+    {
+      parameters: [
+        query('agentId', 'Optional agent id filter.'),
+        query('limit', 'Maximum runs to return (1 through 50).', {
+          type: 'integer',
+          minimum: 1,
+          maximum: 50,
+        }),
+      ],
+    },
   ),
   doc(
     'get',

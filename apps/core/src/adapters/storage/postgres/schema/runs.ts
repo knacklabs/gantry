@@ -106,6 +106,12 @@ export const agentRunsPostgres = pgTable(
       table.createdAt.desc(),
       table.id.desc(),
     ),
+    appAgentCreatedIdx: index('idx_agent_runs_app_agent_created').on(
+      table.appId,
+      table.agentId,
+      table.createdAt.desc(),
+      table.id.desc(),
+    ),
     appEndedIdx: index('idx_agent_runs_app_ended').on(
       table.appId,
       table.endedAt.desc().nullsLast(),

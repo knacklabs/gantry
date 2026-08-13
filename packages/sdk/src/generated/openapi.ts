@@ -912,7 +912,7 @@ export interface paths {
         };
         /**
          * List recent activity
-         * @description Returns the newest 50 app-owned agent runs in stable order using a safe activity projection.
+         * @description Returns the newest app-owned agent runs in stable order using a safe activity projection. Without query parameters it returns 50 runs.
          */
         get: operations["listActivity"];
         put?: never;
@@ -6331,7 +6331,12 @@ export interface operations {
     };
     listActivity: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Optional agent id filter. */
+                agentId?: string;
+                /** @description Maximum runs to return (1 through 50). */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;

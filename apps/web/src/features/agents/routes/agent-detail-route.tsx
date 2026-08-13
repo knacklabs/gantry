@@ -106,10 +106,14 @@ export function AgentDetailRoute() {
         <RouteTabs
           label="Agent settings"
           tabs={tabs}
-          value={search.tab}
+          value={search.tab as AgentDetailTab}
           onValueChange={(tab) => void navigate({ search: { tab } })}
         />
-        <AgentDetailSection agent={agent} sources={sources} tab={search.tab} />
+        <AgentDetailSection
+          agent={agent}
+          sources={sources}
+          tab={search.tab as AgentDetailTab}
+        />
       </Panel>
     </div>
   );

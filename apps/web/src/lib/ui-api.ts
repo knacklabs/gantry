@@ -151,7 +151,22 @@ export type UiActivityDetail = {
   truncated: boolean;
 };
 
-export type UiAgentSummary = { agent: UiAgent; boundConversationCount: number };
+export type UiAgentSummary = {
+  agent: UiAgent;
+  boundConversationCount: number;
+  counts: {
+    configuredDelegates: number | null;
+    boundSkills: number | null;
+    selectedCapabilities: number;
+    access: {
+      connected: number;
+      allowed: number;
+      needsAttention: number;
+      suggestedCleanup: number;
+    } | null;
+  };
+  unavailable: string[];
+};
 export type UiAgentRelation =
   | {
       configured: string[];
@@ -165,12 +180,23 @@ export type UiAgentRelation =
   | {
       skills: Array<{
         id: string;
-        skillId: string;
+        name: string;
+        description: string | null;
         status: string;
         updatedAt: string;
       }>;
     }
-  | { capabilities: Array<{ id: string; version: string }> }
+  | {
+      capabilities: Array<{
+        id: string;
+        displayName: string;
+        category: string | null;
+        risk: string | null;
+        version: string;
+        can: string | null;
+        cannot: string | null;
+      }>;
+    }
   | {
       updatedAt: string;
       summary: Record<
@@ -179,7 +205,8 @@ export type UiAgentRelation =
       >;
     }
   | {
-      activity: Array<{
+      runs: UiActivityRun[];
+      jobs: Array<{
         id: string;
         name: string;
         kind: string;
@@ -310,7 +337,8 @@ export function agentRelationQuery(
         `/ui/api/agents/${encodeURIComponent(agentId)}/${relation}`,
         signal,
       ),
-    staleTime: Number.POSITIVE_INFINITY,
+    staleTime:
+      relation === 'activity' ? ACTIVITY_REFRESH_MS : Number.POSITIVE_INFINITY,
   });
 }
 

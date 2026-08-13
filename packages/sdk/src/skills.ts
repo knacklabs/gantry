@@ -1,3 +1,5 @@
+import type * as OpenApi from './openapi-types.js';
+
 type TransportLike = {
   request<T>(options: {
     method: string;
@@ -31,7 +33,7 @@ export function createSkillsClient(transport: TransportLike) {
     list: (input: { agentId?: string } = {}) => {
       const params = new URLSearchParams();
       if (input.agentId) params.set('agentId', input.agentId);
-      return transport.request<{ skills: unknown[] }>({
+      return transport.request<OpenApi.ListSkillsResponse>({
         method: 'GET',
         path: `/v1/skills${params.toString() ? `?${params}` : ''}`,
       });
@@ -42,7 +44,7 @@ export function createSkillsClient(transport: TransportLike) {
 export function createAgentSkillsClient(transport: TransportLike) {
   return {
     list: (agentId: string) =>
-      transport.request<{ bindings: unknown[] }>({
+      transport.request<OpenApi.ListAgentSkillBindingsResponse>({
         method: 'GET',
         path: `/v1/agents/${encodeURIComponent(agentId)}/skills`,
       }),

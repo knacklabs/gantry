@@ -14,6 +14,8 @@ const sdk = vi.hoisted(() => ({
   getAgentAdmin: vi.fn(),
   getAgentDelegates: vi.fn(),
   listAgentSkills: vi.fn(),
+  listSkills: vi.fn(),
+  listCapabilities: vi.fn(),
   getAgentAccess: vi.fn(),
   listJobs: vi.fn(),
   getMetrics: vi.fn(),
@@ -62,6 +64,8 @@ beforeEach(() => {
   sdk.getAgentAdmin.mockReset();
   sdk.getAgentDelegates.mockReset();
   sdk.listAgentSkills.mockReset();
+  sdk.listSkills.mockReset();
+  sdk.listCapabilities.mockReset();
   sdk.getAgentAccess.mockReset();
   sdk.listJobs.mockReset();
   sdk.getMetrics.mockReset();
@@ -79,6 +83,8 @@ beforeEach(() => {
       getAccess: sdk.getAgentAccess,
       skills: { list: sdk.listAgentSkills },
     },
+    skills: { list: sdk.listSkills },
+    capabilities: { list: sdk.listCapabilities },
     jobs: { list: sdk.listJobs },
     metrics: { get: sdk.getMetrics },
     activity: {
@@ -618,6 +624,30 @@ it('ui-server-api-contract', async () => {
       },
     ],
   });
+  sdk.listSkills.mockResolvedValue({
+    skills: [
+      {
+        id: 'skill:summary',
+        name: 'Summary',
+        description: 'Creates a short summary.',
+        requiredEnvVars: ['PRIVATE'],
+      },
+    ],
+  });
+  sdk.listCapabilities.mockResolvedValue({
+    capabilities: [
+      {
+        id: 'browser.read',
+        displayName: 'Browser',
+        category: 'Browser',
+        risk: 'write',
+        version: 'catalog',
+        can: 'Read pages.',
+        cannot: 'Expose secrets.',
+        sourceRefs: { secret: true },
+      },
+    ],
+  });
   sdk.getAgentAccess.mockResolvedValue({
     updatedAt: '2026-08-12T01:00:00.000Z',
     sources: { privateSource: 'upstream-secret' },
@@ -643,6 +673,7 @@ it('ui-server-api-contract', async () => {
       },
     ],
   });
+  sdk.listActivity.mockResolvedValue({ runs: [] });
   const connected = createUiHandler({
     distRoot: '/missing',
     env: {
@@ -722,6 +753,18 @@ it('ui-server-api-contract', async () => {
       updatedAt: '2026-08-12T01:00:00.000Z',
     },
     boundConversationCount: 1,
+    counts: {
+      configuredDelegates: 1,
+      boundSkills: 1,
+      selectedCapabilities: 1,
+      access: {
+        connected: 1,
+        allowed: 0,
+        needsAttention: 1,
+        suggestedCleanup: 0,
+      },
+    },
+    unavailable: [],
   });
   expect(JSON.parse(delegation.text)).toEqual({
     configured: ['researcher'],
@@ -737,15 +780,26 @@ it('ui-server-api-contract', async () => {
   expect(JSON.parse(skills.text)).toEqual({
     skills: [
       {
-        id: 'binding:one',
-        skillId: 'skill:summary',
+        id: 'skill:summary',
+        name: 'Summary',
+        description: 'Creates a short summary.',
         status: 'enabled',
         updatedAt: '2026-08-12T01:00:00.000Z',
       },
     ],
   });
   expect(JSON.parse(capabilities.text)).toEqual({
-    capabilities: [{ id: 'browser.read', version: '1' }],
+    capabilities: [
+      {
+        id: 'browser.read',
+        displayName: 'Browser',
+        category: 'Browser',
+        risk: 'write',
+        version: '1',
+        can: 'Read pages.',
+        cannot: 'Expose secrets.',
+      },
+    ],
   });
   expect(JSON.parse(access.text)).toEqual({
     updatedAt: '2026-08-12T01:00:00.000Z',
@@ -757,7 +811,8 @@ it('ui-server-api-contract', async () => {
     },
   });
   expect(JSON.parse(activity.text)).toEqual({
-    activity: [
+    runs: [],
+    jobs: [
       {
         id: 'job:one',
         name: 'Daily brief',
@@ -779,9 +834,11 @@ it('ui-server-api-contract', async () => {
   expect(sdk.getRuntimeSummary).toHaveBeenCalledOnce();
   expect(sdk.listRuntimeInstances).toHaveBeenCalledTimes(2);
   expect(sdk.getAgentAdmin).toHaveBeenCalledTimes(2);
-  expect(sdk.getAgentDelegates).toHaveBeenCalledOnce();
-  expect(sdk.listAgentSkills).toHaveBeenCalledOnce();
-  expect(sdk.getAgentAccess).toHaveBeenCalledOnce();
+  expect(sdk.getAgentDelegates).toHaveBeenCalledTimes(2);
+  expect(sdk.listAgentSkills).toHaveBeenCalledTimes(2);
+  expect(sdk.listSkills).toHaveBeenCalledOnce();
+  expect(sdk.listCapabilities).toHaveBeenCalledOnce();
+  expect(sdk.getAgentAccess).toHaveBeenCalledTimes(2);
   expect(sdk.listJobs).toHaveBeenCalledWith({
     agentId: 'agent:one',
     limit: 20,

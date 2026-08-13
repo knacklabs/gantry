@@ -15,6 +15,8 @@ export const agentDetailSearchSchema = z.object({
   tab: z
     .enum([
       'identity',
+      'summary',
+      'delegation',
       'profile',
       'sources',
       'capabilities',
@@ -22,6 +24,7 @@ export const agentDetailSearchSchema = z.object({
       'mcp',
       'access',
       'conversations',
+      'activity',
     ])
     .catch('identity'),
 });

@@ -13,6 +13,7 @@ import type {
 } from '@gantry/contracts';
 import { createAgentAdminClient } from './agents.js';
 import { createActivityClient } from './activity.js';
+import { createCapabilitiesClient } from './capabilities.js';
 import { createAgentSkillsClient, createSkillsClient } from './skills.js';
 import { createSettingsClient } from './settings.js';
 import { createSessionsClient } from './sessions.js';
@@ -442,6 +443,7 @@ export class GantryClient {
   };
 
   readonly skills = createSkillsClient({ request: this.request });
+  readonly capabilities = createCapabilitiesClient({ request: this.request });
   readonly mcpServers = mcpServerClients.createMcpServersClient({
     request: this.request,
   });

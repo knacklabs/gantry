@@ -178,11 +178,45 @@ describe('activity routes', () => {
     const body = JSON.parse(res.body);
 
     expect(res.statusCode).toBe(200);
-    expect(mocks.listRecentAgentRuns).toHaveBeenCalledWith('app-one');
+    expect(mocks.listRecentAgentRuns).toHaveBeenCalledWith({
+      appId: 'app-one',
+      limit: 50,
+    });
     expect(body.runs).toHaveLength(50);
     expect(res.body).not.toMatch(
       /private|conversationId|sessionId|permissionDecision|workerId/i,
     );
+  });
+
+  it("lists one agent's app-owned activity with a bounded limit", async () => {
+    const { res } = await handle('/v1/activity?agentId=agent%3Aowner&limit=20');
+
+    expect(res.statusCode).toBe(200);
+    expect(mocks.listRecentAgentRuns).toHaveBeenCalledWith({
+      appId: 'app-one',
+      agentId: 'agent:owner',
+      limit: 20,
+    });
+  });
+
+  it.each([
+    '/v1/activity?unknown=value',
+    '/v1/activity?agentId=agent%3Aowner&agentId=agent%3Aother',
+    '/v1/activity?agentId=',
+    '/v1/activity?agentId=%20agent%3Aowner',
+    '/v1/activity?limit=0',
+    '/v1/activity?limit=51',
+    '/v1/activity?limit=01',
+    '/v1/activity?limit=1.5',
+    '/v1/activity?limit=2&limit=3',
+  ])('rejects invalid activity list query %s', async (path) => {
+    const { res } = await handle(path);
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toMatchObject({
+      error: { code: 'INVALID_REQUEST' },
+    });
+    expect(mocks.listRecentAgentRuns).not.toHaveBeenCalled();
   });
 
   it('returns bounded safe activity detail for an owned run', async () => {

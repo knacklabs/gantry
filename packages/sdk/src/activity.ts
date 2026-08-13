@@ -1,4 +1,5 @@
 import type * as OpenApi from './openapi-types.js';
+import { querySuffix } from './query-string.js';
 import type { RequestOptions, SseEvent, StreamOptions } from './types.js';
 
 type ActivityTransport = {
@@ -8,10 +9,10 @@ type ActivityTransport = {
 
 export function createActivityClient(transport: ActivityTransport) {
   return {
-    list: () =>
+    list: (input: OpenApi.ListActivityQuery = {}) =>
       transport.request<OpenApi.ListActivityResponse>({
         method: 'GET',
-        path: '/v1/activity',
+        path: `/v1/activity${querySuffix(input)}`,
       }),
     get: (runId: string) =>
       transport.request<OpenApi.GetActivityResponse>({

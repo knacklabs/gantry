@@ -267,12 +267,12 @@ it('requests typed activity list and detail', async () => {
       truncated: false,
     });
 
-  await client.activity.list();
+  await client.activity.list({ agentId: 'agent:one', limit: 20 });
   await client.activity.get('agent-run:one/two');
 
   expect(request).toHaveBeenNthCalledWith(1, {
     method: 'GET',
-    path: '/v1/activity',
+    path: '/v1/activity?agentId=agent%3Aone&limit=20',
   });
   expect(request).toHaveBeenNthCalledWith(2, {
     method: 'GET',

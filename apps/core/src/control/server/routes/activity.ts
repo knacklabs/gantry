@@ -33,13 +33,25 @@ export async function handleActivityRoutes(
   if (pathname === '/v1/activity' && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['sessions:read']);
     if (!auth) return true;
-    const runs =
-      await getRuntimeStorage().repositories.agentRuns.listRecentAgentRuns(
-        auth.appId as AgentRun['appId'],
+    const input = parseActivityListQuery(url);
+    if (!input) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        'agentId must be a non-empty string and limit must be an integer from 1 through 50',
       );
+      return true;
+    }
+    const runs =
+      await getRuntimeStorage().repositories.agentRuns.listRecentAgentRuns({
+        appId: auth.appId as AgentRun['appId'],
+        agentId: input.agentId as AgentRun['agentId'] | undefined,
+        limit: input.limit,
+      });
     const now = Date.now();
     sendJson(res, 200, {
-      runs: runs.slice(0, 50).map((run) => projectRun(run, now)),
+      runs: runs.slice(0, input.limit).map((run) => projectRun(run, now)),
     });
     return true;
   }
@@ -86,6 +98,30 @@ export async function handleActivityRoutes(
   };
   sendJson(res, 200, detail);
   return true;
+}
+
+function parseActivityListQuery(
+  url: URL,
+): { agentId?: string; limit: number } | null {
+  if (
+    [...url.searchParams.keys()].some(
+      (key) => key !== 'agentId' && key !== 'limit',
+    )
+  ) {
+    return null;
+  }
+  const agentIds = url.searchParams.getAll('agentId');
+  const limits = url.searchParams.getAll('limit');
+  if (agentIds.length > 1 || limits.length > 1) return null;
+  const agentId = agentIds[0];
+  if (agentId !== undefined && (!agentId || agentId.trim() !== agentId)) {
+    return null;
+  }
+  if (limits.length === 0) return { agentId, limit: 50 };
+  const rawLimit = limits[0]!;
+  if (!/^[1-9]\d?$/.test(rawLimit)) return null;
+  const limit = Number(rawLimit);
+  return limit <= 50 ? { agentId, limit } : null;
 }
 
 async function handleActivityEvents(

@@ -64,9 +64,11 @@ maybeDescribe('Postgres activity projection', () => {
       });
     }
 
-    const runs = await repositories.agentRuns.listRecentAgentRuns(
-      DEFAULT_APP_ID as never,
-    );
+    const runs = await repositories.agentRuns.listRecentAgentRuns({
+      appId: DEFAULT_APP_ID as never,
+      agentId: DEFAULT_AGENT_ID as never,
+      limit: 50,
+    });
 
     expect(runs).toHaveLength(50);
     expect(runs.map((run) => run.id)).toEqual(

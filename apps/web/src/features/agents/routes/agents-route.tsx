@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Bot, CircleOff, RefreshCw, SearchX } from 'lucide-react';
-import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   agentsQuery,
@@ -57,8 +57,7 @@ export function AgentsRoute() {
     );
   }
 
-  function submitSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function applyPendingSearch() {
     window.clearTimeout(searchTimeout.current);
     setSearchText(searchInput.current);
   }
@@ -72,7 +71,7 @@ export function AgentsRoute() {
           <Link
             className="font-semibold text-text no-underline hover:underline"
             params={{ agentId: row.original.id }}
-            search={{ tab: 'identity' }}
+            search={{ tab: 'summary' }}
             to="/agents/$agentId"
           >
             {row.original.name}
@@ -101,11 +100,11 @@ export function AgentsRoute() {
   );
 
   return (
-    <div className="mx-auto grid w-full max-w-[1240px] gap-6">
+    <div className="agent-directory mx-auto grid w-full max-w-[1240px] gap-6">
       <PageHeader
         eyebrow="Administration"
         title="Agents"
-        description="Agents reported by this Gantry deployment."
+        description="Inspect configured agent composition and recent activity from this Gantry deployment."
         action={
           <Button
             disabled={query.isFetching}
@@ -165,22 +164,19 @@ export function AgentsRoute() {
             />
           ) : (
             <>
-              <form
-                className="grid items-end gap-3 md:grid-cols-[minmax(0,1fr)_auto]"
-                onSubmit={submitSearch}
-              >
+              <div className="agent-directory-search max-w-xl">
                 <TextField
                   defaultValue={search.q}
                   id="agent-search"
                   label="Search agents"
                   name="q"
                   onChange={(event) => updateSearch(event.target.value)}
-                  placeholder="Agent name"
+                  placeholder="Filter by agent name"
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') applyPendingSearch();
+                  }}
                 />
-                <Button variant="secondary" type="submit">
-                  Search
-                </Button>
-              </form>
+              </div>
 
               <Panel
                 title="Agent directory"

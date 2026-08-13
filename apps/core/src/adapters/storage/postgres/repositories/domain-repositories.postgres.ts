@@ -1680,16 +1680,27 @@ export class PostgresAgentRunRepository implements AgentRunRepository {
       .limit(input.limit ?? 100);
     return rows.map((row) => this.runFromRow(row));
   }
-  async listRecentAgentRuns(appId: AgentRun['appId']): Promise<AgentRun[]> {
+  async listRecentAgentRuns(input: {
+    appId: AgentRun['appId'];
+    agentId?: AgentRun['agentId'];
+    limit: number;
+  }): Promise<AgentRun[]> {
     const rows = await this.db
       .select()
       .from(pgSchema.agentRunsPostgres)
-      .where(eq(pgSchema.agentRunsPostgres.appId, appId))
+      .where(
+        input.agentId
+          ? and(
+              eq(pgSchema.agentRunsPostgres.appId, input.appId),
+              eq(pgSchema.agentRunsPostgres.agentId, input.agentId),
+            )
+          : eq(pgSchema.agentRunsPostgres.appId, input.appId),
+      )
       .orderBy(
         desc(pgSchema.agentRunsPostgres.createdAt),
         desc(pgSchema.agentRunsPostgres.id),
       )
-      .limit(50);
+      .limit(input.limit);
     return rows.map((row) => this.runFromRow(row));
   }
   async listAgentRunsByConversation(input: {

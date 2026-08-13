@@ -10,6 +10,7 @@ const DEFAULT_PORT = 4173;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_DIST = fileURLToPath(new URL('../dist', import.meta.url));
 const METRICS_CACHE_TTL_MS = 5 * 60_000;
+const CAPABILITY_CACHE_TTL_MS = 60_000;
 const METRICS_RANGES = new Set(['24h', '7d', '30d']);
 const CONTENT_TYPES = {
   '.css': 'text/css; charset=utf-8',
@@ -118,6 +119,71 @@ function projectAgent(agent) {
 
 function projectAccessEntry(entry) {
   return { label: entry.label, detail: entry.detail };
+}
+
+function projectSkill(binding, catalog) {
+  const item = catalog.get(String(binding.skillId));
+  return {
+    id: String(binding.skillId),
+    name: item?.name ?? String(binding.skillId),
+    description: item?.description ?? null,
+    status: String(binding.status),
+    updatedAt: String(binding.updatedAt),
+  };
+}
+
+function projectCapability(selection, catalog) {
+  const item = catalog.get(String(selection.id));
+  return {
+    id: String(selection.id),
+    displayName: item?.displayName ?? String(selection.id),
+    category: item?.category ?? null,
+    risk: item?.risk ?? null,
+    version: String(selection.version),
+    can: item?.can ?? null,
+    cannot: item?.cannot ?? null,
+  };
+}
+
+function accessCounts(summary) {
+  return {
+    connected: summary.connected.length,
+    allowed: summary.allowed.length,
+    needsAttention: summary.needsAttention.length,
+    suggestedCleanup: summary.suggestedCleanup.length,
+  };
+}
+
+async function capabilityCatalog(client, state) {
+  if (state.value && state.expiresAt > Date.now()) return state.value;
+  if (!state.inFlight) {
+    state.inFlight = client.capabilities
+      .list()
+      .then(
+        (result) =>
+          new Map(
+            result.capabilities.map((item) => [
+              String(item.id),
+              {
+                displayName: String(item.displayName),
+                category: String(item.category),
+                risk: String(item.risk),
+                can: String(item.can),
+                cannot: String(item.cannot),
+              },
+            ]),
+          ),
+      )
+      .then((value) => {
+        state.value = value;
+        state.expiresAt = Date.now() + CAPABILITY_CACHE_TTL_MS;
+        return value;
+      })
+      .finally(() => {
+        state.inFlight = null;
+      });
+  }
+  return state.inFlight;
 }
 
 function projectMetricUsage(usage) {
@@ -330,7 +396,7 @@ function createSdkClient(env) {
   });
 }
 
-async function handleApi(method, url, request, response, env, metricsState) {
+async function handleApi(method, url, request, response, env, state) {
   if (method !== 'GET') {
     response.writeHead(405, { allow: 'GET' });
     response.end();
@@ -468,27 +534,27 @@ async function handleApi(method, url, request, response, env, metricsState) {
         return;
       }
 
-      const cached = metricsState.cache.get(range);
+      const cached = state.metrics.cache.get(range);
       if (cached && cached.expiresAt > Date.now()) {
         sendJson(response, 200, cached.value);
         return;
       }
-      metricsState.cache.delete(range);
+      state.metrics.cache.delete(range);
 
-      let pending = metricsState.inFlight.get(range);
+      let pending = state.metrics.inFlight.get(range);
       if (!pending) {
         pending = client.metrics
           .get({ range })
           .then(projectMetrics)
           .then((value) => {
-            metricsState.cache.set(range, {
+            state.metrics.cache.set(range, {
               value,
               expiresAt: Date.now() + METRICS_CACHE_TTL_MS,
             });
             return value;
           })
-          .finally(() => metricsState.inFlight.delete(range));
-        metricsState.inFlight.set(range, pending);
+          .finally(() => state.metrics.inFlight.delete(range));
+        state.metrics.inFlight.set(range, pending);
       }
       sendJson(response, 200, await pending);
       return;
@@ -543,9 +609,34 @@ async function handleApi(method, url, request, response, env, metricsState) {
       const relation = agentMatch[2];
       if (!relation) {
         const result = await client.agents.getAdmin(agentId);
+        const [delegates, skills, access] = await Promise.allSettled([
+          client.agents.getDelegates(agentId),
+          client.agents.skills.list(agentId),
+          client.agents.getAccess(agentId),
+        ]);
+        const accessSummary =
+          access.status === 'fulfilled' ? access.value.summary : undefined;
         sendJson(response, 200, {
           agent: projectAgent(result.agent),
           boundConversationCount: result.boundConversations.length,
+          counts: {
+            configuredDelegates:
+              delegates.status === 'fulfilled'
+                ? delegates.value.delegates.length
+                : null,
+            boundSkills:
+              skills.status === 'fulfilled'
+                ? skills.value.bindings.length
+                : null,
+            selectedCapabilities:
+              result.capabilities?.capabilities?.length ?? 0,
+            access: accessSummary ? accessCounts(accessSummary) : null,
+          },
+          unavailable: [
+            ...(delegates.status === 'fulfilled' ? [] : ['delegation']),
+            ...(skills.status === 'fulfilled' ? [] : ['skills']),
+            ...(access.status === 'fulfilled' ? [] : ['access']),
+          ],
         });
         return;
       }
@@ -563,25 +654,37 @@ async function handleApi(method, url, request, response, env, metricsState) {
         return;
       }
       if (relation === 'skills') {
-        const result = await client.agents.skills.list(agentId);
+        const [result, catalog] = await Promise.allSettled([
+          client.agents.skills.list(agentId),
+          client.skills.list(),
+        ]);
+        if (result.status !== 'fulfilled') throw result.reason;
+        const catalogById = new Map(
+          catalog.status === 'fulfilled'
+            ? catalog.value.skills.map((skill) => [
+                String(skill.id),
+                {
+                  name: String(skill.name),
+                  description: skill.description ?? null,
+                },
+              ])
+            : [],
+        );
         sendJson(response, 200, {
-          skills: result.bindings.map((binding) => ({
-            id: String(binding.id),
-            skillId: String(binding.skillId),
-            status: String(binding.status),
-            updatedAt: String(binding.updatedAt),
-          })),
+          skills: result.value.bindings.map((binding) =>
+            projectSkill(binding, catalogById),
+          ),
         });
         return;
       }
       if (relation === 'capabilities') {
-        const result = await client.agents.getAdmin(agentId);
+        const [result, catalogResult] = await Promise.all([
+          client.agents.getAdmin(agentId),
+          capabilityCatalog(client, state.capabilities).catch(() => new Map()),
+        ]);
         sendJson(response, 200, {
           capabilities: (result.capabilities?.capabilities ?? []).map(
-            (capability) => ({
-              id: capability.id,
-              version: capability.version,
-            }),
+            (capability) => projectCapability(capability, catalogResult),
           ),
         });
         return;
@@ -605,9 +708,13 @@ async function handleApi(method, url, request, response, env, metricsState) {
         });
         return;
       }
-      const result = await client.jobs.list({ agentId, limit: 20 });
+      const [activity, result] = await Promise.all([
+        client.activity.list({ agentId, limit: 20 }),
+        client.jobs.list({ agentId, limit: 20 }),
+      ]);
       sendJson(response, 200, {
-        activity: result.jobs.map((job) => ({
+        runs: activity.runs.map(projectActivityRun),
+        jobs: result.jobs.map((job) => ({
           id: String(job.jobId ?? job.id),
           name: job.name,
           kind: job.kind,
@@ -676,19 +783,15 @@ async function readStatic(pathname, distRoot) {
 export function createUiHandler(options = {}) {
   const env = options.env ?? process.env;
   const distRoot = options.distRoot ?? DEFAULT_DIST;
-  const metricsState = { cache: new Map(), inFlight: new Map() };
+  const state = {
+    metrics: { cache: new Map(), inFlight: new Map() },
+    capabilities: { value: null, expiresAt: 0, inFlight: null },
+  };
 
   return async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://ui.local');
     if (url.pathname === '/ui/api' || url.pathname.startsWith('/ui/api/')) {
-      await handleApi(
-        request.method,
-        url,
-        request,
-        response,
-        env,
-        metricsState,
-      );
+      await handleApi(request.method, url, request, response, env, state);
       return;
     }
 

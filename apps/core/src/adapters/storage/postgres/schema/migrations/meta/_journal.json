@@ -974,6 +974,13 @@
       "when": 1786564522000,
       "tag": "20260812195521_metrics_run_ended",
       "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1786637033564,
+      "tag": "20260813160353_agent_run_activity_index",
+      "breakpoints": true
     }
   ]
 }
