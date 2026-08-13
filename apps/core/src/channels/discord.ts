@@ -479,6 +479,12 @@ export class DiscordChannel implements ChannelAdapter {
     );
   }
 
+  preparePermissionCardSend(
+    ...args: Parameters<DiscordInteractionHandler['preparePermissionCardSend']>
+  ) {
+    return this.interactions.preparePermissionCardSend(...args);
+  }
+
   async requestUserAnswer(
     jid: string,
     request: UserQuestionRequest,

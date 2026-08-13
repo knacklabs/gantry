@@ -1,8 +1,10 @@
 import type { App } from '@slack/bolt';
 import type {
+  MessageSendOptions,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
 } from '../../domain/types.js';
+import type { PreparedPermissionCardSend } from '../../domain/permission-card.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { incrementOperationalError } from '../../shared/operational-error-counters.js';
 import { resolveInteractionSettlementDelayMs } from '../interaction-settlement.js';
@@ -21,6 +23,87 @@ import { slackPermissionDecisionActionId } from './permission-action-id.js';
 import type { PendingPermissionPrompt } from './channel-state.js';
 import { slackThreadTsFromThreadId } from './thread-ts.js';
 import type { ChannelOpts } from '../channel-provider.js';
+import {
+  buildBoundedPermissionCard,
+  permissionCardCallback,
+} from '../permission-card.js';
+
+export function prepareSlackPermissionCardSend(input: {
+  app: App;
+  channelId: string;
+  approverUserIds: readonly string[];
+  options: MessageSendOptions & {
+    permissionCardView: NonNullable<MessageSendOptions['permissionCardView']>;
+  };
+}): PreparedPermissionCardSend {
+  if ([...new Set(input.approverUserIds)].filter(Boolean).length === 0) {
+    throw new Error(
+      'This Slack conversation has no configured approvers for permission cards.',
+    );
+  }
+  const view = input.options.permissionCardView;
+  const callback = permissionCardCallback(view);
+  const card = buildBoundedPermissionCard(view);
+  const actions = {
+    type: 'actions',
+    elements: [
+      ...(card.fullViewAvailable
+        ? [
+            {
+              type: 'button',
+              action_id: 'gantry_perm_full_view',
+              text: {
+                type: 'plain_text',
+                text: card.parts.fullView?.label ?? 'View details',
+              },
+              value: JSON.stringify({ callback }),
+            },
+          ]
+        : []),
+      ...permissionDecisionOptions(view.request).map((mode) => ({
+        type: 'button',
+        action_id: slackPermissionDecisionActionId(mode),
+        text: {
+          type: 'plain_text',
+          text: permissionButtonLabel(mode, view.request),
+        },
+        ...(mode === 'cancel'
+          ? { style: 'danger' as const }
+          : { style: 'primary' as const }),
+        value: JSON.stringify({ callback, decision: mode }),
+      })),
+    ],
+  };
+  const threadTs = slackThreadTsFromThreadId(input.options.threadId);
+  return {
+    send: async () => {
+      const sent = (await input.app.client.chat.postMessage({
+        channel: input.channelId,
+        text: card.text,
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+        blocks: [
+          ...buildPermissionPromptContentBlocks(card.parts),
+          actions,
+        ] as any,
+      })) as { ts?: string; message_ts?: string };
+      const messageId = sent.ts || sent.message_ts;
+      if (!messageId) {
+        throw new Error('Slack did not return a permission card id.');
+      }
+      return {
+        delivery: { externalMessageId: messageId },
+        locator: {
+          provider: 'slack',
+          conversationId: input.channelId,
+          messageId,
+          ...(input.options.threadId
+            ? { threadId: input.options.threadId }
+            : {}),
+        },
+      };
+    },
+  };
+}
 
 export function slackPermissionApproverIds(
   runtimeSettings: ChannelOpts['runtimeSettings'],

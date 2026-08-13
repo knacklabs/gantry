@@ -69,10 +69,8 @@ import {
   setBrainReviewNotifyGateway,
   recoverPendingBrainReviewNotifications,
 } from '../../jobs/system-jobs.js';
-import {
-  brainReviewOutboundProfile,
-  brainReviewNotifyGatewayFor,
-} from './brain-review-notify-gateway.js';
+// prettier-ignore
+import { brainReviewOutboundProfile, brainReviewNotifyGatewayFor } from './brain-review-notify-gateway.js';
 // prettier-ignore
 import {
   closeBrowser,
@@ -80,19 +78,12 @@ import {
   getBrowserStatus,
 } from '../../runtime/browser-capability.js';
 import type { OutboundDeliveryProfile } from '../../domain/outbound-delivery/planner.js';
-import {
-  LIVE_SEND_PROFILE_ID,
-  OBSERVER_DIGEST_PROFILE_ID,
-  BRAIN_REVIEW_PROFILE_ID,
-  RETRY_TAIL_PROFILE_ID,
-  canonicalThreadIdFor,
-  normalizeDestinationHintAgainstCanonical,
-  resolveDurableOutboundTarget,
-  sanitizeRetryTailForCanonicalDestination,
-  sanitizeRetryTailProviderPayloadDestinationMetadata,
-} from './runtime-services-destination-hints.js';
+// prettier-ignore
+import { LIVE_SEND_PROFILE_ID, OBSERVER_DIGEST_PROFILE_ID, BRAIN_REVIEW_PROFILE_ID, RETRY_TAIL_PROFILE_ID, canonicalThreadIdFor, normalizeDestinationHintAgainstCanonical, resolveDurableOutboundTarget, sanitizeRetryTailForCanonicalDestination, sanitizeRetryTailProviderPayloadDestinationMetadata } from './runtime-services-destination-hints.js';
 import { splitLiveSendProfileText } from './runtime-services-live-send-segmentation.js';
 import { createDurableOutboundAttempt } from './runtime-services-durable-outbound-attempt.js';
+// prettier-ignore
+import { dispatchRuntimePermissionCard, setupPermissionCardProfile } from './runtime-services-permission-card.js';
 import { resolveConversationRoute } from './runtime-app-routes.js';
 import { handleActiveNewSessionCommand } from './runtime-services-active-new.js';
 import {
@@ -750,8 +741,7 @@ export async function startRuntimeServices(
         };
       },
     };
-    // Observer digest: single-part send whose native view (Task 4) rides in the
-    // item providerPayload so the recovery dispatch can render native buttons.
+    // Observer digest carries its native view in the item provider payload.
     const observerDigestProfile: OutboundDeliveryProfile = {
       profileId: OBSERVER_DIGEST_PROFILE_ID,
       plan: (input) => {
@@ -784,9 +774,11 @@ export async function startRuntimeServices(
               ? liveSendProfile
               : profileId === OBSERVER_DIGEST_PROFILE_ID
                 ? observerDigestProfile
-                : profileId === BRAIN_REVIEW_PROFILE_ID
-                  ? brainReviewOutboundProfile
-                  : undefined,
+                : profileId === setupPermissionCardProfile.profileId
+                  ? setupPermissionCardProfile
+                  : profileId === BRAIN_REVIEW_PROFILE_ID
+                    ? brainReviewOutboundProfile
+                    : undefined,
       },
       now: () => nowIso(),
       createId: () => randomUUID(),
@@ -1040,6 +1032,16 @@ export async function startRuntimeServices(
           canonicalText: claimed.item.canonicalText,
           ...(destinationThreadId ? { threadId: destinationThreadId } : {}),
         });
+        const permissionCardResult = await dispatchRuntimePermissionCard({
+          service: outboundDeliveryService,
+          claimed,
+          channelWiring,
+          destinationJid,
+          destinationThreadId,
+          providerAccountId: destinationAccount.providerAccountId,
+          permit: recoveryPermit,
+        });
+        if (permissionCardResult) return permissionCardResult;
         try {
           const observerDigestView = payload?.observerDigestView as
             | MessageSendOptions['observerDigestView']

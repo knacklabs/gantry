@@ -7,6 +7,7 @@ import { isAmbiguousDurableDeliveryError } from '../domain/messages/durable-deli
 import type {
   ClaimedOutboundDeliveryItem,
   OutboundDelivery,
+  OutboundDeliveryPermissionPromptLocator,
 } from '../domain/outbound-delivery/outbound-delivery.js';
 import { nowIso } from '../shared/time/datetime.js';
 import { incrementOperationalError } from '../shared/operational-error-counters.js';
@@ -21,6 +22,7 @@ export type OutboundDeliveryDispatchResult =
       status: 'sent';
       providerMessageId?: string;
       providerPayload?: unknown;
+      permissionPromptLocator?: OutboundDeliveryPermissionPromptLocator;
     }
   | {
       status: 'failed';
@@ -215,6 +217,7 @@ export async function runBoundedOutboundDeliveryRecovery(
               String(claimedItem.item.id),
             providerMessageId: dispatchResult.providerMessageId,
             providerPayload: dispatchResult.providerPayload,
+            permissionPromptLocator: dispatchResult.permissionPromptLocator,
             sentAt: now(),
           });
           if (settled.applied) {

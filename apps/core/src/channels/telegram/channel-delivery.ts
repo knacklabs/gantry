@@ -1,16 +1,7 @@
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-import {
-  MessageDeliveryResult,
-  MessageSendOptions,
-  PermissionApprovalDecision,
-  PermissionApprovalRequest,
-  ProgressUpdateOptions,
-  RichInteractionRequest,
-  StreamingChunkOptions,
-  UserQuestionRequest,
-  UserQuestionResponse,
-} from '../../domain/types.js';
+// prettier-ignore
+import { MessageDeliveryResult, MessageSendOptions, PermissionApprovalDecision, PermissionApprovalRequest, ProgressUpdateOptions, RichInteractionRequest, StreamingChunkOptions, UserQuestionRequest, UserQuestionResponse } from '../../domain/types.js';
 import { PartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import { TelegramChannelReactions } from './channel-reactions.js';
@@ -52,8 +43,18 @@ import {
   recordDurableQuestionAnswerProgress,
 } from '../../application/interactions/pending-interaction-durability.js';
 import { retainTelegramProgressHandleAfterEditFailure } from './progress-edit-failure.js';
+import { createTelegramPermissionCardPreparer } from './prepared-permission-card.js';
 
 export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
+  preparePermissionCardSend(
+    ...args: Parameters<ReturnType<typeof createTelegramPermissionCardPreparer>>
+  ) {
+    return createTelegramPermissionCardPreparer(() => ({
+      interactionCallbacksEnabled: this.interactionCallbacksEnabled,
+      bot: this.bot,
+    }))(...args);
+  }
+
   async sendMessage(
     jid: string,
     text: string,

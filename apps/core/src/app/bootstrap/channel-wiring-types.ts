@@ -15,6 +15,7 @@ import type {
   UserQuestionResponse,
   UserQuestionCancellation,
 } from '../../domain/types.js';
+import type { PreparedPermissionCardSend } from '../../domain/permission-card.js';
 import type { RuntimeSettings } from '../../config/settings/runtime-settings.js';
 import type {
   isSenderControlAllowed,
@@ -211,6 +212,18 @@ export interface ChannelWiring {
       messageOptions?: MessageSendOptions;
     },
   ) => Promise<MessageDeliveryResult | undefined>;
+  prepareProviderPermissionCardSend: (
+    jid: string,
+    rawText: string,
+    options: {
+      permit: RecoveryDispatchPermit;
+      messageOptions: MessageSendOptions & {
+        permissionCardView: NonNullable<
+          MessageSendOptions['permissionCardView']
+        >;
+      };
+    },
+  ) => PreparedPermissionCardSend;
   createRecoveryDispatchPermit: (
     input: RecoveryDispatchPermitInput,
   ) => RecoveryDispatchPermit;

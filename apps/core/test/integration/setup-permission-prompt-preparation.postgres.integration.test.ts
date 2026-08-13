@@ -338,6 +338,322 @@ maybeDescribe('setup permission prompt preparation', () => {
     expect(prompts).toEqual([]);
     expect(interactions).toEqual([]);
   });
+
+  it('fences send begin, distinguishes pre-send expiry, and settles the prompt locator atomically', async () => {
+    await insertSetupPausedJob(
+      runtime,
+      'job:setup-prompt:dispatch',
+      'fp:dispatch',
+    );
+    const preparedInput = preparation({
+      jobId: 'job:setup-prompt:dispatch',
+      promptId: 'prompt:setup:dispatch',
+      interactionId: 'interaction:setup:dispatch',
+      fingerprint: 'fp:dispatch',
+    });
+    const prepared =
+      await runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
+        preparedInput,
+      );
+    // Earlier tests may leave their own due items; claim broadly and pick
+    // THIS prompt's item.
+    const claimed =
+      await runtime.repositories.outboundDeliveries.claimDueDeliveryItems({
+        appId: 'default' as never,
+        profileId: 'setup_permission_prompt',
+        now,
+        claimerId: 'test:dispatch',
+        leaseMs: 30_000,
+        limit: 10,
+      });
+    const claim = claimed.find(
+      (entry) => entry.item.permissionPromptId === 'prompt:setup:dispatch',
+    );
+    expect(claim).toBeTruthy();
+    const item = claim!.item;
+    const view =
+      await runtime.repositories.outboundDeliveries.getSetupPermissionPromptForDispatch?.(
+        {
+          appId: 'default' as never,
+          promptId: 'prompt:setup:dispatch',
+          now,
+        },
+      );
+    expect(view).toMatchObject({
+      providerAlias: 'prompt:setup:dispatch',
+      request: { setupFingerprint: 'fp:dispatch' },
+    });
+    await expect(
+      runtime.repositories.outboundDeliveries.beginDeliveryItemSend?.({
+        deliveryId: prepared.delivery.id,
+        itemId: item.id,
+        promptId: 'prompt:setup:dispatch',
+        claimToken: 'stale-claim-token',
+        begunAt: '2026-08-13T10:00:01.000Z',
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      runtime.repositories.outboundDeliveries.beginDeliveryItemSend?.({
+        deliveryId: prepared.delivery.id,
+        itemId: item.id,
+        promptId: 'prompt:setup:dispatch',
+        claimToken: item.claimToken!,
+        begunAt: '2026-08-13T10:00:01.000Z',
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      runtime.repositories.outboundDeliveries.markDeliveryItemSent({
+        deliveryId: prepared.delivery.id,
+        itemId: item.id,
+        claimToken: item.claimToken!,
+        receipt: {
+          id: 'receipt:setup:dispatch' as never,
+          deliveryId: prepared.delivery.id,
+          itemId: item.id,
+          idempotencyKey: 'item:dispatch:receipt',
+          providerMessageId: 'message:dispatch',
+          sentAt: '2026-08-13T10:00:01.000Z',
+          createdAt: '2026-08-13T10:00:01.000Z',
+        },
+        permissionPromptLocator: {
+          provider: 'telegram',
+          conversationId: 'setup-prompt',
+          messageId: 'message:dispatch',
+        },
+      }),
+    ).resolves.toMatchObject({ applied: true });
+
+    const [storedPrompt] = await runtime.service.db
+      .select({
+        provider: pgSchema.permissionPromptsPostgres.externalPromptProvider,
+        messageId: pgSchema.permissionPromptsPostgres.externalPromptMessageId,
+      })
+      .from(pgSchema.permissionPromptsPostgres)
+      .where(
+        eq(pgSchema.permissionPromptsPostgres.id, 'prompt:setup:dispatch'),
+      );
+    const [storedItem] = await runtime.service.db
+      .select({ status: pgSchema.outboundDeliveryItemsPostgres.status })
+      .from(pgSchema.outboundDeliveryItemsPostgres)
+      .where(eq(pgSchema.outboundDeliveryItemsPostgres.id, item.id));
+    const receipts = await runtime.service.db
+      .select({ id: pgSchema.outboundDeliveryReceiptsPostgres.id })
+      .from(pgSchema.outboundDeliveryReceiptsPostgres)
+      .where(eq(pgSchema.outboundDeliveryReceiptsPostgres.itemId, item.id));
+    expect(storedPrompt).toEqual({
+      provider: 'telegram',
+      messageId: 'message:dispatch',
+    });
+    expect(storedItem).toEqual({ status: 'sent' });
+    expect(receipts).toEqual([{ id: 'receipt:setup:dispatch' }]);
+
+    await insertSetupPausedJob(runtime, 'job:setup-prompt:expiry', 'fp:expiry');
+    const expiryInput = preparation({
+      jobId: 'job:setup-prompt:expiry',
+      promptId: 'prompt:setup:expiry',
+      interactionId: 'interaction:setup:expiry',
+      fingerprint: 'fp:expiry',
+    });
+    await runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
+      expiryInput,
+    );
+    await runtime.repositories.outboundDeliveries.claimDueDeliveryItems({
+      appId: 'default' as never,
+      profileId: 'setup_permission_prompt',
+      now,
+      claimerId: 'test:expiry',
+      leaseMs: 1_000,
+      limit: 10,
+    });
+    await runtime.repositories.outboundDeliveries.claimDueDeliveryItems({
+      appId: 'default' as never,
+      profileId: 'setup_permission_prompt',
+      now: '2026-08-13T10:00:02.000Z',
+      claimerId: 'test:expiry-recovery',
+      leaseMs: 1_000,
+      limit: 10,
+    });
+    const [expiredBeforeSend] = await runtime.service.db
+      .select({ status: pgSchema.outboundDeliveryItemsPostgres.status })
+      .from(pgSchema.outboundDeliveryItemsPostgres)
+      .where(
+        eq(
+          pgSchema.outboundDeliveryItemsPostgres.permissionPromptId,
+          'prompt:setup:expiry',
+        ),
+      );
+    expect(expiredBeforeSend).toEqual({ status: 'pending' });
+
+    const reclaimedAll =
+      await runtime.repositories.outboundDeliveries.claimDueDeliveryItems({
+        appId: 'default' as never,
+        profileId: 'setup_permission_prompt',
+        now: '2026-08-13T10:00:04.000Z',
+        claimerId: 'test:expiry-after-begin',
+        leaseMs: 1_000,
+        limit: 10,
+      });
+    const reclaimed = reclaimedAll.filter(
+      (entry) => entry.item.permissionPromptId === 'prompt:setup:expiry',
+    );
+    expect(reclaimed).toHaveLength(1);
+    await runtime.repositories.outboundDeliveries.beginDeliveryItemSend?.({
+      deliveryId: reclaimed[0]!.delivery.id,
+      itemId: reclaimed[0]!.item.id,
+      promptId: 'prompt:setup:expiry',
+      claimToken: reclaimed[0]!.item.claimToken!,
+      begunAt: '2026-08-13T10:00:04.500Z',
+    });
+    await runtime.repositories.outboundDeliveries.claimDueDeliveryItems({
+      appId: 'default' as never,
+      profileId: 'setup_permission_prompt',
+      now: '2026-08-13T10:00:06.000Z',
+      claimerId: 'test:ambiguous-recovery',
+      leaseMs: 1_000,
+      limit: 1,
+    });
+    const [expiredAfterSendBegin] = await runtime.service.db
+      .select({ status: pgSchema.outboundDeliveryItemsPostgres.status })
+      .from(pgSchema.outboundDeliveryItemsPostgres)
+      .where(
+        eq(
+          pgSchema.outboundDeliveryItemsPostgres.permissionPromptId,
+          'prompt:setup:expiry',
+        ),
+      );
+    expect(expiredAfterSendBegin).toEqual({
+      status: 'partially_delivered',
+    });
+  });
+
+  it('revalidates cancellation before send and rolls back a conflicting locator settlement', async () => {
+    await insertSetupPausedJob(
+      runtime,
+      'job:setup-prompt:cancelled-before-send',
+      'fp:cancelled-before-send',
+    );
+    const cancelledPrepared =
+      await runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
+        preparation({
+          jobId: 'job:setup-prompt:cancelled-before-send',
+          promptId: 'prompt:setup:cancelled-before-send',
+          interactionId: 'interaction:setup:cancelled-before-send',
+          fingerprint: 'fp:cancelled-before-send',
+        }),
+      );
+    const [cancelledClaim] =
+      await runtime.repositories.outboundDeliveries.claimDueDeliveryItems({
+        appId: 'default' as never,
+        profileId: 'setup_permission_prompt',
+        now,
+        claimerId: 'test:cancelled-before-send',
+        leaseMs: 30_000,
+        limit: 1,
+      });
+    await runtime.service.db
+      .update(pgSchema.permissionPromptsPostgres)
+      .set({ settlementState: 'cancelled', updatedAt: now })
+      .where(
+        eq(
+          pgSchema.permissionPromptsPostgres.id,
+          'prompt:setup:cancelled-before-send',
+        ),
+      );
+    await expect(
+      runtime.repositories.outboundDeliveries.beginDeliveryItemSend?.({
+        deliveryId: cancelledPrepared.delivery.id,
+        itemId: cancelledClaim!.item.id,
+        promptId: 'prompt:setup:cancelled-before-send',
+        claimToken: cancelledClaim!.item.claimToken!,
+        begunAt: '2026-08-13T10:00:01.000Z',
+      }),
+    ).resolves.toBe(false);
+
+    await insertSetupPausedJob(
+      runtime,
+      'job:setup-prompt:atomic-settlement',
+      'fp:atomic-settlement',
+    );
+    const atomicPrepared =
+      await runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
+        preparation({
+          jobId: 'job:setup-prompt:atomic-settlement',
+          promptId: 'prompt:setup:atomic-settlement',
+          interactionId: 'interaction:setup:atomic-settlement',
+          fingerprint: 'fp:atomic-settlement',
+        }),
+      );
+    const [atomicClaim] =
+      await runtime.repositories.outboundDeliveries.claimDueDeliveryItems({
+        appId: 'default' as never,
+        profileId: 'setup_permission_prompt',
+        now,
+        claimerId: 'test:atomic-settlement',
+        leaseMs: 30_000,
+        limit: 1,
+      });
+    await runtime.repositories.outboundDeliveries.beginDeliveryItemSend?.({
+      deliveryId: atomicPrepared.delivery.id,
+      itemId: atomicClaim!.item.id,
+      promptId: 'prompt:setup:atomic-settlement',
+      claimToken: atomicClaim!.item.claimToken!,
+      begunAt: '2026-08-13T10:00:01.000Z',
+    });
+    await runtime.service.db
+      .update(pgSchema.permissionPromptsPostgres)
+      .set({
+        externalPromptProvider: 'telegram',
+        externalPromptConversationId: 'expected-conversation',
+        externalPromptMessageId: 'expected-message',
+        updatedAt: now,
+      })
+      .where(
+        eq(
+          pgSchema.permissionPromptsPostgres.id,
+          'prompt:setup:atomic-settlement',
+        ),
+      );
+
+    await expect(
+      runtime.repositories.outboundDeliveries.markDeliveryItemSent({
+        deliveryId: atomicPrepared.delivery.id,
+        itemId: atomicClaim!.item.id,
+        claimToken: atomicClaim!.item.claimToken!,
+        receipt: {
+          id: 'receipt:setup:atomic-conflict' as never,
+          deliveryId: atomicPrepared.delivery.id,
+          itemId: atomicClaim!.item.id,
+          idempotencyKey: 'item:atomic-conflict:receipt',
+          providerMessageId: 'conflicting-message',
+          sentAt: '2026-08-13T10:00:02.000Z',
+          createdAt: '2026-08-13T10:00:02.000Z',
+        },
+        permissionPromptLocator: {
+          provider: 'telegram',
+          conversationId: 'conflicting-conversation',
+          messageId: 'conflicting-message',
+        },
+      }),
+    ).rejects.toThrow('locator settlement conflicted');
+
+    const [atomicItem] = await runtime.service.db
+      .select({ status: pgSchema.outboundDeliveryItemsPostgres.status })
+      .from(pgSchema.outboundDeliveryItemsPostgres)
+      .where(
+        eq(pgSchema.outboundDeliveryItemsPostgres.id, atomicClaim!.item.id),
+      );
+    const conflictingReceipts = await runtime.service.db
+      .select({ id: pgSchema.outboundDeliveryReceiptsPostgres.id })
+      .from(pgSchema.outboundDeliveryReceiptsPostgres)
+      .where(
+        eq(
+          pgSchema.outboundDeliveryReceiptsPostgres.itemId,
+          atomicClaim!.item.id,
+        ),
+      );
+    expect(atomicItem).toEqual({ status: 'claimed' });
+    expect(conflictingReceipts).toEqual([]);
+  });
 });
 
 async function insertSetupPausedJob(

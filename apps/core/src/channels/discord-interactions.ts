@@ -1,14 +1,5 @@
-import {
-  MessageDeliveryResult,
-  MessageSendOptions,
-  PermissionApprovalCancellation,
-  PermissionApprovalDecision,
-  PermissionApprovalDecisionMode,
-  PermissionApprovalRequest,
-  RichInteractionRequest,
-  UserQuestionCancellation,
-  UserQuestionRequest,
-} from '../domain/types.js';
+// prettier-ignore
+import { MessageDeliveryResult, MessageSendOptions, PermissionApprovalCancellation, PermissionApprovalDecision, PermissionApprovalDecisionMode, PermissionApprovalRequest, RichInteractionRequest, UserQuestionCancellation, UserQuestionRequest } from '../domain/types.js';
 import {
   claimPermissionInteractionCallback,
   DurableInteractionPersistenceError,
@@ -73,6 +64,7 @@ import {
   resolvePendingDiscordQuestionsOnDisconnect,
   type PendingDiscordQuestion,
 } from './discord-user-question-delivery.js';
+import { createDiscordPermissionCardPreparer } from './discord-prepared-permission-card.js';
 const DISCORD_RICH_FORM_SUBMIT_PREFIX = 'gantry:rich_form_submit:';
 type DiscordConversationContext = {
   conversationJid: string;
@@ -270,6 +262,11 @@ export class DiscordInteractionHandler {
     }
     if (sent.externalMessageId) onPromptDelivered?.(sent.externalMessageId);
     return decision;
+  }
+
+  // prettier-ignore
+  preparePermissionCardSend(...args: Parameters<ReturnType<typeof createDiscordPermissionCardPreparer>>) {
+    return createDiscordPermissionCardPreparer((channelId, body) => this.input.postMessage(channelId, body))(...args);
   }
   requestUserAnswer = createDiscordUserQuestionRequester({
     pendingQuestions: this.pendingQuestions,

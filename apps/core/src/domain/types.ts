@@ -539,15 +539,14 @@ export interface MessageSendOptions {
    * memory-review message (per-channel native blocks/card) with the decision
    * buttons. Channels without native buttons fall back to `text`. */
   reviewMessageView?: ReviewMessageView;
-  /** When set, channels with native support render the observer digest as one
-   * message of up to 3 insight groups, each with its four `observer_feedback`
-   * buttons. Channels without native buttons fall back to `text`. */
+  /** Native one-message observer digest with feedback buttons. */
   observerDigestView?: ObserverDigestMessageView;
   /** When set, channels with native support render the destructive-proposal
    * review card (headline + detail) with its Approve/Reject
    * `brain_dream_review_decision` buttons. Channels without native buttons fall
    * back to `text`. */
   brainReviewView?: BrainReviewCardView;
+  permissionCardView?: import('./permission-card.js').PermissionCardMessageView;
 }
 
 export interface MessageFileAttachment {
@@ -613,6 +612,7 @@ export interface MessageSink {
     options?: MessageSendOptions,
   ): Promise<void | MessageDeliveryResult>;
 }
+
 export type {
   ChannelLiveUxCapability,
   MessageReactionRemovalSink,

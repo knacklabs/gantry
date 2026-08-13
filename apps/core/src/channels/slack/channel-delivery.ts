@@ -56,7 +56,7 @@ const SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS = 4;
 
 export abstract class SlackChannelDelivery extends SlackChannelInteractions {
   readonly reportsHistoryCoverageInboundLiveness = true;
-  private interactionCallbacksEnabled = true;
+  protected interactionCallbacksEnabled = true;
   private deactivateHistoryCoverageInbound: (() => void) | null = null;
   private readonly reactionKeys = new Set<string>();
   protected async sendSnippetFallback(

@@ -88,6 +88,13 @@ export interface OutboundDeliveryReceipt {
   createdAt: IsoTimestamp;
 }
 
+export interface OutboundDeliveryPermissionPromptLocator {
+  provider: string;
+  conversationId: string;
+  messageId: string;
+  threadId?: string;
+}
+
 export interface OutboundDeliveryResolvedDestination {
   conversationJid: string;
   threadId?: string;

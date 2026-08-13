@@ -3,9 +3,11 @@ import {
   DurableInteractionPersistenceError,
 } from '../application/interactions/pending-interaction-durability.js';
 import type {
+  MessageSendOptions,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
 } from '../domain/types.js';
+import type { PreparedPermissionCardSend } from '../domain/permission-card.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { incrementOperationalError } from '../shared/operational-error-counters.js';
 import { resolveInteractionSettlementDelayMs } from './interaction-settlement.js';
@@ -17,6 +19,82 @@ import {
   type PendingTeamsPermissionPrompt,
   type TeamsSdkClient,
 } from './teams-types.js';
+import {
+  buildBoundedPermissionCard,
+  permissionCardCallback,
+} from './permission-card.js';
+
+export function prepareTeamsPermissionCardSend(input: {
+  connected: boolean;
+  jid: string;
+  options: MessageSendOptions & {
+    permissionCardView: NonNullable<MessageSendOptions['permissionCardView']>;
+  };
+  sdkClient: TeamsSdkClient;
+}): PreparedPermissionCardSend {
+  if (!input.connected) throw new Error('Teams channel is not connected');
+  const conversationId = teamsConversationIdFromJid(input.jid);
+  if (!conversationId) {
+    throw new Error('This Teams conversation could not be identified.');
+  }
+  if (!input.sdkClient.sendAdaptiveCard) {
+    throw new Error(
+      'This Teams conversation cannot display approval cards right now.',
+    );
+  }
+  const view = input.options.permissionCardView;
+  const card = buildBoundedPermissionCard(view);
+  const callback = permissionCardCallback(view);
+  const adaptiveCard = buildTeamsApprovalAdaptiveCard(
+    view.request,
+    callback as never,
+  );
+  adaptiveCard.body = adaptiveCard.body.map((block, index) =>
+    index === 1 ? { ...block, text: card.text } : block,
+  );
+  if (card.parts.fullView) {
+    adaptiveCard.actions.unshift({
+      type: 'Action.ShowCard',
+      title: card.parts.fullView.label,
+      card: {
+        type: 'AdaptiveCard',
+        version: '1.5',
+        body: [
+          {
+            type: 'TextBlock',
+            text: card.parts.fullView.content,
+            wrap: true,
+          },
+        ],
+      },
+    } as never);
+  }
+  const sdkClient = input.sdkClient;
+  return {
+    send: async () => {
+      const sent = await sdkClient.sendAdaptiveCard!({
+        conversationId,
+        card: adaptiveCard,
+        ...(input.options.threadId ? { threadId: input.options.threadId } : {}),
+      });
+      const messageId = sent.externalMessageId;
+      if (!messageId) {
+        throw new Error('Teams did not return a permission card id.');
+      }
+      return {
+        delivery: { externalMessageId: messageId },
+        locator: {
+          provider: 'teams',
+          conversationId,
+          messageId,
+          ...(input.options.threadId
+            ? { threadId: input.options.threadId }
+            : {}),
+        },
+      };
+    },
+  };
+}
 
 export async function requestTeamsPermissionApproval(input: {
   connected: boolean;
