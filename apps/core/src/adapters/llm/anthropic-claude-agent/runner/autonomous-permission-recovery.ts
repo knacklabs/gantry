@@ -31,6 +31,8 @@ export function denyNonPromptableAutonomousRecovery(input: {
       ...(input.recoveryAction
         ? { recovery_action: input.recoveryAction }
         : {}),
+      // Non-promptable recovery is never a grantable capability path.
+      recovery_kind: 'job_policy',
     },
   );
   return { behavior: 'deny', message, interrupt: true };

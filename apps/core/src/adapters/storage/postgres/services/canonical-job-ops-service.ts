@@ -406,6 +406,7 @@ export class CanonicalJobOpsService {
       eventType: filters?.event_type,
       sinceId: filters?.since_id,
       since: filters?.since,
+      order: filters?.order,
     });
     return rows.map((row, index) => this.mapEvent(row, index, filters?.job_id));
   }

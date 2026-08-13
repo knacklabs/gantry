@@ -481,18 +481,15 @@ async function loadPrimaryDenialsByRun(
   const result = new Map<string, JobToolDenial>();
   await Promise.all(
     input.runIds.map(async (runId) => {
-      // ponytail: 1000-cap per run; a terminal denial aborts the run, so the
-      // real per-run count is parallel-batch sized. Page via since_id if a
-      // run ever legitimately exceeds this.
-      const events = await ops.listRecentJobEvents!(1_000, {
+      // Ascending order makes the FIRST persisted denial (the authoritative
+      // primary, 0126) the first row - no history cap can truncate it away.
+      const events = await ops.listRecentJobEvents!(20, {
         app_id: input.appId,
         run_id: runId,
         event_type: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+        order: 'asc',
       });
-      const primary = [...events]
-        .sort((left, right) => left.id - right.id)
-        .map(parseJobEventDenial)
-        .find(Boolean);
+      const primary = events.map(parseJobEventDenial).find(Boolean);
       if (primary) result.set(runId, primary);
     }),
   );

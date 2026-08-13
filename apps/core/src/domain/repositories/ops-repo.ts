@@ -95,6 +95,8 @@ export interface JobEventListFilters {
   event_type?: RuntimeEventType;
   since_id?: number;
   since?: string;
+  // 'asc' returns the OLDEST matching events first (primary-denial reads).
+  order?: 'asc' | 'desc';
 }
 
 export function makeSessionScopeKey(

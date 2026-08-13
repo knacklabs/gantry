@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 
 import type {
   Job,
@@ -707,6 +707,7 @@ export class PostgresCanonicalJobRepository {
       eventType?: RuntimeEventType;
       sinceId?: number;
       since?: string;
+      order?: 'asc' | 'desc';
     },
   ): Promise<CanonicalJobEventRecord[]> {
     if (!filters?.jobId && filters?.jobIds?.length === 0) return [];
@@ -753,7 +754,11 @@ export class PostgresCanonicalJobRepository {
     ].filter(Boolean);
     const filtered = clauses.length > 0 ? query.where(and(...clauses)) : query;
     const rows = await filtered
-      .orderBy(desc(pgSchema.runtimeEventsPostgres.eventId))
+      .orderBy(
+        filters?.order === 'asc'
+          ? asc(pgSchema.runtimeEventsPostgres.eventId)
+          : desc(pgSchema.runtimeEventsPostgres.eventId),
+      )
       .limit(limit);
     return rows.map((row) => ({
       id: String(row.eventId),
@@ -819,7 +824,11 @@ export class PostgresCanonicalJobRepository {
         ),
       )
       .where(and(...clauses))
-      .orderBy(desc(pgSchema.runtimeEventsPostgres.eventId))
+      .orderBy(
+        filters?.order === 'asc'
+          ? asc(pgSchema.runtimeEventsPostgres.eventId)
+          : desc(pgSchema.runtimeEventsPostgres.eventId),
+      )
       .limit(limit);
     return rows.map((row) => ({
       id: String(row.eventId),
