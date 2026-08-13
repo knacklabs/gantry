@@ -133,12 +133,30 @@ const setupAction = {
     },
   ],
 };
+// Closed unions mirror JobSetupReadinessState / JobSetupBlocker exactly so
+// the generated SDK models the actual setup contract (review R5).
+const SETUP_READINESS_STATES = [
+  'ready',
+  'missing_capability',
+  'broker_unreachable',
+  'credential_unknown',
+  'browser_login_may_be_required',
+  'mcp_missing_credential',
+];
+const SETUP_BLOCKER_TYPES = [
+  'tool',
+  'semantic_capability',
+  'browser',
+  'mcp_server',
+  'credential',
+  'local_cli',
+];
 const jobSetup = {
   type: 'object',
   required: ['state', 'checkedAt', 'fingerprint', 'blockers', 'nextAction'],
   additionalProperties: false,
   properties: {
-    state: { type: 'string' },
+    state: { type: 'string', enum: SETUP_READINESS_STATES },
     checkedAt: { type: ['string', 'null'], format: 'date-time' },
     fingerprint: { type: ['string', 'null'] },
     blockers: {
@@ -148,10 +166,13 @@ const jobSetup = {
         required: ['state', 'summary', 'action', 'type', 'id'],
         additionalProperties: false,
         properties: {
-          state: { type: 'string' },
+          state: {
+            type: 'string',
+            enum: SETUP_READINESS_STATES.filter((state) => state !== 'ready'),
+          },
           summary: { type: 'string' },
           action: setupAction,
-          type: { type: 'string' },
+          type: { type: 'string', enum: SETUP_BLOCKER_TYPES },
           id: { type: 'string' },
         },
       },
