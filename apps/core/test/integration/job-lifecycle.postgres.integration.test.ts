@@ -1054,7 +1054,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
                   type: 'addRules',
                   behavior: 'allow',
                   rules: [
-                    { toolName: 'RunCommand', ruleContent: 'npm test *' },
+                    { tool_name: 'RunCommand', rule_content: 'npm test *' },
                   ],
                 },
               },
@@ -1122,6 +1122,8 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         expect.objectContaining({
           type: 'addRules',
           behavior: 'allow',
+          // SDK suggestion shape stays camelCase with session destination -
+          // durable persistence happens host-side on approval.
           rules: [{ toolName: 'RunCommand', ruleContent: 'npm test *' }],
         }),
       ],
