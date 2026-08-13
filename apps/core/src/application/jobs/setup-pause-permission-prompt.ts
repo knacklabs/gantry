@@ -359,27 +359,44 @@ export function setupPauseRequirementForApprovedSuggestions(input: {
   const approvedSet = new Set(approvedRules);
   const byBlocker = new Map<JobSetupBlocker, GrantableRequirementCandidate[]>();
   for (const candidate of candidates) {
+    // Only plain addRules grants without an explicit destination take the
+    // auto-append shortcut: a replaceRules or destination-bearing grant must
+    // never be silently applied as a rule addition (review R8).
+    if (
+      candidate.blocker.action.kind !== 'approve_grant' ||
+      candidate.blocker.action.grant.type !== 'addRules' ||
+      candidate.blocker.action.grant.destination !== undefined
+    ) {
+      continue;
+    }
     const group = byBlocker.get(candidate.blocker) ?? [];
     group.push(candidate);
     byBlocker.set(candidate.blocker, group);
   }
+  // One interaction may approve SEVERAL independent blockers: a group matches
+  // when its COMPLETE rule set is covered by the approval (subset, not
+  // equality with the global union) - and every matched group's requirements
+  // are appended (review R8).
+  const matchedRequirements: JobAccessRequirement[] = [];
+  let anyMatched = false;
   for (const [, group] of byBlocker) {
     const groupRules = group.map((candidate) => candidateRule(candidate));
     if (
-      groupRules.length === approvedSet.size &&
+      groupRules.length > 0 &&
       groupRules.every((rule) => rule !== undefined && approvedSet.has(rule))
     ) {
-      return {
-        matched: true,
-        requirements: group.flatMap((candidate) =>
+      anyMatched = true;
+      matchedRequirements.push(
+        ...group.flatMap((candidate) =>
           candidate.suggestedRequirement
             ? [candidate.suggestedRequirement]
             : [],
         ),
-      };
+      );
     }
   }
-  return { matched: false };
+  if (!anyMatched) return { matched: false };
+  return { matched: true, requirements: matchedRequirements };
 }
 
 function candidateRule(

@@ -64,7 +64,6 @@ function approveBlocker(
       grant: {
         type: 'addRules' as const,
         behavior: 'allow' as const,
-        destination: 'session' as const,
         rules: [{ toolName, ...(ruleContent ? { ruleContent } : {}) }],
       },
     },

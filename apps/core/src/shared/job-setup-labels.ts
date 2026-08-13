@@ -18,11 +18,38 @@ export function jobSetupBlockerFromUnknown(
     typeof blocker.state !== 'string' ||
     typeof blocker.type !== 'string' ||
     typeof blocker.id !== 'string' ||
-    !blocker.action
+    !isDisplayableSetupAction(blocker.action)
   ) {
     return undefined;
   }
   return blocker as JobSetupLabelBlocker;
+}
+
+// Untrusted CLI/MCP/IPC data reaches the formatter - validate the
+// discriminated action and its required nested fields so malformed input
+// takes the fallback instead of throwing (review R8).
+function isDisplayableSetupAction(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const action = value as Record<string, unknown>;
+  if (action.kind === 'instruction') return typeof action.text === 'string';
+  if (action.kind === 'fix_proposal') {
+    return typeof action.proposalId === 'string';
+  }
+  if (action.kind !== 'approve_grant') return false;
+  const grant = action.grant as Record<string, unknown> | undefined;
+  return Boolean(
+    grant &&
+    typeof grant === 'object' &&
+    Array.isArray(grant.rules) &&
+    grant.rules.every(
+      (rule) =>
+        rule &&
+        typeof rule === 'object' &&
+        typeof (rule as Record<string, unknown>).toolName === 'string',
+    ),
+  );
 }
 
 export function setupBlockerLabel(
