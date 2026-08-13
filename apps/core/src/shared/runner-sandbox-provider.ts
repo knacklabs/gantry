@@ -19,6 +19,11 @@ export interface RunnerSandboxProfile {
   id: string;
   network: RunnerSandboxNetworkMode;
   filesystem: RunnerSandboxFilesystemMode;
+  /**
+   * Required only for reviewed workflows that create a loopback-only helper
+   * inside their isolated sandbox. It never opens a host-facing listener.
+   */
+  allowLocalBinding?: true;
 }
 
 export interface RunnerSandboxPrincipal {

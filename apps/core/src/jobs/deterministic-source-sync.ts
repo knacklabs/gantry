@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
@@ -48,6 +49,11 @@ const MANAGED_BROWSER_ACTION_RESOURCE_LIMITS = {
   ...DEFAULT_ASYNC_RESOURCE_LIMITS,
   memoryMb: 0,
 };
+
+// This name is only meaningful to the run-scoped egress gateway. It is mapped
+// to the exact loopback CDP port for the managed browser; it has no DNS record
+// and cannot be reached from outside the sandboxed execution flow.
+const MANAGED_BROWSER_CDP_GATEWAY_HOST = 'browser-cdp.gantry.internal';
 
 export function resolveDeterministicManagedBrowserActions(
   job: Job,
@@ -163,22 +169,35 @@ export async function runDeterministicManagedBrowserActions(input: {
       runId: input.runId,
       jobId: input.job.id,
     },
+    privateNetworkHostMappings: [
+      {
+        authority: `${MANAGED_BROWSER_CDP_GATEWAY_HOST}:${browser.port}`,
+        connectHost: '127.0.0.1',
+      },
+    ],
   });
   try {
     const env = {
       ...buildAsyncCommandEnv(),
       ...buildToolNetworkEnv({ proxyUrl: gateway.proxyUrl }),
       ...skillEnv.env,
-      GANTRY_BROWSER_CDP_ENDPOINT: `http://127.0.0.1:${browser.port}`,
       GANTRY_BROWSER_PROFILE_NAME: profileName,
       GANTRY_BROWSER_MANAGED_AUTOMATION: '1',
     };
     const summaries: string[] = [];
     for (const action of input.actions) {
+      const bridgePort = managedBrowserSandboxBridgePort({
+        runId: input.runId,
+        capabilityId: action.capabilityId,
+      });
       const outcome = await runSandboxedAsyncCommand(
         input.deps.runnerSandboxProvider,
         {
-          command: action.command,
+          command: managedBrowserSandboxBridgeCommand({
+            command: action.command,
+            bridgePort,
+            browserPort: browser.port,
+          }),
           cwd: workspacePath,
           env,
           timeoutMs: Math.min(input.timeoutMs, 240_000),
@@ -188,6 +207,7 @@ export async function runDeterministicManagedBrowserActions(input: {
           allowedNetworkHosts,
           egressProxyUrl: gateway.proxyUrl,
           resourceLimits: MANAGED_BROWSER_ACTION_RESOURCE_LIMITS,
+          allowLocalBinding: true,
           signal: input.signal,
           appId: input.appId,
           agentId: input.agentId,
@@ -204,6 +224,42 @@ export async function runDeterministicManagedBrowserActions(input: {
   } finally {
     await closeEgressGateway(gateway);
   }
+}
+
+function managedBrowserSandboxBridgePort(input: {
+  runId: string;
+  capabilityId: string;
+}): number {
+  const offset = createHash('sha256')
+    .update(`${input.runId}:${input.capabilityId}`)
+    .digest()
+    .readUInt16BE(0);
+  return 20_000 + (offset % 20_000);
+}
+
+function managedBrowserSandboxBridgeCommand(input: {
+  command: string;
+  bridgePort: number;
+  browserPort: number;
+}): string {
+  const target = `${MANAGED_BROWSER_CDP_GATEWAY_HOST}:${input.browserPort}`;
+  return [
+    'set -eu',
+    `socat "TCP-LISTEN:${input.bridgePort},bind=127.0.0.1,reuseaddr,fork" "PROXY:${target},proxyport=3128" >/dev/null 2>&1 &`,
+    'gantry_browser_bridge_pid=$!',
+    'cleanup_gantry_browser_bridge() {',
+    '  kill "$gantry_browser_bridge_pid" 2>/dev/null || true',
+    '  wait "$gantry_browser_bridge_pid" 2>/dev/null || true',
+    '}',
+    'trap cleanup_gantry_browser_bridge EXIT INT TERM',
+    'sleep 0.1',
+    'if ! kill -0 "$gantry_browser_bridge_pid" 2>/dev/null; then',
+    '  echo "Managed browser CDP bridge failed to start." >&2',
+    '  exit 70',
+    'fi',
+    `export GANTRY_BROWSER_CDP_ENDPOINT=http://127.0.0.1:${input.bridgePort}`,
+    input.command,
+  ].join('\n');
 }
 
 /**

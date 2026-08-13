@@ -63,6 +63,7 @@ export async function runSandboxedAsyncCommand(
     allowedNetworkHosts: string[];
     egressProxyUrl?: string;
     resourceLimits: RunnerSandboxResourceLimits;
+    allowLocalBinding?: true;
     signal: AbortSignal;
     appId: string;
     agentId: string;
@@ -115,6 +116,7 @@ export async function runSandboxedAsyncCommand(
       id: 'async-command',
       network: input.egressProxyUrl ? 'required' : 'none',
       filesystem: 'workspace_write',
+      ...(input.allowLocalBinding ? { allowLocalBinding: true } : {}),
     },
     principal: {
       appId: input.appId,

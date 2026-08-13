@@ -233,7 +233,9 @@ function buildSandboxRuntimeConfig(input: RunnerSandboxSpawnInput) {
   return {
     network: {
       deniedDomains: [...template.network.deniedDomains],
-      allowLocalBinding: template.network.allowLocalBinding,
+      allowLocalBinding:
+        input.sandboxProfile.allowLocalBinding === true ||
+        template.network.allowLocalBinding,
       ...(process.platform === 'darwin'
         ? { allowMachLookup: [MACOS_FSEVENTS_MACH_SERVICE] }
         : {}),
