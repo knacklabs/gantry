@@ -6,6 +6,7 @@ import {
   useSearch,
 } from '@tanstack/react-router';
 import { ArrowLeft, Bot, CircleOff, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
 
 import {
   agentRelationQuery,
@@ -43,7 +44,7 @@ export function RuntimeAgentDetailRoute() {
   const { agentId } = useParams({ from: '/agents/$agentId' });
   const search = useSearch({ from: '/agents/$agentId' });
   const navigate = useNavigate({ from: '/agents/$agentId' });
-  const tab = canonicalTab(search.tab);
+  const [tab, setTab] = useState(() => canonicalTab(search.tab));
   const summary = useQuery(agentSummaryQuery(agentId));
   const delegation = useQuery({
     ...agentRelationQuery(agentId, 'delegation'),
@@ -163,7 +164,14 @@ export function RuntimeAgentDetailRoute() {
               key={item.value}
               role="tab"
               type="button"
-              onClick={() => void navigate({ search: { tab: item.value } })}
+              onClick={() => {
+                setTab(item.value);
+                void navigate({
+                  to: '/agents/$agentId',
+                  params: { agentId },
+                  search: { tab: item.value },
+                });
+              }}
             >
               {item.label}
             </button>

@@ -193,6 +193,12 @@ export type ReplaceAgentDelegatesResponse = JsonResponse<
   'replaceAgentDelegates',
   200
 >;
+export type ListCapabilitiesResponse = JsonResponse<'listCapabilities', 200>;
+export type ListSkillsResponse = JsonResponse<'listSkills', 200>;
+export type ListAgentSkillBindingsResponse = JsonResponse<
+  'listAgentSkillBindings',
+  200
+>;
 
 export type CreateWebhookRequest = JsonRequest<'createWebhook'>;
 export type CreateWebhookResponse = JsonResponse<'createWebhook', 201>;
