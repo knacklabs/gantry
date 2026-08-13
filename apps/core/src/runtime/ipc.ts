@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 
 import { sendCoreMessage } from '../application/core-tools/send-message.js';
@@ -51,6 +52,8 @@ export {
 } from './ipc-scheduled-interaction-validation.js';
 let ipcWatcherRunning = false;
 let ipcWatcherTimer: ReturnType<typeof setTimeout> | undefined;
+let browserIpcWatcherTimer: ReturnType<typeof setInterval> | undefined;
+let toolTaskIpcWatcherTimer: ReturnType<typeof setInterval> | undefined;
 let ipcRootLockPath: string | undefined;
 let activeRunnerControlPort: FilesystemRunnerControlPort | undefined;
 let activeRequestWakeups: IpcRequestWakeupRegistry | undefined;
@@ -100,6 +103,24 @@ export function startIpcWatcher(deps: IpcDeps): void {
 
   const triggerIpcProcessing = (hint?: IpcRequestWakeupHint): void => {
     if (!ipcWatcherRunning) return;
+    // Browser calls are latency-sensitive parts of an interactive agent turn
+    // and already have their own signed credentials, claiming, rate limit,
+    // concurrency limit, and per-turn queue. Service their watched lane
+    // directly instead of putting them behind the serialized multi-lane scan.
+    if (hint?.lane === 'browser-requests') {
+      processBrowserRequestDirectory({
+        ipcBaseDir,
+        sourceAgentFolder: hint.workspaceFolder,
+        browserRequestsDir: runnerControlPort.requestDir(
+          hint.workspaceFolder,
+          'browser-requests',
+        ),
+        runnerControlPort,
+        deps,
+        logger,
+      });
+      return;
+    }
     if (processingIpcFiles) {
       wakeupScope.recordWakeupDuringPass(hint);
       processAgainAfterCurrentPass = true;
@@ -121,6 +142,106 @@ export function startIpcWatcher(deps: IpcDeps): void {
       },
     },
   });
+
+  // Browser turns must not depend on the general multi-lane scan reaching its
+  // watcher-reconciliation point. A stale or slow request in another lane can
+  // otherwise strand an active model tool call until its signed request
+  // expires. The normal filesystem wakeup remains the low-latency path; this
+  // bounded independent scan is the authoritative fallback.
+  browserIpcWatcherTimer = setInterval(() => {
+    if (!ipcWatcherRunning) return;
+    for (const sourceAgentFolder of fs.readdirSync(ipcBaseDir, {
+      withFileTypes: true,
+    }).flatMap((entry) =>
+      entry.isDirectory() &&
+      runnerControlPort.isTrustedRequestDir(entry.name, 'browser-requests')
+        ? [entry.name]
+        : [],
+    )) {
+      processBrowserRequestDirectory({
+        ipcBaseDir,
+        sourceAgentFolder,
+        browserRequestsDir: runnerControlPort.requestDir(
+          sourceAgentFolder,
+          'browser-requests',
+        ),
+        runnerControlPort,
+        deps,
+        logger,
+      });
+    }
+  }, IPC_POLL_INTERVAL);
+  browserIpcWatcherTimer.unref?.();
+  toolTaskIpcWatcherTimer = setInterval(() => {
+    if (!ipcWatcherRunning) return;
+    for (const sourceAgentFolder of fs.readdirSync(ipcBaseDir, {
+      withFileTypes: true,
+    }).flatMap((entry) =>
+      entry.isDirectory() &&
+      runnerControlPort.isTrustedRequestDir(entry.name, 'tasks')
+        ? [entry.name]
+        : [],
+    )) {
+      for (const file of runnerControlPort.listPendingRequests(
+        sourceAgentFolder,
+        'tasks',
+      )) {
+        const pendingPath = path.join(
+          runnerControlPort.requestDir(sourceAgentFolder, 'tasks'),
+          file,
+        );
+        try {
+          const preview = JSON.parse(fs.readFileSync(pendingPath, 'utf8')) as {
+            type?: unknown;
+          };
+          if (
+            preview.type !== 'mcp_call_tool' &&
+            preview.type !== 'external_capability_call'
+          )
+            continue;
+        } catch {
+          continue;
+        }
+        let claimedPath = path.join(
+          runnerControlPort.requestDir(sourceAgentFolder, 'tasks'),
+          file,
+        );
+        try {
+          const claimed = runnerControlPort.claimRequest(
+            sourceAgentFolder,
+            'tasks',
+            file,
+          );
+          claimedPath = claimed.claimedPath;
+          const data = parseTaskIpcData(claimed.raw, sourceAgentFolder);
+          void processTaskIpc(data, sourceAgentFolder, deps, ipcBaseDir)
+            .then(() => runnerControlPort.removeClaimedRequest(claimedPath))
+            .catch((err) => {
+              logger.error(
+                { file, sourceAgentFolder, err },
+                'Error processing tool-call IPC task',
+              );
+              runnerControlPort.archiveFailedRequest(
+                sourceAgentFolder,
+                file,
+                claimedPath,
+              );
+            });
+        } catch (err) {
+          logger.error(
+            { file, sourceAgentFolder, err },
+            'Error claiming tool-call IPC task',
+          );
+          runnerControlPort.archiveFailedRequest(
+            sourceAgentFolder,
+            file,
+            claimedPath,
+          );
+        }
+      }
+    }
+  }, IPC_POLL_INTERVAL);
+  toolTaskIpcWatcherTimer.unref?.();
 
   const processIpcFiles = async () => {
     if (!ipcWatcherRunning) return;
@@ -773,6 +894,14 @@ export function startIpcWatcher(deps: IpcDeps): void {
 }
 
 export function stopIpcWatcher(): void {
+  if (toolTaskIpcWatcherTimer) {
+    clearInterval(toolTaskIpcWatcherTimer);
+    toolTaskIpcWatcherTimer = undefined;
+  }
+  if (browserIpcWatcherTimer) {
+    clearInterval(browserIpcWatcherTimer);
+    browserIpcWatcherTimer = undefined;
+  }
   if (ipcWatcherTimer) {
     clearTimeout(ipcWatcherTimer);
     ipcWatcherTimer = undefined;
