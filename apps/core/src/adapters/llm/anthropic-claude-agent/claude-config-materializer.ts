@@ -70,9 +70,11 @@ export async function materializeClaudeRuntime(
   const baseTempDir = input.baseTempDir ?? createDefaultBaseDir(input.groupDir);
   const claudeConfigDir = path.join(baseTempDir, 'claude');
   // Reviewed action templates intentionally use the provider-neutral
-  // `skills/<name>/...` command path. Materialize that projection at the
-  // workspace root and point Claude's private discovery directory at the same
-  // immutable tree so discovery and execution cannot drift apart.
+  // `skills/<name>/...` command path. Materialize that executable projection
+  // at the workspace root, then mirror it into Claude's private discovery
+  // directory. Both trees are write-protected by the outer sandbox. A symlink
+  // cannot be used here because Bubblewrap deliberately masks writable-path
+  // symlinks and cannot mount that protection over this nested runtime path.
   const skillsDir = path.join(input.groupDir, 'skills');
   const claudeSkillsDir = path.join(claudeConfigDir, 'skills');
   const projectDir = path.join(
@@ -103,7 +105,11 @@ export async function materializeClaudeRuntime(
       skillsDir,
       enabledSkillIds: input.enabledSkillIds,
     });
-    fs.symlinkSync(skillsDir, claudeSkillsDir, 'dir');
+    fs.cpSync(skillsDir, claudeSkillsDir, {
+      recursive: true,
+      dereference: true,
+      preserveTimestamps: true,
+    });
   } catch (err) {
     if (cleanupBaseDir) {
       fs.rmSync(baseTempDir, { recursive: true, force: true });
