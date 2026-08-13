@@ -150,6 +150,10 @@
   *::after {
     scroll-behavior: auto !important;
   }
+
+  .agent-directory table tbody tr {
+    transition-duration: 1ms !important;
+  }
 }
 
 :root[data-motion='reduced'] *,
