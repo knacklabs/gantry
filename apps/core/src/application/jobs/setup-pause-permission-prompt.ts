@@ -345,25 +345,41 @@ function grantableRequirementCandidates(
 export function setupPauseRequirementForApprovedSuggestions(input: {
   job: Job;
   suggestions: readonly PermissionApprovalUpdate[];
-}): { matched: boolean; requirement?: JobAccessRequirement } {
+}): { matched: boolean; requirements?: JobAccessRequirement[] } {
   const approvedRules = permissionUpdateAllowedToolRules(input.suggestions);
   if (approvedRules.length === 0) return { matched: false };
   const candidates = grantableRequirementCandidates(
     input.job,
     input.job.setup_state?.blockers ?? [],
   );
-  // Review R2: a grant may carry several rules - EVERY approved rule must
-  // correspond to a candidate for the approval to satisfy the action.
-  const matchedCandidates = approvedRules.map((approved) =>
-    candidates.find((candidate) => candidateRule(candidate) === approved),
-  );
-  if (matchedCandidates.some((candidate) => !candidate)) {
-    return { matched: false };
+  // Review R3: an approval satisfies a grant action only when it covers the
+  // action's COMPLETE rule set - a partial approval must not resume the job
+  // with part of the typed authority applied - and every corresponding
+  // requirement is returned so all of them get appended.
+  const approvedSet = new Set(approvedRules);
+  const byBlocker = new Map<JobSetupBlocker, GrantableRequirementCandidate[]>();
+  for (const candidate of candidates) {
+    const group = byBlocker.get(candidate.blocker) ?? [];
+    group.push(candidate);
+    byBlocker.set(candidate.blocker, group);
   }
-  const requirement = matchedCandidates.find(
-    (candidate) => candidate?.suggestedRequirement,
-  )?.suggestedRequirement;
-  return { matched: true, ...(requirement ? { requirement } : {}) };
+  for (const [, group] of byBlocker) {
+    const groupRules = group.map((candidate) => candidateRule(candidate));
+    if (
+      groupRules.length === approvedSet.size &&
+      groupRules.every((rule) => rule !== undefined && approvedSet.has(rule))
+    ) {
+      return {
+        matched: true,
+        requirements: group.flatMap((candidate) =>
+          candidate.suggestedRequirement
+            ? [candidate.suggestedRequirement]
+            : [],
+        ),
+      };
+    }
+  }
+  return { matched: false };
 }
 
 function candidateRule(

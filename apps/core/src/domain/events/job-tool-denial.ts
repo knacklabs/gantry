@@ -73,6 +73,21 @@ export function parseJobToolDeniedEvent(
     return null;
   }
   const payload = event.payload as Record<string, unknown>;
+  // Hard cutover (0113): legacy fields (grantable/recovery_action/
+  // recovery_kind) or any unexpected key make parsing FAIL - a dual-writing
+  // producer must be detected, never silently tolerated.
+  const allowedPayloadKeys = new Set([
+    'denied_tool',
+    'reason',
+    'denial_kind',
+    'provenance_lane',
+    'provenance_seam',
+    'action',
+    'error_summary',
+  ]);
+  if (!Object.keys(payload).every((key) => allowedPayloadKeys.has(key))) {
+    return null;
+  }
   const action = parseJobSetupActionValue(payload.action);
   if (
     typeof payload.denied_tool !== 'string' ||
@@ -135,6 +150,15 @@ export function parseJobSetupActionValue(
     return null;
   }
   const grantRecord = wireGrant as Record<string, unknown>;
+  const allowedGrantKeys = new Set([
+    'type',
+    'behavior',
+    'rules',
+    'destination',
+  ]);
+  if (!Object.keys(grantRecord).every((key) => allowedGrantKeys.has(key))) {
+    return null;
+  }
   if (!Array.isArray(grantRecord.rules)) return null;
   const decodedRules: Array<{ toolName: string; ruleContent?: string }> = [];
   for (const rule of grantRecord.rules) {

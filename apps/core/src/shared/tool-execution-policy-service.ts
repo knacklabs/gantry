@@ -672,10 +672,10 @@ export function autonomousToolAuthorityAddition(input: {
 }
 
 function allowRuleAddition(toolName: string, ruleContent?: string) {
+  // No destination: durable approval decides persistence (review R3).
   return {
     type: 'addRules' as const,
     behavior: 'allow' as const,
-    destination: 'session' as const,
     rules: [{ toolName, ...(ruleContent ? { ruleContent } : {}) }],
   };
 }

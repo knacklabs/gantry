@@ -57,10 +57,12 @@ export function approveGrantSetupAction(
 
 export function approveRuleSetupAction(rule: string): JobSetupActionShape {
   const scoped = parseReadableScopedToolRule(rule);
+  // No destination: the durable setup-approval path chooses persistence -
+  // a hard-coded 'session' would expire lasting access with the session
+  // (review R3, 0121: post-grant repeats must allow on FUTURE runs).
   return approveGrantSetupAction({
     type: 'addRules',
     behavior: 'allow',
-    destination: 'session',
     rules: [
       scoped
         ? { toolName: scoped.toolName, ruleContent: scoped.scope }

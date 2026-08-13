@@ -133,7 +133,6 @@ describe('Gantry DeepAgents shell tool', () => {
         grant: {
           type: 'addRules',
           behavior: 'allow',
-          destination: 'session',
           rules: [
             { toolName: 'RunCommand', ruleContent: 'echo should-not-run' },
           ],

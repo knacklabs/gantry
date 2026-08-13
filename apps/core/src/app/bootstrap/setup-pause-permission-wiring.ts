@@ -221,13 +221,28 @@ export async function appendSetupPauseRequirementAfterPersistentGrant(
       suggestions: effectiveUpdates,
     });
     if (!approved.matched) return false;
-    if (!approved.requirement) return true;
-    const appended = await opsRepository.appendJobAccessRequirement({
-      jobId: job.id,
-      requirement: approved.requirement,
-      expectedUpdatedAt: job.updated_at,
-    });
-    if (appended) return true;
+    const requirements = approved.requirements ?? [];
+    if (requirements.length === 0) return true;
+    // Review R3: a multi-rule grant appends EVERY corresponding requirement -
+    // appending only one would leave the declaration partial and re-strand
+    // the job on its next run.
+    let allAppended = true;
+    let expectedUpdatedAt = job.updated_at;
+    for (const requirement of requirements) {
+      const appended = await opsRepository.appendJobAccessRequirement({
+        jobId: job.id,
+        requirement,
+        expectedUpdatedAt,
+      });
+      if (!appended) {
+        allAppended = false;
+        break;
+      }
+      const refreshed = await opsRepository.getJobById(job.id);
+      if (!refreshed) return false;
+      expectedUpdatedAt = refreshed.updated_at;
+    }
+    if (allAppended) return true;
   }
   return false;
 }
