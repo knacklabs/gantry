@@ -47,6 +47,58 @@ function asyncRuntimeDeps(repository: AsyncTaskRepository) {
 }
 
 describe('external capability MCP task', () => {
+  it('accepts the signed app conversation for a scheduled job without a chat route', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const callTool = vi.fn(async () => ({ evaluationId: 'evaluation-1' }));
+    const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
+      vi.fn(async () => ({
+        assertToolAllowed: vi.fn(async () => undefined),
+        callTool,
+        describeTool: vi.fn(),
+        listTools: vi.fn(),
+      })) as never,
+    );
+    configurePendingInteractionDurability({
+      repository: {
+        getActiveRunLease: vi.fn(async () => ({
+          runId: 'run-1',
+          leaseToken: 'lease-1',
+          fencingVersion: 1,
+        })),
+      } as never,
+    });
+
+    await externalCapabilityCallToolHandler({
+      data: {
+        type: 'external_capability_call',
+        appId: 'manipal-tender-copilot',
+        agentId: 'agent:signed',
+        chatJid: 'app:manipal-tender-copilot:conversation-1',
+        targetJid: 'app:manipal-tender-copilot:conversation-1',
+        sourceRunKind: 'scheduled',
+        jobId: 'job-1',
+        runId: 'run-1',
+        sourceJobId: 'job-1',
+        sourceRunId: 'run-1',
+        runLeaseToken: 'lease-1',
+        runLeaseFencingVersion: 1,
+        payload: {
+          serverName: 'manipal-evaluator',
+          toolName: 'evaluation.submit',
+          capabilityId: 'manipal.website-recipe-evaluator@1',
+          idempotencyKey: 'evaluation-submit-app-conversation',
+          arguments: { candidateHash: 'candidate-hash' },
+        },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: asyncRuntimeDeps(repository),
+      conversationBindings: {},
+      sourceAgentFolderJids: [],
+    });
+
+    expect(callTool).toHaveBeenCalledOnce();
+  });
+
   it('injects a host completion envelope and suspends the authenticated job run', async () => {
     const repository = new MemoryAsyncTaskRepository();
     const abort = vi.fn();

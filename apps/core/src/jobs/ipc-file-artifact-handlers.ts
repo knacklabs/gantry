@@ -13,6 +13,7 @@ import {
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { readWorkspaceMessageAttachment } from '../platform/workspace-message-attachment.js';
 import { sourceAgentHasAdminToolCapability } from './ipc-admin-authorization.js';
+import { appIdFromConversationJid } from '../shared/app-conversation-jid.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import type { TaskContext, TaskHandler } from './ipc-types.js';
 
@@ -259,7 +260,11 @@ function validateSameChannelTarget(input: {
   }
   if (
     !requestedTargetJid ||
-    !input.sourceAgentFolderJids.includes(requestedTargetJid)
+    (!input.sourceAgentFolderJids.includes(requestedTargetJid) &&
+      !isAuthenticatedScheduledAppConversation(
+        input.context,
+        requestedTargetJid,
+      ))
   ) {
     input.reject(
       `${input.requestKind} requests must include the originating chat for this agent.`,
@@ -268,6 +273,17 @@ function validateSameChannelTarget(input: {
     return null;
   }
   return requestedTargetJid;
+}
+
+function isAuthenticatedScheduledAppConversation(
+  context: TaskContext,
+  conversationJid: string,
+): boolean {
+  return (
+    context.data.sourceRunKind === 'scheduled' &&
+    Boolean(context.data.appId) &&
+    appIdFromConversationJid(conversationJid) === context.data.appId
+  );
 }
 
 async function authorizeProtectedPromptMutation(

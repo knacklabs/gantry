@@ -1,6 +1,7 @@
 import path from 'path';
 
 import { publishInvalidMcpToolRequestAudit } from '../application/mcp/mcp-tool-audit.js';
+import { appIdFromConversationJid } from '../shared/app-conversation-jid.js';
 import type { McpToolProxy } from '../application/mcp/mcp-tool-proxy.js';
 import { isActiveRunLeaseForInteraction } from '../application/interactions/pending-interaction-durability.js';
 import {
@@ -828,7 +829,8 @@ function validateSameChannelMcpTarget(input: {
   }
   if (
     !requestedTargetJid ||
-    !input.sourceAgentFolderJids.includes(requestedTargetJid)
+    (!input.sourceAgentFolderJids.includes(requestedTargetJid) &&
+      !isAuthenticatedScheduledAppConversation(input.data, requestedTargetJid))
   ) {
     input.reject(
       `${input.requestKind} requests must include the originating chat for this agent.`,
@@ -837,6 +839,16 @@ function validateSameChannelMcpTarget(input: {
     return null;
   }
   return requestedTargetJid;
+}
+function isAuthenticatedScheduledAppConversation(
+  data: Parameters<TaskHandler>[0]['data'],
+  conversationJid: string,
+): boolean {
+  return (
+    data.sourceRunKind === 'scheduled' &&
+    Boolean(data.appId) &&
+    appIdFromConversationJid(conversationJid) === data.appId
+  );
 }
 function resolveMcpRouteScope(
   context: TaskContext,

@@ -111,6 +111,42 @@ afterEach(() => {
 });
 
 describe('file artifact IPC handlers', () => {
+  it('accepts the signed app conversation for a scheduled job without a chat route', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-file-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { fileArtifactTaskHandlers, taskData } =
+      await loadFileArtifactHandlers(runtimeHome);
+    const writeFileArtifact = vi.fn(async (input) =>
+      makeArtifact({
+        virtualScope: input.virtualScope,
+        virtualPath: input.virtualPath,
+        content: input.content,
+      }),
+    );
+
+    await fileArtifactTaskHandlers.file_artifact(
+      contextFor({
+        data: taskData('scheduled-app-write', {
+          appId: 'manipal-tender-copilot',
+          chatJid: 'app:manipal-tender-copilot:conversation-1',
+          jid: 'app:manipal-tender-copilot:conversation-1',
+          sourceRunKind: 'scheduled',
+          payload: {
+            action: 'write',
+            scope: 'job-1',
+            path: 'inventory.json',
+            content: '{}',
+          },
+        }),
+        writeFileArtifact,
+      }),
+    );
+
+    expect(writeFileArtifact).toHaveBeenCalledOnce();
+  });
+
   it('preserves explicit write content through the signed IPC response path', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-file-ipc-'),
