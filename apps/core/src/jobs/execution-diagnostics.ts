@@ -74,11 +74,13 @@ export function toolDenialEventPayload(
     provenance_seam: toolDenial.provenanceSeam,
     grantable: toolDenial.grantable ?? null,
     recovery_action: toolDenial.recoveryAction ?? null,
+    // Producer-supplied recovery kind wins; the heuristic only fills gaps.
     recovery_kind:
-      toolDenial.grantable === true &&
+      toolDenial.recoveryKind ??
+      (toolDenial.grantable === true &&
       toolDenial.recoveryAction?.startsWith('request_access') === true
         ? 'persistent_capability'
-        : 'job_policy',
+        : 'job_policy'),
   };
 }
 
@@ -228,6 +230,9 @@ export function updateDiagnosticsFromRuntimeEvent(
         : {}),
       recoveryAction:
         stringValue(payload.recovery_action) ?? matchingWait?.recoveryAction,
+      ...(stringValue(payload.recovery_kind)
+        ? { recoveryKind: stringValue(payload.recovery_kind) }
+        : {}),
     };
     diagnostics.terminalToolDenials.push(typedDenial);
     // First denial wins the primary slot (0126); later ones are recorded

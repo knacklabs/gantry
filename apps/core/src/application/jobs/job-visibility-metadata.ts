@@ -141,11 +141,11 @@ export async function buildJobVisibilityMetadata(input: {
     typeof input.ops.listJobRuns === 'function'
       ? await input.ops.listJobRuns(input.job.id, input.recentRunLimit ?? 5)
       : [];
-  const denialsByRun = await loadPrimaryDenialsByRun(input.ops, {
-    jobId: input.job.id,
-    appId,
-  });
   const latestRun = runs[0];
+  const denialsByRun = await loadPrimaryDenialsByRun(input.ops, {
+    appId,
+    runIds: latestRun ? [latestRun.run_id] : [],
+  });
   const health = buildJobHealth({
     job: input.job,
     runs,
@@ -208,8 +208,10 @@ export async function buildJobListVisibilityMetadata(input: {
   const nowMs = input.nowMs ?? currentTimeMs();
   const latestRunsByJobId = await loadLatestRunsByJobId(input.jobs, input.ops);
   const denialsByRun = await loadPrimaryDenialsByRun(input.ops, {
-    jobIds: input.jobs.map((job) => job.id),
     appId: input.appId ?? DEFAULT_JOB_RUNTIME_APP_ID,
+    runIds: [...latestRunsByJobId.values()]
+      .map((run) => run?.run_id)
+      .filter((runId): runId is string => typeof runId === 'string'),
   });
   const inheritedToolsByTarget = new Map<string, Promise<string[]>>();
   const loadInheritedTools = (
@@ -471,21 +473,26 @@ function nextJobHealthAction(
 
 async function loadPrimaryDenialsByRun(
   ops: Pick<RuntimeJobRepository, 'listRecentJobEvents'> | undefined,
-  input: { appId: string; jobId?: string; jobIds?: string[] },
+  input: { appId: string; runIds: string[] },
 ): Promise<Map<string, JobToolDenial>> {
-  if (!ops?.listRecentJobEvents) return new Map();
-  const events = await ops.listRecentJobEvents(1_000, {
-    app_id: input.appId,
-    job_id: input.jobId,
-    job_ids: input.jobIds,
-    event_type: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
-  });
+  // Scoped per displayed latest run (review round 2): one global history cap
+  // let a busy job crowd out another job's authoritative denial.
+  if (!ops?.listRecentJobEvents || input.runIds.length === 0) return new Map();
   const result = new Map<string, JobToolDenial>();
-  for (const event of [...events].sort((left, right) => left.id - right.id)) {
-    if (!event.run_id || result.has(event.run_id)) continue;
-    const denial = parseJobEventDenial(event);
-    if (denial) result.set(event.run_id, denial);
-  }
+  await Promise.all(
+    input.runIds.map(async (runId) => {
+      const events = await ops.listRecentJobEvents!(50, {
+        app_id: input.appId,
+        run_id: runId,
+        event_type: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+      });
+      const primary = [...events]
+        .sort((left, right) => left.id - right.id)
+        .map(parseJobEventDenial)
+        .find(Boolean);
+      if (primary) result.set(runId, primary);
+    }),
+  );
   return result;
 }
 

@@ -204,6 +204,9 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
         .onConflictDoNothing();
     }
 
+        // Round-2 fix: one normalization for insert AND conflict lookup - a
+    // whitespace-bearing key must conflict with and resolve to the same row.
+    const normalizedIdempotencyKey = input.idempotencyKey?.trim() || null;
     const rows = await db
       .insert(pgSchema.runtimeEventsPostgres)
       .values({
@@ -220,7 +223,7 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
         correlationId: input.correlationId ?? null,
         responseMode: input.responseMode ?? null,
         webhookId: input.webhookId ?? null,
-        idempotencyKey: input.idempotencyKey ?? null,
+        idempotencyKey: normalizedIdempotencyKey,
         payloadJson: encodeJson(input.payload),
         createdAt: input.createdAt ?? currentIso(),
       })
@@ -233,8 +236,7 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
       })
       .returning();
     if (rows[0]) return { event: this.eventFromRow(rows[0]), inserted: true };
-    const idempotencyKey = input.idempotencyKey?.trim();
-    if (!idempotencyKey) {
+    if (!normalizedIdempotencyKey) {
       throw new Error('Runtime event insert returned no row.');
     }
     const existing = await db
@@ -243,7 +245,7 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
       .where(
         and(
           eq(pgSchema.runtimeEventsPostgres.appId, appId),
-          eq(pgSchema.runtimeEventsPostgres.idempotencyKey, idempotencyKey),
+          eq(pgSchema.runtimeEventsPostgres.idempotencyKey, normalizedIdempotencyKey),
         ),
       )
       .limit(1);
