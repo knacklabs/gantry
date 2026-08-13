@@ -260,10 +260,25 @@ export const JobSetupSchema = z
     blockers: z.array(
       z
         .object({
-          state: z.string(),
+          // Closed unions mirror the domain exactly - the contract must not
+          // accept impossible blocker kinds or a 'ready' blocker.
+          state: z.enum([
+            'missing_capability',
+            'broker_unreachable',
+            'credential_unknown',
+            'browser_login_may_be_required',
+            'mcp_missing_credential',
+          ]),
           summary: z.string(),
           action: JobSetupActionSchema,
-          type: z.string(),
+          type: z.enum([
+            'tool',
+            'semantic_capability',
+            'browser',
+            'mcp_server',
+            'credential',
+            'local_cli',
+          ]),
           id: z.string(),
         })
         .strict(),
