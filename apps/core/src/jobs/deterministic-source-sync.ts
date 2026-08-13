@@ -50,6 +50,11 @@ const MANAGED_BROWSER_ACTION_RESOURCE_LIMITS = {
   memoryMb: 0,
 };
 
+// A human login session can remain open for the ATS-issued 29-minute window.
+// Scrape commands usually finish sooner; this is the maximum boundary for the
+// reviewed deterministic browser action, not an unbounded process.
+const MANAGED_BROWSER_ACTION_TIMEOUT_MS = 1_800_000;
+
 // This name is only meaningful to the run-scoped egress gateway. It is mapped
 // to the exact loopback CDP port for the managed browser; it has no DNS record
 // and cannot be reached from outside the sandboxed execution flow.
@@ -200,7 +205,10 @@ export async function runDeterministicManagedBrowserActions(input: {
           }),
           cwd: workspacePath,
           env,
-          timeoutMs: Math.min(input.timeoutMs, 240_000),
+          timeoutMs: Math.min(
+            input.timeoutMs,
+            MANAGED_BROWSER_ACTION_TIMEOUT_MS,
+          ),
           outputMaxBytes: 4_000,
           protectedReadPaths: [],
           protectedWritePaths: [],
