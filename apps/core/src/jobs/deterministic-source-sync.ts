@@ -182,10 +182,6 @@ export async function runDeterministicManagedBrowserActions(input: {
     ],
   });
   try {
-    const egressProxyPort = new URL(gateway.proxyUrl).port;
-    if (!egressProxyPort) {
-      throw new Error('Managed browser egress gateway did not expose a port.');
-    }
     const env = {
       ...buildAsyncCommandEnv(),
       ...buildToolNetworkEnv({ proxyUrl: gateway.proxyUrl }),
@@ -206,7 +202,6 @@ export async function runDeterministicManagedBrowserActions(input: {
             command: action.command,
             bridgePort,
             browserPort: browser.port,
-            egressProxyPort,
           }),
           cwd: workspacePath,
           env,
@@ -254,12 +249,17 @@ function managedBrowserSandboxBridgeCommand(input: {
   command: string;
   bridgePort: number;
   browserPort: number;
-  egressProxyPort: string;
 }): string {
-  const target = `${MANAGED_BROWSER_CDP_GATEWAY_HOST}:${input.browserPort}`;
+  // Sandbox Runtime creates its own network namespace. Its localhost:3128
+  // proxy is the only approved route back to the parent task's run-scoped
+  // egress gateway, which maps this synthetic authority to the exact CDP port.
+  const target = `PROXY:localhost:${MANAGED_BROWSER_CDP_GATEWAY_HOST}:${input.browserPort},proxyport=3128`;
   return [
     'set -eu',
-    `socat "TCP-LISTEN:${input.bridgePort},bind=127.0.0.1,reuseaddr,fork" "PROXY:${target},proxyport=${input.egressProxyPort}" >/dev/null 2>&1 &`,
+    // Sandbox Runtime's default TMPDIR may not exist in a fresh namespace.
+    // Playwright creates temporary artifacts while attaching over CDP.
+    'export TMPDIR=/tmp',
+    `socat "TCP-LISTEN:${input.bridgePort},bind=127.0.0.1,reuseaddr,fork" "${target}" >/dev/null 2>&1 &`,
     'gantry_browser_bridge_pid=$!',
     'cleanup_gantry_browser_bridge() {',
     '  kill "$gantry_browser_bridge_pid" 2>/dev/null || true',
