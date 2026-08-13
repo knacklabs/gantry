@@ -48,6 +48,7 @@ export interface JobRunDiagnostics {
     toolName: string;
     mode: string;
     recoveryAction?: string;
+    allowedRule?: string;
   }>;
   startupDiagnostics: Record<string, unknown>[];
   latestStreamedOutputChars: number;
@@ -260,10 +261,12 @@ export function updateDiagnosticsFromRuntimeEvent(
         : undefined;
     const recoveryAction =
       stringValue(payload.recovery_action) ?? matchingWait?.recoveryAction;
+    const allowedRule = stringValue(payload.allowed_rule);
     diagnostics.transientPermissionApprovals.push({
       toolName: tool,
       mode,
       ...(recoveryAction ? { recoveryAction } : {}),
+      ...(allowedRule ? { allowedRule } : {}),
     });
   }
 }

@@ -283,7 +283,9 @@ export async function finalizeSchedulerJobRun(input: {
     nextRun = null;
     pauseReason = SETUP_REQUIRED_PAUSE_REASON;
     const setupState = setupStateForTransientPermission({
-      toolName: transientPermissionApproval.toolName,
+      toolName:
+        transientPermissionApproval.allowedRule ??
+        transientPermissionApproval.toolName,
       mode: transientPermissionApproval.mode,
       ...(transientPermissionApproval.recoveryAction
         ? { recoveryAction: transientPermissionApproval.recoveryAction }

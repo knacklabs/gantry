@@ -273,7 +273,9 @@ export async function notifyJobSetupRequired(input: {
     appId: (input.appSession?.appId ?? input.runtimeAppId) as never,
     eventType: RUNTIME_EVENT_TYPES.JOB_SETUP_REQUIRED,
     payload: jobSetupRequiredEventPayload({
+      jobId: input.currentJob.id,
       setupState: input.setupState,
+      notified,
     }),
     actor: 'scheduler',
     sessionId: input.appSession?.sessionId as never,

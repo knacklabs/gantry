@@ -146,6 +146,7 @@ export async function recordJobSetupRequired(input: {
     responseMode: appSession?.defaultResponseMode,
     webhookId: appSession?.defaultWebhookId,
     payload: jobSetupRequiredEventPayload({
+      jobId: input.job.id,
       setupState: input.readiness.setupState,
     }),
   });

@@ -386,7 +386,7 @@ describe('finalizeSchedulerJobRun — transient permission approvals', () => {
       expect.objectContaining({
         eventType: RUNTIME_EVENT_TYPES.JOB_SETUP_REQUIRED,
         payload: expect.objectContaining({
-          setup_fingerprint: expect.any(String),
+          blocker_fingerprint: expect.any(String),
         }),
       }),
     );

@@ -128,15 +128,15 @@ describe('job creation', () => {
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: 'job.setup_required',
-        payload: {
-          setup_fingerprint: persistedJob!.setup_state!.fingerprint,
+        payload: expect.objectContaining({
+          blocker_fingerprint: persistedJob!.setup_state!.fingerprint,
           blockers: [
             expect.objectContaining({
               id: 'Browser',
               action: expect.objectContaining({ kind: 'approve_grant' }),
             }),
           ],
-        },
+        }),
       }),
     );
 
@@ -207,15 +207,15 @@ describe('job creation', () => {
     expect(publishRuntimeEvent).toHaveBeenCalledOnce();
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        payload: {
-          setup_fingerprint: 'fp-throw',
+        payload: expect.objectContaining({
+          blocker_fingerprint: 'fp-throw',
           blockers: [
             expect.objectContaining({
               id: 'Browser',
               action: expect.objectContaining({ kind: 'approve_grant' }),
             }),
           ],
-        },
+        }),
       }),
     );
   });

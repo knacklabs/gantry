@@ -187,10 +187,14 @@ function parseSetupAction(
       'rules',
       'destination',
     ]);
-    if (
-      grantRecord.destination !== undefined &&
-      !GRANT_DESTINATIONS.has(grantRecord.destination as string)
-    ) {
+    // The setup approval path executes only plain addRules grants without an
+    // explicit destination - the boundary rejects variants no path can
+    // complete rather than storing a card promise that cannot be kept
+    // (review R10; assumption ledger).
+    if (grantRecord.type !== 'addRules') {
+      remediation(jobId, `${fragment}.grant.type`);
+    }
+    if (grantRecord.destination !== undefined) {
       remediation(jobId, `${fragment}.grant.destination`);
     }
     if (!Array.isArray(grantRecord.rules)) {

@@ -705,9 +705,16 @@ function permissionAllowedActivityPayload(
   decision: PermissionDecision,
 ): Record<string, unknown> {
   const provenanceMessage = formatPermissionAllowedMessage(decision);
+  // Allow-once on a scheduled run: carry the READABLE approved rule so the
+  // transient pause can build a typed one-tap grant with the true scope -
+  // never by re-parsing recovery protocol text (0125).
+  const allowedRules = permissionUpdateAllowedToolRules(
+    (decision as { updatedPermissions?: unknown[] }).updatedPermissions,
+  );
   return {
     ok: true,
     mode: decision.mode,
+    ...(allowedRules[0] ? { allowed_rule: allowedRules[0] } : {}),
     ...(decision.decidedBy ? { decided_by: decision.decidedBy } : {}),
     ...(decision.source ? { source: decision.source } : {}),
     ...(typeof decision.repeatableForFutureRuns === 'boolean'

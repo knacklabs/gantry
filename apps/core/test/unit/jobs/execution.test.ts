@@ -953,7 +953,7 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          setup_fingerprint: expect.any(String),
+          blocker_fingerprint: expect.any(String),
         }),
       }),
     );
@@ -1964,7 +1964,7 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          setup_fingerprint: expect.any(String),
+          blocker_fingerprint: expect.any(String),
         }),
       }),
     );
@@ -2200,7 +2200,7 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          setup_fingerprint: readiness.setupState.fingerprint,
+          blocker_fingerprint: readiness.setupState.fingerprint,
         }),
       }),
     );
@@ -2384,7 +2384,7 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          setup_fingerprint: expect.any(String),
+          blocker_fingerprint: expect.any(String),
           blockers: [
             expect.objectContaining({
               id: 'RunCommand(acme records update *)',
@@ -2585,7 +2585,7 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          setup_fingerprint: expect.any(String),
+          blocker_fingerprint: expect.any(String),
         }),
       }),
     );
@@ -2845,7 +2845,7 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          setup_fingerprint: expect.any(String),
+          blocker_fingerprint: expect.any(String),
           blockers: expect.arrayContaining([
             expect.objectContaining({
               type: 'browser',
