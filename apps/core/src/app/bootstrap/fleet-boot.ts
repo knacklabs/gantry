@@ -80,6 +80,7 @@ export function createControlAgentSettingsPort(
         capabilities: existing?.capabilities ?? [],
         accessPreset: existing?.accessPreset ?? 'full',
         agentHarness: input.agentHarness,
+        model: input.modelAlias ?? existing?.model,
       };
       await importWorkstationSettings(
         {
@@ -92,6 +93,34 @@ export function createControlAgentSettingsPort(
             settingsRevisions: storage.repositories.settingsRevisions,
             pool: storage.service.pool,
             createdBy: 'control-api:agent-harness',
+          },
+          revisionMirrorRequired: true,
+          leases,
+        },
+        settings,
+      );
+    },
+    writeAgentDelegatesSetting: async (input) => {
+      const storage = getRuntimeStorage();
+      const settings = loadRuntimeSettings(input.runtimeHome);
+      const previousSettings = structuredClone(settings);
+      const agent = settings.agents[input.folder];
+      if (!agent) throw new Error(`Agent settings not found: ${input.folder}`);
+      settings.agents[input.folder] = {
+        ...agent,
+        delegates: input.delegates,
+      };
+      await importWorkstationSettings(
+        {
+          runtimeHome: input.runtimeHome,
+          ops: storage.ops,
+          repositories: storage.repositories,
+          appId: input.appId,
+          previousSettings,
+          revisionMirror: {
+            settingsRevisions: storage.repositories.settingsRevisions,
+            pool: storage.service.pool,
+            createdBy: 'control-api:agent-delegates',
           },
           revisionMirrorRequired: true,
           leases,

@@ -243,6 +243,7 @@ function unavailableControlAgentSettingsPort(): ControlRouteContext['agentSettin
     defaultSettings: () => missingControlPort('agentSettings'),
     serializeRevisionDocument: () => missingControlPort('agentSettings'),
     writeAgentHarnessSetting: async () => missingControlPort('agentSettings'),
+    writeAgentDelegatesSetting: async () => missingControlPort('agentSettings'),
   };
 }
 

@@ -65,6 +65,13 @@ export interface ControlAgentSettingsPort {
     folder: string;
     name: string;
     agentHarness: AgentHarness;
+    modelAlias?: string | null;
+  }): Promise<void>;
+  writeAgentDelegatesSetting?(input: {
+    runtimeHome: string;
+    appId: AppId;
+    folder: string;
+    delegates: string[];
   }): Promise<void>;
 }
 

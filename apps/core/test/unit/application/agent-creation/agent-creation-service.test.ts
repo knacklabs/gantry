@@ -26,6 +26,7 @@ function service(seed = draft(), existingAgents: Agent[] = []) {
   let saved = seed;
   const savedAgents = [...existingAgents];
   const harnesses: unknown[] = [];
+  const delegations: unknown[] = [];
   const drafts = {
     getDraft: async () => saved,
     saveDraft: async ({ draft: next }: { draft: AgentCreationDraft }) => {
@@ -44,11 +45,14 @@ function service(seed = draft(), existingAgents: Agent[] = []) {
       agentSettings: {
         writeAgentHarnessSetting: async (input) => harnesses.push(input),
       } as never,
+      applyAccess: async () => undefined,
+      applyDelegates: async (input) => delegations.push(input),
       runtimeHome: '/tmp/gantry',
       now: () => now,
     }),
     agents: savedAgents,
     harnesses,
+    delegations,
     current: () => saved,
   };
 }
@@ -74,8 +78,16 @@ describe('AgentCreationService', () => {
     ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
   });
 
-  it('does not report selected work configuration as complete before it is applied', async () => {
-    const { sut } = service(
+  it('applies configured delegates before completing the setup receipt', async () => {
+    const target: Agent = {
+      id: 'agent:research' as never,
+      appId,
+      name: 'Research',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    };
+    const { sut, delegations } = service(
       draft({
         document: {
           name: 'Support agent',
@@ -83,15 +95,18 @@ describe('AgentCreationService', () => {
           delegateIds: ['agent:research'],
         },
       }),
+      [target],
     );
 
-    await expect(
-      sut.createOrResume({
-        appId,
-        id: 'agent-creation-draft:1' as never,
-        leaseToken: 'lease',
-      }),
-    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    await sut.createOrResume({
+      appId,
+      id: 'agent-creation-draft:1' as never,
+      leaseToken: 'lease',
+    });
+
+    expect(delegations).toEqual([
+      expect.objectContaining({ delegates: ['research'] }),
+    ]);
   });
 
   it('creates a stable agent once and records a completed receipt', async () => {

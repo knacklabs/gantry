@@ -9,9 +9,11 @@ import {
 } from '@gantry/contracts';
 
 import { AgentCreationService } from '../../../application/agent-creation/agent-creation-service.js';
+import { AgentCapabilityAdministrationService } from '../../../application/agents/agent-capability-administration-service.js';
 import { ApplicationError } from '../../../application/common/application-error.js';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import type { AppId } from '../../../domain/app/app.js';
+import { folderForAgentId } from '../../../domain/agent/agent-folder-id.js';
 import type {
   AgentCreationDraft,
   AgentCreationDraftId,
@@ -31,6 +33,46 @@ function creationService(ctx: ControlRouteContext): AgentCreationService {
     drafts: repositories.agentCreationDrafts,
     agents: repositories.agents,
     agentSettings: ctx.agentSettings,
+    applyAccess: async ({ appId, agentId, access }) => {
+      if (
+        !repositories.tools ||
+        !repositories.skills ||
+        !repositories.mcpServers
+      ) {
+        throw new ApplicationError(
+          'UNAVAILABLE',
+          'Access inventory is unavailable',
+        );
+      }
+      await new AgentCapabilityAdministrationService({
+        agents: repositories.agents,
+        tools: repositories.tools,
+        skills: repositories.skills,
+        mcpServers: repositories.mcpServers,
+      }).replaceAccessDocument({
+        appId,
+        agentId,
+        capabilities: access.capabilities,
+        sources: access.sources,
+      });
+      await ctx.syncSettingsFromProjection(appId);
+    },
+    applyDelegates: async ({ appId, agentId, delegates }) => {
+      const folder = folderForAgentId(agentId);
+      const write = ctx.agentSettings.writeAgentDelegatesSetting;
+      if (!folder || !write) {
+        throw new ApplicationError(
+          'UNAVAILABLE',
+          'Delegation settings are unavailable',
+        );
+      }
+      await write({
+        runtimeHome: ctx.runtimeHome,
+        appId,
+        folder,
+        delegates,
+      });
+    },
     runtimeHome: ctx.runtimeHome,
     now: nowIso,
   });
