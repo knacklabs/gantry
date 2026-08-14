@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0031-457d",
+  "profile": "quickfix",
+  "reason": "Stop the controlled DataTable pagination auto-reset render loop that hangs the Agents page",
+  "started_at": "2026-08-14T07:46:11+00:00",
+  "completed_at": "2026-08-14T07:51:40+00:00",
+  "files": []
+}
