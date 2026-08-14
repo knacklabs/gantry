@@ -2,10 +2,51 @@ import { getTableConfig } from 'drizzle-orm/pg-core';
 import { describe, expect, it, vi } from 'vitest';
 
 import { PostgresToolCatalogRepository } from '@core/adapters/storage/postgres/repositories/tool-repository.postgres.js';
-import { agentToolBindingsPostgres } from '@core/adapters/storage/postgres/schema/schema.js';
+import {
+  agentToolBindingsPostgres,
+  toolCatalogPostgres,
+} from '@core/adapters/storage/postgres/schema/schema.js';
 import { persistentPermissionBindingId } from '@core/application/permissions/permission-management-rules.js';
 
 describe('agent_tool_bindings repository', () => {
+  it('reconciles a legacy catalog id by app-scoped tool name', async () => {
+    let conflictTarget: unknown;
+    const db = {
+      insert: vi.fn(() => ({
+        values: () => ({
+          onConflictDoUpdate: vi.fn(async (input: { target: unknown }) => {
+            conflictTarget = input.target;
+          }),
+        }),
+      })),
+    };
+    const repository = new PostgresToolCatalogRepository(db as never);
+
+    await repository.saveTool({
+      id: 'tool:permission-rule:new-id' as never,
+      appId: 'app:test' as never,
+      name: 'mcp__gantry__mcp_list_tools',
+      kind: 'host',
+      provider: 'gantry',
+      displayName: 'Mcp List Tools',
+      description: 'Persistent Gantry tool approved from settings.yaml.',
+      category: 'admin',
+      inputSchema: {},
+      outputSchema: {},
+      risk: 'high',
+      selectable: true,
+      status: 'active',
+      adapterRef: 'permission/settings.yaml',
+      createdAt: '2026-08-14T00:00:00.000Z' as never,
+      updatedAt: '2026-08-14T00:00:00.000Z' as never,
+    });
+
+    expect(conflictTarget).toEqual([
+      toolCatalogPostgres.appId,
+      toolCatalogPostgres.name,
+    ]);
+  });
+
   it('persists and reads a person-scoped binding distinct from a shared binding', async () => {
     const rows: Record<string, unknown>[] = [];
     const values = vi.fn((row: Record<string, unknown>) => ({

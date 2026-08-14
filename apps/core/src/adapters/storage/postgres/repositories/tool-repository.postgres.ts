@@ -107,7 +107,13 @@ export class PostgresToolCatalogRepository implements ToolCatalogRepository {
       .insert(pgSchema.toolCatalogPostgres)
       .values(toolToRow(item))
       .onConflictDoUpdate({
-        target: pgSchema.toolCatalogPostgres.id,
+        // Older settings projections can retain a different id for the same
+        // app-scoped tool name. The catalog's semantic uniqueness is app +
+        // name, so preserve that row and reconcile its mutable definition.
+        target: [
+          pgSchema.toolCatalogPostgres.appId,
+          pgSchema.toolCatalogPostgres.name,
+        ],
         set: {
           ...toolToRow(item),
           id: undefined,
