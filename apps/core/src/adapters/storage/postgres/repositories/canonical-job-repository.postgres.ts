@@ -46,6 +46,7 @@ import {
   type RunLeaseFence,
 } from './run-lease-fence.postgres.js';
 import { appendCanonicalJobAccessRequirement } from './canonical-job-access-requirements.postgres.js';
+import { deleteCanonicalJobWithSetupCancellation } from './canonical-job-deletion.postgres.js';
 
 function canonicalAgentId(agentId: string): string {
   const trimmed = agentId.trim();
@@ -309,9 +310,7 @@ export class PostgresCanonicalJobRepository {
   }
 
   async deleteJob(id: string): Promise<void> {
-    await this.db
-      .delete(pgSchema.canonicalJobsPostgres)
-      .where(eq(pgSchema.canonicalJobsPostgres.id, id));
+    await deleteCanonicalJobWithSetupCancellation(this.db, id);
   }
 
   async claimDueRunStart(input: {

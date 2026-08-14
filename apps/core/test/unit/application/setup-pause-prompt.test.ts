@@ -2018,13 +2018,14 @@ describe('setup pause prompts', () => {
     expect(mirrorAgentToolRulesToSettings).not.toHaveBeenCalled();
   });
 
-  it('deletes the job when prompt retirement fails', async () => {
+  it('delegates setup-prompt cancellation to the job repository transaction', async () => {
     const job = makeJob();
+    const cancelPermissionApproval = vi.fn(async () => {
+      throw new Error('channel cancellation must not run');
+    });
     configure({
       job: () => job,
-      cancelPermissionApproval: async () => {
-        throw new Error('prompt store unavailable');
-      },
+      cancelPermissionApproval,
     });
     const deleteJob = vi.fn(async () => undefined);
     const scheduler = { requestSchedulerSync: vi.fn() };
@@ -2041,37 +2042,28 @@ describe('setup pause prompts', () => {
       deleted: true,
     });
     expect(deleteJob).toHaveBeenCalledWith(job.id);
+    expect(cancelPermissionApproval).not.toHaveBeenCalled();
     expect(scheduler.requestSchedulerSync).toHaveBeenCalledWith(job.id);
   });
 
-  it('retires a deleted job prompt with the configured runtime app id', async () => {
+  it('surfaces transactional job deletion failure without requesting scheduler sync', async () => {
     const job = makeJob();
-    const cancelPermissionApproval = vi.fn(async () => 'settled' as const);
-    configure({
-      appId: 'customer-app',
-      job: () => job,
-      cancelPermissionApproval,
-    });
+    const scheduler = { requestSchedulerSync: vi.fn() };
     const service = new JobManagementService({
       ops: {
         getJobById: vi.fn(async () => job),
-        deleteJob: vi.fn(async () => undefined),
+        deleteJob: vi.fn(async () => {
+          throw new Error('job cancellation transaction failed');
+        }),
       } as unknown as RuntimeJobRepository,
-      scheduler: { requestSchedulerSync: vi.fn() },
+      scheduler,
       schedulePlanner: runtimeJobSchedulePlanner,
     });
 
-    await service.deleteJob({ jobId: job.id });
-
-    expect(cancelPermissionApproval).toHaveBeenCalledWith(
-      expect.objectContaining({
-        appId: 'customer-app',
-        requestId: setupPausePermissionRequestId(
-          job.id,
-          job.setup_state!.fingerprint,
-        ),
-      }),
+    await expect(service.deleteJob({ jobId: job.id })).rejects.toThrow(
+      'job cancellation transaction failed',
     );
+    expect(scheduler.requestSchedulerSync).not.toHaveBeenCalled();
   });
 
   it('keeps the pending approval intact when job deletion fails', async () => {

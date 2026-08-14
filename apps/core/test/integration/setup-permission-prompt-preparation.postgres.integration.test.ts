@@ -228,23 +228,17 @@ maybeDescribe('setup permission prompt preparation', () => {
       interactionId: 'interaction:setup:b',
       fingerprint: 'fp:a',
     });
-    await runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
-      reissued,
-    );
-    await runtime.service.db
-      .update(pgSchema.permissionPromptsPostgres)
-      .set({ settlementState: 'cancelled', settledAt: later, updatedAt: later })
-      .where(eq(pgSchema.permissionPromptsPostgres.id, 'prompt:setup:b'));
-    await runtime.service.db
-      .delete(pgSchema.canonicalJobsPostgres)
-      .where(
-        eq(pgSchema.canonicalJobsPostgres.id, 'job:setup-prompt:retention'),
+    const reissuedPrepared =
+      await runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
+        reissued,
       );
+    await runtime.ops.deleteJob('job:setup-prompt:retention');
 
     const retained = await runtime.service.db
       .select({
         id: pgSchema.permissionPromptsPostgres.id,
         jobId: pgSchema.permissionPromptsPostgres.jobId,
+        state: pgSchema.permissionPromptsPostgres.settlementState,
       })
       .from(pgSchema.permissionPromptsPostgres)
       .where(
@@ -255,9 +249,131 @@ maybeDescribe('setup permission prompt preparation', () => {
       )
       .orderBy(asc(pgSchema.permissionPromptsPostgres.id));
     expect(retained).toEqual([
-      { id: 'prompt:setup:a', jobId: 'job:setup-prompt:retention' },
-      { id: 'prompt:setup:b', jobId: 'job:setup-prompt:retention' },
+      {
+        id: 'prompt:setup:a',
+        jobId: 'job:setup-prompt:retention',
+        state: 'expired',
+      },
+      {
+        id: 'prompt:setup:b',
+        jobId: 'job:setup-prompt:retention',
+        state: 'cancelled',
+      },
     ]);
+    const [interaction] = await runtime.service.db
+      .select({
+        status: pgSchema.pendingInteractionsPostgres.status,
+        resolution: pgSchema.pendingInteractionsPostgres.resolutionJson,
+      })
+      .from(pgSchema.pendingInteractionsPostgres)
+      .where(
+        eq(pgSchema.pendingInteractionsPostgres.envelopeId, 'prompt:setup:b'),
+      );
+    const [item] = await runtime.service.db
+      .select({
+        status: pgSchema.outboundDeliveryItemsPostgres.status,
+        reason: pgSchema.outboundDeliveryItemsPostgres.cancellationReasonJson,
+      })
+      .from(pgSchema.outboundDeliveryItemsPostgres)
+      .where(
+        eq(
+          pgSchema.outboundDeliveryItemsPostgres.permissionPromptId,
+          'prompt:setup:b',
+        ),
+      );
+    const [delivery] = await runtime.service.db
+      .select({
+        status: pgSchema.outboundDeliveriesPostgres.status,
+        reason: pgSchema.outboundDeliveriesPostgres.cancellationReasonJson,
+      })
+      .from(pgSchema.outboundDeliveriesPostgres)
+      .where(
+        eq(
+          pgSchema.outboundDeliveriesPostgres.id,
+          reissuedPrepared.delivery.id,
+        ),
+      );
+    const reason = {
+      code: 'job_deleted',
+      job_id: 'job:setup-prompt:retention',
+    };
+    const [deletedJob] = await runtime.service.db
+      .select({ id: pgSchema.canonicalJobsPostgres.id })
+      .from(pgSchema.canonicalJobsPostgres)
+      .where(
+        eq(pgSchema.canonicalJobsPostgres.id, 'job:setup-prompt:retention'),
+      );
+    expect(deletedJob).toBeUndefined();
+    expect(interaction).toEqual({ status: 'cancelled', resolution: reason });
+    expect(item).toEqual({ status: 'cancelled', reason });
+    expect(delivery).toEqual({ status: 'cancelled', reason });
+  });
+
+  it('rolls back job and prompt cancellation when delivery cancellation cannot safely settle', async () => {
+    const jobId = 'job:setup-prompt:delete-rollback';
+    const promptId = 'prompt:setup:delete-rollback';
+    await insertSetupPausedJob(runtime, jobId, 'fp:delete-rollback');
+    const prepared = preparation({
+      jobId,
+      promptId,
+      interactionId: 'interaction:setup:delete-rollback',
+      fingerprint: 'fp:delete-rollback',
+    });
+    await runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
+      prepared,
+    );
+    await runtime.service.db
+      .update(pgSchema.outboundDeliveryItemsPostgres)
+      .set({
+        status: 'claimed',
+        claimToken: 'claim:delete-rollback',
+        claimOwner: 'worker:delete-rollback',
+        sendBegunAt: later,
+        updatedAt: later,
+      })
+      .where(
+        eq(pgSchema.outboundDeliveryItemsPostgres.permissionPromptId, promptId),
+      );
+
+    await expect(runtime.ops.deleteJob(jobId)).rejects.toThrow(
+      'setup prompt delivery send has already begun',
+    );
+
+    const [job] = await runtime.service.db
+      .select({ id: pgSchema.canonicalJobsPostgres.id })
+      .from(pgSchema.canonicalJobsPostgres)
+      .where(eq(pgSchema.canonicalJobsPostgres.id, jobId));
+    const [prompt] = await runtime.service.db
+      .select({ state: pgSchema.permissionPromptsPostgres.settlementState })
+      .from(pgSchema.permissionPromptsPostgres)
+      .where(eq(pgSchema.permissionPromptsPostgres.id, promptId));
+    const [interaction] = await runtime.service.db
+      .select({ status: pgSchema.pendingInteractionsPostgres.status })
+      .from(pgSchema.pendingInteractionsPostgres)
+      .where(eq(pgSchema.pendingInteractionsPostgres.envelopeId, promptId));
+    const [delivery] = await runtime.service.db
+      .select({ status: pgSchema.outboundDeliveriesPostgres.status })
+      .from(pgSchema.outboundDeliveriesPostgres)
+      .where(eq(pgSchema.outboundDeliveriesPostgres.id, prepared.delivery.id));
+    const [item] = await runtime.service.db
+      .select({ status: pgSchema.outboundDeliveryItemsPostgres.status })
+      .from(pgSchema.outboundDeliveryItemsPostgres)
+      .where(
+        eq(pgSchema.outboundDeliveryItemsPostgres.permissionPromptId, promptId),
+      );
+    expect(job).toEqual({ id: jobId });
+    expect(prompt).toEqual({ state: 'open' });
+    expect(interaction).toEqual({ status: 'pending' });
+    expect(delivery).toEqual({ status: 'pending' });
+    expect(item).toEqual({ status: 'claimed' });
+
+    await runtime.service.db
+      .update(pgSchema.outboundDeliveryItemsPostgres)
+      .set({ sendBegunAt: null, updatedAt: later })
+      .where(
+        eq(pgSchema.outboundDeliveryItemsPostgres.permissionPromptId, promptId),
+      );
+    await runtime.ops.deleteJob(jobId);
   });
 
   it('rolls back every prepared row when locked job revalidation or aggregate insertion fails', async () => {
