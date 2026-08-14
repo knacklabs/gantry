@@ -202,23 +202,20 @@ describe('CLIRUN-1-1', () => {
     await expect(
       invocation({ repository: tools, args: ['records', 'write', 'fixed'] }),
     ).rejects.toMatchObject({
-      code: 'invalid_args',
-      message: expect.stringContaining(
-        'request_access target.kind=capability_template_amendment',
-      ),
+      code: 'capability_template_mismatch',
     });
     await expect(
       invocation({
         repository: tools,
         args: ['records', 'list', '--config', '/tmp/other'],
       }),
-    ).rejects.toMatchObject({ code: 'invalid_args' });
+    ).rejects.toMatchObject({ code: 'capability_template_mismatch' });
     await expect(
       invocation({
         repository: tools,
         args: ['records', 'read', 'fixed', 'excess'],
       }),
-    ).rejects.toMatchObject({ code: 'invalid_args' });
+    ).rejects.toMatchObject({ code: 'capability_template_mismatch' });
     // Arity-exact: a wildcard template authorizes exactly one argument in the
     // wildcard slot, never an extra trailing operand (the shell-glob suffix
     // gap). `records list *` must NOT authorize an added second operand.
@@ -227,7 +224,7 @@ describe('CLIRUN-1-1', () => {
         repository: tools,
         args: ['records', 'list', 'customer-42', 'extra-operation'],
       }),
-    ).rejects.toMatchObject({ code: 'invalid_args' });
+    ).rejects.toMatchObject({ code: 'capability_template_mismatch' });
 
     for (const args of [
       ['records', 'list', 'bad\0value'],

@@ -358,7 +358,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       };
 
       await expect(invoke().result).rejects.toMatchObject({
-        code: 'invalid_args',
+        code: 'capability_template_mismatch',
       });
       const proposedTemplates = [`${executable} sheets get * *`];
       const recorded = await recordCapabilityTemplateAmendment({
@@ -368,13 +368,9 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         jobId: job.id,
         conversationJid: 'tg:job-lifecycle',
         threadId: 'thread-job-lifecycle',
-        payload: {
-          capabilityRequestSource: 'request_access',
-          capabilityProposalKind: 'capability_template_amendment',
-          capabilityId,
-          proposedTemplates,
-          observedArgv: ['sheets', 'get', 'sheet-1', 'Leads!A:B'],
-        },
+        capabilityId,
+        proposedTemplates,
+        observedArgv: [executable, 'sheets', 'get', 'sheet-1', 'Leads!A:B'],
         toolRepository: runtime.repositories.tools,
         proposalRepository: runtime.repositories.capabilityTemplateAmendments,
         now,
@@ -490,13 +486,16 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         agentId,
         requestedBy: 'job_lifecycle_agent',
         conversationJid: 'tg:job-lifecycle',
-        payload: {
-          capabilityRequestSource: 'request_access',
-          capabilityProposalKind: 'capability_template_amendment',
-          capabilityId,
-          proposedTemplates: deniedTemplates,
-          observedArgv: ['sheets', 'get', 'sheet-1', 'Leads!A:B', 'extra'],
-        },
+        capabilityId,
+        proposedTemplates: deniedTemplates,
+        observedArgv: [
+          executable,
+          'sheets',
+          'get',
+          'sheet-1',
+          'Leads!A:B',
+          'extra',
+        ],
         toolRepository: runtime.repositories.tools,
         proposalRepository: runtime.repositories.capabilityTemplateAmendments,
         now,
@@ -534,13 +533,16 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         agentId,
         requestedBy: 'job_lifecycle_agent',
         conversationJid: 'tg:job-lifecycle',
-        payload: {
-          capabilityRequestSource: 'request_access',
-          capabilityProposalKind: 'capability_template_amendment',
-          capabilityId,
-          proposedTemplates: deniedTemplates,
-          observedArgv: ['sheets', 'get', 'sheet-1', 'Leads!A:B', 'extra'],
-        },
+        capabilityId,
+        proposedTemplates: deniedTemplates,
+        observedArgv: [
+          executable,
+          'sheets',
+          'get',
+          'sheet-1',
+          'Leads!A:B',
+          'extra',
+        ],
         toolRepository: runtime.repositories.tools,
         proposalRepository: runtime.repositories.capabilityTemplateAmendments,
         now,
@@ -559,27 +561,6 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         `${executable} sheets get *`,
         ...proposedTemplates,
       ]);
-
-      const immutableAttempt = await recordCapabilityTemplateAmendment({
-        appId: 'default',
-        agentId,
-        requestedBy: 'job_lifecycle_agent',
-        payload: {
-          capabilityRequestSource: 'request_access',
-          capabilityProposalKind: 'capability_template_amendment',
-          capabilityId,
-          proposedTemplates,
-          observedArgv: [],
-          executablePath: '/tmp/other',
-        },
-        toolRepository: runtime.repositories.tools,
-        proposalRepository: runtime.repositories.capabilityTemplateAmendments,
-        now,
-      });
-      expect(immutableAttempt).toMatchObject({
-        ok: false,
-        code: 'invalid_request',
-      });
     } finally {
       fs.rmSync(executableDir, { recursive: true, force: true });
       // Shared-schema hygiene: later tests enumerate jobs and resolve the

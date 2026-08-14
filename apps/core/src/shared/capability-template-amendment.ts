@@ -16,10 +16,12 @@ export function canonicalCapabilityTemplateAmendment(input: {
   return {
     proposedTemplates,
     observedArgv,
+    // Identity = (capability, canonical proposed templates) - the argv is
+    // ONE redacted observability sample, not part of the dedup key
+    // (decision 0122; the old argv-bearing keys are retired by migration).
     canonicalKey: stableSha256Json({
       capabilityId: input.capabilityId.trim(),
       proposedTemplates,
-      observedArgv,
     }),
   };
 }

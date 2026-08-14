@@ -24,6 +24,7 @@ import {
 
 export type StructuredLocalCliInvocationErrorCode =
   | 'invalid_args'
+  | 'capability_template_mismatch'
   | 'permission_denied'
   | 'executable_identity_mismatch';
 
@@ -161,8 +162,8 @@ async function resolveGrantedLocalCliInvocation(input: {
   }
 
   throw new StructuredLocalCliInvocationError(
-    'invalid_args',
-    `Arguments are outside the reviewed pattern for capability "${capabilityId}". Propose a reviewed fix with request_access target.kind=capability_template_amendment.`,
+    'capability_template_mismatch',
+    `Arguments are outside the reviewed pattern for capability "${capabilityId}".`,
   );
 }
 

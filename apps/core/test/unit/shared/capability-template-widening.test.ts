@@ -182,7 +182,9 @@ describe('capability template widening classification', () => {
 
     expect(reordered.canonicalKey).toBe(left.canonicalKey);
     expect(reordered.proposedTemplates).toEqual(left.proposedTemplates);
-    expect(differentArgv.canonicalKey).not.toBe(left.canonicalKey);
+    // S4: the argv is an observability sample, NOT part of the identity -
+    // the same proposed templates dedup regardless of observed argv.
+    expect(differentArgv.canonicalKey).toBe(left.canonicalKey);
   });
 });
 
