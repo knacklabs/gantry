@@ -175,6 +175,9 @@ export class DiscordInteractionHandler {
         custom_id: permissionCustomId(callback.providerAlias, mode),
       })),
     ];
+    // A Discord thread ID is itself a channel ID for the message-create
+    // API (sendDiscordPrompt targets options.threadId first), so a thread
+    // target is a fully valid conversation target on its own.
     if (!(request.threadId || discordChannelIdFromJid(jid)))
       return deliveryNotSent(
         'target_missing',
