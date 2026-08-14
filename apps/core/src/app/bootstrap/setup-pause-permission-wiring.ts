@@ -137,10 +137,6 @@ export function configureRuntimeSetupPausePermissions(input: {
           input.publishRuntimeEvent ?? (async () => undefined),
       }),
   });
-  // Without the outbound prompt repository the durable-card path cannot
-  // exist; leave the deps unconfigured so setup pauses take the plain
-  // prose notification (depless path) instead of a doomed enqueue.
-  if (!input.setupPermissionPromptRepository) return;
   configureSetupPausePermissionPrompt({
     appId: String(input.channelWiring.getRuntimeAppId()),
     getJobById: async (jobId) =>

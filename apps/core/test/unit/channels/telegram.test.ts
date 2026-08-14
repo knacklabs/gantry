@@ -5125,14 +5125,12 @@ describe('TelegramChannel', () => {
       await channel.connect();
 
       await expect(
-        channel
-          .requestPermissionApproval('tg:100200300', {
-            requestId: 'perm-post-send-persist-failure',
-            sourceAgentFolder: 'whatsapp_main',
-            targetJid: 'tg:100200300',
-            toolName: 'Bash',
-          })
-,
+        channel.requestPermissionApproval('tg:100200300', {
+          requestId: 'perm-post-send-persist-failure',
+          sourceAgentFolder: 'whatsapp_main',
+          targetJid: 'tg:100200300',
+          toolName: 'Bash',
+        }),
       ).resolves.toMatchObject({
         kind: 'delivery_failure',
         code: 'provider_failed',

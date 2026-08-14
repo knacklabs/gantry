@@ -3231,14 +3231,12 @@ describe('TeamsChannel adapter scaffold', () => {
     await channel.connect();
 
     await expect(
-      channel
-        .requestPermissionApproval('teams:19:abc@thread.v2', {
-          requestId: 'perm-teams-post-send-failure',
-          sourceAgentFolder: 'teams_engineering',
-          targetJid: 'teams:19:abc@thread.v2',
-          toolName: 'Bash',
-        })
-,
+      channel.requestPermissionApproval('teams:19:abc@thread.v2', {
+        requestId: 'perm-teams-post-send-failure',
+        sourceAgentFolder: 'teams_engineering',
+        targetJid: 'teams:19:abc@thread.v2',
+        toolName: 'Bash',
+      }),
     ).resolves.toMatchObject({
       kind: 'delivery_failure',
       code: 'provider_failed',

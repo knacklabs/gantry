@@ -285,7 +285,10 @@ export async function requestTeamsPermissionApproval(input: {
     // Pre-transmission persistence failures propagate (the durable lane
     // owns that retry); post-send ones become delivered:'unknown' below
     // (0128 transmission boundary, review R7).
-    if (err instanceof DurableInteractionPersistenceError && !transmissionBegan) {
+    if (
+      err instanceof DurableInteractionPersistenceError &&
+      !transmissionBegan
+    ) {
       logger.error(
         { jid: input.jid, requestId: input.request.requestId, err },
         'Failed to send Teams permission prompt',

@@ -4624,14 +4624,12 @@ describe('DiscordChannel', () => {
     const channel = new DiscordChannel('bot-token', 'app-id', opts());
 
     await expect(
-      channel
-        .requestPermissionApproval('dc:channel-1', {
-          requestId: 'permission-post-send-persistence-failure',
-          sourceAgentFolder: 'main_agent',
-          targetJid: 'dc:channel-1',
-          toolName: 'RunCommand',
-        })
-,
+      channel.requestPermissionApproval('dc:channel-1', {
+        requestId: 'permission-post-send-persistence-failure',
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'dc:channel-1',
+        toolName: 'RunCommand',
+      }),
     ).resolves.toMatchObject({
       kind: 'delivery_failure',
       code: 'provider_failed',

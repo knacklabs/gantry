@@ -202,9 +202,10 @@ export async function raiseSetupPausePermissionPrompt(input: {
     // A failed preparation stays RETRYABLE: notificationEligible false so
     // the prose path cannot consume notified_fingerprint - the very trap
     // that produced the never-fired button. The next readiness tick
-    // re-raises and re-attempts the durable enqueue (review R5/R7).
-    // Runtimes with NO outbound repository never configure these deps at
-    // all and take the depless prose path above instead.
+    // re-raises and re-attempts the durable enqueue. This also covers a
+    // missing outbound repository (production always provides it; only
+    // stripped-down test bootstraps lack it) - never a silent prose
+    // downgrade of the single-cutover card path (review R5/R7/R8).
     return { status: 'instruction_only', notificationEligible: false };
   }
   if (prepared.created) {
