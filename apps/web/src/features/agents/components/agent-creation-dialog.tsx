@@ -145,6 +145,7 @@ export function AgentCreationDialog({
   const [step, setStep] = useState<Step>(0);
   const [saved, setSaved] = useState(draft);
   const [leaveConfirm, setLeaveConfirm] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
   const queryClient = useQueryClient();
   const form = useForm<Values>({ defaultValues: defaults(draft) });
   const options = useQuery({
@@ -188,6 +189,7 @@ export function AgentCreationDialog({
   const remove = useMutation({
     mutationFn: () => deleteAgentCreationDraft(saved!.id),
     onSuccess: () => {
+      setDeleteConfirm(false);
       void queryClient.invalidateQueries({
         queryKey: ['ui-api', 'agent-creation-drafts'],
       });
@@ -272,7 +274,7 @@ export function AgentCreationDialog({
                 disabled={remove.isPending || create.isPending}
                 size="sm"
                 variant="ghost"
-                onClick={() => void remove.mutateAsync()}
+                onClick={() => setDeleteConfirm(true)}
               >
                 <Trash2 size={14} aria-hidden="true" /> Delete draft
               </Button>
@@ -335,6 +337,28 @@ export function AgentCreationDialog({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <AlertDialog open={deleteConfirm} onOpenChange={setDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this setup draft?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the saved setup only. No Gantry agent will be
+              deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="secondary" onClick={() => setDeleteConfirm(false)}>
+              Keep draft
+            </Button>
+            <Button
+              disabled={remove.isPending}
+              onClick={() => void remove.mutateAsync()}
+            >
+              Delete draft
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
@@ -370,6 +394,7 @@ function StepContent({
   const values = form.watch();
   const selectedCapabilities = values.capabilities;
   const optionsAvailable = options !== undefined;
+  const readyModels = options?.models.filter((model) => model.available) ?? [];
   if (step === 0)
     return (
       <section className="grid max-w-2xl gap-5">
@@ -439,26 +464,30 @@ function StepContent({
           onClick={() => form.setValue('modelAlias', '', { shouldDirty: true })}
         />
         {optionsAvailable ? (
-          options!.models.map((model) => (
-            <OptionCard
-              key={model.id}
-              active={values.modelAlias === (model.aliases[0] ?? model.id)}
-              disabled={!model.available}
-              label={model.label}
-              description={
-                model.available
-                  ? model.supportsTools
+          readyModels.length ? (
+            readyModels.map((model) => (
+              <OptionCard
+                key={model.id}
+                active={values.modelAlias === (model.aliases[0] ?? model.id)}
+                label={model.label}
+                description={
+                  model.supportsTools
                     ? 'Available · tools supported'
                     : 'Available · tool support is limited'
-                  : 'Unavailable on this deployment'
-              }
-              onClick={() =>
-                form.setValue('modelAlias', model.aliases[0] ?? model.id, {
-                  shouldDirty: true,
-                })
-              }
-            />
-          ))
+                }
+                onClick={() =>
+                  form.setValue('modelAlias', model.aliases[0] ?? model.id, {
+                    shouldDirty: true,
+                  })
+                }
+              />
+            ))
+          ) : (
+            <p className="text-sm text-text-secondary">
+              No alternative model is ready on this deployment. The agent will
+              use the deployment default.
+            </p>
+          )
         ) : (
           <p className="text-sm text-text-secondary">Loading model options…</p>
         )}
