@@ -548,6 +548,9 @@ export class PostgresCapabilityTemplateAmendmentRepository
     // Newer approval wins: supersede only OLDER (or equal) pending
     // intents; if a strictly newer pending intent already exists, this
     // approval's intent is inserted as superseded instead (review R2).
+    // ANY newer intent - pending, completed, or itself superseded -
+    // means newer authority exists; the older approval's intent must not
+    // resume jobs under stale templates (review R3).
     const [newerPending] = await tx
       .select({ id: intentTable.id })
       .from(intentTable)
@@ -555,7 +558,6 @@ export class PostgresCapabilityTemplateAmendmentRepository
         and(
           eq(intentTable.appId, input.appId),
           eq(intentTable.capabilityId, input.capabilityId),
-          eq(intentTable.status, 'pending'),
           gt(intentTable.approvedAt, input.approvedAt),
         ),
       )
