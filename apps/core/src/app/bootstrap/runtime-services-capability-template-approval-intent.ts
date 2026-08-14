@@ -148,8 +148,11 @@ function classifyTarget(
     job.pause_reason === SETUP_REQUIRED_PAUSE_REASON
   ) {
     // Only the crash-between-readiness-and-resume window: a job paused
-    // for another reason (or with its setup context replaced) falls
-    // through to the blocker check and supersedes (review R9).
+    // for another reason falls through to the blocker check (review R9).
+    // Deliberately NOT fingerprint-gated: resuming a setup-paused job
+    // whose readiness is genuinely 'ready' is the desired end state for
+    // EVERY path, so recovery finishing it is safe even if the context
+    // that produced readiness was a different approval (review R12).
     return undefined;
   }
   // Only THIS intent's proposal keeps the target current - a blocker

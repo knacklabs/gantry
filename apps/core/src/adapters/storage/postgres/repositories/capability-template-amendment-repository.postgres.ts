@@ -641,8 +641,7 @@ export class PostgresCapabilityTemplateAmendmentRepository
             )`,
           ),
         )
-        .limit(limit)
-        .for('update', { of: pgSchema.canonicalJobsPostgres });
+        .limit(limit);
       let adopted = 0;
       for (const orphan of orphans) {
         // Adopt only under the NEWEST live intent for the capability - a
@@ -652,13 +651,34 @@ export class PostgresCapabilityTemplateAmendmentRepository
         if (!orphan.intentId || orphan.intentStatus === 'superseded') {
           continue;
         }
-        // Serialize with insertApprovalIntent: the same per-capability
-        // advisory lock, then RE-CHECK that this intent is still the
+        // Serialize with insertApprovalIntent: SAME lock order (advisory
+        // lock FIRST, job rows after) or the two transactions deadlock
+        // (review R12); then RE-CHECK that this intent is still the
         // newest - a concurrent newer approval must not race a reopen
         // into a second pending intent (review R11).
         await tx.execute(
           sql`select pg_advisory_xact_lock(hashtextextended(${`${orphan.appId}\n${orphan.capabilityId}`}, 0))`,
         );
+        // The scan above ran UNLOCKED; re-lock and re-verify the job under
+        // the advisory lock before mutating anything.
+        const [lockedJob] = await tx
+          .select({ id: pgSchema.canonicalJobsPostgres.id })
+          .from(pgSchema.canonicalJobsPostgres)
+          .where(
+            and(
+              eq(pgSchema.canonicalJobsPostgres.id, orphan.jobId),
+              eq(pgSchema.canonicalJobsPostgres.status, 'paused'),
+              sql`exists (
+                select 1
+                from jsonb_array_elements(coalesce(${pgSchema.canonicalJobsPostgres.setupState} -> 'blockers', '[]'::jsonb)) blocker
+                where blocker -> 'action' ->> 'kind' = 'fix_proposal'
+                  and blocker -> 'action' ->> 'proposalId' = ${orphan.proposalId}
+              )`,
+            ),
+          )
+          .for('update')
+          .limit(1);
+        if (!lockedJob) continue;
         const [stillNewest] = await tx
           .select({ id: intentTable.id, status: intentTable.status })
           .from(intentTable)
