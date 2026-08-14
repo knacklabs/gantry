@@ -9,10 +9,10 @@ export function resolveChromeExecutablePath(
   const candidates = [
     '/usr/bin/google-chrome',
     '/usr/bin/google-chrome-stable',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
   ];
-  return (
-    candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0]
+  const executable = candidates.find((candidate) => fs.existsSync(candidate));
+  if (executable) return executable;
+  throw new Error(
+    'Google Chrome is required for the managed browser, but no Google Chrome executable was found.',
   );
 }

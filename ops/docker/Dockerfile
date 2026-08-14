@@ -62,14 +62,21 @@ ENV NODE_ENV=production \
     GANTRY_HOME=/var/lib/gantry \
     GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING=1
 
-# Skill-script interpreters. Skills are distributed as data artifacts in any
-# language; the image carries the interpreters their scripts need at runtime.
-# python3 covers the common non-Node skill payload. Deliberately NOT included:
+# Browser and skill-script runtime. The managed browser contract is Google
+# Chrome only: skills that need browser automation attach to this browser over
+# CDP rather than launching a separate Chromium process.
+#
+# Skills are distributed as data artifacts in any language; the image carries
+# the interpreters their scripts need at runtime. python3 covers the common
+# non-Node skill payload. Deliberately NOT included:
 # pip usage at runtime (fleet workers never run a package manager — Python
 # package installs belong to a future bake lane, see TODOS.md) and the Go
 # toolchain (Go-built tools ship as binaries: add the binary here per tool).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      gnupg \
       python3 \
       python3-venv \
       libatomic1 \
@@ -77,6 +84,14 @@ RUN apt-get update \
       socat \
       ripgrep \
       gosu \
+    && install -d -m 0755 /etc/apt/keyrings \
+    && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+      | gpg --dearmor -o /etc/apt/keyrings/google-chrome.gpg \
+    && echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main' \
+      > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends google-chrome-stable \
+    && apt-get purge -y --auto-remove curl gnupg \
     && rm -rf /var/lib/apt/lists/*
 # bubblewrap backs runtime.sandbox.provider=sandbox_runtime (the whole-runner
 # OS sandbox on Linux). Creating its namespaces inside Docker additionally
@@ -84,7 +99,8 @@ RUN apt-get update \
 # rehearsal and Terraform launch configs pass that container runtime option.
 # socat backs the sandbox-runtime egress proxy, ripgrep is the expected fast
 # search binary for agent turns, and libatomic1 is required by newer Node builds
-# on small Ubuntu/Debian hosts.
+# on small Ubuntu/Debian hosts. google-chrome-stable is the sole managed-browser
+# executable; do not add Chromium as a fallback.
 
 # The runtime image never installs packages. Drop the package-manager payload
 # inherited from the Node base image so bundled npm CVEs do not fail image scans.
