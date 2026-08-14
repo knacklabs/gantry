@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Save, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useForm } from 'react-hook-form';
 
 import {
@@ -29,6 +29,7 @@ import {
 } from '../../../ui/primitives/alert-dialog';
 import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
+import { Checkbox } from '../../../ui/primitives/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -124,12 +125,6 @@ function documentFrom(values: Values, options?: UiAgentCreationOptions) {
     delegateIds: values.delegateIds,
     workSource,
   };
-}
-
-function toggle(values: string[], value: string) {
-  return values.includes(value)
-    ? values.filter((item) => item !== value)
-    : [...values, value];
 }
 
 export function AgentCreationDialog({
@@ -229,7 +224,7 @@ export function AgentCreationDialog({
           className="grid h-[min(760px,calc(100dvh-2rem))] max-w-[calc(100%-1rem)] grid-rows-[auto_1fr_auto] gap-0 overflow-hidden p-0 sm:max-w-5xl"
           showCloseButton={false}
         >
-          <DialogHeader className="flex-row items-start justify-between gap-4 border-b border-dashed border-border p-5 pr-14">
+          <DialogHeader className="flex-row items-start justify-between gap-4 border-b border-dashed border-border p-5">
             <div>
               <DialogTitle>Create agent</DialogTitle>
               <DialogDescription className="mt-1 text-xs">
@@ -288,7 +283,7 @@ export function AgentCreationDialog({
               />
             </div>
           </div>
-          <DialogFooter className="m-0 rounded-none bg-surface p-4">
+          <DialogFooter className="m-0 rounded-none bg-surface px-5 py-4">
             {saved ? (
               <Button
                 disabled={remove.isPending || create.isPending}
@@ -528,49 +523,43 @@ function StepContent({
             Loading access inventory…
           </p>
         ) : (
-          <div className="grid gap-6 lg:grid-cols-2">
-            <SelectionGroup
-              title="Capabilities"
-              items={options!.capabilities}
-              selected={selectedCapabilities}
-              onToggle={(id) =>
-                form.setValue(
-                  'capabilities',
-                  toggle(selectedCapabilities, id),
-                  { shouldDirty: true },
-                )
-              }
-            />
-            <SelectionGroup
-              title="Installed skills"
-              items={options!.skills}
-              selected={values.skillIds}
-              onToggle={(id) =>
-                form.setValue('skillIds', toggle(values.skillIds, id), {
-                  shouldDirty: true,
-                })
-              }
-            />
-            <SelectionGroup
-              title="Active MCP sources"
-              items={options!.mcpServers}
-              selected={values.mcpServerIds}
-              onToggle={(id) =>
-                form.setValue('mcpServerIds', toggle(values.mcpServerIds, id), {
-                  shouldDirty: true,
-                })
-              }
-            />
-            <SelectionGroup
-              title="Selectable tools"
-              items={options!.tools}
-              selected={values.toolIds}
-              onToggle={(id) =>
-                form.setValue('toolIds', toggle(values.toolIds, id), {
-                  shouldDirty: true,
-                })
-              }
-            />
+          <div className="grid items-start gap-6 lg:grid-cols-2">
+            <div className="grid gap-6">
+              <SelectionGroup
+                title="Capabilities"
+                items={options!.capabilities}
+                selected={selectedCapabilities}
+                onChange={(next) =>
+                  form.setValue('capabilities', next, { shouldDirty: true })
+                }
+              />
+              <SelectionGroup
+                title="Active MCP sources"
+                items={options!.mcpServers}
+                selected={values.mcpServerIds}
+                onChange={(next) =>
+                  form.setValue('mcpServerIds', next, { shouldDirty: true })
+                }
+              />
+            </div>
+            <div className="grid gap-6">
+              <SelectionGroup
+                title="Installed skills"
+                items={options!.skills}
+                selected={values.skillIds}
+                onChange={(next) =>
+                  form.setValue('skillIds', next, { shouldDirty: true })
+                }
+              />
+              <SelectionGroup
+                title="Selectable tools"
+                items={options!.tools}
+                selected={values.toolIds}
+                onChange={(next) =>
+                  form.setValue('toolIds', next, { shouldDirty: true })
+                }
+              />
+            </div>
           </div>
         )}
       </section>
@@ -589,8 +578,8 @@ function StepContent({
             title="Active agents"
             items={options!.delegates}
             selected={values.delegateIds}
-            onToggle={(id) =>
-              form.setValue('delegateIds', toggle(values.delegateIds, id), {
+            onChange={(next) =>
+              form.setValue('delegateIds', next, {
                 shouldDirty: true,
               })
             }
@@ -729,7 +718,7 @@ function OptionCard({
 
 function SelectionGroup({
   items,
-  onToggle,
+  onChange,
   selected,
   title,
 }: {
@@ -741,48 +730,87 @@ function SelectionGroup({
     description?: string | null;
     risk?: string;
   }>;
-  onToggle(id: string): void;
+  onChange(selected: string[]): void;
   selected: string[];
   title: string;
 }) {
+  const groupId = useId();
+  const selectedCount = items.filter((item) =>
+    selected.includes(item.id),
+  ).length;
+  const allSelected = items.length > 0 && selectedCount === items.length;
+  const selectAllState = allSelected
+    ? true
+    : selectedCount > 0
+      ? 'indeterminate'
+      : false;
+
   return (
-    <section>
-      <h3 className="m-0 text-sm font-semibold text-text">
-        {title} <Badge>{selected.length}</Badge>
-      </h3>
-      <div className="mt-2 grid divide-y divide-dashed rounded-lg border border-dashed border-border">
+    <fieldset className="min-w-0 border-0 p-0">
+      <legend className="mb-2 p-0 text-sm font-semibold text-text">
+        <span className="inline-flex items-center gap-2">
+          {title} <Badge>{selectedCount}</Badge>
+        </span>
+      </legend>
+      <div className="grid divide-y divide-dashed rounded-lg border border-dashed border-border">
         {items.length ? (
-          items.map((item) => (
+          <>
             <label
-              className="flex cursor-pointer items-start gap-3 p-3 text-sm hover:bg-surface-muted"
-              key={item.id}
+              className="flex cursor-pointer items-center gap-3 bg-surface-muted p-3 text-sm transition-colors hover:bg-surface-muted/80"
+              htmlFor={`${groupId}-all`}
             >
-              <input
-                checked={selected.includes(item.id)}
-                className="mt-1"
-                type="checkbox"
-                onChange={() => onToggle(item.id)}
+              <Checkbox
+                aria-label={`Select all ${title.toLowerCase()}`}
+                checked={selectAllState}
+                id={`${groupId}-all`}
+                onCheckedChange={(checked) =>
+                  onChange(checked === true ? items.map((item) => item.id) : [])
+                }
               />
-              <span>
-                <span className="font-semibold text-text">
-                  {item.displayName ?? item.name ?? item.label ?? item.id}
-                </span>
-                {item.risk ? <Badge>{item.risk}</Badge> : null}
-                {item.description ? (
-                  <span className="mt-1 block text-xs text-text-secondary">
-                    {item.description}
-                  </span>
-                ) : null}
+              <span className="font-semibold text-text">Select all</span>
+              <span className="ml-auto text-xs text-text-secondary">
+                {selectedCount} of {items.length}
               </span>
             </label>
-          ))
+            {items.map((item, index) => (
+              <label
+                className="flex cursor-pointer items-start gap-3 p-3 text-sm transition-colors hover:bg-surface-muted"
+                htmlFor={`${groupId}-${index}`}
+                key={item.id}
+              >
+                <Checkbox
+                  checked={selected.includes(item.id)}
+                  className="mt-1"
+                  id={`${groupId}-${index}`}
+                  onCheckedChange={(checked) =>
+                    onChange(
+                      checked === true
+                        ? [...selected, item.id]
+                        : selected.filter((id) => id !== item.id),
+                    )
+                  }
+                />
+                <span className="min-w-0">
+                  <span className="inline-flex flex-wrap items-center gap-2 font-semibold text-text">
+                    {item.displayName ?? item.name ?? item.label ?? item.id}
+                    {item.risk ? <Badge>{item.risk}</Badge> : null}
+                  </span>
+                  {item.description ? (
+                    <span className="mt-1 block text-xs text-text-secondary">
+                      {item.description}
+                    </span>
+                  ) : null}
+                </span>
+              </label>
+            ))}
+          </>
         ) : (
           <p className="m-0 p-3 text-sm text-text-secondary">
             No selectable items.
           </p>
         )}
       </div>
-    </section>
+    </fieldset>
   );
 }
 
