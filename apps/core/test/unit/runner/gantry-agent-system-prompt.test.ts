@@ -25,6 +25,11 @@ const FULL_SECTIONS = [
   '## Reasoning',
 ];
 
+const SCHEDULED_RUN_GUIDANCE = [
+  '## Scheduled Runs',
+  'Do not retry a denied tool call. Write durable results incrementally, and report only what actually completed. When Gantry recognizes a safe capability-template fix, the runtime files it for human approval; do not request job-specific tool rules for recovery.',
+].join('\n');
+
 describe('agent system prompt', () => {
   it('marks the workspace quarantine directory as untrusted materialized data', () => {
     const anthropic = buildRunnerSystemPrompt(
@@ -357,6 +362,22 @@ describe('buildGantryAgentSystemPrompt', () => {
     expect(prompt[2]).not.toContain('Selected public tool hints: Read.');
   });
 
+  it('renders the scheduled-run guidance in the Anthropic static prompt', () => {
+    const prompt = buildRunnerSystemPrompt(
+      {
+        prompt: 'run the scheduled work',
+        workspaceFolder: 'main_agent',
+        chatJid: 'tg:team',
+        isScheduledJob: true,
+      },
+      '',
+    );
+
+    expect(prompt).toHaveLength(3);
+    expect(prompt[0]).toContain(SCHEDULED_RUN_GUIDANCE);
+    expect(prompt[2]).not.toContain(SCHEDULED_RUN_GUIDANCE);
+  });
+
   it('keeps developer personas on the neutral Gantry prompt path', () => {
     const input = {
       prompt: 'edit the repo',
@@ -402,5 +423,20 @@ describe('buildGantryAgentSystemPrompt', () => {
     expect(prompt).toContain('FileRead');
     expect(prompt).not.toContain('WebFetch');
     expect(prompt).not.toContain('DeepAgents');
+  });
+
+  it('renders the scheduled-run guidance in the DeepAgents prompt', () => {
+    const prompt = composeDeepAgentSystemPrompt({
+      prompt: 'run the scheduled work',
+      workspaceFolder: 'main_agent',
+      chatJid: 'tg:team',
+      isScheduledJob: true,
+    });
+
+    expect(prompt).toContain(SCHEDULED_RUN_GUIDANCE);
+    if (!prompt) throw new Error('expected DeepAgents prompt');
+    expect(prompt.indexOf(SCHEDULED_RUN_GUIDANCE)).toBeLessThan(
+      prompt.indexOf('## Workspace'),
+    );
   });
 });

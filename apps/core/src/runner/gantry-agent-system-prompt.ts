@@ -74,6 +74,7 @@ export function buildGantryAgentSystemPrompt(
     identity,
     toolingSection(mode),
     executionBiasSection(),
+    scheduledRunGuidanceSection(input),
     safetySection(),
     conversationContextSection(),
     skillsSection(),
@@ -145,6 +146,16 @@ function executionBiasSection(): string {
     '## Execution Bias',
     'Prefer concrete progress over commentary. Diagnose the real blocker, choose the smallest correct action, and verify the result.',
     'Be a dependable operator for the team: keep the user informed, protect approvals, and complete the work.',
+  ].join('\n');
+}
+
+function scheduledRunGuidanceSection(
+  input: GantryAgentSystemPromptInput,
+): string {
+  if (!input.isScheduledJob) return '';
+  return [
+    '## Scheduled Runs',
+    'Do not retry a denied tool call. Write durable results incrementally, and report only what actually completed. When Gantry recognizes a safe capability-template fix, the runtime files it for human approval; do not request job-specific tool rules for recovery.',
   ].join('\n');
 }
 
