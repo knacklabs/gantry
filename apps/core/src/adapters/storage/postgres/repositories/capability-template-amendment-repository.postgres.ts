@@ -6,6 +6,7 @@ import {
   gt,
   inArray,
   isNull,
+  lt,
   lte,
   or,
   sql,
@@ -651,6 +652,31 @@ export class PostgresCapabilityTemplateAmendmentRepository
         if (!orphan.intentId || orphan.intentStatus === 'superseded') {
           continue;
         }
+        // Serialize with insertApprovalIntent: the same per-capability
+        // advisory lock, then RE-CHECK that this intent is still the
+        // newest - a concurrent newer approval must not race a reopen
+        // into a second pending intent (review R11).
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`${orphan.appId}\n${orphan.capabilityId}`}, 0))`,
+        );
+        const [stillNewest] = await tx
+          .select({ id: intentTable.id, status: intentTable.status })
+          .from(intentTable)
+          .where(
+            and(
+              eq(intentTable.appId, orphan.appId),
+              eq(intentTable.capabilityId, orphan.capabilityId),
+            ),
+          )
+          .orderBy(desc(intentTable.approvedAt), desc(intentTable.id))
+          .limit(1);
+        if (
+          !stillNewest ||
+          stillNewest.id !== orphan.intentId ||
+          stillNewest.status === 'superseded'
+        ) {
+          continue;
+        }
         const reopened = await tx
           .update(intentTable)
           .set({
@@ -744,6 +770,9 @@ export class PostgresCapabilityTemplateAmendmentRepository
     // ANY newer intent - pending, completed, or itself superseded -
     // means newer authority exists; the older approval's intent must not
     // resume jobs under stale templates (review R3).
+    // Deterministic TOTAL order (approvedAt, id): equal-millisecond
+    // approvals must resolve the same way everywhere - here, in the
+    // supersede below, and in orphan adoption's ordering (review R11).
     const [newerPending] = await tx
       .select({ id: intentTable.id })
       .from(intentTable)
@@ -751,7 +780,13 @@ export class PostgresCapabilityTemplateAmendmentRepository
         and(
           eq(intentTable.appId, input.appId),
           eq(intentTable.capabilityId, input.capabilityId),
-          gt(intentTable.approvedAt, input.approvedAt),
+          or(
+            gt(intentTable.approvedAt, input.approvedAt),
+            and(
+              eq(intentTable.approvedAt, input.approvedAt),
+              gt(intentTable.id, intentId),
+            ),
+          ),
         ),
       )
       .limit(1);
@@ -769,7 +804,13 @@ export class PostgresCapabilityTemplateAmendmentRepository
           eq(intentTable.appId, input.appId),
           eq(intentTable.capabilityId, input.capabilityId),
           eq(intentTable.status, 'pending'),
-          lte(intentTable.approvedAt, input.approvedAt),
+          or(
+            lt(intentTable.approvedAt, input.approvedAt),
+            and(
+              eq(intentTable.approvedAt, input.approvedAt),
+              lte(intentTable.id, intentId),
+            ),
+          ),
         ),
       );
     if (newerPending) {
