@@ -254,7 +254,15 @@ export class PostgresAgentRepository implements AgentRepository {
           updatedAt: binding.updatedAt,
         })
         .onConflictDoUpdate({
-          target: pgSchema.agentToolBindingsPostgres.id,
+          // Legacy permission writers used a different binding id for the same
+          // semantic grant. Reconcile by the database's canonical identity so
+          // startup can retain that grant instead of crashlooping on its id.
+          target: [
+            pgSchema.agentToolBindingsPostgres.agentId,
+            pgSchema.agentToolBindingsPostgres.toolId,
+            pgSchema.agentToolBindingsPostgres.configVersionId,
+            pgSchema.agentToolBindingsPostgres.personId,
+          ],
           set: {
             configVersionId: binding.configVersionId ?? null,
             status: binding.status,

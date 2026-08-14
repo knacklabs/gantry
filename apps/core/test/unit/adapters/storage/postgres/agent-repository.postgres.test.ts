@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { PostgresAgentRepository } from '@core/adapters/storage/postgres/repositories/agent-repository.postgres.js';
 import { assertExpectedMcpBindingsUnchanged } from '@core/adapters/storage/postgres/repositories/mcp-binding-authority-fence.postgres.js';
+import { agentToolBindingsPostgres } from '@core/adapters/storage/postgres/schema/schema.js';
 
 describe('PostgresAgentRepository MCP binding fence', () => {
   it('matches semantic authority without depending on Postgres timestamp text', async () => {
@@ -275,6 +276,67 @@ describe('PostgresAgentRepository MCP binding fence', () => {
     );
     expect(agentLock.for).toHaveBeenCalledWith('update');
     expect(rowLock.for).toHaveBeenCalledWith('update');
+  });
+
+  it('reconciles a legacy tool binding by its semantic unique key', async () => {
+    let selectCall = 0;
+    let conflictTarget: unknown;
+    const agentLock = { for: vi.fn(async () => []) };
+    const emptyRows = Promise.resolve([]);
+    const mcpRows = { for: vi.fn(async () => []) };
+    const tx = {
+      select: vi.fn(() => {
+        selectCall += 1;
+        return {
+          from: () => ({
+            where: () => {
+              if (selectCall === 1) return agentLock;
+              return selectCall === 4 ? mcpRows : emptyRows;
+            },
+          }),
+        };
+      }),
+      insert: vi.fn(() => ({
+        values: () => ({
+          onConflictDoUpdate: vi.fn(async (input: { target: unknown }) => {
+            conflictTarget = input.target;
+          }),
+        }),
+      })),
+    };
+    const db = {
+      transaction: vi.fn(
+        async (operation: (transaction: typeof tx) => Promise<unknown>) =>
+          operation(tx),
+      ),
+    };
+    const repository = new PostgresAgentRepository(db as never);
+
+    await repository.replaceAgentCapabilityBindings({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      toolBindings: [
+        {
+          id: 'agent-tool-binding:agent:test:tool:Browser' as never,
+          appId: 'app:test' as never,
+          agentId: 'agent:test' as never,
+          toolId: 'tool:Browser' as never,
+          status: 'active',
+          createdAt: '2026-08-14T00:00:00.000Z' as never,
+          updatedAt: '2026-08-14T00:00:00.000Z' as never,
+        },
+      ],
+      skillBindings: [],
+      mcpBindings: [],
+      updatedAt: '2026-08-14T00:00:00.000Z',
+    });
+
+    expect(conflictTarget).toEqual([
+      agentToolBindingsPostgres.agentId,
+      agentToolBindingsPostgres.toolId,
+      agentToolBindingsPostgres.configVersionId,
+      agentToolBindingsPostgres.personId,
+    ]);
   });
 
   it('atomically preserves existing MCP policy while settings updates source scope', async () => {
