@@ -1,7 +1,7 @@
 ---
 slug: agent-creation-modal
 title: Agent Creation Modal — durable workflow and native console UX
-status: draft
+status: confirmed
 saved: 2026-08-14T05:05:59+00:00
 ---
 
