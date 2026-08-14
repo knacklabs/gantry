@@ -51,7 +51,24 @@ export async function recoverCapabilityTemplateApprovalIntents(
       status: 'resumed' | 'superseded';
     }> = [];
     const errors: string[] = [];
+    let leaseLost = false;
     for (const target of intent.targets) {
+      // Renew before EACH target: an app-wide set with slow readiness
+      // rechecks can outlive a single 20s lease (review R6). A failed
+      // renewal means another worker holds the claim - stop side effects.
+      const renewedAt = clock();
+      const renewed = await input.repository.renewApprovalIntentClaim?.({
+        intentId: intent.id,
+        claimToken: intent.claimToken,
+        leaseExpiresAt: new Date(
+          renewedAt.getTime() + (input.leaseMs ?? DEFAULT_LEASE_MS),
+        ).toISOString(),
+        now: renewedAt.toISOString(),
+      });
+      if (renewed === false) {
+        leaseLost = true;
+        break;
+      }
       try {
         const outcome = await input.recoverTarget({
           appId: intent.appId,
@@ -66,6 +83,10 @@ export async function recoverCapabilityTemplateApprovalIntents(
       } catch (error) {
         errors.push(error instanceof Error ? error.message : String(error));
       }
+    }
+    if (leaseLost) {
+      pending += 1;
+      continue;
     }
     const settledAt = clock();
     const backoffMs = Math.min(

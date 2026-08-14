@@ -11,20 +11,23 @@ describe('capability-template approval-intent recovery', () => {
       .mockResolvedValueOnce('superseded');
     const result = await recoverCapabilityTemplateApprovalIntents({
       repository: {
-        claimDueApprovalIntents: vi.fn().mockResolvedValue([]).mockResolvedValueOnce([
-          {
-            id: 'intent-1',
-            appId: 'app-1',
-            proposalId: 'proposal-1',
-            capabilityId: 'acme.records.read',
-            claimToken: 'claim-1',
-            attemptCount: 1,
-            targets: [
-              { jobId: 'job-1', expectedSetupFingerprint: 'fingerprint-1' },
-              { jobId: 'job-2', expectedSetupFingerprint: 'fingerprint-2' },
-            ],
-          },
-        ]),
+        claimDueApprovalIntents: vi
+          .fn()
+          .mockResolvedValue([])
+          .mockResolvedValueOnce([
+            {
+              id: 'intent-1',
+              appId: 'app-1',
+              proposalId: 'proposal-1',
+              capabilityId: 'acme.records.read',
+              claimToken: 'claim-1',
+              attemptCount: 1,
+              targets: [
+                { jobId: 'job-1', expectedSetupFingerprint: 'fingerprint-1' },
+                { jobId: 'job-2', expectedSetupFingerprint: 'fingerprint-2' },
+              ],
+            },
+          ]),
         settleApprovalIntentClaim,
       },
       claimerId: 'worker-1',
@@ -49,19 +52,22 @@ describe('capability-template approval-intent recovery', () => {
     const settleApprovalIntentClaim = vi.fn(async () => 'pending' as const);
     const result = await recoverCapabilityTemplateApprovalIntents({
       repository: {
-        claimDueApprovalIntents: vi.fn().mockResolvedValue([]).mockResolvedValueOnce([
-          {
-            id: 'intent-2',
-            appId: 'app-1',
-            proposalId: 'proposal-2',
-            capabilityId: 'acme.records.read',
-            claimToken: 'claim-2',
-            attemptCount: 4,
-            targets: [
-              { jobId: 'job-3', expectedSetupFingerprint: 'fingerprint-3' },
-            ],
-          },
-        ]),
+        claimDueApprovalIntents: vi
+          .fn()
+          .mockResolvedValue([])
+          .mockResolvedValueOnce([
+            {
+              id: 'intent-2',
+              appId: 'app-1',
+              proposalId: 'proposal-2',
+              capabilityId: 'acme.records.read',
+              claimToken: 'claim-2',
+              attemptCount: 4,
+              targets: [
+                { jobId: 'job-3', expectedSetupFingerprint: 'fingerprint-3' },
+              ],
+            },
+          ]),
         settleApprovalIntentClaim,
       },
       claimerId: 'worker-1',

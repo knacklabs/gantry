@@ -544,7 +544,6 @@ export class PostgresCapabilityTemplateAmendmentRepository
               jobId: straggler.jobId,
               expectedSetupFingerprint: straggler.setupFingerprint,
               status: 'pending',
-              createdAt: input.now,
               updatedAt: input.now,
             })),
           );
@@ -571,6 +570,26 @@ export class PostgresCapabilityTemplateAmendmentRepository
         );
       return completed ? 'completed' : 'pending';
     });
+  }
+
+  async renewApprovalIntentClaim(input: {
+    intentId: string;
+    claimToken: string;
+    leaseExpiresAt: string;
+    now: string;
+  }): Promise<boolean> {
+    const rows = await this.db
+      .update(intentTable)
+      .set({ claimExpiresAt: input.leaseExpiresAt, updatedAt: input.now })
+      .where(
+        and(
+          eq(intentTable.id, input.intentId),
+          eq(intentTable.status, 'pending'),
+          eq(intentTable.claimToken, input.claimToken),
+        ),
+      )
+      .returning({ id: intentTable.id });
+    return rows.length > 0;
   }
 
   private async insertApprovalIntent(

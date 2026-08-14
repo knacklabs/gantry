@@ -65,7 +65,7 @@ export function redactObservedArgv(argv: readonly string[]): string[] {
       const name = token.slice(0, eq);
       const value = token.slice(eq + 1);
       return SENSITIVE_ARGV_PATTERN.test(name) ||
-        (name === '--account' && /@/.test(value))
+        /^[^\s@]+@[^\s@]+$/.test(value)
         ? `${name}=<redacted>`
         : OPAQUE_ARGV_PATTERN.test(value)
           ? `${name}=<redacted>`
@@ -133,6 +133,12 @@ export interface CapabilityTemplateApprovalIntentRepository {
     leaseExpiresAt: string;
     limit: number;
   }): Promise<ClaimedCapabilityTemplateApprovalIntent[]>;
+  renewApprovalIntentClaim?(input: {
+    intentId: string;
+    claimToken: string;
+    leaseExpiresAt: string;
+    now: string;
+  }): Promise<boolean>;
   settleApprovalIntentClaim(input: {
     intentId: string;
     claimToken: string;
