@@ -83,6 +83,7 @@ export async function recoverCapabilityTemplateApprovalIntents(
       // credential/browser work) can outlive a single lease window; the
       // settle itself stays token-fenced either way (review R7).
       const leaseMs = input.leaseMs ?? DEFAULT_LEASE_MS;
+      let heartbeatLost = false;
       const heartbeat = setInterval(
         () => {
           const at = clock();
@@ -92,6 +93,9 @@ export async function recoverCapabilityTemplateApprovalIntents(
               claimToken: intent.claimToken,
               leaseExpiresAt: new Date(at.getTime() + leaseMs).toISOString(),
               now: at.toISOString(),
+            })
+            .then((renewedNow) => {
+              if (renewedNow === false) heartbeatLost = true;
             })
             .catch(() => undefined);
         },
@@ -113,6 +117,13 @@ export async function recoverCapabilityTemplateApprovalIntents(
         errors.push(error instanceof Error ? error.message : String(error));
       } finally {
         clearInterval(heartbeat);
+      }
+      if (heartbeatLost) {
+        // Another runtime holds the claim: stop producing side effects
+        // for the remaining targets and leave settlement to the new
+        // claimant (this worker's settle would token-mismatch anyway).
+        leaseLost = true;
+        break;
       }
     }
     if (leaseLost) {
