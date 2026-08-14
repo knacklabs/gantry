@@ -637,6 +637,33 @@ it('ui-server-agent-creation-contract', async () => {
     document: { name: 'Support', agentHarness: 'auto' },
   });
   expect(sdk.createCreationDraft).toHaveBeenCalledWith(body);
+
+  sdk.createCreationDraft.mockRejectedValueOnce(
+    Object.assign(new Error('Control detail that must remain private'), {
+      code: 'DRAFT_REVISION_CONFLICT',
+    }),
+  );
+  const conflict = await request(handler, '/ui/api/agent-creation-drafts', {
+    method: 'POST',
+    body,
+    headers: {
+      origin: 'http://ui.local',
+      host: 'ui.local',
+      'content-type': 'application/json',
+    },
+  });
+  expect(conflict.status).toBe(409);
+  expect(JSON.parse(conflict.text)).toEqual({
+    error: expect.objectContaining({
+      code: 'DRAFT_REVISION_CONFLICT',
+      message:
+        'This draft changed elsewhere. Reload the saved draft before continuing.',
+      retryable: false,
+    }),
+  });
+  expect(conflict.text).not.toContain(
+    'Control detail that must remain private',
+  );
 });
 
 it('ui-server-api-contract', async () => {

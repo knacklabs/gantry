@@ -291,8 +291,9 @@ export class UiApiError extends Error {
     readonly code: string,
     readonly retryable: boolean,
     readonly requestId?: string,
+    message?: string,
   ) {
-    super(code);
+    super(message ?? code);
   }
 }
 
@@ -518,7 +519,12 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
 
   if (!response.ok) {
     const failure = readFailure(body);
-    throw new UiApiError(failure.code, failure.retryable, failure.requestId);
+    throw new UiApiError(
+      failure.code,
+      failure.retryable,
+      failure.requestId,
+      failure.message,
+    );
   }
 
   return body as T;
@@ -551,7 +557,12 @@ async function mutate<T>(
   }
   if (!response.ok) {
     const failure = readFailure(payload);
-    throw new UiApiError(failure.code, failure.retryable, failure.requestId);
+    throw new UiApiError(
+      failure.code,
+      failure.retryable,
+      failure.requestId,
+      failure.message,
+    );
   }
   return payload as T;
 }
@@ -560,6 +571,7 @@ function readFailure(body: unknown): {
   code: string;
   retryable: boolean;
   requestId?: string;
+  message?: string;
 } {
   if (!body || typeof body !== 'object' || !('error' in body)) {
     return { code: 'UI_API_ERROR', retryable: false };
@@ -580,6 +592,10 @@ function readFailure(body: unknown): {
     requestId:
       'requestId' in error && typeof error.requestId === 'string'
         ? error.requestId
+        : undefined,
+    message:
+      'message' in error && typeof error.message === 'string'
+        ? error.message
         : undefined,
   };
 }

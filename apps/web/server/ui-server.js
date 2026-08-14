@@ -43,6 +43,34 @@ function sendNotFound(response) {
   });
 }
 
+function sendSafeControlFailure(response, error) {
+  const code =
+    error && typeof error === 'object' && typeof error.code === 'string'
+      ? error.code
+      : null;
+  const messages = {
+    DRAFT_ALREADY_APPLIED: 'This setup has already created an agent.',
+    DRAFT_REVISION_CONFLICT:
+      'This draft changed elsewhere. Reload the saved draft before continuing.',
+    INVALID_REQUEST:
+      'Review the setup and correct the highlighted requirement.',
+    NOT_FOUND: 'This setup draft is no longer available.',
+    UNAVAILABLE: 'This setup cannot be completed while Gantry is unavailable.',
+  };
+  if (!code || !Object.hasOwn(messages, code)) return false;
+  const status =
+    code === 'NOT_FOUND' ? 404 : code === 'UNAVAILABLE' ? 503 : 409;
+  sendJson(response, status, {
+    error: {
+      code,
+      message: messages[code],
+      requestId: randomUUID(),
+      retryable: code === 'UNAVAILABLE',
+    },
+  });
+  return true;
+}
+
 async function readRequestJson(request) {
   const contentType = request.headers?.['content-type'];
   if (
@@ -79,6 +107,7 @@ function isSameOriginMutation(request) {
 }
 
 function projectCreationDraft(draft) {
+  const workSource = draft.document.workSource;
   return {
     id: String(draft.id),
     revision: Number(draft.revision),
@@ -112,7 +141,21 @@ function projectCreationDraft(draft) {
       delegateIds: Array.isArray(draft.document.delegateIds)
         ? draft.document.delegateIds.map(String)
         : [],
-      workSource: draft.document.workSource,
+      workSource:
+        workSource?.kind === 'conversation'
+          ? {
+              kind: 'conversation',
+              conversationId: String(workSource.conversationId),
+            }
+          : workSource?.kind === 'scheduled_job'
+            ? {
+                kind: 'scheduled_job',
+                conversationId: String(workSource.conversationId),
+                name: String(workSource.name),
+                instructions: String(workSource.instructions),
+                schedule: String(workSource.schedule),
+              }
+            : { kind: 'configure_later' },
     },
     progress: Object.fromEntries(
       Object.entries(draft.progress ?? {}).map(([key, value]) => [
@@ -1003,6 +1046,9 @@ async function handleApi(method, url, request, response, env, state) {
         },
       });
       return;
+    }
+    if (draftMatch || pathname === '/ui/api/agent-creation-drafts') {
+      if (sendSafeControlFailure(response, error)) return;
     }
     sendFailure(response, 'CONTROL_API_UNAVAILABLE', true);
     return;

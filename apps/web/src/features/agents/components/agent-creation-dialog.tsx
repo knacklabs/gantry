@@ -257,7 +257,13 @@ export function AgentCreationDialog({
                   <AlertDescription>{error.message}</AlertDescription>
                 </Alert>
               ) : null}
-              <StepContent form={form} options={options.data} step={step} />
+              {create.isPending ? <CreationProgress /> : null}
+              <StepContent
+                form={form}
+                options={options.data}
+                step={step}
+                onEdit={setStep}
+              />
             </div>
           </div>
           <DialogFooter className="m-0 rounded-none bg-surface p-4">
@@ -354,10 +360,12 @@ function StepContent({
   form,
   options,
   step,
+  onEdit,
 }: {
   form: ReturnType<typeof useForm<Values>>;
   options: UiAgentCreationOptions | undefined;
   step: Step;
+  onEdit(step: Step): void;
 }) {
   const values = form.watch();
   const selectedCapabilities = values.capabilities;
@@ -563,18 +571,19 @@ function StepContent({
               [
                 'conversation',
                 'Existing conversation',
-                'Install the agent on an existing conversation.',
+                'Available after an agent-owned provider connection is configured.',
               ],
               [
                 'scheduled_job',
                 'Scheduled job',
-                'Create scheduled work using an existing conversation.',
+                'Available after an agent-owned provider connection is configured.',
               ],
             ] as const
           ).map(([kind, label, description]) => (
             <OptionCard
               key={kind}
               active={values.workSourceKind === kind}
+              disabled={kind !== 'configure_later'}
               label={label}
               description={description}
               onClick={() =>
@@ -638,7 +647,7 @@ function StepContent({
         ) : null}
       </section>
     );
-  return <Review values={values} />;
+  return <Review values={values} onEdit={onEdit} />;
 }
 
 function OptionCard({
@@ -728,7 +737,13 @@ function SelectionGroup({
   );
 }
 
-function Review({ values }: { values: Values }) {
+function Review({
+  values,
+  onEdit,
+}: {
+  values: Values;
+  onEdit(step: Step): void;
+}) {
   const work =
     values.workSourceKind === 'configure_later'
       ? 'Configure later'
@@ -744,21 +759,32 @@ function Review({ values }: { values: Values }) {
         </p>
       </div>
       <dl className="grid divide-y divide-dashed rounded-lg border border-dashed border-border text-sm">
-        <ReviewRow label="Name" value={values.name || 'Required'} />
-        <ReviewRow label="Harness" value={values.agentHarness} />
+        <ReviewRow
+          label="Name"
+          value={values.name || 'Required'}
+          onEdit={() => onEdit(0)}
+        />
+        <ReviewRow
+          label="Harness"
+          value={values.agentHarness}
+          onEdit={() => onEdit(0)}
+        />
         <ReviewRow
           label="Model"
           value={values.modelAlias || 'Deployment default'}
+          onEdit={() => onEdit(1)}
         />
         <ReviewRow
           label="Access"
           value={`${values.capabilities.length} capabilities · ${values.skillIds.length} skills · ${values.mcpServerIds.length} MCP sources · ${values.toolIds.length} tools`}
+          onEdit={() => onEdit(2)}
         />
         <ReviewRow
           label="Delegates"
           value={`${values.delegateIds.length} configured`}
+          onEdit={() => onEdit(3)}
         />
-        <ReviewRow label="Work source" value={work} />
+        <ReviewRow label="Work source" value={work} onEdit={() => onEdit(4)} />
       </dl>
       <p className="m-0 text-xs text-text-secondary">
         Creation applies the saved setup in stages. If a durable stage cannot
@@ -768,11 +794,46 @@ function Review({ values }: { values: Values }) {
   );
 }
 
-function ReviewRow({ label, value }: { label: string; value: string }) {
+function ReviewRow({
+  label,
+  value,
+  onEdit,
+}: {
+  label: string;
+  value: string;
+  onEdit(): void;
+}) {
   return (
     <div className="flex items-center justify-between gap-4 p-3">
       <dt className="text-text-secondary">{label}</dt>
-      <dd className="m-0 font-semibold text-text">{value}</dd>
+      <dd className="m-0 flex items-center gap-3 font-semibold text-text">
+        {value}
+        <Button size="sm" variant="ghost" onClick={onEdit}>
+          Edit
+        </Button>
+      </dd>
     </div>
+  );
+}
+
+function CreationProgress() {
+  return (
+    <section className="mb-5 rounded-lg border border-dashed border-border bg-surface-muted p-4">
+      <h2 className="m-0 text-sm font-semibold text-text">Creating agent</h2>
+      <ol className="mt-3 grid gap-2 text-xs text-text-secondary">
+        {[
+          'Creating agent record',
+          'Applying model and harness',
+          'Applying access',
+          'Applying delegation',
+          'Connecting work source',
+        ].map((label, index) => (
+          <li className="flex items-center gap-2" key={label}>
+            <Badge>{index === 0 ? 'Working' : 'Next'}</Badge>
+            {label}
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }

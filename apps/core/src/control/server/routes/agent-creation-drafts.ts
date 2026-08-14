@@ -110,6 +110,10 @@ function sendApplicationError(res: ServerResponse, error: unknown): boolean {
     sendError(res, 400, 'INVALID_REQUEST', error.message);
     return true;
   }
+  if (error.code === 'UNAVAILABLE') {
+    sendError(res, 503, 'UNAVAILABLE', error.message);
+    return true;
+  }
   return false;
 }
 
