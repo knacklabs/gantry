@@ -1,4 +1,15 @@
-import { and, asc, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lte,
+  or,
+  sql,
+} from 'drizzle-orm';
 
 import type {
   CapabilityTemplateAmendmentProposal,
@@ -591,6 +602,7 @@ export class PostgresCapabilityTemplateAmendmentRepository
           proposalId: sql<string>`blocker_proposal.id`,
           capabilityId: sql<string>`blocker_proposal.capability_id`,
           intentId: sql<string | null>`intent.id`,
+          intentStatus: sql<string | null>`intent.status`,
         })
         .from(pgSchema.canonicalJobsPostgres)
         .innerJoin(
@@ -607,8 +619,9 @@ export class PostgresCapabilityTemplateAmendmentRepository
         )
         .leftJoin(
           sql`lateral (
-            select i.id from ${intentTable} i
-            where i.proposal_id = blocker_proposal.id
+            select i.id, i.status from ${intentTable} i
+            where i.app_id = ${pgSchema.canonicalJobsPostgres.appId}
+              and i.capability_id = blocker_proposal.capability_id
             order by i.approved_at desc, i.id desc
             limit 1
           ) intent`,
@@ -631,8 +644,14 @@ export class PostgresCapabilityTemplateAmendmentRepository
         .for('update', { of: pgSchema.canonicalJobsPostgres });
       let adopted = 0;
       for (const orphan of orphans) {
-        if (!orphan.intentId) continue;
-        await tx
+        // Adopt only under the NEWEST live intent for the capability - a
+        // superseded intent is never claimed, so inserting beneath it
+        // would strand the job (review R9). A stale-proposal blocker will
+        // be superseded by the live intent's own target classification.
+        if (!orphan.intentId || orphan.intentStatus === 'superseded') {
+          continue;
+        }
+        const reopened = await tx
           .update(intentTable)
           .set({
             status: 'pending',
@@ -647,7 +666,12 @@ export class PostgresCapabilityTemplateAmendmentRepository
               eq(intentTable.id, orphan.intentId),
               inArray(intentTable.status, ['pending', 'completed']),
             ),
-          );
+          )
+          .returning({ id: intentTable.id });
+        if (reopened.length === 0) continue;
+        // Upsert BACK to pending: an earlier attempt may have left a
+        // terminal target row, which would make the reopened intent
+        // complete again without touching the job (review R9).
         await tx
           .insert(targetTable)
           .values({
@@ -657,7 +681,15 @@ export class PostgresCapabilityTemplateAmendmentRepository
             status: 'pending',
             updatedAt: input.now,
           })
-          .onConflictDoNothing();
+          .onConflictDoUpdate({
+            target: [targetTable.intentId, targetTable.jobId],
+            set: {
+              status: 'pending',
+              expectedSetupFingerprint: orphan.setupFingerprint,
+              completedAt: null,
+              updatedAt: input.now,
+            },
+          });
         adopted += 1;
       }
       return adopted;

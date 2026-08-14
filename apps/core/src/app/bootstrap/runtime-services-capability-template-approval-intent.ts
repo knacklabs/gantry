@@ -12,6 +12,7 @@ import {
   type CapabilityTemplateApprovalTargetOutcome,
 } from '../../jobs/capability-template-approval-intent-recovery.js';
 import { recheckPausedSetupJobsAfterRequestAccessGrant } from '../../jobs/request-access-job-recovery.js';
+import { SETUP_REQUIRED_PAUSE_REASON } from '../../domain/jobs/jobs.js';
 import type { CapabilityTemplateApprovalIntentRepository } from '../../shared/capability-template-amendment.js';
 
 export function capabilityTemplateApprovalIntentRepositoryFrom(
@@ -141,7 +142,14 @@ function classifyTarget(
   // (blockers cleared) right before a crash is exactly the state the
   // recheck below finishes (review R3).
   if (job.status === 'active') return 'resumed';
-  if (job.status === 'paused' && job.setup_state?.state === 'ready') {
+  if (
+    job.status === 'paused' &&
+    job.setup_state?.state === 'ready' &&
+    job.pause_reason === SETUP_REQUIRED_PAUSE_REASON
+  ) {
+    // Only the crash-between-readiness-and-resume window: a job paused
+    // for another reason (or with its setup context replaced) falls
+    // through to the blocker check and supersedes (review R9).
     return undefined;
   }
   // Only THIS intent's proposal keeps the target current - a blocker
