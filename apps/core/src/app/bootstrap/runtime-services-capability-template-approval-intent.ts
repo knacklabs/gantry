@@ -47,8 +47,13 @@ export function startRuntimeCapabilityTemplateApprovalIntentRecovery(input: {
   warn(meta: Record<string, unknown>, message: string): void;
 }): void {
   if (input.repositories === undefined || input.repositories === null) {
-    // Stripped bootstraps (unit fixtures) carry no repository container at
-    // all - nothing to recover, nothing to enable.
+    // Only stripped bootstraps (unit fixtures) omit the repository
+    // container - the production bootstrap always supplies
+    // storage.repositories (app/index.ts). Loud, never silent (review R4).
+    input.warn(
+      {},
+      'Capability template approval-intent recovery is DISABLED: no repository container was supplied to this bootstrap.',
+    );
     return;
   }
   const repository = capabilityTemplateApprovalIntentRepositoryFrom(

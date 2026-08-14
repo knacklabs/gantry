@@ -245,7 +245,13 @@ export class PostgresCapabilityTemplateAmendmentRepository
         return { status: 'not_pending' as const };
       }
       if (proposal.status === 'approved') {
-        await this.insertApprovalIntent(tx, proposal, input);
+        // Newer-wins ordering must come from the ORIGINAL decision time -
+        // a replay's own clock would make an old approval look newest and
+        // supersede a genuinely newer intent (review R4).
+        await this.insertApprovalIntent(tx, proposal, {
+          ...input,
+          approvedAt: proposal.decidedAt ?? input.approvedAt,
+        });
         return { status: 'already_amended' as const };
       }
       if (proposal.status !== 'pending') {
@@ -500,7 +506,51 @@ export class PostgresCapabilityTemplateAmendmentRepository
             eq(targetTable.status, 'pending'),
           ),
         );
-      const completed = (remaining?.count ?? 0) === 0;
+      let completed = (remaining?.count ?? 0) === 0;
+      if (completed) {
+        // Close the pause/approval snapshot race before completing: a job
+        // whose readiness pass committed a fix_proposal pause AFTER the
+        // approval's target snapshot would otherwise stay paused with no
+        // recovery target forever. Adopt any such straggler as a fresh
+        // target and keep the intent pending (review R4).
+        const stragglers = await tx
+          .select({
+            jobId: pgSchema.canonicalJobsPostgres.id,
+            setupFingerprint: sql<string>`${pgSchema.canonicalJobsPostgres.setupState} ->> 'fingerprint'`,
+          })
+          .from(pgSchema.canonicalJobsPostgres)
+          .where(
+            and(
+              eq(pgSchema.canonicalJobsPostgres.appId, intent.appId),
+              eq(pgSchema.canonicalJobsPostgres.status, 'paused'),
+              sql`exists (
+                select 1
+                from jsonb_array_elements(coalesce(${pgSchema.canonicalJobsPostgres.setupState} -> 'blockers', '[]'::jsonb)) blocker
+                where blocker -> 'action' ->> 'kind' = 'fix_proposal'
+                  and blocker -> 'action' ->> 'proposalId' = ${intent.proposalId}
+              )`,
+              sql`not exists (
+                select 1 from ${targetTable} existing
+                where existing.intent_id = ${input.intentId}
+                  and existing.job_id = ${pgSchema.canonicalJobsPostgres.id}
+              )`,
+            ),
+          )
+          .for('update');
+        if (stragglers.length > 0) {
+          await tx.insert(targetTable).values(
+            stragglers.map((straggler) => ({
+              intentId: input.intentId,
+              jobId: straggler.jobId,
+              expectedSetupFingerprint: straggler.setupFingerprint,
+              status: 'pending',
+              createdAt: input.now,
+              updatedAt: input.now,
+            })),
+          );
+          completed = false;
+        }
+      }
       await tx
         .update(intentTable)
         .set({

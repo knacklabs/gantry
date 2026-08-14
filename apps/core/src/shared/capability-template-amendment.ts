@@ -81,7 +81,9 @@ export function redactObservedArgv(argv: readonly string[]): string[] {
       }
     }
     const previous = index > 0 ? all[index - 1] : undefined;
-    if (previous === '--account' && !token.startsWith('-') && /@/.test(token)) {
+    // Regardless of a leading dash: the value slot after --account is a
+    // value, and an @-bearing one is an account identity (review R4).
+    if (previous === '--account' && /@/.test(token)) {
       return '<redacted>';
     }
     if (
