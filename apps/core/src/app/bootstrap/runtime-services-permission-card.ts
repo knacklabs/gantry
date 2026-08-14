@@ -41,33 +41,44 @@ async function reRaiseUnnotifiedSetupPauses(
   opsRepository?: Pick<RuntimeJobRepository, 'listJobs'>,
 ): Promise<void> {
   if (!opsRepository) return;
-  const paused = await opsRepository.listJobs({
-    statuses: ['paused'],
-    limit: 50,
-  });
-  for (const job of paused) {
-    const setup = job.setup_state;
-    if (
-      job.pause_reason !== SETUP_REQUIRED_PAUSE_REASON ||
-      !setup ||
-      setup.state === 'ready' ||
-      !setup.fingerprint ||
-      setup.notified_fingerprint === setup.fingerprint
-    ) {
-      continue;
+  // Paginate the WHOLE paused set: notified/silent paused rows would
+  // otherwise permanently occupy a single fixed page and starve later
+  // setup pauses (review R11).
+  let pageAfter: { createdAt: string; id: string } | undefined;
+  for (;;) {
+    const page = await opsRepository.listJobs({
+      statuses: ['paused'],
+      limit: 50,
+      orderBy: 'created_at',
+      ...(pageAfter ? { pageAfter } : {}),
+    });
+    for (const job of page) {
+      const setup = job.setup_state;
+      if (
+        job.pause_reason !== SETUP_REQUIRED_PAUSE_REASON ||
+        !setup ||
+        setup.state === 'ready' ||
+        !setup.fingerprint ||
+        setup.notified_fingerprint === setup.fingerprint
+      ) {
+        continue;
+      }
+      try {
+        await raiseSetupPausePermissionPrompt({
+          jobId: job.id,
+          setupFingerprint: setup.fingerprint,
+          source: 'partial_recovery',
+        });
+      } catch (err) {
+        logger.warn(
+          { err, jobId: job.id },
+          'Setup prompt re-raise failed; will retry on the next tick',
+        );
+      }
     }
-    try {
-      await raiseSetupPausePermissionPrompt({
-        jobId: job.id,
-        setupFingerprint: setup.fingerprint,
-        source: 'partial_recovery',
-      });
-    } catch (err) {
-      logger.warn(
-        { err, jobId: job.id },
-        'Setup prompt re-raise failed; will retry on the next tick',
-      );
-    }
+    const last = page.at(-1);
+    if (page.length < 50 || !last) return;
+    pageAfter = { createdAt: last.created_at, id: last.id };
   }
 }
 
