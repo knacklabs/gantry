@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm';
 
 import type { AgentCreationDraft } from '../../../../domain/agent-creation/agent-creation-draft.js';
 import type { AgentCreationDraftRepository } from '../../../../domain/ports/agent-creation-drafts.js';
+import { toIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 
@@ -31,15 +32,12 @@ function toDraft(row: DraftRow): AgentCreationDraft {
     ...(row.leaseToken ? { leaseToken: row.leaseToken } : {}),
     ...(row.leaseExpiresAt
       ? {
-          leaseExpiresAt:
-            row.leaseExpiresAt as AgentCreationDraft['leaseExpiresAt'],
+          leaseExpiresAt: toIso(row.leaseExpiresAt),
         }
       : {}),
-    createdAt: row.createdAt as AgentCreationDraft['createdAt'],
-    updatedAt: row.updatedAt as AgentCreationDraft['updatedAt'],
-    ...(row.completedAt
-      ? { completedAt: row.completedAt as AgentCreationDraft['completedAt'] }
-      : {}),
+    createdAt: toIso(row.createdAt),
+    updatedAt: toIso(row.updatedAt),
+    ...(row.completedAt ? { completedAt: toIso(row.completedAt) } : {}),
   };
 }
 

@@ -56,6 +56,8 @@ maybeDescribe('PostgresAgentCreationDraftRepository integration', () => {
     });
     expect(saved).not.toBe('conflict');
     if (saved === 'conflict') throw new Error('draft insert conflicted');
+    expect(saved.createdAt).toMatch(/T.*Z$/);
+    expect(saved.updatedAt).toMatch(/T.*Z$/);
 
     await expect(
       repository.getDraft({
@@ -79,6 +81,7 @@ maybeDescribe('PostgresAgentCreationDraftRepository integration', () => {
       status: 'applying',
       leaseToken: 'lease:one',
     });
+    expect(claimed?.leaseExpiresAt).toMatch(/T.*Z$/);
     await expect(
       repository.claimDraft({
         appId: saved.appId,
