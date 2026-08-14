@@ -30,6 +30,33 @@ function identityFrom(document: Record<string, unknown>): IdentityDocument {
   return { name, agentHarness: agentHarness as AgentHarness };
 }
 
+function unsupportedConfigurationBlockers(document: Record<string, unknown>) {
+  const blockers: string[] = [];
+  if (
+    [
+      'capabilities',
+      'skillIds',
+      'mcpServerIds',
+      'toolSources',
+      'delegateIds',
+    ].some((key) => Array.isArray(document[key]) && document[key].length > 0)
+  ) {
+    blockers.push('Access and delegation setup has not been applied yet.');
+  }
+  const workSource = document.workSource;
+  if (
+    workSource &&
+    typeof workSource === 'object' &&
+    'kind' in workSource &&
+    workSource.kind !== 'configure_later'
+  ) {
+    blockers.push(
+      'Conversation and scheduled-job setup require a provider account owned by the new agent.',
+    );
+  }
+  return blockers;
+}
+
 export class AgentCreationService {
   constructor(
     private readonly deps: {
@@ -50,10 +77,11 @@ export class AgentCreationService {
         agent.name.trim().toLocaleLowerCase() ===
           identity.name.toLocaleLowerCase() && agent.id !== draft.agentId,
     );
-    return {
-      ok: !duplicate,
-      blockers: duplicate ? ['An agent with this name already exists.'] : [],
-    };
+    const blockers = [
+      ...(duplicate ? ['An agent with this name already exists.'] : []),
+      ...unsupportedConfigurationBlockers(draft.document),
+    ];
+    return { ok: blockers.length === 0, blockers };
   }
 
   async createOrResume(input: {

@@ -21,6 +21,76 @@ export type UiAgent = {
   updatedAt: string;
 };
 
+export type UiAgentCreationDraft = {
+  id: string;
+  revision: number;
+  status: 'draft' | 'applying' | 'needs_attention' | 'completed';
+  currentStep: string;
+  document: {
+    name: string;
+    agentHarness: 'auto' | 'anthropic_sdk' | 'deepagents';
+    modelAlias: string | null;
+    capabilities: Array<{ id: string; version: string }>;
+    skillIds: string[];
+    mcpServerIds: string[];
+    toolSources: Array<{ id: string; kind: string; version?: string }>;
+    delegateIds: string[];
+    workSource:
+      | { kind: 'configure_later' }
+      | { kind: 'conversation'; conversationId: string }
+      | {
+          kind: 'scheduled_job';
+          conversationId: string;
+          name: string;
+          instructions: string;
+          schedule: string;
+        };
+  };
+  progress: Record<string, string>;
+  agentId: string | null;
+  jobId: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+};
+
+export type UiAgentCreationOptions = {
+  models: Array<{
+    id: string;
+    label: string;
+    aliases: string[];
+    available: boolean;
+    supportsTools: boolean;
+  }>;
+  capabilities: Array<{
+    id: string;
+    version: string;
+    displayName: string;
+    category: string;
+    risk: string;
+    can: string;
+    cannot: string;
+  }>;
+  skills: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    status: string;
+  }>;
+  mcpServers: Array<{ id: string; name: string; description: string | null }>;
+  tools: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    risk: string;
+    kind: string;
+  }>;
+  delegates: UiAgent[];
+  conversations: Array<{ id: string; name: string; kind: string }>;
+};
+
 export type UiReadiness = {
   status: 'ready' | 'degraded';
   failing: string[];
@@ -243,6 +313,23 @@ export const agentsQuery = queryOptions({
   staleTime: Number.POSITIVE_INFINITY,
 });
 
+export const agentCreationDraftsQuery = queryOptions({
+  queryKey: ['ui-api', 'agent-creation-drafts'],
+  queryFn: ({ signal }) =>
+    get<{ drafts: UiAgentCreationDraft[] }>(
+      '/ui/api/agent-creation-drafts',
+      signal,
+    ),
+  staleTime: 0,
+});
+
+export const agentCreationOptionsQuery = queryOptions({
+  queryKey: ['ui-api', 'agent-creation-options'],
+  queryFn: ({ signal }) =>
+    get<UiAgentCreationOptions>('/ui/api/agent-creation-options', signal),
+  staleTime: 60_000,
+});
+
 export const overviewQuery = queryOptions({
   queryKey: ['ui-api', 'overview'],
   queryFn: ({ signal }) => get<UiOverview>('/ui/api/overview', signal),
@@ -350,6 +437,53 @@ export function getAgents(signal?: AbortSignal) {
   return get<{ agents: UiAgent[] }>('/ui/api/agents', signal);
 }
 
+export function createAgentCreationDraft(input: {
+  document: UiAgentCreationDraft['document'];
+  currentStep?: string;
+}) {
+  return mutate<UiAgentCreationDraft>(
+    '/ui/api/agent-creation-drafts',
+    'POST',
+    input,
+  );
+}
+
+export function updateAgentCreationDraft(
+  id: string,
+  input: {
+    document: UiAgentCreationDraft['document'];
+    currentStep: string;
+    expectedRevision: number;
+  },
+) {
+  return mutate<UiAgentCreationDraft>(
+    `/ui/api/agent-creation-drafts/${encodeURIComponent(id)}`,
+    'PUT',
+    input,
+  );
+}
+
+export function deleteAgentCreationDraft(id: string) {
+  return mutate<{ deleted: true }>(
+    `/ui/api/agent-creation-drafts/${encodeURIComponent(id)}`,
+    'DELETE',
+  );
+}
+
+export function preflightAgentCreationDraft(id: string) {
+  return mutate<{ ok: boolean; blockers: string[] }>(
+    `/ui/api/agent-creation-drafts/${encodeURIComponent(id)}/preflight`,
+    'POST',
+  );
+}
+
+export function createOrResumeAgent(id: string) {
+  return mutate<UiAgentCreationDraft>(
+    `/ui/api/agent-creation-drafts/${encodeURIComponent(id)}/create`,
+    'POST',
+  );
+}
+
 export function uiApiErrorMessage(error: unknown): string {
   if (!(error instanceof UiApiError)) return 'The UI API did not respond.';
   if (error.code === 'UI_NOT_CONFIGURED') {
@@ -388,6 +522,38 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   }
 
   return body as T;
+}
+
+async function mutate<T>(
+  path: string,
+  method: 'POST' | 'PUT' | 'DELETE',
+  body?: unknown,
+) {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method,
+      credentials: 'same-origin',
+      headers: {
+        accept: 'application/json',
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  } catch {
+    throw new UiApiError('UI_API_UNAVAILABLE', true);
+  }
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new UiApiError('INVALID_UI_API_RESPONSE', response.status >= 500);
+  }
+  if (!response.ok) {
+    const failure = readFailure(payload);
+    throw new UiApiError(failure.code, failure.retryable, failure.requestId);
+  }
+  return payload as T;
 }
 
 function readFailure(body: unknown): {

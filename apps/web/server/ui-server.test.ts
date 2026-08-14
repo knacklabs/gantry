@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
@@ -22,6 +23,12 @@ const sdk = vi.hoisted(() => ({
   listActivity: vi.fn(),
   getActivity: vi.fn(),
   streamActivity: vi.fn(),
+  listCreationDrafts: vi.fn(),
+  createCreationDraft: vi.fn(),
+  updateCreationDraft: vi.fn(),
+  deleteCreationDraft: vi.fn(),
+  preflightCreationDraft: vi.fn(),
+  createOrResumeCreationDraft: vi.fn(),
 }));
 
 vi.mock('@gantry/sdk', () => ({ createClient: sdk.createClient }));
@@ -49,9 +56,23 @@ function response() {
 async function request(
   handler: ReturnType<typeof createUiHandler>,
   url: string,
+  options: {
+    method?: string;
+    body?: unknown;
+    headers?: Record<string, string>;
+  } = {},
 ) {
   const output = response();
-  await handler({ method: 'GET', url }, output);
+  const raw = options.body === undefined ? '' : JSON.stringify(options.body);
+  const request = Readable.from(raw ? [raw] : []) as Readable & {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+  };
+  request.method = options.method ?? 'GET';
+  request.url = url;
+  request.headers = options.headers ?? {};
+  await handler(request, output);
   return output.result();
 }
 
@@ -72,6 +93,12 @@ beforeEach(() => {
   sdk.listActivity.mockReset();
   sdk.getActivity.mockReset();
   sdk.streamActivity.mockReset();
+  sdk.listCreationDrafts.mockReset();
+  sdk.createCreationDraft.mockReset();
+  sdk.updateCreationDraft.mockReset();
+  sdk.deleteCreationDraft.mockReset();
+  sdk.preflightCreationDraft.mockReset();
+  sdk.createOrResumeCreationDraft.mockReset();
   sdk.createClient.mockReturnValue({
     health: sdk.health,
     getRuntimeSummary: sdk.getRuntimeSummary,
@@ -91,6 +118,14 @@ beforeEach(() => {
       list: sdk.listActivity,
       get: sdk.getActivity,
       stream: sdk.streamActivity,
+    },
+    agentCreationDrafts: {
+      list: sdk.listCreationDrafts,
+      create: sdk.createCreationDraft,
+      update: sdk.updateCreationDraft,
+      delete: sdk.deleteCreationDraft,
+      preflight: sdk.preflightCreationDraft,
+      createOrResume: sdk.createOrResumeCreationDraft,
     },
   });
 });
@@ -530,6 +565,78 @@ it('ui-server-profile-contract', async () => {
   expect(profile.text).not.toMatch(
     /server-secret|control\.internal|upstream-secret|private-app|secret-version|delegate_secret|private-conversation|rawPolicy|privateSource/,
   );
+});
+
+it('ui-server-agent-creation-contract', async () => {
+  sdk.createCreationDraft.mockResolvedValue({
+    id: 'agent-creation-draft:one',
+    revision: 1,
+    status: 'draft',
+    currentStep: 'identity',
+    document: {
+      name: 'Support',
+      agentHarness: 'auto',
+      appId: 'private-app',
+      capabilities: [],
+      skillIds: [],
+      mcpServerIds: [],
+      toolSources: [],
+      delegateIds: [],
+      workSource: { kind: 'configure_later' },
+    },
+    progress: { identity: 'complete' },
+    appId: 'private-app',
+    leaseToken: 'secret-lease',
+    createdAt: '2026-08-14T00:00:00.000Z',
+    updatedAt: '2026-08-14T00:00:00.000Z',
+  });
+  const handler = createUiHandler({
+    distRoot: '/missing',
+    env: {
+      GANTRY_CONTROL_API_KEY: 'server-secret',
+      GANTRY_CONTROL_BASE_URL: 'http://control.internal',
+    },
+  });
+  const body = {
+    document: {
+      name: 'Support',
+      agentHarness: 'auto',
+      capabilities: [],
+      skillIds: [],
+      mcpServerIds: [],
+      toolSources: [],
+      delegateIds: [],
+      workSource: { kind: 'configure_later' },
+    },
+  };
+
+  expect(
+    (
+      await request(handler, '/ui/api/agent-creation-drafts', {
+        method: 'POST',
+        body,
+      })
+    ).status,
+  ).toBe(403);
+
+  const created = await request(handler, '/ui/api/agent-creation-drafts', {
+    method: 'POST',
+    body,
+    headers: {
+      origin: 'http://ui.local',
+      host: 'ui.local',
+      'content-type': 'application/json',
+    },
+  });
+  expect(created.status).toBe(201);
+  expect(created.text).not.toMatch(
+    /server-secret|control\.internal|secret-lease|private-app/,
+  );
+  expect(JSON.parse(created.text)).toMatchObject({
+    id: 'agent-creation-draft:one',
+    document: { name: 'Support', agentHarness: 'auto' },
+  });
+  expect(sdk.createCreationDraft).toHaveBeenCalledWith(body);
 });
 
 it('ui-server-api-contract', async () => {

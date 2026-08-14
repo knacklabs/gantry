@@ -11,7 +11,9 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_DIST = fileURLToPath(new URL('../dist', import.meta.url));
 const METRICS_CACHE_TTL_MS = 5 * 60_000;
 const CAPABILITY_CACHE_TTL_MS = 60_000;
+const AGENT_CREATION_OPTIONS_CACHE_TTL_MS = 60_000;
 const METRICS_RANGES = new Set(['24h', '7d', '30d']);
+const JSON_BODY_MAX_BYTES = 64 * 1024;
 const CONTENT_TYPES = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -39,6 +41,168 @@ function sendNotFound(response) {
   sendJson(response, 404, {
     error: { code: 'NOT_FOUND', requestId: randomUUID(), retryable: false },
   });
+}
+
+async function readRequestJson(request) {
+  const contentType = request.headers?.['content-type'];
+  if (
+    !String(contentType ?? '')
+      .toLowerCase()
+      .startsWith('application/json')
+  ) {
+    throw new Error('INVALID_CONTENT_TYPE');
+  }
+  let total = 0;
+  const chunks = [];
+  for await (const chunk of request) {
+    const buffer = Buffer.from(chunk);
+    total += buffer.length;
+    if (total > JSON_BODY_MAX_BYTES) throw new Error('PAYLOAD_TOO_LARGE');
+    chunks.push(buffer);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw new Error('INVALID_JSON');
+  }
+}
+
+function isSameOriginMutation(request) {
+  const origin = request.headers?.origin;
+  const host = request.headers?.host;
+  if (typeof origin !== 'string' || typeof host !== 'string') return false;
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+function projectCreationDraft(draft) {
+  return {
+    id: String(draft.id),
+    revision: Number(draft.revision),
+    status: String(draft.status),
+    currentStep: String(draft.currentStep),
+    document: {
+      name: String(draft.document.name),
+      agentHarness: String(draft.document.agentHarness),
+      modelAlias: draft.document.modelAlias ?? null,
+      capabilities: Array.isArray(draft.document.capabilities)
+        ? draft.document.capabilities.map((item) => ({
+            id: String(item.id),
+            version: String(item.version),
+          }))
+        : [],
+      skillIds: Array.isArray(draft.document.skillIds)
+        ? draft.document.skillIds.map(String)
+        : [],
+      mcpServerIds: Array.isArray(draft.document.mcpServerIds)
+        ? draft.document.mcpServerIds.map(String)
+        : [],
+      toolSources: Array.isArray(draft.document.toolSources)
+        ? draft.document.toolSources.map((item) => ({
+            id: String(item.id),
+            kind: String(item.kind),
+            ...(item.version === undefined
+              ? {}
+              : { version: String(item.version) }),
+          }))
+        : [],
+      delegateIds: Array.isArray(draft.document.delegateIds)
+        ? draft.document.delegateIds.map(String)
+        : [],
+      workSource: draft.document.workSource,
+    },
+    progress: Object.fromEntries(
+      Object.entries(draft.progress ?? {}).map(([key, value]) => [
+        String(key),
+        String(value),
+      ]),
+    ),
+    agentId: draft.agentId ?? null,
+    jobId: draft.jobId ?? null,
+    errorCode: draft.errorCode ?? null,
+    errorMessage: draft.errorMessage ?? null,
+    createdAt: String(draft.createdAt),
+    updatedAt: String(draft.updatedAt),
+    completedAt: draft.completedAt ?? null,
+  };
+}
+
+async function agentCreationOptions(client, state) {
+  if (state.value && state.expiresAt > Date.now()) return state.value;
+  if (!state.inFlight) {
+    state.inFlight = Promise.all([
+      client.models.list(),
+      client.capabilities.list(),
+      client.capabilities.inventory(),
+      client.skills.list(),
+      client.agents.list(),
+      client.conversations.list(),
+    ])
+      .then(
+        ([models, capabilities, inventory, skills, agents, conversations]) => ({
+          models: models.models.map((model) => ({
+            id: String(model.id),
+            label: String(model.displayName),
+            aliases: Array.isArray(model.aliases)
+              ? model.aliases.map(String)
+              : [],
+            available: model.available === true,
+            supportsTools: model.supportsTools === true,
+          })),
+          capabilities: capabilities.capabilities.map((capability) => ({
+            id: String(capability.id),
+            version: String(capability.version),
+            displayName: String(capability.displayName),
+            category: String(capability.category),
+            risk: String(capability.risk),
+            can: String(capability.can),
+            cannot: String(capability.cannot),
+          })),
+          skills: skills.skills.map((skill) => ({
+            id: String(skill.id),
+            name: String(skill.name),
+            description: skill.description ?? null,
+            status: String(skill.status ?? 'installed'),
+          })),
+          mcpServers: inventory.inventory.mcpServers.map((server) => ({
+            id: String(server.id),
+            name: String(server.displayName ?? server.name),
+            description: server.description ?? null,
+          })),
+          tools: inventory.inventory.tools
+            .filter(
+              (tool) => tool.selectable === true && tool.status === 'active',
+            )
+            .map((tool) => ({
+              id: String(tool.id),
+              name: String(tool.displayName ?? tool.name),
+              description: tool.description ?? null,
+              risk: String(tool.risk),
+              kind: String(tool.kind),
+            })),
+          delegates: agents.agents
+            .filter((agent) => agent.status === 'active')
+            .map(projectAgent),
+          conversations: conversations.conversations.map((conversation) => ({
+            id: String(conversation.id),
+            name: String(conversation.displayName ?? conversation.id),
+            kind: String(conversation.kind),
+          })),
+        }),
+      )
+      .then((value) => {
+        state.value = value;
+        state.expiresAt = Date.now() + AGENT_CREATION_OPTIONS_CACHE_TTL_MS;
+        return value;
+      })
+      .finally(() => {
+        state.inFlight = null;
+      });
+  }
+  return state.inFlight;
 }
 
 function projectReadiness(readiness) {
@@ -397,12 +561,6 @@ function createSdkClient(env) {
 }
 
 async function handleApi(method, url, request, response, env, state) {
-  if (method !== 'GET') {
-    response.writeHead(405, { allow: 'GET' });
-    response.end();
-    return;
-  }
-
   const { pathname } = url;
 
   const instanceMatch = pathname.match(/^\/ui\/api\/instances\/([^/]+)$/);
@@ -412,6 +570,9 @@ async function handleApi(method, url, request, response, env, state) {
   const activityMatch = pathname.match(
     /^\/ui\/api\/activity\/([^/]+)(?:\/(events))?$/,
   );
+  const draftMatch = pathname.match(
+    /^\/ui\/api\/agent-creation-drafts\/([^/]+)(?:\/(preflight|create))?$/,
+  );
   const knownPath =
     pathname === '/ui/api/connection' ||
     pathname === '/ui/api/overview' ||
@@ -419,10 +580,31 @@ async function handleApi(method, url, request, response, env, state) {
     pathname === '/ui/api/activity' ||
     pathname === '/ui/api/instances' ||
     pathname === '/ui/api/agents' ||
+    pathname === '/ui/api/agent-creation-drafts' ||
+    pathname === '/ui/api/agent-creation-options' ||
     instanceMatch ||
     agentMatch ||
-    activityMatch;
+    activityMatch ||
+    draftMatch;
   if (!knownPath) return sendNotFound(response);
+  const isDraftMutation =
+    (pathname === '/ui/api/agent-creation-drafts' && method === 'POST') ||
+    (draftMatch && ['PUT', 'DELETE', 'POST'].includes(method));
+  if (method !== 'GET' && !isDraftMutation) {
+    response.writeHead(405, { allow: 'GET' });
+    response.end();
+    return;
+  }
+  if (isDraftMutation && !isSameOriginMutation(request)) {
+    sendJson(response, 403, {
+      error: {
+        code: 'FORBIDDEN',
+        requestId: randomUUID(),
+        retryable: false,
+      },
+    });
+    return;
+  }
 
   let client;
   try {
@@ -604,6 +786,71 @@ async function handleApi(method, url, request, response, env, state) {
       return;
     }
 
+    if (pathname === '/ui/api/agent-creation-drafts') {
+      if (method === 'GET') {
+        const result = await client.agentCreationDrafts.list();
+        sendJson(response, 200, {
+          drafts: result.drafts.map(projectCreationDraft),
+        });
+        return;
+      }
+      const body = await readRequestJson(request);
+      const draft = await client.agentCreationDrafts.create(body);
+      sendJson(response, 201, projectCreationDraft(draft));
+      return;
+    }
+
+    if (pathname === '/ui/api/agent-creation-options') {
+      sendJson(
+        response,
+        200,
+        await agentCreationOptions(client, state.options),
+      );
+      return;
+    }
+
+    if (draftMatch) {
+      const id = decodeURIComponent(draftMatch[1]);
+      const action = draftMatch[2];
+      if (!action && method === 'GET') {
+        sendJson(
+          response,
+          200,
+          projectCreationDraft(await client.agentCreationDrafts.get(id)),
+        );
+        return;
+      }
+      if (!action && method === 'PUT') {
+        const body = await readRequestJson(request);
+        sendJson(
+          response,
+          200,
+          projectCreationDraft(
+            await client.agentCreationDrafts.update(id, body),
+          ),
+        );
+        return;
+      }
+      if (!action && method === 'DELETE') {
+        sendJson(response, 200, await client.agentCreationDrafts.delete(id));
+        return;
+      }
+      if (action === 'preflight' && method === 'POST') {
+        sendJson(response, 200, await client.agentCreationDrafts.preflight(id));
+        return;
+      }
+      if (action === 'create' && method === 'POST') {
+        sendJson(
+          response,
+          200,
+          projectCreationDraft(
+            await client.agentCreationDrafts.createOrResume(id),
+          ),
+        );
+        return;
+      }
+    }
+
     if (agentMatch) {
       const agentId = decodeURIComponent(agentMatch[1]);
       const relation = agentMatch[2];
@@ -727,6 +974,21 @@ async function handleApi(method, url, request, response, env, state) {
     }
   } catch (error) {
     if (
+      error instanceof Error &&
+      ['INVALID_CONTENT_TYPE', 'INVALID_JSON', 'PAYLOAD_TOO_LARGE'].includes(
+        error.message,
+      )
+    ) {
+      sendJson(response, error.message === 'PAYLOAD_TOO_LARGE' ? 413 : 400, {
+        error: {
+          code: error.message,
+          requestId: randomUUID(),
+          retryable: false,
+        },
+      });
+      return;
+    }
+    if (
       activityMatch &&
       error &&
       typeof error === 'object' &&
@@ -786,6 +1048,7 @@ export function createUiHandler(options = {}) {
   const state = {
     metrics: { cache: new Map(), inFlight: new Map() },
     capabilities: { value: null, expiresAt: 0, inFlight: null },
+    options: { value: null, expiresAt: 0, inFlight: null },
   };
 
   return async (request, response) => {

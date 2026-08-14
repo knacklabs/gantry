@@ -41,6 +41,19 @@ export const AgentCreationDocumentSchema = z
       .max(100)
       .default([]),
     skillIds: z.array(z.string().min(1).max(200)).max(100).default([]),
+    mcpServerIds: z.array(z.string().min(1).max(200)).max(100).default([]),
+    toolSources: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1).max(200),
+            kind: z.string().min(1).max(100),
+            version: z.string().min(1).max(100).optional(),
+          })
+          .strict(),
+      )
+      .max(100)
+      .default([]),
     delegateIds: z.array(z.string().min(1).max(200)).max(100).default([]),
     workSource: AgentCreationWorkSourceSchema.default({
       kind: 'configure_later',

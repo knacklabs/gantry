@@ -74,6 +74,26 @@ describe('AgentCreationService', () => {
     ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
   });
 
+  it('does not report selected work configuration as complete before it is applied', async () => {
+    const { sut } = service(
+      draft({
+        document: {
+          name: 'Support agent',
+          agentHarness: 'auto',
+          delegateIds: ['agent:research'],
+        },
+      }),
+    );
+
+    await expect(
+      sut.createOrResume({
+        appId,
+        id: 'agent-creation-draft:1' as never,
+        leaseToken: 'lease',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+  });
+
   it('creates a stable agent once and records a completed receipt', async () => {
     const { sut, agents, harnesses, current } = service();
 

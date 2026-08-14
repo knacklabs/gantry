@@ -1,14 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Bot, CircleOff, RefreshCw, SearchX } from 'lucide-react';
+import { Bot, CircleOff, Plus, RefreshCw, SearchX } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   agentsQuery,
+  agentCreationDraftsQuery,
   uiApiErrorMessage,
   type UiAgent,
+  type UiAgentCreationDraft,
 } from '../../../lib/ui-api';
+import { AgentCreationDialog } from '../components/agent-creation-dialog';
 import { DataTable } from '../../../ui/compositions/data-table';
 import { PageHeader } from '../../../ui/compositions/page-header';
 import { PageState } from '../../../ui/compositions/page-state';
@@ -31,16 +34,43 @@ export function AgentsRoute() {
   const search = useSearch({ from: '/agents' });
   const navigate = useNavigate({ from: '/agents' });
   const query = useQuery(agentsQuery);
+  const draftsQuery = useQuery(agentCreationDraftsQuery);
+  const [creationOpen, setCreationOpen] = useState(false);
+  const [resumingDraft, setResumingDraft] = useState<
+    UiAgentCreationDraft | undefined
+  >();
   const [searchText, setSearchText] = useState(search.q);
   const searchInput = useRef(search.q);
   const searchTimeout = useRef<number | undefined>(undefined);
   const agents = query.data?.agents ?? [];
+  const drafts =
+    draftsQuery.data?.drafts.filter((draft) => draft.status !== 'completed') ??
+    [];
+  const records = useMemo<DirectoryRecord[]>(
+    () => [
+      ...agents.map((agent) => ({ ...agent, kind: 'agent' as const })),
+      ...drafts.map<DirectoryRecord>((draft) => ({
+        id: draft.id,
+        name: draft.document.name,
+        status: (draft.status === 'needs_attention'
+          ? 'needs attention'
+          : draft.status === 'applying'
+            ? 'creating'
+            : 'draft') as 'draft' | 'creating' | 'needs attention',
+        createdAt: draft.createdAt,
+        updatedAt: draft.updatedAt,
+        kind: 'draft' as const,
+        draft,
+      })),
+    ],
+    [agents, drafts],
+  );
   const visible = useMemo(() => {
     const normalized = searchText.trim().toLowerCase();
-    return agents.filter(
+    return records.filter(
       (agent) => !normalized || agent.name.toLowerCase().includes(normalized),
     );
-  }, [agents, searchText]);
+  }, [records, searchText]);
   const sort =
     search.sort === 'name' || search.sort === 'status' ? search.sort : 'name';
 
@@ -62,21 +92,34 @@ export function AgentsRoute() {
     setSearchText(searchInput.current);
   }
 
-  const columns = useMemo<ColumnDef<UiAgent>[]>(
+  const columns = useMemo<ColumnDef<DirectoryRecord>[]>(
     () => [
       {
         accessorKey: 'name',
         header: 'Agent',
-        cell: ({ row }) => (
-          <Link
-            className="font-semibold text-text no-underline hover:underline"
-            params={{ agentId: row.original.id }}
-            search={{ tab: 'summary' }}
-            to="/agents/$agentId"
-          >
-            {row.original.name}
-          </Link>
-        ),
+        cell: ({ row }) =>
+          row.original.kind === 'agent' ? (
+            <Link
+              className="font-semibold text-text no-underline hover:underline"
+              params={{ agentId: row.original.id }}
+              search={{ tab: 'summary' }}
+              to="/agents/$agentId"
+            >
+              {row.original.name}
+            </Link>
+          ) : (
+            <Button
+              className="h-auto p-0 font-semibold"
+              variant="link"
+              onClick={() => {
+                if (!('draft' in row.original)) return;
+                setResumingDraft(row.original.draft);
+                setCreationOpen(true);
+              }}
+            >
+              {row.original.name}
+            </Button>
+          ),
       },
       {
         accessorKey: 'status',
@@ -106,14 +149,27 @@ export function AgentsRoute() {
         title="Agents"
         description="Inspect configured agent composition and recent activity from this Gantry deployment."
         action={
-          <Button
-            disabled={query.isFetching}
-            variant="secondary"
-            onClick={() => void query.refetch({ cancelRefetch: false })}
-          >
-            <RefreshCw size={16} aria-hidden="true" />
-            {query.isFetching ? 'Refreshing' : 'Refresh'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              aria-label="Create agent"
+              size="icon"
+              title="Create agent"
+              onClick={() => {
+                setResumingDraft(undefined);
+                setCreationOpen(true);
+              }}
+            >
+              <Plus size={16} aria-hidden="true" />
+            </Button>
+            <Button
+              disabled={query.isFetching}
+              variant="secondary"
+              onClick={() => void query.refetch({ cancelRefetch: false })}
+            >
+              <RefreshCw size={16} aria-hidden="true" />
+              {query.isFetching ? 'Refreshing' : 'Refresh'}
+            </Button>
+          </div>
         }
       />
 
@@ -155,7 +211,7 @@ export function AgentsRoute() {
             </Alert>
           ) : null}
 
-          {agents.length === 0 ? (
+          {records.length === 0 ? (
             <PageState
               description="This deployment has not reported any agents."
               icon={<Bot aria-hidden="true" />}
@@ -180,7 +236,7 @@ export function AgentsRoute() {
 
               <Panel
                 title="Agent directory"
-                description={`${visible.length} of ${agents.length} agents shown`}
+                description={`${agents.length} agents · ${drafts.length} drafts · ${visible.length} of ${records.length} records shown`}
                 action={<Bot size={16} aria-hidden="true" />}
               >
                 {visible.length === 0 ? (
@@ -220,9 +276,30 @@ export function AgentsRoute() {
           )}
         </>
       ) : null}
+      <AgentCreationDialog
+        draft={resumingDraft}
+        open={creationOpen}
+        onOpenChange={setCreationOpen}
+        onCreated={(agentId) => {
+          setCreationOpen(false);
+          void navigate({
+            to: '/agents/$agentId',
+            params: { agentId },
+            search: { tab: 'summary' },
+          });
+        }}
+      />
     </div>
   );
 }
+
+type DirectoryRecord =
+  | (UiAgent & { kind: 'agent' })
+  | (Omit<UiAgent, 'status'> & {
+      kind: 'draft';
+      status: 'draft' | 'creating' | 'needs attention';
+      draft: UiAgentCreationDraft;
+    });
 
 function Timestamp({ value }: { value: string }) {
   const date = new Date(value);

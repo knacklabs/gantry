@@ -12,5 +12,28 @@ export function createCapabilitiesClient(transport: TransportLike) {
         method: 'GET',
         path: `/v1/capabilities${querySuffix({})}`,
       }),
+    inventory: () =>
+      transport.request<{
+        inventory: {
+          tools: Array<{
+            id: string;
+            name: string;
+            displayName?: string;
+            description?: string | null;
+            risk: string;
+            selectable: boolean;
+            status: string;
+          }>;
+          mcpServers: Array<{
+            id: string;
+            name: string;
+            displayName?: string;
+            description?: string | null;
+          }>;
+        };
+      }>({
+        method: 'GET',
+        path: '/v1/inventory',
+      }),
   };
 }
