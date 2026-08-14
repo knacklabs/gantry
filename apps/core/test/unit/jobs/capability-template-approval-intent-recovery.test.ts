@@ -11,7 +11,7 @@ describe('capability-template approval-intent recovery', () => {
       .mockResolvedValueOnce('superseded');
     const result = await recoverCapabilityTemplateApprovalIntents({
       repository: {
-        claimDueApprovalIntents: vi.fn(async () => [
+        claimDueApprovalIntents: vi.fn().mockResolvedValue([]).mockResolvedValueOnce([
           {
             id: 'intent-1',
             appId: 'app-1',
@@ -49,7 +49,7 @@ describe('capability-template approval-intent recovery', () => {
     const settleApprovalIntentClaim = vi.fn(async () => 'pending' as const);
     const result = await recoverCapabilityTemplateApprovalIntents({
       repository: {
-        claimDueApprovalIntents: vi.fn(async () => [
+        claimDueApprovalIntents: vi.fn().mockResolvedValue([]).mockResolvedValueOnce([
           {
             id: 'intent-2',
             appId: 'app-1',

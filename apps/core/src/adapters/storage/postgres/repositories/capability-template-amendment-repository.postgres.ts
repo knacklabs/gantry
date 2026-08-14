@@ -666,17 +666,21 @@ export class PostgresCapabilityTemplateAmendmentRepository
         ),
       )
       .for('update');
+    // ALWAYS pending - even with zero snapshot targets: a racing
+    // readiness pass can commit a fix_proposal pause after this snapshot,
+    // and only the recovery pass's straggler adoption can see it. The
+    // first recovery pass completes an intent that stays empty (R5).
     await tx.insert(intentTable).values({
       id: intentId,
       appId: input.appId,
       proposalId: proposal.id,
       capabilityId: input.capabilityId,
-      status: targets.length === 0 ? 'completed' : 'pending',
+      status: 'pending',
       nextAttemptAt: input.approvedAt,
       approvedAt: input.approvedAt,
       createdAt: input.approvedAt,
       updatedAt: input.approvedAt,
-      completedAt: targets.length === 0 ? input.approvedAt : null,
+      completedAt: null,
     });
     if (targets.length > 0) {
       await tx.insert(targetTable).values(

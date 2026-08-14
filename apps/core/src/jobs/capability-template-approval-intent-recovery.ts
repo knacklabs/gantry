@@ -28,18 +28,24 @@ export async function recoverCapabilityTemplateApprovalIntents(
   input: CapabilityTemplateApprovalIntentRecoveryInput,
 ): Promise<{ claimed: number; completed: number; pending: number }> {
   const clock = input.now ?? (() => new Date());
-  const startedAt = clock();
-  const intents = await input.repository.claimDueApprovalIntents({
-    claimerId: input.claimerId,
-    now: startedAt.toISOString(),
-    leaseExpiresAt: new Date(
-      startedAt.getTime() + (input.leaseMs ?? DEFAULT_LEASE_MS),
-    ).toISOString(),
-    limit: input.limit ?? 10,
-  });
   let completed = 0;
   let pending = 0;
-  for (const intent of intents) {
+  let claimedCount = 0;
+  // ONE intent per claim: a shared batch lease taken up-front would let
+  // later claims expire while earlier intents' target sets are processed,
+  // inviting claim theft and duplicate recovery work (review R5).
+  for (let round = 0; round < (input.limit ?? 10); round += 1) {
+    const claimedAt = clock();
+    const [intent] = await input.repository.claimDueApprovalIntents({
+      claimerId: input.claimerId,
+      now: claimedAt.toISOString(),
+      leaseExpiresAt: new Date(
+        claimedAt.getTime() + (input.leaseMs ?? DEFAULT_LEASE_MS),
+      ).toISOString(),
+      limit: 1,
+    });
+    if (!intent) break;
+    claimedCount += 1;
     const outcomes: Array<{
       jobId: string;
       status: 'resumed' | 'superseded';
@@ -79,7 +85,7 @@ export async function recoverCapabilityTemplateApprovalIntents(
     if (status === 'completed' || status === 'superseded') completed += 1;
     else pending += 1;
   }
-  return { claimed: intents.length, completed, pending };
+  return { claimed: claimedCount, completed, pending };
 }
 
 export interface CapabilityTemplateApprovalIntentRecoveryLoop {
