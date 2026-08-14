@@ -68,20 +68,23 @@ export async function compileAndRecordHostCapabilityTemplateMismatch(input: {
   const localCliBindings = (capability?.implementationBindings ?? []).filter(
     (binding) => binding.kind === 'local_cli' && binding.executablePath,
   );
-  if (localCliBindings.length !== 1) {
-    return {
-      action: instructionSetupAction(
-        `Ask an administrator to review the command template for capability "${input.capabilityId}".`,
-      ),
-    };
-  }
-  const binding = localCliBindings[0]!;
-  const compilation = compileCapabilityTemplateMismatch({
-    executablePath: binding.executablePath!,
-    commandTemplates: binding.commandTemplates ?? [],
-    observedArgs: input.observedArgs,
-  });
-  if (compilation.kind !== 'proposal') {
+  // Exactly-one applies to the MATCHING template across all pinned
+  // bindings, not to the binding count: compile iff exactly one binding
+  // yields a proposal (review R2).
+  const compilations = localCliBindings
+    .map((binding) =>
+      compileCapabilityTemplateMismatch({
+        executablePath: binding.executablePath!,
+        commandTemplates: binding.commandTemplates ?? [],
+        observedArgs: input.observedArgs,
+      }),
+    )
+    .filter(
+      (candidate): candidate is typeof candidate & { kind: 'proposal' } =>
+        candidate.kind === 'proposal',
+    );
+  const compilation = compilations.length === 1 ? compilations[0]! : null;
+  if (!compilation) {
     return {
       action: instructionSetupAction(
         `Ask an administrator to review the command template for capability "${input.capabilityId}".`,
@@ -259,22 +262,20 @@ const capabilityRunHandler: TaskHandler = async (context) => {
             );
             return;
           }
-          const outcome = await compileAndRecordHostCapabilityTemplateMismatch(
-            {
-              appId: data.appId,
-              agentId: data.agentId,
-              requestedBy: context.sourceAgentFolder,
-              capabilityId,
-              observedArgs: args,
-              jobId: restriction.jobId,
-              conversationJid: data.chatJid,
-              threadId: data.authThreadId,
-              providerAccountId: data.providerAccountId,
-              toolRepository: repository,
-              proposalRepository,
-              now: new Date().toISOString(),
-            },
-          );
+          const outcome = await compileAndRecordHostCapabilityTemplateMismatch({
+            appId: data.appId,
+            agentId: data.agentId,
+            requestedBy: context.sourceAgentFolder,
+            capabilityId,
+            observedArgs: args,
+            jobId: restriction.jobId,
+            conversationJid: data.chatJid,
+            threadId: data.authThreadId,
+            providerAccountId: data.providerAccountId,
+            toolRepository: repository,
+            proposalRepository,
+            now: new Date().toISOString(),
+          });
           action = outcome.action;
           if (outcome.review) {
             startCapabilityTemplateAmendmentReview({

@@ -91,16 +91,13 @@ export function compileCapabilityTemplateMismatch(input: {
     return { kind: 'instruction' };
   }
 
-  // Tokens were DECODED by the parser; join(' ') would silently merge a
+  // Tokens were DECODED by the parser; a bare join would silently merge a
   // quoted literal like 'named range' into two tokens and authorize a
-  // different shape. Any token that does not round-trip bare falls to
-  // instruction - conservative authority synthesis.
-  if (
-    candidate.tokens.some((token) => !/^[A-Za-z0-9@%+=:,./*_-]+$/.test(token))
-  ) {
-    return { kind: 'instruction' };
-  }
-  const baseTokens = [...candidate.tokens, ...positional.map(() => '*')];
+  // different shape. Serialize every literal with safe shell quoting.
+  const baseTokens = [
+    ...candidate.tokens.map(shellQuoteToken),
+    ...positional.map(() => '*'),
+  ];
   const proposedTemplates = [baseTokens.join(' ')];
   if (flags.length > 0) {
     proposedTemplates.push(
@@ -116,4 +113,9 @@ export function compileCapabilityTemplateMismatch(input: {
     return { kind: 'instruction' };
   }
   return { kind: 'proposal', proposedTemplates, observedArgv };
+}
+
+function shellQuoteToken(token: string): string {
+  if (token === '*' || /^[A-Za-z0-9@%+=:,./*_-]+$/.test(token)) return token;
+  return `'${token.replaceAll("'", `'\\''`)}'`;
 }
