@@ -68,22 +68,27 @@ export async function compileAndRecordHostCapabilityTemplateMismatch(input: {
   const localCliBindings = (capability?.implementationBindings ?? []).filter(
     (binding) => binding.kind === 'local_cli' && binding.executablePath,
   );
-  // Exactly-one applies to the MATCHING template across all pinned
-  // bindings, not to the binding count: compile iff exactly one binding
-  // yields a proposal (review R2).
-  const compilations = localCliBindings
-    .map((binding) =>
-      compileCapabilityTemplateMismatch({
-        executablePath: binding.executablePath!,
-        commandTemplates: binding.commandTemplates ?? [],
-        observedArgs: input.observedArgs,
-      }),
-    )
-    .filter(
-      (candidate): candidate is typeof candidate & { kind: 'proposal' } =>
-        candidate.kind === 'proposal',
-    );
-  const compilation = compilations.length === 1 ? compilations[0]! : null;
+  // Exactly-one applies to the MATCHING template across the WHOLE
+  // catalog: exactly one prefix match total, and it must be eligible - a
+  // same-prefix ineligible template in a sibling binding makes the match
+  // ambiguous (review R2/R3).
+  const compilations = localCliBindings.map((binding) =>
+    compileCapabilityTemplateMismatch({
+      executablePath: binding.executablePath!,
+      commandTemplates: binding.commandTemplates ?? [],
+      observedArgs: input.observedArgs,
+    }),
+  );
+  const totalPrefixMatches = compilations.reduce(
+    (sum, candidate) => sum + candidate.prefixMatches,
+    0,
+  );
+  const proposals = compilations.filter(
+    (candidate): candidate is typeof candidate & { kind: 'proposal' } =>
+      candidate.kind === 'proposal',
+  );
+  const compilation =
+    totalPrefixMatches === 1 && proposals.length === 1 ? proposals[0]! : null;
   if (!compilation) {
     return {
       action: instructionSetupAction(
@@ -300,23 +305,35 @@ const capabilityRunHandler: TaskHandler = async (context) => {
             provenanceSeam: 'capability_run',
             action,
           };
-          await context.deps.publishRuntimeEvent({
-            appId: data.appId as never,
-            agentId: data.agentId as never,
-            runId: restriction.runId as never,
-            jobId: restriction.jobId as never,
-            conversationId: data.chatJid as never,
-            threadId: data.authThreadId as never,
-            eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
-            actor: 'host',
-            responseMode: 'none',
-            payload: toolDenialEventPayload(denial, error.message),
-            idempotencyKey: jobToolDenialIdempotencyKey(
-              restriction.runId,
-              denial,
-            ),
-          });
+          try {
+            await context.deps.publishRuntimeEvent({
+              appId: data.appId as never,
+              agentId: data.agentId as never,
+              runId: restriction.runId as never,
+              jobId: restriction.jobId as never,
+              conversationId: data.chatJid as never,
+              threadId: data.authThreadId as never,
+              eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+              actor: 'host',
+              responseMode: 'none',
+              payload: toolDenialEventPayload(denial, error.message),
+              idempotencyKey: jobToolDenialIdempotencyKey(
+                restriction.runId,
+                denial,
+              ),
+            });
+          } catch {
+            // Observability only - a failed append must never replace the
+            // deterministic mismatch response (review R3).
+          }
         }
+        // The RESPONSE is the transport for the action (the event is an
+        // observational copy): interactive callers get the instruction or
+        // proposal reference here (review R3).
+        reject(error.message, error.code, [
+          JSON.stringify({ action: jobSetupActionEventPayload(action) }),
+        ]);
+        return;
       }
       reject(error.message, error.code);
       return;

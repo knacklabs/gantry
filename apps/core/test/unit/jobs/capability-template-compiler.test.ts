@@ -15,7 +15,7 @@ describe('capability template mismatch compiler', () => {
         ],
         observedArgs: ['sheets', 'get', 'sheet-1', 'Leads!A:B'],
       }),
-    ).toEqual({
+    ).toMatchObject({
       kind: 'proposal',
       proposedTemplates: [`${executablePath} sheets get * *`],
       observedArgv: [executablePath, 'sheets', 'get', 'sheet-1', 'Leads!A:B'],
@@ -36,7 +36,7 @@ describe('capability template mismatch compiler', () => {
           'owner@example.com',
         ],
       }),
-    ).toEqual({
+    ).toMatchObject({
       kind: 'proposal',
       proposedTemplates: [
         `${executablePath} sheets get * *`,
@@ -107,6 +107,6 @@ describe('capability template mismatch compiler', () => {
         commandTemplates: templates,
         observedArgs: args,
       }),
-    ).toEqual({ kind: 'instruction' });
+    ).toMatchObject({ kind: 'instruction' });
   });
 });

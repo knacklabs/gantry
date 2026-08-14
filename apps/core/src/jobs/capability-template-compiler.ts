@@ -2,9 +2,10 @@ import { parseBashCommand } from '../shared/bash-command-parser.js';
 import { validateLocalCliCommandTemplate } from '../shared/semantic-capabilities.js';
 
 export type CapabilityTemplateCompilation =
-  | { kind: 'instruction' }
+  | { kind: 'instruction'; prefixMatches: number }
   | {
       kind: 'proposal';
+      prefixMatches: number;
       proposedTemplates: string[];
       observedArgv: string[];
     };
@@ -45,21 +46,22 @@ export function compileCapabilityTemplateMismatch(input: {
     return [{ tokens }];
   });
 
-  if (candidates.length !== 1) return { kind: 'instruction' };
+  const prefixMatches = candidates.length;
+  if (prefixMatches !== 1) return { kind: 'instruction', prefixMatches };
   const candidate = candidates[0]!;
   if (candidate.tokens.some((token) => token.includes('*') && token !== '*')) {
-    return { kind: 'instruction' };
+    return { kind: 'instruction', prefixMatches };
   }
   if (observedArgv.length < candidate.tokens.length) {
-    return { kind: 'instruction' };
+    return { kind: 'instruction', prefixMatches };
   }
   for (let index = 0; index < candidate.tokens.length; index += 1) {
     const pattern = candidate.tokens[index]!;
     const value = observedArgv[index]!;
     if (pattern === '*') {
-      if (value.startsWith('-')) return { kind: 'instruction' };
+      if (value.startsWith('-')) return { kind: 'instruction', prefixMatches };
     } else if (pattern !== value) {
-      return { kind: 'instruction' };
+      return { kind: 'instruction', prefixMatches };
     }
   }
 
@@ -82,13 +84,13 @@ export function compileCapabilityTemplateMismatch(input: {
       !value ||
       value.startsWith('-')
     ) {
-      return { kind: 'instruction' };
+      return { kind: 'instruction', prefixMatches };
     }
     flags.push({ name, value });
     index += 2;
   }
   if (positional.length === 0 && flags.length === 0) {
-    return { kind: 'instruction' };
+    return { kind: 'instruction', prefixMatches };
   }
 
   // Tokens were DECODED by the parser; a bare join would silently merge a
@@ -110,9 +112,9 @@ export function compileCapabilityTemplateMismatch(input: {
         !validateLocalCliCommandTemplate(input.executablePath, template).ok,
     )
   ) {
-    return { kind: 'instruction' };
+    return { kind: 'instruction', prefixMatches };
   }
-  return { kind: 'proposal', proposedTemplates, observedArgv };
+  return { kind: 'proposal', prefixMatches, proposedTemplates, observedArgv };
 }
 
 function shellQuoteToken(token: string): string {
