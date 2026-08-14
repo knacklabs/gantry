@@ -256,9 +256,12 @@ function managedBrowserSandboxBridgeCommand(input: {
   const target = `PROXY:localhost:${MANAGED_BROWSER_CDP_GATEWAY_HOST}:${input.browserPort},proxyport=3128`;
   return [
     'set -eu',
-    // Sandbox Runtime's default TMPDIR may not exist in a fresh namespace.
-    // Playwright creates temporary artifacts while attaching over CDP.
-    'export TMPDIR=/tmp',
+    // Sandbox Runtime mounts /tmp read-only. Playwright creates temporary
+    // artifacts while attaching over CDP, so keep them in the writable skill
+    // workspace rather than inheriting the runtime's unavailable /tmp/claude.
+    'gantry_playwright_tmp="$PWD/.gantry-playwright-tmp"',
+    'mkdir -p "$gantry_playwright_tmp"',
+    'export TMPDIR="$gantry_playwright_tmp"',
     `gantry_browser_bridge_log=/tmp/gantry-browser-cdp-${input.bridgePort}.log`,
     `socat -d -d "TCP-LISTEN:${input.bridgePort},bind=127.0.0.1,reuseaddr,fork" "${target}" 2>"$gantry_browser_bridge_log" &`,
     'gantry_browser_bridge_pid=$!',
