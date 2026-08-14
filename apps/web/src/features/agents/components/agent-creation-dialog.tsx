@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Save, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 
 import {
@@ -15,6 +15,7 @@ import {
 } from '../../../lib/ui-api';
 import {
   Alert,
+  AlertAction,
   AlertDescription,
   AlertTitle,
 } from '../../../ui/primitives/alert';
@@ -257,6 +258,25 @@ export function AgentCreationDialog({
                 <Alert className="mb-5 border-status-attention/50 bg-status-attention-soft">
                   <AlertTitle>Setup needs attention</AlertTitle>
                   <AlertDescription>{error.message}</AlertDescription>
+                </Alert>
+              ) : null}
+              {options.isError ? (
+                <Alert className="mb-5 border-status-attention/50 bg-status-attention-soft">
+                  <AlertTitle>Creation options unavailable</AlertTitle>
+                  <AlertDescription>
+                    Gantry could not load the available models and access
+                    options. Retry when the local UI connection is ready.
+                  </AlertDescription>
+                  <AlertAction>
+                    <Button
+                      disabled={options.isFetching}
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void options.refetch()}
+                    >
+                      Retry
+                    </Button>
+                  </AlertAction>
                 </Alert>
               ) : null}
               {create.isPending ? <CreationProgress /> : null}
