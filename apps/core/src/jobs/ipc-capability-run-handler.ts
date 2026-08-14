@@ -61,6 +61,10 @@ export async function compileAndRecordHostCapabilityTemplateMismatch(input: {
     appId: input.appId as never,
     statuses: ['active'],
   });
+  // Compiler input is scoped to THE requested capability's catalog
+  // templates by the plan ("the app's catalog templates for the
+  // capability") - cross-capability prefix collisions are out of scope
+  // for exactly-one, deliberately.
   const capability = tools
     .filter((tool) => tool.status === 'active')
     .map((tool) => semanticCapabilityFromToolCatalogItem(tool))

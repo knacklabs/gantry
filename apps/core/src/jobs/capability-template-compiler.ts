@@ -76,11 +76,12 @@ export function compileCapabilityTemplateMismatch(input: {
   while (index < trailing.length) {
     const name = trailing[index]!;
     const value = trailing[index + 1];
-    // Strict flag grammar: bare --name / -x only. Inline values
-    // (--account=owner@host) would persist the value inside the literal
-    // flag token, bypassing argv redaction - conservative fallback.
+    // Bare --name / -x flags only (letters, digits, '-', '_'). Inline
+    // values (--account=owner@host) would persist the value inside the
+    // literal flag token, bypassing argv redaction - conservative
+    // fallback.
     if (
-      !/^--?[A-Za-z0-9][A-Za-z0-9-]*$/.test(name) ||
+      !/^--?[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name) ||
       !value ||
       value.startsWith('-')
     ) {
