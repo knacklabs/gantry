@@ -84,6 +84,11 @@ RUN apt-get update \
       socat \
       ripgrep \
       gosu \
+      xvfb \
+      x11vnc \
+      novnc \
+      websockify \
+      fluxbox \
     && install -d -m 0755 /etc/apt/keyrings \
     && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
       | gpg --dearmor -o /etc/apt/keyrings/google-chrome.gpg \
@@ -99,8 +104,10 @@ RUN apt-get update \
 # rehearsal and Terraform launch configs pass that container runtime option.
 # socat backs the sandbox-runtime egress proxy, ripgrep is the expected fast
 # search binary for agent turns, and libatomic1 is required by newer Node builds
-# on small Ubuntu/Debian hosts. google-chrome-stable is the sole managed-browser
-# executable; do not add Chromium as a fallback.
+# on small Ubuntu/Debian hosts. xvfb/x11vnc/noVNC/websockify provide the
+# persistent remote viewer on port 6080 used by fleet operators and the ECS
+# health check. google-chrome-stable is the sole managed-browser executable;
+# do not add Chromium as a fallback.
 
 # The runtime image never installs packages. Drop the package-manager payload
 # inherited from the Node base image so bundled npm CVEs do not fail image scans.
