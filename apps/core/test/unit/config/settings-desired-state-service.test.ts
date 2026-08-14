@@ -4602,4 +4602,42 @@ describe('reconcile preserves agent-installed bindings', () => {
       expect.objectContaining({ serverId: 'mcp:github' }),
     ]);
   });
+
+  it('reconciles configured permission tools sequentially to respect the database pool', async () => {
+    const { replaceDesiredStateCapabilities } =
+      await import('@core/config/settings/desired-state-capability-reconcile.js');
+    const repositories = makeRepositories();
+    let activeWrites = 0;
+    let peakWrites = 0;
+    repositories.tools.getTool.mockResolvedValue(null);
+    repositories.tools.listTools.mockResolvedValue([]);
+    repositories.tools.saveTool.mockImplementation(async () => {
+      activeWrites += 1;
+      peakWrites = Math.max(peakWrites, activeWrites);
+      await Promise.resolve();
+      activeWrites -= 1;
+    });
+
+    await replaceDesiredStateCapabilities({
+      appId: 'default' as never,
+      agentId: 'agent:main_agent' as never,
+      agent: {
+        name: 'Main',
+        folder: 'main_agent',
+        bindings: {},
+        sources: emptySources(),
+        capabilities: [
+          { id: 'mcp__gantry__mcp_list_tools', version: 'builtin' },
+          { id: 'mcp__gantry__scheduler_run_now', version: 'builtin' },
+          { id: 'mcp__gantry__scheduler_list_jobs', version: 'builtin' },
+        ],
+      } as never,
+      repositories,
+      now: '2026-08-14T00:00:00.000Z',
+      authoritative: true,
+    });
+
+    expect(repositories.tools.saveTool).toHaveBeenCalledTimes(3);
+    expect(peakWrites).toBe(1);
+  });
 });

@@ -440,22 +440,22 @@ async function toolIdsForReplacement(input: {
     ...(await catalogSemanticCapabilityDefinitions(input)),
     ...semanticCapabilityDefinitionsById(input.skillActionDefinitions ?? []),
   };
-  const ids = await Promise.all(
-    [
-      ...new Set(
-        normalized.capabilities.map(settingsCapabilityToToolReference),
-      ),
-    ].map(async (reference) => {
-      const tool = await ensureAgentToolCatalogItem({
-        repository: input.repositories.tools,
-        appId: input.appId,
-        reference,
-        now: input.now,
-        semanticCapabilityDefinitions,
-      });
-      return String(tool.id);
-    }),
-  );
+  const references = [
+    ...new Set(normalized.capabilities.map(settingsCapabilityToToolReference)),
+  ];
+  const ids: string[] = [];
+  // Each reference can read and write catalog state. Keep this bounded during
+  // startup so a settings revision cannot exhaust a session-mode DB pool.
+  for (const reference of references) {
+    const tool = await ensureAgentToolCatalogItem({
+      repository: input.repositories.tools,
+      appId: input.appId,
+      reference,
+      now: input.now,
+      semanticCapabilityDefinitions,
+    });
+    ids.push(String(tool.id));
+  }
   return ids;
 }
 
