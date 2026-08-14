@@ -56,6 +56,17 @@ export async function ensureAgentToolCatalogItem(input: {
       if (validated.tool) return validated.tool;
       throw new Error(validated.error);
     }
+    // Historic settings imports could create the same durable tool name under
+    // a different id. Reuse the active row so existing grants remain valid.
+    const legacy = (await input.repository.listTools({
+      appId: input.appId,
+      statuses: ['active'],
+    })).find((tool) => tool.selectable && tool.name === reference);
+    if (legacy) {
+      const validated = validateCatalogTool(input.appId, legacy.id, legacy);
+      if (validated.tool) return validated.tool;
+      throw new Error(validated.error);
+    }
     const item: ToolCatalogItem = {
       id: toolId,
       appId: input.appId,

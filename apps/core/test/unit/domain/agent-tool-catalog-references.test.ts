@@ -90,6 +90,42 @@ describe('agent tool catalog references', () => {
     expect(saveTool).not.toHaveBeenCalled();
   });
 
+  it('reuses an active legacy permission row by name before inserting', async () => {
+    const rule = 'mcp__gantry__mcp_list_tools';
+    const legacy: ToolCatalogItem = {
+      id: 'tool:legacy-permission-rule:mcp-list-tools' as never,
+      appId: 'default' as never,
+      name: rule,
+      kind: 'host',
+      provider: 'gantry',
+      displayName: 'Mcp List Tools',
+      description: 'Legacy persistent permission row.',
+      category: 'admin',
+      risk: 'high',
+      selectable: true,
+      status: 'active',
+      adapterRef: 'permission/settings.yaml',
+      createdAt: '2026-08-01T00:00:00.000Z' as never,
+      updatedAt: '2026-08-01T00:00:00.000Z' as never,
+    };
+    const saveTool = vi.fn(async () => undefined);
+    const repository = {
+      listTools: vi.fn(async () => [legacy]),
+      getTool: vi.fn(async () => null),
+      saveTool,
+    } as unknown as ToolCatalogRepository;
+
+    const item = await ensureAgentToolCatalogItem({
+      repository,
+      appId: 'default' as never,
+      reference: rule,
+      now: '2026-08-14T00:00:00.000Z',
+    });
+
+    expect(item).toBe(legacy);
+    expect(saveTool).not.toHaveBeenCalled();
+  });
+
   it('creates separate active rows when two apps durably grant the same non-admin Gantry tool', async () => {
     const tools = new Map<string, ToolCatalogItem>();
     const saveTool = vi.fn(async (tool: ToolCatalogItem) => {
