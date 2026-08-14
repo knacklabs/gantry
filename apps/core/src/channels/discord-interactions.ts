@@ -31,10 +31,7 @@ import {
   SCHEDULER_PAUSE_JOB_CUSTOM_ID_PREFIX,
   SCHEDULER_RUN_NOW_CUSTOM_ID_PREFIX,
 } from './discord-components.js';
-import {
-  postDiscordMessageParts,
-  splitDiscordText,
-} from './discord-delivery.js';
+import { sendDiscordPromptMessage } from './discord-delivery.js';
 import type { DiscordInteraction } from './discord-types.js';
 import { RICH_INTERACTION_SUBMITTED_BY_COPY } from './rich-interaction.js';
 import {
@@ -175,17 +172,14 @@ export class DiscordInteractionHandler {
         custom_id: permissionCustomId(callback.providerAlias, mode),
       })),
     ];
-    // A Discord thread ID is itself a channel ID for the message-create
-    // API (sendDiscordPrompt targets options.threadId first), so a thread
-    // target is a fully valid conversation target on its own.
+    // A Discord thread ID is itself a channel ID for message-create.
     if (!(request.threadId || discordChannelIdFromJid(jid)))
       return deliveryNotSent(
         'target_missing',
         'This Discord conversation could not be identified.',
       );
-    // Bind against the channel the message is actually sent to: a thread
-    // ID is the effective channel for thread prompts, and callback
-    // recovery matches on that provider conversation id (review R9).
+    // Bind against the channel the message is actually SENT to (threads
+    // are channels; callback recovery matches this id - review R9).
     const conversationId =
       request.threadId || discordChannelIdFromJid(jid) || jid;
     if (
@@ -257,9 +251,8 @@ export class DiscordInteractionHandler {
         if (!bound)
           throw new Error('Discord permission message binding failed');
       } catch (err) {
-        // Post-send persistence failures become delivered:'unknown' (0128
-        // transmission boundary, review R7): the card may be live, so this
-        // must never be retried into a duplicate.
+        // Post-send persistence = delivered:'unknown' (0128, R7): the
+        // card may be live; never retry into a duplicate.
         clearTimeout(timeout);
         if (this.pendingPermissions.get(callback.providerAlias) === livePending)
           this.pendingPermissions.delete(callback.providerAlias);
@@ -512,14 +505,12 @@ export class DiscordInteractionHandler {
     text: string,
     options: { threadId?: string; components?: unknown[] } = {},
   ): Promise<MessageDeliveryResult> {
-    const channelId = options.threadId || discordChannelIdFromJid(jid);
-    if (!channelId) throw new Error(`Invalid Discord conversation id: ${jid}`);
-    return postDiscordMessageParts({
-      channelId,
-      parts: splitDiscordText(text),
-      components: options.components,
-      post: (target, body) => this.input.postMessage(target, body),
-    });
+    return sendDiscordPromptMessage(
+      (target, body) => this.input.postMessage(target, body),
+      jid,
+      text,
+      options,
+    );
   }
 
   private async handlePermissionInteraction(

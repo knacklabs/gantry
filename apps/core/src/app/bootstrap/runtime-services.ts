@@ -128,12 +128,10 @@ export function createRuntimeProviderAttachmentMaterializer(app: RuntimeApp) {
   });
 }
 type RuntimeBootstrapRepository = RuntimeAppRepository & RuntimeJobRepository;
-type LiveTurnCommandWakeupSourceFactory = () =>
-  | LiveTurnCommandWakeupSource
-  | undefined;
-type RuntimeDependencyRepositoryFactory = () =>
-  | RuntimeDependencyRepository
-  | undefined;
+// prettier-ignore
+type LiveTurnCommandWakeupSourceFactory = () => LiveTurnCommandWakeupSource | undefined;
+// prettier-ignore
+type RuntimeDependencyRepositoryFactory = () => RuntimeDependencyRepository | undefined;
 type RuntimeStorageDep =
   | 'getAsyncTaskRepository'
   | 'getFileArtifactStore'
@@ -918,7 +916,8 @@ export async function startRuntimeServices(
         },
       });
     });
-    startRuntimePermissionCardReconciliation(outboundDeliveryRepository);
+    // prettier-ignore
+    startRuntimePermissionCardReconciliation(outboundDeliveryRepository, resolved.opsRepository);
     resolved.startOutboundDeliveryRecoveryLoop({
       service: outboundDeliveryService,
       claimerId: `runtime-recovery:${process.pid}`,

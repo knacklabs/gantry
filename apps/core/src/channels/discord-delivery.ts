@@ -1,3 +1,4 @@
+import { discordChannelIdFromJid } from './discord-interaction-helpers.js';
 import type {
   MessageDeliveryResult,
   MessageFileAttachment,
@@ -220,4 +221,25 @@ async function postDiscordFiles(
   );
   if (!response.ok) throw new Error('Discord file upload failed');
   return (await response.json()) as { id?: string };
+}
+
+// Prompt-message send used by permission and question interactions: a
+// thread ID is itself the target channel for message-create.
+export async function sendDiscordPromptMessage(
+  post: (
+    target: string,
+    body: Record<string, unknown>,
+  ) => Promise<{ id?: string }>,
+  jid: string,
+  text: string,
+  options: { threadId?: string; components?: unknown[] } = {},
+): Promise<MessageDeliveryResult> {
+  const channelId = options.threadId || discordChannelIdFromJid(jid);
+  if (!channelId) throw new Error(`Invalid Discord conversation id: ${jid}`);
+  return postDiscordMessageParts({
+    channelId,
+    parts: splitDiscordText(text),
+    components: options.components,
+    post,
+  });
 }
