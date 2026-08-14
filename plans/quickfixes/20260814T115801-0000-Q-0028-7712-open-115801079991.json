@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0028-7712",
+  "profile": "quickfix",
+  "reason": "capability-mismatch-teaches-shape",
+  "started_at": "2026-08-14T11:58:01+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

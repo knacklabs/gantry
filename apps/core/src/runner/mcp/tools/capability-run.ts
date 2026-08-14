@@ -12,7 +12,7 @@ const CAPABILITY_RUN_RESPONSE_TIMEOUT_MS = 125_000;
 export function registerCapabilityRunTool(server: McpServer): void {
   server.tool(
     'capability_run',
-    'Run a granted local CLI capability with structured arguments. Pass only argv entries after the executable. Gantry validates them against the reviewed capability pattern and runs without an agent-authored shell command.',
+    'Run a granted local CLI capability with structured arguments. Pass only argv entries after the executable. Gantry validates them against the reviewed capability pattern and runs without an agent-authored shell command. If rejected, the error lists the reviewed patterns; re-call with args matching one pattern.',
     {
       capabilityId: z
         .string()
