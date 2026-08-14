@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm';
 
 import type { AgentCreationDraft } from '../../../../domain/agent-creation/agent-creation-draft.js';
 import type { AgentCreationDraftRepository } from '../../../../domain/ports/agent-creation-drafts.js';
@@ -156,6 +156,7 @@ export class PostgresAgentCreationDraftRepository implements AgentCreationDraftR
     const [row] = await this.db
       .update(table)
       .set({
+        revision: sql`${table.revision} + 1`,
         leaseToken: input.leaseToken,
         leaseExpiresAt: input.leaseExpiresAt,
         status: 'applying',
@@ -165,6 +166,7 @@ export class PostgresAgentCreationDraftRepository implements AgentCreationDraftR
         and(
           eq(table.appId, input.appId),
           eq(table.id, input.id),
+          ne(table.status, 'completed'),
           or(
             isNull(table.leaseExpiresAt),
             lte(table.leaseExpiresAt, input.now),
