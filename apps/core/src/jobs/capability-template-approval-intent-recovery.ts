@@ -28,6 +28,16 @@ export async function recoverCapabilityTemplateApprovalIntents(
   input: CapabilityTemplateApprovalIntentRecoveryInput,
 ): Promise<{ claimed: number; completed: number; pending: number }> {
   const clock = input.now ?? (() => new Date());
+  // Adopt orphans FIRST: a readiness pause that committed after an
+  // intent's final straggler scan reopens that intent here, so the claim
+  // loop below picks it up (review R8 - tick-level serialization).
+  try {
+    await input.repository.adoptOrphanedApprovalTargets?.({
+      now: clock().toISOString(),
+    });
+  } catch {
+    // The sweep retries next tick; claiming continues regardless.
+  }
   let completed = 0;
   let pending = 0;
   let claimedCount = 0;
@@ -73,17 +83,20 @@ export async function recoverCapabilityTemplateApprovalIntents(
       // credential/browser work) can outlive a single lease window; the
       // settle itself stays token-fenced either way (review R7).
       const leaseMs = input.leaseMs ?? DEFAULT_LEASE_MS;
-      const heartbeat = setInterval(() => {
-        const at = clock();
-        void input.repository
-          .renewApprovalIntentClaim?.({
-            intentId: intent.id,
-            claimToken: intent.claimToken,
-            leaseExpiresAt: new Date(at.getTime() + leaseMs).toISOString(),
-            now: at.toISOString(),
-          })
-          .catch(() => undefined);
-      }, Math.max(1_000, Math.floor(leaseMs / 2)));
+      const heartbeat = setInterval(
+        () => {
+          const at = clock();
+          void input.repository
+            .renewApprovalIntentClaim?.({
+              intentId: intent.id,
+              claimToken: intent.claimToken,
+              leaseExpiresAt: new Date(at.getTime() + leaseMs).toISOString(),
+              now: at.toISOString(),
+            })
+            .catch(() => undefined);
+        },
+        Math.max(1_000, Math.floor(leaseMs / 2)),
+      );
       heartbeat.unref?.();
       try {
         const outcome = await input.recoverTarget({

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 
 import type {
   CapabilityTemplateAmendmentProposal,
@@ -569,6 +569,98 @@ export class PostgresCapabilityTemplateAmendmentRepository
           ),
         );
       return completed ? 'completed' : 'pending';
+    });
+  }
+
+  // Tick-level closure of the pause/approval race (no cross-module lock):
+  // a readiness pause that commits after the intent's final straggler scan
+  // leaves a paused job with a fix_proposal blocker whose proposal is
+  // APPROVED but has no pending intent target. Each recovery tick adopts
+  // such orphans by reopening the intent and inserting the target.
+  async adoptOrphanedApprovalTargets(input: {
+    now: string;
+    limit?: number;
+  }): Promise<number> {
+    const limit = Math.max(1, Math.min(input.limit ?? 25, 100));
+    return this.db.transaction(async (tx) => {
+      const orphans = await tx
+        .select({
+          jobId: pgSchema.canonicalJobsPostgres.id,
+          appId: pgSchema.canonicalJobsPostgres.appId,
+          setupFingerprint: sql<string>`${pgSchema.canonicalJobsPostgres.setupState} ->> 'fingerprint'`,
+          proposalId: sql<string>`blocker_proposal.id`,
+          capabilityId: sql<string>`blocker_proposal.capability_id`,
+          intentId: sql<string | null>`intent.id`,
+        })
+        .from(pgSchema.canonicalJobsPostgres)
+        .innerJoin(
+          sql`lateral (
+            select p.id, p.capability_id
+            from jsonb_array_elements(coalesce(${pgSchema.canonicalJobsPostgres.setupState} -> 'blockers', '[]'::jsonb)) blocker
+            join capability_template_amendment_proposals p
+              on p.id = blocker -> 'action' ->> 'proposalId'
+            where blocker -> 'action' ->> 'kind' = 'fix_proposal'
+              and p.status = 'approved'
+            limit 1
+          ) blocker_proposal`,
+          sql`true`,
+        )
+        .leftJoin(
+          sql`lateral (
+            select i.id from ${intentTable} i
+            where i.proposal_id = blocker_proposal.id
+            order by i.approved_at desc, i.id desc
+            limit 1
+          ) intent`,
+          sql`true`,
+        )
+        .where(
+          and(
+            eq(pgSchema.canonicalJobsPostgres.status, 'paused'),
+            sql`not exists (
+              select 1
+              from ${targetTable} pending_target
+              join ${intentTable} pending_intent on pending_intent.id = pending_target.intent_id
+              where pending_target.job_id = ${pgSchema.canonicalJobsPostgres.id}
+                and pending_target.status = 'pending'
+                and pending_intent.status = 'pending'
+            )`,
+          ),
+        )
+        .limit(limit)
+        .for('update', { of: pgSchema.canonicalJobsPostgres });
+      let adopted = 0;
+      for (const orphan of orphans) {
+        if (!orphan.intentId) continue;
+        await tx
+          .update(intentTable)
+          .set({
+            status: 'pending',
+            nextAttemptAt: input.now,
+            claimToken: null,
+            claimExpiresAt: null,
+            completedAt: null,
+            updatedAt: input.now,
+          })
+          .where(
+            and(
+              eq(intentTable.id, orphan.intentId),
+              inArray(intentTable.status, ['pending', 'completed']),
+            ),
+          );
+        await tx
+          .insert(targetTable)
+          .values({
+            intentId: orphan.intentId,
+            jobId: orphan.jobId,
+            expectedSetupFingerprint: orphan.setupFingerprint,
+            status: 'pending',
+            updatedAt: input.now,
+          })
+          .onConflictDoNothing();
+        adopted += 1;
+      }
+      return adopted;
     });
   }
 

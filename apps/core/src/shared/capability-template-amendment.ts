@@ -133,6 +133,10 @@ export interface CapabilityTemplateApprovalIntentRepository {
     leaseExpiresAt: string;
     limit: number;
   }): Promise<ClaimedCapabilityTemplateApprovalIntent[]>;
+  adoptOrphanedApprovalTargets?(input: {
+    now: string;
+    limit?: number;
+  }): Promise<number>;
   renewApprovalIntentClaim?(input: {
     intentId: string;
     claimToken: string;
