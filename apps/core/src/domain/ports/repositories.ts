@@ -99,6 +99,7 @@ import type {
   ToolCatalogItem,
   ToolId,
 } from '../tools/tools.js';
+export type { AgentCreationDraftRepository } from './agent-creation-drafts.js';
 
 export interface AppRepository {
   getApp(id: AppId): Promise<App | null>;

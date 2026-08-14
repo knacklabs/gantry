@@ -1325,7 +1325,7 @@
         "The native modal is accessible, reduced-motion-aware, and keeps all browser mutations same-origin and credential-free."
       ],
       "order": 66,
-      "status": "pending",
+      "status": "active",
       "epic": "web-runtime-console",
       "skill": "fullstack",
       "kind": "feature",
@@ -1430,5 +1430,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-14T05:07:10+00:00"
+  "updated_at": "2026-08-14T05:07:32+00:00"
 }

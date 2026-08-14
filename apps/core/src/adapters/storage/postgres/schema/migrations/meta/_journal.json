@@ -981,6 +981,13 @@
       "when": 1786637033564,
       "tag": "20260813160353_agent_run_activity_index",
       "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1786684703744,
+      "tag": "20260814051823_agent_creation_drafts",
+      "breakpoints": true
     }
   ]
 }

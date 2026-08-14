@@ -8,6 +8,7 @@ import {
   PostgresProviderAccountRepository,
 } from '@core/adapters/storage/postgres/repositories/domain-repositories.postgres.js';
 import { PostgresOutboundDeliveryRepository } from '@core/adapters/storage/postgres/repositories/outbound-delivery-repository.postgres.js';
+import { PostgresAgentCreationDraftRepository } from '@core/adapters/storage/postgres/repositories/agent-creation-draft-repository.postgres.js';
 import * as pgSchema from '@core/adapters/storage/postgres/schema/schema.js';
 import {
   conversationInstallsPostgres,
@@ -29,6 +30,9 @@ describe('createPostgresDomainRepositories', () => {
     expect(repositories.providerAccounts).toBeInstanceOf(
       PostgresProviderAccountRepository,
     );
+    expect(repositories.agentCreationDrafts).toBeInstanceOf(
+      PostgresAgentCreationDraftRepository,
+    );
   });
 });
 
@@ -46,6 +50,17 @@ describe('provider account schema', () => {
     );
     expect(conversationInstallsPostgres).not.toHaveProperty('triggerPattern');
     expect(conversationInstallsPostgres).not.toHaveProperty('requiresTrigger');
+  });
+});
+
+describe('agent creation draft schema', () => {
+  it('keeps draft state app-scoped, revisioned, and separate from the agent record', () => {
+    expect(pgSchema.agentCreationDraftsPostgres.appId.name).toBe('app_id');
+    expect(pgSchema.agentCreationDraftsPostgres.revision.name).toBe('revision');
+    expect(pgSchema.agentCreationDraftsPostgres.documentJson.name).toBe(
+      'document_json',
+    );
+    expect(pgSchema.agentCreationDraftsPostgres.agentId.name).toBe('agent_id');
   });
 });
 

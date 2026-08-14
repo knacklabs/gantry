@@ -134,12 +134,14 @@ import type { GroupJoinOnboardingRepository } from '../../../../domain/ports/gro
 import type { MessageAttachmentRepository } from '../../../../domain/ports/message-attachment-repository.js';
 import type { ConversationHistoryCoverageRepository } from '../../../../domain/ports/conversation-history-coverage.js';
 import type { CapabilityTemplateAmendmentRepository } from '../../../../domain/ports/capability-template-amendments.js';
+import type { AgentCreationDraftRepository } from '../../../../domain/ports/agent-creation-drafts.js';
 import { PostgresPermissionPromotionRepository } from './permission-promotion-repository.postgres.js';
 import { PostgresPermissionDecisionMemoryRepository } from './permission-decision-memory-repository.postgres.js';
 import { PostgresGroupJoinOnboardingRepository } from './group-join-onboarding-repository.postgres.js';
 import { PostgresMessageAttachmentRepository } from './message-attachment-repository.postgres.js';
 import { PostgresConversationHistoryCoverageRepository } from './conversation-history-coverage-repository.postgres.js';
 import { PostgresCapabilityTemplateAmendmentRepository } from './capability-template-amendment-repository.postgres.js';
+import { PostgresAgentCreationDraftRepository } from './agent-creation-draft-repository.postgres.js';
 import { deletionMarkerTimestampForMessage } from './message-attachment-deletion-markers.postgres.js';
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
@@ -180,6 +182,7 @@ export interface PostgresDomainRepositoryBundle {
   permissionDecisionMemory: PermissionDecisionMemoryRepository;
   groupJoinOnboarding: GroupJoinOnboardingRepository;
   capabilityTemplateAmendments: CapabilityTemplateAmendmentRepository;
+  agentCreationDrafts: AgentCreationDraftRepository;
 }
 type JsonRecord = Record<string, unknown>;
 function encodeJson(value: unknown): string {
@@ -2025,6 +2028,7 @@ export function createPostgresDomainRepositories(
     groupJoinOnboarding: new PostgresGroupJoinOnboardingRepository(db),
     capabilityTemplateAmendments:
       new PostgresCapabilityTemplateAmendmentRepository(db),
+    agentCreationDrafts: new PostgresAgentCreationDraftRepository(db),
   };
 }
 
