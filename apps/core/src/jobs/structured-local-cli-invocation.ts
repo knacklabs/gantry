@@ -161,15 +161,25 @@ async function resolveGrantedLocalCliInvocation(input: {
     };
   }
 
-  // Teach the shape: the templates are not secret (they appear verbatim on
-  // approval cards), and without them an agent cannot know how to re-call -
-  // the runtime, not the job prompt, owns call-shape recovery.
-  const reviewedPatterns = capability.implementationBindings
+  // Teach the shape IN THE TOOL'S OWN VOCABULARY: args arrays without the
+  // executable, so there is nothing shell-shaped to copy into Bash (a full
+  // template string got pasted into a shell on the first live run). The
+  // templates are not secret - they appear verbatim on approval cards -
+  // and the runtime, not the job prompt, owns call-shape recovery.
+  const reviewedArgPatterns = capability.implementationBindings
     .filter((binding) => binding.kind === 'local_cli')
-    .flatMap((binding) => binding.commandTemplates ?? []);
+    .flatMap((binding) =>
+      (binding.commandTemplates ?? []).map((template) => {
+        const executable = binding.executablePath?.trim() ?? '';
+        const rest = template.startsWith(executable)
+          ? template.slice(executable.length).trim()
+          : template.trim();
+        return JSON.stringify(rest.split(/\s+/));
+      }),
+    );
   throw new StructuredLocalCliInvocationError(
     'capability_template_mismatch',
-    `Arguments are outside the reviewed pattern for capability "${capabilityId}". Reviewed patterns: ${reviewedPatterns.join(' | ')}. Re-call capability_run with args (entries after the executable) matching one pattern; each * is exactly one positional value, and flags only where a pattern shows them.`,
+    `Arguments are outside the reviewed pattern for capability "${capabilityId}". Reviewed args patterns: ${reviewedArgPatterns.join(' or ')}. Re-call capability_run with an args array matching one pattern ("*" = exactly one value; flags only where a pattern shows them). Never run this capability through Bash/RunCommand.`,
   );
 }
 
