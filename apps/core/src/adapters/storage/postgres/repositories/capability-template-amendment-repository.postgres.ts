@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, lte, or, sql } from 'drizzle-orm';
 
 import type {
   CapabilityTemplateAmendmentProposal,
@@ -12,13 +12,24 @@ import {
   type SemanticCapabilityDefinition,
 } from '../../../../shared/semantic-capabilities.js';
 import { stableSha256Json } from '../../../../shared/stable-hash.js';
+import type { CapabilityTemplateApprovalIntentRepository } from '../../../../shared/capability-template-amendment.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 
 const table = pgSchema.capabilityTemplateAmendmentProposalsPostgres;
 const historyTable = pgSchema.capabilityTemplateAmendmentHistoryPostgres;
+const intentTable = pgSchema.capabilityTemplateApprovalIntentsPostgres;
+const targetTable = pgSchema.capabilityTemplateApprovalIntentTargetsPostgres;
 
-export class PostgresCapabilityTemplateAmendmentRepository implements CapabilityTemplateAmendmentRepository {
+type CanonicalTransaction = Parameters<
+  Parameters<CanonicalDb['transaction']>[0]
+>[0];
+
+export class PostgresCapabilityTemplateAmendmentRepository
+  implements
+    CapabilityTemplateAmendmentRepository,
+    CapabilityTemplateApprovalIntentRepository
+{
   constructor(private readonly db: CanonicalDb) {}
 
   async claimPending(
@@ -234,6 +245,7 @@ export class PostgresCapabilityTemplateAmendmentRepository implements Capability
         return { status: 'not_pending' as const };
       }
       if (proposal.status === 'approved') {
+        await this.insertApprovalIntent(tx, proposal, input);
         return { status: 'already_amended' as const };
       }
       if (proposal.status !== 'pending') {
@@ -300,6 +312,7 @@ export class PostgresCapabilityTemplateAmendmentRepository implements Capability
           .where(
             and(eq(table.id, input.proposalId), eq(table.status, 'pending')),
           );
+        await this.insertApprovalIntent(tx, proposal, input);
         return { status: 'already_amended' as const };
       }
 
@@ -367,8 +380,229 @@ export class PostgresCapabilityTemplateAmendmentRepository implements Capability
         .where(
           and(eq(table.id, input.proposalId), eq(table.status, 'pending')),
         );
+      await this.insertApprovalIntent(tx, proposal, input);
       return { status: 'amended' as const, historyId, auditEventId };
     });
+  }
+
+  async claimDueApprovalIntents(
+    input: Parameters<
+      CapabilityTemplateApprovalIntentRepository['claimDueApprovalIntents']
+    >[0],
+  ): ReturnType<
+    CapabilityTemplateApprovalIntentRepository['claimDueApprovalIntents']
+  > {
+    return this.db.transaction(async (tx) => {
+      const due = await tx
+        .select()
+        .from(intentTable)
+        .where(
+          and(
+            eq(intentTable.status, 'pending'),
+            lte(intentTable.nextAttemptAt, input.now),
+            or(
+              isNull(intentTable.claimExpiresAt),
+              lte(intentTable.claimExpiresAt, input.now),
+            ),
+          ),
+        )
+        .orderBy(asc(intentTable.nextAttemptAt), asc(intentTable.id))
+        .limit(input.limit)
+        .for('update', { skipLocked: true });
+      const claimed = [];
+      for (const intent of due) {
+        const claimToken = `${input.claimerId}:${globalThis.crypto.randomUUID()}`;
+        const [updated] = await tx
+          .update(intentTable)
+          .set({
+            claimToken,
+            claimExpiresAt: input.leaseExpiresAt,
+            attemptCount: intent.attemptCount + 1,
+            updatedAt: input.now,
+          })
+          .where(
+            and(
+              eq(intentTable.id, intent.id),
+              eq(intentTable.status, 'pending'),
+            ),
+          )
+          .returning();
+        if (!updated) continue;
+        const targets = await tx
+          .select()
+          .from(targetTable)
+          .where(
+            and(
+              eq(targetTable.intentId, intent.id),
+              eq(targetTable.status, 'pending'),
+            ),
+          )
+          .orderBy(asc(targetTable.jobId));
+        claimed.push({
+          id: updated.id,
+          appId: updated.appId,
+          proposalId: updated.proposalId,
+          capabilityId: updated.capabilityId,
+          claimToken,
+          attemptCount: updated.attemptCount,
+          targets: targets.map((target) => ({
+            jobId: target.jobId,
+            expectedSetupFingerprint: target.expectedSetupFingerprint,
+          })),
+        });
+      }
+      return claimed;
+    });
+  }
+
+  async settleApprovalIntentClaim(
+    input: Parameters<
+      CapabilityTemplateApprovalIntentRepository['settleApprovalIntentClaim']
+    >[0],
+  ): ReturnType<
+    CapabilityTemplateApprovalIntentRepository['settleApprovalIntentClaim']
+  > {
+    return this.db.transaction(async (tx) => {
+      const [intent] = await tx
+        .select()
+        .from(intentTable)
+        .where(eq(intentTable.id, input.intentId))
+        .for('update')
+        .limit(1);
+      if (!intent || intent.status === 'superseded') return 'superseded';
+      if (intent.status === 'completed') return 'completed';
+      if (intent.claimToken !== input.claimToken) return 'pending';
+      for (const outcome of input.outcomes) {
+        await tx
+          .update(targetTable)
+          .set({
+            status: outcome.status,
+            updatedAt: input.now,
+            completedAt: input.now,
+          })
+          .where(
+            and(
+              eq(targetTable.intentId, input.intentId),
+              eq(targetTable.jobId, outcome.jobId),
+              eq(targetTable.status, 'pending'),
+            ),
+          );
+      }
+      const [remaining] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(targetTable)
+        .where(
+          and(
+            eq(targetTable.intentId, input.intentId),
+            eq(targetTable.status, 'pending'),
+          ),
+        );
+      const completed = (remaining?.count ?? 0) === 0;
+      await tx
+        .update(intentTable)
+        .set({
+          status: completed ? 'completed' : 'pending',
+          nextAttemptAt: completed ? input.now : input.nextAttemptAt,
+          claimToken: null,
+          claimExpiresAt: null,
+          lastError: input.error ?? null,
+          updatedAt: input.now,
+          completedAt: completed ? input.now : null,
+        })
+        .where(
+          and(
+            eq(intentTable.id, input.intentId),
+            eq(intentTable.status, 'pending'),
+            eq(intentTable.claimToken, input.claimToken),
+          ),
+        );
+      return completed ? 'completed' : 'pending';
+    });
+  }
+
+  private async insertApprovalIntent(
+    tx: CanonicalTransaction,
+    proposal: typeof table.$inferSelect,
+    input: Parameters<
+      CapabilityTemplateAmendmentRepository['amendSemanticCapabilityCommandTemplates']
+    >[0],
+  ): Promise<void> {
+    const intentId = `capability-amendment-intent:${proposal.id}`;
+    // Serialize all approvals for one app-wide capability. A newer approval
+    // supersedes the prior recovery intent before its own target snapshot is
+    // inserted, so two recovery workers cannot resume against stale authority.
+    await tx.execute(
+      // Newline separator, NOT NUL: a NUL byte is invalid UTF8 for a text
+      // parameter (error 22021) and neither id can contain a newline.
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${input.appId}\n${input.capabilityId}`}, 0))`,
+    );
+    const [existing] = await tx
+      .select({ id: intentTable.id })
+      .from(intentTable)
+      .where(eq(intentTable.proposalId, proposal.id))
+      .limit(1);
+    if (existing) return;
+    await tx
+      .update(intentTable)
+      .set({
+        status: 'superseded',
+        claimToken: null,
+        claimExpiresAt: null,
+        updatedAt: input.approvedAt,
+        completedAt: input.approvedAt,
+      })
+      .where(
+        and(
+          eq(intentTable.appId, input.appId),
+          eq(intentTable.capabilityId, input.capabilityId),
+          eq(intentTable.status, 'pending'),
+        ),
+      );
+    const targets = await tx
+      .select({
+        jobId: pgSchema.canonicalJobsPostgres.id,
+        setupFingerprint: sql<string>`${pgSchema.canonicalJobsPostgres.setupState} ->> 'fingerprint'`,
+      })
+      .from(pgSchema.canonicalJobsPostgres)
+      .where(
+        and(
+          eq(pgSchema.canonicalJobsPostgres.appId, input.appId),
+          eq(pgSchema.canonicalJobsPostgres.status, 'paused'),
+          sql`exists (
+            select 1
+            from jsonb_array_elements(coalesce(${pgSchema.canonicalJobsPostgres.setupState} -> 'blockers', '[]'::jsonb)) blocker
+            join capability_template_amendment_proposals blocker_proposal
+              on blocker_proposal.id = blocker -> 'action' ->> 'proposalId'
+            where blocker -> 'action' ->> 'kind' = 'fix_proposal'
+              and blocker_proposal.app_id = ${input.appId}
+              and blocker_proposal.capability_id = ${input.capabilityId}
+          )`,
+        ),
+      )
+      .for('update');
+    await tx.insert(intentTable).values({
+      id: intentId,
+      appId: input.appId,
+      proposalId: proposal.id,
+      capabilityId: input.capabilityId,
+      status: targets.length === 0 ? 'completed' : 'pending',
+      nextAttemptAt: input.approvedAt,
+      approvedAt: input.approvedAt,
+      createdAt: input.approvedAt,
+      updatedAt: input.approvedAt,
+      completedAt: targets.length === 0 ? input.approvedAt : null,
+    });
+    if (targets.length > 0) {
+      await tx.insert(targetTable).values(
+        targets.map((target) => ({
+          intentId,
+          jobId: target.jobId,
+          expectedSetupFingerprint: target.setupFingerprint,
+          status: 'pending' as const,
+          updatedAt: input.approvedAt,
+        })),
+      );
+    }
   }
 }
 

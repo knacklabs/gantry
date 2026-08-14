@@ -17,7 +17,6 @@ import {
   validateLocalCliCommandTemplate,
 } from '../shared/semantic-capabilities.js';
 import { stableSha256Json } from '../shared/stable-hash.js';
-import { recheckPausedSetupJobsAfterRequestAccessGrant } from './request-access-job-recovery.js';
 
 export type CapabilityTemplateAmendmentResult =
   | { ok: false; error: string; code: 'invalid_request' | 'preflight_failed' }
@@ -356,28 +355,9 @@ async function completeCapabilityTemplateAmendmentReview(input: {
   }
   if (amended.status === 'not_pending') return;
 
-  // ponytail: recovery after the catalog commit is best-effort — a durable
-  // approved-proposal outbox is the upgrade path if a post-commit crash ever
-  // strands a paused job in practice; today the human 'resume job' guided
-  // action and the next grant-recovery event both re-run this recheck.
-  const recovery = await recheckPausedSetupJobsAfterRequestAccessGrant({
-    deps: input.deps,
-    appId: proposal.appId as never,
-    sourceAgentFolder: proposal.requestedBy,
-    targetJid: proposal.conversationJid,
-    // Proposals dedupe app-wide: recover EVERY paused job blocked on this
-    // capability, not only the first claimer's.
-    jobId: undefined,
-    recoveringPermissionRequestId: proposal.id,
-  });
-  const resumed = recovery?.queued.length
-    ? ` Job resumed: ${recovery.queued
-        .map((job) => job.name || job.jobId)
-        .join(', ')}.`
-    : '';
   await input.deps.sendMessage(
     proposal.conversationJid,
-    `Approved the fix for ${input.review.displayName}.${resumed}`,
+    `Approved the fix for ${input.review.displayName}. Paused jobs will resume automatically when their setup is ready.`,
     amendmentRouteOptions(proposal, proposal.providerAccountId ?? undefined),
   );
 }

@@ -11,6 +11,7 @@ import type {
 } from '../domain/outbound-delivery/outbound-delivery.js';
 import { nowIso } from '../shared/time/datetime.js';
 import { incrementOperationalError } from '../shared/operational-error-counters.js';
+import { stopCapabilityTemplateApprovalIntentRecoveryLoop } from './capability-template-approval-intent-recovery.js';
 
 export interface OutboundDeliveryPartialRetryTail {
   canonicalText: string;
@@ -426,6 +427,7 @@ export async function stopOutboundDeliveryRecoveryLoop(): Promise<void> {
   // restart in the same process must not leave the old singleton polling
   // a closed repository.
   await activeReconciliationLoop?.stop();
+  await stopCapabilityTemplateApprovalIntentRecoveryLoop();
 }
 
 // Reconciliation runs as its OWN supervised loop on the same cadence: a

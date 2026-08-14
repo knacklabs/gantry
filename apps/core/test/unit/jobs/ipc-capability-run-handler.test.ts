@@ -90,6 +90,15 @@ describe('host capability template mismatch flow', () => {
           `${executablePath} sheets get * *`,
           `${executablePath} sheets get * * --account *`,
         ],
+        observedArgv: [
+          executablePath,
+          'sheets',
+          'get',
+          'sheet-1',
+          'Leads!A:B',
+          '--account',
+          '<redacted>',
+        ],
       }),
     );
   });
@@ -115,7 +124,7 @@ describe('host capability template mismatch flow', () => {
     expect(claimPending).not.toHaveBeenCalled();
   });
 
-  it('keeps the production proposal lane dormant', () => {
-    expect(HOST_CAPABILITY_TEMPLATE_PROPOSALS_ACTIVE).toBe(false);
+  it('activates the production proposal lane after durable intent recovery exists', () => {
+    expect(HOST_CAPABILITY_TEMPLATE_PROPOSALS_ACTIVE).toBe(true);
   });
 });

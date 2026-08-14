@@ -3,7 +3,9 @@ import {
   boolean,
   check,
   index,
+  integer,
   jsonb,
+  primaryKey,
   pgTable,
   text,
   timestamp,
@@ -104,5 +106,94 @@ export const capabilityTemplateAmendmentHistoryPostgres = pgTable(
     proposalUnique: uniqueIndex(
       'capability_template_amendment_history_proposal_unique',
     ).on(table.proposalId),
+  }),
+);
+
+export const capabilityTemplateApprovalIntentsPostgres = pgTable(
+  'capability_template_approval_intents',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    proposalId: text('proposal_id')
+      .notNull()
+      .references(() => capabilityTemplateAmendmentProposalsPostgres.id, {
+        onDelete: 'cascade',
+      }),
+    capabilityId: text('capability_id').notNull(),
+    status: text('status').notNull().default('pending'),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    claimToken: text('claim_token'),
+    claimExpiresAt: timestamp('claim_expires_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    lastError: text('last_error'),
+    approvedAt: timestamp('approved_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp('completed_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+  },
+  (table) => ({
+    proposalUnique: uniqueIndex(
+      'capability_template_approval_intents_proposal_unique',
+    ).on(table.proposalId),
+    dueIdx: index('idx_capability_template_approval_intents_due').on(
+      table.status,
+      table.nextAttemptAt,
+    ),
+    statusCheck: check(
+      'capability_template_approval_intents_status_check',
+      sql`${table.status} IN ('pending', 'completed', 'superseded')`,
+    ),
+  }),
+);
+
+export const capabilityTemplateApprovalIntentTargetsPostgres = pgTable(
+  'capability_template_approval_intent_targets',
+  {
+    intentId: text('intent_id')
+      .notNull()
+      .references(() => capabilityTemplateApprovalIntentsPostgres.id, {
+        onDelete: 'cascade',
+      }),
+    // Intentionally no jobs FK: a deleted target must remain as durable
+    // evidence until recovery closes it as superseded.
+    jobId: text('job_id').notNull(),
+    expectedSetupFingerprint: text('expected_setup_fingerprint').notNull(),
+    status: text('status').notNull().default('pending'),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp('completed_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.intentId, table.jobId] }),
+    pendingIdx: index('idx_capability_template_approval_targets_pending').on(
+      table.intentId,
+      table.status,
+    ),
+    statusCheck: check(
+      'capability_template_approval_intent_targets_status_check',
+      sql`${table.status} IN ('pending', 'resumed', 'superseded')`,
+    ),
   }),
 );

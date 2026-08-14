@@ -8,7 +8,6 @@ import type {
   SkillCatalogRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
-import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
 import type { SetupPermissionPromptRepository } from '../../domain/ports/setup-permission-prompts.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
 import type {
@@ -47,6 +46,7 @@ import {
 } from './runtime-services-destination-hints.js';
 import { IPC_INTERACTION_RETENTION_TTL_MS } from '../../shared/ipc-interaction-lifetime.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import { startRuntimeCapabilityTemplateApprovalIntentRecovery } from './runtime-services-capability-template-approval-intent.js';
 
 export function asSetupPrompts(
   value: unknown,
@@ -64,7 +64,7 @@ export function configureRuntimeSetupPausePermissions(input: {
     ChannelWiring,
     'getRuntimeAppId' | 'cancelPermissionApproval' | 'sendMessage'
   >;
-  opsRepository: RuntimeJobRepository;
+  opsRepository: IpcDeps['opsRepository'];
   setupPermissionPromptRepository?: SetupPermissionPromptRepository;
   getToolRepository: () => ToolCatalogRepository;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
@@ -79,6 +79,8 @@ export function configureRuntimeSetupPausePermissions(input: {
     profileName: string,
   ): Promise<JobReadinessBrowserStatus | undefined>;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
+  settingsRepositories?: unknown;
+  logger?: { warn(meta: Record<string, unknown>, message: string): void };
 }): void {
   configurePendingInteractionPermissionPersistence({
     opsRepository: input.opsRepository,
@@ -179,6 +181,25 @@ export function configureRuntimeSetupPausePermissions(input: {
         route.threadId ?? undefined,
       )?.providerAccountId;
     },
+  });
+  startRuntimeCapabilityTemplateApprovalIntentRecovery({
+    repositories: input.settingsRepositories,
+    opsRepository: input.opsRepository,
+    getToolRepository: input.getToolRepository,
+    getSkillRepository: input.getSkillRepository,
+    getMcpServerRepository: input.getMcpServerRepository,
+    getCapabilitySecretRepository: input.getCapabilitySecretRepository,
+    getCredentialBroker: input.app.getCredentialBroker,
+    getBrowserStatus: input.getBrowserStatus,
+    publishRuntimeEvent: input.publishRuntimeEvent,
+    onSchedulerChanged: input.onSchedulerChanged,
+    sendMessage: (jid, text, options) =>
+      input.channelWiring.sendMessage(jid, text, {
+        durability: 'required',
+        throwOnMissing: true,
+        ...(options ? { messageOptions: options } : {}),
+      }),
+    warn: (meta, message) => input.logger?.warn(meta, message),
   });
 }
 

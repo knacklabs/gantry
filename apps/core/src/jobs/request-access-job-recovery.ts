@@ -10,8 +10,22 @@ type RequestAccessRecoveryResult = Awaited<
   ReturnType<typeof recheckSetupPausedJobsAfterCapabilityUpdate>
 >;
 
+type RequestAccessJobRecoveryDeps = Pick<
+  IpcDeps,
+  | 'opsRepository'
+  | 'onSchedulerChanged'
+  | 'getToolRepository'
+  | 'getSkillRepository'
+  | 'getMcpServerRepository'
+  | 'getCapabilitySecretRepository'
+  | 'getCredentialBroker'
+  | 'getBrowserStatus'
+  | 'publishRuntimeEvent'
+  | 'sendMessage'
+>;
+
 export async function recheckPausedSetupJobsAfterRequestAccessGrant(input: {
-  deps: IpcDeps;
+  deps: RequestAccessJobRecoveryDeps;
   appId: AppId;
   sourceAgentFolder: string;
   targetJid: string;

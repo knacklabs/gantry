@@ -144,11 +144,13 @@ describe('permission recovery', () => {
         approvedBy: 'person:ravi',
       }),
     );
-    expect(resumeSetupPausedJob).toHaveBeenCalledOnce();
-    expect(onSchedulerChanged).toHaveBeenCalledWith(job.id);
+    // S4-INTENT: the approval path records the durable intent; the resume
+    // itself belongs to the intent recovery service (own tests), so no
+    // inline resume happens here.
+    expect(resumeSetupPausedJob).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledWith(
       proposal.conversationJid,
-      expect.stringContaining('Job resumed'),
+      expect.stringContaining('resume automatically'),
       expect.objectContaining({ threadId: proposal.threadId }),
     );
   });

@@ -227,4 +227,28 @@ describe('observed argv redaction', () => {
       ]),
     ).toEqual(['https://host/path?<redacted>', 'https://host/plain/path']);
   });
+
+  it('masks account emails and freestanding NAME@host values', async () => {
+    const { redactObservedArgv } =
+      await import('@core/shared/capability-template-amendment.js');
+    expect(
+      redactObservedArgv([
+        'sheets',
+        'get',
+        '--account',
+        'owner@example.test',
+        '--account=second@example.test',
+        'deploy@internal-host',
+        'plain-value',
+      ]),
+    ).toEqual([
+      'sheets',
+      'get',
+      '--account',
+      '<redacted>',
+      '--account=<redacted>',
+      '<redacted>',
+      'plain-value',
+    ]);
+  });
 });

@@ -995,6 +995,13 @@
       "when": 1786657949115,
       "tag": "20260814060000_canonical_key_retirement",
       "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1786681241028,
+      "tag": "20260814042041_capability_template_approval_intents",
+      "breakpoints": true
     }
   ]
 }

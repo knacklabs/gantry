@@ -63,9 +63,11 @@ export function redactObservedArgv(argv: readonly string[]): string[] {
     const eq = token.indexOf('=');
     if (token.startsWith('-') && eq > 0) {
       const name = token.slice(0, eq);
-      return SENSITIVE_ARGV_PATTERN.test(name)
+      const value = token.slice(eq + 1);
+      return SENSITIVE_ARGV_PATTERN.test(name) ||
+        (name === '--account' && /@/.test(value))
         ? `${name}=<redacted>`
-        : OPAQUE_ARGV_PATTERN.test(token.slice(eq + 1))
+        : OPAQUE_ARGV_PATTERN.test(value)
           ? `${name}=<redacted>`
           : token;
     }
@@ -79,6 +81,9 @@ export function redactObservedArgv(argv: readonly string[]): string[] {
       }
     }
     const previous = index > 0 ? all[index - 1] : undefined;
+    if (previous === '--account' && !token.startsWith('-') && /@/.test(token)) {
+      return '<redacted>';
+    }
     if (
       previous?.startsWith('-') &&
       SENSITIVE_ARGV_PATTERN.test(previous) &&
@@ -89,6 +94,52 @@ export function redactObservedArgv(argv: readonly string[]): string[] {
     if (!token.startsWith('-') && OPAQUE_ARGV_PATTERN.test(token)) {
       return '<redacted>';
     }
+    if (!token.startsWith('-') && /^[^\s@]+@[^\s@]+$/.test(token)) {
+      return '<redacted>';
+    }
     return token;
   });
+}
+
+export type CapabilityTemplateApprovalIntentStatus =
+  | 'pending'
+  | 'completed'
+  | 'superseded';
+
+export type CapabilityTemplateApprovalIntentTargetStatus =
+  | 'pending'
+  | 'resumed'
+  | 'superseded';
+
+export interface ClaimedCapabilityTemplateApprovalIntent {
+  id: string;
+  appId: string;
+  proposalId: string;
+  capabilityId: string;
+  claimToken: string;
+  attemptCount: number;
+  targets: Array<{
+    jobId: string;
+    expectedSetupFingerprint: string;
+  }>;
+}
+
+export interface CapabilityTemplateApprovalIntentRepository {
+  claimDueApprovalIntents(input: {
+    claimerId: string;
+    now: string;
+    leaseExpiresAt: string;
+    limit: number;
+  }): Promise<ClaimedCapabilityTemplateApprovalIntent[]>;
+  settleApprovalIntentClaim(input: {
+    intentId: string;
+    claimToken: string;
+    outcomes: Array<{
+      jobId: string;
+      status: Exclude<CapabilityTemplateApprovalIntentTargetStatus, 'pending'>;
+    }>;
+    now: string;
+    nextAttemptAt: string;
+    error?: string;
+  }): Promise<'completed' | 'pending' | 'superseded'>;
 }

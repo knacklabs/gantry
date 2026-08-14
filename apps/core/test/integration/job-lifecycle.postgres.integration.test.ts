@@ -86,6 +86,8 @@ import {
   recordCapabilityTemplateAmendment,
   startCapabilityTemplateAmendmentReview,
 } from '@core/jobs/ipc-capability-template-amendment.js';
+import { recoverCapabilityTemplateApprovalIntents } from '@core/jobs/capability-template-approval-intent-recovery.js';
+import { recheckPausedSetupJobsAfterRequestAccessGrant } from '@core/jobs/request-access-job-recovery.js';
 import { runStructuredLocalCliCapability } from '@core/jobs/structured-local-cli-invocation.js';
 import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
 import {
@@ -235,6 +237,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       .update(executableBody)
       .digest('hex')}`;
     const capabilityId = `google.sheets.values.get.${randomUUID()}`;
+    const otherJobId = `job:integration:capfix-other:${randomUUID()}`;
     const agentId = `agent:job_lifecycle_agent` as never;
     const toolId = `tool:capability:${capabilityId}` as never;
     const capability = buildLocalCliSemanticCapability({
@@ -382,6 +385,55 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       if (!recorded.ok || !recorded.review) {
         throw new Error('Expected a recorded amendment review.');
       }
+      await runtime.ops.upsertJob({
+        ...job,
+        setup_state: {
+          ...job.setup_state!,
+          blockers: [
+            {
+              state: 'missing_capability',
+              type: 'semantic_capability',
+              id: 'capability_run',
+              summary: 'Capability template mismatch blocks this job.',
+              action: {
+                kind: 'fix_proposal',
+                proposalId: recorded.review.proposal.id,
+              },
+            },
+          ],
+        },
+      });
+      await runtime.ops.upsertJob(
+        makeJob(otherJobId, {
+          status: 'paused',
+          next_run: null,
+          pause_reason: 'Setup required',
+          workspace_key: 'another_job_agent',
+          execution_context: {
+            conversationJid: 'tg:another-job',
+            workspaceKey: 'another_job_agent',
+            sessionId: null,
+          },
+          setup_state: {
+            state: 'missing_capability',
+            checked_at: now,
+            fingerprint: 'capfix-blocked-other-agent',
+            notified_fingerprint: null,
+            blockers: [
+              {
+                state: 'missing_capability',
+                type: 'semantic_capability',
+                id: 'capability_run',
+                summary: 'Capability template mismatch blocks this job.',
+                action: {
+                  kind: 'fix_proposal',
+                  proposalId: recorded.review.proposal.id,
+                },
+              },
+            ],
+          },
+        }),
+      );
 
       let finish!: () => void;
       const finished = new Promise<void>((resolve) => {
@@ -454,7 +506,78 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         [history.rows[0]!.audit_event_id],
       );
       expect(audit.rows).toHaveLength(1);
+      const intentBeforeRecovery = await runtime.service.pool.query<{
+        id: string;
+        status: string;
+        target_status: string;
+      }>(
+        `select i.id, i.status, t.status as target_status
+         from capability_template_approval_intents i
+         join capability_template_approval_intent_targets t on t.intent_id = i.id
+         where i.proposal_id = $1`,
+        [recorded.review.proposal.id],
+      );
+      expect(intentBeforeRecovery.rows).toHaveLength(2);
+      expect(intentBeforeRecovery.rows).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            status: 'pending',
+            target_status: 'pending',
+          }),
+        ]),
+      );
+      const recovery = await recoverCapabilityTemplateApprovalIntents({
+        repository: runtime.repositories.capabilityTemplateAmendments,
+        claimerId: 'job-lifecycle-test',
+        // The card approval stamps decidedAt from the review flow's real
+        // clock, so the due check needs a LIVE-or-later now.
+        now: () => new Date(Date.now() + 60_000),
+        recoverTarget: async (target) => {
+          const targetJob = await runtime.ops.getJobById(target.jobId);
+          if (!targetJob) return 'superseded';
+          const result = await recheckPausedSetupJobsAfterRequestAccessGrant({
+            deps: {
+              opsRepository: runtime.ops,
+              onSchedulerChanged: vi.fn(),
+              getToolRepository: () => runtime.repositories.tools,
+              sendMessage: vi.fn(async () => undefined),
+            },
+            appId: target.appId as never,
+            sourceAgentFolder: targetJob.workspace_key,
+            targetJid: targetJob.execution_context!.conversationJid,
+            jobId: target.jobId,
+            recoveringPermissionRequestId: target.proposalId,
+          });
+          if (result?.queued.some((queued) => queued.jobId === target.jobId)) {
+            return 'resumed';
+          }
+          const reread = await runtime.ops.getJobById(target.jobId);
+          return !reread ||
+            reread.setup_state?.fingerprint !== target.expectedSetupFingerprint
+            ? 'superseded'
+            : 'retry';
+        },
+      });
+      expect(recovery).toEqual({ claimed: 1, completed: 1, pending: 0 });
       expect((await runtime.ops.getJobById(job.id))?.status).toBe('active');
+      const intentAfterRecovery = await runtime.service.pool.query<{
+        status: string;
+        target_status: string;
+      }>(
+        `select i.status, t.status as target_status
+         from capability_template_approval_intents i
+         join capability_template_approval_intent_targets t on t.intent_id = i.id
+         where i.proposal_id = $1`,
+        [recorded.review.proposal.id],
+      );
+      // App-wide scope: BOTH paused targets of the capability complete -
+      // each either resumes (its recheck queued it) or supersedes (its
+      // blocker/fingerprint moved). Both resuming is the healthy outcome.
+      expect(intentAfterRecovery.rows).toHaveLength(2);
+      for (const row of intentAfterRecovery.rows) {
+        expect(row.status).toBe('completed');
+        expect(['resumed', 'superseded']).toContain(row.target_status);
+      }
       await expect(
         runtime.repositories.capabilityTemplateAmendments.amendSemanticCapabilityCommandTemplates(
           {
@@ -566,6 +689,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       // Shared-schema hygiene: later tests enumerate jobs and resolve the
       // shared agent's tool policy — leave neither the job nor the binding.
       await runtime.ops.deleteJob(job.id).catch(() => undefined);
+      await runtime.ops.deleteJob(otherJobId).catch(() => undefined);
       await runtime.repositories.tools
         .saveAgentToolBinding({
           id: `binding:${capabilityId}` as never,
@@ -579,6 +703,133 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         .catch(() => undefined);
     }
   }, 60_000);
+
+  it('persists the recovery intent when a concurrent approval already amended the catalog', async () => {
+    const capabilityId = `acme.records.read.${randomUUID()}`;
+    const agentId = `agent:already-amended:${randomUUID()}` as never;
+    const toolId = `tool:already-amended:${randomUUID()}` as never;
+    const job = makeJob(`job:already-amended:${randomUUID()}`, {
+      status: 'paused',
+      next_run: null,
+      pause_reason: 'Setup required',
+    });
+    const executable = '/usr/local/bin/acme';
+    const proposedTemplates = [`${executable} records get * *`];
+    const baseCapability = buildLocalCliSemanticCapability({
+      capabilityId,
+      displayName: 'Acme records read',
+      category: 'Acme',
+      risk: 'read',
+      can: 'read reviewed records',
+      cannot: 'change records',
+      executablePath: executable,
+      executableVersion: '1.0.0',
+      executableHash: 'sha256:fixture',
+      commandTemplates: [`${executable} records get *`],
+      authPreflightCommand: `${executable} auth status`,
+    });
+    try {
+      await runtime.repositories.agents.saveAgent({
+        id: agentId,
+        appId: 'default' as never,
+        name: 'Already amended agent',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const saveCapability = (commandTemplates: string[]) =>
+        runtime.repositories.tools.saveTool({
+          id: toolId,
+          appId: 'default' as never,
+          name: `capability:${capabilityId}`,
+          kind: 'host',
+          provider: 'gantry',
+          displayName: baseCapability.displayName,
+          category: 'productivity',
+          risk: 'high',
+          selectable: true,
+          status: 'active',
+          adapterRef: `capability/${capabilityId}`,
+          inputSchema: semanticCapabilityInputSchema({
+            ...baseCapability,
+            implementationBindings: baseCapability.implementationBindings.map(
+              (binding) => ({ ...binding, commandTemplates }),
+            ),
+          }),
+          createdAt: now,
+          updatedAt: now,
+        });
+      await saveCapability([`${executable} records get *`]);
+      const recorded = await recordCapabilityTemplateAmendment({
+        appId: 'default',
+        agentId,
+        requestedBy: 'already_amended_agent',
+        conversationJid: 'tg:already-amended',
+        capabilityId,
+        proposedTemplates,
+        observedArgv: [executable, 'records', 'get', 'account-1', 'range-1'],
+        toolRepository: runtime.repositories.tools,
+        proposalRepository: runtime.repositories.capabilityTemplateAmendments,
+        now,
+      });
+      if (!recorded.ok || !recorded.review) {
+        throw new Error('Expected an amendment proposal.');
+      }
+      await runtime.ops.upsertJob({
+        ...job,
+        setup_state: {
+          state: 'missing_capability',
+          checked_at: now,
+          fingerprint: 'already-amended-blocker',
+          notified_fingerprint: null,
+          blockers: [
+            {
+              state: 'missing_capability',
+              type: 'tool',
+              id: 'capability_run',
+              summary: 'Capability template mismatch blocks this job.',
+              action: {
+                kind: 'fix_proposal',
+                proposalId: recorded.review.proposal.id,
+              },
+            },
+          ],
+        },
+      });
+      await saveCapability([
+        `${executable} records get *`,
+        ...proposedTemplates,
+      ]);
+
+      await expect(
+        runtime.repositories.capabilityTemplateAmendments.amendSemanticCapabilityCommandTemplates(
+          {
+            proposalId: recorded.review.proposal.id,
+            appId: 'default',
+            capabilityId,
+            expectedReviewedSchemaHash:
+              recorded.review.proposal.reviewedSchemaHash,
+            proposedTemplates,
+            approvedBy: 'person:ravi',
+            approvedAt: now,
+          },
+        ),
+      ).resolves.toEqual({ status: 'already_amended' });
+      const intent = await runtime.service.pool.query<{
+        status: string;
+        job_id: string;
+      }>(
+        `select i.status, t.job_id
+         from capability_template_approval_intents i
+         join capability_template_approval_intent_targets t on t.intent_id = i.id
+         where i.proposal_id = $1`,
+        [recorded.review.proposal.id],
+      );
+      expect(intent.rows).toEqual([{ status: 'pending', job_id: job.id }]);
+    } finally {
+      await runtime.ops.deleteJob(job.id).catch(() => undefined);
+    }
+  });
 
   it('projects one latest non-session run for a 500-job listing in one query', async () => {
     const jobs = Array.from({ length: 500 }, (_, index) =>

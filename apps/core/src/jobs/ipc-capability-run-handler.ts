@@ -31,7 +31,7 @@ import type { TaskHandler } from './ipc-types.js';
 // S4-COMPILER deliberately lands dormant. S4-INTENT flips this only after the
 // approve-amend-resume intent is durable, so a production mismatch cannot
 // expose an approvable proposal across the D-0057 crash gap.
-export const HOST_CAPABILITY_TEMPLATE_PROPOSALS_ACTIVE = false;
+export const HOST_CAPABILITY_TEMPLATE_PROPOSALS_ACTIVE = true;
 
 let getCapabilityTemplateAmendmentRepository:
   | (() => CapabilityTemplateAmendmentRepository)
