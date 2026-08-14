@@ -75,7 +75,10 @@ async function recoverTarget(
   const initial = classifyTarget(job, target);
   if (initial) return initial;
   const conversationJid = job!.execution_context?.conversationJid;
-  if (!conversationJid) return 'superseded';
+  // A missing notification route is NOT a supersession condition (those
+  // are: blocker changed, job deleted). Keep the target pending and retry
+  // rather than falsely completing the intent (review R1).
+  if (!conversationJid) return 'retry';
   const recovery = await recheckPausedSetupJobsAfterRequestAccessGrant({
     deps: {
       opsRepository: input.opsRepository,
@@ -109,14 +112,22 @@ async function recoverTarget(
 
 function classifyTarget(
   job: Awaited<ReturnType<IpcDeps['opsRepository']['getJobById']>>,
-  target: { capabilityId: string; expectedSetupFingerprint: string },
+  target: {
+    capabilityId: string;
+    proposalId: string;
+    expectedSetupFingerprint: string;
+  },
 ): Exclude<CapabilityTemplateApprovalTargetOutcome, 'retry'> | undefined {
   if (!job) return 'superseded';
   if (job.status === 'active' || job.setup_state?.state === 'ready') {
     return 'resumed';
   }
+  // Only THIS intent's proposal keeps the target current - a blocker
+  // replaced by a different proposal supersedes the old target (review R1).
   const blockerStillCurrent = job.setup_state?.blockers.some(
-    (blocker) => blocker.action.kind === 'fix_proposal',
+    (blocker) =>
+      blocker.action.kind === 'fix_proposal' &&
+      blocker.action.proposalId === target.proposalId,
   );
   return job.status === 'paused' &&
     job.setup_state?.fingerprint === target.expectedSetupFingerprint &&
