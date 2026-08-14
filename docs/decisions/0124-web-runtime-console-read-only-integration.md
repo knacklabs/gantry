@@ -1,10 +1,11 @@
 ---
-status: accepted
+status: superseded
 confirmed_by: "Ravi"
 date: 2026-08-12
 stories:
   - WEB-CONSOLE-1
   - WEB-CONSOLE-2
+superseded_by: 0126-web-runtime-console-agent-creation
 ---
 
 # Web Runtime Console: Private Read-only Integration
