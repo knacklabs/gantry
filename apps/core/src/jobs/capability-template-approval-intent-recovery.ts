@@ -69,6 +69,22 @@ export async function recoverCapabilityTemplateApprovalIntents(
         leaseLost = true;
         break;
       }
+      // Heartbeat DURING the recovery too: one readiness recheck (with
+      // credential/browser work) can outlive a single lease window; the
+      // settle itself stays token-fenced either way (review R7).
+      const leaseMs = input.leaseMs ?? DEFAULT_LEASE_MS;
+      const heartbeat = setInterval(() => {
+        const at = clock();
+        void input.repository
+          .renewApprovalIntentClaim?.({
+            intentId: intent.id,
+            claimToken: intent.claimToken,
+            leaseExpiresAt: new Date(at.getTime() + leaseMs).toISOString(),
+            now: at.toISOString(),
+          })
+          .catch(() => undefined);
+      }, Math.max(1_000, Math.floor(leaseMs / 2)));
+      heartbeat.unref?.();
       try {
         const outcome = await input.recoverTarget({
           appId: intent.appId,
@@ -82,6 +98,8 @@ export async function recoverCapabilityTemplateApprovalIntents(
         }
       } catch (error) {
         errors.push(error instanceof Error ? error.message : String(error));
+      } finally {
+        clearInterval(heartbeat);
       }
     }
     if (leaseLost) {
