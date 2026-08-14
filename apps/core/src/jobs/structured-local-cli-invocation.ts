@@ -3,7 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { resolveAgentToolRuntimePolicy } from '../application/agents/agent-tool-runtime-rules.js';
-import type { ToolCatalogRepository } from '../domain/ports/repositories.js';
+import type {
+  SkillCatalogRepository,
+  ToolCatalogRepository,
+} from '../domain/ports/repositories.js';
 import type { BashCommandLeaf } from '../shared/bash-command-parser.js';
 import { parseBashCommand } from '../shared/bash-command-parser.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
@@ -45,6 +48,7 @@ interface ResolvedLocalCliInvocation {
 
 export async function runStructuredLocalCliCapability(input: {
   repository: ToolCatalogRepository;
+  skillRepository?: SkillCatalogRepository;
   appId: string;
   agentId: string;
   personId?: string | null;
@@ -109,6 +113,7 @@ export async function runStructuredLocalCliCapability(input: {
 
 async function resolveGrantedLocalCliInvocation(input: {
   repository: ToolCatalogRepository;
+  skillRepository?: SkillCatalogRepository;
   appId: string;
   agentId: string;
   personId?: string | null;
@@ -124,6 +129,7 @@ async function resolveGrantedLocalCliInvocation(input: {
     agentId: input.agentId,
     personId: input.personId,
     errorSubject: 'Configured agent tool',
+    skillRepository: input.skillRepository,
   });
   const capability = policy.semanticCapabilities.find(
     (candidate) => candidate.capabilityId === capabilityId,

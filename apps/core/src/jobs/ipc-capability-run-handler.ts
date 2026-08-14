@@ -82,6 +82,7 @@ const capabilityRunHandler: TaskHandler = async (context) => {
     return;
   }
   const repository = context.deps.getToolRepository?.();
+  const skillRepository = context.deps.getSkillRepository?.();
   const runnerSandboxProvider = context.deps.runnerSandboxProvider;
   if (!repository || !runnerSandboxProvider) {
     reject(
@@ -116,6 +117,7 @@ const capabilityRunHandler: TaskHandler = async (context) => {
   try {
     const result = await runStructuredLocalCliCapability({
       repository,
+      skillRepository,
       appId: data.appId,
       agentId: data.agentId,
       personId: restriction.memoryUserId,

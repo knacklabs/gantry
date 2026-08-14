@@ -125,6 +125,7 @@ function fakeProvider(): {
 
 function invocation(input: {
   repository: ReturnType<typeof repository>;
+  skillRepository?: unknown;
   provider?: RunnerSandboxProvider;
   args: string[];
   personId?: string;
@@ -134,6 +135,7 @@ function invocation(input: {
 }) {
   return runStructuredLocalCliCapability({
     repository: input.repository as never,
+    skillRepository: input.skillRepository as never,
     appId: 'app:test',
     agentId: 'agent:test',
     personId: input.personId,
@@ -356,5 +358,89 @@ describe('CLIRUN-1-2', () => {
       expect(prompt).toContain('Prefer it over Bash or RunCommand');
       expect(prompt).toContain('do not add shell pipes or redirects');
     }
+  });
+});
+
+describe('CLIRUN-1-3', () => {
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a selected skill-owned local CLI capability available to capability_run', async () => {
+    const fixture = executableFixture('source-sync');
+    const baseCapability = buildLocalCliSemanticCapability({
+      capabilityId: 'skill.source-sync.run',
+      displayName: 'Source sync',
+      category: 'source-sync',
+      risk: 'write',
+      can: 'Run the reviewed source synchronization command.',
+      cannot: 'Run unrelated commands.',
+      executablePath: fixture.executable,
+      executableVersion: '1.0.0',
+      executableHash: fixture.hash,
+      commandTemplates: [`${fixture.executable} sync`],
+    });
+    const capability = {
+      ...baseCapability,
+      source: {
+        kind: 'skill_action' as const,
+        skillId: 'skill:source-sync',
+        skillName: 'source-sync',
+        actionId: 'run',
+      },
+    };
+    const skillRepository = {
+      listEnabledSkillsForAgent: async () => [
+        {
+          id: 'skill:source-sync',
+          appId: 'app:test',
+          name: 'source-sync',
+          version: 'abc123',
+          source: 'admin_uploaded',
+          status: 'installed',
+          promptRefs: [],
+          toolIds: [],
+          workflowRefs: [],
+          actionPermissions: [
+            {
+              id: 'run',
+              capabilityId: capability.capabilityId,
+              displayName: capability.displayName,
+              risk: capability.risk,
+              can: capability.can,
+              cannot: capability.cannot,
+              requiredEnvVars: [],
+              commandTemplates: [`${fixture.executable} sync`],
+              networkHosts: [],
+            },
+          ],
+          storage: {
+            storageType: 'local-filesystem',
+            storageRef: 'source-sync',
+            contentHash: 'sha256:abc123',
+            sizeBytes: 1,
+          },
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ],
+    };
+    const { provider, child, start } = fakeProvider();
+    const result = invocation({
+      repository: repositoryForCapability(capability) as never,
+      skillRepository,
+      provider,
+      capabilityId: capability.capabilityId,
+      args: ['sync'],
+    });
+
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce());
+    child.emit('close', 0, null);
+    await expect(result).resolves.toEqual({
+      stdout: 'command completed',
+      stderr: '',
+    });
   });
 });
