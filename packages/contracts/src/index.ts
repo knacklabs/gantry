@@ -1,5 +1,6 @@
 export * from './contract-primitives.js';
 export * from './agents/index.js';
+export * from './agent-creations/index.js';
 export * from './browser/index.js';
 export * from './capability-catalog/index.js';
 export * from './conversations/index.js';

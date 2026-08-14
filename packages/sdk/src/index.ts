@@ -12,6 +12,7 @@ import type {
   RuntimeSummaryResponse,
 } from '@gantry/contracts';
 import { createAgentAdminClient } from './agents.js';
+import { createAgentCreationDraftsClient } from './agent-creation-drafts.js';
 import { createActivityClient } from './activity.js';
 import { createCapabilitiesClient } from './capabilities.js';
 import { createAgentSkillsClient, createSkillsClient } from './skills.js';
@@ -56,6 +57,13 @@ export type {
   AgentAdminBoundConversation,
   AgentAdminResponse,
 } from './agents.js';
+export type {
+  AgentCreationDraft,
+  AgentCreationDocument,
+  AgentCreationPreflightResponse,
+  CreateAgentCreationDraftRequest,
+  UpdateAgentCreationDraftRequest,
+} from '@gantry/contracts';
 export type * from './job-model-types.js';
 export type * from './openapi-types.js';
 export type * from './people.js';
@@ -578,6 +586,10 @@ export class GantryClient {
         }),
     },
   };
+
+  readonly agentCreationDrafts = createAgentCreationDraftsClient({
+    request: this.request,
+  });
 
   readonly webhooks = {
     register: (input: OpenApi.CreateWebhookRequest) =>

@@ -237,6 +237,56 @@ it('requests typed fixed-range metrics', async () => {
   });
 });
 
+it('requests typed agent creation draft routes', async () => {
+  const client = new GantryClient({
+    apiKey: 'test-key',
+    baseUrl: 'http://127.0.0.1:3939',
+  });
+  const request = vi
+    .spyOn(
+      (client as unknown as { transport: { request: () => unknown } })
+        .transport,
+      'request',
+    )
+    .mockResolvedValue({ drafts: [] });
+
+  await client.agentCreationDrafts.list();
+  await client.agentCreationDrafts.create({
+    document: {
+      name: 'Support agent',
+      agentHarness: 'auto',
+      capabilities: [],
+      skillIds: [],
+      delegateIds: [],
+      workSource: { kind: 'configure_later' },
+    },
+  });
+  await client.agentCreationDrafts.createOrResume('draft/1');
+
+  expect(request).toHaveBeenNthCalledWith(1, {
+    method: 'GET',
+    path: '/v1/agent-creation-drafts',
+  });
+  expect(request).toHaveBeenNthCalledWith(2, {
+    method: 'POST',
+    path: '/v1/agent-creation-drafts',
+    body: {
+      document: {
+        name: 'Support agent',
+        agentHarness: 'auto',
+        capabilities: [],
+        skillIds: [],
+        delegateIds: [],
+        workSource: { kind: 'configure_later' },
+      },
+    },
+  });
+  expect(request).toHaveBeenNthCalledWith(3, {
+    method: 'POST',
+    path: '/v1/agent-creation-drafts/draft%2F1/create',
+  });
+});
+
 it('requests typed activity list and detail', async () => {
   const client = new GantryClient({
     apiKey: 'test-key',
