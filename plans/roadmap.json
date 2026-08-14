@@ -1303,14 +1303,17 @@
         "The browser sees only safe same-origin projections and no Control credential or sensitive catalog/task data."
       ],
       "order": 65,
-      "status": "active",
+      "status": "done",
       "epic": "web-runtime-console",
       "skill": "fullstack",
       "kind": "feature",
       "depends_on": [
         "WEB-CONSOLE-4"
       ],
-      "spec": "docs/specs/web-console-agent-directory-profile-refresh.md"
+      "spec": "docs/specs/web-console-agent-directory-profile-refresh.md",
+      "completed_at": "2026-08-14T05:03:45+00:00",
+      "history": ".factory/history/WEB-CONSOLE-5/",
+      "outcome": "Delivered the approved read-only Agents directory and five-tab profile refresh with a server-held Control API boundary, local filtering, safe lazy data sections, and reduced-motion support."
     }
   ],
   "epics": [
@@ -1408,5 +1411,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-13T15:55:43+00:00"
+  "updated_at": "2026-08-14T05:03:45+00:00"
 }
