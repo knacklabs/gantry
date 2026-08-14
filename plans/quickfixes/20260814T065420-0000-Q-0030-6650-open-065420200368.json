@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0030-6650",
+  "profile": "quickfix",
+  "reason": "Fix stale create-agent options loading state",
+  "started_at": "2026-08-14T06:54:20+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}
