@@ -4631,10 +4631,15 @@ describe('DiscordChannel', () => {
           targetJid: 'dc:channel-1',
           toolName: 'RunCommand',
         })
-        .then(requirePermissionDecision),
-    ).rejects.toBe(persistenceError);
+,
+    ).resolves.toMatchObject({
+      kind: 'delivery_failure',
+      code: 'provider_failed',
+      retryable: false,
+      delivered: 'unknown',
+    });
 
-    expect((channel as any).interactions.pendingPermissions.size).toBe(1);
+    expect((channel as any).interactions.pendingPermissions.size).toBe(0);
     await channel.disconnect();
   });
 

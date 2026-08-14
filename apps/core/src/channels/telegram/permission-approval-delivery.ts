@@ -187,7 +187,16 @@ export async function requestTelegramPermissionApproval(input: {
     });
     return { kind: 'decision', decision: await registered.decision };
   } catch (err) {
-    if (err instanceof DurableInteractionPersistenceError) throw err;
+    // Pre-transmission persistence failures propagate (the durable lane
+    // owns that retry); post-send ones become delivered:'unknown' below
+    // (0128 transmission boundary, review R7).
+    if (err instanceof DurableInteractionPersistenceError && !transmissionBegan)
+      throw err;
+    const stale = input.pendingPrompts.get(callback.providerAlias);
+    if (stale) {
+      clearTimeout(stale.timer);
+      input.pendingPrompts.delete(callback.providerAlias);
+    }
     logger.error(
       {
         jid: input.jid,

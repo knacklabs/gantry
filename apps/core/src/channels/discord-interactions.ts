@@ -253,7 +253,9 @@ export class DiscordInteractionHandler {
         if (!bound)
           throw new Error('Discord permission message binding failed');
       } catch (err) {
-        if (err instanceof DurableInteractionPersistenceError) throw err;
+        // Post-send persistence failures become delivered:'unknown' (0128
+        // transmission boundary, review R7): the card may be live, so this
+        // must never be retried into a duplicate.
         clearTimeout(timeout);
         if (this.pendingPermissions.get(callback.providerAlias) === livePending)
           this.pendingPermissions.delete(callback.providerAlias);

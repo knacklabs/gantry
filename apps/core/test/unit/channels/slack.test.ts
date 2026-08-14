@@ -8143,16 +8143,17 @@ describe('Slack channel', () => {
       return await original(input);
     });
 
+    // Post-send persistence failure = delivered:'unknown', never retried
+    // (0128 transmission boundary); the local waiter is cleaned up.
     await expect(
-      channel
-        .requestPermissionApproval('sl:C123', request)
-        .then(requirePermissionDecision),
-    ).rejects.toMatchObject({ name: 'DurableInteractionPersistenceError' });
-    expect((channel as any).pendingPermissionPrompts.size).toBe(1);
-    for (const pending of (channel as any).pendingPermissionPrompts.values()) {
-      clearTimeout(pending.timer);
-    }
-    (channel as any).pendingPermissionPrompts.clear();
+      channel.requestPermissionApproval('sl:C123', request),
+    ).resolves.toMatchObject({
+      kind: 'delivery_failure',
+      code: 'provider_failed',
+      retryable: false,
+      delivered: 'unknown',
+    });
+    expect((channel as any).pendingPermissionPrompts.size).toBe(0);
   });
 
   it('returns empty Slack user-question answers when prompt times out', async () => {

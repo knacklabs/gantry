@@ -282,12 +282,21 @@ export async function requestTeamsPermissionApproval(input: {
     if (messageId) input.onPromptDelivered?.(messageId);
     return { kind: 'decision', decision: await decision };
   } catch (err) {
-    if (err instanceof DurableInteractionPersistenceError) {
+    // Pre-transmission persistence failures propagate (the durable lane
+    // owns that retry); post-send ones become delivered:'unknown' below
+    // (0128 transmission boundary, review R7).
+    if (err instanceof DurableInteractionPersistenceError && !transmissionBegan) {
       logger.error(
         { jid: input.jid, requestId: input.request.requestId, err },
         'Failed to send Teams permission prompt',
       );
       throw err;
+    }
+    const stale = input.pendingPermissionPrompts.get(callback.providerAlias);
+    if (stale && !stale.settled) {
+      stale.settled = true;
+      clearTimeout(stale.timer);
+      input.pendingPermissionPrompts.delete(callback.providerAlias);
     }
     incrementOperationalError('channels', 'permission_prompt');
     logger.error(

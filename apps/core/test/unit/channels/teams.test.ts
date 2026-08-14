@@ -3238,9 +3238,14 @@ describe('TeamsChannel adapter scaffold', () => {
           targetJid: 'teams:19:abc@thread.v2',
           toolName: 'Bash',
         })
-        .then(requirePermissionDecision),
-    ).rejects.toBeInstanceOf(DurableInteractionPersistenceError);
-    expect((channel as any).pendingPermissionPrompts.size).toBe(1);
+,
+    ).resolves.toMatchObject({
+      kind: 'delivery_failure',
+      code: 'provider_failed',
+      retryable: false,
+      delivered: 'unknown',
+    });
+    expect((channel as any).pendingPermissionPrompts.size).toBe(0);
     await channel.disconnect();
   });
 

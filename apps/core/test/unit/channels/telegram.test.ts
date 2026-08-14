@@ -5132,15 +5132,14 @@ describe('TelegramChannel', () => {
             targetJid: 'tg:100200300',
             toolName: 'Bash',
           })
-          .then(requirePermissionDecision),
-      ).rejects.toMatchObject({ name: 'DurableInteractionPersistenceError' });
-      expect((channel as any).pendingPermissionPrompts.size).toBe(1);
-      for (const pending of (
-        channel as any
-      ).pendingPermissionPrompts.values()) {
-        clearTimeout(pending.timer);
-      }
-      (channel as any).pendingPermissionPrompts.clear();
+,
+      ).resolves.toMatchObject({
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        retryable: false,
+        delivered: 'unknown',
+      });
+      expect((channel as any).pendingPermissionPrompts.size).toBe(0);
     });
 
     it('fails closed for stale timed-grant callbacks', async () => {

@@ -199,11 +199,13 @@ export async function raiseSetupPausePermissionPrompt(input: {
   try {
     prepared = await deps.preparePermissionInteraction(request);
   } catch {
-    // A runtime without the outbound prompt repository (or a failed
-    // preparation) must not leave the job silently stranded: fall back to
-    // the plain setup-required notification so the owner still learns
-    // about the pause (review R5).
-    return { status: 'instruction_only', notificationEligible: true };
+    // A failed preparation stays RETRYABLE: notificationEligible false so
+    // the prose path cannot consume notified_fingerprint - the very trap
+    // that produced the never-fired button. The next readiness tick
+    // re-raises and re-attempts the durable enqueue (review R5/R7).
+    // Runtimes with NO outbound repository never configure these deps at
+    // all and take the depless prose path above instead.
+    return { status: 'instruction_only', notificationEligible: false };
   }
   if (prepared.created) {
     return {

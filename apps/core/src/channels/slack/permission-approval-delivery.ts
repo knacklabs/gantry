@@ -332,7 +332,9 @@ export async function requestSlackPermissionApproval(input: {
       });
       if (!bound) throw new Error('Slack permission message binding failed');
     } catch (err) {
-      if (err instanceof DurableInteractionPersistenceError) throw err;
+      // Post-send persistence failures become delivered:'unknown' (0128
+      // transmission boundary, review R7): the card may be live, so this
+      // must never be retried into a duplicate.
       incrementOperationalError('channels', 'permission_prompt');
       if (!livePending.settled) {
         livePending.settled = true;
