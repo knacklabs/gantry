@@ -183,7 +183,11 @@ export class DiscordInteractionHandler {
         'target_missing',
         'This Discord conversation could not be identified.',
       );
-    const conversationId = discordChannelIdFromJid(jid) || jid;
+    // Bind against the channel the message is actually sent to: a thread
+    // ID is the effective channel for thread prompts, and callback
+    // recovery matches on that provider conversation id (review R9).
+    const conversationId =
+      request.threadId || discordChannelIdFromJid(jid) || jid;
     if (
       !(await bindDiscordPermissionPrompt(
         request,
