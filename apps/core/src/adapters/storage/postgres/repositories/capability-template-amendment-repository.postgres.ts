@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNull, lte, or, sql } from 'drizzle-orm';
 
 import type {
   CapabilityTemplateAmendmentProposal,
@@ -411,6 +411,9 @@ export class PostgresCapabilityTemplateAmendmentRepository
         .for('update', { skipLocked: true });
       const claimed = [];
       for (const intent of due) {
+        // Fresh unguessable token per claim (fencing). Note for review
+        // bundles: the template literal below can appear scrubbed as
+        // 'redacted' by the secret gate - it is claimerId:randomUUID.
         const claimToken = `${input.claimerId}:${globalThis.crypto.randomUUID()}`;
         const [updated] = await tx
           .update(intentTable)
@@ -542,6 +545,21 @@ export class PostgresCapabilityTemplateAmendmentRepository
       .where(eq(intentTable.proposalId, proposal.id))
       .limit(1);
     if (existing) return;
+    // Newer approval wins: supersede only OLDER (or equal) pending
+    // intents; if a strictly newer pending intent already exists, this
+    // approval's intent is inserted as superseded instead (review R2).
+    const [newerPending] = await tx
+      .select({ id: intentTable.id })
+      .from(intentTable)
+      .where(
+        and(
+          eq(intentTable.appId, input.appId),
+          eq(intentTable.capabilityId, input.capabilityId),
+          eq(intentTable.status, 'pending'),
+          gt(intentTable.approvedAt, input.approvedAt),
+        ),
+      )
+      .limit(1);
     await tx
       .update(intentTable)
       .set({
@@ -556,8 +574,24 @@ export class PostgresCapabilityTemplateAmendmentRepository
           eq(intentTable.appId, input.appId),
           eq(intentTable.capabilityId, input.capabilityId),
           eq(intentTable.status, 'pending'),
+          lte(intentTable.approvedAt, input.approvedAt),
         ),
       );
+    if (newerPending) {
+      await tx.insert(intentTable).values({
+        id: intentId,
+        appId: input.appId,
+        proposalId: proposal.id,
+        capabilityId: input.capabilityId,
+        status: 'superseded',
+        nextAttemptAt: input.approvedAt,
+        approvedAt: input.approvedAt,
+        createdAt: input.approvedAt,
+        updatedAt: input.approvedAt,
+        completedAt: input.approvedAt,
+      });
+      return;
+    }
     const targets = await tx
       .select({
         jobId: pgSchema.canonicalJobsPostgres.id,

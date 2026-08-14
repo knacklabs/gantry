@@ -74,11 +74,10 @@ async function recoverTarget(
   const job = await input.opsRepository.getJobById(target.jobId);
   const initial = classifyTarget(job, target);
   if (initial) return initial;
-  const conversationJid = job!.execution_context?.conversationJid;
-  // A missing notification route is NOT a supersession condition (those
-  // are: blocker changed, job deleted). Keep the target pending and retry
-  // rather than falsely completing the intent (review R1).
-  if (!conversationJid) return 'retry';
+  // The recheck's conversationJid is a FILTER, not a requirement: a job
+  // without a notification route still recovers (jobId-scoped), it just
+  // sends no receipt (review R1/R2).
+  const conversationJid = job!.execution_context?.conversationJid ?? '';
   const recovery = await recheckPausedSetupJobsAfterRequestAccessGrant({
     deps: {
       opsRepository: input.opsRepository,
@@ -119,9 +118,9 @@ function classifyTarget(
   },
 ): Exclude<CapabilityTemplateApprovalTargetOutcome, 'retry'> | undefined {
   if (!job) return 'superseded';
-  if (job.status === 'active' || job.setup_state?.state === 'ready') {
-    return 'resumed';
-  }
+  // Only an ACTIVE job is resumed: ready-but-paused still needs the
+  // resume transition, so it must stay pending for another pass (R2).
+  if (job.status === 'active') return 'resumed';
   // Only THIS intent's proposal keeps the target current - a blocker
   // replaced by a different proposal supersedes the old target (review R1).
   const blockerStillCurrent = job.setup_state?.blockers.some(
