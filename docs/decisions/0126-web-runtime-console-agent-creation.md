@@ -5,6 +5,7 @@ date: 2026-08-14
 stories:
   - WEB-CONSOLE-6
 supersedes: 0124-web-runtime-console-read-only-integration
+stories: [WEB-CONSOLE-6]
 ---
 
 # Web Runtime Console: Agent Creation
