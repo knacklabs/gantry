@@ -1113,6 +1113,8 @@ maybeDescribe('setup permission prompt preparation', () => {
       promptId: 'prompt:setup:ttl:a',
       interactionId: 'interaction:setup:ttl:a',
       fingerprint: 'fp:ttl',
+      // Near-term so reconcileSetupPrompts(now='2026-08-15') sees it expired.
+      expiresAt: '2026-08-14T10:00:00.000Z',
     });
     await runtime.repositories.setupPermissionPrompts.prepareSetupPermissionPrompt(
       expiring,
@@ -1230,6 +1232,7 @@ function preparation(input: {
   promptId: string;
   interactionId: string;
   fingerprint: string;
+  expiresAt?: string;
 }): SetupPermissionPromptPreparation {
   // Row ids are per-attempt (generation is repository-internal now).
   const attempt = ++preparationAttempt;
@@ -1245,7 +1248,12 @@ function preparation(input: {
       requestId,
       payload: { requestId },
       idempotencyKey: `default:permission:main_agent:${requestId}`,
-      expiresAt: '2026-08-14T10:00:00.000Z',
+      // Default far-future: the setup-prompt dispatch view judges member
+      // validity against real clock_timestamp() (deliberately NOT the fixed
+      // test `now`, per review R7/R8), so a near-term literal silently expires
+      // once real wall-clock time passes it. Reconciler-expiry scenarios pass an
+      // explicit near-term `expiresAt`, judged against their param `now`.
+      expiresAt: input.expiresAt ?? '2999-01-01T00:00:00.000Z',
     },
     prompt: {
       id: input.promptId,
