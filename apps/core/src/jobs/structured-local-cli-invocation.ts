@@ -24,6 +24,7 @@ import {
 
 export type StructuredLocalCliInvocationErrorCode =
   | 'invalid_args'
+  | 'capability_template_mismatch'
   | 'permission_denied'
   | 'executable_identity_mismatch';
 
@@ -160,9 +161,25 @@ async function resolveGrantedLocalCliInvocation(input: {
     };
   }
 
+  // Teach the shape IN THE TOOL'S OWN VOCABULARY: args arrays without the
+  // executable, so there is nothing shell-shaped to copy into Bash (a full
+  // template string got pasted into a shell on the first live run). The
+  // templates are not secret - they appear verbatim on approval cards -
+  // and the runtime, not the job prompt, owns call-shape recovery.
+  const reviewedArgPatterns = capability.implementationBindings
+    .filter((binding) => binding.kind === 'local_cli')
+    .flatMap((binding) =>
+      (binding.commandTemplates ?? []).map((template) => {
+        const executable = binding.executablePath?.trim() ?? '';
+        const rest = template.startsWith(executable)
+          ? template.slice(executable.length).trim()
+          : template.trim();
+        return JSON.stringify(rest.split(/\s+/));
+      }),
+    );
   throw new StructuredLocalCliInvocationError(
-    'invalid_args',
-    `Arguments are outside the reviewed pattern for capability "${capabilityId}". Propose a reviewed fix with request_access target.kind=capability_template_amendment.`,
+    'capability_template_mismatch',
+    `Arguments are outside the reviewed pattern for capability "${capabilityId}". Reviewed args patterns: ${reviewedArgPatterns.join(' or ')}. Re-call capability_run with an args array matching one pattern ("*" = exactly one value; flags only where a pattern shows them). Never run this capability through Bash/RunCommand.`,
   );
 }
 

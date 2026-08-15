@@ -134,6 +134,45 @@ describe('RuntimeEventExchange', () => {
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
+  it('skips notifications and webhook wakeups for an idempotency replay', async () => {
+    const repository = new MemoryRuntimeEventRepository();
+    const existing = await repository.appendRuntimeEvent({
+      appId: 'app:test' as never,
+      eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+      actor: 'scheduler',
+      payload: { denied_tool: 'Bash' },
+    });
+    const outcomeAwareRepository =
+      repository as MemoryRuntimeEventRepository & {
+        appendRuntimeEventWithOutcome: ReturnType<typeof vi.fn>;
+      };
+    outcomeAwareRepository.appendRuntimeEventWithOutcome = vi.fn(async () => ({
+      event: existing,
+      inserted: false,
+    }));
+    const notifier = new InMemoryRuntimeEventNotifier();
+    const exchange = new RuntimeEventExchange(outcomeAwareRepository, notifier);
+    const webhookListener = vi.fn();
+    const unsubscribe = subscribeWebhookDeliveryReady(webhookListener);
+    try {
+      await expect(
+        exchange.publish({
+          appId: 'app:test' as never,
+          eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+          actor: 'scheduler',
+          idempotencyKey: 'tool_denied:run-1:fingerprint',
+          payload: { denied_tool: 'Bash' },
+        }),
+      ).resolves.toBe(existing);
+    } finally {
+      unsubscribe();
+    }
+
+    expect(repository.events).toEqual([existing]);
+    expect(notifier.notifiedEvents).toEqual([]);
+    expect(webhookListener).not.toHaveBeenCalled();
+  });
+
   it('can co-commit accepted messages and live admission before notifying subscribers', async () => {
     const repository =
       new MemoryRuntimeEventRepository() as MemoryRuntimeEventRepository & {

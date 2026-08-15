@@ -16,10 +16,12 @@ export function canonicalCapabilityTemplateAmendment(input: {
   return {
     proposedTemplates,
     observedArgv,
+    // Identity = (capability, canonical proposed templates) - the argv is
+    // ONE redacted observability sample, not part of the dedup key
+    // (decision 0122; the old argv-bearing keys are retired by migration).
     canonicalKey: stableSha256Json({
       capabilityId: input.capabilityId.trim(),
       proposedTemplates,
-      observedArgv,
     }),
   };
 }
@@ -61,9 +63,11 @@ export function redactObservedArgv(argv: readonly string[]): string[] {
     const eq = token.indexOf('=');
     if (token.startsWith('-') && eq > 0) {
       const name = token.slice(0, eq);
-      return SENSITIVE_ARGV_PATTERN.test(name)
+      const value = token.slice(eq + 1);
+      return SENSITIVE_ARGV_PATTERN.test(name) ||
+        /^[^\s@]+@[^\s@]+$/.test(value)
         ? `${name}=<redacted>`
-        : OPAQUE_ARGV_PATTERN.test(token.slice(eq + 1))
+        : OPAQUE_ARGV_PATTERN.test(value)
           ? `${name}=<redacted>`
           : token;
     }
@@ -77,6 +81,11 @@ export function redactObservedArgv(argv: readonly string[]): string[] {
       }
     }
     const previous = index > 0 ? all[index - 1] : undefined;
+    // Regardless of a leading dash: the value slot after --account is a
+    // value, and an @-bearing one is an account identity (review R4).
+    if (previous === '--account' && /@/.test(token)) {
+      return '<redacted>';
+    }
     if (
       previous?.startsWith('-') &&
       SENSITIVE_ARGV_PATTERN.test(previous) &&
@@ -87,6 +96,62 @@ export function redactObservedArgv(argv: readonly string[]): string[] {
     if (!token.startsWith('-') && OPAQUE_ARGV_PATTERN.test(token)) {
       return '<redacted>';
     }
+    if (!token.startsWith('-') && /^[^\s@]+@[^\s@]+$/.test(token)) {
+      return '<redacted>';
+    }
     return token;
   });
+}
+
+export type CapabilityTemplateApprovalIntentStatus =
+  | 'pending'
+  | 'completed'
+  | 'superseded';
+
+export type CapabilityTemplateApprovalIntentTargetStatus =
+  | 'pending'
+  | 'resumed'
+  | 'superseded';
+
+export interface ClaimedCapabilityTemplateApprovalIntent {
+  id: string;
+  appId: string;
+  proposalId: string;
+  capabilityId: string;
+  claimToken: string;
+  attemptCount: number;
+  targets: Array<{
+    jobId: string;
+    expectedSetupFingerprint: string;
+  }>;
+}
+
+export interface CapabilityTemplateApprovalIntentRepository {
+  claimDueApprovalIntents(input: {
+    claimerId: string;
+    now: string;
+    leaseExpiresAt: string;
+    limit: number;
+  }): Promise<ClaimedCapabilityTemplateApprovalIntent[]>;
+  adoptOrphanedApprovalTargets?(input: {
+    now: string;
+    limit?: number;
+  }): Promise<number>;
+  renewApprovalIntentClaim?(input: {
+    intentId: string;
+    claimToken: string;
+    leaseExpiresAt: string;
+    now: string;
+  }): Promise<boolean>;
+  settleApprovalIntentClaim(input: {
+    intentId: string;
+    claimToken: string;
+    outcomes: Array<{
+      jobId: string;
+      status: Exclude<CapabilityTemplateApprovalIntentTargetStatus, 'pending'>;
+    }>;
+    now: string;
+    nextAttemptAt: string;
+    error?: string;
+  }): Promise<'completed' | 'pending' | 'superseded'>;
 }

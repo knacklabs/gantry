@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { DEFAULT_AGENT_ENGINE } from '../../../src/shared/agent-engine.js';
 
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import { finalizeSchedulerJobRun } from '@core/jobs/execution-finalization.js';
@@ -8,6 +9,7 @@ import {
 } from '@core/jobs/execution-diagnostics.js';
 import type { SchedulerDependencies } from '@core/jobs/types.js';
 import type { Job } from '@core/domain/types.js';
+import type { JobToolDenial } from '@core/domain/events/job-tool-denial.js';
 
 function makeJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -30,10 +32,48 @@ function makeJob(overrides: Partial<Job> = {}): Job {
   } as Job;
 }
 
-// Anthropic and DeepAgents surface the same parseable autonomous-denial error;
-// finalization must fail the dead-end run and pause the job for a fresh retry.
 const DENIAL_ERROR =
   'Tool not on autonomous run allowlist: Bash. Recovery: request_access(capability=shell)';
+
+function listDenialEvents(
+  denial?: Partial<JobToolDenial>,
+): ReturnType<typeof vi.fn> {
+  if (!denial) return vi.fn(async () => []);
+  const value: JobToolDenial = {
+    toolName: 'Bash',
+    reason: 'Denied by operator.',
+    denialKind: 'permission_denied',
+    provenanceLane: DEFAULT_AGENT_ENGINE,
+    provenanceSeam: 'gate',
+    action: {
+      kind: 'approve_grant',
+      grant: {
+        type: 'addRules',
+        behavior: 'allow',
+        rules: [{ tool_name: 'RunCommand', rule_content: 'npm test -- unit' }],
+      },
+    },
+    ...denial,
+  };
+  return vi.fn(async () => [
+    {
+      eventId: 1,
+      appId: 'default',
+      eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+      actor: 'scheduler',
+      payload: {
+        denied_tool: value.toolName,
+        reason: value.reason,
+        denial_kind: value.denialKind,
+        provenance_lane: value.provenanceLane,
+        provenance_seam: value.provenanceSeam,
+        action: value.action,
+        error_summary: DENIAL_ERROR,
+      },
+      createdAt: '2024-01-01T00:00:00.000Z',
+    },
+  ]);
+}
 
 function makeDeps(): {
   deps: SchedulerDependencies;
@@ -59,10 +99,20 @@ describe('execution finalization', () => {
     const diagnostics = createJobRunDiagnostics();
     diagnostics.terminalToolDenial = {
       toolName: 'RunCommand',
-      grantable: true,
       reason: 'Worker matcher found no matching allowedTools rule.',
-      recoveryAction:
-        'request_access {"target":{"kind":"run_command","argvPattern":"npm test -- unit"},"temporaryOnly":false,"reason":"Grant exact test command access."}',
+      action: {
+        kind: 'approve_grant',
+        grant: {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [
+            { tool_name: 'RunCommand', rule_content: 'npm test -- unit' },
+          ],
+        },
+      },
+      denialKind: 'permission_denied',
+      provenanceLane: DEFAULT_AGENT_ENGINE,
+      provenanceSeam: 'gate',
     };
 
     await finalizeSchedulerJobRun({
@@ -87,6 +137,7 @@ describe('execution finalization', () => {
       runtimeAppId: 'default',
       runId: 'run-grant-naming-card',
       publishRuntimeEvent: vi.fn(async () => undefined),
+      listRuntimeEvents: listDenialEvents(diagnostics.terminalToolDenial),
     });
 
     expect(sendMessage).toHaveBeenCalledOnce();
@@ -112,6 +163,7 @@ describe('execution finalization', () => {
       runtimeAppId: 'default',
       runId: 'run-1',
       publishRuntimeEvent: vi.fn(async () => undefined),
+      listRuntimeEvents: listDenialEvents({ toolName: 'RunCommand' }),
     });
 
     // Autonomous not-on-allowlist denial: no approver in the loop, so the RUN
@@ -128,26 +180,28 @@ describe('execution finalization', () => {
         status: 'paused',
         consecutive_failures: 0,
         setup_state: expect.objectContaining({
-          blockers: [expect.objectContaining({ requirementId: 'RunCommand' })],
+          blockers: [expect.objectContaining({ id: 'RunCommand' })],
         }),
       }),
     );
   });
 
-  it('pauses the run on an attended, resumable tool denial', async () => {
+  it('treats the durable typed denial as terminal regardless of error wording', async () => {
     const { deps, updateJob } = makeDeps();
     const diagnostics = createJobRunDiagnostics();
     diagnostics.terminalToolDenial = {
       toolName: 'Bash',
-      recoveryAction: 'request_access(capability=shell)',
+      reason: 'Denied by operator.',
+      denialKind: 'permission_denied',
+      provenanceLane: DEFAULT_AGENT_ENGINE,
+      provenanceSeam: 'gate',
+      action: { kind: 'instruction', text: 'Review job setup.' },
     };
     const state = await finalizeSchedulerJobRun({
       currentJob: makeJob(),
       deps,
       scheduledFor: '2024-01-01T00:00:00.000Z',
       now: '2024-01-01T00:00:01.000Z',
-      // Attended path: a terminal tool denial WITHOUT the autonomous-allowlist
-      // message. An approver can resume the same run, so the run pauses.
       error: 'Permission denied for Bash.',
       diagnostics,
       pausedForSetupDuringRun: false,
@@ -155,14 +209,63 @@ describe('execution finalization', () => {
       runtimeAppId: 'default',
       runId: 'run-attended',
       publishRuntimeEvent: vi.fn(async () => undefined),
+      listRuntimeEvents: listDenialEvents(diagnostics.terminalToolDenial),
     });
 
-    expect(state.runStatus).toBe('paused');
-    expect(state.runStatus).not.toBe('failed');
+    expect(state.runStatus).toBe('failed');
     expect(updateJob).toHaveBeenCalledWith(
       'job-1',
       expect.objectContaining({ status: 'paused' }),
     );
+  });
+
+  it('uses the lowest persisted denial event id as the run authority', async () => {
+    const { deps } = makeDeps();
+    const event = (eventId: number, toolName: string) => ({
+      eventId,
+      appId: 'default',
+      eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+      actor: 'scheduler' as const,
+      payload: {
+        denied_tool: toolName,
+        reason: 'Denied by operator.',
+        denial_kind: 'permission_denied',
+        provenance_lane: DEFAULT_AGENT_ENGINE,
+        provenance_seam: 'gate',
+        action: {
+          kind: 'approve_grant',
+          grant: {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [
+              { tool_name: 'RunCommand', rule_content: 'npm test -- unit' },
+            ],
+          },
+        },
+        error_summary: DENIAL_ERROR,
+      },
+      createdAt: '2024-01-01T00:00:00.000Z',
+    });
+
+    const state = await finalizeSchedulerJobRun({
+      currentJob: makeJob(),
+      deps,
+      scheduledFor: '2024-01-01T00:00:00.000Z',
+      now: '2024-01-01T00:00:01.000Z',
+      error: DENIAL_ERROR,
+      diagnostics: createJobRunDiagnostics(),
+      pausedForSetupDuringRun: false,
+      deletedDuringRun: false,
+      runtimeAppId: 'default',
+      runId: 'run-primary-denial',
+      publishRuntimeEvent: vi.fn(async () => undefined),
+      listRuntimeEvents: vi.fn(async () => [
+        event(2, 'Browser'),
+        event(1, 'RunCommand'),
+      ]),
+    });
+
+    expect(state.toolDenial?.toolName).toBe('RunCommand');
   });
 
   it('pauses the job for setup even with no delivery route (autonomous dead-end)', async () => {
@@ -179,6 +282,7 @@ describe('execution finalization', () => {
       runtimeAppId: 'default',
       runId: 'run-2',
       publishRuntimeEvent: vi.fn(async () => undefined),
+      listRuntimeEvents: listDenialEvents({}),
     });
 
     expect(state.runStatus).toBe('failed');
@@ -220,6 +324,7 @@ describe('finalizeSchedulerJobRun — transient permission approvals', () => {
       runtimeAppId: 'default',
       runId: 'run-reviewed-rule',
       publishRuntimeEvent: vi.fn(async () => undefined),
+      listRuntimeEvents: listDenialEvents(),
     });
 
     expect(state.runStatus).toBe('completed');
@@ -270,6 +375,7 @@ describe('finalizeSchedulerJobRun — transient permission approvals', () => {
       runtimeAppId: 'default',
       runId: 'run-human',
       publishRuntimeEvent,
+      listRuntimeEvents: listDenialEvents(),
     });
 
     expect(state.runStatus).toBe('completed');
@@ -279,7 +385,9 @@ describe('finalizeSchedulerJobRun — transient permission approvals', () => {
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: RUNTIME_EVENT_TYPES.JOB_SETUP_REQUIRED,
-        payload: expect.objectContaining({ notified: false }),
+        payload: expect.objectContaining({
+          blocker_fingerprint: expect.any(String),
+        }),
       }),
     );
     expect(updateJob).toHaveBeenCalledWith(

@@ -1167,7 +1167,7 @@
       "title": "Capability template amendment via grantable card",
       "story": "As an operator, when a CLI capability's approved command shape doesn't fit reality, I get one plain-language card in chat \u2014 approve it and the blocked job fixes itself and continues; I never touch SQL or restart anything.",
       "acceptance_criteria": [
-        "Agent-raised amendment proposal on template mismatch (new request_access target kind); proposals are review metadata, never self-applying",
+        "HISTORICAL (superseded by decision 0125): agent-raised amendment proposal on template mismatch (new request_access target kind); proposals are review metadata, never self-applying",
         "Card is plain-language: ability-terms body from displayName/can/cannot, one-sentence warning when the delta widens ability, technical detail collapsed; no template strings, argv, ids, or hashes in the body",
         "Human approval updates the durable capability definition with provenance (who, when, prior templates in history); deny is terminal and deduped for the same template/argv pair",
         "Amendment covers commandTemplates only; hash/path/version attempts through this surface are rejected",
@@ -1203,6 +1203,40 @@
         "CAPFIX-1"
       ],
       "spec": "docs/specs/capability-version-bump-card.md"
+    },
+    {
+      "key": "CARDFIX-1",
+      "title": "Every pause card carries a real action",
+      "story": "As an operator, no job ever pauses into a dead end: every setup card offers at least one button - approve the exact scoped command it tried, approve the capability fix, or another concrete action - never prose alone.",
+      "acceptance_criteria": [],
+      "order": 61,
+      "status": "pending",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec_debt_reason": "Ravi's ruling (2026-08-12, third occurrence of buttonless cards): bare-RunCommand denials render non-grantable prose even though the exact denied leaf is known and a SCOPED RunCommand grant is supported; synthesize the scoped request_access suggestion so the card is always actionable"
+    },
+    {
+      "key": "JOBFLOW-1",
+      "title": "Seamless scheduled-job lifecycle: typed denials, durable approval cards, host-filed fixes",
+      "story": "As a job owner, when my scheduled job hits a blocker I always get an actionable card I can tap - never a silent stall - and recognized fixes are filed for my approval automatically",
+      "acceptance_criteria": [
+        "Every terminal autonomous denial in scope is typed and observable (event, status, visibility)",
+        "A setup pause produces a card with working buttons, with bounded delivery and defined recovery for ambiguous, expired, exhausted, and cancelled outcomes",
+        "A recognized capability template mismatch yields a host-compiled fix-proposal card; owner approval applies both templates and durably resumes the job",
+        "Job prompts carry business logic only; the KnackLabs prompt sweep is completed inside the live acceptance gate",
+        "Live gate passes on the real KnackLabs job in the owner's Telegram, including the crash/restart fault matrix"
+      ],
+      "order": 62,
+      "status": "active",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec": "docs/specs/jobflow-lifecycle.md"
     }
   ],
   "epics": [
@@ -1291,5 +1325,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-12T03:51:26+00:00"
+  "updated_at": "2026-08-12T12:24:03+00:00"
 }

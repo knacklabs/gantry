@@ -199,6 +199,10 @@ function createRunnerFixture(): {
     path.join(domainEventsDir, 'runtime-event-types.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/domain/events/job-setup-action.ts'),
+    path.join(domainEventsDir, 'job-setup-action.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/domain/events/runtime-event-conversation.ts'),
     path.join(domainEventsDir, 'runtime-event-conversation.ts'),
   );
@@ -3047,10 +3051,7 @@ describe('agent-runner IPC lifecycle', () => {
             payload: expect.objectContaining({
               phase: 'permission_denied',
               tool: 'WebSearch',
-              // PREFLIGHT-1 Part A: WebSearch is now a grantable facade tool, so
-              // the denial is grantable (one-tap setup card) rather than a
-              // non-grantable terminal deny.
-              grantable: true,
+              action: expect.objectContaining({ kind: 'approve_grant' }),
             }),
           }),
         ]),

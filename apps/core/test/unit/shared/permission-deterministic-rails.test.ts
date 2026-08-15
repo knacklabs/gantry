@@ -37,9 +37,12 @@ async function resolveWithLowBenignClassifier(command: string) {
   const getClassifierVerdict = vi.fn(async () => null);
   const putClassifierVerdict = vi.fn(async () => undefined);
   const requestPermissionApproval = vi.fn(async () => ({
-    approved: false,
-    mode: 'cancel' as const,
-    decidedBy: 'owner',
+    kind: 'decision' as const,
+    decision: {
+      approved: false,
+      mode: 'cancel' as const,
+      decidedBy: 'owner',
+    },
   }));
   const classifierConsult = vi.fn(async () => ({
     risk_level: 'low' as const,

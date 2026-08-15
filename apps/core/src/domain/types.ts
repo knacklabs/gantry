@@ -4,7 +4,8 @@ import type { ReviewMessageView } from './review-message-view.js';
 import type { MessageActionAffordance } from './message-actions.js';
 import type { ObserverDigestMessageView } from './observer-digest-view.js';
 import type { BrainReviewCardView } from './brain-review-card.js';
-
+import type { PermissionApprovalResult } from './permission-approval-result.js';
+export type { PermissionApprovalResult } from './permission-approval-result.js';
 export type {
   MessageActionAffordanceKind,
   MemoryReviewActionDecision,
@@ -170,7 +171,6 @@ export type PermissionRiskCategory =
   | 'network'
   | 'filesystem'
   | 'benign';
-
 export interface PermissionApprovalRequest {
   requestId: string;
   appId?: string;
@@ -182,6 +182,7 @@ export interface PermissionApprovalRequest {
   requestFamily?: 'tool' | 'admin' | 'review' | 'promotion';
   runHandle?: string;
   jobId?: string;
+  setupFingerprint?: string;
   jobName?: string;
   runId?: string;
   runLeaseToken?: string;
@@ -327,7 +328,6 @@ export interface PermissionApprovalDecision {
   batchDecision?: 'review_each';
   permissionCallbackClaim?: PermissionCallbackClaimReference;
 }
-
 export interface UserQuestionOption {
   label: string;
   description: string;
@@ -539,15 +539,14 @@ export interface MessageSendOptions {
    * memory-review message (per-channel native blocks/card) with the decision
    * buttons. Channels without native buttons fall back to `text`. */
   reviewMessageView?: ReviewMessageView;
-  /** When set, channels with native support render the observer digest as one
-   * message of up to 3 insight groups, each with its four `observer_feedback`
-   * buttons. Channels without native buttons fall back to `text`. */
+  /** Native one-message observer digest with feedback buttons. */
   observerDigestView?: ObserverDigestMessageView;
   /** When set, channels with native support render the destructive-proposal
    * review card (headline + detail) with its Approve/Reject
    * `brain_dream_review_decision` buttons. Channels without native buttons fall
    * back to `text`. */
   brainReviewView?: BrainReviewCardView;
+  permissionCardView?: import('./permission-card.js').PermissionCardMessageView;
 }
 
 export interface MessageFileAttachment {
@@ -613,6 +612,7 @@ export interface MessageSink {
     options?: MessageSendOptions,
   ): Promise<void | MessageDeliveryResult>;
 }
+
 export type {
   ChannelLiveUxCapability,
   MessageReactionRemovalSink,
@@ -649,7 +649,7 @@ export interface InteractionSurface {
     jid: string,
     request: PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
-  ): Promise<PermissionApprovalDecision>;
+  ): Promise<PermissionApprovalResult>;
   requestUserAnswer(
     jid: string,
     request: UserQuestionRequest,

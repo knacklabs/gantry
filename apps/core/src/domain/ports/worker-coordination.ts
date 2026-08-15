@@ -125,12 +125,16 @@ export type PermissionPromptSettlementState =
   | 'claimed'
   | 'settled'
   | 'review_each_expired'
-  | 'superseded';
+  | 'superseded'
+  | 'expired'
+  | 'cancelled';
 
 export interface PermissionPrompt {
   id: string;
   parentEnvelopeId: string | null;
   appId: string;
+  jobId: string | null;
+  setupFingerprint: string | null;
   sourceAgentFolder: string;
   interactionId: string;
   matchKind: 'individual' | 'batch';
@@ -343,6 +347,8 @@ export interface PendingInteractionRepository {
     appId: string;
     sourceAgentFolder: string;
     interactionId: string;
+    jobId?: string | null;
+    setupFingerprint?: string | null;
     matchKind: 'individual' | 'batch';
     members: Array<{
       idempotencyKey: string;

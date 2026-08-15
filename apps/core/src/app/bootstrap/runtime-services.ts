@@ -69,10 +69,8 @@ import {
   setBrainReviewNotifyGateway,
   recoverPendingBrainReviewNotifications,
 } from '../../jobs/system-jobs.js';
-import {
-  brainReviewOutboundProfile,
-  brainReviewNotifyGatewayFor,
-} from './brain-review-notify-gateway.js';
+// prettier-ignore
+import { brainReviewOutboundProfile, brainReviewNotifyGatewayFor } from './brain-review-notify-gateway.js';
 // prettier-ignore
 import {
   closeBrowser,
@@ -80,19 +78,12 @@ import {
   getBrowserStatus,
 } from '../../runtime/browser-capability.js';
 import type { OutboundDeliveryProfile } from '../../domain/outbound-delivery/planner.js';
-import {
-  LIVE_SEND_PROFILE_ID,
-  OBSERVER_DIGEST_PROFILE_ID,
-  BRAIN_REVIEW_PROFILE_ID,
-  RETRY_TAIL_PROFILE_ID,
-  canonicalThreadIdFor,
-  normalizeDestinationHintAgainstCanonical,
-  resolveDurableOutboundTarget,
-  sanitizeRetryTailForCanonicalDestination,
-  sanitizeRetryTailProviderPayloadDestinationMetadata,
-} from './runtime-services-destination-hints.js';
+// prettier-ignore
+import { LIVE_SEND_PROFILE_ID, OBSERVER_DIGEST_PROFILE_ID, BRAIN_REVIEW_PROFILE_ID, RETRY_TAIL_PROFILE_ID, canonicalThreadIdFor, normalizeDestinationHintAgainstCanonical, resolveDurableOutboundTarget, sanitizeRetryTailForCanonicalDestination, sanitizeRetryTailProviderPayloadDestinationMetadata } from './runtime-services-destination-hints.js';
 import { splitLiveSendProfileText } from './runtime-services-live-send-segmentation.js';
 import { createDurableOutboundAttempt } from './runtime-services-durable-outbound-attempt.js';
+// prettier-ignore
+import { dispatchRuntimePermissionCard, PERMISSION_CARD_DISPATCH_ACTIVE, startRuntimePermissionCardReconciliation, setupPermissionCardProfile } from './runtime-services-permission-card.js';
 import { resolveConversationRoute } from './runtime-app-routes.js';
 import { handleActiveNewSessionCommand } from './runtime-services-active-new.js';
 import {
@@ -107,7 +98,7 @@ import { registerRuntimeBrainDreamReviewMessageAction } from './runtime-brain-re
 import { nowIso, nowMs, toIso } from '../../shared/time/datetime.js';
 import { LiveTurnAuthority } from '../../runtime/live-turn-authority.js';
 import type { LiveTurnRecoveryLoop } from '../../runtime/live-turn-recovery.js';
-import { configureRuntimeSetupPausePermissions } from './setup-pause-permission-wiring.js';
+import * as setupPause from './setup-pause-permission-wiring.js';
 import { liveTurnScopeForQueue } from './live-recovery-coordinator.js';
 // prettier-ignore
 import { buildLiveAdmissionProcessor, startLiveExecutionServices, type ActiveControlCommandHandler, type LiveExecutionServicesHandle, type RecoveryCoordinatorPort } from './live-execution.js';
@@ -127,7 +118,6 @@ import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { createProviderAttachmentMaterializer } from '../../shared/provider-attachment-materialization.js';
 import { createSchedulerLifecycleNotificationUpdater } from './scheduler-lifecycle-notification.js';
 export { stopAsyncTaskRecoveryLoop } from './runtime-services-async-task-recovery.js';
-
 export function createRuntimeProviderAttachmentMaterializer(app: RuntimeApp) {
   return createProviderAttachmentMaterializer({
     materializationRoot: path.join(DATA_DIR, 'provider-attachments'),
@@ -137,14 +127,11 @@ export function createRuntimeProviderAttachmentMaterializer(app: RuntimeApp) {
       ),
   });
 }
-
 type RuntimeBootstrapRepository = RuntimeAppRepository & RuntimeJobRepository;
-type LiveTurnCommandWakeupSourceFactory = () =>
-  | LiveTurnCommandWakeupSource
-  | undefined;
-type RuntimeDependencyRepositoryFactory = () =>
-  | RuntimeDependencyRepository
-  | undefined;
+// prettier-ignore
+type LiveTurnCommandWakeupSourceFactory = () => LiveTurnCommandWakeupSource | undefined;
+// prettier-ignore
+type RuntimeDependencyRepositoryFactory = () => RuntimeDependencyRepository | undefined;
 type RuntimeStorageDep =
   | 'getAsyncTaskRepository'
   | 'getFileArtifactStore'
@@ -434,7 +421,9 @@ export async function startRuntimeServices(
     reloadRuntimeState: () => app.loadState(),
     leases: resolved.leases,
   });
-  configureRuntimeSetupPausePermissions({
+  // prettier-ignore
+  const setupPrompts = setupPause.asSetupPrompts(resolved.getOutboundDeliveryRepository?.());
+  setupPause.configureRuntimeSetupPausePermissions({
     ...resolved,
     app,
     channelWiring,
@@ -442,6 +431,7 @@ export async function startRuntimeServices(
     onSchedulerChanged,
     getBrowserStatus,
     publishRuntimeEvent: resolved.publishRuntimeEvent,
+    setupPermissionPromptRepository: setupPrompts,
   });
   const startIpcWatcher = () =>
     resolved.startIpcWatcher({
@@ -750,8 +740,7 @@ export async function startRuntimeServices(
         };
       },
     };
-    // Observer digest: single-part send whose native view (Task 4) rides in the
-    // item providerPayload so the recovery dispatch can render native buttons.
+    // Observer digest carries its native view in the item provider payload.
     const observerDigestProfile: OutboundDeliveryProfile = {
       profileId: OBSERVER_DIGEST_PROFILE_ID,
       plan: (input) => {
@@ -784,9 +773,11 @@ export async function startRuntimeServices(
               ? liveSendProfile
               : profileId === OBSERVER_DIGEST_PROFILE_ID
                 ? observerDigestProfile
-                : profileId === BRAIN_REVIEW_PROFILE_ID
-                  ? brainReviewOutboundProfile
-                  : undefined,
+                : profileId === setupPermissionCardProfile.profileId
+                  ? setupPermissionCardProfile
+                  : profileId === BRAIN_REVIEW_PROFILE_ID
+                    ? brainReviewOutboundProfile
+                    : undefined,
       },
       now: () => nowIso(),
       createId: () => randomUUID(),
@@ -925,6 +916,8 @@ export async function startRuntimeServices(
         },
       });
     });
+    // prettier-ignore
+    startRuntimePermissionCardReconciliation(outboundDeliveryRepository, resolved.opsRepository);
     resolved.startOutboundDeliveryRecoveryLoop({
       service: outboundDeliveryService,
       claimerId: `runtime-recovery:${process.pid}`,
@@ -1040,6 +1033,14 @@ export async function startRuntimeServices(
           canonicalText: claimed.item.canonicalText,
           ...(destinationThreadId ? { threadId: destinationThreadId } : {}),
         });
+        // Permission items NEVER fall through to generic text dispatch:
+        // dormant -> failed-without-send; active -> specialized result only.
+        if (claimed.item.permissionPromptId) {
+          // prettier-ignore
+          return !PERMISSION_CARD_DISPATCH_ACTIVE
+            ? { status: 'failed', error: 'Permission-card dispatch is dormant until its activation stage.' } as const
+            : (await dispatchRuntimePermissionCard({ service: outboundDeliveryService, claimed, channelWiring, destinationJid, destinationThreadId, providerAccountId: destinationAccount.providerAccountId, permit: recoveryPermit })) ?? { status: 'failed', error: 'Permission-card dispatch returned no result.' } as const;
+        }
         try {
           const observerDigestView = payload?.observerDigestView as
             | MessageSendOptions['observerDigestView']

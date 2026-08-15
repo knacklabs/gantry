@@ -1,10 +1,12 @@
 import {
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
   unique,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
@@ -15,6 +17,7 @@ import {
   conversationThreadsPostgres,
 } from './conversations.js';
 import { agentRunsPostgres } from './runs.js';
+import { permissionPromptsPostgres } from './worker-coordination.js';
 
 export const outboundDeliveriesPostgres = pgTable(
   'outbound_deliveries',
@@ -45,6 +48,7 @@ export const outboundDeliveriesPostgres = pgTable(
       mode: 'string',
     }),
     lastError: text('last_error'),
+    cancellationReasonJson: jsonb('cancellation_reason_json'),
     createdAt: timestamp('created_at', {
       withTimezone: true,
       mode: 'string',
@@ -106,6 +110,10 @@ export const outboundDeliveryItemsPostgres = pgTable(
     deliveryId: text('delivery_id')
       .notNull()
       .references(() => outboundDeliveriesPostgres.id, { onDelete: 'cascade' }),
+    permissionPromptId: text('permission_prompt_id').references(
+      () => permissionPromptsPostgres.id,
+    ),
+    generation: integer('generation').notNull().default(0),
     ordinal: integer('ordinal').notNull(),
     canonicalText: text('canonical_text').notNull(),
     providerPayloadJson: text('provider_payload_json'),
@@ -114,6 +122,10 @@ export const outboundDeliveryItemsPostgres = pgTable(
     claimToken: text('claim_token'),
     claimOwner: text('claim_owner'),
     claimExpiresAt: timestamp('claim_expires_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    sendBegunAt: timestamp('send_begun_at', {
       withTimezone: true,
       mode: 'string',
     }),
@@ -130,6 +142,7 @@ export const outboundDeliveryItemsPostgres = pgTable(
       mode: 'string',
     }),
     lastError: text('last_error'),
+    cancellationReasonJson: jsonb('cancellation_reason_json'),
     createdAt: timestamp('created_at', {
       withTimezone: true,
       mode: 'string',
@@ -147,6 +160,16 @@ export const outboundDeliveryItemsPostgres = pgTable(
     deliveryOrdinalUnique: unique(
       'outbound_delivery_items_delivery_id_ordinal_key',
     ).on(table.deliveryId, table.ordinal),
+    promptGenerationUnique: uniqueIndex(
+      'uq_outbound_delivery_items_prompt_generation',
+    )
+      .on(table.permissionPromptId, table.generation)
+      .where(sql`${table.permissionPromptId} IS NOT NULL`),
+    activePromptUnique: uniqueIndex('uq_outbound_delivery_items_active_prompt')
+      .on(table.permissionPromptId)
+      .where(
+        sql`${table.permissionPromptId} IS NOT NULL AND ${table.status} IN ('pending', 'claimed')`,
+      ),
     claimDueIdx: index('idx_outbound_delivery_items_claim_due').on(
       table.status,
       table.nextAttemptAt,

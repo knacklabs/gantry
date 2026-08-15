@@ -56,13 +56,36 @@ export interface JobSetup {
   fingerprint: string | null;
   blockers: Array<{
     state: string;
-    message: string;
-    nextAction: string;
-    requirementType: string;
-    requirementId: string;
+    summary: string;
+    action: JobSetupAction;
+    type: string;
+    id: string;
   }>;
   nextAction: string | null;
+  deliveryNotice: {
+    outcome: 'delivered' | 'ambiguous' | 'exhausted' | 'cancelled' | 'expired';
+    attempt: number;
+    text: string;
+  } | null;
 }
+
+export type JobSetupAction =
+  | {
+      kind: 'approve_grant';
+      grant: {
+        type: 'addRules' | 'replaceRules';
+        behavior: 'allow';
+        rules: Array<{ toolName: string; ruleContent?: string }>;
+        destination?:
+          | 'userSettings'
+          | 'projectSettings'
+          | 'localSettings'
+          | 'session'
+          | 'cliArg';
+      };
+    }
+  | { kind: 'fix_proposal'; proposalId: string }
+  | { kind: 'instruction'; text: string };
 
 export interface JobExecutionContext {
   conversationJid: string;

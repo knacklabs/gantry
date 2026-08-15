@@ -70,6 +70,9 @@ export function mapDelivery(row: DeliveryRow): OutboundDelivery {
     updatedAt: row.updatedAt,
     settledAt: row.settledAt ?? undefined,
     lastError: row.lastError ?? undefined,
+    cancellationReason:
+      (row.cancellationReasonJson as Record<string, unknown> | null) ??
+      undefined,
   };
 }
 
@@ -87,10 +90,16 @@ export function mapItem(row: ItemRow): OutboundDeliveryItem {
     attemptCount: row.attemptCount,
     claimToken: row.claimToken ?? undefined,
     claimExpiresAt: row.claimExpiresAt ?? undefined,
+    permissionPromptId: row.permissionPromptId ?? undefined,
+    generation: row.generation,
+    sendBegunAt: row.sendBegunAt ?? undefined,
     nextAttemptAt: row.nextAttemptAt,
     sentAt: row.sentAt ?? undefined,
     failedAt: row.failedAt ?? undefined,
     lastError: row.lastError ?? undefined,
+    cancellationReason:
+      (row.cancellationReasonJson as Record<string, unknown> | null) ??
+      undefined,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -203,6 +212,7 @@ export function deriveOutboundDeliveryStatus(input: {
     sent: number;
     failed: number;
     partiallyDelivered: number;
+    cancelled?: number;
   };
   earliestUnsentStatus?: OutboundDeliveryItem['status'] | string | null;
 }): OutboundDeliveryStatus {
@@ -220,6 +230,9 @@ export function deriveOutboundDeliveryStatus(input: {
   }
   if (earliestUnsentStatus === 'failed') {
     return counts.sent > 0 ? 'partially_delivered' : 'failed';
+  }
+  if (earliestUnsentStatus === 'cancelled') {
+    return counts.sent > 0 ? 'partially_delivered' : 'cancelled';
   }
 
   if (counts.pending > 0) {
@@ -263,6 +276,7 @@ export async function recomputeOutboundDeliveryStatus(
     sent: counts.sent ?? 0,
     failed: counts.failed ?? 0,
     partiallyDelivered: counts.partially_delivered ?? 0,
+    cancelled: counts.cancelled ?? 0,
   };
   const earliestUnsent = await tx
     .select({
@@ -310,7 +324,10 @@ export async function recomputeOutboundDeliveryStatus(
 
   const updateTime = input.now ?? input.fallbackNow();
   const settledAt =
-    status === 'sent' || status === 'failed' || status === 'partially_delivered'
+    status === 'sent' ||
+    status === 'failed' ||
+    status === 'partially_delivered' ||
+    status === 'cancelled'
       ? updateTime
       : null;
   const updated = await tx

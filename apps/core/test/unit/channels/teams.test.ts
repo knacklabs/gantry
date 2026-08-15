@@ -39,6 +39,7 @@ import type {
   PermissionCallbackScope,
   UserQuestionRequest,
 } from '@core/domain/types.js';
+import { requirePermissionDecision } from './permission-approval-result-helpers.js';
 
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
   logger: {
@@ -2474,10 +2475,9 @@ describe('TeamsChannel adapter scaffold', () => {
       threadId: 'root-message',
     };
     configureTeamsPermissionRequest(request);
-    const approvalPromise = channel.requestPermissionApproval(
-      'teams:19:abc@thread.v2',
-      request,
-    );
+    const approvalPromise = channel
+      .requestPermissionApproval('teams:19:abc@thread.v2', request)
+      .then(requirePermissionDecision);
 
     await vi.waitFor(() =>
       expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledWith(
@@ -2565,10 +2565,9 @@ describe('TeamsChannel adapter scaffold', () => {
     );
     await channel.connect();
 
-    const approvalPromise = channel.requestPermissionApproval(
-      'teams:19:abc@thread.v2',
-      batch,
-    );
+    const approvalPromise = channel
+      .requestPermissionApproval('teams:19:abc@thread.v2', batch)
+      .then(requirePermissionDecision);
     await vi.waitFor(() =>
       expect(repository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(2),
     );
@@ -2741,10 +2740,9 @@ describe('TeamsChannel adapter scaffold', () => {
       toolName: 'Bash',
     };
     const firstRepository = configureTeamsPermissionRequest(firstRequest);
-    const first = channel.requestPermissionApproval(
-      'teams:19:abc@thread.v2',
-      firstRequest,
-    );
+    const first = channel
+      .requestPermissionApproval('teams:19:abc@thread.v2', firstRequest)
+      .then(requirePermissionDecision);
     await vi.waitFor(() =>
       expect(firstRepository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(
         2,
@@ -2756,10 +2754,9 @@ describe('TeamsChannel adapter scaffold', () => {
       toolName: 'Bash',
     };
     const repository = configureTeamsPermissionRequest(secondRequest);
-    const second = channel.requestPermissionApproval(
-      'teams:19:abc@thread.v2',
-      secondRequest,
-    );
+    const second = channel
+      .requestPermissionApproval('teams:19:abc@thread.v2', secondRequest)
+      .then(requirePermissionDecision);
     await vi.waitFor(() =>
       expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledTimes(2),
     );
@@ -2809,10 +2806,9 @@ describe('TeamsChannel adapter scaffold', () => {
       toolName: 'Bash',
     };
     const repository = configureTeamsPermissionRequest(request);
-    const approval = channel.requestPermissionApproval(
-      'teams:19:abc@thread.v2',
-      request,
-    );
+    const approval = channel
+      .requestPermissionApproval('teams:19:abc@thread.v2', request)
+      .then(requirePermissionDecision);
     await vi.waitFor(() =>
       expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledOnce(),
     );
@@ -2901,10 +2897,9 @@ describe('TeamsChannel adapter scaffold', () => {
     const repository = configureTeamsPermissionRequest(request);
     repository.claimPendingPermissionCallback.mockResolvedValue(null);
 
-    const approval = channel.requestPermissionApproval(
-      'teams:19:abc@thread.v2',
-      request,
-    );
+    const approval = channel
+      .requestPermissionApproval('teams:19:abc@thread.v2', request)
+      .then(requirePermissionDecision);
     await vi.advanceTimersByTimeAsync(0);
 
     const pending = [...(channel as any).pendingPermissionPrompts.values()][0];
@@ -2972,10 +2967,9 @@ describe('TeamsChannel adapter scaffold', () => {
       };
       configureTeamsPermissionRequest(request);
 
-      const approval = channel.requestPermissionApproval(
-        'teams:19:abc@thread.v2',
-        request,
-      );
+      const approval = channel
+        .requestPermissionApproval('teams:19:abc@thread.v2', request)
+        .then(requirePermissionDecision);
       await vi.advanceTimersByTimeAsync(0);
 
       const pending = [
@@ -3037,10 +3031,9 @@ describe('TeamsChannel adapter scaffold', () => {
     };
     configureTeamsPermissionRequest(request);
 
-    const approval = channel.requestPermissionApproval(
-      'teams:19:abc@thread.v2',
-      request,
-    );
+    const approval = channel
+      .requestPermissionApproval('teams:19:abc@thread.v2', request)
+      .then(requirePermissionDecision);
     await vi.advanceTimersByTimeAsync(0);
     expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(30_000);
@@ -3102,10 +3095,9 @@ describe('TeamsChannel adapter scaffold', () => {
       toolName: 'Bash',
     };
     const repository = configureTeamsPermissionRequest(request);
-    const approval = channel.requestPermissionApproval(
-      'teams:19:abc@thread.v2',
-      request,
-    );
+    const approval = channel
+      .requestPermissionApproval('teams:19:abc@thread.v2', request)
+      .then(requirePermissionDecision);
     await vi.waitFor(() =>
       expect(sdkClient.sendAdaptiveCard).toHaveBeenCalled(),
     );
@@ -3193,9 +3185,11 @@ describe('TeamsChannel adapter scaffold', () => {
 
     await expect(
       channel.requestPermissionApproval('teams:19:abc@thread.v2', batch),
-    ).resolves.toEqual({
-      approved: false,
-      reason: 'This permission request was already decided.',
+    ).resolves.toMatchObject({
+      kind: 'delivery_failure',
+      code: 'provider_failed',
+      retryable: false,
+      delivered: 'unknown',
     });
     expect(vi.getTimerCount()).toBe(0);
     expect(
@@ -3243,8 +3237,13 @@ describe('TeamsChannel adapter scaffold', () => {
         targetJid: 'teams:19:abc@thread.v2',
         toolName: 'Bash',
       }),
-    ).rejects.toBeInstanceOf(DurableInteractionPersistenceError);
-    expect((channel as any).pendingPermissionPrompts.size).toBe(1);
+    ).resolves.toMatchObject({
+      kind: 'delivery_failure',
+      code: 'provider_failed',
+      retryable: false,
+      delivered: 'unknown',
+    });
+    expect((channel as any).pendingPermissionPrompts.size).toBe(0);
     await channel.disconnect();
   });
 
@@ -3595,10 +3594,9 @@ describe('TeamsChannel adapter scaffold', () => {
       toolName: 'Bash',
     };
     configureTeamsPermissionRequest(request);
-    const approvalPromise = channel.requestPermissionApproval(
-      'teams:19:abc@thread.v2',
-      request,
-    );
+    const approvalPromise = channel
+      .requestPermissionApproval('teams:19:abc@thread.v2', request)
+      .then(requirePermissionDecision);
     await vi.waitFor(() =>
       expect(sdkClient.sendAdaptiveCard).toHaveBeenCalled(),
     );

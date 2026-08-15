@@ -92,9 +92,15 @@ export interface JobEventListFilters {
   job_id?: string;
   job_ids?: string[];
   run_id?: string;
+  // Batched primary read: with first_per_run, ONE query returns the first
+  // persisted event per run in run_ids (0126 primary-denial rule).
+  run_ids?: string[];
+  first_per_run?: boolean;
   event_type?: RuntimeEventType;
   since_id?: number;
   since?: string;
+  // 'asc' returns the OLDEST matching events first (primary-denial reads).
+  order?: 'asc' | 'desc';
 }
 
 export function makeSessionScopeKey(
@@ -326,6 +332,21 @@ export interface RuntimeJobRepository {
   listRecentJobEvents(
     limit?: number,
     filters?: JobEventListFilters,
+  ): Promise<JobEvent[]>;
+  // LATEST setup permission prompt per job, including settled ones (the
+  // retired prompt's own notice is the current story until resume issues
+  // a fresh row). Optional so in-memory fixtures without a prompt store
+  // stay valid; callers treat absence as "no prompt known".
+  listLatestSetupPromptIds?(
+    appId: string,
+    jobIds: readonly string[],
+  ): Promise<Map<string, string>>;
+  // Set-based per-job read for setup delivery notices (window function,
+  // one query). Optional: fixtures fall back to listRecentJobEvents.
+  listSetupDeliveryEventsPerJob?(
+    appId: string,
+    jobIds: readonly string[],
+    perJobLimit: number,
   ): Promise<JobEvent[]>;
 }
 

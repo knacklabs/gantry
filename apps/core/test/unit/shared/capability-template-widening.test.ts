@@ -182,7 +182,9 @@ describe('capability template widening classification', () => {
 
     expect(reordered.canonicalKey).toBe(left.canonicalKey);
     expect(reordered.proposedTemplates).toEqual(left.proposedTemplates);
-    expect(differentArgv.canonicalKey).not.toBe(left.canonicalKey);
+    // S4: the argv is an observability sample, NOT part of the identity -
+    // the same proposed templates dedup regardless of observed argv.
+    expect(differentArgv.canonicalKey).toBe(left.canonicalKey);
   });
 });
 
@@ -224,5 +226,29 @@ describe('observed argv redaction', () => {
         'https://host/plain/path',
       ]),
     ).toEqual(['https://host/path?<redacted>', 'https://host/plain/path']);
+  });
+
+  it('masks account emails and freestanding NAME@host values', async () => {
+    const { redactObservedArgv } =
+      await import('@core/shared/capability-template-amendment.js');
+    expect(
+      redactObservedArgv([
+        'sheets',
+        'get',
+        '--account',
+        'owner@example.test',
+        '--account=second@example.test',
+        'deploy@internal-host',
+        'plain-value',
+      ]),
+    ).toEqual([
+      'sheets',
+      'get',
+      '--account',
+      '<redacted>',
+      '--account=<redacted>',
+      '<redacted>',
+      'plain-value',
+    ]);
   });
 });

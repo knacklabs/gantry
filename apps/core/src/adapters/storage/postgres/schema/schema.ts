@@ -42,10 +42,6 @@ export const permissionPromotionCountersPostgres = pgTable(
     agentFolder: text('agent_folder').notNull(),
     suggestionKey: text('suggestion_key').notNull(),
     allowCount: integer('allow_count').notNull().default(0),
-    lastOfferedAt: timestamp('last_offered_at', {
-      withTimezone: true,
-      mode: 'string',
-    }),
     deniedAt: timestamp('denied_at', {
       withTimezone: true,
       mode: 'string',

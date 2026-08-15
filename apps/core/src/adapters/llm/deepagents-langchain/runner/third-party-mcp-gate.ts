@@ -9,8 +9,13 @@ import {
   requestPermissionApprovalViaIpc,
   type PermissionIpcRuntimeEnv,
 } from '../../../../runner/permission-ipc-client.js';
-import { isGrantableAutonomousToolRecovery } from '../../../../shared/autonomous-tool-denial.js';
 import { autonomousToolRecoveryAction } from '../../../../shared/tool-execution-policy-service.js';
+import { autonomousToolAuthorityAddition } from '../../../../shared/tool-execution-policy-service.js';
+import type { JobSetupAction } from '../../../../domain/job-types.js';
+import {
+  approveGrantSetupAction,
+  instructionSetupAction,
+} from '../../../../shared/job-setup-action.js';
 
 // Wraps each selected third-party (configured) MCP tool with the provider-neutral
 // runner tool gate before the underlying tool can execute. The decision order
@@ -39,24 +44,25 @@ export interface ThirdPartyMcpGateConfig {
 export interface DeepAgentsPermissionDenial {
   toolName: string;
   reason: string;
-  grantable: boolean;
-  recoveryAction: string;
+  action: JobSetupAction;
+  denialKind: 'permission_denied' | 'rule_denied';
+  provenanceSeam: 'gate' | 'declarative';
 }
 
-// Grantability is reconstructed from the tool identity + capabilityRequestToolsHidden
-// rather than the raw gate/IPC reason, and that reconstruction is authoritative for
+// Durable authority is derived from the typed tool request and access preset,
+// rather than reconstructed from raw gate/IPC prose. This is authoritative for
 // every denial that reaches here:
 //   - The hard, non-grantable policy boundaries (protected-capability, memory,
 //     settings-owned yolo denylist) are caught by evaluateNeutralToolPreChecks in
 //     the wrapper BEFORE this helper. On a scheduled run those are routed through
 //     the terminal onPermissionDenied handler via preCheckDenialResult() with
-//     grantable:false (a legible instruction card), so they terminate the run too
+//     an instruction action, so they terminate the run too
 //     rather than letting the model silently pick another tool.
 //   - Locked-preset / fixed-image agents set capabilityRequestToolsHidden, which
 //     makes autonomousGrantRecovery emit a non-request_access instruction →
-//     non-grantable — so those boundaries are honored too.
+//     instruction-only — so those boundaries are honored too.
 //   - What remains (browser / scoped RunCommand / durable Gantry tool with a
-//     request_access recovery) is genuinely grantable: a durable human-approved
+//     typed authority addition) is approvable: a durable human-approved
 //     rule overcomes an autonomous "would-ask" denial on the next run.
 export function deepAgentsDenial(
   config: Pick<ThirdPartyMcpGateConfig, 'capabilityRequestToolsHidden'>,
@@ -71,15 +77,24 @@ export function deepAgentsDenial(
   return {
     toolName,
     reason,
-    recoveryAction,
-    grantable: isGrantableAutonomousToolRecovery(recoveryAction),
+    action: (() => {
+      const grant = autonomousToolAuthorityAddition({
+        ...policyRequest,
+        capabilityRequestToolsHidden: config.capabilityRequestToolsHidden,
+      });
+      return grant
+        ? approveGrantSetupAction(grant)
+        : instructionSetupAction(recoveryAction);
+    })(),
+    denialKind: 'permission_denied',
+    provenanceSeam: 'gate',
   };
 }
 
 // Resolve a neutral pre-check failure (protected-capability, memory-boundary,
 // settings yolo denylist). These are hard boundaries a durable grant cannot
 // overcome, so on a scheduled run (onPermissionDenied present) they terminate the
-// turn as a non-grantable instruction rather than reaching the model as an
+// turn as an instruction action rather than reaching the model as an
 // ordinary tool message it could ignore and work around; interactive runs keep
 // the ordinary tool-error result.
 export function preCheckDenialResult(
@@ -91,8 +106,9 @@ export function preCheckDenialResult(
     return config.onPermissionDenied({
       toolName,
       reason: preChecks.reason,
-      grantable: false,
-      recoveryAction: preChecks.reason,
+      action: instructionSetupAction(preChecks.reason),
+      denialKind: 'rule_denied',
+      provenanceSeam: 'gate',
     });
   }
   return gatedToolErrorResult(preChecks.reason);

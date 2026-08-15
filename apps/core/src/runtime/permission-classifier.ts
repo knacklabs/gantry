@@ -148,7 +148,7 @@ export interface PermissionClassifierPromptConsultInput {
   reviewedMcpReadBindings?: McpReadBinding[];
   yoloMode?: yolo.YoloModeSettings;
   suggestions?: PermissionApprovalUpdate[];
-  promotion?: Pick<PermissionPromotionInput, 'repository' | 'offer'>;
+  promotion?: Pick<PermissionPromotionInput, 'repository'>;
   classifierConfig: PermissionClassifierRuntimeConfig;
   signal?: AbortSignal;
   publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;

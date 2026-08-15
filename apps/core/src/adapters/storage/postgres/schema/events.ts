@@ -5,6 +5,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
@@ -48,6 +49,7 @@ export const runtimeEventsPostgres = pgTable(
     correlationId: text('correlation_id'),
     responseMode: text('response_mode'),
     webhookId: text('webhook_id'),
+    idempotencyKey: text('idempotency_key'),
     payloadJson: text('payload_json').notNull(),
     createdAt: timestamp('created_at', {
       withTimezone: true,
@@ -100,6 +102,11 @@ export const runtimeEventsPostgres = pgTable(
       table.responseMode,
       table.eventId,
     ),
+    idempotencyKeyUnique: uniqueIndex(
+      'runtime_events_app_id_idempotency_key_unique',
+    )
+      .on(table.appId, table.idempotencyKey)
+      .where(sql`${table.idempotencyKey} is not null`),
   }),
 );
 

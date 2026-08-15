@@ -104,8 +104,14 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
   async appendRuntimeEvent(
     input: RuntimeEventPublishInput,
   ): Promise<RuntimeEvent> {
+    return (await this.appendRuntimeEventWithOutcome(input)).event;
+  }
+
+  async appendRuntimeEventWithOutcome(
+    input: RuntimeEventPublishInput,
+  ): Promise<{ event: RuntimeEvent; inserted: boolean }> {
     return this.db.transaction((tx) =>
-      this.appendRuntimeEventWithExecutor(tx, input),
+      this.appendRuntimeEventWithOutcomeAndExecutor(tx, input),
     );
   }
 
@@ -113,10 +119,24 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
     executor: CanonicalExecutor,
     input: RuntimeEventPublishInput,
   ): Promise<RuntimeEvent> {
-    const event = await this.insertRuntimeEvent(executor, input);
-    await this.eventBus.publish(eventBusInputForRuntimeEvent(event), executor);
-    await this.enqueueWebhookDeliveryIfNeeded(executor, event);
-    return event;
+    return (
+      await this.appendRuntimeEventWithOutcomeAndExecutor(executor, input)
+    ).event;
+  }
+
+  async appendRuntimeEventWithOutcomeAndExecutor(
+    executor: CanonicalExecutor,
+    input: RuntimeEventPublishInput,
+  ): Promise<{ event: RuntimeEvent; inserted: boolean }> {
+    const { event, inserted } = await this.insertRuntimeEvent(executor, input);
+    if (inserted) {
+      await this.eventBus.publish(
+        eventBusInputForRuntimeEvent(event),
+        executor,
+      );
+      await this.enqueueWebhookDeliveryIfNeeded(executor, event);
+    }
+    return { event, inserted };
   }
 
   async appendRuntimeEventAndStoreLiveAdmission(
@@ -128,6 +148,7 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
   ): Promise<{
     event: RuntimeEvent;
     liveAdmissionResult: LiveAdmissionWorkItemEnqueueResult | undefined;
+    inserted: boolean;
   }> {
     const messages = new PostgresCanonicalMessageRepository(
       this.db,
@@ -135,29 +156,33 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
       this.cleanupProviderAttachment,
     );
     const result = await this.db.transaction(async (tx) => {
+      const { event, inserted } = await this.insertRuntimeEvent(tx, input);
+      if (!inserted) return { event, messageSaveResult: undefined };
       const messageSaveResult = await messages.saveMessageWithExecutor(
         tx,
         admission.message,
         { liveAdmission: admission.liveAdmission },
       );
-      const event = await this.insertRuntimeEvent(tx, input);
       await this.eventBus.publish(eventBusInputForRuntimeEvent(event), tx);
       await this.enqueueWebhookDeliveryIfNeeded(tx, event);
       return { event, messageSaveResult };
     });
-    await messages.cleanupRemovedProviderAttachments(
-      result.messageSaveResult.removedProviderStorageRefs,
-    );
+    if (result.messageSaveResult) {
+      await messages.cleanupRemovedProviderAttachments(
+        result.messageSaveResult.removedProviderStorageRefs,
+      );
+    }
     return {
       event: result.event,
-      liveAdmissionResult: result.messageSaveResult.liveAdmissionResult,
+      liveAdmissionResult: result.messageSaveResult?.liveAdmissionResult,
+      inserted: result.messageSaveResult !== undefined,
     };
   }
 
   private async insertRuntimeEvent(
     db: CanonicalExecutor,
     input: RuntimeEventPublishInput,
-  ): Promise<RuntimeEvent> {
+  ): Promise<{ event: RuntimeEvent; inserted: boolean }> {
     const appId = requiredId(input.appId, 'appId');
     const conversationId = optionalId(input.conversationId);
     const threadId = optionalId(input.threadId);
@@ -179,6 +204,9 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
         .onConflictDoNothing();
     }
 
+    // Round-2 fix: one normalization for insert AND conflict lookup - a
+    // whitespace-bearing key must conflict with and resolve to the same row.
+    const normalizedIdempotencyKey = input.idempotencyKey?.trim() || null;
     const rows = await db
       .insert(pgSchema.runtimeEventsPostgres)
       .values({
@@ -195,11 +223,39 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
         correlationId: input.correlationId ?? null,
         responseMode: input.responseMode ?? null,
         webhookId: input.webhookId ?? null,
+        idempotencyKey: normalizedIdempotencyKey,
         payloadJson: encodeJson(input.payload),
         createdAt: input.createdAt ?? currentIso(),
       })
+      .onConflictDoNothing({
+        target: [
+          pgSchema.runtimeEventsPostgres.appId,
+          pgSchema.runtimeEventsPostgres.idempotencyKey,
+        ],
+        where: sql`${pgSchema.runtimeEventsPostgres.idempotencyKey} is not null`,
+      })
       .returning();
-    return this.eventFromRow(rows[0]!);
+    if (rows[0]) return { event: this.eventFromRow(rows[0]), inserted: true };
+    if (!normalizedIdempotencyKey) {
+      throw new Error('Runtime event insert returned no row.');
+    }
+    const existing = await db
+      .select()
+      .from(pgSchema.runtimeEventsPostgres)
+      .where(
+        and(
+          eq(pgSchema.runtimeEventsPostgres.appId, appId),
+          eq(
+            pgSchema.runtimeEventsPostgres.idempotencyKey,
+            normalizedIdempotencyKey,
+          ),
+        ),
+      )
+      .limit(1);
+    if (!existing[0]) {
+      throw new Error('Idempotent runtime event conflict row is unavailable.');
+    }
+    return { event: this.eventFromRow(existing[0]), inserted: false };
   }
 
   private async enqueueWebhookDeliveryIfNeeded(
@@ -414,6 +470,7 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
       correlationId: row.correlationId ?? undefined,
       responseMode: row.responseMode as RuntimeEvent['responseMode'],
       webhookId: row.webhookId ?? undefined,
+      idempotencyKey: row.idempotencyKey ?? undefined,
       payload: parseJson(row.payloadJson, null, { eventId: row.eventId }),
       createdAt: normalizeTimestamp(row.createdAt),
     };

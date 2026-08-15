@@ -2,7 +2,7 @@
 status: accepted
 confirmed_by: "Ravi"
 date: 2026-08-09
-stories: [PREFLIGHT-1]
+stories: [PREFLIGHT-1, JOBFLOW-1]
 ---
 
 # Scheduled Jobs Declare Their Tool Requirements at Creation
@@ -38,6 +38,12 @@ for checks that can only run at run time (worker image, browser launch, fleet).
 Prime-based auto-discovery is rejected (see Context) and must not be reintroduced unless a
 neutral DeepAgents record-without-execute mode is first built.
 
+Decisions 0124 and 0128 supersede this record's best-effort setup-card delivery clause
+and any treatment of delivery failure as a human decision.
+Setup-card preparation is atomic and delivery is durable and bounded to four attempts,
+with an explicit delivered, ambiguous, exhausted, expired, or cancelled outcome and a
+defined owner recovery for each. Delivery failure is never recorded as a human denial.
+
 Making builtin facade tools grantable on the setup card is **not a new architectural
 choice** — it reconciles `autonomousGrantRecovery` with the durable-access policy, which
 already accepts exact facade tool rules, and with existing operating guidance that already
@@ -48,14 +54,10 @@ decision.
 
 - Jobs whose declared tools the agent already has are `ready` and never pause. Jobs needing
   an ungranted tool surface it once, at creation, as an actionable card.
-- Normally one `JOB_SETUP_REQUIRED` event and one card per blocker fingerprint at creation;
-  the creation card and any later runtime pause for the same blocker are deduped by
-  `notified_fingerprint` (check-then-mark, best-effort). We deliberately do **not** use an
-  atomic claim: exactly-once delivery over a channel that can hang is not achievable without
-  a durable idempotent outbox, and that machinery is disproportionate for a setup card. A
-  rare duplicate card (or a lost one) under a process restart or a concurrent same-job upsert
-  is accepted — the user can act on either copy and the runtime pause remains the fallback
-  (resolves D-0053: live with the rare duplicate).
+- Setup-card preparation and outbound delivery follow decision 0124: one atomic durable
+  preparation, generation-aware idempotency, at most four attempts, and defined recovery
+  for delivered, ambiguous, exhausted, expired, and cancelled outcomes. Lost or duplicate
+  cards are no longer an accepted best-effort consequence.
 - Neutral across both lanes (declaration + shared compiled prompt + shared recovery/card
   path); no `runMode`/prime code is added; no application-to-runtime layer violation (the
   creation notification crosses via an application-owned port wired in runtime composition).

@@ -3,28 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 import { buildReviewedMcpCapabilityCandidate } from '@core/application/mcp/mcp-capability-candidate.js';
 import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
 
 const runtimeHomes: string[] = [];
 
-async function loadAdminHandlers(
-  runtimeHome: string,
-  proposalRepository = {
-    claimPending: vi.fn(async (input: Record<string, unknown>) => ({
-      created: true,
-      proposal: {
-        ...input,
-        status: 'pending',
-        createdAt: input.now,
-        updatedAt: input.now,
-      },
-    })),
-    getById: vi.fn(async () => null),
-    markDecision: vi.fn(async () => null),
-  },
-) {
+async function loadAdminHandlers(runtimeHome: string) {
   vi.resetModules();
   vi.stubEnv('GANTRY_HOME', runtimeHome);
   const syncRuntimeSettingsFromProjection = vi.fn(async () => undefined);
@@ -46,7 +32,6 @@ async function loadAdminHandlers(
     getRuntimeStorage: vi.fn(() => ({
       repositories: {
         pendingAccessRequests,
-        capabilityTemplateAmendments: proposalRepository,
       },
     })),
   }));
@@ -55,7 +40,6 @@ async function loadAdminHandlers(
   return {
     ...handlers,
     pendingAccessRequests,
-    proposalRepository,
     syncRuntimeSettingsFromProjection,
     taskData: (
       taskId: string,
@@ -121,44 +105,6 @@ function depsWithAdminTools(
   };
 }
 
-function localCliCatalogTool(
-  commandTemplates = ['/usr/local/bin/gog sheets get *'],
-) {
-  return {
-    id: 'tool:google.sheets.read',
-    appId: 'app:test',
-    name: 'google.sheets.read',
-    kind: 'local_cli',
-    provider: 'gantry',
-    displayName: 'Google Sheets read',
-    category: 'productivity',
-    risk: 'low',
-    selectable: true,
-    status: 'active',
-    adapterRef: 'local-cli/gog',
-    inputSchema: semanticCapabilityInputSchema({
-      capabilityId: 'google.sheets.read',
-      displayName: 'Google Sheets read',
-      category: 'Google Sheets',
-      risk: 'read',
-      can: 'Read reviewed spreadsheet ranges.',
-      cannot: 'Write spreadsheets or access unrelated services.',
-      credentialSource: 'local_cli',
-      implementationBindings: [
-        {
-          kind: 'local_cli',
-          executablePath: '/usr/local/bin/gog',
-          executableVersion: '1.0.0',
-          executableHash: 'sha256:gog',
-          commandTemplates,
-        },
-      ],
-    }),
-    createdAt: '2026-08-11T00:00:00.000Z',
-    updatedAt: '2026-08-11T00:00:00.000Z',
-  };
-}
-
 function mcpCapabilityReviewDeps(
   decide: (request: any) => Promise<any> = async () => ({
     approved: false,
@@ -220,7 +166,9 @@ function mcpCapabilityReviewDeps(
     disableAgentBinding: vi.fn(async () => null),
     appendAuditEvent: vi.fn(async () => undefined),
   };
-  const requestPermissionApproval = vi.fn(decide);
+  const requestPermissionApproval = vi.fn(async (request: any) =>
+    permissionDecisionResult(await decide(request)),
+  );
   const sendMessage = vi.fn(async () => undefined);
   const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
   return {
@@ -342,10 +290,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_mcp_server({
       data: taskData('remote-mcp', {
@@ -383,10 +333,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: false,
-      reason: 'not today',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: false,
+        reason: 'not today',
+      }),
+    );
     const sendMessage = vi.fn(async () => undefined);
 
     await adminTaskHandlers.request_mcp_server({
@@ -442,10 +394,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_permission({
       data: taskData('direct-capability-request', {
@@ -484,10 +438,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_permission({
       data: taskData('forged-capability-proposal', {
@@ -527,10 +483,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: false,
-      reason: 'not now',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: false,
+        reason: 'not now',
+      }),
+    );
     const now = '2026-06-02T00:00:00.000Z';
 
     await adminTaskHandlers.request_permission({
@@ -1152,10 +1110,12 @@ describe('admin IPC handlers', () => {
     const { adminTaskHandlers, syncRuntimeSettingsFromProjection, taskData } =
       await loadAdminHandlers(runtimeHome);
     const registerGroup = vi.fn(async () => undefined);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.register_agent({
       data: taskData('register-agent', {
@@ -1206,10 +1166,12 @@ describe('admin IPC handlers', () => {
     const { adminTaskHandlers, syncRuntimeSettingsFromProjection, taskData } =
       await loadAdminHandlers(runtimeHome);
     const registerGroup = vi.fn(async () => undefined);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.register_agent({
       data: taskData('register-other', {
@@ -1246,10 +1208,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_permission({
       data: taskData('request-projected-browser', {
@@ -1287,10 +1251,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_permission({
       data: taskData('request-generic-records', {
@@ -1364,10 +1330,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_permission({
       data: taskData('request-semantic-toolname-records', {
@@ -1430,10 +1398,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_permission({
       data: taskData('request-semantic-toolnames-records', {
@@ -1496,10 +1466,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_permission({
       data: taskData('request-local-cli-proposal-records', {
@@ -1570,11 +1542,11 @@ describe('admin IPC handlers', () => {
     const { adminTaskHandlers, pendingAccessRequests, taskData } =
       await loadAdminHandlers(runtimeHome);
     let resolveApproval:
-      | ((value: { approved: false; reason: string }) => void)
+      | ((value: ReturnType<typeof permissionDecisionResult>) => void)
       | undefined;
     const requestPermissionApproval = vi.fn(
       () =>
-        new Promise<{ approved: false; reason: string }>((resolve) => {
+        new Promise<ReturnType<typeof permissionDecisionResult>>((resolve) => {
           resolveApproval = resolve;
         }),
     );
@@ -1632,7 +1604,9 @@ describe('admin IPC handlers', () => {
       code: 'capability_request_already_pending',
     });
 
-    resolveApproval?.({ approved: false, reason: 'test complete' });
+    resolveApproval?.(
+      permissionDecisionResult({ approved: false, reason: 'test complete' }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(pendingAccessRequests.markResolved).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1705,20 +1679,22 @@ describe('admin IPC handlers', () => {
     const onSchedulerChanged = vi.fn();
     const publishRuntimeEvent = vi.fn(async () => undefined);
     const sendMessage = vi.fn(async () => undefined);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      mode: 'allow_persistent_rule',
-      decidedBy: 'U_APPROVER',
-      decisionClassification: 'user_permanent',
-      updatedPermissions: [
-        {
-          type: 'addRules',
-          behavior: 'allow',
-          destination: 'session',
-          rules: [{ toolName: 'RunCommand', ruleContent: 'npm test *' }],
-        },
-      ],
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        mode: 'allow_persistent_rule',
+        decidedBy: 'U_APPROVER',
+        decisionClassification: 'user_permanent',
+        updatedPermissions: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            destination: 'session',
+            rules: [{ toolName: 'RunCommand', ruleContent: 'npm test *' }],
+          },
+        ],
+      }),
+    );
 
     await adminTaskHandlers.request_permission({
       data: taskData('request-command-access', {
@@ -1793,12 +1769,14 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      mode: 'allow_once',
-      decidedBy: 'U_APPROVER',
-      decisionClassification: 'user_temporary',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'U_APPROVER',
+        decisionClassification: 'user_temporary',
+      }),
+    );
     const deps = depsWithAdminTools([], { requestPermissionApproval });
     const ipcBaseDir = path.join(runtimeHome, 'data', 'ipc');
 
@@ -1927,7 +1905,9 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, pendingAccessRequests, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({ approved: true }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({ approved: true }),
+    );
     const deps = depsWithAdminTools([], { requestPermissionApproval });
 
     await adminTaskHandlers.request_permission({
@@ -1970,11 +1950,11 @@ describe('admin IPC handlers', () => {
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
     let resolveApproval:
-      | ((value: { approved: false; reason: string }) => void)
+      | ((value: ReturnType<typeof permissionDecisionResult>) => void)
       | undefined;
     const requestPermissionApproval = vi.fn(
       () =>
-        new Promise<{ approved: false; reason: string }>((resolve) => {
+        new Promise<ReturnType<typeof permissionDecisionResult>>((resolve) => {
           resolveApproval = resolve;
         }),
     );
@@ -2008,7 +1988,9 @@ describe('admin IPC handlers', () => {
       code: 'skill_install_already_pending',
     });
 
-    resolveApproval?.({ approved: false, reason: 'test complete' });
+    resolveApproval?.(
+      permissionDecisionResult({ approved: false, reason: 'test complete' }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(readResponse(runtimeHome, 'skill-command-1')).toMatchObject({
       ok: false,
@@ -2023,10 +2005,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
     const data = taskData('skill-missing-app', {
       type: 'request_skill_proposal',
       chatJid: 'sl:C123',
@@ -2060,10 +2044,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_skill_install({
       data: taskData('skill-mixed-install', {
@@ -2097,10 +2083,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.register_agent({
       data: taskData('register-cross-app', {
@@ -2136,214 +2124,5 @@ describe('admin IPC handlers', () => {
       code: 'missing_capability',
     });
     expect(requestPermissionApproval).not.toHaveBeenCalled();
-  });
-
-  it('rejects amendment payloads carrying agent-authored catalog copies at the host boundary', async () => {
-    const runtimeHome = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
-    );
-    runtimeHomes.push(runtimeHome);
-    const { adminTaskHandlers, proposalRepository, taskData } =
-      await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn();
-
-    await adminTaskHandlers.request_permission({
-      data: taskData('template-amendment-dirty', {
-        type: 'request_permission',
-        chatJid: 'sl:C123',
-        payload: {
-          permissionKind: 'tool',
-          capabilityRequestSource: 'request_access',
-          capabilityProposalKind: 'capability_template_amendment',
-          capabilityId: 'google.sheets.read',
-          proposedTemplates: ['/usr/local/bin/gog sheets get * *'],
-          observedArgv: ['sheets', 'get', 'sheet-id', 'Sheet1!A:B'],
-          currentTemplates: ['/tmp/forged destructive *'],
-          executablePath: '/tmp/forged',
-          executableHash: 'sha256:forged',
-          version: 'forged',
-          reason: 'The reviewed arity does not match the CLI invocation.',
-        },
-      }) as never,
-      sourceAgentFolder: 'main_agent',
-      deps: depsWithAdminTools([], {
-        requestPermissionApproval,
-        getToolRepository: () => ({
-          listTools: vi.fn(async () => [localCliCatalogTool()]),
-        }),
-      }) as never,
-      conversationBindings: {},
-      sourceAgentFolderJids: ['sl:C123'],
-    });
-
-    // Executable identity is immutable through this surface (0122): the host
-    // boundary rejects catalog copies outright rather than ignoring them.
-    expect(readResponse(runtimeHome, 'template-amendment-dirty')).toMatchObject(
-      { ok: false, code: 'invalid_request' },
-    );
-    expect(proposalRepository.claimPending).not.toHaveBeenCalled();
-    expect(requestPermissionApproval).not.toHaveBeenCalled();
-  });
-
-  it('records a clean catalog-derived amendment proposal', async () => {
-    const runtimeHome = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
-    );
-    runtimeHomes.push(runtimeHome);
-    const { adminTaskHandlers, proposalRepository, taskData } =
-      await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn();
-
-    await adminTaskHandlers.request_permission({
-      data: taskData('template-amendment', {
-        type: 'request_permission',
-        chatJid: 'sl:C123',
-        payload: {
-          permissionKind: 'tool',
-          capabilityRequestSource: 'request_access',
-          capabilityProposalKind: 'capability_template_amendment',
-          capabilityId: 'google.sheets.read',
-          proposedTemplates: ['/usr/local/bin/gog sheets get * *'],
-          observedArgv: ['sheets', 'get', 'sheet-id', 'Sheet1!A:B'],
-          reason: 'The reviewed arity does not match the CLI invocation.',
-        },
-      }) as never,
-      sourceAgentFolder: 'main_agent',
-      deps: depsWithAdminTools([], {
-        requestPermissionApproval,
-        getToolRepository: () => ({
-          listTools: vi.fn(async () => [localCliCatalogTool()]),
-        }),
-      }) as never,
-      conversationBindings: {},
-      sourceAgentFolderJids: ['sl:C123'],
-    });
-
-    expect(readResponse(runtimeHome, 'template-amendment')).toMatchObject({
-      ok: true,
-      code: 'capability_amendment_proposal_recorded',
-    });
-    expect(proposalRepository.claimPending).toHaveBeenCalledWith(
-      expect.objectContaining({
-        capabilityId: 'google.sheets.read',
-        currentTemplates: ['/usr/local/bin/gog sheets get *'],
-        proposedTemplates: ['/usr/local/bin/gog sheets get * *'],
-        observedArgv: ['sheets', 'get', 'sheet-id', 'Sheet1!A:B'],
-        // Tiered contract (0122 amendment): added input slots warn too —
-        // only an exact-equivalent reshape is warning-free.
-        widening: true,
-      }),
-    );
-    // Stage-2 contract: recording a fresh proposal dispatches the human
-    // approval card — a recorded proposal is never a silent dead end.
-    expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
-  });
-
-  it.each([
-    '/usr/local/bin/gog sheets get * && echo unsafe',
-    '/usr/local/bin/gog sheets get * > /tmp/output',
-    '/tmp/gog sheets get * *',
-    '/usr/local/bin/gog sheets get * | cat',
-  ])(
-    'rejects invalid proposed template %s before creating a review',
-    async (template) => {
-      const runtimeHome = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'gantry-admin-ipc-'),
-      );
-      runtimeHomes.push(runtimeHome);
-      const { adminTaskHandlers, proposalRepository, taskData } =
-        await loadAdminHandlers(runtimeHome);
-      const requestPermissionApproval = vi.fn();
-
-      await adminTaskHandlers.request_permission({
-        data: taskData('invalid-template-amendment', {
-          type: 'request_permission',
-          chatJid: 'sl:C123',
-          payload: {
-            permissionKind: 'tool',
-            capabilityRequestSource: 'request_access',
-            capabilityProposalKind: 'capability_template_amendment',
-            capabilityId: 'google.sheets.read',
-            proposedTemplates: [template],
-            observedArgv: [],
-            reason: 'Propose a corrected template.',
-          },
-        }) as never,
-        sourceAgentFolder: 'main_agent',
-        deps: depsWithAdminTools([], {
-          requestPermissionApproval,
-          getToolRepository: () => ({
-            listTools: vi.fn(async () => [localCliCatalogTool()]),
-          }),
-        }) as never,
-        conversationBindings: {},
-        sourceAgentFolderJids: ['sl:C123'],
-      });
-
-      expect(
-        readResponse(runtimeHome, 'invalid-template-amendment'),
-      ).toMatchObject({
-        ok: false,
-        code: 'invalid_request',
-      });
-      expect(proposalRepository.claimPending).not.toHaveBeenCalled();
-      expect(requestPermissionApproval).not.toHaveBeenCalled();
-    },
-  );
-
-  it('does not re-raise a durably denied proposal after handler restart', async () => {
-    const deniedRepository = {
-      claimPending: vi.fn(async (input: Record<string, unknown>) => ({
-        created: false,
-        proposal: {
-          ...input,
-          status: 'denied',
-          createdAt: input.now,
-          updatedAt: input.now,
-        },
-      })),
-      getById: vi.fn(async () => null),
-      markDecision: vi.fn(async () => null),
-    };
-    for (const suffix of ['before-restart', 'after-restart']) {
-      const runtimeHome = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'gantry-admin-ipc-'),
-      );
-      runtimeHomes.push(runtimeHome);
-      const { adminTaskHandlers, taskData } = await loadAdminHandlers(
-        runtimeHome,
-        deniedRepository,
-      );
-      const requestPermissionApproval = vi.fn();
-      await adminTaskHandlers.request_permission({
-        data: taskData(suffix, {
-          type: 'request_permission',
-          chatJid: 'sl:C123',
-          payload: {
-            permissionKind: 'tool',
-            capabilityRequestSource: 'request_access',
-            capabilityProposalKind: 'capability_template_amendment',
-            capabilityId: 'google.sheets.read',
-            proposedTemplates: ['/usr/local/bin/gog sheets get * *'],
-            observedArgv: ['sheets', 'get', 'sheet-id', 'Sheet1!A:B'],
-            reason: 'The reviewed arity does not match.',
-          },
-        }) as never,
-        sourceAgentFolder: 'main_agent',
-        deps: depsWithAdminTools([], {
-          requestPermissionApproval,
-          getToolRepository: () => ({
-            listTools: vi.fn(async () => [localCliCatalogTool()]),
-          }),
-        }) as never,
-        conversationBindings: {},
-        sourceAgentFolderJids: ['sl:C123'],
-      });
-      expect(readResponse(runtimeHome, suffix)).toMatchObject({
-        ok: true,
-        code: 'capability_amendment_proposal_previously_denied',
-      });
-      expect(requestPermissionApproval).not.toHaveBeenCalled();
-    }
   });
 });

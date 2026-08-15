@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 import { z } from 'zod';
 import {
   CORE_TOOL_NAMES,
@@ -429,10 +430,12 @@ describe('core tool registry', () => {
         record,
         resolve: vi.fn(async () => true),
       },
-      requestPermissionApproval: vi.fn(async () => ({
-        approved: true,
-        mode: 'allow_once',
-      })),
+      requestPermissionApproval: vi.fn(async () =>
+        permissionDecisionResult({
+          approved: true,
+          mode: 'allow_once',
+        }),
+      ),
     });
     const registry = createCoreToolRegistry(deps);
 
@@ -466,14 +469,16 @@ describe('core tool registry', () => {
         record: vi.fn(async () => true),
         resolve: vi.fn(async () => true),
       },
-      requestPermissionApproval: vi.fn(async () => ({
-        approved: false,
-        mode: 'cancel',
-        decidedBy: 'human',
-        reason: 'No delegation',
-        risk_level: 'high',
-        risk_category: 'privileged',
-      })),
+      requestPermissionApproval: vi.fn(async () =>
+        permissionDecisionResult({
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'human',
+          reason: 'No delegation',
+          risk_level: 'high',
+          risk_category: 'privileged',
+        }),
+      ),
     });
 
     const result = await createCoreToolRegistry(deps).execute('delegate_task', {
@@ -504,13 +509,15 @@ describe('core tool registry', () => {
         record: vi.fn(async () => true),
         resolve: vi.fn(async () => true),
       },
-      requestPermissionApproval: vi.fn(async () => ({
-        approved: true,
-        mode: 'allow_once',
-        decidedBy: 'owner',
-        risk_level: 'high',
-        risk_category: 'privileged',
-      })),
+      requestPermissionApproval: vi.fn(async () =>
+        permissionDecisionResult({
+          approved: true,
+          mode: 'allow_once',
+          decidedBy: 'owner',
+          risk_level: 'high',
+          risk_category: 'privileged',
+        }),
+      ),
     });
 
     await expect(
@@ -539,13 +546,15 @@ describe('core tool registry', () => {
         record: vi.fn(async () => true),
         resolve: vi.fn(async () => true),
       },
-      requestPermissionApproval: vi.fn(async () => ({
-        approved: true,
-        mode: 'allow_once',
-        decidedBy: 'owner',
-        risk_level: 'high',
-        risk_category: 'privileged',
-      })),
+      requestPermissionApproval: vi.fn(async () =>
+        permissionDecisionResult({
+          approved: true,
+          mode: 'allow_once',
+          decidedBy: 'owner',
+          risk_level: 'high',
+          risk_category: 'privileged',
+        }),
+      ),
     });
 
     await expect(
@@ -570,10 +579,12 @@ describe('core tool registry', () => {
   });
 
   it('keeps AgentDelegation on the human prompt path in auto mode', async () => {
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      mode: 'allow_once' as const,
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        mode: 'allow_once' as const,
+      }),
+    );
     const deps = registryDeps({
       context: {
         sourceAgentFolder: 'main_agent',
@@ -657,7 +668,10 @@ describe('core tool registry', () => {
         },
         requestPermissionApproval: vi.fn(async () => {
           order.push('prompt');
-          return { approved: true, mode: 'allow_once' };
+          return permissionDecisionResult({
+            approved: true,
+            mode: 'allow_once',
+          });
         }),
       }),
     );

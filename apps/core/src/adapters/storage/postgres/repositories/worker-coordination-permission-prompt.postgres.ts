@@ -67,6 +67,8 @@ function toPermissionPrompt(row: PermissionPromptRow): PermissionPrompt {
     id: row.id,
     parentEnvelopeId: row.parentEnvelopeId,
     appId: row.appId,
+    jobId: row.jobId,
+    setupFingerprint: row.setupFingerprint,
     sourceAgentFolder: row.sourceAgentFolder,
     interactionId: row.interactionId,
     matchKind: row.matchKind as 'individual' | 'batch',
@@ -130,6 +132,8 @@ export async function bindPendingPermissionPromptRows(
     appId: string;
     sourceAgentFolder: string;
     interactionId: string;
+    jobId?: string | null;
+    setupFingerprint?: string | null;
     matchKind: 'individual' | 'batch';
     members: Array<{
       idempotencyKey: string;
@@ -280,6 +284,8 @@ export async function bindPendingPermissionPromptRows(
         id: input.id,
         parentEnvelopeId: parentEnvelopeIds[0] ?? null,
         appId: input.appId,
+        jobId: input.jobId ?? null,
+        setupFingerprint: input.setupFingerprint ?? null,
         sourceAgentFolder: input.sourceAgentFolder,
         interactionId: input.interactionId,
         matchKind: input.matchKind,

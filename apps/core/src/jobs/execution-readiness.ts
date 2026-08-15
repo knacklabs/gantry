@@ -6,6 +6,7 @@ import {
 import { agentIdForJobWorkspaceKey } from '../application/jobs/job-tool-policy.js';
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
+import { jobSetupRequiredEventPayload } from '../domain/events/job-setup-required.js';
 import type { SchedulerEventAppSession } from './app-session-resolution.js';
 import { notifySchedulerSetupRequired } from './execution-notifications.js';
 import { readImageCapabilityInventory } from '../shared/worker-image-inventory.js';
@@ -206,13 +207,10 @@ export async function notifyJobSetupRequired(input: {
       promptPreparationFailed = true;
     }
   }
-  // The durable setup event MUST publish even when the card send faults —
-  // otherwise a setup-blocked job (parked paused, next_run=null, so the scheduler
-  // never retries) goes invisibly stuck. delivery.ts already swallows per-route
-  // send throws, but a fault in route computation / story formatting here would
-  // otherwise skip publishRuntimeEvent below; this barrier keeps the event durable.
-  // (An indefinite send *hang* is not covered — that stays the accepted channel
-  // class, D-0053; the provider client's own network timeout is the backstop.)
+  // The durable setup event MUST publish even when preparation or notification
+  // faults. Approval-card delivery is now owned solely by the prepared outbound
+  // aggregate; this path may still notify other configured routes, but it never
+  // sends a synchronous fallback to the approver route.
   let notified = false;
   try {
     const cardNotified = !notificationEligible
@@ -225,32 +223,15 @@ export async function notifyJobSetupRequired(input: {
             setupState: input.setupState,
             source: input.source,
             runId: input.runId,
-            ...(prompt.status === 'raised'
+            ...(prompt.status === 'raised' ||
+            prompt.status === 'already_pending'
               ? { excludeRoute: prompt.approverRoute }
-              : prompt.status === 'already_pending'
-                ? { includeRoute: prompt.approverRoute }
-                : {}),
+              : {}),
             sendMessage: input.deps.sendMessage,
           });
-    const promptNotified =
-      prompt.status === 'raised' ? await prompt.delivered : false;
-    const fallbackNotified =
-      prompt.status === 'raised' && !promptNotified
-        ? await notifySchedulerSetupRequired({
-            job: {
-              ...input.currentJob,
-              notification_routes: [],
-            },
-            setupState: input.setupState,
-            source: input.source,
-            runId: input.runId,
-            includeRoute: prompt.approverRoute,
-            sendMessage: input.deps.sendMessage,
-          })
-        : false;
     notified =
-      prompt.status === 'raised'
-        ? promptNotified || fallbackNotified
+      prompt.status === 'raised' || prompt.status === 'already_pending'
+        ? false
         : promptPreparationFailed
           ? false
           : cardNotified;
@@ -269,18 +250,11 @@ export async function notifyJobSetupRequired(input: {
   await input.publishRuntimeEvent({
     appId: (input.appSession?.appId ?? input.runtimeAppId) as never,
     eventType: RUNTIME_EVENT_TYPES.JOB_SETUP_REQUIRED,
-    payload: {
+    payload: jobSetupRequiredEventPayload({
       jobId: input.currentJob.id,
-      setup_state: input.setupState.state,
-      blocker_fingerprint: input.setupState.fingerprint,
+      setupState: input.setupState,
       notified,
-      blockers: input.setupState.blockers.map((blocker) => ({
-        state: blocker.state,
-        requirement_type: blocker.requirementType,
-        requirement_id: blocker.requirementId,
-        next_action: blocker.nextAction,
-      })),
-    },
+    }),
     actor: 'scheduler',
     sessionId: input.appSession?.sessionId as never,
     jobId: input.currentJob.id as never,

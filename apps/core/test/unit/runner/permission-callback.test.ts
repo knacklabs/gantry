@@ -827,11 +827,14 @@ describe('requestPermissionApproval', () => {
       latencyMs: 1,
     }));
     const requestPermissionApprovalOnHost = vi.fn(async () => ({
-      approved: false,
-      mode: 'cancel' as const,
-      decidedBy: 'human',
-      reason: 'operator denied',
-      decisionClassification: 'user_reject' as const,
+      kind: 'decision' as const,
+      decision: {
+        approved: false,
+        mode: 'cancel' as const,
+        decidedBy: 'human',
+        reason: 'operator denied',
+        decisionClassification: 'user_reject' as const,
+      },
     }));
 
     await processPermissionInteractionIpc({

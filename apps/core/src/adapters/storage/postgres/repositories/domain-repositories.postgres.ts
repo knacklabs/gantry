@@ -100,6 +100,8 @@ import { PostgresRuntimeEventRepository } from './runtime-event-repository.postg
 import { PostgresToolCatalogRepository } from './tool-repository.postgres.js';
 import { PostgresAgentRepository } from './agent-repository.postgres.js';
 import { PostgresOutboundDeliveryRepository } from './outbound-delivery-repository.postgres.js';
+import { PostgresSetupPermissionPromptRepository } from './setup-permission-prompt-repository.postgres.js';
+import type { SetupPermissionPromptRepository } from '../../../../domain/ports/setup-permission-prompts.js';
 import { PostgresCapabilitySecretRepository } from './capability-secret-repository.postgres.js';
 import { PostgresModelCredentialRepository } from './model-credential-repository.postgres.js';
 import { PostgresPendingAccessRequestsRepository } from './pending-access-request-repository.postgres.js';
@@ -134,6 +136,7 @@ import type { GroupJoinOnboardingRepository } from '../../../../domain/ports/gro
 import type { MessageAttachmentRepository } from '../../../../domain/ports/message-attachment-repository.js';
 import type { ConversationHistoryCoverageRepository } from '../../../../domain/ports/conversation-history-coverage.js';
 import type { CapabilityTemplateAmendmentRepository } from '../../../../domain/ports/capability-template-amendments.js';
+import type { CapabilityTemplateApprovalIntentRepository } from '../../../../shared/capability-template-amendment.js';
 import { PostgresPermissionPromotionRepository } from './permission-promotion-repository.postgres.js';
 import { PostgresPermissionDecisionMemoryRepository } from './permission-decision-memory-repository.postgres.js';
 import { PostgresGroupJoinOnboardingRepository } from './group-join-onboarding-repository.postgres.js';
@@ -165,6 +168,7 @@ export interface PostgresDomainRepositoryBundle {
   pendingAccessRequests: PendingAccessRequestsRepository;
   sandboxes: SandboxRepository;
   outboundDeliveries: OutboundDeliveryRepository;
+  setupPermissionPrompts: SetupPermissionPromptRepository;
   workerCoordination: WorkerCoordinationRepository;
   liveTurns: LiveTurnCoordinationRepository;
   runtimeDependencies: RuntimeDependencyRepository &
@@ -179,7 +183,8 @@ export interface PostgresDomainRepositoryBundle {
   permissionPromotions: PermissionPromotionRepository;
   permissionDecisionMemory: PermissionDecisionMemoryRepository;
   groupJoinOnboarding: GroupJoinOnboardingRepository;
-  capabilityTemplateAmendments: CapabilityTemplateAmendmentRepository;
+  capabilityTemplateAmendments: CapabilityTemplateAmendmentRepository &
+    CapabilityTemplateApprovalIntentRepository;
 }
 type JsonRecord = Record<string, unknown>;
 function encodeJson(value: unknown): string {
@@ -1926,6 +1931,16 @@ export function createPostgresDomainRepositories(
     cleanupProviderAttachment?: ProviderAttachmentCleanup;
   } = {},
 ): PostgresDomainRepositoryBundle {
+  const runtimeEvents = new PostgresRuntimeEventRepository(
+    db,
+    undefined,
+    options.maxLiveAdmissionBacklog,
+    options.cleanupProviderAttachment,
+  );
+  const setupPermissionPrompts = new PostgresSetupPermissionPromptRepository(
+    db,
+    runtimeEvents,
+  );
   return {
     apps: new PostgresAppRepository(db),
     agents: new PostgresAgentRepository(db),
@@ -1947,12 +1962,7 @@ export function createPostgresDomainRepositories(
     providerSessions: new PostgresProviderSessionRepository(db),
     agentSessionSummaries: new PostgresAgentSessionSummaryRepository(db),
     agentRuns: new PostgresAgentRunRepository(db),
-    runtimeEvents: new PostgresRuntimeEventRepository(
-      db,
-      undefined,
-      options.maxLiveAdmissionBacklog,
-      options.cleanupProviderAttachment,
-    ),
+    runtimeEvents,
     tools: new PostgresToolCatalogRepository(db),
     skills: new PostgresSkillCatalogRepository(db),
     capabilitySecrets: new PostgresCapabilitySecretRepository(db),
@@ -1961,7 +1971,10 @@ export function createPostgresDomainRepositories(
     permissions: new PostgresPermissionRepository(db),
     pendingAccessRequests: new PostgresPendingAccessRequestsRepository(db),
     sandboxes: new PostgresSandboxRepository(db),
-    outboundDeliveries: new PostgresOutboundDeliveryRepository(db),
+    outboundDeliveries: new PostgresOutboundDeliveryRepository(db, {
+      setupPermissionPrompts,
+    }),
+    setupPermissionPrompts,
     workerCoordination: new PostgresWorkerCoordinationRepository(
       db,
       options.liveTurnCommandNotifier,

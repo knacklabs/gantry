@@ -214,7 +214,7 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
     // On a scheduled run (onPermissionDenied present), a pre-check denial must
     // terminate the turn as a non-grantable instruction, so the model cannot
     // read it as an ordinary tool error and silently fall back to another tool.
-    let captured: { toolName: string; grantable: boolean } | undefined;
+    let captured: { toolName: string; action: { kind: string } } | undefined;
     const underlying = fakeTool('notion_search');
     const [wrapped] = wrapThirdPartyMcpToolsWithGate(
       [underlying as never],
@@ -222,7 +222,7 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
       gateConfig({
         memoryBlock: '[suppressed: instruction-like memory content]',
         onPermissionDenied: (denial): never => {
-          captured = denial as { toolName: string; grantable: boolean };
+          captured = denial;
           throw new Error('terminal');
         },
       }) as never,
@@ -236,7 +236,7 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
     expect(underlying.invoke).not.toHaveBeenCalled();
     expect(captured).toMatchObject({
       toolName: 'mcp__notion__notion_search',
-      grantable: false,
+      action: { kind: 'instruction' },
     });
   });
 

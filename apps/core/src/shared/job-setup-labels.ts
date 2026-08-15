@@ -1,122 +1,110 @@
+import type { JobSetupActionShape } from './job-setup-action.js';
+
 export interface JobSetupLabelBlocker {
-  state?: string;
-  requirementType?: string;
-  requirementId?: string;
-  nextAction?: string;
+  state: string;
+  type: string;
+  id: string;
+  action: JobSetupActionShape;
 }
 
 export function jobSetupBlockerFromUnknown(
   value: unknown,
 ): JobSetupLabelBlocker | undefined {
-  if (!value || typeof value !== 'object') return undefined;
-  const record = value as Record<string, unknown>;
-  return {
-    state: stringField(record.state),
-    requirementType: stringField(record.requirementType),
-    requirementId: stringField(record.requirementId),
-    nextAction: stringField(record.nextAction),
-  };
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const blocker = value as Partial<JobSetupLabelBlocker>;
+  if (
+    typeof blocker.state !== 'string' ||
+    typeof blocker.type !== 'string' ||
+    typeof blocker.id !== 'string' ||
+    !isDisplayableSetupAction(blocker.action)
+  ) {
+    return undefined;
+  }
+  return blocker as JobSetupLabelBlocker;
+}
+
+// Untrusted CLI/MCP/IPC data reaches the formatter - validate the
+// discriminated action and its required nested fields so malformed input
+// takes the fallback instead of throwing (review R8).
+function isDisplayableSetupAction(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const action = value as Record<string, unknown>;
+  if (action.kind === 'instruction') return typeof action.text === 'string';
+  if (action.kind === 'fix_proposal') {
+    return typeof action.proposalId === 'string';
+  }
+  if (action.kind !== 'approve_grant') return false;
+  const grant = action.grant as Record<string, unknown> | undefined;
+  return Boolean(
+    grant &&
+    typeof grant === 'object' &&
+    Array.isArray(grant.rules) &&
+    grant.rules.every((rule) => {
+      if (!rule || typeof rule !== 'object') return false;
+      const record = rule as Record<string, unknown>;
+      return (
+        typeof record.toolName === 'string' &&
+        (record.ruleContent === undefined ||
+          typeof record.ruleContent === 'string')
+      );
+    }),
+  );
 }
 
 export function setupBlockerLabel(
-  blocker: JobSetupLabelBlocker | undefined,
+  blocker: Pick<JobSetupLabelBlocker, 'state' | 'type' | 'id'> | undefined,
   fallbackState: string,
 ): string {
   if (!blocker) return humanizeIdentifier(fallbackState);
-  if (
-    blocker.requirementType === 'local_cli' &&
-    blocker.state === 'missing_capability' &&
-    !isLocalCliCapabilityAction(blocker.nextAction)
-  ) {
-    return 'Job CLI configuration';
+  if (blocker.type === 'local_cli') {
+    return semanticCapabilityLabel(blocker.id);
   }
-  if (blocker.requirementType === 'local_cli') {
-    return semanticCapabilityLabel(blocker.requirementId);
-  }
-  if (blocker.requirementType === 'browser') {
+  if (blocker.type === 'browser') {
     return blocker.state === 'browser_login_may_be_required'
       ? 'Browser login'
       : 'Browser access';
   }
-  if (blocker.requirementType === 'semantic_capability') {
-    return semanticCapabilityLabel(blocker.requirementId);
+  if (blocker.type === 'semantic_capability') {
+    return semanticCapabilityLabel(blocker.id);
   }
-  if (blocker.requirementType === 'mcp_server') {
-    return `MCP server: ${humanizeIdentifier(blocker.requirementId)}`;
+  if (blocker.type === 'mcp_server') {
+    return `MCP server: ${humanizeIdentifier(blocker.id)}`;
   }
-  if (blocker.requirementType === 'credential') {
-    return `Credential: ${semanticCapabilityLabel(blocker.requirementId)}`;
+  if (blocker.type === 'credential') {
+    return `Credential: ${semanticCapabilityLabel(blocker.id)}`;
   }
-  return `Tool access: ${humanizeIdentifier(blocker.requirementId)}`;
+  return `Tool access: ${humanizeIdentifier(blocker.id)}`;
 }
 
-export function setupActionLabel(
-  blocker: JobSetupLabelBlocker | undefined,
+export function formatJobSetupAction(
+  action: JobSetupActionShape | undefined,
+  blocker?: Pick<JobSetupLabelBlocker, 'state' | 'type' | 'id'>,
 ): string {
-  if (!blocker) return 'Fix setup, then resume the job.';
-  const nextAction = blocker.nextAction ?? '';
-  if (
-    blocker.requirementType === 'local_cli' &&
-    blocker.state === 'missing_capability' &&
-    !isLocalCliCapabilityAction(blocker.nextAction)
-  ) {
-    return 'Fix the job CLI configuration, then resume the job.';
+  if (!action) return 'Fix setup, then resume the job.';
+  if (action.kind === 'instruction') return action.text;
+  if (action.kind === 'fix_proposal') {
+    return 'Review the proposed setup fix, then resume the job.';
   }
-  if (blocker.requirementType === 'local_cli') {
-    return `Approve ${semanticCapabilityLabel(blocker.requirementId)}, then resume the job.`;
+  const commandRules = action.grant.rules.filter(
+    (rule) => rule.toolName === 'RunCommand' && rule.ruleContent,
+  );
+  if (commandRules.length > 0) {
+    // A rule containing a wildcard is a reviewed prefix SCOPE, not one exact
+    // argv - never describe broader authority as exact at the approval
+    // boundary.
+    return commandRules.some((rule) => rule.ruleContent?.includes('*'))
+      ? 'Approve scoped command access, then resume the job.'
+      : 'Approve exact command access, then resume the job.';
   }
-  if (/request_access\s*\{[^}]*"kind"\s*:\s*"run_command"/.test(nextAction)) {
-    return 'Approve exact command access, then resume the job.';
-  }
-  if (blocker.requirementType === 'browser') {
-    if (blocker.state === 'browser_login_may_be_required' && nextAction) {
-      return nextAction;
-    }
-    return 'Approve Browser access, then resume the job.';
-  }
-  if (blocker.requirementType === 'semantic_capability') {
-    if (nextAction && !/request_access\s*\{/.test(nextAction)) {
-      return setupActionLabelFromNextAction(nextAction);
-    }
-    return `Approve ${semanticCapabilityLabel(blocker.requirementId)}, then resume the job.`;
-  }
-  if (blocker.requirementType === 'mcp_server') {
-    return `Approve ${humanizeIdentifier(blocker.requirementId)} MCP server access, then resume the job.`;
-  }
-  if (blocker.requirementType === 'credential' && nextAction) return nextAction;
-  return setupActionLabelFromNextAction(nextAction);
+  const label = setupBlockerLabel(blocker, 'required capability');
+  return `Approve ${label}, then resume the job.`;
 }
 
-export function setupActionLabelFromNextAction(
-  nextAction: unknown,
-  fallback = 'Fix setup, then resume the job.',
-): string {
-  if (typeof nextAction !== 'string' || !nextAction.trim()) return fallback;
-  if (/scheduler_update_job\s*\{/.test(nextAction)) {
-    return 'Update the job setup, then resume the job.';
-  }
-  if (/request_access\s*\{[^}]*"kind"\s*:\s*"run_command"/.test(nextAction)) {
-    return 'Approve exact command access, then resume the job.';
-  }
-  if (/request_access\s*\{[^}]*"id"\s*:\s*"browser\.use"/.test(nextAction)) {
-    return 'Approve Browser access, then resume the job.';
-  }
-  if (/request_access\s*\{/.test(nextAction)) {
-    return 'Approve the requested access, then resume the job.';
-  }
-  return nextAction;
-}
-
-function semanticCapabilityLabel(capabilityId: string | undefined): string {
-  return capabilityId
-    ? humanizeIdentifier(capabilityId)
-    : 'Required capability';
-}
-
-/**
- * Public 4-state job readiness label. Maps the internal setup states to the
- * user-facing model: Ready / Needs approval / Needs connection / Blocked.
- */
+/** Public 4-state job readiness label. */
 export function setupReadinessLabel(state: string | undefined): string {
   if (state === 'ready' || !state) return 'Ready';
   if (state === 'missing_capability') return 'Needs approval';
@@ -127,16 +115,13 @@ export function setupReadinessLabel(state: string | undefined): string {
   ) {
     return 'Needs connection';
   }
-  if (
-    state === 'broker_unreachable' ||
-    state === 'invalid_config' ||
-    state === 'invalid_workspace' ||
-    state === 'malformed_requirement' ||
-    state === 'unsupported_field'
-  ) {
-    return 'Blocked';
-  }
   return 'Blocked';
+}
+
+function semanticCapabilityLabel(capabilityId: string | undefined): string {
+  return capabilityId
+    ? humanizeIdentifier(capabilityId)
+    : 'Required capability';
 }
 
 function humanizeIdentifier(value: string | undefined): string {
@@ -146,12 +131,4 @@ function humanizeIdentifier(value: string | undefined): string {
     .replaceAll(/[._:-]+/g, ' ')
     .trim()
     .replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function stringField(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
-}
-
-function isLocalCliCapabilityAction(value: string | undefined): boolean {
-  return Boolean(value && /request_access\s*\{/.test(value));
 }

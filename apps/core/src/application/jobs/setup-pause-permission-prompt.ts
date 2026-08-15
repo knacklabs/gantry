@@ -3,25 +3,18 @@ import type {
   JobAccessRequirement,
   JobSetupBlocker,
   PermissionApprovalCancellation,
-  PermissionApprovalDecision,
   PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
   PermissionApprovalUpdate,
 } from '../../domain/types.js';
-import {
-  isCanonicalBrowserCapabilityRule,
-  RUN_COMMAND_TOOL_NAME,
-} from '../../shared/agent-tool-references.js';
+import { SEMANTIC_CAPABILITY_RULE_PREFIX } from '../../shared/semantic-capability-ids.js';
 import { setupBlockerLabel } from '../../shared/job-setup-labels.js';
-import { parseSemanticCapabilityRule } from '../../shared/semantic-capability-ids.js';
 import {
   formatSchedulerSetupStory,
   type SchedulerSetupStorySource,
 } from './scheduler-setup-story.js';
 import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
 import { agentIdForJobWorkspaceKey } from './job-tool-policy.js';
-import { localCliCommandTemplatePermissionRule } from './job-capability-requirements.js';
-import { normalizeToolAccessRequirements } from './job-tool-access-requirements.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from './job-readiness-service.js';
 import { permissionUpdateAllowedToolRules } from '../../shared/permission-tool-rules.js';
 
@@ -34,15 +27,9 @@ export interface SetupPauseReviewedRequirement {
 export interface SetupPausePermissionPromptDeps {
   appId: string;
   getJobById(jobId: string): Promise<Job | undefined>;
-  runPermissionInteraction(
+  preparePermissionInteraction(
     request: PermissionApprovalRequest,
-    onPromptDelivered: (messageId: string) => void,
-    onInteractionBegan: () => void,
-  ): Promise<{
-    began: boolean;
-    decision: PermissionApprovalDecision;
-    resolved: boolean;
-  }>;
+  ): Promise<{ created: boolean }>;
   cancelPermissionApproval(
     cancellation: PermissionApprovalCancellation,
   ): Promise<'settled' | 'queued' | 'not_found'>;
@@ -58,7 +45,6 @@ export type SetupPausePromptResult =
   | {
       status: 'raised';
       approverRoute: SetupPausePromptRoute;
-      delivered: Promise<boolean>;
     }
   | { status: 'already_pending'; approverRoute: SetupPausePromptRoute }
   | { status: 'instruction_only'; notificationEligible?: boolean };
@@ -183,6 +169,7 @@ export async function raiseSetupPausePermissionPrompt(input: {
     agentId,
     sourceAgentFolder: job.workspace_key,
     jobId: job.id,
+    setupFingerprint: setupState.fingerprint,
     jobName: job.name,
     targetJid: approverRoute.conversationJid,
     approvalContextJid: approverRoute.conversationJid,
@@ -208,43 +195,26 @@ export async function raiseSetupPausePermissionPrompt(input: {
       : {}),
   };
 
-  let markDelivered!: () => void;
-  const delivered = new Promise<void>((resolve) => {
-    markDelivered = resolve;
-  });
-  let markBegan!: () => void;
-  const began = new Promise<void>((resolve) => {
-    markBegan = resolve;
-  });
-  const interaction = deps.runPermissionInteraction(
-    request,
-    markDelivered,
-    markBegan,
-  );
-  const deliveryResult = Promise.race([
-    delivered.then(() => true),
-    interaction.then(
-      () => false,
-      () => false,
-    ),
-  ]);
-  const first = await Promise.race([
-    began.then(() => 'raised' as const),
-    interaction.then((result) =>
-      result.began ? ('raised' as const) : ('already_pending' as const),
-    ),
-  ]);
-  if (first === 'raised') {
+  let prepared: { created: boolean };
+  try {
+    prepared = await deps.preparePermissionInteraction(request);
+  } catch {
+    // A failed preparation stays RETRYABLE: notificationEligible false so
+    // the prose path cannot consume notified_fingerprint - the very trap
+    // that produced the never-fired button. The next readiness tick
+    // re-raises and re-attempts the durable enqueue. This also covers a
+    // missing outbound repository (production always provides it; only
+    // stripped-down test bootstraps lack it) - never a silent prose
+    // downgrade of the single-cutover card path (review R5/R7/R8).
+    return { status: 'instruction_only', notificationEligible: false };
+  }
+  if (prepared.created) {
     return {
       status: 'raised',
       approverRoute: deliveredRoute,
-      delivered: deliveryResult,
     };
   }
-  if (first === 'already_pending') {
-    return { status: 'already_pending', approverRoute: deliveredRoute };
-  }
-  return { status: 'instruction_only', notificationEligible: true };
+  return { status: 'already_pending', approverRoute: deliveredRoute };
 }
 
 export async function retireSetupPausePermissionPrompt(input: {
@@ -301,6 +271,7 @@ export function setupPauseApproverRoute(
 
 interface GrantableRequirementCandidate {
   blocker: JobSetupBlocker;
+  rule: { toolName: string; ruleContent?: string };
   displayName: string;
   toolInput: Record<string, unknown>;
   suggestedRequirement?: JobAccessRequirement;
@@ -310,59 +281,94 @@ function grantableRequirementCandidates(
   job: Job,
   blockers: readonly JobSetupBlocker[],
 ): GrantableRequirementCandidate[] {
-  const requirements: GrantableRequirementCandidate[] = [];
-  for (const blocker of blockers) {
-    // Fail closed on grantability: only an explicit grantable === true blocker
-    // is eligible for an approval card; undefined/false stays instruction-only.
-    // Per decisions 0112/0113 (enforce-no-backcompat) we do NOT add a legacy
-    // fallback that treats unknown grantability as approvable — every blocker
-    // this runtime writes sets the flag, and any stale setup_state is recomputed
-    // with it on the next readiness check rather than compat-shimmed here.
+  return blockers.flatMap((blocker) => {
     if (
       blocker.state !== 'missing_capability' ||
-      blocker.grantable !== true ||
-      !['semantic_capability', 'browser', 'local_cli', 'tool'].includes(
-        blocker.requirementType,
-      )
+      blocker.action.kind !== 'approve_grant' ||
+      // Prompt candidates and completion agree (R8/R9): only a plain
+      // addRules grant without an explicit destination gets the one-tap
+      // card + auto-append path. Other accepted variants surface as
+      // display-only blockers - no card promise this path cannot complete.
+      blocker.action.grant.type !== 'addRules' ||
+      blocker.action.grant.destination !== undefined
     ) {
-      continue;
+      return [];
     }
-    const mapped = storedRequirementForBlocker(
-      job.access_requirements ?? [],
-      blocker,
-    );
-    if (mapped) {
-      requirements.push({ blocker, ...mapped });
-      continue;
-    }
-    const suggested = suggestedRequirementForBlocker(blocker);
-    if (suggested) requirements.push({ blocker, ...suggested });
-  }
-  return requirements;
+    // A valid grant may carry up to five rules - EVERY rule becomes a
+    // candidate; consuming only rules[0] would silently drop the rest from
+    // the approval request and the suggested requirements (review R2).
+    return blocker.action.grant.rules.map((rule) => {
+      const toolInput = rule.toolName.startsWith('capability:')
+        ? {
+            permissionKind: 'tool',
+            capabilityId: rule.toolName.slice('capability:'.length),
+            capabilityRequestSource: 'request_access',
+            toolNames: [],
+            effect: 'persistent_rule_when_always_allowed',
+          }
+        : {
+            permissionKind: 'tool',
+            toolName: rule.toolName,
+            ...(rule.ruleContent ? { rule: rule.ruleContent } : {}),
+            effect: 'persistent_rule_when_always_allowed',
+          };
+      const suggestedRequirement = requirementForRule(job, blocker, rule);
+      return {
+        blocker,
+        rule,
+        displayName: setupBlockerLabel(blocker, blocker.state),
+        toolInput,
+        ...(suggestedRequirement ? { suggestedRequirement } : {}),
+      };
+    });
+  });
 }
 
 export function setupPauseRequirementForApprovedSuggestions(input: {
   job: Job;
   suggestions: readonly PermissionApprovalUpdate[];
-}): { matched: boolean; requirement?: JobAccessRequirement } {
+}): { matched: boolean; requirements?: JobAccessRequirement[] } {
   const approvedRules = permissionUpdateAllowedToolRules(input.suggestions);
-  for (const candidate of grantableRequirementCandidates(
+  if (approvedRules.length === 0) return { matched: false };
+  const candidates = grantableRequirementCandidates(
     input.job,
     input.job.setup_state?.blockers ?? [],
-  )) {
+  );
+  // Review R3: an approval satisfies a grant action only when it covers the
+  // action's COMPLETE rule set - a partial approval must not resume the job
+  // with part of the typed authority applied - and every corresponding
+  // requirement is returned so all of them get appended.
+  const approvedSet = new Set(approvedRules);
+  const byBlocker = new Map<JobSetupBlocker, GrantableRequirementCandidate[]>();
+  for (const candidate of candidates) {
+    const group = byBlocker.get(candidate.blocker) ?? [];
+    group.push(candidate);
+    byBlocker.set(candidate.blocker, group);
+  }
+  // One interaction may approve SEVERAL independent blockers: a group matches
+  // when its COMPLETE rule set is covered by the approval (subset, not
+  // equality with the global union) - and every matched group's requirements
+  // are appended (review R8).
+  const matchedRequirements: JobAccessRequirement[] = [];
+  let anyMatched = false;
+  for (const [, group] of byBlocker) {
+    const groupRules = group.map((candidate) => candidateRule(candidate));
     if (
-      approvedRules.length === 1 &&
-      candidateRule(candidate) === approvedRules[0]
+      groupRules.length > 0 &&
+      groupRules.every((rule) => rule !== undefined && approvedSet.has(rule))
     ) {
-      return {
-        matched: true,
-        ...(candidate.suggestedRequirement
-          ? { requirement: candidate.suggestedRequirement }
-          : {}),
-      };
+      anyMatched = true;
+      matchedRequirements.push(
+        ...group.flatMap((candidate) =>
+          candidate.suggestedRequirement
+            ? [candidate.suggestedRequirement]
+            : [],
+        ),
+      );
     }
   }
-  return { matched: false };
+  if (!anyMatched) return { matched: false };
+  return { matched: true, requirements: matchedRequirements };
 }
 
 function candidateRule(
@@ -391,191 +397,47 @@ function candidateRule(
   ])[0];
 }
 
-function suggestedRequirementForBlocker(
+function requirementForRule(
+  job: Job,
   blocker: JobSetupBlocker,
-): Omit<GrantableRequirementCandidate, 'blocker'> | null {
-  const scopedRunCommand = scopedRunCommandFromRecoveryAction(blocker);
-  if (scopedRunCommand) return scopedRunCommand;
-  if (blocker.requirementType === 'local_cli') return null;
-  if (blocker.requirementType === 'semantic_capability') {
-    const capabilityId =
-      parseSemanticCapabilityRule(blocker.requirementId) ??
-      blocker.requirementId;
-    return {
-      ...semanticCapabilityReview(capabilityId, blocker),
-      suggestedRequirement: {
-        target: { kind: 'capability', capabilityId },
-        reason: `Required after ${setupBlockerLabel(blocker, blocker.state)} was denied.`,
-      },
-    };
-  }
-  try {
-    const canonicalRule = normalizeToolAccessRequirements([
-      blocker.requirementId,
-    ])[0];
-    if (!canonicalRule) return null;
-    const parsed = splitToolRule(canonicalRule);
-    if (!parsed) return null;
-    if (
-      blocker.requirementType === 'browser' &&
-      !isCanonicalBrowserCapabilityRule(canonicalRule)
-    ) {
-      return null;
+  grantRule: { toolName: string; ruleContent?: string },
+): JobAccessRequirement | undefined {
+  // Review R1: blocker.id may carry the canonical capability: rule prefix -
+  // requirements store the BARE capability id, so normalize before matching
+  // and before appending (a prefixed id would both miss the existing
+  // requirement and append an invalid duplicate).
+  const capabilityId = blocker.id.startsWith(SEMANTIC_CAPABILITY_RULE_PREFIX)
+    ? blocker.id.slice(SEMANTIC_CAPABILITY_RULE_PREFIX.length)
+    : blocker.id;
+  const canonicalRule = grantRule.ruleContent
+    ? `${grantRule.toolName}(${grantRule.ruleContent})`
+    : grantRule.toolName;
+  const existing = (job.access_requirements ?? []).find((requirement) => {
+    if (requirement.target.kind === 'capability') {
+      return requirement.target.capabilityId === capabilityId;
     }
-    return {
-      displayName: setupBlockerLabel(blocker, blocker.state),
-      toolInput: {
-        permissionKind: 'tool',
-        toolName: parsed.toolName,
-        ...(parsed.rule ? { rule: parsed.rule } : {}),
-        effect: 'persistent_rule_when_always_allowed',
-      },
-      suggestedRequirement: {
-        target: { kind: 'tool_rule', rule: canonicalRule },
-        reason: `Required after ${setupBlockerLabel(blocker, blocker.state)} was denied.`,
-      },
-    };
-  } catch {
-    return null;
-  }
-}
-
-function scopedRunCommandFromRecoveryAction(
-  blocker: JobSetupBlocker,
-): Omit<GrantableRequirementCandidate, 'blocker'> | null {
-  if (
-    !['local_cli', 'tool'].includes(blocker.requirementType) ||
-    blocker.requirementId !== RUN_COMMAND_TOOL_NAME
-  ) {
-    return null;
-  }
-  const prefix = 'request_access ';
-  const action = blocker.nextAction.trim();
-  if (!action.startsWith(prefix)) return null;
-  try {
-    const request = JSON.parse(action.slice(prefix.length)) as Record<
-      string,
-      unknown
-    >;
-    const target = request.target;
-    if (
-      !target ||
-      typeof target !== 'object' ||
-      (target as Record<string, unknown>).kind !== 'run_command' ||
-      request.temporaryOnly !== false
-    ) {
-      return null;
-    }
-    const argvPattern = (target as Record<string, unknown>).argvPattern;
-    if (typeof argvPattern !== 'string' || !argvPattern.trim()) return null;
-    const canonicalRule = normalizeToolAccessRequirements([
-      `${RUN_COMMAND_TOOL_NAME}(${argvPattern})`,
-    ])[0];
-    if (!canonicalRule) return null;
-    const parsed = splitToolRule(canonicalRule);
-    if (!parsed?.rule || parsed.toolName !== RUN_COMMAND_TOOL_NAME) return null;
-    return {
-      displayName: setupBlockerLabel(blocker, blocker.state),
-      toolInput: {
-        permissionKind: 'tool',
-        toolName: parsed.toolName,
-        rule: parsed.rule,
-        effect: 'persistent_rule_when_always_allowed',
-      },
-      suggestedRequirement: {
-        target: { kind: 'tool_rule', rule: canonicalRule },
-        reason: `Required after ${setupBlockerLabel(blocker, blocker.state)} was denied.`,
-      },
-    };
-  } catch {
-    return null;
-  }
-}
-
-function storedRequirementForBlocker(
-  requirements: readonly JobAccessRequirement[],
-  blocker: JobSetupBlocker,
-): { displayName: string; toolInput: Record<string, unknown> } | null {
-  if (
-    blocker.requirementType === 'semantic_capability' ||
-    blocker.requirementType === 'local_cli'
-  ) {
-    const capability = requirements.find(
-      (requirement) =>
-        requirement.target.kind === 'capability' &&
-        requirement.target.capabilityId === blocker.requirementId,
+    // Review R1: an existing tool_rule only satisfies this blocker when it
+    // matches the EXACT canonical rule the grant carries - a differently
+    // scoped RunCommand rule must not suppress the new declaration.
+    return (
+      requirement.target.kind === 'tool_rule' &&
+      requirement.target.rule === canonicalRule
     );
-    if (capability?.target.kind !== 'capability') return null;
-    if (blocker.requirementType === 'local_cli') {
-      const rule = localCliCommandTemplatePermissionRule(
-        capability.target.implementation?.commandTemplate,
-        capability.target.implementation?.executablePath,
-      );
-      if (!rule) return null;
-      return {
-        displayName: setupBlockerLabel(blocker, blocker.state),
-        toolInput: {
-          permissionKind: 'tool',
-          toolName: RUN_COMMAND_TOOL_NAME,
-          rule,
-          effect: 'persistent_rule_when_always_allowed',
-        },
-      };
-    }
-    return semanticCapabilityReview(blocker.requirementId, blocker);
+  });
+  if (existing) return undefined;
+  if (blocker.type === 'semantic_capability') {
+    return {
+      target: { kind: 'capability', capabilityId },
+      reason: `Required after ${setupBlockerLabel(blocker, blocker.state)} was denied.`,
+    };
   }
 
-  const storedToolRule = requirements.flatMap((requirement) => {
-    if (requirement.target.kind !== 'tool_rule') return [];
-    const canonicalRule = normalizeToolAccessRequirements([
-      requirement.target.rule,
-    ])[0];
-    if (!canonicalRule) return [];
-    const capabilityId = parseSemanticCapabilityRule(canonicalRule);
-    return canonicalRule === blocker.requirementId ||
-      capabilityId === blocker.requirementId
-      ? [{ canonicalRule }]
-      : [];
-  })[0];
-  if (!storedToolRule) return null;
-  const semanticCapabilityId = parseSemanticCapabilityRule(
-    storedToolRule.canonicalRule,
-  );
-  if (semanticCapabilityId) {
-    return semanticCapabilityReview(semanticCapabilityId, blocker);
-  }
-  const parsedRule = splitToolRule(storedToolRule.canonicalRule);
-  if (!parsedRule) return null;
-  if (
-    blocker.requirementType === 'browser' &&
-    !isCanonicalBrowserCapabilityRule(storedToolRule.canonicalRule)
-  ) {
-    return null;
-  }
   return {
-    displayName: setupBlockerLabel(blocker, blocker.state),
-    toolInput: {
-      permissionKind: 'tool',
-      toolName: parsedRule.toolName,
-      ...(parsedRule.rule ? { rule: parsedRule.rule } : {}),
-      effect: 'persistent_rule_when_always_allowed',
+    target: {
+      kind: 'tool_rule',
+      rule: canonicalRule,
     },
-  };
-}
-
-function semanticCapabilityReview(
-  capabilityId: string,
-  blocker: JobSetupBlocker,
-): { displayName: string; toolInput: Record<string, unknown> } {
-  return {
-    displayName: setupBlockerLabel(blocker, blocker.state),
-    toolInput: {
-      permissionKind: 'tool',
-      capabilityId,
-      capabilityRequestSource: 'request_access',
-      toolNames: [],
-      effect: 'persistent_rule_when_always_allowed',
-    },
+    reason: `Required after ${setupBlockerLabel(blocker, blocker.state)} was denied.`,
   };
 }
 

@@ -4,7 +4,7 @@ import type {
   JobSetupState,
 } from '../../domain/types.js';
 import {
-  setupActionLabel,
+  formatJobSetupAction,
   setupBlockerLabel,
 } from '../../shared/job-setup-labels.js';
 
@@ -45,6 +45,6 @@ export function formatSchedulerSetupStory(input: {
     status,
     'Needed:',
     ...blockerLines,
-    setupActionLabel(primaryBlocker),
+    formatJobSetupAction(primaryBlocker?.action, primaryBlocker),
   ].join('\n');
 }

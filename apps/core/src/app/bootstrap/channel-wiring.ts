@@ -28,16 +28,9 @@ import { RuntimeApp } from './runtime-app.js';
 import { ConversationAdministrationService } from '../../application/provider-conversations/conversation-administration-service.js';
 import { RuntimeSecretConversationMembershipValidator } from '../../channels/conversation-membership-validation.js';
 import type { AppId } from '../../domain/app/app.js';
-import {
-  asAgentTodoSurface,
-  asPermissionApprovalSurface,
-  asProgressSink,
-  asRichInteractionSurface,
-  asContentCanvasSurface,
-  asStreamingSink,
-  asStreamingStateSink,
-  asUserQuestionSurface,
-} from './channel-capability-ports.js';
+// prettier-ignore
+import { asAgentTodoSurface, asPermissionApprovalSurface, asProgressSink, asRichInteractionSurface, asContentCanvasSurface, asStreamingSink, asStreamingStateSink, asUserQuestionSurface } from './channel-capability-ports.js';
+import { prepareProviderPermissionCardSend } from './channel-wiring-permission-card.js';
 import {
   listChannelProviders,
   normalizeProviderId,
@@ -735,6 +728,13 @@ export function createChannelWiring(
       getRuntimeStorage().repositories.messageAttachments,
     sendMessage,
     sendProviderMessage,
+    prepareProviderPermissionCardSend: (jid, rawText, options) =>
+      prepareProviderPermissionCardSend({
+        jid,
+        rawText,
+        ...options,
+        findChannel: findBoundChannelForRequest,
+      }),
     createRecoveryDispatchPermit,
     setRetryTailRecoveryEnqueue,
     setDurableOutboundAttemptFactory,

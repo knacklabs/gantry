@@ -13,6 +13,7 @@ class FakeDrizzleDb {
   insertedConversationThread: Record<string, unknown> | null = null;
   failOutboxInsert = false;
   failDeliveryInsert = false;
+  runtimeEventConflict = false;
 
   async execute(): Promise<void> {
     this.operations.push('lock:message_attachments');
@@ -37,30 +38,34 @@ class FakeDrizzleDb {
         if (table === pgSchema.runtimeEventsPostgres) {
           db.operations.push('insert:runtime_events');
           db.insertedRuntimeEvent = value;
-          return {
+          const insertedRow = {
+            eventId: 42,
+            appId: value.appId,
+            agentId: null,
+            sessionId: value.sessionId,
+            runId: value.runId ?? null,
+            jobId: value.jobId ?? null,
+            triggerId: null,
+            conversationId: null,
+            threadId: null,
+            eventType: value.eventType,
+            actor: value.actor,
+            correlationId: null,
+            responseMode: value.responseMode,
+            webhookId: value.webhookId,
+            idempotencyKey: value.idempotencyKey,
+            payloadJson: value.payloadJson,
+            createdAt: value.createdAt,
+          };
+          const insert = {
+            onConflictDoNothing() {
+              return insert;
+            },
             async returning() {
-              return [
-                {
-                  eventId: 42,
-                  appId: value.appId,
-                  agentId: null,
-                  sessionId: value.sessionId,
-                  runId: null,
-                  jobId: null,
-                  triggerId: null,
-                  conversationId: null,
-                  threadId: null,
-                  eventType: value.eventType,
-                  actor: value.actor,
-                  correlationId: null,
-                  responseMode: value.responseMode,
-                  webhookId: value.webhookId,
-                  payloadJson: value.payloadJson,
-                  createdAt: value.createdAt,
-                },
-              ];
+              return db.runtimeEventConflict ? [] : [insertedRow];
             },
           };
+          return insert;
         }
         if (table === pgSchema.eventBusOutboxPostgres) {
           db.operations.push('insert:event_bus_outbox');
@@ -110,6 +115,38 @@ class FakeDrizzleDb {
               return {
                 async limit() {
                   return [];
+                },
+              };
+            },
+          };
+        }
+        if (table === pgSchema.runtimeEventsPostgres) {
+          db.operations.push('select:runtime_events');
+          return {
+            where() {
+              return {
+                async limit() {
+                  return [
+                    {
+                      eventId: 41,
+                      appId: db.insertedRuntimeEvent?.appId,
+                      agentId: null,
+                      sessionId: null,
+                      runId: db.insertedRuntimeEvent?.runId ?? null,
+                      jobId: db.insertedRuntimeEvent?.jobId ?? null,
+                      triggerId: null,
+                      conversationId: null,
+                      threadId: null,
+                      eventType: db.insertedRuntimeEvent?.eventType,
+                      actor: db.insertedRuntimeEvent?.actor,
+                      correlationId: null,
+                      responseMode: db.insertedRuntimeEvent?.responseMode,
+                      webhookId: db.insertedRuntimeEvent?.webhookId,
+                      idempotencyKey: db.insertedRuntimeEvent?.idempotencyKey,
+                      payloadJson: db.insertedRuntimeEvent?.payloadJson,
+                      createdAt: db.insertedRuntimeEvent?.createdAt,
+                    },
+                  ];
                 },
               };
             },
@@ -194,6 +231,33 @@ describe('PostgresRuntimeEventRepository', () => {
       status: 'pending',
       occurredAt: '2026-04-30T00:00:00.000Z',
     });
+  });
+
+  it('returns an idempotency conflict without outbox or webhook side effects', async () => {
+    const db = new FakeDrizzleDb();
+    db.runtimeEventConflict = true;
+    const repository = createRepository(db);
+
+    await expect(
+      repository.appendRuntimeEvent({
+        appId: 'app:test' as never,
+        runId: 'run-1' as never,
+        eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+        actor: 'scheduler',
+        responseMode: 'both',
+        webhookId: 'webhook:test',
+        idempotencyKey: 'tool_denied:run-1:fingerprint',
+        payload: { denied_tool: 'Bash' },
+      }),
+    ).resolves.toMatchObject({ eventId: 41 });
+
+    expect(db.operations).toEqual([
+      'transaction:begin',
+      'insert:runtime_events',
+      'select:runtime_events',
+      'transaction:commit',
+    ]);
+    expect(db.insertedOutboxEvent).toBeNull();
   });
 
   it('rolls back the runtime event when outbox enqueue fails', async () => {

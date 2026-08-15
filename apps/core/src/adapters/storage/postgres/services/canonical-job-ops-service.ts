@@ -2,6 +2,7 @@
 import type { Job, JobAccessRequirement, JobCapabilityRequirementImplementation, JobEvent, JobRun } from '../../../../domain/repositories/domain-types.js';
 // prettier-ignore
 import type { JobAccessRequirementAppend, JobEventListFilters, JobListFilters, JobRunListFilters, JobUpsertInput, ReleasedStaleJobLease, SetupPausedJobRecoveryClaim, SetupPausedJobRecoveryRefresh } from '../../../../domain/repositories/ops-repo.js';
+import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import {
   CANONICAL_APP_ID,
@@ -18,12 +19,13 @@ import type { RunLease } from '../../../../domain/ports/worker-coordination.js';
 import type { ExecutionProviderId } from '../../../../domain/sessions/sessions.js';
 // prettier-ignore
 import type { CanonicalJobEventRecord, CanonicalJobRecord, CanonicalRunRecord, JobRecordInput, PostgresCanonicalJobRepository } from '../repositories/canonical-job-repository.postgres.js';
-import type { CanonicalJobCoordinationUpdate } from '../repositories/canonical-job-coordination.postgres.js';
 import { redactProviderSessionHandlesInText } from '../../../../shared/provider-session-redaction.js';
 import {
   parseRequiredCapabilities,
   parseSetupState,
   coordinationUpdateFromJob,
+  parseExecutionContext,
+  parseNotificationRoutes,
 } from './canonical-job-target-state.js';
 
 type JobRecordSource = Omit<JobUpsertInput, 'id'> | JobUpsertInput | Job;
@@ -76,7 +78,7 @@ export class CanonicalJobOpsService {
         consecutiveFailures: job.consecutive_failures ?? 0,
         maxConsecutiveFailures: job.max_consecutive_failures ?? null,
         pauseReason: job.pause_reason ?? null,
-        setupState: parseSetupState(job.setup_state) ?? null,
+        setupState: parseSetupState(job.setup_state, job.id) ?? null,
       },
     );
     return { created: !existing };
@@ -391,6 +393,27 @@ export class CanonicalJobOpsService {
     return rows.map((row) => this.mapRun(row));
   }
 
+  async listLatestSetupPromptIds(
+    appId: string,
+    jobIds: readonly string[],
+  ): Promise<Map<string, string>> {
+    return this.repository.listLatestSetupPromptIds(appId, jobIds);
+  }
+
+  async listSetupDeliveryEventsPerJob(
+    appId: string,
+    jobIds: readonly string[],
+    perJobLimit: number,
+  ): Promise<JobEvent[]> {
+    const rows = await this.repository.listSetupDeliveryEventsPerJob(
+      appId,
+      jobIds,
+      RUNTIME_EVENT_TYPES.JOB_SETUP_CARD_DELIVERY,
+      perJobLimit,
+    );
+    return rows.map((row, index) => this.mapEvent(row, index));
+  }
+
   async listRecentJobEvents(
     limit = 200,
     filters?: JobEventListFilters,
@@ -402,7 +425,11 @@ export class CanonicalJobOpsService {
       ownerAppId: filters?.owner_app_id,
       jobId: filters?.job_id,
       jobIds: filters?.job_ids,
+      // prettier-ignore
       runId: filters?.run_id,
+      runIds: filters?.run_ids,
+      firstPerRun: filters?.first_per_run,
+      order: filters?.order,
       eventType: filters?.event_type,
       sinceId: filters?.since_id,
       since: filters?.since,
@@ -425,14 +452,6 @@ export class CanonicalJobOpsService {
       );
       if (eventAppId) return eventAppId;
     }
-
-    const jobId =
-      filters?.job_id ??
-      (filters?.run_id
-        ? (await this.repository.findRunById(filters.run_id))?.jobId
-        : undefined);
-    if (!jobId) return CANONICAL_APP_ID;
-
     return CANONICAL_APP_ID;
   }
 
@@ -487,7 +506,7 @@ export class CanonicalJobOpsService {
       execution_context: executionContext,
       notification_routes: notificationRoutes,
       access_requirements: accessRequirements,
-      setup_state: parseSetupState(row.setupState),
+      setup_state: parseSetupState(row.setupState, row.id),
       required_capabilities: requiredCapabilities,
     };
   }
@@ -569,46 +588,6 @@ export class CanonicalJobOpsService {
   ): JobEvent {
     return mapCanonicalJobEventRecord(row, index, fallbackJobId);
   }
-}
-
-function parseExecutionContext(input: unknown) {
-  if (!input || typeof input !== 'object') return undefined;
-  const value = input as Record<string, unknown>;
-  const conversationJid = normalizeString(value.conversationJid);
-  const workspaceKey = normalizeString(value.workspaceKey);
-  if (!conversationJid || !workspaceKey) return undefined;
-  return {
-    conversationJid,
-    threadId: normalizeNullableString(value.threadId),
-    workspaceKey,
-    sessionId: normalizeNullableString(value.sessionId),
-    personId: normalizeNullableString(value.personId),
-  };
-}
-
-function parseNotificationRoutes(input: unknown): CanonicalNotificationRoute[] {
-  if (!Array.isArray(input)) return [];
-  const routes: CanonicalNotificationRoute[] = [];
-  for (const item of input) {
-    if (!item || typeof item !== 'object') continue;
-    const value = item as Record<string, unknown>;
-    const conversationJid = normalizeString(value.conversationJid);
-    const label = normalizeString(value.label);
-    const providerAccountId = Object.prototype.hasOwnProperty.call(
-      value,
-      'providerAccountId',
-    )
-      ? normalizeNullableString(value.providerAccountId)
-      : undefined;
-    if (!conversationJid || !label) continue;
-    routes.push({
-      conversationJid,
-      threadId: normalizeNullableString(value.threadId),
-      ...(providerAccountId !== undefined ? { providerAccountId } : {}),
-      label,
-    });
-  }
-  return routes;
 }
 
 function parseToolAccessRequirements(input: unknown): string[] {

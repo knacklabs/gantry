@@ -117,5 +117,9 @@ describe('pending interaction permission recovery orchestrator', () => {
         mode: 'allow_persistent_rule',
       }),
     );
+    expect(mocks.resolve.mock.invocationCallOrder[0]).toBeLessThan(
+      terminalize.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.release).not.toHaveBeenCalled();
   });
 });

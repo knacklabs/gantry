@@ -20,10 +20,10 @@ import {
 } from './job-readiness-service.js';
 import { agentIdForJobWorkspaceKey } from './job-tool-policy.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import { formatJobSetupAction } from '../../shared/job-setup-labels.js';
 import {
   raiseSetupPausePermissionPrompt,
   retireSetupPausePermissionPrompt,
-  setupPausePermissionRequestId,
 } from './setup-pause-permission-prompt.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 
@@ -32,6 +32,12 @@ export interface RecheckPausedJobsAfterCapabilityUpdateInput {
   sourceAgentFolder: string;
   conversationJid?: string;
   jobId?: string;
+  recoveringPermissionPrompt?: {
+    jobId: string;
+    setupFingerprint: string;
+  };
+  // Non-setup recovery callers still correlate their own request lifecycle;
+  // setup-prompt retirement no longer derives authority from this value.
   recoveringPermissionRequestId?: string;
   opsRepository: RuntimeJobRepository;
   scheduler: SchedulerCoordinationPort;
@@ -148,8 +154,9 @@ async function recheckCandidateJob(
       queued.push({ jobId: job.id, name: job.name, state: 'queued' });
       try {
         if (
-          input.recoveringPermissionRequestId !==
-          setupPausePermissionRequestId(job.id, job.setup_state!.fingerprint)
+          input.recoveringPermissionPrompt?.jobId !== job.id ||
+          input.recoveringPermissionPrompt.setupFingerprint !==
+            job.setup_state!.fingerprint
         ) {
           try {
             await retireSetupPausePermissionPrompt({
@@ -202,7 +209,12 @@ async function recheckCandidateJob(
       jobId: job.id,
       name: job.name,
       state: 'still_blocked',
-      nextAction: readiness.setupState.blockers[0]?.nextAction,
+      nextAction: readiness.setupState.blockers[0]
+        ? formatJobSetupAction(
+            readiness.setupState.blockers[0].action,
+            readiness.setupState.blockers[0],
+          )
+        : undefined,
     });
     await publishRecheckEvent(
       input,
@@ -252,17 +264,12 @@ async function notifyStillBlockedSetupPrompt(notification: {
       });
       return;
     }
-    const prompt = await raiseSetupPausePermissionPrompt({
+    await raiseSetupPausePermissionPrompt({
       jobId: notification.job.id,
       setupFingerprint: notification.setupState.fingerprint,
       previousFingerprint: notification.previousFingerprint,
       source: 'partial_recovery',
     });
-    if (prompt.status !== 'raised' || !(await prompt.delivered)) return;
-    await notification.recheckInput.opsRepository.markJobSetupNotified(
-      notification.job.id,
-      notification.setupState.fingerprint,
-    );
   } catch (err) {
     logger.warn(
       { err, jobId: notification.job.id },

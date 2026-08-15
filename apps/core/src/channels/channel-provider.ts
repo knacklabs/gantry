@@ -20,6 +20,7 @@ import {
   StreamingStateSink,
   TypingSink,
 } from '../domain/types.js';
+import type { PreparedPermissionCardSink } from '../domain/permission-card.js';
 import type { RuntimeSettings } from '../config/settings/runtime-settings.js';
 import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
 import type { RuntimeSecretProvider } from '../domain/ports/runtime-secret-provider.js';
@@ -152,6 +153,7 @@ export type ChannelAdapter = ChannelLifecyclePort &
       InteractionSurface &
       RichInteractionSurface &
       PlanReviewSurface &
+      PreparedPermissionCardSink &
       AgentTodoSink &
       ConversationContextHydrationSink
   >;

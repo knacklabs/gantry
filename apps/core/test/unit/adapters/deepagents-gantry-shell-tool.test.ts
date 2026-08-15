@@ -128,8 +128,18 @@ describe('Gantry DeepAgents shell tool', () => {
     expect(onPermissionDenied).toHaveBeenCalledWith({
       toolName: 'RunCommand',
       reason: 'Unattended jobs do not wait for approval.',
-      grantable: true,
-      recoveryAction: expect.stringMatching(/^request_access /),
+      action: {
+        kind: 'approve_grant',
+        grant: {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [
+            { toolName: 'RunCommand', ruleContent: 'echo should-not-run' },
+          ],
+        },
+      },
+      denialKind: 'permission_denied',
+      provenanceSeam: 'gate',
     });
   });
 
@@ -203,7 +213,7 @@ describe('Gantry DeepAgents shell tool', () => {
     expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
     expect(captured).toMatchObject({
       toolName: 'RunCommand',
-      grantable: false,
+      action: { kind: 'instruction' },
     });
     expect(captured?.reason.toLowerCase()).toContain('protected');
   });

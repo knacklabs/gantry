@@ -16,6 +16,9 @@ import {
 
 const EXPIRED_CLAIM_AMBIGUOUS_ERROR =
   'Outbound delivery claim expired after provider-dispatch crash window; automatic retry was disabled to avoid blind redispatch.';
+const EXPIRED_PERMISSION_CLAIM_EXHAUSTED_ERROR =
+  'Permission card delivery exhausted its bounded attempts before provider transmission began.';
+const PERMISSION_CARD_MAX_ATTEMPTS = 4;
 
 export async function claimDueOutboundDeliveryItems(
   db: CanonicalDb,
@@ -44,6 +47,10 @@ export async function claimDueOutboundDeliveryItems(
       .select({
         id: pgSchema.outboundDeliveryItemsPostgres.id,
         deliveryId: pgSchema.outboundDeliveryItemsPostgres.deliveryId,
+        permissionPromptId:
+          pgSchema.outboundDeliveryItemsPostgres.permissionPromptId,
+        sendBegunAt: pgSchema.outboundDeliveryItemsPostgres.sendBegunAt,
+        attemptCount: pgSchema.outboundDeliveryItemsPostgres.attemptCount,
       })
       .from(pgSchema.outboundDeliveryItemsPostgres)
       .innerJoin(
@@ -77,8 +84,62 @@ export async function claimDueOutboundDeliveryItems(
         of: pgSchema.outboundDeliveryItemsPostgres,
         skipLocked: true,
       });
-    if (expiredClaimCandidates.length > 0) {
-      const expiredClaimItemIds = expiredClaimCandidates.map((row) => row.id);
+    // A claim that never reached beginSend consumed no SEND attempt: it is
+    // always retryable (the cap bounds transmission attempts, not lease
+    // churn) and the claim-time increment is refunded below.
+    const retryablePermissionClaims = expiredClaimCandidates.filter(
+      (row) => row.permissionPromptId !== null && row.sendBegunAt === null,
+    );
+    const exhaustedPermissionClaims: typeof expiredClaimCandidates = [];
+    const ambiguousClaims = expiredClaimCandidates.filter(
+      (row) => row.permissionPromptId === null || row.sendBegunAt !== null,
+    );
+    for (const row of retryablePermissionClaims) {
+      const baseMs = Date.parse(input.now);
+      const delayMs = Math.min(
+        30_000,
+        1_000 * 2 ** Math.max(0, row.attemptCount - 1),
+      );
+      const nextAttemptAt = Number.isFinite(baseMs)
+        ? new Date(baseMs + delayMs).toISOString()
+        : input.now;
+      await tx
+        .update(pgSchema.outboundDeliveryItemsPostgres)
+        .set({
+          status: 'pending',
+          failedAt: null,
+          lastError: null,
+          claimToken: null,
+          claimOwner: null,
+          claimExpiresAt: null,
+          sendBegunAt: null,
+          attemptCount: sql`greatest(${pgSchema.outboundDeliveryItemsPostgres.attemptCount} - 1, 0)`,
+          nextAttemptAt,
+          updatedAt: input.now,
+        })
+        .where(eq(pgSchema.outboundDeliveryItemsPostgres.id, row.id));
+    }
+    if (exhaustedPermissionClaims.length > 0) {
+      await tx
+        .update(pgSchema.outboundDeliveryItemsPostgres)
+        .set({
+          status: 'failed',
+          failedAt: input.now,
+          lastError: EXPIRED_PERMISSION_CLAIM_EXHAUSTED_ERROR,
+          claimToken: null,
+          claimOwner: null,
+          claimExpiresAt: null,
+          sendBegunAt: null,
+          updatedAt: input.now,
+        })
+        .where(
+          inArray(
+            pgSchema.outboundDeliveryItemsPostgres.id,
+            exhaustedPermissionClaims.map((row) => row.id),
+          ),
+        );
+    }
+    if (ambiguousClaims.length > 0) {
       await tx
         .update(pgSchema.outboundDeliveryItemsPostgres)
         .set({
@@ -94,12 +155,44 @@ export async function claimDueOutboundDeliveryItems(
         .where(
           inArray(
             pgSchema.outboundDeliveryItemsPostgres.id,
-            expiredClaimItemIds,
+            ambiguousClaims.map((row) => row.id),
           ),
         );
     }
+    const retryableDeliveryIds = [
+      ...new Set(retryablePermissionClaims.map((row) => row.deliveryId)),
+    ];
+    if (retryableDeliveryIds.length > 0) {
+      await tx
+        .update(pgSchema.outboundDeliveriesPostgres)
+        .set({
+          status: 'pending',
+          settledAt: null,
+          lastError: null,
+          updatedAt: input.now,
+        })
+        .where(
+          inArray(pgSchema.outboundDeliveriesPostgres.id, retryableDeliveryIds),
+        );
+    }
+    const exhaustedDeliveryIds = [
+      ...new Set(exhaustedPermissionClaims.map((row) => row.deliveryId)),
+    ];
+    if (exhaustedDeliveryIds.length > 0) {
+      await tx
+        .update(pgSchema.outboundDeliveriesPostgres)
+        .set({
+          status: 'failed',
+          settledAt: input.now,
+          lastError: EXPIRED_PERMISSION_CLAIM_EXHAUSTED_ERROR,
+          updatedAt: input.now,
+        })
+        .where(
+          inArray(pgSchema.outboundDeliveriesPostgres.id, exhaustedDeliveryIds),
+        );
+    }
     const ambiguousDeliveryIds = [
-      ...new Set(expiredClaimCandidates.map((row) => row.deliveryId)),
+      ...new Set(ambiguousClaims.map((row) => row.deliveryId)),
     ];
     if (ambiguousDeliveryIds.length > 0) {
       await tx

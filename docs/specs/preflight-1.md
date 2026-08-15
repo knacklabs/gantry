@@ -1,6 +1,6 @@
 ---
 slug: preflight-1
-title: PREFLIGHT-1 Scheduled jobs declare their tools upfront (neutral) + grantable setup cards
+title: PREFLIGHT-1 Scheduled jobs declare their tools upfront (neutral) + actionable setup cards
 status: confirmed
 saved: 2026-08-09T04:30:00+00:00
 ---
@@ -37,7 +37,9 @@ in code across both runner lanes.
   instruction-only.
 - Scheduling a job whose task needs an ungranted tool declares it and yields an actionable
   card shortly after creation; a job needing only granted tools is ready with no card.
-- No duplicate notification (existing fingerprint dedup); the passive setup event is kept.
+- Setup cards use bounded durable delivery (cap 4) with defined recovery for delivered,
+  ambiguous, exhausted, expired, and cancelled outcomes; delivery failure is never a
+  human denial. The passive setup event is kept.
 - Behaviour is identical regardless of runner lane; no prime/`runMode` code is introduced.
 
 ## Source

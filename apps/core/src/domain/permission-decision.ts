@@ -12,6 +12,60 @@ import { permissionUpdateAllowedToolRules } from '../shared/permission-tool-rule
 
 export const PERSISTENT_RULE_APPROVAL_MAX_RULES = 5;
 
+export interface PermissionAuthorityAddition {
+  type: 'addRules' | 'replaceRules';
+  behavior: 'allow';
+  rules: PermissionApprovalRuleValue[];
+  destination?: PermissionApprovalUpdate['destination'];
+}
+
+export function permissionAuthorityAddition(
+  update: PermissionApprovalUpdate | undefined,
+): PermissionAuthorityAddition | null {
+  const allowedDestinations = new Set([
+    'userSettings',
+    'projectSettings',
+    'localSettings',
+    'session',
+    'cliArg',
+  ]);
+  if (
+    !update ||
+    Object.keys(update).some(
+      (key) => !['type', 'behavior', 'rules', 'destination'].includes(key),
+    ) ||
+    (update.type !== 'addRules' && update.type !== 'replaceRules') ||
+    update.behavior !== 'allow' ||
+    !Array.isArray(update.rules) ||
+    update.rules.length === 0 ||
+    update.rules.length > PERSISTENT_RULE_APPROVAL_MAX_RULES ||
+    (update.destination !== undefined &&
+      !allowedDestinations.has(update.destination)) ||
+    update.rules.some(
+      (rule) =>
+        !rule ||
+        Object.keys(rule).some(
+          (key) => !['toolName', 'ruleContent'].includes(key),
+        ) ||
+        typeof rule.toolName !== 'string' ||
+        !rule.toolName.trim() ||
+        (rule.ruleContent !== undefined &&
+          (typeof rule.ruleContent !== 'string' || !rule.ruleContent.trim())),
+    )
+  ) {
+    return null;
+  }
+  return {
+    type: update.type,
+    behavior: 'allow',
+    rules: update.rules.map((rule) => ({
+      toolName: rule.toolName.trim(),
+      ...(rule.ruleContent ? { ruleContent: rule.ruleContent.trim() } : {}),
+    })),
+    ...(update.destination ? { destination: update.destination } : {}),
+  };
+}
+
 const PERMISSION_PROVENANCE_BY_DECIDER: Record<
   string,
   { source: PermissionDecisionSource; repeatableForFutureRuns: boolean }

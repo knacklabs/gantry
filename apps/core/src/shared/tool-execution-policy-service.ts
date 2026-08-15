@@ -2,12 +2,7 @@ import {
   evaluateAutonomousToolUse,
   normalizeRuntimeOwnedBashCommandForMatching,
 } from './tool-rule-matcher.js';
-import {
-  bashExecutableName,
-  nonDurableBashLeafReason,
-  normalizeBashLeafRuleContent,
-  parseBashCommand,
-} from './bash-command-parser.js';
+import { bashExecutableName, parseBashCommand } from './bash-command-parser.js';
 import { isDurableGantryMcpToolFullName } from './admin-mcp-tools.js';
 import {
   isGantryFacadeExactToolRule,
@@ -34,12 +29,10 @@ import {
   isSkillCapabilityPath,
   protectedCapabilityPathMatch,
 } from './tool-execution-protected-paths.js';
-import {
-  containsGeneratedRuntimePath,
-  isGeneratedRuntimeToolResultPath,
-} from './generated-runtime-paths.js';
+import { isGeneratedRuntimeToolResultPath } from './generated-runtime-paths.js';
 import { type SemanticCapabilityDefinition } from './semantic-capabilities.js';
 import { resolveCapabilityRules } from './tool-execution-capability-resolution.js';
+import { persistentAutonomousBashRecoveryRule } from './autonomous-bash-recovery-rule.js';
 
 export type ToolExecutionOrigin =
   | 'sdk'
@@ -604,7 +597,9 @@ function autonomousGrantRecovery(
   const toolName = publicGantryToolNameForSdkTool(request.toolName);
   if (request.toolName === 'Bash') {
     const command = commandText(request.input);
-    const rule = command ? persistentBashRecoveryRule(command) : undefined;
+    const rule = command
+      ? persistentAutonomousBashRecoveryRule(command)
+      : undefined;
     if (!rule) {
       return 'Update the autonomous run to use a reviewed semantic capability or invoke a scoped RunCommand(...) command directly. This command cannot be durably approved for autonomous runs.';
     }
@@ -640,6 +635,51 @@ export function autonomousToolRecoveryAction(input: {
   );
 }
 
+export function autonomousToolAuthorityAddition(input: {
+  toolName: string;
+  toolInput: unknown;
+  capabilityRequestToolsHidden?: boolean;
+}) {
+  if (input.capabilityRequestToolsHidden === true) return null;
+  const request = new ToolExecutionClassifier().classify({
+    origin: 'sdk',
+    toolName: input.toolName,
+    toolInput: input.toolInput,
+    executionMode: 'autonomous',
+  });
+  if (isKnownProjectedBrowserMcpToolName(request.toolName)) {
+    return allowRuleAddition('capability:browser.use');
+  }
+  const toolName = publicGantryToolNameForSdkTool(request.toolName);
+  if (request.toolName === 'Bash') {
+    const command = commandText(request.input);
+    const rule = command
+      ? persistentAutonomousBashRecoveryRule(command)
+      : undefined;
+    return rule ? allowRuleAddition('RunCommand', rule) : null;
+  }
+  if (
+    isDurableGantryMcpToolFullName(request.toolName) ||
+    isGantryFacadeExactToolRule(toolName)
+  ) {
+    return allowRuleAddition(
+      isDurableGantryMcpToolFullName(request.toolName)
+        ? request.toolName
+        : toolName,
+    );
+  }
+  return null;
+}
+
+function allowRuleAddition(toolName: string, ruleContent?: string) {
+  // No destination: durable approval decides persistence (review R3).
+  return {
+    type: 'addRules' as const,
+    behavior: 'allow' as const,
+    rules: [{ toolName, ...(ruleContent ? { ruleContent } : {}) }],
+  };
+}
+
 function thirdPartyMcpToolServerName(toolName: string): string | undefined {
   const match = /^mcp__([^_][A-Za-z0-9_.-]*)__/.exec(toolName);
   const serverName = match?.[1];
@@ -649,25 +689,4 @@ function thirdPartyMcpToolServerName(toolName: string): string | undefined {
 
 function escapeJson(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
-}
-
-function persistentBashRecoveryRule(command: string): string | undefined {
-  const normalized = normalizeRuntimeOwnedBashCommandForMatching(command);
-  if (containsGeneratedRuntimePath(normalized)) return undefined;
-  const parsed = parseBashCommand(normalized);
-  if (!parsed.ok || parsed.leaves.length !== 1) return undefined;
-  const [leaf] = parsed.leaves;
-  if (!leaf || nonDurableBashLeafReason(leaf)) return undefined;
-  if (inlineInterpreterLeaf(leaf.argv)) return undefined;
-  if (leaf.redirects.some((redirect) => redirect.destructive)) return undefined;
-  return normalizeBashLeafRuleContent(leaf);
-}
-
-function inlineInterpreterLeaf(argv: readonly string[]): boolean {
-  const executable = bashExecutableName(argv[0] ?? '');
-  if (
-    !['node', 'python', 'python3', 'ruby', 'perl', 'php'].includes(executable)
-  )
-    return false;
-  return ['-c', '-e'].includes(argv[1] ?? '');
 }

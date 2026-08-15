@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 import {
   createIpcResponseSigningKeyPair,
   verifyIpcResponsePayload,
@@ -145,11 +146,13 @@ describe('ipc-interaction-handler', () => {
   });
 
   it('delegates permission decisions through the domain handler', async () => {
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'reviewer',
-      reason: 'safe',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'reviewer',
+        reason: 'safe',
+      }),
+    );
 
     const response = await processPermissionIpcRequest(
       {
@@ -160,11 +163,13 @@ describe('ipc-interaction-handler', () => {
       { requestPermissionApproval },
     );
 
-    expect(response).toEqual({
-      approved: true,
-      decidedBy: 'reviewer',
-      reason: 'safe',
-    });
+    expect(response).toEqual(
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'reviewer',
+        reason: 'safe',
+      }),
+    );
     expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
   });
 
@@ -320,19 +325,21 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: true,
-          mode: 'allow_persistent_rule',
-          decidedBy: 'owner',
-          decisionClassification: 'user_permanent',
-          updatedPermissions: [
-            {
-              type: 'addRules',
-              behavior: 'allow',
-              rules: [{ toolName: 'mcp__gantry__admin_permission_list' }],
-            },
-          ],
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: true,
+            mode: 'allow_persistent_rule',
+            decidedBy: 'owner',
+            decisionClassification: 'user_permanent',
+            updatedPermissions: [
+              {
+                type: 'addRules',
+                behavior: 'allow',
+                rules: [{ toolName: 'mcp__gantry__admin_permission_list' }],
+              },
+            ],
+          }),
+        ),
         sendMessage,
         opsRepository: createEmptyJobRepository() as never,
         getToolRepository: () => toolRepository as never,
@@ -425,20 +432,22 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: true,
-          mode: 'allow_persistent_rule',
-          decidedBy: 'owner',
-          reason: 'persistent tool allowed',
-          decisionClassification: 'user_permanent',
-          updatedPermissions: [
-            {
-              type: 'addRules',
-              behavior: 'allow',
-              rules: [{ toolName: 'mcp__gantry__admin_permission_list' }],
-            },
-          ],
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: true,
+            mode: 'allow_persistent_rule',
+            decidedBy: 'owner',
+            reason: 'persistent tool allowed',
+            decisionClassification: 'user_permanent',
+            updatedPermissions: [
+              {
+                type: 'addRules',
+                behavior: 'allow',
+                rules: [{ toolName: 'mcp__gantry__admin_permission_list' }],
+              },
+            ],
+          }),
+        ),
         sendMessage,
         publishRuntimeEvent,
         opsRepository: {
@@ -512,7 +521,7 @@ describe('ipc-interaction-handler', () => {
     expect(resumeSetupPausedJob).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:team',
-      'Still needs setup: request_access {"target":{"kind":"capability","id":"browser.use"},"temporaryOnly":false,"reason":"This autonomous run requires Browser access."}.',
+      'Still needs setup: Approve Browser access, then resume the job.',
       { threadId: 'topic-7' },
     );
   });
@@ -593,21 +602,23 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: true,
-          mode: 'allow_persistent_rule',
-          decidedBy: 'owner',
-          decisionClassification: 'user_permanent',
-          updatedPermissions: [
-            {
-              type: 'addRules',
-              behavior: 'allow',
-              rules: [
-                { toolName: 'capability:skill.linkedin-posting.publish' },
-              ],
-            },
-          ],
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: true,
+            mode: 'allow_persistent_rule',
+            decidedBy: 'owner',
+            decisionClassification: 'user_permanent',
+            updatedPermissions: [
+              {
+                type: 'addRules',
+                behavior: 'allow',
+                rules: [
+                  { toolName: 'capability:skill.linkedin-posting.publish' },
+                ],
+              },
+            ],
+          }),
+        ),
         opsRepository: createEmptyJobRepository() as never,
         getToolRepository: () => toolRepository as never,
         getPermissionRuntimeSettings: promptPermissionRuntimeSettings,
@@ -659,7 +670,6 @@ describe('ipc-interaction-handler', () => {
       agentFolder: 'main_agent',
       suggestionKey: 'main_agent|RunCommand(npm test)',
       allowCount: 1,
-      lastOfferedAt: null,
       deniedAt: null,
       createdAt: '2026-07-12T00:00:00.000Z',
       updatedAt: '2026-07-12T00:00:00.000Z',
@@ -680,23 +690,24 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: true,
-          mode: 'allow_once',
-          decidedBy: 'owner',
-          decisionClassification: 'user_temporary',
-          updatedPermissions: [
-            {
-              type: 'addRules',
-              behavior: 'allow',
-              rules: [{ toolName: 'Bash', ruleContent: 'npm test' }],
-            },
-          ],
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: true,
+            mode: 'allow_once',
+            decidedBy: 'owner',
+            decisionClassification: 'user_temporary',
+            updatedPermissions: [
+              {
+                type: 'addRules',
+                behavior: 'allow',
+                rules: [{ toolName: 'Bash', ruleContent: 'npm test' }],
+              },
+            ],
+          }),
+        ),
         getPermissionPromotionRepository: () => ({
           incrementAndGet,
           get: vi.fn(async () => null),
-          markOffered: vi.fn(async () => false),
           markDenied: vi.fn(async () => undefined),
         }),
         getPermissionRuntimeSettings: promptPermissionRuntimeSettings,
@@ -1130,11 +1141,13 @@ describe('ipc-interaction-handler', () => {
   });
 
   it('never writes a human allow_once decision back to the cache', async () => {
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      mode: 'allow_once' as const,
-      decidedBy: 'owner',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        mode: 'allow_once' as const,
+        decidedBy: 'owner',
+      }),
+    );
     const putClassifierVerdict = vi.fn(async () => undefined);
 
     await resolvePermissionIpcDecision({
@@ -1277,17 +1290,18 @@ describe('ipc-interaction-handler', () => {
   });
 
   it('promotes the persistent option when IPC omits decision options', async () => {
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: false,
-      mode: 'cancel' as const,
-      decidedBy: 'owner',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: false,
+        mode: 'cancel' as const,
+        decidedBy: 'owner',
+      }),
+    );
     const counter = {
       appId: 'app:test',
       agentFolder: 'main_agent',
       suggestionKey: 'main_agent|RunCommand(git status)',
       allowCount: 2,
-      lastOfferedAt: null,
       deniedAt: null,
       createdAt: '2026-07-12T00:00:00.000Z',
       updatedAt: '2026-07-12T00:00:00.000Z',
@@ -1315,7 +1329,6 @@ describe('ipc-interaction-handler', () => {
         getPermissionPromotionRepository: () => ({
           incrementAndGet: vi.fn(),
           get: vi.fn(async () => counter),
-          markOffered: vi.fn(),
           markDenied: vi.fn(),
         }),
         getPermissionRuntimeSettings: () => ({
@@ -1348,12 +1361,14 @@ describe('ipc-interaction-handler', () => {
       reason: 'Benign command.',
       latencyMs: 1,
     }));
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: false,
-      mode: 'cancel' as const,
-      decidedBy: 'owner',
-      decisionClassification: 'user_reject' as const,
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: false,
+        mode: 'cancel' as const,
+        decidedBy: 'owner',
+        decisionClassification: 'user_reject' as const,
+      }),
+    );
     const publishRuntimeEvent = vi.fn(async () => undefined);
 
     await processPermissionInteractionIpc({
@@ -1538,11 +1553,13 @@ describe('ipc-interaction-handler', () => {
       const claimedPath = path.join(tempDir, `${requestId}.json`);
       fs.writeFileSync(claimedPath, '{}');
       const classifierConsult = vi.fn();
-      const requestPermissionApproval = vi.fn(async () => ({
-        approved: false,
-        mode: 'cancel' as const,
-        decisionClassification: 'user_reject' as const,
-      }));
+      const requestPermissionApproval = vi.fn(async () =>
+        permissionDecisionResult({
+          approved: false,
+          mode: 'cancel' as const,
+          decisionClassification: 'user_reject' as const,
+        }),
+      );
 
       await processPermissionInteractionIpc({
         request: {
@@ -1654,13 +1671,15 @@ describe('ipc-interaction-handler', () => {
         },
         sourceAgentFolder: 'main_agent',
         deps: {
-          requestPermissionApproval: vi.fn(async () => ({
-            approved: true,
-            mode: 'allow_once',
-            decidedBy: 'owner',
-            reason: 'safe for this run',
-            decisionClassification: 'user_temporary',
-          })),
+          requestPermissionApproval: vi.fn(async () =>
+            permissionDecisionResult({
+              approved: true,
+              mode: 'allow_once',
+              decidedBy: 'owner',
+              reason: 'safe for this run',
+              decisionClassification: 'user_temporary',
+            }),
+          ),
           publishRuntimeEvent,
         },
         ipcBaseDir: tempDir,
@@ -1771,13 +1790,15 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: true,
-          mode: 'allow_persistent_rule',
-          decidedBy: 'owner',
-          decisionClassification: 'user_permanent',
-          permissionCallbackClaim: claim,
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: true,
+            mode: 'allow_persistent_rule',
+            decidedBy: 'owner',
+            decisionClassification: 'user_permanent',
+            permissionCallbackClaim: claim,
+          }),
+        ),
         getPermissionRuntimeSettings: promptPermissionRuntimeSettings,
       },
       ipcBaseDir: tempDir,
@@ -1992,12 +2013,14 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: true,
-          mode: 'allow_once',
-          decidedBy: 'owner',
-          permissionCallbackClaim: claim,
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: true,
+            mode: 'allow_once',
+            decidedBy: 'owner',
+            permissionCallbackClaim: claim,
+          }),
+        ),
         publishRuntimeEvent,
       },
       ipcBaseDir: tempDir,
@@ -2063,12 +2086,14 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: false,
-          mode: 'cancel',
-          decidedBy: 'owner',
-          permissionCallbackClaim: claim,
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: false,
+            mode: 'cancel',
+            decidedBy: 'owner',
+            permissionCallbackClaim: claim,
+          }),
+        ),
         getPermissionRuntimeSettings: promptPermissionRuntimeSettings,
       },
       ipcBaseDir: tempDir,
@@ -2141,12 +2166,14 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: false,
-          mode: 'cancel',
-          decidedBy: 'owner',
-          permissionCallbackClaim: claim,
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: false,
+            mode: 'cancel',
+            decidedBy: 'owner',
+            permissionCallbackClaim: claim,
+          }),
+        ),
         getPermissionRuntimeSettings: promptPermissionRuntimeSettings,
       },
       ipcBaseDir: tempDir,
@@ -2165,12 +2192,14 @@ describe('ipc-interaction-handler', () => {
     const envelope = createIpcAuthEnvelope('main_agent', null);
     const claimedPath = path.join(tempDir, 'claimed-stale-permission.json');
     fs.writeFileSync(claimedPath, '{}');
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      mode: 'allow_once',
-      decidedBy: 'owner',
-      decisionClassification: 'user_temporary',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'owner',
+        decisionClassification: 'user_temporary',
+      }),
+    );
     const repository = {
       getActiveRunLease: vi.fn(async () => ({
         runId: 'run:test',
@@ -2729,13 +2758,15 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: false,
-          mode: 'cancel',
-          decidedBy: 'owner',
-          decisionClassification: 'user_reject',
-          permissionCallbackClaim: claim,
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: false,
+            mode: 'cancel',
+            decidedBy: 'owner',
+            decisionClassification: 'user_reject',
+            permissionCallbackClaim: claim,
+          }),
+        ),
       },
       ipcBaseDir: tempDir,
       file: 'claimed-unresolved-permission.json',
@@ -2826,13 +2857,15 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: true,
-          mode: 'allow_once',
-          decidedBy: 'owner',
-          decisionClassification: 'user_temporary',
-          permissionCallbackClaim: claim,
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: true,
+            mode: 'allow_once',
+            decidedBy: 'owner',
+            decisionClassification: 'user_temporary',
+            permissionCallbackClaim: claim,
+          }),
+        ),
         getPermissionRuntimeSettings: promptPermissionRuntimeSettings,
       },
       ipcBaseDir: tempDir,
@@ -3086,12 +3119,14 @@ describe('ipc-interaction-handler', () => {
     const envelope = createIpcAuthEnvelope('main_agent', null);
     const claimedPath = path.join(tempDir, 'claimed-recovered-permission.json');
     fs.writeFileSync(claimedPath, '{}');
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: false,
-      mode: 'cancel',
-      decidedBy: 'owner',
-      decisionClassification: 'user_reject',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: false,
+        mode: 'cancel',
+        decidedBy: 'owner',
+        decisionClassification: 'user_reject',
+      }),
+    );
     const getActiveRunLease = vi
       .fn()
       .mockResolvedValueOnce({
@@ -3250,19 +3285,21 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: true,
-          mode: 'allow_persistent_rule',
-          decidedBy: 'owner',
-          decisionClassification: 'user_permanent',
-          updatedPermissions: [
-            {
-              type: 'addRules',
-              behavior: 'allow',
-              rules: [{ toolName: 'mcp__gantry__service_restart' }],
-            },
-          ],
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: true,
+            mode: 'allow_persistent_rule',
+            decidedBy: 'owner',
+            decisionClassification: 'user_permanent',
+            updatedPermissions: [
+              {
+                type: 'addRules',
+                behavior: 'allow',
+                rules: [{ toolName: 'mcp__gantry__service_restart' }],
+              },
+            ],
+          }),
+        ),
         sendMessage: vi.fn(async () => undefined),
         getToolRepository: () => toolRepository as never,
         mirrorAgentToolRulesToSettings,

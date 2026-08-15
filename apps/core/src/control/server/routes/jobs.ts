@@ -37,6 +37,7 @@ import {
   getRuntimeStorage,
 } from '../../../adapters/storage/postgres/runtime-store.js';
 import { mapManualJobToStored, nowIso } from '../app-identity.js';
+import { jobSetupMetadataForState } from '../../../application/jobs/job-visibility-metadata.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,
@@ -369,13 +370,7 @@ export async function handleJobRoutes(
             ? 'paused'
             : 'active',
         setup: created.setupState
-          ? {
-              state: created.setupState.state,
-              checkedAt: created.setupState.checked_at,
-              fingerprint: created.setupState.fingerprint,
-              blockers: created.setupState.blockers,
-              nextAction: created.setupState.blockers[0]?.nextAction ?? null,
-            }
+          ? jobSetupMetadataForState(created.setupState)
           : undefined,
         runtimeContext: await runtimeContextPreviewFor({
           executionContext: runtimePreviewExecutionContext,
@@ -608,14 +603,7 @@ export async function handleJobRoutes(
       sendJson(res, 200, {
         resumed: result.resumed,
         setup: result.job.setup_state
-          ? {
-              state: result.job.setup_state.state,
-              checkedAt: result.job.setup_state.checked_at,
-              fingerprint: result.job.setup_state.fingerprint,
-              blockers: result.job.setup_state.blockers,
-              nextAction:
-                result.job.setup_state.blockers[0]?.nextAction ?? null,
-            }
+          ? jobSetupMetadataForState(result.job.setup_state)
           : undefined,
       });
     } catch (error) {

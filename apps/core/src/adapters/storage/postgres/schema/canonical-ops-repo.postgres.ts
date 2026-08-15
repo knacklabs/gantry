@@ -463,6 +463,21 @@ export class PostgresRuntimeRepositoryBundle
     return this.jobs.listRecentJobEvents(limit, filters);
   }
 
+  async listLatestSetupPromptIds(
+    appId: string,
+    jobIds: readonly string[],
+  ): Promise<Map<string, string>> {
+    return this.jobs.listLatestSetupPromptIds(appId, jobIds);
+  }
+
+  async listSetupDeliveryEventsPerJob(
+    appId: string,
+    jobIds: readonly string[],
+    perJobLimit: number,
+  ): Promise<JobEvent[]> {
+    return this.jobs.listSetupDeliveryEventsPerJob(appId, jobIds, perJobLimit);
+  }
+
   async getRouterState(key: string): Promise<string | undefined> {
     return this.routerState.get(key);
   }

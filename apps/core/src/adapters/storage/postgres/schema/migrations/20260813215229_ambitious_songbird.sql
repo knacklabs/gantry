@@ -1,0 +1,1 @@
+ALTER TABLE "permission_promotion_counters" DROP COLUMN "last_offered_at";

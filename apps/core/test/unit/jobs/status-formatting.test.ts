@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_AGENT_ENGINE } from '../../../src/shared/agent-engine.js';
 
 import { formatRunStatusMessage } from '@core/jobs/status-formatting.js';
 import type { Job } from '@core/domain/types.js';
@@ -176,13 +177,27 @@ describe('job status formatting', () => {
     expect(message).not.toContain('Needs attention:');
   });
 
-  it('renders a parsed terminal tool denial without developer trailer labels', () => {
+  it('renders a typed terminal tool denial without developer trailer labels', () => {
     const message = formatRunStatusMessage({
       job: job(),
       runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
       runStatus: 'failed',
-      summary:
-        'Tool not on autonomous run allowlist: RunCommand. Recovery: request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false}',
+      summary: 'Permission denied for RunCommand.',
+      toolDenial: {
+        toolName: 'RunCommand',
+        reason: 'Command access is missing.',
+        denialKind: 'permission_denied',
+        provenanceLane: DEFAULT_AGENT_ENGINE,
+        provenanceSeam: 'gate',
+        action: {
+          kind: 'approve_grant',
+          grant: {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'RunCommand', ruleContent: 'npm test *' }],
+          },
+        },
+      },
       nextRun: null,
       retryCount: 1,
     });

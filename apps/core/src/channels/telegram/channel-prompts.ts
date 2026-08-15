@@ -134,6 +134,10 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
     callbackId: string;
     timeoutMs: number;
     threadOpts: { message_thread_id?: number };
+    // Fired immediately before the FIRST Telegram API call: everything
+    // before it is local preparation and stays retryable (0128
+    // transmission boundary).
+    onTransmissionBegin?: () => void;
   }): Promise<{ message_id: number }> {
     if (!this.bot) throw new Error('Telegram bot is not connected');
     const parts = buildPermissionPromptParts(input.request, input.timeoutMs);
@@ -146,6 +150,9 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
         TELEGRAM_PERMISSION_FULL_VIEW_INLINE_MAX &&
       promptHtmlWithFullView.length <= TELEGRAM_MESSAGE_MAX_LENGTH,
     );
+    if (parts.fullView && !includeInlineFullView) {
+      input.onTransmissionBegin?.();
+    }
     const fullViewSent =
       parts.fullView && !includeInlineFullView
         ? await this.sendPermissionFullViewDocument({
@@ -216,6 +223,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
         },
       ]),
     };
+    input.onTransmissionBegin?.();
     if (promptHtml.length > TELEGRAM_MESSAGE_MAX_LENGTH) {
       await this.sendSplitPermissionReviewMessages({
         chatId: input.chatId,
@@ -236,40 +244,12 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
         },
       );
     }
-    return this.bot.api
-      .sendMessage(input.chatId, promptHtml, {
-        ...input.threadOpts,
-        parse_mode: 'HTML',
-        link_preview_options: { is_disabled: true },
-        reply_markup: replyMarkup,
-      })
-      .catch((htmlErr) => {
-        logger.warn(
-          {
-            requestId: input.request.requestId,
-            error: this.sanitizeErrorMessage(htmlErr),
-          },
-          'Telegram HTML permission prompt failed; retrying as plain text',
-        );
-        const plainPromptText = formatPermissionPromptPartsText(promptParts);
-        if (plainPromptText.length > TELEGRAM_MESSAGE_MAX_LENGTH) {
-          return this.sendSplitPermissionReviewMessages({
-            chatId: input.chatId,
-            promptText: plainPromptText,
-            threadOpts: input.threadOpts,
-          }).then(() =>
-            this.bot!.api.sendMessage(
-              input.chatId,
-              'Review the approval details above before choosing.',
-              { ...input.threadOpts, reply_markup: replyMarkup },
-            ),
-          );
-        }
-        return this.bot!.api.sendMessage(input.chatId, plainPromptText, {
-          ...input.threadOpts,
-          reply_markup: replyMarkup,
-        });
-      });
+    return this.bot.api.sendMessage(input.chatId, promptHtml, {
+      ...input.threadOpts,
+      parse_mode: 'HTML',
+      link_preview_options: { is_disabled: true },
+      reply_markup: replyMarkup,
+    });
   }
   private async sendSplitPermissionReviewMessages(input: {
     chatId: string;
@@ -299,24 +279,23 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
     // The details belong next to the prompt: same chat, same thread. The
     // prompt is already visible there, so a private copy adds no privacy.
     const content = Buffer.from(input.fullView.content, 'utf8');
-    try {
-      const result = await this.bot.api.sendDocument(
-        input.chatId,
-        new InputFile(content, input.fullView.filename),
-        {
-          ...input.threadOpts,
-          caption: [
-            input.fullView.filename,
-            `Full details for: ${input.request.displayName ?? input.request.title ?? input.request.toolName}`,
-          ]
-            .join('\n')
-            .slice(0, 1024),
-        },
-      );
-      return result.message_id !== undefined;
-    } catch {
-      return false;
+    const result = await this.bot.api.sendDocument(
+      input.chatId,
+      new InputFile(content, input.fullView.filename),
+      {
+        ...input.threadOpts,
+        caption: [
+          input.fullView.filename,
+          `Full details for: ${input.request.displayName ?? input.request.title ?? input.request.toolName}`,
+        ]
+          .join('\n')
+          .slice(0, 1024),
+      },
+    );
+    if (result.message_id === undefined) {
+      throw new Error('Telegram did not accept the permission full view');
     }
+    return true;
   }
   private telegramConversationMatchesChat(
     conversation: { providerAccount: string; externalId: string } | undefined,

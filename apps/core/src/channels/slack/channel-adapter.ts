@@ -7,10 +7,39 @@ import type {
   ContentCanvasAction,
   ContentCanvasResult,
 } from '../../shared/content-canvas.js';
+import type { MessageSendOptions } from '../../domain/types.js';
+import {
+  prepareSlackPermissionCardSend,
+  slackPermissionApproverIds,
+} from './permission-approval-delivery.js';
 
 export class SlackChannel extends SlackChannelDelivery {
   name = 'slack';
   readonly liveUx = SLACK_LIVE_UX_CAPABILITY;
+
+  preparePermissionCardSend(
+    jid: string,
+    _text: string,
+    options: MessageSendOptions & {
+      permissionCardView: NonNullable<MessageSendOptions['permissionCardView']>;
+    },
+  ) {
+    if (!this.interactionCallbacksEnabled || !this.app) {
+      throw new Error('Slack approval surface is unavailable.');
+    }
+    const parsed = this.parseJid(jid);
+    if (!parsed) throw new Error('Slack conversation is invalid.');
+    return prepareSlackPermissionCardSend({
+      app: this.app,
+      channelId: parsed.channelId,
+      approverUserIds: slackPermissionApproverIds(
+        this.opts.runtimeSettings,
+        this.opts.providerAccountId,
+        parsed.channelId,
+      ),
+      options,
+    });
+  }
 
   executeCanvasAction(
     conversationJid: string,

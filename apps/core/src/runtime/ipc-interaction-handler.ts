@@ -4,6 +4,7 @@ import path from 'path';
 import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../domain/types.js';
@@ -19,7 +20,7 @@ import { IpcDeps } from './ipc-domain-types.js';
 export async function processPermissionIpcRequest(
   request: PermissionApprovalRequest,
   deps: Pick<IpcDeps, 'requestPermissionApproval'>,
-): Promise<PermissionApprovalDecision> {
+): Promise<PermissionApprovalResult> {
   return deps.requestPermissionApproval(request);
 }
 

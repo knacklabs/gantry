@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 import {
   getOldestWaitingLiveAdmissionSeconds,
@@ -186,7 +187,9 @@ function makeChannelWiring(): ChannelWiring {
     removeReaction: vi.fn(async () => {}),
     reactionRemovalMode: vi.fn(() => 'all'),
     syncGroups: vi.fn(async () => {}),
-    requestPermissionApproval: vi.fn(async () => ({ approved: true })),
+    requestPermissionApproval: vi.fn(async () =>
+      permissionDecisionResult({ approved: true }),
+    ),
     requestUserAnswer: vi.fn(async () => ({ requestId: 'q', answers: {} })),
     renderAgentTodo: vi.fn(async () => true),
     finalizeAgentTodo: vi.fn(async () => true),

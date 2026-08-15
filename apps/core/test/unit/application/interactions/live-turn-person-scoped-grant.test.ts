@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { permissionDecisionResult } from '../../channels/permission-approval-result-helpers.js';
 import { durablePermissionRequestSnapshot } from '@core/application/interactions/durable-interaction-handler.js';
 import {
   applyRecoveredPersistentPermissionGrant,
@@ -132,12 +133,12 @@ describe('live-turn person scoping', () => {
       deps: {
         requestPermissionApproval: vi.fn(async (request) => {
           promptedRequest = request;
-          return {
+          return permissionDecisionResult({
             approved: false,
             mode: 'cancel' as const,
             decidedBy: 'owner-1',
             decisionClassification: 'user_reject' as const,
-          };
+          });
         }),
       },
       ipcBaseDir: tempDir,

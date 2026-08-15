@@ -7,6 +7,7 @@ import { logger, updateLogContext } from '../infrastructure/logging/logger.js';
 import { getRuntimeControlRepository, getRuntimeEventExchange, getConfiguredModelProvidersForApp, getWorkerCoordinationRepository } from '../adapters/storage/postgres/runtime-store.js';
 import { DEFAULT_JOB_RUNTIME_APP_ID } from '../application/jobs/job-access.js';
 import { splitAccessRequirements } from '../application/jobs/job-access-requirements.js';
+import { evaluateToolAccessRequirements } from '../application/jobs/job-tool-access-requirements.js';
 import * as jobToolPolicy from '../application/jobs/job-tool-policy.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from '../application/jobs/job-readiness-service.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
@@ -59,17 +60,17 @@ import {
   resolveJobModel,
 } from './model-resolution.js';
 // prettier-ignore
-import { createJobRunDiagnostics, createStreamingEventFlusher, filterUnforwardedRunnerRuntimeEvents, formatTerminalToolDenial, forwardRunnerRuntimeEvents, runnerRuntimeEventKey, terminalDiagnosticsPayload, toolDenialEventPayload } from './execution-diagnostics.js';
+import { createJobRunDiagnostics, createStreamingEventFlusher, filterUnforwardedRunnerRuntimeEvents, formatTerminalToolDenial, forwardRunnerRuntimeEvents, runnerRuntimeEventKey, terminalDiagnosticsPayload } from './execution-diagnostics.js';
 import { pauseJobForSetupIfNeeded } from './execution-readiness.js';
 import {
   bindSchedulerRunEventState,
+  publishTerminalToolDenials,
   createRuntimeEventPublisher as createEventPublisher,
   createSchedulerJobEventEmitter,
   publishSchedulerCompletionEvent,
 } from './execution-runtime-events.js';
 import { resolveAppSessionForJob } from './app-session-resolution.js';
 import { finalizeSchedulerJobRun } from './execution-finalization.js';
-import { assertToolAccessRequirementsReadyForRun } from './execution-tool-access-requirements.js';
 import { closeBrowserAfterJobRun } from './execution-browser-cleanup.js';
 import { prelaunchBrowserForJobRun } from './execution-browser-prelaunch.js';
 import { isTrustedSystemJob } from '../shared/system-job-identity.js';
@@ -374,14 +375,12 @@ async function runActiveJob(
               conversationId: execution.group.conversationId,
               threadId: execution.threadId ?? undefined,
             });
-          const toolAccessRequirementPreflight =
-            await assertToolAccessRequirementsReadyForRun({
-              toolAccessRequirements: splitAccessRequirements(
-                currentJob.access_requirements,
-              ).toolAccessRequirements,
-              effectiveAllowedTools: toolPolicy.effectiveAllowedTools,
-              emitJobEvent,
-            });
+          const toolAccessRequirements = evaluateToolAccessRequirements({
+            toolAccessRequirements: splitAccessRequirements(
+              currentJob.access_requirements,
+            ).toolAccessRequirements,
+            effectiveAllowedTools: toolPolicy.effectiveAllowedTools,
+          }).toolAccessRequirements;
           const finalReadinessPassed = !(await pauseJobForSetupIfNeeded({
             currentJob,
             deps,
@@ -498,8 +497,7 @@ async function runActiveJob(
                 assistantName: ASSISTANT_NAME,
                 memoryContextBlock: turnContext?.memoryContextBlock,
                 toolPolicyRules: toolPolicy.effectiveAllowedTools,
-                toolAccessRequirements:
-                  toolAccessRequirementPreflight.toolAccessRequirements,
+                toolAccessRequirements: toolAccessRequirements,
                 runtimeAccess: toolPolicy.runtimeAccess,
                 attachedSkillSourceIds: selectedSkillContext.ids,
                 selectedSkillDisplays: selectedSkillContext.displays,
@@ -630,6 +628,10 @@ async function runActiveJob(
       ? null
       : result || resultSummaryAccumulator.snapshot() || null;
     // prettier-ignore
+    const denialAppendError = deletionGuard.deletedDuringRun ? null : await publishTerminalToolDenials({ denials: diagnostics.terminalToolDenials, error, currentJob, runId, runtimeAppId, eventState, eventControl, publishRuntimeEvent });
+    const denialAppendFailed = denialAppendError !== null;
+    if (denialAppendError) error = denialAppendError;
+    // prettier-ignore
     const {
       runStatus, nextRun, retryCount, pauseReason,
       safeErrorSummary, toolDenial, setupNotified,
@@ -647,6 +649,8 @@ async function runActiveJob(
       runId,
       appSession: eventState.eventAppSession ?? preflightAppSession,
       publishRuntimeEvent,
+      denialAppendFailed,
+      listRuntimeEvents: (filter) => getRuntimeEventExchange().list(filter),
       updateJobState: async (jobUpdates, state) => {
         if (deletionGuard.deletedDuringRun) return;
         const finalizeWithLease = deps.opsRepository.finalizeJobRunWithLease;
@@ -734,11 +738,6 @@ async function runActiveJob(
       emitJobEvent,
       logger,
     });
-    if (toolDenial)
-      await emitJobEvent(
-        RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
-        toolDenialEventPayload(toolDenial, safeErrorSummary),
-      );
     logMemoryDreamJobFailure({ job: currentJob, runId, error, logger });
     const notified =
       !(await deletionGuard.shouldSuppressDelivery()) &&
@@ -752,6 +751,7 @@ async function runActiveJob(
         pauseReason,
         setupNotified,
         diagnostics,
+        toolDenial,
         durationMs: Math.max(0, nowMs() - startedAtMs),
         runShortId,
         sendMessage: deps.sendMessage,

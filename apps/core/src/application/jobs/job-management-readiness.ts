@@ -9,7 +9,8 @@ import {
   type JobReadinessResult,
   SETUP_REQUIRED_PAUSE_REASON,
 } from './job-readiness-service.js';
-import { setupActionLabel } from '../../shared/job-setup-labels.js';
+import { formatJobSetupAction } from '../../shared/job-setup-labels.js';
+import { jobSetupRequiredEventPayload } from '../../domain/events/job-setup-required.js';
 
 export async function evaluateManagedJobReadiness(input: {
   deps: JobManagementServiceDeps;
@@ -144,13 +145,10 @@ export async function recordJobSetupRequired(input: {
       null) as never,
     responseMode: appSession?.defaultResponseMode,
     webhookId: appSession?.defaultWebhookId,
-    payload: {
+    payload: jobSetupRequiredEventPayload({
       jobId: input.job.id,
-      setup_state: input.readiness.setupState.state,
-      blocker_fingerprint: input.readiness.setupState.fingerprint,
-      notified: false,
-      blockers: input.readiness.setupState.blockers,
-    },
+      setupState: input.readiness.setupState,
+    }),
   });
 }
 
@@ -158,7 +156,8 @@ export function setupBlockerDetails(
   setupState: NonNullable<Job['setup_state']>,
 ): string[] {
   return setupState.blockers.map(
-    (blocker) => `${blocker.message} Action: ${setupActionLabel(blocker)}`,
+    (blocker) =>
+      `${blocker.summary} Action: ${formatJobSetupAction(blocker.action, blocker)}`,
   );
 }
 

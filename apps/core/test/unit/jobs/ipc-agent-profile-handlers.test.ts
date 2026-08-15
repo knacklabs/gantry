@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 import type {
   FileArtifact,
@@ -198,7 +199,12 @@ function contextFor(input: {
       getFileArtifactStore: () => input.store,
       requestPermissionApproval:
         input.requestPermissionApproval ??
-        vi.fn(async () => ({ approved: true, decidedBy: 'user:approver' })),
+        vi.fn(async () =>
+          permissionDecisionResult({
+            approved: true,
+            decidedBy: 'user:approver',
+          }),
+        ),
       sendMessage: input.sendMessage ?? vi.fn(),
       publishRuntimeEvent: vi.fn(),
     },
@@ -330,10 +336,12 @@ describe('agent profile IPC handlers', () => {
         version: 0,
         contentHash: 'hash-current',
       });
-      const requestPermissionApproval = vi.fn(async () => ({
-        approved: false,
-        reason: 'stop after approval request',
-      }));
+      const requestPermissionApproval = vi.fn(async () =>
+        permissionDecisionResult({
+          approved: false,
+          reason: 'stop after approval request',
+        }),
+      );
 
       await agentProfileTaskHandlers.request_agent_profile_update(
         contextFor({
@@ -370,10 +378,12 @@ describe('agent profile IPC handlers', () => {
       contentHash: 'hash-current',
     });
     const proposedContent = '# next\n\nUse memory_search before guessing.';
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'user:approver',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'user:approver',
+      }),
+    );
 
     await agentProfileTaskHandlers.request_agent_profile_update(
       contextFor({

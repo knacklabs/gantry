@@ -50,6 +50,7 @@ import { DISCORD_LIVE_ATTACHMENT_DEADLINE_MS } from '@core/channels/discord-live
 import { discordMessageContent } from '@core/channels/discord-conversation-context.js';
 import { createLiveReactionLifecycle } from '@core/app/bootstrap/live-reaction-lifecycle.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
+import { requirePermissionDecision } from './permission-approval-result-helpers.js';
 
 class FakeWebSocket {
   onopen: (() => void) | null = null;
@@ -3788,17 +3789,19 @@ describe('DiscordChannel', () => {
 
     await channel.connect();
     const onPromptDelivered = vi.fn();
-    const approval = channel.requestPermissionApproval(
-      'dc:channel-1',
-      {
-        requestId: 'permission-1',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'RunCommand',
-        targetJid: 'dc:channel-1',
-        approvalContextJid: 'dc:approval-context',
-      },
-      onPromptDelivered,
-    );
+    const approval = channel
+      .requestPermissionApproval(
+        'dc:channel-1',
+        {
+          requestId: 'permission-1',
+          sourceAgentFolder: 'main_agent',
+          toolName: 'RunCommand',
+          targetJid: 'dc:channel-1',
+          approvalContextJid: 'dc:approval-context',
+        },
+        onPromptDelivered,
+      )
+      .then(requirePermissionDecision);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onPromptDelivered).toHaveBeenCalledOnce();
     expect(onPromptDelivered).toHaveBeenCalledWith('message-1');
@@ -3853,12 +3856,14 @@ describe('DiscordChannel', () => {
     );
 
     await channel.connect();
-    const approval = channel.requestPermissionApproval('dc:channel-1', {
-      requestId: 'permission-disconnect-retryable',
-      sourceAgentFolder: 'main_agent',
-      toolName: 'RunCommand',
-      targetJid: 'dc:channel-1',
-    });
+    const approval = channel
+      .requestPermissionApproval('dc:channel-1', {
+        requestId: 'permission-disconnect-retryable',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'RunCommand',
+        targetJid: 'dc:channel-1',
+      })
+      .then(requirePermissionDecision);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     await channel.disconnect();
@@ -3889,12 +3894,14 @@ describe('DiscordChannel', () => {
     );
 
     await channel.connect();
-    const approval = channel.requestPermissionApproval('dc:channel-1', {
-      requestId: 'permission-disconnect-ownerless',
-      sourceAgentFolder: 'main_agent',
-      toolName: 'RunCommand',
-      targetJid: 'dc:channel-1',
-    });
+    const approval = channel
+      .requestPermissionApproval('dc:channel-1', {
+        requestId: 'permission-disconnect-ownerless',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'RunCommand',
+        targetJid: 'dc:channel-1',
+      })
+      .then(requirePermissionDecision);
     await new Promise((resolve) => setTimeout(resolve, 0));
     await channel.disconnect();
 
@@ -3923,12 +3930,14 @@ describe('DiscordChannel', () => {
       (url) => new FakeWebSocket(url),
     );
     await channel.connect();
-    const approval = channel.requestPermissionApproval('dc:channel-1', {
-      requestId: 'permission-disconnect-winner',
-      sourceAgentFolder: 'main_agent',
-      toolName: 'RunCommand',
-      targetJid: 'dc:channel-1',
-    });
+    const approval = channel
+      .requestPermissionApproval('dc:channel-1', {
+        requestId: 'permission-disconnect-winner',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'RunCommand',
+        targetJid: 'dc:channel-1',
+      })
+      .then(requirePermissionDecision);
     await new Promise((resolve) => setTimeout(resolve, 0));
     let resolved = false;
     void approval.then(() => {
@@ -3982,10 +3991,9 @@ describe('DiscordChannel', () => {
         },
       ],
     };
-    const approval = channel.requestPermissionApproval(
-      'dc:channel-1',
-      permissionRequest,
-    );
+    const approval = channel
+      .requestPermissionApproval('dc:channel-1', permissionRequest)
+      .then(requirePermissionDecision);
     const answer = channel.requestUserAnswer('dc:channel-1', questionRequest);
     let resolved = 0;
     void approval.then(() => {
@@ -4067,13 +4075,15 @@ describe('DiscordChannel', () => {
     );
 
     await channel.connect();
-    const approval = channel.requestPermissionApproval('dc:channel-1', {
-      requestId: 'permission-shared-timeout',
-      sourceAgentFolder: 'main_agent',
-      toolName: 'RunCommand',
-      targetJid: 'dc:channel-1',
-      permissionLane: 'interactive',
-    });
+    const approval = channel
+      .requestPermissionApproval('dc:channel-1', {
+        requestId: 'permission-shared-timeout',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'RunCommand',
+        targetJid: 'dc:channel-1',
+        permissionLane: 'interactive',
+      })
+      .then(requirePermissionDecision);
     let settled = false;
     void approval.then(() => {
       settled = true;
@@ -4112,13 +4122,15 @@ describe('DiscordChannel', () => {
     );
 
     await channel.connect();
-    const approval = channel.requestPermissionApproval('dc:channel-1', {
-      requestId: 'permission-autonomous-lane-timeout',
-      sourceAgentFolder: 'main_agent',
-      toolName: 'RunCommand',
-      targetJid: 'dc:channel-1',
-      permissionLane: 'autonomous',
-    });
+    const approval = channel
+      .requestPermissionApproval('dc:channel-1', {
+        requestId: 'permission-autonomous-lane-timeout',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'RunCommand',
+        targetJid: 'dc:channel-1',
+        permissionLane: 'autonomous',
+      })
+      .then(requirePermissionDecision);
     await vi.advanceTimersByTimeAsync(0);
 
     const pending = [
@@ -4169,7 +4181,9 @@ describe('DiscordChannel', () => {
       targetJid: 'dc:channel-1',
       expiresAt: '2026-07-17T00:01:00.000Z',
     };
-    const approval = channel.requestPermissionApproval('dc:channel-1', request);
+    const approval = channel
+      .requestPermissionApproval('dc:channel-1', request)
+      .then(requirePermissionDecision);
     await vi.advanceTimersByTimeAsync(30_000);
 
     expect((channel as any).interactions.pendingPermissions.size).toBe(1);
@@ -4206,13 +4220,15 @@ describe('DiscordChannel', () => {
     );
 
     await channel.connect();
-    const approval = channel.requestPermissionApproval('dc:channel-1', {
-      requestId: 'permission-timeout-retryable',
-      sourceAgentFolder: 'main_agent',
-      toolName: 'RunCommand',
-      targetJid: 'dc:channel-1',
-      permissionLane: 'interactive',
-    });
+    const approval = channel
+      .requestPermissionApproval('dc:channel-1', {
+        requestId: 'permission-timeout-retryable',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'RunCommand',
+        targetJid: 'dc:channel-1',
+        permissionLane: 'interactive',
+      })
+      .then(requirePermissionDecision);
     await vi.advanceTimersByTimeAsync(600_000);
 
     expect(
@@ -4411,24 +4427,28 @@ describe('DiscordChannel', () => {
       },
     );
     await channel.connect();
-    const first = channel.requestPermissionApproval('dc:channel-1', {
-      requestId: 'shared-request',
-      sourceAgentFolder: 'agent-a',
-      targetJid: 'dc:channel-1',
-      toolName: 'RunCommand',
-    });
+    const first = channel
+      .requestPermissionApproval('dc:channel-1', {
+        requestId: 'shared-request',
+        sourceAgentFolder: 'agent-a',
+        targetJid: 'dc:channel-1',
+        toolName: 'RunCommand',
+      })
+      .then(requirePermissionDecision);
     await vi.waitFor(() =>
       expect(
         durabilityMocks.bindPendingPermissionInteractionMessage,
       ).toHaveBeenCalledTimes(2),
     );
     const firstAlias = latestDiscordPermissionAlias();
-    const second = channel.requestPermissionApproval('dc:channel-1', {
-      requestId: 'shared-request',
-      sourceAgentFolder: 'agent-b',
-      targetJid: 'dc:channel-1',
-      toolName: 'RunCommand',
-    });
+    const second = channel
+      .requestPermissionApproval('dc:channel-1', {
+        requestId: 'shared-request',
+        sourceAgentFolder: 'agent-b',
+        targetJid: 'dc:channel-1',
+        toolName: 'RunCommand',
+      })
+      .then(requirePermissionDecision);
     await vi.waitFor(() =>
       expect(
         durabilityMocks.bindPendingPermissionInteractionMessage,
@@ -4504,10 +4524,9 @@ describe('DiscordChannel', () => {
     );
 
     await channel.connect();
-    const approval = channel.requestPermissionApproval(
-      'dc:channel-1',
-      batchRequest,
-    );
+    const approval = channel
+      .requestPermissionApproval('dc:channel-1', batchRequest)
+      .then(requirePermissionDecision);
     await vi.waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         'https://discord.com/api/v10/channels/channel-1/messages',
@@ -4578,7 +4597,12 @@ describe('DiscordChannel', () => {
         batch,
         onPromptDelivered,
       ),
-    ).resolves.toMatchObject({ approved: false, mode: 'cancel' });
+    ).resolves.toMatchObject({
+      kind: 'delivery_failure',
+      code: 'provider_failed',
+      retryable: false,
+      delivered: 'unknown',
+    });
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(
@@ -4606,9 +4630,14 @@ describe('DiscordChannel', () => {
         targetJid: 'dc:channel-1',
         toolName: 'RunCommand',
       }),
-    ).rejects.toBe(persistenceError);
+    ).resolves.toMatchObject({
+      kind: 'delivery_failure',
+      code: 'provider_failed',
+      retryable: false,
+      delivered: 'unknown',
+    });
 
-    expect((channel as any).interactions.pendingPermissions.size).toBe(1);
+    expect((channel as any).interactions.pendingPermissions.size).toBe(0);
     await channel.disconnect();
   });
 
@@ -4635,7 +4664,12 @@ describe('DiscordChannel', () => {
 
     await expect(
       channel.requestPermissionApproval('dc:channel-1', batch),
-    ).resolves.toMatchObject({ approved: false, mode: 'cancel' });
+    ).resolves.toMatchObject({
+      kind: 'delivery_failure',
+      code: 'provider_failed',
+      retryable: false,
+      delivered: 'unknown',
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(
@@ -4793,16 +4827,18 @@ describe('DiscordChannel', () => {
 
     await channel.connect();
     const onPromptDelivered = vi.fn();
-    const approval = channel.requestPermissionApproval(
-      'dc:channel-1',
-      {
-        requestId: 'permission-retry',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'RunCommand',
-        targetJid: 'dc:channel-1',
-      },
-      onPromptDelivered,
-    );
+    const approval = channel
+      .requestPermissionApproval(
+        'dc:channel-1',
+        {
+          requestId: 'permission-retry',
+          sourceAgentFolder: 'main_agent',
+          toolName: 'RunCommand',
+          targetJid: 'dc:channel-1',
+        },
+        onPromptDelivered,
+      )
+      .then(requirePermissionDecision);
     await vi.waitFor(() => expect(onPromptDelivered).toHaveBeenCalledOnce());
 
     const click = (id: string) =>
@@ -4967,14 +5003,16 @@ describe('DiscordChannel', () => {
     const command = 'npm test -- --runInBand';
 
     await channel.connect();
-    const approval = channel.requestPermissionApproval('dc:channel-1', {
-      requestId: 'permission-1',
-      sourceAgentFolder: 'main_agent',
-      toolName: 'RunCommand',
-      toolInput: { command },
-      targetJid: 'dc:channel-1',
-      approvalContextJid: 'dc:approval-context',
-    });
+    const approval = channel
+      .requestPermissionApproval('dc:channel-1', {
+        requestId: 'permission-1',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'RunCommand',
+        toolInput: { command },
+        targetJid: 'dc:channel-1',
+        approvalContextJid: 'dc:approval-context',
+      })
+      .then(requirePermissionDecision);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const promptCall = fetchMock.mock.calls.find(([url]) =>

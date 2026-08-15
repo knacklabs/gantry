@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 vi.mock('@core/platform/sender-allowlist.js', () => ({
   loadSenderAllowlist: vi.fn(() => ({})),
@@ -344,11 +345,11 @@ describe('createChannelWiring', () => {
           onPromptDelivered?: (messageId: string) => void,
         ) => {
           onPromptDelivered?.('batch-prompt-1');
-          return {
+          return permissionDecisionResult({
             approved: true,
             mode: 'allow_once' as const,
             decidedBy: 'Ravi',
-          };
+          });
         },
       );
       const requester = createPermissionApprovalRequester({
@@ -377,8 +378,12 @@ describe('createChannelWiring', () => {
         }),
       );
       await expect(Promise.all([first, second])).resolves.toEqual([
-        expect.objectContaining({ approved: true, mode: 'allow_once' }),
-        expect.objectContaining({ approved: true, mode: 'allow_once' }),
+        permissionDecisionResult(
+          expect.objectContaining({ approved: true, mode: 'allow_once' }),
+        ),
+        permissionDecisionResult(
+          expect.objectContaining({ approved: true, mode: 'allow_once' }),
+        ),
       ]);
       expect(resetStreaming).toHaveBeenCalledOnce();
     } finally {
@@ -397,22 +402,22 @@ describe('createChannelWiring', () => {
         ) => {
           onPromptDelivered?.(`prompt-${request.requestId}`);
           if (request.permissionBatch) {
-            return {
+            return permissionDecisionResult({
               ...decisionForMode(request, 'allow_persistent_rule', 'Ravi'),
               reason: 'persistent rule allowed via Telegram',
-            };
+            });
           }
           return request.requestId === 'permission-1'
-            ? {
+            ? permissionDecisionResult({
                 approved: true,
                 mode: 'allow_once' as const,
                 decidedBy: 'Ravi',
-              }
-            : {
+              })
+            : permissionDecisionResult({
                 approved: false,
                 mode: 'cancel' as const,
                 decidedBy: 'Ravi',
-              };
+              });
         },
       );
       const requester = createPermissionApprovalRequester({
@@ -433,8 +438,12 @@ describe('createChannelWiring', () => {
       await vi.advanceTimersByTimeAsync(1500);
 
       await expect(Promise.all([first, second])).resolves.toEqual([
-        expect.objectContaining({ approved: true, mode: 'allow_once' }),
-        expect.objectContaining({ approved: false, mode: 'cancel' }),
+        permissionDecisionResult(
+          expect.objectContaining({ approved: true, mode: 'allow_once' }),
+        ),
+        permissionDecisionResult(
+          expect.objectContaining({ approved: false, mode: 'cancel' }),
+        ),
       ]);
       expect(requestPermissionApproval).toHaveBeenCalledTimes(3);
     } finally {
@@ -450,7 +459,10 @@ describe('createChannelWiring', () => {
         requestPermissionApproval: vi.fn(
           async (_jid, _request, onPromptDelivered) => {
             onPromptDelivered?.('permission-prompt-1');
-            return { approved: false, mode: 'cancel' };
+            return permissionDecisionResult({
+              approved: false,
+              mode: 'cancel',
+            });
           },
         ),
       }),
@@ -2056,7 +2068,7 @@ describe('createChannelWiring', () => {
         onPromptDelivered?: (messageId: string) => void,
       ) => {
         onPromptDelivered?.('alpha-prompt');
-        return { approved: true };
+        return permissionDecisionResult({ approved: true });
       },
     );
     const betaApproval = vi.fn(
@@ -2066,7 +2078,7 @@ describe('createChannelWiring', () => {
         onPromptDelivered?: (messageId: string) => void,
       ) => {
         onPromptDelivered?.('beta-prompt');
-        return { approved: false };
+        return permissionDecisionResult({ approved: false });
       },
     );
     const settings = makeRuntimeSettings({ telegram: false, slack: true });
@@ -2110,7 +2122,7 @@ describe('createChannelWiring', () => {
         threadId: 'thread-1',
         toolName: 'danger-tool',
       }),
-    ).resolves.toEqual({ approved: true });
+    ).resolves.toEqual(permissionDecisionResult({ approved: true }));
     expect(alphaApproval).toHaveBeenCalledOnce();
     expect(betaApproval).not.toHaveBeenCalled();
     expect(alphaReset).toHaveBeenCalledWith('sl:C123', {
@@ -2323,10 +2335,12 @@ describe('createChannelWiring', () => {
         onPromptDelivered?: (messageId: string) => void,
       ) => {
         onPromptDelivered?.('alpha-approval-message');
-        return { approved: true };
+        return permissionDecisionResult({ approved: true });
       },
     );
-    const betaApproval = vi.fn(async () => ({ approved: false }));
+    const betaApproval = vi.fn(async () =>
+      permissionDecisionResult({ approved: false }),
+    );
     const settings = makeRuntimeSettings({ telegram: false, slack: true });
     settings.providerAccounts = {
       slack_alpha: {
@@ -2366,7 +2380,7 @@ describe('createChannelWiring', () => {
         targetJid: 'sl:C123',
         toolName: 'danger-tool',
       }),
-    ).resolves.toEqual({ approved: true });
+    ).resolves.toEqual(permissionDecisionResult({ approved: true }));
     expect(alphaApproval).toHaveBeenCalledOnce();
     expect(betaApproval).not.toHaveBeenCalled();
   });
@@ -2380,9 +2394,9 @@ describe('createChannelWiring', () => {
         onPromptDelivered?: (messageId: string) => void,
       ) => {
         onPromptDelivered?.('shared-approval-message');
-        return {
+        return permissionDecisionResult({
           approved: request.providerAccountId === 'slack_beta',
-        };
+        });
       },
     );
     const callbackQuestion = vi.fn(
@@ -2391,7 +2405,9 @@ describe('createChannelWiring', () => {
         answers: { Account: request.providerAccountId ?? 'missing' },
       }),
     );
-    const outboundOnlyApproval = vi.fn(async () => ({ approved: false }));
+    const outboundOnlyApproval = vi.fn(async () =>
+      permissionDecisionResult({ approved: false }),
+    );
     const outboundOnlyQuestion = vi.fn(async () => ({
       requestId: 'unused',
       answers: {},
@@ -2439,7 +2455,7 @@ describe('createChannelWiring', () => {
         targetJid: 'sl:C123',
         toolName: 'danger-tool',
       }),
-    ).resolves.toEqual({ approved: true });
+    ).resolves.toEqual(permissionDecisionResult({ approved: true }));
     await expect(
       wiring.requestUserAnswer({
         requestId: 'q-beta-shared',
@@ -3628,7 +3644,7 @@ describe('createChannelWiring', () => {
       requestPermissionApproval: vi.fn(
         async (_jid, _request, onPromptDelivered) => {
           onPromptDelivered?.('target-approval-message');
-          return { approved: true };
+          return permissionDecisionResult({ approved: true });
         },
       ),
     });
@@ -3650,7 +3666,7 @@ describe('createChannelWiring', () => {
       toolName: 'danger-tool',
     });
 
-    expect(result.approved).toBe(true);
+    expect(result).toEqual(permissionDecisionResult({ approved: true }));
 
     const fallbackWiring = createChannelWiring(makeApp({}));
     const fallback = await fallbackWiring.requestPermissionApproval({
@@ -3660,8 +3676,11 @@ describe('createChannelWiring', () => {
     });
 
     expect(fallback).toEqual({
-      approved: false,
-      reason: 'Permission approval target is missing',
+      kind: 'delivery_failure',
+      code: 'target_missing',
+      retryable: true,
+      delivered: 'no',
+      userMessage: 'Permission approval target is missing',
     });
   });
 
@@ -3672,7 +3691,7 @@ describe('createChannelWiring', () => {
     const requestPermissionApproval = vi.fn(
       async (_jid, _request, onPromptDelivered) => {
         onPromptDelivered?.('outbound-approval-message');
-        return { approved: true };
+        return permissionDecisionResult({ approved: true });
       },
     );
     const requestUserAnswer = vi.fn(async () => ({
@@ -3706,7 +3725,7 @@ describe('createChannelWiring', () => {
         targetJid: 'tg:other',
         toolName: 'danger-tool',
       }),
-    ).resolves.toEqual({ approved: true });
+    ).resolves.toEqual(permissionDecisionResult({ approved: true }));
     await expect(
       wiring.requestUserAnswer({
         requestId: 'q-outbound-only',
@@ -3729,7 +3748,7 @@ describe('createChannelWiring', () => {
     const requestPermissionApproval = vi.fn(
       async (_jid, _request, onPromptDelivered) => {
         onPromptDelivered?.('direct-approval-message');
-        return { approved: true };
+        return permissionDecisionResult({ approved: true });
       },
     );
 
@@ -3756,7 +3775,7 @@ describe('createChannelWiring', () => {
       toolName: 'danger-tool',
     });
 
-    expect(result.approved).toBe(true);
+    expect(result).toEqual(permissionDecisionResult({ approved: true }));
     expect(requestPermissionApproval).toHaveBeenCalledWith(
       'tg:111',
       expect.objectContaining({
@@ -3773,7 +3792,7 @@ describe('createChannelWiring', () => {
     const requestPermissionApproval = vi.fn(
       async (_jid, _request, onPromptDelivered) => {
         onPromptDelivered?.('settings-dm-approval-message');
-        return { approved: true };
+        return permissionDecisionResult({ approved: true });
       },
     );
 
@@ -3800,7 +3819,7 @@ describe('createChannelWiring', () => {
       toolName: 'danger-tool',
     });
 
-    expect(result.approved).toBe(true);
+    expect(result).toEqual(permissionDecisionResult({ approved: true }));
     expect(requestPermissionApproval).toHaveBeenCalledWith(
       'tg:222',
       expect.objectContaining({

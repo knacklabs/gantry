@@ -38,10 +38,12 @@ import type {
   DeepAgentCheckpointTiming,
 } from './session-store.js';
 import type { RunnerOutputFrame } from '../../../../runner/runner-frame.js';
-import { formatAutonomousToolDenial } from '../../../../shared/autonomous-tool-denial.js';
 import { nowMs } from '../../../../shared/time/datetime.js';
+import { DEEPAGENTS_ENGINE } from '../../../../shared/agent-engine.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import type { DeepAgentsPermissionDenial } from './third-party-mcp-gate.js';
+import { instructionSetupAction } from '../../../../shared/job-setup-action.js';
+import { jobSetupActionEventPayload } from '../../../../domain/events/job-setup-action.js';
 
 // Raw DeepAgents authority is fully disabled in v1: the default StateBackend has
 // no `execute` tool, and filesystem permissions deny reads/writes unless the
@@ -117,6 +119,50 @@ export async function runDeepAgentTurn(input: {
     ? AbortSignal.any([input.signal, terminalPermissionAbort.signal])
     : terminalPermissionAbort.signal;
   let terminalPermissionDenial: Error | undefined;
+  const terminateScheduledDenial = (
+    denial: DeepAgentsPermissionDenial,
+  ): never => {
+    // Primary-denial rule (0126): the FIRST denial stays the terminal error,
+    // but every later parallel denial is still recorded as its own typed
+    // event before rethrowing so the durable record is complete.
+    const priorDenial = terminalPermissionDenial;
+    input.emit({
+      status: 'success',
+      result: null,
+      newSessionId: input.newSessionId,
+      runtimeEvents: [
+        {
+          appId: input.agentInput.appId,
+          agentId: input.agentInput.agentId,
+          runId: input.agentInput.runId,
+          jobId: input.agentInput.jobId,
+          conversationId: input.agentInput.chatJid,
+          threadId: input.agentInput.threadId,
+          eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+          actor: 'runner',
+          responseMode: 'none',
+          payload: {
+            phase: 'permission_denied',
+            tool: denial.toolName,
+            sdk_tool: denial.toolName,
+            ok: false,
+            terminal: true,
+            reason: denial.reason,
+            action: jobSetupActionEventPayload(denial.action),
+            denial_kind: denial.denialKind,
+            provenance_lane: DEEPAGENTS_ENGINE,
+            provenance_seam: denial.provenanceSeam,
+          },
+        },
+      ],
+    });
+    if (priorDenial) throw priorDenial;
+    terminalPermissionDenial = new Error(
+      `Permission denied for ${denial.toolName}. ${denial.reason}`,
+    );
+    terminalPermissionAbort.abort(terminalPermissionDenial);
+    throw terminalPermissionDenial;
+  };
   const logElapsed = (message: string) => {
     input.log?.(`${message} after ${Math.max(0, nowMs() - startedAt)}ms`);
   };
@@ -178,32 +224,12 @@ export async function runDeepAgentTurn(input: {
               if (!input.agentInput.isScheduledJob || !input.agentInput.jobId) {
                 return;
               }
-              input.emit({
-                status: 'success',
-                result: null,
-                newSessionId: input.newSessionId,
-                runtimeEvents: [
-                  {
-                    appId: input.agentInput.appId,
-                    agentId: input.agentInput.agentId,
-                    runId: input.agentInput.runId,
-                    jobId: input.agentInput.jobId,
-                    conversationId: input.agentInput.chatJid,
-                    threadId: input.agentInput.threadId,
-                    eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
-                    actor: 'runner',
-                    responseMode: 'none',
-                    payload: {
-                      phase: 'deny',
-                      tool: toolName,
-                      sdk_tool: toolName,
-                      ok: false,
-                      reason: denial.error.message,
-                      decision: denial.decision,
-                      error: denial.error,
-                    },
-                  },
-                ],
+              terminateScheduledDenial({
+                toolName,
+                reason: denial.error.message,
+                action: instructionSetupAction(denial.error.message),
+                denialKind: 'rule_denied',
+                provenanceSeam: 'declarative',
               });
             },
           }
@@ -231,54 +257,8 @@ export async function runDeepAgentTurn(input: {
           input.agentInput.hideAuthorityTools === true,
         ...(input.agentInput.isScheduledJob && input.agentInput.jobId
           ? {
-              onPermissionDenied: (
-                denial: DeepAgentsPermissionDenial,
-              ): never => {
-                // Parallel tool calls can both reach this callback. The first
-                // denial terminates the turn and owns the recovery card; a
-                // sibling denial that resolves afterward must not emit a second
-                // terminal event or overwrite which tool/grantability the card
-                // reports. Make the first denial sticky and re-throw it.
-                if (terminalPermissionDenial) {
-                  throw terminalPermissionDenial;
-                }
-                input.emit({
-                  status: 'success',
-                  result: null,
-                  newSessionId: input.newSessionId,
-                  runtimeEvents: [
-                    {
-                      appId: input.agentInput.appId,
-                      agentId: input.agentInput.agentId,
-                      runId: input.agentInput.runId,
-                      jobId: input.agentInput.jobId,
-                      conversationId: input.agentInput.chatJid,
-                      threadId: input.agentInput.threadId,
-                      eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
-                      actor: 'runner',
-                      responseMode: 'none',
-                      payload: {
-                        phase: 'permission_denied',
-                        tool: denial.toolName,
-                        sdk_tool: denial.toolName,
-                        ok: false,
-                        terminal: true,
-                        reason: denial.reason,
-                        grantable: denial.grantable,
-                        recovery_action: denial.recoveryAction,
-                      },
-                    },
-                  ],
-                });
-                terminalPermissionDenial = new Error(
-                  formatAutonomousToolDenial(denial),
-                );
-                // LangChain's ToolNode converts ordinary tool exceptions into
-                // ToolMessages. Abort the graph-level signal as well so the
-                // model cannot receive that message and choose another tool.
-                terminalPermissionAbort.abort(terminalPermissionDenial);
-                throw terminalPermissionDenial;
-              },
+              onPermissionDenied: (denial: DeepAgentsPermissionDenial): never =>
+                terminateScheduledDenial(denial),
             }
           : {}),
         signal: turnSignal,

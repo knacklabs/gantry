@@ -175,7 +175,13 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
     sourceAgentFolder: input.sourceAgentFolder,
     conversationJid: input.request.targetJid,
     jobId: input.request.jobId,
-    recoveringPermissionRequestId: input.request.requestId,
+    recoveringPermissionPrompt:
+      input.request.jobId && input.request.setupFingerprint
+        ? {
+            jobId: input.request.jobId,
+            setupFingerprint: input.request.setupFingerprint,
+          }
+        : undefined,
     opsRepository: input.persistence.opsRepository,
     scheduler: {
       requestSchedulerSync: input.persistence.onSchedulerChanged ?? (() => {}),

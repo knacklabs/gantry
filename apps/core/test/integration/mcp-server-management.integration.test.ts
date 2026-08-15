@@ -462,9 +462,12 @@ describe('MCP server management integration', () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const sendMessage = vi.fn(async () => undefined);
     const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'Approver',
-      reason: 'approved',
+      kind: 'decision' as const,
+      decision: {
+        approved: true,
+        decidedBy: 'Approver',
+        reason: 'approved',
+      },
     }));
     const deps = {
       conversationRoutes: () => ({

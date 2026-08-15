@@ -21,6 +21,7 @@ export function durablePermissionRequestSnapshot(
     sourceAgentFolder: request.sourceAgentFolder,
     runHandle: request.runHandle,
     jobId: request.jobId,
+    setupFingerprint: request.setupFingerprint,
     runId: request.runId,
     targetJid: request.targetJid,
     approvalContextJid: request.approvalContextJid,

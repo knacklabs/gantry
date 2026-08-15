@@ -1,6 +1,5 @@
 import {
   type ChannelAdapter,
-  type ChannelOpts,
   type ConversationContextHydrationRequest,
 } from './channel-provider.js';
 import type {
@@ -10,6 +9,7 @@ import type {
   PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
   ProgressUpdateOptions,
   RichInteractionRequest,
   StreamingChunkOptions,
@@ -34,7 +34,10 @@ import {
   sendTeamsTextOrActionMessage,
   type TeamsProgressMessages,
 } from './teams-progress.js';
-import { requestTeamsPermissionApproval } from './teams-permission-approval.js';
+import {
+  prepareTeamsPermissionCardSend,
+  requestTeamsPermissionApproval,
+} from './teams-permission-approval.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import { resolveInteractionSettlementDelayMs } from './interaction-settlement.js';
 import { cancelPendingTeamsPermission } from './teams-permission-cancellation.js';
@@ -42,12 +45,10 @@ import { renderTeamsAgentTodo, type TeamsTodoMessages } from './teams-todos.js';
 import {
   isTeamsJid,
   normalizeTeamsJid,
-  readTeamsCredentials,
   teamsConversationIdFromJid,
   type PendingTeamsPermissionPrompt,
   type PendingTeamsUserQuestion,
   type TeamsChannelCredentials,
-  type TeamsChannelDependencies,
   type TeamsChannelOpts,
   type TeamsInboundMessage,
   type TeamsSdkClient,
@@ -59,7 +60,6 @@ import {
 import { renderTeamsRichInteraction } from './teams-rich-interaction.js';
 import { teamsDeliveredQuestionIndexes } from './teams-user-question.js';
 import { buildTeamsQuestionTimeoutAnswers } from './teams-user-question-timeout.js';
-import { createMicrosoftTeamsSdkClient } from './teams-sdk-client.js';
 import {
   applyTeamsStreamingChunk,
   type TeamsStreamingState,
@@ -101,6 +101,7 @@ export {
   type TeamsInboundMessage,
   type TeamsSdkClient,
 } from './teams-types.js';
+export { createTeamsChannel } from './teams-factory.js';
 
 export class TeamsChannel implements ChannelAdapter {
   name = 'teams';
@@ -473,7 +474,7 @@ export class TeamsChannel implements ChannelAdapter {
     jid: string,
     request: PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
-  ): Promise<PermissionApprovalDecision> {
+  ): Promise<PermissionApprovalResult> {
     return requestTeamsPermissionApproval({
       connected: this.connected,
       jid,
@@ -490,6 +491,21 @@ export class TeamsChannel implements ChannelAdapter {
           'system',
           'timed out',
         ),
+    });
+  }
+
+  preparePermissionCardSend(
+    jid: string,
+    _text: string,
+    options: MessageSendOptions & {
+      permissionCardView: NonNullable<MessageSendOptions['permissionCardView']>;
+    },
+  ) {
+    return prepareTeamsPermissionCardSend({
+      connected: this.outboundReady,
+      jid,
+      options,
+      sdkClient: this.sdkClient,
     });
   }
 
@@ -668,32 +684,4 @@ export class TeamsChannel implements ChannelAdapter {
       pendingUserQuestions: this.pendingUserQuestions,
     };
   }
-}
-
-export async function createTeamsChannel(
-  opts: ChannelOpts,
-  deps: TeamsChannelDependencies = {},
-): Promise<TeamsChannel | null> {
-  const credentials =
-    deps.credentials ??
-    (await readTeamsCredentials(
-      opts.runtimeSecrets,
-      opts.runtimeSettings?.(),
-      opts.providerAccountId,
-    ));
-  if (!credentials) {
-    logger.warn(
-      'Teams: TEAMS_CLIENT_ID, TEAMS_CLIENT_SECRET, and TEAMS_TENANT_ID are required',
-    );
-    return null;
-  }
-  const sdkClient =
-    deps.sdkClient ?? createMicrosoftTeamsSdkClient(credentials);
-  if (!sdkClient) {
-    logger.warn(
-      'Teams: Microsoft Teams SDK transport is not configured for this scaffold',
-    );
-    return null;
-  }
-  return new TeamsChannel(credentials, opts, sdkClient);
 }

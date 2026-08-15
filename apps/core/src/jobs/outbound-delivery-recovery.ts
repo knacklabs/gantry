@@ -7,9 +7,11 @@ import { isAmbiguousDurableDeliveryError } from '../domain/messages/durable-deli
 import type {
   ClaimedOutboundDeliveryItem,
   OutboundDelivery,
+  OutboundDeliveryPermissionPromptLocator,
 } from '../domain/outbound-delivery/outbound-delivery.js';
 import { nowIso } from '../shared/time/datetime.js';
 import { incrementOperationalError } from '../shared/operational-error-counters.js';
+import { stopCapabilityTemplateApprovalIntentRecoveryLoop } from './capability-template-approval-intent-recovery.js';
 
 export interface OutboundDeliveryPartialRetryTail {
   canonicalText: string;
@@ -21,10 +23,21 @@ export type OutboundDeliveryDispatchResult =
       status: 'sent';
       providerMessageId?: string;
       providerPayload?: unknown;
+      permissionPromptLocator?: OutboundDeliveryPermissionPromptLocator;
     }
   | {
       status: 'failed';
       error?: string;
+    }
+  | {
+      status: 'cancelled';
+      reason: Record<string, unknown>;
+    }
+  | {
+      // The claim lapsed before the send checkpoint: leave the item to the
+      // expired-claim sweep (which requeues and refunds the attempt) - do
+      // NOT settle failed, which would consume the bounded attempt budget.
+      status: 'stale_claim';
     }
   | {
       status: 'partially_delivered';
@@ -215,6 +228,7 @@ export async function runBoundedOutboundDeliveryRecovery(
               String(claimedItem.item.id),
             providerMessageId: dispatchResult.providerMessageId,
             providerPayload: dispatchResult.providerPayload,
+            permissionPromptLocator: dispatchResult.permissionPromptLocator,
             sentAt: now(),
           });
           if (settled.applied) {
@@ -301,6 +315,22 @@ export async function runBoundedOutboundDeliveryRecovery(
         continue;
       }
 
+      if (dispatchResult.status === 'stale_claim') {
+        continue;
+      }
+      if (dispatchResult.status === 'cancelled') {
+        // A rejected pre-send revalidation is TERMINAL cancellation, never
+        // the failed/retry path (a superseded card must not resend).
+        const settled = await input.service.settleCancelled?.({
+          deliveryId: claimedItem.delivery.id,
+          itemId: claimedItem.item.id,
+          claimToken,
+          reason: dispatchResult.reason,
+          cancelledAt: now(),
+        });
+        if (settled?.applied) failed += 1;
+        continue;
+      }
       const settled = await input.service.settleFailed({
         deliveryId: claimedItem.delivery.id,
         itemId: claimedItem.item.id,
@@ -393,4 +423,81 @@ export function startOutboundDeliveryRecoveryLoop(
 
 export async function stopOutboundDeliveryRecoveryLoop(): Promise<void> {
   await activeRecoveryLoop?.stop();
+  // The reconciliation loop shares the outbound-delivery lifecycle: a
+  // restart in the same process must not leave the old singleton polling
+  // a closed repository.
+  await activeReconciliationLoop?.stop();
+  await stopCapabilityTemplateApprovalIntentRecoveryLoop();
+}
+
+// Reconciliation runs as its OWN supervised loop on the same cadence: a
+// slow or lock-blocked reconciliation pass must never gate delivery
+// claims, and a failed pass only skips its own tick.
+let activeReconciliationLoop: OutboundDeliveryRecoveryLoopController | null =
+  null;
+
+export function startSetupPromptReconciliationLoop(input: {
+  run: () => Promise<unknown>;
+  intervalMs?: number;
+  warn?: (meta: Record<string, unknown>, message: string) => void;
+}): OutboundDeliveryRecoveryLoopController {
+  if (activeReconciliationLoop) {
+    return activeReconciliationLoop;
+  }
+  const intervalMs = Math.max(250, input.intervalMs ?? 5_000);
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let running: Promise<void> | undefined;
+
+  const schedule = (delayMs: number) => {
+    if (stopped) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      void tick();
+    }, delayMs);
+    timer.unref?.();
+  };
+
+  const tick = async () => {
+    if (stopped || running) return;
+    running = input
+      .run()
+      .then(
+        () => undefined,
+        (err) => {
+          // Always count: a persistent failure must be operationally
+          // visible even when no warn sink is wired.
+          incrementOperationalError(
+            'delivery',
+            'permission_card_reconciliation',
+          );
+          input.warn?.({ err }, 'Permission-card reconciliation run failed');
+        },
+      )
+      .finally(() => {
+        running = undefined;
+        schedule(intervalMs);
+      });
+    await running;
+  };
+
+  const controller: OutboundDeliveryRecoveryLoopController = {
+    isRunning: () => !stopped,
+    stop: async () => {
+      if (stopped) return;
+      stopped = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      await running;
+      if (activeReconciliationLoop === controller) {
+        activeReconciliationLoop = null;
+      }
+    },
+  };
+
+  activeReconciliationLoop = controller;
+  schedule(intervalMs);
+  return controller;
 }

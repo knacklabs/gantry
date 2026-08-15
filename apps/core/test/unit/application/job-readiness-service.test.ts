@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
+import {
+  setupStateForTransientPermission,
+  setupStateForBrowserPrelaunchFailure,
+} from '@core/application/jobs/job-setup-pause-states.js';
 
 import {
   evaluateJobReadiness,
   setupStateForDeniedTool,
-  setupStateForTransientPermission,
 } from '@core/application/jobs/job-readiness-service.js';
 import type {
   CapabilitySecretRepository,
@@ -365,7 +368,7 @@ describe('job readiness service', () => {
       clock: { now: () => '2026-05-14T00:00:00.000Z' },
     });
 
-    expect(result.setupState.blockers[0]?.message).toBe(
+    expect(result.setupState.blockers[0]?.summary).toBe(
       'Required MCP server is disabled: records.',
     );
     expect(listMaterializedServersForAgent).not.toHaveBeenCalled();
@@ -455,8 +458,8 @@ describe('job readiness service', () => {
     expect(result.ready).toBe(false);
     expect(result.setupState.blockers[0]).toMatchObject({
       state: 'missing_capability',
-      requirementType: 'semantic_capability',
-      requirementId: 'capability:skill.linkedin-posting.publish',
+      type: 'semantic_capability',
+      id: 'capability:skill.linkedin-posting.publish',
     });
   });
 
@@ -477,11 +480,11 @@ describe('job readiness service', () => {
     expect(result.pauseReason).toBe('Setup required');
     expect(result.setupState.blockers[0]).toMatchObject({
       state: 'missing_capability',
-      requirementType: 'browser',
-      requirementId: 'Browser',
-      message: 'Setup required: capability dependency missing: Browser access.',
+      type: 'browser',
+      id: 'Browser',
+      summary: 'Setup required: capability dependency missing: Browser access.',
     });
-    expect(result.setupState.blockers[0]?.message).not.toContain('sandbox');
+    expect(result.setupState.blockers[0]?.summary).not.toContain('sandbox');
   });
 
   it('does not turn unreviewed semantic job requirements into grant prompts', async () => {
@@ -505,17 +508,15 @@ describe('job readiness service', () => {
     expect(result.ready).toBe(false);
     expect(result.setupState.blockers[0]).toMatchObject({
       state: 'missing_capability',
-      requirementType: 'semantic_capability',
-      requirementId: 'acme.records.append',
-      message:
+      type: 'semantic_capability',
+      id: 'acme.records.append',
+      summary:
         'This job references a capability that is not reviewed in the capability catalog.',
     });
-    expect(result.setupState.blockers[0]?.nextAction).toContain(
-      'request_access',
-    );
-    expect(result.setupState.blockers[0]?.nextAction).not.toContain(
-      'request_permission',
-    );
+    expect(result.setupState.blockers[0]?.action).toMatchObject({
+      kind: 'instruction',
+      text: expect.stringContaining('request_access'),
+    });
   });
 
   it('does not block jobs on Browser login marker absence after durable Browser approval', async () => {
@@ -580,8 +581,8 @@ describe('job readiness service', () => {
     expect(result.ready).toBe(false);
     expect(result.setupState.blockers[0]).toMatchObject({
       state: 'missing_capability',
-      requirementType: 'semantic_capability',
-      requirementId: 'unknown.tool',
+      type: 'semantic_capability',
+      id: 'unknown.tool',
     });
   });
 
@@ -644,21 +645,16 @@ describe('job readiness service', () => {
     expect(result.setupState.blockers).toEqual([
       expect.objectContaining({
         state: 'missing_capability',
-        requirementType: 'local_cli',
-        requirementId: 'acme.records.append',
-        message: expect.stringContaining('using acme'),
+        type: 'local_cli',
+        id: 'acme.records.append',
+        summary: expect.stringContaining('using acme'),
       }),
     ]);
-    expect(result.setupState.blockers[0]?.nextAction).toContain(
-      'request_access',
-    );
-    expect(result.setupState.blockers[0]?.nextAction).toContain(
-      '"kind":"capability"',
-    );
-    expect(result.setupState.blockers[0]?.nextAction).toContain(
-      '"id":"acme.records.append"',
-    );
-    expect(result.setupState.blockers[0]?.message).not.toContain(
+    expect(result.setupState.blockers[0]?.action).toMatchObject({
+      kind: 'approve_grant',
+      grant: { rules: [{ toolName: 'RunCommand' }] },
+    });
+    expect(result.setupState.blockers[0]?.summary).not.toContain(
       'Gantry Model Gateway',
     );
   });
@@ -725,14 +721,14 @@ describe('job readiness service', () => {
     expect(result.setupState.blockers).toEqual([
       expect.objectContaining({
         state: 'missing_capability',
-        requirementType: 'local_cli',
-        message: expect.stringContaining('pinned executable version and hash'),
-        nextAction: expect.stringContaining('scheduler_update_job'),
+        type: 'local_cli',
+        summary: expect.stringContaining('pinned executable version and hash'),
+        action: expect.objectContaining({
+          kind: 'instruction',
+          text: expect.stringContaining('scheduler_update_job'),
+        }),
       }),
     ]);
-    expect(result.setupState.blockers[0]?.nextAction).not.toContain(
-      'request_access',
-    );
   });
 
   it('rejects persisted relative local CLI templates instead of converting legacy setup guidance', async () => {
@@ -762,17 +758,14 @@ describe('job readiness service', () => {
     expect(result.setupState.blockers).toEqual([
       expect.objectContaining({
         state: 'missing_capability',
-        requirementType: 'local_cli',
-        message: expect.stringContaining('invalid local CLI job requirement'),
-        nextAction: expect.stringContaining('scheduler_update_job'),
+        type: 'local_cli',
+        summary: expect.stringContaining('invalid local CLI job requirement'),
+        action: expect.objectContaining({
+          kind: 'instruction',
+          text: expect.stringContaining('scheduler_update_job'),
+        }),
       }),
     ]);
-    expect(result.setupState.blockers[0]?.nextAction).not.toContain(
-      '"rule":"acme records append *"',
-    );
-    expect(result.setupState.blockers[0]?.nextAction).not.toContain(
-      'request_access',
-    );
   });
 
   it('reports MCP credential blockers without starting the MCP server', async () => {
@@ -807,12 +800,14 @@ describe('job readiness service', () => {
     expect(repository.listMaterializedServersForAgent).toHaveBeenCalled();
     expect(result.setupState.blockers[0]).toMatchObject({
       state: 'mcp_missing_credential',
-      requirementType: 'mcp_server',
-      requirementId: 'records',
-      message:
+      type: 'mcp_server',
+      id: 'records',
+      summary:
         'A Gantry credential is required before this can run. Add it in Credential Center, then try again.',
-      nextAction:
-        'Add the required credentials in Credential Center, then resume or recheck the job.',
+      action: {
+        kind: 'instruction',
+        text: 'Add the required credentials in Credential Center, then resume or recheck the job.',
+      },
     });
     expect(JSON.stringify(result.setupState.blockers[0])).not.toContain(
       'GOOGLE_TOKEN_REF',
@@ -907,10 +902,13 @@ describe('job readiness service', () => {
     expect(result.setupState.blockers).toEqual([
       expect.objectContaining({
         state: 'missing_capability',
-        requirementType: 'semantic_capability',
-        requirementId: 'acme.records.append',
-        message: expect.stringContaining('not available in the worker image'),
-        nextAction: expect.stringContaining('Rebuild or deploy a worker image'),
+        type: 'semantic_capability',
+        id: 'acme.records.append',
+        summary: expect.stringContaining('not available in the worker image'),
+        action: expect.objectContaining({
+          kind: 'instruction',
+          text: expect.stringContaining('Rebuild or deploy a worker image'),
+        }),
       }),
     ]);
   });
@@ -939,9 +937,12 @@ describe('job readiness service', () => {
     expect(result.setupState.blockers).toEqual([
       expect.objectContaining({
         state: 'missing_capability',
-        requirementType: 'semantic_capability',
-        requirementId: 'acme.records.append',
-        nextAction: expect.stringContaining('Rebuild or deploy a worker image'),
+        type: 'semantic_capability',
+        id: 'acme.records.append',
+        action: expect.objectContaining({
+          kind: 'instruction',
+          text: expect.stringContaining('Rebuild or deploy a worker image'),
+        }),
       }),
     ]);
   });
@@ -949,8 +950,7 @@ describe('job readiness service', () => {
   it('turns runtime denied tool use into setup state', () => {
     const setup = setupStateForDeniedTool({
       toolName: 'mcp__gantry__service_restart',
-      grantable: false,
-      recoveryAction: 'request_access ...',
+      action: { kind: 'instruction', text: 'Review setup.' },
       checkedAt: '2026-05-14T00:00:00.000Z',
     });
 
@@ -958,10 +958,9 @@ describe('job readiness service', () => {
       state: 'missing_capability',
       blockers: [
         {
-          requirementType: 'tool',
-          requirementId: 'mcp__gantry__service_restart',
-          grantable: false,
-          nextAction: 'request_access ...',
+          type: 'tool',
+          id: 'mcp__gantry__service_restart',
+          action: { kind: 'instruction', text: 'Review setup.' },
         },
       ],
     });
@@ -970,18 +969,25 @@ describe('job readiness service', () => {
   it('canonicalizes projected browser tool denials to Browser setup', () => {
     const setup = setupStateForDeniedTool({
       toolName: 'mcp__gantry__browser_act',
-      grantable: true,
+      action: {
+        kind: 'approve_grant',
+        grant: {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'capability:browser.use' }],
+        },
+      },
       checkedAt: '2026-05-14T00:00:00.000Z',
     });
 
     expect(setup.blockers[0]).toMatchObject({
-      requirementType: 'browser',
-      requirementId: 'Browser',
-      nextAction: expect.stringContaining('"id":"browser.use"'),
+      type: 'browser',
+      id: 'Browser',
+      action: expect.objectContaining({ kind: 'approve_grant' }),
     });
   });
 
-  it('preserves scoped recovery actions for transient permission setup blockers', () => {
+  it('pauses a bare command transient with plain-language instruction (never protocol text)', () => {
     const setup = setupStateForTransientPermission({
       toolName: 'Bash',
       mode: 'allow_once',
@@ -991,10 +997,12 @@ describe('job readiness service', () => {
     });
 
     expect(setup.blockers[0]).toMatchObject({
-      requirementType: 'tool',
-      requirementId: 'RunCommand',
-      nextAction:
-        'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
+      type: 'tool',
+      id: 'RunCommand',
+      action: {
+        kind: 'instruction',
+        text: 'This job used temporary command access. Approve a scoped command grant from its approval card, then resume the job.',
+      },
     });
   });
 });

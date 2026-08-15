@@ -1,0 +1,2 @@
+ALTER TABLE "runtime_events" ADD COLUMN "idempotency_key" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "runtime_events_app_id_idempotency_key_unique" ON "runtime_events" USING btree ("app_id","idempotency_key") WHERE "runtime_events"."idempotency_key" is not null;

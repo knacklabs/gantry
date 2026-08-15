@@ -71,6 +71,7 @@ export interface RuntimeEvent {
   correlationId?: string;
   responseMode?: RuntimeResponseMode;
   webhookId?: string;
+  idempotencyKey?: string;
   payload: unknown;
   createdAt: IsoTimestamp;
 }
@@ -97,6 +98,7 @@ export interface RuntimeEventPublishInput {
   correlationId?: string | null;
   responseMode?: RuntimeResponseMode | null;
   webhookId?: string | null;
+  idempotencyKey?: string | null;
   payload: unknown;
   createdAt?: IsoTimestamp;
 }

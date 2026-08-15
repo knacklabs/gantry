@@ -13,7 +13,6 @@ import {
   setupPauseGrantIsCurrent,
   setupPausePersistentGrantIsCurrent,
 } from '@core/app/bootstrap/setup-pause-permission-wiring.js';
-import { runDurablePermissionInteraction } from '@core/application/interactions/durable-interaction-handler.js';
 import { applyRecoveredPersistentPermissionGrant } from '@core/application/interactions/pending-interaction-permission-recovery.js';
 import {
   requestPermissionReviewSuggestions,
@@ -31,6 +30,44 @@ import type {
 afterEach(() => {
   configureSetupPausePermissionPrompt(null);
 });
+
+function instructionBlocker(
+  type: 'tool' | 'semantic_capability' | 'browser' | 'mcp_server',
+  id: string,
+  summary: string,
+  text: string,
+) {
+  return {
+    state: 'missing_capability' as const,
+    type,
+    id,
+    summary,
+    action: { kind: 'instruction' as const, text },
+  };
+}
+
+function approveBlocker(
+  type: 'tool' | 'semantic_capability' | 'browser',
+  id: string,
+  summary: string,
+  toolName: string,
+  ruleContent?: string,
+) {
+  return {
+    state: 'missing_capability' as const,
+    type,
+    id,
+    summary,
+    action: {
+      kind: 'approve_grant' as const,
+      grant: {
+        type: 'addRules' as const,
+        behavior: 'allow' as const,
+        rules: [{ toolName, ...(ruleContent ? { ruleContent } : {}) }],
+      },
+    },
+  };
+}
 
 function makeJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -84,14 +121,12 @@ function makeJob(overrides: Partial<Job> = {}): Job {
       checked_at: '2026-08-05T00:00:00.000Z',
       fingerprint: 'fingerprint-1',
       blockers: [
-        {
-          state: 'missing_capability',
-          requirementType: 'semantic_capability',
-          requirementId: 'salesforce.leads.append',
-          grantable: true,
-          message: 'Capability missing.',
-          nextAction: 'Approve the reviewed capability.',
-        },
+        approveBlocker(
+          'semantic_capability',
+          'salesforce.leads.append',
+          'Capability missing.',
+          'capability:salesforce.leads.append',
+        ),
       ],
     },
     ...overrides,
@@ -115,44 +150,19 @@ function permanentDecision(): PermissionApprovalDecision {
   };
 }
 
-function cancelledDecision(): PermissionApprovalDecision {
-  return { approved: false, mode: 'cancel', decidedBy: 'owner-1' };
-}
-
 function configure(input: {
   appId?: string;
   job: () => Job | undefined;
-  runPermissionInteraction?: SetupPausePermissionPromptDeps['runPermissionInteraction'];
-  requestPermissionApproval?: (
-    request: PermissionApprovalRequest,
-    onPromptDelivered: (messageId: string) => void,
-  ) => Promise<PermissionApprovalDecision>;
+  preparePermissionInteraction?: SetupPausePermissionPromptDeps['preparePermissionInteraction'];
   cancelPermissionApproval?: SetupPausePermissionPromptDeps['cancelPermissionApproval'];
   reviewStoredRequirement?: SetupPausePermissionPromptDeps['reviewStoredRequirement'];
   resolveProviderAccountId?: SetupPausePermissionPromptDeps['resolveProviderAccountId'];
 }) {
-  const requestPermissionApproval =
-    input.requestPermissionApproval ??
-    (async (
-      _request: PermissionApprovalRequest,
-      onPromptDelivered: (messageId: string) => void,
-    ) => {
-      onPromptDelivered('prompt-1');
-      return permanentDecision();
-    });
   const deps: SetupPausePermissionPromptDeps = {
     appId: input.appId ?? 'default',
     getJobById: async () => input.job(),
-    runPermissionInteraction:
-      input.runPermissionInteraction ??
-      (async (request, onPromptDelivered, onInteractionBegan) => {
-        onInteractionBegan();
-        return {
-          began: true,
-          decision: await requestPermissionApproval(request, onPromptDelivered),
-          resolved: true,
-        };
-      }),
+    preparePermissionInteraction:
+      input.preparePermissionInteraction ?? (async () => ({ created: true })),
     cancelPermissionApproval:
       input.cancelPermissionApproval ?? (async () => 'not_found'),
     reviewStoredRequirement:
@@ -185,23 +195,21 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-08T00:00:00.000Z',
         fingerprint: 'protected-browser-denial',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'browser',
-            requirementId: 'Browser',
-            grantable: false,
-            message: 'Protected browser access was denied.',
-            nextAction: 'Ask an operator to configure this worker manually.',
-          },
+          instructionBlocker(
+            'browser',
+            'Browser',
+            'Protected browser access was denied.',
+            'Ask an operator to configure this worker manually.',
+          ),
         ],
       },
     });
     const reviewStoredRequirement = vi.fn();
-    const runPermissionInteraction = vi.fn();
+    const preparePermissionInteraction = vi.fn();
     configure({
       job: () => job,
       reviewStoredRequirement,
-      runPermissionInteraction,
+      preparePermissionInteraction,
     });
 
     await expect(
@@ -214,10 +222,10 @@ describe('setup pause prompts', () => {
       notificationEligible: true,
     });
     expect(reviewStoredRequirement).not.toHaveBeenCalled();
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
   });
 
-  it('a blocker with undefined grantability is instruction-only', async () => {
+  it('an instruction action is instruction-only', async () => {
     const job = makeJob({
       access_requirements: [],
       setup_state: {
@@ -225,22 +233,21 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-08T00:00:00.000Z',
         fingerprint: 'legacy-browser-denial',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'browser',
-            requirementId: 'Browser',
-            message: 'Browser access was denied.',
-            nextAction: 'Approve lasting Browser access.',
-          },
+          instructionBlocker(
+            'browser',
+            'Browser',
+            'Browser access was denied.',
+            'Ask an operator to configure Browser access.',
+          ),
         ],
       },
     });
     const reviewStoredRequirement = vi.fn();
-    const runPermissionInteraction = vi.fn();
+    const preparePermissionInteraction = vi.fn();
     configure({
       job: () => job,
       reviewStoredRequirement,
-      runPermissionInteraction,
+      preparePermissionInteraction,
     });
 
     await expect(
@@ -253,7 +260,7 @@ describe('setup pause prompts', () => {
       notificationEligible: true,
     });
     expect(reviewStoredRequirement).not.toHaveBeenCalled();
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
   });
 
   it('an MCP-server denial is instruction-only', async () => {
@@ -264,23 +271,21 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-08T00:00:00.000Z',
         fingerprint: 'mcp-server-denial',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'tool',
-            requirementId: 'mcp__customer_records__append',
-            grantable: false,
-            message: 'The MCP server is not configured.',
-            nextAction: 'request_mcp_server {"serverName":"customer-records"}',
-          },
+          instructionBlocker(
+            'tool',
+            'mcp__customer_records__append',
+            'The MCP server is not configured.',
+            'Connect the customer-records MCP server.',
+          ),
         ],
       },
     });
     const reviewStoredRequirement = vi.fn();
-    const runPermissionInteraction = vi.fn();
+    const preparePermissionInteraction = vi.fn();
     configure({
       job: () => job,
       reviewStoredRequirement,
-      runPermissionInteraction,
+      preparePermissionInteraction,
     });
 
     await expect(
@@ -290,7 +295,7 @@ describe('setup pause prompts', () => {
       }),
     ).resolves.toMatchObject({ status: 'instruction_only' });
     expect(reviewStoredRequirement).not.toHaveBeenCalled();
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
   });
 
   it('keeps the instruction-only path available when runtime wiring is absent', async () => {
@@ -309,19 +314,14 @@ describe('setup pause prompts', () => {
     ).resolves.toBeUndefined();
   });
 
-  it("raises one standard permission prompt from the job's stored requirement and settles through the existing grant chain", async () => {
+  it("prepares one durable permission prompt from the job's stored requirement", async () => {
     const job = makeJob();
     let request: PermissionApprovalRequest | undefined;
-    const settlementOrder: string[] = [];
-    const runPermissionInteraction = vi.fn(async (input, delivered, began) => {
+    const preparePermissionInteraction = vi.fn(async (input) => {
       request = input;
-      began();
-      delivered('prompt-1');
-      settlementOrder.push('persistRequestPermissionRules');
-      settlementOrder.push('recheckSetupPausedJobsAfterCapabilityUpdate');
-      return { began: true, decision: permanentDecision(), resolved: true };
+      return { created: true };
     });
-    configure({ job: () => job, runPermissionInteraction });
+    configure({ job: () => job, preparePermissionInteraction });
 
     await expect(
       raiseSetupPausePermissionPrompt({
@@ -336,7 +336,7 @@ describe('setup pause prompts', () => {
       },
     });
 
-    expect(runPermissionInteraction).toHaveBeenCalledOnce();
+    expect(preparePermissionInteraction).toHaveBeenCalledOnce();
     expect(request).toMatchObject({
       jobId: 'job-1',
       targetJid: 'sl:approver',
@@ -354,10 +354,6 @@ describe('setup pause prompts', () => {
     );
     expect(request?.decisionReason).toContain('Needed:');
     expect(request?.description).toContain('Allow once is unavailable');
-    expect(settlementOrder).toEqual([
-      'persistRequestPermissionRules',
-      'recheckSetupPausedJobsAfterCapabilityUpdate',
-    ]);
     expect(request?.decisionOptions).not.toContain('allow_once');
     expect(
       requestPermissionSetupDecisionOptions({
@@ -375,14 +371,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'under-declared-browser',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'browser',
-            requirementId: 'Browser',
-            grantable: true,
-            message: 'Browser access was denied.',
-            nextAction: 'Approve lasting Browser access.',
-          },
+          approveBlocker(
+            'browser',
+            'Browser',
+            'Browser access was denied.',
+            'Browser',
+          ),
         ],
       },
     });
@@ -443,10 +437,9 @@ describe('setup pause prompts', () => {
             }
           : null;
       },
-      requestPermissionApproval: async (input, delivered) => {
+      preparePermissionInteraction: async (input) => {
         request = input;
-        delivered('prompt-1');
-        return cancelledDecision();
+        return { created: true };
       },
     });
 
@@ -581,14 +574,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'under-declared-browser',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'browser',
-            requirementId: 'Browser',
-            grantable: true,
-            message: 'Browser access was denied.',
-            nextAction: 'Approve lasting Browser access.',
-          },
+          approveBlocker(
+            'browser',
+            'Browser',
+            'Browser access was denied.',
+            'Browser',
+          ),
         ],
       },
     });
@@ -633,6 +624,7 @@ describe('setup pause prompts', () => {
       agentId: 'agent:main_agent',
       sourceAgentFolder: 'main_agent',
       jobId: job.id,
+      setupFingerprint: job.setup_state!.fingerprint,
       toolName: 'request_permission',
       suggestions: [
         {
@@ -701,14 +693,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'under-declared-browser',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'browser',
-            requirementId: 'Browser',
-            grantable: true,
-            message: 'Browser access was denied.',
-            nextAction: 'Approve lasting Browser access.',
-          },
+          approveBlocker(
+            'browser',
+            'Browser',
+            'Browser access was denied.',
+            'Browser',
+          ),
         ],
       },
     });
@@ -755,6 +745,7 @@ describe('setup pause prompts', () => {
       agentId: 'agent:main_agent',
       sourceAgentFolder: 'main_agent',
       jobId: job.id,
+      setupFingerprint: job.setup_state!.fingerprint,
       toolName: 'request_permission',
     } as unknown as PermissionApprovalRequest;
     const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
@@ -815,14 +806,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'under-declared-browser',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'browser',
-            requirementId: 'Browser',
-            grantable: true,
-            message: 'Browser access was denied.',
-            nextAction: 'Approve lasting Browser access.',
-          },
+          approveBlocker(
+            'browser',
+            'Browser',
+            'Browser access was denied.',
+            'Browser',
+          ),
         ],
       },
     });
@@ -861,6 +850,7 @@ describe('setup pause prompts', () => {
       agentId: 'agent:main_agent',
       sourceAgentFolder: 'main_agent',
       jobId: job.id,
+      setupFingerprint: job.setup_state!.fingerprint,
       toolName: 'request_permission',
     } as PermissionApprovalRequest;
 
@@ -913,15 +903,13 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-08T00:00:00.000Z',
         fingerprint: 'under-declared-run-command',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'tool',
-            requirementId: 'RunCommand',
-            grantable: true,
-            message: 'Scoped command access was denied.',
-            nextAction:
-              'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run needs scoped command access."}',
-          },
+          approveBlocker(
+            'tool',
+            'RunCommand',
+            'Scoped command access was denied.',
+            'RunCommand',
+            'npm test *',
+          ),
         ],
       },
     });
@@ -973,10 +961,9 @@ describe('setup pause prompts', () => {
             }
           : null;
       },
-      requestPermissionApproval: async (input, delivered) => {
+      preparePermissionInteraction: async (input) => {
         request = input;
-        delivered('prompt-1');
-        return cancelledDecision();
+        return { created: true };
       },
     });
 
@@ -1065,15 +1052,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-09T00:00:00.000Z',
         fingerprint: 'under-declared-web-search',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'tool',
-            requirementId: 'WebSearch',
-            grantable: true,
-            message: 'Web search access was denied.',
-            nextAction:
-              'request_access {"target":{"kind":"tool","name":"WebSearch"},"temporaryOnly":false,"reason":"This autonomous run needs exact Gantry tool access."}',
-          },
+          approveBlocker(
+            'tool',
+            'WebSearch',
+            'Web search access was denied.',
+            'WebSearch',
+          ),
         ],
       },
     });
@@ -1143,10 +1127,9 @@ describe('setup pause prompts', () => {
             }
           : null;
       },
-      requestPermissionApproval: async (input, delivered) => {
+      preparePermissionInteraction: async (input) => {
         request = input;
-        delivered('prompt-1');
-        return cancelledDecision();
+        return { created: true };
       },
     });
 
@@ -1229,14 +1212,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'under-declared-browser',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'browser',
-            requirementId: 'Browser',
-            grantable: true,
-            message: 'Browser access was denied.',
-            nextAction: 'Approve lasting Browser access.',
-          },
+          approveBlocker(
+            'browser',
+            'Browser',
+            'Browser access was denied.',
+            'Browser',
+          ),
         ],
       },
     });
@@ -1248,6 +1229,7 @@ describe('setup pause prompts', () => {
       agentId: 'agent:main_agent',
       sourceAgentFolder: 'main_agent',
       jobId: job.id,
+      setupFingerprint: job.setup_state!.fingerprint,
       toolName: 'request_permission',
       suggestions: [
         {
@@ -1313,14 +1295,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'under-declared-browser',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'browser',
-            requirementId: 'Browser',
-            grantable: true,
-            message: 'Browser access was denied.',
-            nextAction: 'Approve lasting Browser access.',
-          },
+          approveBlocker(
+            'browser',
+            'Browser',
+            'Browser access was denied.',
+            'Browser',
+          ),
         ],
       },
     });
@@ -1350,6 +1330,7 @@ describe('setup pause prompts', () => {
     const request = {
       requestId: 'setup-pause:job-1:under-declared-browser',
       jobId: job.id,
+      setupFingerprint: job.setup_state!.fingerprint,
     } as PermissionApprovalRequest;
     const browserGrant = [
       {
@@ -1379,7 +1360,7 @@ describe('setup pause prompts', () => {
     ]);
   });
 
-  it('keeps an under-declared non-grantable denial instruction-only', async () => {
+  it('keeps an under-declared instruction denial instruction-only', async () => {
     const job = makeJob({
       access_requirements: [],
       setup_state: {
@@ -1387,22 +1368,20 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'under-declared-unscoped-command',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'tool',
-            requirementId: 'RunCommand',
-            grantable: false,
-            message: 'Unscoped command access was denied.',
-            nextAction: 'Declare a reviewed scoped command.',
-          },
+          instructionBlocker(
+            'tool',
+            'RunCommand',
+            'Unscoped command access was denied.',
+            'Declare a reviewed scoped command.',
+          ),
         ],
       },
     });
-    const runPermissionInteraction = vi.fn();
+    const preparePermissionInteraction = vi.fn();
     const reviewStoredRequirement = vi.fn();
     configure({
       job: () => job,
-      runPermissionInteraction,
+      preparePermissionInteraction,
       reviewStoredRequirement,
     });
 
@@ -1416,31 +1395,21 @@ describe('setup pause prompts', () => {
       notificationEligible: true,
     });
     expect(reviewStoredRequirement).not.toHaveBeenCalled();
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
   });
 
   it('same fingerprint does not re-prompt and a changed blocker set retires the old prompt', async () => {
     let job = makeJob();
     const pending = new Set<string>();
     const providerPrompt = vi.fn();
-    const runPermissionInteraction = vi.fn(
-      async (
-        request: PermissionApprovalRequest,
-        delivered: (messageId: string) => void,
-        began: () => void,
-      ) => {
+    const preparePermissionInteraction = vi.fn(
+      async (request: PermissionApprovalRequest) => {
         if (pending.has(request.requestId)) {
-          return {
-            began: false,
-            decision: cancelledDecision(),
-            resolved: false,
-          };
+          return { created: false };
         }
         pending.add(request.requestId);
-        began();
         providerPrompt(request.requestId);
-        delivered(`prompt:${request.requestId}`);
-        return new Promise<never>(() => undefined);
+        return { created: true };
       },
     );
     const cancelPermissionApproval = vi.fn(async (cancellation) => {
@@ -1449,7 +1418,7 @@ describe('setup pause prompts', () => {
     });
     configure({
       job: () => job,
-      runPermissionInteraction,
+      preparePermissionInteraction,
       cancelPermissionApproval,
     });
 
@@ -1507,18 +1476,17 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'mcp-only',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'mcp_server',
-            requirementId: 'customer-records',
-            message: 'Server missing.',
-            nextAction: 'Connect the server.',
-          },
+          instructionBlocker(
+            'mcp_server',
+            'customer-records',
+            'Server missing.',
+            'Connect the server.',
+          ),
         ],
       },
     });
-    const runPermissionInteraction = vi.fn();
-    configure({ job: () => job, runPermissionInteraction });
+    const preparePermissionInteraction = vi.fn();
+    configure({ job: () => job, preparePermissionInteraction });
 
     await expect(
       raiseSetupPausePermissionPrompt({
@@ -1529,10 +1497,10 @@ describe('setup pause prompts', () => {
       status: 'instruction_only',
       notificationEligible: true,
     });
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
   });
 
-  it('keeps config blockers on the instruction-only path', async () => {
+  it('keeps operator instruction blockers on the instruction-only path', async () => {
     const job = makeJob({
       access_requirements: [
         { target: { kind: 'tool_rule', rule: 'RunCommand(npm test *)' } },
@@ -1542,18 +1510,17 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'config-only',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'config' as never,
-            requirementId: 'RunCommand(npm test *)',
-            message: 'Configuration is missing.',
-            nextAction: 'Configure the runtime.',
-          },
+          instructionBlocker(
+            'tool',
+            'RunCommand(npm test *)',
+            'Configuration is missing.',
+            'Configure the runtime.',
+          ),
         ],
       },
     });
-    const runPermissionInteraction = vi.fn();
-    configure({ job: () => job, runPermissionInteraction });
+    const preparePermissionInteraction = vi.fn();
+    configure({ job: () => job, preparePermissionInteraction });
 
     await expect(
       raiseSetupPausePermissionPrompt({
@@ -1564,7 +1531,7 @@ describe('setup pause prompts', () => {
       status: 'instruction_only',
       notificationEligible: true,
     });
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
   });
 
   it('marks a delivered instruction card for a genuinely non-grantable blocker', async () => {
@@ -1577,13 +1544,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'mcp-only',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'mcp_server',
-            requirementId: 'customer-records',
-            message: 'Server missing.',
-            nextAction: 'Connect the server.',
-          },
+          instructionBlocker(
+            'mcp_server',
+            'customer-records',
+            'Server missing.',
+            'Connect the server.',
+          ),
         ],
       },
     });
@@ -1618,13 +1584,12 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'mcp-only',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'mcp_server',
-            requirementId: 'customer-records',
-            message: 'Server missing.',
-            nextAction: 'Connect the server.',
-          },
+          instructionBlocker(
+            'mcp_server',
+            'customer-records',
+            'Server missing.',
+            'Connect the server.',
+          ),
         ],
       },
     });
@@ -1697,31 +1662,27 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'mixed-blockers',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'mcp_server',
-            requirementId: 'customer-records',
-            message: 'Server missing.',
-            nextAction: 'Connect the server.',
-          },
-          {
-            state: 'missing_capability',
-            requirementType: 'semantic_capability',
-            requirementId: 'salesforce.leads.append',
-            grantable: true,
-            message: 'Capability missing.',
-            nextAction: 'Approve the reviewed capability.',
-          },
+          instructionBlocker(
+            'mcp_server',
+            'customer-records',
+            'Server missing.',
+            'Connect the server.',
+          ),
+          approveBlocker(
+            'semantic_capability',
+            'salesforce.leads.append',
+            'Capability missing.',
+            'capability:salesforce.leads.append',
+          ),
         ],
       },
     });
     let request: PermissionApprovalRequest | undefined;
     configure({
       job: () => job,
-      requestPermissionApproval: async (input, delivered) => {
+      preparePermissionInteraction: async (input) => {
         request = input;
-        delivered('prompt-1');
-        return cancelledDecision();
+        return { created: true };
       },
     });
 
@@ -1750,22 +1711,20 @@ describe('setup pause prompts', () => {
         checked_at: '2026-08-05T00:00:00.000Z',
         fingerprint: 'mixed-reviewability',
         blockers: [
-          {
-            state: 'missing_capability',
-            requirementType: 'tool',
-            requirementId: 'RunCommand(npm run first *)',
-            grantable: true,
-            message: 'First tool missing.',
-            nextAction: 'Review the first tool.',
-          },
-          {
-            state: 'missing_capability',
-            requirementType: 'tool',
-            requirementId: 'RunCommand(npm run second *)',
-            grantable: true,
-            message: 'Second tool missing.',
-            nextAction: 'Review the second tool.',
-          },
+          approveBlocker(
+            'tool',
+            'RunCommand(npm run first *)',
+            'First tool missing.',
+            'RunCommand',
+            'npm run first *',
+          ),
+          approveBlocker(
+            'tool',
+            'RunCommand(npm run second *)',
+            'Second tool missing.',
+            'RunCommand',
+            'npm run second *',
+          ),
         ],
       },
     });
@@ -1791,10 +1750,9 @@ describe('setup pause prompts', () => {
     configure({
       job: () => job,
       reviewStoredRequirement,
-      requestPermissionApproval: async (input, delivered) => {
+      preparePermissionInteraction: async (input) => {
         request = input;
-        delivered('prompt-1');
-        return cancelledDecision();
+        return { created: true };
       },
     });
 
@@ -1812,9 +1770,9 @@ describe('setup pause prompts', () => {
   });
 
   it('does not prompt silent jobs or a fingerprint already marked notified', async () => {
-    const runPermissionInteraction = vi.fn();
+    const preparePermissionInteraction = vi.fn();
     let job = makeJob({ silent: true });
-    configure({ job: () => job, runPermissionInteraction });
+    configure({ job: () => job, preparePermissionInteraction });
     const sendMessage = vi.fn(async () => undefined);
     const markJobSetupNotified = vi.fn(async () => true);
 
@@ -1840,15 +1798,15 @@ describe('setup pause prompts', () => {
       publishRuntimeEvent: async () => undefined,
     });
 
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
     expect(markJobSetupNotified).not.toHaveBeenCalled();
   });
 
   it('does not dispatch after the job is silenced or leaves the setup-required pause', async () => {
-    const runPermissionInteraction = vi.fn();
+    const preparePermissionInteraction = vi.fn();
     let job = makeJob({ silent: true });
-    configure({ job: () => job, runPermissionInteraction });
+    configure({ job: () => job, preparePermissionInteraction });
 
     await expect(
       raiseSetupPausePermissionPrompt({
@@ -1871,188 +1829,53 @@ describe('setup pause prompts', () => {
       notificationEligible: false,
     });
 
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
   });
 
-  it('routes the prompt to the approver and keeps the instruction card on a divergent job route', async () => {
+  it('prepares the approver card and keeps only the divergent job notification path', async () => {
     const job = makeJob();
-    const requestPermissionApproval = vi.fn(async (_request, delivered) => {
-      delivered('prompt-1');
-      return cancelledDecision();
-    });
-    configure({ job: () => job, requestPermissionApproval });
+    const preparePermissionInteraction = vi.fn(async () => ({ created: true }));
+    configure({ job: () => job, preparePermissionInteraction });
     const sendMessage = vi.fn(async () => undefined);
     const markJobSetupNotified = vi.fn(async () => true);
 
-    await notifyJobSetupRequired({
-      currentJob: job,
-      runtimeAppId: 'default',
-      setupState: job.setup_state!,
-      deps: {
-        sendMessage,
-        opsRepository: { markJobSetupNotified },
-      } as never,
-      publishRuntimeEvent: async () => undefined,
-    });
+    await expect(
+      notifyJobSetupRequired({
+        currentJob: job,
+        runtimeAppId: 'default',
+        setupState: job.setup_state!,
+        deps: { sendMessage, opsRepository: { markJobSetupNotified } } as never,
+        publishRuntimeEvent: async () => undefined,
+      }),
+    ).resolves.toBe(false);
 
-    expect(requestPermissionApproval).toHaveBeenCalledWith(
-      expect.objectContaining({ targetJid: 'sl:approver' }),
-      expect.any(Function),
-    );
+    expect(preparePermissionInteraction).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledOnce();
     expect(sendMessage).toHaveBeenCalledWith(
       'sl:job-notifications',
       expect.stringContaining('Setup needed'),
     );
+    expect(sendMessage).not.toHaveBeenCalledWith(
+      'sl:approver',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(markJobSetupNotified).not.toHaveBeenCalled();
   });
 
-  it('covers the approver with an instruction card when another durable prompt owner may be undelivered', async () => {
+  it('does not send a prose fallback on the approver route while durable delivery is pending', async () => {
     const approverRoute = {
       conversationJid: 'sl:approver',
       threadId: 'approval-thread',
       label: 'Approver',
     };
     const job = makeJob({ notification_routes: [approverRoute] });
+    const preparePermissionInteraction = vi.fn(async () => ({ created: true }));
     configure({
       job: () => job,
-      runPermissionInteraction: async () => ({
-        began: false,
-        decision: cancelledDecision(),
-        resolved: false,
-      }),
+      preparePermissionInteraction,
     });
     const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
-
-    await expect(
-      notifyJobSetupRequired({
-        currentJob: job,
-        runtimeAppId: 'default',
-        setupState: job.setup_state!,
-        deps: {
-          sendMessage,
-          opsRepository: { markJobSetupNotified },
-        } as never,
-        publishRuntimeEvent: async () => undefined,
-      }),
-    ).resolves.toBe(true);
-
-    expect(sendMessage).toHaveBeenCalledWith(
-      'sl:approver',
-      expect.stringContaining('Setup needed'),
-      expect.objectContaining({ threadId: 'approval-thread' }),
-    );
-    expect(markJobSetupNotified).toHaveBeenCalledWith(
-      job.id,
-      job.setup_state!.fingerprint,
-    );
-  });
-
-  it('falls back to an instruction card when the only-route prompt is undelivered', async () => {
-    const approverRoute = {
-      conversationJid: 'sl:approver',
-      threadId: 'approval-thread',
-      label: 'Approver',
-    };
-    const job = makeJob({ notification_routes: [approverRoute] });
-    configure({
-      job: () => job,
-      runPermissionInteraction: async (_request, _delivered, began) => {
-        began();
-        return {
-          began: true,
-          decision: cancelledDecision(),
-          resolved: true,
-        };
-      },
-    });
-    const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
-
-    await expect(
-      notifyJobSetupRequired({
-        currentJob: job,
-        runtimeAppId: 'default',
-        setupState: job.setup_state!,
-        deps: {
-          sendMessage,
-          opsRepository: { markJobSetupNotified },
-        } as never,
-        publishRuntimeEvent: async () => undefined,
-      }),
-    ).resolves.toBe(true);
-
-    expect(sendMessage).toHaveBeenCalledWith(
-      'sl:approver',
-      expect.stringContaining('Setup needed'),
-      expect.objectContaining({ threadId: 'approval-thread' }),
-    );
-    expect(markJobSetupNotified).toHaveBeenCalledWith(
-      job.id,
-      job.setup_state!.fingerprint,
-    );
-  });
-
-  it('sends an undelivered raised-prompt fallback to a divergent approver route without double-carding the job route', async () => {
-    const job = makeJob();
-    configure({
-      job: () => job,
-      runPermissionInteraction: async (_request, _delivered, began) => {
-        began();
-        return {
-          began: true,
-          decision: cancelledDecision(),
-          resolved: true,
-        };
-      },
-    });
-    const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
-
-    await expect(
-      notifyJobSetupRequired({
-        currentJob: job,
-        runtimeAppId: 'default',
-        setupState: job.setup_state!,
-        deps: {
-          sendMessage,
-          opsRepository: { markJobSetupNotified },
-        } as never,
-        publishRuntimeEvent: async () => undefined,
-      }),
-    ).resolves.toBe(true);
-
-    expect(sendMessage).toHaveBeenCalledWith(
-      'sl:job-notifications',
-      expect.stringContaining('Setup needed'),
-    );
-    expect(sendMessage).toHaveBeenCalledWith(
-      'sl:approver',
-      expect.stringContaining('Setup needed'),
-      expect.objectContaining({ threadId: 'approval-thread' }),
-    );
-    expect(sendMessage).toHaveBeenCalledTimes(2);
-    expect(markJobSetupNotified).toHaveBeenCalledWith(
-      job.id,
-      job.setup_state!.fingerprint,
-    );
-  });
-
-  it('keeps an undelivered raised prompt retryable when its approver fallback also fails', async () => {
-    const job = makeJob();
-    configure({
-      job: () => job,
-      runPermissionInteraction: async (_request, _delivered, began) => {
-        began();
-        return {
-          began: true,
-          decision: cancelledDecision(),
-          resolved: true,
-        };
-      },
-    });
-    const sendMessage = vi.fn(async (jid: string) => {
-      if (jid === 'sl:approver') throw new Error('provider unavailable');
-    });
     const markJobSetupNotified = vi.fn(async () => true);
 
     await expect(
@@ -2068,218 +1891,25 @@ describe('setup pause prompts', () => {
       }),
     ).resolves.toBe(false);
 
-    expect(sendMessage).toHaveBeenCalledWith(
-      'sl:job-notifications',
-      expect.stringContaining('Setup needed'),
-    );
-    expect(sendMessage).toHaveBeenCalledWith(
-      'sl:approver',
-      expect.stringContaining('Setup needed'),
-      expect.objectContaining({ threadId: 'approval-thread' }),
-    );
+    expect(preparePermissionInteraction).toHaveBeenCalledOnce();
+    expect(sendMessage).not.toHaveBeenCalled();
     expect(markJobSetupNotified).not.toHaveBeenCalled();
   });
 
-  it('keeps a same-conversation notification route on a different provider account', async () => {
+  it('reports an existing composite prompt as already pending without another send', async () => {
     const job = makeJob();
-    job.notification_routes = [
-      {
-        conversationJid: 'sl:approver',
-        threadId: 'approval-thread',
-        providerAccountId: 'account-job',
-        label: 'Job notifications',
-      },
-    ];
-    configure({
-      job: () => job,
-      runPermissionInteraction: async (_request, delivered, began) => {
-        began();
-        delivered('prompt-1');
-        return new Promise<never>(() => undefined);
-      },
-      resolveProviderAccountId: () => 'account-approver',
-    });
-    const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
+    const preparePermissionInteraction = vi.fn(async () => ({
+      created: false,
+    }));
+    configure({ job: () => job, preparePermissionInteraction });
 
     await expect(
-      notifyJobSetupRequired({
-        currentJob: job,
-        runtimeAppId: 'default',
-        setupState: job.setup_state!,
-        deps: {
-          sendMessage,
-          opsRepository: { markJobSetupNotified },
-        } as never,
-        publishRuntimeEvent: async () => undefined,
+      raiseSetupPausePermissionPrompt({
+        jobId: job.id,
+        setupFingerprint: job.setup_state!.fingerprint,
       }),
-    ).resolves.toBe(true);
-
-    expect(sendMessage).toHaveBeenCalledWith(
-      'sl:approver',
-      expect.stringContaining('Setup needed'),
-      expect.objectContaining({
-        threadId: 'approval-thread',
-        providerAccountId: 'account-job',
-      }),
-    );
-    expect(sendMessage).toHaveBeenCalledOnce();
-    expect(markJobSetupNotified).toHaveBeenCalledWith(
-      job.id,
-      job.setup_state!.fingerprint,
-    );
-  });
-
-  it('treats an omitted notification account as the resolved default account', async () => {
-    const approverRoute = {
-      conversationJid: 'sl:approver',
-      threadId: 'approval-thread',
-      label: 'Approver',
-    };
-    const job = makeJob({ notification_routes: [approverRoute] });
-    configure({
-      job: () => job,
-      runPermissionInteraction: async (_request, delivered, began) => {
-        began();
-        delivered('prompt-1');
-        return new Promise<never>(() => undefined);
-      },
-      resolveProviderAccountId: () => 'account-default',
-    });
-    const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
-
-    await expect(
-      notifyJobSetupRequired({
-        currentJob: job,
-        runtimeAppId: 'default',
-        setupState: job.setup_state!,
-        deps: {
-          sendMessage,
-          opsRepository: { markJobSetupNotified },
-        } as never,
-        publishRuntimeEvent: async () => undefined,
-      }),
-    ).resolves.toBe(true);
-
-    expect(sendMessage).not.toHaveBeenCalled();
-    expect(markJobSetupNotified).toHaveBeenCalledWith(
-      job.id,
-      job.setup_state!.fingerprint,
-    );
-  });
-
-  it('deduplicates concurrent readiness checks through the durable interaction owner', async () => {
-    const job = makeJob();
-    let durableInteractionId: string | undefined;
-    const providerPrompt = vi.fn();
-    const operations = {
-      record: vi.fn(async (input: { interactionId?: string }) => {
-        if (!durableInteractionId) {
-          durableInteractionId = input.interactionId;
-        }
-        return {
-          id: durableInteractionId,
-          status: 'pending',
-        } as never;
-      }),
-      resolve: vi.fn(async () => true),
-      cancelPendingQuestionInteractionIfRunLeaseInactive: vi.fn(
-        async () => false,
-      ),
-    };
-    configure({
-      job: () => job,
-      runPermissionInteraction: (request, delivered, began) =>
-        runDurablePermissionInteraction({
-          request,
-          sourceAgentFolder: request.sourceAgentFolder,
-          operations: operations as never,
-          skipPromptWhenAlreadyPending: true,
-          beforePrompt: began,
-          prompt: async () => {
-            providerPrompt(request.requestId);
-            delivered('prompt-1');
-            return new Promise<never>(() => undefined);
-          },
-        }),
-    });
-
-    await expect(
-      Promise.all([
-        raiseSetupPausePermissionPrompt({
-          jobId: job.id,
-          setupFingerprint: job.setup_state!.fingerprint,
-        }),
-        raiseSetupPausePermissionPrompt({
-          jobId: job.id,
-          setupFingerprint: job.setup_state!.fingerprint,
-        }),
-      ]),
-    ).resolves.toEqual([
-      expect.objectContaining({ status: 'raised' }),
-      expect.objectContaining({ status: 'already_pending' }),
-    ]);
-    expect(providerPrompt).toHaveBeenCalledOnce();
-  });
-
-  it('treats an ambiguous durable record result as already pending and keeps the approver carded', async () => {
-    const approverRoute = {
-      conversationJid: 'sl:approver',
-      threadId: 'approval-thread',
-      label: 'Approver',
-    };
-    const job = makeJob({ notification_routes: [approverRoute] });
-    const providerPrompt = vi.fn();
-    const operations = {
-      record: vi.fn(async () => true),
-      resolve: vi.fn(async () => true),
-      cancelPendingQuestionInteractionIfRunLeaseInactive: vi.fn(
-        async () => false,
-      ),
-    };
-    configure({
-      job: () => job,
-      runPermissionInteraction: (request, delivered, began) =>
-        runDurablePermissionInteraction({
-          request,
-          sourceAgentFolder: request.sourceAgentFolder,
-          operations: operations as never,
-          skipPromptWhenAlreadyPending: true,
-          beforePrompt: began,
-          prompt: async () => {
-            providerPrompt(request.requestId);
-            delivered('prompt-1');
-            return new Promise<never>(() => undefined);
-          },
-        }),
-    });
-    const sendMessage = vi.fn(async () => undefined);
-    const markJobSetupNotified = vi.fn(async () => true);
-
-    await expect(
-      notifyJobSetupRequired({
-        currentJob: job,
-        runtimeAppId: 'default',
-        setupState: job.setup_state!,
-        deps: {
-          sendMessage,
-          opsRepository: { markJobSetupNotified },
-        } as never,
-        publishRuntimeEvent: async () => undefined,
-      }),
-    ).resolves.toBe(true);
-
-    expect(providerPrompt).not.toHaveBeenCalled();
-    expect(sendMessage).toHaveBeenCalledWith(
-      'sl:approver',
-      expect.stringContaining('Setup needed'),
-      expect.objectContaining({ threadId: 'approval-thread' }),
-    );
-    expect(markJobSetupNotified).toHaveBeenCalledWith(
-      job.id,
-      job.setup_state!.fingerprint,
-    );
+    ).resolves.toMatchObject({ status: 'already_pending' });
+    expect(preparePermissionInteraction).toHaveBeenCalledOnce();
   });
 
   it.each([
@@ -2317,8 +1947,9 @@ describe('setup pause prompts', () => {
       getJobById: vi.fn(async () => job ?? null),
     };
     const request = {
-      requestId: 'setup-pause:job-1:fingerprint-1',
+      requestId: 'persisted-prompt-member-1',
       jobId: 'job-1',
+      setupFingerprint: 'fingerprint-1',
     } as PermissionApprovalRequest;
 
     await expect(
@@ -2350,11 +1981,12 @@ describe('setup pause prompts', () => {
     };
     const mirrorAgentToolRulesToSettings = vi.fn();
     const request = {
-      requestId: 'setup-pause:job-1:fingerprint-1',
+      requestId: 'persisted-prompt-member-1',
       appId: 'default',
       agentId: 'agent:main_agent',
       sourceAgentFolder: 'main_agent',
       jobId: 'job-1',
+      setupFingerprint: 'fingerprint-1',
       toolName: 'request_permission',
     } as PermissionApprovalRequest;
 
@@ -2386,13 +2018,14 @@ describe('setup pause prompts', () => {
     expect(mirrorAgentToolRulesToSettings).not.toHaveBeenCalled();
   });
 
-  it('deletes the job when prompt retirement fails', async () => {
+  it('delegates setup-prompt cancellation to the job repository transaction', async () => {
     const job = makeJob();
+    const cancelPermissionApproval = vi.fn(async () => {
+      throw new Error('channel cancellation must not run');
+    });
     configure({
       job: () => job,
-      cancelPermissionApproval: async () => {
-        throw new Error('prompt store unavailable');
-      },
+      cancelPermissionApproval,
     });
     const deleteJob = vi.fn(async () => undefined);
     const scheduler = { requestSchedulerSync: vi.fn() };
@@ -2409,37 +2042,28 @@ describe('setup pause prompts', () => {
       deleted: true,
     });
     expect(deleteJob).toHaveBeenCalledWith(job.id);
+    expect(cancelPermissionApproval).not.toHaveBeenCalled();
     expect(scheduler.requestSchedulerSync).toHaveBeenCalledWith(job.id);
   });
 
-  it('retires a deleted job prompt with the configured runtime app id', async () => {
+  it('surfaces transactional job deletion failure without requesting scheduler sync', async () => {
     const job = makeJob();
-    const cancelPermissionApproval = vi.fn(async () => 'settled' as const);
-    configure({
-      appId: 'customer-app',
-      job: () => job,
-      cancelPermissionApproval,
-    });
+    const scheduler = { requestSchedulerSync: vi.fn() };
     const service = new JobManagementService({
       ops: {
         getJobById: vi.fn(async () => job),
-        deleteJob: vi.fn(async () => undefined),
+        deleteJob: vi.fn(async () => {
+          throw new Error('job cancellation transaction failed');
+        }),
       } as unknown as RuntimeJobRepository,
-      scheduler: { requestSchedulerSync: vi.fn() },
+      scheduler,
       schedulePlanner: runtimeJobSchedulePlanner,
     });
 
-    await service.deleteJob({ jobId: job.id });
-
-    expect(cancelPermissionApproval).toHaveBeenCalledWith(
-      expect.objectContaining({
-        appId: 'customer-app',
-        requestId: setupPausePermissionRequestId(
-          job.id,
-          job.setup_state!.fingerprint,
-        ),
-      }),
+    await expect(service.deleteJob({ jobId: job.id })).rejects.toThrow(
+      'job cancellation transaction failed',
     );
+    expect(scheduler.requestSchedulerSync).not.toHaveBeenCalled();
   });
 
   it('keeps the pending approval intact when job deletion fails', async () => {

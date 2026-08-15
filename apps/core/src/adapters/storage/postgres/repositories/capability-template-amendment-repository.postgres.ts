@@ -1,4 +1,16 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+} from 'drizzle-orm';
 
 import type {
   CapabilityTemplateAmendmentProposal,
@@ -12,13 +24,31 @@ import {
   type SemanticCapabilityDefinition,
 } from '../../../../shared/semantic-capabilities.js';
 import { stableSha256Json } from '../../../../shared/stable-hash.js';
+import type { CapabilityTemplateApprovalIntentRepository } from '../../../../shared/capability-template-amendment.js';
+import {
+  adoptOrphanedApprovalTargets,
+  claimDueApprovalIntents,
+  insertApprovalIntent,
+  renewApprovalIntentClaim,
+  settleApprovalIntentClaim,
+} from './capability-template-approval-intent.postgres.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 
 const table = pgSchema.capabilityTemplateAmendmentProposalsPostgres;
 const historyTable = pgSchema.capabilityTemplateAmendmentHistoryPostgres;
+const intentTable = pgSchema.capabilityTemplateApprovalIntentsPostgres;
+const targetTable = pgSchema.capabilityTemplateApprovalIntentTargetsPostgres;
 
-export class PostgresCapabilityTemplateAmendmentRepository implements CapabilityTemplateAmendmentRepository {
+type CanonicalTransaction = Parameters<
+  Parameters<CanonicalDb['transaction']>[0]
+>[0];
+
+export class PostgresCapabilityTemplateAmendmentRepository
+  implements
+    CapabilityTemplateAmendmentRepository,
+    CapabilityTemplateApprovalIntentRepository
+{
   constructor(private readonly db: CanonicalDb) {}
 
   async claimPending(
@@ -234,6 +264,13 @@ export class PostgresCapabilityTemplateAmendmentRepository implements Capability
         return { status: 'not_pending' as const };
       }
       if (proposal.status === 'approved') {
+        // Newer-wins ordering must come from the ORIGINAL decision time -
+        // a replay's own clock would make an old approval look newest and
+        // supersede a genuinely newer intent (review R4).
+        await this.insertApprovalIntent(tx, proposal, {
+          ...input,
+          approvedAt: proposal.decidedAt ?? input.approvedAt,
+        });
         return { status: 'already_amended' as const };
       }
       if (proposal.status !== 'pending') {
@@ -300,6 +337,7 @@ export class PostgresCapabilityTemplateAmendmentRepository implements Capability
           .where(
             and(eq(table.id, input.proposalId), eq(table.status, 'pending')),
           );
+        await this.insertApprovalIntent(tx, proposal, input);
         return { status: 'already_amended' as const };
       }
 
@@ -367,8 +405,54 @@ export class PostgresCapabilityTemplateAmendmentRepository implements Capability
         .where(
           and(eq(table.id, input.proposalId), eq(table.status, 'pending')),
         );
+      await this.insertApprovalIntent(tx, proposal, input);
       return { status: 'amended' as const, historyId, auditEventId };
     });
+  }
+
+  async claimDueApprovalIntents(
+    input: Parameters<
+      CapabilityTemplateApprovalIntentRepository['claimDueApprovalIntents']
+    >[0],
+  ): ReturnType<
+    CapabilityTemplateApprovalIntentRepository['claimDueApprovalIntents']
+  > {
+    return claimDueApprovalIntents(this.db, input);
+  }
+
+  async settleApprovalIntentClaim(
+    input: Parameters<
+      CapabilityTemplateApprovalIntentRepository['settleApprovalIntentClaim']
+    >[0],
+  ): ReturnType<
+    CapabilityTemplateApprovalIntentRepository['settleApprovalIntentClaim']
+  > {
+    return settleApprovalIntentClaim(this.db, input);
+  }
+
+  async adoptOrphanedApprovalTargets(input: {
+    now: string;
+    limit?: number;
+  }): Promise<number> {
+    return adoptOrphanedApprovalTargets(this.db, input);
+  }
+
+  async renewApprovalIntentClaim(input: {
+    intentId: string;
+    claimToken: string;
+    leaseExpiresAt: string;
+    now: string;
+  }): Promise<boolean> {
+    return renewApprovalIntentClaim(this.db, input);
+  }
+  private async insertApprovalIntent(
+    tx: CanonicalTransaction,
+    proposal: typeof table.$inferSelect,
+    input: Parameters<
+      CapabilityTemplateAmendmentRepository['amendSemanticCapabilityCommandTemplates']
+    >[0],
+  ): Promise<void> {
+    return insertApprovalIntent(tx, proposal, input);
   }
 }
 

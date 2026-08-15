@@ -174,6 +174,7 @@ import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import { createPermissionApprovalRequester } from '@core/channels/permission-approval-requester.js';
 import { telegramQuestionCallbackId } from '@core/channels/telegram/channel-shared.js';
+import { requirePermissionDecision } from './permission-approval-result-helpers.js';
 import type {
   PermissionCallbackClaim,
   PermissionCallbackClaimReference,
@@ -4864,9 +4865,8 @@ describe('TelegramChannel', () => {
       );
       await channel.connect();
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'capability-amendment-card',
           sourceAgentFolder: 'lead_agent',
           targetJid: 'tg:100200300',
@@ -4886,8 +4886,8 @@ describe('TelegramChannel', () => {
               'Approving corrects the allowed command shape. What I can do stays the same: read lead rows from the selected sheet. What I still cannot do: change unrelated sheets.',
             ].join('\n\n'),
           },
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
 
       const prompt = String(currentBot().api.sendMessage.mock.calls[0]?.[1]);
@@ -4929,20 +4929,24 @@ describe('TelegramChannel', () => {
         }),
       );
       await channel.connect();
-      const first = channel.requestPermissionApproval('tg:100200300', {
-        requestId: 'shared-request',
-        sourceAgentFolder: 'agent-a',
-        targetJid: 'tg:100200300',
-        toolName: 'Bash',
-      });
+      const first = channel
+        .requestPermissionApproval('tg:100200300', {
+          requestId: 'shared-request',
+          sourceAgentFolder: 'agent-a',
+          targetJid: 'tg:100200300',
+          toolName: 'Bash',
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       const firstCallback = latestPermissionCallback('Allow once');
-      const second = channel.requestPermissionApproval('tg:100200300', {
-        requestId: 'shared-request',
-        sourceAgentFolder: 'agent-b',
-        targetJid: 'tg:100200300',
-        toolName: 'Bash',
-      });
+      const second = channel
+        .requestPermissionApproval('tg:100200300', {
+          requestId: 'shared-request',
+          sourceAgentFolder: 'agent-b',
+          targetJid: 'tg:100200300',
+          toolName: 'Bash',
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       const secondCallback = latestPermissionCallback('Cancel');
       let secondSettled = false;
@@ -5005,12 +5009,14 @@ describe('TelegramChannel', () => {
       });
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
-      const decision = channel.requestPermissionApproval('tg:100200300', {
-        requestId,
-        sourceAgentFolder: 'whatsapp_main',
-        targetJid: 'tg:100200300',
-        toolName: 'Bash',
-      });
+      const decision = channel
+        .requestPermissionApproval('tg:100200300', {
+          requestId,
+          sourceAgentFolder: 'whatsapp_main',
+          targetJid: 'tg:100200300',
+          toolName: 'Bash',
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       const callback = latestPermissionCallback('Allow once');
       currentBot().api.deleteMessage.mockRejectedValueOnce(
@@ -5092,11 +5098,9 @@ describe('TelegramChannel', () => {
       );
 
       await expect(
-        channel.requestPermissionApproval(
-          'tg:100200300',
-          batch,
-          onPromptDelivered,
-        ),
+        channel
+          .requestPermissionApproval('tg:100200300', batch, onPromptDelivered)
+          .then(requirePermissionDecision),
       ).resolves.toMatchObject({ approved: false });
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledOnce();
@@ -5127,27 +5131,25 @@ describe('TelegramChannel', () => {
           targetJid: 'tg:100200300',
           toolName: 'Bash',
         }),
-      ).rejects.toMatchObject({ name: 'DurableInteractionPersistenceError' });
-      expect((channel as any).pendingPermissionPrompts.size).toBe(1);
-      for (const pending of (
-        channel as any
-      ).pendingPermissionPrompts.values()) {
-        clearTimeout(pending.timer);
-      }
-      (channel as any).pendingPermissionPrompts.clear();
+      ).resolves.toMatchObject({
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        retryable: false,
+        delivered: 'unknown',
+      });
+      expect((channel as any).pendingPermissionPrompts.size).toBe(0);
     });
 
     it('fails closed for stale timed-grant callbacks', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-stale',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Bash',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       const promptButtons = currentBot()
         .api.sendMessage.mock.calls.at(-1)?.[2]
@@ -5234,10 +5236,9 @@ describe('TelegramChannel', () => {
       );
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        batch,
-      );
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', batch)
+        .then(requirePermissionDecision);
       await flushPromises();
       const buttons = currentBot()
         .api.sendMessage.mock.calls.at(-1)?.[2]
@@ -5315,7 +5316,7 @@ describe('TelegramChannel', () => {
           runId: 'run-1',
           toolName: 'Bash',
           toolInput: { command: `echo ${entry.payload.requestId}` },
-        }),
+        }).then(requirePermissionDecision),
       );
 
       await vi.advanceTimersByTimeAsync(1500);
@@ -5433,6 +5434,8 @@ describe('TelegramChannel', () => {
       expect(claims.bindPendingPermissionPrompt).toHaveBeenCalledWith({
         id: expect.any(String),
         appId: 'default',
+        jobId: null,
+        setupFingerprint: null,
         sourceAgentFolder: 'whatsapp_main',
         interactionId: batch.requestId,
         matchKind: 'batch',
@@ -5467,7 +5470,10 @@ describe('TelegramChannel', () => {
         triggerCallbackQuery(reviewContext),
       ]);
 
-      await expect(decisionPromise).resolves.toMatchObject({ approved: true });
+      await expect(decisionPromise).resolves.toMatchObject({
+        kind: 'decision',
+        decision: { approved: true },
+      });
       const outcomes = [allowContext, reviewContext].map(
         (context) => context.answerCallbackQuery.mock.calls.at(-1)?.[0]?.text,
       );
@@ -5772,46 +5778,31 @@ describe('TelegramChannel', () => {
       await decisionPromise;
     });
 
-    it('falls back to a plain-text permission prompt when the HTML send is rejected', async () => {
+    it('does not retry a permission prompt after the provider call fails', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
-      // First (HTML) send is rejected; the fallback resends as plain text.
       currentBot().api.sendMessage.mockRejectedValueOnce(
         new Error("Bad Request: can't parse entities"),
       );
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      await expect(
+        channel.requestPermissionApproval('tg:100200300', {
           requestId: 'perm-fb',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Bash',
           toolInput: { command: 'npm test' },
-        },
-      );
-      await flushPromises();
-
-      const calls = currentBot().api.sendMessage.mock.calls;
-      expect(calls[0][2]).toMatchObject({ parse_mode: 'HTML' });
-      // The plain-text retry must NOT set parse_mode, and must still carry the
-      // decision buttons + the readable prompt so the approval stays actionable.
-      expect(calls[1][2]).not.toHaveProperty('parse_mode');
-      expect(calls[1][2].reply_markup.inline_keyboard.length).toBeGreaterThan(
-        0,
-      );
-      expect(calls[1][1]).toContain(
-        '🔐 Allow Whatsapp Main to use exact command access?',
-      );
-
-      await triggerCallbackQuery({
-        callbackQuery: { data: latestPermissionCallback('Allow once') },
-        chat: { id: 100200300 },
-        from: { id: 12345, first_name: 'Ravi' },
-        answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
+        }),
+      ).resolves.toMatchObject({
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        retryable: false,
+        delivered: 'unknown',
       });
-      const decision = await decisionPromise;
-      expect(decision.approved).toBe(true);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage.mock.calls[0]?.[2]).toMatchObject({
+        parse_mode: 'HTML',
+      });
     });
 
     it('sends oversized permission full view files to the group next to the prompt', async () => {
@@ -5821,9 +5812,8 @@ describe('TelegramChannel', () => {
       const tail = 'review-tail-after-shared-budget';
       const proposed = `${'x'.repeat(7000)}${tail}`;
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:-100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:-100200300', {
           requestId: 'perm-profile-large',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'request_agent_profile_update',
@@ -5848,8 +5838,8 @@ describe('TelegramChannel', () => {
               },
             ],
           },
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
 
       const calls = currentBot().api.sendMessage.mock.calls;
@@ -5919,15 +5909,15 @@ describe('TelegramChannel', () => {
       );
       await flushPromises();
 
-      const promptCall = currentBot().api.sendMessage.mock.calls.at(-1);
-      expect(promptCall?.[0]).toBe('-100200300');
-      expect(promptCall?.[1]).toContain(
-        'Approval unavailable until the full details can be reviewed.',
-      );
-      expect(promptCall?.[2]).not.toHaveProperty('reply_markup');
+      expect(currentBot().api.sendDocument).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
 
-      const decision = await decisionPromise;
-      expect(decision.approved).toBe(false);
+      await expect(decisionPromise).resolves.toMatchObject({
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        retryable: false,
+        delivered: 'unknown',
+      });
     });
 
     it('splits an oversized intent-only review prompt before sending the decision buttons', async () => {
@@ -5939,9 +5929,8 @@ describe('TelegramChannel', () => {
         value: 'v'.repeat(150),
       }));
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-mcp-large',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'request_mcp_server',
@@ -5958,8 +5947,8 @@ describe('TelegramChannel', () => {
               toolName: 'request_mcp_server',
             },
           },
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
 
       const calls = currentBot().api.sendMessage.mock.calls;
@@ -5997,16 +5986,15 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId:
             'capability-request_permission-0faf53fe-39cd-4ef0-af6e-5e09b96eef53',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Bash',
           title: 'Allow command',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
@@ -6070,14 +6058,13 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-2',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Write',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
 
       const deniedCtx = {
@@ -6111,15 +6098,14 @@ describe('TelegramChannel', () => {
         new Error('message cannot be deleted'),
       );
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-delete-fallback',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Bash',
           title: 'Allow command',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       const callbackData =
         currentBot().api.sendMessage.mock.calls.at(-1)?.[2].reply_markup
@@ -6150,15 +6136,14 @@ describe('TelegramChannel', () => {
         new Error('message cannot be edited'),
       );
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-edit-fallback',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Bash',
           title: 'Allow command',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       const callbackData =
         currentBot().api.sendMessage.mock.calls.at(-1)?.[2].reply_markup
@@ -6183,15 +6168,14 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-settings',
           sourceAgentFolder: 'unlisted_source',
           decisionPolicy: 'same_channel',
           toolName: 'Write',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
 
       const deniedCtx = {
@@ -6219,14 +6203,13 @@ describe('TelegramChannel', () => {
     it('resolves a pending approval on disconnect after a retryable claim failure', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-disconnect-retryable',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Bash',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       configurePendingInteractionDurability({
         repository: {
@@ -6250,14 +6233,13 @@ describe('TelegramChannel', () => {
     it('resolves an ownerless Telegram permission waiter on disconnect', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-disconnect-ownerless',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Bash',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       configurePendingInteractionDurability({
         repository: {
@@ -6280,14 +6262,13 @@ describe('TelegramChannel', () => {
     it('preserves a Telegram permission waiter owned by an in-flight winner on disconnect', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-disconnect-winner',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Bash',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       const scope = {
         appId: 'default',
@@ -6364,10 +6345,9 @@ describe('TelegramChannel', () => {
           },
         ],
       };
-      const approval = channel.requestPermissionApproval(
-        'tg:100200300',
-        permissionRequest,
-      );
+      const approval = channel
+        .requestPermissionApproval('tg:100200300', permissionRequest)
+        .then(requirePermissionDecision);
       const answer = requestTelegramUserAnswer(
         channel,
         'tg:100200300',
@@ -6401,15 +6381,14 @@ describe('TelegramChannel', () => {
         const channel = new TelegramChannel('test-token', opts);
         await channel.connect();
 
-        const decisionPromise = channel.requestPermissionApproval(
-          'tg:100200300',
-          {
+        const decisionPromise = channel
+          .requestPermissionApproval('tg:100200300', {
             requestId: 'perm-timeout',
             sourceAgentFolder: 'whatsapp_main',
             toolName: 'Edit',
             permissionLane: 'autonomous',
-          },
-        );
+          })
+          .then(requirePermissionDecision);
         await Promise.resolve();
 
         await vi.advanceTimersByTimeAsync(300_000);
@@ -6430,12 +6409,14 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
 
-      const approval = channel.requestPermissionApproval('tg:100200300', {
-        requestId: 'perm-interactive-no-timeout',
-        sourceAgentFolder: 'whatsapp_main',
-        toolName: 'Edit',
-        permissionLane: 'interactive',
-      });
+      const approval = channel
+        .requestPermissionApproval('tg:100200300', {
+          requestId: 'perm-interactive-no-timeout',
+          sourceAgentFolder: 'whatsapp_main',
+          toolName: 'Edit',
+          permissionLane: 'interactive',
+        })
+        .then(requirePermissionDecision);
       await vi.advanceTimersByTimeAsync(0);
 
       const prompts = (channel as any).pendingPermissionPrompts as Map<
@@ -6458,11 +6439,13 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
 
-      const approval = channel.requestPermissionApproval('tg:100200300', {
-        requestId: 'perm-lane-less-fallback',
-        sourceAgentFolder: 'whatsapp_main',
-        toolName: 'Edit',
-      });
+      const approval = channel
+        .requestPermissionApproval('tg:100200300', {
+          requestId: 'perm-lane-less-fallback',
+          sourceAgentFolder: 'whatsapp_main',
+          toolName: 'Edit',
+        })
+        .then(requirePermissionDecision);
       await vi.advanceTimersByTimeAsync(0);
 
       const prompts = (channel as any).pendingPermissionPrompts as Map<
@@ -6485,15 +6468,14 @@ describe('TelegramChannel', () => {
       try {
         const channel = new TelegramChannel('test-token', createTestOpts());
         await channel.connect();
-        const decisionPromise = channel.requestPermissionApproval(
-          'tg:100200300',
-          {
+        const decisionPromise = channel
+          .requestPermissionApproval('tg:100200300', {
             requestId: 'perm-timeout-retryable',
             sourceAgentFolder: 'whatsapp_main',
             toolName: 'Edit',
             permissionLane: 'autonomous',
-          },
-        );
+          })
+          .then(requirePermissionDecision);
         await vi.advanceTimersByTimeAsync(0);
         expect((channel as any).pendingPermissionPrompts.size).toBe(1);
         const claimPendingPermissionCallback = vi.fn(async () => {
@@ -6961,13 +6943,15 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const decisionPromise = channel.requestPermissionApproval('tg:777', {
-        requestId: 'perm-channel-allowlist',
-        sourceAgentFolder: 'unlisted_source',
-        approvalContextJid: 'tg:100200300',
-        decisionPolicy: 'same_channel',
-        toolName: 'Write',
-      });
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:777', {
+          requestId: 'perm-channel-allowlist',
+          sourceAgentFolder: 'unlisted_source',
+          approvalContextJid: 'tg:100200300',
+          decisionPolicy: 'same_channel',
+          toolName: 'Write',
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
 
       const approvedCtx = {

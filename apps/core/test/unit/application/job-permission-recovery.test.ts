@@ -74,10 +74,13 @@ describe('permission recovery', () => {
       auditEventId: 'audit-1',
     }));
     const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      mode: 'allow_once' as const,
-      decidedBy: 'person:ravi',
-      decisionClassification: 'user_once' as const,
+      kind: 'decision' as const,
+      decision: {
+        approved: true,
+        mode: 'allow_once' as const,
+        decidedBy: 'person:ravi',
+        decisionClassification: 'user_once' as const,
+      },
     }));
     let finish!: () => void;
     const finished = new Promise<void>((resolve) => {
@@ -141,11 +144,13 @@ describe('permission recovery', () => {
         approvedBy: 'person:ravi',
       }),
     );
-    expect(resumeSetupPausedJob).toHaveBeenCalledOnce();
-    expect(onSchedulerChanged).toHaveBeenCalledWith(job.id);
+    // S4-INTENT: the approval path records the durable intent; the resume
+    // itself belongs to the intent recovery service (own tests), so no
+    // inline resume happens here.
+    expect(resumeSetupPausedJob).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledWith(
       proposal.conversationJid,
-      expect.stringContaining('Job resumed'),
+      expect.stringContaining('resume automatically'),
       expect.objectContaining({ threadId: proposal.threadId }),
     );
   });
@@ -267,7 +272,6 @@ describe('permission recovery', () => {
         appId: 'default',
         sourceAgentFolder: 'team',
         jobId: job.id,
-        recoveringPermissionRequestId: 'request-access:another-flow',
         opsRepository: {
           getJobById: vi.fn(async () => job),
           resumeSetupPausedJob: vi.fn(async () => true),
@@ -292,10 +296,6 @@ describe('permission recovery', () => {
 
   it('does not cancel the setup prompt interaction performing the recovery', async () => {
     const job = pausedJob(1);
-    const requestId = setupPausePermissionRequestId(
-      job.id,
-      job.setup_state!.fingerprint,
-    );
     const cancelPermissionApproval = vi.fn(async () => 'settled' as const);
     configureSetupPausePermissionPrompt({
       appId: 'default',
@@ -307,7 +307,10 @@ describe('permission recovery', () => {
         appId: 'default',
         sourceAgentFolder: 'team',
         jobId: job.id,
-        recoveringPermissionRequestId: requestId,
+        recoveringPermissionPrompt: {
+          jobId: job.id,
+          setupFingerprint: job.setup_state!.fingerprint,
+        },
         opsRepository: {
           getJobById: vi.fn(async () => job),
           resumeSetupPausedJob: vi.fn(async () => true),
@@ -339,7 +342,6 @@ describe('permission recovery', () => {
         appId: 'default',
         sourceAgentFolder: 'team',
         jobId: job.id,
-        recoveringPermissionRequestId: 'request-access:another-flow',
         opsRepository: {
           getJobById: vi.fn(async () => job),
           resumeSetupPausedJob: vi.fn(async () => true),
@@ -775,7 +777,7 @@ describe('permission recovery', () => {
     expect(job.pause_reason).toBe('Paused by an administrator');
   });
 
-  it('routes an already-pending partial-recovery outcome through the normal setup notification fallback', async () => {
+  it('keeps an already-pending partial-recovery prompt on the durable delivery path', async () => {
     const job = pausedJob(1);
     job.execution_context = {
       ...job.execution_context!,
@@ -789,15 +791,7 @@ describe('permission recovery', () => {
       appId: 'default',
       getJobById: vi.fn(async () => job),
       cancelPermissionApproval: vi.fn(async () => 'settled' as const),
-      runPermissionInteraction: vi.fn(async () => ({
-        began: false,
-        decision: {
-          approved: false,
-          mode: 'cancel',
-          decidedBy: 'owner-1',
-        },
-        resolved: false,
-      })),
+      preparePermissionInteraction: vi.fn(async () => ({ created: false })),
       reviewStoredRequirement: vi.fn(async () => ({
         suggestions: [
           {
@@ -857,16 +851,13 @@ describe('permission recovery', () => {
         expect.stringContaining('Setup needed'),
         expect.objectContaining({ threadId: 'thread-001' }),
       );
-      expect(sendMessage).toHaveBeenCalledWith(
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      expect(sendMessage).not.toHaveBeenCalledWith(
         'tg:approver',
-        expect.stringContaining('Setup needed'),
-        expect.objectContaining({ threadId: 'approval-thread' }),
+        expect.anything(),
+        expect.anything(),
       );
-      expect(sendMessage).toHaveBeenCalledTimes(2);
-      expect(markJobSetupNotified).toHaveBeenCalledWith(
-        job.id,
-        job.setup_state!.fingerprint,
-      );
+      expect(markJobSetupNotified).not.toHaveBeenCalled();
     } finally {
       configureSetupPausePermissionPrompt(null);
     }
@@ -881,7 +872,7 @@ describe('permission recovery', () => {
       appId: 'default',
       getJobById: vi.fn(async () => job),
       cancelPermissionApproval: vi.fn(async () => 'settled' as const),
-      runPermissionInteraction: vi.fn(),
+      preparePermissionInteraction: vi.fn(),
       reviewStoredRequirement: vi.fn(async () => null),
     });
     const sendMessage = vi.fn(async () => undefined);
@@ -941,7 +932,7 @@ describe('permission recovery', () => {
     }
   });
 
-  it('retries an accurate partial-recovery prompt and does not re-raise after confirmed delivery', async () => {
+  it('retries failed preparation and leaves notification settlement to reconciliation', async () => {
     const job = pausedJob(1);
     job.access_requirements = [
       { target: { kind: 'tool_rule', rule: 'Browser' } },
@@ -949,24 +940,16 @@ describe('permission recovery', () => {
     const oldFingerprint = job.setup_state!.fingerprint;
     const cancelPermissionApproval = vi.fn(async () => 'settled' as const);
     let promptAttempt = 0;
-    const runPermissionInteraction = vi.fn(
-      async (_request, delivered: (messageId: string) => void, began) => {
-        promptAttempt += 1;
-        if (promptAttempt === 1) throw new Error('provider unavailable');
-        began();
-        delivered('prompt-2');
-        return {
-          began: true,
-          decision: { approved: false, mode: 'cancel', decidedBy: 'owner-1' },
-          resolved: true,
-        } as const;
-      },
-    );
+    const preparePermissionInteraction = vi.fn(async () => {
+      promptAttempt += 1;
+      if (promptAttempt === 1) throw new Error('provider unavailable');
+      return { created: promptAttempt === 2 };
+    });
     configureSetupPausePermissionPrompt({
       appId: 'default',
       getJobById: vi.fn(async () => job),
       cancelPermissionApproval,
-      runPermissionInteraction,
+      preparePermissionInteraction,
       reviewStoredRequirement: vi.fn(async () => ({
         suggestions: [
           {
@@ -991,10 +974,10 @@ describe('permission recovery', () => {
         appId: 'default',
         sourceAgentFolder: 'team',
         jobId: job.id,
-        recoveringPermissionRequestId: setupPausePermissionRequestId(
-          job.id,
-          oldFingerprint,
-        ),
+        recoveringPermissionPrompt: {
+          jobId: job.id,
+          setupFingerprint: oldFingerprint,
+        },
         opsRepository: {
           getJobById: vi.fn(async () => job),
           refreshSetupPausedJob: vi.fn(async ({ setupState }) => {
@@ -1018,33 +1001,29 @@ describe('permission recovery', () => {
           requestId: setupPausePermissionRequestId(job.id, oldFingerprint),
         }),
       );
-      expect(runPermissionInteraction).toHaveBeenCalledTimes(1);
+      expect(preparePermissionInteraction).toHaveBeenCalledTimes(1);
       expect(
-        runPermissionInteraction.mock.calls[0]?.[0].decisionReason,
+        preparePermissionInteraction.mock.calls[0]?.[0].decisionReason,
       ).toContain('Setup is still incomplete, so this job remains paused.');
       expect(
-        runPermissionInteraction.mock.calls[0]?.[0].decisionReason,
+        preparePermissionInteraction.mock.calls[0]?.[0].decisionReason,
       ).toContain('Needed:');
       expect(
-        runPermissionInteraction.mock.calls[0]?.[0].decisionReason,
+        preparePermissionInteraction.mock.calls[0]?.[0].decisionReason,
       ).not.toContain('Permission check during the run');
       expect(
-        runPermissionInteraction.mock.calls[0]?.[0].decisionReason,
+        preparePermissionInteraction.mock.calls[0]?.[0].decisionReason,
       ).not.toContain('this run stopped before completing');
 
       await recheckSetupPausedJobsAfterCapabilityUpdate(input);
 
-      const refreshedFingerprint = job.setup_state!.fingerprint;
-      expect(runPermissionInteraction).toHaveBeenCalledTimes(2);
-      expect(markJobSetupNotified).toHaveBeenCalledWith(
-        job.id,
-        refreshedFingerprint,
-      );
+      expect(preparePermissionInteraction).toHaveBeenCalledTimes(2);
+      expect(markJobSetupNotified).not.toHaveBeenCalled();
 
       await recheckSetupPausedJobsAfterCapabilityUpdate(input);
 
-      expect(runPermissionInteraction).toHaveBeenCalledTimes(2);
-      expect(markJobSetupNotified).toHaveBeenCalledTimes(1);
+      expect(preparePermissionInteraction).toHaveBeenCalledTimes(3);
+      expect(markJobSetupNotified).not.toHaveBeenCalled();
     } finally {
       configureSetupPausePermissionPrompt(null);
     }

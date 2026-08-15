@@ -1,8 +1,14 @@
 import type { AgentRunnerInput } from './types.js';
+import type { JobSetupAction } from '../../../../domain/job-types.js';
+import { jobSetupActionEventPayload } from '../../../../domain/events/job-setup-action.js';
 import { writeOutput } from './output.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import { permissionRequestToolName } from './permission-suggestions.js';
 import type { YoloModeMatch } from '../../../../shared/yolo-mode-policy.js';
+import type { PermissionDecision } from './types.js';
+import { permissionUpdateAllowedToolRules } from '../../../../shared/permission-tool-rules.js';
+import { formatPermissionDeniedMessage } from '../../../../shared/permission-decision-message.js';
+import { DEFAULT_AGENT_ENGINE } from '../../../../shared/agent-engine.js';
 
 export function yoloDenylistPromptReason(match: YoloModeMatch): string {
   return `A YOLO-mode denylist rule matched "${match.pattern}", so this tool needs explicit approval.`;
@@ -77,4 +83,83 @@ export function emitJobToolActivity(
       },
     ],
   });
+}
+
+// S2a (decision 0126): one authoring site for the gate lane's terminal-denial
+// activity so the five gate guards stay uniform and the provider-boundary
+// token count stays stable (A-0060: lane = DEFAULT_AGENT_ENGINE).
+export function emitGateDenialActivity(input: {
+  agentInput: AgentRunnerInput;
+  getNewSessionId: () => string | undefined;
+  toolName: string;
+  reason: string;
+  decision?: string;
+  denialKind?: 'rule_denied' | 'permission_denied';
+  action: JobSetupAction;
+}): void {
+  const scheduled = input.agentInput.isScheduledJob;
+  emitJobToolActivity(
+    input.agentInput,
+    input.getNewSessionId,
+    scheduled ? 'permission_denied' : 'deny',
+    input.toolName,
+    {
+      ok: false,
+      reason: input.reason,
+      ...(input.decision ? { decision: input.decision } : {}),
+      ...(scheduled
+        ? {
+            terminal: true,
+            action: jobSetupActionEventPayload(input.action),
+            denial_kind: input.denialKind ?? 'rule_denied',
+            provenance_lane: DEFAULT_AGENT_ENGINE,
+            provenance_seam: 'gate',
+          }
+        : {}),
+    },
+  );
+}
+
+// Typed source, never free-form decidedBy (human 'birthright' still surfaces).
+const SILENT_SOURCES = new Set(['birthright', 'deterministic_policy']);
+export function permissionAllowedActivityPayload(
+  decision: PermissionDecision,
+): Record<string, unknown> {
+  const provenanceMessage = formatPermissionAllowedMessage(decision);
+  // Allow-once on a scheduled run: carry the READABLE approved rule so the
+  // transient pause can build a typed one-tap grant with the true scope -
+  // never by re-parsing recovery protocol text (0125).
+  const allowedRules = permissionUpdateAllowedToolRules(
+    (decision as { updatedPermissions?: unknown[] }).updatedPermissions,
+  );
+  return {
+    ok: true,
+    mode: decision.mode,
+    ...(allowedRules[0] ? { allowed_rule: allowedRules[0] } : {}),
+    ...(decision.decidedBy ? { decided_by: decision.decidedBy } : {}),
+    ...(decision.source ? { source: decision.source } : {}),
+    ...(typeof decision.repeatableForFutureRuns === 'boolean'
+      ? { repeatableForFutureRuns: decision.repeatableForFutureRuns }
+      : {}),
+    ...(decision.risk_level ? { risk_level: decision.risk_level } : {}),
+    ...(decision.risk_category
+      ? { risk_category: decision.risk_category }
+      : {}),
+    ...(provenanceMessage
+      ? { reason: provenanceMessage }
+      : decision.reason
+        ? { reason: decision.reason }
+        : {}),
+  };
+}
+export function formatPermissionAllowedMessage(
+  decision: PermissionDecision,
+): string | undefined {
+  if (decision.source && SILENT_SOURCES.has(decision.source)) {
+    return undefined;
+  }
+  if (!decision.decidedBy && !decision.risk_level) return undefined;
+  return formatPermissionDeniedMessage(decision, '')
+    .replace(/^Permission denied/, 'Permission allowed')
+    .replace(/: $/, '');
 }

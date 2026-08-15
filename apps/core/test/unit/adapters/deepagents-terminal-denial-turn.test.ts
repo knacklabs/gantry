@@ -28,6 +28,7 @@ vi.mock('@core/adapters/llm/deepagents-langchain/runner/mcp-tools.js', () => ({
 
 import { runDeepAgentTurn } from '@core/adapters/llm/deepagents-langchain/runner/deep-agent-runner.js';
 import { deepAgentsDenial } from '@core/adapters/llm/deepagents-langchain/runner/third-party-mcp-gate.js';
+import type { JobSetupAction } from '@core/domain/job-types.js';
 import {
   configureSetupPausePermissionPrompt,
   raiseSetupPausePermissionPrompt,
@@ -36,7 +37,6 @@ import {
   SETUP_REQUIRED_PAUSE_REASON,
   setupStateForDeniedTool,
 } from '@core/application/jobs/job-readiness-service.js';
-import { parseAutonomousToolDenial } from '@core/shared/autonomous-tool-denial.js';
 
 const previousAccessPreset = process.env.GANTRY_AGENT_ACCESS_PRESET;
 
@@ -71,8 +71,7 @@ describe('DeepAgents terminal permission denial', () => {
           onPermissionDenied?: (input: {
             toolName: string;
             reason: string;
-            grantable: boolean;
-            recoveryAction: string;
+            action: JobSetupAction;
           }) => never;
         }
       | undefined;
@@ -127,9 +126,7 @@ describe('DeepAgents terminal permission denial', () => {
         includeMemoryContext: true,
         emit,
       }),
-    ).rejects.toThrow(
-      'Tool not on autonomous run allowlist: mcp__gantry__browser_open.',
-    );
+    ).rejects.toThrow('Permission denied for mcp__gantry__browser_open.');
     expect(emit).toHaveBeenCalledWith(
       expect.objectContaining({
         runtimeEvents: [
@@ -137,7 +134,7 @@ describe('DeepAgents terminal permission denial', () => {
             payload: expect.objectContaining({
               phase: 'permission_denied',
               terminal: true,
-              grantable: true,
+              action: expect.objectContaining({ kind: 'approve_grant' }),
               reason: hostReason,
             }),
           }),
@@ -166,8 +163,7 @@ describe('DeepAgents terminal permission denial', () => {
           onPermissionDenied?: (input: {
             toolName: string;
             reason: string;
-            grantable: boolean;
-            recoveryAction: string;
+            action: JobSetupAction;
           }) => never;
           capabilityRequestToolsHidden: boolean;
           signal?: AbortSignal;
@@ -248,15 +244,10 @@ describe('DeepAgents terminal permission denial', () => {
     }
 
     expect(terminalError?.message).toContain(
-      'Tool not on autonomous run allowlist: mcp__gantry__browser_open.',
+      'Permission denied for mcp__gantry__browser_open.',
     );
-    const denial = parseAutonomousToolDenial(terminalError?.message);
-    expect(denial).toEqual({
-      toolName: 'mcp__gantry__browser_open',
-      grantable: false,
-      recoveryAction:
-        'Capability request tools are not available in this run (locked or fixed-image agent). Ask an operator to provision a reviewed capability covering mcp__gantry__browser_open before the run.',
-    });
+    const recoveryAction =
+      'Capability request tools are not available in this run (locked or fixed-image agent). Ask an operator to provision a reviewed capability covering mcp__gantry__browser_open before the run.';
 
     expect(model.callCount).toBe(1);
     expect(fallbackCalls).toBe(0);
@@ -268,8 +259,13 @@ describe('DeepAgents terminal permission denial', () => {
               phase: 'permission_denied',
               tool: 'mcp__gantry__browser_open',
               terminal: true,
-              grantable: false,
-              recovery_action: denial?.recoveryAction,
+              action: expect.objectContaining({
+                kind: 'instruction',
+                text: recoveryAction,
+              }),
+              denial_kind: 'permission_denied',
+              provenance_lane: 'deepagents',
+              provenance_seam: 'gate',
             }),
           }),
         ],
@@ -277,11 +273,12 @@ describe('DeepAgents terminal permission denial', () => {
     );
 
     const setupState = setupStateForDeniedTool({
-      toolName: denial!.toolName,
-      grantable: denial!.grantable,
-      recoveryAction: denial!.recoveryAction,
+      toolName: 'mcp__gantry__browser_open',
+      action: { kind: 'instruction', text: recoveryAction },
     });
-    const runPermissionInteraction = vi.fn();
+    const preparePermissionInteraction = vi.fn(async () => ({
+      created: true,
+    }));
     const reviewStoredRequirement = vi.fn();
     configureSetupPausePermissionPrompt({
       appId: 'default',
@@ -299,7 +296,7 @@ describe('DeepAgents terminal permission denial', () => {
             execution_context: { conversationJid: 'conversation:test' },
           }) as never,
       ),
-      runPermissionInteraction,
+      preparePermissionInteraction,
       cancelPermissionApproval: vi.fn(async () => 'not_found'),
       reviewStoredRequirement,
     });
@@ -314,7 +311,7 @@ describe('DeepAgents terminal permission denial', () => {
       notificationEligible: true,
     });
     expect(reviewStoredRequirement).not.toHaveBeenCalled();
-    expect(runPermissionInteraction).not.toHaveBeenCalled();
+    expect(preparePermissionInteraction).not.toHaveBeenCalled();
   });
 
   it('an unlocked missing-grant denial offers the approval card', async () => {
@@ -328,33 +325,15 @@ describe('DeepAgents terminal permission denial', () => {
       'Unattended jobs do not wait for approval.',
     );
     expect(denial).toMatchObject({
-      grantable: true,
-      recoveryAction: expect.stringMatching(/^request_access /),
+      action: expect.objectContaining({ kind: 'approve_grant' }),
     });
     const setupState = setupStateForDeniedTool({
       toolName: denial.toolName,
-      grantable: denial.grantable,
-      recoveryAction: denial.recoveryAction,
+      action: denial.action,
     });
-    const runPermissionInteraction = vi.fn(
-      async (
-        _request: unknown,
-        onPromptDelivered: (messageId: string) => void,
-        onInteractionBegan: () => void,
-      ) => {
-        onInteractionBegan();
-        onPromptDelivered('message-1');
-        return {
-          began: true,
-          resolved: true,
-          decision: {
-            approved: false,
-            mode: 'cancel',
-            reason: 'test cleanup',
-          },
-        } as never;
-      },
-    );
+    const preparePermissionInteraction = vi.fn(async () => ({
+      created: true,
+    }));
     const reviewStoredRequirement = vi.fn(async () => ({
       suggestions: [
         {
@@ -381,7 +360,7 @@ describe('DeepAgents terminal permission denial', () => {
             execution_context: { conversationJid: 'conversation:test' },
           }) as never,
       ),
-      runPermissionInteraction,
+      preparePermissionInteraction,
       cancelPermissionApproval: vi.fn(async () => 'not_found'),
       reviewStoredRequirement,
     });
@@ -393,10 +372,10 @@ describe('DeepAgents terminal permission denial', () => {
 
     expect(result.status).toBe('raised');
     expect(reviewStoredRequirement).toHaveBeenCalledTimes(1);
-    expect(runPermissionInteraction).toHaveBeenCalledTimes(1);
+    expect(preparePermissionInteraction).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the first parallel denial sticky and does not emit a second terminal event', async () => {
+  it('keeps the first parallel denial sticky while recording the late sibling denial', async () => {
     const [{ fakeModel }, { AIMessage }, { tool }] = await Promise.all([
       import('@langchain' + '/core/testing'),
       import('@langchain' + '/core/messages'),
@@ -415,8 +394,7 @@ describe('DeepAgents terminal permission denial', () => {
           onPermissionDenied?: (input: {
             toolName: string;
             reason: string;
-            grantable: boolean;
-            recoveryAction: string;
+            action: JobSetupAction;
           }) => never;
           capabilityRequestToolsHidden: boolean;
           signal?: AbortSignal;
@@ -504,10 +482,11 @@ describe('DeepAgents terminal permission denial', () => {
       terminalError = error as Error;
     }
 
-    // The first denial owns the terminal error and the single emitted event;
-    // the late sibling re-throws it without emitting a second terminal event.
+    // 0126 primary-denial rule: the FIRST denial owns the terminal error and
+    // stays authoritative, but the late sibling is still RECORDED as its own
+    // typed event before rethrowing the first error.
     expect(terminalError?.message).toContain(
-      'Tool not on autonomous run allowlist: mcp__gantry__browser_open.',
+      'Permission denied for mcp__gantry__browser_open.',
     );
     const terminalEmits = emit.mock.calls.filter(([payload]) =>
       (
@@ -518,13 +497,16 @@ describe('DeepAgents terminal permission denial', () => {
         (event) => event.payload?.phase === 'permission_denied',
       ),
     );
-    expect(terminalEmits).toHaveLength(1);
-    expect(
-      (
-        terminalEmits[0]?.[0] as {
-          runtimeEvents?: Array<{ payload?: { tool?: string } }>;
-        }
-      )?.runtimeEvents?.[0]?.payload?.tool,
-    ).toBe('mcp__gantry__browser_open');
+    expect(terminalEmits).toHaveLength(2);
+    const emittedTools = terminalEmits.map(
+      ([payload]) =>
+        (
+          payload as {
+            runtimeEvents?: Array<{ payload?: { tool?: string } }>;
+          }
+        )?.runtimeEvents?.[0]?.payload?.tool,
+    );
+    expect(emittedTools[0]).toBe('mcp__gantry__browser_open');
+    expect(emittedTools[1]).toBe('mcp__gantry__github_search');
   });
 });

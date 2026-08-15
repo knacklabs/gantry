@@ -209,6 +209,7 @@ import type {
   PermissionCallbackClaimReference,
   PermissionCallbackScope,
 } from '@core/domain/types.js';
+import { requirePermissionDecision } from './permission-approval-result-helpers.js';
 
 function createOpts(
   controlAllowlist = {
@@ -635,7 +636,9 @@ function requestSlackPermissionApproval(
   onPromptDelivered?: (messageId: string) => void,
 ) {
   configureSlackPermissionRequest(request);
-  return channel.requestPermissionApproval(jid, request, onPromptDelivered);
+  return channel
+    .requestPermissionApproval(jid, request, onPromptDelivered)
+    .then(requirePermissionDecision);
 }
 
 function requestSlackUserAnswer(
@@ -6513,7 +6516,9 @@ describe('Slack channel', () => {
       toolName: 'Bash',
     };
     const repository = configureSlackPermissionRequest(request);
-    const approval = channel.requestPermissionApproval('sl:C123', request);
+    const approval = channel
+      .requestPermissionApproval('sl:C123', request)
+      .then(requirePermissionDecision);
     await flushSlackPromptRegistration();
     const scope = {
       appId: 'default',
@@ -6665,10 +6670,9 @@ describe('Slack channel', () => {
       toolName: 'Bash',
     };
     const raceRepository = configureSlackPermissionRequest(request);
-    const approvalPromise = channel.requestPermissionApproval(
-      'sl:C123',
-      request,
-    );
+    const approvalPromise = channel
+      .requestPermissionApproval('sl:C123', request)
+      .then(requirePermissionDecision);
     const resolved = vi.fn();
     void approvalPromise.then(resolved);
     await vi.waitFor(() =>
@@ -6749,10 +6753,9 @@ describe('Slack channel', () => {
       decisionOptions: ['allow_persistent_rule', 'cancel'] as const,
     };
     const repository = configureSlackPermissionRequest(request);
-    const approvalPromise = channel.requestPermissionApproval(
-      'sl:C123',
-      request,
-    );
+    const approvalPromise = channel
+      .requestPermissionApproval('sl:C123', request)
+      .then(requirePermissionDecision);
     await vi.waitFor(() =>
       expect(repository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(2),
     );
@@ -6819,10 +6822,9 @@ describe('Slack channel', () => {
       permissionLane: 'autonomous' as const,
     };
     const raceRepository = configureSlackPermissionRequest(request);
-    const approvalPromise = channel.requestPermissionApproval(
-      'sl:C123',
-      request,
-    );
+    const approvalPromise = channel
+      .requestPermissionApproval('sl:C123', request)
+      .then(requirePermissionDecision);
     const resolved = vi.fn();
     void approvalPromise.then(resolved);
     await vi.waitFor(() =>
@@ -6885,10 +6887,9 @@ describe('Slack channel', () => {
       toolName: 'Bash',
     };
     const repository = configureSlackPermissionRequest(request);
-    const approvalPromise = channel.requestPermissionApproval(
-      'sl:C123',
-      request,
-    );
+    const approvalPromise = channel
+      .requestPermissionApproval('sl:C123', request)
+      .then(requirePermissionDecision);
     await vi.waitFor(() =>
       expect(repository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(2),
     );
@@ -6995,10 +6996,9 @@ describe('Slack channel', () => {
       toolName: 'Bash',
     };
     const firstRepository = configureSlackPermissionRequest(firstRequest);
-    const firstApproval = channel.requestPermissionApproval(
-      'sl:C123',
-      firstRequest,
-    );
+    const firstApproval = channel
+      .requestPermissionApproval('sl:C123', firstRequest)
+      .then(requirePermissionDecision);
     await flushSlackPromptRegistration();
     const firstValue = latestSlackPermissionActionValue(
       'gantry_perm_decision_allow_once',
@@ -7009,10 +7009,9 @@ describe('Slack channel', () => {
       sourceAgentFolder: 'agent_two',
     };
     const secondRepository = configureSlackPermissionRequest(secondRequest);
-    const secondApproval = channel.requestPermissionApproval(
-      'sl:C123',
-      secondRequest,
-    );
+    const secondApproval = channel
+      .requestPermissionApproval('sl:C123', secondRequest)
+      .then(requirePermissionDecision);
     await flushSlackPromptRegistration();
     const secondValue = latestSlackPermissionActionValue(
       'gantry_perm_decision_cancel',
@@ -7160,7 +7159,7 @@ describe('Slack channel', () => {
     );
   });
 
-  it('posts a visible Slack notice when no approver can receive a permission prompt', async () => {
+  it('returns a preflight failure when no approver can receive a Slack prompt', async () => {
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -7168,7 +7167,7 @@ describe('Slack channel', () => {
     );
     await channel.connect();
 
-    const approvalPromise = requestSlackPermissionApproval(channel, 'sl:C123', {
+    const approvalPromise = channel.requestPermissionApproval('sl:C123', {
       requestId: 'perm-no-approver',
       sourceAgentFolder: 'slack_main',
       toolName: 'request_skill_install',
@@ -7176,14 +7175,14 @@ describe('Slack channel', () => {
     });
     await flushSlackPromptRegistration();
 
-    await expect(approvalPromise).resolves.toMatchObject({ approved: false });
+    await expect(approvalPromise).resolves.toMatchObject({
+      kind: 'delivery_failure',
+      code: 'surface_unsupported',
+      retryable: true,
+      delivered: 'no',
+    });
     expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
-    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        channel: 'C123',
-        text: expect.stringContaining('no configured approvers'),
-      }),
-    );
+    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
   });
 
   it('fails closed when a Slack permission batch cannot be bound durably', async () => {
@@ -7226,7 +7225,12 @@ describe('Slack channel', () => {
     await flushSlackPromptRegistration();
     await vi.runAllTimersAsync();
 
-    await expect(approvalPromise).resolves.toMatchObject({ approved: false });
+    await expect(approvalPromise).resolves.toMatchObject({
+      kind: 'delivery_failure',
+      code: 'provider_failed',
+      retryable: true,
+      delivered: 'no',
+    });
     expect(onPromptDelivered).not.toHaveBeenCalled();
     expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
     vi.useRealTimers();
@@ -7287,7 +7291,12 @@ describe('Slack channel', () => {
 
     await expect(
       channel.requestPermissionApproval('sl:C123', batch, onPromptDelivered),
-    ).resolves.toMatchObject({ approved: false });
+    ).resolves.toMatchObject({
+      kind: 'delivery_failure',
+      code: 'provider_failed',
+      retryable: false,
+      delivered: 'unknown',
+    });
 
     expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledOnce();
@@ -8134,14 +8143,17 @@ describe('Slack channel', () => {
       return await original(input);
     });
 
+    // Post-send persistence failure = delivered:'unknown', never retried
+    // (0128 transmission boundary); the local waiter is cleaned up.
     await expect(
       channel.requestPermissionApproval('sl:C123', request),
-    ).rejects.toMatchObject({ name: 'DurableInteractionPersistenceError' });
-    expect((channel as any).pendingPermissionPrompts.size).toBe(1);
-    for (const pending of (channel as any).pendingPermissionPrompts.values()) {
-      clearTimeout(pending.timer);
-    }
-    (channel as any).pendingPermissionPrompts.clear();
+    ).resolves.toMatchObject({
+      kind: 'delivery_failure',
+      code: 'provider_failed',
+      retryable: false,
+      delivered: 'unknown',
+    });
+    expect((channel as any).pendingPermissionPrompts.size).toBe(0);
   });
 
   it('returns empty Slack user-question answers when prompt times out', async () => {
@@ -9471,10 +9483,9 @@ describe('Slack channel', () => {
       new Error('postgres unavailable'),
     );
 
-    const decisionPromise = channel.requestPermissionApproval(
-      'sl:C1234567890',
-      request,
-    );
+    const decisionPromise = channel
+      .requestPermissionApproval('sl:C1234567890', request)
+      .then(requirePermissionDecision);
     await flushSlackPromptRegistration();
     await vi.advanceTimersByTimeAsync(600_000);
 

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 const spawnAgent = vi.hoisted(() => vi.fn());
 
@@ -39,10 +40,12 @@ import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 
 const publishRuntimeEvent = vi.fn(async () => undefined);
 const sendMessage = vi.fn(async () => undefined);
-const requestPermissionApproval = vi.fn(async () => ({
-  approved: true,
-  mode: 'allow_once' as const,
-}));
+const requestPermissionApproval = vi.fn(async () =>
+  permissionDecisionResult({
+    approved: true,
+    mode: 'allow_once' as const,
+  }),
+);
 const requestUserAnswer = vi.fn(async (request) => ({
   requestId: request.requestId,
   answers: {},

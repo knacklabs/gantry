@@ -21,7 +21,7 @@ import {
 } from './scheduler.js';
 import {
   jobSetupBlockerFromUnknown,
-  setupActionLabel,
+  formatJobSetupAction,
 } from '../shared/job-setup-labels.js';
 
 function makeJobService(context: TaskContext): JobManagementService {
@@ -314,7 +314,8 @@ function formatSetupOutcome(job?: { setup_state?: unknown }): string {
   if (state === 'ready') return '';
   const blockers = (setupState as { blockers?: unknown }).blockers;
   const firstBlocker = Array.isArray(blockers) ? blockers[0] : undefined;
-  const action = setupActionLabel(jobSetupBlockerFromUnknown(firstBlocker));
+  const blocker = jobSetupBlockerFromUnknown(firstBlocker);
+  const action = formatJobSetupAction(blocker?.action, blocker);
   return ` Setup needed: ${action || String(state ?? 'unknown')}.`;
 }
 
