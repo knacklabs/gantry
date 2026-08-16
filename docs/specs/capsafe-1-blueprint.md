@@ -56,17 +56,21 @@ export function localCliCommandTemplateMatchesArgv(input: {
 }): boolean;
 ```
 
-It should parse `template` with `parseBashCommand()` and fail closed unless all
-of these are true:
+It should fail closed unless all of these are true:
 
-1. Parsing succeeds and produces exactly one command leaf.
-2. The template leaf has no redirects.
-3. Both `template` and `argv` start with `executablePath` exactly. No wildcard,
+1. `hasBashShellControlSyntax(template)` is false. Check this before parsing so
+   a trailing control operator such as `;` or `&&` cannot pass merely because
+   `parseBashCommand()` produced one non-empty leaf.
+2. Parsing with `parseBashCommand()` succeeds and produces exactly one command
+   leaf.
+3. The template leaf has no redirects.
+4. Both the parsed template argv and invocation `argv` start with
+   `executablePath` exactly. No wildcard,
    interpreter alias, or basename match is allowed for the executable.
-4. At least one literal operation token follows the executable; existing
+5. At least one literal operation token follows the executable; existing
    `validateLocalCliCommandTemplate()` remains the catalog-write validation
    boundary for this invariant.
-5. The shared argv-pattern kernel matches the remaining tokens under the
+6. The shared argv-pattern kernel matches the remaining tokens under the
    local-CLI wildcard policy below.
 
 Factor the cardinality/token loop currently in `bashScopeMatchesLeaf()` into
@@ -109,8 +113,10 @@ reimplement wildcard or glob matching.
    interpreter projection. Move lines 557-571 into `argvPatternMatches()` and
    have the RunCommand wrapper call it with `one-arg`.
 2. Add `localCliCommandTemplateMatchesArgv()` beside that function. It owns the
-   simple-leaf/no-redirect/exact-executable checks and calls the kernel with
-   `one-non-flag`.
+   existing `hasBashShellControlSyntax()` pre-check, the
+   simple-leaf/no-redirect/exact-executable checks, and calls the kernel with
+   `one-non-flag`. Reuse the helper already imported by this module; do not add
+   another shell-syntax detector.
 3. Keep `leafArgvForScope()` at lines 574-586 RunCommand-only. Local CLI must
    not inherit Python interpreter aliases or generated-skill path projection.
 4. Reuse `globPatternMatches()` and `escapeRegex()` at lines 594-603. Do not add
@@ -161,7 +167,7 @@ suite or test name containing the exact identifier `CAPSAFE-1-MATCHER`.
 | Person-scope mismatch                                          | Current binding belongs to a different person                                                                     | Existing `permission_denied` proof remains green.                                                         |
 | Executable identity mismatch                                   | Wrong hash, writable executable, or executable under the agent-writable root                                      | Existing `executable_identity_mismatch` proofs remain green and the sandbox is not started.               |
 | Template executable mismatch                                   | Template starts with another executable, a basename, or an executable wildcard                                    | `localCliCommandTemplateMatchesArgv()` returns false.                                                     |
-| Shell control syntax in template                               | Pipe, `;`, `&&`, substitution, or multiple leaves in the reviewed template                                        | Wrapper returns false. Do not test these as argv data values.                                             |
+| Shell control syntax in template                               | Pipe, interior or trailing `;`/`&&`, substitution, or multiple leaves in the reviewed template                    | Wrapper returns false. Do not test these as argv data values.                                             |
 | Redirection in template                                        | `<`, `>`, or a parsed redirect on the reviewed template                                                           | Wrapper returns false even for a non-destructive redirect.                                                |
 | Environment assignment in template                             | A leading `TOKEN=x`, `CONFIG=x`, proxy, credential, or CA assignment                                              | Wrapper returns false; existing catalog validation remains unchanged.                                     |
 
