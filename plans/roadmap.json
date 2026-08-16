@@ -1237,6 +1237,25 @@
       "depends_on": [],
       "origin": "adhoc",
       "spec": "docs/specs/jobflow-lifecycle.md"
+    },
+    {
+      "key": "CAPSAFE-1",
+      "title": "Durable try-authorize-remember loop for CLI-command capability shapes",
+      "story": "As an autonomous agent, I can try a plausible command shape on a capability I already hold and get a real authorize decision (auto-allowed when low-risk, one-tap when not, remembered either way), so a safe CLI operation never dead-ends and never needs a hand-patch",
+      "acceptance_criteria": [
+        "A shape mismatch on an already-granted capability routes to the permission classifier and yields an auto-allow (low-risk documented-flag extension) or an approvable one-tap card, never a non-actionable instruction dead-end",
+        "The capability-template compiler proposes a flag-form widening even when redundant positional-count template variants share the literal prefix (two-template ambiguity resolved)",
+        "request_access distinguishes grant from command-shape so an agent can request a new command shape instead of bouncing off already-granted",
+        "An approved widening is remembered durably (survives restart; the agent stops re-asking)",
+        "Acceptance: the KnackLabs agent fixes its own Sheets writes via --values-json through one approvable card, producing a clean comma-safe write that is remembered"
+      ],
+      "order": 63,
+      "status": "active",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "refactor",
+      "depends_on": [],
+      "spec": "docs/specs/capsafe-1.md"
     }
   ],
   "epics": [
@@ -1325,5 +1344,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-12T12:24:03+00:00"
+  "updated_at": "2026-08-15T14:00:35+00:00"
 }
