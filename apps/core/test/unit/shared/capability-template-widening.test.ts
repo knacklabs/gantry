@@ -43,10 +43,10 @@ describe('capability template widening classification', () => {
       kind: 'added_inputs',
     },
     {
-      name: 'added first trailing positional slot to an exact command',
+      name: 'added first terminal remainder wildcard',
       current: ['/usr/local/bin/gog sheets get'],
       proposed: ['/usr/local/bin/gog sheets get *'],
-      kind: 'added_inputs',
+      kind: 'expanded',
     },
     {
       name: 'kept template plus an added-inputs sibling',

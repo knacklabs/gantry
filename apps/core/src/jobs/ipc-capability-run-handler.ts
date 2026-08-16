@@ -72,10 +72,9 @@ export async function compileAndRecordHostCapabilityTemplateMismatch(input: {
   const localCliBindings = (capability?.implementationBindings ?? []).filter(
     (binding) => binding.kind === 'local_cli' && binding.executablePath,
   );
-  // Exactly-one applies to the MATCHING template across the WHOLE
-  // catalog: exactly one prefix match total, and it must be eligible - a
-  // same-prefix ineligible template in a sibling binding makes the match
-  // ambiguous (review R2/R3).
+  // Prefix candidates across every local-CLI binding may converge only when
+  // all are eligible and compile to the same canonical proposal set. Any
+  // covered call, ineligible candidate, or divergent set creates no amendment.
   const compilations = localCliBindings.map((binding) =>
     compileCapabilityTemplateMismatch({
       executablePath: binding.executablePath!,
@@ -83,16 +82,36 @@ export async function compileAndRecordHostCapabilityTemplateMismatch(input: {
       observedArgs: input.observedArgs,
     }),
   );
+  if (compilations.some((candidate) => candidate.kind === 'covered')) {
+    return {
+      action: instructionSetupAction(
+        `Ask an administrator to review the command template for capability "${input.capabilityId}".`,
+      ),
+    };
+  }
   const totalPrefixMatches = compilations.reduce(
-    (sum, candidate) => sum + candidate.prefixMatches,
+    (sum, candidate) =>
+      sum + (candidate.kind === 'covered' ? 0 : candidate.prefixMatches),
     0,
   );
   const proposals = compilations.filter(
     (candidate): candidate is typeof candidate & { kind: 'proposal' } =>
       candidate.kind === 'proposal',
   );
+  const proposalPrefixMatches = proposals.reduce(
+    (sum, candidate) => sum + candidate.prefixMatches,
+    0,
+  );
+  const canonicalProposedTemplates = proposals[0]?.proposedTemplates ?? [];
+  const proposalsConverge = proposals.every((candidate) =>
+    templateSetsEqual(canonicalProposedTemplates, candidate.proposedTemplates),
+  );
   const compilation =
-    totalPrefixMatches === 1 && proposals.length === 1 ? proposals[0]! : null;
+    totalPrefixMatches > 0 &&
+    proposalPrefixMatches === totalPrefixMatches &&
+    proposalsConverge
+      ? proposals[0]!
+      : null;
   if (!compilation) {
     return {
       action: instructionSetupAction(
@@ -129,6 +148,16 @@ export async function compileAndRecordHostCapabilityTemplateMismatch(input: {
     },
     review: result.review,
   };
+}
+
+function templateSetsEqual(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((template, index) => template === right[index])
+  );
 }
 
 const capabilityRunHandler: TaskHandler = async (context) => {
