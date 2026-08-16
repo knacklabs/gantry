@@ -83,7 +83,13 @@ export async function compileAndRecordHostCapabilityTemplateMismatch(input: {
     }),
   );
   if (compilations.some((candidate) => candidate.kind === 'covered')) {
+    // The current catalog ALREADY authorizes this argv — a concurrent amendment
+    // landed between the failed match and this read, or the mismatch was
+    // replayed. Signal the caller to RE-ATTEMPT under current authority instead
+    // of blocking the job on an administrator instruction; the action is only a
+    // defensive fallback if the re-attempt still cannot authorize.
     return {
+      covered: true as const,
       action: instructionSetupAction(
         `Ask an administrator to review the command template for capability "${input.capabilityId}".`,
       ),
@@ -261,11 +267,17 @@ const capabilityRunHandler: TaskHandler = async (context) => {
     () => deadline.abort(),
     Math.max(0, deadlineAt - Date.now()),
   );
-  try {
-    const result = await runStructuredLocalCliCapability({
+  // A template mismatch is refused BEFORE the sandbox spawns, so re-attempting
+  // a now-covered call has no double-execution risk. Capture the narrowed
+  // request identity into locals — a closure re-widens property narrowings.
+  const invocationAppId = data.appId;
+  const invocationAgentId = data.agentId;
+  const invocationConversationId = data.chatJid;
+  const runInvocation = () =>
+    runStructuredLocalCliCapability({
       repository,
-      appId: data.appId,
-      agentId: data.agentId,
+      appId: invocationAppId,
+      agentId: invocationAgentId,
       personId: restriction.memoryUserId,
       capabilityId,
       args,
@@ -274,12 +286,13 @@ const capabilityRunHandler: TaskHandler = async (context) => {
       runnerSandboxProvider,
       egressProxyUrl: gateway.proxyUrl,
       signal: deadline.signal,
-      conversationId: data.chatJid,
+      conversationId: invocationConversationId,
       threadId: data.authThreadId,
       runId: restriction.runId,
       jobId: restriction.jobId,
     });
-    acceptData('Capability command completed.', result);
+  try {
+    acceptData('Capability command completed.', await runInvocation());
   } catch (error) {
     if (error instanceof StructuredLocalCliInvocationError) {
       if (error.code === 'capability_template_mismatch') {
@@ -314,8 +327,29 @@ const capabilityRunHandler: TaskHandler = async (context) => {
             proposalRepository,
             now: new Date().toISOString(),
           });
+          if ('covered' in outcome && outcome.covered) {
+            // Race resolved: the catalog now authorizes this argv. Re-attempt
+            // once under current authority instead of blocking the job on a
+            // setup instruction.
+            try {
+              acceptData(
+                'Capability command completed.',
+                await runInvocation(),
+              );
+              return;
+            } catch (retryError) {
+              if (
+                !(retryError instanceof StructuredLocalCliInvocationError) ||
+                retryError.code !== 'capability_template_mismatch'
+              ) {
+                throw retryError;
+              }
+              // Still unauthorized after the race window: fall back to the
+              // instruction below.
+            }
+          }
           action = outcome.action;
-          if (outcome.review) {
+          if ('review' in outcome && outcome.review) {
             startCapabilityTemplateAmendmentReview({
               deps: context.deps,
               repository: proposalRepository,

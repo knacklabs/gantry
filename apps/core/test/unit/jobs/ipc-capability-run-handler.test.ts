@@ -45,7 +45,7 @@ function localCliTool(commandTemplates = [`${executablePath} sheets get *`]) {
 }
 
 describe('host capability template mismatch flow', () => {
-  it('does not record an amendment when the reviewed remainder already covers the call', async () => {
+  it('signals covered (re-attempt, not block) when the reviewed remainder already authorizes the call', async () => {
     const claimPending = vi.fn();
     const result = await compileAndRecordHostCapabilityTemplateMismatch({
       appId: 'app:test',
@@ -67,7 +67,9 @@ describe('host capability template mismatch flow', () => {
       now: '2026-08-14T00:00:00.000Z',
     });
 
-    expect(result.action.kind).toBe('instruction');
+    // Covered = the catalog already authorizes this argv, so the caller must
+    // RE-ATTEMPT rather than block the job; no amendment is recorded.
+    expect('covered' in result && result.covered).toBe(true);
     expect(claimPending).not.toHaveBeenCalled();
   });
 
