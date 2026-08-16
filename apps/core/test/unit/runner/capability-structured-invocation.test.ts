@@ -282,16 +282,9 @@ describe('CLIRUN-1-1', () => {
   });
 });
 
-describe('CAPSAFE-1-MATCHER', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-    for (const dir of tempDirs.splice(0)) {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('CAPSAFE-1-MATCHER shares terminal remainder authorization and keeps boundaries fail closed', async () => {
+it('CAPSAFE-1-MATCHER', async () => {
     vi.useFakeTimers();
+    try {
     const fixture = executableFixture();
     const tools = repository({
       ...fixture,
@@ -449,8 +442,13 @@ describe('CAPSAFE-1-MATCHER', () => {
         'approve',
       ]),
     ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      for (const dir of tempDirs.splice(0)) {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
   });
-});
 
 describe('CLIRUN-1-2', () => {
   afterEach(() => {
