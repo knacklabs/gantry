@@ -413,12 +413,9 @@ export async function startRuntimeServices(
           ? () => app.getCredentialBroker()
           : undefined),
       // Scheduled execution must materialize the same reviewed skill bindings
-      // as interactive turns. The runtime store is already initialized before
-      // services start, so retain it as the host-owned fallback when an
-      // embedding omits the optional dependency.
-      getSkillRepository:
-        resolved.getSkillRepository ??
-        (() => getRuntimeStorage().repositories.skills),
+      // as interactive turns. Use the initialized runtime store as the single
+      // authority so an embedding cannot accidentally supply a stale catalog.
+      getSkillRepository: () => getRuntimeStorage().repositories.skills,
       getMcpServerRepository: resolved.getMcpServerRepository,
       getCapabilitySecretRepository: resolved.getCapabilitySecretRepository,
       getMcpHostnameLookup: () => resolved.mcpHostnameLookup,
