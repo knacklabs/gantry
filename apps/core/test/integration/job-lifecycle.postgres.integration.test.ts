@@ -87,6 +87,7 @@ import {
   startCapabilityTemplateAmendmentReview,
 } from '@core/jobs/ipc-capability-template-amendment.js';
 import { recoverCapabilityTemplateApprovalIntents } from '@core/jobs/capability-template-approval-intent-recovery.js';
+import { compileAndRecordHostCapabilityTemplateMismatch } from '@core/jobs/ipc-capability-run-handler.js';
 import { recheckPausedSetupJobsAfterRequestAccessGrant } from '@core/jobs/request-access-job-recovery.js';
 import { runStructuredLocalCliCapability } from '@core/jobs/structured-local-cli-invocation.js';
 import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
@@ -222,7 +223,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
     schedulerEngine = undefined;
   });
 
-  it('CAPFIX-1-2 mismatch proposal card approval amends resumes and runs structured argv', async () => {
+  it('CAPSAFE-1-LIFECYCLE', async () => {
     // The fixture executable must live OUTSIDE the agent-writable workspace
     // root (which realpaths under os.tmpdir() in this harness): CLIRUN-1's
     // executable-identity guard rejects workspace-local binaries by design.
@@ -236,24 +237,29 @@ maybeDescribe('job lifecycle (Postgres)', () => {
     const executableHash = `sha256:${createHash('sha256')
       .update(executableBody)
       .digest('hex')}`;
-    const capabilityId = `google.sheets.values.get.${randomUUID()}`;
-    const otherJobId = `job:integration:capfix-other:${randomUUID()}`;
+    const capabilityId = `google.sheets.values.write.${randomUUID()}`;
+    const otherJobId = `job:integration:capsafe-other:${randomUUID()}`;
     const agentId = `agent:job_lifecycle_agent` as never;
     const toolId = `tool:capability:${capabilityId}` as never;
+    const initialTemplates = [
+      `${executable} sheets update *`,
+      `${executable} sheets append`,
+      `${executable} sheets clear`,
+    ];
     const capability = buildLocalCliSemanticCapability({
       capabilityId,
-      displayName: 'Google Sheets lead reader',
+      displayName: 'Google Sheets values writer',
       category: 'Google Sheets',
-      risk: 'read',
-      can: 'read lead rows from the selected sheet',
+      risk: 'write',
+      can: 'write values to the selected sheet',
       cannot: 'change unrelated sheets',
       executablePath: executable,
       executableVersion: '1.0.0',
       executableHash,
-      commandTemplates: [`${executable} sheets get *`],
+      commandTemplates: initialTemplates,
       authPreflightCommand: `${executable} auth status`,
     });
-    const job = makeJob(`job:integration:capfix:${randomUUID()}`, {
+    const job = makeJob(`job:integration:capsafe:${randomUUID()}`, {
       status: 'paused',
       next_run: null,
       pause_reason: 'Setup required',
@@ -284,6 +290,10 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         ],
       },
     });
+
+    const spawnInputs: Array<{ command: string; args: string[] }> = [];
+    const invocationCwds: string[] = [];
+    const valuesJson = '[["lead-1","Doe, Jane"]]';
 
     try {
       await runtime.repositories.agents.saveAgent({
@@ -321,7 +331,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       });
       await runtime.ops.upsertJob(job);
 
-      const invoke = () => {
+      const invoke = (args: string[]) => {
         const child = new EventEmitter() as EventEmitter & {
           stdout: PassThrough;
           stderr: PassThrough;
@@ -335,20 +345,28 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         const started = new Promise<void>((resolve) => {
           child.once('spawn', resolve);
         });
+        const cwd = fs.mkdtempSync(
+          path.join(os.tmpdir(), 'gantry-capfix-cwd-'),
+        );
+        invocationCwds.push(cwd);
         const result = runStructuredLocalCliCapability({
           repository: runtime.repositories.tools,
           appId: 'default',
           agentId,
           capabilityId,
-          args: ['sheets', 'get', 'sheet-1', 'Leads!A:B'],
+          args,
           // cwd doubles as the agent-writable root in the executable-identity
           // guard — it must NOT contain the fixture executable.
-          cwd: fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-capfix-cwd-')),
+          cwd,
           env: { PATH: '/usr/bin', HOME: os.homedir() },
           runnerSandboxProvider: {
             id: 'capfix-test-sandbox',
             enforcing: true,
-            start: () => {
+            start: (input) => {
+              spawnInputs.push({
+                command: input.command,
+                args: [...input.args],
+              });
               queueMicrotask(() => child.emit('spawn'));
               return child as never;
             },
@@ -360,31 +378,79 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         return { child, started, result };
       };
 
-      await expect(invoke().result).rejects.toMatchObject({
+      const coveredArgs = [
+        'sheets',
+        'update',
+        'sheet-1',
+        'Leads!A1:B1',
+        '--values-json',
+        valuesJson,
+      ];
+      const coveredInvocation = invoke(coveredArgs);
+      await coveredInvocation.started;
+      coveredInvocation.child.emit('close', 0, null);
+      await expect(coveredInvocation.result).resolves.toEqual({
+        stdout: 'command completed',
+        stderr: '',
+      });
+      expect(spawnInputs.at(-1)).toEqual({
+        command: executable,
+        args: coveredArgs,
+      });
+      const proposalsAfterCoveredCall = await runtime.service.pool.query<{
+        count: number;
+      }>(
+        'select count(*)::int as count from capability_template_amendment_proposals where capability_id = $1',
+        [capabilityId],
+      );
+      expect(proposalsAfterCoveredCall.rows).toEqual([{ count: 0 }]);
+
+      const proposedArgs = [
+        'sheets',
+        'append',
+        'sheet-1',
+        'Leads!A1:B1',
+        '--values-json',
+        valuesJson,
+      ];
+      await expect(invoke(proposedArgs).result).rejects.toMatchObject({
         code: 'capability_template_mismatch',
       });
-      const proposedTemplates = [`${executable} sheets get * *`];
-      const recorded = await recordCapabilityTemplateAmendment({
+      const recorded = await compileAndRecordHostCapabilityTemplateMismatch({
         appId: 'default',
         agentId,
         requestedBy: 'job_lifecycle_agent',
+        capabilityId,
+        observedArgs: proposedArgs,
         jobId: job.id,
         conversationJid: 'tg:job-lifecycle',
         threadId: 'thread-job-lifecycle',
-        capabilityId,
-        proposedTemplates,
-        observedArgv: [executable, 'sheets', 'get', 'sheet-1', 'Leads!A:B'],
         toolRepository: runtime.repositories.tools,
         proposalRepository: runtime.repositories.capabilityTemplateAmendments,
         now,
       });
-      expect(recorded).toMatchObject({
-        ok: true,
-        code: 'capability_amendment_proposal_recorded',
+      expect(recorded.action).toEqual({
+        kind: 'fix_proposal',
+        proposalId: expect.any(String),
       });
-      if (!recorded.ok || !recorded.review) {
+      if (!recorded.review) {
         throw new Error('Expected a recorded amendment review.');
       }
+      const proposedTemplates = [
+        `${executable} sheets append * *`,
+        `${executable} sheets append * * --values-json *`,
+      ];
+      expect(recorded.review.proposal).toMatchObject({
+        proposedTemplates,
+        observedArgv: [executable, ...proposedArgs],
+      });
+      const proposalsAfterMismatch = await runtime.service.pool.query<{
+        count: number;
+      }>(
+        'select count(*)::int as count from capability_template_amendment_proposals where capability_id = $1',
+        [capabilityId],
+      );
+      expect(proposalsAfterMismatch.rows).toEqual([{ count: 1 }]);
       await runtime.ops.upsertJob({
         ...job,
         setup_state: {
@@ -473,6 +539,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         review: recorded.review,
       });
       await finished;
+      expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
 
       const updatedTool = await runtime.repositories.tools.getTool(toolId);
       const updatedCapability = semanticCapabilityFromToolCatalogItem({
@@ -483,10 +550,17 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         executablePath: executable,
         executableHash,
         executableVersion: '1.0.0',
-        // Amendments ADD reviewed forms; the previously approved template
-        // survives alongside the new one.
-        commandTemplates: [`${executable} sheets get *`, ...proposedTemplates],
       });
+      // Amendments ADD reviewed forms; the previously approved templates survive
+      // alongside the new ones. Compare as SETS: authorization is
+      // `templates.some(match)`, so order is irrelevant, and canonicalization
+      // stores the merged templates in sorted order.
+      expect(
+        [
+          ...(updatedCapability?.implementationBindings[0]?.commandTemplates ??
+            []),
+        ].sort(),
+      ).toEqual([...initialTemplates, ...proposedTemplates].sort());
       const history = await runtime.service.pool.query<{
         prior_templates: string[];
         amended_templates: string[];
@@ -496,11 +570,13 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         'select prior_templates, amended_templates, approved_by, audit_event_id from capability_template_amendment_history where proposal_id = $1',
         [recorded.review.proposal.id],
       );
-      expect(history.rows[0]).toMatchObject({
-        prior_templates: [`${executable} sheets get *`],
-        amended_templates: [`${executable} sheets get *`, ...proposedTemplates],
-        approved_by: 'person:ravi',
-      });
+      expect(history.rows[0]?.approved_by).toBe('person:ravi');
+      expect([...(history.rows[0]?.prior_templates ?? [])].sort()).toEqual(
+        [...initialTemplates].sort(),
+      );
+      expect([...(history.rows[0]?.amended_templates ?? [])].sort()).toEqual(
+        [...initialTemplates, ...proposedTemplates].sort(),
+      );
       const audit = await runtime.service.pool.query(
         'select id from permission_audit_events where id = $1',
         [history.rows[0]!.audit_event_id],
@@ -593,7 +669,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         ),
       ).resolves.toEqual({ status: 'already_amended' });
 
-      const invocation = invoke();
+      const invocation = invoke(proposedArgs);
       await invocation.started;
       invocation.child.emit('close', 0, null);
       // Empty stdout maps to the runner's success sentinel
@@ -602,28 +678,29 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         stdout: 'command completed',
         stderr: '',
       });
+      expect(spawnInputs.at(-1)).toEqual({
+        command: executable,
+        args: proposedArgs,
+      });
 
-      const deniedTemplates = [`${executable} sheets get * * *`];
-      const denied = await recordCapabilityTemplateAmendment({
+      const deniedArgs = ['sheets', 'clear', 'sheet-1', 'Archive!A:B'];
+      await expect(invoke(deniedArgs).result).rejects.toMatchObject({
+        code: 'capability_template_mismatch',
+      });
+      const denied = await compileAndRecordHostCapabilityTemplateMismatch({
         appId: 'default',
         agentId,
         requestedBy: 'job_lifecycle_agent',
-        conversationJid: 'tg:job-lifecycle',
         capabilityId,
-        proposedTemplates: deniedTemplates,
-        observedArgv: [
-          executable,
-          'sheets',
-          'get',
-          'sheet-1',
-          'Leads!A:B',
-          'extra',
-        ],
+        observedArgs: deniedArgs,
+        jobId: job.id,
+        conversationJid: 'tg:job-lifecycle',
+        threadId: 'thread-job-lifecycle',
         toolRepository: runtime.repositories.tools,
         proposalRepository: runtime.repositories.capabilityTemplateAmendments,
         now,
       });
-      if (!denied.ok || !denied.review) {
+      if (!denied.review) {
         throw new Error('Expected a denyable amendment review.');
       }
       let deniedFinish!: () => void;
@@ -651,41 +728,50 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         review: denied.review,
       });
       await deniedFinished;
-      const deniedAgain = await recordCapabilityTemplateAmendment({
+      const deniedAgain = await compileAndRecordHostCapabilityTemplateMismatch({
         appId: 'default',
         agentId,
         requestedBy: 'job_lifecycle_agent',
-        conversationJid: 'tg:job-lifecycle',
         capabilityId,
-        proposedTemplates: deniedTemplates,
-        observedArgv: [
-          executable,
-          'sheets',
-          'get',
-          'sheet-1',
-          'Leads!A:B',
-          'extra',
-        ],
+        observedArgs: deniedArgs,
+        jobId: job.id,
+        conversationJid: 'tg:job-lifecycle',
+        threadId: 'thread-job-lifecycle',
         toolRepository: runtime.repositories.tools,
         proposalRepository: runtime.repositories.capabilityTemplateAmendments,
         now,
       });
-      expect(deniedAgain).toMatchObject({
-        ok: true,
-        code: 'capability_amendment_proposal_previously_denied',
-      });
-      expect(deniedAgain.ok && deniedAgain.review).toBeUndefined();
+      expect(deniedAgain.action.kind).toBe('instruction');
+      expect(deniedAgain.review).toBeUndefined();
       expect(deniedApproval).toHaveBeenCalledTimes(1);
+      const proposalsAfterRepeatedDeniedShape =
+        await runtime.service.pool.query<{ count: number }>(
+          'select count(*)::int as count from capability_template_amendment_proposals where capability_id = $1',
+          [capabilityId],
+        );
+      expect(proposalsAfterRepeatedDeniedShape.rows).toEqual([{ count: 2 }]);
+      expect(
+        await runtime.repositories.capabilityTemplateAmendments.getById(
+          denied.review.proposal.id,
+        ),
+      ).toMatchObject({
+        status: 'denied',
+        decidedBy: 'person:ravi',
+      });
       const afterDeny = semanticCapabilityFromToolCatalogItem({
         inputSchema: (await runtime.repositories.tools.getTool(toolId))
           ?.inputSchema,
       });
-      expect(afterDeny?.implementationBindings[0]?.commandTemplates).toEqual([
-        `${executable} sheets get *`,
-        ...proposedTemplates,
-      ]);
+      // Denial leaves the catalog untouched: same template SET as after the
+      // approval (order-insensitive, matching the earlier assertion).
+      expect(
+        [...(afterDeny?.implementationBindings[0]?.commandTemplates ?? [])].sort(),
+      ).toEqual([...initialTemplates, ...proposedTemplates].sort());
     } finally {
       fs.rmSync(executableDir, { recursive: true, force: true });
+      for (const cwd of invocationCwds) {
+        fs.rmSync(cwd, { recursive: true, force: true });
+      }
       // Shared-schema hygiene: later tests enumerate jobs and resolve the
       // shared agent's tool policy — leave neither the job nor the binding.
       await runtime.ops.deleteJob(job.id).catch(() => undefined);
