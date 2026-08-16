@@ -283,8 +283,8 @@ describe('CLIRUN-1-1', () => {
 });
 
 it('CAPSAFE-1-MATCHER', async () => {
-    vi.useFakeTimers();
-    try {
+  vi.useFakeTimers();
+  try {
     const fixture = executableFixture();
     const tools = repository({
       ...fixture,
@@ -442,13 +442,13 @@ it('CAPSAFE-1-MATCHER', async () => {
         'approve',
       ]),
     ).toBe(true);
-    } finally {
-      vi.useRealTimers();
-      for (const dir of tempDirs.splice(0)) {
-        fs.rmSync(dir, { recursive: true, force: true });
-      }
+  } finally {
+    vi.useRealTimers();
+    for (const dir of tempDirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }
+});
 
 describe('CLIRUN-1-2', () => {
   afterEach(() => {
