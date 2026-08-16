@@ -178,6 +178,7 @@ function makeOpsRepository(job: Job) {
       return true;
     }),
     markJobRunNotified: vi.fn(async () => true),
+    listJobRuns: vi.fn(async () => []),
     listRecentJobEvents: vi.fn(async () => []),
   };
   return repo;
@@ -908,6 +909,63 @@ describe('jobs/execution', () => {
     ).toBe(false);
   });
 
+  it('pauses without invoking the model when cumulative runtime is exhausted', async () => {
+    const job = makeJob({
+      agent_task: { executionPolicy: { totalTimeoutMs: 30_000 } },
+    });
+    const opsRepository = {
+      ...makeOpsRepository(job),
+      listJobRuns: vi.fn(async () => [
+        {
+          run_id: 'prior-run',
+          job_id: job.id,
+          status: 'completed',
+          started_at: '2026-05-08T00:00:00.000Z',
+          ended_at: '2026-05-08T00:00:30.000Z',
+        },
+      ]),
+    };
+    const runAgent = vi.fn();
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        runAgent: runAgent as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(runAgent).not.toHaveBeenCalled();
+    expect(opsRepository.updateJob).toHaveBeenCalledWith(
+      job.id,
+      expect.objectContaining({
+        status: 'paused',
+        pause_reason: expect.stringContaining(
+          'Cumulative runtime budget exhausted',
+        ),
+      }),
+    );
+    expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
+      expect.any(String),
+      'paused',
+      null,
+      expect.stringContaining('latest durable checkpoint is preserved'),
+    );
+    const completionEvent = runtimeStoreMock.publish.mock.calls.find(
+      ([event]) => event?.eventType === 'job.run.failed',
+    )?.[0];
+    expect(completionEvent?.payload).toMatchObject({
+      status: 'paused',
+      pauseCode: 'cumulative_runtime_exhausted',
+      pauseReason: expect.stringContaining('Cumulative runtime budget exhausted'),
+    });
+  });
+
   it('completes only after the same run reports gate acceptance and an AJV-validated result', async () => {
     const job = makeJob({
       session_id: 'session-deep-analysis',
@@ -965,6 +1023,46 @@ describe('jobs/execution', () => {
       '{"version":2}',
       null,
     );
+    const completionEvent = runtimeStoreMock.publish.mock.calls.find(
+      ([event]) => event?.eventType === 'job.run.completed',
+    )?.[0];
+    expect(completionEvent?.payload?.result).toBe('{"version":2}');
+  });
+
+  it('publishes the validated final result after non-terminal streamed text', async () => {
+    const job = makeJob({
+      agent_task: {
+        responseSchema: {
+          type: 'object',
+          properties: { version: { const: 2 } },
+          required: ['version'],
+        },
+        executionPolicy: { totalTimeoutMs: 30_000 },
+      },
+    });
+    const opsRepository = makeOpsRepository(job);
+    const runAgent = vi.fn(async (_group, _input, _onProcess, onStream) => {
+      await onStream({ status: 'success', result: 'Preparing final result.' });
+      return {
+        status: 'success',
+        result: '{"version":2}',
+        structuredResultValidated: true,
+      };
+    });
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        runAgent: runAgent as never,
+      },
+      'tg:scheduler',
+    );
+
     const completionEvent = runtimeStoreMock.publish.mock.calls.find(
       ([event]) => event?.eventType === 'job.run.completed',
     )?.[0];

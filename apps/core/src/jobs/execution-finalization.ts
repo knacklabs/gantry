@@ -44,6 +44,7 @@ export async function finalizeSchedulerJobRun(input: {
   scheduledFor: string;
   now: string;
   error: string | null;
+  runtimeBudgetExhaustedReason?: string | null;
   diagnostics: JobRunDiagnostics;
   pausedForSetupDuringRun: boolean;
   externalWaitTask?: AsyncTaskRecord | null;
@@ -138,6 +139,19 @@ export async function finalizeSchedulerJobRun(input: {
 
   if (input.deletedDuringRun) {
     nextRun = null;
+  } else if (input.runtimeBudgetExhaustedReason) {
+    runStatus = 'paused';
+    nextRun = null;
+    pauseReason = input.runtimeBudgetExhaustedReason;
+    await updateJob({
+      status: 'paused',
+      next_run: null,
+      last_run: input.now,
+      consecutive_failures: retryCount,
+      pause_reason: pauseReason,
+      lease_run_id: null,
+      lease_expires_at: null,
+    });
   } else if (input.externalWaitTask) {
     runStatus = 'paused';
     const resultAlreadyCommitted =

@@ -417,6 +417,8 @@ export interface UpdateJobInput {
   accessRequirements?: JobAccessRequirement[];
   status?: 'active' | 'paused';
   modelAlias?: string | null;
+  /** Monotonic, idempotent extension of an agent job's cumulative runtime budget. */
+  minimumTotalRuntimeMs?: number;
 }
 
 export interface ListJobsInput {

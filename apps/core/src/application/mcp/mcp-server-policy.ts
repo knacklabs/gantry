@@ -52,9 +52,26 @@ export function normalizeMcpNetworkHosts(input: {
   config: McpServerTransportConfig;
 }): string[] {
   const hosts = new Set<string>();
+  const transportUrl =
+    (input.config.transport === 'http' || input.config.transport === 'sse') &&
+    input.config.url
+      ? new URL(input.config.url)
+      : undefined;
+  const loopbackHttpAuthority =
+    transportUrl?.protocol === 'http:' &&
+    isLoopbackAddress(transportUrl.hostname)
+      ? `${transportUrl.hostname.toLowerCase()}:${transportUrl.port || '80'}`
+      : undefined;
   for (const value of input.networkHosts ?? []) {
     const result = parseDeclaredNetworkHost(value);
     if (!result.ok) {
+      if (
+        loopbackHttpAuthority &&
+        declaredNetworkAuthority(value) === loopbackHttpAuthority
+      ) {
+        hosts.add(loopbackHttpAuthority);
+        continue;
+      }
       throw new ApplicationError(
         'INVALID_REQUEST',
         `MCP server ${input.serverName} networkHosts ${result.reason}`,
@@ -63,10 +80,9 @@ export function normalizeMcpNetworkHosts(input: {
     hosts.add(result.host);
   }
   if (
-    (input.config.transport === 'http' || input.config.transport === 'sse') &&
-    input.config.url
+    transportUrl
   ) {
-    const url = new URL(input.config.url);
+    const url = transportUrl;
     const port = url.port || defaultPortForProtocol(url.protocol);
     const urlHost = `${url.hostname.toLowerCase().replace(/\.+$/, '')}:${port}`;
     const alreadyDeclared = [...hosts].some(

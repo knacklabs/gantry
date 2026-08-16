@@ -1,11 +1,30 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  durableCallerToolResolution,
   requestCallerResolvedTool,
   settleCallerResolvedTool,
 } from '@core/application/interactions/caller-resolved-tool-coordinator.js';
 
 describe('caller-resolved tool coordinator', () => {
+  it('keeps CAPTCHA answers ephemeral while retaining non-secret settlement evidence', () => {
+    const durable = durableCallerToolResolution(
+      'website_recipe_request_human',
+      { status: 'resolved', result: { humanAnswer: 'captcha-secret' } },
+    );
+    expect(durable).toEqual({
+      status: 'resolved',
+      result: { humanAnswerProvided: true },
+    });
+    expect(JSON.stringify(durable)).not.toContain('captcha-secret');
+
+    const origin = {
+      status: 'resolved' as const,
+      result: { approved: true, permissionScope: { origin: 'https://example.test' } },
+    };
+    expect(durableCallerToolResolution('website_recipe_request_human', origin)).toBe(origin);
+  });
+
   it('settles the waiting tool exactly once', async () => {
     let emitted!: () => void;
     const required = new Promise<void>((resolve) => (emitted = resolve));

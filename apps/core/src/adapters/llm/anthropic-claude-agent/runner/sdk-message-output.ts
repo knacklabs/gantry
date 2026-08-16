@@ -198,10 +198,20 @@ export function sdkStructuredOutputRepairInstruction(
   error: StructuredOutputValidationError,
   message: unknown,
 ): string {
-  const structured =
+  let structured =
     message && typeof message === 'object'
       ? (message as { structured_output?: unknown }).structured_output
       : undefined;
+  if (structured === undefined && message && typeof message === 'object') {
+    const result = (message as { result?: unknown }).result;
+    if (typeof result === 'string') {
+      try {
+        structured = JSON.parse(result);
+      } catch {
+        // Keep the stable no-candidate repair input below.
+      }
+    }
+  }
   const candidate =
     structured === undefined
       ? '(no structured candidate)'
@@ -214,6 +224,7 @@ export function sdkStructuredOutputRepairInstruction(
     'Your previous final response failed response_schema validation.',
     error.message,
     'Correct only the final structured response. Do not call tools.',
+    'Return the complete schema object, including every required top-level property. Do not return a flattened recipe/binding/proof object.',
     'Previous structured response:',
     boundedCandidate,
   ].join('\n');
@@ -222,7 +233,7 @@ export function sdkStructuredOutputRepairInstruction(
 function formatValidationErrors(errors: ValidateFunction['errors']): string {
   return (
     errors
-      ?.slice(0, 3)
+      ?.slice(0, 20)
       .map(
         (error) =>
           `${error.instancePath || '/'} ${error.message ?? 'is invalid'}`,

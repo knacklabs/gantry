@@ -9,6 +9,8 @@ import {
   toPublicAsyncTaskDto,
   type AsyncTaskRepository,
 } from '../domain/ports/async-tasks.js';
+import type { JobSemanticCheckpoint } from '../domain/ports/job-semantic-checkpoints.js';
+import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { readAsyncCommandSandboxPolicy } from '../runtime/async-command-sandbox-policy.js';
 import { resolveRunnerIpcRoute } from '../runtime/ipc-route-authorization.js';
@@ -25,8 +27,10 @@ import {
   mcpListToolsProxyInput,
 } from './ipc-mcp-list-tools-input.js';
 import { delegatedTaskAgentInScope } from './async-command-task-helpers.js';
-import { ExternalCapabilityTaskService } from './external-capability-task-service.js';
+import { ExternalCapabilityTaskService } from '../application/capabilities/external-capability-task-service.js';
 import { suspendForExternalCapability } from './external-capability-suspension.js';
+import { notifyAsyncTaskChange } from './async-task-change-waiter.js';
+import { stableSha256Json } from '../shared/stable-hash.js';
 type CreateMcpProxyForSourceGroup = (input: {
   appId: import('../domain/app/app.js').AppId;
   agentId: import('../domain/agent/agent.js').AgentId;
@@ -150,6 +154,27 @@ function externalCapabilityCallToolHandler(
       return;
     }
     const agentId = agentIdForMcpTask(data, sourceAgentFolder);
+    const invocationRef = `invocation:${idempotencyKey}`;
+    const checkpointRepository = deps.getJobSemanticCheckpointRepository?.();
+    let submissionCheckpoint: JobSemanticCheckpoint | null = null;
+    if (isWebsiteRecipeEvaluationSubmit(capabilityId, input.toolName)) {
+      if (!checkpointRepository) {
+        reject('Durable job checkpoints are unavailable.', 'unavailable');
+        return;
+      }
+      submissionCheckpoint = await checkpointRepository.getLatestCheckpoint({
+        appId: data.appId,
+        agentId,
+        jobId,
+      });
+      if (!isEvaluationSubmissionReady(submissionCheckpoint, invocationRef)) {
+        reject(
+          'Save the compiler-backed test plan checkpoint before evaluator submission.',
+          'checkpoint_required',
+        );
+        return;
+      }
+    }
     const proxy = await createMcpProxyForSourceGroup({
       appId: data.appId as never,
       agentId,
@@ -170,8 +195,9 @@ function externalCapabilityCallToolHandler(
       toolName: input.toolName,
       arguments: args,
     });
-    const service = new ExternalCapabilityTaskService(repository);
-    const invocationRef = `invocation:${idempotencyKey}`;
+    const service = new ExternalCapabilityTaskService(repository, () =>
+      notifyAsyncTaskChange(repository),
+    );
     const acceptance = await service.accept({
       appId: data.appId,
       agentId,
@@ -224,6 +250,61 @@ function externalCapabilityCallToolHandler(
       );
       return;
     }
+    if (
+      checkpointRepository &&
+      submissionCheckpoint?.milestone === 'test_plan_created'
+    ) {
+      const checkpointResult = await checkpointRepository.appendCheckpoint({
+        id: `job-checkpoint-${stableSha256Json({ jobId, invocationRef }).slice(0, 48)}`,
+        appId: data.appId,
+        agentId,
+        jobId,
+        runId,
+        leaseToken: data.runLeaseToken ?? '',
+        expectedPreviousSequence: submissionCheckpoint.sequence,
+        milestone: 'evaluation_submitted',
+        payload: {
+          safePhase: 'evaluation_submitted',
+          artifactRefs: submissionCheckpoint.payload.artifactRefs,
+          evaluatorInvocationRef: invocationRef,
+          pendingInteractionRef: null,
+          nextAction: 'Await the complete evaluator result.',
+          cumulativeRuntimeMs:
+            submissionCheckpoint.payload.cumulativeRuntimeMs,
+        },
+      });
+      if (
+        checkpointResult.outcome !== 'persisted' &&
+        checkpointResult.outcome !== 'replayed'
+      ) {
+        if (acceptance.completionToken) {
+          await service.cancel({
+            appId: data.appId,
+            taskId: acceptance.taskId,
+            completionToken: acceptance.completionToken,
+            cancellationId: `checkpoint-failed:${data.taskId ?? acceptance.taskId}`,
+            reason: 'Evaluator submission checkpoint was fenced.',
+          });
+        }
+        reject(
+          'Evaluator submission was accepted, but its semantic checkpoint was fenced.',
+          'checkpoint_conflict',
+        );
+        return;
+      }
+      await deps.publishRuntimeEvent?.({
+        appId: data.appId as never,
+        agentId,
+        runId: runId as never,
+        jobId: jobId as never,
+        eventType: RUNTIME_EVENT_TYPES.TASK_UPDATED,
+        actor: 'gantry-runtime',
+        payload: {
+          type: 'job_checkpoint_saved',
+          checkpoint: checkpointResult.checkpoint,
+        },
+      });
+    }
     acceptData('External capability accepted; the job is suspending.', {
       taskId: acceptance.taskId,
       status: acceptance.status,
@@ -232,6 +313,27 @@ function externalCapabilityCallToolHandler(
       suspendForExternalCapability({ jobId, runId, taskId: acceptance.taskId });
     }
   };
+}
+
+function isWebsiteRecipeEvaluationSubmit(
+  capabilityId: string,
+  operation: string,
+): boolean {
+  return (
+    capabilityId === 'manipal.website-recipe-evaluator@1' &&
+    (operation === 'evaluation.submit' || operation === 'evaluation_submit')
+  );
+}
+
+function isEvaluationSubmissionReady(
+  checkpoint: JobSemanticCheckpoint | null,
+  invocationRef: string,
+): boolean {
+  return (
+    checkpoint?.milestone === 'test_plan_created' ||
+    (checkpoint?.milestone === 'evaluation_submitted' &&
+      checkpoint.payload.evaluatorInvocationRef === invocationRef)
+  );
 }
 function mcpSearchToolsHandler(
   createMcpProxyForSourceGroup: CreateMcpProxyForSourceGroup,

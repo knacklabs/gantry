@@ -224,6 +224,7 @@ export type JobUpdatePatch = Partial<{
   maxRetries: number;
   retryBackoffMs: number;
   maxConsecutiveFailures: number;
+  minimumTotalRuntimeMs: number;
   status: Extract<Job['status'], 'active' | 'paused'>;
 }>;
 

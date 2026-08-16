@@ -58,6 +58,10 @@ export interface SchedulerDependencies {
   ) => Promise<boolean>;
   resetStreaming?: (jid: string) => void;
   onSchedulerChanged?: (jobId?: string) => void;
+  enqueueCompletedExternalTaskContinuation?: (input: {
+    jobId: string;
+    taskId: string;
+  }) => Promise<void>;
   runAgent?: typeof spawnAgent;
   collectSessionMemory?: SessionMemoryCollector;
   opsRepository: RuntimeJobRepository & RuntimeAgentSessionRepository;

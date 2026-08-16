@@ -342,6 +342,32 @@ export function buildJobUpdates(
   if (patch.maxConsecutiveFailures !== undefined) {
     updates.max_consecutive_failures = patch.maxConsecutiveFailures;
   }
+  if (patch.minimumTotalRuntimeMs !== undefined) {
+    if (!job.agent_task) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Only an agent task can extend a cumulative runtime budget.',
+      );
+    }
+    if (
+      !Number.isSafeInteger(patch.minimumTotalRuntimeMs) ||
+      patch.minimumTotalRuntimeMs < 30_000 ||
+      patch.minimumTotalRuntimeMs > 86_400_000
+    ) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'minimumTotalRuntimeMs must be between 30000 and 86400000.',
+      );
+    }
+    const currentTotal = job.agent_task.executionPolicy.totalTimeoutMs;
+    updates.agent_task = {
+      ...job.agent_task,
+      executionPolicy: {
+        ...job.agent_task.executionPolicy,
+        totalTimeoutMs: Math.max(currentTotal, patch.minimumTotalRuntimeMs),
+      },
+    };
+  }
   if (patch.scheduleType !== undefined)
     updates.schedule_type = patch.scheduleType;
   if (patch.scheduleValue !== undefined)

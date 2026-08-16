@@ -1,12 +1,16 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
-import { ExternalCapabilityTaskService } from '../../../jobs/external-capability-task-service.js';
+import { ExternalCapabilityTaskService } from '../../../application/capabilities/external-capability-task-service.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,
 } from '../handler-context.js';
 import { readJson, sendError, sendJson } from '../http.js';
+import {
+  TRIGGER_RATE_LIMIT_PER_APP,
+  TRIGGER_RATE_LIMIT_PER_JOB,
+} from '../rate-limit.js';
 
 const BODY_LIMIT_BYTES = 512 * 1024;
 const TASK_ROUTE = /^\/v1\/capability-tasks\/([^/]+)\/(complete|cancel)$/u;
@@ -120,6 +124,7 @@ export async function handleCapabilityTaskRoutes(
     );
   } else if ('task' in settlement) {
     let resumed = false;
+    let triggerId: string | null = null;
     if (
       action === 'complete' &&
       (settlement.outcome === 'completed' ||
@@ -133,12 +138,30 @@ export async function handleCapabilityTaskRoutes(
       const waitingForThisTask =
         job.job?.status === 'paused' &&
         job.job.pause_reason?.includes(settlement.task.id);
-      if (settlement.outcome === 'completed' || waitingForThisTask) {
+      if (waitingForThisTask) {
         const resume = await ctx.jobManagement.resumeJob({
           appId: auth.appId,
           jobId: settlement.task.parentJobId,
         });
-        resumed = resume.resumed;
+        if (resume.resumed) {
+          try {
+            const trigger = await ctx.jobManagement.triggerJob({
+              appId: auth.appId,
+              jobId: settlement.task.parentJobId,
+              perAppLimit: TRIGGER_RATE_LIMIT_PER_APP,
+              perJobLimit: TRIGGER_RATE_LIMIT_PER_JOB,
+            });
+            triggerId = trigger.triggerId;
+            resumed = true;
+          } catch (error) {
+            await ctx.jobManagement.pauseJob({
+              appId: auth.appId,
+              jobId: settlement.task.parentJobId,
+              reason: `Waiting for external capability task ${settlement.task.id}; continuation enqueue failed.`,
+            });
+            throw error;
+          }
+        }
       }
     }
     sendJson(res, 200, {
@@ -146,6 +169,7 @@ export async function handleCapabilityTaskRoutes(
       taskId: settlement.task.id,
       status: settlement.task.status,
       resumed,
+      triggerId,
     });
   } else {
     sendError(

@@ -563,6 +563,9 @@ export async function handleJobRoutes(
           ...(body.status === 'active' || body.status === 'paused'
             ? { status: body.status }
             : {}),
+          ...(body.minimumTotalRuntimeMs !== undefined
+            ? { minimumTotalRuntimeMs: body.minimumTotalRuntimeMs }
+            : {}),
         },
       });
       sendJson(

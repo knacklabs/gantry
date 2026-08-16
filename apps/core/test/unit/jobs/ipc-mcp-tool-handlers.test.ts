@@ -18,6 +18,10 @@ import type {
   AsyncTaskTransitionInput,
 } from '@core/domain/ports/async-tasks.js';
 import { isAsyncTaskTerminal } from '@core/domain/ports/async-tasks.js';
+import type {
+  JobSemanticCheckpoint,
+  JobSemanticCheckpointRepository,
+} from '@core/domain/ports/job-semantic-checkpoints.js';
 import { AsyncCommandTaskService } from '@core/jobs/async-command-task-service.js';
 import { createAsyncMcpTask } from '@core/jobs/async-mcp-tool-task.js';
 import { readEncryptedAsyncTaskPayload } from '@core/jobs/async-task-execution-payload.js';
@@ -39,9 +43,14 @@ beforeEach(() => {
   vi.stubEnv('SECRET_ENCRYPTION_KEY', Buffer.alloc(32, 7).toString('base64'));
 });
 
-function asyncRuntimeDeps(repository: AsyncTaskRepository) {
+function asyncRuntimeDeps(
+  repository: AsyncTaskRepository,
+  checkpoints: JobSemanticCheckpointRepository =
+    new MemoryJobCheckpointRepository(),
+) {
   return {
     getAsyncTaskRepository: () => repository,
+    getJobSemanticCheckpointRepository: () => checkpoints,
     runnerSandboxProvider: { enforcing: true },
   } as never;
 }
@@ -107,6 +116,7 @@ describe('external capability MCP task', () => {
 
   it('injects a host completion envelope and suspends the authenticated job run', async () => {
     const repository = new MemoryAsyncTaskRepository();
+    const checkpoints = new MemoryJobCheckpointRepository();
     const abort = vi.fn();
     const unregister = registerExternalCapabilitySuspension({
       jobId: 'job-1',
@@ -155,7 +165,7 @@ describe('external capability MCP task', () => {
         },
       },
       sourceAgentFolder: 'main_agent',
-      deps: asyncRuntimeDeps(repository),
+      deps: asyncRuntimeDeps(repository, checkpoints),
       conversationBindings: {},
       sourceAgentFolderJids: ['sl:C123'],
     });
@@ -189,9 +199,124 @@ describe('external capability MCP task', () => {
     expect(abort).toHaveBeenCalledWith(
       `Waiting for external capability task ${task?.id}.`,
     );
+    expect(checkpoints.latest).toMatchObject({
+      sequence: 2,
+      milestone: 'evaluation_submitted',
+      payload: {
+        evaluatorInvocationRef: 'invocation:evaluation-submit-1',
+      },
+    });
     unregister();
   });
+
+  it('rejects recipe evaluation before the compiler-backed test plan checkpoint', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const checkpoints = new MemoryJobCheckpointRepository(null);
+    const callTool = vi.fn(async () => ({ evaluationId: 'evaluation-1' }));
+    const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
+      vi.fn(async () => ({
+        assertToolAllowed: vi.fn(async () => undefined),
+        callTool,
+        describeTool: vi.fn(),
+        listTools: vi.fn(),
+      })) as never,
+    );
+    configurePendingInteractionDurability({
+      repository: {
+        getActiveRunLease: vi.fn(async () => ({
+          runId: 'run-1',
+          leaseToken: 'lease-1',
+          fencingVersion: 1,
+        })),
+      } as never,
+    });
+
+    await externalCapabilityCallToolHandler({
+      data: {
+        type: 'external_capability_call',
+        appId: 'app:test',
+        agentId: 'agent:signed',
+        chatJid: 'sl:C123',
+        targetJid: 'sl:C123',
+        jobId: 'job-1',
+        runId: 'run-1',
+        sourceJobId: 'job-1',
+        sourceRunId: 'run-1',
+        runLeaseToken: 'lease-1',
+        runLeaseFencingVersion: 1,
+        payload: {
+          serverName: 'manipal-evaluator',
+          toolName: 'evaluation_submit',
+          capabilityId: 'manipal.website-recipe-evaluator@1',
+          idempotencyKey: 'evaluation-without-test-plan',
+          arguments: { candidateHash: 'candidate-hash' },
+        },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: asyncRuntimeDeps(repository, checkpoints),
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(callTool).not.toHaveBeenCalled();
+    expect(repository.tasks.size).toBe(0);
+  });
 });
+
+class MemoryJobCheckpointRepository implements JobSemanticCheckpointRepository {
+  constructor(
+    public latest: JobSemanticCheckpoint | null = {
+      id: 'checkpoint-test-plan',
+      appId: 'app:test',
+      agentId: 'agent:signed',
+      jobId: 'job-1',
+      runId: 'run-1',
+      sequence: 1,
+      workerInstanceId: 'worker-1',
+      fencingVersion: 1,
+      milestone: 'test_plan_created',
+      payload: {
+        safePhase: 'test_plan_created',
+        artifactRefs: [],
+        evaluatorInvocationRef: null,
+        pendingInteractionRef: null,
+        nextAction: 'Submit evaluation.',
+        cumulativeRuntimeMs: 1,
+      },
+      payloadHash: 'sha256:test-plan',
+      createdAt: '2026-08-16T00:00:00.000Z',
+    },
+  ) {}
+
+  async appendCheckpoint(
+    input: Parameters<JobSemanticCheckpointRepository['appendCheckpoint']>[0],
+  ) {
+    const checkpoint: JobSemanticCheckpoint = {
+      id: input.id,
+      appId: input.appId,
+      agentId: input.agentId,
+      jobId: input.jobId,
+      runId: input.runId,
+      sequence: (this.latest?.sequence ?? 0) + 1,
+      workerInstanceId: 'worker-1',
+      fencingVersion: 1,
+      milestone: input.milestone,
+      payload: input.payload,
+      payloadHash: 'sha256:submitted',
+      createdAt: '2026-08-16T00:00:01.000Z',
+    };
+    this.latest = checkpoint;
+    return { outcome: 'persisted' as const, checkpoint };
+  }
+
+  async getLatestCheckpoint() {
+    return this.latest;
+  }
+
+  async getCheckpoint(input: { sequence: number }) {
+    return this.latest?.sequence === input.sequence ? this.latest : null;
+  }
+}
 
 class MemoryAsyncTaskRepository implements AsyncTaskRepository {
   readonly tasks = new Map<string, AsyncTaskRecord>();

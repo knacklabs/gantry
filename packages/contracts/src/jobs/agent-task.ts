@@ -73,7 +73,7 @@ export const JobAgentTaskSchema = z
           .number()
           .int()
           .min(30_000)
-          .max(2 * 60 * 60_000),
+          .max(24 * 60 * 60_000),
       })
       .strict(),
     browserAllowedNetworkHosts: z

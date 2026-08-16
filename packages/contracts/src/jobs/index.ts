@@ -350,6 +350,7 @@ export const UpdateJobRequestSchema = z
     accessRequirements: z.array(JobAccessRequirementSchema).optional(),
     status: z.enum(['active', 'paused']).optional(),
     modelAlias: z.string().nullable().optional(),
+    minimumTotalRuntimeMs: z.number().int().min(30_000).max(86_400_000).optional(),
   })
   .strict();
 export type UpdateJobRequest = z.infer<typeof UpdateJobRequestSchema>;

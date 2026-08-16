@@ -60,12 +60,17 @@ let activeRequestWakeups: IpcRequestWakeupRegistry | undefined;
 const MAX_IN_FLIGHT_INTERACTION_IPC = 100;
 const inFlightInteractionIpc = new Set<string>();
 const LATENCY_SENSITIVE_TASK_TYPES = new Set([
+  'caller_resolved_tool',
   'mcp_call_tool',
   'external_capability_call',
   'file_artifact',
   'job_checkpoint_status',
   'job_checkpoint_save',
 ]);
+
+export function isLatencySensitiveTaskType(type: string): boolean {
+  return LATENCY_SENSITIVE_TASK_TYPES.has(type);
+}
 
 export function startIpcWatcher(deps: IpcDeps): void {
   if (ipcWatcherRunning) {
@@ -205,7 +210,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
           const preview = JSON.parse(fs.readFileSync(pendingPath, 'utf8')) as {
             type?: unknown;
           };
-          if (!LATENCY_SENSITIVE_TASK_TYPES.has(String(preview.type))) continue;
+          if (!isLatencySensitiveTaskType(String(preview.type))) continue;
         } catch {
           continue;
         }

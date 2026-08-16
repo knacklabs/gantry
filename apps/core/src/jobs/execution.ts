@@ -81,6 +81,10 @@ import { hasAsyncTaskRepository } from './async-command-task-helpers.js';
 import { resolveExecutionSkillSelection } from './execution-required-skill.js';
 import { runActiveJobWithLogContext } from './execution-log-context.js';
 import {
+  appendRuntimeBudgetContext,
+  resolveJobRuntimeBudget,
+} from './execution-runtime-budget.js';
+import {
   recordJobAgentRunFailure,
   requireTerminalSettlement,
 } from './execution-operational-errors.js';
@@ -156,7 +160,18 @@ async function runActiveJob(
     logger,
   });
   if (!execution) return;
-  const timeoutMs = Math.max(30_000, currentJob.timeout_ms || 300_000);
+  const runtimeBudget = resolveJobRuntimeBudget({
+    job: currentJob,
+    priorRuns: currentJob.agent_task?.executionPolicy.totalTimeoutMs
+      ? await deps.opsRepository.listJobRuns(currentJob.id, 1_000)
+      : [],
+  });
+  const runtimeBudgetExhaustedReason = runtimeBudget.exhausted
+    ? `Cumulative runtime budget exhausted after ${runtimeBudget.consumedMs} ms (limit ${runtimeBudget.totalTimeoutMs} ms). The latest durable checkpoint is preserved for review.`
+    : null;
+  const timeoutMs = runtimeBudget.exhausted
+    ? 30_000
+    : runtimeBudget.runTimeoutMs;
   const leaseExpiresAt = toIso(nowMs() + timeoutMs + 30_000);
   const jobModelUseKind = modelUseKindForJobSchedule(currentJob.schedule_type);
   const jobFailoverCandidates = await resolveModelFamilyCandidatesForApp({
@@ -260,6 +275,8 @@ async function runActiveJob(
       queue_jid: queueJid,
       scheduled_for: scheduledFor,
       timeout_ms: timeoutMs,
+      cumulative_runtime_ms: runtimeBudget.consumedMs,
+      remaining_runtime_ms: runtimeBudget.remainingMs,
       sandbox_provider: deps.runnerSandboxProvider?.id ?? 'direct',
       sandbox_enforcing: deps.runnerSandboxProvider?.enforcing === true,
       ...jobStartedModelPayload(resolvedModel),
@@ -273,9 +290,10 @@ async function runActiveJob(
     let structuredResultValidated = !structured;
     let completionGateAccepted = !completionGateRequired;
     let error: string | null =
-      resolvedModel.routeResolution && !resolvedModel.routeResolution.ok
+      runtimeBudgetExhaustedReason ??
+      (resolvedModel.routeResolution && !resolvedModel.routeResolution.ok
         ? resolvedModel.routeResolution.message
-        : null;
+        : null);
     let failure: AgentFailureMetadata | undefined;
     const diagnostics = createJobRunDiagnostics();
     let pausedForSetupDuringRun = false;
@@ -512,7 +530,10 @@ async function runActiveJob(
               log: (message) =>
                 logger.warn({ jobId: currentJob.id, runId }, message),
               baseInput: {
-                prompt: currentJob.prompt,
+                prompt: appendRuntimeBudgetContext(
+                  currentJob.prompt,
+                  runtimeBudget,
+                ),
                 workspaceFolder: execution.group.folder,
                 chatJid: execution.executionJid,
                 threadId: execution.threadId || undefined,
@@ -662,14 +683,17 @@ async function runActiveJob(
                 if (!error) error = output.error || 'Unknown error';
                 failure ??= output.failure;
                 await failRun();
-              } else if (output.result && !hasStreamedResult) {
-                if (structured) {
-                  if (output.structuredResultValidated === true) {
-                    structuredResult = output.result;
-                    structuredResultValidated = true;
+              } else if (output.result) {
+                if (
+                  structured &&
+                  output.structuredResultValidated === true
+                ) {
+                  if (structuredResult !== output.result) {
                     appendResultSummary(output.result);
                   }
-                } else {
+                  structuredResult = output.result;
+                  structuredResultValidated = true;
+                } else if (!structured && !hasStreamedResult) {
                   appendResultSummary(output.result);
                 }
               }
@@ -769,6 +793,7 @@ async function runActiveJob(
       scheduledFor,
       now,
       error,
+      runtimeBudgetExhaustedReason,
       diagnostics,
       pausedForSetupDuringRun,
       externalWaitTask,
@@ -836,6 +861,29 @@ async function runActiveJob(
         'Scheduler run lease is no longer active during terminal finalization.',
       );
       terminalRunRecorded = true;
+    }
+    if (externalWaitTask?.status === 'completed') {
+      try {
+        await deps.enqueueCompletedExternalTaskContinuation?.({
+          jobId: currentJob.id,
+          taskId: externalWaitTask.id,
+        });
+      } catch (continuationError) {
+        await deps.opsRepository.updateJob(currentJob.id, {
+          status: 'paused',
+          next_run: null,
+          pause_reason: `External capability task ${externalWaitTask.id} completed; continuation enqueue failed.`,
+        });
+        deps.onSchedulerChanged?.(currentJob.id);
+        logger.warn(
+          {
+            err: continuationError,
+            jobId: currentJob.id,
+            taskId: externalWaitTask.id,
+          },
+          'External capability continuation enqueue failed',
+        );
+      }
     }
     if (runLeaseAbort.isAborted() && !externalWaitTask)
       await failSessionRun(deps.opsRepository, agentRunId, error);
@@ -931,6 +979,10 @@ async function runActiveJob(
       notified,
       startNotified,
       summary,
+      pauseReason,
+      pauseCode: runtimeBudgetExhaustedReason
+        ? 'cumulative_runtime_exhausted'
+        : undefined,
       result: structuredResult,
       failure,
       completionGateAccepted,

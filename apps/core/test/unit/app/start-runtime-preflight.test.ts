@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 const startRuntimeServicesError = new Error('stop after preflight gate');
 const validateRuntimePreflightWithStorage = vi.fn(async () => ({ ok: true }));
+const startSettingsReloadWatcher = vi.fn(() => ({ close: vi.fn() }));
+const createRepositoryRuntimeSecretProvider = vi.fn(() => ({}));
 
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
   installGlobalErrorHandlers: vi.fn(),
@@ -93,7 +95,7 @@ vi.mock('@core/runtime/browser-capability.js', () => ({
   registerBrowserProfileLockLeasePort: vi.fn(),
 }));
 vi.mock('@core/runtime/settings-reload-watcher.js', () => ({
-  startSettingsReloadWatcher: vi.fn(() => ({ close: vi.fn() })),
+  startSettingsReloadWatcher,
 }));
 vi.mock('@core/app/bootstrap/fleet-boot.js', () => ({
   prepareFleetSettings: vi.fn(),
@@ -134,7 +136,7 @@ vi.mock('@core/infrastructure/network/hostname-lookup.js', () => ({
 vi.mock(
   '@core/adapters/credentials/repository-runtime-secret-provider.js',
   () => ({
-    createRepositoryRuntimeSecretProvider: vi.fn(() => ({})),
+    createRepositoryRuntimeSecretProvider,
   }),
 );
 
@@ -147,5 +149,29 @@ describe('startGantryRuntime preflight', () => {
     );
 
     expect(validateRuntimePreflightWithStorage).not.toHaveBeenCalled();
+  });
+
+  it('uses GANTRY_APP_ID for workstation settings and secret state', async () => {
+    const previousAppId = process.env.GANTRY_APP_ID;
+    process.env.GANTRY_APP_ID = 'manipal-tender-copilot';
+    startSettingsReloadWatcher.mockClear();
+    createRepositoryRuntimeSecretProvider.mockClear();
+    const { startGantryRuntime } = await import('@core/app/index.js');
+
+    try {
+      await expect(startGantryRuntime({ skipPreflight: true })).rejects.toThrow(
+        startRuntimeServicesError,
+      );
+    } finally {
+      if (previousAppId === undefined) delete process.env.GANTRY_APP_ID;
+      else process.env.GANTRY_APP_ID = previousAppId;
+    }
+
+    expect(startSettingsReloadWatcher).toHaveBeenCalledWith(
+      expect.objectContaining({ appId: 'manipal-tender-copilot' }),
+    );
+    expect(createRepositoryRuntimeSecretProvider).toHaveBeenCalledWith(
+      expect.objectContaining({ appId: 'manipal-tender-copilot' }),
+    );
   });
 });

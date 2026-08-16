@@ -1791,6 +1791,30 @@ describe('Agent.Tender job task contract', () => {
     expect(parsed.agentTask?.responseSchema?.type).toBe('object');
   });
 
+  it('accepts the maximum cumulative runtime extension and rejects larger budgets', () => {
+    const request = {
+      name: 'Resume website recipe',
+      prompt: 'Resume from the durable checkpoint.',
+      executionContext: {
+        conversationJid: 'app:manipal:recipe-runtime',
+        threadId: null,
+        workspaceKey: 'agent:agent-tender',
+        sessionId: 'session-runtime',
+      },
+      agentTask: {
+        executionPolicy: { totalTimeoutMs: 24 * 60 * 60_000 },
+      },
+    };
+    expect(CreateJobRequestSchema.parse(request).agentTask?.executionPolicy)
+      .toEqual({ totalTimeoutMs: 24 * 60 * 60_000 });
+    expectInvalid(CreateJobRequestSchema, {
+      ...request,
+      agentTask: {
+        executionPolicy: { totalTimeoutMs: 24 * 60 * 60_000 + 1 },
+      },
+    });
+  });
+
   it('accepts caller-resolved selected MCP call opt-in', () => {
     const parsed = CreateJobRequestSchema.parse({
       name: 'Review inline analysis',

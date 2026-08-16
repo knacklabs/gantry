@@ -7,6 +7,7 @@ import { delegatedTaskAgentInScope } from './async-command-task-helpers.js';
 import { taskScope } from './ipc-agent-task-lifecycle-handlers.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import type { TaskHandler } from './ipc-types.js';
+import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import {
   grantAsyncCommandBrowserHost,
   readAsyncCommandSandboxPolicy,
@@ -116,12 +117,45 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
       : null) ?? 'parent';
   const isCompletionGate =
     !parentTaskId && job?.agent_task?.completionGate?.toolName === toolName;
+  const activeSandboxPolicy = context.data.runHandle
+    ? readAsyncCommandSandboxPolicy({
+        sourceAgentFolder: context.sourceAgentFolder,
+        runHandle: context.data.runHandle,
+      })
+    : undefined;
+  const usesInteractionBudget = callerResolvedToolUsesInteractionBudget(
+    toolName,
+    activeSandboxPolicy?.browserPolicy,
+  );
   if (!definition && !isCompletionGate) {
     responder.reject(
       'Caller-resolved tool is not declared by this run.',
       'forbidden',
     );
     return;
+  }
+  if (toolName === WEBSITE_RECIPE_HUMAN_TOOL && context.data.jobId) {
+    const checkpointRepository =
+      context.deps.getJobSemanticCheckpointRepository?.();
+    if (!checkpointRepository) {
+      responder.reject(
+        'Durable job checkpoints are unavailable.',
+        'unavailable',
+      );
+      return;
+    }
+    const checkpoint = await checkpointRepository.getLatestCheckpoint({
+      appId: scope.appId,
+      agentId: memoryAgentIdForWorkspaceFolder(context.sourceAgentFolder),
+      jobId: context.data.jobId,
+    });
+    if (!recipeHumanWaitCheckpointReady(checkpoint?.milestone)) {
+      responder.reject(
+        'Save a human-wait semantic checkpoint before requesting recipe assistance.',
+        'checkpoint_required',
+      );
+      return;
+    }
   }
   const budgetKey = `${scope.appId}:${runId}`;
   const used = budgets.get(budgetKey) ?? {
@@ -133,6 +167,7 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
   const totalLimit = config.maxInteractions;
   if (
     !isCompletionGate &&
+    usesInteractionBudget &&
     (used.total >= totalLimit || scopeUsed >= scopeLimit)
   ) {
     responder.reject(
@@ -141,7 +176,7 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
     );
     return;
   }
-  if (!isCompletionGate) {
+  if (!isCompletionGate && usesInteractionBudget) {
     used.total += 1;
     used.scopes.set(taskKey, scopeUsed + 1);
     budgets.set(budgetKey, used);
@@ -245,6 +280,22 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
     );
   }
 };
+
+export function callerResolvedToolUsesInteractionBudget(
+  toolName: string | undefined,
+  browserPolicy: string | undefined,
+): boolean {
+  return !(
+    toolName === WEBSITE_RECIPE_HUMAN_TOOL &&
+    browserPolicy === 'recipe_authoring'
+  );
+}
+
+export function recipeHumanWaitCheckpointReady(
+  milestone: string | undefined,
+): boolean {
+  return milestone === 'human_wait';
+}
 
 export function approvedRecipeOriginHost(input: {
   request: unknown;

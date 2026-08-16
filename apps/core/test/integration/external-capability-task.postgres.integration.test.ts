@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { ExternalCapabilityTaskService } from '@core/jobs/external-capability-task-service.js';
+import { ExternalCapabilityTaskService } from '@core/application/capabilities/external-capability-task-service.js';
 import type { JobUpsertInput } from '@core/domain/repositories/ops-repo.js';
 import { nowIso } from '@core/shared/time/datetime.js';
 
@@ -213,5 +213,83 @@ maybeDescribe('external capability tasks', () => {
     expect(stored?.privateCorrelationJson).not.toHaveProperty(
       'completionToken',
     );
+  });
+
+  it('cancels idempotently, ignores late completion, and cannot recover', async () => {
+    const jobId = 'job-external-capability-cancel';
+    const runId = 'run-external-capability-cancel';
+    await runtime.ops.upsertJob(job(jobId));
+    await runtime.ops.createJobRun({
+      run_id: runId,
+      job_id: jobId,
+      execution_provider_id: 'anthropic:claude-agent-sdk',
+      scheduled_for: nowIso(),
+      started_at: nowIso(),
+      ended_at: null,
+      status: 'running',
+      result_summary: null,
+      error_summary: null,
+      retry_count: 0,
+      notified_at: null,
+    });
+    const service = new ExternalCapabilityTaskService(
+      runtime.repositories.asyncTasks,
+    );
+    const acceptanceInput = {
+      appId: 'default',
+      agentId: 'agent:external_capability_agent',
+      conversationId: 'control:external-capability-cancel-test',
+      jobId,
+      runId,
+      capabilityId: 'manipal.website-recipe-evaluator@1',
+      operation: 'evaluation.submit',
+      invocationRef: 'evaluation:eval-cancel',
+      idempotencyKey: 'recipe-job:attempt-cancel:candidate:test-plan',
+    };
+    const accepted = await service.accept(acceptanceInput);
+
+    const cancelled = await service.cancel({
+      appId: 'default',
+      taskId: accepted.taskId,
+      completionToken: accepted.completionToken,
+      cancellationId: 'cancellation-1',
+      reason: 'The authoring job was cancelled.',
+    });
+    expect(cancelled).toMatchObject({
+      outcome: 'completed',
+      task: {
+        status: 'cancelled',
+        errorSummary: 'The authoring job was cancelled.',
+        privateCorrelationJson: { cancellationId: 'cancellation-1' },
+      },
+    });
+
+    await expect(
+      service.cancel({
+        appId: 'default',
+        taskId: accepted.taskId,
+        completionToken: accepted.completionToken,
+        cancellationId: 'cancellation-1',
+        reason: 'The authoring job was cancelled.',
+      }),
+    ).resolves.toMatchObject({ outcome: 'idempotent' });
+    await expect(
+      service.complete({
+        appId: 'default',
+        taskId: accepted.taskId,
+        completionToken: accepted.completionToken,
+        completionId: 'completion-after-cancel',
+        resultRef: 'artifact:late-after-cancel',
+        summary: 'Late evaluator completion.',
+      }),
+    ).resolves.toMatchObject({ outcome: 'late_ignored' });
+    await expect(
+      service.recover({
+        appId: 'default',
+        idempotencyKey: acceptanceInput.idempotencyKey,
+        capabilityId: acceptanceInput.capabilityId,
+        operation: acceptanceInput.operation,
+      }),
+    ).resolves.toBeNull();
   });
 });

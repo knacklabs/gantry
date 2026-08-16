@@ -326,6 +326,7 @@ function contextFor(input: {
   liveStopActionToken?: string;
   deps?: Record<string, unknown>;
   conversationBindings?: Record<string, unknown>;
+  sourceAgentFolderJids?: string[];
 }) {
   return {
     data: {
@@ -342,7 +343,7 @@ function contextFor(input: {
       ...(input.deps ?? {}),
     },
     conversationBindings: input.conversationBindings ?? {},
-    sourceAgentFolderJids: ['sl:C123'],
+    sourceAgentFolderJids: input.sourceAgentFolderJids ?? ['sl:C123'],
   } as never;
 }
 
@@ -535,6 +536,53 @@ describe('agent task lifecycle IPC handlers', () => {
       ok: true,
       data: { tasks: [] },
     });
+  });
+
+  it('accepts the sandbox-bound conversation before dynamic routes refresh', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-task-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const {
+      agentTaskLifecycleHandlers,
+      taskData,
+      registerAsyncCommandSandboxPolicy,
+    } = await loadTaskLifecycleHandlers(runtimeHome);
+    const repository = new MemoryAsyncTaskRepository();
+    registerAsyncCommandSandboxPolicy({
+      sourceAgentFolder: 'main_agent',
+      runHandle: 'run-1',
+      policy: {
+        appId: 'app:test',
+        agentId: 'agent:main_agent',
+        conversationId: 'sl:C123',
+        threadId: 'thread-1',
+        runId: 'run-id-1',
+        protectedReadPaths: [],
+        protectedWritePaths: [],
+        allowedNetworkHosts: [],
+        resourceLimits: DEFAULT_ASYNC_RESOURCE_LIMITS,
+      },
+    });
+
+    await agentTaskLifecycleHandlers.task_list(
+      contextFor({
+        data: taskData('sandbox-bound-task-list', 'task_list'),
+        sourceAgentFolderJids: [],
+        deps: {
+          getAsyncTaskRepository: () => repository,
+          runnerSandboxProvider: {
+            id: 'direct',
+            enforcing: false,
+            start: vi.fn(),
+          },
+        },
+      }),
+    );
+
+    expect(
+      readResponse(runtimeHome, 'sandbox-bound-task-list'),
+    ).toMatchObject({ ok: true, data: { tasks: [] } });
   });
 
   it('starts, reads, lists, and cancels scoped async command tasks', async () => {

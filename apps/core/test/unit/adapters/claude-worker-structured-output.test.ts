@@ -4,6 +4,7 @@ import {
   CompletionContinuationError,
   sdkResultFailureMetadata,
   sdkResultText,
+  sdkStructuredOutputRepairInstruction,
   sdkStructuredOutputOptions,
   StructuredOutputValidationError,
 } from '@core/adapters/llm/anthropic-claude-agent/runner/sdk-message-output.js';
@@ -60,6 +61,15 @@ describe('Claude worker structured output', () => {
         schema,
       ),
     ).toThrow('failed response_schema validation');
+  });
+
+  it('preserves result JSON as the bounded repair candidate', () => {
+    const instruction = sdkStructuredOutputRepairInstruction(
+      new StructuredOutputValidationError('/version must be equal to constant'),
+      { result: '{"version":1}' },
+    );
+    expect(instruction).toContain('complete schema object');
+    expect(instruction).toContain('Previous structured response:\n{"version":1}');
   });
 
   it('validates SDK structured output with AJV instead of trusting the provider flag', () => {

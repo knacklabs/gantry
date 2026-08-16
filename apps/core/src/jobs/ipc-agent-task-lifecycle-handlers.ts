@@ -185,40 +185,52 @@ export function taskScope(context: TaskContext): {
   threadId?: string | null;
   sandboxPolicy: AsyncCommandSandboxPolicy;
 } | null {
-  const conversationId = validateSameConversation(context);
-  if (!conversationId) return null;
   const sandboxPolicy = readAsyncCommandSandboxPolicy({
     sourceAgentFolder: context.sourceAgentFolder,
     runHandle: context.data.runHandle,
   });
-  if (!sandboxPolicy) return null;
+  if (!sandboxPolicy) return rejectedTaskScope(context, 'sandbox_policy_missing');
+  const conversationId = toTrimmedString(context.data.chatJid, {
+    maxLen: 255,
+  });
+  if (
+    !conversationId ||
+    (!context.sourceAgentFolderJids.includes(conversationId) &&
+      sandboxPolicy.conversationId !== conversationId)
+  ) {
+    return rejectedTaskScope(context, 'conversation_binding_mismatch');
+  }
   const appId = toTrimmedString(context.data.appId, { maxLen: 120 });
   const agentId = toTrimmedString(context.data.agentId, { maxLen: 120 });
   const expectedAgentId = memoryAgentIdForWorkspaceFolder(
     context.sourceAgentFolder,
   );
-  if (!appId || !agentId || agentId !== expectedAgentId) return null;
-  if (sandboxPolicy.appId !== appId) return null;
-  if (sandboxPolicy.agentId && sandboxPolicy.agentId !== agentId) return null;
-  if (sandboxPolicy.conversationId !== conversationId) return null;
+  if (!appId || !agentId || agentId !== expectedAgentId)
+    return rejectedTaskScope(context, 'agent_identity_mismatch');
+  if (sandboxPolicy.appId !== appId)
+    return rejectedTaskScope(context, 'app_identity_mismatch');
+  if (sandboxPolicy.agentId && sandboxPolicy.agentId !== agentId)
+    return rejectedTaskScope(context, 'sandbox_agent_mismatch');
+  if (sandboxPolicy.conversationId !== conversationId)
+    return rejectedTaskScope(context, 'sandbox_conversation_mismatch');
   if (
     sandboxPolicy.providerAccountId &&
     sandboxPolicy.providerAccountId !== context.data.providerAccountId
   )
-    return null;
+    return rejectedTaskScope(context, 'provider_account_mismatch');
   if (
     sandboxPolicy.threadId !== undefined &&
     sandboxPolicy.threadId !== null &&
     sandboxPolicy.threadId !==
       (context.data.authThreadId || context.data.threadId)
   ) {
-    return null;
+    return rejectedTaskScope(context, 'thread_mismatch');
   }
   if (sandboxPolicy.runId && sandboxPolicy.runId !== context.data.runId) {
-    return null;
+    return rejectedTaskScope(context, 'run_mismatch');
   }
   if (sandboxPolicy.jobId && sandboxPolicy.jobId !== context.data.jobId) {
-    return null;
+    return rejectedTaskScope(context, 'job_mismatch');
   }
   return {
     appId,
@@ -228,6 +240,22 @@ export function taskScope(context: TaskContext): {
     threadId: context.data.authThreadId || context.data.threadId || null,
     sandboxPolicy,
   };
+}
+
+function rejectedTaskScope(context: TaskContext, reason: string): null {
+  logger.warn(
+    {
+      event: 'ipc.task_scope_rejected',
+      reason,
+      taskType: context.data.type,
+      sourceAgentFolder: context.sourceAgentFolder,
+      hasRunId: Boolean(context.data.runId),
+      hasJobId: Boolean(context.data.jobId),
+      hasRunHandle: Boolean(context.data.runHandle),
+    },
+    'Rejected IPC task scope',
+  );
+  return null;
 }
 async function validateParentTaskScope(
   context: TaskContext,

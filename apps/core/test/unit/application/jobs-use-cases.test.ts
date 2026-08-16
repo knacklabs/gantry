@@ -12,6 +12,7 @@ import type { JobControlPort } from '@core/application/jobs/job-management-types
 import type { RuntimeJobRepository } from '@core/domain/repositories/ops-repo.js';
 import type { Job, JobEvent, JobRun } from '@core/domain/types.js';
 import { runtimeJobSchedulePlanner } from '@core/jobs/job-schedule-planner.js';
+import { buildJobUpdates } from '@core/application/jobs/job-management-helpers.js';
 import { DEFAULT_AGENT_ENGINE } from '@core/shared/agent-engine.js';
 import {
   configureCustomModelCatalogEntries,
@@ -118,6 +119,29 @@ function makeAppOneControl(): JobControlPort {
 }
 
 describe('job application use cases', () => {
+  it('extends cumulative agent runtime monotonically and idempotently', () => {
+    const job = makeJob({
+      agent_task: {
+        executionPolicy: { totalTimeoutMs: 7_200_000 },
+      },
+    });
+    const clock = { now: () => '2026-05-15T00:00:00.000Z' };
+    const extended = buildJobUpdates(
+      job,
+      { minimumTotalRuntimeMs: 14_400_000 },
+      runtimeJobSchedulePlanner,
+      clock,
+    );
+    expect(extended.agent_task?.executionPolicy.totalTimeoutMs).toBe(14_400_000);
+    const replayed = buildJobUpdates(
+      { ...job, ...extended },
+      { minimumTotalRuntimeMs: 14_400_000 },
+      runtimeJobSchedulePlanner,
+      clock,
+    );
+    expect(replayed.agent_task?.executionPolicy.totalTimeoutMs).toBe(14_400_000);
+  });
+
   it('persists managed app jobs with their canonical app session id', async () => {
     const upsertJob = vi.fn(async () => ({ created: true }));
     const service = new JobManagementService({

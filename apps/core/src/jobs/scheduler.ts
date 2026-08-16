@@ -184,6 +184,27 @@ export async function startSchedulerLoop(
         getRuntimeStorage().repositories.liveTurns.deleteExpiredTerminalLiveAdmissionWorkItems(
           cutoffIso,
         )),
+    enqueueCompletedExternalTaskContinuation: async (input: {
+      jobId: string;
+      taskId: string;
+    }) => {
+      const trigger = await getRuntimeControlRepository().createJobTrigger({
+        jobId: input.jobId,
+        requestedBy: JSON.stringify({
+          kind: 'external_capability_continuation',
+          taskId: input.taskId,
+        }),
+      });
+      try {
+        await enqueueJobTrigger(input.jobId, trigger.triggerId);
+      } catch (error) {
+        await getRuntimeControlRepository().markTriggerCompleted(
+          trigger.triggerId,
+          'failed',
+        );
+        throw error;
+      }
+    },
   };
   const warn = (context: Record<string, unknown>, message: string): void =>
     logger.warn(context, message);

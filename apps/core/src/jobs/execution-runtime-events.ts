@@ -170,6 +170,8 @@ export async function publishSchedulerCompletionEvent(input: {
   notified: boolean;
   startNotified: boolean;
   summary: string;
+  pauseReason?: string | null;
+  pauseCode?: string;
   result?: string | null;
   failure?: AgentFailureMetadata;
   completionGateAccepted?: boolean;
@@ -190,6 +192,8 @@ export async function publishSchedulerCompletionEvent(input: {
     notified: input.notified,
     startNotified: input.startNotified,
     summary: input.summary,
+    pauseReason: input.pauseReason,
+    pauseCode: input.pauseCode,
     result: input.result,
     failure: input.failure,
     completionGateAccepted: input.completionGateAccepted,

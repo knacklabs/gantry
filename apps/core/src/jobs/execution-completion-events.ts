@@ -11,6 +11,8 @@ export async function publishSchedulerRunCompletion(input: {
   notified: boolean;
   startNotified: boolean;
   summary: string;
+  pauseReason?: string | null;
+  pauseCode?: string;
   result?: string | null;
   failure?: AgentFailureMetadata;
   completionGateAccepted?: boolean;
@@ -44,8 +46,21 @@ export async function publishSchedulerRunCompletion(input: {
     eventAppSession = eventAppSession ?? (await input.resolveEventAppSession());
     if (input.boundTriggerId) {
       await input.markTriggerCompleted(
-        eventRunStatus === 'completed' ? 'completed' : 'failed',
+        eventRunStatus === 'completed' || eventRunStatus === 'paused'
+          ? 'completed'
+          : 'failed',
       );
+    }
+    // A paused run is an intermediate lifecycle state. In particular, an
+    // external capability task deliberately suspends the run until its fenced
+    // completion starts a continuation. `run.paused` is emitted by the
+    // scheduler; publishing `job.run.failed` here would incorrectly make
+    // downstream business projectors terminalize an otherwise resumable job.
+    if (
+      eventRunStatus === 'paused' &&
+      input.pauseCode !== 'cumulative_runtime_exhausted'
+    ) {
+      return eventAppSession;
     }
     const completionEventAppId = eventAppSession?.appId ?? input.runtimeAppId;
     if (!completionEventAppId) return eventAppSession;
@@ -62,6 +77,8 @@ export async function publishSchedulerRunCompletion(input: {
         deliveryState: input.notified ? 'sent' : 'not_sent',
         startNotificationState: input.startNotified ? 'sent' : 'not_sent',
         summary: input.summary,
+        ...(input.pauseReason ? { pauseReason: input.pauseReason } : {}),
+        ...(input.pauseCode ? { pauseCode: input.pauseCode } : {}),
         ...(input.result ? { result: input.result } : {}),
         ...(input.failure ? { failure: input.failure } : {}),
         nextRun: input.nextRun,

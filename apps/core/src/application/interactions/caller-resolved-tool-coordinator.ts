@@ -13,6 +13,7 @@ interface PendingCallerTool {
   readonly runId?: string;
   readonly sourceAgentFolder: string;
   readonly interactionId: string;
+  readonly toolName: string;
   readonly resolve: (resolution: Resolution) => void;
   readonly timer: NodeJS.Timeout;
 }
@@ -52,6 +53,7 @@ export async function requestCallerResolvedTool(input: {
       runId: input.runId,
       sourceAgentFolder: input.sourceAgentFolder,
       interactionId: input.interactionId,
+      toolName: input.toolName,
       resolve,
       timer,
     });
@@ -118,7 +120,7 @@ export async function settleCallerResolvedTool(input: {
     appId: active.appId,
     runId: active.runId,
     status: input.resolution.status === 'resolved' ? 'resolved' : 'cancelled',
-    resolution: input.resolution,
+    resolution: durableCallerToolResolution(active.toolName, input.resolution),
     approverRef: input.approverRef,
   });
   if (!persisted) return 'conflict';
@@ -129,6 +131,29 @@ export async function settleCallerResolvedTool(input: {
   clearTimeout(active.timer);
   active.resolve(input.resolution);
   return 'resolved';
+}
+
+export function durableCallerToolResolution(
+  toolName: string,
+  resolution: Resolution,
+): Resolution {
+  if (
+    toolName !== 'website_recipe_request_human' ||
+    resolution.status !== 'resolved' ||
+    !record(resolution.result).humanAnswer
+  ) {
+    return resolution;
+  }
+  return {
+    status: 'resolved',
+    result: { humanAnswerProvided: true },
+  };
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 export function cancelCallerResolvedTools(sessionId: string): number {

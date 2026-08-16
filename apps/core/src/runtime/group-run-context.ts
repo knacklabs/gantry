@@ -169,8 +169,10 @@ export function resolveTurnSemanticCapabilitiesFromSnapshot(
 ): SemanticCapabilityDefinition[] {
   if (!snapshot) return [];
   const byId = new Map<string, SemanticCapabilityDefinition>();
-  for (const tool of snapshot.tools.appActiveDefinitions) {
-    const capability = semanticCapabilityFromToolCatalogItem(tool);
+  for (const row of snapshot.tools.activeBindings) {
+    const capability = row.definition
+      ? semanticCapabilityFromToolCatalogItem(row.definition)
+      : null;
     if (capability) byId.set(capability.capabilityId, capability);
   }
   const definitions = skillActionDefinitionsFromSnapshot({

@@ -85,6 +85,7 @@ export interface StartGantryRuntimeOptions {
 export async function startGantryRuntime(
   options: StartGantryRuntimeOptions = {},
 ): Promise<void> {
+  const runtimeAppId = (process.env.GANTRY_APP_ID?.trim() || 'default') as AppId;
   const mcpHostnameLookup = options.mcpHostnameLookup ?? defaultHostnameLookup;
   const runtimeLease = { tryAcquire: tryAcquireRuntimeAdvisoryLease };
   registerBrowserProfileLockLeasePort(runtimeLease);
@@ -154,7 +155,7 @@ export async function startGantryRuntime(
   const storage = getRuntimeStorage();
   channelWiring.setRuntimeSecrets(
     createRepositoryRuntimeSecretProvider({
-      appId: 'default' as AppId,
+      appId: runtimeAppId,
       repository: storage.repositories.capabilitySecrets,
     }),
   );
@@ -169,7 +170,7 @@ export async function startGantryRuntime(
   let fleetSettingsLoaded = true;
   if (isFleet) {
     const prepared = await prepareFleetSettings({
-      appId: 'default' as AppId,
+      appId: runtimeAppId,
       runtimeHome: GANTRY_HOME,
       app,
       leases: runtimeLease,
@@ -206,7 +207,7 @@ export async function startGantryRuntime(
         app,
         ops: storage.ops,
         repositories: storage.repositories,
-        appId: 'default' as AppId,
+        appId: runtimeAppId,
         settingsRevisions: storage.repositories.settingsRevisions,
         settingsRevisionPool: storage.service.pool,
         leases: runtimeLease,
@@ -384,7 +385,7 @@ export async function startGantryRuntime(
     if (isFleet) {
       fleetSubsystems = await startFleetSubsystems({
         app,
-        appId: 'default' as AppId,
+        appId: runtimeAppId,
         runtimeHome: GANTRY_HOME,
         pool: storage.service.pool,
         leases: runtimeLease,

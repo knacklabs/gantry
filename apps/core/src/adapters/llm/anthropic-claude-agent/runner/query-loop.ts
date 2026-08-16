@@ -898,7 +898,7 @@ export async function runQuery(
             if (
               error instanceof StructuredOutputValidationError &&
               agentInput.responseSchema &&
-              structuredRepairAttempts < 1
+              structuredRepairAttempts < 3
             ) {
               structuredRepairAttempts += 1;
               structuredRepairPending = true;
