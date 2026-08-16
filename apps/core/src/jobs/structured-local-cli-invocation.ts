@@ -4,8 +4,6 @@ import path from 'node:path';
 
 import { resolveAgentToolRuntimePolicy } from '../application/agents/agent-tool-runtime-rules.js';
 import type { ToolCatalogRepository } from '../domain/ports/repositories.js';
-import type { BashCommandLeaf } from '../shared/bash-command-parser.js';
-import { parseBashCommand } from '../shared/bash-command-parser.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import type { RunnerSandboxProvider } from '../shared/runner-sandbox-provider.js';
 import { sanitizeOutboundLlmText } from '../shared/sensitive-material.js';
@@ -15,6 +13,7 @@ import {
   CAPABILITY_RUN_MAX_TOTAL_ARG_BYTES,
   CAPABILITY_RUN_OUTPUT_MAX_BYTES,
 } from '../shared/structured-local-cli.js';
+import { localCliCommandTemplateMatchesArgv } from '../shared/tool-rule-matcher.js';
 import { resolveHomeRelativePaths } from '../runtime/agent-spawn-runtime-policy.js';
 import {
   DEFAULT_ASYNC_COMMAND_TIMEOUT_MS,
@@ -140,13 +139,13 @@ async function resolveGrantedLocalCliInvocation(input: {
     if (binding.kind !== 'local_cli') continue;
     const executable = binding.executablePath?.trim();
     if (!executable) continue;
-    const leaf: BashCommandLeaf = {
-      argv: [executable, ...input.args],
-      commandText: '',
-      redirects: [],
-    };
+    const argv = [executable, ...input.args];
     const reviewed = (binding.commandTemplates ?? []).some((template) =>
-      structuredArgvMatchesTemplate(template, leaf.argv),
+      localCliCommandTemplateMatchesArgv({
+        executablePath: executable,
+        template,
+        argv,
+      }),
     );
     if (!reviewed) continue;
     const verifiedExecutable = await verifyImmutableExecutable(
@@ -179,7 +178,7 @@ async function resolveGrantedLocalCliInvocation(input: {
     );
   throw new StructuredLocalCliInvocationError(
     'capability_template_mismatch',
-    `Arguments are outside the reviewed pattern for capability "${capabilityId}". Reviewed args patterns: ${reviewedArgPatterns.join(' or ')}. Re-call capability_run with an args array matching one pattern ("*" = exactly one value; flags only where a pattern shows them). Never run this capability through Bash/RunCommand.`,
+    `Arguments are outside the reviewed pattern for capability "${capabilityId}". Reviewed args patterns: ${reviewedArgPatterns.join(' or ')}. Re-call capability_run with an args array matching one pattern (a terminal standalone "*" covers the remaining args; a non-terminal "*" covers one non-flag positional value). Never run this capability through Bash/RunCommand.`,
   );
 }
 
@@ -211,42 +210,6 @@ function validateStructuredArgs(args: readonly string[]): void {
 
 function invalidArgs(message: string): StructuredLocalCliInvocationError {
   return new StructuredLocalCliInvocationError('invalid_args', message);
-}
-
-// Structured argv authorization is ARITY-EXACT and positional — deliberately
-// stricter than the shell RunCommand matcher, whose trailing `*` could cover a
-// whole command suffix. Here the invocation argv must have the SAME length as
-// the reviewed template argv, each literal token must match exactly, and each
-// wildcard must match exactly ONE argument that is NOT a flag (a positional
-// wildcard can never absorb an injected `--flag`). This is the structured
-// capability boundary: the agent cannot append extra subcommands, flags, or
-// operands beyond what the reviewed template shape allows.
-function structuredArgvMatchesTemplate(
-  template: string,
-  argv: readonly string[],
-): boolean {
-  const parsed = parseBashCommand(template.trim());
-  if (!parsed.ok || parsed.leaves.length !== 1) return false;
-  const patterns = parsed.leaves[0]?.argv ?? [];
-  if (patterns.length !== argv.length) return false; // arity-exact
-  for (let index = 0; index < patterns.length; index += 1) {
-    const pattern = patterns[index] as string;
-    const value = argv[index] as string;
-    if (!globMatches(pattern, value)) return false;
-    // A non-flag pattern (literal or wildcard) must not match a flag argument,
-    // so a positional `*` cannot absorb an injected flag.
-    if (!pattern.startsWith('-') && value.startsWith('-')) return false;
-  }
-  return true;
-}
-
-function globMatches(pattern: string, value: string): boolean {
-  if (!pattern.includes('*')) return pattern === value;
-  const escaped = pattern
-    .split('*')
-    .map((part) => part.replace(/[\\^$+?.()|[\]{}]/g, '\\$&'))
-    .join('.*');
-  return new RegExp(`^${escaped}$`).test(value);
 }
 
 // Bind execution to the verified bytes, TOCTOU-safe, WITHOUT relocating the
