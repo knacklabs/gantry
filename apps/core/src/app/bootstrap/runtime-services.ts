@@ -20,6 +20,7 @@ import {
   toGroupMessageCursor,
 } from '../../shared/message-cursor.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import { getRuntimeStorage } from '../../adapters/storage/postgres/runtime-store.js';
 import type { MessageSendOptions } from '../../domain/types.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
 import { writeGroupsSnapshot } from '../../runtime/agent-spawn.js';
@@ -411,7 +412,13 @@ export async function startRuntimeServices(
         (typeof app.getCredentialBroker === 'function'
           ? () => app.getCredentialBroker()
           : undefined),
-      getSkillRepository: resolved.getSkillRepository,
+      // Scheduled execution must materialize the same reviewed skill bindings
+      // as interactive turns. The runtime store is already initialized before
+      // services start, so retain it as the host-owned fallback when an
+      // embedding omits the optional dependency.
+      getSkillRepository:
+        resolved.getSkillRepository ??
+        (() => getRuntimeStorage().repositories.skills),
       getMcpServerRepository: resolved.getMcpServerRepository,
       getCapabilitySecretRepository: resolved.getCapabilitySecretRepository,
       getMcpHostnameLookup: () => resolved.mcpHostnameLookup,
