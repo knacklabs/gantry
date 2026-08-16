@@ -434,6 +434,61 @@ describe('ToolExecutionPolicyService', () => {
     expect(result.recoveryAction).not.toContain('scheduler_grant_tool');
   });
 
+  it('allows an exact selected skill action command without exposing skill files to Bash', () => {
+    const sourceSync = capability({
+      capabilityId: 'skill.ats-source-sync.cutshort',
+      credentialSource: 'skill_secret',
+      implementationBindings: [
+        {
+          kind: 'tool_rule',
+          rule: 'RunCommand(skills/ats-skills/scripts/cutshort-worker.mjs sync)',
+        },
+      ],
+    });
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: {
+        command: 'skills/ats-skills/scripts/cutshort-worker.mjs sync',
+      },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-source-sync' },
+    });
+
+    expect(
+      policy.evaluate({
+        request,
+        autonomousAllowedToolRules: [
+          'capability:skill.ats-source-sync.cutshort',
+        ],
+        semanticCapabilityDefinitions: definitionsById(sourceSync),
+      }),
+    ).toMatchObject({
+      status: 'allow',
+      matchedRule:
+        'RunCommand(skills/ats-skills/scripts/cutshort-worker.mjs sync)',
+    });
+
+    expect(
+      policy.evaluate({
+        request: classifier.classify({
+          origin: 'sdk',
+          toolName: 'Bash',
+          toolInput: {
+            command:
+              'skills/ats-skills/scripts/cutshort-worker.mjs sync --unsafe',
+          },
+          executionMode: 'autonomous',
+          runContext: { jobId: 'job-source-sync' },
+        }),
+        autonomousAllowedToolRules: [
+          'capability:skill.ats-source-sync.cutshort',
+        ],
+        semanticCapabilityDefinitions: definitionsById(sourceSync),
+      }),
+    ).toMatchObject({ status: 'deny' });
+  });
+
   it('points autonomous scheduler tool denials to exact persistent tool approval', () => {
     const request = classifier.classify({
       origin: 'mcp',

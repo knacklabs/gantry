@@ -200,7 +200,6 @@ export class ToolExecutionPolicyService {
       input.request,
       requestToolsHidden,
     );
-    if (protectedDecision) return protectedDecision;
 
     if (input.request.executionMode === 'autonomous') {
       const runtimeToolResultRead = evaluateGeneratedRuntimeToolResultRead(
@@ -221,6 +220,16 @@ export class ToolExecutionPolicyService {
         const capabilityId = resolved.capabilityByRule.get(
           toolPolicy.matchedRule ?? '',
         );
+        if (
+          protectedDecision &&
+          !isApprovedSkillCommandExecution({
+            request: input.request,
+            matchedRule: toolPolicy.matchedRule,
+            capabilityId,
+          })
+        ) {
+          return protectedDecision;
+        }
         return decision(input.request, 'allow', {
           reason: capabilityId
             ? `Allowed by selected capability ${capabilityId}.`
@@ -228,6 +237,7 @@ export class ToolExecutionPolicyService {
           matchedRule: toolPolicy.matchedRule,
         });
       }
+      if (protectedDecision) return protectedDecision;
       return decision(input.request, 'deny', {
         reason: autonomousDenyReason(input.request.toolName, toolPolicy.reason),
         recoveryAction: autonomousGrantRecovery(
@@ -252,6 +262,16 @@ export class ToolExecutionPolicyService {
         const capabilityId = resolved.capabilityByRule.get(
           toolPolicy.matchedRule ?? '',
         );
+        if (
+          protectedDecision &&
+          !isApprovedSkillCommandExecution({
+            request: input.request,
+            matchedRule: toolPolicy.matchedRule,
+            capabilityId,
+          })
+        ) {
+          return protectedDecision;
+        }
         return decision(input.request, 'allow', {
           reason: capabilityId
             ? `Allowed by selected capability ${capabilityId}.`
@@ -259,11 +279,14 @@ export class ToolExecutionPolicyService {
           matchedRule: toolPolicy.matchedRule,
         });
       }
+      if (protectedDecision) return protectedDecision;
       return decision(input.request, 'not_applicable', {
         reason: selectedCapabilityMissReason(toolPolicy.reason),
         closestRule: toolPolicy.closestRule,
       });
     }
+
+    if (protectedDecision) return protectedDecision;
 
     return decision(input.request, 'not_applicable', {
       reason: 'No canonical tool execution policy matched.',
@@ -286,6 +309,38 @@ export function evaluateProtectedCapabilityToolUse(
     reason: decision.reason,
     recoveryAction: decision.recoveryAction ?? protectedCapabilityRecovery(),
   };
+}
+
+/**
+ * A skill action is stored under the protected skill directory, so its
+ * reviewed command template necessarily mentions a protected path. Permit
+ * that one command only after the ordinary policy matcher has proved it is
+ * the exact, selected RunCommand rule for a skill capability. This does not
+ * permit generic shell access to skill files, capability configuration, or
+ * mutation commands.
+ */
+function isApprovedSkillCommandExecution(input: {
+  request: ToolExecutionRequest;
+  matchedRule?: string;
+  capabilityId?: string;
+}): boolean {
+  if (input.request.toolName !== 'Bash') return false;
+  if (!input.capabilityId?.startsWith('skill.')) return false;
+  if (!input.matchedRule?.startsWith('RunCommand(')) return false;
+  const command = commandText(input.request.input);
+  if (!command || hasBashMutationVerb(command) || hasBashRedirect(command)) {
+    return false;
+  }
+  const mentions = allProtectedPathMentions(command);
+  return (
+    mentions.length > 0 &&
+    mentions.every(
+      (path) =>
+        isSkillCapabilityPath(path) &&
+        !isMcpCapabilityPath(path) &&
+        !isRuntimeSettingsPath(path),
+    )
+  );
 }
 
 function evaluateProtectedCapabilityRequest(
