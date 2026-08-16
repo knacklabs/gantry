@@ -765,7 +765,9 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       // Denial leaves the catalog untouched: same template SET as after the
       // approval (order-insensitive, matching the earlier assertion).
       expect(
-        [...(afterDeny?.implementationBindings[0]?.commandTemplates ?? [])].sort(),
+        [
+          ...(afterDeny?.implementationBindings[0]?.commandTemplates ?? []),
+        ].sort(),
       ).toEqual([...initialTemplates, ...proposedTemplates].sort());
     } finally {
       fs.rmSync(executableDir, { recursive: true, force: true });
