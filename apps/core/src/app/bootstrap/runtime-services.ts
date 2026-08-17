@@ -356,7 +356,10 @@ export async function startRuntimeServices(
     conversationRoutes: () => app.getConversationRoutes(),
     runAgent: app.runAgent,
   };
-  await recoverStaleAsyncCommandTasks(
+  // Recovery is best-effort and already reports its own failures. It must not
+  // prevent the control plane, IPC watcher, or scheduler from starting when a
+  // stale task's recovery path is slow or unavailable.
+  void recoverStaleAsyncCommandTasks(
     String(channelWiring.getRuntimeAppId()),
     asyncTaskRecoveryDeps,
   );
