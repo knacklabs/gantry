@@ -5,7 +5,7 @@
 # --effort high (read-only by default); explore.config.toml serves
 # Codex-native sessions — raw codex exec is hook-blocked, no exceptions.
 # Agents under .codex/agents/ override per-role.
-model = "gpt-5.6-sol"
+model = "gpt-5.6-luna"
 model_reasoning_effort = "medium"
 plan_mode_reasoning_effort = "high"
 # Terse output: artifacts and diffs carry the substance, not prose.
