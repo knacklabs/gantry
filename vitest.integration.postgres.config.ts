@@ -27,7 +27,6 @@ export default makeVitestConfig({
           // database. Excluded to keep behavior; delete a line to adopt one.
           '**/live-waiting-admission.postgres.integration.test.ts',
           '**/pattern-candidate-atomic-claim.postgres.integration.test.ts',
-          '**/proactive-surfacing-opt-in.postgres.integration.test.ts',
           '**/toolchain-bake-reconciler.postgres.integration.test.ts',
           '**/worker-coordination.postgres.integration.test.ts',
         ]
