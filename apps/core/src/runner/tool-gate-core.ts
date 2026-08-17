@@ -3,6 +3,7 @@ import {
   ToolExecutionClassifier,
   ToolExecutionPolicyService,
   evaluateProtectedCapabilityToolUse,
+  isReadOnlySkillExecutionCommand,
   type ToolPolicyDecision,
 } from '../shared/tool-execution-policy-service.js';
 import {
@@ -214,6 +215,10 @@ export interface NeutralPreCheckInput {
   yoloMode?: YoloModeSettings;
   toolRules?: readonly DeclarativeToolRule[];
   successLedger?: ToolSuccessLedger;
+  // The Gantry-owned shell tool follows this pre-check with the host-side,
+  // exact scoped RunCommand policy. Let that policy decide a non-mutating
+  // skill artifact invocation; all other protected targets remain hard-denied.
+  deferReadOnlySkillExecutionToPolicy?: boolean;
 }
 
 // Runs the ordered authority pre-checks that may hard-deny before any
@@ -230,7 +235,13 @@ export function evaluateNeutralToolPreChecks(input: NeutralPreCheckInput):
     input.toolName,
     input.toolInput,
   );
-  if (protectedDenial) {
+  if (
+    protectedDenial &&
+    !(
+      input.deferReadOnlySkillExecutionToPolicy === true &&
+      isReadOnlySkillExecutionCommand(input.toolName, input.toolInput)
+    )
+  ) {
     return { decision: 'protected_capability', reason: protectedDenial };
   }
   const memoryDenial = denyMemoryBoundaryToolUse(

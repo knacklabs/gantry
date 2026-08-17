@@ -219,6 +219,37 @@ describe('tool-gate-core (neutral runner gate)', () => {
     ).toBeNull();
   });
 
+  it('defers only non-mutating skill commands to the reviewed RunCommand policy', () => {
+    const input = {
+      toolName: 'Bash',
+      toolInput: {
+        command:
+          '/tmp/gantry/artifacts/skills/ats-skills/scripts/cutshort-worker.mjs sync',
+      },
+      memoryBlock: '',
+    };
+
+    expect(evaluateNeutralToolPreChecks(input)?.decision).toBe(
+      'protected_capability',
+    );
+    expect(
+      evaluateNeutralToolPreChecks({
+        ...input,
+        deferReadOnlySkillExecutionToPolicy: true,
+      }),
+    ).toBeNull();
+    expect(
+      evaluateNeutralToolPreChecks({
+        ...input,
+        toolInput: {
+          command:
+            '/tmp/gantry/artifacts/skills/ats-skills/scripts/cutshort-worker.mjs sync > /tmp/out',
+        },
+        deferReadOnlySkillExecutionToPolicy: true,
+      })?.decision,
+    ).toBe('protected_capability');
+  });
+
   it('pre-checks short-circuit on memory-boundary high-risk content', () => {
     const result = evaluateNeutralToolPreChecks({
       toolName: 'Bash',

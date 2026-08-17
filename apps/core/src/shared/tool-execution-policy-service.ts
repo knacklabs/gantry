@@ -324,10 +324,25 @@ function isApprovedSkillCommandExecution(input: {
   matchedRule?: string;
   capabilityId?: string;
 }): boolean {
-  if (input.request.toolName !== 'Bash') return false;
   if (!input.capabilityId?.startsWith('skill.')) return false;
   if (!input.matchedRule?.startsWith('RunCommand(')) return false;
-  const command = commandText(input.request.input);
+  return isReadOnlySkillExecutionCommand(
+    input.request.toolName,
+    input.request.input,
+  );
+}
+
+/**
+ * Identifies a non-mutating shell invocation of a skill artifact. Callers may
+ * defer this narrow case to the normal reviewed-tool policy, which must still
+ * match the exact scoped RunCommand rule before execution is allowed.
+ */
+export function isReadOnlySkillExecutionCommand(
+  toolName: string,
+  input: unknown,
+): boolean {
+  if (toolName !== 'Bash') return false;
+  const command = commandText(input);
   if (!command || hasBashMutationVerb(command) || hasBashRedirect(command)) {
     return false;
   }
