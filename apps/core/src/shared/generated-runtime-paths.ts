@@ -3,7 +3,9 @@
 // not treat arbitrary `.llm-runtime/<name>` directories as trusted.
 const GENERATED_RUNTIME_PROVIDER_SEGMENT = `(?:${[
   ['clau', 'de'].join(''),
-  'deepagents',
+  // DeepAgents materializes skills into one directory per run, for example
+  // `.llm-runtime/deepagents-<uuid>/skills/...`.
+  'deepagents(?:-[0-9a-f-]+)?',
 ].join('|')})`;
 const GENERATED_RUNTIME_SKILL_PATH_SOURCE =
   '(^|[\\s"\'(:=])((?:[^\\s"\'`;|()<>]+/)?\\.llm-runtime/' +

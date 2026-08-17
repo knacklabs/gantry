@@ -497,7 +497,7 @@ describe('ToolExecutionPolicyService', () => {
       toolName: 'Bash',
       toolInput: {
         command:
-          'node /srv/reagent/home/agents/source/.llm-runtime/deepagents/skills/ats-skills/scripts/cutshort-worker.mjs sync',
+          'node /srv/reagent/home/agents/source/.llm-runtime/deepagents-afb2d061-3aa3-4156-a29c-3c5517a7b69d/skills/ats-skills/scripts/cutshort-worker.mjs sync',
       },
       executionMode: 'autonomous',
       runContext: { jobId: 'job-source-sync' },
@@ -517,7 +517,7 @@ describe('ToolExecutionPolicyService', () => {
           toolName: 'Bash',
           toolInput: {
             command:
-              'node /srv/reagent/home/agents/source/.llm-runtime/deepagents/skills/ats-skills/scripts/cutshort-worker.mjs sync --unsafe',
+              'node /srv/reagent/home/agents/source/.llm-runtime/deepagents-afb2d061-3aa3-4156-a29c-3c5517a7b69d/skills/ats-skills/scripts/cutshort-worker.mjs sync --unsafe',
           },
           executionMode: 'autonomous',
           runContext: { jobId: 'job-source-sync' },
