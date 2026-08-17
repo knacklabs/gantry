@@ -94,6 +94,12 @@ maybeDescribe('semantic memory backfill + hybrid recall', () => {
     _setRuntimeStorageForTest(runtime.storageRuntime);
     AppMemoryService.resetForTest();
     service = new AppMemoryService(runtime.service.db);
+    // User-scoped memory rows FK to the users table (memory_items_app_user_fk).
+    // Production creates the user on message ingestion; seed it here.
+    await runtime.service.db
+      .insert(pgSchema.usersPostgres)
+      .values({ id: USER_ID, appId: 'default' })
+      .onConflictDoNothing();
     await service.save({
       appId: 'default',
       agentId: AGENT_ID,
