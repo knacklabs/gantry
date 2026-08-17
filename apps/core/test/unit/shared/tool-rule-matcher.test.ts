@@ -460,6 +460,38 @@ describe('autonomous tool rule matcher', () => {
     ).toMatchObject({ allowed: false });
   });
 
+  it('matches a reviewed JavaScript skill through Node without widening the command scope', () => {
+    expect(
+      evaluateAutonomousToolUse({
+        rules: [
+          'RunCommand(skills/ats-skills/scripts/cutshort-worker.mjs sync)',
+        ],
+        toolName: 'Bash',
+        toolInput: {
+          command:
+            'node /Users/tester/gantry/agents/main_agent/.llm-runtime/claude/skills/ats-skills/scripts/cutshort-worker.mjs sync',
+        },
+      }),
+    ).toMatchObject({
+      allowed: true,
+      matchedRule:
+        'RunCommand(skills/ats-skills/scripts/cutshort-worker.mjs sync)',
+    });
+
+    expect(
+      evaluateAutonomousToolUse({
+        rules: [
+          'RunCommand(skills/ats-skills/scripts/cutshort-worker.mjs sync)',
+        ],
+        toolName: 'Bash',
+        toolInput: {
+          command:
+            'node /Users/tester/gantry/agents/main_agent/.llm-runtime/claude/skills/ats-skills/scripts/cutshort-worker.mjs sync --unsafe',
+        },
+      }),
+    ).toMatchObject({ allowed: false });
+  });
+
   it('matches reviewed skill commands with runtime-owned env and project aliases', () => {
     expect(
       evaluateAutonomousToolUse({
