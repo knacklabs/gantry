@@ -74,6 +74,45 @@ export async function resolvePermissionIpcDecision(input: {
     : undefined;
   const hostJobId = runRestriction?.jobId;
   const fixedImageRestricted = runRestriction?.hideAuthorityTools ?? false;
+  // Resolve the agent's reviewed policy before applying the protected-path
+  // guard. A skill action intentionally runs a script below the protected
+  // skill root; ToolExecutionPolicyService allows it only when the command
+  // exactly matches that selected skill action's RunCommand template.
+  const repository = input.deps.getToolRepository?.();
+  const runtimePolicy = repository
+    ? await resolveAgentToolRuntimePolicy({
+        repository,
+        appId: input.request.appId ?? 'default',
+        agentId:
+          input.request.agentId ?? agentIdForFolder(input.sourceAgentFolder),
+        errorSubject: 'Configured agent tool',
+        skillRepository: input.deps.getSkillRepository?.(),
+      }).catch(() => undefined)
+    : undefined;
+  const reviewedToolDecision = runtimePolicy
+    ? new ToolExecutionPolicyService().evaluate({
+        request: buildAgentToolExecutionRequest(
+          new ToolExecutionClassifier(),
+          input.request.toolName,
+          input.request.toolInput,
+          {
+            isScheduledJob: Boolean(hostJobId),
+            jobId: hostJobId,
+            threadId: input.request.threadId,
+            conversationId: input.request.targetJid ?? '',
+          },
+        ),
+        semanticCapabilityDefinitions: Object.fromEntries(
+          runtimePolicy.semanticCapabilities.map((capability) => [
+            capability.capabilityId,
+            capability,
+          ]),
+        ),
+        ...(hostJobId
+          ? { autonomousAllowedToolRules: runtimePolicy.rules }
+          : { allowedToolRules: runtimePolicy.rules }),
+      })
+    : undefined;
   const protectedCapability = evaluateProtectedCapabilityToolUse(
     input.request.toolName,
     input.request.toolInput,
@@ -98,11 +137,12 @@ export async function resolvePermissionIpcDecision(input: {
     request: input.request,
     effectHash,
     decisionMemory,
-    hardDenyReason: protectedCapability
-      ? `Denied by Gantry tool execution policy: ${protectedCapability.reason} ${protectedCapability.recoveryAction}`
-      : yoloMatch
-        ? yoloModeDenylistDenyReason(yoloMatch)
-        : undefined,
+    hardDenyReason:
+      protectedCapability && reviewedToolDecision?.status !== 'allow'
+        ? `Denied by Gantry tool execution policy: ${protectedCapability.reason} ${protectedCapability.recoveryAction}`
+        : yoloMatch
+          ? yoloModeDenylistDenyReason(yoloMatch)
+          : undefined,
     accessPreset: agentSettings?.accessPreset,
     fixedImageRestricted,
     deterministicRailsInput: {
@@ -121,42 +161,7 @@ export async function resolvePermissionIpcDecision(input: {
       return decision;
     },
     reviewedRuleDecision: async () => {
-      const repository = input.deps.getToolRepository?.();
-      if (!repository) return undefined;
-      const policy = await resolveAgentToolRuntimePolicy({
-        repository,
-        appId: input.request.appId ?? 'default',
-        agentId:
-          input.request.agentId ?? agentIdForFolder(input.sourceAgentFolder),
-        errorSubject: 'Configured agent tool',
-        skillRepository: input.deps.getSkillRepository?.(),
-      }).catch(() => undefined);
-      if (!policy) return undefined;
-      return new ToolExecutionPolicyService().evaluate({
-        request: buildAgentToolExecutionRequest(
-          new ToolExecutionClassifier(),
-          input.request.toolName,
-          input.request.toolInput,
-          {
-            isScheduledJob: Boolean(hostJobId),
-            jobId: hostJobId,
-            threadId: input.request.threadId,
-            conversationId: input.request.targetJid ?? '',
-          },
-        ),
-        // Resolve `capability:<id>` rules against the same server-reviewed
-        // bundles the rules were projected from — trusted, no new state, and
-        // consistent with policy.rules (never runner-supplied definitions).
-        semanticCapabilityDefinitions: Object.fromEntries(
-          policy.semanticCapabilities.map((capability) => [
-            capability.capabilityId,
-            capability,
-          ]),
-        ),
-        ...(hostJobId
-          ? { autonomousAllowedToolRules: policy.rules }
-          : { allowedToolRules: policy.rules }),
-      });
+      return reviewedToolDecision;
     },
     skipClassifierVerdictCache: Boolean(hostJobId),
     tail: () =>
