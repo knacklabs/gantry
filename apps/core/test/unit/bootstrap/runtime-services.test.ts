@@ -392,8 +392,8 @@ describe('startRuntimeServices', () => {
     expect(order).toEqual([
       'startIpcWatcher',
       'startSchedulerLoop',
-      'writeGroupsSnapshot',
       'runtime-ready-log',
+      'writeGroupsSnapshot',
     ]);
     expect(startupOrder.wireInlineTools).toHaveBeenCalledBefore(
       startupOrder.recoverAsyncTasks,

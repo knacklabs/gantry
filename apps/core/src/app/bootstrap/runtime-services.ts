@@ -1108,8 +1108,14 @@ export async function startRuntimeServices(
     });
   }
   startIpcWatcher();
-  if (jobExecution) await startScheduler();
-  else {
+  if (jobExecution) {
+    // Scheduler startup uses durable queue recovery and can be slow while a
+    // previous worker drains. The control plane must remain available so
+    // operators can inspect, resume, or trigger jobs during that handoff.
+    void Promise.resolve(startScheduler()).catch((err) =>
+      resolved.logger.warn({ err }, 'Scheduler failed to start'),
+    );
+  } else {
     markRoleHasNoJobExecution();
     resolved.logger.info(
       { processRole },
