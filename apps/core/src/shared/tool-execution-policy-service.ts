@@ -32,7 +32,10 @@ import {
 import { isGeneratedRuntimeToolResultPath } from './generated-runtime-paths.js';
 import { type SemanticCapabilityDefinition } from './semantic-capabilities.js';
 import { resolveCapabilityRules } from './tool-execution-capability-resolution.js';
-import { persistentAutonomousBashRecoveryRule } from './autonomous-bash-recovery-rule.js';
+import {
+  autonomousBashRecoveryMessage,
+  persistentAutonomousBashRecoveryRule,
+} from './autonomous-bash-recovery-rule.js';
 
 export type ToolExecutionOrigin =
   | 'sdk'
@@ -596,14 +599,10 @@ function autonomousGrantRecovery(
   }
   const toolName = publicGantryToolNameForSdkTool(request.toolName);
   if (request.toolName === 'Bash') {
-    const command = commandText(request.input);
-    const rule = command
-      ? persistentAutonomousBashRecoveryRule(command)
-      : undefined;
-    if (!rule) {
-      return 'Update the autonomous run to use a reviewed semantic capability or invoke a scoped RunCommand(...) command directly. This command cannot be durably approved for autonomous runs.';
-    }
-    return `request_access { "target": { "kind": "run_command", "argvPattern": "${escapeJson(rule)}" }, "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }`;
+    return autonomousBashRecoveryMessage(
+      commandText(request.input),
+      escapeJson,
+    );
   }
   if (isDurableGantryMcpToolFullName(request.toolName)) {
     return `request_access { "target": { "kind": "tool", "name": "${escapeJson(request.toolName)}" }, "temporaryOnly": false, "reason": "This autonomous run needs exact Gantry tool access." }`;
@@ -688,5 +687,13 @@ function thirdPartyMcpToolServerName(toolName: string): string | undefined {
 }
 
 function escapeJson(value: string): string {
-  return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+  // Full JSON string-body escaping (backslashes, quotes, C0 controls). This text
+  // is read by an autonomous agent, and JSON.stringify leaves the non-C0 line
+  // controls U+0085/U+2028/U+2029 literal, so escape those too — else an
+  // injected line break could split the guidance into a fake instruction.
+  return JSON.stringify(value)
+    .slice(1, -1)
+    .replace(/\u0085/g, '\\u0085')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
 }
