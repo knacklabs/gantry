@@ -116,6 +116,7 @@ jobs:
       - name: Agent E2E turn (real model)
         env:
           E2E_MODEL_API_KEY: ${{ secrets.E2E_ANTHROPIC_API_KEY }}
+          AGENT_E2E_EVIDENCE_DIR: /tmp/gantry-agent-e2e-evidence
         run: |
           if [ -z "$E2E_MODEL_API_KEY" ]; then
             echo "::notice::E2E_MODEL_API_KEY is unavailable; skipping the real-model turn."
@@ -128,6 +129,14 @@ jobs:
           fi
           export GANTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/gantry_test
           timeout 900s env LOG_LEVEL=fatal CI=true npm run test:e2e:agent:turn 2>&1 | tee -a /tmp/vitest.log
+
+      - name: Upload agent E2E evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-agent-e2e-evidence
+          path: /tmp/gantry-agent-e2e-evidence
+          if-no-files-found: ignore
 
       - name: Debug hang context
         if: ${{ always() && steps.tests.outcome != 'success' }}
