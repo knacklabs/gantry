@@ -61,6 +61,7 @@ export function setupPermissionRunRestriction(
       unregisterPermissionRunRestriction({
         sourceAgentFolder,
         responseKeyId: ipcAuth.responseKeyId,
+        runId: agentInput.runId,
       }),
   };
 }

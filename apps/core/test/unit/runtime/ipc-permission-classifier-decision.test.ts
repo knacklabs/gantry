@@ -136,6 +136,59 @@ describe('IPC permission classifier decision', () => {
     }
   });
 
+  it('uses the signed scheduled run identity when worker preparation changes its response key', async () => {
+    const hostResponseKeyId = 'host-response-key';
+    const workerResponseKeyId = 'worker-response-key';
+    const runId = 'source-sync-run';
+    registerWorkerPermissionRunRestriction({
+      sourceAgentFolder: 'ats_source_sync_dev',
+      responseKeyId: hostResponseKeyId,
+      hideAuthorityTools: false,
+      runKind: 'scheduled',
+      jobId: 'source-sync-job',
+      runId,
+      toolPolicyRules: [
+        'RunCommand(skills/ats-skills/scripts/cutshort-worker.mjs sync)',
+      ],
+    });
+    try {
+      await expect(
+        resolvePermissionIpcDecision({
+          request: {
+            requestId: 'scheduled-run-id-fallback',
+            responseKeyId: workerResponseKeyId,
+            sourceAgentFolder: 'ats_source_sync_dev',
+            jobId: 'source-sync-job',
+            runId,
+            toolName: 'RunCommand',
+            toolInput: {
+              command:
+                'node /srv/reagent/home/agents/ats_source_sync_dev/.llm-runtime/deepagents/skills/ats-skills/scripts/cutshort-worker.mjs sync',
+            },
+            unattended: true,
+          },
+          sourceAgentFolder: 'ats_source_sync_dev',
+          deps: {
+            conversationRoutes: () => ({}),
+            requestPermissionApproval: vi.fn(),
+            getToolRepository: () => ({
+              listAgentToolBindings: vi.fn(async () => []),
+            }),
+          } as never,
+        }),
+      ).resolves.toMatchObject({
+        approved: true,
+        decidedBy: 'reviewed_rule',
+      });
+    } finally {
+      unregisterPermissionRunRestriction({
+        sourceAgentFolder: 'ats_source_sync_dev',
+        responseKeyId: hostResponseKeyId,
+        runId,
+      });
+    }
+  });
+
   it('AUTODET-1-1 > jobId requests never reach the classifier; miss is deterministic_rails terminal deny', async () => {
     const responseKeyId = 'autodet-job-response-key';
     const classifierConsult = vi.fn(async () => ({

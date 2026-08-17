@@ -489,6 +489,42 @@ describe('ToolExecutionPolicyService', () => {
     ).toMatchObject({ status: 'deny' });
   });
 
+  it('allows the same reviewed skill command through the DeepAgents RunCommand facade', () => {
+    const sourceSync = capability({
+      capabilityId: 'skill.ats-source-sync.cutshort',
+      credentialSource: 'skill_secret',
+      implementationBindings: [
+        {
+          kind: 'tool_rule',
+          rule: 'RunCommand(skills/ats-skills/scripts/cutshort-worker.mjs sync)',
+        },
+      ],
+    });
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'RunCommand',
+      toolInput: {
+        command: 'skills/ats-skills/scripts/cutshort-worker.mjs sync',
+      },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-source-sync' },
+    });
+
+    expect(
+      policy.evaluate({
+        request,
+        autonomousAllowedToolRules: [
+          'capability:skill.ats-source-sync.cutshort',
+        ],
+        semanticCapabilityDefinitions: definitionsById(sourceSync),
+      }),
+    ).toMatchObject({
+      status: 'allow',
+      matchedRule:
+        'RunCommand(skills/ats-skills/scripts/cutshort-worker.mjs sync)',
+    });
+  });
+
   it('allows a directly projected reviewed Node skill command, but not a different invocation', () => {
     const exactRule =
       'RunCommand(skills/ats-skills/scripts/cutshort-worker.mjs sync)';

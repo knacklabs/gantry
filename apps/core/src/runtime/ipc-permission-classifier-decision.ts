@@ -70,12 +70,16 @@ export async function resolvePermissionIpcDecision(input: {
   const approvedCapabilityIds =
     agentSettings?.capabilities?.map(({ id }) => id) ?? [];
   const workspaceRoot = resolveWorkspaceFolderPath(input.sourceAgentFolder);
-  const runRestriction = input.request.responseKeyId
-    ? permissionRunRestriction({
-        sourceAgentFolder: input.sourceAgentFolder,
-        responseKeyId: input.request.responseKeyId,
-      })
-    : undefined;
+  const runRestriction =
+    input.request.responseKeyId || input.request.runId
+      ? permissionRunRestriction({
+          sourceAgentFolder: input.sourceAgentFolder,
+          ...(input.request.responseKeyId
+            ? { responseKeyId: input.request.responseKeyId }
+            : {}),
+          ...(input.request.runId ? { runId: input.request.runId } : {}),
+        })
+      : undefined;
   const hostJobId = runRestriction?.jobId;
   const fixedImageRestricted = runRestriction?.hideAuthorityTools ?? false;
   // Resolve the agent's reviewed policy before applying the protected-path

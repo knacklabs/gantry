@@ -303,7 +303,7 @@ export function registerPermissionRunRestriction(input: {
   toolPolicyRules?: readonly string[];
   semanticCapabilities?: readonly SemanticCapabilityDefinition[];
 }): void {
-  permissionRunRestrictions.set(restrictionKey(input), {
+  const restriction: PermissionRunRestriction = {
     hideAuthorityTools: input.hideAuthorityTools,
     runKind: input.runKind,
     ...(input.toolPolicyRules
@@ -317,28 +317,80 @@ export function registerPermissionRunRestriction(input: {
     ...(input.memoryUserId ? { memoryUserId: input.memoryUserId } : {}),
     ...(input.jobId ? { jobId: input.jobId } : {}),
     ...(input.runId ? { runId: input.runId } : {}),
-  });
+  };
+  permissionRunRestrictions.set(responseKeyRestrictionKey(input), restriction);
+  // A scheduled worker can regenerate its response key while it is prepared.
+  // Its signed run id remains stable and is validated against the job before a
+  // permission decision is made, so retain the same host-captured restriction
+  // under that scoped identity as a fallback.
+  if (input.runId) {
+    permissionRunRestrictions.set(
+      runIdRestrictionKey({
+        sourceAgentFolder: input.sourceAgentFolder,
+        runId: input.runId,
+      }),
+      restriction,
+    );
+  }
 }
 
 export function permissionRunRestriction(input: {
   sourceAgentFolder: string;
-  responseKeyId: string;
+  responseKeyId?: string;
+  runId?: string;
 }): PermissionRunRestriction | undefined {
-  return permissionRunRestrictions.get(restrictionKey(input));
+  return (
+    (input.responseKeyId
+      ? permissionRunRestrictions.get(
+          responseKeyRestrictionKey({
+            sourceAgentFolder: input.sourceAgentFolder,
+            responseKeyId: input.responseKeyId,
+          }),
+        )
+      : undefined) ??
+    (input.runId
+      ? permissionRunRestrictions.get(
+          runIdRestrictionKey({
+            sourceAgentFolder: input.sourceAgentFolder,
+            runId: input.runId,
+          }),
+        )
+      : undefined)
+  );
 }
 
 export function unregisterPermissionRunRestriction(input: {
   sourceAgentFolder: string;
   responseKeyId: string;
+  runId?: string;
 }): void {
-  permissionRunRestrictions.delete(restrictionKey(input));
+  const restriction = permissionRunRestrictions.get(
+    responseKeyRestrictionKey(input),
+  );
+  permissionRunRestrictions.delete(responseKeyRestrictionKey(input));
+  const runId = input.runId ?? restriction?.runId;
+  if (runId) {
+    permissionRunRestrictions.delete(
+      runIdRestrictionKey({
+        sourceAgentFolder: input.sourceAgentFolder,
+        runId,
+      }),
+    );
+  }
 }
 
-function restrictionKey(input: {
+function responseKeyRestrictionKey(input: {
   sourceAgentFolder: string;
   responseKeyId: string;
 }): string {
-  return `${input.sourceAgentFolder}\u0000${input.responseKeyId}`;
+  return `response-key\u0000${input.sourceAgentFolder}\u0000${input.responseKeyId}`;
+}
+
+function runIdRestrictionKey(input: {
+  sourceAgentFolder: string;
+  runId: string;
+}): string {
+  return `run-id\u0000${input.sourceAgentFolder}\u0000${input.runId}`;
 }
 
 function denied(

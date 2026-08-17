@@ -137,12 +137,16 @@ export async function processPermissionInteractionIpc(input: {
   // overwrite. On a registry miss (host restarted mid-flight) keep the
   // request's jobId: the grant path then resolves the job and fails closed,
   // instead of silently widening to a shared grant.
-  const runRestriction = input.request.responseKeyId
-    ? permissionRunRestriction({
-        sourceAgentFolder: input.sourceAgentFolder,
-        responseKeyId: input.request.responseKeyId,
-      })
-    : undefined;
+  const runRestriction =
+    input.request.responseKeyId || input.request.runId
+      ? permissionRunRestriction({
+          sourceAgentFolder: input.sourceAgentFolder,
+          ...(input.request.responseKeyId
+            ? { responseKeyId: input.request.responseKeyId }
+            : {}),
+          ...(input.request.runId ? { runId: input.request.runId } : {}),
+        })
+      : undefined;
   if (runRestriction) {
     input.request.personId = runRestriction.memoryUserId;
     input.request.jobId = runRestriction.jobId;
