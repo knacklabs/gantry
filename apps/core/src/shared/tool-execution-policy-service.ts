@@ -33,7 +33,7 @@ import { isGeneratedRuntimeToolResultPath } from './generated-runtime-paths.js';
 import { type SemanticCapabilityDefinition } from './semantic-capabilities.js';
 import { resolveCapabilityRules } from './tool-execution-capability-resolution.js';
 import {
-  autonomousCompoundBashRecovery,
+  autonomousBashRecoveryMessage,
   persistentAutonomousBashRecoveryRule,
 } from './autonomous-bash-recovery-rule.js';
 
@@ -599,35 +599,10 @@ function autonomousGrantRecovery(
   }
   const toolName = publicGantryToolNameForSdkTool(request.toolName);
   if (request.toolName === 'Bash') {
-    const command = commandText(request.input);
-    const rule = command
-      ? persistentAutonomousBashRecoveryRule(command)
-      : undefined;
-    if (!rule) {
-      // A COMPOUND command (&&/||/;/pipe) can never be one durable rule, but its
-      // parts usually can be — give an ACTIONABLE recovery instead of a dead end.
-      const compound = command
-        ? autonomousCompoundBashRecovery(command)
-        : undefined;
-      if (compound?.kind === 'grantable') {
-        const requests = compound.rules
-          .map(
-            (r) =>
-              `request_access { "target": { "kind": "run_command", "argvPattern": "${escapeJson(r)}" }, "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }`,
-          )
-          .join(' ');
-        return `This is a compound command (${compound.rules.length} commands joined by &&/||/;); autonomous runs authorize one command at a time, so it cannot be granted as a single rule. Grant each part's access: ${requests} Then re-run the ORIGINAL command unchanged once every part is granted. Do not split it into separate runs — the &&/||/; control flow must be preserved.`;
-      }
-      if (compound?.kind === 'blocked') {
-        const detail =
-          compound.part !== undefined
-            ? `part ${compound.part} cannot be durably granted: ${compound.reason}`
-            : `it cannot be durably granted because ${compound.reason}`;
-        return `This is a compound command and cannot be fully approved for autonomous runs — ${detail} Reformulate the whole operation to use a reviewed semantic capability, or to individually-grantable commands that keep the same control flow — do not run only part of it.`;
-      }
-      return 'Update the autonomous run to use a reviewed semantic capability or invoke a scoped RunCommand(...) command directly. This command cannot be durably approved for autonomous runs.';
-    }
-    return `request_access { "target": { "kind": "run_command", "argvPattern": "${escapeJson(rule)}" }, "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }`;
+    return autonomousBashRecoveryMessage(
+      commandText(request.input),
+      escapeJson,
+    );
   }
   if (isDurableGantryMcpToolFullName(request.toolName)) {
     return `request_access { "target": { "kind": "tool", "name": "${escapeJson(request.toolName)}" }, "temporaryOnly": false, "reason": "This autonomous run needs exact Gantry tool access." }`;
@@ -712,12 +687,10 @@ function thirdPartyMcpToolServerName(toolName: string): string | undefined {
 }
 
 function escapeJson(value: string): string {
-  // Proper JSON string-body escaping: handles backslashes, quotes, AND control
-  // characters (newlines/tabs -> \n/\t, others -> \uXXXX). A hand-rolled
-  // quote/backslash-only escaper would leave a literal newline that breaks out
-  // of the encoded value. JSON.stringify does NOT escape the non-C0 line
-  // controls U+0085 (NEL), U+2028, and U+2029, which render as line breaks, so
-  // escape them explicitly — this text is read by an autonomous agent.
+  // Full JSON string-body escaping (backslashes, quotes, C0 controls). This text
+  // is read by an autonomous agent, and JSON.stringify leaves the non-C0 line
+  // controls U+0085/U+2028/U+2029 literal, so escape those too — else an
+  // injected line break could split the guidance into a fake instruction.
   return JSON.stringify(value)
     .slice(1, -1)
     .replace(/\u0085/g, '\\u0085')

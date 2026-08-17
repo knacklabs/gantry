@@ -85,6 +85,44 @@ export function autonomousCompoundBashRecovery(
   return { kind: 'grantable', rules: [...new Set(rules)] };
 }
 
+// Full autonomous-run recovery guidance for a denied Bash command: a single
+// scoped RunCommand rule when the command is one durable leaf, an actionable
+// per-part grant for a control-flow-only compound, or a fixed "blocked"/dead-end
+// message. `escapeJson` is injected so the caller keeps one JSON-escaping impl.
+export function autonomousBashRecoveryMessage(
+  command: string | undefined,
+  escapeJson: (value: string) => string,
+): string {
+  const rule = command
+    ? persistentAutonomousBashRecoveryRule(command)
+    : undefined;
+  if (rule) {
+    return `request_access { "target": { "kind": "run_command", "argvPattern": "${escapeJson(rule)}" }, "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }`;
+  }
+  // A COMPOUND command (&&/||/;/pipe) can never be one durable rule, but its
+  // parts usually can be — give an ACTIONABLE recovery instead of a dead end.
+  const compound = command
+    ? autonomousCompoundBashRecovery(command)
+    : undefined;
+  if (compound?.kind === 'grantable') {
+    const requests = compound.rules
+      .map(
+        (r) =>
+          `request_access { "target": { "kind": "run_command", "argvPattern": "${escapeJson(r)}" }, "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }`,
+      )
+      .join(' ');
+    return `This is a compound command (${compound.rules.length} commands joined by &&/||/;); autonomous runs authorize one command at a time, so it cannot be granted as a single rule. Grant each part's access: ${requests} Then re-run the ORIGINAL command unchanged once every part is granted. Do not split it into separate runs — the &&/||/; control flow must be preserved.`;
+  }
+  if (compound?.kind === 'blocked') {
+    const detail =
+      compound.part !== undefined
+        ? `part ${compound.part} cannot be durably granted: ${compound.reason}`
+        : `it cannot be durably granted because ${compound.reason}`;
+    return `This is a compound command and cannot be fully approved for autonomous runs — ${detail} Reformulate the whole operation to use a reviewed semantic capability, or to individually-grantable commands that keep the same control flow — do not run only part of it.`;
+  }
+  return 'Update the autonomous run to use a reviewed semantic capability or invoke a scoped RunCommand(...) command directly. This command cannot be durably approved for autonomous runs.';
+}
+
 function nondurableLeafReason(leaf: BashCommandLeaf): string | undefined {
   const stateful = nonDurableBashLeafReason(leaf);
   if (stateful) return stateful;
