@@ -4,7 +4,7 @@ import { ASSISTANT_NAME, getEffectiveModelConfig, getRuntimeSettingsForConfig, g
 import type { Job } from '../domain/types.js';
 import { logger, updateLogContext } from '../infrastructure/logging/logger.js';
 // prettier-ignore
-import { getRuntimeControlRepository, getRuntimeEventExchange, getConfiguredModelProvidersForApp, getWorkerCoordinationRepository } from '../adapters/storage/postgres/runtime-store.js';
+import { getRuntimeControlRepository, getRuntimeEventExchange, getConfiguredModelProvidersForApp, getRuntimeStorage, getWorkerCoordinationRepository } from '../adapters/storage/postgres/runtime-store.js';
 import { DEFAULT_JOB_RUNTIME_APP_ID } from '../application/jobs/job-access.js';
 import { splitAccessRequirements } from '../application/jobs/job-access-requirements.js';
 import * as jobToolPolicy from '../application/jobs/job-tool-policy.js';
@@ -352,8 +352,24 @@ async function runActiveJob(
             appId: executionAppId,
             agentId: executionAgentId,
           };
+          // Scheduler execution must not lose an installed skill merely because
+          // an embedding omitted the optional repository getters. Interactive
+          // turns already have the initialized runtime store available; use the
+          // same durable repositories here as a fallback.
+          const schedulerAccessDeps = {
+            ...deps,
+            getToolRepository: () =>
+              deps.getToolRepository?.() ??
+              getRuntimeStorage().repositories.tools,
+            getSkillRepository: () =>
+              deps.getSkillRepository?.() ??
+              getRuntimeStorage().repositories.skills,
+            getMcpServerRepository: () =>
+              deps.getMcpServerRepository?.() ??
+              getRuntimeStorage().repositories.mcpServers,
+          };
           const [accessSnapshot, credentialBroker] = await Promise.all([
-            loadAgentAccessSnapshot(deps, snapshotOwner),
+            loadAgentAccessSnapshot(schedulerAccessDeps, snapshotOwner),
             deps.getCredentialBroker?.() ?? Promise.resolve(undefined),
           ]);
           const inheritedToolPolicy = resolveTurnToolPolicyFromSnapshot(
