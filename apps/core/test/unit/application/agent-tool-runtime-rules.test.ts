@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  projectSelectedSemanticCapabilityPolicy,
   resolveAgentToolRuntimePolicy,
   validateAgentToolRuntimeRules,
 } from '@core/application/agents/agent-tool-runtime-rules.js';
@@ -75,6 +76,54 @@ function legacyExactToolRepository() {
 }
 
 describe('reviewed MCP pattern projection', () => {
+  it('projects only selected settings-backed skill actions into scheduler authority', () => {
+    const policy = projectSelectedSemanticCapabilityPolicy({
+      selectedCapabilityIds: ['skill.ats.cutshort'],
+      definitions: {
+        'skill.ats.cutshort': {
+          capabilityId: 'skill.ats.cutshort',
+          displayName: 'Cutshort sync',
+          category: 'source-sync',
+          risk: 'write',
+          can: 'Synchronize Cutshort candidates.',
+          cannot: 'Run arbitrary commands.',
+          credentialSource: 'skill_secret',
+          implementationBindings: [
+            {
+              kind: 'tool_rule',
+              rule: 'RunCommand(skills/ats-skills/scripts/cutshort-worker.mjs sync)',
+            },
+          ],
+          source: {
+            kind: 'skill_action',
+            skillId: 'skill:ats',
+            skillName: 'ats-skills',
+            actionId: 'cutshort',
+          },
+        },
+        'skill.ats.instahyre': {
+          capabilityId: 'skill.ats.instahyre',
+          displayName: 'Instahyre sync',
+          category: 'source-sync',
+          risk: 'write',
+          can: 'Synchronize Instahyre candidates.',
+          cannot: 'Run arbitrary commands.',
+          credentialSource: 'skill_secret',
+          implementationBindings: [],
+        },
+      },
+    });
+
+    expect(policy.rules).toEqual(['capability:skill.ats.cutshort']);
+    expect(policy.semanticCapabilities).toHaveLength(1);
+    expect(policy.runtimeAccess[0]).toMatchObject({
+      sourceType: 'skill_action',
+      commandRules: [
+        'RunCommand(skills/ats-skills/scripts/cutshort-worker.mjs sync)',
+      ],
+    });
+  });
+
   it('excludes selected skill actions whose backing skill is missing or disabled', async () => {
     const tool = {
       id: 'tool:skill-publish',

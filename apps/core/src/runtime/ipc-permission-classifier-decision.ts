@@ -96,11 +96,11 @@ export async function resolvePermissionIpcDecision(input: {
   const trustedRunPolicy =
     runRestriction?.toolPolicyRules !== undefined ||
     runRestriction?.semanticCapabilities !== undefined
-    ? {
-        rules: runRestriction!.toolPolicyRules,
-        semanticCapabilities: runRestriction!.semanticCapabilities,
-      }
-    : undefined;
+      ? {
+          rules: runRestriction!.toolPolicyRules,
+          semanticCapabilities: runRestriction!.semanticCapabilities,
+        }
+      : undefined;
   const effectiveRules = trustedRunPolicy
     ? trustedRunPolicy.rules
     : runtimePolicy?.rules;

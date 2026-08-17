@@ -31,6 +31,9 @@ import {
   resolveTurnSelectedSkillContextFromSnapshot,
   resolveTurnToolPolicyFromSnapshot,
 } from '../runtime/group-run-context.js';
+import { skillActionDefinitionsForBindings } from '../application/agents/agent-capability-skill-actions.js';
+import { projectSelectedSemanticCapabilityPolicy } from '../application/agents/agent-tool-runtime-rules.js';
+import type { AgentSkillBinding } from '../domain/skills/skills.js';
 // prettier-ignore
 import { collectCompactBoundaryMemory, collectJobCompletionMemory } from './compact-memory.js';
 import { normalizeCleanupAfterMs } from './cleanup.js';
@@ -376,15 +379,58 @@ async function runActiveJob(
             accessSnapshot,
             currentJob.execution_context?.personId,
           );
+          const configuredAgent =
+            getRuntimeSettingsForConfig().agents[execution.group.folder];
+          const configuredSkillBindings: AgentSkillBinding[] = configuredAgent
+            ? configuredAgent.sources.skills
+                .filter((source) => source.status !== 'disabled')
+                .map((source) => ({
+                  id: `settings:${executionAgentId}:${source.id}` as AgentSkillBinding['id'],
+                  appId: executionAppId as AgentSkillBinding['appId'],
+                  agentId: executionAgentId as AgentSkillBinding['agentId'],
+                  skillId: source.id as AgentSkillBinding['skillId'],
+                  status: 'active' as const,
+                  createdAt: startedAt as AgentSkillBinding['createdAt'],
+                  updatedAt: startedAt as AgentSkillBinding['updatedAt'],
+                }))
+            : [];
+          const configuredSkillDefinitions =
+            configuredSkillBindings.length > 0
+              ? await skillActionDefinitionsForBindings({
+                  appId: executionAppId as AgentSkillBinding['appId'],
+                  skillBindings: configuredSkillBindings,
+                  skillRepository: schedulerAccessDeps.getSkillRepository(),
+                })
+              : {};
+          const settingsSkillPolicy = projectSelectedSemanticCapabilityPolicy({
+            definitions: configuredSkillDefinitions,
+            selectedCapabilityIds:
+              configuredAgent?.capabilities.map(({ id }) => id) ?? [],
+          });
           const toolPolicy: jobToolPolicy.JobToolPolicyResolution = {
-            inheritedTools: inheritedToolPolicy.toolPolicyRules ?? [],
-            effectiveAllowedTools: inheritedToolPolicy.toolPolicyRules ?? [],
-            runtimeAccess: inheritedToolPolicy.runtimeAccess,
+            inheritedTools: [
+              ...new Set([
+                ...(inheritedToolPolicy.toolPolicyRules ?? []),
+                ...settingsSkillPolicy.rules,
+              ]),
+            ],
+            effectiveAllowedTools: [
+              ...new Set([
+                ...(inheritedToolPolicy.toolPolicyRules ?? []),
+                ...settingsSkillPolicy.rules,
+              ]),
+            ],
+            runtimeAccess: [
+              ...inheritedToolPolicy.runtimeAccess,
+              ...settingsSkillPolicy.runtimeAccess,
+            ],
           };
           const selectedSkillContext =
             resolveTurnSelectedSkillContextFromSnapshot(accessSnapshot);
-          const semanticCapabilities =
-            resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot);
+          const semanticCapabilities = [
+            ...resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot),
+            ...settingsSkillPolicy.semanticCapabilities,
+          ];
           const attachedMcpSourceIds =
             resolveTurnSelectedMcpServerIdsFromSnapshot(accessSnapshot, {
               conversationId: execution.group.conversationId,

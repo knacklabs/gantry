@@ -21,7 +21,10 @@ import {
   semanticCapabilityFromToolCatalogItem,
   type SemanticCapabilityDefinition,
 } from '../../shared/semantic-capabilities.js';
-import { parseSemanticCapabilityRule } from '../../shared/semantic-capability-ids.js';
+import {
+  parseSemanticCapabilityRule,
+  semanticCapabilityRule,
+} from '../../shared/semantic-capability-ids.js';
 import type { CapabilityRuntimeAccess } from '../../shared/capability-runtime-access.js';
 
 export interface AgentToolRuntimeRuleResolutionInput {
@@ -118,6 +121,33 @@ export function resolveAgentToolRuntimePolicyFromSnapshot(
   input: AgentToolRuntimePolicySnapshotInput,
 ): AgentToolRuntimePolicy {
   return projectAgentToolRuntimePolicy(input);
+}
+
+/**
+ * Projects the reviewed definitions selected in settings.yaml when an agent is
+ * virtual (for example a scheduler-only agent) and therefore has no durable
+ * skill-binding snapshot. The caller supplies definitions from the trusted
+ * configured skill source; arbitrary runner input is never accepted here.
+ */
+export function projectSelectedSemanticCapabilityPolicy(input: {
+  definitions: Record<string, SemanticCapabilityDefinition>;
+  selectedCapabilityIds: readonly string[];
+}): Pick<
+  AgentToolRuntimePolicy,
+  'rules' | 'runtimeAccess' | 'semanticCapabilities'
+> {
+  const selected = [...new Set(input.selectedCapabilityIds)]
+    .map((id) => input.definitions[id])
+    .filter((definition): definition is SemanticCapabilityDefinition =>
+      Boolean(definition),
+    );
+  return {
+    rules: selected.map((definition) =>
+      semanticCapabilityRule(definition.capabilityId),
+    ),
+    runtimeAccess: selected.flatMap(projectCapabilityRuntimeAccess),
+    semanticCapabilities: selected,
+  };
 }
 
 function projectAgentToolRuntimePolicy(input: {

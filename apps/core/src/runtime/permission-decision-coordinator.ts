@@ -311,9 +311,7 @@ export function registerPermissionRunRestriction(input: {
       : {}),
     ...(input.semanticCapabilities
       ? {
-          semanticCapabilities: Object.freeze([
-            ...input.semanticCapabilities,
-          ]),
+          semanticCapabilities: Object.freeze([...input.semanticCapabilities]),
         }
       : {}),
     ...(input.memoryUserId ? { memoryUserId: input.memoryUserId } : {}),
