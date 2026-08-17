@@ -57,6 +57,13 @@ let activeRequestWakeups: IpcRequestWakeupRegistry | undefined;
 const MAX_IN_FLIGHT_INTERACTION_IPC = 100;
 const inFlightInteractionIpc = new Set<string>();
 
+function resolveIpcRoot(): string {
+  const configuredRoot = process.env.GANTRY_RUNTIME_IPC_DIR?.trim();
+  return configuredRoot
+    ? path.resolve(configuredRoot)
+    : path.join(DATA_DIR, 'ipc');
+}
+
 export function startIpcWatcher(deps: IpcDeps): void {
   if (ipcWatcherRunning) {
     logger.debug('IPC watcher already running, skipping duplicate start');
@@ -64,7 +71,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
   }
 
   // prettier-ignore
-  const runnerControlPort = new FilesystemRunnerControlPort(path.join(DATA_DIR, 'ipc'));
+  const runnerControlPort = new FilesystemRunnerControlPort(resolveIpcRoot());
   activeRunnerControlPort = runnerControlPort;
   const ipcBaseDir = runnerControlPort.baseDir;
   runnerControlPort.ensureRoot();
