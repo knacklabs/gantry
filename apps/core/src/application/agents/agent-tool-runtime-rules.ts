@@ -2,7 +2,11 @@ import type {
   SkillCatalogRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
-import type { SkillCatalogItem } from '../../domain/skills/skills.js';
+import type {
+  AgentSkillBinding,
+  SkillCatalogItem,
+} from '../../domain/skills/skills.js';
+import { skillActionDefinitionsForBindings } from './agent-capability-skill-actions.js';
 import type { ToolCatalogItem } from '../../domain/tools/tools.js';
 import { skillActionSource } from '../../domain/skills/skill-action-permissions.js';
 import { isGantryMcpWildcardRule } from '../../shared/admin-mcp-tools.js';
@@ -148,6 +152,51 @@ export function projectSelectedSemanticCapabilityPolicy(input: {
     runtimeAccess: selected.flatMap(projectCapabilityRuntimeAccess),
     semanticCapabilities: selected,
   };
+}
+
+/**
+ * Recreates settings-backed skill authority for code paths that run outside
+ * the scheduler's durable binding snapshot, such as the permission IPC
+ * handler. The selected skill sources and capability ids come from the
+ * trusted settings projection, never from runner-owned IPC payloads.
+ */
+export async function resolveSettingsBackedSkillActionPolicy(input: {
+  appId: string;
+  agentId: string;
+  skillSources: readonly { id: string; status?: string }[];
+  selectedCapabilityIds: readonly string[];
+  skillRepository?: SkillCatalogRepository;
+}): Promise<
+  Pick<
+    AgentToolRuntimePolicy,
+    'rules' | 'runtimeAccess' | 'semanticCapabilities'
+  >
+> {
+  if (!input.skillRepository) {
+    return { rules: [], runtimeAccess: [], semanticCapabilities: [] };
+  }
+  const skillBindings: AgentSkillBinding[] = input.skillSources
+    .filter((source) => source.status !== 'disabled')
+    .map((source) => ({
+      id: `settings:${input.agentId}:${source.id}` as AgentSkillBinding['id'],
+      appId: input.appId as AgentSkillBinding['appId'],
+      agentId: input.agentId as AgentSkillBinding['agentId'],
+      skillId: source.id as AgentSkillBinding['skillId'],
+      status: 'active',
+      createdAt: new Date(0).toISOString() as AgentSkillBinding['createdAt'],
+      updatedAt: new Date(0).toISOString() as AgentSkillBinding['updatedAt'],
+    }));
+  if (skillBindings.length === 0) {
+    return { rules: [], runtimeAccess: [], semanticCapabilities: [] };
+  }
+  return projectSelectedSemanticCapabilityPolicy({
+    definitions: await skillActionDefinitionsForBindings({
+      appId: input.appId as AgentSkillBinding['appId'],
+      skillBindings,
+      skillRepository: input.skillRepository,
+    }),
+    selectedCapabilityIds: input.selectedCapabilityIds,
+  });
 }
 
 function projectAgentToolRuntimePolicy(input: {

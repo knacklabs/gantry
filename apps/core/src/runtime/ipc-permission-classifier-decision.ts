@@ -26,7 +26,10 @@ import {
   recordHumanPermissionPromotionSignal,
 } from './permission-classifier.js';
 import { runDurablePermissionInteraction } from '../application/interactions/durable-interaction-handler.js';
-import { resolveAgentToolRuntimePolicy } from '../application/agents/agent-tool-runtime-rules.js';
+import {
+  resolveAgentToolRuntimePolicy,
+  resolveSettingsBackedSkillActionPolicy,
+} from '../application/agents/agent-tool-runtime-rules.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import {
   computePermissionEffectHash,
@@ -60,6 +63,7 @@ export async function resolvePermissionIpcDecision(input: {
     | {
         accessPreset?: 'full' | 'locked';
         capabilities?: Array<{ id: string }>;
+        sources?: { skills?: Array<{ id: string; status?: string }> };
       }
     | null
     | undefined;
@@ -89,6 +93,13 @@ export async function resolvePermissionIpcDecision(input: {
         skillRepository: input.deps.getSkillRepository?.(),
       }).catch(() => undefined)
     : undefined;
+  const settingsSkillPolicy = await resolveSettingsBackedSkillActionPolicy({
+    appId: input.request.appId ?? 'default',
+    agentId: input.request.agentId ?? agentIdForFolder(input.sourceAgentFolder),
+    skillSources: agentSettings?.sources?.skills ?? [],
+    selectedCapabilityIds: approvedCapabilityIds,
+    skillRepository: input.deps.getSkillRepository?.(),
+  });
   // The runner cannot grant itself tools. For an active worker turn, use the
   // host-captured projection registered at spawn. This is especially important
   // for settings-backed virtual scheduled agents, which deliberately have no
@@ -101,12 +112,18 @@ export async function resolvePermissionIpcDecision(input: {
           semanticCapabilities: runRestriction!.semanticCapabilities,
         }
       : undefined;
-  const effectiveRules = trustedRunPolicy
-    ? trustedRunPolicy.rules
-    : runtimePolicy?.rules;
-  const effectiveSemanticCapabilities = trustedRunPolicy
-    ? trustedRunPolicy.semanticCapabilities
-    : runtimePolicy?.semanticCapabilities;
+  const effectiveRules = [
+    ...new Set([
+      ...(trustedRunPolicy?.rules ?? runtimePolicy?.rules ?? []),
+      ...settingsSkillPolicy.rules,
+    ]),
+  ];
+  const effectiveSemanticCapabilities = [
+    ...(trustedRunPolicy?.semanticCapabilities ??
+      runtimePolicy?.semanticCapabilities ??
+      []),
+    ...settingsSkillPolicy.semanticCapabilities,
+  ];
   const reviewedToolDecision = runtimePolicy
     ? new ToolExecutionPolicyService().evaluate({
         request: buildAgentToolExecutionRequest(
