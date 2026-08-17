@@ -4,13 +4,7 @@
 
 Symphony Forge is a dual-runtime software-factory template for turning in-repo architecture and decision docs into shipped applications.
 
-It provides:
-- planner-owned decomposition
-- bounded implementation tasks
-- deterministic verification
-- schema-validated evidence recording
-- autoreview-owned review
-- PR-ready proof artifacts
+It provides: planner-owned decomposition, bounded implementation tasks, deterministic verification, schema-validated evidence recording, autoreview-owned review, and PR-ready proof artifacts.
 
 `AGENTS.md` stays short on purpose. Use it as a map.
 
