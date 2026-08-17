@@ -489,6 +489,44 @@ describe('ToolExecutionPolicyService', () => {
     ).toMatchObject({ status: 'deny' });
   });
 
+  it('allows a directly projected reviewed Node skill command, but not a different invocation', () => {
+    const exactRule =
+      'RunCommand(skills/ats-skills/scripts/cutshort-worker.mjs sync)';
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: {
+        command:
+          'node /srv/reagent/home/agents/source/.llm-runtime/deepagents/skills/ats-skills/scripts/cutshort-worker.mjs sync',
+      },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-source-sync' },
+    });
+
+    expect(
+      policy.evaluate({
+        request,
+        autonomousAllowedToolRules: [exactRule],
+      }),
+    ).toMatchObject({ status: 'allow', matchedRule: exactRule });
+
+    expect(
+      policy.evaluate({
+        request: classifier.classify({
+          origin: 'sdk',
+          toolName: 'Bash',
+          toolInput: {
+            command:
+              'node /srv/reagent/home/agents/source/.llm-runtime/deepagents/skills/ats-skills/scripts/cutshort-worker.mjs sync --unsafe',
+          },
+          executionMode: 'autonomous',
+          runContext: { jobId: 'job-source-sync' },
+        }),
+        autonomousAllowedToolRules: [exactRule],
+      }),
+    ).toMatchObject({ status: 'deny' });
+  });
+
   it('points autonomous scheduler tool denials to exact persistent tool approval', () => {
     const request = classifier.classify({
       origin: 'mcp',

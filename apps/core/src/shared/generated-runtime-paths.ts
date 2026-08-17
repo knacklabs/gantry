@@ -1,4 +1,10 @@
-const GENERATED_RUNTIME_PROVIDER_SEGMENT = ['clau', 'de'].join('');
+// A runtime-owned path is provider-specific but the reviewed skill rule is
+// provider-neutral. Keep this list limited to Gantry's generated runners; do
+// not treat arbitrary `.llm-runtime/<name>` directories as trusted.
+const GENERATED_RUNTIME_PROVIDER_SEGMENT = `(?:${[
+  ['clau', 'de'].join(''),
+  'deepagents',
+].join('|')})`;
 const GENERATED_RUNTIME_SKILL_PATH_SOURCE =
   '(^|[\\s"\'(:=])((?:[^\\s"\'`;|()<>]+/)?\\.llm-runtime/' +
   GENERATED_RUNTIME_PROVIDER_SEGMENT +

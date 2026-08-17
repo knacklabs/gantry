@@ -315,16 +315,16 @@ export function evaluateProtectedCapabilityToolUse(
  * A skill action is stored under the protected skill directory, so its
  * reviewed command template necessarily mentions a protected path. Permit
  * that one command only after the ordinary policy matcher has proved it is
- * the exact, selected RunCommand rule for a skill capability. This does not
- * permit generic shell access to skill files, capability configuration, or
- * mutation commands.
+ * the exact reviewed RunCommand rule. A capability-derived rule carries its
+ * semantic id; a directly projected rule is already the same reviewed,
+ * scoped authority. This does not permit generic shell access to skill files,
+ * capability configuration, or mutation commands.
  */
 function isApprovedSkillCommandExecution(input: {
   request: ToolExecutionRequest;
   matchedRule?: string;
   capabilityId?: string;
 }): boolean {
-  if (!input.capabilityId?.startsWith('skill.')) return false;
   if (!input.matchedRule?.startsWith('RunCommand(')) return false;
   return isReadOnlySkillExecutionCommand(
     input.request.toolName,
