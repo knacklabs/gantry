@@ -28,33 +28,53 @@ export function resolveExecutionContext(
   if (!executionConversation) return null;
   const executionThreadId = normalizeOptional(job.execution_context?.threadId);
   const notificationRoutes = resolveJobNotificationRoutes(job);
-  const primaryExecutionRoute = notificationRoutes.find(
-    (route) =>
-      route.conversationJid === executionConversation &&
-      (executionThreadId === undefined ||
-        (route.threadId ?? null) === executionThreadId),
-  );
-  const executionProviderAccountId = normalizeOptional(
-    primaryExecutionRoute?.providerAccountId,
+  const conversationRoutes = notificationRoutes.filter(
+    (route) => route.conversationJid === executionConversation,
   );
   const executionAgentId = resolveJobExecutionAgentId(job);
-  const group = executionAgentId
-    ? findConversationRouteForQueue(
-        groups,
-        makeAgentThreadQueueKey(
+  const resolveGroup = (providerAccountId: string | undefined) =>
+    executionAgentId
+      ? findConversationRouteForQueue(
+          groups,
+          makeAgentThreadQueueKey(
+            executionConversation,
+            executionAgentId,
+            undefined,
+            providerAccountId,
+          ),
+          (route) => agentIdForJobWorkspaceKey(route.folder),
+        )
+      : findSingleConversationRouteForChat(
+          groups,
           executionConversation,
-          executionAgentId,
-          executionThreadId,
-          executionProviderAccountId,
-        ),
-        (route) => agentIdForJobWorkspaceKey(route.folder),
-      )
-    : findSingleConversationRouteForChat(
-        groups,
-        executionConversation,
-        executionThreadId,
-      );
+          undefined,
+        );
+  // Jobs stage and execute at the GROUP/CHANNEL (conversation) level; a thread is
+  // a DELIVERY detail only and is NEVER used to resolve execution (omitted from
+  // the queue key). The provider account is a separate, thread-independent
+  // discriminator: prefer the first notification-route account (primary order)
+  // that maps to a LIVE conversation route, so a stale/reordered route can't
+  // select a dead account.
+  const namedAccounts = conversationRoutes
+    .map((route) => normalizeOptional(route.providerAccountId))
+    .filter((account): account is string => account !== undefined);
+  let group: ReturnType<typeof resolveGroup> = undefined;
+  for (const account of namedAccounts) {
+    const candidate = resolveGroup(account);
+    if (candidate) {
+      group = candidate;
+      break;
+    }
+  }
+  // Resolve conversation-wide ONLY when the job names no provider account at all.
+  // If it names accounts but none is live, do NOT fall through to an unrelated
+  // installation — the account is a discriminator, not a hint.
+  if (!group && namedAccounts.length === 0) group = resolveGroup(undefined);
   if (!group) return null;
+  // Delivery thread only (never affects the execution routing above): the pinned
+  // execution thread, else the primary delivery route's own thread (incl. null).
+  const deliveryThreadId =
+    executionThreadId ?? conversationRoutes[0]?.threadId ?? null;
   const stopAliasJids = Array.from(
     new Set([
       executionConversation,
@@ -64,7 +84,7 @@ export function resolveExecutionContext(
   return {
     group,
     executionJid: executionConversation,
-    threadId: executionThreadId ?? primaryExecutionRoute?.threadId ?? null,
+    threadId: deliveryThreadId,
     stopAliasJids,
   };
 }
