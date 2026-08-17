@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   assertIsolatedRuntimeTarget,
   realRuntimeHome,
+  resolveRuntimeRoot,
   startRuntimeHarness,
 } from '../../agent-e2e/harness/runtime-harness.js';
 
@@ -26,6 +27,26 @@ describe('agent-e2e runtime harness isolation guard', () => {
         databaseUrl: SAFE_DB_URL,
       }),
     ).not.toThrow();
+  });
+
+  it('resolves an explicit Gantry runtime root before the environment default', () => {
+    vi.stubEnv('AGENT_E2E_RUNTIME_ROOT', '/tmp/from-env');
+
+    expect(resolveRuntimeRoot('/tmp/from-option/../gantry-build')).toBe(
+      '/tmp/gantry-build',
+    );
+    expect(resolveRuntimeRoot()).toBe('/tmp/from-env');
+  });
+
+  it('rejects duplicate generated control key ids before provisioning', async () => {
+    await expect(
+      startRuntimeHarness({
+        additionalControlKeys: [
+          { kid: 'scope-check', scopes: [] },
+          { kid: 'scope-check', scopes: [] },
+        ],
+      }),
+    ).rejects.toThrow(/duplicate agent E2E control key id/);
   });
 
   it('refuses the real runtime home', () => {
