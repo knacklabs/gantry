@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0031-0513",
+  "profile": "quickfix",
+  "reason": "Autonomous compound-command recovery: an autonomous/scheduled run that denies a COMPOUND bash command (leaves joined by &&/||/;/pipe) dead-ended with a non-actionable 'cannot be durably approved' message \u2014 this blocked the KnackLabs job whose agent ran 'which gog 2>/dev/null || echo not-found'. Now control-flow-only compounds (&&/||/;) emit a concrete per-leaf request_access and advise re-running the ORIGINAL command; piped compounds and non-durable leaves are blocked with a fixed reason. Parser gains pipe tracking; recovery text is JSON-escaped (incl. U+0085/U+2028/U+2029). Tests + autoreview clean.",
+  "started_at": "2026-08-17T14:55:06+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

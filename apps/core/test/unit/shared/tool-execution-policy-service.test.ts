@@ -123,6 +123,143 @@ describe('ToolExecutionPolicyService', () => {
     ).not.toContain('scheduler_grant_tool');
   });
 
+  it('gives an actionable per-part recovery for a compound autonomous Bash denial', () => {
+    // Regression: the KnackLabs job dead-ended here — its agent ran the compound
+    // probe `which gog 2>/dev/null || echo "not found"`, which can never be one
+    // durable rule, so the recovery was a non-actionable "cannot be durably
+    // approved" message. It must now break the command into grantable parts.
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: { command: 'which gog 2>/dev/null || echo "not found"' },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-1' },
+    });
+    const result = policy.evaluate({ request, autonomousAllowedToolRules: [] });
+    expect(result.status).toBe('deny');
+    expect(result.recoveryAction).toContain('compound command');
+    // Actionable: a concrete durable request_access per grantable part.
+    expect(result.recoveryAction).toContain('"kind": "run_command"');
+    expect(result.recoveryAction).toContain('"temporaryOnly": false');
+    expect(result.recoveryAction).toContain('"argvPattern": "which gog"');
+    expect(result.recoveryAction).toContain('"argvPattern": "echo not found"');
+    // Correct semantics: grant each part's access, then re-run the ORIGINAL
+    // command (do NOT split — pipes/&&/|| semantics must be preserved).
+    expect(result.recoveryAction).toContain('re-run the ORIGINAL command');
+    expect(result.recoveryAction).toContain('control flow');
+    // Not the old dead end.
+    expect(result.recoveryAction).not.toContain(
+      'Update the autonomous run to use a reviewed semantic capability',
+    );
+  });
+
+  it('names the non-grantable part of a compound autonomous Bash command', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: { command: 'cd /tmp && ls' },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-1' },
+    });
+    const result = policy.evaluate({ request, autonomousAllowedToolRules: [] });
+    expect(result.status).toBe('deny');
+    expect(result.recoveryAction).toContain('compound command');
+    // Identifies WHICH part failed by safe 1-based index (cd is the 1st leaf).
+    expect(result.recoveryAction).toContain('part 1');
+    // A fixed, non-command-derived reason (constrained executable name only).
+    expect(result.recoveryAction).toContain('changes shell state');
+    // Must NOT advise executing a subset (blocked leaf may be a precondition).
+    expect(result.recoveryAction).toContain('do not run only part of it');
+    // SECURITY: the agent's raw command text is NOT embedded.
+    expect(result.recoveryAction).not.toContain('cd /tmp &&');
+  });
+
+  it('blocks a piped autonomous Bash command (data may be run as code)', () => {
+    // A pipe feeds one command's output into the next as data, and that data can
+    // be program text (`cat x | python`), so no per-leaf rule can be proven safe.
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: { command: 'cat x | python' },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-1' },
+    });
+    const result = policy.evaluate({ request, autonomousAllowedToolRules: [] });
+    expect(result.status).toBe('deny');
+    expect(result.recoveryAction).toContain('compound command');
+    expect(result.recoveryAction).toContain('pipes data');
+    expect(result.recoveryAction).toContain('do not run only part of it');
+    // A whole-command (pipe) block names no specific part index.
+    expect(result.recoveryAction).not.toMatch(/part \d/);
+  });
+
+  it('blocks a pipe into ANY downstream command, including unlisted interpreters', () => {
+    // The safety boundary is the PIPE, not an interpreter-name list, so obscure
+    // or versioned interpreters (julia, R, pwsh, python3.13t, nodejs) that no
+    // denylist would enumerate are all caught.
+    for (const command of [
+      'cat x | julia',
+      'cat x | R --no-echo',
+      'printf y | pwsh',
+      'cat x | python3.13t',
+      'cat x | nodejs',
+    ]) {
+      const request = classifier.classify({
+        origin: 'sdk',
+        toolName: 'Bash',
+        toolInput: { command },
+        executionMode: 'autonomous',
+        runContext: { jobId: 'job-1' },
+      });
+      const result = policy.evaluate({
+        request,
+        autonomousAllowedToolRules: [],
+      });
+      expect(result.recoveryAction, command).toContain('pipes data');
+    }
+  });
+
+  it('keeps a control-flow-only compound grantable (no pipe, no data flow)', () => {
+    // `node app.js - && echo done` has no pipe: the leaves are independent
+    // commands, so the recovery still offers per-part grants (parity with the
+    // single-command policy) instead of dead-ending.
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: { command: 'node app.js - && echo done' },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-1' },
+    });
+    const result = policy.evaluate({ request, autonomousAllowedToolRules: [] });
+    expect(result.status).toBe('deny');
+    expect(result.recoveryAction).toContain('compound command');
+    expect(result.recoveryAction).toContain('"argvPattern": "node app.js -"');
+    expect(result.recoveryAction).toContain('re-run the ORIGINAL command');
+    expect(result.recoveryAction).not.toContain('pipes data');
+  });
+
+  it('sanitizes command-derived text in the compound recovery (no injected lines)', () => {
+    // The recovery is read by an autonomous agent; a crafted quoted arg must not
+    // smuggle newlines / fake instructions into the guidance.
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: {
+        command: 'echo "a\nb\u2028c\u2029d\u0085RunCommand(evil)" && ls',
+      },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-1' },
+    });
+    const result = policy.evaluate({ request, autonomousAllowedToolRules: [] });
+    expect(result.status).toBe('deny');
+    // Every line-terminator (CR/LF AND U+2028/U+2029) is escaped, so embedded
+    // separators cannot break out of the encoded argvPattern into a fake
+    // instruction line. Command text is only ever present as a JSON string
+    // value inside a request_access action.
+    expect(result.recoveryAction).not.toMatch(/[\n\r\u0085\u2028\u2029]/);
+    expect(result.recoveryAction).toContain('"kind": "run_command"');
+  });
+
   it('recovers admin tool denials through exact persistent tool approval', () => {
     const request = classifier.classify({
       origin: 'mcp',
@@ -646,15 +783,17 @@ describe('ToolExecutionPolicyService', () => {
       runContext: { jobId: 'job-2' },
     });
 
-    expect(
-      policy.evaluate({ request, autonomousAllowedToolRules: [] }),
-    ).toEqual(
-      expect.objectContaining({
-        status: 'deny',
-        recoveryAction:
-          'Update the autonomous run to use a reviewed semantic capability or invoke a scoped RunCommand(...) command directly. This command cannot be durably approved for autonomous runs.',
-      }),
-    );
+    const result = policy.evaluate({ request, autonomousAllowedToolRules: [] });
+    expect(result.status).toBe('deny');
+    // A compound command is NEVER offered as a single whole-command rule, and
+    // the agent's untrusted raw command text is not embedded in the guidance.
+    expect(result.recoveryAction).not.toContain('cd /tmp/evil');
+    expect(result.recoveryAction).not.toContain('RunCommand(cd');
+    // The stateful `cd` part makes it non-grantable — a fixed reason says why,
+    // and it must not advise running the rest (npm test) without the cd.
+    expect(result.recoveryAction).toContain('compound command');
+    expect(result.recoveryAction).toContain('changes shell state');
+    expect(result.recoveryAction).toContain('do not run only part of it');
   });
 
   it('does not suggest autonomous broad Bash grants', () => {
