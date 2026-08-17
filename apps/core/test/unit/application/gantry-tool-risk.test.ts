@@ -109,6 +109,13 @@ describe('gantryToolDefaultRisk', () => {
     expect(AUTO_APPROVE.has(risk!.risk_level)).toBe(false);
   });
 
+  it('keeps capability_run high-risk outside its dispatch-only runner boundary', () => {
+    const risk = gantryToolDefaultRisk('mcp__gantry__capability_run');
+
+    expect(risk?.risk_level).toBe('high');
+    expect(AUTO_APPROVE.has(risk!.risk_level)).toBe(false);
+  });
+
   // (c) unknown / unmapped gantry tools default to ask, never silent approve.
   it.each([
     'mcp__gantry__frobnicate_everything',

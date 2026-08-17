@@ -62,6 +62,10 @@ function extendsByTrailingInputsOnly(input: {
   if (current.prefix.some((token, index) => proposed.prefix[index] !== token)) {
     return false;
   }
+  // Under the local-CLI matcher a final `*` is the argv remainder, not one
+  // positional slot. Adding the first one therefore grants new authority and
+  // must receive the stronger expanded warning.
+  if (current.slotCount === 0 && proposed.slotCount > 0) return false;
   return proposed.slotCount >= current.slotCount;
 }
 

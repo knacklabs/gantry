@@ -1237,6 +1237,25 @@
       "depends_on": [],
       "origin": "adhoc",
       "spec": "docs/specs/jobflow-lifecycle.md"
+    },
+    {
+      "key": "CAPSAFE-1",
+      "title": "Prefix-wildcard CLI-command capability permissions (delete the widening machinery)",
+      "story": "As an autonomous agent, I can run any invocation under a capability's reviewed command PREFIX (flags and values included) with no per-shape negotiation, so a safe CLI operation never dead-ends and never needs a hand-patch \u2014 the reviewed executable + literal operation prefix is the security boundary, arguments within it are unbounded (Claude Code's Bash(<prefix>:*) model).",
+      "acceptance_criteria": [
+        "A held capability's reviewed template authorizes any invocation matching its executable + literal operation prefix, flags included: a terminal standalone * is the reviewed argv remainder; ONE shared matcher governs dry-run auth, execution, AND compiler coverage; no legacy exact-arity mode (decision 0129)",
+        "The prefix is a hard boundary: executable + literal operation prefix match exactly; a non-terminal * is exactly one non-flag arg (no flag injection, including mixed globs); shell-control/redirection/environment-assignment templates are refused",
+        "mcp__gantry__capability_run auto-allow is DISPATCH-ONLY: the runner may only hand a schema-valid envelope to the host which re-authorizes; the bypass grants NO command authority; capability_run stays HIGH-risk with no classifier-derived or cached allow (decision 0130)",
+        "An already-covered call records no amendment and resumes; a genuine uncovered prefix still asks once (mismatch -> proposal -> approve -> durable intent -> resume); denial is terminal",
+        "Acceptance: the end-to-end loop is proven on the real Postgres integration lane, with a comma-containing --values-json payload preserved byte-for-byte (the KnackLabs live write is owner-run after merge)"
+      ],
+      "order": 63,
+      "status": "active",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "refactor",
+      "depends_on": [],
+      "spec": "docs/specs/capsafe-1.md"
     }
   ],
   "epics": [
@@ -1325,5 +1344,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-12T12:24:03+00:00"
+  "updated_at": "2026-08-15T14:00:35+00:00"
 }

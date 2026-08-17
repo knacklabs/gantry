@@ -72,10 +72,9 @@ export async function compileAndRecordHostCapabilityTemplateMismatch(input: {
   const localCliBindings = (capability?.implementationBindings ?? []).filter(
     (binding) => binding.kind === 'local_cli' && binding.executablePath,
   );
-  // Exactly-one applies to the MATCHING template across the WHOLE
-  // catalog: exactly one prefix match total, and it must be eligible - a
-  // same-prefix ineligible template in a sibling binding makes the match
-  // ambiguous (review R2/R3).
+  // Prefix candidates across every local-CLI binding may converge only when
+  // all are eligible and compile to the same canonical proposal set. Any
+  // covered call, ineligible candidate, or divergent set creates no amendment.
   const compilations = localCliBindings.map((binding) =>
     compileCapabilityTemplateMismatch({
       executablePath: binding.executablePath!,
@@ -83,16 +82,42 @@ export async function compileAndRecordHostCapabilityTemplateMismatch(input: {
       observedArgs: input.observedArgs,
     }),
   );
+  if (compilations.some((candidate) => candidate.kind === 'covered')) {
+    // The current catalog ALREADY authorizes this argv — a concurrent amendment
+    // landed between the failed match and this read, or the mismatch was
+    // replayed. Signal the caller to RE-ATTEMPT under current authority instead
+    // of blocking the job on an administrator instruction; the action is only a
+    // defensive fallback if the re-attempt still cannot authorize.
+    return {
+      covered: true as const,
+      action: instructionSetupAction(
+        `Ask an administrator to review the command template for capability "${input.capabilityId}".`,
+      ),
+    };
+  }
   const totalPrefixMatches = compilations.reduce(
-    (sum, candidate) => sum + candidate.prefixMatches,
+    (sum, candidate) =>
+      sum + (candidate.kind === 'covered' ? 0 : candidate.prefixMatches),
     0,
   );
   const proposals = compilations.filter(
     (candidate): candidate is typeof candidate & { kind: 'proposal' } =>
       candidate.kind === 'proposal',
   );
+  const proposalPrefixMatches = proposals.reduce(
+    (sum, candidate) => sum + candidate.prefixMatches,
+    0,
+  );
+  const canonicalProposedTemplates = proposals[0]?.proposedTemplates ?? [];
+  const proposalsConverge = proposals.every((candidate) =>
+    templateSetsEqual(canonicalProposedTemplates, candidate.proposedTemplates),
+  );
   const compilation =
-    totalPrefixMatches === 1 && proposals.length === 1 ? proposals[0]! : null;
+    totalPrefixMatches > 0 &&
+    proposalPrefixMatches === totalPrefixMatches &&
+    proposalsConverge
+      ? proposals[0]!
+      : null;
   if (!compilation) {
     return {
       action: instructionSetupAction(
@@ -129,6 +154,16 @@ export async function compileAndRecordHostCapabilityTemplateMismatch(input: {
     },
     review: result.review,
   };
+}
+
+function templateSetsEqual(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((template, index) => template === right[index])
+  );
 }
 
 const capabilityRunHandler: TaskHandler = async (context) => {
@@ -232,11 +267,17 @@ const capabilityRunHandler: TaskHandler = async (context) => {
     () => deadline.abort(),
     Math.max(0, deadlineAt - Date.now()),
   );
-  try {
-    const result = await runStructuredLocalCliCapability({
+  // A template mismatch is refused BEFORE the sandbox spawns, so re-attempting
+  // a now-covered call has no double-execution risk. Capture the narrowed
+  // request identity into locals — a closure re-widens property narrowings.
+  const invocationAppId = data.appId;
+  const invocationAgentId = data.agentId;
+  const invocationConversationId = data.chatJid;
+  const runInvocation = () =>
+    runStructuredLocalCliCapability({
       repository,
-      appId: data.appId,
-      agentId: data.agentId,
+      appId: invocationAppId,
+      agentId: invocationAgentId,
       personId: restriction.memoryUserId,
       capabilityId,
       args,
@@ -245,12 +286,13 @@ const capabilityRunHandler: TaskHandler = async (context) => {
       runnerSandboxProvider,
       egressProxyUrl: gateway.proxyUrl,
       signal: deadline.signal,
-      conversationId: data.chatJid,
+      conversationId: invocationConversationId,
       threadId: data.authThreadId,
       runId: restriction.runId,
       jobId: restriction.jobId,
     });
-    acceptData('Capability command completed.', result);
+  try {
+    acceptData('Capability command completed.', await runInvocation());
   } catch (error) {
     if (error instanceof StructuredLocalCliInvocationError) {
       if (error.code === 'capability_template_mismatch') {
@@ -285,8 +327,29 @@ const capabilityRunHandler: TaskHandler = async (context) => {
             proposalRepository,
             now: new Date().toISOString(),
           });
+          if ('covered' in outcome && outcome.covered) {
+            // Race resolved: the catalog now authorizes this argv. Re-attempt
+            // once under current authority instead of blocking the job on a
+            // setup instruction.
+            try {
+              acceptData(
+                'Capability command completed.',
+                await runInvocation(),
+              );
+              return;
+            } catch (retryError) {
+              if (
+                !(retryError instanceof StructuredLocalCliInvocationError) ||
+                retryError.code !== 'capability_template_mismatch'
+              ) {
+                throw retryError;
+              }
+              // Still unauthorized after the race window: fall back to the
+              // instruction below.
+            }
+          }
           action = outcome.action;
-          if (outcome.review) {
+          if ('review' in outcome && outcome.review) {
             startCapabilityTemplateAmendmentReview({
               deps: context.deps,
               repository: proposalRepository,

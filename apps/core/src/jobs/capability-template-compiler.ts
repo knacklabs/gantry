@@ -1,7 +1,9 @@
 import { parseBashCommand } from '../shared/bash-command-parser.js';
 import { validateLocalCliCommandTemplate } from '../shared/semantic-capabilities.js';
+import { localCliCommandTemplateMatchesArgv } from '../shared/tool-rule-matcher.js';
 
 export type CapabilityTemplateCompilation =
+  | { kind: 'covered' }
   | { kind: 'instruction'; prefixMatches: number }
   | {
       kind: 'proposal';
@@ -16,7 +18,7 @@ export function compileCapabilityTemplateMismatch(input: {
   observedArgs: readonly string[];
 }): CapabilityTemplateCompilation {
   const observedArgv = [input.executablePath, ...input.observedArgs];
-  const candidates = input.commandTemplates.flatMap((template) => {
+  const parsedTemplates = input.commandTemplates.flatMap((template) => {
     const validation = validateLocalCliCommandTemplate(
       input.executablePath,
       template,
@@ -31,6 +33,22 @@ export function compileCapabilityTemplateMismatch(input: {
       return [];
     }
     const tokens = parsed.leaves[0]!.argv;
+    return [{ template, tokens }];
+  });
+
+  if (
+    parsedTemplates.some(({ template }) =>
+      localCliCommandTemplateMatchesArgv({
+        executablePath: input.executablePath,
+        template,
+        argv: observedArgv,
+      }),
+    )
+  ) {
+    return { kind: 'covered' };
+  }
+
+  const candidates = parsedTemplates.flatMap(({ tokens }) => {
     const firstNonLiteral = tokens.findIndex(
       (token, index) =>
         index > 0 && (token.includes('*') || token.startsWith('-')),
@@ -43,58 +61,62 @@ export function compileCapabilityTemplateMismatch(input: {
     ) {
       return [];
     }
-    return [{ tokens, prefixLength: literalPrefix.length }];
+    return [{ tokens }];
   });
 
   const prefixMatches = candidates.length;
-  if (prefixMatches !== 1) return { kind: 'instruction', prefixMatches };
-  const candidate = candidates[0]!;
-  if (candidate.tokens.some((token) => token.includes('*') && token !== '*')) {
+  if (prefixMatches === 0) return { kind: 'instruction', prefixMatches };
+  const proposalSets = candidates.map((candidate) =>
+    compileCandidate({
+      executablePath: input.executablePath,
+      candidate,
+      observedArgv,
+    }),
+  );
+  if (proposalSets.some((templates) => templates === null)) {
     return { kind: 'instruction', prefixMatches };
   }
-  // The reviewed template's LEADING positional wildcards — the run of `*`
-  // right after the literal subcommand prefix — are a MAXIMUM, not a required
-  // count: the observed call may supply FEWER of them and then switch to flags
-  // (or simply stop). But a wildcard that is the VALUE of a reviewed literal
-  // flag later in the template (for example the `*` in `... --account *`) is
-  // NOT optional and stays required. Match literal tokens exactly; end the
-  // leading positional run at the first observed flag or the end of the argv,
-  // so a flag-form call (for example `--values-json`) is proposed instead of
-  // dead-ending on an instruction card. Required literals and required
-  // flag-value wildcards still fall to instruction, so neither the pinned
-  // subcommand nor an already-reviewed flag's value can be shortened away.
-  let cursor = 0;
-  let sawTrailingLiteral = false;
-  for (; cursor < candidate.tokens.length; cursor += 1) {
+  const canonicalProposalSets = proposalSets.map((templates) =>
+    canonicalTemplateSet(templates!),
+  );
+  const proposedTemplates = canonicalProposalSets[0]!;
+  if (
+    canonicalProposalSets.some(
+      (templates) => !templateSetsEqual(proposedTemplates, templates),
+    )
+  ) {
+    return { kind: 'instruction', prefixMatches };
+  }
+  return { kind: 'proposal', prefixMatches, proposedTemplates, observedArgv };
+}
+
+function compileCandidate(input: {
+  executablePath: string;
+  candidate: { tokens: string[] };
+  observedArgv: readonly string[];
+}): string[] | null {
+  const { candidate, observedArgv } = input;
+  if (candidate.tokens.some((token) => token.includes('*') && token !== '*')) {
+    return null;
+  }
+  for (let cursor = 0; cursor < candidate.tokens.length; cursor += 1) {
     const pattern = candidate.tokens[cursor]!;
     const value = observedArgv[cursor];
     if (pattern === '*') {
-      if (sawTrailingLiteral) {
-        // Required value of an already-reviewed literal flag.
-        if (value === undefined || value.startsWith('-')) {
-          return { kind: 'instruction', prefixMatches };
-        }
-      } else if (value === undefined || value.startsWith('-')) {
-        // Leading positional wildcard: optional (trailing positionals are a max).
-        break;
+      // A terminal wildcard is the reviewed remainder and would have matched
+      // in the shared coverage check. Non-terminal wildcards consume exactly
+      // one non-flag argv entry; they are never optional compiler slots.
+      if (
+        cursor === candidate.tokens.length - 1 ||
+        value === undefined ||
+        value.startsWith('-')
+      ) {
+        return null;
       }
-    } else if (value === undefined || pattern !== value) {
-      return { kind: 'instruction', prefixMatches };
-    } else if (cursor >= candidate.prefixLength) {
-      // A literal matched AFTER the subcommand prefix is a reviewed flag; every
-      // wildcard that follows it is a required flag-value, not an optional
-      // trailing positional — even when no positional wildcard preceded it.
-      sawTrailingLiteral = true;
-    }
-  }
-  // A break is only legitimate on a positional wildcard: every remaining
-  // template token must itself be a positional wildcard, because a template
-  // cannot require a literal AFTER the observed call switched to flags.
-  if (candidate.tokens.slice(cursor).some((token) => token !== '*')) {
-    return { kind: 'instruction', prefixMatches };
+    } else if (value === undefined || pattern !== value) return null;
   }
 
-  const trailing = observedArgv.slice(cursor);
+  const trailing = observedArgv.slice(candidate.tokens.length);
   const positional: string[] = [];
   const flags: Array<{ name: string; value: string }> = [];
   let index = 0;
@@ -114,20 +136,20 @@ export function compileCapabilityTemplateMismatch(input: {
       !value ||
       value.startsWith('-')
     ) {
-      return { kind: 'instruction', prefixMatches };
+      return null;
     }
     flags.push({ name, value });
     index += 2;
   }
   if (positional.length === 0 && flags.length === 0) {
-    return { kind: 'instruction', prefixMatches };
+    return null;
   }
 
   // Tokens were DECODED by the parser; a bare join would silently merge a
   // quoted literal like 'named range' into two tokens and authorize a
   // different shape. Serialize every literal with safe shell quoting.
   const baseTokens = [
-    ...candidate.tokens.slice(0, cursor).map(shellQuoteToken),
+    ...candidate.tokens.map(shellQuoteToken),
     ...positional.map(() => '*'),
   ];
   const proposedTemplates = [baseTokens.join(' ')];
@@ -142,9 +164,23 @@ export function compileCapabilityTemplateMismatch(input: {
         !validateLocalCliCommandTemplate(input.executablePath, template).ok,
     )
   ) {
-    return { kind: 'instruction', prefixMatches };
+    return null;
   }
-  return { kind: 'proposal', prefixMatches, proposedTemplates, observedArgv };
+  return proposedTemplates;
+}
+
+function canonicalTemplateSet(templates: readonly string[]): string[] {
+  return [...new Set(templates.map((template) => template.trim()))].sort();
+}
+
+function templateSetsEqual(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((template, index) => template === right[index])
+  );
 }
 
 function shellQuoteToken(token: string): string {

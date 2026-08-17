@@ -2,6 +2,12 @@ import dns from 'node:dns/promises';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  DURABLE_GRANT_EXCLUDED_DISPATCHERS,
+  HOST_AUTHORIZED_MCP_PROXY_DISPATCHERS,
+} from '@core/shared/admin-mcp-tools.js';
+import { gantryToolDefaultRisk } from '@core/application/permissions/gantry-tool-risk.js';
+
 const permissionMock = vi.hoisted(() => ({
   requestPermissionApproval: vi.fn(),
 }));
@@ -1341,4 +1347,18 @@ describe('tool permission gate', () => {
     );
     expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
   });
+});
+
+it('CAPSAFE-1-BOUNDARY', () => {
+  // Decision 0130: the mcp__gantry__capability_run wrapper is DISPATCH-ONLY — the
+  // runner may only hand a schema-valid envelope to the host, which re-authorizes
+  // app/agent/person/capability/reviewed-template/executable before execution. The
+  // bypass grants NO command authority: capability_run is a host-authorized proxy
+  // dispatcher, is excluded from durable grants, and stays HIGH-risk with no
+  // classifier-derived or cached auto-allow.
+  expect(HOST_AUTHORIZED_MCP_PROXY_DISPATCHERS).toContain('capability_run');
+  expect(DURABLE_GRANT_EXCLUDED_DISPATCHERS).toContain('capability_run');
+  expect(gantryToolDefaultRisk('mcp__gantry__capability_run')?.risk_level).toBe(
+    'high',
+  );
 });

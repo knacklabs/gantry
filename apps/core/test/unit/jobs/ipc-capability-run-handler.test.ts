@@ -45,6 +45,71 @@ function localCliTool(commandTemplates = [`${executablePath} sheets get *`]) {
 }
 
 describe('host capability template mismatch flow', () => {
+  it('signals covered (re-attempt, not block) when the reviewed remainder already authorizes the call', async () => {
+    const claimPending = vi.fn();
+    const result = await compileAndRecordHostCapabilityTemplateMismatch({
+      appId: 'app:test',
+      agentId: 'agent:main',
+      requestedBy: 'main_agent',
+      capabilityId: 'google.sheets.read',
+      observedArgs: [
+        'sheets',
+        'get',
+        'sheet-1',
+        'Leads!A:B',
+        '--account',
+        'owner@example.com',
+      ],
+      toolRepository: {
+        listTools: vi.fn(async () => [localCliTool()]),
+      } as never,
+      proposalRepository: { claimPending } as never,
+      now: '2026-08-14T00:00:00.000Z',
+    });
+
+    // Covered = the catalog already authorizes this argv, so the caller must
+    // RE-ATTEMPT rather than block the job; no amendment is recorded.
+    expect('covered' in result && result.covered).toBe(true);
+    expect(claimPending).not.toHaveBeenCalled();
+  });
+
+  it('records one proposal when equivalent prefix candidates converge', async () => {
+    const claimPending = vi.fn(async (input: Record<string, unknown>) => ({
+      created: true,
+      proposal: {
+        ...input,
+        status: 'pending',
+        createdAt: input.now,
+        updatedAt: input.now,
+      },
+    }));
+    const result = await compileAndRecordHostCapabilityTemplateMismatch({
+      appId: 'app:test',
+      agentId: 'agent:main',
+      requestedBy: 'main_agent',
+      capabilityId: 'google.sheets.read',
+      observedArgs: ['sheets', 'get', 'sheet-1'],
+      conversationJid: 'tg:owner',
+      toolRepository: {
+        listTools: vi.fn(async () => [
+          localCliTool([
+            `${executablePath} sheets get`,
+            `${executablePath} sheets 'get'`,
+          ]),
+        ]),
+      } as never,
+      proposalRepository: { claimPending } as never,
+      now: '2026-08-14T00:00:00.000Z',
+    });
+
+    expect(result.action.kind).toBe('fix_proposal');
+    expect(claimPending).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proposedTemplates: [`${executablePath} sheets get *`],
+      }),
+    );
+  });
+
   it('records the compiler output and returns a fix-proposal blocker', async () => {
     const claimPending = vi.fn(async (input: Record<string, unknown>) => ({
       created: true,
@@ -72,7 +137,9 @@ describe('host capability template mismatch flow', () => {
       jobId: 'job-1',
       conversationJid: 'tg:owner',
       toolRepository: {
-        listTools: vi.fn(async () => [localCliTool()]),
+        listTools: vi.fn(async () => [
+          localCliTool([`${executablePath} sheets get`]),
+        ]),
       } as never,
       proposalRepository: { claimPending } as never,
       now: '2026-08-14T00:00:00.000Z',

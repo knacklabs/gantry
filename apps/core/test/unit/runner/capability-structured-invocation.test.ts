@@ -36,6 +36,7 @@ import type {
   RunnerSandboxProvider,
   RunnerSandboxSpawnInput,
 } from '@core/shared/runner-sandbox-provider.js';
+import { localCliCommandTemplateMatchesArgv } from '@core/shared/tool-rule-matcher.js';
 import { buildGantryAgentSystemPrompt } from '@core/runner/gantry-agent-system-prompt.js';
 
 type FakeChild = EventEmitter & {
@@ -207,22 +208,7 @@ describe('CLIRUN-1-1', () => {
     await expect(
       invocation({
         repository: tools,
-        args: ['records', 'list', '--config', '/tmp/other'],
-      }),
-    ).rejects.toMatchObject({ code: 'capability_template_mismatch' });
-    await expect(
-      invocation({
-        repository: tools,
         args: ['records', 'read', 'fixed', 'excess'],
-      }),
-    ).rejects.toMatchObject({ code: 'capability_template_mismatch' });
-    // Arity-exact: a wildcard template authorizes exactly one argument in the
-    // wildcard slot, never an extra trailing operand (the shell-glob suffix
-    // gap). `records list *` must NOT authorize an added second operand.
-    await expect(
-      invocation({
-        repository: tools,
-        args: ['records', 'list', 'customer-42', 'extra-operation'],
       }),
     ).rejects.toMatchObject({ code: 'capability_template_mismatch' });
 
@@ -294,6 +280,174 @@ describe('CLIRUN-1-1', () => {
     ).rejects.toThrow();
     expect(expired.start).not.toHaveBeenCalled();
   });
+});
+
+it('CAPSAFE-1-MATCHER', async () => {
+  vi.useFakeTimers();
+  try {
+    const fixture = executableFixture();
+    const tools = repository({
+      ...fixture,
+      templates: [
+        `${fixture.executable} records update *`,
+        `${fixture.executable} records * approve *`,
+        `${fixture.executable} records region-* archive *`,
+        `${fixture.executable} records read fixed`,
+      ],
+    });
+
+    const expectAuthorized = async (args: string[]) => {
+      const { provider, child, start } = fakeProvider();
+      const resultPromise = invocation({
+        repository: tools,
+        provider,
+        args,
+      });
+      await vi.waitFor(() => expect(start).toHaveBeenCalledOnce());
+      expect(start.mock.calls[0]?.[0]).toMatchObject({
+        command: fs.realpathSync(fixture.executable),
+        args,
+      });
+      child.emit('close', 0, null);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(resultPromise).resolves.toEqual({
+        stdout: 'command completed',
+        stderr: '',
+      });
+    };
+
+    const structuredJsonValue = JSON.stringify([
+      ['a,b', '>', '$(not-executed)', ';'],
+    ]);
+    await expectAuthorized([
+      'records',
+      'update',
+      'sheet-1',
+      'A1:B2',
+      '--values-json',
+      structuredJsonValue,
+    ]);
+    await expectAuthorized(['records', 'update']);
+    await expectAuthorized([
+      'records',
+      'sheet-1',
+      'approve',
+      '--values-json',
+      structuredJsonValue,
+    ]);
+    await expectAuthorized([
+      'records',
+      'region-us',
+      'archive',
+      '--values-json',
+      structuredJsonValue,
+    ]);
+
+    const denied = fakeProvider();
+    for (const args of [
+      ['records', 'approve'],
+      ['records', 'sheet-1', 'extra', 'approve'],
+      ['records', '--sheet', 'approve'],
+      ['records', 'delete', 'sheet-1'],
+      ['records', 'region', 'us', 'archive'],
+      ['records', 'read', 'fixed', 'excess'],
+    ]) {
+      await expect(
+        invocation({ repository: tools, provider: denied.provider, args }),
+      ).rejects.toMatchObject({ code: 'capability_template_mismatch' });
+    }
+    expect(denied.start).not.toHaveBeenCalled();
+
+    for (const args of [
+      ['records', 'update', 'bad\0value'],
+      ['x'.repeat(CAPABILITY_RUN_MAX_ARG_BYTES + 1)],
+      Array.from({ length: CAPABILITY_RUN_MAX_ARGS + 1 }, () => 'x'),
+      Array.from({ length: 5 }, () =>
+        'x'.repeat(CAPABILITY_RUN_MAX_TOTAL_ARG_BYTES / 4),
+      ),
+    ]) {
+      await expect(
+        invocation({ repository: tools, provider: denied.provider, args }),
+      ).rejects.toMatchObject({ code: 'invalid_args' });
+    }
+    expect(denied.start).not.toHaveBeenCalled();
+
+    await expect(
+      invocation({
+        repository: tools,
+        provider: denied.provider,
+        capabilityId: 'acme.records.write',
+        args: ['records', 'update'],
+      }),
+    ).rejects.toMatchObject({ code: 'permission_denied' });
+    await expect(
+      invocation({
+        repository: repository({ ...fixture, personId: 'person:other' }),
+        provider: denied.provider,
+        personId: 'person:caller',
+        args: ['records', 'update'],
+      }),
+    ).rejects.toMatchObject({ code: 'permission_denied' });
+    await expect(
+      invocation({
+        repository: repository({
+          ...fixture,
+          hash: `sha256:${'0'.repeat(64)}`,
+          templates: [`${fixture.executable} records update *`],
+        }),
+        provider: denied.provider,
+        args: ['records', 'update'],
+      }),
+    ).rejects.toMatchObject({ code: 'executable_identity_mismatch' });
+    expect(denied.start).not.toHaveBeenCalled();
+
+    const matches = (
+      template: string,
+      argv = [fixture.executable, 'records'],
+    ) =>
+      localCliCommandTemplateMatchesArgv({
+        executablePath: fixture.executable,
+        template,
+        argv,
+      });
+    for (const template of [
+      `/different/acme records *`,
+      `acme records *`,
+      `${fixture.executable}* records *`,
+      `${fixture.executable} *`,
+      `${fixture.executable} records * | cat`,
+      `${fixture.executable} records * && echo nope`,
+      `${fixture.executable} records *;`,
+      `${fixture.executable} records * > output.txt`,
+      `TOKEN=x ${fixture.executable} records *`,
+    ]) {
+      expect(matches(template)).toBe(false);
+    }
+
+    // A mixed-glob positional pattern must not absorb an injected flag
+    // (option injection), but a legitimate non-flag value still authorizes.
+    expect(
+      matches(`${fixture.executable} records *foo approve *`, [
+        fixture.executable,
+        'records',
+        '--foo',
+        'approve',
+      ]),
+    ).toBe(false);
+    expect(
+      matches(`${fixture.executable} records *foo approve *`, [
+        fixture.executable,
+        'records',
+        'barfoo',
+        'approve',
+      ]),
+    ).toBe(true);
+  } finally {
+    vi.useRealTimers();
+    for (const dir of tempDirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
 });
 
 describe('CLIRUN-1-2', () => {
