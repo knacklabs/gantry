@@ -63,27 +63,39 @@ const maybeDescribe = hasPostgresIntegrationDatabase ? describe : describe.skip;
 // by conversation id) and the DM agent always resolves to a `user` subject
 // (keyed by user id).
 const CHANNEL_AGENT_FOLDER = 'channel_scope_agent';
+const CHANNEL_AGENT_ID = 'agent:channel_scope_agent';
 const CHANNEL_CHAT_JID = 'tg:channel-9001';
 const DM_AGENT_FOLDER = 'dm_scope_agent';
+const DM_AGENT_ID = 'agent:dm_scope_agent';
 const DM_USER_ID = 'tg:user-77';
 const DM_CHAT_JID = 'tg:dm-77';
 
+// The trusted memory context carries the authenticated appId + agentId, and a
+// user scope resolves its subject from `personId` (not `userId`).
 const CHANNEL_CONTEXT = {
   appId: 'default',
+  agentId: CHANNEL_AGENT_ID,
   chatJid: CHANNEL_CHAT_JID,
   defaultScope: 'group' as const,
 };
 const DM_CONTEXT = {
   appId: 'default',
+  agentId: DM_AGENT_ID,
   chatJid: DM_CHAT_JID,
-  userId: DM_USER_ID,
+  personId: DM_USER_ID,
   defaultScope: 'user' as const,
 };
 
 interface ScopeFixture {
   label: 'channel' | 'dm';
   sourceAgentFolder: string;
-  context: { chatJid: string; userId?: string; defaultScope: 'group' | 'user' };
+  context: {
+    appId: string;
+    agentId: string;
+    chatJid: string;
+    personId?: string;
+    defaultScope: 'group' | 'user';
+  };
   subjectType: 'channel' | 'user';
   // A distinctive token that exists ONLY in this scope's promoted memory, used
   // to prove `memory_search` cross-scope isolation.
@@ -205,7 +217,7 @@ function sessionForScope(scope: ScopeFixture): AgentSession {
     agentId: subject.agentId as never,
     conversationId: `conversation:${scope.context.chatJid}` as never,
     ...(scope.subjectType === 'user'
-      ? { userId: scope.context.userId as never }
+      ? { userId: subject.userId as never }
       : {}),
     status: 'active',
     createdAt: now as never,
@@ -240,6 +252,13 @@ maybeDescribe(
       _setRuntimeStorageForTest(runtime.storageRuntime);
       AppMemoryService.resetForTest();
       service = new AppMemoryService(runtime.service.db);
+      // User-scoped memory rows FK to the users table
+      // (memory_items_app_user_fk). Production creates the user on message
+      // ingestion; the DM scope needs it seeded here.
+      await runtime.service.db
+        .insert(pgSchema.usersPostgres)
+        .values({ id: DM_USER_ID, appId: 'default' })
+        .onConflictDoNothing();
       // Default LLM client is "unconfigured" so dreaming proposals are skipped;
       // individual tests register a deterministic fake when they exercise review.
       registerMemoryLlmClient({
