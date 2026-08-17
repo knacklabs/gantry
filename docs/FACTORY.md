@@ -74,10 +74,10 @@ Use strong reasoning selectively.
   - reasoning: `high`
   - via `/codex:rescue --model gpt-5.6-terra --effort high` (read-only by default) — Claude Code never explores application code itself; raw `codex exec` is hook-blocked, no exceptions
 - implementation default
-  - model: `gpt-5.6-sol`
+  - model: `gpt-5.6-luna`
   - reasoning: `medium`
 - implementation escalation cases
-  - model: `gpt-5.6-sol`
+  - model: `gpt-5.6-luna`
   - reasoning: `high`
   - use only for migrations, cross-domain refactors, concurrency, security-sensitive work, or ambiguous failure modes
 - review (autoreview run)

@@ -105,7 +105,7 @@ decisions_reviewed:
   - 0114-canonical-job-owner
   - 0115-autonomous-tool-denial-terminal
   - 0117-scheduled-job-declare-tools-at-creation
-  - 0118-e2e-2-api-first-scope
+  - 0129-e2e-2-api-first-scope
 ---
 
 ## Problem
@@ -164,7 +164,7 @@ Recommendation: implement one deterministic Control API invariant test and one n
 ## Decisions
 
 The scope refinement is recorded in
-`docs/decisions/0118-e2e-2-api-first-scope.md`.
+`docs/decisions/0129-e2e-2-api-first-scope.md`.
 
 Relevant existing decisions also cover the choices here:
 
