@@ -89,6 +89,24 @@ export async function resolvePermissionIpcDecision(input: {
         skillRepository: input.deps.getSkillRepository?.(),
       }).catch(() => undefined)
     : undefined;
+  // The runner cannot grant itself tools. For an active worker turn, use the
+  // host-captured projection registered at spawn. This is especially important
+  // for settings-backed virtual scheduled agents, which deliberately have no
+  // durable agent_tool_bindings rows to re-resolve here.
+  const trustedRunPolicy =
+    runRestriction?.toolPolicyRules !== undefined ||
+    runRestriction?.semanticCapabilities !== undefined
+    ? {
+        rules: runRestriction!.toolPolicyRules,
+        semanticCapabilities: runRestriction!.semanticCapabilities,
+      }
+    : undefined;
+  const effectiveRules = trustedRunPolicy
+    ? trustedRunPolicy.rules
+    : runtimePolicy?.rules;
+  const effectiveSemanticCapabilities = trustedRunPolicy
+    ? trustedRunPolicy.semanticCapabilities
+    : runtimePolicy?.semanticCapabilities;
   const reviewedToolDecision = runtimePolicy
     ? new ToolExecutionPolicyService().evaluate({
         request: buildAgentToolExecutionRequest(
@@ -103,16 +121,39 @@ export async function resolvePermissionIpcDecision(input: {
           },
         ),
         semanticCapabilityDefinitions: Object.fromEntries(
-          runtimePolicy.semanticCapabilities.map((capability) => [
+          (effectiveSemanticCapabilities ?? []).map((capability) => [
             capability.capabilityId,
             capability,
           ]),
         ),
         ...(hostJobId
-          ? { autonomousAllowedToolRules: runtimePolicy.rules }
-          : { allowedToolRules: runtimePolicy.rules }),
+          ? { autonomousAllowedToolRules: effectiveRules }
+          : { allowedToolRules: effectiveRules }),
       })
-    : undefined;
+    : trustedRunPolicy
+      ? new ToolExecutionPolicyService().evaluate({
+          request: buildAgentToolExecutionRequest(
+            new ToolExecutionClassifier(),
+            input.request.toolName,
+            input.request.toolInput,
+            {
+              isScheduledJob: Boolean(hostJobId),
+              jobId: hostJobId,
+              threadId: input.request.threadId,
+              conversationId: input.request.targetJid ?? '',
+            },
+          ),
+          semanticCapabilityDefinitions: Object.fromEntries(
+            (effectiveSemanticCapabilities ?? []).map((capability) => [
+              capability.capabilityId,
+              capability,
+            ]),
+          ),
+          ...(hostJobId
+            ? { autonomousAllowedToolRules: effectiveRules }
+            : { allowedToolRules: effectiveRules }),
+        })
+      : undefined;
   const protectedCapability = evaluateProtectedCapabilityToolUse(
     input.request.toolName,
     input.request.toolInput,

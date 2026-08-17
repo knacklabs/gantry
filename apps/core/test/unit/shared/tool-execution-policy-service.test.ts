@@ -527,6 +527,28 @@ describe('ToolExecutionPolicyService', () => {
     ).toMatchObject({ status: 'deny' });
   });
 
+  it('allows the same reviewed skill command through the DeepAgents RunCommand facade', () => {
+    const exactRule =
+      'RunCommand(skills/ats-skills/scripts/cutshort-worker.mjs sync)';
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'RunCommand',
+      toolInput: {
+        command:
+          'node /srv/reagent/home/agents/source/.llm-runtime/deepagents-afb2d061-3aa3-4156-a29c-3c5517a7b69d/skills/ats-skills/scripts/cutshort-worker.mjs sync',
+      },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-source-sync' },
+    });
+
+    expect(
+      policy.evaluate({
+        request,
+        autonomousAllowedToolRules: [exactRule],
+      }),
+    ).toMatchObject({ status: 'allow', matchedRule: exactRule });
+  });
+
   it('points autonomous scheduler tool denials to exact persistent tool approval', () => {
     const request = classifier.classify({
       origin: 'mcp',

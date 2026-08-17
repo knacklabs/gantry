@@ -1,4 +1,5 @@
 import type { AgentInput } from './agent-spawn-types.js';
+import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import { createIpcAuthEnvelope } from './ipc-auth.js';
 import {
   registerPermissionRunRestriction,
@@ -13,6 +14,8 @@ export function registerWorkerPermissionRunRestriction(input: {
   memoryUserId?: string;
   jobId?: string;
   runId?: string;
+  toolPolicyRules?: readonly string[];
+  semanticCapabilities?: readonly SemanticCapabilityDefinition[];
 }): void {
   registerPermissionRunRestriction(input);
 }
@@ -28,6 +31,8 @@ export function setupPermissionRunRestriction(
     | 'memoryUserId'
     | 'jobId'
     | 'runId'
+    | 'toolPolicyRules'
+    | 'semanticCapabilities'
   >,
   hideAuthorityTools: boolean,
 ) {
@@ -47,6 +52,8 @@ export function setupPermissionRunRestriction(
     memoryUserId: agentInput.memoryUserId,
     jobId: agentInput.jobId,
     runId: agentInput.runId,
+    toolPolicyRules: agentInput.toolPolicyRules,
+    semanticCapabilities: agentInput.semanticCapabilities,
   });
   return {
     ipcAuth,

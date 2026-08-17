@@ -341,7 +341,11 @@ export function isReadOnlySkillExecutionCommand(
   toolName: string,
   input: unknown,
 ): boolean {
-  if (toolName !== 'Bash') return false;
+  // Claude projects shell actions as Bash while DeepAgents projects the same
+  // reviewed shell action as RunCommand. Treat both adapter facades as the
+  // same scoped command authority; the ordinary matcher above still requires
+  // an exact RunCommand(...) rule before this protected-path exception applies.
+  if (toolName !== 'Bash' && toolName !== 'RunCommand') return false;
   const command = commandText(input);
   if (!command || hasBashMutationVerb(command) || hasBashRedirect(command)) {
     return false;

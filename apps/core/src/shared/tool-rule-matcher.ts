@@ -279,7 +279,10 @@ export function evaluateAutonomousToolUse(input: {
 }): ToolRuleEvaluationResult {
   const toolName = input.toolName.trim();
   if (!toolName) return { allowed: false, reason: 'Tool name is required.' };
-  if (toolName === 'Bash') {
+  // Provider adapters expose the same host-reviewed shell action under either
+  // Bash (Claude) or RunCommand (DeepAgents). Both must use argv-aware
+  // matching so a stable skill rule cannot be bypassed by command text shape.
+  if (toolName === 'Bash' || toolName === RUN_COMMAND_TOOL_NAME) {
     return evaluateBashToolUse({
       rules: normalizeToolRules(input.rules),
       toolInput: input.toolInput,

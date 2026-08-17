@@ -22,6 +22,7 @@ import {
 } from '../domain/permission-effect-key.js';
 import { canonicalizeTrustedRoot } from '../shared/permission-trusted-paths.js';
 import type { PermissionClassifierRiskLevel } from './permission-classifier-prompt.js';
+import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 
 export type DeterministicPermissionRails = (
   input: PermissionDeterministicRailsInput,
@@ -277,6 +278,13 @@ function grantAllow(
 export interface PermissionRunRestriction {
   hideAuthorityTools: boolean;
   runKind: 'interactive' | 'scheduled';
+  /**
+   * Host-projected, immutable authority for this specific worker turn. This is
+   * intentionally retained here instead of accepting an equivalent list from
+   * the worker IPC request.
+   */
+  toolPolicyRules?: readonly string[];
+  semanticCapabilities?: readonly SemanticCapabilityDefinition[];
   memoryUserId?: string;
   jobId?: string;
   runId?: string;
@@ -292,10 +300,22 @@ export function registerPermissionRunRestriction(input: {
   memoryUserId?: string;
   jobId?: string;
   runId?: string;
+  toolPolicyRules?: readonly string[];
+  semanticCapabilities?: readonly SemanticCapabilityDefinition[];
 }): void {
   permissionRunRestrictions.set(restrictionKey(input), {
     hideAuthorityTools: input.hideAuthorityTools,
     runKind: input.runKind,
+    ...(input.toolPolicyRules
+      ? { toolPolicyRules: Object.freeze([...input.toolPolicyRules]) }
+      : {}),
+    ...(input.semanticCapabilities
+      ? {
+          semanticCapabilities: Object.freeze([
+            ...input.semanticCapabilities,
+          ]),
+        }
+      : {}),
     ...(input.memoryUserId ? { memoryUserId: input.memoryUserId } : {}),
     ...(input.jobId ? { jobId: input.jobId } : {}),
     ...(input.runId ? { runId: input.runId } : {}),

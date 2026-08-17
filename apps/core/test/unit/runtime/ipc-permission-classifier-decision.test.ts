@@ -83,6 +83,59 @@ async function resolveWithClassifierRisk(input: {
 }
 
 describe('IPC permission classifier decision', () => {
+  it('uses the host-captured scheduled-run rule when a settings-backed agent has no durable binding', async () => {
+    const responseKeyId = 'settings-backed-scheduled-skill';
+    registerWorkerPermissionRunRestriction({
+      sourceAgentFolder: 'ats_source_sync_dev',
+      responseKeyId,
+      hideAuthorityTools: false,
+      runKind: 'scheduled',
+      jobId: 'source-sync-job',
+      runId: 'source-sync-run',
+      toolPolicyRules: [
+        'RunCommand(skills/ats-skills/scripts/cutshort-worker.mjs sync)',
+      ],
+    });
+    try {
+      await expect(
+        resolvePermissionIpcDecision({
+          request: {
+            requestId: 'settings-backed-scheduled-skill-run',
+            responseKeyId,
+            sourceAgentFolder: 'ats_source_sync_dev',
+            toolName: 'RunCommand',
+            toolInput: {
+              command:
+                'node /srv/reagent/home/agents/ats_source_sync_dev/.llm-runtime/deepagents-fca4944d-9b47-4004-82c0-97eb051b240e/skills/ats-skills/scripts/cutshort-worker.mjs sync',
+            },
+            unattended: true,
+          },
+          sourceAgentFolder: 'ats_source_sync_dev',
+          deps: {
+            conversationRoutes: () => ({}),
+            requestPermissionApproval: vi.fn(),
+            // No durable agent_tool_bindings exist for this settings.yaml
+            // virtual agent. Its authority must come from the host's active
+            // run restriction, not runner-provided data.
+            getToolRepository: () => ({
+              listAgentToolBindings: vi.fn(async () => []),
+            }),
+          } as never,
+        }),
+      ).resolves.toMatchObject({
+        approved: true,
+        decidedBy: 'reviewed_rule',
+        reason:
+          'Allowed by autonomous tool rule RunCommand(skills/ats-skills/scripts/cutshort-worker.mjs sync).',
+      });
+    } finally {
+      unregisterPermissionRunRestriction({
+        sourceAgentFolder: 'ats_source_sync_dev',
+        responseKeyId,
+      });
+    }
+  });
+
   it('AUTODET-1-1 > jobId requests never reach the classifier; miss is deterministic_rails terminal deny', async () => {
     const responseKeyId = 'autodet-job-response-key';
     const classifierConsult = vi.fn(async () => ({
