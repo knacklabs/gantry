@@ -244,6 +244,6 @@ After the suite:
 
 1. Repair the hermetic SDK fixture used by the job-lifecycle scenario.
 2. Store the output of `claude setup-token` in the GitHub secret
-   `E2E_CLAUDE_CODE_OAUTH_TOKEN`, then run the three model-gated test cases.
+   `E2E_ANTHROPIC_API_KEY`, then run the three model-gated test cases.
 3. Add protected Slack and Telegram actor lanes only after their dedicated test
    accounts, destinations, credentials, and actor transports are approved.

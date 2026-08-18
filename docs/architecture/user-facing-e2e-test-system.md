@@ -58,7 +58,7 @@ an Anthropic API key:
 
 1. An authorized maintainer runs `claude setup-token` locally.
 2. The token is stored as the GitHub repository secret
-   `E2E_CLAUDE_CODE_OAUTH_TOKEN`.
+   `E2E_ANTHROPIC_API_KEY`.
 3. The workflow maps that secret only into the real-model step as
    `E2E_MODEL_API_KEY`.
 4. The scenario stores it through `PUT /v1/credentials/models/anthropic` using

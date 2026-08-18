@@ -19,7 +19,7 @@ sentinel's scan scope.
 Tests read a neutral `E2E_MODEL_API_KEY` via a fixture helper
 (`requireRealModelCredential()`); `.github/workflows/nightly-e2e.yml` maps the
 GitHub repository secret to that step-local name
-(`E2E_MODEL_API_KEY: ${{ secrets.E2E_CLAUDE_CODE_OAUTH_TOKEN }}`). The scenario
+(`E2E_MODEL_API_KEY: ${{ secrets.E2E_ANTHROPIC_API_KEY }}`). The scenario
 recognizes the setup token as a `claude_code_oauth` credential and stores it
 through Gantry's public credential API.
 

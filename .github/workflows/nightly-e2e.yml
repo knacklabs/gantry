@@ -116,11 +116,11 @@ jobs:
       # reaches ONLY this step's env.
       - name: Agent E2E turn (real model)
         env:
-          E2E_MODEL_API_KEY: ${{ secrets.E2E_CLAUDE_CODE_OAUTH_TOKEN }}
+          E2E_MODEL_API_KEY: ${{ secrets.E2E_ANTHROPIC_API_KEY }}
           AGENT_E2E_EVIDENCE_DIR: /tmp/gantry-agent-e2e-evidence
         run: |
           if [ -z "$E2E_MODEL_API_KEY" ]; then
-            echo "::notice::E2E_CLAUDE_CODE_OAUTH_TOKEN is unavailable; skipping the real-model turn."
+            echo "::notice::E2E_ANTHROPIC_API_KEY is unavailable; skipping the real-model turn."
             exit 0
           fi
           set -o pipefail
