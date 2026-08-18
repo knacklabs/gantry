@@ -173,6 +173,7 @@ export function createGantryShellTool(
       memoryBlock: config.memoryBlock,
       yoloMode: config.gateContext.yoloMode,
       deferReadOnlySkillExecutionToPolicy: true,
+      deferProtectedCapabilityToPolicy: true,
     });
     if (preChecks) {
       return preCheckDenialResult(config, GANTRY_SHELL_TOOL_NAME, preChecks);

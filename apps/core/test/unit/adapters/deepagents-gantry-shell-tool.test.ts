@@ -140,6 +140,21 @@ describe('Gantry DeepAgents shell tool', () => {
     }
   });
 
+  it('still denies an unreviewed protected skill command without prompting', async () => {
+    const tool = makeTool({
+      scheduled: true,
+      rules: ['RunCommand(echo *)'],
+    });
+    const result = await invoke(
+      tool,
+      'skills/ats-skills/scripts/cutshort-worker.mjs sync',
+    );
+
+    expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+    expect(result).toContain('not on autonomous run allowlist');
+    expect(result).not.toContain('exited with code 0');
+  });
+
   it('prompts via the durable permission IPC when no rule matches; denied -> NOT executed', async () => {
     requestPermissionApprovalViaIpc.mockResolvedValue({
       approved: false,

@@ -219,6 +219,12 @@ export interface NeutralPreCheckInput {
   // exact scoped RunCommand policy. Let that policy decide a non-mutating
   // skill artifact invocation; all other protected targets remain hard-denied.
   deferReadOnlySkillExecutionToPolicy?: boolean;
+  // The Gantry-owned shell tool runs the full tool-execution policy immediately
+  // after these pre-checks. Defer protected-path enforcement to that matcher so
+  // a reviewed, exact RunCommand(...) skill invocation is not rejected before
+  // its scoped authority can be evaluated. The policy retains the same
+  // protected-path denial for every unmatched or mutating command.
+  deferProtectedCapabilityToPolicy?: boolean;
 }
 
 // Runs the ordered authority pre-checks that may hard-deny before any
@@ -238,6 +244,7 @@ export function evaluateNeutralToolPreChecks(input: NeutralPreCheckInput):
   if (
     protectedDenial &&
     !(
+      input.deferProtectedCapabilityToPolicy === true ||
       input.deferReadOnlySkillExecutionToPolicy === true &&
       isReadOnlySkillExecutionCommand(input.toolName, input.toolInput)
     )
