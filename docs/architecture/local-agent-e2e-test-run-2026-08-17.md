@@ -2,8 +2,9 @@
 
 ## Summary
 
-This report records the local execution of the user-facing agent E2E suite on
-branch `codex/e2e-2-user-facing-api-tests` at commit `77b33e225`.
+This report records the local execution of the user-facing agent E2E suite now
+published on branch `feature/user-facing-e2e-framework`. The identity-lifecycle
+implementation is commit `6b16e18c7` after replaying the work onto latest main.
 
 | Result     | Count |
 | ---------- | ----: |
