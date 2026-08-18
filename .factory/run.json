@@ -1,17 +1,15 @@
 {
-  "issue_key": "JOBFLOW-1",
-  "title": "JOBFLOW: seamless scheduled-job lifecycle",
+  "issue_key": "WEB-AUTH-1",
+  "title": "Authentication and Access Web UI",
   "tracker": "linear",
-  "branch": "feat/JOBFLOW-1-jobflow-seamless-scheduled-job-lifecycle",
+  "branch": "feat/WEB-AUTH-1-authentication-and-access-web-ui",
   "phase": "planning",
-  "plan_status": "approved",
-  "decomposition_status": "recorded",
+  "plan_status": "needs-plan",
+  "decomposition_status": "pending",
   "implementation_status": "pending",
   "tests_status": "pending",
-  "verify_status": "passed",
+  "verify_status": "pending",
   "review_status": "pending",
-  "created_at": "2026-08-12T12:19:09+00:00",
-  "updated_at": "2026-08-15T05:47:38+00:00",
-  "plan_file": "plans/active/JOBFLOW-1-jobflow-seamless-scheduled-job-lifecycle.md",
-  "story": "JOBFLOW-1"
+  "created_at": "2026-08-18T10:45:24+00:00",
+  "updated_at": "2026-08-18T10:45:24+00:00"
 }

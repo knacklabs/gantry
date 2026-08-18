@@ -1267,7 +1267,7 @@
         "Administrators can manage access, invitations, sessions, and OIDC setup without exposing secrets."
       ],
       "order": 64,
-      "status": "pending",
+      "status": "active",
       "epic": "web-authentication",
       "skill": "fullstack",
       "depends_on": [],
@@ -1369,5 +1369,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-18T10:44:57+00:00"
+  "updated_at": "2026-08-18T10:45:24+00:00"
 }

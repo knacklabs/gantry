@@ -1067,3 +1067,4 @@
 {"event": "roadmap-add", "generated_by": "orchestrator", "at": "2026-08-18T10:42:43+00:00", "story": "WEB-AUTH-1", "detail": "no spec (adhoc)"}
 {"event": "spec-confirmed", "generated_by": "orchestrator", "at": "2026-08-18T10:44:43+00:00", "detail": "authentication-access-web-ui"}
 {"event": "roadmap-link-spec", "generated_by": "orchestrator", "at": "2026-08-18T10:44:57+00:00", "story": "WEB-AUTH-1", "detail": "docs/specs/authentication-access-web-ui.md"}
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-18T10:45:24+00:00", "story": "WEB-AUTH-1", "detail": "Authentication and Access Web UI"}
