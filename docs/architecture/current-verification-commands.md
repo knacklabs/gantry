@@ -47,7 +47,7 @@ The main CI workflow remains a `pull_request` check and includes the agent E2E
 real-model turn. `E2E_MODEL_API_KEY` is mapped only into that step, which exits
 successfully before invoking the model when the secret is unavailable, as on a
 fork pull request. The value comes from the protected repository secret
-`E2E_CLAUDE_CODE_OAUTH_TOKEN`, populated with the output of
+`E2E_ANTHROPIC_API_KEY`, populated with the output of
 `claude setup-token`; the scenario stores it through the Control API using
 Anthropic's `claude_code_oauth` mode. The repository guard for these invariants
 is:
