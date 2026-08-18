@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   projectSelectedSemanticCapabilityPolicy,
   resolveAgentToolRuntimePolicy,
+  resolveSettingsBackedSkillActionPolicy,
   validateAgentToolRuntimeRules,
 } from '@core/application/agents/agent-tool-runtime-rules.js';
 import { resolveAgentPromptCapabilityCatalog } from '@core/application/agents/agent-prompt-capability-catalog.js';
@@ -76,6 +77,53 @@ function legacyExactToolRepository() {
 }
 
 describe('reviewed MCP pattern projection', () => {
+  it('recreates selected installed skill authority for a scheduler-only agent', async () => {
+    const skill = {
+      id: 'skill:ats-source-sync',
+      appId: 'default',
+      name: 'ats-skills',
+      status: 'installed',
+      actionPermissions: [
+        {
+          id: 'sync_cutshort',
+          capabilityId: 'skill.ats-source-sync.cutshort',
+          displayName: 'Cutshort sync',
+          risk: 'write',
+          can: 'Synchronize Cutshort candidates.',
+          cannot: 'Run arbitrary commands.',
+          requiredEnvVars: [],
+          networkHosts: [],
+          commandTemplates: [
+            'skills/ats-skills/scripts/cutshort-worker.mjs sync',
+          ],
+        },
+      ],
+    };
+
+    await expect(
+      resolveSettingsBackedSkillActionPolicy({
+        appId: 'default',
+        agentId: 'agent:ats-source-sync',
+        skillSources: [{ id: skill.id }],
+        selectedCapabilityIds: ['skill.ats-source-sync.cutshort'],
+        skillRepository: { getSkill: async () => skill } as never,
+      }),
+    ).resolves.toMatchObject({
+      rules: ['capability:skill.ats-source-sync.cutshort'],
+      semanticCapabilities: [
+        { capabilityId: 'skill.ats-source-sync.cutshort' },
+      ],
+      runtimeAccess: [
+        {
+          sourceType: 'skill_action',
+          commandRules: [
+            'RunCommand(skills/ats-skills/scripts/cutshort-worker.mjs sync)',
+          ],
+        },
+      ],
+    });
+  });
+
   it('projects only selected settings-backed skill actions into scheduler authority', () => {
     const policy = projectSelectedSemanticCapabilityPolicy({
       selectedCapabilityIds: ['skill.ats.cutshort'],

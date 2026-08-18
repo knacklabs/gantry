@@ -408,6 +408,28 @@ async function runActiveJob(
           };
           const selectedSkillContext =
             resolveTurnSelectedSkillContextFromSnapshot(accessSnapshot);
+          // Scheduler-only agents are configured from desired state and do not
+          // necessarily have durable agent_skill_bindings rows.  Carry the
+          // reviewed configured sources into the runner as well as the action
+          // policy above; otherwise the runner cannot materialize the skill
+          // assets and reports zero installed/ready actions.
+          const configuredSkillSources = (
+            configuredAgent?.sources.skills ?? []
+          ).filter((source) => source.status !== 'disabled');
+          const attachedSkillSourceIds = [
+            ...new Set([
+              ...(selectedSkillContext.ids ?? []),
+              ...configuredSkillSources.map((source) => source.id),
+            ]),
+          ];
+          const selectedSkillDisplays = [
+            ...new Set([
+              ...(selectedSkillContext.displays ?? []),
+              ...configuredSkillSources.map(
+                (source) => source.name?.trim() || source.id,
+              ),
+            ]),
+          ];
           const semanticCapabilities = [
             ...resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot),
             ...settingsSkillPolicy.semanticCapabilities,
@@ -462,9 +484,11 @@ async function runActiveJob(
               timeoutMs,
               signal: runLeaseAbort.signal,
               credentialBroker,
-              skillRepository: deps.getSkillRepository?.(),
-              skillArtifactStore: deps.getSkillArtifactStore?.(),
-              mcpServerRepository: deps.getMcpServerRepository?.(),
+              skillRepository: schedulerAccessDeps.getSkillRepository(),
+              skillArtifactStore:
+                deps.getSkillArtifactStore?.() ??
+                getRuntimeStorage().skillArtifacts,
+              mcpServerRepository: schedulerAccessDeps.getMcpServerRepository(),
               capabilitySecretRepository:
                 deps.getCapabilitySecretRepository?.(),
               mcpHostnameLookup: deps.getMcpHostnameLookup?.(),
@@ -544,8 +568,8 @@ async function runActiveJob(
                 toolAccessRequirements:
                   toolAccessRequirementPreflight.toolAccessRequirements,
                 runtimeAccess: toolPolicy.runtimeAccess,
-                attachedSkillSourceIds: selectedSkillContext.ids,
-                selectedSkillDisplays: selectedSkillContext.displays,
+                attachedSkillSourceIds,
+                selectedSkillDisplays,
                 attachedMcpSourceIds,
                 semanticCapabilities,
               },
