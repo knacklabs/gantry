@@ -51,6 +51,23 @@ whether Gantry passed.
 The slow or credentialed lanes supplement deterministic coverage. They do not
 replace it and do not run on untrusted fork pull requests.
 
+### Protected Claude credential
+
+The protected real-model lane uses a Claude Code subscription token rather than
+an Anthropic API key:
+
+1. An authorized maintainer runs `claude setup-token` locally.
+2. The token is stored as the GitHub repository secret
+   `E2E_CLAUDE_CODE_OAUTH_TOKEN`.
+3. The workflow maps that secret only into the real-model step as
+   `E2E_MODEL_API_KEY`.
+4. The scenario stores it through `PUT /v1/credentials/models/anthropic` using
+   `authMode: claude_code_oauth`; it is never placed in a fixture, log, or
+   uploaded evidence.
+
+Forks and untrusted pull requests do not receive this secret and therefore skip
+the protected model lane without weakening the hermetic E2E result.
+
 ## Gantry target contract
 
 The default target is a real Gantry server managed by the existing harness:
