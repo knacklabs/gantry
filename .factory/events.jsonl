@@ -1065,3 +1065,4 @@
 {"event": "spec-draft", "generated_by": "orchestrator", "at": "2026-08-18T10:42:43+00:00", "detail": "authentication-access-web-ui: Authentication and Access Web UI"}
 {"event": "roadmap-epic-add", "generated_by": "orchestrator", "at": "2026-08-18T10:42:43+00:00", "detail": "web-authentication"}
 {"event": "roadmap-add", "generated_by": "orchestrator", "at": "2026-08-18T10:42:43+00:00", "story": "WEB-AUTH-1", "detail": "no spec (adhoc)"}
+{"event": "spec-confirmed", "generated_by": "orchestrator", "at": "2026-08-18T10:44:43+00:00", "detail": "authentication-access-web-ui"}

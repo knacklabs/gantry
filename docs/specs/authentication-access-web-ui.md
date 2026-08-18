@@ -1,7 +1,7 @@
 ---
 slug: authentication-access-web-ui
 title: Authentication and Access Web UI
-status: draft
+status: confirmed
 saved: 2026-08-18T10:42:43+00:00
 ---
 
