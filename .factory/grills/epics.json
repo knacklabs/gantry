@@ -1,0 +1,26 @@
+{
+  "generated_by": "griller",
+  "gate": "epics",
+  "verdict": "pass",
+  "questions_asked": 2,
+  "summary": "Epics grill of the roadmap import (10 epics, 20 stories, all downstream of PAY-1 per the client's 'paydown first' directive). Coverage checked against BRIEF, goals-index, AND a merged-PR reconciliation of the five half-done goals the client named (ponytail, permission redesign, observer, observability, MCP search): ponytail Phases 1-7 in-lane + rescued WIP e4104edc8 with Phase-8 as PONY-1; observer S1 merged #264, S2/S3a rescued as branch WIP e055dc14a/a51a4909d feeding OBS-1; observability #220/#262 shipped with permission spans as OTEL-1 (not started, branch empty); MCP search #237/#255 shipped with hybrid as CAP-2 behind CAP-1; permission redesign design-only, PERM-1/2. DUR-1/MDL-1 now carry a real depends_on edge to PONY-1.",
+  "gaps": [
+    "CAP-1 (capability-authoring closeout) has no committed goal-prompt, which DISCOVERY makes an import blocker for goals.",
+    "PAY-1 had no goal-prompt or story anywhere despite being the client-directed first story."
+  ],
+  "contradictions": [
+    "Board says durable-work primitive and model management start post-Ponytail-cutover, but depends_on edges can only reference imported stories and the cutover is a user-gated lane, not a story."
+  ],
+  "resolutions": [
+    "CAP-1 imported as an explicit closeout exception (client confirmed): finishing in-flight rescued work with a source-of-record branch and inline acceptance criteria, noted in the story text.",
+    "PAY-1 scoped in docs/architecture/architecture-debt-paydown-goal-prompt.md (committed) with the concrete five-section failing inventory; every other story depends_on PAY-1 so it is the sole initial frontier.",
+    "DUR-1 and MDL-1 import with textual ponytail-cutover gates in their story text (client confirmed); the cutover itself stays a board-tracked user-gated lane.",
+    "Exclusions confirmed by the client: media-render (validation not approved), Fable arch cycles #2-8, tenant isolation / KB ingestion / connector strategy (need design), all Parked/Ideation \u2014 each remains visible on goals-index or in the deferral ledger with its gate named. (Ponytail cutover was initially excluded; the client's reconciliation directive brought it in as PONY-1 with the explicit-user-go gate as an acceptance criterion.)",
+    "Client-directed reconciliation (2026-07-22): half-done goals audited against merged PRs; three at-risk uncommitted lanes rescued to branch commits (observer S2 e055dc14a, S3a a51a4909d, ponytail e4104edc8); PONY-1 and OTEL-1 added; goals-index stage checklists updated with citations.",
+    "Full-board validation (client-directed, same day): five goals mislabeled Parked had actually SHIPPED (#185 cross-provider context, #186 generative UI, #192 event-driven waits + async burst queue, #193 non-blocking compaction) \u2014 moved to Shipped; still parked: multi-agent-provider-onboarding (salvage lane, 6 commits) and deepagents-cache-savings (no lane). Media-render has NO lane work (board's wt-media claim corrected); ART-1 reworks a pre-protocol [HOLD] stage-1 commit; E2E-1 dispositions feature/agent-e2e-haiku-turn (+382/-11 beyond #246)."
+  ],
+  "open_items": [],
+  "input_sha256": "d0e9d429bfa30993fa83354ffede4ee1897e892bf14a6f30d97fc64706c9867e",
+  "recorded_at": "2026-07-22T12:33:41+00:00",
+  "commit": "49bb17df5cfa3f4d2f2708f083c39ba0f84553b4"
+}

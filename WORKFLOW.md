@@ -264,19 +264,17 @@ the write-delegation path is the hard enforcement point and refuses a missing,
 non-passing, or stale `.factory/grills/tasks/<id>.json`. Read-only delegation
 does not cross that write gate.
 
-The PR boundary adds two deterministic CI gates, run by the harness's own
-`pr-ticket-check`, `pr-link`, and `board-invariant` workflows — harness-internal,
-NOT part of the client-vendored workflow set. Gate A runs on each pull request
-and requires a PR to declare EVERY completed work record — every `done` roadmap
-story (a done-flip with added history) and every added work-window done record —
-so a single review-driven effort that spans more than one window stays fully
-traceable. For a same-repository story PR, the pr-link gate also records the
-story and PR as a `pr-linked` event, then commits that event to the PR branch;
-an exact-link guard makes subsequent runs a no-op, and CI never writes directly
-to `main`. Gate B runs on `main` and keeps it red until every `done` roadmap
-story has a history directory plus a durable outcome and PR link. Stories
-explicitly marked `predates_outcome_contract` still need history, but are exempt
-from the newer outcome and link requirements.
+The PR boundary has one client-vendored CI contract:
+`.github/workflows/roadmap-gate.yml`. On pull requests it requires every
+completed work record to be declared — every `done` roadmap story (a done-flip
+or newly-added story with added history) and every added work-window done
+record — so a single review-driven effort that spans more than one window stays
+fully traceable. On pushes to the repository default branch it runs the full
+project audit, keeping audit gaps visible. The harness keeps its own internal
+implementations for declaration, PR-link recording, and board completeness;
+those workflows remain harness-internal rather than part of the vendored
+contract. Stories explicitly marked `predates_outcome_contract` still need
+history, but are exempt from the newer outcome and link requirements.
 
 ## Task Graph Rules
 - The planner owns decomposition.
@@ -306,6 +304,10 @@ roster, preserved across re-imports). Item lifecycle: `pending` → `active`
 and flags unassigned ones to the EM. Scope changes are PR edits to the
 file — future planning refines the roadmap, it does not silently regenerate
 it; the per-task plan must satisfy the item's `acceptance_criteria`.
+In vendored clients, `.github/workflows/roadmap-gate.yml` arms only when
+`constitution/VENDORED_FROM` exists and this roadmap has at least one epic;
+an absent or valid epic-less roadmap leaves its gates green, while malformed
+roadmap JSON fails the arming step loudly.
 
 ## Concurrency — one story per worktree
 
@@ -344,8 +346,9 @@ mutable execution twin of the re-recordable decomposition (decision 0007),
 one stage per leaf task in execution order. Decision 0032 makes the pre-work
 sequence a JIT contract loop for every pending task:
 
-1. author the next task's full contract against the approved plan and the real
-   repository state left by completed dependencies
+1. enter plan mode (decision 0029; `factory/prompts/planner.md`) and author the
+   next task's full contract against the approved plan and the real repository
+   state left by completed dependencies
 2. re-record the decomposition with that contract
 3. run `factory/prompts/griller.md` with `--gate task`, resolve its findings,
    and record the pass for that id and current task-contract digest:
@@ -363,6 +366,9 @@ sequence a JIT contract loop for every pending task:
    skill — never as a Codex handoff, which re-triggers the same skill one
    indirection deeper) — a stage commits only clean
 10. commit, then `forge stage done <id>`
+
+`forge next` derives this frontier from the same readiness gate and reports
+exactly one of author contract, task grill, stage start, or delegate.
 
 Per-stage local reviews are pre-commit hygiene and record nothing; the ONE
 branch-wide autoreview at the review phase remains the only review gate and

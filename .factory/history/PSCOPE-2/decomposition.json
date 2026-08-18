@@ -1,0 +1,117 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "user_facing": false,
+  "project": "",
+  "story": "PSCOPE-2",
+  "epic": "permission-engine",
+  "plan_file": "plans/active/PSCOPE-2-provider-neutral-installer-auto-seed-and-in-group-acknowledgement.md",
+  "plan_sha256": "2e2359b32e6803d0ee7c8e8dba773749965fd4fc6d5088c3cf27da5be1151c1f",
+  "build_waves": [
+    {
+      "wave": 1,
+      "tasks": [
+        "PSCOPE-2-1"
+      ]
+    },
+    {
+      "wave": 2,
+      "tasks": [
+        "PSCOPE-2-2",
+        "PSCOPE-2-3"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "PSCOPE-2-1",
+      "title": "Shared group-install bootstrap (seed installer, reconcile-safe, DM-established recognition)",
+      "objective": "Build channels/group-install-bootstrap.ts: metadata persist, already-registered bail, group_join_onboarding dedup; installer resolved via resolvePersonIdentity createIfMissing:false (retired-alias throw = unrecognised) plus a new hasDirectConversationWithPerson repo query; recognised = register+seed installer via seedInstaller (extracted from the coordinator's register settings-write), upserting the installer as participant so reconcile keeps the approver; unrecognised = manual message only.",
+      "write_scope": [
+        "apps/core/src/adapters/storage/postgres",
+        "apps/core/src/app",
+        "apps/core/src/application",
+        "apps/core/src/channels",
+        "apps/core/src/config/settings",
+        "apps/core/src/domain",
+        "apps/core/test"
+      ],
+      "acceptance_criteria": [
+        "Recognised installer path registers the conversation and seeds exactly [installer] as controlApprovers through applyConversationInstallToSettings + writeDesiredRuntimeSettings (never a direct conversation_approvers write).",
+        "The seeded approver survives desired-state reconcile on a fresh group (installer participant upserted at seed time; reconcile membership check unchanged).",
+        "Unrecognised (no alias, retired alias, or no direct conversation) seeds nobody, registers nothing, posts the manual-setup message once.",
+        "Dedup: a second join event for the same group posts nothing and never clobbers an existing approver list."
+      ],
+      "required_tests": [
+        {
+          "id": "group install bootstrap > recognised seeds installer and survives reconcile; unrecognised fails closed; dedup holds",
+          "path": "apps/core/test/unit/channels/group-install-bootstrap.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "PSCOPE-2-2",
+      "title": "Telegram rewire + delete the DM Yes/No propagation flow",
+      "objective": "Point my_chat_member at the shared bootstrap with String(update.from.id) as installer; DELETE handleTelegramGroupJoinCallback, the DM prompt send, recordPrompt machinery and the callback route (full plumbing cleanup); rewrite the telegram.test.ts group-join suite (recognised: in-group ack + seed; unrecognised: in-group guidance; no DM messages anywhere).",
+      "write_scope": [
+        "apps/core/src/adapters/storage/postgres",
+        "apps/core/src/app",
+        "apps/core/src/channels/telegram",
+        "apps/core/src/config/settings",
+        "apps/core/src/domain",
+        "apps/core/test",
+        "scripts"
+      ],
+      "acceptance_criteria": [
+        "Recognised Telegram installer: group registers, installer seeded, ack posted in the group via the adapter's sendMessage.",
+        "Unrecognised installer: manual-setup message in the group; no registration, no DM traffic.",
+        "No dead code remains from the DM prompt flow (handler, callback route, recordPrompt, prompt-target resolution, related tests)."
+      ],
+      "required_tests": [
+        {
+          "id": "telegram group join > recognised installer bootstraps in-group; unrecognised gets guidance; DM prompt flow gone",
+          "path": "apps/core/test/unit/channels/telegram.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "PSCOPE-2-3",
+      "title": "Slack inviter extraction, Discord manual fallback, docs + parity",
+      "objective": "Slack: subscribe member_joined_channel in channel-interactions.ts; when event.user is the bot, event.inviter is the installer (absent = unrecognised); document the event + read scopes in docs/operations/slack-app-install.md. Discord: on GUILD_CREATE for an unregistered guild post the manual-setup message once (dedup via onboarding row). Teams: docs note. Add a provider parity test.",
+      "write_scope": [
+        "apps/core/src/channels",
+        "apps/core/src/config/settings",
+        "apps/core/src/domain",
+        "apps/core/test",
+        "docs",
+        "scripts"
+      ],
+      "acceptance_criteria": [
+        "Slack: bot invited by a DM-established person registers the channel, seeds the inviter, acks in-channel; missing inviter falls to the manual path.",
+        "Discord: first GUILD_CREATE for an unknown guild posts the manual-setup message once; reconnect refires post nothing.",
+        "Ops doc names the exact Slack manifest changes; Teams manual state documented; parity test asserts every provider claiming installer extraction implements it."
+      ],
+      "required_tests": [
+        {
+          "id": "provider group join parity > slack inviter bootstraps; discord manual fallback dedups",
+          "path": "apps/core/test/unit/channels/slack.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    }
+  ],
+  "commit": "aa6506672dd408693389bd5c8c0d01f9a322e6a3"
+}

@@ -1,0 +1,28 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "issue": "CO-1",
+  "gaps": [
+    "G1: the roadmap criterion says 'recovery intent as columns + CAS' but the machine is dead code \u2014 implementing as written hardens nothing.",
+    "G2: deleting recovery_intent data blindly would destroy real state if any prod row ever held a non-null intent.",
+    "G3: the notify-dedup write and the pause-for-setup write race each other today; moving to columns alone doesn't fix a wholesale setup_state overwrite.",
+    "G4: the jobs table hasn't had a column added since the pre-timestamp migration era; the migration tooling changed (timestamp prefixes, journal+snapshot emitted by generator).",
+    "G5: job status/listing payloads surface the (always-empty) recovery metadata field; silent removal could break a consumer."
+  ],
+  "contradictions": [
+    "C1: audit B1's failure mode (parked job becomes re-claimable) cannot fire today because nothing writes state='running' \u2014 the audit's threat model and production reality disagree."
+  ],
+  "resolutions": [
+    "G1: Ravi decided 2026-08-03 (recorded in the plan): reframe \u2014 delete the dead machine, harden the live fields (failure counter, pause reason, setup state) with columns + targeted race-safe writes; this satisfies the criterion's intent (no JSON-blob coordination state, CAS-style transitions, concurrency test).",
+    "G2: the cutover migration opens with a DO-block precondition that RAISEs if any non-null recovery intent exists \u2014 refuse rather than delete real state.",
+    "G3: the notify-dedup write becomes jsonb_set on the single notified_fingerprint key guarded by WHERE setup_state->>'fingerprint' = expected \u2014 it cannot clobber a concurrent rewrite and cannot mark a stale fingerprint notified; pinned by the fingerprint-guard test.",
+    "G4: use npm run db:migrations:generate (journal + snapshot emitted together), 0061 cutover template, db:migrations:check in verification, and the journal test's literal-SQL assertion pattern.",
+    "G5: grep across src/, SDK and packages found no consumer of the field; it is removed outright per no-backward-compat policy and the visibility tests are updated, not shimmed.",
+    "C1: the reframe resolves the contradiction \u2014 the audit entry is treated as superseded for the dead half and implemented for the live half; the story records this so the audit ledger stays honest."
+  ],
+  "summary": "CO-1 plan grill: 5 gaps + 1 contradiction, all resolved; scope reframe decided by Ravi in chat; migration safety and race-safety pinned by named tests.",
+  "input_sha256": "3867a7bc08c5b6b610eba5742e0c714de99883713701de5396c43cbf383f8e0e",
+  "recorded_at": "2026-08-03T08:35:31+00:00",
+  "commit": "69ac5b71650d1d8ff99c24eb15fa368b9c3eb418"
+}

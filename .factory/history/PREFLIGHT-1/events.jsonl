@@ -1,0 +1,46 @@
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-09T03:45:48+00:00", "story": "PREFLIGHT-1", "detail": "Scheduled jobs provision tools upfront (prime discovery) + grantable setup cards"}
+{"event": "roadmap-add", "generated_by": "orchestrator", "at": "2026-08-09T04:20:02+00:00", "story": "PREFLIGHT-1", "detail": "docs/specs/preflight-1.md"}
+{"event": "plan-human-approved", "generated_by": "human", "at": "2026-08-09T04:20:25+00:00", "story": "PREFLIGHT-1", "detail": "PREFLIGHT-1 approved by Ravi"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-09T04:20:25+00:00", "story": "PREFLIGHT-1", "detail": "plans/active/PREFLIGHT-1-scheduled-jobs-provision-tools-upfront-prime-discovery-grantable-setup-cards.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-09T04:21:49+00:00", "story": "PREFLIGHT-1", "detail": "4 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-09T04:22:02+00:00", "story": "PREFLIGHT-1", "detail": "PREFLIGHT-1-1 Read-only Codex critique of the approved PREFLIGHT-1 plan"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-09T04:27:46+00:00", "story": "PREFLIGHT-1", "detail": "PREFLIGHT-1-1 (read-only)"}
+{"event": "stage-incomplete", "generated_by": "implementer", "at": "2026-08-09T04:29:39+00:00", "story": "PREFLIGHT-1", "detail": "PREFLIGHT-1-1: read-only Codex critique complete; findings folded into the plan (Part A simpler+no-decision; Part B needs single-event app-owned notification port wired from Control+IPC, async dispatch, +ipc-scheduler-create-handlers scope; Part C compiled-prompt test; user_facing:true; one decision)"}
+{"event": "plan-human-approved", "generated_by": "human", "at": "2026-08-09T04:31:43+00:00", "story": "PREFLIGHT-1", "detail": "PREFLIGHT-1 approved by Ravi"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-09T04:31:43+00:00", "story": "PREFLIGHT-1", "detail": "plans/active/PREFLIGHT-1-scheduled-jobs-provision-tools-upfront-prime-discovery-grantable-setup-cards.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-09T04:33:46+00:00", "story": "PREFLIGHT-1", "detail": "4 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-09T04:34:40+00:00", "story": "PREFLIGHT-1", "detail": "4 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-09T04:35:18+00:00", "story": "PREFLIGHT-1", "detail": "3 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-09T04:45:44+00:00", "story": "PREFLIGHT-1", "detail": "PREFLIGHT-1-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-09T04:49:48+00:00", "story": "PREFLIGHT-1", "detail": "3 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-09T04:53:08+00:00", "story": "PREFLIGHT-1", "detail": "PREFLIGHT-1-1 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-09T04:53:32+00:00", "story": "PREFLIGHT-1", "detail": "PREFLIGHT-1-1: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-09T04:53:32+00:00", "story": "PREFLIGHT-1", "detail": "PREFLIGHT-1-1 Grantable builtin facade tools on setup cards (Part A, both lanes)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-09T04:53:49+00:00", "story": "PREFLIGHT-1", "detail": "PREFLIGHT-1-2 Single-event async actionable card at job creation (Part B)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-09T05:09:17+00:00", "story": "PREFLIGHT-1", "detail": "PREFLIGHT-1-2 (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-09T06:56:41+00:00", "story": "PREFLIGHT-1", "detail": "PREFLIGHT-1-2 Single-event async actionable card at job creation (Part B)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-09T06:56:54+00:00", "story": "PREFLIGHT-1", "detail": "PREFLIGHT-1-3 Declare-at-creation guidance so the agent populates access_requirements (Part C)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-09T07:00:13+00:00", "story": "PREFLIGHT-1", "detail": "PREFLIGHT-1-3 (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-09T07:30:00+00:00", "story": "PREFLIGHT-1", "detail": "PREFLIGHT-1-3 Declare-at-creation guidance so the agent populates access_requirements (Part C)"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-09T07:36:22+00:00", "story": "PREFLIGHT-1"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-09T07:52:36+00:00", "story": "PREFLIGHT-1", "detail": "3 task(s)"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-09T07:52:46+00:00", "story": "PREFLIGHT-1", "detail": "passed"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-09T07:53:21+00:00", "story": "PREFLIGHT-1"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-09T07:53:21+00:00", "story": "PREFLIGHT-1"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-09T07:53:22+00:00", "story": "PREFLIGHT-1"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-09T07:59:55+00:00", "story": "PREFLIGHT-1"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-09T08:00:04+00:00", "story": "PREFLIGHT-1", "detail": "passed"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-09T08:00:04+00:00", "story": "PREFLIGHT-1"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-09T08:00:04+00:00", "story": "PREFLIGHT-1"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-09T08:00:04+00:00", "story": "PREFLIGHT-1"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-09T08:07:12+00:00", "story": "PREFLIGHT-1"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-09T08:07:21+00:00", "story": "PREFLIGHT-1", "detail": "passed"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-09T08:07:21+00:00", "story": "PREFLIGHT-1"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-09T08:07:21+00:00", "story": "PREFLIGHT-1"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-09T08:07:21+00:00", "story": "PREFLIGHT-1"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-09T08:22:06+00:00", "story": "PREFLIGHT-1"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-09T08:22:27+00:00", "story": "PREFLIGHT-1", "detail": "passed"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-09T08:22:27+00:00", "story": "PREFLIGHT-1"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-09T08:22:27+00:00", "story": "PREFLIGHT-1"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-09T08:22:27+00:00", "story": "PREFLIGHT-1"}
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-09T08:22:27+00:00", "story": "PREFLIGHT-1", "detail": "Scheduled jobs are now set up with the tools they need, and setup pauses are actionable. When a scheduled run needs a builtin tool it wasn't granted (web search/read, file read/write, browser), the Se"}

@@ -1,0 +1,32 @@
+{
+  "commit": "df60105e53af811cc5435344c299e8b3c7566abf",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "pass",
+    "summary": "Person-scoped grants verified end-to-end by unit evidence: DM participant approval authority (kind branch), person-scoped binding rows (nullable personId, NULLS NOT DISTINCT), resolution filtering shared+person on live and snapshot paths, scheduled-job grant scoping with fail-closed unresolvable-job handling, and live-turn host-stamped identity (forged worker personId/jobId overwritten from the spawn registry; snapshot round-trip preserves personId).",
+    "blocking_findings": [],
+    "commands_run": [
+      "VITEST_JUNIT=1 FORGE_TEST_ID='live-turn person scoping > eligible DM turn writes person-scoped grant; no-person turn writes shared; snapshot round-trips personId' npx vitest run -c vitest.unit.config.ts apps/core/test/unit/application/interactions/live-turn-person-scoped-grant.test.ts --outputFile <report>",
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/application apps/core/test/unit/runtime (2539 passed)",
+      "npm run typecheck",
+      "npm run check:architecture",
+      "python3 factory/scripts/verify.py"
+    ],
+    "tests_added_or_updated": [
+      "apps/core/test/unit/application/interactions/live-turn-person-scoped-grant.test.ts",
+      "apps/core/test/unit/application/permission-management-service.test.ts (person-scoped binding write)",
+      "apps/core/test/unit/application/setup-pause-prompt.test.ts (fail-closed unresolvable job)",
+      "apps/core/test/unit/application/job-acting-identity.test.ts (memoryUserId persisted at creation)",
+      "apps/core/test/unit/runtime/ipc-interaction-handler.test.ts (host-stamped jobId via run registry)"
+    ],
+    "pass_fail_summary": "2539/2539 unit tests green in the touched apps; full verify.py green.",
+    "non_blocking_findings": [],
+    "remaining_gaps": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-08-10T09:21:35+00:00",
+    "commit": "df60105e53af811cc5435344c299e8b3c7566abf"
+  },
+  "updated_at": "2026-08-10T09:21:35+00:00"
+}

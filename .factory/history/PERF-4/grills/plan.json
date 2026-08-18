@@ -1,0 +1,28 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "issue": "PERF-4",
+  "gaps": [
+    "G1: decision doc says 'cancelled' but the schema/type union spells it 'canceled' \u2014 a sweep matching the doc spelling would silently delete nothing.",
+    "G2: ended_at is only set at terminal settle; a legacy row without it would never age out.",
+    "G3: syncAllJobs runs every 60s and on every requestSync \u2014 a naive hook would seq-scan the table far too often.",
+    "G4: a required new scheduler callback breaks 26 existing test fixtures.",
+    "G5: no index covers the delete predicate; first sweep after deploy could be a long transaction."
+  ],
+  "contradictions": [
+    "C1: 'run from existing maintenance machinery' vs 'the only hook fires every 60s' \u2014 the mechanism exists but its cadence does not fit a retention sweep."
+  ],
+  "resolutions": [
+    "G1: sweep filters on the typed union values ('completed','failed','canceled'); the integration test seeds all three so a spelling regression fails loudly.",
+    "G2: age column is coalesce(ended_at, updated_at) \u2014 both NOT NULL paths covered.",
+    "G4: the sweep is an OPTIONAL injected dep beside hasLiveAdmissionBacklog, defaulted in scheduler.ts \u2014 zero fixture edits.",
+    "G5: batched deletes (id IN subselect LIMIT 5000) bound each transaction; no index added deliberately \u2014 table is bounded post-retention and the ceiling+upgrade path (partial ended_at index) is recorded in the plan.",
+    "G3: per-process last-sweep timestamp caps execution at once per 6h; the 60s tick merely checks the guard.",
+    "C1: resolved by the same guard \u2014 the existing machinery hosts the sweep, the guard supplies the retention-appropriate cadence, so no new timer/subsystem is added."
+  ],
+  "summary": "PERF-4 plan grill: 5 gaps + 1 contradiction, all resolved; policy fixed by accepted decision 0103, no open user choices.",
+  "input_sha256": "51908771f773733918a73d32162620c30bd0794abc5772614c7c7065313ea52a",
+  "recorded_at": "2026-08-03T04:23:58+00:00",
+  "commit": "5f67d49b501c7b92fdaba0efa99ec2c37b0760db"
+}

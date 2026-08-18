@@ -1,0 +1,96 @@
+{
+  "generated_by": "docs-decomposer",
+  "issue": "AUTODET-1",
+  "tasks": [
+    {
+      "id": "AUTODET-1-1",
+      "title": "Host tail guard: no classifier for jobId requests + truthful reason attribution",
+      "objective": "In ipc-permission-classifier-decision.ts, guard the classifier tail: when the host-verified run context carries a jobId, never consult the classifier; a reviewed-rule miss returns the existing no-approval cancellation with reason naming the missing grant and decidedBy deterministic_rails. Fix reason attribution so a host allow records the host match reason, demoting the worker local-miss text to diagnostic context. Unit tests across host coordinator and both runner lanes.",
+      "user_facing": false,
+      "write_scope": [
+        "apps/core/src/runtime",
+        "apps/core/src/shared",
+        "apps/core/src/adapters/llm",
+        "apps/core/test/unit",
+        "docs/decisions",
+        "docs/specs",
+        "plans"
+      ],
+      "required_tests": [
+        {
+          "id": "IPC permission classifier decision > AUTODET-1-1 > jobId requests never reach the classifier; miss is deterministic_rails terminal deny",
+          "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "coordinatePermissionDecision > AUTODET-1-1 > host allow records host match reason; worker no-match text is diagnostic only",
+          "path": "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "tool permission gate > AUTODET-1-1 > anthropic lane worker-local miss hands off and observes deterministic terminal outcome",
+          "path": "apps/core/test/unit/runner/tool-permission-gate.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "DeepAgents terminal permission denial > AUTODET-1-1 > deepagents lane observes identical terminal outcome for same grants",
+          "path": "apps/core/test/unit/adapters/deepagents-terminal-denial-turn.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify": [
+        "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime apps/core/test/unit/runner apps/core/test/unit/adapters apps/core/test/unit/shared"
+      ],
+      "reviewer_focus": "The guard predicate source (host-verified jobId only), classifier bypass completeness (no second consult path e.g. cached verdicts), and that interactive behavior is provably untouched.",
+      "acceptance_criteria": [
+        "decidedBy=auto_classifier is impossible for a jobId-bearing request (unit-asserted at the host tail)",
+        "A reviewed-rule miss on a jobId request returns the existing no-approval cancellation with decidedBy=deterministic_rails and a reason naming the missing grant",
+        "A reviewed-rule match records the host match reason as decisionReason; the worker local-miss text never masquerades as the allow rationale",
+        "Interactive (no-jobId) classifier behavior is byte-for-byte unchanged (existing tests still pass)",
+        "The autonomy predicate reads the host-verified run-registry jobId, never worker-supplied payload fields"
+      ]
+    },
+    {
+      "id": "AUTODET-1-2",
+      "title": "Fix-and-continue integration proof + decision docs",
+      "objective": "Integration test at the job-lifecycle level proving the loop: autonomous run denies an ungranted tool deterministically, job pauses with one grantable card, granting resumes the job, the re-run is authorized by the reviewed rule and completes without re-asking. Assert no auto_classifier provenance appears for any jobId run. Cross-reference decision 0121 from the spec and architecture docs where the auto-mode contract is described.",
+      "user_facing": false,
+      "write_scope": [
+        "apps/core/test",
+        "docs/specs",
+        "docs/architecture",
+        "docs/decisions"
+      ],
+      "required_tests": [
+        {
+          "id": "job lifecycle (Postgres) > AUTODET-1-2 > deny pause grant resume complete loop with no auto_classifier provenance",
+          "path": "apps/core/test/integration/job-lifecycle.postgres.integration.test.ts",
+          "command": "GANTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/gantry_test VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.integration.postgres.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "execution finalization > AUTODET-1-2 > pause card renders grant-naming reason",
+          "path": "apps/core/test/unit/jobs/execution-finalization.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify": [
+        "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/jobs",
+        "npm run check:architecture"
+      ],
+      "reviewer_focus": "The integration test must exercise the real finalization/readiness path (not mocks of it) and the card-grant-resume loop end to end.",
+      "acceptance_criteria": [
+        "Job-lifecycle integration proves deny -> pause+one card -> grant -> resume -> reviewed-rule allow -> completion without re-asking",
+        "No auto_classifier provenance appears for any jobId decision in the proven run's events",
+        "Pause card copy renders the grant-naming reason, not raw matcher prose",
+        "Decision 0121 is cross-referenced from the spec and the architecture docs describing the auto-mode contract"
+      ]
+    }
+  ],
+  "user_facing": false,
+  "project": "",
+  "story": "AUTODET-1",
+  "epic": "permission-engine",
+  "plan_file": "plans/active/AUTODET-1-autonomous-runs-decide-permissions-deterministically-no-classifier.md",
+  "plan_sha256": "217772cc8f5bf61cc10c552b18442e82d38d1851b404b5d32102c8611feef082",
+  "commit": "3f9a9faec91e07c589ed723bdf0ffde6187fdcdc"
+}

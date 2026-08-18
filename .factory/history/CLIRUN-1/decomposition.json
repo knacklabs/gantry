@@ -1,0 +1,115 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "user_facing": false,
+  "project": "",
+  "story": "CLIRUN-1",
+  "epic": "permission-engine",
+  "plan_file": "plans/active/CLIRUN-1-structured-invocation-for-local-cli-capabilities.md",
+  "plan_sha256": "017f0756527208b798d70681785dc486fd6ad4eb04f74750b2778340ee458763",
+  "build_waves": [
+    {
+      "wave": 1,
+      "tasks": [
+        "CLIRUN-1-1"
+      ]
+    },
+    {
+      "wave": 2,
+      "tasks": [
+        "CLIRUN-1-2"
+      ]
+    },
+    {
+      "wave": 3,
+      "tasks": [
+        "CLIRUN-1-3"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "CLIRUN-1-1",
+      "title": "Structured invocation tool + host dispatch (reuse the bounded sandboxed executor)",
+      "objective": "Structured invocation tool + host dispatch for local_cli capabilities. FIRST pin and reuse the existing sandboxed output-bounded RunCommand executor (no second execution path). Tool takes {capabilityId, args:[]}; host resolves the granted capability against authority, validates argv structurally against the reviewed template (reject unreviewed subcommand/flag/excess/NUL/oversize, no shell), verifies executable identity at invocation, runs via that executor, returns bounded output.",
+      "write_scope": [
+        "apps/core/src/adapters/sandbox",
+        "apps/core/src/application",
+        "apps/core/src/jobs",
+        "apps/core/src/runner",
+        "apps/core/src/runtime",
+        "apps/core/src/shared",
+        "apps/core/test",
+        "docs/architecture"
+      ],
+      "acceptance_criteria": [
+        "A granted local_cli capability runs from an args list with no shell string composed and no classifier consult; output bounded via the existing executor.",
+        "Argv is validated against the capability's reviewed pattern; an unreviewed subcommand/flag, excess arg, NUL, or oversized input is rejected.",
+        "The executable identity is verified at invocation; execution reuses the existing sandbox/timeout/cancellation not a bare execFile."
+      ],
+      "required_tests": [
+        {
+          "id": "CLIRUN-1-1 > structured local_cli invocation validates argv, verifies executable, bounds output",
+          "path": "apps/core/test/unit/runner/capability-structured-invocation.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "CLIRUN-1-2",
+      "title": "Wire the pilot capability (gog) + agent guidance",
+      "objective": "Wire the pilot local_cli capability (gog/sheets) to the structured tool and add agent guidance to prefer it over shelling the CLI out. Keep the RunCommand projection working for now (retired in CLIRUN-1-3). No cutover yet.",
+      "write_scope": [
+        "apps/core/src",
+        "apps/core/test",
+        "docs"
+      ],
+      "acceptance_criteria": [
+        "The gog/sheets capability is invokable via the structured tool end to end.",
+        "Agent operating guidance prefers the structured tool over shelling the CLI.",
+        "The RunCommand projection still works (retirement is CLIRUN-1-3)."
+      ],
+      "required_tests": [
+        {
+          "id": "CLIRUN-1-2 > pilot gog capability invokes structurally with guidance",
+          "path": "apps/core/test/unit/runner/capability-structured-invocation.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "CLIRUN-1-3",
+      "title": "Cutover: retire the RunCommand projection for local_cli",
+      "objective": "Cutover: retire the local_cli -> RunCommand(template) projection so it no longer authorizes these capabilities; ensure existing scheduled jobs invoke via the structured path. No dual-run. Only after the pilot is wired (CLIRUN-1-2).",
+      "write_scope": [
+        "apps/core/src",
+        "apps/core/test",
+        "docs"
+      ],
+      "acceptance_criteria": [
+        "The local_cli -> RunCommand projection no longer authorizes these capabilities.",
+        "Existing scheduled jobs invoke the capability via the structured path (no dual-run).",
+        "A capability with no structured path is not stranded (pilot wired first)."
+      ],
+      "required_tests": [
+        {
+          "id": "CLIRUN-1-3 > RunCommand projection retired for local_cli; structured path authorizes",
+          "path": "apps/core/test/unit/shared/semantic-capabilities.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    }
+  ],
+  "commit": "c504e47288db3194349a5c83e4f7b967d11c7aaf"
+}

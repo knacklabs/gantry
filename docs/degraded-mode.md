@@ -1,62 +1,55 @@
 # Degraded Mode
 
-`codex-plugin-cc` is a REQUIRED tool — `./forge doctor --fix` installs it on
-every machine, so "the plugin isn't installed" is a setup failure, not a
-workflow branch. If it breaks mid-project (upstream regression, cache
-corruption), degraded mode is two moves — neither of which is raw
-`codex exec`, which stays hook-blocked with no escape hatch:
+`forge delegate` is the sole normal path for product and canon writes. The
+orchestrating session's hook denies those writes even with an approved plan;
+planning mode and the older quickfix/lite windows do not lift that lock.
 
-## 1. Repair it
+`codex-plugin-cc` is required. Repair an outage first:
 
 ```bash
 ./forge doctor --fix
-# or explicitly:
-claude plugin marketplace add https://github.com/openai/codex-plugin-cc
-claude plugin install codex@openai-codex
 ```
 
-## 2. Meanwhile: work in Codex directly
+On Windows, see [Windows support](windows.md) for native prerequisite
+remediation and the optional WSL2 escape hatch.
 
-The Codex CLI is itself a sanctioned runtime — a Codex session reads the same
-`AGENTS.md`, `.codex/config.toml` (gpt-5.6-sol @ medium), agents, and skills:
+Read-only discovery remains available through `/codex:rescue`. The companion
+guard also admits direct, unwrapped `status`, `task-resume-candidate`, and
+`task` invocations using only the approved read-only flags. Quoting does not
+change that decision. Sensitive or unknown overrides, raw `codex exec`,
+write-shaped companion calls, and executor-wrapped calls stay denied.
 
-- **Exploration**: a read-only Codex session, or `codex --profile explore`
-  (gpt-5.6-terra @ high, `.codex/explore.config.toml`).
-- **Planning**: the `planner-high` agent with `factory/prompts/planner.md` —
-  the plan grill and `forge plan save` gates apply unchanged.
-- **Implementation**: decision 0032's JIT task loop applies unchanged, one
-  bounded task at a time. Against completed prior work, author the next task
-  contract, re-record the decomposition, run `factory/prompts/griller.md` with
-  its `task` gate, and record the digest-bound pass before starting or
-  delegating the stage:
+## The single write exception
+
+If the companion is broken and product work cannot wait, explicitly open a
+degraded window with a reason:
 
 ```bash
-python3 factory/scripts/record_decomposition_from_json.py --input /tmp/decomposition.json
-python3 factory/scripts/record_grill_from_json.py --gate task --task <id> --task-digest <contract-hash> --input /tmp/task-grill.json
-./forge stage start <id>
-./forge delegate <id>
+./forge mode degraded start --reason "companion outage blocks the active task"
 ```
 
-  The contract hash covers the recorded task's `write_scope`,
-  `required_tests`, `verify_commands`, and `acceptance_criteria`. A write
-  delegation refuses a missing, failed, or stale task grill; read-only
-  delegation remains available for exploration. The Codex implementation
-  session then follows `factory/prompts/implementer.md`.
-- **Testing / review / functional**: same specialist agents, same recorders:
+The window is recorded on the quickfix ledger with `kind: degraded`. It may
+claim at most five distinct locked files. Each direct Edit, Write,
+NotebookEdit, or recognized Bash write claims its locked target before the
+tool runs; a sixth file is denied. Recursive or globbed operations whose file
+set cannot be bounded are denied. `docs/`, `plans/`, `prototype/`, `.gstack/`,
+recorders, scratchpad, and git operations keep their normal routing.
+
+The window is an outage valve, not approval or a second implementation mode.
+Keep the active task scope, tests, verification, and review contract unchanged.
+Close it as soon as the bounded work is complete:
 
 ```bash
-python3 factory/scripts/record_test_from_json.py --kind automated --input /tmp/automated.json
-python3 factory/scripts/verify.py
-python3 factory/scripts/record_review_from_json.py --aspect quality --input /tmp/quality.json
-python3 factory/scripts/record_review_from_json.py --aspect performance --input /tmp/performance.json
-python3 factory/scripts/record_review_from_json.py --aspect security --input /tmp/security.json
-python3 factory/scripts/record_test_from_json.py --kind functional --input /tmp/functional.json
-python3 factory/scripts/pr_ready.py
+./forge mode done
 ```
 
-The artifacts and gates never change — degraded mode swaps the coordinator,
-never the contract. Return to Claude + `/codex:rescue` the moment the plugin
-works again.
+`mode done` writes the claimed files to the ledger's done record and removes
+the active window. Declare its `Q-...` id in the PR body (`Ticket: Q-...`).
+Gate A still requires every completed story and window record in the PR to be
+declared; the degraded record gets no special exemption.
+
+Restore the companion and return to `./forge delegate <task-id>` for any
+remaining locked write.
 
 ## PR-link fallback when CI is unavailable
 

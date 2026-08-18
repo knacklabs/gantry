@@ -1,0 +1,28 @@
+{
+  "commit": "86ac8ef0da7ca6b60447dae6760d11d11aaa3bad",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "pass",
+    "summary": "Retention sweep: typecheck green; scheduler unit suite 27/27 (incl. once-per-interval cadence and retry-after-failure pins); full postgres integration lane 54 files / 344 tests green incl. the new sweep case (deletes only expired terminal rows, bounded batches, {deleted,more} contract).",
+    "blocking_findings": [],
+    "commands_run": [
+      "npm run typecheck",
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/task-scheduler-pgboss.test.ts",
+      "GANTRY_TEST_DATABASE_URL=postgres://postgres:***@127.0.0.1:63421/gantry_test npm run test:integration:postgres"
+    ],
+    "tests_added_or_updated": [
+      "apps/core/test/unit/runtime/task-scheduler-pgboss.test.ts: sweeps terminal live-admission work items at most once per interval",
+      "apps/core/test/unit/runtime/task-scheduler-pgboss.test.ts: retries the retention sweep on the next pass after a failure",
+      "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts: deletes only terminal rows older than the cutoff"
+    ],
+    "pass_fail_summary": "unit 27/27; postgres integration 344 passed, 1 skipped",
+    "non_blocking_findings": [],
+    "remaining_gaps": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-08-03T08:11:00+00:00",
+    "commit": "86ac8ef0da7ca6b60447dae6760d11d11aaa3bad"
+  },
+  "updated_at": "2026-08-03T08:11:00+00:00"
+}

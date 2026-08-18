@@ -35,22 +35,22 @@ def cmd_note(args: argparse.Namespace) -> None:
     base = Path(args.repo).resolve() if args.repo else repo_root()
     path = scratchpad_path(base)
     if args.list:
-        if not path.exists() or notes_section(path.read_text()) is None:
+        if not path.exists() or notes_section(path.read_text(encoding="utf-8")) is None:
             print("No working notes (.factory/scratchpad.md) — jot one: "
                   "./forge note \"<one line>\"")
             return
-        print(notes_section(path.read_text()), end="")
+        print(notes_section(path.read_text(encoding="utf-8")), end="")
         return
     text = (args.text or "").strip()
     if not text:
         fail("nothing to note — ./forge note \"<one line>\" (or --list)")
     entry = f"- {now_iso()}: {text}\n"
-    existing = path.read_text() if path.exists() else ""
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
     path.parent.mkdir(parents=True, exist_ok=True)
     if NOTES_HEADER in existing:
-        path.write_text(existing.rstrip("\n") + "\n" + entry)
+        path.write_text(existing.rstrip("\n") + "\n" + entry, encoding="utf-8")
     else:
         prefix = existing.rstrip("\n") + "\n\n" if existing.strip() else ""
-        path.write_text(prefix + NOTES_HEADER + "\n\n" + entry)
+        path.write_text(prefix + NOTES_HEADER + "\n\n" + entry, encoding="utf-8")
     print("noted -> .factory/scratchpad.md (survives compaction snapshots; "
           "promote anything durable to a lesson/assumption/decision/deferral)")

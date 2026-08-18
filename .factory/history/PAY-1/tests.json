@@ -1,0 +1,45 @@
+{
+  "commit": "aacf96d15d433b315bea16be438b61920b9e5f07",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "pass",
+    "summary": "Full deterministic verify green (structural: format:check + check:architecture exit 0; typecheck; npm test = contracts build + unit + integration). Stage workers ran focused suites per task; two root-cause fixes landed during closeout: runner-sandbox shared/ copy lists replaced with recursive cpSync (45 uniform-timeout failures recovered) and four B/C contract-drift test files ported (agent-spawn, prompt-profile-locked, observer-control-routes, runtime-host-child-process).",
+    "pass_fail_summary": "verify.py: Verification passed (exit 0). Unit+integration ~6650 tests green; previously-failing files re-verified green in isolation.",
+    "commands_run": [
+      "python3 .agents/scripts/verify.py (FACTORY_STRUCTURAL_CMD='npm run format:check && npm run check:architecture', FACTORY_TYPECHECK_CMD='npm run typecheck', FACTORY_TEST_CMD='npm test')",
+      "npm run typecheck",
+      "npm run test:unit -- apps/core/test/unit/control apps/core/test/unit/bootstrap",
+      "npm run test:unit -- apps/core/test/unit/runner apps/core/test/unit/adapters",
+      "npx vitest run apps/core/test/unit/runtime/prompt-profile.test.ts apps/core/test/unit/runtime/agent-spawn-prompt.test.ts",
+      "npx vitest run apps/core/test/unit/runner/agent-runner-ipc.test.ts apps/core/test/unit/architecture/job-notification-cleanup.test.ts",
+      "npx vitest run -c vitest.integration.config.ts apps/core/test/integration/observer-control-routes.integration.test.ts apps/core/test/integration/runtime-host-child-process.integration.test.ts",
+      "python3 -m pytest scripts/tests -q (71 passed)"
+    ],
+    "tests_added_or_updated": [
+      "scripts/tests/test_check_architecture.py: frozen-marker positive/negative, placeholder-skip, plans/-ledger-skip cases",
+      "apps/core/test/unit/runtime/prompt-profile.test.ts: channel-context byte-equality (telegram/slack/default)",
+      "apps/core/test/unit/bootstrap/control-route-ports.test.ts + control route suites: new port composition coverage",
+      "apps/core/test/agent-e2e/fixtures/model-credential-fixture.ts: neutral credential helper + skip-path coverage",
+      "apps/core/test/unit/runner/{agent-runner-ipc,ipc-mcp-stdio}.test.ts: sandbox copy lists replaced with recursive shared/ cpSync",
+      "4 drifted test files ported to the 0037 descriptor + B port contracts without weakening assertions"
+    ],
+    "remaining_gaps": [
+      "agent-runner-ipc suite costs ~20s/test by design (real runner spawn per test) \u2014 amortized under npm test parallelism, slow when run alone",
+      "Postgres-lane suites (test:integration:postgres, e2e) run in CI, not in local verify (credential-free default gate per QUALITY.md)"
+    ],
+    "reviewed_scope": [
+      "apps/core/src",
+      "apps/core/test",
+      "scripts/",
+      "docs/architecture",
+      ".github/workflows/ci.yml"
+    ],
+    "blocking_findings": [],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-07-22T17:32:44+00:00",
+    "commit": "aacf96d15d433b315bea16be438b61920b9e5f07"
+  },
+  "updated_at": "2026-07-22T17:32:44+00:00"
+}

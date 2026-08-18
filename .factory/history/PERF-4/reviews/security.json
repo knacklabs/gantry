@@ -1,0 +1,19 @@
+{
+  "generated_by": "autoreview",
+  "blocking_findings": [],
+  "reviewed_scope": [
+    "apps/core/src/adapters/storage/postgres",
+    "apps/core/src/infrastructure/pgboss",
+    "apps/core/src/jobs",
+    "apps/core/src/domain/ports",
+    "apps/core/test"
+  ],
+  "score": 9,
+  "summary": "Delete-only change scoped to terminal rows nobody reads; no trust-boundary or input-surface changes; serialization via pg_advisory_xact_lock prevents concurrent stampede. Behavioral trade (idempotency replay after 30 days re-enqueues) is deliberate per decision 0103 and documented on the port.",
+  "recommendation": "ship",
+  "aspect": "security",
+  "non_blocking_findings": [],
+  "residual_risks": [],
+  "recorded_at": "2026-08-03T08:10:51+00:00",
+  "commit": "86ac8ef0da7ca6b60447dae6760d11d11aaa3bad"
+}

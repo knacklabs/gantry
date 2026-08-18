@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Scheduled jobs can now actually use the tools and capabilities you granted them. A scheduled run that reaches a command its agent is host-granted (like the gog Google Sheets commands) now asks the host coordinator to authorize it instead of dead-ending \u2014 so the job does its work instead of stalling \u2014 while the settings denylist stays a hard, un-overridable boundary and the agent still can't self-grant (PERM-2 preserved; decision 0116). And a job that genuinely must pause now sends you ONE plain-language message (\"This job paused because it couldn't use X. Needed: \u2026\") instead of three overlapping technical cards. Codex validated the root cause read-only; 8781 unit tests, verify.py, and a whole-branch autoreview all green. One cosmetic edge case deferred (D-0052).",
+  "issue": "CAPRULE-1",
+  "commit": "386ba6e98b2b55279a04558ef6eda1e46d90c178",
+  "recorded_at": "2026-08-08T17:05:11+00:00"
+}

@@ -29,7 +29,7 @@ from .scaffold import (
 
 # Harness-owned: replaced wholesale on upgrade.
 UPGRADE_TREES = ["factory", "constitution", "harness"]
-UPGRADE_FILES = ["forge", "CLAUDE.md", "WORKFLOW.md"]
+UPGRADE_FILES = ["forge", "forge.cmd", "CLAUDE.md", "WORKFLOW.md"]
 # .claude is MIXED ownership: client repos legitimately carry their own
 # skills, agents, launch.json, and settings.local.json (standard Claude Code
 # surfaces — see the thin-adapter linter). Upgrade replaces ONLY the paths
@@ -326,7 +326,7 @@ def _indexed_symlinks_naming_legacy(target: Path) -> list[str]:
             cwd=target, capture_output=True)
         if blob.returncode != 0:
             continue
-        link = blob.stdout.decode("utf-8", errors="replace")
+        link = blob.stdout.decode("utf-8", errors="surrogateescape")
         # Whole path component: `legacy-tools -> .agents` has no trailing slash.
         if ".agents" in link.split("/"):
             found.append(rel.decode("utf-8", errors="surrogateescape"))
@@ -416,14 +416,15 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
     legacy_run = target / ".factory" / "run.json"
     if legacy_run.exists() or legacy_run.is_symlink():
         try:
-            if not isinstance(json.loads(legacy_run.read_text()), dict):
+            if not isinstance(json.loads(legacy_run.read_text(encoding="utf-8")), dict):
                 fail(f"{legacy_run} is not a JSON object; fix or delete it, then rerun")
         except json.JSONDecodeError as exc:
             fail(f"{legacy_run} is unreadable JSON ({exc}); fix or delete it, then rerun")
         except OSError as exc:
             fail(f"{legacy_run} is not a readable file ({exc}); fix or delete it, then rerun")
     dirty = subprocess.run(
-        ["git", "status", "--porcelain"], cwd=target, capture_output=True, text=True
+        ["git", "status", "--porcelain"], cwd=target, capture_output=True,
+        text=True, encoding="utf-8", errors="surrogateescape",
     ).stdout.strip()
     if dirty and not args.force:
         fail(
@@ -571,7 +572,7 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
     # the attestation across rather than silently un-signing the project.
     manifest_yaml = target / "harness.yaml"
     if (manifest_yaml.exists() and not manifest_yaml.is_symlink()
-            and not SIGNOFF_KEY.search(manifest_yaml.read_text())):
+            and not SIGNOFF_KEY.search(manifest_yaml.read_text(encoding="utf-8"))):
         manifest_yaml = assert_target_file_destination(target, manifest_yaml)
         legacy = load_json(target / ".factory" / "run.json", default={})
         carried = (legacy.get("client_signoff_record", "")
@@ -588,7 +589,7 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
         # which is exactly what the old scheme did in a fresh clone.
         carried = canonical_signoff_path(target, carried) if carried else ""
         manifest_yaml.write_text(
-            insert_signoff_pin(manifest_yaml.read_text(), carried)
+            insert_signoff_pin(manifest_yaml.read_text(encoding="utf-8"), carried), encoding="utf-8"
         )
         ensured.append(
             "harness.yaml signoff_record pin ("
@@ -604,17 +605,17 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
     # re-include inside an excluded directory, so the corrected block below
     # only takes effect once the blanket line is gone.
     if gitignore.exists():
-        kept = [line for line in gitignore.read_text().splitlines(keepends=True)
+        kept = [line for line in gitignore.read_text(encoding="utf-8").splitlines(keepends=True)
                 if line.strip() != ".gstack/"]
-        if "".join(kept) != gitignore.read_text():
-            gitignore.write_text("".join(kept))
+        if "".join(kept) != gitignore.read_text(encoding="utf-8"):
+            gitignore.write_text("".join(kept), encoding="utf-8")
             ensured.append(".gitignore (blanket .gstack/ rule removed — it hid "
                            "the committed projects/ store)")
-    gstack_text = gitignore.read_text() if gitignore.exists() else ""
+    gstack_text = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
     # Exact LINE matches everywhere a marker is consulted: marker text quoted
     # inside a longer comment must not count as an installed block.
     if GSTACK_MARKER not in (line.strip() for line in gstack_text.splitlines()):
-        with gitignore.open("a") as fh:
+        with gitignore.open("a", encoding="utf-8") as fh:
             fh.write(("\n" if gstack_text else "")
                      + GSTACK_MARKER + "\n"
                      + "".join(f"{rule}\n" for rule in GSTACK_RULES))
@@ -634,16 +635,16 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
     # respects that — including in the untracking below, which touches ONLY
     # paths the committed rules actually ignore. Untracking an opted-back-in
     # path would delete teammates' copies of it on their next pull.
-    ignore_text = gitignore.read_text() if gitignore.exists() else ""
+    ignore_text = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
     ignore_lines = [line.strip() for line in ignore_text.splitlines()]
     if EPHEMERAL_MARKER not in ignore_lines:
-        with gitignore.open("a") as fh:
+        with gitignore.open("a", encoding="utf-8") as fh:
             fh.write(("\n" if ignore_text else "")
                      + EPHEMERAL_MARKER + "\n"
                      + "".join(f"{rel}\n" for rel in EPHEMERAL_UNTRACK))
         ensured.append(".gitignore (0025 ephemeral paths appended)")
         ignore_lines = [line.strip()
-                        for line in gitignore.read_text().splitlines()]
+                        for line in gitignore.read_text(encoding="utf-8").splitlines()]
     # Only the marker-owned tail governs, last mention wins: a duplicate
     # positive rule elsewhere in the file must not override an opt-out made
     # under the marker (removing the rule, or negating it below the block).
@@ -663,6 +664,7 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
         ["git", "-C", str(target), "rm", "-r", "--cached", "--ignore-unmatch",
          "--"] + to_untrack,
         capture_output=True, text=True,
+        encoding="utf-8", errors="surrogateescape",
     ) if to_untrack else None
     if untracked and untracked.returncode != 0:
         raise SystemExit("could not untrack ephemeral .factory paths:\n"
@@ -688,7 +690,7 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
     commit = head_sha(harness) or "unknown"
     assert_target_file_destination(
         target, target / "constitution" / "VENDORED_FROM").write_text(
-        f"symphony-forge @ {commit}\nUpdate by re-vendoring from the harness repo; do not edit in place.\n"
+        f"symphony-forge @ {commit}\nUpdate by re-vendoring from the harness repo; do not edit in place.\n", encoding="utf-8"
     )
     # Re-freeze the gate surface at the new vendoring (frozen-gate-integrity).
     from check_vendor_integrity import write_manifest
@@ -704,7 +706,7 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
         drift = ("\nNOTE: no harness.yaml in this repo — the phase contract falls "
                  "back to the harness default. Copy the harness's harness.yaml if "
                  "this project needs to own it.")
-    elif (harness / "harness.yaml").read_text() != target_harness.read_text():
+    elif (harness / "harness.yaml").read_text(encoding="utf-8") != target_harness.read_text(encoding="utf-8"):
         drift = ("\nNOTE: harness.yaml differs from the harness default (project-owned, "
                  "left untouched) — diff manually if the phase contract changed upstream.")
     print(f"Upgraded {target} to symphony-forge @ {commit[:8]}")
@@ -731,3 +733,5 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
         print(f"Project-owned files still referencing .agents/: none{caveat}")
     print("Next: review with `git diff`, run `python3 factory/scripts/check_dual_runtime.py` "
           "and the gate tests, then commit.")
+    from .scaffold import remediate_windows_hook_entry
+    remediate_windows_hook_entry(target)

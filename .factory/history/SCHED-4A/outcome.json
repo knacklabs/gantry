@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Permission and job notifications now tell the truth plainly. Approving something once says so \u2014 'Approved for this run only; future runs will need approval again' \u2014 instead of leaving you to discover the difference later. A job that finishes despite a blocked step sends ONE card ('Completed with limits', naming what degraded and every one-time approval) instead of a green Completed and an orange Setup-needed contradicting each other, and no path can leave a paused job silent. A command blocked because its shape didn't match shows the approved pattern next to what was attempted \u2014 ending the 'was it even granted?' guessing from the incident. And a repeating permission prompt now says how many times you've approved it and over how many days, offering to make it permanent.",
+  "issue": "SCHED-4A",
+  "commit": "42cac0dcedf6a6f69cbd79179ce7d66546139803",
+  "recorded_at": "2026-08-05T16:28:29+00:00"
+}

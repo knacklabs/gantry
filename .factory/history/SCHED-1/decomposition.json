@@ -1,0 +1,77 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "user_facing": false,
+  "project": "SCHED-1",
+  "tasks": [
+    {
+      "id": "SCHED-1-1",
+      "title": "Typed permission provenance + ask-gated scheduler mutations (B1+B3, decision 0107)",
+      "objective": "Derive typed source + repeatableForFutureRuns in decisionForMode (one map; free-form decidedBy maps conservatively to human_once), kill the unconditional user_temporary label, carry both fields through the decision type, gate emission and signed IPC field list, and flip the job pause predicate to human_once-only with a legacy fallback. Move the five scheduler mutation verbs to high risk (ask in auto) and correct the pinning tests.",
+      "write_scope": [
+        "apps/core/src/domain",
+        "apps/core/src/runner",
+        "apps/core/src/jobs",
+        "apps/core/src/application",
+        "apps/core/src/shared",
+        "apps/core/test",
+        "docs",
+        "apps/core/src/adapters/llm",
+        "apps/core/src/runtime",
+        "apps/core/src/app",
+        "apps/core/src/channels"
+      ],
+      "acceptance_criteria": [
+        "recurring job stays ACTIVE after successful runs containing allow_once decisions from auto_classifier, cached_classifier_verdict, trusted_root_grant, birthright, deterministic_read_only and reviewed_rule (one regression per source); pauses only on explicit human one-time consent (source human_once, not repeatable)",
+        "decisionForMode is the single derivation point; decisionClassification is a function of source; the unconditional user_temporary fall-through is gone",
+        "source and repeatableForFutureRuns are in PERMISSION_RESPONSE_FIELDS_AFTER_APPROVED with a tamper test; legacy permission_allowed payloads without source keep the old reviewed_rule pause semantics",
+        "scheduler_update/upsert/pause/resume/run_now classify high (ask in auto); reads stay low; gantry-tool-risk and permission-classifier pin tests corrected, with a scheduler-asks case; reviewed persistent grants still short-circuit (0065)"
+      ],
+      "required_tests": [
+        {
+          "id": "job execution diagnostics > keeps recurring jobs active across automatic allow-once decisions from every policy source",
+          "path": "apps/core/test/unit/jobs/execution-diagnostics.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "SCHED-1-2",
+      "title": "Unattended scheduler surface + host-side mutation rejection (B2+B4, decision 0106)",
+      "objective": "Drop the six scheduler mutation tools from autonomous-lane surfaces in BOTH selection paths (permissionLane option; GANTRY_PERMISSION_LANE threaded into the runner parse path), widen PermissionRunRestriction with runKind/jobId/runId from isScheduledJob, host-reject mutations whose entry is scheduled or missing, stamp signed source provenance in writeIpcFile (add GANTRY_RUN_ID), and replace the scheduled prompt's self-edit instruction with the no-mutation control policy.",
+      "write_scope": [
+        "apps/core/src/runner",
+        "apps/core/src/runtime",
+        "apps/core/src/jobs",
+        "apps/core/src/adapters/llm",
+        "apps/core/src/shared",
+        "apps/core/test",
+        "docs",
+        "apps/core/src/app",
+        "apps/core/src/domain"
+      ],
+      "acceptance_criteria": [
+        "a scheduled (autonomous-lane) spawn's tool surface lacks scheduler_update/upsert/pause/resume/run_now/delete in BOTH the projection and the runner-process parse path, keeps all read tools; interactive keeps both sets",
+        "scheduler mutate handlers reject requests whose host-side run-restriction entry is scheduled or missing (missing = untrusted); interactive mutations proceed under the ask policy; reads unaffected",
+        "writeIpcFile's signed requestContext carries sourceJobId/sourceRunId/sourceRunKind from host-injected env; forged-field tamper rejected",
+        "scheduled prompt states inspect-only control policy and proposedJobChange reporting; self-edit instruction removed",
+        "both sandbox spawn suites carry any new runner-reachable module"
+      ],
+      "required_tests": [
+        {
+          "id": "scheduler mutation authority > host rejects mutations from scheduled or unknown run sources",
+          "path": "apps/core/test/unit/jobs/ipc-scheduler-mutate-handlers.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    }
+  ],
+  "commit": "14b80c855d9adbbf596298d2491bab652eb9ad70"
+}

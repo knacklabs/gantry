@@ -1,0 +1,25 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "task_id": "AUTODET-1-1",
+  "questions_asked": 7,
+  "summary": "AUTODET-1-1 contract interrogated against the approved plan, decision 0121, and the repo state mapped by the Codex read-only exploration. All referenced files and tests exist on main. Write scope covers the three surfaces the plan names (host runtime tail, shared policy reason plumbing, both runner-lane adapters) plus unit tests. Required tests map 1:1 onto the acceptance criteria and each command produces JUnit proof. Re-grilled twice: (1) scope widened to include docs/decisions, docs/specs, plans (story artifacts ride the stage commit); (2) required-test ids corrected to the exact vitest JUnit testcase names (describe-chain prefixes) so the stage-done proof matcher finds them - the tests themselves are unchanged and green.",
+  "gaps": [
+    "The classifier tail also serves a cached-verdict branch; the guard must bypass cached classifier verdicts for jobId requests too, or determinism leaks back through the cache",
+    "The FORGE_TEST_ID shell-managed gotcha: the recorded commands contain > nowhere, but the implementer must run them via the managed shell, not raw redirection",
+    "Reason-attribution fix touches shared plumbing used by interactive runs; interactive decisionReason output must be pinned by an existing-behavior test before edit"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Cached-verdict bypass added to the task reading of AC-1: 'never reach the classifier' includes reading or writing classifier verdict caches for jobId requests; reviewer_focus already names 'no second consult path e.g. cached verdicts'",
+    "Delegation brief carries the managed-shell instruction; forge delegate composes the invocation",
+    "AC-4 (interactive byte-for-byte unchanged) is the pin; implementer extends coordinator tests to snapshot interactive reasons before changing shared plumbing"
+  ],
+  "open_items": [
+    "If the DeepAgents lane needs no code change (host-side guard covers it), its required test may prove parity without an adapter diff - acceptable, record as evidence"
+  ],
+  "input_sha256": "ec46c505eca6e013f71a89b5d2862757419adf099594f06733ee4798cf3aedb8",
+  "recorded_at": "2026-08-11T12:24:25+00:00",
+  "commit": "ec121aa1eaacaa9f96fe03ba2aa9323236e98cd1"
+}

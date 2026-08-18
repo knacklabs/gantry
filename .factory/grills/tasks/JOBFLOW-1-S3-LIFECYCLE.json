@@ -1,0 +1,24 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "questions_asked": 4,
+  "gaps": [
+    "Job deletion cancels prompt + interaction + delivery in ONE transaction with structured reasons - replacing today's delete-then-swallow; a cancellation failure SURFACES and aborts the delete",
+    "Cancelled prompt/interaction/delivery rows SURVIVE job deletion as audit history (job_id is a plain indexed column, no FK cascade - integrity comes from the one transaction)",
+    "Promotion-offer deletion is NARROW: offer wrappers, PermissionPromotionInput.offer, markOffered port surface, lastOfferedAt column + its pins; the classifier counter/read path (allowCount/createdAt/deniedAt) is UNTOUCHED",
+    "Claimed prompts: job deletion is AUTHORITATIVE target invalidation - claimed -> superseded under the claim lock is permitted here (the one exception to open-only sweeps)"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Appendix S3 DELETE/CANCEL contract pins the single transaction; decision 0124 holds the recovery graph",
+    "The preserve-on-failure pin family is replaced deliberately (reviewer_focus)",
+    "Callbacks on cancelled prompts answer 'This prompt is no longer active.'",
+    "Migration drops lastOfferedAt; no runtime legacy handling (no-legacy directive)"
+  ],
+  "owner_questions": [],
+  "task_id": "JOBFLOW-1-S3-LIFECYCLE",
+  "input_sha256": "3570d5f021a53fc89741ea681b866acd4ef92e02d16098ce5d682ea9a44cdfad",
+  "recorded_at": "2026-08-14T01:24:47+00:00",
+  "commit": "17635945977a6d00dcd851ab91145c328eaba5d0"
+}

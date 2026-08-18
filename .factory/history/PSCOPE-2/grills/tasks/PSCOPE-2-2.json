@@ -1,0 +1,27 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "issue": "PSCOPE-2",
+  "verdict": "pass",
+  "questions_asked": 4,
+  "summary": "Same grill re-recorded after adding scripts/ to write_scope (S-0003-e638: deleting the last providerConnection read requires removing its stale architecture-exceptions entry; the orchestrator made that one-line hygiene edit). Content otherwise unchanged; implementation already verified (1363 tests, typecheck, architecture, format green).",
+  "gaps": [
+    "The bootstrap needs the trusted installer id from the my_chat_member update, never from message text.",
+    "Deleting the DM flow leaves port members and wiring references potentially orphaned.",
+    "The old flow's leave-handling and metadata persistence must survive the rewire.",
+    "telegram.test.ts group-join suite pins the OLD behavior and must be rewritten.",
+    "The stale providerConnection exception entry must go with the code that earned it."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "The handler passes String(update.from.id) directly from the grammY update object.",
+    "Port members, repository methods, wiring references and the bootstrap test-double file removed together; shared members kept.",
+    "Join/leave detection, onChatMetadata persist, and markLeft preserved per the stage-1 contract.",
+    "Suite rewritten to the new contract; required test id pins it.",
+    "scripts/architecture-exceptions.json entry deleted; check:architecture green."
+  ],
+  "task_id": "PSCOPE-2-2",
+  "input_sha256": "123d9571b296fc684e739f99bd73027590760024a6e3b47ff24dd6618e0cfa80",
+  "recorded_at": "2026-08-10T14:13:05+00:00",
+  "commit": "287e4a68b7bdec91dc2c66331176dd3b615490bb"
+}

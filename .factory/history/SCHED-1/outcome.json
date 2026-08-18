@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Recurring jobs no longer pause themselves: the runtime now distinguishes automatic policy approvals from genuine human one-time consent, and only the latter pauses a job \u2014 with every automatic path regression-tested and ambiguous records treated safely. Scheduled runs also lost the ability to edit their own future: the six scheduler mutation tools are gone from unattended runs at two independent layers (the tool list they see, and a host-side check they cannot forge because it keys on values only the host mints), scheduler changes now ask a human in auto mode as decision 0058 always required, and every request carries signed source-run provenance for auditing. The self-pausing loop that hit the lead-maintenance job is closed at all four of its causes.",
+  "issue": "SCHED-1",
+  "commit": "5744e58a4158f8f83a7b2f3180fcfb6b24681673",
+  "recorded_at": "2026-08-05T05:51:54+00:00"
+}

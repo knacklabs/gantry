@@ -1,0 +1,53 @@
+{
+  "issue": "PAY-1",
+  "stages": [
+    {
+      "id": "PAY-1-A",
+      "title": "File-size splits (5 leaf extractions)",
+      "status": "done",
+      "started_at": "2026-07-22T13:39:04+00:00",
+      "parallel": true,
+      "completed_at": "2026-07-22T13:39:04+00:00"
+    },
+    {
+      "id": "PAY-1-B",
+      "title": "Control-layer import ports",
+      "status": "done",
+      "started_at": "2026-07-22T13:39:04+00:00",
+      "parallel": true,
+      "completed_at": "2026-07-22T13:39:04+00:00"
+    },
+    {
+      "id": "PAY-1-C",
+      "title": "Provider neutrality (tests + prompt seam)",
+      "status": "done",
+      "started_at": "2026-07-22T13:39:04+00:00",
+      "parallel": true,
+      "completed_at": "2026-07-22T13:39:04+00:00"
+    },
+    {
+      "id": "PAY-1-D",
+      "title": "Doc-reference gate semantics + repairs",
+      "status": "done",
+      "started_at": "2026-07-22T13:39:04+00:00",
+      "parallel": true,
+      "completed_at": "2026-07-22T13:39:04+00:00"
+    },
+    {
+      "id": "PAY-1-E",
+      "title": "Remainder file-size splits (13 files)",
+      "status": "done",
+      "started_at": "2026-07-22T13:39:05+00:00",
+      "parallel": true,
+      "completed_at": "2026-07-22T14:09:18+00:00"
+    },
+    {
+      "id": "PAY-1-F",
+      "title": "Provider-path fixes + exception hygiene",
+      "status": "done",
+      "started_at": "2026-07-22T13:39:05+00:00",
+      "parallel": true,
+      "completed_at": "2026-07-22T13:55:01+00:00"
+    }
+  ]
+}

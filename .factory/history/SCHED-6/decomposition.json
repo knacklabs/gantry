@@ -1,0 +1,257 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "user_facing": false,
+  "project": "",
+  "tasks": [
+    {
+      "id": "SCHED-6-1",
+      "title": "Autonomous tool denial is terminal \u2014 pause-and-ask, never silently continue",
+      "objective": "Flip denyNonPromptableAutonomousRecovery to interrupt:true + terminal telemetry so an autonomous-job tool denial ends the run and routes to the existing SCHED-4B setup-pause card carrying the denied tool name. Grantable-but-declared -> approval card; non-grantable (locked/fixed-image/protected/unmatched/mcp) -> legible instruction card. A denied-tool pause must not consume a retry/backoff attempt or dead-letter. Zero-timeout synchronous protocol unchanged.",
+      "write_scope": [
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner",
+        "apps/core/src/jobs",
+        "apps/core/src/adapters/llm/deepagents-langchain/runner",
+        "apps/core/test",
+        "docs",
+        "plans"
+      ],
+      "acceptance_criteria": [
+        "denyNonPromptableAutonomousRecovery returns interrupt:true and emits terminal telemetry (terminal:true) instead of the soft {deny, interrupt:false, terminal:false}; the model can no longer continue with another tool after a denial",
+        "the terminal denial flows execution.ts -> execution-finalization.ts setupStateForDeniedTool -> setup-pause card, carrying the SPECIFIC denied tool name (not a generic message); execution-diagnostics retains the terminal permission_denied event and its tool name",
+        "a declared-but-ungranted grantable denial raises the SCHED-4B approval card naming the tool; a non-grantable denial (locked-preset, fixed-image, protected path, unmatched RunCommand, unreachable mcp) ends with an instruction-only card naming the tool and why",
+        "a denied-tool terminal failure routes to the setup-pause (awaiting-approval) state and does NOT consume a retry/backoff attempt or count toward dead-letter; a late approval resumes and reruns the job",
+        "the synchronous zero-timeout autonomous permission protocol is unchanged; the parallel DeepAgents runner denial path gets the same terminal behavior",
+        "tests that asserted denied-without-pausing (tool-permission-gate.test.ts:1018, execution-diagnostics.test.ts:35) are updated to the terminal behavior; decision 0115 referenced and autonomous-jobs.md aligned",
+        "full jobs + runner unit suites stay green (blast-radius check)",
+        "REVIEW FIX 6-1a [P1] (DeepAgents denial must actually terminate the turn): throwing a plain Error inside a LangChain structured tool does NOT terminate the agent \u2014 the default ToolNode converts the exception into an error ToolMessage and returns control to the model, which can then issue more tool calls or substitute another tool after the 'terminal' denial (the exact silent-continuation SCHED-6 kills). Fix the DeepAgents runner so a terminal autonomous denial aborts at the GRAPH/turn level \u2014 signal the run's abort (the same AbortSignal the runtime uses for cancellation) / interrupt the agent loop so no further tool call is possible \u2014 rather than relying on a thrown Error that tool-error recovery swallows. Add a FULL DeepAgents-turn test (not just calling the callback/tool directly) proving that after a denied tool the model does NOT get to make another tool call and the run ends terminally. The Anthropic path is already correct; this is DeepAgents-only.",
+        "REVIEW FIX 6-1b (full-suite blast radius \u2014 a third old-behavior test missed): apps/core/test/unit/runner/agent-runner-ipc.test.ts 'scheduled jobs deny unsupported exact tool grants without permission prompts' still asserts the removed soft-deny (denial without interrupting/pausing). Update it to the SCHED-6 terminal behavior: an unsupported/non-grantable exact-tool denial in a scheduled job is now TERMINAL (interrupt:true + terminal telemetry) \u2014 it still raises NO permission prompt (correct for non-grantable) but it no longer soft-continues; it ends the run and routes to the instruction-only setup card. Run the FULL unit suite (npm run test:unit) to confirm zero failures \u2014 do not rely on focused files; this test was invisible to the changed-area run."
+      ],
+      "required_tests": [
+        {
+          "id": "tool permission gate > autonomous non-promptable denial is terminal and interrupts the run",
+          "path": "apps/core/test/unit/runner/tool-permission-gate.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "execution finalization > a denied-tool terminal failure pauses the job for approval without consuming a retry attempt",
+          "path": "apps/core/test/unit/jobs/execution-finalization.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "SCHED-6-2",
+      "title": "One-tap approve-and-declare for under-declared grantable tools",
+      "objective": "When an autonomous job's agent is denied a grantable tool NOT in its access_requirements, the setup-pause card offers a single Allow-for-future action. Approving it performs both, from the human's decision: adds the tool to the job's access_requirements AND grants it to the agent via the existing persistRequestPermissionRules + recheck chain, then the job retries. Human-initiated (0106-consistent). Non-grantable under-declared tools stay instruction-only.",
+      "write_scope": [
+        "apps/core/src/application/jobs",
+        "apps/core/src/application/interactions",
+        "apps/core/src/jobs",
+        "apps/core/src/app",
+        "apps/core/test",
+        "docs",
+        "plans",
+        "apps/core/src/domain/repositories",
+        "apps/core/src/adapters/storage/postgres",
+        "apps/core/src/domain"
+      ],
+      "acceptance_criteria": [
+        "an under-declared but grantable denied tool is mapped to a grantable requirement suggestion (reusing the setup-pause grantable-blocker mapping / job-tool-access-requirements) so the SCHED-4B card presents a one-tap Allow-for-future action instead of instruction-only",
+        "approving that action adds the tool to the job's access_requirements AND grants it to the agent (persistRequestPermissionRules), atomically from the single human decision; then the existing recheck resumes and the job retries",
+        "the add-to-requirements is HUMAN-initiated (approver acting on the card), not the autonomous run mutating its own job, staying within decision 0106 \u2014 verified by a test that the run itself never mutates access_requirements",
+        "a non-grantable under-declared tool still lands on the instruction-only card; a stale card (job/blocker changed) does not add a requirement or grant",
+        "full unit suite (npm run test:unit) passes",
+        "REVIEW FIX 6-2a [P2] (match the added requirement to what was ACTUALLY granted): the hook derives the requirement to append from request.suggestions (the prompt's PROPOSED updates), but durable settlement grants decision.updatedPermissions (the human's actual selection). If the final decision narrows/changes/removes updates, the job gains a requirement that does not correspond to the agent's real grant, leaving readiness inconsistent with actual permissions. FIX: derive the requirement(s) to add from the EFFECTIVE decision.updatedPermissions that were actually persisted, matching them before mutating the job \u2014 extend the beforePersistentGrant contract to carry the effective updates, or move the requirement-add to where decision.updatedPermissions is available (after persist). Only add requirements that correspond to rules actually granted.",
+        "REVIEW FIX 6-2b [P2] (CAS the requirement append via updated_at, no stale-snapshot full-field replace, NO new column): add a repository operation that appends a single access_requirement guarded on the job's updated_at fetched with the snapshot (optimistic-CAS) \u2014 on a concurrent change the write is rejected and the settlement re-reads and retries, never a full-field replace from a stale read. Do NOT add a definition_revision column (SCHED-3 / decision 0108 owns that and is not built yet); use the existing updated_at as the version token. Add the CAS append to the RuntimeJobRepository port + the Postgres adapter (WHERE updated_at = expected). Test: a concurrent access_requirements change between fetch and settlement is not lost (the CAS rejects and retries)."
+      ],
+      "required_tests": [
+        {
+          "id": "setup pause prompts > an under-declared grantable denial offers one-tap approve that adds the job requirement and grants the agent",
+          "path": "apps/core/test/unit/application/setup-pause-prompt.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "SCHED-6-3",
+      "title": "Terminal denial must stop concurrent sibling tools + classify Anthropic denial as failed-run",
+      "objective": "Close two whole-branch gaps in terminal-denial handling. (1) LangGraph runs sibling tool calls concurrently and only the shell tool honors the abort, so a denied tool plus an allowed side-effecting tool can still run the latter \u2014 reach the abort to the facade and MCP paths. (2) The Anthropic denial error is not parseable as an autonomous-tool-denial, so the finalizer marks it resumably-paused instead of a failed run that pauses for approve-and-fresh-retry.",
+      "write_scope": [
+        "apps/core/src/adapters/llm/deepagents-langchain/runner",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner",
+        "apps/core/src/jobs",
+        "apps/core/src/shared",
+        "apps/core/test",
+        "docs",
+        "plans"
+      ],
+      "acceptance_criteria": [
+        "every projected DeepAgents tool path honors the terminal abort BEFORE performing side effects \u2014 the turn cancellation signal reaches the facade executeFacadeTool and third-party MCP invokeUnderlying paths (not only the shell tool), OR scheduled tool dispatch is serialized \u2014 so a single model response containing a denied tool and an allowed side-effecting tool does NOT execute the side-effecting tool after the denial",
+        "a full DeepAgents-turn test with concurrent [denied + allowed side-effecting] tool calls proves the allowed side-effecting tool does not run after the denial",
+        "the Anthropic autonomous non-promptable denial emits the same parseable autonomous-tool-denial classification as DeepAgents ('Tool not on autonomous run allowlist:' -> autonomousToolDenial), so the finalizer records it as a FAILED run that pauses the job for approve-and-fresh-retry, NOT a resumably-paused run with no interaction to resume",
+        "a test asserts the Anthropic denial is classified failed/fresh-retry (autonomousToolDenial set), not paused-resumable",
+        "full unit suite (npm run test:unit) passes"
+      ],
+      "required_tests": [
+        {
+          "id": "DeepAgents terminal permission denial > a denied tool cancels a concurrent side-effecting sibling tool in the same turn",
+          "path": "apps/core/test/unit/adapters/deepagents-terminal-denial-turn.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "SCHED-6-4",
+      "title": "DeepAgents denial must carry grantable-vs-not classification so non-grantable stays instruction-only",
+      "objective": "The DeepAgents autonomous-policy denial callback collapses every denial to {toolName, reason}, dropping grantability, so finalization can't tell a non-grantable denial (locked-preset, fixed-image) from a missing grant. Browser on a LOCKED agent then gets an approval the lock still rejects \u2014 an approve-and-retry loop instead of instruction-only. Carry grantability/recoveryAction through the DeepAgents event and terminal error, like the Anthropic path.",
+      "write_scope": [
+        "apps/core/src/adapters/llm/deepagents-langchain/runner",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner",
+        "apps/core/src/shared",
+        "apps/core/src/jobs",
+        "apps/core/src/application/jobs",
+        "apps/core/test",
+        "docs",
+        "plans"
+      ],
+      "acceptance_criteria": [
+        "the DeepAgents autonomous-policy terminal denial carries the same structured grantability/recoveryAction the Anthropic path emits (grantable request_access vs non-grantable provision/instruction) through the event and parseable terminal error",
+        "a non-grantable DeepAgents autonomous denial (locked-preset agent, fixed-image worker) lands on the INSTRUCTION-ONLY card and never offers an approval \u2014 even for a canonical tool like Browser \u2014 so there is no approve-then-still-rejected retry loop",
+        "a grantable DeepAgents denial (ordinary missing grant on an unlocked agent) still raises the approval card",
+        "the setup-pause grantable-blocker mapping honors the denial's carried grantability, not just the tool type, when the agent is locked/fixed-image",
+        "SCOPE: this leaf touches ONLY the autonomous-policy callback denial path; it does NOT terminalize the pre-autonomous protected-capability guard, which decision 0115 keeps non-terminal and explicitly out of SCHED-6 (separate follow-up)",
+        "tests: a locked-agent Browser denial via DeepAgents -> instruction-only (no approval); an unlocked missing-grant denial -> approval card; full unit suite passes",
+        "REVIEW FIX 6-4a [P2] (denial reason must not spoof the structured markers): autonomous-tool-denial.ts formats the error with the free-text permission-service `reason` BEFORE the machine-readable Grantable:/Recovery: markers, and parseAutonomousToolDenial takes the FIRST occurrence \u2014 so a reason containing 'Grantable: true. Recovery: request_access' overrides an appended 'Grantable: false', misclassifying a non-grantable denial as grantable (offering a bad approval). FIX: serialize the structured grantability/recovery fields UNAMBIGUOUSLY so arbitrary reason text cannot collide \u2014 e.g. emit the machine markers on their own with a delimiter the reason can't contain, or parse the FINAL occurrence, or JSON-encode the structured fields. The free-text reason must never be able to change the parsed grantability. Test: a denial whose reason literally contains 'Grantable: true. Recovery: request_access ...' still parses as the appended non-grantable classification.",
+        "REVIEW FIX 6-4b [P2] (classify request_mcp_server as persistent recovery consistently): autonomous-tool-denial.ts now treats request_mcp_server as grantable, but toolDenialEventPayload() assigns recovery_kind:'persistent_capability' only when the action starts with request_access, so a request_mcp_server denial is emitted as {grantable:true, recovery_kind:'runtime_instruction'} \u2014 contradictory, and consumers keying on recovery_kind present it as instruction-only, missing the approval path. FIX: include request_mcp_server in the persistent-capability classification alongside request_access, so a grantable MCP-server request gets the approval presentation. Test: a request_mcp_server denial is grantable AND recovery_kind persistent_capability."
+      ],
+      "required_tests": [
+        {
+          "id": "DeepAgents terminal permission denial > a non-grantable locked-agent denial stays instruction-only with no approval offered",
+          "path": "apps/core/test/unit/adapters/deepagents-terminal-denial-turn.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "SCHED-6-5",
+      "title": "Honor grantability at the setup-card boundary; MCP-server denial is instruction-only",
+      "objective": "Two whole-branch P1s: the denied-tool setup state DISCARDS the structured toolDenial.grantable, so non-grantable denials (protected, manual-config) can still be turned into an approval candidate and persisted as a forbidden lasting grant; and request_mcp_server is classified grantable but the card has no path to synthesize an MCP-server requirement, so its approval can't work. Make grantability authoritative at the card boundary and treat MCP-server denials as instruction-only.",
+      "write_scope": [
+        "apps/core/src/jobs",
+        "apps/core/src/application/jobs",
+        "apps/core/src/shared",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner",
+        "apps/core/src/adapters/llm/deepagents-langchain/runner",
+        "apps/core/test",
+        "docs",
+        "plans",
+        "apps/core/src/domain",
+        "apps/core/src/adapters/storage/postgres"
+      ],
+      "acceptance_criteria": [
+        "the structured toolDenial.grantable classification is PROPAGATED into the denied-tool setup state and is authoritative \u2014 the setup-card candidate builder offers a one-tap approval ONLY when grantable is true AND a valid requirement can be synthesized (capability, browser, scoped tool rule); every non-grantable recovery (protected, manual-config, locked, fixed-image) is instruction-only and can never be persisted as a lasting grant",
+        "grantability is NOT re-derived by matching a single hidden-authority message; it comes from the carried classification (isGrantableAutonomousToolRecovery / the structured field)",
+        "request_mcp_server denials are treated as NON-card-grantable -> instruction-only (there is no MCP-server requirement-synthesis path in the card; configuring an MCP server is out-of-band, not a one-tap rule grant); fix the earlier 'grantable' MCP classification so the card never offers an approval it cannot fulfill",
+        "a protected/manual-config non-grantable denial never becomes a browser/tool/capability approval candidate (falsifier); an MCP-server denial is instruction-only (falsifier); grantable capability/browser/scoped-tool denials still get the approval card",
+        "full unit suite (npm run test:unit) passes",
+        "REVIEW FIX 6-5a [P2] (fail CLOSED on undefined grantability \u2014 NO legacy fallback, per 0112/0113/no-backcompat): a persisted legacy setup_state blocker predates the grantable field (parseSetupBlocker leaves it undefined). Do NOT reintroduce the isHiddenAuthorityAutonomousToolRecovery(nextAction) legacy heuristic \u2014 the repo policy (decisions 0112 single-canonical-shape, 0113 enforce-no-backcompat, and the standing no-backward-compat rule) forbids legacy-shape fallbacks. Instead FAIL CLOSED at the card candidate builder: offer a one-tap approval ONLY when grantable === true; undefined OR false -> instruction-only. A legacy blocker without the field is therefore instruction-only until its setup_state is regenerated by the next readiness recheck (which carries grantable) \u2014 never wrongly turned into an approval after upgrade. Test: a blocker with grantable undefined is instruction-only (no approval), and one with grantable true still gets the approval card."
+      ],
+      "required_tests": [
+        {
+          "id": "setup pause prompts > a non-grantable denial is never turned into an approval candidate",
+          "path": "apps/core/test/unit/application/setup-pause-prompt.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "SCHED-6-6",
+      "title": "One-tap approve for under-declared scoped RunCommand denials (build candidate from trusted recovery action)",
+      "objective": "A scoped RunCommand the agent tried but the job didn't declare is grantable, but finalization makes a local_cli blocker with no stored requirement, so the candidate builder returns null and the card falls to instruction-only \u2014 the most common scheduled shell denial never gets the one-tap approve-and-declare. Build the scoped requirement candidate from the TRUSTED recovery action (which carries the actual scoped command) so the card offers one-tap approve that adds the requirement and grants it.",
+      "write_scope": [
+        "apps/core/src/application/jobs",
+        "apps/core/src/jobs",
+        "apps/core/src/shared",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner",
+        "apps/core/src/adapters/llm/deepagents-langchain/runner",
+        "apps/core/src/domain",
+        "apps/core/test",
+        "docs",
+        "plans"
+      ],
+      "acceptance_criteria": [
+        "an under-declared GRANTABLE scoped RunCommand denial produces a one-tap Allow-for-future card (not instruction-only); the scoped requirement candidate is synthesized from the TRUSTED recovery action (which carries the actual scoped command), NOT from the lossy local_cli blocker tuple",
+        "approving it, in one human action, adds the scoped RunCommand requirement to the job's access_requirements AND grants the scoped rule to the agent (persistRequestPermissionRules + updated_at-CAS append), then the recheck resumes and the job retries",
+        "the synthesized requirement matches the effective decision.updatedPermissions actually granted (6-2a) and is grantable === true (6-5 fail-closed) before any approval is offered",
+        "a non-grantable CLI denial (locked/fixed-image/unparseable command) still lands instruction-only; nothing is granted for a stale card",
+        "falsifier: an under-declared scoped RunCommand denial -> one-tap approve -> job requirement + agent grant recorded -> retry; full unit suite passes"
+      ],
+      "required_tests": [
+        {
+          "id": "setup pause prompts > an under-declared scoped RunCommand denial offers one-tap approve built from the recovery action",
+          "path": "apps/core/test/unit/application/setup-pause-prompt.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "SCHED-6-7",
+      "title": "Append the job requirement only after the permission grant succeeds",
+      "objective": "beforePersistentGrant appends the job's access_requirement BEFORE the tool/binding/settings grant is applied, so if a later grant step fails the job is left declaring a requirement the agent never received \u2014 a partial update where requirement and grant diverge and alter subsequent readiness. Order it correctly: apply the grant first, and append the job requirement only after grant persistence succeeds (or add compensation), so the two can never diverge.",
+      "write_scope": [
+        "apps/core/src/app",
+        "apps/core/src/application/jobs",
+        "apps/core/src/application/interactions",
+        "apps/core/test",
+        "docs",
+        "plans"
+      ],
+      "acceptance_criteria": [
+        "the job access_requirement append happens only AFTER the permission grant persistence succeeds \u2014 if any grant step fails/returns false, the requirement is NOT added, so requirement and agent grant never diverge",
+        "the updated_at-CAS append and the recheck/retry still run after a successful grant; the ordering change does not reintroduce a lost-update or a double-write",
+        "falsifier: a failing persistent grant (tool repo unavailable / binding save returns false) leaves the job's access_requirements UNCHANGED (no partial update); a successful grant still appends the requirement and retries",
+        "full unit suite (npm run test:unit) passes"
+      ],
+      "required_tests": [
+        {
+          "id": "setup pause prompts > a failing permission grant does not append the job requirement",
+          "path": "apps/core/test/unit/application/setup-pause-prompt.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    }
+  ],
+  "story": "SCHED-6",
+  "epic": "",
+  "plan_file": "plans/active/SCHED-6-autonomous-jobs-pause-and-ask-on-tool-denial-instead-of-silently-degrading.md",
+  "plan_sha256": "aa6cb79507eccafe40940db7e55652cf61efe5543372e63377617772b0cdc852",
+  "commit": "03f42c242d7728a61acb68d5f32b68cfc3a6cb54"
+}

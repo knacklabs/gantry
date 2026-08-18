@@ -1,0 +1,33 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "issue": "PSCOPE-2",
+  "verdict": "pass",
+  "questions_asked": 4,
+  "summary": "Same grill re-recorded against the approval-marked plan version (content unchanged besides the marker). Plan grilled against decision 0119, the roadmap ACs, and a full code trace; the four open design forks were put to Ravi (AskUserQuestion, 2026-08-10) and locked: auto-register+seed on recognition; recognised = DM-established person; delete the old DM Yes/No flow; Telegram+Slack v1 with Discord manual-fallback and Teams documented-manual.",
+  "gaps": [
+    "The existing Telegram flow cannot mint a first approver and never posts in the group - 0119's core gap, confirmed in code.",
+    "Desired-state reconcile rejects approvers who aren't message-ingested participants, so a naive seed on a fresh group silently lands in 'skipped'.",
+    "Aliases auto-mint for any group speaker, so 'has an alias' is weaker than 0119's 'existing DM' phrasing.",
+    "replaceConversationApprovers is a destructive full replace; a re-join must not clobber a configured allowlist.",
+    "A direct conversation_approvers DB write is erased by the next settings reconcile (settings are authority).",
+    "Slack needs an app-manifest event subscription + scopes; code lands dark until ops applies it.",
+    "Retired aliases THROW from resolve rather than returning unresolved."
+  ],
+  "contradictions": [
+    "Auto-registration on recognition replaces the existing DM-approver Yes/No registration gate - a trust-model change, not just an addition."
+  ],
+  "resolutions": [
+    "The shared bootstrap mints the installer as first approver and posts the in-group ack - pinned by AC1.",
+    "AC5 makes reconcile-survival a hard criterion: installer upserted as conversation participant at seed time (join event = membership evidence); reconcile check stays intact.",
+    "Ravi locked DM-established recognition (alias resolves AND a direct-kind conversation exists); small repo query implements it.",
+    "Already-registered guard + preserve-on-empty behavior pinned by required tests (AC3).",
+    "The seed goes only through applyConversationInstallToSettings + writeDesiredRuntimeSettings.",
+    "Slack ops dependency documented in docs/operations/slack-app-install.md and flagged in the PR; doctor warns on missing scopes.",
+    "The retired-alias throw is caught and mapped to the unrecognised path (fail-closed).",
+    "Ravi locked auto-register+seed: recognition IS the gate; the 0119 amendment records the supersession explicitly."
+  ],
+  "input_sha256": "9184b921d7c37c2d89dfd1d234ede08c8729b3d1d650a7b4d43d3755a269367d",
+  "recorded_at": "2026-08-10T12:21:36+00:00",
+  "commit": "7ed1782e9f63b9bc2915a85db5f55c0653796f75"
+}

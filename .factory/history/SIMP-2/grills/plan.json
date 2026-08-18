@@ -1,0 +1,26 @@
+{
+  "gate": "plan",
+  "verdict": "pass",
+  "gaps": [
+    "G1: liveAdmissionAppId differs by call site (message-accept/external-ingress pass a value; seven session routes pass nothing); one boot instance with it baked in silently changes those routes.",
+    "G2: toolRepository is getRuntimeToolRepositoryIfReady() evaluated per request on purpose \u2014 boot-time construction would latch undefined until restart.",
+    "G3: Runtime-store deps (control/ops/repositories/runtimeEvents/skill/mcp) come from mutable globals that tests swap after import; capturing values at boot changes when mocks are observed.",
+    "G4: guided-actions-routes.test.ts mocks the createJobManagementService module export, which stops working once routes read ctx.jobManagement."
+  ],
+  "contradictions": [
+    "C1: Story demands services be constructed once AND that live values (settings reload, credential broker, tool repo readiness) still read live \u2014 construction-time capture cannot satisfy both."
+  ],
+  "generated_by": "griller",
+  "resolutions": [
+    "G1: Ravi decided 2026-08-03: remove it from the constructor and pass it as a method argument at the one method that uses it; callers keep their current behavior explicitly.",
+    "G2: Inject as a getter (() => getRuntimeToolRepositoryIfReady()); the service reads it at use time. Pinned by a before/after-storage-init test.",
+    "G3: Same treatment: thin getters over the runtime-store accessors, preserving today's per-use read semantics for both production and tests.",
+    "G4: Rework that test to inject a fake via the new ctx seam; called out explicitly in the plan's verification section.",
+    "C1: The story itself prescribes the reconciliation: explicit getter injection for every post-boot-mutable dependency; plain values only for boot-stable ones (clock, ids, hashing)."
+  ],
+  "summary": "SIMP-2 plan grill: 4 gaps + 1 contradiction, all resolved (liveAdmission method-arg per Ravi; getter injection for every post-boot-mutable dep; guided-actions test reworked to ctx seam).",
+  "issue": "SIMP-2",
+  "input_sha256": "1b57e99348f55a44e6c75bf09cec8a9564b6959b7b504b02d3982393d25c40d6",
+  "recorded_at": "2026-08-03T02:45:39+00:00",
+  "commit": "5f67d49b501c7b92fdaba0efa99ec2c37b0760db"
+}

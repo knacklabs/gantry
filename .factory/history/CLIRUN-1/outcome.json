@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Local-CLI capabilities (gog/sheets) are now invoked structurally instead of the agent hand-writing shell. The agent calls capability_run with the capability id and an argument list; the host validates the argv arity-exactly against the reviewed template, verifies the executable in place, and runs it in the existing sandbox with bounded output. No shell string exists, so pipes/redirects/chaining/globs are impossible, authorization is the deterministic granted-capability check (no flaky classifier, no autonomous terminal denial), and the RunCommand projection is retired so no shell fallback remains. This closes the class that paused KnackLabs on gog|head, for any CLI. Deep executable-identity hardening is deferred (D-0056).",
+  "issue": "CLIRUN-1",
+  "commit": "680a01fb0360bf368c368aeb4c6bb5cecf415f32",
+  "recorded_at": "2026-08-11T09:14:38+00:00"
+}

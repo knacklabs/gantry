@@ -4,14 +4,25 @@
 # Supports Linux, macOS, and Windows Git Bash.
 
 set -eu
+export PYTHONUTF8=1
 
-HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+case "$0" in
+  */*) FORGE_DIR=${0%/*} ;;
+  *) FORGE_DIR=. ;;
+esac
+HERE="$(CDPATH= cd -- "$FORGE_DIR" && pwd)"
 FORGE_SCRIPT="$HERE/factory/scripts/forge.py"
 
 [ -f "$FORGE_SCRIPT" ] || {
   echo "[FAIL] Forge script not found: $FORGE_SCRIPT" >&2
   exit 1
 }
+
+if command -v py >/dev/null 2>&1 &&
+   py -3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
+     >/dev/null 2>&1; then
+  exec py -3 "$FORGE_SCRIPT" "$@"
+fi
 
 if command -v python3 >/dev/null 2>&1 &&
    python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
@@ -25,12 +36,6 @@ if command -v python >/dev/null 2>&1 &&
   exec python "$FORGE_SCRIPT" "$@"
 fi
 
-if command -v py >/dev/null 2>&1 &&
-   py -3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
-     >/dev/null 2>&1; then
-  exec py -3 "$FORGE_SCRIPT" "$@"
-fi
-
 echo "[FAIL] Python 3.10 or newer was not found." >&2
-echo "Install Python 3 and ensure python3, python, or py -3 is available." >&2
-exit 127
+echo "Install Python 3 and ensure py -3, python3, or python is available." >&2
+exit 2

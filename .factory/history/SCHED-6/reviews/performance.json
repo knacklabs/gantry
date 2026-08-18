@@ -1,0 +1,21 @@
+{
+  "generated_by": "autoreview",
+  "status": "passed",
+  "score": 9,
+  "summary": "No hot-path or throughput regression. The change only alters the terminality of an already-computed denial and its routing; there is no new per-turn work on the success path. The one added storage operation is the updated_at-CAS job access_requirement append, which runs only once when a human approves an under-declared tool from the card, with a bounded single re-read+retry on conflict. A denied-tool pause resolves immediately (zero-timeout autonomous protocol unchanged) rather than blocking a worker while burning time/tokens, which is a net efficiency gain over the prior silent-wrong-completion behavior.",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    "The requirement append uses optimistic concurrency with SETUP_REQUIREMENT_CAS_RETRY_LIMIT=1 (two attempts); on exhausted retries it logs and settles on the durable grant rather than looping."
+  ],
+  "residual_risks": [],
+  "reviewed_scope": [
+    "apps/core/src/adapters/storage/postgres/repositories/canonical-job-access-requirements.postgres.ts",
+    "apps/core/src/app/bootstrap/setup-pause-permission-wiring.ts",
+    "apps/core/src/application/interactions/pending-interaction-permission-recovery.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/deep-agent-runner.ts"
+  ],
+  "recommendation": "approve",
+  "aspect": "performance",
+  "recorded_at": "2026-08-08T08:33:52+00:00",
+  "commit": "793ae9fd267ae514129df5b294fb165095b4bd47"
+}

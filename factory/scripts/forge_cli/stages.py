@@ -26,7 +26,8 @@ from pathlib import Path
 from factory_lib import (
     clean_git_env, decomposition_state_path, dump_json, git_control_dir,
     head_sha, load_json, now_iso, protected_decomposition_state_path, repo_root,
-    run_state_path, safe_factory_write_json, sha256_of,
+    plan_digest_without_assumptions, require_ready_task, run_state_path,
+    safe_factory_write_json, sha256_of, task_digest,
 )
 
 from .common import fail
@@ -40,6 +41,39 @@ from .events import append_event
 # — exempting it here would make the scope check vacuous exactly where it is
 # being dogfooded.
 WORKFLOW_PATHS = (".factory/", "plans/")
+DEFAULT_REVIEW_BUDGET_FILES = 8
+DEFAULT_REVIEW_BUDGET_LINES = 400
+
+
+def review_budget(task: dict) -> tuple[int, int, str]:
+    """Return the validated per-task review budget, including defaults."""
+    if "review_budget" not in task:
+        return DEFAULT_REVIEW_BUDGET_FILES, DEFAULT_REVIEW_BUDGET_LINES, ""
+    budget = task["review_budget"]
+    if not isinstance(budget, dict):
+        raise ValueError("must be an object")
+    required = {"max_changed_files", "max_changed_lines"}
+    if not required.issubset(budget) or not set(budget).issubset(
+            required | {"reason"}):
+        raise ValueError(
+            "needs exactly max_changed_files, max_changed_lines, and optional reason"
+        )
+    max_files = budget["max_changed_files"]
+    max_lines = budget["max_changed_lines"]
+    if type(max_files) is not int or max_files <= 0:
+        raise ValueError("max_changed_files must be a positive integer")
+    if type(max_lines) is not int or max_lines <= 0:
+        raise ValueError("max_changed_lines must be a positive integer")
+    reason = budget.get("reason", "")
+    if not isinstance(reason, str):
+        raise ValueError("reason must be a string when present")
+    reason = reason.strip()
+    if (max_files > DEFAULT_REVIEW_BUDGET_FILES
+            or max_lines > DEFAULT_REVIEW_BUDGET_LINES) and not reason:
+        raise ValueError(
+            "raising the default 8 files / 400 lines needs a non-empty reason"
+        )
+    return max_files, max_lines, reason
 
 
 @contextlib.contextmanager
@@ -120,7 +154,7 @@ def pending_stages(base: Path) -> list[dict]:
 def _git(base: Path, *args: str) -> str:
     proc = subprocess.run(
         ["git", *args], cwd=base, capture_output=True, text=True,
-        env=clean_git_env())
+        env=clean_git_env(), encoding="utf-8", errors="surrogateescape")
     return proc.stdout if proc.returncode == 0 else ""
 
 
@@ -565,19 +599,6 @@ def protected_authority_snapshot(base: Path) -> dict[str, str]:
     return result
 
 
-def task_digest(task: dict) -> str:
-    """The task contract a stage was started under.
-
-    The decomposition can be re-recorded while a stage is active — that is the
-    sanctioned repair when a scope turns out to be wrong — but it must not be
-    a way to widen `write_scope` or drop `required_tests` moments before
-    closing over them."""
-    payload = json.dumps({k: task.get(k) for k in
-                          ("write_scope", "required_tests", "verify_commands",
-                           "acceptance_criteria")}, sort_keys=True)
-    return hashlib.sha256(payload.encode()).hexdigest()
-
-
 def _covered(path: str, scope: list[str]) -> bool:
     for entry in scope:
         prefix = entry.strip().rstrip("/")
@@ -591,6 +612,46 @@ def out_of_scope(paths: list[str], scope: list[str]) -> list[str]:
     return [p for p in paths
             if not p.startswith(WORKFLOW_PATHS)
             and not _covered(p, scope)]
+
+
+def _numstat_lines(raw: str) -> int:
+    total = 0
+    for entry in raw.split("\0"):
+        fields = entry.split("\t", 2)
+        if len(fields) != 3:
+            continue
+        additions, deletions = fields[:2]
+        if additions.isdigit() and deletions.isdigit():
+            total += int(additions) + int(deletions)
+    return total
+
+
+def _changed_line_count(base: Path, base_sha: str, product: list[str]) -> int:
+    """Additions plus deletions for the exact product paths `_measure` found."""
+    if not product:
+        return 0
+    lines = _numstat_lines(
+        _git(base, "diff", "--numstat", "-z", base_sha, "--", *product)
+    )
+    untracked = {
+        rel for rel in _git(
+            base, "ls-files", "--others", "--exclude-standard", "-z", "--",
+            *product,
+        ).split("\0")
+        if rel
+    }
+    for rel in sorted(untracked):
+        proc = subprocess.run(
+            ["git", "diff", "--no-index", "--numstat", "-z", "--",
+             os.devnull, rel],
+            cwd=base, capture_output=True, text=True, env=clean_git_env(),
+            encoding="utf-8", errors="surrogateescape",
+        )
+        if proc.returncode not in {0, 1}:
+            fail(f"cannot count changed lines for untracked path {rel!r}; "
+                 "stage measurement refuses an incomplete review budget")
+        lines += _numstat_lines(proc.stdout)
+    return lines
 
 
 def task_for(base: Path, stage_id: str) -> dict:
@@ -619,7 +680,6 @@ def _cmd_start_locked(args: argparse.Namespace, base: Path) -> None:
     if stage.get("status") == "done":
         fail(f"{args.id} is already done — stages don't reopen; a follow-up is a "
              "new stage in a re-recorded decomposition")
-    current_task = task_for(base, args.id)
     if stage.get("status") == "active":
         # No re-baselining, ever (decision 0023). The baseline is a ref written
         # once at start; a contract that changes mid-stage is LEDGERED, not
@@ -671,11 +731,12 @@ def _cmd_start_locked(args: argparse.Namespace, base: Path) -> None:
             fail(f"{args.id} cannot start: the plan this decomposition was built "
                  f"from ({plan_file}) is missing, so its binding cannot be "
                  "verified. Restore it or re-record against the current plan.")
-        if sha256_of(base / plan_file) != stamped:
+        if plan_digest_without_assumptions(base / plan_file) != stamped:
             fail(f"{args.id} cannot start: {plan_file} has changed since this "
                  "decomposition was recorded, so the task list describes a plan "
                  "that is no longer the approved one. Re-record the "
                  "decomposition against the current plan, then start the stage.")
+    current_task = require_ready_task(base, args.id)
     stage["status"] = "active"
     stage["started_at"] = now_iso()
     # `stage done` measures the diff, and a measurement needs a fixed point —
@@ -692,9 +753,6 @@ def _cmd_start_locked(args: argparse.Namespace, base: Path) -> None:
     stage.pop("parallel", None)
     write_stages(base, data)
     print(f"Stage {args.id} active — {stage.get('title')}")
-    print("Loop: implement via /codex:rescue → inspect diff → validate assumptions → "
-          "smallest checks → LOCAL autoreview until clean → commit → forge stage done "
-          f"{args.id}")
 
 
 def cmd_start(args: argparse.Namespace) -> None:
@@ -769,6 +827,24 @@ def _measure(base: Path, stage_id: str, stage: dict, task: dict) -> None:
                  f"{'…' if len(strays) > 10 else ''}. Either the work exceeded the "
                  "task or the scope was wrong — re-record the decomposition with "
                  "the real scope rather than closing over it.")
+    try:
+        max_files, max_lines, _reason = review_budget(task)
+    except ValueError as exc:
+        fail(f"{stage_id} carries an invalid review_budget ({exc}); re-record "
+             "the decomposition before closing the stage")
+    changed_files = len(product)
+    changed_lines = _changed_line_count(base, base_sha, product)
+    if changed_files > max_files or changed_lines > max_lines:
+        fail(
+            f"{stage_id} exceeds its review budget: measured files={changed_files}, "
+            f"lines={changed_lines}; budget files={max_files}, lines={max_lines} "
+            "(additions + deletions; excluding .factory/ "
+            "and plans/). The default 8 files / 400 lines is the policy target. "
+            "Split the task: re-run the task grill with decision=split, append "
+            "new skeletal task(s) after the frozen graph prefix, and return this "
+            f"stage incomplete with `forge stage done {stage_id} --incomplete "
+            "\"<what remains>\"`."
+        )
 
 
 def _require_successful_launch(base: Path, stage_id: str, stage: dict,
@@ -850,13 +926,17 @@ def _run_required_tests(base: Path, stage_id: str, task: dict) -> None:
             while tokens and "=" in tokens[0] and not tokens[0].startswith("="):
                 name, value = tokens.pop(0).split("=", 1)
                 env[name] = value
+            env["PYTHONUTF8"] = "1"
             proc: subprocess.Popen[str] | None = None
             process_baseline: dict[int, tuple[int, str]] | None = None
             process_identity = ""
             stdout = ""
             stderr = ""
-            with tempfile.TemporaryFile(mode="w+t") as stdout_log, \
-                    tempfile.TemporaryFile(mode="w+t") as stderr_log:
+            with tempfile.TemporaryFile(
+                    mode="w+t", encoding="utf-8", errors="replace"
+            ) as stdout_log, tempfile.TemporaryFile(
+                    mode="w+t", encoding="utf-8", errors="replace"
+            ) as stderr_log:
                 try:
                     with blocked_termination_signals():
                         process_baseline = _process_table()
@@ -945,8 +1025,12 @@ def _run_verify_commands(base: Path, stage_id: str, task: dict) -> None:
         process_token = f"verify-{uuid.uuid4().hex}"
         env = os.environ.copy()
         env["FORGE_PROCESS_TOKEN"] = process_token
-        with tempfile.TemporaryFile(mode="w+t") as stdout_log, \
-                tempfile.TemporaryFile(mode="w+t") as stderr_log:
+        env["PYTHONUTF8"] = "1"
+        with tempfile.TemporaryFile(
+                mode="w+t", encoding="utf-8", errors="replace"
+        ) as stdout_log, tempfile.TemporaryFile(
+                mode="w+t", encoding="utf-8", errors="replace"
+        ) as stderr_log:
             try:
                 with blocked_termination_signals():
                     process_baseline = _process_table()
@@ -1069,11 +1153,10 @@ def _finish_stage(base: Path, args: argparse.Namespace, data: dict,
         write_stages(base, data)
     remaining = [s for s in data["stages"] if s.get("status") != "done"]
     if remaining:
-        print(f"Stage {args.id} done. Next: forge stage start {remaining[0]['id']} "
-              f"— {remaining[0].get('title')} ({len(remaining)} to go)")
+        print(f"Stage {args.id} done; next: {remaining[0]['id']} "
+              f"({len(remaining)} pending)")
     else:
-        print(f"Stage {args.id} done — all {len(data['stages'])} stage(s) complete. "
-              "Continue the task loop: verify, then the ONE branch autoreview.")
+        print(f"Stage {args.id} done — all {len(data['stages'])} stage(s) complete")
 
 
 def cmd_done(args: argparse.Namespace) -> None:
@@ -1106,8 +1189,6 @@ def cmd_done(args: argparse.Namespace) -> None:
                              detail=f"{args.id}: {incomplete}")
                 write_stages(base, data)
         print(f"Stage {args.id} recorded INCOMPLETE and left active: {incomplete}")
-        print("Nothing downstream treats it as delivered. Finish the gap, then "
-              f"forge stage done {args.id}.")
         return
     from .delegate import delegation_exclusion
 
@@ -1149,7 +1230,7 @@ def _cmd_migrate_locked(args: argparse.Namespace, base: Path) -> None:
     resolved_base = resolved_base.strip()
     ancestor = subprocess.run(
         ["git", "merge-base", "--is-ancestor", resolved_base, "HEAD"],
-        cwd=base, capture_output=True, text=True, env=clean_git_env())
+        cwd=base, capture_output=True, text=True, env=clean_git_env(), encoding="utf-8")
     if ancestor.returncode == 1:
         fail(f"--base {resolved_base!r} is not an ancestor of HEAD")
     if ancestor.returncode != 0:

@@ -1,0 +1,52 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": false,
+  "tasks": [
+    {
+      "id": "SETUPRACE-1-1",
+      "title": "Atomic fingerprint claim for setup-pause notifications (CAS + reset + reorder)",
+      "epic_id": "permission-engine",
+      "objective": "Refine the recoverable claim. P2-2: markJobSetupNotified RETURNS the notify_claim_at it set as a token (null if lost); confirmJobSetupNotified and clearJobSetupNotified take the token and add WHERE notify_claim_at=token, so a stale claimant cannot confirm/clear a successor claim. Thread it through port+impls+execution-readiness. P2-1: document in code + 0117/spec that delivery is exactly-once normally, at-least-once across a send-confirm crash. Update tests for the token signatures.",
+      "write_scope": [
+        "apps/core/src/adapters/storage/postgres/repositories/canonical-job-coordination.postgres.ts",
+        "apps/core/src/domain/repositories/ops-repo.ts",
+        "apps/core/src/adapters/storage/postgres/repositories/canonical-job-repository.postgres.ts",
+        "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts",
+        "apps/core/src/adapters/storage/postgres/services/canonical-job-ops-service.ts",
+        "apps/core/src/jobs/execution-readiness.ts",
+        "apps/core/test/unit/application/setup-pause-prompt.test.ts",
+        "apps/core/test/unit/application/job-permission-recovery.test.ts",
+        "apps/core/test/unit/application/job-management-create.test.ts",
+        "apps/core/test/unit/runner/agent-runner-ipc.test.ts",
+        "apps/core/test/unit/jobs/execution-finalization.test.ts",
+        "apps/core/test/unit/jobs/execution.test.ts",
+        "docs/decisions/0117-scheduled-job-declare-tools-at-creation.md",
+        "docs/specs/setuprace-1.md",
+        "apps/core/src/domain/job-types.ts",
+        "apps/core/src/adapters/storage/postgres/services/canonical-job-target-state.ts",
+        "apps/core/src/application/jobs/setup-pause-permission-prompt.ts"
+      ],
+      "dependencies": [],
+      "acceptance_criteria": [
+        "markJobSetupNotified is an atomic CAS claim; notifyJobSetupRequired claims before send; loser delivers nothing; failed delivery clears the claim; concurrent creation+run for one fingerprint yields exactly one card and one event; silent/suppressed/already-notified unchanged."
+      ],
+      "verify_commands": [
+        "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/application apps/core/test/unit/jobs apps/core/test/unit/runner"
+      ],
+      "required_tests": [
+        {
+          "id": "notifyJobSetupRequired > concurrent creation and run notifications deliver exactly one card and one event",
+          "path": "apps/core/test/unit/application/setup-pause-prompt.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "reviewer_focus": "atomic claim-before-send; loser no-ops (no card/no event); clear-on-failure retryability; silent/already-notified unchanged; shared notifier callers (scheduler/recovery/creation) all correct."
+    }
+  ],
+  "project": "",
+  "story": "SETUPRACE-1",
+  "epic": "permission-engine",
+  "plan_file": "plans/active/SETUPRACE-1-atomic-claim-for-setup-pause-notifications-close-d-0053.md",
+  "plan_sha256": "07a75f849085d0965d5953c4a802ebf3ea01fee1150ef83b3712628e079b537c",
+  "commit": "8e5d02d5f18076ee4e49eeec81483e98e8254d02"
+}

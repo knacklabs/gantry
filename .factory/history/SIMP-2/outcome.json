@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "The control server now builds its job and session services once at startup instead of assembling them on every request (22 construction sites collapsed to 2). Everything that can change while the server runs \u2014 storage readiness, reloadable settings, the credential broker \u2014 is read live through explicit getters, pinned by tests, so behavior is unchanged. The live-admission app id moved from the session module's constructor to the one method that uses it, making the per-caller difference explicit instead of a hidden constructor default.",
+  "issue": "SIMP-2",
+  "commit": "5686314227376ee8675a158ab0552a07e087c04a",
+  "recorded_at": "2026-08-03T04:06:41+00:00"
+}

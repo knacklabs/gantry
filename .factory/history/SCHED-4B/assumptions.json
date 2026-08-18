@@ -1,0 +1,26 @@
+[
+  {
+    "id": "A-0047",
+    "date": "2026-08-06",
+    "issue": "SCHED-4B",
+    "assumption": "When run-scoped permission requests with the same full interaction scope coalesce, only the first caller receives the provider prompt delivery callback; all callers share the settlement decision.",
+    "status": "confirmed",
+    "guidance": "Owner-confirmed callback policy in the SCHED-4B-1 final amendment."
+  },
+  {
+    "id": "A-0048",
+    "date": "2026-08-06",
+    "issue": "SCHED-4B",
+    "assumption": "A process crash between shared durable permission-row creation and provider delivery can leave the setup fingerprint with an instruction card but no approval button until its blocker set changes; the owner retains the manual request_access or manage-access path.",
+    "status": "confirmed",
+    "guidance": "Owner-confirmed containment: a canonical durable ownership or lease reissue design affects the shared permission path, including request_access, and is deferred."
+  },
+  {
+    "id": "A-0049",
+    "date": "2026-08-07",
+    "issue": "SCHED-4B",
+    "assumption": "No durable scheduler run-to-progress-card identity exists; stale-lease cleanup after process death sends the terminal timeout receipt but cannot safely replace the old running card in SCHED-4B-2.",
+    "status": "confirmed",
+    "guidance": "Binding S2-7 explicitly selects bounded outcome B when no durable run-to-card identity exists; current evidence shows only process-local run ownership plus route-keyed channel state."
+  }
+]

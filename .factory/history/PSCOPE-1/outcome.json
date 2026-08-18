@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Tool grants are now person-scoped where a person exists. In a 1:1 DM the user can approve their own agent's permission requests without being pre-listed, and an 'allow for future' they grant stays private to them instead of widening the shared assistant for every chat. Groups keep the explicit approver allowlist and shared grants. Scheduled jobs inherit the identity of the conversation that created them: a DM-created job's durable grant is written for that person (an unresolvable job fails closed rather than widening to shared); group jobs stay shared. The acting person is simply the memory identity, host-stamped onto the request - the elaborate trust machinery built en route was removed per the accepted 0118 tradeoff. Installer group-onboarding split to PSCOPE-2.",
+  "issue": "PSCOPE-1",
+  "commit": "df60105e53af811cc5435344c299e8b3c7566abf",
+  "recorded_at": "2026-08-10T09:22:07+00:00"
+}

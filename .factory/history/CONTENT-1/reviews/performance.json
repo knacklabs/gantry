@@ -1,0 +1,22 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Deadline discipline throughout: one end-to-end budget per read/create/edit (queue wait included), per-request remaining-time clamps under the 120s MCP timeout, refusal instead of clamped late mutations; stub hydration whole-pass budget; handle maps capped with FIFO eviction and reuse refresh.",
+  "blocking_findings": [],
+  "residual_risks": [
+    "45s Slack timeouts are static; no adaptive backoff on ratelimited (surfaced as retryable errors)."
+  ],
+  "reviewed_scope": [
+    "apps/core/src/channels/slack/canvas*.ts",
+    "apps/core/src/jobs/ipc-canvas-handlers.ts",
+    "apps/core/src/runner/mcp/tools/canvas.ts",
+    "apps/core/src/cli/slack-install-scopes.ts",
+    "apps/core/src/cli/slack.ts",
+    "factory/scripts/pre_tool_use.py (vendored)"
+  ],
+  "recommendation": "ship",
+  "aspect": "performance",
+  "non_blocking_findings": [],
+  "recorded_at": "2026-08-04T16:03:33+00:00",
+  "commit": "0e6736dce262fc596b4b6fe16ccb2e8cabfcf2c3"
+}

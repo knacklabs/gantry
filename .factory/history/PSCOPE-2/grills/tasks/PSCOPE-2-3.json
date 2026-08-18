@@ -1,0 +1,27 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "issue": "PSCOPE-2",
+  "verdict": "pass",
+  "questions_asked": 5,
+  "summary": "Same grill re-recorded after adding scripts/ to write_scope for the discord.ts line-budget entry (the guild-join guards pushed the file past 700; budget bumped to 720 per repo precedent). Implementation verified: typecheck, channels suite (1362), architecture, format all green; blast/stub review findings fixed; offline-install notice miss accepted as a deliberate 0119 limit.",
+  "gaps": [
+    "Slack member_joined_channel needs manifest event + scopes - lands dark until ops applies it.",
+    "Slack inviter field optional; absence must fail closed.",
+    "Discord GUILD_CREATE replays every guild on connect - naive handling blasts every existing guild at rollout.",
+    "Discord unavailable-stub GUILD_CREATE could settle the notice with no channel data and suppress the real payload.",
+    "Guild installed while the bot is offline appears in READY and gets no courtesy notice."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Ops doc names the exact manifest changes; doctor warns on missing scopes; PR flags it.",
+    "Absent inviter routes to the unrecognised manual path (fail-closed).",
+    "READY guild set marks pre-existing guilds; only unseen ids trigger the notice; seedNoticeSettled makes dedup permanent.",
+    "unavailable:true payloads are skipped without claiming; the full GUILD_CREATE decides.",
+    "ACCEPTED limit, documented inline: Discord registration is manual regardless; a durable membership baseline for one best-effort message is over-engineering."
+  ],
+  "task_id": "PSCOPE-2-3",
+  "input_sha256": "8b4b7b9242dd88095d20d2148b6756ed6c5da7a6f5cfb55f5d02205a20e33aa4",
+  "recorded_at": "2026-08-10T15:49:53+00:00",
+  "commit": "aa6506672dd408693389bd5c8c0d01f9a322e6a3"
+}

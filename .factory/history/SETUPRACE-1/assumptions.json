@@ -1,0 +1,10 @@
+[
+  {
+    "id": "A-0059",
+    "date": "2026-08-09",
+    "issue": "SETUPRACE-1",
+    "assumption": "Use a five-minute default setup-notification claim TTL, with the claim timestamp and TTL injectable at the repository seam for deterministic stale-reclaim tests.",
+    "status": "confirmed",
+    "guidance": "Ratified: 5-minute default setup-notification claim TTL, with claim timestamp + TTL injectable at the repository seam (options { nowIso, claimTtlMs }) for deterministic stale-reclaim tests."
+  }
+]

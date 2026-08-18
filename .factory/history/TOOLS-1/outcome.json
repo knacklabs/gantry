@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Agents now only see the tools that actually work where they are: Slack agents keep the canvas tools, while Telegram, Discord and other conversations no longer carry three dead tools they could never use \u2014 enforced in both the spawn projection and inside the runner process, and even an operator config entry cannot re-add a tool that cannot function there. Each agent's instructions now also explain, per provider, how its shared tools behave: where long messages split, how rich cards degrade, how many question options fit \u2014 with every number imported from the real code constants so the guidance can never drift. A classification of all 75 tools plus a checklist for wiring future providers landed in docs/architecture.",
+  "issue": "TOOLS-1",
+  "commit": "893e681a82558d0471561ff1cbf26d82a1ff291d",
+  "recorded_at": "2026-08-04T18:21:37+00:00"
+}

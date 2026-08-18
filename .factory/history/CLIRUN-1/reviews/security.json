@@ -1,0 +1,17 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Same converged review, security lens - the dominant lens. No shell string is composed, so pipes/redirects/chaining/globs/substitution are structurally impossible; authorization is the deterministic granted-capability check (no non-deterministic classifier, no autonomous-terminal). Argv is validated against the reviewed pattern with the existing matcher; the executable is verified in place after proving it is outside the agent-writable workspace and not group/other-writable, then run as those same bytes (TOCTOU-safe for the agent). An entry-anchored deadline + pre-spawn abort give at-most-once execution for mutating capabilities. The RunCommand projection is retired so no shell fallback remains.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [
+    "Deep executable-identity hardening (parent-dir chain immutability, symlink argv0) deferred as D-0056 - outside the agent threat model; requires a co-resident local attacker with write access to a system directory."
+  ],
+  "recommendation": "ship",
+  "reviewed_scope": [
+    "origin/main..HEAD whole branch"
+  ],
+  "aspect": "security",
+  "recorded_at": "2026-08-11T09:33:53+00:00",
+  "commit": "e01848e8b2661dfd109b6c0af6104aacba51fcda"
+}

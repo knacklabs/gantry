@@ -1,0 +1,31 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "issue": "CONTENT-1",
+  "gaps": [
+    "G1: sections.lookup returns IDs not text \u2014 the proposed canvas-read API fallback was impossible.",
+    "G2: read reachability was conflated with write authority \u2014 a shared-in canvas could receive an update handle (confused deputy).",
+    "G3: canvases.create without channel_id yields an inaccessible (and free-team-impossible) canvas; permalink is not in the create response.",
+    "G4: snippet path ignored the 1 MB snippet_type contract and could consume a durable delivery on provider failure.",
+    "G5: IPC canvas payloads had no host-side byte/shape bounds; canvases.edit allows one change per call.",
+    "G6: quick-fix details dropped provider data (Discord embed author/footer/media text; Telegram venue address) and embed folding could bypass router budgets; free-team one-canvas-tab and edit-lock errors unhandled; shared-canvas read handles lacked provenance."
+  ],
+  "contradictions": [
+    "C1: the plan claimed concurrent-edit safety via provider errors, but canvases.edit has no revision/CAS parameter \u2014 the guarantee was unsupportable."
+  ],
+  "resolutions": [
+    "G1: export spike is a hard gate; READ drops from scope if the file-export path fails (no API alternative exists) \u2014 recorded as a deviation if hit.",
+    "G2: separate READ and WRITE capability sets; write handles minted only from the channel's bound canvas and agent-created canvases in this conversation.",
+    "G3: create passes the host-derived channel_id, surfaces the permalink via files.info with a non-fatal failure path; free-team tab-exists returns the existing bound canvas.",
+    "G4: UTF-8 byte size chooses the vehicle before any upload (snippet \u22641MB, .txt above); ANY provider failure falls back to the existing split/truncate text path so delivery is never lost.",
+    "G5: strict host-side bounds (markdown \u2264150KB, title \u2264300, one op per call, enum allowlist, strict schemas) enforced at IPC before provider calls.",
+    "G6: embed folding covers all human-readable fields under per-embed UTF-8 caps AND the router aggregate budget; venue address included; free-team and lock errors have explicit fixture-tested behavior; shared-canvas read handles mint only from conversation-bound file_share events, never files.list.",
+    "C1: replaced with honest last-write-wins semantics, host-side per-canvas serialization of our own ops, destructive replace gated behind fresh lookup, human-edit races documented in the tool description."
+  ],
+  "summary": "CONTENT-1 plan grilled via four Codex critique rounds (18 findings: 6/4/4/4, P1s extinct by round 3); every finding folded into the plan text; scope locked by Ravi (six quick fixes + Slack canvas; Teams deferred to TEAMS-1; reactions/edits backlog).",
+  "questions_asked": 18,
+  "input_sha256": "aa79f27bfe23de0b60d611743bbe397abef67f2475b8b35bb35d13b9a08129cf",
+  "recorded_at": "2026-08-04T02:56:15+00:00",
+  "commit": "334441528305b4742e9e21eba2f17e61366d2eb6"
+}

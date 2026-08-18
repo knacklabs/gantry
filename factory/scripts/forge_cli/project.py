@@ -10,24 +10,72 @@ from typing import Callable
 
 from check_board_complete import board_problems
 from check_vendor_integrity import integrity_problems
-from factory_lib import repo_root
+from factory_lib import load_json, repo_root
 
 from .common import fail
 from .events import append_event, load_events
 from .history import cmd_pr_link
 from .roadmap import load_items, pending_story_problems, save_roadmap
+from .specs import spec_records, unreferenced_confirmed_specs
 
 
 GhSeam = Callable[[Path], list[dict]]
 PLAN_FRONTMATTER = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 
 
+def has_discovery_material(base: Path) -> bool:
+    """Whether authored discovery exists that should lead to a roadmap."""
+    ledger = load_json(base / "docs" / "context" / "ledger.json",
+                       default={})
+    files = ledger.get("files", {}) if isinstance(ledger, dict) else {}
+    if isinstance(files, dict) and any(
+        isinstance(entry, dict) and entry.get("status") == "harvested"
+        for entry in files.values()
+    ):
+        return True
+    if any((base / "docs" / "decisions").glob("[0-9]*.md")):
+        return True
+    return any(
+        record.get("status") == "confirmed" for record in spec_records(base)
+    )
+
+
+def alignment_gaps(base: Path) -> list[dict[str, str]]:
+    """Gaps between discovery, confirmed capabilities, and the roadmap."""
+    path = base / "plans" / "roadmap.json"
+    roadmap = load_json(path, default={})
+    items = roadmap.get("items", []) if isinstance(roadmap, dict) else []
+    epics = roadmap.get("epics", []) if isinstance(roadmap, dict) else []
+    gaps: list[dict[str, str]] = []
+    has_stories = isinstance(items, list) and bool(items)
+    if has_discovery_material(base) and not (path.is_file() and has_stories and epics):
+        gaps.append({
+            "kind": "no-roadmap",
+            "detail": (
+                "discovery material exists but plans/roadmap.json is absent, empty, "
+                "or has no epics; author capabilities with `forge spec save` and "
+                "`forge spec confirm`, then use `forge roadmap derive` or "
+                "`forge roadmap epic add` plus `forge roadmap add`"
+            ),
+        })
+    if isinstance(items, list) and items:
+        gaps.extend({
+            "kind": "spec-coverage",
+            "detail": (
+                f"{spec}: confirmed spec is not referenced by a roadmap story; "
+                f"reference it with `forge roadmap add --spec {spec}`"
+            ),
+        } for spec in unreferenced_confirmed_specs(base))
+    return gaps
+
+
 def project_gaps(base: Path) -> list[dict[str, str]]:
     """Compose the current local validators into one structured gap list."""
-    gaps = [
+    gaps = alignment_gaps(base)
+    gaps.extend([
         {"kind": "done-story", "detail": problem}
         for problem in board_problems(base)
-    ]
+    ])
     gaps.extend(
         {"kind": "pending-story", "detail": problem}
         for problem in pending_story_problems(base)
@@ -62,7 +110,7 @@ def _github_merge_records(base: Path) -> list[dict]:
             ],
             cwd=base,
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8",
         )
     except OSError as exc:
         raise SystemExit(f"project backfill could not run gh: {exc}") from exc
@@ -81,12 +129,21 @@ def _github_merge_records(base: Path) -> list[dict]:
 def _git(base: Path, *args: str) -> str | None:
     proc = subprocess.run(
         ["git", *args], cwd=base, capture_output=True, text=True,
+        encoding="utf-8", errors="strict",
+    )
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def _git_paths(base: Path, *args: str) -> str | None:
+    proc = subprocess.run(
+        ["git", *args], cwd=base, capture_output=True, text=True,
+        encoding="utf-8", errors="surrogateescape",
     )
     return proc.stdout if proc.returncode == 0 else None
 
 
 def _committed_plan_fields(base: Path, key: str) -> dict:
-    paths = _git(
+    paths = _git_paths(
         base, "ls-tree", "-r", "--name-only", "HEAD", "--", "plans/completed",
     )
     if paths is None:

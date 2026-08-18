@@ -1,0 +1,17 @@
+{
+  "issue_key": "PSCOPE-2",
+  "title": "Provider-neutral installer auto-seed and in-group acknowledgement",
+  "tracker": "linear",
+  "branch": "feat/PSCOPE-2-provider-neutral-installer-auto-seed-and-in-group-acknowledgement",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-08-10T12:02:31+00:00",
+  "updated_at": "2026-08-10T16:14:20+00:00",
+  "plan_file": "plans/completed/PSCOPE-2-provider-neutral-installer-auto-seed-and-in-group-acknowledgement.md",
+  "story": "PSCOPE-2"
+}

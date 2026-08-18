@@ -1,0 +1,29 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "gaps": [
+    "G1: parseEnabledGantryMcpToolNames additively re-seeds from DEFAULT_GANTRY_MCP_TOOL_NAMES, so filtering only the projection leaves canvas mounted and prompt-visible in the runner process (runner/mcp/server.ts:84, context.ts:102).",
+    "G2: no JID-prefix\u2192provider mapping exists outside channels/provider-registry.ts, and shared/ cannot import it; the filter site needs provider identity without a registry dependency.",
+    "G3: precedence between the new affinity filter and GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON explicit config was unspecified \u2014 the config loop runs after defaults and would silently re-add filtered tools.",
+    "G4: DeepAgents lane holds chatJid only as env (GANTRY_CHAT_JID), not a typed selection input."
+  ],
+  "contradictions": [
+    "C1: plan placed the affinity map in shared/admin-mcp-tools.ts with 'slack' literals \u2014 check_provider_specific_paths forbids provider literals outside approved paths (runner/mcp, channels, cli, adapters/*).",
+    "C2: plan framed filtering as closing a gap \u2014 the canvas IPC boundary already rejects non-Slack conversations fail-closed (jobs/ipc-canvas-handlers.ts:38); this is a prompt-surface/token optimization.",
+    "C3: plan proposed importing limit constants from delivery modules \u2014 register-builtins.ts is a side-effect module on 14 startup paths; statically importing the 779-line Telegram delivery adapter would regress load time."
+  ],
+  "resolutions": [
+    "G1: one shared applyProviderAffinity(names, chatJid) helper in gantry-mcp-tool-surface.ts applied in BOTH selectedGantryMcpToolNames and parseEnabledGantryMcpToolNames/effectiveEnabledMcpToolNames (runner side keyed off process.env.GANTRY_CHAT_JID).",
+    "G2: affinity map keyed by JID PREFIX ('sl:') in runner/mcp/tool-provider-affinity.ts \u2014 plain startsWith, no registry import, no provider-name literal outside approved paths; spawn-path enumeration proved chatJid is always provider-prefixed.",
+    "G3: affinity wins \u2014 the filter runs after the explicit-config loop; a tool that cannot function on the conversation's provider is not re-addable; documented in the map file.",
+    "G4: read GANTRY_CHAT_JID within the existing GantryMcpEnvInput processEnv, passed into the selection options.",
+    "C1: map moved to runner/mcp/tool-provider-affinity.ts with JID-prefix keys.",
+    "C2: plan reframed: security enforcement remains the IPC boundary + canvas service checks; this story delivers tool-list hygiene and accurate instructions.",
+    "C3: constants lifted into bare constant modules (pattern: slack/text-limits.ts) that delivery code imports back; register-builtins imports only those."
+  ],
+  "input_sha256": "8c5d15f134db35bd9898573fce33ac0c94960faea61888d51b28650d8271c931",
+  "issue": "TOOLS-1",
+  "recorded_at": "2026-08-04T17:20:42+00:00",
+  "commit": "f4657a003eb233bda60365eaa7a8e37c4fbbc738"
+}

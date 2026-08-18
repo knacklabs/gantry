@@ -1,0 +1,17 @@
+{
+  "generated_by": "autoreview",
+  "blocking_findings": [],
+  "reviewed_scope": [
+    "apps/core/src + test (CAPFIX-1 branch)",
+    "docs/decisions/0122",
+    "docs/specs/capability-template-amendment.md"
+  ],
+  "score": 9,
+  "summary": "One-transaction claim (partial unique index), one-transaction CAS, one deduped interaction; no new hot-path work. Provenance: ~15 local autoreview rounds over the full cumulative diff (branch-wide pass blocked by the known secret-gate phantom on drizzle snapshots); verify.py green.",
+  "non_blocking_findings": [],
+  "recommendation": "ship",
+  "aspect": "performance",
+  "residual_risks": [],
+  "recorded_at": "2026-08-11T22:01:41+00:00",
+  "commit": "139be189a4fad89263bfb340515051daeab723cd"
+}

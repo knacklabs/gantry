@@ -27,6 +27,7 @@ from forge_cli.outcome import load_outcome, outcome_path
 from forge_cli.roadmap import load_items, mark_status
 from forge_cli.quickfix import load_active
 from forge_cli.readiness import tests_passed
+from forge_cli.review_brief import declared_contracts
 from forge_cli.signal import open_signals, signals_path
 from forge_cli.stages import load_stages
 
@@ -51,8 +52,7 @@ _history_root = root / ".factory" / "history"
 if run_state and not run_state.get("issue_key") and client_signoff(root)[0] \
         and _history_root.is_dir() and any(_history_root.iterdir()):
     shipped = ", ".join(sorted(p.name for p in _history_root.iterdir() if p.is_dir()))
-    print(f"PR_READY (nothing active; shipped so far: {shipped} — "
-          "start the next task with intake)")
+    print(f"PR_READY (nothing active; shipped so far: {shipped})")
     raise SystemExit(0)
 decomposition = load_json(protected_decomposition_state_path(root), default={})
 verify = load_json(verify_state_path(root), default={})
@@ -113,8 +113,32 @@ for kind in ("automated", "functional"):
     elif not tests_passed(entry, functional=(kind == "functional")):
         missing.append(f"{kind} testing must have no blockers, no failed status"
                        + (" and score >= 8" if kind == "functional" else ""))
-_, review_problems = load_review_artifacts(root)
+reviews, review_problems = load_review_artifacts(root)
 missing.extend(review_problems)
+
+# Independent of the review recorder: existing artifacts may predate contract
+# enforcement, so readiness reads the quality evidence and checks every id.
+contracts = declared_contracts(decomposition)
+if contracts:
+    verdicts_by_id: dict[str, list[str]] = {}
+    recorded_verdicts = reviews.get("quality", {}).get("contract_verdicts")
+    if not isinstance(recorded_verdicts, list):
+        recorded_verdicts = []
+    for verdict in recorded_verdicts:
+        if not isinstance(verdict, dict):
+            continue
+        contract_id = verdict.get("contract_id")
+        value = verdict.get("verdict")
+        if isinstance(contract_id, str) and isinstance(value, str):
+            verdicts_by_id.setdefault(contract_id, []).append(value)
+    unverified = [contract["id"] for contract in contracts
+                  if verdicts_by_id.get(contract["id"]) != ["implemented"]]
+    if unverified:
+        missing.append(
+            "quality review must verify every plan contract as implemented; "
+            f"unverified: {', '.join(unverified)} — compose the reviewer prompt "
+            "with `./forge review-brief --all`"
+        )
 
 # The refactor ratchet: a refactor-tagged story that GREW product source is
 # not a refactor — it must shrink or hold the line (decision 0005 doctrine).
@@ -227,6 +251,7 @@ elif head and stamps:
             proc = subprocess.run(
                 ["git", "diff", "--name-only", f"{stamp}..{head}"],
                 cwd=root, capture_output=True, text=True,
+                encoding="utf-8", errors="surrogateescape",
             )
             if proc.returncode != 0:
                 missing.append(
@@ -303,7 +328,7 @@ append_event(root, "shipped", actor="orchestrator", story=issue_key,
 story_events = load_events(root, story=issue_key)
 if story_events:
     (history / "events.jsonl").write_text(
-        "".join(json.dumps(e) + "\n" for e in story_events))
+        "".join(json.dumps(e) + "\n" for e in story_events), encoding="utf-8")
 # The assumptions made while building this story explain behaviour that later
 # reads as a bug; they live in a cross-project table that gets archived on its
 # own cadence, so the story keeps its own copy.
@@ -345,10 +370,9 @@ project_state = {
 project_state["phase"] = "shipped"
 dump_json(run_state_path(root), project_state)
 
-if mark_status(root, issue_key, "done", completed_at=now_iso(),
-               history=f".factory/history/{issue_key}/",
-               outcome=(outcome_record or {}).get("outcome", "")):
-    print(f"Roadmap: {issue_key} marked done")
+roadmap_done = mark_status(root, issue_key, "done", completed_at=now_iso(),
+                           history=f".factory/history/{issue_key}/",
+                           outcome=(outcome_record or {}).get("outcome", ""))
 # Advisory: a decision this story created that no human ever confirmed still
 # governs the code that shipped. Blocking would freeze legacy corpora, so this
 # names them instead — an unaccepted record is a question left open.
@@ -359,25 +383,6 @@ if unaccepted:
           f"{', '.join(unaccepted)} — confirm with the human who decided them "
           "(./forge decision accept <slug> --by \"<name>\"), or they read as "
           "unratified six weeks from now.")
-# Advisory, never blocking: a recurring class is usually OLDER than this task,
-# so it routes to a refactor story, not into holding this ship hostage.
-from forge_cli.findings import recurring  # noqa: E402
-recurring_classes = recurring(root)
-if recurring_classes:
-    worst = recurring_classes[0]
-    print(f"WARNING: {len(recurring_classes)} finding class(es) now RECURRING across tasks "
-          f"(e.g. {worst['category']} x{worst['count']}) — design signal: "
-          "./forge findings patterns, then consolidate (refactor story + decision) "
-          "instead of patching it a fourth time.")
-# The loop-health audit runs at ship cadence: the natural moment to notice a
-# watcher decaying. Advisory — it routes work, it never blocks this ship.
-from forge_cli.audit import issues as audit_issues  # noqa: E402
-loop_health = audit_issues(root)
-if loop_health:
-    print(f"AUDIT: {len(loop_health)} loop-health issue(s) — the improvement loops "
-          "themselves are decaying (ignored escalations / stale deferrals / dead "
-          "lessons): ./forge audit")
+roadmap_result = f"; Roadmap: {issue_key} marked done" if roadmap_done else ""
 print(f"PR_READY (archived to .factory/history/{issue_key}/, plan moved to plans/completed/, "
-      "task-scoped .factory state cleaned)")
-print(f"Now commit the archive — evidence that isn't committed isn't merged:")
-print(f"  git add -A && git commit -m \"chore({issue_key}): ship — evidence archived\"")
+      f"task-scoped .factory state cleaned){roadmap_result}")

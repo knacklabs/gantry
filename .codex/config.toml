@@ -12,7 +12,10 @@ plan_mode_reasoning_effort = "high"
 model_verbosity = "low"
 model_reasoning_summary = "concise"
 personality = "pragmatic"
-sandbox_mode = "danger-full-access"
+# Workspace-write by default (decision 0041). Needing broader access means
+# editing this value deliberately in the client repo — the diff-visible edit
+# is the ledgered escape hatch, and `forge upgrade` restores this default.
+sandbox_mode = "workspace-write"
 web_search = "cached"
 
 [features]

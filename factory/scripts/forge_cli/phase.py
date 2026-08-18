@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 from pathlib import Path
 
-from factory_lib import client_signoff, load_json, repo_root, run_state_path
+from factory_lib import (
+    client_signoff, load_json, repo_root, run_state_path, task_frontier_state,
+)
 
 from .context import pending_context
 from .quickfix import load_active, profile_of
@@ -18,11 +21,29 @@ def cmd_next(args: argparse.Namespace) -> None:
     factory = base / ".factory"
     pending_ctx = len(pending_context(base))
     steps: list[str] = []
+    signed_off = client_signoff(base)[0]
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=base, capture_output=True, text=True, encoding="utf-8",
+        errors="surrogateescape",
+    )
+    dirty_paths = {
+        line[3:].split(" -> ")[-1].strip().strip('"')
+        for line in status.stdout.splitlines()
+        if len(line) >= 4
+    } if status.returncode == 0 else set()
 
     def phase(label: str) -> None:
         issue = state.get("issue_key")
         suffix = f" ({issue} — {state.get('title')})" if issue else ""
         print(f"PHASE: {label}{suffix}")
+
+    from .doctor import fast_hook_status
+    hooks_ok, hook_detail = fast_hook_status(base)
+    if not hooks_ok:
+        steps.append(
+            f"[dev] Hook launcher is broken ({hook_detail}) — run `./forge doctor --fix` first"
+        )
 
     open_sigs = open_signals(base)
     if open_sigs:
@@ -54,7 +75,7 @@ def cmd_next(args: argparse.Namespace) -> None:
         steps.append("New project? scaffold with: forge.py init --name <project> --target <dir>")
         steps.append("Existing project, new feature? this repo has no .factory/run.json — "
                      "run: python3 factory/scripts/intake.py --issue <KEY> --title \"<title>\"")
-    elif not client_signoff(base)[0]:
+    elif not signed_off:
         phase("discovery/prototype/specs/roadmap (0a/0b/0c)")
         steps.append("[PM] Capture discovery and the product brief — ask for them; "
                      "prototype freely meanwhile (no ceremony)")
@@ -83,6 +104,15 @@ def cmd_next(args: argparse.Namespace) -> None:
                      "then run record_signoff.py")
     elif not state.get("issue_key"):
         phase("signed off — no active task")
+        if state.get("phase") == "shipped" and any(
+                path.startswith((".factory/history/", "plans/completed/"))
+                for path in dirty_paths):
+            steps.append("[dev] Commit the archive — evidence that isn't committed isn't "
+                         "merged: git add -A && git commit -m \"chore: ship — evidence "
+                         "archived\"")
+        if "harness.yaml" in dirty_paths:
+            steps.append("[dev] Commit harness.yaml — every gate reads the client sign-off "
+                         "pin from committed state")
         items = load_items(base)
         pending_items = [i for i in items if i.get("status", "pending") == "pending"]
         ready_items, _ = ready_pending(items)
@@ -164,39 +194,33 @@ def cmd_next(args: argparse.Namespace) -> None:
         ]
         if not tests.get("automated"):
             phase("implementing")
-            stages = load_json(factory / "stages.json", default={}).get("stages", [])
-            done_n = sum(1 for s in stages if s.get("status") == "done")
-            current = next((s for s in stages if s.get("status") != "done"), None)
-            if stages and current:
-                if current.get("status") == "active":
-                    action = f"{current['id']} is ACTIVE — {current.get('title')}"
-                else:
-                    action = (f"start {current['id']} ({current.get('title')}): "
-                              f"forge stage start {current['id']}")
-                steps.append(f"[dev] Stage progress: {done_n}/{len(stages)} done — {action}")
-                if current.get("incomplete"):
-                    steps.append(f"[dev] {current['id']} was reported INCOMPLETE: "
-                                 f"{current['incomplete']} — finish that gap first")
-                steps.append(f"[dev] Delegate it: ./forge delegate {current['id']} "
-                             "— composes the brief (criteria, write scope, what already "
-                             "exists there, decisions, lessons) and prints the exact "
-                             "invocation. A --write run without it is denied by the hook.")
-                steps.append("[dev] Then WATCH: ./forge codex status shows whether the "
-                             "run is still moving; Monitor .factory/signals.jsonl for "
-                             "raised signals")
-                steps.append("[dev] Stage Loop (WORKFLOW.md): delegate → /codex:rescue "
-                             "implements → inspect diff → validate assumptions → smallest "
-                             "checks → LOCAL autoreview until clean → commit → forge stage "
-                             "done (which MEASURES the diff and can refuse) — then start "
-                             "the next stage WITHOUT asking; gates are the permission "
-                             "(conduct §7)")
-            if user_facing:
-                steps.append("User-facing task: emil-design-eng + frontend-design are "
-                             "MANDATORY (recorder refuses the artifact without them in "
-                             "skills_used); apple-design advisory for gesture/motion — "
-                             "harness.yaml required_skills")
-            steps.append("[dev] The implementer writes/runs the tests and records: "
-                         "record_test_from_json.py --kind automated --input <json>")
+            frontier_state = task_frontier_state(base)
+            if frontier_state:
+                frontier, task = frontier_state
+                task_id = task["id"]
+                if frontier == "author-contract":
+                    steps.append(
+                        f"[dev] Enter plan mode for {task_id} per "
+                        "factory/prompts/planner.md; author its JIT contract against "
+                        "completed work, then re-record with "
+                        "record_decomposition_from_json.py (decisions 0029/0032)"
+                    )
+                elif frontier == "grill":
+                    steps.append(
+                        f"[dev] Grill {task_id} with factory/prompts/griller.md --gate "
+                        "task; resolve findings and record the digest-bound pass"
+                    )
+                elif frontier == "stage-start":
+                    steps.append(f"[dev] Start {task_id}: ./forge stage start {task_id}")
+                elif frontier == "delegate":
+                    steps.append(f"[dev] Delegate {task_id}: ./forge delegate {task_id}")
+                if user_facing:
+                    steps[-1] += (
+                        " — User-facing task: emil-design-eng + frontend-design are "
+                        "MANDATORY (recorder refuses the artifact without them in "
+                        "skills_used); apple-design advisory for gesture/motion — "
+                        "harness.yaml required_skills"
+                    )
         elif not verify.get("ok"):
             phase("verifying")
             steps.append("[dev] Run: python3 factory/scripts/verify.py")
@@ -220,6 +244,41 @@ def cmd_next(args: argparse.Namespace) -> None:
             steps.append("[dev] Run: python3 factory/scripts/pr_ready.py (archives the task; merge stays manual)")
             steps.append("[EM] Next task afterwards: pick from ./forge roadmap list --pending, "
                          "then intake.py --issue <KEY> --title \"<title>\"")
+    from .decisions import decision_records
+    records = decision_records(base)
+    accepted_dirty = [
+        record for record in records
+        if record["status"] == "accepted"
+        and record["path"].relative_to(base).as_posix() in dirty_paths
+    ]
+    if accepted_dirty:
+        record = accepted_dirty[0]
+        rel = record["path"].relative_to(base).as_posix()
+        slug = str(record["id"]).split("-", 1)[-1]
+        confirmer = record.get("confirmed_by") or "<human>"
+        steps.append(f"[PM] Commit accepted decision {record['id']} with its human "
+                     f"confirmed_by and audit trailer: git add {rel} && git commit -m "
+                     f"\"docs(decisions): accept {slug}\" --trailer "
+                     f"\"Confirmed-by: {confirmer}\"")
+    superseding = [
+        record for record in records
+        if record.get("supersedes") and record["status"] != "accepted"
+    ]
+    if superseding:
+        record = superseding[0]
+        slug = str(record["id"]).split("-", 1)[-1]
+        steps.append(f"[PM] {record['id']} supersedes {record['supersedes']} — the predecessor "
+                     "stays active until `forge decision accept "
+                     f"{slug} --by \"<human>\"` flips both")
+    spec_debt = [
+        item for item in load_items(base)
+        if signed_off and item.get("spec_debt_reason") and not item.get("spec")
+    ]
+    if spec_debt:
+        item = spec_debt[0]
+        steps.append("[PM] Clear spec debt before planning "
+                     f"{item['key']}: ./forge spec confirm <slug> && ./forge roadmap "
+                     f"link-spec {item['key']} --spec docs/specs/<slug>.md")
     proposed = len(list((base / "factory" / "skills" / "proposed").glob("*.md")))
     if proposed:
         steps.append(f"(Also: {proposed} proposed skill(s) await human review in "

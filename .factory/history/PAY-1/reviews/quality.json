@@ -1,0 +1,40 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Initial pass scored 6 with two verified blockers; both were fixed and re-verified in the review's first fix-verify cycle with pinned regression tests (typecheck, 73 checker tests, checker exit 0, 9 observer integration tests green). Moved-code fidelity across the 19 splits is high; drift-ported test files preserve their original assertions. The refactor's stated invariant (zero behavior change) held everywhere except the one observer-ID truncation the review caught.",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "category": "refactor-behavior-drift",
+      "area": "application/control-plane",
+      "summary": "RESOLVED in-review: createResolveObserverStatus truncated colon-bearing external conversation IDs (teams:19:...) before lookup, falsely returning configuration_required \u2014 full externalId now preserved, Teams-ID regression test pinned (7f38b2a27)."
+    },
+    {
+      "category": "gate-exemption-scope-leak",
+      "area": "scripts",
+      "summary": "RESOLVED in-review: the doc-references freeze marker was honored on any document, letting a live doc self-exempt \u2014 now machine-enforced against the frozenDocs allowlist in architecture-map.json; stamped-but-unlisted is itself a violation (3 checker tests, decision 0036 updated)."
+    },
+    {
+      "category": "test-suite-cost",
+      "area": "test/unit/runner",
+      "summary": "Runner-spawn suites cost ~20s/test by design (real subprocess per test); acceptable amortized under npm test, slow standalone."
+    }
+  ],
+  "residual_risks": [
+    "Non-shared runner-reachable modules remain hand-enumerated in the two spawn-test sandboxes (shared/ is now wholesale-copied); a future value-import from a new non-shared dir would repeat the uniform-timeout signature.",
+    "mcp-tool-proxy.ts rides an 800-line ratchet until CAP-1 (deferral D-0003)."
+  ],
+  "recommendation": "ship",
+  "reviewed_scope": [
+    "git diff main...HEAD (14 commits)",
+    "apps/core/src",
+    "apps/core/test",
+    "scripts/",
+    "docs/architecture",
+    "docs/decisions",
+    ".github/workflows/ci.yml"
+  ],
+  "aspect": "quality",
+  "recorded_at": "2026-07-22T17:32:44+00:00",
+  "commit": "aacf96d15d433b315bea16be438b61920b9e5f07"
+}

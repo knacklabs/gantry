@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Job coordination state (failure counter, pause reason, setup/notification state) moved out of the free-form target_json blob into dedicated database columns written only by single targeted statements \u2014 concurrent writers can no longer silently erase each other's updates, and the failure counter that decides auto-pause now counts every failure. The dead recovery-intent machinery (never called in production since its brief May run) is deleted rather than hardened, and the migration logs-and-drops any inert residue, un-sticking jobs a stale intent was wrongly blocking. Net 286 lines removed.",
+  "issue": "CO-1",
+  "commit": "a77e237c45376e9cf3e8c21b780c3995750bcc2b",
+  "recorded_at": "2026-08-03T09:35:26+00:00"
+}

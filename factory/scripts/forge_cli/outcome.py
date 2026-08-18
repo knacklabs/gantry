@@ -31,7 +31,7 @@ def load_outcome(base: Path) -> dict | None:
 
 def cmd_set(args: argparse.Namespace) -> None:
     base = Path(args.repo).resolve() if args.repo else repo_root()
-    text = (Path(args.from_file).read_text() if args.from_file else (args.text or "")).strip()
+    text = (Path(args.from_file).read_text(encoding="utf-8") if args.from_file else (args.text or "")).strip()
     if not text:
         fail("an outcome needs text: what changed, and what a user can now do")
     # A shell command or a pasted diff line clears "non-empty" but is not a

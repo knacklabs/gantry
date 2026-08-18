@@ -1,0 +1,18 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "issue": "SETUPRACE-1",
+  "verdict": "pass",
+  "questions_asked": 4,
+  "summary": "Recoverable atomic-claim design: CAS claim with stale-claim reclaim (notify_claim_at TTL) so a crashed claim self-heals; confirm-on-delivery, clear-on-failure; session resolved from the reloaded job. Interrogated risks: confirmed-never-reclaimed vs pending-reclaimed-after-TTL; shared-notifier blast radius; TTL bounds.",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [],
+  "open_items": [
+    "TTL must be injectable for tests and bounded (recover promptly vs not reclaim a slow live delivery).",
+    "Confirm resume/refresh do not clobber a live claim."
+  ],
+  "input_sha256": "e067dd31cbb325431b7108bdf44681e3f1ab55a67bed021cc87418ea4e18a8d8",
+  "recorded_at": "2026-08-09T09:43:44+00:00",
+  "commit": "8e5d02d5f18076ee4e49eeec81483e98e8254d02"
+}

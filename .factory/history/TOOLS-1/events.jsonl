@@ -1,0 +1,23 @@
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-04T17:04:12+00:00", "story": "TOOLS-1", "detail": "Provider-aware tool surface: affinity-filtered projection + dynamic per-provider instructions"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-04T17:20:42+00:00", "story": "TOOLS-1", "detail": "plans/active/TOOLS-1-provider-aware-tool-surface-affinity-filtered-projection-dynamic-per-provider-instructions.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-04T17:21:35+00:00", "story": "TOOLS-1", "detail": "2 task(s)"}
+{"event": "implementing", "generated_by": "orchestrator", "at": "2026-08-04T17:21:35+00:00", "story": "TOOLS-1"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-04T17:22:05+00:00", "story": "TOOLS-1", "detail": "TOOLS-1-1 Provider-affinity tool projection (both selection paths, both lanes)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-04T17:29:44+00:00", "story": "TOOLS-1", "detail": "TOOLS-1-1 (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-04T17:50:28+00:00", "story": "TOOLS-1", "detail": "TOOLS-1-1 Provider-affinity tool projection (both selection paths, both lanes)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-04T17:50:41+00:00", "story": "TOOLS-1", "detail": "TOOLS-1-2 Dynamic per-provider tool instructions + tool classification doc"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-04T17:58:22+00:00", "story": "TOOLS-1", "detail": "Managed command policy rejects the declared TOOLS-1-2 test wrapper before execution because FORGE_TEST_ID contains a literal greater-than sign; the same focused Vitest target passes without that wrapp"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-04T17:58:33+00:00", "story": "TOOLS-1", "detail": "TOOLS-1-2 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-04T17:59:36+00:00", "story": "TOOLS-1", "detail": "S-0001-d2a0: Known managed-command limitation: the orchestrator lane runs the exact declared JUnit wrapper during forge stage done (proven on CONTENT-1-2 and TOOLS-1-1); your focused vitest pass is sufficient from"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-04T18:07:58+00:00", "story": "TOOLS-1", "detail": "TOOLS-1-2 Dynamic per-provider tool instructions + tool classification doc"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-04T18:15:44+00:00", "story": "TOOLS-1"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-04T18:21:36+00:00", "story": "TOOLS-1", "detail": "pass"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-04T18:21:36+00:00", "story": "TOOLS-1"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-04T18:21:36+00:00", "story": "TOOLS-1"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-04T18:21:36+00:00", "story": "TOOLS-1"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-04T18:21:49+00:00", "story": "TOOLS-1", "detail": "pass"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-04T18:21:49+00:00", "story": "TOOLS-1"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-04T18:21:49+00:00", "story": "TOOLS-1"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-04T18:21:49+00:00", "story": "TOOLS-1"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-04T18:29:57+00:00", "story": "TOOLS-1"}
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-04T18:29:57+00:00", "story": "TOOLS-1", "detail": "Agents now only see the tools that actually work where they are: Slack agents keep the canvas tools, while Telegram, Discord and other conversations no longer carry three dead tools they could never u"}

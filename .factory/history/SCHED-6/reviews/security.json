@@ -1,0 +1,25 @@
+{
+  "generated_by": "autoreview",
+  "status": "passed",
+  "score": 9,
+  "summary": "The change strengthens the trust boundary rather than weakening it. Grantability is carried authoritatively (JSON-encoded in the terminal error so a free-text reason cannot spoof Grantable:/Recovery: markers) and the card offers a durable approval only when grantable === true, failing closed on undefined (no legacy compat path). Hard boundaries (protected-capability, memory, settings denylist, locked-preset/fixed-image) are never turned into an approvable grant. Side effects are fenced after cancellation across all tool paths (facade, third-party MCP, shell) so a late-resolving approval cannot launch a command after a sibling denial terminated the turn. Adding an under-declared tool to a job on approval is a human-initiated edit, consistent with decision 0106 (scheduled runs cannot self-mutate).",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    "Pre-check denials route to a non-grantable instruction card on scheduled runs, so a hard-boundary denial can never be presented as approvable."
+  ],
+  "residual_risks": [
+    "Grant (permission store) and requirement append (job store) are intentionally non-atomic; the residual grant-without-requirement gap is benign (agent has the tool; job runs) and self-heals on the next denial. Tracked as D-0050."
+  ],
+  "reviewed_scope": [
+    "apps/core/src/shared/autonomous-tool-denial.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/third-party-mcp-gate.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/gantry-shell-tool.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/gantry-facade-tools.ts",
+    "apps/core/src/application/jobs/setup-pause-permission-prompt.ts",
+    "apps/core/src/app/bootstrap/setup-pause-permission-wiring.ts"
+  ],
+  "recommendation": "approve",
+  "aspect": "security",
+  "recorded_at": "2026-08-08T08:33:52+00:00",
+  "commit": "793ae9fd267ae514129df5b294fb165095b4bd47"
+}

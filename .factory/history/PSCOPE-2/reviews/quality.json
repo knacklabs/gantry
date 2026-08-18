@@ -1,0 +1,24 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Per-stage local autoreview (codex gpt-5.6-sol high) plus one whole-branch pass, iterated to convergence. Real findings fixed along the way: unreclaimable bootstrap rows, claim-window burst dedup, registered-before-commit strand (resolved by making the route check the registration authority), Discord READY-replay rollout blast, unavailable-stub suppression, and reclaim fencing (id rotation + terminal-timestamp clearing). Stage-split and no-backcompat findings rejected with recorded rationale.",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "category": "review-oscillation",
+      "area": "adapters/group-join-onboarding-repository",
+      "summary": "Rounds alternated between retryability and dedup on the claim path; converged on route-check-as-authority + ownership window + id-rotating reclaim."
+    }
+  ],
+  "residual_risks": [
+    "Discord guild installed while the bot is offline gets no courtesy notice (accepted 0119 limit; registration is manual regardless).",
+    "In-flight pre-upgrade Telegram DM prompts are stranded (no-backcompat per 0112/0113; kick/re-add recovers)."
+  ],
+  "recommendation": "ship",
+  "reviewed_scope": [
+    "origin/main..HEAD whole branch"
+  ],
+  "aspect": "quality",
+  "recorded_at": "2026-08-10T16:13:50+00:00",
+  "commit": "fc08a2431153595471d63b5e1dbb13bdb872f335"
+}

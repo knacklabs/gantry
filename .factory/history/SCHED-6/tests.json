@@ -1,0 +1,37 @@
+{
+  "commit": "793ae9fd267ae514129df5b294fb165095b4bd47",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "SCHED-6 makes every scheduled (autonomous) tool denial terminal so a job never silently degrades to another tool. Falsifiers cover: the autonomous non-promptable denial is terminal and interrupts the run; a declared-but-ungranted grantable denial raises the one-tap approval card and approving grants the agent; an under-declared grantable denial one-tap approve-and-declares (adds the job requirement AND grants) for both browser and scoped RunCommand; non-grantable denials (locked/fixed-image/protected/unmatched/mcp) stay a legible instruction-only card; a denied tool cancels a concurrent side-effecting sibling and the shell launch is fenced after async approval; the first parallel denial is sticky; the requirement append runs only after the grant commits and settles/resumes even when the append loses its CAS or throws; the Anthropic legacy denial format's grantability is preserved through the parser; and DeepAgents pre-check denials (protected/memory/yolo-denylist) route through the terminal handler on scheduled runs.",
+    "tests_added_or_updated": [
+      "apps/core/test/unit/runner/tool-permission-gate.test.ts: autonomous non-promptable denial is terminal and interrupts the run (flipped from soft-deny).",
+      "apps/core/test/unit/adapters/deepagents-terminal-denial-turn.test.ts: sibling-cancel, non-grantable-instruction, grantable-approval, and sticky-first-parallel-denial falsifiers.",
+      "apps/core/test/unit/adapters/deepagents-gantry-shell-tool.test.ts: shell fence after async approval + already-aborted throws + scheduled pre-check routes to terminal handler.",
+      "apps/core/test/unit/adapters/deepagents-third-party-mcp-gate.test.ts: scheduled pre-check denial routes through terminal handler (non-grantable).",
+      "apps/core/test/unit/application/setup-pause-prompt.test.ts: under-declared one-tap approve-and-declare (browser + scoped RunCommand), non-grantable never approvable, append-after-grant ordering incl. CAS-lost and throw settle/resume.",
+      "apps/core/test/unit/shared/autonomous-tool-denial.test.ts: legacy Recovery: request_access grantability inference.",
+      "apps/core/test/unit/adapters/anthropic-autonomous-permission-recovery.test.ts: non-grantable manual_configuration_required parsed as grantable:false."
+    ],
+    "commands_run": [
+      "npm run test:unit  (642 files, 8778 tests passed)",
+      "npm run typecheck  (clean)",
+      "FACTORY_TEST_CMD='npm run test:unit' python3 factory/scripts/verify.py  (Verification passed: format + check:architecture + unit suite)",
+      ".claude/skills/autoreview/scripts/autoreview --mode branch --base origin/main  (clean: no accepted/actionable findings)"
+    ],
+    "pass_fail_summary": "unit suite passed (642 files / 8778 tests); typecheck clean; verify.py passed (format + check:architecture + unit suite); whole-branch autoreview clean after 5 rounds (patch is correct).",
+    "blocking_findings": [],
+    "remaining_gaps": [
+      "Postgres integration lane runs in CI only (no local test DB); the updated_at-CAS append is unit-covered locally and exercised by the CI integration suite.",
+      "The Anthropic-lane pre-autonomous guards (model-validation, wait-only, network) remain a separate deferred sweep per decision 0115; only the DeepAgents lane pre-checks are made terminal here.",
+      "Cross-store atomicity between the durable grant and the job access_requirement append is deferred as D-0050 (benign, self-healing residual)."
+    ],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-08-08T08:34:06+00:00",
+    "commit": "793ae9fd267ae514129df5b294fb165095b4bd47"
+  },
+  "updated_at": "2026-08-08T08:34:06+00:00"
+}

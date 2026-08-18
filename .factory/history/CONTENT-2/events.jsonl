@@ -1,0 +1,19 @@
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-04T18:46:15+00:00", "story": "CONTENT-2", "detail": "Physical attachment hand-off: agents access real files in all providers"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-04T18:57:33+00:00", "story": "CONTENT-2", "detail": "plans/active/CONTENT-2-physical-attachment-hand-off-agents-access-real-files-in-all-providers.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-04T18:58:16+00:00", "story": "CONTENT-2", "detail": "2 task(s)"}
+{"event": "implementing", "generated_by": "orchestrator", "at": "2026-08-04T18:58:16+00:00", "story": "CONTENT-2"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-04T18:58:34+00:00", "story": "CONTENT-2", "detail": "CONTENT-2-1 attachment_materialize tool end to end (quarantine contract, decision 0105)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-04T19:11:06+00:00", "story": "CONTENT-2", "detail": "CONTENT-2-1 (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-04T19:23:16+00:00", "story": "CONTENT-2", "detail": "CONTENT-2-1 attachment_materialize tool end to end (quarantine contract, decision 0105)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-04T19:23:29+00:00", "story": "CONTENT-2", "detail": "CONTENT-2-2 Quarantine guidance in neutral prompt seams + isolation contract tests"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-04T19:28:33+00:00", "story": "CONTENT-2", "detail": "Managed command policy refused the required CONTENT-2-2 FORGE_TEST_ID invocation before Vitest started; rerun the declared command in the orchestrator environment. The complete test file passes in the"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-04T19:28:46+00:00", "story": "CONTENT-2", "detail": "CONTENT-2-2 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-04T19:30:01+00:00", "story": "CONTENT-2", "detail": "S-0001-dec3: Known limitation: forge stage done executes the exact declared JUnit wrapper in the orchestrator lane (proven on the last three stages); your focused pass suffices from the worker lane."}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-04T19:37:39+00:00", "story": "CONTENT-2", "detail": "CONTENT-2-2 Quarantine guidance in neutral prompt seams + isolation contract tests"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-04T19:45:43+00:00", "story": "CONTENT-2"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-04T20:18:18+00:00", "story": "CONTENT-2"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-04T20:18:18+00:00", "story": "CONTENT-2", "detail": "pass"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-04T20:18:18+00:00", "story": "CONTENT-2"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-04T20:18:18+00:00", "story": "CONTENT-2"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-04T20:18:18+00:00", "story": "CONTENT-2"}
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-04T20:18:18+00:00", "story": "CONTENT-2", "detail": "Agents can now get the real file, not just a text view: a new attachment_materialize tool copies one conversation attachment at a time into a quarantine folder inside the agent's own workspace, so scr"}

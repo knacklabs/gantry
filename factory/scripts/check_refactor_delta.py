@@ -39,7 +39,7 @@ def is_product_source(rel: str) -> bool:
 def resolve_base(root: Path) -> str | None:
     for ref in ("origin/main", "main", "origin/master", "master"):
         proc = subprocess.run(["git", "rev-parse", "--verify", "--quiet", ref],
-                              cwd=root, capture_output=True, text=True)
+                              cwd=root, capture_output=True, text=True, encoding="utf-8")
         if proc.returncode == 0:
             return ref
     return None
@@ -49,7 +49,8 @@ def net_delta(root: Path, base: str) -> tuple[int, list[str]]:
     """Sum of (added - deleted) over product source vs the merge base
     (`base...HEAD`), with a per-file breakdown for the refusal message."""
     proc = subprocess.run(["git", "diff", "--numstat", f"{base}...HEAD"],
-                          cwd=root, capture_output=True, text=True)
+                          cwd=root, capture_output=True, text=True,
+                          encoding="utf-8", errors="surrogateescape")
     if proc.returncode != 0:
         raise SystemExit(f"git diff against {base} failed: {proc.stderr.strip()}")
     total = 0

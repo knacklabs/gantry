@@ -30,10 +30,11 @@ COPY_WORKFLOWS = [
     ".github/workflows/factory-scaffold.yml",
     ".github/workflows/gardener.yml",
     ".github/workflows/harness-health.yml",
+    ".github/workflows/roadmap-gate.yml",
 ]
 COPY_CODEX = ["config.toml", "explore.config.toml", "hooks.json"]  # + agents/ and skills/ dirs
 COPY_FILES = ["harness.yaml", ".gitignore", ".gitattributes", ".envrc",
-              "WORKFLOW.md", "CLAUDE.md", "forge"]
+              "WORKFLOW.md", "CLAUDE.md", "forge", "forge.cmd"]
 DOC_CONTRACTS = [
     ("docs/product/README.md", "docs/product/README.md"),
     ("docs/architecture/README.md", "docs/architecture/README.md"),
@@ -43,6 +44,7 @@ DOC_CONTRACTS = [
     ("docs/ROLES.md", "docs/ROLES.md"),
     ("docs/harness-philosophy.md", "docs/harness-philosophy.md"),
     ("docs/degraded-mode.md", "docs/degraded-mode.md"),
+    ("docs/windows.md", "docs/windows.md"),
     ("docs/context/README.md", "docs/context/README.md"),
     ("docs/specs/README.md", "docs/specs/README.md"),
 ]
@@ -86,6 +88,37 @@ APPEND_OR_TOUCH = ["README.md", ".factory/record-origin.json",
 # mkdir-only destinations with no enumerated leaf file: an existing dir is
 # fine, but a file or symlink there would abort init midway.
 ENSURED_DIRS = [".factory/reviews"]
+
+
+def remediate_windows_hook_entry(target: Path) -> None:
+    """Repair Windows hook prerequisites after a scaffold flow completes."""
+    from .doctor import _platform_name
+
+    if _platform_name() != "windows":
+        return
+
+    from .doctor import (
+        HOOK_HEALTH_FIX,
+        HOOK_SHELL_FIX,
+        _existing_hook_shell,
+        _python_status,
+        _remediate_windows_prerequisites,
+        fast_hook_status,
+    )
+
+    ok, detail = fast_hook_status(target)
+    if ok:
+        return
+
+    _remediate_windows_prerequisites(
+        install_git=_existing_hook_shell(dict(os.environ)) is None,
+        install_python=not _python_status()[0],
+    )
+    ok, detail = fast_hook_status(target)
+    if not ok:
+        guidance = HOOK_SHELL_FIX if "sh is not on PATH" in detail else HOOK_HEALTH_FIX
+        print(f"[RED] Windows hook check: {detail}")
+        print(f"      fix: {guidance}")
 
 
 def _collisions(root: Path, target: Path) -> list[str]:
@@ -211,39 +244,41 @@ def ensure_onboarding(target: Path, name: str) -> bool:
     Returns True when something was written — idempotent via the heading."""
     readme = assert_target_destination(target, target / "README.md")
     if not readme.exists():
-        readme.write_text(f"# {name}\n{ONBOARDING_SECTION}")
+        readme.write_text(f"# {name}\n{ONBOARDING_SECTION}", encoding="utf-8")
         return True
-    if ONBOARDING_HEADING in readme.read_text():
+    if ONBOARDING_HEADING in readme.read_text(encoding="utf-8"):
         return False
-    with readme.open("a") as fh:
+    with readme.open("a", encoding="utf-8") as fh:
         fh.write(f"\n{ONBOARDING_SECTION}")
     return True
 
 
 def ensure_jsonl_attributes(target: Path, harness: Path) -> bool:
-    """Add missing harness JSONL merge rules without replacing project rules.
+    """Add missing harness attribute rules without replacing project rules.
 
     Only `merge=union` rules ship. These used to be `merge=jsonl-append`, a
     driver registered per clone by the SessionStart hook — so scaffolding wrote
     a rule into a client repo that depended on a hook having run on whatever
     machine merged it. When the driver was absent the rule was inert; when it
     was present it hung, and the merge blocked forever instead of failing.
+    The POSIX `forge` launcher is also pinned to LF so Git Bash can execute it
+    after a Windows checkout.
     """
     destination = assert_target_file_destination(target, target / ".gitattributes")
     if not destination.exists():
         shutil.copy2(harness / ".gitattributes", destination)
         return True
-    current = destination.read_text()
+    current = destination.read_text(encoding="utf-8")
     required = [
-        line for line in (harness / ".gitattributes").read_text().splitlines()
-        if "merge=union" in line
+        line for line in (harness / ".gitattributes").read_text(encoding="utf-8").splitlines()
+        if "merge=union" in line or line == "forge text eol=lf"
     ]
     missing = [line for line in required if line not in current.splitlines()]
     if not missing:
         return False
-    with destination.open("a") as handle:
+    with destination.open("a", encoding="utf-8") as handle:
         handle.write("\n" + "\n".join(missing) + "\n")
-    return True
+    return any("merge=union" in line for line in missing)
 
 
 def record_origin_path(target: Path) -> Path:
@@ -349,7 +384,7 @@ def ensure_record_origin(target: Path) -> bool:
     if marker.exists():
         return False
     events = target / ".factory" / "events.jsonl"
-    if events.is_file() and events.read_text().strip():
+    if events.is_file() and events.read_text(encoding="utf-8").strip():
         return False  # a Forge record already exists; its origin predates now
     # A shallow clone counts only its local commits, so rev-list would report a
     # truncated number the marker then claims forever. An honest boundary must
@@ -357,12 +392,12 @@ def ensure_record_origin(target: Path) -> bool:
     # the board omits the count rather than stating a false one.
     shallow = subprocess.run(
         ["git", "rev-parse", "--is-shallow-repository"],
-        cwd=target, capture_output=True, text=True,
+        cwd=target, capture_output=True, text=True, encoding="utf-8",
     )
     is_shallow = shallow.returncode == 0 and shallow.stdout.strip() == "true"
     count = subprocess.run(
         ["git", "rev-list", "--count", "HEAD"],
-        cwd=target, capture_output=True, text=True,
+        cwd=target, capture_output=True, text=True, encoding="utf-8",
     )
     # Shallow: count is truncated and unknowable -> null. A repo with no commit
     # yet (rev-list has no HEAD) genuinely has zero preceding -> 0, honest.
@@ -567,18 +602,18 @@ def cmd_init(args: argparse.Namespace) -> None:
     if manifest_yaml.exists():
         assert_target_destination(target, manifest_yaml).write_text(
             re.sub(r"^signoff_record:.*$", 'signoff_record: ""',
-                   manifest_yaml.read_text(), count=1, flags=re.MULTILINE)
+                   manifest_yaml.read_text(encoding="utf-8"), count=1, flags=re.MULTILINE), encoding="utf-8"
         )
 
     # Pin the vendored constitution to its source commit.
     try:
         commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+            ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True, encoding="utf-8"
         ).stdout.strip()
     except subprocess.CalledProcessError:
         commit = "unknown"
     assert_target_destination(target, target / "constitution" / "VENDORED_FROM").write_text(
-        f"symphony-forge @ {commit}\nUpdate by re-vendoring from the harness repo; do not edit in place.\n"
+        f"symphony-forge @ {commit}\nUpdate by re-vendoring from the harness repo; do not edit in place.\n", encoding="utf-8"
     )
     # Freeze the gate surface from birth (frozen-gate-integrity): the manifest
     # is what check_vendor_integrity.py compares against until the next vendoring.
@@ -592,7 +627,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     if brief_src.exists():
         shutil.copy2(brief_src, assert_target_file_destination(target, brief_dst))
     assert_target_destination(target, target / "docs" / "product" / "DISCOVERY.md").write_text(
-        DISCOVERY_TEMPLATE.format(name=args.name)
+        DISCOVERY_TEMPLATE.format(name=args.name), encoding="utf-8"
     )
     assert_target_destination(
         target, target / "docs" / "decisions"
@@ -604,7 +639,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     assert_target_destination(target, target / "prototype").mkdir(parents=True, exist_ok=True)
     assert_target_destination(
         target, target / "prototype" / "README.md"
-    ).write_text(PROTOTYPE_README)
+    ).write_text(PROTOTYPE_README, encoding="utf-8")
     for sub in ("active", "completed", "debt"):
         plan_dir = target / "plans" / sub
         assert_target_destination(target, plan_dir).mkdir(parents=True, exist_ok=True)
@@ -617,8 +652,8 @@ def cmd_init(args: argparse.Namespace) -> None:
         {"project": args.name, "created_at": now_iso()},
     )
 
-    agents_md = (root / "AGENTS.md").read_text().replace("Symphony Forge", args.name, 1)
-    assert_target_destination(target, target / "AGENTS.md").write_text(agents_md)
+    agents_md = (root / "AGENTS.md").read_text(encoding="utf-8").replace("Symphony Forge", args.name, 1)
+    assert_target_destination(target, target / "AGENTS.md").write_text(agents_md, encoding="utf-8")
     ensure_onboarding(target, args.name)
 
     if not (target / ".git").exists():
@@ -636,3 +671,4 @@ def cmd_init(args: argparse.Namespace) -> None:
     print("  3. Grill sign-off, accept `client-signoff --by <name>`, then: "
           "python3 factory/scripts/record_signoff.py")
     print(f"  4. Generate the {args.stack} workspace via harness/{args.stack}/SCAFFOLD_PROMPT.md")
+    remediate_windows_hook_entry(target)

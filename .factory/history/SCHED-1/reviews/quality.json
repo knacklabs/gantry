@@ -1,0 +1,23 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Four local + two branch rounds to clean; review caught three real defects in the same class (prototype-key map lookup, free-form decider promoted via map collision, silent suppression keyed on decidedBy) \u2014 all fixed by caller-declared origin + typed-source keying with collision regressions.",
+  "blocking_findings": [],
+  "residual_risks": [
+    "free-form human deciders map conservatively to human_once: genuinely-human approvals can over-pause, by design."
+  ],
+  "reviewed_scope": [
+    "apps/core/src/domain",
+    "apps/core/src/runtime",
+    "apps/core/src/jobs",
+    "apps/core/src/runner",
+    "apps/core/src/application/permissions",
+    "apps/core/src/adapters/llm",
+    "apps/core/src/shared"
+  ],
+  "recommendation": "ship",
+  "aspect": "quality",
+  "non_blocking_findings": [],
+  "recorded_at": "2026-08-05T05:51:53+00:00",
+  "commit": "5744e58a4158f8f83a7b2f3180fcfb6b24681673"
+}

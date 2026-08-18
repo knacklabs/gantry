@@ -1,0 +1,19 @@
+{
+  "generated_by": "autoreview",
+  "score": 9,
+  "summary": "PERM-2 preserved throughout: the agent/worker never self-grants. Part A only changes the recovery STRING for an already-denied facade tool to a grantable request_access; the actual durable grant still requires a user-permanent host decision, and it persists the CANONICAL selection (FileRead/WebRead/Browser), never the raw SDK alias. Grantability is decided by the shared isGrantableAutonomousToolRecovery (both lanes). Third-party MCP (source-first), locked-preset, and fixed-image tools stay non-grantable. Part B/C add no authority; declaration at creation is not a grant. No new attack surface; no secrets or trust-boundary changes.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [
+    "Write facade tools (FileWrite/FileEdit) are now one-tap grantable on a pause card; mitigated by the risk label, explicit human approval, and the durable-access policy still gating persistability."
+  ],
+  "recommendation": "Land.",
+  "reviewed_scope": [
+    "apps/core/src/shared/tool-execution-policy-service.ts",
+    "apps/core/src/application/jobs/",
+    "apps/core/src/app/bootstrap/setup-pause-permission-wiring.ts"
+  ],
+  "aspect": "security",
+  "recorded_at": "2026-08-09T08:22:27+00:00",
+  "commit": "074509a5939e68f2e9f307bc38b54f86ea45917c"
+}

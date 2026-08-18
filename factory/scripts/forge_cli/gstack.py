@@ -36,7 +36,7 @@ def slug_candidates(base: Path) -> list[str]:
     directory name is the fallback for remoteless repos."""
     candidates: list[str] = []
     proc = subprocess.run(
-        ["git", "remote", "get-url", "origin"], cwd=base, capture_output=True, text=True
+        ["git", "remote", "get-url", "origin"], cwd=base, capture_output=True, text=True, encoding="utf-8"
     )
     if proc.returncode == 0 and proc.stdout.strip():
         parts = [p for p in re.split(r"[:/]", proc.stdout.strip().removesuffix(".git")) if p]
@@ -48,7 +48,7 @@ def slug_candidates(base: Path) -> list[str]:
 
 def dev_slug(base: Path) -> str:
     proc = subprocess.run(
-        ["git", "config", "user.email"], cwd=base, capture_output=True, text=True
+        ["git", "config", "user.email"], cwd=base, capture_output=True, text=True, encoding="utf-8"
     )
     local = proc.stdout.strip().split("@")[0] if proc.returncode == 0 else ""
     return re.sub(r"[^A-Za-z0-9._-]", "-", local) or "local"
@@ -56,14 +56,14 @@ def dev_slug(base: Path) -> str:
 
 def union_merge_jsonl(src: Path, dest: Path) -> int:
     """Append src lines missing from dest; returns how many were added."""
-    src_lines = [ln for ln in src.read_text().splitlines() if ln.strip()]
+    src_lines = [ln for ln in src.read_text(encoding="utf-8").splitlines() if ln.strip()]
     if not dest.exists():
-        dest.write_text("\n".join(src_lines) + "\n" if src_lines else "")
+        dest.write_text("\n".join(src_lines) + "\n" if src_lines else "", encoding="utf-8")
         return len(src_lines)
-    existing = set(ln for ln in dest.read_text().splitlines() if ln.strip())
+    existing = set(ln for ln in dest.read_text(encoding="utf-8").splitlines() if ln.strip())
     new = [ln for ln in src_lines if ln not in existing]
     if new:
-        with dest.open("a") as fh:
+        with dest.open("a", encoding="utf-8") as fh:
             for ln in new:
                 fh.write(ln + "\n")
     return len(new)

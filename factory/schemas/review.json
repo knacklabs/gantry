@@ -14,7 +14,8 @@
     "residual_risks": "list",
     "recommendation": "str",
     "reviewed_scope": "list",
-    "skills_used": "list"
+    "skills_used": "list",
+    "contract_verdicts": "list"
   },
   "required_skills": {
     "user_facing": ["review-animations"]
@@ -22,5 +23,6 @@
   "ranges": {
     "score": [0, 10]
   },
-  "findings_note": "Finding entries SHOULD be objects {category: kebab-case defect class, area: module/dir, summary} so `forge findings patterns` can cluster recurring classes across tasks; plain strings are accepted but cluster on exact text only."
+  "findings_note": "Finding entries SHOULD be objects {category: kebab-case defect class, area: module/dir, summary} so `forge findings patterns` can cluster recurring classes across tasks; plain strings are accepted but cluster on exact text only.",
+  "contract_verdicts_note": "Quality reviews for decompositions that declare plan_contracts require entries {contract_id, verdict: implemented|partial|missing, evidence}; evidence is a non-empty file:line explanation."
 }

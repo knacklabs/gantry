@@ -1,0 +1,10 @@
+[
+  {
+    "id": "A-0046",
+    "date": "2026-08-05",
+    "issue": "SCHED-4A",
+    "assumption": "The repeat-escalation day span is the inclusive elapsed span: at least 1 day, otherwise ceil((now - firstAskedAt) / 24 hours).",
+    "status": "confirmed",
+    "guidance": "Confirmed: inclusive elapsed span with a 1-day floor (ceil of elapsed/24h) is the intended reading \u2014 'in 1 day' for same-day repeats, matching the escalation copy and its tests."
+  }
+]

@@ -1,0 +1,17 @@
+{
+  "issue_key": "CAPRULE-1",
+  "title": "Scheduled runs drop capability-backed RunCommand rules from the autonomous allowlist",
+  "tracker": "linear",
+  "branch": "feat/CAPRULE-1-scheduled-runs-drop-capability-backed-runcommand-rules-from-the-autonomous-allowlist",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-08-08T12:58:03+00:00",
+  "updated_at": "2026-08-08T17:05:22+00:00",
+  "plan_file": "plans/completed/CAPRULE-1-scheduled-runs-drop-capability-backed-runcommand-rules-from-the-autonomous-allowlist.md",
+  "story": "CAPRULE-1"
+}

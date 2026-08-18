@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "When a CLI capability's approved command shape doesn't fit how the command really works, the agent now asks for a fix instead of failing forever: one plain-language card lands in chat - what stopped, what approving changes, what the capability still can and cannot do - with Approve fix / Deny buttons and the technical delta collapsed behind them. Approving updates the reviewed definition once, with full provenance and history, and every job blocked on that capability resumes and completes without re-asking. Denying is final for that definition; timeouts just ask again later. The KnackLabs sheets breakage is this feature's live acceptance test: fixing it becomes one tap instead of SQL.",
+  "issue": "CAPFIX-1",
+  "commit": "139be189a4fad89263bfb340515051daeab723cd",
+  "recorded_at": "2026-08-11T22:01:16+00:00"
+}

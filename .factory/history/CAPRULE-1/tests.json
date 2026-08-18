@@ -1,0 +1,34 @@
+{
+  "commit": "386ba6e98b2b55279a04558ef6eda1e46d90c178",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "CAPRULE-1 makes scheduled runs actually use the capabilities/commands their agent is host-granted, and collapses a denied-tool pause to one plain-language notification. Falsifiers: a scheduled worker-local miss authorizes a host-granted google.sheets capability command via the host coordinator; an ungranted command still denies terminally (host consulted exactly once); the settings yolo-denylist stays terminal BEFORE the host consult (host approval cannot override it); Browser/canonical capabilities keep working; a denied-tool pause emits exactly one user notification with no duplicate terminal card and mobile-first copy; a running lifecycle message is retired best-effort with no duplicate even on unsupported backends; the plain-language setup-story copy replaces the Failed action/Triggering step/Run outcome/Blockers jargon.",
+    "tests_added_or_updated": [
+      "apps/core/test/unit/runner/tool-permission-gate.test.ts: worker-local miss authorized via host coordinator; ungranted still terminal; denylist terminal.",
+      "apps/core/test/unit/runner/agent-runner-ipc.test.ts: scheduled unsupported tool now consults the host then terminates (permission-request written).",
+      "apps/core/test/unit/jobs/execution-notifications.test.ts: one notification per denied-tool pause; lifecycle retire; no duplicate on unsupported backends.",
+      "apps/core/test/unit/application/setup-pause-prompt.test.ts + job-permission-recovery.test.ts: new plain-language setup-story copy assertions."
+    ],
+    "commands_run": [
+      "npm run test:unit  (642 files, 8781 tests passed)",
+      "npm run typecheck  (clean)",
+      "FACTORY_TEST_CMD='npm run test:unit' python3 factory/scripts/verify.py  (Verification passed: format + check:architecture + unit suite)",
+      ".claude/skills/autoreview/scripts/autoreview --mode branch --base origin/main  (converged; one remaining edge-case P2 deferred D-0052)"
+    ],
+    "pass_fail_summary": "unit 642 files / 8781 tests passed; typecheck clean; verify.py passed; whole-branch autoreview converged (Part A capability handoff + denylist-terminal + one-notification consolidation), with a single oscillating immutable-backend edge case deferred as D-0052 and BR-F3 rejected as a false positive.",
+    "blocking_findings": [],
+    "remaining_gaps": [
+      "The host-granted-capability authorization is proven end-to-end at the gate level with a mocked host response; the live proof is resuming the KnackLabs job after gantry restart (pending, per the plan).",
+      "Immutable-backend stale 'running' message on a pause: deferred D-0052 (cosmetic, moot for quiet scheduled jobs; the AC forbids a duplicate card).",
+      "Decision 0116 is proposed, awaiting Ravi's confirmation."
+    ],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-08-08T17:04:23+00:00",
+    "commit": "386ba6e98b2b55279a04558ef6eda1e46d90c178"
+  },
+  "updated_at": "2026-08-08T17:04:23+00:00"
+}

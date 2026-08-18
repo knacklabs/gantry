@@ -1,0 +1,24 @@
+{
+  "generated_by": "autoreview",
+  "status": "passed",
+  "score": 8,
+  "summary": "Whole-branch autoreview converged over 2 rounds. Part A is a minimal reorder (host coordinator consulted before terminal deny) reusing the existing host authority; Part B is a net simplification of the terminal-notifier suppression plus a plain-language setup-story rewrite. Real findings each round were fixed (denylist-terminal short-circuit; one-notification consolidation) or deliberately resolved. One P2 (immutable-backend stale running) oscillated across rounds with no design satisfying both the one-notification AC and no-stale-running; resolved AC-first and deferred D-0052. BR-F3 (lost approve) rejected: the grantable one-tap approve is raised by raiseSetupPausePermissionPrompt, not the suppressed terminal card.",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    "Immutable-backend stale 'running' lifecycle message: cosmetic, moot for quiet scheduled jobs; deferred D-0052.",
+    "tool-permission-gate.ts line budget raised 725->760 for the denylist short-circuit."
+  ],
+  "residual_risks": [
+    "Decision 0116 is proposed, pending Ravi confirmation.",
+    "The host-grants-the-capability behavior is unit-proven with a mocked host; live proof is the KnackLabs job resume."
+  ],
+  "reviewed_scope": [
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.ts",
+    "apps/core/src/jobs/execution-notifications.ts",
+    "apps/core/src/application/jobs/scheduler-setup-story.ts"
+  ],
+  "recommendation": "approve",
+  "aspect": "quality",
+  "recorded_at": "2026-08-08T17:04:56+00:00",
+  "commit": "386ba6e98b2b55279a04558ef6eda1e46d90c178"
+}

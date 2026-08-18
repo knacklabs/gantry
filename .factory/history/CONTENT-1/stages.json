@@ -1,0 +1,25 @@
+{
+  "issue": "CONTENT-1",
+  "stages": [
+    {
+      "id": "CONTENT-1-1",
+      "title": "Six provider-content quick fixes",
+      "status": "done",
+      "started_at": "2026-08-04T04:47:37+00:00",
+      "base_sha": "23aa0a8ca35ef9895b81fc73edf71f767194278c",
+      "dirty_at_start": {},
+      "task_sha256": "97fb06866eab4309198222a3dd3e409f739c15a149165ec5bb35444b23f430aa",
+      "completed_at": "2026-08-04T04:49:47+00:00"
+    },
+    {
+      "id": "CONTENT-1-2",
+      "title": "Slack canvas read/create/update behind host-issued handles",
+      "status": "done",
+      "started_at": "2026-08-04T13:38:17+00:00",
+      "base_sha": "bb340b0aedde1d74e12ea5e821326488fea4cac4",
+      "dirty_at_start": {},
+      "task_sha256": "b6d1acaf406302dbab0b1cec585d0d3100722b172b58d2678030f0b9fdf40938",
+      "completed_at": "2026-08-04T13:51:25+00:00"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "issue": "PSCOPE-1",
+  "verdict": "pass",
+  "questions_asked": 8,
+  "summary": "Plan grilled against the roadmap acceptance criteria, accepted decisions 0118/0119, and the architecture/lessons. Every task traces to a criterion; the smaller alternatives (agent-fork, session-only, agent-global grants) are recorded as rejected decisions rather than silently dropped. Schema, acting-identity, and the recurring delivery-semantics class each carry an explicit mitigation.",
+  "gaps": [
+    "Risk of over-building by forking a separate agent/persona per DM.",
+    "Schema change to agent_tool_bindings could drift if done as raw SQL rather than through the canonical repository.",
+    "Acting-identity could be resolved on a path that never threads personId, silently dropping a person's grant.",
+    "Task 5's in-group acknowledgement touches the RECURRING delivery-semantics class at jobs/execution-readiness (x3, SETUPRACE-1).",
+    "Task write-scopes must stay disjoint so workers do not collide."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Agent-fork refuted in decision 0118 and listed as a non-goal; per-person isolation reuses the shipped personId memory boundary \u2014 no fork, no routing/brain change, no migration.",
+    "Schema goes through the canonical Drizzle repository with repository tests and an architecture-map/docs update (Technical Approach + Risks + Tests row; lessons schema-storage, canonical-postgres-cutover).",
+    "Acting-identity read is centralised in resolveAgentToolRuntimePolicy and fails closed (grant simply doesn't apply) if personId is absent; the job and live-turn paths are explicitly tested (Risks).",
+    "Explicit tripwire recorded: if review flags delivery-semantics on the ack path, escalate per WORKFLOW.md Recurring Findings rather than patch again (Risks).",
+    "Decomposition splits tasks 1-4 (authority+grant foundation, one PR) from task 5 (installer onboarding, own PR), keeping write scopes disjoint."
+  ],
+  "open_items": [
+    "Person-scoped credentials, alias-verification gating, and the full org governance tier are deferred (D-0054) \u2014 non-blocking for these acceptance criteria."
+  ],
+  "input_sha256": "fdc87cb9de4ac9a9f2fa3e15a837478e2dff8e6c48de1e52426b471b7b8cec2c",
+  "recorded_at": "2026-08-09T16:38:10+00:00",
+  "commit": "a72acfec7d7fd253083ec6ea7b6afa16e1eb28e8"
+}

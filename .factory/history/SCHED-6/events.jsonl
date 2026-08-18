@@ -1,0 +1,84 @@
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-07T17:08:58+00:00", "story": "SCHED-6", "detail": "Autonomous jobs pause-and-ask on tool denial instead of silently degrading"}
+{"event": "plan-human-approved", "generated_by": "human", "at": "2026-08-07T17:32:56+00:00", "story": "SCHED-6", "detail": "SCHED-6 approved by Ravi"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-07T17:32:56+00:00", "story": "SCHED-6", "detail": "plans/active/SCHED-6-autonomous-jobs-pause-and-ask-on-tool-denial-instead-of-silently-degrading.md"}
+{"event": "plan-human-approved", "generated_by": "human", "at": "2026-08-07T17:34:05+00:00", "story": "SCHED-6", "detail": "SCHED-6 approved by Ravi"}
+{"event": "plan-human-approved", "generated_by": "human", "at": "2026-08-07T17:35:51+00:00", "story": "SCHED-6", "detail": "SCHED-6 approved by Ravi"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-07T17:35:51+00:00", "story": "SCHED-6", "detail": "plans/active/SCHED-6-autonomous-jobs-pause-and-ask-on-tool-denial-instead-of-silently-degrading.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T17:36:42+00:00", "story": "SCHED-6", "detail": "2 task(s)"}
+{"event": "implementing", "generated_by": "orchestrator", "at": "2026-08-07T17:36:42+00:00", "story": "SCHED-6"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-07T17:37:09+00:00", "story": "SCHED-6", "detail": "SCHED-6-1 Autonomous tool denial is terminal \u2014 pause-and-ask, never silently continue"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T17:56:01+00:00", "story": "SCHED-6", "detail": "SCHED-6-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T18:23:53+00:00", "story": "SCHED-6", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T18:33:47+00:00", "story": "SCHED-6", "detail": "SCHED-6-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T19:09:48+00:00", "story": "SCHED-6", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T19:21:09+00:00", "story": "SCHED-6", "detail": "SCHED-6-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T20:02:52+00:00", "story": "SCHED-6", "detail": "2 task(s)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-07T20:07:24+00:00", "story": "SCHED-6", "detail": "SCHED-6-1: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-07T20:07:24+00:00", "story": "SCHED-6", "detail": "SCHED-6-1 Autonomous tool denial is terminal \u2014 pause-and-ask, never silently continue"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-07T20:07:47+00:00", "story": "SCHED-6", "detail": "SCHED-6-2 One-tap approve-and-declare for under-declared grantable tools"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T20:26:40+00:00", "story": "SCHED-6", "detail": "SCHED-6-2 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T20:52:20+00:00", "story": "SCHED-6", "detail": "2 task(s)"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-07T20:53:32+00:00", "story": "SCHED-6", "detail": "SCHED-6-2 review fix 6-2b requires an atomic revision-fenced job requirement append, but RuntimeJobRepository, Job definition revision, and the Postgres repository implementation are outside the write"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T20:53:54+00:00", "story": "SCHED-6", "detail": "SCHED-6-2 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T21:33:39+00:00", "story": "SCHED-6", "detail": "2 task(s)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-07T21:33:39+00:00", "story": "SCHED-6", "detail": "S-0001-1fb4: Scope extended to include apps/core/src/domain/repositories, apps/core/src/domain, and apps/core/src/adapters/storage/postgres. Implement 6-2b as an updated_at-guarded optimistic-CAS append on the Run"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T21:45:21+00:00", "story": "SCHED-6", "detail": "SCHED-6-2 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-07T22:19:23+00:00", "story": "SCHED-6", "detail": "SCHED-6-2: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-07T22:19:23+00:00", "story": "SCHED-6", "detail": "SCHED-6-2 One-tap approve-and-declare for under-declared grantable tools"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-07T22:24:15+00:00", "story": "SCHED-6"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T22:29:17+00:00", "story": "SCHED-6", "detail": "3 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-07T22:29:18+00:00", "story": "SCHED-6", "detail": "SCHED-6-3 Terminal denial must stop concurrent sibling tools + classify Anthropic denial as failed-run"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-07T22:37:10+00:00", "story": "SCHED-6", "detail": "SCHED-6-3 focused tests, typecheck, and architecture pass, but the exact required test command is policy-refused on its literal > test id and npm run test:unit remains nonterminating without a Vitest "}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-07T22:37:22+00:00", "story": "SCHED-6", "detail": "S-0002-a45c: Both are known non-blockers: the > test-id policy refusal is handled by the orchestrator at evidence time, and npm run test:unit hanging is your sandbox \u2014 I run the full suite in the orchestrator. Fin"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T22:37:25+00:00", "story": "SCHED-6", "detail": "SCHED-6-3 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T23:14:55+00:00", "story": "SCHED-6", "detail": "3 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T23:21:29+00:00", "story": "SCHED-6", "detail": "SCHED-6-3 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-07T23:45:59+00:00", "story": "SCHED-6", "detail": "SCHED-6-3: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-07T23:45:59+00:00", "story": "SCHED-6", "detail": "SCHED-6-3 Terminal denial must stop concurrent sibling tools + classify Anthropic denial as failed-run"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-07T23:51:30+00:00", "story": "SCHED-6"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T23:56:03+00:00", "story": "SCHED-6", "detail": "4 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-07T23:56:03+00:00", "story": "SCHED-6", "detail": "SCHED-6-4 DeepAgents denial must carry grantable-vs-not classification so non-grantable stays instruction-only"}
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-07T23:57:59+00:00", "story": "SCHED-6", "detail": "SCHED-6-4 acceptance names protected-path DeepAgents denials as instruction-only terminal outcomes, but accepted decision 0115 explicitly keeps pre-autonomous protected-capability guards non-terminal "}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T23:58:12+00:00", "story": "SCHED-6", "detail": "SCHED-6-4 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-07T23:58:31+00:00", "story": "SCHED-6", "detail": "S-0003-179c: You're right \u2014 protected-path is OUT. SCHED-6-4 covers ONLY the DeepAgents autonomous-policy CALLBACK denials (locked-preset, fixed-image worker, and the grantable missing-grant). Do NOT terminalize t"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T23:59:05+00:00", "story": "SCHED-6", "detail": "4 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-08T00:20:31+00:00", "story": "SCHED-6", "detail": "SCHED-6-4 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-08T00:41:20+00:00", "story": "SCHED-6", "detail": "4 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-08T00:47:55+00:00", "story": "SCHED-6", "detail": "SCHED-6-4 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-08T01:26:17+00:00", "story": "SCHED-6", "detail": "4 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-08T01:33:37+00:00", "story": "SCHED-6", "detail": "SCHED-6-4 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-08T02:11:53+00:00", "story": "SCHED-6", "detail": "SCHED-6-4: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-08T02:11:53+00:00", "story": "SCHED-6", "detail": "SCHED-6-4 DeepAgents denial must carry grantable-vs-not classification so non-grantable stays instruction-only"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-08T02:17:00+00:00", "story": "SCHED-6"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-08T02:22:52+00:00", "story": "SCHED-6", "detail": "5 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-08T02:22:52+00:00", "story": "SCHED-6", "detail": "SCHED-6-5 Honor grantability at the setup-card boundary; MCP-server denial is instruction-only"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-08T02:25:45+00:00", "story": "SCHED-6", "detail": "SCHED-6-5 must persist denied-tool grantability in JobSetupBlocker, but apps/core/src/domain/job-types.ts and apps/core/src/adapters/storage/postgres/services/canonical-job-target-state.ts are outside"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-08T02:25:53+00:00", "story": "SCHED-6", "detail": "SCHED-6-5 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-08T02:26:14+00:00", "story": "SCHED-6", "detail": "5 task(s)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-08T02:26:14+00:00", "story": "SCHED-6", "detail": "S-0004-089d: Scope extended to include apps/core/src/domain (JobSetupBlocker on job-types.ts) and apps/core/src/adapters/storage/postgres (the canonical-job-target-state parser that drops unknown fields). Add an a"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-08T02:45:59+00:00", "story": "SCHED-6", "detail": "SCHED-6-5 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-08T03:08:35+00:00", "story": "SCHED-6", "detail": "5 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-08T03:18:07+00:00", "story": "SCHED-6", "detail": "SCHED-6-5 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-08T03:54:18+00:00", "story": "SCHED-6", "detail": "SCHED-6-5: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-08T03:54:18+00:00", "story": "SCHED-6", "detail": "SCHED-6-5 Honor grantability at the setup-card boundary; MCP-server denial is instruction-only"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-08T04:01:00+00:00", "story": "SCHED-6"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-08T04:07:01+00:00", "story": "SCHED-6", "detail": "6 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-08T04:07:01+00:00", "story": "SCHED-6", "detail": "SCHED-6-6 One-tap approve for under-declared scoped RunCommand denials (build candidate from trusted recovery action)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-08T04:16:39+00:00", "story": "SCHED-6", "detail": "SCHED-6-6 (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-08T04:52:47+00:00", "story": "SCHED-6", "detail": "SCHED-6-6 One-tap approve for under-declared scoped RunCommand denials (build candidate from trusted recovery action)"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-08T04:57:58+00:00", "story": "SCHED-6"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-08T05:03:46+00:00", "story": "SCHED-6", "detail": "7 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-08T05:03:46+00:00", "story": "SCHED-6", "detail": "SCHED-6-7 Append the job requirement only after the permission grant succeeds"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-08T05:11:35+00:00", "story": "SCHED-6", "detail": "Verification blocked: the declared JUnit command is policy-refused on its literal test-id separator, and npm run test:unit hung without a final Vitest summary or exit."}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-08T05:11:43+00:00", "story": "SCHED-6", "detail": "S-0005-96bb: Same known non-blockers: the > test-id policy refusal and the sandbox full-suite hang are both handled by the orchestrator. Finish on focused-green; I run the full suite here."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-08T05:11:58+00:00", "story": "SCHED-6", "detail": "SCHED-6-7 (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-08T06:06:30+00:00", "story": "SCHED-6", "detail": "SCHED-6-7 Append the job requirement only after the permission grant succeeds"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-08T06:11:33+00:00", "story": "SCHED-6"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-08T08:16:08+00:00", "story": "SCHED-6"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-08T08:26:54+00:00", "story": "SCHED-6"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-08T08:33:52+00:00", "story": "SCHED-6", "detail": "passed"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-08T08:33:52+00:00", "story": "SCHED-6", "detail": "passed"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-08T08:33:52+00:00", "story": "SCHED-6", "detail": "passed"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-08T08:34:06+00:00", "story": "SCHED-6", "detail": "passed"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-08T08:40:58+00:00", "story": "SCHED-6"}
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-08T08:41:19+00:00", "story": "SCHED-6", "detail": "Scheduled (autonomous) jobs no longer silently degrade when the agent reaches a tool it lacks. Every such denial is now terminal: a grantable one raises the one-tap approval card (approving grants the"}

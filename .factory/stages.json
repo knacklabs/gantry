@@ -1,0 +1,404 @@
+{
+  "issue": "JOBFLOW-1",
+  "stages": [
+    {
+      "id": "JOBFLOW-1-S1",
+      "title": "S1: decision + spec reconciliation (docs + two named non-doc edits)",
+      "status": "done",
+      "started_at": "2026-08-12T13:26:38+00:00",
+      "base_sha": "6feb752c836c3dd8701d1dfc1b9165e05ef8146e",
+      "dirty_at_start": {},
+      "task_sha256": "b4859ff1760847e809e08629981758f96f897a66f136002b0300295f3eb45bd9",
+      "completed_at": "2026-08-13T02:44:35+00:00"
+    },
+    {
+      "id": "JOBFLOW-1-S2A",
+      "title": "S2a: typed denial event cutover (producers + append + idempotency + read seams + preflight)",
+      "status": "done",
+      "started_at": "2026-08-13T02:44:52+00:00",
+      "base_sha": "c359b22976d0d0eba4d66644cb1e48194b96f284",
+      "dirty_at_start": {
+        "plans/review-briefs/JOBFLOW-1-S1.md": {
+          "digest": "8704880074cb88406d32fe792b887167e6101a595a79da05539c949ff8644a27",
+          "git": "? plans/review-briefs/JOBFLOW-1-S1.md\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "211a183fea7210e92f3f267bf3ec3c7213cc3f7ccf10974ad9f56c2a946e4c56",
+      "completed_at": "2026-08-13T04:38:55+00:00"
+    },
+    {
+      "id": "JOBFLOW-1-S2B",
+      "title": "S2b: tagged action cutover - domain, producers, wire, OpenAPI/SDK/CLI/MCP, migration (one atomic task)",
+      "status": "done",
+      "started_at": "2026-08-13T04:39:13+00:00",
+      "base_sha": "ea5b515fe9c2734311b17d477bcac44d9c0d17a5",
+      "dirty_at_start": {
+        "plans/review-briefs/JOBFLOW-1-S1.md": {
+          "digest": "8704880074cb88406d32fe792b887167e6101a595a79da05539c949ff8644a27",
+          "git": "? plans/review-briefs/JOBFLOW-1-S1.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2A.md": {
+          "digest": "04128a921f927be9d3343c4bc2c28471c9158f792b9263e934fdf5e3587f7082",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2A.md\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "2aff7d0c4aae6db670b9470784f2ae17e83cc3059818d93f5aaf2e006067dc32",
+      "completed_at": "2026-08-13T10:32:44+00:00"
+    },
+    {
+      "id": "JOBFLOW-1-S3-PREP",
+      "title": "S3: schema + atomic preparation + prompt identity (DORMANT until S3-RESULT activates)",
+      "status": "done",
+      "started_at": "2026-08-13T10:33:00+00:00",
+      "base_sha": "f10324130648b9960aa340f460c27be48b4bf865",
+      "dirty_at_start": {
+        "plans/review-briefs/JOBFLOW-1-S1.md": {
+          "digest": "8704880074cb88406d32fe792b887167e6101a595a79da05539c949ff8644a27",
+          "git": "? plans/review-briefs/JOBFLOW-1-S1.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2A.md": {
+          "digest": "04128a921f927be9d3343c4bc2c28471c9158f792b9263e934fdf5e3587f7082",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2A.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2B.md": {
+          "digest": "e2bb10443d86f69af398c60e5bb13b41c6eb5bb1155f6a12296656a68567a50d",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2B.md\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "c11560c57091516d5176b4dcd8a64863346c6d1b1a6d71c26d92152d3098be7f",
+      "completed_at": "2026-08-13T12:01:18+00:00"
+    },
+    {
+      "id": "JOBFLOW-1-S3-DISPATCH",
+      "title": "S3: dispatch, checkpoint, settlement, bounded card render (still dormant)",
+      "status": "done",
+      "started_at": "2026-08-13T12:01:33+00:00",
+      "base_sha": "ef78dbbb5404b075b70c7d4de0eb144ec3586ce2",
+      "dirty_at_start": {
+        "plans/review-briefs/JOBFLOW-1-S1.md": {
+          "digest": "8704880074cb88406d32fe792b887167e6101a595a79da05539c949ff8644a27",
+          "git": "? plans/review-briefs/JOBFLOW-1-S1.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2A.md": {
+          "digest": "04128a921f927be9d3343c4bc2c28471c9158f792b9263e934fdf5e3587f7082",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2A.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2B.md": {
+          "digest": "e2bb10443d86f69af398c60e5bb13b41c6eb5bb1155f6a12296656a68567a50d",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2B.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-PREP.md": {
+          "digest": "76f55ec296cb31f5fb25825c45a48165d27a47f725e3ec6a38dc97a375af0cb9",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-PREP.md\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "623068b629699a191aa0cf0e8a5dc4817d150530baf614c7f6d8a3fd9271867c",
+      "completed_at": "2026-08-13T15:17:07+00:00"
+    },
+    {
+      "id": "JOBFLOW-1-S3-RECONCILE",
+      "title": "S3: reconciler, expiry, outcome events, deliveryNotice (still dormant)",
+      "status": "done",
+      "started_at": "2026-08-13T15:18:30+00:00",
+      "base_sha": "9c03dede25357d312376c39de5e844114c7ffbbb",
+      "dirty_at_start": {
+        "plans/review-briefs/JOBFLOW-1-S1.md": {
+          "digest": "8704880074cb88406d32fe792b887167e6101a595a79da05539c949ff8644a27",
+          "git": "? plans/review-briefs/JOBFLOW-1-S1.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2A.md": {
+          "digest": "04128a921f927be9d3343c4bc2c28471c9158f792b9263e934fdf5e3587f7082",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2A.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2B.md": {
+          "digest": "e2bb10443d86f69af398c60e5bb13b41c6eb5bb1155f6a12296656a68567a50d",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2B.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-DISPATCH.md": {
+          "digest": "d219614df234bd1bc26bdc9793b352e9595df73d6c576ce0f5b609db660e5b96",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-DISPATCH.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-PREP.md": {
+          "digest": "76f55ec296cb31f5fb25825c45a48165d27a47f725e3ec6a38dc97a375af0cb9",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-PREP.md\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "b06e4bf5deec3ae85e11049500fcfc2d8c65cf71e77743c19947637e158b1712",
+      "completed_at": "2026-08-13T19:30:57+00:00"
+    },
+    {
+      "id": "JOBFLOW-1-S3-RESULT",
+      "title": "S3: PermissionApprovalResult cutover + ACTIVATION (delete the waiting setup call)",
+      "status": "done",
+      "started_at": "2026-08-13T19:31:10+00:00",
+      "base_sha": "b3b7b00c5fc7a436437638fdbe6379fee23cf9e7",
+      "dirty_at_start": {
+        "plans/review-briefs/JOBFLOW-1-S1.md": {
+          "digest": "8704880074cb88406d32fe792b887167e6101a595a79da05539c949ff8644a27",
+          "git": "? plans/review-briefs/JOBFLOW-1-S1.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2A.md": {
+          "digest": "04128a921f927be9d3343c4bc2c28471c9158f792b9263e934fdf5e3587f7082",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2A.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2B.md": {
+          "digest": "e2bb10443d86f69af398c60e5bb13b41c6eb5bb1155f6a12296656a68567a50d",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2B.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-DISPATCH.md": {
+          "digest": "d219614df234bd1bc26bdc9793b352e9595df73d6c576ce0f5b609db660e5b96",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-DISPATCH.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-PREP.md": {
+          "digest": "76f55ec296cb31f5fb25825c45a48165d27a47f725e3ec6a38dc97a375af0cb9",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-PREP.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-RECONCILE.md": {
+          "digest": "618858893b03abe071a187c76320ce3bc56e2cc86847ecfb77dc5d263a42dc89",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-RECONCILE.md\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "08b13168a270d5c673f0faf555bf7d2c8daea9bf076b881e017ebbc5643d39c4",
+      "completed_at": "2026-08-14T01:24:17+00:00"
+    },
+    {
+      "id": "JOBFLOW-1-S3-LIFECYCLE",
+      "title": "S3: one-transaction job delete/cancel + promotion-offer lane deletion",
+      "status": "done",
+      "started_at": "2026-08-14T01:24:32+00:00",
+      "base_sha": "17635945977a6d00dcd851ab91145c328eaba5d0",
+      "dirty_at_start": {
+        "plans/review-briefs/JOBFLOW-1-S1.md": {
+          "digest": "8704880074cb88406d32fe792b887167e6101a595a79da05539c949ff8644a27",
+          "git": "? plans/review-briefs/JOBFLOW-1-S1.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2A.md": {
+          "digest": "04128a921f927be9d3343c4bc2c28471c9158f792b9263e934fdf5e3587f7082",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2A.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2B.md": {
+          "digest": "e2bb10443d86f69af398c60e5bb13b41c6eb5bb1155f6a12296656a68567a50d",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2B.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-DISPATCH.md": {
+          "digest": "d219614df234bd1bc26bdc9793b352e9595df73d6c576ce0f5b609db660e5b96",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-DISPATCH.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-PREP.md": {
+          "digest": "76f55ec296cb31f5fb25825c45a48165d27a47f725e3ec6a38dc97a375af0cb9",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-PREP.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-RECONCILE.md": {
+          "digest": "618858893b03abe071a187c76320ce3bc56e2cc86847ecfb77dc5d263a42dc89",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-RECONCILE.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-RESULT.md": {
+          "digest": "6597d8c8972c91807337490a8af15dd2da2e9870e6fda3d35ba119a072cdc85a",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-RESULT.md\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "3570d5f021a53fc89741ea681b866acd4ef92e02d16098ce5d682ea9a44cdfad",
+      "completed_at": "2026-08-14T02:27:10+00:00"
+    },
+    {
+      "id": "JOBFLOW-1-S4-COMPILER",
+      "title": "S4: host mismatch flow + compiler + agent-path removal (DORMANT until S4-INTENT)",
+      "status": "done",
+      "started_at": "2026-08-14T02:27:32+00:00",
+      "base_sha": "07d034fb44d41a65bb4d8e34d1583c5b755d5a85",
+      "dirty_at_start": {
+        "plans/review-briefs/JOBFLOW-1-S1.md": {
+          "digest": "8704880074cb88406d32fe792b887167e6101a595a79da05539c949ff8644a27",
+          "git": "? plans/review-briefs/JOBFLOW-1-S1.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2A.md": {
+          "digest": "04128a921f927be9d3343c4bc2c28471c9158f792b9263e934fdf5e3587f7082",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2A.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2B.md": {
+          "digest": "e2bb10443d86f69af398c60e5bb13b41c6eb5bb1155f6a12296656a68567a50d",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2B.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-DISPATCH.md": {
+          "digest": "d219614df234bd1bc26bdc9793b352e9595df73d6c576ce0f5b609db660e5b96",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-DISPATCH.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-LIFECYCLE.md": {
+          "digest": "b496a360dfb347b3df52c71af1fb7e92d12ca25d105e870903c1eb69c325029b",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-LIFECYCLE.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-PREP.md": {
+          "digest": "76f55ec296cb31f5fb25825c45a48165d27a47f725e3ec6a38dc97a375af0cb9",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-PREP.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-RECONCILE.md": {
+          "digest": "618858893b03abe071a187c76320ce3bc56e2cc86847ecfb77dc5d263a42dc89",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-RECONCILE.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-RESULT.md": {
+          "digest": "6597d8c8972c91807337490a8af15dd2da2e9870e6fda3d35ba119a072cdc85a",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-RESULT.md\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "dc0577fd70312132dfcc11090c45f8320aa491276adb74ffac106b27453454f9",
+      "completed_at": "2026-08-14T04:08:31+00:00"
+    },
+    {
+      "id": "JOBFLOW-1-S4-INTENT",
+      "title": "S4: durable approval intent + canonical_key migration + ACTIVATION",
+      "status": "done",
+      "started_at": "2026-08-14T04:08:46+00:00",
+      "base_sha": "8777793b96f0dec04ca367e69646566fb7cb3bd3",
+      "dirty_at_start": {
+        "plans/review-briefs/JOBFLOW-1-S1.md": {
+          "digest": "8704880074cb88406d32fe792b887167e6101a595a79da05539c949ff8644a27",
+          "git": "? plans/review-briefs/JOBFLOW-1-S1.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2A.md": {
+          "digest": "04128a921f927be9d3343c4bc2c28471c9158f792b9263e934fdf5e3587f7082",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2A.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2B.md": {
+          "digest": "e2bb10443d86f69af398c60e5bb13b41c6eb5bb1155f6a12296656a68567a50d",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2B.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-DISPATCH.md": {
+          "digest": "d219614df234bd1bc26bdc9793b352e9595df73d6c576ce0f5b609db660e5b96",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-DISPATCH.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-LIFECYCLE.md": {
+          "digest": "b496a360dfb347b3df52c71af1fb7e92d12ca25d105e870903c1eb69c325029b",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-LIFECYCLE.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-PREP.md": {
+          "digest": "76f55ec296cb31f5fb25825c45a48165d27a47f725e3ec6a38dc97a375af0cb9",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-PREP.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-RECONCILE.md": {
+          "digest": "618858893b03abe071a187c76320ce3bc56e2cc86847ecfb77dc5d263a42dc89",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-RECONCILE.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-RESULT.md": {
+          "digest": "6597d8c8972c91807337490a8af15dd2da2e9870e6fda3d35ba119a072cdc85a",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-RESULT.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S4-COMPILER.md": {
+          "digest": "1c4c5ac844d4d6c9c5974b94bf29a6e68ec2ecc8849a06287816cafbb22901fc",
+          "git": "? plans/review-briefs/JOBFLOW-1-S4-COMPILER.md\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "59ae8117584d9730d24d9c543d95b5b878b9f0048ee3bcb387e218767ef9f6dc",
+      "completed_at": "2026-08-14T10:11:08+00:00",
+      "contract_changed": {
+        "at": "2026-08-14T10:11:08+00:00",
+        "from": "6abbf22ffb5bdd4790d96f365a1239cdd17bc9b65c80226557ab53888edb3314",
+        "to": "59ae8117584d9730d24d9c543d95b5b878b9f0048ee3bcb387e218767ef9f6dc"
+      }
+    },
+    {
+      "id": "JOBFLOW-1-S4-GUIDANCE",
+      "title": "S4: scheduled-run guidance block",
+      "status": "done",
+      "started_at": "2026-08-14T10:11:34+00:00",
+      "base_sha": "7d11f96c321ed53e530ceb41604e232c405ae06b",
+      "dirty_at_start": {
+        "plans/review-briefs/JOBFLOW-1-S1.md": {
+          "digest": "8704880074cb88406d32fe792b887167e6101a595a79da05539c949ff8644a27",
+          "git": "? plans/review-briefs/JOBFLOW-1-S1.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2A.md": {
+          "digest": "04128a921f927be9d3343c4bc2c28471c9158f792b9263e934fdf5e3587f7082",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2A.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2B.md": {
+          "digest": "e2bb10443d86f69af398c60e5bb13b41c6eb5bb1155f6a12296656a68567a50d",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2B.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-DISPATCH.md": {
+          "digest": "d219614df234bd1bc26bdc9793b352e9595df73d6c576ce0f5b609db660e5b96",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-DISPATCH.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-LIFECYCLE.md": {
+          "digest": "b496a360dfb347b3df52c71af1fb7e92d12ca25d105e870903c1eb69c325029b",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-LIFECYCLE.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-PREP.md": {
+          "digest": "76f55ec296cb31f5fb25825c45a48165d27a47f725e3ec6a38dc97a375af0cb9",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-PREP.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-RECONCILE.md": {
+          "digest": "618858893b03abe071a187c76320ce3bc56e2cc86847ecfb77dc5d263a42dc89",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-RECONCILE.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-RESULT.md": {
+          "digest": "6597d8c8972c91807337490a8af15dd2da2e9870e6fda3d35ba119a072cdc85a",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-RESULT.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S4-COMPILER.md": {
+          "digest": "1c4c5ac844d4d6c9c5974b94bf29a6e68ec2ecc8849a06287816cafbb22901fc",
+          "git": "? plans/review-briefs/JOBFLOW-1-S4-COMPILER.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S4-INTENT.md": {
+          "digest": "b0d8216ee3c0b3de0e6e5d00001c3dc446ecfad6d21eb24d55163b7bf09cbe06",
+          "git": "? plans/review-briefs/JOBFLOW-1-S4-INTENT.md\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "0cd600de79473d8beb64b9df62823bf73541d908a55a0d689e98dde897fff51d",
+      "completed_at": "2026-08-14T11:00:30+00:00"
+    },
+    {
+      "id": "JOBFLOW-1-S5-GATE",
+      "title": "S5: live acceptance gate + fault matrix + prompt sweep (human-gated)",
+      "status": "active",
+      "started_at": "2026-08-14T11:00:52+00:00",
+      "base_sha": "59aa2ffa2e45767a99e16604d08f2381cbf6ff47",
+      "dirty_at_start": {
+        "plans/review-briefs/JOBFLOW-1-S1.md": {
+          "digest": "8704880074cb88406d32fe792b887167e6101a595a79da05539c949ff8644a27",
+          "git": "? plans/review-briefs/JOBFLOW-1-S1.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2A.md": {
+          "digest": "04128a921f927be9d3343c4bc2c28471c9158f792b9263e934fdf5e3587f7082",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2A.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S2B.md": {
+          "digest": "e2bb10443d86f69af398c60e5bb13b41c6eb5bb1155f6a12296656a68567a50d",
+          "git": "? plans/review-briefs/JOBFLOW-1-S2B.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-DISPATCH.md": {
+          "digest": "d219614df234bd1bc26bdc9793b352e9595df73d6c576ce0f5b609db660e5b96",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-DISPATCH.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-LIFECYCLE.md": {
+          "digest": "b496a360dfb347b3df52c71af1fb7e92d12ca25d105e870903c1eb69c325029b",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-LIFECYCLE.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-PREP.md": {
+          "digest": "76f55ec296cb31f5fb25825c45a48165d27a47f725e3ec6a38dc97a375af0cb9",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-PREP.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-RECONCILE.md": {
+          "digest": "618858893b03abe071a187c76320ce3bc56e2cc86847ecfb77dc5d263a42dc89",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-RECONCILE.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S3-RESULT.md": {
+          "digest": "6597d8c8972c91807337490a8af15dd2da2e9870e6fda3d35ba119a072cdc85a",
+          "git": "? plans/review-briefs/JOBFLOW-1-S3-RESULT.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S4-COMPILER.md": {
+          "digest": "1c4c5ac844d4d6c9c5974b94bf29a6e68ec2ecc8849a06287816cafbb22901fc",
+          "git": "? plans/review-briefs/JOBFLOW-1-S4-COMPILER.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S4-GUIDANCE.md": {
+          "digest": "bf323e947202b3e148efcc97e4a1f844a9dbc2cc5d660428725a8c9432f7b10d",
+          "git": "? plans/review-briefs/JOBFLOW-1-S4-GUIDANCE.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/JOBFLOW-1-S4-INTENT.md": {
+          "digest": "b0d8216ee3c0b3de0e6e5d00001c3dc446ecfad6d21eb24d55163b7bf09cbe06",
+          "git": "? plans/review-briefs/JOBFLOW-1-S4-INTENT.md\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "7d06a685dc815d1043082c610731689380086aa970f6de15b17efd1a9ac5336e"
+    }
+  ]
+}

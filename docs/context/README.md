@@ -10,6 +10,8 @@ The rules:
 2. **Every file is tracked.** `python3 factory/scripts/forge.py context scan`
    registers new/changed files in `ledger.json` as `pending`. CI fails if the
    ledger is out of sync with the files on disk (`context scan --check`).
+   Commits through an agent session re-scan automatically; use `context scan`
+   for edits committed outside an agent session.
 3. **Pending files get harvested, not read ad hoc.** An agent following
    `factory/prompts/harvester.md` extracts decisions (as `docs/decisions/`
    records, `status: proposed` — a human confirms), proposes BRIEF /

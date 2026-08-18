@@ -1,0 +1,16 @@
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-03T04:19:33+00:00", "story": "PERF-4", "detail": "Live-admission terminal retention: 30-day TTL sweep"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-03T04:23:58+00:00", "story": "PERF-4", "detail": "plans/active/PERF-4-live-admission-terminal-retention-30-day-ttl-sweep.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-03T04:24:20+00:00", "story": "PERF-4", "detail": "1 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-03T04:24:20+00:00", "story": "PERF-4", "detail": "PERF-4-1 30-day TTL sweep for terminal live-admission work items"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-03T04:24:37+00:00", "story": "PERF-4", "detail": "1 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-03T04:24:38+00:00", "story": "PERF-4", "detail": "PERF-4-1 30-day TTL sweep for terminal live-admission work items"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-03T07:35:30+00:00", "story": "PERF-4", "detail": "PERF-4-1 (write)"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-03T07:54:11+00:00", "story": "PERF-4", "detail": "pass"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-03T07:54:33+00:00", "story": "PERF-4", "detail": "PERF-4-1 30-day TTL sweep for terminal live-admission work items"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-03T07:55:53+00:00", "story": "PERF-4"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-03T08:08:37+00:00", "story": "PERF-4"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-03T08:10:50+00:00", "story": "PERF-4"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-03T08:10:50+00:00", "story": "PERF-4"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-03T08:10:51+00:00", "story": "PERF-4"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-03T08:11:00+00:00", "story": "PERF-4", "detail": "pass"}
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-03T08:11:00+00:00", "story": "PERF-4", "detail": "Finished work tickets in the live-admission table now expire after 30 days instead of accumulating forever. A maintenance sweep (riding the existing scheduler tick, at most every 6 hours per process) "}

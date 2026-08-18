@@ -1,0 +1,26 @@
+{
+  "generated_by": "autoreview",
+  "blocking_findings": [],
+  "reviewed_scope": [
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/test/unit",
+    "apps/core/test/integration/job-lifecycle.postgres.integration.test.ts",
+    "docs/decisions/0121",
+    "docs/specs/autonomous-deterministic-permissions.md"
+  ],
+  "score": 9,
+  "summary": "Trust boundary tightened: autonomy predicate is the host-verified run-registry jobId (worker-forged jobId cannot select autonomous rules; omission cannot escape the guard); classifier and its verdict cache unreachable for jobId requests; review round stripped worker-asserted risk_level/risk_category from denials so only host-derived rail risk reaches audit and grant cards (pinned by test). Decision 0121 records the contract; 0115 terminal-denial semantics preserved with the existing one-card recovery.",
+  "non_blocking_findings": [
+    {
+      "category": "untrusted-metadata-propagation",
+      "area": "apps/core/src/runtime",
+      "summary": "worker-supplied risk fields survived into audit path when no rail risk existed; fixed this branch - pattern worth a sweep on other IPC request fields carried into decisions"
+    }
+  ],
+  "recommendation": "ship",
+  "aspect": "security",
+  "residual_risks": [],
+  "recorded_at": "2026-08-11T13:43:18+00:00",
+  "commit": "0274a1099d9a9a5ecb99dbe549d1d0883ec7b73a"
+}

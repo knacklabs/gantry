@@ -1,0 +1,67 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "user_facing": false,
+  "project": "TOOLS-1",
+  "tasks": [
+    {
+      "id": "TOOLS-1-1",
+      "title": "Provider-affinity tool projection (both selection paths, both lanes)",
+      "objective": "Declare a JID-prefix-keyed tool affinity map (canvas_* -> sl:) in runner/mcp/tool-provider-affinity.ts and apply one shared applyProviderAffinity(names, chatJid) helper in BOTH selectedGantryMcpToolNames (projection; Anthropic ctx.chatJid, DeepAgents GANTRY_CHAT_JID) AND parseEnabledGantryMcpToolNames/effectiveEnabledMcpToolNames (runner process env), running AFTER the explicit-config loop so affinity wins. Unknown prefix drops affinity tools (fail closed).",
+      "write_scope": [
+        "apps/core/src/runner",
+        "apps/core/src/adapters/llm",
+        "apps/core/test",
+        "docs"
+      ],
+      "acceptance_criteria": [
+        "canvas_read/create/update absent from the projected tool names for tg:/dc:/teams:/app:/unknown chatJids and present for sl:, in both LLM lanes",
+        "runner-process parse path (effectiveEnabledMcpToolNames) also drops canvas for non-sl: GANTRY_CHAT_JID so the tools are unmounted, not merely un-allowlisted",
+        "explicitly configured canvas entries in GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON stay dropped on non-Slack conversations (affinity-wins precedence, documented in the map file)",
+        "jobs-lane spawns inherit the filter through the shared path (test proves a Slack-conversation job keeps canvas)",
+        "no provider-name literals outside approved paths (check:architecture green); the security enforcement remains the canvas IPC boundary and service JID checks, unchanged"
+      ],
+      "required_tests": [
+        {
+          "id": "gantry mcp tool surface > drops provider-affinity tools for conversations on other providers in both selection paths",
+          "path": "apps/core/test/unit/runner/gantry-mcp-tool-surface.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "TOOLS-1-2",
+      "title": "Dynamic per-provider tool instructions + tool classification doc",
+      "objective": "Extend the provider registry presentation contract with a compact per-provider toolGuidance block (send_message splits, render_* degradation, ask_user_question caps, affinity tools, attachment deltas), declared in register-builtins.ts importing real limit constants from bare constant modules only, rendered via the existing channelContextLine seam to all lanes. Record the tool classification doc.",
+      "write_scope": [
+        "apps/core/src/channels",
+        "apps/core/src/runtime",
+        "apps/core/src/application",
+        "apps/core/test",
+        "docs"
+      ],
+      "acceptance_criteria": [
+        "each registered provider's compiled system prompt contains its own guidance with numbers imported from the source constants (test compares against the constant, not a retyped literal) and no other provider's guidance",
+        "Slack guidance names the canvas tools and the read->handle->edit flow; non-Slack guidance never mentions canvas",
+        "register-builtins.ts gains no static import of delivery/SDK modules (constants lifted into bare modules the delivery code imports back)",
+        "guidance stays within a compact block (<=10 lines per provider) and rides the existing per-run-static prompt seam",
+        "docs/architecture/tool-provider-affinity.md records the neutral/provider-specific/provider-variant classification with evidence and the new-provider checklist"
+      ],
+      "required_tests": [
+        {
+          "id": "channel prompt presentation > renders provider tool guidance from imported limit constants",
+          "path": "apps/core/test/unit/channels/provider-tool-guidance.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    }
+  ],
+  "commit": "f4657a003eb233bda60365eaa7a8e37c4fbbc738"
+}

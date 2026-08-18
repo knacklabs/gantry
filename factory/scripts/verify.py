@@ -33,7 +33,7 @@ if unset := [variable for (_, variable), (_, command) in zip(PHASES, commands)
         "Set each to the command this project actually runs, e.g.\n"
         "  FACTORY_STRUCTURAL_CMD='python3 factory/scripts/check_dual_runtime.py' \\\n"
         "  FACTORY_TYPECHECK_CMD='python3 factory/scripts/check_factory_scaffold.py' \\\n"
-        "  FACTORY_TEST_CMD='uv run --with pytest python -m pytest factory/tests -q' \\\n"
+        "  FACTORY_TEST_CMD='uv run --with pytest --with psutil python -m pytest factory/tests -q' \\\n"
         "  python3 factory/scripts/verify.py\n"
         "Put them in .envrc so every run and every worktree agrees."
     )

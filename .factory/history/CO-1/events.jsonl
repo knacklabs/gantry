@@ -1,0 +1,17 @@
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-03T08:28:42+00:00", "story": "CO-1", "detail": "Jobs recovery-intent as columns with compare-and-set transitions"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-03T08:35:32+00:00", "story": "CO-1", "detail": "plans/active/CO-1-jobs-recovery-intent-as-columns-with-compare-and-set-transitions.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-03T08:36:53+00:00", "story": "CO-1", "detail": "1 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-03T08:36:53+00:00", "story": "CO-1", "detail": "CO-1-1 Delete dead recovery-intent machine; promote live coordination fields to race-safe columns"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-03T08:55:03+00:00", "story": "CO-1", "detail": "CO-1-1 Postgres test lane is blocked: 127.0.0.1:63421 has no server and the managed sandbox denies Docker API access."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-03T08:59:24+00:00", "story": "CO-1", "detail": "CO-1-1 (write)"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-03T09:09:04+00:00", "story": "CO-1", "detail": "pass"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-03T09:09:32+00:00", "story": "CO-1", "detail": "CO-1-1 Delete dead recovery-intent machine; promote live coordination fields to race-safe columns"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-03T09:10:07+00:00", "story": "CO-1"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-03T09:26:29+00:00", "story": "CO-1"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-03T09:35:26+00:00", "story": "CO-1"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-03T09:35:26+00:00", "story": "CO-1"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-03T09:35:26+00:00", "story": "CO-1"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-03T09:35:26+00:00", "story": "CO-1", "detail": "pass"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-03T09:35:48+00:00", "story": "CO-1", "detail": "S-0001-4c10: Resolved by the orchestrator: the scratch Postgres (127.0.0.1:63421, pgvector image) runs outside your sandbox; the exact JUnit postgres proofs were executed by forge stage done on the host and passed"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-03T09:45:40+00:00", "story": "CO-1"}
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-03T09:45:48+00:00", "story": "CO-1", "detail": "Job coordination state (failure counter, pause reason, setup/notification state) moved out of the free-form target_json blob into dedicated database columns written only by single targeted statements "}

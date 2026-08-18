@@ -1,0 +1,19 @@
+{
+  "generated_by": "autoreview",
+  "blocking_findings": [],
+  "reviewed_scope": [
+    "apps/core/src/adapters/storage/postgres",
+    "apps/core/src/application/jobs",
+    "apps/core/src/jobs",
+    "apps/core/src/domain",
+    "apps/core/test"
+  ],
+  "score": 9,
+  "summary": "No trust-boundary changes; migration drops only keys belonging to a verified-dead flow with a logged count; live-deployment audit showed zero residual intents; concurrent-writer invariants pinned by the postgres race test.",
+  "recommendation": "ship",
+  "aspect": "security",
+  "non_blocking_findings": [],
+  "residual_risks": [],
+  "recorded_at": "2026-08-03T09:35:26+00:00",
+  "commit": "a77e237c45376e9cf3e8c21b780c3995750bcc2b"
+}

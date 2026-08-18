@@ -1,0 +1,17 @@
+{
+  "issue_key": "CAPFIX-1",
+  "title": "Capability template amendment via grantable card",
+  "tracker": "linear",
+  "branch": "feat/CAPFIX-1-capability-template-amendment-via-grantable-card",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-08-11T16:38:21+00:00",
+  "updated_at": "2026-08-11T22:07:51+00:00",
+  "plan_file": "plans/completed/CAPFIX-1-capability-template-amendment-via-grantable-card.md",
+  "story": "CAPFIX-1"
+}

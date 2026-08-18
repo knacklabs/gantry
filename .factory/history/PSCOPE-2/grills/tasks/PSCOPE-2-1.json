@@ -1,0 +1,29 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "issue": "PSCOPE-2",
+  "verdict": "pass",
+  "questions_asked": 5,
+  "summary": "Same grill re-recorded after widening write_scope with apps/core/src/app (worker signal S-0001-62c1: ChannelOpts gains resolvePersonIdentity, injected from the app bootstrap wiring - anticipated by the exploration). Content otherwise unchanged.",
+  "gaps": [
+    "Reconcile silently skips approvers who aren't message-ingested participants - a fresh group's seed would no-op.",
+    "Recognition via alias alone is too loose (aliases auto-mint for group speakers).",
+    "Retired aliases throw from resolve instead of returning unresolved.",
+    "A second join event could re-seed and clobber a configured approver list.",
+    "seedInstaller must not fork a second settings-write path (semantic-merge risk with register).",
+    "Widened app scope could invite unrelated bootstrap edits."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "AC2: installer upserted as conversation participant at seed time (join event = membership evidence); reconcile check untouched; test pins reconcile survival.",
+    "AC3: recognised requires the new hasDirectConversationWithPerson query in addition to alias resolution.",
+    "AC3: the throw is caught and mapped to unrecognised (fail-closed).",
+    "AC4: already-registered bail + onboarding-row dedup + preserve-on-empty pinned by the dedup test.",
+    "seedInstaller is EXTRACTED from register (one shared block), not copied.",
+    "The app-scope delta is one injection point (resolvePersonIdentity onto ChannelOpts in channel wiring); the stage-done diff measure keeps it honest."
+  ],
+  "task_id": "PSCOPE-2-1",
+  "input_sha256": "4f550871ece4fbde692511faa8eb42e31e8b6bea17875bdc63554cfd119b5d6c",
+  "recorded_at": "2026-08-10T12:28:00+00:00",
+  "commit": "9353f72319b80cf7c3d441fbd0b65ecf8fb10932"
+}

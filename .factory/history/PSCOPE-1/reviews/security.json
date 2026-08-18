@@ -1,0 +1,18 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Same converged whole-branch autoreview pass, security lens - the dominant lens across all 3 rounds. Trust boundary now explicit: acting-identity fields (personId, jobId) are host-stamped from the spawn-time run registry and never parsed from the worker payload; the unit test forges both and asserts the overwrite. Scheduled grants resolve the person from the host-persisted job row and FAIL CLOSED on an unresolvable job. DM approval authority is the DM participant (0118); PERM-2 preserved - the worker never self-grants; grants are written only after a human decision.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [
+    "Accepted (0118, confirmed by Ravi): on a shared agent folder a compromised worker inherits the same exposure person-scoped memory already accepts; the elaborate trusted-contract machinery defending this was deliberately removed.",
+    "Registry-miss edge retains the worker jobId so legitimate scheduled requests keep the fail-closed path; the forge endpoint on that edge equals the always-shared alternative."
+  ],
+  "recommendation": "ship",
+  "reviewed_scope": [
+    "origin/main..HEAD whole branch"
+  ],
+  "aspect": "security",
+  "recorded_at": "2026-08-10T09:21:35+00:00",
+  "commit": "df60105e53af811cc5435344c299e8b3c7566abf"
+}

@@ -1,0 +1,163 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "user_facing": false,
+  "project": "",
+  "story": "PSCOPE-1",
+  "epic": "permission-engine",
+  "plan_file": "plans/active/PSCOPE-1-person-scoped-grants-and-kind-aware-approval-authority.md",
+  "tasks": [
+    {
+      "id": "PSCOPE-1-1",
+      "title": "Kind-aware approval authority (DM = the DM's user; groups unchanged)",
+      "objective": "Branch ConversationAdministrationService.isControlApproverAllowed on conversationKind: for a DM authorize iff the clicking user is the DM's own counterpart participant (computed, no allowlist row); for group/channel keep the existing control-approver allowlist. Preserve all shared guards (membership, same_channel, account match, reserved-decider/PERM-2). Keep approver resolution as one replaceable function so the org tier can later add manager/IT routing.",
+      "write_scope": [
+        "apps/core/src/application/provider-conversations",
+        "apps/core/src/channels",
+        "apps/core/test",
+        "docs"
+      ],
+      "acceptance_criteria": [
+        "In a 1:1 DM the DM's own user is authorized to approve with no conversation_approvers row; a non-participant is denied.",
+        "In a group/channel only allowlisted approvers are authorized (unchanged behaviour).",
+        "Membership, same_channel, account-match and reserved-decider guards still apply on both branches; the worker/runtime can never approve."
+      ],
+      "required_tests": [
+        {
+          "id": "isControlApproverAllowed > DM participant authorized without an allowlist entry; non-participant denied",
+          "path": "apps/core/test/unit/application/provider-conversations/conversation-administration-service.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "isControlApproverAllowed > group still requires an allowlisted approver",
+          "path": "apps/core/test/unit/application/provider-conversations/conversation-administration-service.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "PSCOPE-1-2",
+      "title": "Person-scoped grant model (nullable personId on agent_tool_bindings, null = shared)",
+      "objective": "Add a nullable personId to agent_tool_bindings via the canonical Drizzle schema + repository (no raw SQL), include personId in the binding id, and migrate existing rows to null (shared). Update resolveAgentToolRuntimePolicy to return shared-only grants when no acting personId is present and shared UNION person(P) when one is. Add repository tests for the new column and uniqueness. No behaviour change for existing shared grants.",
+      "write_scope": [
+        "apps/core/src/adapters/storage/postgres",
+        "apps/core/src/application/permissions",
+        "apps/core/src/application/agents",
+        "apps/core/src/domain/tools",
+        "apps/core/src/domain/ports",
+        "apps/core/src/domain/repositories",
+        "apps/core/test",
+        "docs"
+      ],
+      "acceptance_criteria": [
+        "A binding with a non-null personId applies only when the policy is resolved for that person; a null-personId binding applies to everyone (groups and baseline).",
+        "Effective grants when acting for person P = shared UNION person(P); with no acting person, shared only.",
+        "Existing bindings migrate to null and keep applying as shared with no regression; the schema change goes through the canonical repository with repository tests."
+      ],
+      "required_tests": [
+        {
+          "id": "agent_tool_bindings repository > persists and reads a person-scoped binding distinct from a shared binding",
+          "path": "apps/core/test/unit/adapters/storage/postgres/agent-tool-bindings.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "resolveAgentToolRuntimePolicy > merges shared with person(P) and excludes other persons' grants",
+          "path": "apps/core/test/unit/application/agents/agent-tool-runtime-rules.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "PSCOPE-1-3",
+      "title": "Acting-identity propagation (live DM turn + job creation-context)",
+      "objective": "Thread an acting personId into the tool-policy/execution context so grant resolution can select person-scoped grants. A live DM turn acts for the resolved personId. Persist a job's acting personId at creation from its creation context (DM -> creator's person; group -> null/shared) and pass it at run time. Centralise the acting-identity read in the policy resolver and fail closed (a person grant simply does not apply) when no personId is present.",
+      "write_scope": [
+        "apps/core/src/runtime",
+        "apps/core/src/jobs",
+        "apps/core/src/application/jobs",
+        "apps/core/src/application/agent-execution",
+        "apps/core/test",
+        "apps/core/src/domain",
+        "apps/core/src/adapters/storage/postgres",
+        "apps/core/src/application/interactions"
+      ],
+      "acceptance_criteria": [
+        "A job created in a DM resolves grants as shared UNION creator-person at run time; a job created in a group resolves shared only.",
+        "A live DM turn resolves grants for the message's resolved personId.",
+        "A code path with no acting personId falls back to shared grants only (fail-closed), never another person's grants."
+      ],
+      "required_tests": [
+        {
+          "id": "job acting identity > DM-created job uses creator person grants; group-created uses shared",
+          "path": "apps/core/test/unit/application/jobs/job-acting-identity.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "acting identity > absent personId resolves shared-only",
+          "path": "apps/core/test/unit/runtime/acting-identity.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "PSCOPE-1-4",
+      "title": "Live-turn person-scoped durable grants (host-stamped memory identity)",
+      "objective": "Live turns: person-scope the durable self-grant with the turn's memory identity, host-stamped. Add memoryUserId to the existing permission run-restriction registry (set at spawn); stamp request.personId from it in processPermissionInteractionIpc before the durable begin; add optional personId to PermissionApprovalRequest and the durable snapshot allowlist; use request.personId in applyRecoveredPersistentPermissionGrant when jobId is absent. No person = shared.",
+      "write_scope": [
+        "apps/core/src/application/interactions",
+        "apps/core/src/application/jobs",
+        "apps/core/src/application/permissions",
+        "apps/core/src/domain",
+        "apps/core/src/jobs",
+        "apps/core/src/runtime",
+        "apps/core/test"
+      ],
+      "acceptance_criteria": [
+        "An eligible DM live turn's 'allow for future' writes a binding with the turn's memory personId; resolution already filters shared+person.",
+        "A live turn with no memory person (group/ineligible DM) writes a shared binding, unchanged.",
+        "personId is stamped HOST-side only (run-restriction registry at request creation); never parsed from the worker payload/raw.context; it survives the durable snapshot round-trip (restart callback path).",
+        "Scheduled-job path (jobId present) is untouched, including its fail-closed unresolvable-job branch."
+      ],
+      "required_tests": [
+        {
+          "id": "live-turn person scoping > eligible DM turn writes person-scoped grant; no-person turn writes shared; snapshot round-trips personId",
+          "path": "apps/core/test/unit/application/interactions/live-turn-person-scoped-grant.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    }
+  ],
+  "build_waves": [
+    {
+      "wave": 1,
+      "tasks": [
+        "PSCOPE-1-1",
+        "PSCOPE-1-2"
+      ]
+    },
+    {
+      "wave": 2,
+      "tasks": [
+        "PSCOPE-1-3",
+        "PSCOPE-1-4"
+      ]
+    }
+  ],
+  "plan_sha256": "ca5bce39d51ce4fd269363609e7d67ecdf0d1e63c3aaf2c7216f49fa63d73588",
+  "commit": "b8a0594cd16e1abb06973bfc8b00342ff1d88d58"
+}

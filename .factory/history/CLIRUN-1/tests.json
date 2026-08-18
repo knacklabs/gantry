@@ -1,0 +1,29 @@
+{
+  "commit": "e01848e8b2661dfd109b6c0af6104aacba51fcda",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "pass",
+    "summary": "Structured local-CLI invocation verified across three stages: capability_run dispatch with argv validated via the existing matcher (parity, no reinvented wildcard semantics), TOCTOU-safe in-place executable verification (reject workspace-local / group-other-writable, hash the real bytes), reuse of the existing sandboxed output-bounded executor via a shell-free argv launch, an entry-anchored end-to-end deadline with pre-spawn abort (at-most-once), agent guidance to prefer capability_run, and retirement of the local_cli RunCommand projection so no shell route remains.",
+    "blocking_findings": [],
+    "commands_run": [
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/shared apps/core/test/unit/runner apps/core/test/unit/runtime (2665 passed)",
+      "npm run typecheck",
+      "npm run check:architecture",
+      "python3 factory/scripts/verify.py"
+    ],
+    "tests_added_or_updated": [
+      "apps/core/test/unit/runner/capability-structured-invocation.test.ts (argv validation, TOCTOU/immutability rejections, deadline pre-spawn, bounded output, pilot + guidance)",
+      "apps/core/test/unit/shared/semantic-capabilities.test.ts (projection retired for local_cli)",
+      "apps/core/test/unit/shared/tool-execution-policy-service.test.ts + configured-agent-tools.test.ts + tool-permission-gate.test.ts (cutover)"
+    ],
+    "pass_fail_summary": "2665+ unit tests green in the touched areas; full verify.py green.",
+    "non_blocking_findings": [],
+    "remaining_gaps": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-08-11T09:33:53+00:00",
+    "commit": "e01848e8b2661dfd109b6c0af6104aacba51fcda"
+  },
+  "updated_at": "2026-08-11T09:33:53+00:00"
+}

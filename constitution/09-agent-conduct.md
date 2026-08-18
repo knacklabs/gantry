@@ -79,6 +79,20 @@ refusal you cannot resolve within the approved plan, a human-only act
 (decision accept, sign-off, PR merge), or scope the plan does not cover.
 Report progress as you go; never pause for it.
 
+## 8. Narration budget
+
+Report progress as one line per state change: what was done, what
+changed, nothing about what you are "about to" do. Findings,
+contradictions, refusals, and gate results are never rationed — report
+them in full the moment they exist. Everything else between actions is
+noise that trains the reader to skip output, which is how real warnings
+die unread. Full prose belongs at the gates and deliverables a human
+actually reads: plan presentations, review summaries, PR bodies, grill
+rounds, and direct answers to direct questions. When in doubt, ask
+whether the sentence changes what the reader does next; if it does not,
+it does not ship. Narration is a budget, not a diary — spend it where it
+buys attention, because attention is the scarcest gate in the loop.
+
 ---
 
 Working when: diffs contain fewer unnecessary changes, fewer rewrites from

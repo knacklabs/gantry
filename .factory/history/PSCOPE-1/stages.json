@@ -1,0 +1,77 @@
+{
+  "issue": "PSCOPE-1",
+  "stages": [
+    {
+      "id": "PSCOPE-1-1",
+      "title": "Kind-aware approval authority (DM = the DM's user; groups unchanged)",
+      "status": "done",
+      "started_at": "2026-08-09T16:52:16+00:00",
+      "base_sha": "a72acfec7d7fd253083ec6ea7b6afa16e1eb28e8",
+      "dirty_at_start": {
+        "plans/quickfixes/20260809T142401-0000-Q-0021-cd27-open-142401085603.json": {
+          "digest": "e454625394e8292dfaa856caca288bb7364025fbc4356d2fc06804921e70a8fc",
+          "git": "? plans/quickfixes/20260809T142401-0000-Q-0021-cd27-open-142401085603.json\u0000\u0000\u0000"
+        },
+        "plans/quickfixes/20260809T143240-0000-Q-0021-cd27-done-143240430839.json": {
+          "digest": "99c66db615af6f136c889dab7a238d18c2da523aee02c7bedc166276af14c1b9",
+          "git": "? plans/quickfixes/20260809T143240-0000-Q-0021-cd27-done-143240430839.json\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "310235f0061a85e3ab9991b44f1622b203194197c3a1b03a6b1e324c27f5faa8",
+      "completed_at": "2026-08-09T17:01:18+00:00"
+    },
+    {
+      "id": "PSCOPE-1-2",
+      "title": "Person-scoped grant model (nullable personId on agent_tool_bindings, null = shared)",
+      "status": "done",
+      "started_at": "2026-08-09T17:01:28+00:00",
+      "base_sha": "9dd2e35ea26e777eba0680bb30ff789940abc955",
+      "dirty_at_start": {
+        "plans/quickfixes/20260809T142401-0000-Q-0021-cd27-open-142401085603.json": {
+          "digest": "e454625394e8292dfaa856caca288bb7364025fbc4356d2fc06804921e70a8fc",
+          "git": "? plans/quickfixes/20260809T142401-0000-Q-0021-cd27-open-142401085603.json\u0000\u0000\u0000"
+        },
+        "plans/quickfixes/20260809T143240-0000-Q-0021-cd27-done-143240430839.json": {
+          "digest": "99c66db615af6f136c889dab7a238d18c2da523aee02c7bedc166276af14c1b9",
+          "git": "? plans/quickfixes/20260809T143240-0000-Q-0021-cd27-done-143240430839.json\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "92da7744c7880448d88fe8168d81cc3b996b7bcc5883b8b41f2c8ff59c88cbc6",
+      "completed_at": "2026-08-09T17:54:23+00:00"
+    },
+    {
+      "id": "PSCOPE-1-3",
+      "title": "Acting-identity propagation (live DM turn + job creation-context)",
+      "status": "done",
+      "started_at": "2026-08-09T17:54:37+00:00",
+      "base_sha": "79ca0af060ae8088f9a472aa69b81b4ac5012031",
+      "dirty_at_start": {
+        "plans/quickfixes/20260809T142401-0000-Q-0021-cd27-open-142401085603.json": {
+          "digest": "e454625394e8292dfaa856caca288bb7364025fbc4356d2fc06804921e70a8fc",
+          "git": "? plans/quickfixes/20260809T142401-0000-Q-0021-cd27-open-142401085603.json\u0000\u0000\u0000"
+        },
+        "plans/quickfixes/20260809T143240-0000-Q-0021-cd27-done-143240430839.json": {
+          "digest": "99c66db615af6f136c889dab7a238d18c2da523aee02c7bedc166276af14c1b9",
+          "git": "? plans/quickfixes/20260809T143240-0000-Q-0021-cd27-done-143240430839.json\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "683511f5edab0472f52e3a9be6125a61b282e6b0d305941cec9e42108e48172a",
+      "completed_at": "2026-08-09T19:52:29+00:00"
+    },
+    {
+      "id": "PSCOPE-1-4",
+      "title": "Live-turn person-scoped durable grants (host-stamped memory identity)",
+      "status": "done",
+      "started_at": "2026-08-09T19:52:51+00:00",
+      "base_sha": "72d99b5a3e6eb9e8354af8dcbafdc4857fe30623",
+      "dirty_at_start": {
+        "apps/core/src/jobs/execution.ts": {
+          "digest": "4c25636d70811d974529456a2f9ecdddccac56cce0fa94c8f434673f731090ec",
+          "git": "1 .M N... 100644 100644 100644 c96c1d9c750aa0e8818da6897d6f7c6be16f19e1 c96c1d9c750aa0e8818da6897d6f7c6be16f19e1 apps/core/src/jobs/execution.ts\u0000\u0000100644 c96c1d9c750aa0e8818da6897d6f7c6be16f19e1 0\tapps/core/src/jobs/execution.ts\u0000\u0000H apps/core/src/jobs/execution.ts\u0000"
+        }
+      },
+      "task_sha256": "dac8db3a9a75a6cfc1c8ef96dfc085b7a8072da5ef1f778ab685e01a7156f19a",
+      "completed_at": "2026-08-10T08:53:16+00:00"
+    }
+  ]
+}

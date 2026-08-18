@@ -1,0 +1,26 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "questions_asked": 5,
+  "gaps": [
+    "COMPILER CONTRACT verbatim: compile iff EXACTLY ONE catalog template shares the literal executable+subcommand prefix (full pinned path) AND observed argv matches that template's tokens (literals exact, pure-* positions any single non-flag arg) followed ONLY by trailing positionals and/or trailing flags - no interleaving, no reordering, no shorter-than-template argv",
+    "MIXED-GLOB templates (literal+* in one token) are INELIGIBLE - capability falls to instruction",
+    "Output: base template + one wildcard per trailing positional, PLUS (if flags observed) the flagged variant with each flag literal and value wildcarded; BOTH full pinned-path; flagged variant classifies 'expanded' (stronger warning)",
+    "Agent-authored amendment path REMOVED (MCP target, schema, switch branch); host recorder is the ONE entry; JOB_TOOL_DENIED host-lane event is observability, not transport",
+    "DORMANT: feature-gated off until S4-INTENT lands durable approve-resume - no approvable proposal reachable in production (D-0057 crash gap)"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Dedicated mismatch discriminant replaces the shared invalid_args code",
+    "Compiler reuses parseBashCommand + validateLocalCliCommandTemplate + widening classifier; CAS/merge per existing amendment repository",
+    "Argv redaction (--account <email>, NAME@host) and canonical_key keep-newest data migration are S4 scope",
+    "Zero or multiple prefix matches, interleaved tokens, unknown executable -> instruction action, no proposal",
+    "ANY other shape falls to instruction - conservative authority synthesis"
+  ],
+  "owner_questions": [],
+  "task_id": "JOBFLOW-1-S4-COMPILER",
+  "input_sha256": "dc0577fd70312132dfcc11090c45f8320aa491276adb74ffac106b27453454f9",
+  "recorded_at": "2026-08-14T04:01:10+00:00",
+  "commit": "8777793b96f0dec04ca367e69646566fb7cb3bd3"
+}

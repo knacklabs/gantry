@@ -2,15 +2,21 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
+import importlib.util
 import json
 import os
 import platform
+import re
 import shlex
 import shutil
+import site
 import stat
 import subprocess
+import sys
 import tempfile
 import urllib.request
+import uuid
 from pathlib import Path
 
 from factory_lib import decomposition_state_path, load_json, parse_sections, repo_root
@@ -20,6 +26,18 @@ from .common import run_quiet
 from .specs import missing_required_content, parse_frontmatter
 
 DIRENV_VERSION = "2.37.1"
+WINDOWS_GIT_PACKAGE = "Git.Git"
+WINDOWS_PYTHON_PACKAGE = "Python.Python.3.14"
+WINDOWS_INSTALL_TIMEOUT = 600
+WINDOWS_INSTALL_FLAGS = (
+    "--scope", "user", "--source", "winget", "--silent",
+    "--accept-package-agreements", "--accept-source-agreements",
+)
+WINDOWS_LOCAL_APP_DATA = "f1b32785-6fba-4fcf-9d55-7b8e7f157091"
+WINDOWS_PROGRAM_FILES = "905e63b6-c1bf-494e-b29c-65b732d3d21a"
+WINDOWS_PROGRAM_FILES_X86 = "7c5a40ef-a0fb-4bfc-874a-c0f2e0b9fa8e"
+WINDOWS_GIT_INSTALLER_URL = "https://git-scm.com/download/win"
+WINDOWS_PYTHON_INSTALLER_URL = "https://www.python.org/downloads/windows/"
 
 # Shell words that are not programs on PATH but are perfectly runnable.
 SHELL_BUILTINS = {".", ":", "[", "cd", "echo", "eval", "exec", "exit", "export",
@@ -42,10 +60,18 @@ def unrunnable_reason(command: str) -> str | None:
         return "empty"
     # Syntax first: `git status |` resolves `git` and would otherwise pass here
     # only to fail forever at stage close with a shell parse error.
-    syntax = subprocess.run(["bash", "-n", "-c", text],
-                            capture_output=True, text=True)
-    if syntax.returncode != 0:
-        return f"is not valid shell ({syntax.stderr.strip().splitlines()[-1:] or ['parse error']})"
+    # bash may be absent, or be the Windows System32 WSL stub, which exits
+    # nonzero with EMPTY stderr for any input. A real parse error always
+    # writes to stderr, so an empty-stderr failure means the probe itself is
+    # unusable -- fall through to the shlex+argv standard below.
+    try:
+        syntax = subprocess.run(["bash", "-n", "-c", text],
+                                capture_output=True, text=True,
+                                encoding="utf-8", errors="replace")
+    except OSError:
+        syntax = None
+    if syntax is not None and syntax.returncode != 0 and syntax.stderr.strip():
+        return f"is not valid shell ({syntax.stderr.strip().splitlines()[-1:]})"
     try:
         tokens = shlex.split(text)
     except ValueError as exc:                    # unbalanced quotes
@@ -80,7 +106,12 @@ def skills_missing_per_runtime(base: Path, home: Path | None = None,
 
     Required groups back artifact attestations; advisory groups are reported
     without turning doctor into a gate."""
-    from .delegate import skill_groups
+    try:
+        from .delegate import skill_groups
+    except ModuleNotFoundError as exc:
+        if exc.name != "fcntl":
+            raise
+        return []
 
     home = home or Path.home()
     missing = []
@@ -128,7 +159,7 @@ def legacy_capture_gaps(base: Path) -> list[tuple[str, str]]:
     # A missing brief is the most incomplete a brief can be. Reporting only
     # briefs that exist made the one project that needs this line the one
     # project that never sees it, while sign-off refuses it either way.
-    sections = parse_sections(brief.read_text()) if brief.is_file() else {}
+    sections = parse_sections(brief.read_text(encoding="utf-8")) if brief.is_file() else {}
     missing = [heading for heading in REQUIRED_BRIEF_HEADINGS
                if not sections.get(heading, "").strip()]
     if missing:
@@ -136,7 +167,7 @@ def legacy_capture_gaps(base: Path) -> list[tuple[str, str]]:
 
     specs = base / "docs" / "specs"
     for spec in sorted(specs.glob("*.md")) if specs.is_dir() else []:
-        document = spec.read_text()
+        document = spec.read_text(encoding="utf-8")
         if parse_frontmatter(document).get("status") != "confirmed":
             continue
         missing = missing_required_content(document)
@@ -154,6 +185,14 @@ def legacy_roadmap_gaps(base: Path) -> list[tuple[str, str]]:
     """Stored hierarchy gaps that legacy roadmap routes deliberately tolerate."""
     path = base / "plans" / "roadmap.json"
     if not path.is_file():
+        from .project import has_discovery_material
+
+        if has_discovery_material(base):
+            return [(
+                "roadmap",
+                "plans/roadmap.json: absent despite discovery material; author it "
+                "with forge roadmap derive or forge roadmap epic add plus forge roadmap add",
+            )]
         return []
 
     # Defensive on purpose: doctor is what someone runs when the project is
@@ -195,6 +234,218 @@ def _check(name: str, ok: bool, detail: str, fix: str, required: bool = True) ->
     return {"name": name, "ok": ok, "detail": detail, "fix": fix, "required": required}
 
 
+def _display_mark(check: dict) -> str:
+    if check["ok"]:
+        return "OK "
+    if check["name"].startswith("hook-health "):
+        return "RED"
+    return "MISS" if check["required"] else "opt "
+
+
+HOOK_CONFIGS = (Path(".claude/settings.json"), Path(".codex/hooks.json"))
+HOOK_HEALTH_FIX = (
+    "restore missing `forge`/factory scripts, or run `./forge doctor --fix` "
+    "to install Python 3.10+, then rerun doctor"
+)
+HOOK_SHELL_FIX = (
+    "install Git for Windows (Git Bash provides sh), then rerun doctor"
+)
+
+
+def _hook_shell_candidates(env: dict[str, str]) -> list[str]:
+    """Git Bash launchers in the same order the hook runtimes can discover them."""
+    candidates = []
+    configured = env.get("CLAUDE_CODE_GIT_BASH_PATH")
+    if configured:
+        candidates.append(configured)
+    on_path = shutil.which("sh", path=env.get("PATH"))
+    if on_path:
+        candidates.append(on_path)
+    for variable in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
+        root = env.get(variable)
+        if not root:
+            continue
+        git_root = Path(root) / ("Programs/Git" if variable == "LOCALAPPDATA" else "Git")
+        candidates.extend(str(git_root / relative) for relative in (
+            "bin/bash.exe", "usr/bin/bash.exe", "usr/bin/sh.exe",
+        ))
+    return list(dict.fromkeys(candidates))
+
+
+def _existing_hook_shell(env: dict[str, str]) -> str | None:
+    return next((candidate for candidate in _hook_shell_candidates(env)
+                 if Path(candidate).is_file()), None)
+
+
+def _runnable_hook_shell(env: dict[str, str], base: Path | None = None) -> str | None:
+    """Probe candidates before committing; WSL cannot read a Windows checkout path."""
+    for candidate in _hook_shell_candidates(env):
+        if not Path(candidate).is_file():
+            continue
+        # `-n` makes the candidate open and parse the actual launcher without
+        # needing Python. Git Bash accepts the Windows checkout path; WSL does
+        # not. The subsequent health rows execute every command for real.
+        command = ([candidate, "-n", str(base / "forge")]
+                   if base is not None else [candidate, "-c", "exit 0"])
+        try:
+            probe = subprocess.run(
+                command, cwd=base, capture_output=True, env=env, timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if probe.returncode == 0:
+            return candidate
+    return None
+
+
+def fast_hook_status(base: Path | None = None) -> tuple[bool, str]:
+    """Check hook launcher prerequisites without spawning a subprocess."""
+    if base is not None:
+        required = (Path("forge"), Path("factory/scripts/forge.py"), *HOOK_CONFIGS)
+        for relative in required:
+            if not (base / relative).is_file():
+                return False, f"{relative} is missing"
+        if os.name != "nt" and not os.access(base / "forge", os.X_OK):
+            return False, "forge is not executable"
+    shell = _existing_hook_shell(dict(os.environ))
+    if not shell:
+        return False, "sh is not on PATH (install Git for Windows)"
+    interpreter = (
+        shutil.which("py") or shutil.which("python3") or shutil.which("python")
+    )
+    if not interpreter:
+        return False, "py/python3/python is not on PATH"
+    return True, f"{shell} + {interpreter}"
+
+
+def _hook_health_payload(event: str) -> str:
+    """Harmless synthetic stdin matching the registered hook event."""
+    payload: dict[str, object] = {"hook_event_name": event}
+    if event == "PreToolUse":
+        payload.update({
+            "tool_name": "Bash",
+            "tool_input": {"command": ":"},
+            "permission_mode": "default",
+        })
+    elif event == "SessionStart":
+        payload["source"] = "startup"
+    elif event == "PreCompact":
+        payload["trigger"] = "manual"
+    elif event == "Stop":
+        payload["stop_hook_active"] = True
+    return json.dumps(payload)
+
+
+def hook_health_checks(base: Path, *, env: dict[str, str] | None = None) -> list[dict]:
+    """Execute every registered hook exactly as its runtime will execute it."""
+    checks = []
+    run_env = {
+        **os.environ,
+        **(env or {}),
+        "FACTORY_HOOK_HEALTH": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    shell = _runnable_hook_shell(run_env, base)
+    shell_exists = _existing_hook_shell(run_env) is not None
+    if shell:
+        shell_dir = str(Path(shell).parent)
+        run_env["PATH"] = shell_dir + os.pathsep + run_env.get("PATH", "")
+
+    for relative in HOOK_CONFIGS:
+        path = base / relative
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+            hooks = document.get("hooks") if isinstance(document, dict) else None
+            if not isinstance(hooks, dict):
+                raise ValueError("top-level 'hooks' must be an object")
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+            checks.append(_check(
+                f"hook-health {relative}", False, str(exc), HOOK_HEALTH_FIX,
+            ))
+            continue
+
+        for event, registrations in hooks.items():
+            if not isinstance(registrations, list):
+                checks.append(_check(
+                    f"hook-health {relative}:{event}", False,
+                    "hook registrations must be a list", HOOK_HEALTH_FIX,
+                ))
+                continue
+            for registration_index, registration in enumerate(registrations, 1):
+                if not isinstance(registration, dict):
+                    checks.append(_check(
+                        f"hook-health {relative}:{event}[{registration_index}]",
+                        False, "hook registration must be an object", HOOK_HEALTH_FIX,
+                    ))
+                    continue
+                registered_hooks = registration.get("hooks")
+                if not isinstance(registered_hooks, list):
+                    checks.append(_check(
+                        f"hook-health {relative}:{event}[{registration_index}]",
+                        False, "registered hooks must be a list", HOOK_HEALTH_FIX,
+                    ))
+                    continue
+                for hook_index, hook in enumerate(registered_hooks, 1):
+                    if not isinstance(hook, dict):
+                        checks.append(_check(
+                            f"hook-health {relative}:{event}"
+                            f"[{registration_index}.{hook_index}]",
+                            False, "hook must be an object", HOOK_HEALTH_FIX,
+                        ))
+                        continue
+                    command = hook.get("command")
+                    if hook.get("type") != "command":
+                        continue
+                    name = (
+                        f"hook-health {relative}:{event}"
+                        f"[{registration_index}.{hook_index}]"
+                    )
+                    if not isinstance(command, str) or not command.strip():
+                        checks.append(_check(
+                            name, False, "command hook has no command", HOOK_HEALTH_FIX,
+                        ))
+                        continue
+                    if not shell:
+                        detail = (
+                            f"{command} -> hook launcher probe failed"
+                            if shell_exists else f"{command} -> sh is not on PATH"
+                        )
+                        checks.append(_check(
+                            name, False, detail,
+                            HOOK_HEALTH_FIX if shell_exists else HOOK_SHELL_FIX,
+                        ))
+                        continue
+                    try:
+                        result = subprocess.run(
+                            [shell, "-c", command],
+                            cwd=base,
+                            input=_hook_health_payload(event),
+                            capture_output=True,
+                            text=True,
+                            env=run_env,
+                            timeout=30, encoding="utf-8", errors="replace",
+                        )
+                        output = (result.stdout + result.stderr).strip()
+                        detail = command
+                        if result.returncode != 0:
+                            suffix = f": {output[-240:]}" if output else ""
+                            semantics = (
+                                " (blocking)" if result.returncode == 2
+                                else " (invalid hook exit; expected 0 or 2)"
+                            )
+                            detail = (
+                                f"{command} -> exit {result.returncode}{semantics}{suffix}"
+                            )
+                        checks.append(_check(
+                            name, result.returncode == 0, detail, HOOK_HEALTH_FIX,
+                        ))
+                    except (OSError, subprocess.TimeoutExpired) as exc:
+                        checks.append(_check(
+                            name, False, f"{command} -> {exc}", HOOK_HEALTH_FIX,
+                        ))
+    return checks
+
+
 # Shared install locations — fast_status() and cmd_doctor() must agree on
 # where things live, or the session banner and full doctor drift apart.
 def _codex_plugin_dir(home: Path) -> Path:
@@ -209,15 +460,123 @@ def _autoreview_dir(home: Path) -> Path:
     return home / ".codex" / "skills" / "autoreview"
 
 
+def _python_candidates() -> list[tuple[str, tuple[str, ...]]]:
+    candidates = []
+    for name, launcher_args in (("py", ("-3",)), ("python3", ()), ("python", ())):
+        binary = shutil.which(name)
+        if binary:
+            candidates.append((binary, launcher_args))
+    return candidates
+
+
+def _python_status() -> tuple[bool, str]:
+    candidates = _python_candidates()
+    if not candidates:
+        return False, "py -3 / python3 / python is not on PATH"
+    detail = ""
+    for binary, launcher_args in candidates:
+        try:
+            result = subprocess.run(
+                [binary, *launcher_args, "--version"],
+                capture_output=True, text=True, timeout=5,
+                encoding="utf-8", errors="replace",
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            detail = f"{binary}: {exc}"
+            continue
+        output = (result.stdout + result.stderr).strip()
+        match = re.search(r"Python\s+(\d+)\.(\d+)(?:\.(\d+))?", output)
+        if result.returncode == 0 and match:
+            version = tuple(int(part or 0) for part in match.groups())
+            detail = f"{binary}: {match.group(0)}"
+            if version >= (3, 10, 0):
+                return True, detail
+            continue
+        detail = f"{binary}: {output or f'exit {result.returncode}'}"
+    return False, detail
+
+
+def _python_check() -> dict:
+    ok, detail = _python_status()
+    return _check(
+        "python >= 3.10", ok, detail,
+        "install Python 3.10+ (https://www.python.org/downloads/)",
+    )
+
+
+def _psutil_discoverable() -> bool:
+    return importlib.util.find_spec("psutil") is not None
+
+
+def _psutil_import_status() -> tuple[bool, str]:
+    try:
+        importlib.import_module("psutil")
+    except Exception as exc:
+        return False, f"import failed: {type(exc).__name__}: {exc}"
+    return True, f"importable by {sys.executable}"
+
+
+def _psutil_install_command() -> list[str]:
+    command = [sys.executable, "-m", "pip", "install"]
+    if sys.prefix == sys.base_prefix:
+        command.append("--user")
+    return [*command, "psutil"]
+
+
+def _psutil_fix_message() -> str:
+    scope = "" if sys.prefix != sys.base_prefix else " --user"
+    return (
+        f"`{sys.executable} -m pip install{scope} psutil` (manual `pip install "
+        "psutil` fallback); if Python is externally managed, install psutil "
+        "for this interpreter with your OS package manager or run Forge from "
+        "a user-managed Python environment — never use --break-system-packages"
+    )
+
+
+def _install_psutil() -> tuple[bool, str]:
+    command = _psutil_install_command()
+    scope = "virtualenv" if sys.prefix != sys.base_prefix else "user scope"
+    print(f"[fix ] installing psutil for {sys.executable} ({scope}) ...")
+    code, output = run_quiet(command)
+    if code != 0:
+        normalized = output.lower()
+        if ("externally-managed-environment" in normalized
+                or "externally managed" in normalized):
+            return False, (
+                f"{sys.executable} is externally managed and refused the "
+                "psutil install"
+            )
+        return False, output or f"pip exited {code}"
+    if sys.prefix == sys.base_prefix:
+        site.addsitedir(site.getusersitepackages())
+        importlib.invalidate_caches()
+    ok, detail = _psutil_import_status()
+    if not ok:
+        return False, f"pip exited successfully but psutil {detail}"
+    return True, detail
+
+
+def _psutil_check(*, fix: bool = False) -> dict:
+    ok, detail = _psutil_import_status()
+    if not ok and fix:
+        ok, detail = _install_psutil()
+    return _check("psutil", ok, detail, _psutil_fix_message())
+
+
 def fast_status(home: Path | None = None) -> tuple[list[str], list[str]]:
-    """Millisecond machine check for the SessionStart hook: PATH lookups and
-    directory existence ONLY — no subprocesses, no versions, no logins.
+    """Millisecond SessionStart check: lookups/existence only, no subprocesses.
     Returns (required_missing, advisory_missing). A fresh clone after
     `git pull` gets told its machine is not ready at the FIRST session,
     not at the first mid-task failure."""
     home = home or Path.home()
     required = {
         "git": shutil.which("git") is not None,
+        # Optimistic, subprocess-free hook heuristic; _python_check is the
+        # authoritative version check used by doctor.
+        "python >= 3.10": sys.version_info >= (3, 10) or any(
+            shutil.which(name) for name in ("py", "python3", "python")
+        ),
+        "psutil": _psutil_discoverable(),
         "node": shutil.which("node") is not None,
         "direnv + shell hook": shutil.which("direnv") is not None and _has_direnv_hook(home),
         "codex CLI": shutil.which("codex") is not None,
@@ -241,6 +600,7 @@ def _github_slug(repo: str | None = None) -> str:
         proc = subprocess.run(
             ["git", "remote", "get-url", "origin"],
             capture_output=True, text=True, timeout=15, cwd=repo,
+            encoding="utf-8", errors="replace",
         )
         code, out = proc.returncode, (proc.stdout + proc.stderr).strip()
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -302,7 +662,8 @@ def _merge_check_status(*, fix: bool, repo: str | None = None) -> tuple[bool, st
             proc = subprocess.run(
                 ["gh", "api", "-X", "PUT",
                  f"repos/{slug}/branches/{default}/protection", "--input", "-"],
-                input=payload, capture_output=True, text=True, timeout=15)
+                input=payload, capture_output=True, text=True, timeout=15,
+                encoding="utf-8", errors="replace")
             if proc.returncode != 0:
                 return False, f"fix failed (admin rights?): {proc.stderr.strip()[:120]}"
         else:
@@ -311,7 +672,8 @@ def _merge_check_status(*, fix: bool, repo: str | None = None) -> tuple[bool, st
                 ["gh", "api", "-X", "POST", f"{checks_url}/contexts",
                  "--input", "-"],
                 input=json.dumps(["scaffold-check"]),
-                capture_output=True, text=True, timeout=15)
+                capture_output=True, text=True, timeout=15,
+                encoding="utf-8", errors="replace")
             if proc.returncode != 0:
                 return False, f"fix failed (admin rights?): {proc.stderr.strip()[:120]}"
         current, definitive = contexts()
@@ -408,6 +770,215 @@ def _prepend_user_bin_to_path(home: Path) -> Path:
         os.environ["PATH"] = user_bin_str + os.pathsep + current
 
     return user_bin
+
+
+def _prepend_existing_paths(paths: list[Path]) -> None:
+    current = os.environ.get("PATH", "")
+    entries = current.split(os.pathsep) if current else []
+    additions = [
+        str(path) for path in paths
+        if path.is_dir() and str(path) not in entries
+    ]
+    if additions:
+        os.environ["PATH"] = os.pathsep.join([*additions, *entries])
+
+
+def _refresh_windows_path() -> None:
+    candidates: list[Path] = []
+    local = _windows_known_folder(WINDOWS_LOCAL_APP_DATA)
+    if local:
+        candidates.extend([
+            local / "Programs" / "Git" / "cmd",
+            local / "Programs" / "Python" / "Python314",
+            local / "Programs" / "Python" / "Python314" / "Scripts",
+            local / "Programs" / "Python" / "Launcher",
+            local / "Microsoft" / "WinGet" / "Links",
+            local / "Microsoft" / "WindowsApps",
+        ])
+    program_files_roots = [
+        Path(root) for variable in ("ProgramW6432", "ProgramFiles", "ProgramFiles(x86)")
+        if (root := os.environ.get(variable))
+    ]
+    program_files_roots.extend(
+        folder for folder_id in (WINDOWS_PROGRAM_FILES, WINDOWS_PROGRAM_FILES_X86)
+        if (folder := _windows_known_folder(folder_id))
+    )
+    for program_files in program_files_roots:
+        candidates.extend([
+            program_files / "Git" / "cmd",
+            program_files / "Python314",
+            program_files / "Python314" / "Scripts",
+        ])
+    _prepend_existing_paths(candidates)
+
+
+def _winget_user_install(
+    winget: str, package_id: str, label: str, manual_url: str,
+) -> dict | None:
+    print(f"[fix ] installing {label} with winget (user scope) ...")
+    try:
+        result = subprocess.run(
+            [winget, "install", "--id", package_id, "--exact", *WINDOWS_INSTALL_FLAGS],
+            capture_output=True, text=True, timeout=WINDOWS_INSTALL_TIMEOUT,
+            encoding="utf-8", errors="replace",
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"[warn] winget failed while installing {label}: {exc}")
+        return _check(
+            f"{label} user-scope install", False,
+            f"winget could not install {label}: {exc}; manual installer: {manual_url}",
+            f"install {label} manually from {manual_url}",
+        )
+    if result.returncode == 0:
+        return None
+    output = (result.stdout + result.stderr).strip()
+    print(f"[warn] winget could not install {label} in user scope.")
+    return _check(
+        f"{label} user-scope install", False,
+        f"winget exited {result.returncode}"
+        f"{f': {output}' if output else ''}; manual installer: {manual_url}",
+        f"install {label} manually from {manual_url}",
+    )
+
+
+def _install_git_windows(winget: str) -> dict | None:
+    return _winget_user_install(
+        winget, WINDOWS_GIT_PACKAGE, "Git for Windows", WINDOWS_GIT_INSTALLER_URL,
+    )
+
+
+def _install_python_windows(winget: str) -> dict | None:
+    return _winget_user_install(
+        winget, WINDOWS_PYTHON_PACKAGE, "Python 3.14", WINDOWS_PYTHON_INSTALLER_URL,
+    )
+
+
+def _windows_known_folder(folder_id: str) -> Path | None:
+    """Read a Windows known folder without trusting process environment."""
+    if _platform_name() != "windows":
+        return None
+
+    class GUID(ctypes.Structure):
+        _fields_ = [
+            ("Data1", ctypes.c_ulong),
+            ("Data2", ctypes.c_ushort),
+            ("Data3", ctypes.c_ushort),
+            ("Data4", ctypes.c_ubyte * 8),
+        ]
+
+    value = uuid.UUID(folder_id)
+    guid = GUID(
+        value.time_low, value.time_mid, value.time_hi_version,
+        (ctypes.c_ubyte * 8)(*value.bytes[8:]),
+    )
+    path_pointer = ctypes.c_wchar_p()
+    shell32 = ctypes.windll.shell32
+    ole32 = ctypes.windll.ole32
+    shell32.SHGetKnownFolderPath.argtypes = [
+        ctypes.POINTER(GUID), ctypes.c_ulong, ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_wchar_p),
+    ]
+    shell32.SHGetKnownFolderPath.restype = ctypes.c_long
+    result = shell32.SHGetKnownFolderPath(
+        ctypes.byref(guid), 0, None, ctypes.byref(path_pointer),
+    )
+    if result != 0:
+        return None
+    try:
+        return Path(path_pointer.value) if path_pointer.value else None
+    finally:
+        ole32.CoTaskMemFree(path_pointer)
+
+
+def _trusted_user_winget_path() -> str | None:
+    local_app_data = _windows_known_folder(WINDOWS_LOCAL_APP_DATA)
+    if local_app_data and local_app_data.is_absolute():
+        alias = local_app_data / "Microsoft" / "WindowsApps" / "winget.exe"
+        try:
+            # App Execution Aliases are APPEXECLINK reparse points. Resolving
+            # one raises WinError 1920, so trust this API-derived identity
+            # without following it. Ordinary symlinks are not accepted.
+            if os.path.lexists(alias) and not alias.is_symlink():
+                return str(alias)
+        except OSError:
+            pass
+
+    return None
+
+
+def _windows_process_is_elevated() -> bool:
+    if _platform_name() != "windows":
+        return False
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except (AttributeError, OSError):
+        return True
+
+
+def _elevated_windows_remediation_check() -> dict:
+    return _check(
+        "elevated Windows prerequisite remediation", False,
+        "refusing Windows auto-remediation from an elevated process because "
+        "per-user install paths are user-writable",
+        "run 'forge doctor --fix' from a normal (unelevated) prompt, or "
+        f"install Git manually from {WINDOWS_GIT_INSTALLER_URL} and Python "
+        f"manually from {WINDOWS_PYTHON_INSTALLER_URL}",
+    )
+
+
+def _remediate_windows_prerequisites(*, install_git: bool, install_python: bool) -> list[dict]:
+    if _windows_process_is_elevated():
+        return [_elevated_windows_remediation_check()]
+
+    rows: list[dict] = []
+    git_install_error: dict | None = None
+    python_install_error: dict | None = None
+    winget: str | None = None
+    try:
+        winget = _trusted_user_winget_path()
+        if not winget:
+            rows.append(_check(
+                "winget for Windows prerequisites", False,
+                "winget is absent or outside its trusted WindowsApps/App Installer roots; "
+                f"install Git from {WINDOWS_GIT_INSTALLER_URL} and Python 3.10+ from "
+                f"{WINDOWS_PYTHON_INSTALLER_URL}",
+                "install App Installer/winget, or use the named manual installer URLs",
+            ))
+        else:
+            if install_git:
+                git_install_error = _install_git_windows(winget)
+            if install_python:
+                python_install_error = _install_python_windows(winget)
+    finally:
+        # Named refusals and partial installs must converge in the same run.
+        _refresh_windows_path()
+        git_ok = shutil.which("git") is not None
+        python_ok = _python_check()["ok"]
+
+        # The refreshed probes are authoritative. winget can return nonzero
+        # for an already-installed package while the tool is now usable.
+        if git_ok and python_ok:
+            rows.clear()
+        elif winget:
+            if git_install_error and not git_ok:
+                rows.append(git_install_error)
+            elif install_git and not git_ok:
+                rows.append(_check(
+                    "Git for Windows installed but not found", False,
+                    "winget exited successfully, but Git was still absent after "
+                    "refreshing PATH",
+                    f"install Git manually from {WINDOWS_GIT_INSTALLER_URL}",
+                ))
+            if python_install_error and not python_ok:
+                rows.append(python_install_error)
+            elif install_python and not python_ok:
+                rows.append(_check(
+                    "Python 3.14 installed but not found", False,
+                    "winget exited successfully, but Python 3.10+ was still absent "
+                    "after refreshing PATH",
+                    f"install Python manually from {WINDOWS_PYTHON_INSTALLER_URL}",
+                ))
+    return rows
 
 
 def _install_direnv_windows(home: Path) -> bool:
@@ -541,6 +1112,15 @@ def _direnv_fix_message() -> str:
     )
 
 
+def _git_fix_message() -> str:
+    if _platform_name() == "windows":
+        return (
+            "run `./forge doctor --fix`, or install Git for Windows manually from "
+            "https://git-scm.com/download/win"
+        )
+    return "https://git-scm.com — or `xcode-select --install` on macOS"
+
+
 def cmd_doctor(args: argparse.Namespace) -> None:
     home = Path.home()
     if getattr(args, "fast", False):
@@ -557,14 +1137,43 @@ def cmd_doctor(args: argparse.Namespace) -> None:
               + (f" ({len(advisory_missing)} advisory missing)" if advisory_missing else ""))
         return
     checks: list[dict] = []
+    try:
+        repo = Path(getattr(args, "repo", None) or repo_root())
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        repo = None
 
     def which(binary: str) -> str | None:
         return shutil.which(binary)
 
-    # Core toolchain
+    # Core toolchain. Windows remediation happens before rows are recorded so
+    # the fixing run can truthfully report the tools it just installed.
+    git = which("git")
+    python = _python_check()
+    windows_install_checks: list[dict] = []
+    if _platform_name() == "windows" and args.fix and (not git or not python["ok"]):
+        if _windows_process_is_elevated():
+            windows_install_checks = [_elevated_windows_remediation_check()]
+        else:
+            windows_install_checks = _remediate_windows_prerequisites(
+                install_git=not bool(git), install_python=not python["ok"],
+            )
+            git = which("git")
+            python = _python_check()
+            if repo is None and git:
+                try:
+                    repo = Path(repo_root())
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    pass
+
     checks.append(_check(
-        "git", which("git") is not None, which("git") or "not on PATH",
-        "https://git-scm.com — or `xcode-select --install` on macOS"))
+        "git", git is not None, git or "not on PATH", _git_fix_message()))
+    checks.append(python)
+    checks.extend(windows_install_checks)
+
+    checks.append(_psutil_check(fix=args.fix))
+
+    if repo:
+        checks.extend(hook_health_checks(repo))
 
     node = which("node")
     node_ok, node_ver = (False, "not on PATH")
@@ -806,12 +1415,12 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         ),
     ]
 
-    for name, repo, extra, sentinel in skill_packs:
+    for name, pack_repo, extra, sentinel in skill_packs:
         checks.append(_check(
             name,
             sentinel.is_dir(),
             "installed" if sentinel.is_dir() else "not installed",
-            f"`npx -y skills add {repo} -g --copy {' '.join(extra)}`",
+            f"`npx -y skills add {pack_repo} -g --copy {' '.join(extra)}`",
             required=False,
         ))
 
@@ -834,7 +1443,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     failures = 0
 
     for check in checks:
-        mark = "OK " if check["ok"] else ("MISS" if check["required"] else "opt ")
+        mark = _display_mark(check)
         print(f"[{mark}] {check['name']:<{width}}  {check['detail']}")
 
         if not check["ok"]:
@@ -847,10 +1456,6 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     # would surface as a stage that cannot close. Report it before that happens.
     # doctor also runs outside a repo (fresh machine), where there is nothing
     # to migrate.
-    try:
-        repo = Path(getattr(args, "repo", None) or repo_root())
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        repo = None
     # Required skills must be loadable by every runtime asked to attest them.
     # --fix mirrors an already-installed copy across, which is the whole gap:
     # `skills add` installs for Claude, and Codex reads a different directory.
@@ -910,4 +1515,4 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         print(f"\nforge doctor: {failures} required item(s) missing.")
         raise SystemExit(1)
 
-    print("\nforge doctor: ready. Next: forge.py init --name <project> --target <dir>")
+    print("\nforge doctor: ready")
