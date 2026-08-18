@@ -90,8 +90,9 @@ this pass.
 
 ## JIT task contract (decision 0032)
 
-Immediately before the next pending task runs, inspect the actual state left
-by its completed dependencies and author that leaf's execution contract.
+Immediately before the next pending task runs, enter plan mode per
+`factory/prompts/planner.md`, inspect the actual state left by its completed
+dependencies, and author that leaf's execution contract.
 Confirm or refine its `acceptance_criteria`, then add or confirm these fields
 on the selected task:
 

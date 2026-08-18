@@ -1,0 +1,22 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Streaming end to end: no full-file host buffering (reader into the hardened writer); materialize mode skips doc-extraction workers and base64 view work; long-running IPC membership keeps the poll loop unblocked; 120s runner timeout above the resolver's 110s self-abort.",
+  "blocking_findings": [],
+  "residual_risks": [
+    "first materialize of a live provider row re-fetches once into the CAS store."
+  ],
+  "reviewed_scope": [
+    "apps/core/src/runner/mcp",
+    "apps/core/src/runtime",
+    "apps/core/src/jobs",
+    "apps/core/src/application/attachments",
+    "apps/core/src/shared",
+    "prompt guidance seams"
+  ],
+  "recommendation": "ship",
+  "aspect": "performance",
+  "non_blocking_findings": [],
+  "recorded_at": "2026-08-04T20:18:18+00:00",
+  "commit": "981b2f7799cfac5b765a95ec69220089f2562581"
+}

@@ -1,0 +1,25 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "questions_asked": 4,
+  "gaps": [
+    "The permission card must be EXACTLY ONE provider message - the generic telegram prompt paths (document pre-send, split content) must be unreachable from this profile",
+    "beginSend must be lease-fenced: revalidate-then-checkpoint cannot race cancellation",
+    "All four adapters need the non-waiting prepared-send port (telegram-only would regress the provider-neutral setup path)",
+    "Dormancy continues: no production enqueue feeds the profile until S3-RESULT"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Contract appendix pins the bounded single-message render with expandable details and overflow-to-pending-list; review brief carries it as a verdict",
+    "Appendix pins beginSend(itemId, claimToken) fenced against the claim; expired-claim-without-checkpoint stays retryable",
+    "All four ports in scope per the pass-12/13 rulings and the eleven-surface matrix; slack pinned routing test must stay green",
+    "Dormancy is an acceptance criterion, grep-provable; host runs suites/postgres lane/verify before stage done"
+  ],
+  "open_items": [],
+  "summary": "S3-DISPATCH interrogated against appendix S3 and decision 0124; one-message invariant, lease fencing, four-port scope, and dormancy pinned.",
+  "task_id": "JOBFLOW-1-S3-DISPATCH",
+  "input_sha256": "623068b629699a191aa0cf0e8a5dc4817d150530baf614c7f6d8a3fd9271867c",
+  "recorded_at": "2026-08-13T12:01:49+00:00",
+  "commit": "ef78dbbb5404b075b70c7d4de0eb144ec3586ce2"
+}

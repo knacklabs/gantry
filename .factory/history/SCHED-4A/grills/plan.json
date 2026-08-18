@@ -1,0 +1,29 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "gaps": [
+    "G1: formatPermissionReceiptText branches on decision.mode and ignores the SCHED-1 provenance it already receives \u2014 the run-only copy must key on repeatableForFutureRuns with a legacy mode fallback.",
+    "G2: notifyJobSetupRequired's notified boolean is dropped at all three finalization call sites \u2014 the completion builder has no signal to fold/suppress on.",
+    "G3: closestRule is plumbed to PermissionApprovalRequest and rendered by zero channels; commands echoed into chat must pass sanitizePermissionCommandText and patterns sanitizePermissionText.",
+    "G4: permission_promotion_counters createdAt/updatedAt are fetched but not propagated \u2014 the day-span needs firstAskedAt beside promotionHintCount, no storage work.",
+    "G5: with multiple RunCommand rules the matcher's closestRule is first-parsed, not similarity-ranked \u2014 display may show an arbitrary pattern (documented ceiling; similarity ranking is follow-up)."
+  ],
+  "contradictions": [
+    "C1: the addendum asks for a read-only-defaults-durable scope selector \u2014 the deterministic read-only gate already auto-allows those tools before any human prompt exists; no option-layer default is needed and the locked option set (no-timed-grant) stands.",
+    "C2: 'asked N times' framed per (job, tool) \u2014 the existing counter keys on (app, agentFolder, suggestionKey); per-job would be a schema change the spec doesn't require. Per agent+tool-shape is adopted deliberately."
+  ],
+  "resolutions": [
+    "G1: receipt keys on repeatableForFutureRuns === false (mode === 'allow_once' fallback), next-run sentence only on the jobId context branch.",
+    "G2: finalizeSchedulerJobRun returns setupNotified; terminal notify folds ('Completed with limits' + degraded line from JobRunDiagnostics) and suppresses the standalone card for recovered runs, extending the existing suppression precedent.",
+    "G3: approved/attempted lines render in formatPermissionContextLines through the sanitizer gates, reaching all providers; denial wording splits unmatched vs not-granted in permission-decision-message.",
+    "G4: firstAskedAt propagated through the classifier hint path; escalation copy replaces the promotion hint at the existing threshold.",
+    "G5: kept as a code-comment ceiling; behavior unchanged when a single rule exists (the incident case).",
+    "C1: no option-set change shipped; plan documents why.",
+    "C2: per-agent keying adopted and noted in code."
+  ],
+  "input_sha256": "ce22040d59e149b7f28d3489049c5208be1142c6134e64304560b5a05682187c",
+  "issue": "SCHED-4A",
+  "recorded_at": "2026-08-05T07:19:22+00:00",
+  "commit": "170b1569f5e1fc96b4765b97488eb7a7402831f3"
+}

@@ -1,0 +1,17 @@
+{
+  "issue_key": "SCHED-1",
+  "title": "Scheduler correctness blockers: no self-mutation, typed permission provenance",
+  "tracker": "linear",
+  "branch": "feat/SCHED-1-scheduler-correctness-blockers-no-self-mutation-typed-permission-provenance",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-08-05T03:16:07+00:00",
+  "updated_at": "2026-08-05T06:09:52+00:00",
+  "plan_file": "plans/completed/SCHED-1-scheduler-correctness-blockers-no-self-mutation-typed-permission-provenance.md",
+  "story": "SCHED-1"
+}

@@ -115,7 +115,7 @@ if payload.get("source") == "compact" and scratchpad.exists():
     )
 lessons_file = root / "plans" / "lessons.jsonl"
 if lessons_file.exists():
-    lesson_count = sum(1 for line in lessons_file.read_text().splitlines() if line.strip())
+    lesson_count = sum(1 for line in lessons_file.read_text(encoding="utf-8").splitlines() if line.strip())
     if lesson_count:
         context.append(
             f"Lessons ledger: {lesson_count} — run `forge lesson relevant` against the "
@@ -127,8 +127,8 @@ if proposed:
         f"Proposed skills awaiting human review: {proposed} in factory/skills/proposed/."
     )
 memory = root / "docs" / "memory" / "MEMORY.md"
-if memory.is_file() and memory.read_text().strip():
-    context.append("PROJECT MEMORY (docs/memory/MEMORY.md):\n" + memory.read_text().strip())
+if memory.is_file() and memory.read_text(encoding="utf-8").strip():
+    context.append("PROJECT MEMORY (docs/memory/MEMORY.md):\n" + memory.read_text(encoding="utf-8").strip())
 if not context:
     print(json.dumps({}))
     raise SystemExit(0)

@@ -1,0 +1,15 @@
+{
+  "generated_by": "autoreview",
+  "score": 9,
+  "summary": "Same converged review, performance lens. The structured path reuses the existing sandboxed executor (no new execution stack); per-invocation cost adds a realpath + stat + one streamed hash of the executable and reuses the existing bounding/timeout. Retiring the RunCommand projection removes projected-rule work for local_cli. No hot-path change.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [],
+  "recommendation": "ship",
+  "reviewed_scope": [
+    "origin/main..HEAD whole branch"
+  ],
+  "aspect": "performance",
+  "recorded_at": "2026-08-11T09:33:53+00:00",
+  "commit": "e01848e8b2661dfd109b6c0af6104aacba51fcda"
+}

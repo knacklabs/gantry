@@ -1,0 +1,20 @@
+{
+  "generated_by": "autoreview",
+  "score": 10,
+  "summary": "No concrete performance regression in the reviewed paths. Splits are leaf extractions with unchanged call graphs on the hot paths (runtime/ipc, agent-spawn, query-loop, genai-spans observability); the recursive shared/ sandbox copy affects test setup only. Inference, not measurement: no benchmarks were run \u2014 the pure-move nature of the diff bounds the risk.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [
+    "No benchmark evidence; conclusions are structural inference over a pure-move diff."
+  ],
+  "recommendation": "ship",
+  "reviewed_scope": [
+    "git diff main...HEAD (14 commits)",
+    "apps/core/src/runtime",
+    "apps/core/src/adapters/llm",
+    "apps/core/src/jobs"
+  ],
+  "aspect": "performance",
+  "recorded_at": "2026-07-22T17:32:44+00:00",
+  "commit": "aacf96d15d433b315bea16be438b61920b9e5f07"
+}

@@ -1,0 +1,22 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Two task-local rounds clean (0.78, 0.91); branch round 1 found two real defects \u2014 symlink-followable CAS source open and syntax-only already_in_workspace short-circuit \u2014 both fixed (leaf O_NOFOLLOW on canonicalized parent + FD validation; existence-verified short-circuit with provider-fetch fall-through); branch round 2 clean (0.84).",
+  "blocking_findings": [],
+  "residual_risks": [
+    "quarantined hostile file STRUCTURE is the accepted 0105 risk; execution stays behind existing permission gates."
+  ],
+  "reviewed_scope": [
+    "apps/core/src/runner/mcp",
+    "apps/core/src/runtime",
+    "apps/core/src/jobs",
+    "apps/core/src/application/attachments",
+    "apps/core/src/shared",
+    "prompt guidance seams"
+  ],
+  "recommendation": "ship",
+  "aspect": "quality",
+  "non_blocking_findings": [],
+  "recorded_at": "2026-08-04T20:18:18+00:00",
+  "commit": "981b2f7799cfac5b765a95ec69220089f2562581"
+}

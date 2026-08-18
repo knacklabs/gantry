@@ -1,0 +1,19 @@
+{
+  "generated_by": "autoreview",
+  "blocking_findings": [],
+  "reviewed_scope": [
+    "apps/core/src/adapters/storage/postgres",
+    "apps/core/src/application/jobs",
+    "apps/core/src/jobs",
+    "apps/core/src/domain",
+    "apps/core/test"
+  ],
+  "score": 9,
+  "summary": "Branch three-lens pass (codex gpt-5.6-sol high, 2 chunks over 584KB): round 1 found one P1 \u2014 the migration's RAISE would abort upgrades for installs holding residual intents from the briefly-live 2026-05 flow; fixed to log-and-drop (residue is inert; stale 'running' intents were blocking claims). Round 2 clean: patch is correct (0.84). Net -286 lines.",
+  "recommendation": "ship",
+  "aspect": "quality",
+  "non_blocking_findings": [],
+  "residual_risks": [],
+  "recorded_at": "2026-08-03T09:35:26+00:00",
+  "commit": "a77e237c45376e9cf3e8c21b780c3995750bcc2b"
+}

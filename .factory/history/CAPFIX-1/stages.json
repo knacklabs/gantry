@@ -1,0 +1,60 @@
+{
+  "issue": "CAPFIX-1",
+  "stages": [
+    {
+      "id": "CAPFIX-1-1",
+      "title": "Amendment proposal path: target kind, host validation, widening classifier, durable record",
+      "status": "done",
+      "started_at": "2026-08-11T16:49:56+00:00",
+      "base_sha": "f1194c5e2ef3a04ab4673003605746e2596d09d1",
+      "dirty_at_start": {
+        "docs/decisions/0122-capability-template-amendment.md": {
+          "digest": "d06ad6a99fab1046c69d05e16c724226765efac306a8792647308f3c04d38264",
+          "git": "? docs/decisions/0122-capability-template-amendment.md\u0000\u0000\u0000"
+        },
+        "docs/specs/capability-template-amendment.md": {
+          "digest": "a9654eb1ba0e74c03bd42ea5b6ada2fd4af426a7a0101a25b59133082426fcc7",
+          "git": "? docs/specs/capability-template-amendment.md\u0000\u0000\u0000"
+        },
+        "plans/roadmap.json": {
+          "digest": "75e6b0e24fc0ca5a42419745d9cbab11867763ffe90152afe0fae4d56927e2ad",
+          "git": "1 .M N... 100644 100644 100644 fcb595f82a27e199492b69ecaf1c3821292f66c1 fcb595f82a27e199492b69ecaf1c3821292f66c1 plans/roadmap.json\u0000\u0000100644 fcb595f82a27e199492b69ecaf1c3821292f66c1 0\tplans/roadmap.json\u0000\u0000H plans/roadmap.json\u0000"
+        }
+      },
+      "task_sha256": "3ad88b572215bf5cfcc9d39ab91fc16cf4c2222295bc356e8815626ba3aca6ba",
+      "completed_at": "2026-08-11T19:29:29+00:00"
+    },
+    {
+      "id": "CAPFIX-1-2",
+      "title": "Plain-language card, CAS catalog amendment, fix-and-continue, e2e proof",
+      "status": "done",
+      "started_at": "2026-08-11T19:29:53+00:00",
+      "base_sha": "ebe210bd2c1d3917249ab2ed2ae4b7e854b61e8d",
+      "dirty_at_start": {
+        "docs/decisions/0122-capability-template-amendment.md": {
+          "digest": "faf13a0fe14854eec219d5fbb0bf8a5c315948bdab1e9c23b07ff9fe68031d56",
+          "git": "? docs/decisions/0122-capability-template-amendment.md\u0000\u0000\u0000"
+        },
+        "docs/specs/capability-template-amendment.md": {
+          "digest": "5016729f7f175bd04accd0bbb9a31411ce0336db2297bf2d241555518da329a4",
+          "git": "? docs/specs/capability-template-amendment.md\u0000\u0000\u0000"
+        },
+        "plans/lessons/20260811T192041-0000-managed-macos-watcher-emfile-192041894005.json": {
+          "digest": "29f1f27ff497020bf24a382c2a4d4c104d1feefccd36df2593649eb32b5fd5cc",
+          "git": "? plans/lessons/20260811T192041-0000-managed-macos-watcher-emfile-192041894005.json\u0000\u0000\u0000"
+        },
+        "plans/roadmap.json": {
+          "digest": "75e6b0e24fc0ca5a42419745d9cbab11867763ffe90152afe0fae4d56927e2ad",
+          "git": "1 .M N... 100644 100644 100644 fcb595f82a27e199492b69ecaf1c3821292f66c1 fcb595f82a27e199492b69ecaf1c3821292f66c1 plans/roadmap.json\u0000\u0000100644 fcb595f82a27e199492b69ecaf1c3821292f66c1 0\tplans/roadmap.json\u0000\u0000H plans/roadmap.json\u0000"
+        }
+      },
+      "task_sha256": "343a3b1c1bca8ebbfa4d24ac7ef494db9d8b743c732ef38422ef9c5a8b12fa32",
+      "completed_at": "2026-08-11T21:52:42+00:00",
+      "contract_changed": {
+        "at": "2026-08-11T21:52:42+00:00",
+        "from": "4c1d341943b8a62c21430002064dd93016631f23c7ff1efe38ed56681c9a862b",
+        "to": "343a3b1c1bca8ebbfa4d24ac7ef494db9d8b743c732ef38422ef9c5a8b12fa32"
+      }
+    }
+  ]
+}

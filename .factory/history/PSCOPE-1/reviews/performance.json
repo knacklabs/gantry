@@ -1,0 +1,15 @@
+{
+  "generated_by": "autoreview",
+  "score": 9,
+  "summary": "Same converged whole-branch autoreview pass, performance lens. No performance findings in any round. The added work per permission decision is one in-memory Map lookup at request processing and, for scheduled grants only, one indexed getJobById at grant time (a rare, human-paced event). Grant resolution adds a personId equality filter on already-loaded bindings; no new queries on the hot turn path. Migration adds one nullable column and a unique index (NULLS NOT DISTINCT) on a small table.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [],
+  "recommendation": "ship",
+  "reviewed_scope": [
+    "origin/main..HEAD whole branch"
+  ],
+  "aspect": "performance",
+  "recorded_at": "2026-08-10T09:21:35+00:00",
+  "commit": "df60105e53af811cc5435344c299e8b3c7566abf"
+}

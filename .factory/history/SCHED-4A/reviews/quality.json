@@ -1,0 +1,21 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Ten local rounds + one branch round to clean; the reviewer oscillated on the setup-card suppression predicate across four rounds \u2014 settled as the documented semantic gate (setup pause + parseable denial, explicit-false guard, lifecycle retirement with send fallback). Real catches: batch receipts, approvals-vs-asks wording, multi-approval listing, pause-gated warnings, silent-pause paths, label precedence.",
+  "blocking_findings": [],
+  "residual_risks": [
+    "closestRule shows the first-parsed rule, not similarity-ranked, with multiple RunCommand rules (documented ceiling)."
+  ],
+  "reviewed_scope": [
+    "apps/core/src/channels",
+    "apps/core/src/jobs",
+    "apps/core/src/runtime",
+    "apps/core/src/shared",
+    "apps/core/src/domain"
+  ],
+  "recommendation": "ship",
+  "aspect": "quality",
+  "non_blocking_findings": [],
+  "recorded_at": "2026-08-05T16:28:08+00:00",
+  "commit": "42cac0dcedf6a6f69cbd79179ce7d66546139803"
+}

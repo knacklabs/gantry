@@ -1,0 +1,21 @@
+{
+  "generated_by": "autoreview",
+  "status": "passed",
+  "score": 9,
+  "summary": "The change preserves the permission trust boundary. Part A keeps authority host-reviewed: a scheduled worker-local miss defers to the host coordinator's reviewed-rule decision and NEVER widens the worker's currentAutonomousAllowedToolRules with configured SDK allowedTools (PERM-2 preserved; decision 0116). The settings-owned yolo denylist is now terminal BEFORE the host consult, so a host allow-once/rule can never override that hard boundary (defensive hardening beyond the reported bug). Ungranted capabilities still deny. No new authority is granted to the worker.",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    "Denylist-terminal short-circuit added at the scheduled branch so the denylist cannot be host-overridden."
+  ],
+  "residual_risks": [
+    "Whether the host coordinator itself honors the yolo denylist is a pre-existing property outside this change; the worker now enforces it terminally regardless."
+  ],
+  "reviewed_scope": [
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts"
+  ],
+  "recommendation": "approve",
+  "aspect": "security",
+  "recorded_at": "2026-08-08T17:04:56+00:00",
+  "commit": "386ba6e98b2b55279a04558ef6eda1e46d90c178"
+}

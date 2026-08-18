@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0031-d6dc",
+  "profile": "degraded",
+  "reason": "forge upgrade to #107 migration: reconcile project-owned docs/config (AGENTS.md narration-budget non-negotiable, .gitattributes, .gitignore) to green the gate tests",
+  "started_at": "2026-08-18T07:31:23+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

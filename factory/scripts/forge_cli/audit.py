@@ -46,7 +46,7 @@ def ignored_escalations(base: Path) -> list[str]:
         return []
     shipped = _shipped(base)
     decision_text = " ".join(
-        p.read_text().lower() for p in sorted((base / "docs" / "decisions").glob("*.md"))
+        p.read_text(encoding="utf-8").lower() for p in sorted((base / "docs" / "decisions").glob("*.md"))
     ) if (base / "docs" / "decisions").is_dir() else ""
     refactor_text = " ".join(
         f"{i.get('title', '')} {i.get('epic', '')}"
@@ -92,7 +92,10 @@ def decayed_lessons(base: Path) -> list[str]:
     lessons = load_lessons(base)
     if not lessons:
         return []
-    proc = subprocess.run(["git", "ls-files"], cwd=base, capture_output=True, text=True)
+    proc = subprocess.run(
+        ["git", "ls-files"], cwd=base, capture_output=True, text=True,
+        encoding="utf-8", errors="surrogateescape",
+    )
     tracked = [line for line in proc.stdout.splitlines() if line] \
         if proc.returncode == 0 else []
     out = []

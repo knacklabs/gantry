@@ -1,0 +1,28 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "questions_asked": 6,
+  "gaps": [
+    "TRANSMISSION-BOUNDARY RULE: delivered:'no' ONLY for local preflight failures proven before any provider API call; once the provider API is invoked, EVERY exception/timeout (incl. connection refused) = delivered:'unknown'; delivered:'unknown' NEVER retryable",
+    "Infra failure is NEVER a human denial: no consumer converts transport failure into approved:false; the durable row stays pending with zero decision side effects",
+    "The synchronous waiting setup call (setup-pause-permission-wiring.ts:123) is DELETED and setup pause enqueues through the S3 composite preparation - the SINGLE cutover moment; no dual delivery path survives",
+    "ACTIVATION: PERMISSION_CARD_DISPATCH_ACTIVE flips true here; the dispatcher and reconciler leave dormancy together",
+    "Complete consumer inventory branches explicitly (types.ts:647, ipc handlers, core-tool coordinator absent-surface->target_missing, requester single+batch); durable handler branches BEFORE afterDecision/settlement",
+    "Promotion cleanup is NARROW: only the unused offer lane (wrappers, PermissionPromotionInput.offer, markOffered, lastOfferedAt + pins); allowCount/createdAt/deniedAt counter path UNTOUCHED"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Per-adapter checkpoints pinned in appendix: telegram sendMessage, slack chat.postMessage (outer channel-delivery wrapper cut over too), teams activity send, discord message create",
+    "Delivered prompts keep no-response-timeout semantics unchanged; claimed prompts survive blind sweeps; claimed-to-superseded only for authoritative invalidation",
+    "Recovered-tap cards terminalize only after FULL durable settlement (authority application AND member settlement)",
+    "Core tools get retryable infra outcome + cleanup; inline MCP wait gets typed result + finally cleanup",
+    "The prose-fallback that consumed notified_fingerprint disappears with the waiting call - the never-fired-button root cause",
+    "Activation risk is bounded by dormant-built machinery: dispatcher/reconciler/lease/settlement were review-hardened in S3-DISPATCH and S3-RECONCILE"
+  ],
+  "owner_questions": [],
+  "task_id": "JOBFLOW-1-S3-RESULT",
+  "input_sha256": "08b13168a270d5c673f0faf555bf7d2c8daea9bf076b881e017ebbc5643d39c4",
+  "recorded_at": "2026-08-14T01:13:36+00:00",
+  "commit": "17635945977a6d00dcd851ab91145c328eaba5d0"
+}

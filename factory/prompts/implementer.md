@@ -11,8 +11,10 @@ surgical diffs, verifiable goals, one recommendation with a stance. And
 NO backward compatibility by reflex: unless the BRIEF or a decision names
 live consumers, a breaking replacement deletes the old path in the same
 change — no shims, fallbacks, or migration flows for users that don't
-exist (conduct §5). Your bounded worker completion is an inspected in-scope
-diff plus the smallest relevant tests and a concise handoff. Then return.
+exist (conduct §5). Narration budget: one line per state change, findings
+and refusals always in full, process chatter never (conduct §8). Your
+bounded worker completion is an inspected in-scope diff plus the smallest
+relevant tests and a concise handoff. Then return.
 The orchestrator owns local autoreview, Git staging/commit, evidence recording,
 and `forge stage done` after your process exits; do not run those parent-owned
 steps. Signals are how you stop early, not questions.

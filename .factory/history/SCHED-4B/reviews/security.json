@@ -1,0 +1,25 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "No new grant path: setup-pause approvals reuse the existing request-only capability review + persist->recheck chain; the locked option set is honored (setup-pause prompts offer Allow-for-future/Deny only, never a one-time grant a dead run cannot use). A setup-specific fingerprint fence rejects stale approvals on both live and recovered decisions. Prompts route only to the authorized approver route. The one residual is a microsecond fence/grant TOCTOU (D-0046) whose worst case is a user-revocable durable grant after a concurrent job change \u2014 no privilege escalation, no data loss.",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "category": "toctou",
+      "area": "application/interactions",
+      "summary": "Non-atomic fence vs persistent grant on the recovery path \u2014 deferred D-0046 (user-revocable, cross-aggregate transaction needed)."
+    }
+  ],
+  "residual_risks": [
+    "D-0046: fence/grant atomicity \u2014 user-revocable durable grant in a concurrent-job-change TOCTOU window."
+  ],
+  "recommendation": "Land; the sole security-relevant residual is bounded and user-revocable, tracked as D-0046.",
+  "reviewed_scope": [
+    "apps/core/src/application/interactions",
+    "apps/core/src/application/jobs",
+    "apps/core/src/jobs"
+  ],
+  "aspect": "security",
+  "recorded_at": "2026-08-07T14:04:16+00:00",
+  "commit": "9353c1cca93a16d2508a08f0f0a082d9ac47ee08"
+}

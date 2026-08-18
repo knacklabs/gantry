@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
 import re
@@ -11,6 +13,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# Windows/default-console UTF-8 safety. Python points stdout/stderr at the
+# platform's ANSI code page (cp1252 on Windows), so the em-dashes, arrows and
+# check marks this tooling prints raise UnicodeEncodeError mid-write and abort
+# the command — `forge next` and even `--help` crash on a fresh Windows box.
+# Force UTF-8 at import (errors="replace" degrades a stray glyph rather than
+# crashing). This is the belt to the `./forge`/`forge.cmd` launchers' exported
+# PYTHONUTF8=1: a direct `python factory/scripts/<script>.py` invocation never
+# gets that env, and every entrypoint here imports factory_lib.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # replaced/detached stream, or closed
+        pass
+
 
 def repo_root() -> Path:
     out = subprocess.run(
@@ -18,7 +34,7 @@ def repo_root() -> Path:
         check=True,
         capture_output=True,
         text=True,
-        env=clean_git_env(),
+        env=clean_git_env(), encoding="utf-8", errors="surrogateescape",
     )
     return Path(out.stdout.strip())
 
@@ -278,7 +294,7 @@ def read_ledger_records(legacy: Path) -> list[dict]:
             if isinstance(entry, dict):
                 records.append(entry)
     if legacy.is_file():
-        for lineno, line in enumerate(legacy.read_text().splitlines(), 1):
+        for lineno, line in enumerate(legacy.read_text(encoding="utf-8").splitlines(), 1):
             if not line.strip():
                 continue
             try:
@@ -427,7 +443,7 @@ def signoff_pin(root: Path) -> str:
     # all. is_file() follows links; is_symlink() is the check that matters.
     if manifest.is_symlink() or not manifest.is_file():
         return ""
-    match = SIGNOFF_PIN.search(manifest.read_text())
+    match = SIGNOFF_PIN.search(manifest.read_text(encoding="utf-8"))
     return match.group(1) if match else ""
 
 
@@ -460,7 +476,7 @@ def client_signoff(root: Path) -> tuple[bool, str]:
             "Re-pin harness.yaml to the accepted record."
         )
     record = root / pinned
-    fields = parse_frontmatter(record.read_text())
+    fields = parse_frontmatter(record.read_text(encoding="utf-8"))
     if fields.get("status") != "accepted" or not fields.get("confirmed_by"):
         return False, (
             f"{pinned} is pinned as the project sign-off but is not an accepted, "
@@ -476,12 +492,12 @@ def now_iso() -> str:
 def load_json(path: Path, default: Any = None) -> Any:
     if not path.exists():
         return default
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def dump_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n")
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
 def git_control_dir(root: Path) -> Path:
@@ -490,14 +506,14 @@ def git_control_dir(root: Path) -> Path:
         cwd=root,
         capture_output=True,
         text=True,
-        env=clean_git_env(),
+        env=clean_git_env(), encoding="utf-8", errors="surrogateescape",
     )
     top = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"],
         cwd=root,
         capture_output=True,
         text=True,
-        env=clean_git_env(),
+        env=clean_git_env(), encoding="utf-8", errors="surrogateescape",
     )
     if (
         proc.returncode != 0
@@ -515,6 +531,39 @@ def protected_decomposition_state_path(root: Path) -> Path:
     return git_control_dir(root) / "decomposition.json"
 
 
+def _windows_reparse_point(path: Path) -> bool:
+    info = os.lstat(path)
+    return bool(
+        hasattr(info, "st_file_attributes")
+        and info.st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def _safe_factory_nt_open(
+        directory: Path, parts: tuple[str, ...], flags: int) -> int | None:
+    """Open a factory leaf after refusing Windows reparse points.
+
+    Windows lacks dir_fd, so this lstat-based walk has a narrower TOCTOU window
+    than the POSIX fd walk. That matches the deferred hard-link/TOCTOU hardening
+    backlog; the post-open regular-file and link-count check remains mandatory.
+    """
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        if _windows_reparse_point(directory):
+            return None
+        parent = directory
+        for part in parts[:-1]:
+            parent = parent / part
+            parent.mkdir(exist_ok=True)
+            if _windows_reparse_point(parent):
+                return None
+        leaf = parent / parts[-1]
+        if os.path.lexists(leaf) and _windows_reparse_point(leaf):
+            return None
+        return os.open(leaf, flags, 0o600)
+    except OSError:
+        return None
+
+
 def _safe_factory_fd(root: Path, name: str, flags: int) -> int | None:
     """Open one direct .factory diagnostic file without following links.
 
@@ -525,6 +574,15 @@ def _safe_factory_fd(root: Path, name: str, flags: int) -> int | None:
     if Path(name).name != name:
         raise ValueError("factory diagnostic name must be one path component")
     directory = factory_dir(root)
+    if os.name == "nt":
+        descriptor = _safe_factory_nt_open(directory, (name,), flags)
+        if descriptor is None:
+            return None
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            os.close(descriptor)
+            return None
+        return descriptor
     try:
         directory.mkdir(parents=True, exist_ok=True)
         directory_fd = os.open(
@@ -585,6 +643,21 @@ def safe_factory_write_bytes(root: Path, relative: str, body: bytes) -> bool:
             part in {"", ".", ".."} for part in rel.parts):
         return False
     directory = factory_dir(root)
+    if os.name == "nt":
+        descriptor = _safe_factory_nt_open(
+            directory, rel.parts, os.O_WRONLY | os.O_CREAT)
+        if descriptor is None:
+            return False
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            os.close(descriptor)
+            return False
+        try:
+            os.ftruncate(descriptor, 0)
+            os.write(descriptor, body)
+        finally:
+            os.close(descriptor)
+        return True
     try:
         directory.mkdir(parents=True, exist_ok=True)
         parent_fd = os.open(
@@ -721,7 +794,7 @@ def validate_payload(root: Path, name: str, payload: dict) -> None:
     artifact that does not match its factory/schemas/ spec, including a
     generated_by value outside the pinned allowlist. Extra keys are allowed."""
     path = schema_path(root, name)
-    schema = json.loads(path.read_text())
+    schema = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise SystemExit(
             f"REFUSED by factory/schemas/{path.name}:\n- payload must be a JSON object, "
@@ -767,7 +840,7 @@ def validate_payload(root: Path, name: str, payload: dict) -> None:
 def head_sha(root: Path | None = None) -> str | None:
     proc = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=root or repo_root(),
-        capture_output=True, text=True, env=clean_git_env(),
+        capture_output=True, text=True, env=clean_git_env(), encoding="utf-8",
     )
     return proc.stdout.strip() if proc.returncode == 0 else None
 
@@ -777,7 +850,7 @@ def require_skills(root: Path, name: str, payload: dict) -> None:
     when the recorded decomposition says user_facing, the artifact must
     ATTEST the phase's mandatory skills in skills_used. Advisory skills are
     listed too when used, but only the required set gates."""
-    schema = json.loads(schema_path(root, name).read_text())
+    schema = json.loads(schema_path(root, name).read_text(encoding="utf-8"))
     required = schema.get("required_skills", {})
     if not required:
         return
@@ -853,7 +926,8 @@ def require_grill(
     # Freshness includes the WORKING TREE: uncommitted edits to guarded docs
     # must stale the grill just like committed ones.
     proc = subprocess.run(["git", "status", "--porcelain"], cwd=root,
-                          capture_output=True, text=True)
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="surrogateescape")
     if proc.returncode == 0:
         for line in proc.stdout.splitlines():
             rel = line[3:].split(" -> ")[-1].strip().strip('"')
@@ -869,14 +943,14 @@ def require_grill(
 def require_task_grill(
     root: Path,
     task_id: str,
-    expect_digest_value: str,
+    task: dict,
 ) -> None:
-    """Require a passing grill bound to the current task contract digest."""
+    """Require a passing grill bound to the current grounding inputs."""
     path = factory_dir(root) / "grills" / "tasks" / f"{task_id}.json"
     data = load_json(path, default={})
     record_command = (
         "python3 factory/scripts/record_grill_from_json.py --gate task "
-        f"--task {task_id} --task-digest {expect_digest_value}"
+        f"--task {task_id}"
     )
     if not data:
         raise SystemExit(
@@ -894,11 +968,264 @@ def require_task_grill(
             f".factory/grills/tasks/{task_id}.json has no commit stamp — re-record "
             f"with current tooling using `{record_command}`."
         )
-    if data.get("input_sha256") != expect_digest_value:
+    if data.get("input_sha256") != grounding_digest(root, task):
         raise SystemExit(
-            f"the {task_id} task grill is STALE — it was not recorded against the "
-            f"current task contract. Re-grill and record `{record_command}`."
+            f"the {task_id} task grill is STALE — its grounding inputs changed. "
+            f"Re-grill and record `{record_command}`; --task-digest was removed "
+            "because the digest is derived from the protected contract, approved "
+            "plan, and product tree."
         )
+
+
+def task_digest(task: dict) -> str:
+    """Return the unchanged four-field stage measurement digest."""
+    payload = json.dumps(
+        {
+            key: task.get(key)
+            for key in (
+                "write_scope",
+                "required_tests",
+                "verify_commands",
+                "acceptance_criteria",
+            )
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def plan_digest_without_assumptions(path: Path) -> str:
+    """Hash the approved plan while excluding implementation-time appendices."""
+    text = path.read_text(encoding="utf-8")
+    approved_text = text.partition("\n## Implementation Assumptions")[0]
+    return hashlib.sha256(approved_text.encode()).hexdigest()
+
+
+def product_tree_digest(root: Path) -> str:
+    """Hash the deterministic index blob list, excluding workflow-only paths."""
+    proc = subprocess.run(
+        ["git", "ls-files", "--stage", "-z"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        env=clean_git_env(),
+        encoding="utf-8",
+        errors="surrogateescape",
+    )
+    if proc.returncode != 0:
+        raise SystemExit(
+            "cannot derive the task grounding digest from the Git index: "
+            + proc.stderr.strip()
+        )
+    blobs: list[tuple[str, str]] = []
+    for entry in proc.stdout.split("\0"):
+        if not entry:
+            continue
+        metadata, path = entry.split("\t", 1)
+        if path.startswith((".factory/", "plans/")):
+            continue
+        fields = metadata.split()
+        blobs.append((path, fields[1]))
+    payload = json.dumps(sorted(blobs), separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def grounding_digest(root: Path, task: dict) -> str:
+    """Bind a task grill to its full contract, approved plan, and product tree."""
+    decomposition = load_json(protected_decomposition_state_path(root), default={})
+    plan_file = decomposition.get("plan_file")
+    if not isinstance(plan_file, str) or not plan_file.strip():
+        plan_file = load_json(run_state_path(root), default={}).get("plan_file")
+    if not isinstance(plan_file, str) or not plan_file.strip():
+        raise SystemExit(
+            "cannot derive the task grounding digest: the protected decomposition "
+            "does not name its approved plan"
+        )
+    plan = (root / plan_file).resolve()
+    try:
+        plan.relative_to(root.resolve())
+    except ValueError:
+        raise SystemExit(
+            f"cannot derive the task grounding digest: plan path escapes the repo: "
+            f"{plan_file!r}"
+        )
+    if not plan.is_file():
+        raise SystemExit(
+            f"cannot derive the task grounding digest: approved plan {plan_file!r} "
+            "does not exist"
+        )
+    payload = json.dumps(
+        {
+            "contract": task,
+            "plan_sha256": plan_digest_without_assumptions(plan),
+            "product_tree_sha256": product_tree_digest(root),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+_TASK_CONTRACT_FIELDS = (
+    "write_scope",
+    "required_tests",
+    "verify_commands",
+    "reviewer_focus",
+)
+
+
+def _task_contract_complete(task: dict) -> bool:
+    return all(
+        value and (not isinstance(value, str) or value.strip())
+        for value in (task.get(field) for field in _TASK_CONTRACT_FIELDS)
+    )
+
+
+def _task_grill_fresh(root: Path, task: dict, grill: dict) -> bool:
+    return bool(
+        grill.get("verdict") == "pass"
+        and grill.get("commit")
+        and grill.get("input_sha256") == grounding_digest(root, task)
+    )
+
+
+def task_rows(root: Path) -> list[dict]:
+    """Derive every live task row from the same inputs as frontier routing."""
+    tasks = load_json(
+        protected_decomposition_state_path(root), default={}
+    ).get("tasks", [])
+    stages = load_json(git_control_dir(root) / "stages.json", default={})
+    stage_by_id = {
+        stage.get("id"): stage
+        for stage in stages.get("stages", [])
+        if isinstance(stage, dict)
+    }
+    rows = []
+    for task in tasks:
+        task_id = task.get("id")
+        stage = stage_by_id.get(task_id, {})
+        grill = load_json(
+            factory_dir(root) / "grills" / "tasks" / f"{task_id}.json",
+            default={},
+        )
+        fresh = _task_grill_fresh(root, task, grill) if grill else False
+        status = stage.get("status")
+        if status == "done":
+            state = "done"
+        elif status == "active":
+            state = "active"
+        elif not _task_contract_complete(task):
+            state = "skeleton"
+        else:
+            state = "grilled" if fresh else "ready"
+
+        budget = None
+        if state == "active":
+            from forge_cli.stages import (
+                WORKFLOW_PATHS, _changed_line_count, changed_paths,
+                review_budget, stage_baseline,
+            )
+
+            max_files, max_lines, _reason = review_budget(task)
+            base_sha = stage_baseline(root, stage)
+            product = [
+                path for path in changed_paths(
+                    root, base_sha, stage.get("dirty_at_start", {})
+                )
+                if not path.startswith(WORKFLOW_PATHS)
+            ] if base_sha else []
+            budget = {
+                "used": {
+                    "files": len(product),
+                    "lines": _changed_line_count(root, base_sha, product)
+                    if base_sha else 0,
+                },
+                "limit": {"files": max_files, "lines": max_lines},
+            }
+        rows.append({
+            "id": task_id,
+            "state": state,
+            "grill_freshness": (
+                "fresh" if fresh else "stale" if grill else "missing"
+            ),
+            "budget": budget,
+        })
+    return rows
+
+
+def task_frontier_state(root: Path) -> tuple[str, dict] | None:
+    """Return the next JIT action and earliest unfinished task, without raising."""
+    tasks = load_json(
+        protected_decomposition_state_path(root), default={}
+    ).get("tasks", [])
+    stages = load_json(git_control_dir(root) / "stages.json", default={})
+    stage_by_id = {
+        stage.get("id"): stage
+        for stage in stages.get("stages", [])
+        if isinstance(stage, dict)
+    }
+    frontier = next(
+        (
+            candidate
+            for candidate in tasks
+            if stage_by_id.get(candidate.get("id"), {}).get("status") != "done"
+        ),
+        None,
+    )
+    if frontier is None:
+        return None
+    task_id = frontier.get("id")
+
+    if not _task_contract_complete(frontier):
+        return "author-contract", frontier
+
+    grill = load_json(
+        factory_dir(root) / "grills" / "tasks" / f"{task_id}.json",
+        default={},
+    )
+    if _task_grill_fresh(root, frontier, grill):
+        stage = stage_by_id.get(task_id, {})
+        state = "delegate" if stage.get("status") == "active" else "stage-start"
+        return state, frontier
+    return "grill", frontier
+
+
+def require_ready_task(root: Path, task_id: str) -> dict:
+    """Require the JIT execution contract and its fresh, passing grill."""
+    tasks = load_json(
+        protected_decomposition_state_path(root), default={}
+    ).get("tasks", [])
+    task = next(
+        (candidate for candidate in tasks if candidate.get("id") == task_id),
+        None,
+    )
+    if task is None:
+        raise SystemExit(
+            f"{task_id!r} is not a task in the protected decomposition."
+        )
+
+    frontier_state = task_frontier_state(root)
+    if frontier_state is None or frontier_state[1].get("id") != task_id:
+        frontier_id = frontier_state[1].get("id") if frontier_state else "none"
+        raise SystemExit(
+            f"{task_id} is not the earliest unfinished task ({frontier_id}); "
+            "finish tasks in decomposition order."
+        )
+
+    for field in _TASK_CONTRACT_FIELDS:
+        value = task.get(field)
+        if not value or (isinstance(value, str) and not value.strip()):
+            raise SystemExit(
+                f"{task_id} task contract is incomplete: {field} is empty. "
+                "Author the JIT contract and re-record it with "
+                "`python3 factory/scripts/record_decomposition_from_json.py "
+                f"--input <json>`. `forge delegate {task_id} --read-only` "
+                "remains available for exploration only."
+            )
+
+    require_task_grill(root, task_id, task)
+    return task
 
 
 def changed_since(root: Path, stamp: str, prefixes: tuple[str, ...]) -> list[str]:
@@ -912,6 +1239,7 @@ def changed_since(root: Path, stamp: str, prefixes: tuple[str, ...]) -> list[str
     proc = subprocess.run(
         ["git", "diff", "--name-only", f"{stamp}..{head}"],
         cwd=root, capture_output=True, text=True,
+        encoding="utf-8", errors="surrogateescape",
     )
     if proc.returncode != 0:
         return [f"<commit {stamp[:8]} unknown to this repo>"]
@@ -919,14 +1247,29 @@ def changed_since(root: Path, stamp: str, prefixes: tuple[str, ...]) -> list[str
 
 
 def read_hook_input() -> dict[str, Any]:
-    raw = sys.stdin.read().strip()
+    raw = read_stdin_utf8().strip()
     if not raw:
         return {}
     return json.loads(raw)
 
 
+def read_stdin_utf8() -> str:
+    """Read process input as strict UTF-8, independent of the host locale."""
+    stream = getattr(sys, "stdin")
+    buffer = getattr(stream, "buffer", None)
+    if buffer is None:
+        # Imported/test hosts may supply an already-decoded StringIO. There
+        # are no bytes left whose encoding this helper could choose.
+        return stream.read()
+    wrapper = io.TextIOWrapper(buffer, encoding="utf-8", errors="strict")
+    try:
+        return wrapper.read()
+    finally:
+        wrapper.detach()
+
+
 def branch_name(root: Path | None = None) -> str:
-    out = subprocess.run(["git", "branch", "--show-current"], cwd=root or repo_root(), check=True, capture_output=True, text=True)
+    out = subprocess.run(["git", "branch", "--show-current"], cwd=root or repo_root(), check=True, capture_output=True, text=True, encoding="utf-8")
     return out.stdout.strip()
 
 
@@ -957,7 +1300,16 @@ def slugify(text: str) -> str:
 
 
 def run_cmd(command: str, cwd: Path | None = None) -> dict[str, Any]:
-    proc = subprocess.run(command, cwd=cwd or repo_root(), shell=True, capture_output=True, text=True)
+    # Decode captured child output as UTF-8 explicitly, matching the UTF-8 the
+    # factory scripts now force on their own stdout/stderr. Without this the
+    # parent falls back to the ANSI code page (cp1252 on Windows) when invoked
+    # directly without PYTHONUTF8, so a check that emits a non-Latin-1 glyph or
+    # a non-ASCII repo filename decodes to mojibake — or raises UnicodeDecodeError
+    # on a byte cp1252 leaves undefined — aborting verify before evidence lands.
+    # errors="replace" degrades a stray byte instead of crashing.
+    proc = subprocess.run(command, cwd=cwd or repo_root(), shell=True,
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
     return {
         "command": command,
         "exit_code": proc.returncode,

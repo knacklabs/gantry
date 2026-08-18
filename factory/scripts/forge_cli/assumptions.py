@@ -51,7 +51,7 @@ def load_rows(base: Path) -> list[dict]:
     if not path.exists():
         return []
     rows = []
-    for lineno, line in enumerate(path.read_text().splitlines(), 1):
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.startswith("| A-"):
             continue  # header/prose lines are not data rows
         match = ROW.match(line)
@@ -75,7 +75,7 @@ def save_rows(base: Path, rows: list[dict]) -> None:
     lines = [f"| {r['id']} | {r['date']} | {r['issue']} | {r['assumption']} "
              f"| {r['status']} | {r['guidance']} |" for r in rows]
     ledger_path(base).parent.mkdir(parents=True, exist_ok=True)
-    ledger_path(base).write_text(HEADER + "\n".join(lines) + ("\n" if lines else ""))
+    ledger_path(base).write_text(HEADER + "\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
 
 def append_row(base: Path, issue: str, assumption: str) -> str:
@@ -130,9 +130,9 @@ def cmd_archive(args: argparse.Namespace) -> None:
             "# Assumptions Archive\n\nResolved rows compacted from "
             "plans/assumptions.md at milestones (`forge assumptions archive`).\n\n"
             "| id | date | issue | assumption | status | guidance |\n"
-            "|----|------|-------|------------|--------|----------|\n"
+            "|----|------|-------|------------|--------|----------|\n", encoding="utf-8"
         )
-    with archive.open("a") as fh:
+    with archive.open("a", encoding="utf-8") as fh:
         for r in moved:
             fh.write(f"| {r['id']} | {r['date']} | {r['issue']} | {r['assumption']} "
                      f"| {r['status']} | {r['guidance']} |\n")

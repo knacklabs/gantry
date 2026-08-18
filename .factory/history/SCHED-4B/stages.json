@@ -1,0 +1,115 @@
+{
+  "issue": "SCHED-4B",
+  "stages": [
+    {
+      "id": "SCHED-4B-1",
+      "title": "Prompt on pause + full setup story + provider affordance parity",
+      "status": "done",
+      "started_at": "2026-08-06T13:59:24+00:00",
+      "base_sha": "c54b123ab2313ef25578c008d173493a06e0002a",
+      "dirty_at_start": {},
+      "task_sha256": "d63481c27032f360f41921e35c8407c00972149c66a1ecdbf4b06802bdcca5f2",
+      "completed_at": "2026-08-06T14:31:28+00:00"
+    },
+    {
+      "id": "SCHED-4B-1B",
+      "title": "Fix SCHED-4B-1 full-suite regressions: shared durable short-circuit + unconfigured seam",
+      "status": "done",
+      "started_at": "2026-08-06T15:36:58+00:00",
+      "base_sha": "83a8d86650d90713237c97dc33ecabfbb7da734c",
+      "dirty_at_start": {},
+      "task_sha256": "f9ab1af7cdf9d5ac9b5a929013f48dedb3dfcf74e21b0aa4f32878fa1628617b",
+      "completed_at": "2026-08-06T16:09:08+00:00"
+    },
+    {
+      "id": "SCHED-4B-1C",
+      "title": "Setup-pause lifecycle polish: delivery-failure fallback card + retire on leave-setup",
+      "status": "done",
+      "started_at": "2026-08-06T16:19:15+00:00",
+      "base_sha": "3efe939f0b7edaa250f9de43a4d341b2d1d56ae6",
+      "dirty_at_start": {},
+      "task_sha256": "4735b5c12bf2bfb75f99af3aff27183c5701a0ef7afec99a43421c0e4f0eda8a",
+      "completed_at": "2026-08-06T17:02:37+00:00"
+    },
+    {
+      "id": "SCHED-4B-2",
+      "title": "Drained visible permission recovery + lifecycle retirement on every terminal exit",
+      "status": "done",
+      "started_at": "2026-08-07T00:20:14+00:00",
+      "base_sha": "c3d836b1e707bf9437d9ac8f5bd9e2c3c7b94935",
+      "dirty_at_start": {},
+      "task_sha256": "ad643fe155a45b53dfbb985b4bece648a0ccb8b2076d625004f5ee9a93ed7e34",
+      "completed_at": "2026-08-07T00:51:31+00:00"
+    },
+    {
+      "id": "SCHED-4B-2B",
+      "title": "Update recovery-caller tests to the new keyset/atomic-claim contract",
+      "status": "done",
+      "started_at": "2026-08-07T01:01:05+00:00",
+      "base_sha": "bf5646fd94fc024cae8f41088c3b77777ac02bc6",
+      "dirty_at_start": {},
+      "task_sha256": "05327cc290fcb1d9e13558ce99f18092e2c9e52390a3e86ffaf10383e7af2539",
+      "completed_at": "2026-08-07T01:42:31+00:00"
+    },
+    {
+      "id": "SCHED-4B-2C",
+      "title": "Branch-review lifecycle polish: clear stale running card on all exits + retire prompt on cross-flow resume",
+      "status": "done",
+      "started_at": "2026-08-07T04:09:25+00:00",
+      "base_sha": "0874b5cd602b8d5c5faeb1483a86c27ec62fff98",
+      "dirty_at_start": {},
+      "task_sha256": "c4d85d5202d322a2f80b124e3e8b80bcba18e26e13a3d7e8d8b4c00b6fbf1e17",
+      "completed_at": "2026-08-07T04:40:49+00:00"
+    },
+    {
+      "id": "SCHED-4B-2D",
+      "title": "Branch-review edge cases: failsafe-independent card cleanup, partial-recovery prompt transition, multi-blocker review",
+      "status": "done",
+      "started_at": "2026-08-07T06:15:40+00:00",
+      "base_sha": "851832c59f637dcac513b6eff4bb481718efafad",
+      "dirty_at_start": {},
+      "task_sha256": "206bc4c83ed9e1074cd913c4e835bb14758e9182de9693b78fcc667d4d9ea362",
+      "completed_at": "2026-08-07T06:47:18+00:00"
+    },
+    {
+      "id": "SCHED-4B-2E",
+      "title": "Branch-review concurrency: recovery re-evaluate on lost claim + lifecycle retire tracked separately from settlement",
+      "status": "done",
+      "started_at": "2026-08-07T09:53:01+00:00",
+      "base_sha": "70d81b93ba4079d7f0296bede76ec8522f54e842",
+      "dirty_at_start": {},
+      "task_sha256": "66be2193c13a0d14701f28d055bf534f10e6ccabbe377d1149ddc0388a7a237f",
+      "completed_at": "2026-08-07T10:24:34+00:00"
+    },
+    {
+      "id": "SCHED-4B-2F",
+      "title": "Setup-story timing: pre-run pauses must not read as stopped mid-run",
+      "status": "done",
+      "started_at": "2026-08-07T10:36:16+00:00",
+      "base_sha": "e22396df1ddcc604289d2df8afe54da5513e481d",
+      "dirty_at_start": {},
+      "task_sha256": "8f4dc55b320388d92a42a152d7b98a2645aa743bcdfac7ca224054cd9fe7c989",
+      "completed_at": "2026-08-07T11:18:12+00:00"
+    },
+    {
+      "id": "SCHED-4B-2G",
+      "title": "Partial-recovery prompt uses the real setup source, not hard-coded permission_denied",
+      "status": "done",
+      "started_at": "2026-08-07T11:34:51+00:00",
+      "base_sha": "8e988eacc496c7ac18bf2119daa85517e394dc88",
+      "dirty_at_start": {},
+      "task_sha256": "1c9b81de53dbbd99c8aef14292328b11c6fb87ac408e4bbfc891ed2fe9a9973b",
+      "completed_at": "2026-08-07T12:16:47+00:00"
+    },
+    {
+      "id": "SCHED-4B-2H",
+      "title": "Approver always gets a card: generalize delivery-failure fallback + handle non-raised recovery outcomes",
+      "status": "done",
+      "started_at": "2026-08-07T13:16:06+00:00",
+      "base_sha": "b83c9274b403692dd8f311105702e6fa70c57067",
+      "dirty_at_start": {},
+      "task_sha256": "b7ccf1fecc24c419ea461a962d79913f59ed889b93d2132543abd8d9f40251c0",
+      "completed_at": "2026-08-07T13:47:27+00:00"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "generated_by": "autoreview",
+  "blocking_findings": [],
+  "reviewed_scope": [
+    "apps/core/src/adapters/storage/postgres",
+    "apps/core/src/application/jobs",
+    "apps/core/src/jobs",
+    "apps/core/src/domain",
+    "apps/core/test"
+  ],
+  "score": 9,
+  "summary": "Coordination writes are single targeted statements (no read-modify-write round trips); counter increments happen in-DB; the setup_state CASE preserves notified_fingerprint without an extra query. No new hot-path work; the claim CTE loses a jsonb parse.",
+  "recommendation": "ship",
+  "aspect": "performance",
+  "non_blocking_findings": [],
+  "residual_risks": [],
+  "recorded_at": "2026-08-03T09:35:26+00:00",
+  "commit": "a77e237c45376e9cf3e8c21b780c3995750bcc2b"
+}

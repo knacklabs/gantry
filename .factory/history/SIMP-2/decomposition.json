@@ -1,0 +1,75 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "user_facing": false,
+  "project": "SIMP-2",
+  "tasks": [
+    {
+      "id": "SIMP-2-1",
+      "title": "Job management service: construct once in the composition root",
+      "objective": "Build JobManagementService once inside startControlServer, inject it as ctx.jobManagement, and switch all 13 per-request construction sites (jobs.ts, guided-actions.ts, models.ts, external-ingress-adapter.ts) to it. Every post-boot-mutable dependency (tool repository IfReady, runtime-store repos) is injected as an explicit getter so liveness is unchanged.",
+      "write_scope": [
+        "apps/core/src/control/server",
+        "apps/core/src/app",
+        "apps/core/test"
+      ],
+      "acceptance_criteria": [
+        "createJobManagementService is invoked exactly once per control server (composition root); no route or adapter constructs it per request",
+        "toolRepository is read through a getter at use time: a request before storage init sees undefined, a request after init sees the real repository \u2014 proven by a test that fails if the value is latched at construction",
+        "runtime-store-derived deps (control/ops/runtimeEvents/skill/mcp repos) are read through getters, preserving today's per-use semantics for tests that swap storage",
+        "credential broker and browser status remain live through the existing ctx getters",
+        "guided-actions-routes.test.ts injects its fake via the new ctx.jobManagement seam instead of mocking the module export",
+        "existing suites job-trigger.test.ts, external-ingress-adapter.test.ts, guided-actions-routes.test.ts pass unmodified in behavior",
+        "the required JUnit proofs name real testcases (contract fix; no functional change)"
+      ],
+      "required_tests": [
+        {
+          "id": "control job trigger > reads the tool repository at request time after storage becomes ready",
+          "path": "apps/core/test/unit/control/job-trigger.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "handleGuidedActionRoutes execute > runs resume_job server-side and returns a done receipt",
+          "path": "apps/core/test/unit/control/guided-actions-routes.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck"
+      ]
+    },
+    {
+      "id": "SIMP-2-2",
+      "title": "Session interaction module: one boot instance; liveAdmissionAppId becomes a method argument",
+      "objective": "Build SessionInteractionModule once in startControlServer as ctx.sessionInteraction, delete the per-request helpers in session-interaction-adapter.ts and the hand-built copy in external-ingress-adapter.ts, and move liveAdmissionAppId off the constructor onto the one method that uses it so the per-caller difference is explicit and behavior-identical.",
+      "write_scope": [
+        "apps/core/src/control/server",
+        "apps/core/src/application",
+        "apps/core/src/app",
+        "apps/core/test"
+      ],
+      "acceptance_criteria": [
+        "SessionInteractionModule is constructed exactly once per control server; routes/sessions.ts, session-interaction-adapter.ts and external-ingress-adapter.ts all use ctx.sessionInteraction",
+        "liveAdmissionAppId is no longer a constructor input; the accepting method takes it as an argument; message-accept and external-ingress pass the value they compute today, the seven plain session routes pass nothing \u2014 pinned by a call-site-level test",
+        "getConfiguredAgentRuntime and runtime-store deps stay live via getters",
+        "no compatibility shim: the old constructor shape and per-request factory exports are gone, and nothing else in the repo references them",
+        "existing session and ingress suites pass with unchanged behavior"
+      ],
+      "required_tests": [
+        {
+          "id": "adaptSessionControlPort > maps ensureAppSession.folder into repository workspaceFolder",
+          "path": "apps/core/test/unit/control/session-control-port.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "external ingress adapter > uses the conversation provider account when resolving live routes",
+          "path": "apps/core/test/unit/control/external-ingress-adapter.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck"
+      ]
+    }
+  ],
+  "commit": "f1864951d280357195fbdbbafc05f315cbaa1dcd"
+}

@@ -1,0 +1,26 @@
+{
+  "generated_by": "griller",
+  "gate": "signoff",
+  "verdict": "pass",
+  "questions_asked": 4,
+  "summary": "Sign-off grill of DISCOVERY/BRIEF/decisions/goals-index for the harness handover. Four findings, all resolved with committed doc edits and deferral rows (commit a46fdba87). Re-recorded after the human accepted decisions 0002/0003/0004/0034 (commit 14d8a9441) \u2014 the only post-grill doc change is those status flips, which the grill anticipated. Remaining questions would only confirm what the accepted decision corpus already documents (auth/egress/credential lanes, production fail-closed, environments, solo stakeholder).",
+  "gaps": [
+    "Data retention scope was split out of the arch-quick-wins PR as cycle-sized with a promised ledger note, but appeared in neither goals-index nor the deferrals ledger (silently dropped scope).",
+    "E2E persona/topology harness: goals-index claimed a goal-prompt draft in the session scratchpad, but no such draft survived.",
+    "DISCOVERY did not name the authoritative roadmap source or where per-story acceptance_criteria come from, which the epics import needs."
+  ],
+  "contradictions": [
+    "BRIEF Non-Goals excluded 'a hosted multi-tenant SaaS control plane' while goals-index carries tenant-isolation hardening, per-workspace ingestion, and per-tenant evals.",
+    "Decision 0003 said 'no users are live yet' while the owner's live deployment (launchd com.gantry) runs from this repo with durable state."
+  ],
+  "resolutions": [
+    "Deferral D-0001: data retention, trigger = durable-work-primitive lane starts (refactors the same jobs/interactions state).",
+    "Deferral D-0002: persona/topology harness re-draft, trigger = agent-e2e matrix reconciliation; goals-index now points at D-0002 instead of the lost draft.",
+    "DISCOVERY 'Roadmap source' section added: goals-index ordering seeds epics; acceptance_criteria come from each goal-prompt's Acceptance Criteria section; goals without a committed goal-prompt are not importable.",
+    "BRIEF Non-Goals clarified: only a HOSTED SaaS control plane is out of scope; self-hosted multi-tenant isolation stays on the roadmap (client confirmed).",
+    "Decision 0003 amended: 'no users' means no external users; owner deployment state (Postgres, settings, credentials, memory) is preserved via manual migration to the new state, named per breaking PR (client corrected the initial 'owner absorbs resets' recommendation)."
+  ],
+  "open_items": [],
+  "recorded_at": "2026-07-22T11:55:57+00:00",
+  "commit": "14d8a94414ad935ed67f73dd02c8c9a3888f476a"
+}

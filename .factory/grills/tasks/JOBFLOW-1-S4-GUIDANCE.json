@@ -1,0 +1,22 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "questions_asked": 3,
+  "gaps": [
+    "ONE concise guidance block at the shared runner prompt seam (gantry-agent-system-prompt.ts OPERATING_GUIDANCE area): no retrying denied calls, write incrementally, report honestly, the runtime files recognized fixes",
+    "Renders in EVERY runner prompt; one static snapshot/contract test per rendered runner",
+    "No per-job tool rules for recovery behavior - guidance is prompt-level only"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Appendix S4 pins the block location (gantry-agent-system-prompt.ts:261-266 vicinity) and the one-snapshot-per-runner test shape",
+    "Scheduled-run scoping: the block speaks to autonomous runs; wording concise per the guidance-diet deferral",
+    "Creation-time grammar validation already reuses the compiler validator (S4-COMPILER)"
+  ],
+  "owner_questions": [],
+  "task_id": "JOBFLOW-1-S4-GUIDANCE",
+  "input_sha256": "0cd600de79473d8beb64b9df62823bf73541d908a55a0d689e98dde897fff51d",
+  "recorded_at": "2026-08-14T10:11:53+00:00",
+  "commit": "7d11f96c321ed53e530ceb41604e232c405ae06b"
+}

@@ -1,0 +1,18 @@
+{
+  "generated_by": "autoreview",
+  "blocking_findings": [],
+  "reviewed_scope": [
+    "apps/core/src/control/server",
+    "apps/core/src/application/sessions",
+    "apps/core/src/application/external-ingress",
+    "apps/core/test"
+  ],
+  "score": 9,
+  "summary": "One codex autoreview pass (gpt-5.6-sol, high) over the branch diff vs origin/main: construction moved to the composition root consistently across all call sites; call sites, adapter helpers, and tests align with the new shared-service contracts; no accepted findings. Overall verdict: patch is correct (0.86).",
+  "recommendation": "ship",
+  "aspect": "quality",
+  "non_blocking_findings": [],
+  "residual_risks": [],
+  "recorded_at": "2026-08-03T04:06:41+00:00",
+  "commit": "5686314227376ee8675a158ab0552a07e087c04a"
+}

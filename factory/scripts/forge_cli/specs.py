@@ -6,8 +6,8 @@ import re
 from pathlib import Path
 
 from factory_lib import (
-    ATX_CLOSING_RUN, now_iso, outside_examples, parse_sections, repo_root,
-    require_grill,
+    ATX_CLOSING_RUN, load_json, now_iso, outside_examples, parse_sections,
+    repo_root, require_grill,
 )
 
 from .common import fail
@@ -65,7 +65,7 @@ def missing_required_content(text: str) -> list[str]:
 def spec_records(base: Path) -> list[dict]:
     records = []
     for path in sorted((base / "docs" / "specs").glob("*.md")):
-        fields = parse_frontmatter(path.read_text())
+        fields = parse_frontmatter(path.read_text(encoding="utf-8"))
         if not fields.get("slug"):
             continue
         records.append({
@@ -74,6 +74,23 @@ def spec_records(base: Path) -> list[dict]:
             "_path": path,
         })
     return records
+
+
+def unreferenced_confirmed_specs(base: Path) -> list[str]:
+    """Confirmed spec paths that no roadmap item references."""
+    confirmed = {
+        record["path"]
+        for record in spec_records(base)
+        if record.get("status") == "confirmed"
+    }
+    roadmap = load_json(base / "plans" / "roadmap.json", default={})
+    items = roadmap.get("items", []) if isinstance(roadmap, dict) else []
+    referenced = {
+        Path(item["spec"]).as_posix()
+        for item in items
+        if isinstance(item, dict) and isinstance(item.get("spec"), str)
+    }
+    return sorted(confirmed - referenced)
 
 
 def resolve_spec_reference(base: Path, value: str, *, confirmed: bool = False) -> Path:
@@ -88,7 +105,7 @@ def resolve_spec_reference(base: Path, value: str, *, confirmed: bool = False) -
         fail(f"spec reference must stay under docs/specs/, got {value!r}")
     if path.suffix.lower() != ".md" or not path.is_file():
         fail(f"spec reference does not exist: {value}")
-    fields = parse_frontmatter(path.read_text())
+    fields = parse_frontmatter(path.read_text(encoding="utf-8"))
     if not fields.get("slug"):
         fail(f"spec reference has no Forge frontmatter: {value}")
     if confirmed and fields.get("status") != "confirmed":
@@ -104,7 +121,7 @@ def cmd_save(args: argparse.Namespace) -> None:
     source = Path(args.source).expanduser()
     if not source.is_file():
         fail(f"spec source {source} not found")
-    body = source.read_text()
+    body = source.read_text(encoding="utf-8")
     heading = re.search(r"^#\s+(.+?)\s*$", body, re.MULTILINE)
     title = args.title or (heading.group(1) if heading else slug.replace("-", " ").title())
     header = (
@@ -113,7 +130,7 @@ def cmd_save(args: argparse.Namespace) -> None:
     )
     destination = base / "docs" / "specs" / f"{slug}.md"
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(header + body)
+    destination.write_text(header + body, encoding="utf-8")
     append_event(base, "spec-draft", actor="orchestrator", detail=f"{slug}: {title}")
     print(f"Spec saved as draft: {destination.relative_to(base)}")
 
@@ -124,7 +141,7 @@ def cmd_confirm(args: argparse.Namespace) -> None:
     path = base / "docs" / "specs" / f"{slug}.md"
     if not path.is_file():
         fail(f"no spec at docs/specs/{slug}.md")
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     fields = parse_frontmatter(text)
     if fields.get("status") == "confirmed":
         print(f"Spec already confirmed: {path.relative_to(base)}")
@@ -154,6 +171,6 @@ def cmd_confirm(args: argparse.Namespace) -> None:
     if updated == text or parse_frontmatter(updated).get("status") != "confirmed":
         fail(f"could not rewrite the status line in {path.relative_to(base)} — "
              "set `status: draft` on its own frontmatter line and retry")
-    path.write_text(updated)
+    path.write_text(updated, encoding="utf-8")
     append_event(base, "spec-confirmed", actor="orchestrator", detail=slug)
     print(f"Spec confirmed: {path.relative_to(base)}")

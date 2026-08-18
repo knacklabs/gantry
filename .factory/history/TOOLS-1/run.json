@@ -1,0 +1,17 @@
+{
+  "issue_key": "TOOLS-1",
+  "title": "Provider-aware tool surface: affinity-filtered projection + dynamic per-provider instructions",
+  "tracker": "linear",
+  "branch": "feat/TOOLS-1-provider-aware-tool-surface-affinity-filtered-projection-dynamic-per-provider-instructions",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-08-04T17:04:12+00:00",
+  "updated_at": "2026-08-04T18:29:57+00:00",
+  "plan_file": "plans/completed/TOOLS-1-provider-aware-tool-surface-affinity-filtered-projection-dynamic-per-provider-instructions.md",
+  "story": "TOOLS-1"
+}

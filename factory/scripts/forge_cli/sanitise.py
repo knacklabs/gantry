@@ -19,6 +19,7 @@ from .common import fail
 def _git_paths(base: Path, command: list[str]) -> list[str]:
     proc = subprocess.run(
         command, cwd=base, capture_output=True, text=True, env=clean_git_env(),
+        encoding="utf-8", errors="surrogateescape",
     )
     if proc.returncode != 0:
         fail(f"could not inspect repo hygiene: {proc.stderr.strip()}")
@@ -76,7 +77,7 @@ def _roadmap_drift(base: Path) -> bool:
     if not path.exists():
         return False
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return False  # malformed JSON: surfaced by project_gaps, never auto-healed
     items = data.get("items") if isinstance(data, dict) else None
@@ -103,6 +104,7 @@ def _untrack_cruft(base: Path, paths: list[str]) -> str | None:
     proc = subprocess.run(
         ["git", "rm", "--cached", "--", *paths], cwd=base,
         capture_output=True, text=True, env=clean_git_env(),
+        encoding="utf-8", errors="surrogateescape",
     )
     if proc.returncode != 0:
         return proc.stderr.strip() or proc.stdout.strip() or "git rm --cached failed"
@@ -174,6 +176,9 @@ def cmd_sanitise(args: argparse.Namespace) -> None:
         )
         unresolved.append(("doctor", detail))
 
+    if not resolved and not unresolved:
+        print("Sanitise report: [OK] no issues found")
+        return
     print("\nSanitise report:")
     for kind, detail in resolved:
         print(f"- [FIXED] [{kind}] {detail}")
@@ -187,9 +192,6 @@ def cmd_sanitise(args: argparse.Namespace) -> None:
         print("- [doctor-report]")
         for line in doctor_lines:
             print(f"    {line}")
-    if not resolved and not unresolved:
-        print("- [OK] no issues found")
-
     issue_count = len(resolved) + len(unresolved) if check else len(unresolved)
     if issue_count:
         raise SystemExit(1)

@@ -60,7 +60,10 @@ def changed_files(base: Path) -> list[str]:
     out: set[str] = set()
     for cmd in (["git", "diff", "--name-only", "HEAD"],
                 ["git", "ls-files", "--others", "--exclude-standard"]):
-        proc = subprocess.run(cmd, cwd=base, capture_output=True, text=True)
+        proc = subprocess.run(
+            cmd, cwd=base, capture_output=True, text=True,
+            encoding="utf-8", errors="surrogateescape",
+        )
         if proc.returncode == 0:
             out.update(line.strip() for line in proc.stdout.splitlines() if line.strip())
     return sorted(out)

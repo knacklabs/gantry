@@ -1,0 +1,426 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "user_facing": false,
+  "project": "SCHED-4B",
+  "tasks": [
+    {
+      "id": "SCHED-4B-1",
+      "title": "Prompt on pause + full setup story + provider affordance parity",
+      "objective": "A setup pause on a grantable blocker raises the standard permission prompt (locked Allow once / Allow for future / Deny) via an application seam over the request-only capability review, built ONLY from host-derived inputs (jobId + the job's stored requirement), deduped by setupState.fingerprint. Setup cards/prompts tell the whole story: failed action, triggering step, died-vs-degraded, every blocker with human labels. Discord/teams render the neutral kind set or a visible text fallback.",
+      "write_scope": [
+        "apps/core/src/jobs",
+        "apps/core/src/application",
+        "apps/core/src/channels",
+        "apps/core/src/domain",
+        "apps/core/src/shared",
+        "apps/core/src/adapters/storage",
+        "apps/core/test",
+        "docs",
+        "plans",
+        "apps/core/src/app"
+      ],
+      "acceptance_criteria": [
+        "a setup pause on a grantable blocker (semantic capability, browser, mappable tool rule) raises exactly one standard permission prompt built from the job's STORED requirement via a host-only application seam over the request-only capability review path; the seam rejects unmappable blocker types (mcp_server/credential/config fall back to the instruction-only card) and no channel-supplied identifier ever reaches grant construction",
+        "settlement is the existing chain untouched: permanent decision -> persistRequestPermissionRules -> recheckSetupPausedJobsAfterCapabilityUpdate; no new grant path, locked option set unchanged",
+        "setup-pause prompts (no live run) offer Allow for future and Deny ONLY, via the existing per-request option computation \u2014 allow_once is absent because a one-time approval cannot be used by a run that already ended, and one honest copy line says so; live-run prompts keep the full locked set; a test asserts allow_once absent on setup-pause prompts and present on live-run prompts; NO new transient store or grant path",
+        "fingerprint-keyed dedupe: a second pause with the same setupState.fingerprint does not re-prompt while the prompt is unanswered; a changed blocker set retires or updates the old prompt and raises a fresh one; job deletion retires the pending prompt",
+        "when the approver route differs from the job's notification route, the prompt (story + buttons) goes to the approver route and the job route keeps the instruction-only setup card; when routes coincide it is one message \u2014 tested for the divergent case",
+        "setup cards and pause prompts state the failed action, the triggering step, whether the run died or degraded, and EVERY distinct blocker with human-readable labels (count + expand beyond a small N); a bare tool id never renders",
+        "discord renders the full provider-neutral scheduler kind set (not just run_now) and teams builds card actions for every neutral kind or emits a visible text fallback line \u2014 no silently dropped affordance; permission-prompt affordances round-trip (render + parse) on slack, telegram, discord and teams",
+        "prompt-on-pause is the owner-approved satisfaction of roadmap criterion 1 (approve-from-card): the standard prompt's affordances raised at pause time replace a new card action kind \u2014 stated in code comments where the reviewer will look",
+        "REVIEW FIX 1 (setup-pause-permission-prompt.ts): the prompt rationale must describe the SAME blocker whose permission is being granted \u2014 pass the selected grantable blocker into the story formatter instead of formatting from blockers[0], so a [missing MCP server, missing tool] set cannot show connect-the-server text over a tool-rule approval button",
+        "REVIEW FIX 2 (setup-pause-permission-prompt.ts): retire the previous fingerprint's prompt BEFORE any replacement-validation early return \u2014 a fingerprint change from a grantable blocker to an unmappable one (mcp_server/credential) must not leave the old prompt actionable",
+        "REVIEW FIX 3 (execution-readiness.ts): gate the prompt with the SAME eligibility guards the card uses \u2014 job.silent and setup_state.notified_fingerprint \u2014 so silent jobs raise no interactive prompt and an unchanged fingerprint cannot re-prompt after the notification was marked delivered",
+        "REVIEW FIX 4 (discord-interactions.ts / teams handler): do not render a 'Pause job' button that only replies with instructions \u2014 either wire both callbacks to the scheduler pause operation with the normal authorization checks, or render an explicitly instructional affordance whose label matches what it does",
+        "REVIEW FIX 5 (setup-pause-permission-prompt.ts settlement): reload the job immediately BEFORE persisting a permanent approval and reject the decision unless the job still exists, is still setup-paused, and its setup fingerprint still matches the fingerprint encoded in the request id \u2014 a late click must never grant access the current job no longer requires",
+        "REVIEW FIX 6 (execution-readiness.ts): prompt preparation is fallible (job lookup, capability review, cancellation, durable recording); catch preparation failures, log them, and continue as instruction_only so a repository or review error can never suppress the setup card that was previously reliable",
+        "REVIEW FIX 7 (runtime-services.ts): do not non-null-assert an optional publishRuntimeEvent into an always-present callback \u2014 preserve the optional value and handle absence downstream (or enforce presence at runtime-services start), so a permanent approval cannot persist and then fail the paused-job recheck with the error swallowed",
+        "REVIEW FIX 8 (setup-pause-permission-prompt.ts settlement): recheck paused-job readiness after EVERY validated permanent approval, not only when persistPermanentDecision reports newly persisted rules \u2014 an idempotent or concurrent grant returns an empty list while the access is in fact now available, and skipping the recheck strands the job paused with its fingerprint already marked notified",
+        "REVIEW FIX 9 (setup-pause-permission-prompt.ts settlement): a settlement failure (persist or recheck error) must not be swallowed \u2014 the notification state for that fingerprint must be cleared/reopened (or an actionable failure surfaced) so the job can be prompted again; today prompt delivery marks the fingerprint notified and a transient error leaves the job paused with neither an active prompt nor a future retry",
+        "GUARD (both fixes): the two stranding paths are one bug class \u2014 a paused job must never end in a state with no active prompt AND no future prompt while it is still blocked; add a falsifying test for each path (idempotent empty-persist, and throwing persist/recheck)",
+        "REVIEW FIX 10 [P1] (setup-pause-permission-prompt.ts): beginPermissionReview records a durable interaction that settlement NEVER finishes \u2014 finish it in a finally path with the right outcome on approval, rejection, cancellation AND failure; otherwise the record stays visible to isPermissionPromptPending, every resolved prompt reads as already_pending forever, and the new reopen-on-failure recovery can never raise a replacement prompt (test: after a failed settlement + reopen, the next attempt raises a NEW prompt, not already_pending)",
+        "REVIEW FIX 11 (job-management-service.ts): prompt retirement must be best-effort during job deletion \u2014 a transient fetch/cancel failure must not abort ops.deleteJob and leave the scheduled job alive; wrap in try/catch with a warn (stale approvals are already rejected post-deletion because settlement reloads the job)",
+        "NO-LEGACY (owner policy, applies to the whole stage): this repo keeps NO legacy, back-compat, deprecated or dual-shape paths. Audit every line this stage adds and remove any tolerance for older shapes, optional-field fallbacks that exist only for pre-change data, or branches kept 'just in case'. Where a fallback is genuinely load-bearing, it must be a documented current-behavior decision in an inline comment, not compatibility.",
+        "NO-LEGACY specifics: the unconfigured-seam path (configuredDeps === null returning instruction_only) must not silently downgrade a wired runtime \u2014 either the seam is always configured at bootstrap and absence is a loud programming error in dev/test, or absence logs a warning exactly once; a missing wiring must never look identical to 'this blocker is not grantable'.",
+        "REVIEW FIX 12 (permission-approval-requester.ts): onPromptDelivered is forwarded only when request.runId is absent \u2014 a run-scoped request goes through the coalescing/dispatch path without it, so the public interface promises a delivery signal it never fires. Forward the callback on the run-scoped path too, with a defined policy for coalesced callers (document which caller gets the callback when requests coalesce).",
+        "REVIEW FIX 13 (setup-pause-permission-wiring.ts): provider-account resolution passes only execution_context.threadId while the approver route uses execution_context.threadId ?? job.thread_id \u2014 for jobs whose thread lives in thread_id the prompt targets one thread and resolves the account against an unthreaded route, which can pick the wrong account or none. Resolve BOTH from one shared route helper so they can never disagree.",
+        "NOTE for the outcome record (do not fix here): job.thread_id duplicating execution_context.threadId is a pre-existing repo-wide dual-shape (job-permission-recovery.ts uses the same fallback). Collapsing it is a separate no-legacy cleanup, out of this stage's scope \u2014 this stage only guarantees the two lookups agree.",
+        "REVIEW FIX 14 [P1] (setup-pause-permission-prompt.ts): the late-approval guard reads job+fingerprint BEFORE persistPermanentDecision with no atomicity \u2014 a deletion or fingerprint change racing after that read (notably when cancelPermissionApproval returns not_found because the decision is already resolving) can still install permanent agent permissions for a job that was deleted or no longer needs them. Fence the grant at the persistence boundary: revalidate atomically (CAS on the setup fingerprint / retirement marker) so a stale approval cannot apply. Test with a concurrent delete and a concurrent fingerprint change interleaved between guard and persist.",
+        "REVIEW FIX 15 (permission-approval-requester.ts): a multi-request batch prompt takes its delivery callback from batch.requests[0] only, so first callers of every other distinct request scope never get onPromptDelivered despite the new per-scope contract. Fan the single provider delivery callback out to each distinct pending resolver exactly once, still excluding replay callbacks within a scope.",
+        "REVIEW FIX 16 [P2] (canonical-job-coordination.postgres.ts + setup-pause seam): withJobSetupApprovalFence holds FOR UPDATE in one transaction while the operation persists through OTHER pooled connections \u2014 a small pool or enough concurrent approvals deadlocks, and the permission write commits independently of the fence. Replace it with an ATOMIC CLAIM protocol (do NOT thread a transaction handle through persistRequestPermissionRules \u2014 that is a larger refactor and out of scope): one short transaction atomically verifies fingerprint + pause reason AND claims the approval (single-consumption marker, e.g. conditional clear/stamp of the setup notification state), returns claimed|stale, and only a winning claim proceeds to persist outside any held lock; a lost claim settles as cancelled. If persistence then fails, the claim must be released or the notification reopened so the job can prompt again (consistent with REVIEW FIX 9). Test: two concurrent approvals for the same fingerprint -> exactly one persists; a stale fingerprint never persists; no database call happens while a lock is held.",
+        "REVIEW FIX 17 (setup-pause claim): the approval claim is persisted with no lease or owner, so a process exit between claim and persist orphans approval_claimed_fingerprint forever \u2014 same-fingerprint setup updates preserve it, every replay loses the claim, and the persistedRules === null path never releases it, so that fingerprint can never be approved again. Make the claim recoverable: an expiring claim (stamp a claimed-at and treat an expired claim as reclaimable) or an owner/settlement-stage the same durable request can resume, plus release on every failure path. Test: a claim left behind by a crashed settlement is reclaimable and the approval can complete afterwards.",
+        "REVIEW FIX 18 (discord-components.ts): the renderer now appends EVERY scheduler affordance to one action row \u2014 Discord allows at most five components per row, so six scheduler affordances (or five plus the live-stop affordance) make the whole message delivery fail. Cap/deduplicate or split into rows of at most five, and test the overflow case.",
+        "REVIEW FIX 19 (setup-pause claim ownership): the expiring claim returns only a boolean and identifies ownership by fingerprint alone, so a worker stalled past the expiry can resume and persist alongside the worker that reclaimed it \u2014 and can then release/clear the OTHER worker's claim. Issue a unique claim token on a winning claim, require that token for persistence, release and clear (token-checked), and drop the write when the token no longer matches. Test: stalled holder resumes after expiry and its persist + release are both rejected while the reclaiming worker completes exactly once.",
+        "REVIEW FIX 20 (setup-pause failure recovery ordering): on a persist/recheck failure the notified flag is cleared while the old durable interaction is still pending (it only closes later in finally), so a concurrent readiness check reads already_pending, re-marks the fingerprint notified, and the interaction then closes \u2014 leaving no live prompt and no retryable card. Close the durable interaction BEFORE reopening the notification (or atomically distinguish a live delivered prompt from one being finalized). Test the interleaving.",
+        "FINAL (documented ceiling, do NOT redesign): review round 7 required the permission write to run OUTSIDE any held job transaction (pool-exhaustion deadlock); review round 10 asks for the write to be atomic with the job-state check. These are mutually exclusive without a cross-repository transaction, which is a separate refactor and out of this stage's scope. The claim protocol BOUNDS the stale window (token-fenced, expiring, single-consumption) instead of eliminating it. Add ONE inline comment at the claim/persist boundary in setup-pause-permission-wiring.ts stating: the residual window is between a renewed claim and the permission commit; the worst case is a durable permission the human just approved being installed for a job whose blockers changed, which is user-revocable via manage access; closing it fully needs a cross-repository transaction (follow-up). Do not change the protocol. Also mark assumption A-0047 as confirmed in plans/assumptions.md (coalesced run-scoped requests: only the first caller receives the delivery callback; all callers share the settlement decision) and add A-0048 recording this bounded-stale-window ceiling as confirmed.",
+        "REVIEW FIX 21 (setup-pause prompt vs notified mark ordering): raiseSetupPausePermissionPrompt returns on delivery while settlement runs concurrently, and notifyJobSetupRequired writes markJobSetupNotified AFTER that return \u2014 a fast settle whose persistence/recheck fails calls reopenSetupNotification first, then the outer mark lands and undoes the recovery, stranding the job with no retry for that fingerprint. Sequence them explicitly: the recovery reopen must be ordered after the initial mark completes (e.g. the settlement path awaits a mark-completed handoff, or the reopen is a token/fingerprint-conditional write that cannot be overwritten by a later stale mark). Test the interleaving: fast settle + failing persist while the initial mark is still in flight must end with the fingerprint NOT notified.",
+        "REVIEW FIX 22 [P1] (setup-pause already_pending): a durable row recorded by beginPermissionReview but never delivered (process stopped in between) is later read as already_pending, the approver route is excluded, notified_fingerprint is written, and the job can never be prompted again. MINIMAL FIX \u2014 do not build a redelivery protocol: only treat a durable row as already_pending when delivery was CONFIRMED (persist a delivered marker when onPromptDelivered fires); an undelivered row is ignored/replaced so a fresh prompt is raised. Test: crash between record and delivery, next readiness check raises a prompt.",
+        "REVIEW FIX 23 [P1] (claim busy vs ineligible): claimSetupApproval returns null both for a changed/ineligible job and for an existing unexpired claim, and the caller treats both as final cancellation without setting reopenFingerprint \u2014 so a crashed claim owner's replay closes the durable review while the claim and notified marker stay, and nothing ever triggers the advertised reclaim. MINIMAL FIX: return a discriminated result (claimed | busy | ineligible); busy = leave the notification OPEN and do not cancel (the expiring claim then permits a later retry); ineligible keeps today's cancellation. Test: busy path leaves notified_fingerprint clear and a post-expiry attempt succeeds.",
+        "REVIEW FIX 24 (execution-readiness.ts barrier): completeInitialNotificationMark() runs only in the mark's try/finally, so a rejection from notifySchedulerSetupRequired skips it and any settlement waiting on the barrier hangs forever with its recovery and claim cleanup incomplete. Wrap BOTH card delivery and the mark in the barrier's try/finally.",
+        "REVIEW FIX 25 (settlement catch scope): the catch spans both persistPermanentDecision and recheckPausedJob, so a recheck failure AFTER lasting access was already installed records the settlement as cancelled and reopens the approval \u2014 the audit trail and UI then claim the approval was not applied and may ask for it again. Track the commit separately: once persistence returns non-null the settlement stays APPROVED; only the readiness/release work is retried or reported.",
+        "REVIEW FIX 26 (final strand hole): when persistence/recheck fails AND finishPermissionReview also throws or returns false, reopenSetupNotification is skipped \u2014 the fingerprint stays notified and the claim is left behind, so after the outage and claim expiry the job is never prompted or carded again. MINIMAL FIX (no new retry infrastructure): always ATTEMPT the reopen and the claim release on the failure path regardless of whether the durable close succeeded, each in its own try/catch with a warn \u2014 reopening a fingerprint whose interaction could not be closed is safe because the delivery-state check (FIX 22) ignores undelivered/closed rows and the claim is token-fenced and expiring. Test: persist fails AND finish fails -> fingerprint is NOT left notified and the claim does not block a later attempt.",
+        "REVIEW FIX 27 [P1] (undelivered reclaim race \u2014 direct consequence of FIX 22): treating EVERY undelivered durable row as abandoned lets a second readiness check cancel a row whose creator is alive but has not yet bound the provider message id; the first in-memory request is not cancelled and setup requests have no runId (so they do not coalesce), producing DUPLICATE lasting-access prompts and discarding one accepted decision at the claim fence. MINIMAL FIX consistent with the existing claim design: give the durable row a short delivery lease stamped at creation (same TTL mechanism as the approval claim) and reclaim an undelivered row ONLY after that lease has expired; a row still inside its lease is treated as already_pending. Do not add cross-process coordination beyond this. Tests: (a) concurrent readiness checks inside the lease produce exactly ONE prompt; (b) a row left undelivered by a crashed creator is reclaimable after lease expiry.",
+        "REVIEW FIX 28 [P1] (undelivered_leased must not count as notified): raiseSetupPausePermissionPrompt returns already_pending for undelivered_leased and notifyJobSetupRequired treats every non-instruction_only result as a delivered notification, writing notified_fingerprint \u2014 so a crash between durable-row creation and provider delivery lets an early post-restart check suppress BOTH the card and all future reclamation. Return a THIRD status (e.g. pending_undelivered) that suppresses raising a duplicate prompt but is NOT treated as a notification: the fingerprint is marked only when the provider delivery callback fires or an instruction card was actually sent. Test: crash before delivery + immediate readiness check -> fingerprint NOT notified, and after lease expiry a prompt is raised.",
+        "REVIEW FIX 29 (cancel before reclaim): when an expired undelivered lease is reclaimed, the code resolves the durable review and starts a replacement WITHOUT calling cancelPermissionApproval for the original request \u2014 if delivery was merely delayed (creator alive), the original request can still deliver alongside the replacement, and since setup requests have no runId they do not coalesce, so two live approval prompts race. Cancel the original channel request before reclaiming/restarting the durable row; test the delayed-delivery case yields exactly one live prompt.",
+        "RE-ARCHITECTURE (owner decision, SUPERSEDES review fixes 8/17/19/22/26/27/28/29): settle setup-pause approvals through the existing durable interaction machinery (runDurablePermissionInteraction + the standard PermissionPersistenceBackend + recoverDurablePermissionDecision) instead of the bespoke in-memory settlement, delivery lease, claim-token, and pending_undelivered state machine \u2014 remove those. Keep exactly ONE setup-specific guard: re-validate the job is still setup-paused with the same fingerprint before the grant is applied, on BOTH the live-settle and the restart-recovery path (injected as a hook the durable machinery runs in both). The durable handler owns dedup, single-settlement, and restart recovery. The diff must SHRINK relative to the bespoke protocol. If the recovery path cannot re-run the fingerprint guard without new infrastructure, STOP and report rather than growing a parallel protocol. Detailed brief: see the re-architecture brief provided to the implementer. Tests: concurrent readiness checks -> exactly one prompt; a decision applied after a simulated restart still re-validates fingerprint and rejects a stale grant; a stale approval after blocker change/deletion never grants.",
+        "REVIEW FIX R1 [P2] (config blocker must stay instruction-only): storedGrantableRequirement excludes only mcp_server and credential, so a config blocker reaches storedRequirementForBlocker and its generic tool_rule branch can build a persistent grant prompt for a configuration problem. Switch to an ALLOWLIST of grantable requirement types (semantic_capability, browser, local_cli, and the explicit tool_rule mapping) \u2014 anything else (config, mcp_server, credential, unknown) stays instruction-only. Test: a config blocker raises no grant prompt.",
+        "REVIEW FIX R2 [P1] (already_pending vs delivered): began:false proves a durable row exists, not that a prompt was delivered; returning already_pending makes notifyJobSetupRequired mark notified and drop the approver route. FIX: mark the fingerprint notified based on ACTUAL delivery \u2014 the setup card counts as notification, and a durable prompt counts only once its delivery callback has fired \u2014 never merely because a durable row exists. So on began:false, still cover the approver route with the setup card (do NOT exclude it) until delivery is confirmed, and do not treat already_pending as a delivered notification. SCOPE CHECK: whether the durable machinery REISSUES an undelivered interaction after a process restart is a property of the SHARED durable permission path (request_access chat prompts use the same runDurablePermissionInteraction). Determine it: if recovery reissues, nothing more is needed here; if it does NOT, that orphan-on-restart is PRE-EXISTING shared behavior affecting all durable permission prompts \u2014 record it as a follow-up finding against the shared path, do NOT build a setup-pause-only reissue protocol (that is exactly the parallel-protocol regrowth the re-architecture removed). Test: concurrent readiness checks -> one prompt and the approver route stays carded until delivery; state the recovery finding in the outcome.",
+        "REVIEW FIX R3 (F1 \u2014 remove the process-local delivery race for routing): the card's approver-route EXCLUSION must be derived from whether a durable prompt was raised OR already pending (a prompt is in-flight/delivered by the owner) \u2014 NOT from the in-memory Promise.race delivery inference. Keep the notified-mark delivery-based (already done in R2) so an undelivered prompt never marks notified. Net: exclude the approver route whenever a durable prompt exists (no duplicate card to an approver who already has the prompt); the delivery race is no longer the routing authority and should be removed or reduced to not gate routing. This reconciles F1 (no duplicate) with R2 (no strand). Test: a concurrent readiness check while a durable prompt exists does NOT send a second approver card, and an undelivered prompt still leaves notified false.",
+        "REVIEW FIX R4 (F2 \u2014 revalidate before dispatch): raiseSetupPausePermissionPrompt reloads the job but only rejects missing/ready setup state; apply the SAME eligibility the grant guard uses \u2014 job still non-silent AND paused for SETUP_REQUIRED_PAUSE_REASON \u2014 before constructing/dispatching the prompt, so a job silenced or resumed between the readiness snapshot and this fetch never receives a stale actionable prompt. Test: silenced/resumed job -> no prompt dispatched.",
+        "REVIEW FIX R5 (F3 \u2014 route identity includes providerAccountId): the excludeRoute match and the route-add/exclude helpers in execution-notifications.ts must compare the FULL route identity including providerAccountId; today a same-conversation/thread route on another account wrongly matches, misrouting or suppressing the setup card in multi-account installs. Match providerAccountId in both helpers. Test: same conversation+thread on a different account is treated as a distinct route.",
+        "REVIEW FIX R6 (F4 \u2014 defensive Discord cap, unreachable but cheap): the scheduler affordance set is only two kinds so >25 buttons is not reachable, but add a hard cap at Discord's 5-action-row / 25-component limit (slice) so the invariant can't be violated by future kinds; note in a comment that the current kind set is far under the cap. Not a behavior change for realistic inputs.",
+        "REVIEW FIX R7 [P1] (never strand on the dedup branch \u2014 resolves the record-before-delivery crash window WITHOUT reissue infrastructure): exclude the approver route from the setup card ONLY when THIS call is the confirmed prompt deliverer (began === true, i.e. status 'raised'). On already_pending (began === false \u2014 another process or a prior attempt owns the durable row, delivery unknown or possibly an undelivered orphan after a crash), INCLUDE the approver route so the instruction card always covers it. Mark notified on actual card/prompt delivery. Result: the common path (began true) is still ONE message with no duplicate; the rare concurrent/restart case may show the approver both a card and a prompt (cosmetic, recoverable) but a setup-paused job is NEVER left with no prompt and no card. This is the strand-safe reading of the never-strand invariant and needs no undelivered-prompt reissue protocol; the pre-existing shared-path limitation (durable recovery applies decisions but does not reissue undelivered prompts) is recorded as a follow-up, NOT fixed here. Test: began=false with the approver route as the ONLY route sends a card to that route (job not stranded); began=true excludes the approver route (one message).",
+        "REVIEW FIX R8 [P2] (account normalization in exclusion): an omitted providerAccountId on a legacy/default notification route must be treated as matching the resolved default account (so exclusion still fires) while explicitly-different account ids are preserved as distinct; otherwise the same default-account conversation/thread sends both the prompt and the instruction card. Normalize omitted == resolved-default in both the add and exclude comparisons. Test: default-account route with omitted account is excluded when the prompt resolved to the default account; a different explicit account is retained.",
+        "REVIEW FIX R9 [P1] (record-before-delivery orphan \u2014 DEFINITIVE, bounded): determine whether the SHARED durable permission interaction row ALREADY persists a delivered marker (a provider message id / delivered_at) when onPromptDelivered fires. TWO OUTCOMES ONLY: (A) IF the shared row already carries a delivery marker: on began===false, load the existing durable row and treat it as already_pending ONLY when the marker is present; if the row exists but was never marked delivered (crash-in-window orphan), retire that row and raise a fresh prompt. This uses EXISTING shared state \u2014 no bespoke lease/claim/pending_undelivered protocol. Add a test: an undelivered durable row after a simulated crash is retired and a new actionable prompt is raised. (B) IF the shared row does NOT persist any delivery marker: STOP \u2014 do NOT add one (that is new infrastructure in the shared durable path, the explicit stop boundary, affecting request_access too). Instead: on already_pending keep the strand-safe instruction card (already implemented) and do NOT mark the fingerprint notified for an already_pending result whose prompt delivery is unproven, so a later readiness check still re-attempts; record the residual precisely as a confirmed assumption and a follow-up against the shared durable permission path. REPORT which outcome (A or B) occurred and the file:line evidence for the durable row's delivery-state (or its absence).",
+        "REVIEW FIX R10 [P1] \u2014 CONTAINMENT, FINAL for this stage (owner-level scope decision): the orphan-reissue added to the SHARED durable handler cancels a live undelivered row in another worker (process-local active-set cannot fence cross-process) and affects EVERY durable permission request \u2014 closing it correctly needs a canonical durable ownership/lease in the shared path, which is out of this stage's scope. REVERT the shared-path orphan-retire: remove retireUndeliveredPermissionInteraction and its call site in runDurablePermissionInteraction and the process-local activePermissionInteractions set and the worker-coordination-interaction retire query \u2014 restore the shared durable handler to its prior dedup behavior. KEEP the safe additions: beginDurablePermissionInteraction returning `began` (whether THIS call created the row) drives the raised-vs-already_pending routing distinction; that is a pure, race-free addition. Resulting behavior on already_pending: send the strand-safe instruction card covering the approver route (already implemented) AND mark the fingerprint notified via that delivered card, so the owner is always informed (never silent). RESIDUAL (record as a confirmed assumption A-0048 and a follow-up against the SHARED durable permission path, referencing pending-interaction-prompt-binding delivery marker): a process crash in the microsecond window between durable-record and provider-delivery leaves that fingerprint showing an instruction card without a button until the blocker set changes; the owner still has the manual grant path (chat request_access / settings); fully closing it requires a canonical durable-lease reissue in the shared path (affects request_access too) \u2014 deliberately deferred. Update tests to the reverted behavior (drop the orphan-reissue tests; keep strand-safe include-route + fence + parity tests). DO NOT reintroduce a setup-specific lease/claim protocol.",
+        "REVIEW FIX R11 (began ownership must be conservative): beginDurablePermissionInteraction returns began:true for any truthy boolean record result, which cannot distinguish an insert from a deduped existing row \u2014 a bare-boolean record shim could wrongly claim ownership and exclude the approver route (strand). FIX: began is true ONLY when the record result is the winning row whose id === the generated interactionId; any ambiguous/boolean-true result maps to began:FALSE (already_pending -> strand-safe include-route card). The real backend returns the row+id so the common path is unchanged. Test: a deduped record result yields began:false and the approver route is carded.",
+        "REVIEW FIX R12 (revalidate eligibility before sending the card): in execution-readiness, when raiseSetupPausePermissionPrompt returns instruction_only after reloading the job (deleted/silenced/unpaused/fingerprint-changed), the card branch must NOT send using the stale currentJob/setupState from the earlier notificationEligible snapshot. Re-read or propagate the fresh job state and skip sending/marking when the job is no longer eligible; preserve the legitimate instruction-only (non-grantable blocker) card for a still-eligible job. Test: a job silenced/deleted during the async prompt-prep does not get a card and does not mark the fingerprint notified.",
+        "REVIEW FIX R13 [P1] (approver-coverage gates notified): in the 'raised' case the card EXCLUDES the approver route, so if prompt.delivered resolves false while the card to another route succeeds, notified = promptNotified||cardNotified wrongly marks the fingerprint notified and the approver gets neither prompt nor card. FIX: the fingerprint is notified only when the APPROVER route was actually covered \u2014 notified = (prompt.status === 'raised' ? await prompt.delivered : cardNotified). Raised => approver covered iff the prompt delivered (card handled the OTHER routes); already_pending/instruction_only => the card included the approver route so cardNotified is correct. On raised+delivery-failure the fingerprint stays retryable so the next readiness check re-attempts the prompt. Test: raised + prompt.delivered=false + a successful card to a different route leaves the fingerprint NOT notified (retryable).",
+        "REVIEW FIX R14 [P2] (retire-after-delete ordering): job deletion cancels the pending setup approval BEFORE deleteJob; if deletion fails the job survives setup-paused but its actionable prompt is already retired (and an already-notified fingerprint may block a new one). Reorder: attempt ops.deleteJob first, and only retire the setup-pause prompt AFTER deletion succeeds, keeping the best-effort try/catch+warn around the retire. Test: a failing deleteJob leaves the pending approval intact.",
+        "REVIEW FIX R15 [P2] (class fix \u2014 never mark notified from an error fallback): when raiseSetupPausePermissionPrompt THROWS (transient requirement-review/cancellation-store failure), the catch leaves prompt=instruction_only with notificationEligible true, the fallback card is sent, and the fingerprint is marked notified \u2014 permanently degrading the actionable prompt to manual instructions on a transient failure. FIX THE CLASS: mark the fingerprint notified ONLY on a positively-confirmed outcome \u2014 (a) a delivered actionable prompt (raised + prompt.delivered), or (b) a DELIBERATE instruction card for a genuinely non-grantable blocker (a clean instruction_only result, NOT one produced by an exception). Never mark notified from the error-catch fallback: distinguish 'instruction_only because non-grantable' (mark) from 'instruction_only because prep threw' (do NOT mark; stay retryable). This also covers R13 (delivery-failure) consistently. Test: raiseSetupPausePermissionPrompt throwing leaves the fingerprint NOT notified so a later readiness check retries the actionable prompt; a genuine non-grantable blocker still marks notified once.",
+        "REVIEW FIX R16 [P2] (canonical app-id through the seam): setup prompts are created under appSession.appId ?? runtimeAppId but retireSetupPausePermissionPrompt defaults an omitted app id to 'default', so deleting a job under the valid {jobId} form leaves a non-default-app prompt pending (safe \u2014 the persistence fence still blocks the grant \u2014 but a stale actionable prompt lingers for a deleted job). CLASS FIX: the configured seam owns the canonical runtime app id and uses it consistently for BOTH create and retire; no setup-pause call site may default app id to 'default'. Have retireSetupPausePermissionPrompt resolve the same canonical app id used at creation (derive it in the configured deps, not from the optional deletion-time input). Test: a job whose prompt was created under a non-default app id is retired under that SAME app id on deletion."
+      ],
+      "required_tests": [
+        {
+          "id": "setup pause prompts > raises one standard permission prompt from the job's stored requirement and settles through the existing grant chain",
+          "path": "apps/core/test/unit/application/setup-pause-prompt.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "setup pause prompts > same fingerprint does not re-prompt and a changed blocker set retires the old prompt",
+          "path": "apps/core/test/unit/application/setup-pause-prompt.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "setup cards > lists every blocker with human labels plus the died-vs-degraded line and triggering step",
+          "path": "apps/core/test/unit/jobs/execution-notifications.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "provider affordance parity > discord and teams render the neutral scheduler kind set or a visible text fallback",
+          "path": "apps/core/test/unit/channels/provider-affordance-parity.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "SCHED-4B-1B",
+      "title": "Fix SCHED-4B-1 full-suite regressions: shared durable short-circuit + unconfigured seam",
+      "objective": "Two regressions from SCHED-4B-1 broke 15 unit tests in the shared permission flow. Make runDurablePermissionInteraction's began short-circuit OPT-IN (default = always prompt) so the general permission path is unchanged, and make an unconfigured setup-pause seam return instruction_only cleanly instead of throwing. Full unit suite must pass.",
+      "write_scope": [
+        "apps/core/src/application/interactions",
+        "apps/core/src/application/jobs",
+        "apps/core/src/app",
+        "apps/core/src/jobs",
+        "apps/core/test",
+        "plans"
+      ],
+      "acceptance_criteria": [
+        "runDurablePermissionInteraction default behavior is the ORIGINAL always-prompt: begin (throw only if not recorded), run prompt, afterDecision, finish, return the real decision; `began` is surfaced in the return with NO control-flow change; the `if(!began) return synthetic-already-pending` short-circuit becomes OPT-IN via skipPromptWhenAlreadyPending?: boolean (default false), passed true ONLY by the setup-pause wiring \u2014 core-tools.test.ts and inline-agent-loop-tools.test.ts pass",
+        "raiseSetupPausePermissionPrompt returns { status: 'instruction_only' } when configuredDeps is null (retire is a no-op); the 'seam is not configured' throw is removed; execution.test.ts passes and setup notifications mark notified as before when the seam is absent",
+        "the FULL unit suite (npm run test:unit) passes with zero failures",
+        "setup-pause behavior is unchanged: no-double-prompt-on-dedup and raised-vs-already_pending routing still hold (setup-pause-prompt.test.ts + provider parity green)"
+      ],
+      "required_tests": [
+        {
+          "id": "core tool registry > returns the exact permission denial error and does not delegate",
+          "path": "apps/core/test/unit/application/core-tools.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "jobs/execution > pauses policy-denied recurring jobs with structured setup recovery events",
+          "path": "apps/core/test/unit/jobs/execution.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "SCHED-4B-1C",
+      "title": "Setup-pause lifecycle polish: delivery-failure fallback card + retire on leave-setup",
+      "objective": "Two branch-review lifecycle gaps in the setup-pause flow: on a raised prompt whose delivery fails when the approver route is the job's ONLY route, no card is sent that cycle; and a job that leaves setup-required state (ready/active/silenced via another flow or manual resume) does not retire its pending prompt, leaving a stale card + durable row.",
+      "write_scope": [
+        "apps/core/src/jobs",
+        "apps/core/src/application/jobs",
+        "apps/core/test",
+        "plans"
+      ],
+      "acceptance_criteria": [
+        "when the prompt is raised but delivery is not confirmed AND the approver route is the job's only notification route, an instruction-card fallback is sent to that route so a paused job is never left with no visible notification for that cycle (other-route cases keep excluding the approver route); the fingerprint stays retryable (R13) either way",
+        "raiseSetupPausePermissionPrompt cancels the current-fingerprint prompt before returning instruction_only for a job that is no longer in the matching setup-required pause (ready/active/silenced/unpaused), so a stale approval card + durable row are not left pending after setup is resolved elsewhere or the job is manually resumed",
+        "full unit suite (npm run test:unit) passes; setup-pause and execution suites green; falsifying tests for both behaviors"
+      ],
+      "required_tests": [
+        {
+          "id": "jobs/execution > pauses policy-denied recurring jobs with structured setup recovery events",
+          "path": "apps/core/test/unit/jobs/execution.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "SCHED-4B-2",
+      "title": "Drained visible permission recovery + lifecycle retirement on every terminal exit",
+      "objective": "Durable-grant recovery paginates paused jobs until drained (keyset over stable ordering, replacing the hard limit 100) and sends a route-scoped resumed/queued receipt per affected job. The lifecycle updater is injected at the primary, dead-letter and stale-lease terminal call sites so stale running bubbles are retired or replaced on EVERY exit, with one test per path.",
+      "write_scope": [
+        "apps/core/src/jobs",
+        "apps/core/src/application",
+        "apps/core/src/channels",
+        "apps/core/src/domain",
+        "apps/core/src/adapters/storage",
+        "apps/core/test",
+        "docs",
+        "plans",
+        "apps/core/src/app"
+      ],
+      "acceptance_criteria": [
+        "recheckSetupPausedJobsAfterCapabilityUpdate drains ALL matching paused jobs via keyset pagination added to JobListFilters with a stable Postgres ordering \u2014 the hard limit 100 is gone; the >100 case is tested with a seeded fake repository",
+        "each successfully resumed job sends one route-scoped resumed/queued receipt to its notification route (bounded aggregate allowed above a threshold); failure to send a receipt does not roll back the resume",
+        "the lifecycle notification updater is injected at all three terminal call sites \u2014 primary terminal in execution.ts, dead-letter, stale-lease \u2014 and each path has a test proving the stale running bubble is retired or replaced; sendMessage fallback preserved when no lifecycle message exists",
+        "repository ordering stays stable for existing callers; no schema migration",
+        "REVIEW FIX S2-1 (scheduler-lifecycle-notification.ts): the terminal lifecycle replacement derives card identity from route (conversation/thread/account) only, so a stale terminal callback can replaceOnly a NEWER run's active progress card on the same route. Tie replacement to the ORIGINATING run: persist/pass the progress-card identity created for the run and match it before replacing; replaceOnly must verify the card belongs to THIS run, not merely that a card exists. Test: a terminal callback for run A does not replace run B's card on the same route.",
+        "REVIEW FIX S2-2 (scheduler-lifecycle-notification.ts): concurrent per-route sendProgressUpdate calls are non-atomic but the function returns a single unsupported/failed result, so a caller can't tell which routes were updated and may duplicate the terminal summary on successful routes. Return PER-ROUTE outcomes (or otherwise apply fallback only to routes not updated). Test: mixed success/failure across routes yields correct per-route fallback with no duplicate terminal card.",
+        "REVIEW FIX S2-3 (job-permission-recovery.ts): the queued receipt is sent AFTER requestSchedulerSync, so the scheduler can claim+complete a short job and the terminal notification can arrive before 'Job resumed and queued.' Send the route-scoped receipt BEFORE requestSchedulerSync to preserve lifecycle ordering; keep receipt failures swallowed (fail-open) so recovery is never blocked on delivery. Test: receipt is emitted before the sync request.",
+        "REVIEW FIX S2-4 (execution-notifications.ts): the queued-receipt notification runId is derived from the setup fingerprint (or the job id), which repeats across distinct pause/resume cycles for the same capability state, so idempotent delivery suppresses a legitimate LATER queued receipt. Key the receipt on a persisted per-recovery-occurrence / transition identifier (generation), while still deduping concurrent processing of the SAME transition. Test: a second pause+resume for the same capability state emits its own receipt (not suppressed).",
+        "REVIEW FIX S2-5 [P1] (recovery claim must not override a newer explicit pause): the atomic recovery claim verifies only paused + setup checked_at, so if the pause REASON changed (admin/user re-paused for a different reason) while setup_state is intact, the claim still resumes the job and runs unwanted work. Include the expected pause reason (SETUP_REQUIRED_PAUSE_REASON) AND/OR an updated_at/version token for the whole observed pause transition in the atomic predicate, so a job re-paused for any other reason is NOT reactivated. Test: a job whose pause_reason changed between observation and claim is not resumed.",
+        "REVIEW FIX S2-6 [P2] (do not lose terminal action controls on in-place update): when all lifecycle routes are updated in place, the code bypasses sendJobNotification which is the ONLY path carrying runAgainActionAffordances/recovery affordances, so a completed/failed update loses Run Again / recovery controls. FIX: decouple retiring the stale running bubble from sending the terminal card \u2014 when terminal action affordances exist, retire/replace the running bubble AND still deliver the actionable terminal notification (do not swallow the affordances). The update contract must either render the terminal actions or fall through to the actionable notification. Test: a terminal update that has Run Again affordances still delivers them.",
+        "REVIEW FIX S2-7 [P2] (stale-lease retirement across process death \u2014 bounded A/B): the run->card identity map is PROCESS-LOCAL, but stale-lease exists precisely because the worker that made the running card DIED/restarted, so the cleanup worker has no captured identity, reports every route unsupported, and leaves the old card visibly running. DETERMINE (A/B): does a DURABLE run->progress-card/message identity already exist (e.g. from LIVE-1 ambient liveness progress cards / the outbound/live-turn message records)? (A) IF yes: load it on the stale-lease path and retire/replace the old card using that durable identity \u2014 no new infra; the stale-lease test must exercise the updater WITHOUT a prior in-process capture. (B) IF no durable identity exists: do NOT build new durable-identity infrastructure in this stage (STOP boundary) \u2014 make stale-lease retirement best-effort (send the timeout/terminal message so the owner is informed; the old running card may remain until the durable-identity follow-up), record the residual as a confirmed assumption + a follow-up, and adjust the stale-lease test to assert the best-effort message rather than in-process-capture retirement. REPORT which outcome (A or B) with file:line evidence.",
+        "REVIEW FIX S2-8 [P1] (recovery claim must handle absent checked_at): the caller falls back to job.updated_at when setup_state.checked_at is absent, but the SQL predicate still compares that fallback only against setup_state->>'checked_at' \u2014 for a job with no setup_state or no checked_at this compares to NULL and the claim always returns false, permanently stranding it (the prior unconditional recovery could resume it). Compare against COALESCE(setup_state->>'checked_at', updated_at::text) (or an explicit expected-updated-at field) so a paused job with no transition timestamp is still claimable once access is granted. Test: a setup-paused job whose setup_state lacks checked_at is resumed by recovery.",
+        "REVIEW FIX S2-9 [P2] (release lifecycle ownership on the review-created terminal path): notifySchedulerTerminalRunState's review-created memory-run branch bypasses updateLifecycleNotification and execution never calls discardLifecycleNotification afterward, so identitiesByRun leaks and the originating progress card stays 'running' even though a fresh review card was sent. Retire/replace the progress card before sending the actionable review card, or at minimum discardLifecycleNotification for that run on this terminal path. Test: the review-created terminal path leaves no captured identity and no stale running card.",
+        "REVIEW FIX S2-10 [P1] (capture the lifecycle identity at the run's ACTUAL card creation, not before): captureLifecycleNotification runs before execution and grabs whatever route-scoped card identity is current, which may be a DIFFERENT interaction's card \u2014 later replaced with this run's terminal summary. Tie capture to the moment THIS run creates its progress card (the real card-creation hook), so retirement targets only a card this run created. If a route has no run-scoped card association, fall back to sending a SEPARATE terminal notification rather than replacing an unrelated card. Do NOT build new durable run->card identity (outcome B stands); this is correct capture-timing + safe fallback only. Test: a pre-existing card from another interaction on the route is NOT replaced by this run's terminal summary; a run with no card sends a separate terminal notification.",
+        "REVIEW FIX S2-11 [P1] (guarantee scheduler sync after a successful claim): after resumeSetupPausedJob durably makes the job active+due, requestSchedulerSync currently runs only after publishRecheckEvent \u2014 if event publication rejects, the claimed-active job is never synced and stays stranded until an unrelated wake/restart. Guarantee requestSchedulerSync after every successful claim (unconditionally / in a finally), with the queued receipt attempted BEFORE it (ordering preserved on success, S2-3) but a failed receipt/event never preventing the sync. Test: a throwing publishRecheckEvent still results in requestSchedulerSync for the claimed job.",
+        "REVIEW FIX S2-12 [P2] (immutable recovery-sweep cursor): the drain pages on (updated_at, created_at, id) desc, but updated_at is MUTABLE \u2014 a paused job updated mid-sweep can move ahead of pageAfter and be skipped from every later page, and this sweep may be the sole reaction to a capability grant. Page over an IMMUTABLE ordering key (e.g. created_at + id, or id) or use a snapshot/transaction boundary so concurrent updated_at changes cannot move an unprocessed row behind the cursor. Keep the Postgres ordering stable for existing callers. Test: a job whose updated_at advances after page 1 is still visited.",
+        "REVIEW FIX S2-13 [P1] (start the lease heartbeat before lifecycle-card provider I/O): captureLifecycleNotification awaits sendProgressUpdate provider I/O for every route, and it runs AFTER lease acquisition but BEFORE the heartbeat starts \u2014 a slow/hung provider can let the lease expire, letting another worker reclaim and execute the same job (duplicate execution + duplicated side effects). Start the lease heartbeat IMMEDIATELY after a successful claim, before any card capture / provider I/O (or make card capture non-blocking/bounded), so notification latency can never invalidate execution ownership. Test: a slow/hung sendProgressUpdate during capture does not delay heartbeat start / does not risk lease expiry before heartbeat.",
+        "REVIEW FIX S2-14 [P1] (CAS the still-blocked recovery write too): the ready path uses an atomic claim, but the still-blocked path writes the stale evaluation with an UNCONDITIONAL updateJob \u2014 between evaluating the candidate and this write, another recovery can resume it or an admin can change its pause state/reason, and this write re-pauses it, clears lease fields, and overwrites newer setup state. Apply the SAME compare-and-set protection (or re-read/lock) to the blocked update so it only updates the exact setup-paused transition it evaluated (match paused + expected pause reason + the coalesced checked_at/updated_at transition token). Test: a job resumed or re-paused concurrently is NOT overwritten by the still-blocked write.",
+        "REVIEW FIX S2-15 [P2] (lifecycle capture must be best-effort, never fail the job): captureLifecycleNotification is awaited between lease start and execution; while provider calls are caught internally, resolveJobNotificationRoutes or other synchronous setup can reject, aborting the scheduled job merely because a best-effort 'Running' card could not be prepared. Wrap the whole capture as best-effort (try/catch, discard the run's lifecycle entry on failure and continue execution), exactly like individual provider-delivery failures \u2014 notification infrastructure must never fail or block the job. Test: a throwing route resolution during capture does not abort the job and leaves no dangling lifecycle entry.",
+        "REVIEW FIX S2-16 [P1] (lifecycle-card capture must not block or hang the job): captureLifecycleNotification awaits Promise.all over provider sendProgressUpdate calls with NO timeout, and runActiveJob awaits it before the job body \u2014 a non-settling provider send prevents the job from EVER running while the heartbeat keeps it leased forever, so stale-lease recovery can never reclaim it and hung sends indefinitely consume scheduler capacity (the S2-15 try/catch does not help a promise that never rejects). FIX: take card capture off the job's critical path \u2014 do not block job execution on it (fire it without awaiting, or bound it with a short deadline so execution proceeds when capture does not settle). A capture that has not completed by terminal time simply falls back to a separate terminal notification (S2-10 fallback). Test: a never-settling sendProgressUpdate during capture does not prevent the job body from running and does not keep the job leased.",
+        "REVIEW FIX S2-17 [P1] (event publication must not abort the recovery sweep): a publishRecheckEvent rejection propagates out of the recovery loop, so after committing the current resume the function throws and stops processing remaining jobs/pages \u2014 other setup-paused jobs stay stuck despite a successful capability grant. Catch publication failures (fail-open, keep the finally scheduler sync) so recovery continues to the next job/page. Test: a throwing publishRuntimeEvent still lets recovery drain the remaining jobs and returns a result."
+      ],
+      "required_tests": [
+        {
+          "id": "permission recovery > drains past 100 paused jobs and sends a route-scoped receipt per resumed job",
+          "path": "apps/core/test/unit/application/job-permission-recovery.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "lifecycle retirement > primary terminal exit retires or replaces the originating running bubble",
+          "path": "apps/core/test/unit/jobs/lifecycle-retirement.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "SCHED-4B-2B",
+      "title": "Update recovery-caller tests to the new keyset/atomic-claim contract",
+      "objective": "Two unit tests (ipc-admin-handlers.test.ts, ipc-interaction-handler.test.ts) mock only getJobById+updateJob, but SCHED-4B-2's recovery now resumes paused jobs via listJobs + refreshSetupPausedJob + resumeSetupPausedJob (atomic claim). Production provides these; the tests don't, so recovery finds/ resumes nothing and the assertions fail. Update the two tests to the new recovery repository contract so the full unit suite passes. Test-only maintenance, no production behavior change.",
+      "write_scope": [
+        "apps/core/test",
+        "plans"
+      ],
+      "acceptance_criteria": [
+        "ipc-admin-handlers.test.ts 'rechecks setup-paused jobs after persistent request_access approvals' mocks the new recovery repo surface (listJobs returning the paused candidate, resumeSetupPausedJob atomic claim succeeding, refreshSetupPausedJob for still-blocked) and asserts the resume via that path (not the removed updateJob resume) plus the permission.persisted / recheck events",
+        "ipc-interaction-handler.test.ts 'records persistent approvals at parent conversation scope and reports only a remaining setup blocker' updates its opsRepository mock to the new contract and asserts the correct event set including permission.persisted",
+        "no production source change; the full unit suite (npm run test:unit) passes with zero failures"
+      ],
+      "required_tests": [
+        {
+          "id": "admin IPC handlers > rechecks setup-paused jobs after persistent request_access approvals",
+          "path": "apps/core/test/unit/jobs/ipc-admin-handlers.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "SCHED-4B-2C",
+      "title": "Branch-review lifecycle polish: clear stale running card on all exits + retire prompt on cross-flow resume",
+      "objective": "Two branch-level stale-UI gaps introduced by the lifecycle/recovery work: an exceptional execution exit after lifecycle capture can leave a 'Running' card and process-local ownership stuck (discard is not in the finally), and a job resumed via ANOTHER grant flow does not retire its pending setup-pause prompt, leaving a misleading (fence-rejected) card + durable interaction pending.",
+      "write_scope": [
+        "apps/core/src/jobs",
+        "apps/core/src/application/jobs",
+        "apps/core/test",
+        "plans",
+        "apps/core/src/application/interactions"
+      ],
+      "acceptance_criteria": [
+        "every post-capture execution exit \u2014 including unexpected throws and deletion-during-run \u2014 retires/replaces the captured lifecycle card and clears process-local ownership (put the discard in the finally / a guaranteed path), so no exceptional exit leaves a stuck 'Running' card or a leaked identities entry",
+        "on a successful recovery resume (job made active via the atomic claim), the setup-pause permission prompt for the recovered fingerprint is retired, WITHOUT cancelling the interaction that is itself performing this recovery; a job whose capability was granted via another permission/admin flow no longer keeps an actionable-but-fenced approval card",
+        "full unit suite (npm run test:unit) passes; falsifying tests for the exceptional-exit card cleanup and the cross-flow prompt retirement",
+        "REVIEW FIX 2C-1 [P1] (stop heartbeat before lifecycle exit I/O): the finally now stops the lease heartbeat only AFTER retireSchedulerLifecycleOnExecutionExit resolves, which performs channel I/O \u2014 if that STALLS (not rejects), the heartbeat renews the lease indefinitely, the run stays active, and completeFailedRunFailsafe is never reached, blocking scheduler recovery. Stop the heartbeat IMMEDIATELY on entering finally, and persist the failed run BEFORE awaiting best-effort lifecycle notification (which must remain non-blocking/bounded per S2-16). Test: a stalling lifecycle-retire on the exit path does not delay heartbeat stop or failed-run persistence.",
+        "REVIEW FIX 2C-2 [P2] (prompt retirement must not abort post-claim notifications): after resumeSetupPausedJob returns true the job is already queued; the awaited cross-flow prompt-retirement can reject and exit before sendQueuedReceipt/publishRecheckEvent, losing the recovery receipt/event though the job resumed. Prompt cancellation is best-effort cleanup \u2014 catch/log it independently (fail-open) so it can never interrupt the post-claim receipt/event/sync. Test: a throwing prompt retirement still sends the queued receipt and event for the resumed job.",
+        "REVIEW FIX 2C-3 [P1] (do not overwrite a settled run's card with a false failure): the finally-path retireExecutionLifecycle is invoked UNCONDITIONALLY but always calls updateLifecycleNotification with runStatus:'failed' / 'Job stopped unexpectedly'. For a NORMALLY settled execution (settled===true) whose lifecycle ownership still lingers, this overwrites the successful terminal card with a false failure. FIX: on the finally cleanup, send the 'stopped unexpectedly' failed update ONLY for genuinely unsettled exits (settled===false; deletion keeps its own message); on a settled exit, just DISCARD any lingering lifecycle ownership without sending a card (the real terminal card already went out). Test: a normally settled run with lingering ownership is NOT overwritten with a failure card; an unsettled/exceptional exit still sends the stopped-unexpectedly update."
+      ],
+      "required_tests": [
+        {
+          "id": "lifecycle retirement > continues execution and clears lifecycle ownership when capture rejects",
+          "path": "apps/core/test/unit/jobs/lifecycle-retirement.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "SCHED-4B-2D",
+      "title": "Branch-review edge cases: failsafe-independent card cleanup, partial-recovery prompt transition, multi-blocker review",
+      "objective": "Three branch-level edge-case gaps: lifecycle card cleanup is skipped if the failed-run failsafe write rejects (same DB outage); a partial recovery that changes the setup fingerprint leaves the old prompt stale and raises no prompt for the remaining blocker; and a mixed-blocker job loses the approve affordance when the FIRST mapped blocker is not reviewable even though a later one is.",
+      "write_scope": [
+        "apps/core/src/jobs",
+        "apps/core/src/application/jobs",
+        "apps/core/test",
+        "plans"
+      ],
+      "acceptance_criteria": [
+        "on the execution exit finally, lifecycle card retirement is attempted INDEPENDENTLY of completeFailedRunFailsafe \u2014 wrap the failsafe in a nested try whose finally retires the card, so a rejecting failsafe write (e.g. during a DB outage) never leaves the card stuck 'Running'",
+        "after a successful still-blocked refresh that changes the setup fingerprint (a grant resolved some but not all blockers), the superseded old-fingerprint prompt is retired AND the updated setup state is routed through the setup-notification/prompt path so the remaining blocker gets an actionable prompt (a paused job that will not re-run soon is not left behind a stale button)",
+        "storedGrantableRequirement / prompt construction iterates ALL mapped grantable blockers through reviewStoredRequirement and uses the first that yields usable suggestions, returning instruction-only only after every candidate fails \u2014 a mixed-blocker job keeps its approve affordance when any blocker is reviewable",
+        "full unit suite (npm run test:unit) passes; falsifiers for failsafe-reject card cleanup, partial-recovery prompt transition, and multi-blocker review selection",
+        "REVIEW FIX 2D-1 [P2] (partial-recovery prompt transition must be retry-safe, not at-most-once): the refreshed fingerprint is persisted before raiseSetupPausePermissionPrompt and a raise rejection is swallowed; on the next recheck previousFingerprint already equals the current fingerprint so the transition never re-fires, permanently losing the replacement actionable prompt on a transient failure. FIX: drive the refreshed still-blocked setup state through the SAME retry-safe setup-notification path used on pause (the one that marks the fingerprint notified only on a confirmed delivery, R15) \u2014 a failed raise leaves the fingerprint un-notified so the next recheck/run re-attempts, while marking-on-success prevents re-raising a delivered prompt. Do not gate the raise solely on the one-time fingerprint-changed edge. Test: a transient raise failure on the refreshed state is retried on the next recheck (not permanently lost); a delivered replacement prompt is not re-raised."
+      ],
+      "required_tests": [
+        {
+          "id": "permission recovery > drains past 100 paused jobs and sends a route-scoped receipt per resumed job",
+          "path": "apps/core/test/unit/application/job-permission-recovery.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "SCHED-4B-2E",
+      "title": "Branch-review concurrency: recovery re-evaluate on lost claim + lifecycle retire tracked separately from settlement",
+      "objective": "Two branch-level concurrency gaps: a lost CAS during concurrent recovery drops a now-ready job (leaving it paused with no sync/recheck), and lifecycle-card retirement is guarded on run-settlement (`settled`) which does not prove the card was retired, so a throw after settlement leaves the card stuck 'Running'.",
+      "write_scope": [
+        "apps/core/src/jobs",
+        "apps/core/src/application/jobs",
+        "apps/core/test",
+        "plans",
+        "apps/core/src/app"
+      ],
+      "acceptance_criteria": [
+        "on a lost resume-claim or refresh CAS in recovery, the job is re-read and re-evaluated (bounded retry) rather than dropped \u2014 a job made ready by a concurrent grant is never left paused with no scheduler sync/recheck; the retry is bounded so it cannot spin",
+        "lifecycle-card retirement is tracked SEPARATELY from run settlement: whenever capture ownership remains, an idempotent lifecycle update is attempted with the ACTUAL terminal status (not hard-coded failed and not skipped merely because `settled` is true); a post-settlement exception must not leave a card stuck 'Running'; a settled run whose card was already retired by the normal path is not overwritten",
+        "full unit suite (npm run test:unit) passes; falsifiers for the concurrent-recovery re-evaluate path and the post-settlement lifecycle-retirement path",
+        "REVIEW FIX 2E-3 [P2] (capture terminal status only after settlement): 2E-2 captures runStatus BEFORE the terminal control event + repository settlement complete, so if settlement throws for a nominally-completed run the finally retires with 'Job completed' even though the run never settled (and may be retried) \u2014 a false terminal card. FIX: capture/use the terminal status ONLY after settlement succeeds; an exit that reaches the finally WITHOUT successful settlement retires as 'stopped unexpectedly' (interrupted), not the pre-settlement computed status. Reconciles the thread: correct actual status when the run settled, unexpected-stop when it did not; a settled run's real card is still never overwritten. Test: a settlement failure on a nominally-completed run retires as unexpected-stop, not completed; a fully-settled run retires with its real status.",
+        "REVIEW FIX 2E-4 [P2] (mark retired only on confirmed per-route retirement): the lifecycle updater returns per-route {route,status} outcomes, but the 'retired' flag is set unconditionally on promise fulfillment \u2014 a resolved-but-FAILED outcome then suppresses the fallback retire() attempt, leaving the originating card stale. Set the retired flag only when the returned outcomes confirm successful retirement of ALL relevant routes; retain failed routes so the fallback retirement still runs for them. Test: an updater that resolves with a failed route outcome does NOT suppress the fallback retirement for that route.",
+        "REVIEW FIX 2E-5 [P2] (retry lifecycle updates with the REAL terminal summary): retire()'s retry uses a generic 'Job <status>: <name>.' string instead of the actual terminal summary computed from the run result/error, so a recovered failed-job card loses its error and a completed-job card loses its result \u2014 the actionable info the card exists to show. Capture the original terminal summary alongside the status and reuse it for non-deletion retries; only the deletion and unexpected-exit paths synthesize text. Test: a retried terminal update for a settled failed/completed run preserves the real error/result summary, not the generic status line."
+      ],
+      "required_tests": [
+        {
+          "id": "permission recovery > drains past 100 paused jobs and sends a route-scoped receipt per resumed job",
+          "path": "apps/core/test/unit/application/job-permission-recovery.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "SCHED-4B-2F",
+      "title": "Setup-story timing: pre-run pauses must not read as stopped mid-run",
+      "objective": "scheduler-setup-story.ts decides 'this run stopped before completing' from runId presence, but scheduler runs have a runId at preflight/final readiness too, so a normal PRE-RUN setup pause is wrongly labeled as a mid-run stop. Derive the timing from the check source, not runId.",
+      "write_scope": [
+        "apps/core/src/application/jobs",
+        "apps/core/test",
+        "plans"
+      ],
+      "acceptance_criteria": [
+        "the setup story determines died-vs-degraded / before-vs-during-execution from the check source (preflight/final readiness = before execution; permission denial/timeout during execution = mid-run), NOT from the mere presence of a runId",
+        "a normal pre-run setup pause reads as 'checked before execution' (not 'this run stopped before completing'); a genuine mid-run denial/timeout keeps the stopped-mid-run wording",
+        "full unit suite passes; a falsifier pins the pre-run vs mid-run wording by source"
+      ],
+      "required_tests": [
+        {
+          "id": "setup cards > lists every blocker with human labels plus the died-vs-degraded line and triggering step",
+          "path": "apps/core/test/unit/jobs/execution-notifications.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "SCHED-4B-2G",
+      "title": "Partial-recovery prompt uses the real setup source, not hard-coded permission_denied",
+      "objective": "The still-blocked partial-recovery path raises the replacement prompt with a hard-coded permission_denied source, so the setup story wrongly claims a 'permission check during the run' failed and 'this run stopped before completing' even for a preflight-paused job with no run. Preserve the actual setup source (or use a neutral partial-recovery source/copy).",
+      "write_scope": [
+        "apps/core/src/application/jobs",
+        "apps/core/test",
+        "plans"
+      ],
+      "acceptance_criteria": [
+        "the partial-recovery replacement prompt derives its setup story from the ACTUAL triggering source (preserve the original setup source, or a neutral partial-recovery source) \u2014 never hard-coded permission_denied \u2014 so a preflight-paused job reports the correct triggering step and before/during-execution outcome",
+        "a still-blocked recovery after a partial grant reads accurately (not 'permission check during the run failed' / 'this run stopped before completing' when no run occurred)",
+        "full unit suite passes; a falsifier pins the partial-recovery card source"
+      ],
+      "required_tests": [
+        {
+          "id": "permission recovery > drains past 100 paused jobs and sends a route-scoped receipt per resumed job",
+          "path": "apps/core/test/unit/application/job-permission-recovery.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "SCHED-4B-2H",
+      "title": "Approver always gets a card: generalize delivery-failure fallback + handle non-raised recovery outcomes",
+      "objective": "Two completeness gaps leave the approver with no actionable/instruction card: the raised-prompt delivery-failure fallback only fires when the approver route is the SOLE route (a divergent-route job leaves the approver with nothing when the prompt fails), and the partial-recovery still-blocked path silently drops already_pending and instruction_only outcomes (no card sent, fingerprint unmarked, paused job never revisited).",
+      "write_scope": [
+        "apps/core/src/jobs",
+        "apps/core/src/application/jobs",
+        "apps/core/test",
+        "plans",
+        "apps/core/src/application/interactions",
+        "apps/core/src/app"
+      ],
+      "acceptance_criteria": [
+        "whenever a raised setup prompt is NOT delivered, an approver-route fallback instruction card is sent regardless of whether the job has other notification routes (dedup other routes so they are not double-carded); the fingerprint stays retryable when nothing was delivered",
+        "the partial-recovery still-blocked path routes already_pending and instruction_only outcomes through the normal setup-notification fallback (approver/job routes get the appropriate card) and marks the fingerprint notified only after a confirmed delivery \u2014 a paused job is never left with no card and no future revisit",
+        "full unit suite passes; falsifiers for divergent-route delivery-failure fallback and for the already_pending / instruction_only recovery outcomes"
+      ],
+      "required_tests": [
+        {
+          "id": "permission recovery > drains past 100 paused jobs and sends a route-scoped receipt per resumed job",
+          "path": "apps/core/test/unit/application/job-permission-recovery.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    }
+  ],
+  "commit": "b83c9274b403692dd8f311105702e6fa70c57067"
+}

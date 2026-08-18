@@ -1,0 +1,17 @@
+{
+  "issue_key": "SIMP-2",
+  "title": "Construct control application services once in the composition root",
+  "tracker": "linear",
+  "branch": "feat/SIMP-2-construct-control-application-services-once-in-the-composition-root",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-08-03T02:35:51+00:00",
+  "updated_at": "2026-08-03T04:16:01+00:00",
+  "plan_file": "plans/completed/SIMP-2-construct-control-application-services-once-in-the-composition-root.md",
+  "story": "SIMP-2"
+}

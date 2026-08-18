@@ -1,0 +1,87 @@
+name: roadmap-gate
+
+# Vendored to clients; no-ops in the harness (no VENDORED_FROM) and in
+# clients that have not authored a roadmap with epics yet.
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  pr-contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Arm client roadmap gates
+        id: arm
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          roadmap = Path("plans/roadmap.json")
+          has_epics = False
+          if roadmap.exists():
+              data = json.loads(roadmap.read_text())
+              has_epics = (
+                  isinstance(data, dict)
+                  and isinstance(data.get("epics"), list)
+                  and len(data["epics"]) >= 1
+              )
+          armed = Path("constitution/VENDORED_FROM").is_file() and has_epics
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print(f"armed={str(armed).lower()}", file=output)
+          PY
+      - name: Require every completed work record to be declared
+        if: steps.arm.outputs.armed == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: >-
+          python3 factory/scripts/check_pr_ticket.py
+          --base "$BASE_SHA"
+          --head-branch "$HEAD_BRANCH"
+          --pr-body "$PR_BODY"
+
+  coverage:
+    if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Arm client roadmap gates
+        id: arm
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          roadmap = Path("plans/roadmap.json")
+          has_epics = False
+          if roadmap.exists():
+              data = json.loads(roadmap.read_text())
+              has_epics = (
+                  isinstance(data, dict)
+                  and isinstance(data.get("epics"), list)
+                  and len(data["epics"]) >= 1
+              )
+          armed = Path("constitution/VENDORED_FROM").is_file() and has_epics
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print(f"armed={str(armed).lower()}", file=output)
+          PY
+      - name: Audit project records on the default branch
+        if: steps.arm.outputs.armed == 'true'
+        run: python3 factory/scripts/forge.py project audit

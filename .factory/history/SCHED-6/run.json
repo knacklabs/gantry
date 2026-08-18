@@ -1,0 +1,17 @@
+{
+  "issue_key": "SCHED-6",
+  "title": "Autonomous jobs pause-and-ask on tool denial instead of silently degrading",
+  "tracker": "linear",
+  "branch": "feat/SCHED-6-autonomous-jobs-pause-and-ask-on-tool-denial-instead-of-silently-degrading",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-08-07T17:08:58+00:00",
+  "updated_at": "2026-08-08T08:41:19+00:00",
+  "plan_file": "plans/completed/SCHED-6-autonomous-jobs-pause-and-ask-on-tool-denial-instead-of-silently-degrading.md",
+  "story": "SCHED-6"
+}

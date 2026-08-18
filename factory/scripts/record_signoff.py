@@ -19,7 +19,7 @@ from factory_lib import (
     parse_sections, repo_root, require_grill, signoff_pin,
 )
 from forge_cli.events import append_event
-from forge_cli.specs import spec_records
+from forge_cli.specs import spec_records, unreferenced_confirmed_specs
 
 
 REQUIRED_BRIEF_HEADINGS = (
@@ -44,7 +44,7 @@ def pin_into_harness(manifest: Path, relative: str) -> None:
     # through `forge upgrade` (it is project-owned), so the key may simply be
     # absent; insert_signoff_pin adds it rather than refusing, or the gate would
     # be unreachable in exactly the repos that predate it.
-    manifest.write_text(insert_signoff_pin(manifest.read_text(), relative))
+    manifest.write_text(insert_signoff_pin(manifest.read_text(encoding="utf-8"), relative), encoding="utf-8")
 
 
 def workflow_input_problems(root: Path) -> list[str]:
@@ -62,15 +62,7 @@ def workflow_input_problems(root: Path) -> list[str]:
         problems.append(f"specs still draft or unconfirmed: {', '.join(unconfirmed)}")
     if not stories:
         problems.append("plans/roadmap.json with at least one story")
-    confirmed = {
-        record["path"] for record in specs if record.get("status") == "confirmed"
-    }
-    referenced = {
-        Path(item["spec"]).as_posix()
-        for item in stories
-        if isinstance(item, dict) and isinstance(item.get("spec"), str)
-    }
-    missing_refs = sorted(confirmed - referenced)
+    missing_refs = unreferenced_confirmed_specs(root)
     if missing_refs:
         problems.append(
             "confirmed specs not referenced by any roadmap story: "
@@ -83,7 +75,7 @@ def workflow_input_problems(root: Path) -> list[str]:
             + ", ".join(REQUIRED_BRIEF_HEADINGS)
         )
     else:
-        sections = parse_sections(brief.read_text())
+        sections = parse_sections(brief.read_text(encoding="utf-8"))
         incomplete = [
             heading
             for heading in REQUIRED_BRIEF_HEADINGS
@@ -182,7 +174,7 @@ def main() -> int:
             return 1
         record = candidates[0]
 
-    fields = parse_frontmatter(record.read_text())
+    fields = parse_frontmatter(record.read_text(encoding="utf-8"))
     relative = record.relative_to(root).as_posix()
     if fields.get("status") != "accepted":
         print(
@@ -201,11 +193,8 @@ def main() -> int:
 
     pin_into_harness(root / "harness.yaml", relative)
     append_event(root, "client-signoff", actor="orchestrator", detail=relative)
-    print(
-        f"client sign-off pinned to {relative} in harness.yaml "
-        f"(confirmed by {fields['confirmed_by']}).\n"
-        "Commit harness.yaml — every gate reads the pin from committed state."
-    )
+    print(f"client sign-off pinned to {relative} in harness.yaml "
+          f"(confirmed by {fields['confirmed_by']})")
     return 0
 
 

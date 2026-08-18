@@ -1,0 +1,21 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Two clean task-local rounds (0.87, 0.91) plus branch rounds to clean (0.89); one real finding fixed: the classification doc referenced a nonexistent affinity-map symbol. Filter verified in both selection paths incl. locked fallbacks; guidance constants imported from bare modules.",
+  "blocking_findings": [],
+  "residual_risks": [
+    "contains guidance for Teams whose live transport lands with TEAMS-1 (deliberate)."
+  ],
+  "reviewed_scope": [
+    "apps/core/src/runner",
+    "apps/core/src/adapters/llm",
+    "apps/core/src/channels",
+    "apps/core/src/application/core-tools",
+    "docs/architecture/tool-provider-affinity.md"
+  ],
+  "recommendation": "ship",
+  "aspect": "quality",
+  "non_blocking_findings": [],
+  "recorded_at": "2026-08-04T18:21:49+00:00",
+  "commit": "893e681a82558d0471561ff1cbf26d82a1ff291d"
+}

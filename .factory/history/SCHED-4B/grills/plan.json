@@ -1,0 +1,27 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "summary": "Adversarial pass over the SCHED-4B plan (prompt-on-pause + setup story + drained recovery + lifecycle honesty + provider parity). Four findings, three resolved by plan content, one parked as an explicit implementer criterion.",
+  "questions_asked": 9,
+  "gaps": [
+    "Route divergence: the setup card goes to the job's notification route while permission prompts go to the authorized approver route; the plan's 'one message carrying story and buttons' claim silently assumes the routes coincide.",
+    "The request-only review helper is file-private and expects signed app scope, display/review data and a complete toolInput; the plan says 'lift into an application seam' without stating that the pause path must construct these from the job's stored requirement with host authority (never from channel input).",
+    "Allow-once settlement on a dead run: recheckSetupPausedJobsAfterCapabilityUpdate fires on persistent grants; the plan does not state what resumes the job after a transient temporaryOnly approval, so Allow once could approve access yet leave the job paused forever."
+  ],
+  "contradictions": [
+    "Roadmap SCHED-4B criterion 1 demands an 'approve-this-requirement affordance rendered and parseable on all providers and preserved through durable enqueue'; the owner-approved prompt-on-pause shape ships the standard prompt's affordances instead of a new card action kind, so a literal reading of the criterion fails."
+  ],
+  "resolutions": [
+    "Route divergence: when the approver route differs from the job route, the prompt (story + buttons) goes to the approver route and the job route keeps the instruction-only setup card; when they coincide it is one message. Bound as an explicit decomposition criterion with a test for the divergent-route case.",
+    "Seam contract bound into the decomposition: the application seam receives only host-derived inputs (jobId + the job's stored requirement), constructs review/display data itself, and rejects any blocker type it cannot map (falls back to the instruction card); no channel-supplied identifiers ever reach grant construction.",
+    "Criterion-1 wording: owner-approved deviation recorded in the plan Risks section and restated in the decomposition objective \u2014 the prompt-on-pause affordances ARE the approve-from-card mechanism; the roadmap criterion is satisfied by the standard prompt rendered at pause time on all four providers."
+  ],
+  "open_items": [
+    "Allow-once resume semantics parked as a mandatory implementer criterion: after a transient temporaryOnly approval, the job must either be queued for one immediate run through the existing transient-access consumption path, or the receipt must state exactly when the access will be used; silently staying paused is a task failure. The implementer verifies which behavior the existing pendingAccessRequests consumption already provides before choosing."
+  ],
+  "input_sha256": "cd2a1a173334cebf07ef72ce3c468798bb0794d226881124807859322fd34c19",
+  "issue": "SCHED-4B",
+  "recorded_at": "2026-08-05T17:29:53+00:00",
+  "commit": "0d978baf0aa8526452ef5907ec714b824683974d"
+}

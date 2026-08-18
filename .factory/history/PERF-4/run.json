@@ -1,0 +1,17 @@
+{
+  "issue_key": "PERF-4",
+  "title": "Live-admission terminal retention: 30-day TTL sweep",
+  "tracker": "linear",
+  "branch": "feat/PERF-4-live-admission-terminal-retention-30-day-ttl-sweep",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-08-03T04:19:33+00:00",
+  "updated_at": "2026-08-03T08:11:00+00:00",
+  "plan_file": "plans/completed/PERF-4-live-admission-terminal-retention-30-day-ttl-sweep.md",
+  "story": "PERF-4"
+}

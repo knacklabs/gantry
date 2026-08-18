@@ -17,6 +17,28 @@ import sys
 sys.dont_write_bytecode = True
 
 import argparse
+import os
+from pathlib import Path
+
+HOOK_SCRIPTS = {
+    "pre_compact": "pre_compact.py",
+    "pre_tool_use": "pre_tool_use.py",
+    "session_start": "session_start.py",
+    "stop_continue": "stop_continue.py",
+}
+
+
+def _exec_hook(name: str) -> None:
+    script = HOOK_SCRIPTS.get(name)
+    if script is None:
+        print(f"unknown hook: {name}", file=sys.stderr)
+        raise SystemExit(2)
+    path = Path(__file__).resolve().parent / script
+    os.execv(sys.executable, [sys.executable, str(path)])
+
+
+if __name__ == "__main__" and len(sys.argv) == 3 and sys.argv[1] == "hook":
+    _exec_hook(sys.argv[2])
 
 from forge_cli import adopt as adopt_mod
 from forge_cli import audit as audit_mod
@@ -24,14 +46,15 @@ from forge_cli import board as board_mod
 from forge_cli import codex_status
 from forge_cli import assumptions as assumptions_mod
 from forge_cli import context as ctx
-from forge_cli import deferrals as deferrals_mod
 from forge_cli import delegate as delegate_mod
-from forge_cli import fix as fix_mod
+from forge_cli import deferrals as deferrals_mod
 from forge_cli import findings as findings_mod
+from forge_cli import fix as fix_mod
 from forge_cli import lessons as lessons_mod
 from forge_cli import outcome as outcome_mod
 from forge_cli import project as project_mod
 from forge_cli import quickfix as quickfix_mod
+from forge_cli import review_brief as review_brief_mod
 from forge_cli import scratchpad as scratchpad_mod
 from forge_cli import sanitise as sanitise_mod
 from forge_cli import stages as stages_mod
@@ -44,6 +67,10 @@ from forge_cli import decisions, doctor, phase, plans, roadmap, scaffold, specs,
 def main() -> None:
     parser = argparse.ArgumentParser(prog="forge", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p_hook = sub.add_parser("hook", help="execute a registered factory hook")
+    p_hook.add_argument("name", choices=sorted(HOOK_SCRIPTS))
+    p_hook.set_defaults(func=lambda args: _exec_hook(args.name))
 
     p_doc = sub.add_parser("doctor", help="check machine prerequisites for the harness")
     p_doc.add_argument("--fix", action="store_true",
@@ -169,6 +196,12 @@ def main() -> None:
     p_ml.add_argument("--reason", required=True, help="why lite mode is appropriate")
     p_ml.add_argument("--repo")
     p_ml.set_defaults(func=quickfix_mod.cmd_lite)
+    p_mdeg = mode_sub.add_parser("degraded", help="manage a degraded write window")
+    degraded_sub = p_mdeg.add_subparsers(dest="degraded_command", required=True)
+    p_mdegs = degraded_sub.add_parser("start", help="open a five-file degraded window")
+    p_mdegs.add_argument("--reason", required=True, help="why degraded mode is required")
+    p_mdegs.add_argument("--repo")
+    p_mdegs.set_defaults(func=quickfix_mod.cmd_degraded_start)
     p_mlist = mode_sub.add_parser("list", help="show workflow mode windows")
     p_mlist.add_argument("--repo")
     p_mlist.set_defaults(func=quickfix_mod.cmd_mode_list)
@@ -405,6 +438,14 @@ def main() -> None:
                        help="print the argv without launching or recording evidence")
     p_del.add_argument("--repo")
     p_del.set_defaults(func=delegate_mod.cmd_delegate)
+
+    p_review_brief = sub.add_parser(
+        "review-brief", help="compose the plan-contract prompt for autoreview")
+    p_review_brief.add_argument("id", nargs="?", help="task id from the decomposition")
+    p_review_brief.add_argument(
+        "--all", action="store_true", help="compose the branch-wide contract union")
+    p_review_brief.add_argument("--repo")
+    p_review_brief.set_defaults(func=review_brief_mod.cmd_review_brief)
 
     p_sls = st_sub.add_parser("list", help="show stage progress")
     p_sls.add_argument("--repo")

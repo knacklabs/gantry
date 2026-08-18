@@ -1,0 +1,37 @@
+{
+  "commit": "04a07481168bced007156ea0c5ed8f059d79465a",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "SETUPRACE-1 recoverable atomic claim for setup-pause notifications. markJobSetupNotified is an atomic CAS that claims when the fingerprint differs or an existing claim is stale (notify_claim_at past a TTL) and returns the claim timestamp as an ownership token; notifyJobSetupRequired claims before sending (loser sends nothing), confirms on delivery / clears on failure, each fenced by notify_claim_at=token so a stale claimant cannot touch a successor's claim; notify_claim_at is plumbed through canonical parse/serialize; the delivery view clears notified_fingerprint so the card sender doesn't treat a pending claim as delivered; the detached creation notify routes by the reloaded job's session. Full verify.py green; runner+application+jobs suites 2053 passing.",
+    "tests_added_or_updated": [
+      "job-management-create.test.ts: exactly-one-card + one-event with a faithful claim mock (mutates the reloaded job like Postgres); session-routing test faithful mock.",
+      "setup-pause-prompt.test.ts + job-permission-recovery.test.ts: claim->(confirm|clear) contract with the ownership token.",
+      "canonical-job-coordination + ops-repo + repositories/schema/services: CAS with stale reclaim, confirmJobSetupNotified, clearJobSetupNotified, notify_claim_at parse/serialize."
+    ],
+    "commands_run": [
+      "npm run typecheck",
+      "npm run check:architecture",
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/application apps/core/test/unit/jobs apps/core/test/unit/runner",
+      "python3 factory/scripts/verify.py"
+    ],
+    "pass_fail_summary": "verify.py green (typecheck, architecture, format, dual-runtime, full unit + integration); runner+application+jobs 164 files / 2053 tests passing.",
+    "blocking_findings": [],
+    "remaining_gaps": [
+      "Delivery is exactly-once under normal operation and at-least-once across two abnormal windows (a post-send crash before confirm; a delivery hanging past the claim TTL) \u2014 an accepted fundamental limit (true exactly-once needs a durable idempotent outbox / send-cancellation, disproportionate for a setup card), documented in 0117 + code."
+    ],
+    "reviewed_scope": [
+      "apps/core/src/jobs/execution-readiness.ts",
+      "apps/core/src/adapters/storage/postgres/repositories/canonical-job-coordination.postgres.ts",
+      "apps/core/src/domain/repositories/ops-repo.ts",
+      "apps/core/src/domain/job-types.ts",
+      "apps/core/src/adapters/storage/postgres/services/canonical-job-target-state.ts"
+    ],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-08-09T13:16:19+00:00",
+    "commit": "04a07481168bced007156ea0c5ed8f059d79465a"
+  },
+  "updated_at": "2026-08-09T13:16:19+00:00"
+}

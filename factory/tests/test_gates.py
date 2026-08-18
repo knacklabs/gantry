@@ -20,6 +20,7 @@ import signal
 import subprocess
 import sys
 import threading
+import types
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -30,7 +31,10 @@ import pytest
 HARNESS = Path(__file__).resolve().parents[2]
 FORGE_INIT_FIXTURE = HARNESS / ".factory" / "history" / "FORGE-INIT-1"
 sys.path.insert(0, str(HARNESS / "factory" / "scripts"))
-from forge_cli.stages import task_digest
+from factory_lib import (
+    grounding_digest, require_task_grill, task_frontier_state, task_rows,
+)
+from forge_cli.stages import task_digest, write_stages
 from record_signoff import REQUIRED_BRIEF_HEADINGS
 
 
@@ -42,6 +46,29 @@ def run(repo: Path, script: str, *args: str, stdin: str | None = None,
         env={**os.environ, **(env or {})},
     )
     return proc.returncode, proc.stdout + proc.stderr
+
+
+class FakePsutilAccessDenied(Exception):
+    pass
+
+
+class FakePsutilNoSuchProcess(Exception):
+    pass
+
+
+def fake_psutil(processes, *, current_user="owner"):
+    by_pid = {process.pid: process for process in processes}
+    return types.SimpleNamespace(
+        AccessDenied=FakePsutilAccessDenied,
+        NoSuchProcess=FakePsutilNoSuchProcess,
+        Error=Exception,
+        STATUS_ZOMBIE="zombie",
+        process_iter=lambda _attrs=None: iter(processes),
+        Process=lambda pid=None: (
+            types.SimpleNamespace(username=lambda: current_user)
+            if pid is None else by_pid[pid]
+        ),
+    )
 
 
 def test_upgrade_project_skill_structure_and_registration():
@@ -155,12 +182,26 @@ def load_factory_lib(repo: Path):
 
 GIT_ID = ["-c", "user.email=test@knacklabs.dev", "-c", "user.name=Gate Tests"]
 
+# Ready execution detail shared by stage fixtures. Generated repositories carry
+# the tiny shell-free proof runner below so stage completion stays fast.
+READY_TASK_FIELDS = {
+    "required_tests": [{
+        "id": "test_stage_contract",
+        "path": "stage_contract_proof.py",
+        "command": "python3 {path} {id} {report}",
+    }],
+    "reviewer_focus": "the bounded stage contract",
+    "verify_commands": ["true"],
+}
+
+
 # Minimal payload satisfying factory/schemas/decomposition.json
 DECOMP = {"status": "recorded", "generated_by": "docs-decomposer",
           "user_facing": True,
           "tasks": [{"id": "T1", "title": "core slice", "write_scope": ["src/"],
                      "objective": "Build the core slice so the feature works end to end.",
-                     "acceptance_criteria": ["the slice runs green"]}]}
+                     "acceptance_criteria": ["the slice runs green"],
+                     **READY_TASK_FIELDS}]}
 
 # Minimal plan body passing every `plan save` section gate.
 PLAN_SECTIONS = (
@@ -206,12 +247,26 @@ def dirty_digests(repo: Path) -> dict[str, str]:
 @pytest.fixture()
 def repo(tmp_path: Path) -> Path:
     target = tmp_path / "app"
+    # gc.auto=0 must reach forge init's OWN git commits: a detached auto-gc
+    # spawned during init can still be pruning objects when a test later
+    # copies .git (the review-budget copytree race). The config line below
+    # only governs git run after the repo exists.
     proc = subprocess.run(
         [sys.executable, str(HARNESS / "factory" / "scripts" / "forge.py"),
          "init", "--name", "app", "--target", str(target)],
         capture_output=True, text=True,
+        env={**os.environ, "GIT_CONFIG_COUNT": "1",
+             "GIT_CONFIG_KEY_0": "gc.auto", "GIT_CONFIG_VALUE_0": "0"},
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
+    (target / "stage_contract_proof.py").write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        "path, test_id, report = sys.argv[0], *sys.argv[1:]\n"
+        "Path(report).write_text(f'<testsuite><testcase name=\"{test_id}\" "
+        "file=\"{path}\"/></testsuite>')\n"
+    )
+    git(target, "config", "gc.auto", "0")
     git(target, "add", "-A")
     git(target, "commit", "-q", "-m", "scaffold")
     return target
@@ -226,13 +281,53 @@ def record_grill(repo: Path, gate: str, verdict: str = "pass",
                stdin=json.dumps(payload))
 
 
+def task_grill_payload(task: dict, verdict: str = "pass", **over) -> dict:
+    payload = {"generated_by": "griller", "gate": "task", "verdict": verdict,
+               "gaps": [], "contradictions": [], "resolutions": [],
+               "inspected_refs": ["factory/scripts/record_grill_from_json.py"],
+               "current_flow": "The current task contract is recorded and ready to grill.",
+               "criteria_map": {
+                   criterion: "Inspected against the current task flow."
+                   for criterion in task["acceptance_criteria"]
+               },
+               "decision": "keep" if verdict == "pass" else "block",
+               "new_abstractions": [], "rounds": [], "citations": []}
+    if verdict == "blocked":
+        payload["escalation_packet"] = {
+            "issue": "The task cannot proceed as written.",
+            "evidence": "The inspected task contract contains a blocking gap.",
+            "recommendation": "Revise the task contract before delegation.",
+            "alternatives": "Split the task or revise its acceptance criteria.",
+            "rollback": "Keep the stage inactive until the contract is revised.",
+        }
+    payload.update(over)
+    return payload
+
+
+def seed_task_grill_frontier(repo: Path, task: dict) -> None:
+    control = Path(git(repo, "rev-parse", "--absolute-git-dir")) / "forge"
+    control.mkdir(parents=True, exist_ok=True)
+    plan = repo / "plans" / "active" / "TEST-1-test-plan.md"
+    plan.parent.mkdir(parents=True, exist_ok=True)
+    if not plan.exists():
+        plan.write_text("---\nstatus: approved\n---\n" + PLAN_BODY)
+    (repo / ".factory" / "run.json").write_text(json.dumps({
+        "issue_key": "TEST-1",
+        "plan_file": plan.relative_to(repo).as_posix(),
+    }))
+    (control / "decomposition.json").write_text(json.dumps({
+        "plan_file": plan.relative_to(repo).as_posix(),
+        "plan_sha256": hashlib.sha256(plan.read_bytes()).hexdigest(),
+        "tasks": [task],
+    }))
+
+
 def record_task_grill(repo: Path, task: dict,
                       verdict: str = "pass") -> tuple[int, str]:
-    payload = {"generated_by": "griller", "gate": "task", "verdict": verdict,
-               "gaps": [], "contradictions": [], "resolutions": []}
+    payload = task_grill_payload(task, verdict)
     return run(
         repo, "record_grill_from_json.py", "--gate", "task",
-        "--task", task["id"], "--task-digest", task_digest(task),
+        "--task", task["id"],
         stdin=json.dumps(payload),
     )
 
@@ -431,9 +526,7 @@ def test_full_lifecycle_and_archive(repo, tmp_path):
     assert code == 0
     code, out = save_plan(repo, tmp_path)
     assert code == 0, out
-    code, out = run(repo, "record_decomposition_from_json.py",
-                    stdin=json.dumps(DECOMP))
-    assert code == 0, out
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])
     write_passing_artifacts(repo)
     # D-0013: a per-task grill must be archived into history like plan.json.
     task_grills = repo / ".factory" / "grills" / "tasks"
@@ -471,6 +564,202 @@ def test_full_lifecycle_and_archive(repo, tmp_path):
     # Idempotent rerun (autoreview r2)
     code, out = run(repo, "pr_ready.py")
     assert code == 0 and "shipped so far: ENG-1" in out
+
+
+def test_encoding_hygiene_gate_catches_each_violation_class(tmp_path):
+    from check_encoding_hygiene import (
+        BYTE_MODE_ALLOWLIST, BYTE_PATH_ALLOWLIST, check_file,
+    )
+
+    violations = {
+        "subprocess.py": (
+            "import subprocess\n"
+            "subprocess.run(['tool'], capture_output=True, "
+            "encoding='latin-1')\n"
+        ),
+        "subprocess_alias.py": (
+            "from subprocess import run as invoke\n"
+            "invoke(['tool'], capture_output=True, text=True)\n"
+        ),
+        "subprocess_input.py": (
+            "import subprocess\n"
+            "subprocess.run(['tool'], input='payload', text=True)\n"
+        ),
+        "popen_stdin.py": (
+            "import subprocess\n"
+            "subprocess.Popen(['tool'], stdin=subprocess.PIPE, text=True)\n"
+        ),
+        "popen_stdin_alias.py": (
+            "import subprocess as process\n"
+            "process.Popen(['tool'], stdin=process.PIPE, text=True)\n"
+        ),
+        "local_subprocess_alias.py": (
+            "def launch():\n"
+            "    from subprocess import PIPE, Popen\n"
+            "    Popen(['tool'], stdin=PIPE, text=True)\n"
+        ),
+        "path_text.py": "from pathlib import Path\nPath('x').read_text()\n",
+        "open_text.py": "open('x', 'a')\n",
+        "temp_text.py": (
+            "import tempfile\n"
+            "tempfile.NamedTemporaryFile(mode='w+')\n"
+        ),
+        "temp_alias.py": (
+            "from tempfile import NamedTemporaryFile as temp\n"
+            "temp(mode='w+')\n"
+        ),
+        "stdin.py": "import sys\nsys.stdin.read()\n",
+        "input.py": "input()\n",
+        "stdin_alias.py": "from sys import stdin as source\nsource.read()\n",
+        "local_stdin_alias.py": (
+            "def read():\n"
+            "    from sys import stdin as source\n"
+            "    return source.read()\n"
+        ),
+        "stdin_getattr.py": "import sys\ngetattr(sys, 'stdin').read()\n",
+        "replace.py": (
+            "from pathlib import Path\n"
+            "Path('x').read_text(encoding='utf-8', errors='replace')\n"
+        ),
+        "surrogateescape.py": (
+            "from pathlib import Path\n"
+            "Path('x').read_text(encoding='utf-8', errors='surrogateescape')\n"
+        ),
+        "ignore.py": "open('x', encoding='utf-8', errors='ignore')\n",
+        "backslashreplace.py": (
+            "open('x', encoding='utf-8', errors='backslashreplace')\n"
+        ),
+        "dynamic_errors.py": (
+            "policy = 'strict'\nopen('x', encoding='utf-8', errors=policy)\n"
+        ),
+    }
+    expected = {
+        "subprocess.py": {"subprocess-text"},
+        "subprocess_alias.py": {"subprocess-text"},
+        "subprocess_input.py": {"subprocess-text"},
+        "popen_stdin.py": {"subprocess-text"},
+        "popen_stdin_alias.py": {"subprocess-text"},
+        "local_subprocess_alias.py": {"subprocess-text"},
+        "path_text.py": {"text-file"},
+        "open_text.py": {"text-file"},
+        "temp_text.py": {"text-file"},
+        "temp_alias.py": {"text-file"},
+        "stdin.py": {"stdin"},
+        "input.py": {"stdin"},
+        "stdin_alias.py": {"stdin"},
+        "local_stdin_alias.py": {"stdin"},
+        "stdin_getattr.py": {"stdin"},
+        "replace.py": {"errors-policy"},
+        "surrogateescape.py": {"errors-policy"},
+        "ignore.py": {"errors-policy"},
+        "backslashreplace.py": {"errors-policy"},
+        "dynamic_errors.py": {"errors-policy"},
+    }
+    for name, source in violations.items():
+        path = tmp_path / name
+        path.write_text(source, encoding="utf-8")
+        assert {
+            violation.rule for violation in check_file(path, root=tmp_path)
+        } == expected[name]
+
+    allowed = tmp_path / "allowed.py"
+    allowed.write_text(
+        "import io, os, subprocess, sys, tempfile\n"
+        "subprocess.run(['tool'], capture_output=True, text=True, "
+        "encoding='utf-8', errors='replace')\n"
+        "open('path', encoding='utf-8', errors='surrogateescape')\n"
+        "open('bytes', 'rb')\n"
+        "os.open('safe', os.O_RDONLY, dir_fd=3)\n"
+        "webbrowser.open('https://example.test')\n"
+        "tempfile.TemporaryFile(mode='w+t', encoding='utf-8')\n"
+        "io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8', "
+        "errors='strict').read()\n",
+        encoding="utf-8",
+    )
+    assert check_file(
+        allowed,
+        root=tmp_path,
+        replace_allowlist=frozenset({"allowed.py:2"}),
+        byte_path_allowlist={"allowed.py:3": "lossless path"},
+        stdin_allowlist=frozenset({"allowed.py:8"}),
+    ) == []
+    assert "factory/scripts/forge_cli/phase.py:25" in BYTE_PATH_ALLOWLIST
+    assert "factory/scripts/forge_cli/upgrade.py:314" in BYTE_MODE_ALLOWLIST
+    assert "factory/scripts/pr_ready.py:349" in BYTE_MODE_ALLOWLIST
+
+    byte_site = tmp_path / "byte_site.py"
+    byte_site.write_text(
+        "import subprocess\n"
+        "subprocess.run(['tool'], text=True, encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    assert {violation.rule for violation in check_file(
+        byte_site,
+        root=tmp_path,
+        byte_mode_allowlist={"byte_site.py:2": "must stay bytes"},
+    )} == {"byte-mode"}
+
+
+def test_encoding_hygiene_gate_catches_wrapper_and_positional_tempfile(tmp_path):
+    from check_encoding_hygiene import check_file
+
+    violations = {
+        "wrapper_missing.py": "import io\nio.TextIOWrapper(stream)\n",
+        "wrapper_non_utf8.py": (
+            "import io\nio.TextIOWrapper(stream, encoding='latin-1')\n"
+        ),
+        "temporary_file.py": (
+            "import tempfile\ntempfile.TemporaryFile('w+t')\n"
+        ),
+        "named_temporary_file.py": (
+            "import tempfile\ntempfile.NamedTemporaryFile('w+t')\n"
+        ),
+    }
+    for name, source in violations.items():
+        path = tmp_path / name
+        path.write_text(source, encoding="utf-8")
+        assert {
+            violation.rule for violation in check_file(path, root=tmp_path)
+        } == {"text-file"}
+
+
+def test_recorder_stdin_reads_non_ascii_utf8(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    code, out = save_plan(repo, tmp_path)
+    assert code == 0, out
+    payload = json.loads(json.dumps(DECOMP))
+    payload["tasks"][0]["title"] = "Unicode arrow → snowman ☃"
+    record_skeleton_then_frontier(repo, payload["tasks"])
+    env = {**os.environ, "PYTHONIOENCODING": "ascii:strict", "PYTHONUTF8": "0"}
+
+    proc = subprocess.run(
+        [sys.executable, str(
+            repo / "factory" / "scripts" / "record_decomposition_from_json.py"
+        )],
+        cwd=repo,
+        input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        capture_output=True,
+        env=env,
+    )
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    recorded = json.loads(
+        (repo / ".factory" / "decomposition.json").read_text(encoding="utf-8")
+    )
+    assert recorded["tasks"][0]["title"] == payload["tasks"][0]["title"]
+
+
+def test_read_stdin_utf8_does_not_close_shared_buffer(monkeypatch):
+    import io
+    from factory_lib import read_stdin_utf8
+
+    stream = io.TextIOWrapper(io.BytesIO("first →".encode("utf-8")))
+    monkeypatch.setattr(sys, "stdin", stream)
+
+    assert read_stdin_utf8() == "first →"
+    assert read_stdin_utf8() == ""
+    assert not sys.stdin.buffer.closed
 
 
 # ---------------------------------------------------------- sign-off gating
@@ -1425,9 +1714,7 @@ def test_intake_preserves_signoff_and_refuses_to_clobber_evidence(repo, tmp_path
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    code, _ = run(repo, "record_decomposition_from_json.py",
-                  stdin=json.dumps(DECOMP))
-    assert code == 0
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])
     # Mid-task second intake must refuse (autoreview r3)
     code, out = intake(repo, "ENG-2", "Refunds")
     assert code != 0 and "unarchived" in out
@@ -1466,8 +1753,7 @@ def test_intake_after_ship_needs_no_discard(repo, tmp_path):
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    code, _ = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(DECOMP))
-    assert code == 0
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])
     state = run_state(repo)
     state["phase"] = "shipped"
     (repo / ".factory" / "run.json").write_text(json.dumps(state))
@@ -1498,9 +1784,7 @@ def test_phase_implementing_requires_approved_saved_plan(repo, tmp_path):
     code, out = run(repo, "update_run.py", "--phase", "implementing",
                     "--decomposition-status", "recorded")
     assert code != 0 and "decomposition" in out
-    code, _ = run(repo, "record_decomposition_from_json.py",
-                  stdin=json.dumps(DECOMP))
-    assert code == 0
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])
     code, out = run(repo, "update_run.py", "--phase", "implementing")
     assert code == 0, out
 
@@ -1510,8 +1794,7 @@ def test_update_run_enforces_artifact_phase_order(repo, tmp_path):
     intake(repo)
     code, out = save_plan(repo, tmp_path)
     assert code == 0, out
-    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(DECOMP))
-    assert code == 0, out
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])
 
     code, out = run(repo, "update_run.py", "--phase", "reviewing")
     assert code != 0 and "verify.json" in out
@@ -1595,9 +1878,7 @@ def test_pr_ready_accepts_decomposition_recorded_before_implementation(repo, tmp
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    code, _ = run(repo, "record_decomposition_from_json.py",
-                  stdin=json.dumps(DECOMP))
-    assert code == 0
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "plan + decomposition")
     (repo / "src.py").write_text("VALUE = 1\n")
@@ -1651,6 +1932,7 @@ def test_upgrade_survives_a_repo_without_harness_yaml(repo, tmp_path):
 def test_upgrade_replaces_machinery_preserves_project(repo, tmp_path):
     # Degrade machinery, add project-owned content + a proposed skill
     (repo / "factory" / "scripts" / "verify.py").unlink()
+    (repo / "factory" / "scripts" / "check_encoding_hygiene.py").unlink()
     proposed = repo / "factory" / "skills" / "proposed"
     proposed.mkdir(parents=True, exist_ok=True)
     (proposed / "keep-me.md").write_text("status: proposed\n")
@@ -1666,6 +1948,7 @@ def test_upgrade_replaces_machinery_preserves_project(repo, tmp_path):
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert (repo / "factory" / "scripts" / "verify.py").exists()  # machinery restored
+    assert (repo / "factory" / "scripts" / "check_encoding_hygiene.py").exists()
     assert (proposed / "keep-me.md").exists()  # evolution state preserved
     assert "Client-specific fact" in memory.read_text()  # project memory preserved
     assert list((repo / "docs" / "decisions").glob("*keep-decision.md"))  # project-owned untouched
@@ -2234,6 +2517,1716 @@ def test_dual_runtime_linter_clean_on_scaffold_and_catches_phantom_ref(repo):
     assert code != 0 and "phantom" in out
 
 
+def test_dual_runtime_replace_decodes_tracked_source_suffix(repo):
+    binary = repo / "vendor.js"
+    binary.write_bytes(b"\xff\x00binary")
+    git(repo, "add", "vendor.js")
+
+    code, out = run(repo, "check_dual_runtime.py", str(repo))
+
+    assert code == 0, out
+
+    latin1 = repo / "legacy.js"
+    latin1.write_bytes(
+        "// caf\N{LATIN SMALL LETTER E WITH ACUTE}\n"
+        "import '../prototype/utils';\n".encode("latin-1")
+    )
+    git(repo, "add", "legacy.js")
+
+    code, out = run(repo, "check_dual_runtime.py", str(repo))
+
+    assert code != 0 and "legacy.js:2 imports from prototype/" in out
+
+
+def _route_fixture_hooks_through_forge(repo: Path) -> None:
+    from check_dual_runtime import hook_script_paths
+
+    for relative in (".claude/settings.json", ".codex/hooks.json"):
+        path = repo / relative
+        document = json.loads(path.read_text())
+        for registrations in document["hooks"].values():
+            for registration in registrations:
+                for hook in registration["hooks"]:
+                    scripts = hook_script_paths(hook["command"])
+                    assert len(scripts) == 1
+                    name = Path(scripts[0]).stem
+                    hook["command"] = (
+                        "sh -c '\"$(git rev-parse --show-toplevel)/forge\" "
+                        f"hook {name} || exit 2' || exit 2"
+                    )
+        path.write_text(json.dumps(document, indent=2) + "\n")
+
+
+def test_doctor_hook_health_green_on_healthy_repo(repo):
+    from forge_cli.doctor import hook_health_checks
+
+    _route_fixture_hooks_through_forge(repo)
+    before = git(repo, "status", "--porcelain", "-uall")
+    bytecode_before = set(repo.rglob("__pycache__"))
+    checks = hook_health_checks(repo)
+
+    assert len(checks) == 8
+    assert all(check["ok"] for check in checks), checks
+    assert git(repo, "status", "--porcelain", "-uall") == before
+    assert set(repo.rglob("__pycache__")) == bytecode_before
+
+
+def test_hook_module_chain_has_no_posix_only_imports(repo, monkeypatch):
+    posix_only = {"fcntl", "grp", "pwd", "resource", "termios"}
+    module_paths = (
+        "factory/scripts/pre_tool_use.py",
+        "factory/scripts/forge_cli/quickfix.py",
+        "factory/scripts/forge_cli/stages.py",
+        "factory/scripts/forge_cli/delegate.py",
+    )
+    offenders = []
+    for relative in module_paths:
+        tree = ast.parse((repo / relative).read_text(), filename=relative)
+        for node in tree.body:
+            if isinstance(node, ast.Import):
+                names = {alias.name.partition(".")[0] for alias in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names = {node.module.partition(".")[0]}
+            else:
+                continue
+            offenders.extend(
+                f"{relative}:{node.lineno}:{name}"
+                for name in sorted(names & posix_only)
+            )
+    assert offenders == []
+
+    program = "\n".join((
+        "import io, runpy, subprocess, sys",
+        "sys.path.insert(0, 'factory/scripts')",
+        "sys.modules.pop('fcntl', None)",
+        "sys.modules['fcntl'] = None",
+        "import forge_cli.quickfix",
+        "import forge_cli.stages",
+        "import forge_cli.delegate",
+        "sys.stdin = io.StringIO('{}')",
+        "runpy.run_path('factory/scripts/pre_tool_use.py', run_name='__main__')",
+    ))
+    result = subprocess.run(
+        [sys.executable, "-c", program], cwd=repo,
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == "{}\n"
+
+    import types
+    import forge_cli.delegate as delegate
+
+    native_os_name = delegate.os.name
+    calls = []
+    fake_msvcrt = types.SimpleNamespace(
+        LK_NBLCK=1,
+        LK_UNLCK=2,
+        locking=lambda fd, mode, length: calls.append((fd, mode, length)),
+    )
+    monkeypatch.setattr(delegate.os, "name", "nt")
+    monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+    lock_path = repo / ".factory" / "windows-import-proof.lock"
+    with lock_path.open("a+") as handle:
+        delegate._lock_file(handle)
+        delegate._unlock_file(handle)
+        assert calls == [
+            (handle.fileno(), fake_msvcrt.LK_NBLCK, 1),
+            (handle.fileno(), fake_msvcrt.LK_UNLCK, 1),
+        ]
+
+    monkeypatch.setattr(delegate.os, "name", native_os_name)
+    with lock_path.open("a+") as first, lock_path.open("a+") as second:
+        delegate._lock_file(first)
+        try:
+            with pytest.raises(BlockingIOError):
+                delegate._lock_file(second)
+        finally:
+            delegate._unlock_file(first)
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX only: constructs an interpreter-free PATH around a real sh binary",
+)
+def test_doctor_hook_health_reds_unresolvable_hook(repo, tmp_path):
+    from forge_cli.doctor import HOOK_HEALTH_FIX, _display_mark, hook_health_checks
+
+    _route_fixture_hooks_through_forge(repo)
+    fake_bin = tmp_path / "hook-path"
+    fake_bin.mkdir()
+    (fake_bin / "sh").symlink_to(shutil.which("sh"))
+    fake_git = fake_bin / "git"
+    fake_git.write_text(f"#!{shutil.which('sh')}\nprintf '%s\\n' '{repo}'\n")
+    fake_git.chmod(0o755)
+
+    checks = hook_health_checks(repo, env={"PATH": str(fake_bin)})
+    failures = [check for check in checks if not check["ok"]]
+
+    assert len(failures) == 8
+    assert len({check["name"] for check in failures}) == 8
+    registered = json.loads((repo / ".claude" / "settings.json").read_text())
+    command = registered["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+    assert any(command in check["detail"] for check in failures)
+    assert all("exit 2 (blocking)" in check["detail"] for check in failures)
+    assert all(_display_mark(check) == "RED" for check in failures)
+    assert all(check["fix"] == HOOK_HEALTH_FIX for check in failures)
+
+
+def test_hook_resolution_fails_closed_without_interpreter(tmp_path):
+    from forge_cli.doctor import _runnable_hook_shell
+
+    shell = _runnable_hook_shell(dict(os.environ), HARNESS)
+    assert shell, "test requires a working POSIX shell"
+    empty_path = tmp_path / "empty-path"
+    empty_path.mkdir()
+
+    result = subprocess.run(
+        [shell, str(HARNESS / "forge"), "hook", "session_start"],
+        cwd=HARNESS,
+        input="{}",
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PATH": str(empty_path)},
+    )
+
+    assert result.returncode == 2
+    assert "Python 3.10 or newer was not found" in result.stderr
+
+
+@pytest.mark.parametrize("broken_target", [
+    "forge", "factory/scripts/forge.py", "factory/scripts/session_start.py",
+])
+def test_registered_hook_command_normalizes_launch_failures(repo, broken_target):
+    from forge_cli.doctor import _runnable_hook_shell
+
+    _route_fixture_hooks_through_forge(repo)
+    shell = _runnable_hook_shell(dict(os.environ), repo)
+    assert shell, "test requires a shell that can launch this checkout"
+    (repo / broken_target).unlink()
+    document = json.loads((repo / ".claude" / "settings.json").read_text())
+    command = document["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+
+    result = subprocess.run(
+        [shell, "-c", command],
+        cwd=repo,
+        input="{}",
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX executable mode has no cmd equivalent")
+def test_registered_hook_command_blocks_a_nonexecutable_launcher(repo):
+    _route_fixture_hooks_through_forge(repo)
+    (repo / "forge").chmod(0o644)
+    document = json.loads((repo / ".claude" / "settings.json").read_text())
+    command = document["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+
+    result = subprocess.run(
+        [shutil.which("sh"), "-c", command], cwd=repo, input="{}",
+        capture_output=True, text=True,
+    )
+
+    assert result.returncode == 2
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX PATH fixture uses executable symlinks")
+def test_registered_hook_command_blocks_when_git_cannot_find_the_repo(repo, tmp_path):
+    _route_fixture_hooks_through_forge(repo)
+    fake_bin = tmp_path / "no-git"
+    fake_bin.mkdir()
+    (fake_bin / "sh").symlink_to(shutil.which("sh"))
+    (fake_bin / "python3").symlink_to(sys.executable)
+    document = json.loads((repo / ".claude" / "settings.json").read_text())
+    command = document["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+
+    result = subprocess.run(
+        [shutil.which("sh"), "-c", command], cwd=repo, input="{}",
+        capture_output=True, text=True,
+        env={**os.environ, "PATH": str(fake_bin)},
+    )
+
+    assert result.returncode == 2
+
+
+def test_registered_hook_command_fails_closed_when_inner_sh_is_missing(repo, tmp_path):
+    from forge_cli.doctor import _runnable_hook_shell
+
+    _route_fixture_hooks_through_forge(repo)
+    shell = _runnable_hook_shell(dict(os.environ), repo)
+    assert shell, "test requires a shell that can launch this checkout"
+    document = json.loads((repo / ".claude" / "settings.json").read_text())
+    command = document["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+    empty_path = tmp_path / "empty-path"
+    empty_path.mkdir()
+
+    result = subprocess.run(
+        [shell, "-c", command],
+        cwd=repo,
+        input="{}",
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PATH": str(empty_path)},
+    )
+
+    assert result.returncode == 2
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows only: proves cmd.exe evaluates the outer fail-closed guard",
+)
+def test_registered_hook_command_fails_closed_when_cmd_cannot_spawn_sh(repo, tmp_path):
+    _route_fixture_hooks_through_forge(repo)
+    document = json.loads((repo / ".claude" / "settings.json").read_text())
+    command = document["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+    empty_path = tmp_path / "empty-path"
+    empty_path.mkdir()
+
+    result = subprocess.run(
+        [os.environ["COMSPEC"], "/d", "/c", command],
+        cwd=repo,
+        input="{}",
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PATH": str(empty_path)},
+    )
+
+    assert result.returncode == 2
+
+
+@pytest.mark.parametrize(("hook_exit", "registered_exit"), [(0, 0), (2, 2), (7, 2)])
+def test_registered_hook_command_preserves_success_and_blocks_nonzero(
+        repo, hook_exit, registered_exit):
+    from forge_cli.doctor import _runnable_hook_shell
+
+    _route_fixture_hooks_through_forge(repo)
+    shell = _runnable_hook_shell(dict(os.environ), repo)
+    assert shell, "test requires a shell that can launch this checkout"
+    launcher = repo / "forge"
+    launcher.write_text(f"#!/bin/sh\nexit {hook_exit}\n")
+    document = json.loads((repo / ".claude" / "settings.json").read_text())
+    command = document["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+
+    result = subprocess.run(
+        [shell, "-c", command],
+        cwd=repo,
+        input="{}",
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == registered_exit
+
+
+def test_doctor_hook_health_catches_precompact_import_skew(repo):
+    from forge_cli.doctor import hook_health_checks
+
+    _route_fixture_hooks_through_forge(repo)
+    scratchpad = repo / "factory" / "scripts" / "forge_cli" / "scratchpad.py"
+    scratchpad.write_text("raise ImportError('broken scratchpad package')\n")
+
+    failures = [check for check in hook_health_checks(repo) if not check["ok"]]
+
+    assert len(failures) == 1
+    assert ".claude/settings.json:PreCompact" in failures[0]["name"]
+    assert "broken scratchpad package" in failures[0]["detail"]
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX only: monkeypatches all shell discovery to emulate missing Git Bash",
+)
+def test_doctor_hook_health_missing_sh_names_git_bash_fix(repo, monkeypatch):
+    from forge_cli import doctor
+
+    _route_fixture_hooks_through_forge(repo)
+    real_which = doctor.shutil.which
+    monkeypatch.setattr(
+        doctor.shutil, "which",
+        lambda binary, path=None: (
+            None if binary == "sh" else real_which(binary, path=path)
+        ),
+    )
+
+    failures = [check for check in doctor.hook_health_checks(repo)
+                if not check["ok"]]
+
+    assert len(failures) == 8
+    assert all(check["fix"] == doctor.HOOK_SHELL_FIX for check in failures)
+    assert all("Git for Windows" in check["fix"] for check in failures)
+
+
+def test_doctor_hook_health_broken_launcher_does_not_blame_git_bash(repo):
+    from forge_cli import doctor
+
+    _route_fixture_hooks_through_forge(repo)
+    (repo / "forge").unlink()
+
+    failures = [check for check in doctor.hook_health_checks(repo)
+                if not check["ok"]]
+
+    assert len(failures) == 8
+    assert all("hook launcher probe failed" in check["detail"] for check in failures)
+    assert all(check["fix"] == doctor.HOOK_HEALTH_FIX for check in failures)
+
+
+def test_init_and_upgrade_ship_portable_hook_commands(tmp_path):
+    from check_dual_runtime import hook_script_paths
+
+    def commands(root: Path, relative: str) -> list[str]:
+        document = json.loads((root / relative).read_text())
+        return [
+            hook["command"]
+            for registrations in document["hooks"].values()
+            for registration in registrations
+            for hook in registration["hooks"]
+        ]
+
+    repo = tmp_path / "portable-hooks-client"
+    initialized = subprocess.run(
+        [sys.executable, str(HARNESS / "factory" / "scripts" / "forge.py"),
+         "init", "--name", "portable-hooks-client", "--target", str(repo)],
+        cwd=HARNESS, capture_output=True, text=True,
+    )
+    assert initialized.returncode == 0, initialized.stdout + initialized.stderr
+    assert len(commands(repo, ".claude/settings.json")) == 5
+    assert len(commands(repo, ".codex/hooks.json")) == 3
+    config = repo / ".codex" / "config.toml"
+    assert 'sandbox_mode = "workspace-write"' in config.read_text().splitlines()
+    assert (repo / "forge.cmd").is_file()
+    attributes = repo / ".gitattributes"
+    assert "forge text eol=lf" in attributes.read_text().splitlines()
+    assert all(
+        command.startswith("sh -c ")
+        and command.endswith(" || exit 2' || exit 2")
+        and hook_script_paths(command)
+        for relative in (".claude/settings.json", ".codex/hooks.json")
+        for command in commands(repo, relative)
+    )
+
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "scaffold")
+    (repo / "forge.cmd").unlink()
+    attributes.write_text("\n".join(
+        line for line in attributes.read_text().splitlines()
+        if line != "forge text eol=lf"
+    ) + "\n")
+    for relative in (".claude/settings.json", ".codex/hooks.json"):
+        (repo / relative).write_text(json.dumps({"hooks": {}}) + "\n")
+    config.write_text(config.read_text().replace(
+        'sandbox_mode = "workspace-write"',
+        'sandbox_mode = "danger-full-access"',
+    ))
+    git(repo, "add", ".claude/settings.json", ".codex/hooks.json",
+        ".codex/config.toml", ".gitattributes", "forge.cmd")
+    git(repo, "commit", "-q", "-m", "degrade hook registrations")
+
+    upgraded = upgrade_into(repo)
+    assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
+    assert len(commands(repo, ".claude/settings.json")) == 5
+    assert len(commands(repo, ".codex/hooks.json")) == 3
+    assert 'sandbox_mode = "workspace-write"' in config.read_text().splitlines()
+    assert (repo / "forge.cmd").is_file()
+    assert "forge text eol=lf" in attributes.read_text().splitlines()
+    assert all(
+        command.startswith("sh -c ")
+        and command.endswith(" || exit 2' || exit 2")
+        and hook_script_paths(command)
+        for relative in (".claude/settings.json", ".codex/hooks.json")
+        for command in commands(repo, relative)
+    )
+
+
+def test_hook_registration_extracts_every_registered_script():
+    from check_dual_runtime import hook_script_paths
+
+    synthetic = (
+        'sh -c \'"$(git rev-parse --show-toplevel)/forge" '
+        "hook session_start || exit 2'"
+    )
+    assert hook_script_paths(synthetic) == ["factory/scripts/session_start.py"]
+
+    for relative in (".claude/settings.json", ".codex/hooks.json"):
+        document = json.loads((HARNESS / relative).read_text())
+        for event, registrations in document["hooks"].items():
+            for registration in registrations:
+                for hook in registration["hooks"]:
+                    scripts = hook_script_paths(hook["command"])
+                    assert scripts, f"{relative}:{event} did not expose a script path"
+                    assert all((HARNESS / script).is_file() for script in scripts)
+                    assert hook["command"].endswith(" || exit 2' || exit 2")
+
+
+def test_forge_cmd_routes_git_bash_then_python_fallbacks(tmp_path):
+    shim = (HARNESS / "forge.cmd").read_text()
+    launcher = (HARNESS / "forge").read_text()
+    assert 'setlocal\nset "PYTHONUTF8=1"' in shim
+    assert "set -eu\nexport PYTHONUTF8=1" in launcher
+    assert shim.index('set "PYTHONUTF8=1"') < shim.index("py -3")
+    assert launcher.index("export PYTHONUTF8=1") < launcher.index("py -3")
+    assert shim.index("CLAUDE_CODE_GIT_BASH_PATH") < shim.index("where sh")
+    assert (
+        shim.index("where py") < shim.index("where python")
+        < shim.index("where python3") < shim.index("CLAUDE_CODE_GIT_BASH_PATH")
+        < shim.index("where sh")
+    )
+    assert "%ProgramFiles%\\Git\\usr\\bin\\sh.exe" in shim
+    assert "%LOCALAPPDATA%\\Programs\\Git\\usr\\bin\\sh.exe" in shim
+    assert "call" not in shim.lower()
+    assert shim.count('if /i "%%~xI"==".exe"') == 2
+    assert shim.count('if /i "%%~xJ"==".exe"') == 1
+    assert (
+        ':run_sh\n'
+        '"%FORGE_SH%" "%~dp0forge" %*\n'
+        'exit /b %errorlevel%'
+    ) in shim
+    assert 'py -3 "%~dp0factory\\scripts\\forge.py" %*' in shim
+    assert 'python "%~dp0factory\\scripts\\forge.py" %*' in shim
+    assert 'python3 "%~dp0factory\\scripts\\forge.py" %*' in shim
+    assert shim.count("sys.version_info >= (3, 10)") == 3
+    assert (
+        'cmd /d /c py -3 -c "import sys; raise SystemExit(0 if sys.version_info >= '
+        '(3, 10) else 1)" >nul 2>nul\n'
+        'if errorlevel 1 goto python_fallback\n'
+        'set "FORGE_PYTHON=py"\n'
+        'goto discover_shell'
+    ) in shim
+    assert (
+        'cmd /d /c python -c "import sys; raise SystemExit(0 if sys.version_info >= '
+        '(3, 10) else 1)" >nul 2>nul\n'
+        'if errorlevel 1 goto python3_fallback\n'
+        'set "FORGE_PYTHON=python"\n'
+        'goto discover_shell'
+    ) in shim
+    assert "exit /b 2" in shim
+
+    if os.name == "nt":
+        executable_shell = shutil.which("sh")
+        assert executable_shell and Path(executable_shell).suffix.lower() == ".exe"
+        override_case = tmp_path / "override"
+        override_case.mkdir()
+        shutil.copy2(HARNESS / "forge.cmd", override_case / "forge.cmd")
+        (override_case / "forge").write_bytes(
+            b"#!/bin/sh\n"
+            b"if [ \"$1\" = \"--help\" ]; then printf 'OVERRIDE\\n'; exit 0; fi\n"
+            b"exit 9\n"
+        )
+        launcher_bin = tmp_path / "launcher-bin"
+        launcher_bin.mkdir()
+        (launcher_bin / "python.cmd").write_text(
+            '@echo off\n'
+            'if "%~1"=="-c" exit /b 0\n'
+            'echo PYTHON\n'
+            'exit /b 0\n'
+        )
+        system_root = Path(os.environ["SystemRoot"])
+        path_without_sh = os.pathsep.join(
+            [str(launcher_bin), str(system_root / "System32")]
+        )
+        assert shutil.which("sh", path=path_without_sh) is None
+        isolated_env = {
+            **os.environ,
+            "PATH": path_without_sh,
+            "ProgramFiles": str(tmp_path / "no-program-files"),
+            "ProgramFiles(x86)": str(tmp_path / "no-program-files-x86"),
+            "LOCALAPPDATA": str(tmp_path / "no-local-app-data"),
+        }
+        where_sh = subprocess.run(
+            ["where", "sh"],
+            capture_output=True,
+            text=True,
+            env=isolated_env,
+        )
+        assert where_sh.returncode != 0, where_sh.stdout + where_sh.stderr
+        via_override = subprocess.run(
+            ["cmd", "/c", str(override_case / "forge.cmd"), "--help"],
+            cwd=override_case,
+            capture_output=True,
+            text=True,
+            env={
+                **isolated_env,
+                "CLAUDE_CODE_GIT_BASH_PATH": executable_shell,
+            },
+        )
+        assert via_override.returncode == 0, via_override.stdout + via_override.stderr
+        assert via_override.stdout.splitlines() == ["OVERRIDE"]
+        override_exit = subprocess.run(
+            ["cmd", "/c", str(override_case / "forge.cmd"), "status"],
+            cwd=override_case,
+            capture_output=True,
+            text=True,
+            env={
+                **isolated_env,
+                "CLAUDE_CODE_GIT_BASH_PATH": executable_shell,
+            },
+        )
+        assert override_exit.returncode == 9, (
+            override_exit.stdout + override_exit.stderr
+        )
+
+        fallback_case = tmp_path / "fallback"
+        fallback_script = fallback_case / "factory" / "scripts" / "forge.py"
+        fallback_script.parent.mkdir(parents=True)
+        shutil.copy2(HARNESS / "forge.cmd", fallback_case / "forge.cmd")
+        fallback_script.write_text("print('PYTHON')\n")
+
+        shell_log = fallback_case / "git-bash.log"
+        cmd_override = fallback_case / "git-bash.cmd"
+        cmd_override.write_text(f'@echo called>>"{shell_log}"\n@exit /b 0\n')
+        extensionless_override = fallback_case / "extensionless-sh"
+        extensionless_batch = extensionless_override.with_suffix(".cmd")
+        extensionless_batch.write_text(
+            f'@echo called>>"{shell_log}"\n@exit /b 0\n'
+        )
+        for rejected_shell in (cmd_override, extensionless_override):
+            rejected_override = subprocess.run(
+                ["cmd", "/c", str(fallback_case / "forge.cmd"), "--help"],
+                cwd=fallback_case,
+                capture_output=True,
+                text=True,
+                env={
+                    **isolated_env,
+                    "CLAUDE_CODE_GIT_BASH_PATH": str(rejected_shell),
+                },
+            )
+            assert rejected_override.returncode == 0, (
+                rejected_override.stdout + rejected_override.stderr
+            )
+            assert rejected_override.stdout.splitlines() == ["PYTHON"]
+            assert not shell_log.exists()
+
+        literal_case = tmp_path / "literal-percent"
+        literal_case.mkdir()
+        shutil.copy2(HARNESS / "forge.cmd", literal_case / "forge.cmd")
+        (literal_case / "forge").write_bytes(
+            b'#!/bin/sh\n'
+            b'if [ "$1" = "--help" ]; then exit 0; fi\n'
+            b"printf 'ARG=%s\\n' \"$2\"\n"
+        )
+        runner = literal_case / "run-literal.cmd"
+        runner.write_text(
+            '@echo off\n'
+            f'set "CLAUDE_CODE_GIT_BASH_PATH={executable_shell}"\n'
+            f'"{literal_case / "forge.cmd"}" capture %FORGE_LITERAL%\n'
+        )
+        literal_percent = subprocess.run(
+            ["cmd", "/c", str(runner)],
+            cwd=literal_case,
+            capture_output=True,
+            text=True,
+            env={
+                **isolated_env,
+                "FORGE_LITERAL": "%FORGE_LITERAL_PERCENT%",
+                "FORGE_LITERAL_PERCENT": "expanded",
+            },
+        )
+        assert literal_percent.returncode == 0, (
+            literal_percent.stdout + literal_percent.stderr
+        )
+        assert literal_percent.stdout.splitlines() == ["ARG=%FORGE_LITERAL_PERCENT%"]
+
+        result = subprocess.run(
+            ["cmd", "/c", str(HARNESS / "forge.cmd"), "--help"],
+            cwd=HARNESS,
+            capture_output=True,
+            text=True,
+            env={
+                **isolated_env,
+                "CLAUDE_CODE_GIT_BASH_PATH": executable_shell,
+            },
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_forge_cmd_probes_python3_as_final_fallback(tmp_path):
+    shim = (HARNESS / "forge.cmd").read_text()
+
+    assert shim.index(":python_fallback") < shim.index(":python3_fallback")
+    assert shim.index(":python3_fallback") < shim.index(":bootstrap")
+    assert (
+        ':python3_fallback\n'
+        'where python3 >nul 2>nul\n'
+        'if errorlevel 1 goto bootstrap\n'
+        'cmd /d /c python3 -c "import sys; raise SystemExit(0 if sys.version_info >= '
+        '(3, 10) else 1)" >nul 2>nul\n'
+        'if errorlevel 1 goto bootstrap\n'
+        'set "FORGE_PYTHON=python3"\n'
+        'goto discover_shell'
+    ) in shim
+    assert 'if defined FORGE_PYTHON_BOOTSTRAP_ATTEMPTED goto missing' in shim
+    assert 'Python.Python.3.14 --exact --scope user --source winget' in shim
+    assert "Start-Process" not in shim
+    assert "RunAs" not in shim
+    assert '"%~f0" %*' in shim
+    assert (
+        'cmd /d /c "set "FORGE_PYTHON_BOOTSTRAP_ATTEMPTED=1" & "%~f0" %*"\n'
+        'exit /b %errorlevel%'
+    ) in shim
+    assert "https://www.python.org/downloads/windows/" in shim
+
+    if os.name == "nt":
+        executable_shell = shutil.which("sh")
+        assert executable_shell and Path(executable_shell).suffix.lower() == ".exe"
+        bootstrap_case = tmp_path / "bootstrap-before-shell"
+        bootstrap_case.mkdir()
+        shutil.copy2(HARNESS / "forge.cmd", bootstrap_case / "forge.cmd")
+        (bootstrap_case / "forge").write_bytes(
+            b"#!/bin/sh\nprintf 'EARLY_SHELL\\n'\nexit 0\n"
+        )
+        for command in ("py", "python", "python3"):
+            (bootstrap_case / f"{command}.cmd").write_text("@exit /b 1\n")
+
+        result = subprocess.run(
+            ["cmd", "/d", "/c", str(bootstrap_case / "forge.cmd"), "status"],
+            cwd=bootstrap_case,
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "PATH": os.pathsep.join(
+                    [
+                        str(bootstrap_case),
+                        str(Path(os.environ["SystemRoot"]) / "System32"),
+                    ]
+                ),
+                "CLAUDE_CODE_GIT_BASH_PATH": executable_shell,
+                "FORGE_PYTHON_BOOTSTRAP_ATTEMPTED": "1",
+            },
+        )
+        assert result.returncode == 2, result.stdout + result.stderr
+        assert "EARLY_SHELL" not in result.stdout
+        assert "https://www.python.org/downloads/windows/" in result.stderr
+
+
+def test_forge_cmd_bootstrap_runs_once_and_persists_path():
+    shim = (HARNESS / "forge.cmd").read_text()
+    refreshed_path = (
+        'set "PATH=%FORGE_LOCAL_APP_DATA%\\Programs\\Python\\Python314;'
+        '%FORGE_LOCAL_APP_DATA%\\Programs\\Python\\Launcher;'
+        '%FORGE_LOCAL_APP_DATA%\\Microsoft\\WindowsApps;%PATH%"'
+    )
+    restart = (
+        'cmd /d /c "set "FORGE_PYTHON_BOOTSTRAP_ATTEMPTED=1" & "%~f0" %*"'
+    )
+
+    assert shim.count('set "FORGE_PYTHON_BOOTSTRAP_ATTEMPTED=1"') == 1
+    assert "endlocal & set" not in shim
+    assert refreshed_path in shim
+    assert restart in shim
+    assert shim.index(refreshed_path) < shim.index(restart)
+    assert shim.index(restart) < shim.index("exit /b %errorlevel%", shim.index(restart))
+
+
+def test_forge_cmd_bootstrap_refuses_winget_when_elevated(tmp_path):
+    shim = (HARNESS / "forge.cmd").read_text()
+    whoami_probe = (
+        '"%SystemRoot%\\System32\\whoami.exe" /groups >nul 2>&1'
+    )
+    medium_integrity_probe = (
+        '"%SystemRoot%\\System32\\whoami.exe" /groups | '
+        '"%SystemRoot%\\System32\\findstr.exe" /c:"S-1-16-8192" >nul 2>&1'
+    )
+    bootstrap_index = shim.index(":bootstrap")
+    whoami_index = shim.index(whoami_probe, bootstrap_index)
+    medium_integrity_index = shim.index(medium_integrity_probe, whoami_index)
+    local_app_data_index = shim.index(
+        'set "FORGE_LOCAL_APP_DATA="', medium_integrity_index,
+    )
+    winget_index = shim.index('"%FORGE_WINGET%" install', local_app_data_index)
+
+    whoami_guard_index = shim.index("if errorlevel 1 goto missing", whoami_index)
+    integrity_guard_index = shim.index(
+        "if errorlevel 1 goto missing", medium_integrity_index,
+    )
+    assert (
+        whoami_index < whoami_guard_index < medium_integrity_index
+        < integrity_guard_index < local_app_data_index < winget_index
+    )
+    assert "normal (unelevated) prompt" in shim
+
+    if os.name == "nt":
+        bootstrap_case = tmp_path / "elevated-bootstrap"
+        initial_bin = bootstrap_case / "initial-bin"
+        local_app_data = bootstrap_case / "LocalAppData"
+        windows_apps = local_app_data / "Microsoft" / "WindowsApps"
+        initial_bin.mkdir(parents=True)
+        windows_apps.mkdir(parents=True)
+        (windows_apps / "winget.exe").touch()
+        for command in ("py", "python", "python3"):
+            (initial_bin / f"{command}.cmd").write_text("@exit /b 1\n")
+
+        sentinel = bootstrap_case / "winget-ran"
+        known_folder_probe = re.compile(
+            r'set "FORGE_LOCAL_APP_DATA="\nfor /f .*?\n'
+            r'if not defined FORGE_LOCAL_APP_DATA goto missing'
+        )
+        test_shim, replacements = known_folder_probe.subn(
+            lambda _match: (
+                f'set "FORGE_LOCAL_APP_DATA={local_app_data}"\n'
+                'if not defined FORGE_LOCAL_APP_DATA goto missing'
+            ),
+            shim,
+            count=1,
+        )
+        assert replacements == 1
+        test_shim = test_shim.replace(
+            '"%FORGE_WINGET%" install --id Python.Python.3.14 --exact '
+            '--scope user --source winget --silent --accept-package-agreements '
+            '--accept-source-agreements',
+            f'echo WINGET_RAN>"{sentinel}"',
+            1,
+        )
+        system_root = Path(os.environ["SystemRoot"])
+        test_env = {
+            **os.environ,
+            "PATH": os.pathsep.join([str(initial_bin), str(system_root / "System32")]),
+            "LOCALAPPDATA": str(local_app_data),
+        }
+
+        for case_name, probe, replacement in (
+            ("elevated", medium_integrity_probe, "cmd /d /c exit /b 1"),
+            ("whoami-failure", whoami_probe, "cmd /d /c exit /b 1"),
+            ("findstr-failure", medium_integrity_probe, "cmd /d /c exit /b 1"),
+        ):
+            launcher = bootstrap_case / f"forge-{case_name}.cmd"
+            launcher.write_text(test_shim.replace(probe, replacement, 1))
+            result = subprocess.run(
+                ["cmd", "/d", "/c", str(launcher), "status"],
+                cwd=bootstrap_case,
+                capture_output=True,
+                text=True,
+                env=test_env,
+            )
+
+            assert result.returncode == 2, result.stdout + result.stderr
+            assert "normal (unelevated) prompt" in result.stderr
+            assert not sentinel.exists()
+
+
+def test_forge_cmd_bootstrap_converges_on_already_installed(tmp_path):
+    shim = (HARNESS / "forge.cmd").read_text()
+    winget_install = (
+        '"%FORGE_WINGET%" install --id Python.Python.3.14 --exact --scope user'
+    )
+    refreshed_path = 'set "PATH=%FORGE_LOCAL_APP_DATA%\\Programs\\Python\\Python314;'
+    restart = 'cmd /d /c "set "FORGE_PYTHON_BOOTSTRAP_ATTEMPTED=1"'
+    install_index = shim.index(winget_install)
+    refresh_index = shim.index(refreshed_path, install_index)
+    restart_index = shim.index(restart, refresh_index)
+
+    assert "if errorlevel 1 goto missing" not in shim[install_index:refresh_index]
+    assert install_index < refresh_index < restart_index
+
+    if os.name == "nt":
+        bootstrap_case = tmp_path / "already-installed"
+        local_app_data = bootstrap_case / "LocalAppData"
+        initial_bin = bootstrap_case / "initial-bin"
+        python_dir = local_app_data / "Programs" / "Python" / "Python314"
+        windows_apps = local_app_data / "Microsoft" / "WindowsApps"
+        initial_bin.mkdir(parents=True)
+        python_dir.mkdir(parents=True)
+        windows_apps.mkdir(parents=True)
+        winget = windows_apps / "winget.exe"
+        where_executable = shutil.which("where")
+        assert where_executable
+        shutil.copy2(where_executable, winget)
+        for command in ("py", "python", "python3"):
+            (initial_bin / f"{command}.cmd").write_text("@exit /b 1\n")
+        (python_dir / "python.cmd").write_text(
+            '@echo off\n'
+            'if "%~1"=="-c" exit /b 0\n'
+            'echo BOOTSTRAP_CONVERGED\n'
+            'exit /b 0\n'
+        )
+        known_folder_probe = re.compile(
+            r'set "FORGE_LOCAL_APP_DATA="\nfor /f .*?\n'
+            r'if not defined FORGE_LOCAL_APP_DATA goto missing'
+        )
+        replacement = (
+            f'set "FORGE_LOCAL_APP_DATA={local_app_data}"\n'
+            'if not defined FORGE_LOCAL_APP_DATA goto missing'
+        )
+        test_shim, replacements = known_folder_probe.subn(
+            lambda _match: replacement,
+            shim,
+            count=1,
+        )
+        assert replacements == 1
+        elevation_guard = re.compile(
+            r'if not exist "%SystemRoot%\\System32\\whoami\.exe" goto missing\n'
+            r'if not exist "%SystemRoot%\\System32\\findstr\.exe" goto missing\n'
+            r'"%SystemRoot%\\System32\\whoami\.exe" /groups >nul 2>&1\n'
+            r'if errorlevel 1 goto missing\n'
+            r'"%SystemRoot%\\System32\\whoami\.exe" /groups \| '
+            r'"%SystemRoot%\\System32\\findstr\.exe" /c:"S-1-16-8192" '
+            r'>nul 2>&1\n'
+            r'if errorlevel 1 goto missing'
+        )
+        test_shim, replacements = elevation_guard.subn(
+            "rem Test shim isolates bootstrap convergence from elevation policy",
+            test_shim,
+            count=1,
+        )
+        assert replacements == 1
+        (bootstrap_case / "forge.cmd").write_text(test_shim)
+
+        system_root = Path(os.environ["SystemRoot"])
+        initial_path = os.pathsep.join([str(initial_bin), str(system_root / "System32")])
+        winget_result = subprocess.run(
+            [str(winget), "install", "--id", "Python.Python.3.14"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PATH": initial_path},
+        )
+        assert winget_result.returncode != 0
+        result = subprocess.run(
+            ["cmd", "/d", "/c", str(bootstrap_case / "forge.cmd"), "status"],
+            cwd=bootstrap_case,
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "PATH": initial_path,
+                "LOCALAPPDATA": str(local_app_data),
+                "ProgramFiles": str(bootstrap_case / "ProgramFiles"),
+                "ProgramFiles(x86)": str(bootstrap_case / "ProgramFiles-x86"),
+                "CLAUDE_CODE_GIT_BASH_PATH": str(bootstrap_case / "missing.exe"),
+            },
+        )
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "BOOTSTRAP_CONVERGED" in result.stdout
+
+
+def test_init_and_upgrade_invoke_windows_remediation_when_hooks_red(
+    tmp_path, monkeypatch, capsys,
+):
+    from forge_cli import doctor, scaffold
+
+    statuses = iter(((False, "sh is not on PATH"), (False, "sh is not on PATH")))
+    remediations = []
+    monkeypatch.setattr(doctor, "_platform_name", lambda: "windows")
+    monkeypatch.setattr(doctor, "fast_hook_status", lambda _target: next(statuses))
+    monkeypatch.setattr(doctor, "_existing_hook_shell", lambda _env: None)
+    monkeypatch.setattr(doctor, "_python_status", lambda: (False, "missing"))
+    monkeypatch.setattr(
+        doctor,
+        "_remediate_windows_prerequisites",
+        lambda **kwargs: remediations.append(kwargs),
+    )
+
+    scaffold.remediate_windows_hook_entry(tmp_path)
+
+    assert remediations == [{"install_git": True, "install_python": True}]
+    output = capsys.readouterr().out
+    assert "[RED] Windows hook check" in output
+    assert doctor.HOOK_SHELL_FIX in output
+
+    monkeypatch.setattr(doctor, "_platform_name", lambda: "linux")
+    monkeypatch.setattr(
+        doctor,
+        "fast_hook_status",
+        lambda _target: (_ for _ in ()).throw(
+            AssertionError("POSIX flow must not run the Windows hook check")
+        ),
+    )
+    scaffold.remediate_windows_hook_entry(tmp_path)
+    assert capsys.readouterr().out == ""
+
+    for relative in (
+        "factory/scripts/forge_cli/scaffold.py",
+        "factory/scripts/forge_cli/adopt.py",
+        "factory/scripts/forge_cli/upgrade.py",
+    ):
+        source = (HARNESS / relative).read_text()
+        assert "remediate_windows_hook_entry(target)" in source
+
+    upgrade_source = (HARNESS / "factory/scripts/forge_cli/upgrade.py").read_text()
+    assert upgrade_source.rindex("remediate_windows_hook_entry(target)") \
+        > upgrade_source.rindex("write_manifest(target, commit)")
+
+
+def test_windows_autocrlf_checkout_preserves_forge_launcher(tmp_path):
+    from forge_cli.doctor import _runnable_hook_shell
+
+    checkout = tmp_path / "autocrlf"
+    checkout.mkdir()
+    (checkout / ".gitattributes").write_bytes((HARNESS / ".gitattributes").read_bytes())
+    (checkout / "forge").write_bytes((HARNESS / "forge").read_bytes())
+    git(checkout, "init", "-q")
+    git(checkout, "config", "core.autocrlf", "true")
+    git(checkout, "add", ".gitattributes", "forge")
+    (checkout / "forge").unlink()
+    git(checkout, "checkout-index", "--force", "forge")
+
+    launcher = (checkout / "forge").read_bytes()
+    assert b"\r\n" not in launcher
+    shell = _runnable_hook_shell(dict(os.environ), HARNESS)
+    assert shell, "test requires Git Bash or another POSIX shell"
+    result = subprocess.run([shell, "-n", str(checkout / "forge")], capture_output=True)
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+
+
+def test_portable_fast_hook_status_is_subprocess_free(monkeypatch):
+    from forge_cli import doctor
+
+    def subprocess_forbidden(*args, **kwargs):
+        raise AssertionError("fast hook status must not spawn a subprocess")
+
+    monkeypatch.setattr(doctor.subprocess, "run", subprocess_forbidden)
+    ok, detail = doctor.fast_hook_status()
+
+    assert ok
+    assert shutil.which("sh") in detail
+    assert any(
+        interpreter and interpreter in detail
+        for interpreter in (shutil.which("py"), shutil.which("python3"), shutil.which("python"))
+    )
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX fixture emulates Git Bash outside PATH with an executable wrapper",
+)
+def test_doctor_discovers_and_probes_git_bash_outside_path(tmp_path):
+    from forge_cli import doctor
+
+    program_files = tmp_path / "Program Files"
+    shell = program_files / "Git" / "usr" / "bin" / "sh.exe"
+    shell.parent.mkdir(parents=True)
+    shell.write_text(f"#!{shutil.which('sh')}\nexec {shutil.which('sh')} \"$@\"\n")
+    shell.chmod(0o755)
+    env = {
+        "PATH": str(tmp_path / "Git" / "cmd"),
+        "ProgramFiles": str(program_files),
+    }
+
+    assert shutil.which("sh", path=env["PATH"]) is None
+    assert doctor._runnable_hook_shell(env) == str(shell)
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX fixture emulates a healthy Git-for-Windows install outside PATH",
+)
+def test_doctor_hook_health_uses_git_bash_outside_path(repo, tmp_path):
+    from forge_cli.doctor import hook_health_checks
+
+    _route_fixture_hooks_through_forge(repo)
+    program_files = tmp_path / "Program Files"
+    git_root = program_files / "Git"
+    shell = git_root / "usr" / "bin" / "sh.exe"
+    shell.parent.mkdir(parents=True)
+    shell.write_text(f"#!{shutil.which('sh')}\nexec {shutil.which('sh')} \"$@\"\n")
+    shell.chmod(0o755)
+    (shell.parent / "sh").symlink_to(shell)
+    git_cmd = git_root / "cmd"
+    git_cmd.mkdir()
+    (git_cmd / "git").symlink_to(shutil.which("git"))
+    (git_cmd / "python3").symlink_to(sys.executable)
+
+    checks = hook_health_checks(repo, env={
+        "PATH": str(git_cmd),
+        "ProgramFiles": str(program_files),
+    })
+
+    assert len(checks) == 8
+    assert all(check["ok"] for check in checks), checks
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX fixture emulates the Claude Code Git Bash override",
+)
+def test_doctor_falls_through_an_unrunnable_configured_shell(tmp_path):
+    from forge_cli import doctor
+
+    broken = tmp_path / "broken-sh"
+    broken.write_text("#!/bin/sh\nexit 9\n")
+    broken.chmod(0o755)
+    healthy = tmp_path / "healthy-sh"
+    healthy.write_text(f"#!{shutil.which('sh')}\nexec {shutil.which('sh')} \"$@\"\n")
+    healthy.chmod(0o755)
+    env = {
+        "PATH": str(tmp_path),
+        "CLAUDE_CODE_GIT_BASH_PATH": str(broken),
+    }
+    path_sh = tmp_path / "sh"
+    path_sh.symlink_to(healthy)
+
+    assert doctor._runnable_hook_shell(env) == str(path_sh)
+
+
+def test_doctor_fix_windows_batches_all_elevation_into_single_confirm(tmp_path, monkeypatch):
+    from forge_cli import doctor
+
+    invocations = []
+    run_kwargs = []
+    refreshes = []
+    reprobes = []
+    local_app_data = tmp_path / "CanonicalLocalAppData"
+    windows_apps = local_app_data / "Microsoft" / "WindowsApps"
+    windows_apps.mkdir(parents=True)
+    winget_path = windows_apps / "winget.exe"
+    winget_path.write_text("trusted alias")
+    user_winget = str(winget_path)
+
+    def fake_run(argv, **kwargs):
+        invocations.append(argv)
+        run_kwargs.append(kwargs)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "PoisonedLocalAppData"))
+    monkeypatch.setenv("ProgramFiles", str(tmp_path / "PoisonedProgramFiles"))
+    monkeypatch.setenv("PATH", str(tmp_path / "PoisonedPath"))
+    monkeypatch.setattr(
+        doctor, "_windows_known_folder",
+        lambda folder_id: local_app_data if folder_id == doctor.WINDOWS_LOCAL_APP_DATA else None,
+    )
+    monkeypatch.setattr(doctor, "_windows_process_is_elevated", lambda: False)
+    monkeypatch.setattr(doctor.subprocess, "run", fake_run)
+    monkeypatch.setattr(doctor, "_refresh_windows_path", lambda: refreshes.append(True))
+    monkeypatch.setattr(
+        doctor.shutil, "which",
+        lambda name: reprobes.append(name) or f"/tools/{name}",
+    )
+    monkeypatch.setattr(
+        doctor, "_python_check",
+        lambda: reprobes.append("python >= 3.10") or {"ok": True},
+    )
+
+    assert doctor._remediate_windows_prerequisites(
+        install_git=True, install_python=True,
+    ) == []
+
+    assert len(invocations) == 2
+    assert all(kwargs["timeout"] == doctor.WINDOWS_INSTALL_TIMEOUT for kwargs in run_kwargs)
+    assert [argv[argv.index("--id") + 1] for argv in invocations] == [
+        doctor.WINDOWS_GIT_PACKAGE, doctor.WINDOWS_PYTHON_PACKAGE,
+    ]
+    for argv in invocations:
+        assert argv[0] == user_winget
+        assert argv[argv.index("--scope") + 1] == "user"
+        assert argv[argv.index("--source") + 1] == "winget"
+        assert "--silent" in argv
+        assert "--accept-package-agreements" in argv
+        assert "--accept-source-agreements" in argv
+        assert "Poisoned" not in " ".join(argv)
+        assert all("Start-Process" not in arg and "RunAs" not in arg for arg in argv)
+    assert refreshes == [True]
+    assert reprobes == ["git", "python >= 3.10"]
+
+
+def test_doctor_fix_refuses_user_alias_when_elevated(monkeypatch):
+    from forge_cli import doctor
+
+    invocations = []
+    refreshes = []
+    reprobes = []
+
+    monkeypatch.setattr(
+        doctor, "_trusted_user_winget_path",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("elevated remediation must stop before resolving winget")
+        ),
+    )
+    monkeypatch.setattr(doctor, "_windows_process_is_elevated", lambda: True)
+    monkeypatch.setattr(
+        doctor.subprocess, "run",
+        lambda argv, **_kwargs: invocations.append(argv),
+    )
+    monkeypatch.setattr(
+        doctor, "_refresh_windows_path", lambda: refreshes.append(True),
+    )
+    monkeypatch.setattr(
+        doctor.shutil, "which", lambda name: reprobes.append(name),
+    )
+    monkeypatch.setattr(
+        doctor, "_python_check",
+        lambda: reprobes.append("python >= 3.10") or {"ok": True},
+    )
+
+    rows = doctor._remediate_windows_prerequisites(
+        install_git=True, install_python=True,
+    )
+
+    assert invocations == []
+    assert refreshes == []
+    assert reprobes == []
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["name"] == "elevated Windows prerequisite remediation"
+    assert row["required"] and not row["ok"]
+    assert "per-user install paths are user-writable" in row["detail"]
+    assert "normal (unelevated) prompt" in row["fix"]
+    assert doctor.WINDOWS_GIT_INSTALLER_URL in row["fix"]
+    assert doctor.WINDOWS_PYTHON_INSTALLER_URL in row["fix"]
+
+
+def test_fast_status_python_requires_path_resolvable_interpreter(
+    tmp_path, monkeypatch, capsys,
+):
+    from forge_cli import doctor
+
+    subprocess_run = doctor.subprocess.run
+    monkeypatch.setattr(
+        doctor.subprocess, "run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("fast_status must not spawn a subprocess")
+        ),
+    )
+    monkeypatch.setattr(doctor.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(doctor.sys, "version_info", (3, 9, 18))
+    required_missing, _ = doctor.fast_status(tmp_path)
+
+    assert "python >= 3.10" in required_missing
+
+    monkeypatch.setattr(doctor.sys, "version_info", (3, 10, 0))
+    assert "python >= 3.10" not in doctor.fast_status(tmp_path)[0]
+
+    monkeypatch.setattr(doctor.sys, "version_info", (3, 9, 18))
+    for candidate in ("py", "python3", "python"):
+        monkeypatch.setattr(
+            doctor.shutil, "which",
+            lambda name, candidate=candidate: (
+                f"/tools/{candidate}" if name == candidate else None
+            ),
+        )
+        assert "python >= 3.10" not in doctor.fast_status(tmp_path)[0]
+
+    monkeypatch.setattr(doctor, "_python_status", lambda: (False, "Python 3.9.18"))
+    row = doctor._python_check()
+    assert row["name"] == "python >= 3.10"
+    assert row["required"] and not row["ok"]
+
+    for path in (
+        doctor._codex_plugin_dir(tmp_path), doctor._gstack_dir(tmp_path),
+        doctor._autoreview_dir(tmp_path),
+    ):
+        path.mkdir(parents=True)
+    monkeypatch.setattr(doctor.subprocess, "run", subprocess_run)
+    monkeypatch.setattr(doctor.Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(doctor, "repo_root", lambda: (_ for _ in ()).throw(FileNotFoundError()))
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: f"/tools/{name}")
+    monkeypatch.setattr(doctor, "_has_direnv_hook", lambda _home: True)
+    monkeypatch.setattr(doctor, "_merge_check_status", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        doctor, "run_quiet",
+        lambda argv, **_kwargs: (
+            (0, "v20.0.0") if argv[-1] == "--version" and "node" in argv[0]
+            else (0, "codex-cli 0.144.0") if argv[-1] == "--version"
+            else (0, "logged in")
+        ),
+    )
+
+    with pytest.raises(SystemExit):
+        doctor.cmd_doctor(argparse.Namespace(fast=False, fix=False, repo=None))
+    output = capsys.readouterr().out
+    assert "[MISS] python >= 3.10" in output
+    assert "python >= 3.10" in required_missing
+
+
+def test_doctor_psutil_row_required_and_fix_installs(tmp_path, monkeypatch):
+    from forge_cli import doctor
+
+    with monkeypatch.context() as broken:
+        broken.setattr(
+            doctor.subprocess, "run",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError("fast_status must not spawn a subprocess")
+            ),
+        )
+        broken.setattr(
+            doctor.importlib.util, "find_spec",
+            lambda name: object() if name == "psutil" else None,
+        )
+        broken.setattr(
+            doctor.importlib, "import_module",
+            lambda _name: (_ for _ in ()).throw(OSError("broken psutil ABI")),
+        )
+        assert "psutil" not in doctor.fast_status(tmp_path)[0]
+        broken_row = doctor._psutil_check()
+        assert broken_row["required"] and not broken_row["ok"]
+        assert "broken psutil ABI" in broken_row["detail"]
+
+    installed = {"psutil": False}
+    commands = []
+    refreshed_sites = []
+    monkeypatch.setattr(
+        doctor.subprocess, "run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("fast_status must not spawn a subprocess")
+        ),
+    )
+    monkeypatch.setattr(
+        doctor.importlib.util, "find_spec",
+        lambda name: object() if name == "psutil" and installed["psutil"] else None,
+    )
+    monkeypatch.setattr(
+        doctor, "_psutil_import_status",
+        lambda: (
+            (True, f"importable by {sys.executable}")
+            if installed["psutil"] else (False, "import failed: ModuleNotFoundError")
+        ),
+    )
+    monkeypatch.setattr(doctor.sys, "prefix", "/system-python")
+    monkeypatch.setattr(doctor.sys, "base_prefix", "/system-python")
+    monkeypatch.setattr(
+        doctor.site, "getusersitepackages", lambda: "/user/site-packages",
+    )
+    monkeypatch.setattr(doctor.site, "addsitedir", refreshed_sites.append)
+    monkeypatch.setattr(
+        doctor.importlib, "invalidate_caches",
+        lambda: refreshed_sites.append("caches-invalidated"),
+    )
+
+    required_missing, _ = doctor.fast_status(tmp_path)
+    assert "psutil" in required_missing
+    missing_row = doctor._psutil_check()
+    assert missing_row["required"] and not missing_row["ok"]
+    assert "pip install psutil" in missing_row["fix"]
+
+    def install(argv, **_kwargs):
+        commands.append(argv)
+        installed["psutil"] = True
+        return 0, "installed"
+
+    monkeypatch.setattr(doctor, "run_quiet", install)
+    row = doctor._psutil_check(fix=True)
+
+    assert row["ok"] and row["detail"] == f"importable by {sys.executable}"
+    assert commands == [[
+        sys.executable, "-m", "pip", "install", "--user", "psutil",
+    ]]
+    assert refreshed_sites == ["/user/site-packages", "caches-invalidated"]
+    assert "psutil" not in doctor.fast_status(tmp_path)[0]
+    assert row["required"] and row["ok"]
+
+    commands.clear()
+    installed["psutil"] = False
+    monkeypatch.setattr(doctor.sys, "prefix", "/project/.venv")
+    monkeypatch.setattr(doctor.sys, "base_prefix", "/system-python")
+    row = doctor._psutil_check(fix=True)
+    assert row["ok"]
+    assert commands == [[sys.executable, "-m", "pip", "install", "psutil"]]
+    assert refreshed_sites == ["/user/site-packages", "caches-invalidated"]
+
+    commands.clear()
+    installed["psutil"] = False
+    monkeypatch.setattr(doctor.sys, "prefix", "/system-python")
+    monkeypatch.setattr(doctor.sys, "base_prefix", "/system-python")
+
+    def externally_managed(argv, **_kwargs):
+        commands.append(argv)
+        return 1, "error: externally-managed-environment"
+
+    monkeypatch.setattr(
+        doctor, "run_quiet", externally_managed,
+    )
+    row = doctor._psutil_check(fix=True)
+    assert not row["ok"] and "externally managed" in row["detail"]
+    assert "pip install psutil" in row["fix"]
+    assert commands == [[
+        sys.executable, "-m", "pip", "install", "--user", "psutil",
+    ]]
+    assert "--break-system-packages" not in commands[0]
+
+
+def test_doctor_python_row_probes_working_windows_store_alias(tmp_path, monkeypatch):
+    from forge_cli import doctor
+
+    windows_apps = tmp_path / "WindowsApps"
+    windows_apps.mkdir()
+    alias = windows_apps / "python.exe"
+    alias.touch()
+    monkeypatch.setattr(doctor, "_platform_name", lambda: "windows")
+    monkeypatch.setattr(
+        doctor.shutil, "which",
+        lambda name: str(alias) if name == "python" else None,
+    )
+    monkeypatch.setattr(
+        doctor.subprocess, "run",
+        lambda argv, **_kwargs: subprocess.CompletedProcess(
+            argv, 0, "Python 3.14.7\n", "",
+        ),
+    )
+
+    assert doctor._python_candidates() == [(str(alias), ())]
+    assert doctor._python_status() == (True, f"{alias}: Python 3.14.7")
+
+    monkeypatch.setattr(
+        doctor.subprocess, "run",
+        lambda argv, **_kwargs: subprocess.CompletedProcess(
+            argv, 1, "", "Python was not found",
+        ),
+    )
+    ok, detail = doctor._python_status()
+    assert not ok
+    assert "Python was not found" in detail
+
+
+def test_doctor_fix_reports_winget_absent_as_named_red_row(monkeypatch):
+    from forge_cli import doctor
+
+    refreshes = []
+    reprobes = []
+    monkeypatch.setattr(doctor, "_windows_process_is_elevated", lambda: False)
+    monkeypatch.setattr(doctor, "_windows_known_folder", lambda _folder_id: None)
+    monkeypatch.setattr(doctor, "_refresh_windows_path", lambda: refreshes.append(True))
+    monkeypatch.setattr(
+        doctor.shutil, "which", lambda name: reprobes.append(name),
+    )
+    monkeypatch.setattr(
+        doctor, "_python_check",
+        lambda: reprobes.append("python >= 3.10") or {"ok": False},
+    )
+    rows = doctor._remediate_windows_prerequisites(
+        install_git=True, install_python=True,
+    )
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["name"] == "winget for Windows prerequisites"
+    assert row["required"] and not row["ok"]
+    assert "https://git-scm.com/download/win" in row["detail"]
+    assert "https://www.python.org/downloads/windows/" in row["detail"]
+    assert refreshes == [True]
+    assert reprobes == ["git", "python >= 3.10"]
+
+
+def test_doctor_fix_winget_absent_converges_green_when_tools_present(
+    monkeypatch,
+):
+    from forge_cli import doctor
+
+    refreshes = []
+    monkeypatch.setattr(doctor, "_windows_process_is_elevated", lambda: False)
+    monkeypatch.setattr(doctor, "_trusted_user_winget_path", lambda: None)
+    monkeypatch.setattr(doctor, "_refresh_windows_path", lambda: refreshes.append(True))
+    monkeypatch.setattr(
+        doctor.shutil, "which", lambda name: "/tools/git" if name == "git" else None,
+    )
+    monkeypatch.setattr(doctor, "_python_check", lambda: {"ok": True})
+
+    rows = doctor._remediate_windows_prerequisites(
+        install_git=True, install_python=True,
+    )
+
+    assert rows == []
+    assert refreshes == [True]
+
+
+def test_doctor_fix_windows_partial_install_refreshes_and_reprobes(tmp_path, monkeypatch):
+    from forge_cli import doctor
+
+    invocations = []
+    refreshes = []
+    reprobes = []
+    local_app_data = tmp_path / "LocalAppData"
+    windows_apps = local_app_data / "Microsoft" / "WindowsApps"
+    windows_apps.mkdir(parents=True)
+    winget = windows_apps / "winget.exe"
+    winget.write_text("trusted alias")
+
+    def fake_run(argv, **kwargs):
+        invocations.append(argv)
+        return subprocess.CompletedProcess(
+            argv, 1 if doctor.WINDOWS_GIT_PACKAGE in argv else 0,
+            "", "installer elevation declined" if doctor.WINDOWS_GIT_PACKAGE in argv else "",
+        )
+
+    monkeypatch.setattr(
+        doctor, "_windows_known_folder",
+        lambda folder_id: local_app_data if folder_id == doctor.WINDOWS_LOCAL_APP_DATA else None,
+    )
+    monkeypatch.setattr(doctor, "_windows_process_is_elevated", lambda: False)
+    monkeypatch.setattr(doctor.subprocess, "run", fake_run)
+    monkeypatch.setattr(doctor, "_refresh_windows_path", lambda: refreshes.append(True))
+    monkeypatch.setattr(
+        doctor.shutil, "which", lambda name: reprobes.append(name),
+    )
+    monkeypatch.setattr(
+        doctor, "_python_check",
+        lambda: reprobes.append("python >= 3.10") or {"ok": True},
+    )
+
+    rows = doctor._remediate_windows_prerequisites(
+        install_git=True, install_python=True,
+    )
+
+    assert [argv[argv.index("--id") + 1] for argv in invocations] == [
+        doctor.WINDOWS_GIT_PACKAGE, doctor.WINDOWS_PYTHON_PACKAGE,
+    ]
+    assert len(rows) == 1
+    assert rows[0]["name"] == "Git for Windows user-scope install"
+    assert rows[0]["required"] and not rows[0]["ok"]
+    assert "installer elevation declined" in rows[0]["detail"]
+    assert doctor.WINDOWS_GIT_INSTALLER_URL in rows[0]["detail"]
+    assert refreshes == [True]
+    assert reprobes == ["git", "python >= 3.10"]
+
+
+def test_doctor_fix_reports_installed_but_not_found(tmp_path, monkeypatch):
+    from forge_cli import doctor
+
+    local_app_data = tmp_path / "CanonicalLocalAppData"
+    alias = local_app_data / "Microsoft" / "WindowsApps" / "winget.exe"
+    alias.parent.mkdir(parents=True)
+    alias.write_text("trusted alias")
+    refreshes = []
+
+    monkeypatch.setattr(
+        doctor, "_windows_known_folder",
+        lambda folder_id: (
+            local_app_data if folder_id == doctor.WINDOWS_LOCAL_APP_DATA else None
+        ),
+    )
+    monkeypatch.setattr(doctor, "_windows_process_is_elevated", lambda: False)
+    monkeypatch.setattr(
+        doctor.subprocess, "run",
+        lambda argv, **_kwargs: subprocess.CompletedProcess(argv, 0, "", ""),
+    )
+    monkeypatch.setattr(
+        doctor, "_refresh_windows_path", lambda: refreshes.append(True),
+    )
+    monkeypatch.setattr(doctor.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(doctor, "_python_check", lambda: {"ok": False})
+
+    rows = doctor._remediate_windows_prerequisites(
+        install_git=True, install_python=True,
+    )
+
+    assert [row["name"] for row in rows] == [
+        "Git for Windows installed but not found",
+        "Python 3.14 installed but not found",
+    ]
+    assert all(row["required"] and not row["ok"] for row in rows)
+    assert all("winget exited successfully" in row["detail"] for row in rows)
+    assert all("after refreshing PATH" in row["detail"] for row in rows)
+    assert doctor.WINDOWS_GIT_INSTALLER_URL in rows[0]["fix"]
+    assert doctor.WINDOWS_PYTHON_INSTALLER_URL in rows[1]["fix"]
+    assert refreshes == [True]
+
+
+def test_doctor_fix_rejects_untrusted_winget_path(tmp_path, monkeypatch):
+    from forge_cli import doctor
+
+    untrusted = tmp_path / "winget.exe"
+    untrusted.write_text("PATH hijack")
+    canonical_local = tmp_path / "CanonicalLocalAppData"
+    windows_apps = canonical_local / "Microsoft" / "WindowsApps"
+    windows_apps.mkdir(parents=True)
+    (windows_apps / "winget.exe").symlink_to(untrusted)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "LocalAppData"))
+    monkeypatch.setenv("ProgramFiles", str(tmp_path / "ProgramFiles"))
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.setattr(doctor, "_windows_process_is_elevated", lambda: False)
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: str(untrusted) if name == "winget" else None)
+    monkeypatch.setattr(
+        doctor, "_windows_known_folder",
+        lambda folder_id: canonical_local if folder_id == doctor.WINDOWS_LOCAL_APP_DATA else None,
+    )
+
+    rows = doctor._remediate_windows_prerequisites(
+        install_git=True, install_python=True,
+    )
+
+    assert len(rows) == 1
+    assert not rows[0]["ok"]
+    assert "outside its trusted" in rows[0]["detail"]
+
+
+def test_doctor_fix_nonzero_already_installed_converges_after_refresh(tmp_path, monkeypatch):
+    from forge_cli import doctor
+
+    local_app_data = tmp_path / "CanonicalLocalAppData"
+    alias = local_app_data / "Microsoft" / "WindowsApps" / "winget.exe"
+    alias.parent.mkdir(parents=True)
+    alias.write_text("trusted alias")
+    refreshed = []
+
+    monkeypatch.setattr(
+        doctor, "_windows_known_folder",
+        lambda folder_id: local_app_data if folder_id == doctor.WINDOWS_LOCAL_APP_DATA else None,
+    )
+    monkeypatch.setattr(doctor, "_windows_process_is_elevated", lambda: False)
+    monkeypatch.setattr(
+        doctor.subprocess, "run",
+        lambda argv, **_kwargs: subprocess.CompletedProcess(
+            argv, 1, "No applicable upgrade found", "",
+        ),
+    )
+    monkeypatch.setattr(
+        doctor, "_refresh_windows_path", lambda: refreshed.append(True),
+    )
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: "/tools/git")
+    monkeypatch.setattr(doctor, "_python_check", lambda: {"ok": True})
+
+    rows = doctor._remediate_windows_prerequisites(
+        install_git=True, install_python=True,
+    )
+
+    assert rows == []
+    assert refreshed == [True]
+
+
+def test_doctor_fix_trusts_appexeclink_without_resolving(tmp_path, monkeypatch):
+    from forge_cli import doctor
+
+    local_app_data = tmp_path / "CanonicalLocalAppData"
+    alias = local_app_data / "Microsoft" / "WindowsApps" / "winget.exe"
+    alias.parent.mkdir(parents=True)
+    alias.write_text("app execution alias")
+    original_resolve = doctor.Path.resolve
+
+    def fake_resolve(path, *args, **kwargs):
+        if path == alias:
+            raise OSError("[WinError 1920] The file cannot be accessed by the system")
+        return original_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(
+        doctor, "_windows_known_folder",
+        lambda folder_id: local_app_data if folder_id == doctor.WINDOWS_LOCAL_APP_DATA else None,
+    )
+    monkeypatch.setattr(doctor.Path, "resolve", fake_resolve)
+    monkeypatch.setattr(
+        doctor.Path, "exists",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("winget identity check must not follow the App Execution Alias")
+        ),
+    )
+    monkeypatch.setattr(
+        doctor.Path, "glob",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("unelevated parent must not enumerate WindowsApps")
+        ),
+    )
+
+    assert doctor._trusted_user_winget_path() == str(alias)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX stub executables model refreshed PATH")
+def test_doctor_fix_windows_refreshes_path_and_converges(tmp_path, monkeypatch):
+    from forge_cli import doctor
+
+    local = tmp_path / "LocalAppData"
+    windows_apps = local / "Microsoft" / "WindowsApps"
+    windows_apps.mkdir(parents=True)
+    (windows_apps / "winget.exe").write_text("trusted alias")
+    git_dir = local / "Programs" / "Git" / "cmd"
+    python_dir = local / "Programs" / "Python" / "Python314"
+    git_dir.mkdir(parents=True)
+    python_dir.mkdir(parents=True)
+    for path, output in ((git_dir / "git", "git version 2.50.0"),
+                         (python_dir / "python", "Python 3.14.7")):
+        path.write_text(f"#!/bin/sh\nprintf '%s\\n' '{output}'\n")
+        path.chmod(0o755)
+
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "PoisonedLocalAppData"))
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.delenv("ProgramW6432", raising=False)
+    monkeypatch.delenv("ProgramFiles", raising=False)
+    monkeypatch.delenv("ProgramFiles(x86)", raising=False)
+    monkeypatch.setattr(
+        doctor, "_windows_known_folder",
+        lambda folder_id: local if folder_id == doctor.WINDOWS_LOCAL_APP_DATA else None,
+    )
+    monkeypatch.setattr(doctor, "_windows_process_is_elevated", lambda: False)
+    subprocess_run = doctor.subprocess.run
+    monkeypatch.setattr(
+        doctor.subprocess, "run",
+        lambda argv, **kwargs: (
+            subprocess.CompletedProcess(argv, 0, "", "")
+            if argv[0].endswith("winget.exe") else subprocess_run(argv, **kwargs)
+        ),
+    )
+    assert doctor._remediate_windows_prerequisites(
+        install_git=False, install_python=True,
+    ) == []
+
+    assert shutil.which("git") == str(git_dir / "git")
+    assert doctor._python_status()[0]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX fixture models WOW64 PATH refresh")
+def test_doctor_fix_windows_refreshes_native_git_under_wow64(
+    tmp_path, monkeypatch,
+):
+    from forge_cli import doctor
+
+    program_files_x86 = tmp_path / "Program Files (x86)"
+    program_files_x64 = tmp_path / "Program Files"
+    git_dir = program_files_x64 / "Git" / "cmd"
+    git_dir.mkdir(parents=True)
+    git = git_dir / "git"
+    git.write_text("#!/bin/sh\nexit 0\n")
+    git.chmod(0o755)
+
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.setenv("ProgramW6432", str(program_files_x64))
+    monkeypatch.setenv("ProgramFiles", str(program_files_x86))
+    monkeypatch.setenv("ProgramFiles(x86)", str(program_files_x86))
+    monkeypatch.setattr(
+        doctor, "_windows_known_folder",
+        lambda _folder_id: None,
+    )
+
+    doctor._refresh_windows_path()
+
+    assert shutil.which("git") == str(git)
+    assert not hasattr(doctor, "WINDOWS_PROGRAM_FILES_X64")
+
+
+def test_phase_names_doctor_first_when_hook_launcher_is_broken(repo, capsys):
+    from forge_cli import phase
+
+    (repo / "forge").unlink()
+    phase.cmd_next(argparse.Namespace(repo=str(repo)))
+    output = capsys.readouterr().out
+    first = output.split("NEXT:\n", 1)[1].splitlines()[0]
+
+    assert "./forge doctor --fix" in first
+
+    shutil.copy2(HARNESS / "forge", repo / "forge")
+    (repo / "forge").chmod(0o644)
+    phase.cmd_next(argparse.Namespace(repo=str(repo)))
+    output = capsys.readouterr().out
+    first = output.split("NEXT:\n", 1)[1].splitlines()[0]
+
+    assert "./forge doctor --fix" in first
+
+    (repo / "forge").chmod(0o755)
+    (repo / "factory" / "scripts" / "forge.py").unlink()
+    phase.cmd_next(argparse.Namespace(repo=str(repo)))
+    output = capsys.readouterr().out
+    first = output.split("NEXT:\n", 1)[1].splitlines()[0]
+
+    assert "./forge doctor --fix" in first
+
+
+def test_precompact_hook_health_resolves_context_before_returning():
+    source = (HARNESS / "factory" / "scripts" / "pre_compact.py").read_text()
+
+    read_input = source.index("payload = read_hook_input()")
+    resolve_repo = source.index("root = repo_root()", read_input)
+    import_scratchpad = source.index(
+        "from forge_cli.scratchpad import notes_section, scratchpad_path",
+        resolve_repo,
+    )
+    health_return = source.index(
+        'if os.environ.get("FACTORY_HOOK_HEALTH") == "1":', import_scratchpad,
+    )
+    first_write = min(
+        source.index("path.parent.mkdir", health_return),
+        source.index("path.write_text", health_return),
+    )
+
+    assert read_input < resolve_repo < import_scratchpad < health_return < first_write
+
+
 # ------------------------------------------------------------------- roadmap
 
 ROADMAP_EPIC = {"id": "billing", "title": "Billing", "objective": "money in",
@@ -2702,7 +4695,7 @@ def test_roadmap_lifecycle(repo, tmp_path):
     assert roadmap_items(repo)["ENG-1"]["status"] == "active"
     # drive to pr-ready: item completed with a history link
     save_plan(repo, tmp_path)
-    run(repo, "record_decomposition_from_json.py", stdin=json.dumps(DECOMP))
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])
     write_passing_artifacts(repo)
     run(repo, "update_run.py", "--decomposition-status", "recorded")
     code, out = run(repo, "pr_ready.py")
@@ -2798,8 +4791,7 @@ def test_recorders_refuse_nonconforming_payloads(repo, tmp_path):
                                       "user_facing": True, "tasks": []}))
     assert code != 0 and "not pinned" in out and "harness PR" in out
     # valid decomposition opens the downstream gates
-    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(DECOMP))
-    assert code == 0, out
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])
     # review: legacy 'blocking' alias no longer accepted as blocking_findings
     code, out = run(repo, "record_review_from_json.py", "--aspect", "quality",
                     stdin=json.dumps({"generated_by": "autoreview", "score": 9,
@@ -2907,6 +4899,7 @@ def test_adopt_vendors_harness_and_preserves_project(tmp_path):
     assert code == 0, out
     # machinery is in; project content untouched; their CI survived the merge
     assert (repo / "factory" / "scripts" / "forge.py").exists()
+    assert (repo / "factory" / "scripts" / "check_encoding_hygiene.py").exists()
     assert (repo / "src" / "app.js").read_text() == "console.log('prototype')\n"
     # project README preserved, onboarding section appended (never rewritten)
     readme = (repo / "README.md").read_text()
@@ -2915,6 +4908,7 @@ def test_adopt_vendors_harness_and_preserves_project(tmp_path):
     assert (repo / ".github" / "workflows" / "their-ci.yml").exists()
     # harness factory workflow delivered alongside the preserved project one
     assert (repo / ".github" / "workflows" / "factory-scaffold.yml").exists()
+    assert "--with psutil" in (repo / ".envrc").read_text()
     # old CLAUDE.md preserved for harvest; shim installed
     kept = repo / "docs" / "context" / "migrated-CLAUDE.md"
     assert kept.exists() and "tabs" in kept.read_text()
@@ -2922,6 +4916,9 @@ def test_adopt_vendors_harness_and_preserves_project(tmp_path):
     # sign-off gate armed, project-owned files created
     assert not signed_off(repo)  # an adopted repo inherits no sign-off
     assert (repo / "harness.yaml").exists()
+    assert "./forge spec save + spec confirm" in out
+    assert "./forge roadmap derive" in out
+    assert "roadmap epic add + roadmap add" in out
     # the adopted repo passes the same checks as a scaffold
     code, out = run(repo, "check_dual_runtime.py", str(repo))
     assert code == 0, out
@@ -3050,6 +5047,24 @@ def test_adopt_refuses_a_symlinked_ancestor_and_leaves_the_target_clean(
 
 # ------------------------------------------------------- project-local gstack
 
+def test_pr_link_commit_skips_ci():
+    # D-0017: without [skip ci], the bot-attributed synchronize wave is held
+    # action_required and strands the PR's checks behind a manual re-trigger.
+    workflow = (HARNESS / ".github" / "workflows" / "pr-link.yml").read_text()
+    assert "workflow_run:\n    workflows: [factory-scaffold]\n    types: [completed]" in workflow
+    assert "github.event.workflow_run.conclusion == 'success'" in workflow
+    assert "statuses: write" in workflow
+    commit_guard = "steps.link.outputs.story != '' && steps.link.outputs.already_linked != 'true'"
+    commit_step, status_step = workflow.split("- name: Commit the durable link to the PR branch", 1)[1].split(
+        "- name: Carry scaffold-check to the link commit", 1
+    )
+    assert f"if: {commit_guard}" in commit_step
+    assert f"if: {commit_guard}" in status_step
+    assert "statuses/$SHA" in status_step
+    assert "context=scaffold-check" in status_step
+    assert "[skip ci]" in workflow.split("git commit -m")[1].splitlines()[0]
+
+
 def test_scaffold_delivers_factory_workflows(repo):
     # forge init vendors the harness factory workflows (by allowlist, not by
     # copying the whole .github tree).
@@ -3057,11 +5072,14 @@ def test_scaffold_delivers_factory_workflows(repo):
     assert (wf / "factory-scaffold.yml").exists()
     assert (wf / "gardener.yml").exists()
     assert (wf / "harness-health.yml").exists()
+    assert (wf / "roadmap-gate.yml").exists()
+    assert (repo / "factory/scripts/check_encoding_hygiene.py").exists()
 
 
 def test_scaffold_pins_gstack_into_the_repo(repo):
     envrc = repo / ".envrc"
     assert envrc.exists() and 'GSTACK_HOME="$PWD/.gstack"' in envrc.read_text()
+    assert "--with psutil" in envrc.read_text()
     attrs = repo / ".gitattributes"
     # union, git's built-in: a scaffolded repo must not inherit a rule that
     # depends on a per-clone hook having run wherever the merge happens.
@@ -3126,6 +5144,7 @@ def test_upgrade_delivers_gstack_setup_to_older_scaffolds(repo):
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert 'GSTACK_HOME="$PWD/.gstack"' in (repo / ".envrc").read_text()
+    assert "--with psutil" in (repo / ".envrc").read_text()
     assert "merge=union" in (repo / ".gitattributes").read_text()
     assert not jsonl_append_rules((repo / ".gitattributes").read_text())
     # The marker-keyed block: machine noise ignored, projects/ committable.
@@ -3141,7 +5160,7 @@ def test_next_routes_design_skills_by_feature_type(repo, tmp_path):
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    run(repo, "record_decomposition_from_json.py", stdin=json.dumps(DECOMP))  # user_facing: true
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])  # user_facing: true
     run(repo, "update_run.py", "--decomposition-status", "recorded")
     code, out = run(repo, "forge.py", "next")
     assert code == 0 and "emil-design-eng" in out
@@ -3238,13 +5257,12 @@ def test_next_tags_steps_with_roles(repo):
 
 def test_record_task_grill_writes_per_id_file(repo):
     task_id = "FORGE-BOARD-2.1"
-    digest = "a" * 64
-    payload = {"generated_by": "griller", "gate": "task", "task_id": task_id,
-               "verdict": "pass",
-               "gaps": [], "contradictions": [], "resolutions": []}
+    task = {**STAGE_TASK, "id": task_id}
+    seed_task_grill_frontier(repo, task)
+    payload = task_grill_payload(task, task_id=task_id)
 
     code, out = run(repo, "record_grill_from_json.py", "--gate", "task",
-                    "--task", task_id, "--task-digest", digest,
+                    "--task", task_id,
                     stdin=json.dumps(payload))
 
     assert code == 0, out
@@ -3257,21 +5275,204 @@ def test_record_task_grill_writes_per_id_file(repo):
     assert not (repo / ".factory" / "grills" / "task.json").exists()
 
 
-def test_record_task_grill_binds_digest(repo):
+def test_record_task_grill_binds_derived_digest(repo):
     task_id = "FORGE-BOARD-2.1"
-    task_digest = "0123456789abcdef" * 4
-    payload = {"generated_by": "griller", "gate": "task", "verdict": "pass",
-               "gaps": [], "contradictions": [], "resolutions": []}
+    task = {**STAGE_TASK, "id": task_id}
+    seed_task_grill_frontier(repo, task)
+    payload = task_grill_payload(task)
 
     code, out = run(repo, "record_grill_from_json.py", "--gate", "task",
-                    "--task", task_id, "--task-digest", task_digest,
+                    "--task", task_id,
                     stdin=json.dumps(payload))
 
     assert code == 0, out
     recorded = json.loads(
         (repo / ".factory" / "grills" / "tasks" / f"{task_id}.json").read_text()
     )
-    assert recorded["input_sha256"] == task_digest
+    assert recorded["input_sha256"] == grounding_digest(repo, task)
+
+
+def test_grounding_digest_staleness_matrix(repo):
+    task = STAGE_TASK
+    seed_task_grill_frontier(repo, task)
+    plan = repo / "plans" / "active" / "TEST-1-test-plan.md"
+
+    def record_current() -> None:
+        code, out = record_task_grill(repo, task)
+        assert code == 0, out
+
+    def state() -> str:
+        frontier = task_frontier_state(repo)
+        assert frontier is not None
+        return frontier[0]
+
+    record_current()
+    assert state() == "stage-start"
+
+    changed_contract = {**task, "reviewer_focus": "changed full-contract field"}
+    seed_task_grill_frontier(repo, changed_contract)
+    assert state() == "grill"
+    seed_task_grill_frontier(repo, task)
+    record_current()
+
+    original_plan = plan.read_text()
+    plan.write_text(original_plan.replace(
+        "Test content for Risks.", "Changed approved risk analysis."
+    ))
+    assert state() == "grill"
+    plan.write_text(original_plan)
+    record_current()
+
+    code, out = run(repo, "forge.py", "plan", "assume", "The adapter stays internal.")
+    assert code == 0, out
+    assert state() == "stage-start"
+
+    product = repo / "src" / "grounding.py"
+    product.parent.mkdir(exist_ok=True)
+    product.write_text("BOUND = True\n")
+    git(repo, "add", product.relative_to(repo).as_posix())
+    git(repo, "commit", "-q", "-m", "product change")
+    assert state() == "grill"
+    record_current()
+
+    evidence = repo / ".factory" / "grounding-note.json"
+    evidence.write_text("{}\n")
+    git(repo, "add", "-f", evidence.relative_to(repo).as_posix())
+    git(repo, "commit", "-q", "-m", "factory-only change")
+    assert state() == "stage-start"
+
+    plan_note = repo / "plans" / "grounding-note.md"
+    plan_note.write_text("planning note\n")
+    git(repo, "add", plan_note.relative_to(repo).as_posix())
+    git(repo, "commit", "-q", "-m", "plans-only change")
+    assert state() == "stage-start"
+
+    write_stages(repo, {
+        "issue": "TEST-1",
+        "stages": [{"id": "T1", "title": "grounding", "status": "pending"}],
+    })
+    code, out = run(repo, "forge.py", "stage", "start", "T1")
+    assert code == 0, out
+
+
+def test_task_digest_arg_is_removed_and_gates_rederive(repo):
+    task = STAGE_TASK
+    seed_task_grill_frontier(repo, task)
+    payload = task_grill_payload(task)
+
+    code, out = run(
+        repo, "record_grill_from_json.py", "--gate", "task", "--task", "T1",
+        "--task-digest", "0" * 64, stdin=json.dumps(payload),
+    )
+    assert code != 0 and "--task-digest is no longer accepted" in out
+    assert "digest is derived" in out
+
+    code, out = record_task_grill(repo, task)
+    assert code == 0, out
+    grill = repo / ".factory" / "grills" / "tasks" / "T1.json"
+    recorded = json.loads(grill.read_text())
+    assert recorded["input_sha256"] == grounding_digest(repo, task)
+
+    recorded["input_sha256"] = task_digest(task)
+    grill.write_text(json.dumps(recorded))
+    with pytest.raises(SystemExit) as exc:
+        require_task_grill(repo, "T1", task)
+    out = str(exc.value)
+    assert "STALE" in out and "digest is derived" in out
+    assert "--task-digest was removed" in out
+
+
+def test_task_grill_requires_proofs_and_rounds(repo):
+    task = STAGE_TASK
+    seed_task_grill_frontier(repo, task)
+    command = ("record_grill_from_json.py", "--gate", "task", "--task", "T1")
+
+    def record(payload):
+        return run(repo, *command, stdin=json.dumps(payload))
+
+    complete = task_grill_payload(task)
+    for field in ("inspected_refs", "current_flow", "criteria_map", "decision",
+                  "new_abstractions", "rounds", "citations"):
+        code, out = record({key: value for key, value in complete.items() if key != field})
+        assert code != 0 and field in out
+
+    code, out = record({**complete, "inspected_refs": ["missing.py:symbol"]})
+    assert code != 0 and "does not exist" in out
+    code, out = record({**complete, "criteria_map": {}})
+    assert code != 0 and "acceptance criterion" in out
+    code, out = record({**complete, "decision": "split"})
+    assert code != 0 and "requires decision 'keep'" in out
+
+    gap = "Should this task keep its current boundary?"
+    cited_gap = "Does the contract already dictate the test command?"
+    uncovered = {**complete, "verdict": "blocked", "decision": "split",
+                 "gaps": [gap], "resolutions": ["Operator decision recorded."]}
+    code, out = record(uncovered)
+    assert code != 0 and "lack a rounds entry or citation" in out
+    code, out = record({**uncovered, "rounds": [{
+        "question": gap, "options": ["Keep", "Split"], "chosen": "Elsewhere",
+    }]})
+    assert code != 0 and "chosen must be one of" in out
+    four_option_round = {
+        **uncovered,
+        "rounds": [{
+            "question": gap,
+            "options": ["Keep", "Split", "Block", "Revise"],
+            "chosen": "Revise",
+        }],
+    }
+    code, out = record(four_option_round)
+    assert code == 0, out
+    code, out = record({**uncovered, "citations": [{"finding": gap, "source": ""}]})
+    assert code != 0 and "named source document" in out
+
+    proved = {
+        **complete,
+        "inspected_refs": ["factory/scripts/record_grill_from_json.py:_validate_task_grill"],
+        "gaps": [gap, cited_gap],
+        "resolutions": ["The operator chose to keep the bounded task.",
+                        "The declared test command remains binding."],
+        "rounds": [{"question": gap, "options": ["Keep", "Split"],
+                    "chosen": "Keep"}],
+        "citations": [{"finding": cited_gap, "source": "docs/QUALITY.md"}],
+    }
+    code, out = record(proved)
+    assert code == 0, out
+
+
+def test_task_grill_block_requires_escalation_packet(repo):
+    task = STAGE_TASK
+    seed_task_grill_frontier(repo, task)
+    payload = task_grill_payload(task, verdict="blocked", escalation_packet={})
+    command = ("record_grill_from_json.py", "--gate", "task", "--task", "T1")
+
+    code, out = run(repo, *command, stdin=json.dumps(payload))
+    assert code != 0 and "escalation_packet" in out
+
+    payload["escalation_packet"] = {"issue": "The task is blocked."}
+    code, out = run(repo, *command, stdin=json.dumps(payload))
+    assert code != 0 and "exactly" in out
+
+    payload["escalation_packet"] = {
+        "issue": "The task boundary cannot be implemented safely as written.",
+        "evidence": "The inspected flow conflicts with the acceptance criteria.",
+        "recommendation": "Revise the task contract before delegation.",
+        "alternatives": "Split the task or remove the conflicting criterion.",
+        "rollback": "Keep the stage inactive until the contract is revised.",
+    }
+    code, out = run(repo, *command, stdin=json.dumps({
+        **payload,
+        "escalation_packet": {**payload["escalation_packet"], "rollback": " "},
+    }))
+    assert code != 0 and "non-empty" in out
+    code, out = run(repo, *command, stdin=json.dumps({
+        **payload,
+        "escalation_packet": {**payload["escalation_packet"], "owner": "PM"},
+    }))
+    assert code != 0 and "exactly" in out
+
+    code, out = run(repo, *command, stdin=json.dumps(payload))
+    assert code == 0, out
 
 
 def test_grill_recorder_refuses_pass_with_unresolved_findings(repo):
@@ -3324,7 +5525,7 @@ def test_user_facing_artifacts_must_attest_design_skills(repo, tmp_path):
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    run(repo, "record_decomposition_from_json.py", stdin=json.dumps(DECOMP))  # user_facing
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])  # user_facing
     # testing artifact without the mandatory design skills -> refused
     base = {"generated_by": "implementer", "status": "passed", "summary": "ok",
             "blocking_findings": [], "commands_run": ["pytest"]}
@@ -3631,6 +5832,41 @@ def test_repo_budget_watchdog(repo):
     assert code != 0 and "assets-dump.bin" in out
 
 
+def test_success_output_budget(repo):
+    """Success = one output line (terse-output spec). Exceptions are inline."""
+    def expect(budget, *args):
+        code, out = run(repo, *args)
+        assert code == 0, out
+        assert len(out.splitlines()) == budget, f"{args}: {out!r}"
+        return out
+
+    expect(1, "forge.py", "decision", "new", "budget-probe", "--repo", str(repo))
+    record = next((repo / "docs" / "decisions").glob("*-budget-probe.md"))
+    record.write_text(record.read_text()
+        .replace("<!-- Why this decision was needed; the forces at play. -->", "Why.")
+        .replace("<!-- What was decided, in one or two sentences. -->", "What.")
+        .replace("<!-- What follows: tradeoffs accepted, doors closed, work implied. -->",
+                 "So."))
+    expect(1, "forge.py", "decision", "accept", "budget-probe", "--by", "PM")
+    expect(1, "forge.py", "quickfix", "start", "budget probe")
+    expect(1, "forge.py", "quickfix", "done")
+    draft = repo / "probe-draft.md"
+    draft.write_text("# Probe capability\n\nBody.\n")
+    expect(1, "forge.py", "spec", "save", "budget-probe", "--from", str(draft))
+    expect(1, "forge.py", "context", "scan")
+    expect(1, "forge.py", "lesson", "add", "--topic", "probe",
+           "--lesson", "One-line successes stay one line.",
+           "--source", "test", "--applies-to", "factory/**",
+           "--severity", "low", "--by", "implementer")
+    expect(1, "forge.py", "defer", "add", "budget probe deferral",
+           "--why", "probe", "--trigger", "never")
+    # Documented exception: signal raise is worker-facing and keeps PAUSE.
+    out = expect(2, "forge.py", "signal", "raise", "--kind", "confusion",
+                 "--by", "implementer", "-m", "budget probe")
+    sig_id = out.split()[1]
+    expect(1, "forge.py", "signal", "resolve", sig_id, "--notes", "probe done")
+
+
 def test_decision_supersede_lifecycle(repo):
     def substantiate(slug):
         record = next((repo / "docs" / "decisions").glob(f"*-{slug}.md"))
@@ -3646,7 +5882,7 @@ def test_decision_supersede_lifecycle(repo):
     run(repo, "forge.py", "decision", "accept", "event-bus", "--by", "PM")
     code, out = run(repo, "forge.py", "decision", "new", "event-bus-v2",
                     "--supersedes", "event-bus", "--repo", str(repo))
-    assert code == 0 and "stays active until" in out, out
+    assert code == 0 and out.count("\n") == 1 and "Supersedes" in out, out
     # The predecessor governs until the replacement is CONFIRMED: retiring it at
     # draft time would leave a window where neither record is active and plan
     # attestation would require neither.
@@ -3734,9 +5970,116 @@ def hook(repo: Path, payload: dict) -> tuple[int, str]:
     return run(repo, "pre_tool_use.py", stdin=json.dumps(payload))
 
 
+def test_commit_belt_stages_refreshed_ledger(repo):
+    context_file = repo / "docs" / "context" / "commit-note.md"
+    context_file.write_text("new client context\n")
+    git(repo, "add", "docs/context/commit-note.md")
+
+    code, out = hook(repo, {
+        "tool_name": "Bash",
+        "permission_mode": "default",
+        "tool_input": {"command": "git commit -m context"},
+    })
+
+    assert code == 0
+    assert out == "{}\n"
+    staged = git(repo, "diff", "--cached", "--name-only").splitlines()
+    assert staged == ["docs/context/commit-note.md", "docs/context/ledger.json"]
+    ledger = json.loads((repo / "docs" / "context" / "ledger.json").read_text())
+    assert ledger["files"]["commit-note.md"]["status"] == "pending"
+
+
+def test_commit_belt_denies_commit_while_context_file_refused(repo):
+    context_file = repo / "docs" / "context" / "secret.txt"
+    context_file.write_text('password = "hunter2secret"\n')
+    git(repo, "add", "docs/context/secret.txt")
+
+    code, out = hook(repo, {
+        "tool_name": "Bash",
+        "permission_mode": "default",
+        "tool_input": {"command": "git commit -m context"},
+    })
+
+    assert code == 0
+    decision = json.loads(out)["hookSpecificOutput"]
+    assert decision["permissionDecision"] == "deny"
+    assert "secret.txt" in decision["permissionDecisionReason"]
+    assert "REDACT" in decision["permissionDecisionReason"]
+    assert "secret.txt" not in json.loads(
+        (repo / "docs" / "context" / "ledger.json").read_text()
+    )["files"]
+
+
+def test_commit_belt_clean_inbox_is_pass_through(repo):
+    ledger_path = repo / "docs" / "context" / "ledger.json"
+
+    # Never-scanned empty inbox: the belt leaves no untracked ledger residue.
+    code, out = hook(repo, {
+        "tool_name": "Bash",
+        "permission_mode": "default",
+        "tool_input": {"command": "git commit -m clean"},
+    })
+    assert code == 0
+    assert out == "{}\n"
+    assert not ledger_path.exists()
+
+    code, out = run(repo, "forge.py", "context", "scan")
+    assert code == 0, out
+    before = ledger_path.read_bytes()
+
+    code, out = hook(repo, {
+        "tool_name": "Bash",
+        "permission_mode": "default",
+        "tool_input": {"command": "git commit -m clean"},
+    })
+
+    assert code == 0
+    assert out == "{}\n"
+    assert ledger_path.read_bytes() == before
+    assert git(repo, "diff", "--cached", "--name-only") == ""
+
+
 COMPANION = "node /x/codex-companion.mjs task --model gpt-5.6-sol"
 COMPANION_WRITE = (COMPANION + " --write --prompt-file .factory/briefs/T1.md "
                    "'build the slice'")
+
+
+def test_companion_guard_admits_read_only_and_refuses_write_shapes(repo):
+    run_state = json.loads((repo / ".factory" / "run.json").read_text())
+    assert "issue_key" not in run_state and "plan_status" not in run_state
+    assert not (repo / ".factory" / "stages.json").exists()
+    allowed = (
+        "node /x/codex-companion.mjs status --json",
+        "node /x/codex-companion.mjs task-resume-candidate --json",
+        "node /x/codex-companion.mjs task 'audit how --write is handled'",
+        "node /x/codex-companion.mjs task 'trace a;b and $HOME literally'",
+        "'node' '/x/codex-companion.mjs' 't''ask' 'map the module'",
+    )
+    refused = (
+        "node /x/codex-companion.mjs task '--write' repair",
+        "node /x/codex-companion.mjs task --full-auto repair",
+        "node /x/codex-companion.mjs setup",
+        "env MODE=x node /x/codex-companion.mjs status --json",
+        "bash -c 'node /x/codex-companion.mjs status --json'",
+        'node /x/codex-companion.mjs task "expand $HOME"',
+    )
+    for harness_source in (False, True):
+        if harness_source:
+            mark_harness_source(repo)
+        for command in allowed:
+            code, out = hook(repo, {
+                "tool_name": "Bash", "permission_mode": "default",
+                "tool_input": {"command": command},
+            })
+            assert code == 0 and "deny" not in out, (harness_source, command)
+        for command in refused:
+            code, out = hook(repo, {
+                "tool_name": "Bash", "permission_mode": "default",
+                "tool_input": {"command": command},
+            })
+            assert code == 0 and "deny" in out and "forge delegate" in out, (
+                harness_source, command,
+            )
 
 
 def test_hook_denies_unbriefed_write_delegation(repo, tmp_path):
@@ -3750,6 +6093,117 @@ def test_hook_denies_unbriefed_write_delegation(repo, tmp_path):
     code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
                             "tool_input": {"command": COMPANION + " 'map it'"}})
     assert code == 0 and "deny" not in out
+
+
+def test_lockout_denies_product_write_under_approved_plan(repo, tmp_path):
+    mark_harness_source(repo)
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])
+
+    payloads = (
+        {"tool_name": "Edit", "tool_input": {
+            "file_path": str(repo / "src" / "app.ts")}},
+        {"tool_name": "Write", "tool_input": {
+            "file_path": str(repo / "AGENTS.md")}},
+        {"tool_name": "NotebookEdit", "tool_input": {
+            "notebook_path": str(repo / "tests" / "analysis.ipynb")}},
+        {"tool_name": "Bash", "tool_input": {
+            "command": "printf x > .github/workflows/build.yml"}},
+    )
+    for payload in payloads:
+        code, out = hook(repo, {**payload, "permission_mode": "default"})
+        assert code == 0 and "deny" in out, payload
+        assert "forge delegate <task-id>" in out
+        assert "forge mode degraded start --reason" in out
+
+
+def test_registered_hook_path_keeps_recorder_and_lockout_armed(repo, tmp_path):
+    from forge_cli.doctor import _runnable_hook_shell
+
+    mark_harness_source(repo)
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])
+
+    _route_fixture_hooks_through_forge(repo)
+    shell = _runnable_hook_shell(dict(os.environ), repo)
+    assert shell, "test requires a shell that can launch this checkout"
+    document = json.loads((repo / ".claude" / "settings.json").read_text())
+    command = document["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    payload = {
+        "tool_name": "Edit",
+        "permission_mode": "default",
+        "tool_input": {"file_path": str(repo / "src" / "app.ts")},
+    }
+
+    result = subprocess.run(
+        [shell, "-c", command],
+        cwd=repo,
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "deny" in result.stdout
+    assert "forge delegate <task-id>" in result.stdout
+
+
+def test_degraded_window_allows_and_ledgers_product_write(repo):
+    base = pr_ticket_base(repo)
+    mark_harness_source(repo)
+    code, out = run(repo, "forge.py", "mode", "degraded", "start",
+                    "--reason", "companion outage")
+    assert code == 0 and "Degraded mode" in out, out
+    active = json.loads((repo / ".factory" / "quickfix.json").read_text())
+    assert active["profile"] == "degraded" and active["kind"] == "degraded"
+    assert active["reason"] == "companion outage" and active["max_files"] == 5
+
+    claimed = (
+        "src/app.ts", "AGENTS.md", ".github/workflows/build.yml",
+        "factory/scripts/repair.py", "tests/test_repair.py",
+    )
+    for rel in claimed:
+        code, out = hook(repo, {
+            "tool_name": "Edit", "permission_mode": "default",
+            "tool_input": {"file_path": str(repo / rel)},
+        })
+        assert code == 0 and "deny" not in out, (rel, out)
+
+    for rel in ("docs/notes.md", "plans/draft.md", "prototype/probe.md",
+                ".gstack/projects/probe.md"):
+        code, out = hook(repo, {
+            "tool_name": "Write", "permission_mode": "default",
+            "tool_input": {"file_path": str(repo / rel)},
+        })
+        assert code == 0 and "deny" not in out, rel
+
+    active = json.loads((repo / ".factory" / "quickfix.json").read_text())
+    assert active["files"] == list(claimed)
+    code, out = hook(repo, {
+        "tool_name": "Edit", "permission_mode": "default",
+        "tool_input": {"file_path": str(repo / "src" / "sixth.py")},
+    })
+    assert code == 0 and "deny" in out and "five-file" in out
+
+    window_id = active["id"]
+    code, out = run(repo, "forge.py", "mode", "done")
+    assert code == 0 and window_id in out and "5 file(s)" in out, out
+    records = [json.loads(path.read_text())
+               for path in (repo / "plans" / "quickfixes").glob("*.json")]
+    done = next(record for record in records
+                if record.get("event") == "done" and record.get("id") == window_id)
+    assert done["kind"] == "degraded" and done["files"] == list(claimed)
+
+    git(repo, "add", "plans/quickfixes")
+    git(repo, "commit", "-q", "-m", "record degraded window")
+    code, out = check_pr_ticket(
+        repo, base, "fix/degraded-window", f"Ticket: {window_id}\n",
+    )
+    assert code == 0 and f"window {window_id}" in out, out
 
 
 def test_hook_denies_write_delegation_hidden_by_quoting(repo, tmp_path):
@@ -3813,8 +6267,13 @@ def test_hook_allows_readonly_companion_mentions(repo):
 
 
 def test_hook_allows_readonly_companion_task_launch(repo):
+    brief = repo / "brief.md"
+    brief.write_text("Inspect the sender chain.\nKeep this read-only.\n")
+    (repo / "brief-link.md").symlink_to(brief)
     for command in (
         COMPANION + " --effort xhigh 'explore the sender chain'",
+        COMPANION + " --prompt-file brief.md",
+        COMPANION + " --prompt-file brief-link.md",
         "node /x/codex-companion.mjs task-resume-candidate --json",
     ):
         code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
@@ -3889,20 +6348,19 @@ def test_hook_denies_when_brief_edited(repo, tmp_path):
 def test_planning_lock_forces_plan_mode(repo, tmp_path):
     sign_off(repo)
     intake(repo)  # planning phase, no approved plan
-    # product-code edit in normal mode -> denied, routed to plan mode
-    code, out = hook(repo, {"tool_name": "Edit", "permission_mode": "default",
-                            "tool_input": {"file_path": str(repo / "src" / "app.ts")}})
-    assert code == 0 and "deny" in out and "PLAN MODE" in out
+    # Plan mode is for authoring the plan; it is not a product-write licence.
+    for mode in ("default", "plan"):
+        code, out = hook(repo, {
+            "tool_name": "Edit", "permission_mode": mode,
+            "tool_input": {"file_path": str(repo / "src" / "app.ts")},
+        })
+        assert code == 0 and "deny" in out and "forge delegate" in out, mode
     # planning-phase writes stay open: the plan itself, decisions, docs
     # (.factory/ is NOT among them — recorded state is never hand-written)
     for ok_path in ("plans/draft.md", "docs/decisions/0009-x.md", "docs/notes.md"):
         code, out = hook(repo, {"tool_name": "Write", "permission_mode": "default",
                                 "tool_input": {"file_path": str(repo / ok_path)}})
         assert "deny" not in out, ok_path
-    # plan mode itself is never blocked by the lock
-    code, out = hook(repo, {"tool_name": "Edit", "permission_mode": "plan",
-                            "tool_input": {"file_path": str(repo / "src" / "app.ts")}})
-    assert "deny" not in out
     # raw codex exec is off-contract in ANY phase — route to /codex:rescue
     code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
                             "tool_input": {"command": "codex exec 'implement the thing'"}})
@@ -3923,27 +6381,28 @@ def test_planning_lock_forces_plan_mode(repo, tmp_path):
     code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
                             "tool_input": {"command": companion + " --write"}})
     assert "deny" in out and "forge delegate" in out
-    # there is NO escape hatch — env-var prefixes don't open a side door
+    # Env-var prefixes do not open a side door.
     code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
                             "tool_input": {"command":
                                            "FACTORY_DEGRADED=1 codex exec -s read-only 'map it'"}})
     assert "deny" in out and "codex:rescue" in out
-    # an approved plan is not yet an implementation licence: work is bounded by
-    # tasks, so a product write before the decomposition belongs to no task
+    # Approval and decomposition authorize delegation, never session writes.
     save_plan(repo, tmp_path)
     code, out = hook(repo, {"tool_name": "Edit", "permission_mode": "default",
                             "tool_input": {"file_path": str(repo / "src" / "app.ts")}})
-    assert "deny" in out and "no decomposition" in out
-    run(repo, "record_decomposition_from_json.py", stdin=json.dumps(DECOMP))
-    # plan + decomposition lifts the lock entirely
+    assert "deny" in out and "forge delegate" in out
+    task = task_with_plan_contracts(DECOMP["tasks"][0])
+    record_skeleton_then_frontier(repo, [task])
     code, out = hook(repo, {"tool_name": "Edit", "permission_mode": "default",
                             "tool_input": {"file_path": str(repo / "src" / "app.ts")}})
-    assert "deny" not in out
+    assert "deny" in out and "forge delegate" in out
     # ...but a WRITE delegation still needs a started, briefed stage: the plan
     # authorizes the work, the brief is what the executor is actually given
     code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
                             "tool_input": {"command": companion + " --write"}})
     assert "deny" in out and "forge delegate" in out
+    code, out = record_task_grill(repo, task)
+    assert code == 0, out
     run(repo, "forge.py", "stage", "start", "T1")
     code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
                             "tool_input": {"command": companion + " --write "
@@ -3961,11 +6420,11 @@ def test_planning_lock_is_always_armed_and_guards_bash_writes(repo):
                "tool_input": {"file_path": str(product)}}
     code, out = hook(repo, payload)
     assert code == 0 and "deny" in out
-    assert "enter plan mode (shift+tab)" in out
-    assert './forge quickfix start \\"<reason>\\"' in out
+    assert "forge delegate <task-id>" in out
+    assert './forge mode degraded start --reason \\"<reason>\\"' in out
 
     code, out = hook(repo, {**payload, "permission_mode": "plan"})
-    assert code == 0 and "deny" not in out
+    assert code == 0 and "deny" in out
     code, out = hook(repo, {"tool_name": "Write", "permission_mode": "default",
                             "tool_input": {"file_path": str(repo / "docs" / "notes.md")}})
     assert code == 0 and "deny" not in out
@@ -4043,7 +6502,7 @@ def test_harness_repo_locks_machinery_writes_without_a_plan(repo, tmp_path):
             "permission_mode": "default",
             "tool_input": {"file_path": str(machinery)},
         })
-        assert code == 0 and "deny" in out and "PLAN MODE" in out
+        assert code == 0 and "deny" in out and "forge delegate" in out
     for rel in (
         "constitution/09-agent-conduct.md",
         "harness/nestjs-react/SCAFFOLD_PROMPT.md",
@@ -4055,13 +6514,13 @@ def test_harness_repo_locks_machinery_writes_without_a_plan(repo, tmp_path):
             "permission_mode": "default",
             "tool_input": {"file_path": str(repo / rel)},
         })
-        assert code == 0 and "deny" in out and "PLAN MODE" in out, rel
+        assert code == 0 and "deny" in out and "forge delegate" in out, rel
     code, out = hook(repo, {
         "tool_name": "Bash",
         "permission_mode": "default",
         "tool_input": {"command": "printf x > factory/scripts/pre_tool_use.py"},
     })
-    assert code == 0 and "deny" in out and "PLAN MODE" in out
+    assert code == 0 and "deny" in out and "forge delegate" in out
 
     # The repo-kind marker itself is product-locked: while the lock is armed it
     # can be neither rewritten nor DELETED, so flipping source->client takes the
@@ -4087,11 +6546,8 @@ def test_harness_repo_locks_machinery_writes_without_a_plan(repo, tmp_path):
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    code, out = run(repo, "record_decomposition_from_json.py",
-                    stdin=json.dumps(DECOMP))
-    assert code == 0, out
-    # With the plan approved and decomposition recorded, machinery writes AND
-    # the marker's own edit/delete are permitted — ceremony-gated, not frozen.
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])
+    # Approval authorizes the delegated worker, not direct session writes.
     for payload in (
         {"tool_name": "Edit", "permission_mode": "default",
          "tool_input": {"file_path": str(machinery)}},
@@ -4103,7 +6559,7 @@ def test_harness_repo_locks_machinery_writes_without_a_plan(repo, tmp_path):
          "tool_input": {"command": f"rm {marker_rel}"}},
     ):
         code, out = hook(repo, payload)
-        assert code == 0 and "deny" not in out, out
+        assert code == 0 and "deny" in out, out
 
 
 def test_client_repo_leaves_vendored_machinery_writable(repo):
@@ -4121,9 +6577,10 @@ def test_client_repo_leaves_vendored_machinery_writable(repo):
         assert code == 0 and "deny" not in out, out
 
 
-def test_harness_quickfix_claims_machinery_files_against_budget(repo):
+def test_harness_degraded_claims_machinery_files_against_budget(repo):
     mark_harness_source(repo)
-    code, out = run(repo, "forge.py", "quickfix", "start", "repair machinery")
+    code, out = run(repo, "forge.py", "mode", "degraded", "start",
+                    "--reason", "repair machinery")
     assert code == 0, out
 
     expected = [f"factory/scripts/repair-{number}.py" for number in range(1, 6)]
@@ -4139,7 +6596,7 @@ def test_harness_quickfix_claims_machinery_files_against_budget(repo):
     })
     assert code == 0 and "deny" in out and "scope exceeded" in out
 
-    code, out = run(repo, "forge.py", "quickfix", "done")
+    code, out = run(repo, "forge.py", "mode", "done")
     assert code == 0 and "5 file(s)" in out, out
     events = [json.loads(path.read_text())
               for path in (repo / "plans" / "quickfixes").glob("*.json")]
@@ -4148,12 +6605,13 @@ def test_harness_quickfix_claims_machinery_files_against_budget(repo):
     assert done[0]["files"] == expected
 
 
-def test_harness_quickfix_cannot_delete_the_repo_kind_marker(repo):
+def test_harness_degraded_cannot_delete_the_repo_kind_marker(repo):
     # The attack: open a quickfix, rm the marker as the first claimed file to
     # flip the repo to client-mode, then flood machinery past the 5-file budget.
     # The marker is plan-only, so the window can never touch it.
     mark_harness_source(repo)
-    code, out = run(repo, "forge.py", "quickfix", "start", "sneaky")
+    code, out = run(repo, "forge.py", "mode", "degraded", "start",
+                    "--reason", "sneaky")
     assert code == 0, out
     # Direct deletion of the marker, and deletion of an ANCESTOR that contains
     # it (`rm -r .factory`, `git rm .factory`) — all refused. (`rm -rf` is caught
@@ -4185,7 +6643,7 @@ def test_harness_quickfix_cannot_delete_the_repo_kind_marker(repo):
     assert code == 0 and "deny" not in out, out
 
 
-def test_quickfix_pins_repo_kind_so_marker_deletion_cannot_escape_budget(repo):
+def test_degraded_pins_repo_kind_so_marker_deletion_cannot_escape_budget(repo):
     # The structural guarantee (decision 0030): a quickfix pins the repo kind at
     # start, so even if the marker is removed mid-window by an UNCAUGHT vector,
     # classification stays 'harness' and machinery keeps being claimed against
@@ -4193,7 +6651,8 @@ def test_quickfix_pins_repo_kind_so_marker_deletion_cannot_escape_budget(repo):
     # let unlimited machinery writes bypass the 5-file budget.
     from forge_cli.repo_kind import is_harness_source_repo
     mark_harness_source(repo)
-    code, out = run(repo, "forge.py", "quickfix", "start", "pinned")
+    code, out = run(repo, "forge.py", "mode", "degraded", "start",
+                    "--reason", "pinned")
     assert code == 0, out
     (repo / ".factory" / "harness-source.json").unlink()  # marker gone (any vector)
     assert not is_harness_source_repo(repo)  # live classification would say client
@@ -4210,10 +6669,10 @@ def test_quickfix_pins_repo_kind_so_marker_deletion_cannot_escape_budget(repo):
     assert code == 0 and "deny" in out and "scope exceeded" in out
     # And the pin cannot be laundered away by closing the window: a harness-pinned
     # window whose marker went missing refuses to close until it is restored.
-    code, out = run(repo, "forge.py", "quickfix", "done")
+    code, out = run(repo, "forge.py", "mode", "done")
     assert code != 0 and "missing" in out, out
     (repo / ".factory" / "harness-source.json").write_text('{"role": "harness-source"}\n')
-    code, out = run(repo, "forge.py", "quickfix", "done")
+    code, out = run(repo, "forge.py", "mode", "done")
     assert code == 0, out
 
 
@@ -4232,7 +6691,7 @@ def test_harness_quickfix_allows_benign_root_destination(repo):
         assert code == 0 and "repo-kind marker" not in out, command
 
 
-def test_harness_quickfix_refuses_opaque_machinery_deletes(repo):
+def test_harness_degraded_refuses_opaque_machinery_deletes(repo):
     # The 5-file budget is only honest if each claimed slot is a bounded file. A
     # recursive/globbed/brace-expanded DELETE of machinery would spend one slot on
     # an unbounded set, so a quickfix refuses it; explicit single-file ops stay
@@ -4240,7 +6699,8 @@ def test_harness_quickfix_refuses_opaque_machinery_deletes(repo):
     # are NOT blocked (they modify nothing in the repo).
     mark_harness_source(repo)
     (repo / "factory" / "scripts").mkdir(parents=True, exist_ok=True)
-    code, out = run(repo, "forge.py", "quickfix", "start", "opaque")
+    code, out = run(repo, "forge.py", "mode", "degraded", "start",
+                    "--reason", "opaque")
     assert code == 0, out
     for command in ("rm -r factory/scripts",
                     "rm factory/scripts/*.py",
@@ -4264,13 +6724,14 @@ def test_harness_quickfix_refuses_opaque_machinery_deletes(repo):
         assert code == 0 and "deny" not in out, command
 
 
-def test_harness_quickfix_counts_each_file_copied_into_a_machinery_dir(repo):
+def test_harness_degraded_counts_each_file_copied_into_a_machinery_dir(repo):
     # `cp <src> factory/scripts/` creates factory/scripts/<basename>; six such
     # copies must spend six budget slots (resolved per created file), not one for
     # the shared directory — so the sixth is refused.
     mark_harness_source(repo)
     (repo / "factory" / "scripts").mkdir(parents=True, exist_ok=True)
-    code, out = run(repo, "forge.py", "quickfix", "start", "copies")
+    code, out = run(repo, "forge.py", "mode", "degraded", "start",
+                    "--reason", "copies")
     assert code == 0, out
     for number in range(1, 6):
         code, out = hook(repo, {
@@ -4314,12 +6775,7 @@ def test_harness_repo_keeps_docs_and_planning_surfaces_writable(repo):
         "plans/draft.md",
         ".factory/scratchpad.md",
         "prototype/probe.md",
-        ".github/workflows/probe.yml",
         ".gstack/projects/probe.md",
-        "AGENTS.md",
-        "CLAUDE.md",
-        "WORKFLOW.md",
-        "harness.yaml",
         "README.md",
         ".gitignore",
         ".gitattributes",
@@ -4338,8 +6794,9 @@ def test_harness_repo_keeps_docs_and_planning_surfaces_writable(repo):
     assert code == 0 and "deny" in out and "never hand-written" in out
 
 
-def test_quickfix_lifecycle_tracks_files_and_enforces_budget(repo):
-    code, out = run(repo, "forge.py", "quickfix", "start", "repair parser")
+def test_degraded_lifecycle_tracks_files_and_enforces_budget(repo):
+    code, out = run(repo, "forge.py", "mode", "degraded", "start",
+                    "--reason", "repair parser")
     assert code == 0 and "Q-" in out, out
     active_path = repo / ".factory" / "quickfix.json"
     active = json.loads(active_path.read_text())
@@ -4375,9 +6832,9 @@ def test_quickfix_lifecycle_tracks_files_and_enforces_budget(repo):
     assert code == 0 and "deny" in out and "scope exceeded" in out
     assert len(json.loads(active_path.read_text())["files"]) == 5
 
-    code, out = run(repo, "forge.py", "quickfix", "list")
+    code, out = run(repo, "forge.py", "mode", "list")
     assert code == 0 and "repair parser" in out and "5/5" in out
-    code, out = run(repo, "forge.py", "quickfix", "done")
+    code, out = run(repo, "forge.py", "mode", "done")
     assert code == 0 and "5 file(s)" in out, out
     assert not active_path.exists()
     # One record per file now (decision 0022). Each record carries its own
@@ -4398,17 +6855,17 @@ def test_quickfix_lifecycle_tracks_files_and_enforces_budget(repo):
     assert code == 0 and "deny" in out
 
 
-def test_quickfix_records_files_inside_an_active_story(repo, tmp_path):
+def test_degraded_enforces_budget_inside_an_active_story(repo, tmp_path):
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(DECOMP))
-    assert code == 0, out
-    code, out = run(repo, "forge.py", "quickfix", "start", "repair active story")
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])
+    code, out = run(repo, "forge.py", "mode", "degraded", "start",
+                    "--reason", "repair active story")
     assert code == 0, out
 
     active_path = repo / ".factory" / "quickfix.json"
-    for number in range(1, 7):
+    for number in range(1, 6):
         code, out = hook(repo, {
             "tool_name": "Edit", "permission_mode": "default",
             "tool_input": {"file_path": str(repo / "src" / f"story-{number}.py")},
@@ -4418,14 +6875,15 @@ def test_quickfix_records_files_inside_an_active_story(repo, tmp_path):
         "tool_name": "Edit", "permission_mode": "default",
         "tool_input": {"file_path": str(repo / "src" / "story-6.py")},
     })
-    assert code == 0 and "deny" not in out, out
+    assert code == 0 and "deny" in out and "scope exceeded" in out
     assert json.loads(active_path.read_text())["files"] == [
-        f"src/story-{number}.py" for number in range(1, 7)
+        f"src/story-{number}.py" for number in range(1, 6)
     ]
 
 
-def test_quickfix_budget_still_refuses_over_limit_when_unplanned(repo):
-    code, out = run(repo, "forge.py", "quickfix", "start", "bounded repair")
+def test_degraded_budget_refuses_over_limit_when_unplanned(repo):
+    code, out = run(repo, "forge.py", "mode", "degraded", "start",
+                    "--reason", "bounded repair")
     assert code == 0, out
     active_path = repo / ".factory" / "quickfix.json"
 
@@ -4445,7 +6903,7 @@ def test_quickfix_budget_still_refuses_over_limit_when_unplanned(repo):
     ]
 
 
-def test_quickfix_recording_authorizes_nothing(repo, tmp_path):
+def test_quickfix_window_authorizes_nothing(repo, tmp_path):
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
@@ -4453,15 +6911,11 @@ def test_quickfix_recording_authorizes_nothing(repo, tmp_path):
     assert code == 0, out
 
     active_path = repo / ".factory" / "quickfix.json"
-    active = json.loads(active_path.read_text())
-    active["max_files"] = 0
-    active_path.write_text(json.dumps(active, indent=2) + "\n")
-
     code, out = hook(repo, {
         "tool_name": "Edit", "permission_mode": "default",
         "tool_input": {"file_path": str(repo / "src" / "recorded.py")},
     })
-    assert code == 0 and "deny" in out and "scope exceeded" in out
+    assert code == 0 and "deny" in out and "forge delegate" in out
     assert json.loads(active_path.read_text())["files"] == []
 
 
@@ -4718,7 +7172,7 @@ def test_modes_lite_pins_parse_and_dual_runtime_green(repo):
     assert code == 0, out
 
 
-def test_lite_window_authorizes_product_write(repo):
+def test_lite_window_does_not_authorize_session_product_write(repo):
     code, out = run(repo, "forge.py", "mode", "lite",
                     "--by", "Ada", "--reason", "bounded delivery")
     assert code == 0, out
@@ -4728,7 +7182,7 @@ def test_lite_window_authorizes_product_write(repo):
         "permission_mode": "default",
         "tool_input": {"file_path": str(repo / "src" / "lite.py")},
     })
-    assert code == 0 and "deny" not in out, out
+    assert code == 0 and "deny" in out and "forge delegate" in out
 
 
 def test_mode_list_shows_open_lite_window(repo):
@@ -5111,6 +7565,70 @@ def test_trailer_check_targets_the_acceptance_commit(repo):
 
 # ---------------------------------------------------------- Gate A: PR ticket
 
+def test_ci_locale_forcing_selectors_reference_existing_tests():
+    workflow = (
+        HARNESS / ".github" / "workflows" / "factory-scaffold.yml"
+    ).read_text()
+    suite = ast.parse(
+        (HARNESS / "factory" / "tests" / "test_gates.py").read_text()
+    )
+    test_ids = {
+        node.name
+        for node in suite.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    selectors = set(re.findall(
+        r"factory/tests/test_gates\.py::([A-Za-z_][A-Za-z0-9_]*)",
+        workflow,
+    ))
+
+    assert selectors
+    assert not selectors - test_ids
+
+
+def test_roadmap_gate_workflow_shape():
+    workflow = (HARNESS / ".github" / "workflows" / "roadmap-gate.yml").read_text()
+    pr_job, coverage_job = workflow.split("\n  coverage:\n", 1)
+    pr_job = pr_job.split("\n  pr-contract:\n", 1)[1]
+
+    assert re.search(r"^  pull_request:\s*$", workflow, re.MULTILINE)
+    assert re.search(r"^  push:\s*$", workflow, re.MULTILINE)
+    assert "  pr-contract:" in workflow
+    assert "  coverage:" in workflow
+    assert workflow.count("- uses: actions/checkout@v4") == 2
+    assert workflow.count("- uses: actions/setup-python@v5") == 2
+    assert workflow.count("python-version: '3.11'") == 2
+    assert workflow.count("id: arm") == 2
+    assert workflow.count("constitution/VENDORED_FROM") == 2
+    assert workflow.count("plans/roadmap.json") == 2
+    assert workflow.count("json.loads(roadmap.read_text())") == 2
+    assert workflow.count('len(data["epics"]) >= 1') == 2
+    assert workflow.count(
+        'armed = Path("constitution/VENDORED_FROM").is_file() and has_epics'
+    ) == 2
+    assert "except" not in workflow
+    assert workflow.count("GITHUB_OUTPUT") == 2
+    assert workflow.count("steps.arm.outputs.armed == 'true'") == 2
+    assert workflow.count("fetch-depth: 0") == 1
+    assert "fetch-depth: 0" in pr_job and "fetch-depth: 0" not in coverage_job
+    assert "github.event_name == 'push'" in coverage_job
+    assert "github.ref_name == github.event.repository.default_branch" in coverage_job
+    for name in ("BASE_SHA", "HEAD_BRANCH", "PR_BODY"):
+        assert f"{name}:" in pr_job and f"{name}:" not in coverage_job
+    for job in (pr_job, coverage_job):
+        assert job.count("id: arm") == 1
+        assert job.count("constitution/VENDORED_FROM") == 1
+        assert job.count("plans/roadmap.json") == 1
+        assert job.count("steps.arm.outputs.armed == 'true'") == 1
+    assert "python3 factory/scripts/check_pr_ticket.py" in pr_job
+    assert "project audit" not in pr_job
+    assert "python3 factory/scripts/forge.py project audit" in coverage_job
+    assert "check_pr_ticket.py" not in coverage_job
+    assert "pytest" not in workflow
+    assert "factory/tests" not in workflow
+    assert "gh api" not in workflow
+    assert "|| true" not in workflow
+
 def pr_ticket_base(repo: Path, *keys: str) -> str:
     for key in keys:
         ensure_story(repo, key)
@@ -5167,6 +7685,41 @@ def test_check_pr_ticket_passes_base_absent_story(repo):
     assert code == 0 and f"story {key}" in out, out
 
 
+def test_check_pr_ticket_passes_when_base_has_no_roadmap(repo):
+    key = "BOARD-110"
+    roadmap = repo / "plans" / "roadmap.json"
+    if roadmap.exists():
+        roadmap.unlink()
+        git(repo, "add", "-u", "plans/roadmap.json")
+        git(repo, "commit", "-q", "-m", "remove roadmap from base")
+    base = head(repo)
+    missing = subprocess.run(
+        ["git", "show", f"{base}:plans/roadmap.json"], cwd=repo,
+        capture_output=True, text=True,
+    )
+    assert missing.returncode != 0
+    ensure_story(repo, key)
+    complete_story(repo, key)
+    git(repo, "add", "plans/roadmap.json", f".factory/history/{key}")
+    git(repo, "commit", "-q", "-m", "introduce roadmap and complete story")
+
+    code, out = check_pr_ticket(repo, base, f"feat/{key}-gate-a")
+
+    assert code == 0 and f"story {key}" in out, out
+
+
+def test_check_pr_ticket_infers_ticket_from_feature_branch(repo):
+    key = "BOARD-111"
+    base = pr_ticket_base(repo, key)
+    complete_story(repo, key)
+    git(repo, "add", "plans/roadmap.json", f".factory/history/{key}")
+    git(repo, "commit", "-q", "-m", "complete story from feature branch")
+
+    code, out = check_pr_ticket(repo, base, f"feature/{key}-gate-a")
+
+    assert code == 0 and f"story {key}" in out, out
+
+
 def test_check_pr_ticket_fails_no_ticket(repo):
     key = "BOARD-102"
     base = pr_ticket_base(repo, key)
@@ -5204,6 +7757,52 @@ def test_check_pr_ticket_fails_missing_history(repo):
     git(repo, "commit", "-q", "-m", "completion without history")
 
     code, out = check_pr_ticket(repo, base, f"feat/{key}-gate-a")
+
+    assert code != 0 and "no completed work record" in out, out
+
+
+def test_check_pr_ticket_exempts_harness_revendor(repo):
+    # A harness re-vendor changes only harness-owned paths AND rewrites the
+    # vendor manifest — it completes no roadmap story and needs no ticket.
+    base = pr_ticket_base(repo)
+    (repo / "constitution" / "VENDOR_MANIFEST.json").write_text(
+        '{"harness_commit": "deadbeef", "files": {}}\n')
+    (repo / "factory" / "scripts" / "verify.py").write_text("# re-vendored\n")
+    git(repo, "add", "constitution/VENDOR_MANIFEST.json",
+        "factory/scripts/verify.py")
+    git(repo, "commit", "-q", "-m", "chore: re-vendor harness")
+
+    code, out = check_pr_ticket(repo, base, "chore/harness-upgrade-abc123")
+
+    assert code == 0 and "harness re-vendor" in out, out
+
+
+def test_check_pr_ticket_revendor_requires_manifest_marker(repo):
+    # Harness-owned edits WITHOUT the manifest marker are not a sanctioned
+    # re-vendor (vendor-integrity refuses hand-edits), so the ticket still holds.
+    base = pr_ticket_base(repo)
+    (repo / "factory" / "scripts" / "verify.py").write_text("# tweaked\n")
+    git(repo, "add", "factory/scripts/verify.py")
+    git(repo, "commit", "-q", "-m", "poke a harness file")
+
+    code, out = check_pr_ticket(repo, base, "chore/harness-poke")
+
+    assert code != 0 and "no completed work record" in out, out
+
+
+def test_check_pr_ticket_revendor_rejects_mixed_product_change(repo):
+    # A PR that also touches product paths is not a pure re-vendor: the ticket
+    # requirement still applies even with the manifest in the diff.
+    base = pr_ticket_base(repo)
+    (repo / "constitution" / "VENDOR_MANIFEST.json").write_text(
+        '{"harness_commit": "deadbeef", "files": {}}\n')
+    (repo / "plans").mkdir(exist_ok=True)
+    (repo / "plans" / "product-note.md").write_text("product change\n")
+    git(repo, "add", "constitution/VENDOR_MANIFEST.json",
+        "plans/product-note.md")
+    git(repo, "commit", "-q", "-m", "re-vendor plus product change")
+
+    code, out = check_pr_ticket(repo, base, "chore/mixed")
 
     assert code != 0 and "no completed work record" in out, out
 
@@ -5366,7 +7965,8 @@ def test_gate_b_workflows_link_the_branch_and_check_main():
     link = (HARNESS / ".github" / "workflows" / "pr-link.yml").read_text()
     invariant = (HARNESS / ".github" / "workflows" / "board-invariant.yml").read_text()
 
-    assert "pull_request:" in link
+    assert "workflow_run:" in link
+    assert "workflows: [factory-scaffold]" in link
     assert "already_linked" in link
     assert 'git push origin "HEAD:$HEAD_BRANCH"' in link
     assert "branches: [main]" in invariant
@@ -5401,6 +8001,82 @@ def test_project_audit_clean_repo_exits_zero(repo):
 
     assert code == 0, out
     assert "Project audit OK: no project-state gaps." in out
+
+
+def test_project_audit_flags_discovery_without_roadmap(repo):
+    ledger = repo / "docs" / "context" / "ledger.json"
+    ledger.write_text(json.dumps({
+        "files": {"interview.md": {"status": "harvested"}},
+    }))
+
+    code, out = run(repo, "forge.py", "project", "audit", "--repo", str(repo))
+
+    assert code != 0, out
+    assert out.count("[no-roadmap]") == 1
+    assert "forge spec save" in out and "forge spec confirm" in out
+    assert "forge roadmap derive" in out
+    assert "forge roadmap epic add" in out and "forge roadmap add" in out
+    assert "[spec-coverage]" not in out
+
+    code, out = run(
+        repo, "forge.py", "sanitise", "--check", "--repo", str(repo),
+        env={"PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    assert code != 0, out
+    assert "[ISSUE] [board-no-roadmap]" in out
+
+    # An epic with zero stories is still an empty roadmap, not a cleared gap.
+    roadmap_path = repo / "plans" / "roadmap.json"
+    epic = {"id": "onboarding", "title": "Onboarding", "objective": "First epic"}
+    roadmap_path.write_text(json.dumps({"epics": [epic], "items": []}))
+    code, out = run(repo, "forge.py", "project", "audit", "--repo", str(repo))
+    assert code != 0, out
+    assert out.count("[no-roadmap]") == 1
+
+    roadmap_path.write_text(json.dumps({"epics": [epic], "items": [{
+        "key": "ONB-1", "title": "First story", "epic": "onboarding",
+        "story": "As a user, I onboard", "acceptance_criteria": ["onboards"],
+        "status": "pending", "order": 1,
+    }]}))
+    code, out = run(repo, "forge.py", "project", "audit", "--repo", str(repo))
+    assert "[no-roadmap]" not in out
+
+
+def test_project_audit_clean_on_fresh_scaffold(repo):
+    code, out = run(repo, "forge.py", "project", "audit", "--repo", str(repo))
+
+    assert code == 0, out
+    assert "Project audit OK: no project-state gaps." in out
+
+
+def test_project_audit_flags_unreferenced_confirmed_spec(repo):
+    from forge_cli.specs import unreferenced_confirmed_specs
+
+    specs = repo / "docs" / "specs"
+    specs.joinpath("covered.md").write_text(
+        "---\nslug: covered\nstatus: confirmed\n---\n# Covered\n"
+    )
+    specs.joinpath("missing.md").write_text(
+        "---\nslug: missing\nstatus: confirmed\n---\n# Missing\n"
+    )
+    (repo / "plans" / "roadmap.json").write_text(json.dumps({
+        "generated_by": "docs-decomposer",
+        "epics": [ROADMAP_EPIC],
+        "items": [{
+            **authored_story("ALIGN-1", "Alignment"),
+            "spec": "docs/specs/covered.md",
+            "status": "pending",
+        }],
+    }))
+
+    assert unreferenced_confirmed_specs(repo) == ["docs/specs/missing.md"]
+
+    code, out = run(repo, "forge.py", "project", "audit", "--repo", str(repo))
+
+    assert code != 0, out
+    assert "[spec-coverage] docs/specs/missing.md" in out
+    assert "forge roadmap add --spec docs/specs/missing.md" in out
+    assert "docs/specs/covered.md" not in out
 
 
 def _backfill_done_story(repo: Path, key: str, records: list[dict], **over):
@@ -5764,7 +8440,7 @@ def test_story_timeline_is_recorded_and_archived_with_its_story(repo, tmp_path):
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    run(repo, "record_decomposition_from_json.py", stdin=json.dumps(DECOMP))
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])
     events = [json.loads(line) for line in
               (repo / ".factory" / "events.jsonl").read_text().splitlines()]
     kinds = [e["event"] for e in events]
@@ -5808,45 +8484,98 @@ def test_ship_archives_the_plan_grill_not_the_project_grills(repo, tmp_path):
     assert not (history / "grills" / "signoff.json").exists()
 
 
-def test_tagged_process_scan_skips_unreadable_environments(tmp_path):
-    """The /proc scan must SKIP a process whose environ it cannot read, not
-    abort the gate.
-
-    Linux refuses /proc/<pid>/environ for a zombie (ptrace_may_access fails on
-    an exited task) and for any process we do not own. Our own short-lived
-    proof children become zombies routinely, so raising there took down every
-    stage-done and delegate gate on Linux — while macOS, which has no /proc,
-    never ran the branch at all and stayed green. proc_root is injectable so
-    this case is reachable from either platform.
-    """
+def test_tagged_process_scan_skips_unreadable_environments(monkeypatch):
+    """An unreadable environment falls back without aborting the sweep."""
     sys.path.insert(0, str(HARNESS / "factory" / "scripts"))
-    from forge_cli.delegate import _tagged_processes
+    import forge_cli.delegate as delegate
 
-    token = "gate-test-token"
-    fake_proc = tmp_path / "proc"
-    fake_proc.mkdir()
+    class Process:
+        def __init__(self, pid, environ, command):
+            self.pid = pid
+            self._environ = environ
+            self._command = command
 
-    # Unreadable environ, exactly as Linux reports for a zombie or a process
-    # belonging to somebody else.
-    unreadable = fake_proc / "424242"
-    unreadable.mkdir()
-    (unreadable / "environ").write_bytes(b"")
-    (unreadable / "environ").chmod(0o000)
+        def username(self):
+            return "owner"
 
-    # A readable, genuinely live process carrying the marker: this one must
-    # still be found, so the skip above cannot be hiding real work.
-    mine = fake_proc / str(os.getpid())
-    mine.mkdir()
-    (mine / "environ").write_bytes(
-        b"PATH=/usr/bin\0FORGE_PROCESS_TOKEN=" + token.encode() + b"\0")
+        def environ(self):
+            if self._environ is None:
+                raise FakePsutilAccessDenied()
+            return self._environ
 
-    table = {424242: (1, "start-a"), os.getpid(): (1, "start-b")}
-    found = _tagged_processes(token, current=table, proc_root=fake_proc)
+        def cmdline(self):
+            if self._command is None:
+                raise FakePsutilAccessDenied()
+            return self._command
 
-    assert os.getpid() in found, "a readable tagged process must still be found"
-    assert 424242 not in found
+        def create_time(self):
+            return float(self.pid)
 
-    (unreadable / "environ").chmod(0o600)  # let tmp_path clean up
+    unreadable = Process(101, None, None)
+    readable = Process(202, {"FORGE_PROCESS_TOKEN": "owned"}, [])
+    monkeypatch.setattr(
+        delegate, "_psutil", lambda: fake_psutil([unreadable, readable]))
+
+    found = delegate._tagged_processes(
+        "owned", current={101: (1, 101.0), 202: (1, 202.0)})
+
+    assert found == {202: 202.0}
+
+
+def test_delegate_process_model_uses_psutil_not_ps():
+    source = (HARNESS / "factory/scripts/forge_cli/delegate.py").read_text()
+    tree = ast.parse(source)
+
+    top_level_psutil_imports = [
+        node for node in tree.body
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        and (
+            any(alias.name == "psutil" for alias in getattr(node, "names", []))
+            or getattr(node, "module", None) == "psutil"
+        )
+    ]
+    forbidden_calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "os"
+        and node.func.attr == "killpg"
+    ]
+    ps_subprocesses = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "subprocess"
+        and node.func.attr in {"run", "Popen"}
+        and node.args
+        and isinstance(node.args[0], (ast.List, ast.Tuple))
+        and node.args[0].elts
+        and isinstance(node.args[0].elts[0], ast.Constant)
+        and node.args[0].elts[0].value == "ps"
+    ]
+
+    assert top_level_psutil_imports == []
+    assert forbidden_calls == []
+    assert ps_subprocesses == []
+    assert "process_iter" in source
+    assert "children(recursive=True)" in source
+
+
+def test_delegate_import_does_not_require_psutil():
+    script = (
+        "import builtins,sys; "
+        "real=builtins.__import__; "
+        "builtins.__import__=lambda name,*a,**k: "
+        "(_ for _ in ()).throw(ModuleNotFoundError(name)) "
+        "if name=='psutil' else real(name,*a,**k); "
+        f"sys.path.insert(0,{str(HARNESS / 'factory/scripts')!r}); "
+        "from forge_cli import delegate"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
 
 
 def test_frontier_is_ranked_by_what_it_unblocks(repo, tmp_path):
@@ -6445,18 +9174,26 @@ def test_recorder_holds_the_task_narrative_contract(repo, tmp_path):
     no_ac = {**DECOMP, "tasks": [{**DECOMP["tasks"][0], "acceptance_criteria": []}]}
     code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(no_ac))
     assert code != 0 and "acceptance_criteria" in out
-    # and re-recording after a scope change keeps what is already built
-    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(DECOMP))
+    # The complete graph is captured up front; re-recording keeps completed
+    # state while the already-declared future task remains pending.
+    first = task_with_plan_contracts(DECOMP["tasks"][0])
+    second = {"id": "T2", "title": "second", "objective": "more",
+              "acceptance_criteria": ["works"]}
+    record_skeleton_then_frontier(repo, [first, second])
+    code, out = record_task_grill(repo, first)
+    assert code == 0, out
+    code, out = record_task_grill(repo, DECOMP["tasks"][0])
     assert code == 0, out
     run(repo, "forge.py", "stage", "start", "T1")
     launch_fake(repo, tmp_path, "T1")
     write_in_scope(repo, "src/core.py")  # stage done measures the diff
     code, out = run(repo, "forge.py", "stage", "done", "T1")
     assert code == 0, out
-    grown = {**DECOMP, "tasks": [DECOMP["tasks"][0],
-                                 {"id": "T2", "title": "second", "objective": "more",
-                                  "acceptance_criteria": ["works"]}]}
-    run(repo, "record_decomposition_from_json.py", stdin=json.dumps(grown))
+    rerecorded = {**DECOMP, "tasks": [first, second]}
+    code, out = run(
+        repo, "record_decomposition_from_json.py", stdin=json.dumps(rerecorded)
+    )
+    assert code == 0, out
     stages = {s["id"]: s for s in
               json.loads((repo / ".factory" / "stages.json").read_text())["stages"]}
     assert stages["T1"]["status"] == "done" and stages["T1"].get("completed_at")
@@ -6795,7 +9532,7 @@ def test_signal_events_block_ship_until_resolved(repo, tmp_path):
     code, out = run(repo, "forge.py", "signal", "raise", "--kind", "contradiction",
                     "--by", "implementer", "-m",
                     "plan says soft-delete; decision 0001 says hard-delete")
-    assert code == 0 and "S-0001" in out and "PAUSE" in out
+    assert code == 0 and len(out.splitlines()) == 2 and "S-0001" in out and "PAUSE" in out
     import re as _re
     sig_id = _re.search(r"S-0001-[0-9a-f]{4}", out).group(0)
     # the orchestrator sees it everywhere, and the ship gate refuses
@@ -6808,7 +9545,7 @@ def test_signal_events_block_ship_until_resolved(repo, tmp_path):
     assert code != 0 and "notes" in out
     code, out = run(repo, "forge.py", "signal", "resolve", sig_id,
                     "--notes", "decision 0001 wins: hard-delete; plan revised")
-    assert code == 0 and "resume" in out
+    assert code == 0 and out.splitlines() == [f"Signal {sig_id} resolved"]
     code, out = run(repo, "pr_ready.py")
     assert code == 0, out
     # channel archived with the task, working copy cleaned
@@ -6884,7 +9621,7 @@ def test_review_hardening_guards(repo, tmp_path):
     code, out = run(repo, "record_decomposition_from_json.py",
                     stdin=json.dumps({**DECOMP, "tasks": [{"id": 7}]}))
     assert code != 0 and "string 'id'" in out
-    run(repo, "record_decomposition_from_json.py", stdin=json.dumps(DECOMP))
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])
     # out-of-scale review score refused at record time
     code, out = run(repo, "record_review_from_json.py", "--aspect", "quality",
                     stdin=json.dumps({"generated_by": "autoreview", "score": 999,
@@ -6900,7 +9637,7 @@ def test_review_hardening_guards(repo, tmp_path):
     code, out = hook(repo, {"tool_name": "Edit", "permission_mode": "default",
                             "tool_input": {"file_path":
                                            str(repo / "plans" / ".." / "src" / "x.ts")}})
-    assert "deny" in out and "PLAN MODE" in out
+    assert "deny" in out and "forge delegate" in out
     code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
                             "tool_input": {"command": "codex --profile explore exec 'x'"}})
     assert "deny" in out and "codex:rescue" in out
@@ -6963,7 +9700,7 @@ def test_structured_findings_recorded_and_malformed_refused(repo, tmp_path):
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    run(repo, "record_decomposition_from_json.py", stdin=json.dumps(DECOMP))
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])
     # a structured finding missing its category is refused, not stringified
     code, out = run(repo, "record_review_from_json.py", "--aspect", "quality",
                     stdin=json.dumps(review_payload(
@@ -7039,14 +9776,17 @@ def test_stage_loop_orders_execution_and_gates_pr_ready(repo, tmp_path):
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
+    t1 = task_with_plan_contracts({
+        **STAGE_TASK, "id": "T1", "title": "api",
+        "write_scope": ["src/api/"], "objective": "Serve invoices over the api.",
+        "acceptance_criteria": ["200 ok"],
+    }, "T1-C")
     decomp = {**DECOMP, "tasks": [
-        {"id": "T1", "title": "api", "write_scope": ["src/api/"],
-         "objective": "Serve invoices over the api.", "acceptance_criteria": ["200 ok"]},
-        {"id": "T2", "title": "ui", "write_scope": ["src/ui/"],
-         "objective": "Render the invoice list.", "acceptance_criteria": ["rows show"]},
+        t1,
+        {"id": "T2", "title": "ui", "objective": "Render the invoice list.",
+         "acceptance_criteria": ["rows show"]},
     ]}
-    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(decomp))
-    assert code == 0 and "stages.json" in out
+    record_skeleton_then_frontier(repo, decomp["tasks"])
     # Order is strict inside one story worktree.
     code, out = run(repo, "forge.py", "stage", "start", "T2")
     assert code != 0 and "T1" in out
@@ -7055,16 +9795,41 @@ def test_stage_loop_orders_execution_and_gates_pr_ready(repo, tmp_path):
     # done requires the stage to have actually started
     code, out = run(repo, "forge.py", "stage", "done", "T1")
     assert code != 0 and "not active" in out
+    code, out = record_task_grill(repo, t1)
+    assert code == 0, out
     code, out = run(repo, "forge.py", "stage", "start", "T1")
     assert code == 0, out
     launch_fake(repo, tmp_path, "T1")
     write_in_scope(repo, "src/api/invoices.py")
     code, out = run(repo, "forge.py", "stage", "done", "T1")
     assert code == 0, out
+    decomp["tasks"][1] = task_with_plan_contracts({
+        **STAGE_TASK,
+        "id": "T2",
+        "title": "ui",
+        "write_scope": ["src/ui/"],
+        "objective": "Render the invoice list.",
+        "acceptance_criteria": ["rows show"],
+    }, "T2-C")
+    code, out = run(
+        repo, "record_decomposition_from_json.py", stdin=json.dumps(decomp)
+    )
+    assert code == 0, out
     # pr_ready refuses while a stage is open
     stages_before_artifacts = json.loads(
         (repo / ".factory" / "stages.json").read_text())
     write_passing_artifacts(repo)
+    quality_path = repo / ".factory" / "reviews" / "quality.json"
+    quality = json.loads(quality_path.read_text())
+    quality["contract_verdicts"] = [
+        {
+            "contract_id": contract_id,
+            "verdict": "implemented",
+            "evidence": "focused stage proof",
+        }
+        for contract_id in ("T1-C1", "T2-C1")
+    ]
+    quality_path.write_text(json.dumps(quality))
     # write_passing_artifacts stamps the single-task DECOMP; T2's contract has
     # to survive, or stage done has nothing to measure it against
     (repo / ".factory" / "decomposition.json").write_text(
@@ -7076,6 +9841,8 @@ def test_stage_loop_orders_execution_and_gates_pr_ready(repo, tmp_path):
     code, out = run(repo, "pr_ready.py")
     assert code != 0 and "stage completion" in out and "T2" in out
     # The next task starts only after its predecessor is done.
+    code, out = record_task_grill(repo, decomp["tasks"][1])
+    assert code == 0, out
     code, out = run(repo, "forge.py", "stage", "start", "T2")
     assert code == 0, out
     launch_fake(repo, tmp_path, "T2")
@@ -7111,20 +9878,7 @@ def fake_companion_home(tmp_path: Path) -> Path:
 
 
 def fake_companion_env(tmp_path: Path) -> dict[str, str]:
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir(exist_ok=True)
-    fake_ps = fake_bin / "ps"
-    fake_ps.write_text(
-        "#!/bin/sh\n"
-        "if [ \"$2\" = \"lstart=\" ]; then\n"
-        "  echo 'Thu Aug 7 00:00:00 2026'\n"
-        "fi\n"
-    )
-    fake_ps.chmod(0o755)
-    return {
-        "HOME": str(fake_companion_home(tmp_path)),
-        "PATH": f"{fake_bin}:{os.environ['PATH']}",
-    }
+    return {"HOME": str(fake_companion_home(tmp_path))}
 
 
 def launch_fake(repo: Path, tmp_path: Path, stage_id: str) -> None:
@@ -7154,22 +9908,74 @@ def delegation_lock(repo: Path, task_id: str) -> Path:
     return delegation_ledger(repo).parent / "locks" / "task" / f"{task_id}.lock"
 
 
+def task_skeleton(task: dict) -> dict:
+    fields = ("id", "title", "objective", "acceptance_criteria", "dependencies")
+    return {field: task[field] for field in fields if field in task}
+
+
+def task_with_plan_contracts(task: dict, prefix: str = "C") -> dict:
+    return {
+        **task,
+        "plan_contracts": [
+            {
+                "id": f"{prefix}{index}",
+                "statement": criterion,
+                "source": "plans/active/TEST-1-test-plan.md#acceptance-criteria",
+            }
+            for index, criterion in enumerate(task["acceptance_criteria"], 1)
+        ],
+    }
+
+
+def record_skeleton_then_frontier(repo: Path, tasks: list[dict]) -> None:
+    skeletons = [task_skeleton(task) for task in tasks]
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": skeletons}),
+    )
+    assert code == 0, out
+    if tasks != skeletons:
+        code, out = run(
+            repo, "record_decomposition_from_json.py",
+            stdin=json.dumps({**DECOMP, "tasks": tasks}),
+        )
+        assert code == 0, out
+
+
 def start_stage(repo: Path, tmp_path: Path, task: dict, stage_id: str = "T1",
-                *, launch: bool = True) -> None:
+                *, launch: bool = True,
+                future_tasks: list[dict] | None = None) -> None:
     """Signed off, planned, decomposed, and the stage started — the state every
     stage-done measurement test needs before it can measure anything."""
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    code, out = run(repo, "record_decomposition_from_json.py",
-                    stdin=json.dumps({**DECOMP, "tasks": [task]}))
-    assert code == 0, out
+    record_skeleton_then_frontier(repo, [task, *(future_tasks or [])])
     code, out = record_task_grill(repo, task)
     assert code == 0, out
     code, out = run(repo, "forge.py", "stage", "start", stage_id)
     assert code == 0, out
     if launch:
         launch_fake(repo, tmp_path, stage_id)
+
+
+def test_plan_digest_is_newline_stable_across_record_and_stage_start(repo, tmp_path):
+    """Windows writes the saved plan with CRLF; the recorder and stage start
+    must agree on the plan digest regardless of newline shape (PR #107 CI)."""
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    plan = next((repo / "plans" / "active").glob("*.md"))
+    plan.write_bytes(
+        plan.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+    )
+    before = plan.read_bytes()
+    record_skeleton_then_frontier(repo, [STAGE_TASK])
+    code, out = record_task_grill(repo, STAGE_TASK)
+    assert code == 0, out
+    assert plan.read_bytes() == before
+    code, out = run(repo, "forge.py", "stage", "start", "T1")
+    assert code == 0, out
 
 
 def write_in_scope(repo: Path, rel: str, text: str = "print('work')\n") -> None:
@@ -7180,7 +9986,276 @@ def write_in_scope(repo: Path, rel: str, text: str = "print('work')\n") -> None:
 
 STAGE_TASK = {"id": "T1", "title": "core slice", "write_scope": ["src/"],
               "objective": "Build the core slice so the feature works end to end.",
-              "acceptance_criteria": ["the slice runs green"]}
+              "acceptance_criteria": ["the slice runs green"],
+              "plan_contracts": [{
+                  "id": "C1",
+                  "statement": "the slice runs green",
+                  "source": "plans/active/TEST-1-test-plan.md#acceptance-criteria",
+              }],
+              **READY_TASK_FIELDS}
+
+
+def skeletal_stage_task(task_id: str, title: str = "future slice") -> dict:
+    return {
+        "id": task_id,
+        "title": title,
+        "objective": "Build the next bounded slice when it reaches the frontier.",
+        "acceptance_criteria": ["the next slice runs green"],
+    }
+
+
+def test_initial_recording_is_fully_skeletal_and_graph_freezes(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    first = skeletal_stage_task("T1", "first slice")
+    second = {**skeletal_stage_task("T2", "second slice"),
+              "dependencies": ["T1"]}
+
+    execution_detail = {
+        "write_scope": ["src/"],
+        "required_tests": READY_TASK_FIELDS["required_tests"],
+        "verify_commands": ["true"],
+        "reviewer_focus": "the first bounded slice",
+        "review_budget": {"max_changed_files": 4, "max_changed_lines": 200},
+        "plan_contracts": [{
+            "id": "C1",
+            "statement": first["acceptance_criteria"][0],
+            "source": "plans/active/TEST-1-test-plan.md#acceptance-criteria",
+        }],
+    }
+    for field, value in execution_detail.items():
+        payload = {**DECOMP, "tasks": [{**first, field: value}, second]}
+        code, out = run(
+            repo, "record_decomposition_from_json.py", stdin=json.dumps(payload)
+        )
+        assert code != 0 and "fully skeletal" in out and field in out
+    payload = {**DECOMP, "tasks": [{**first, "write_scope": []}, second]}
+    code, out = run(
+        repo, "record_decomposition_from_json.py", stdin=json.dumps(payload)
+    )
+    assert code != 0 and "fully skeletal" in out and "write_scope" in out
+
+    skeleton = {**DECOMP, "tasks": [first, second]}
+    code, out = run(
+        repo, "record_decomposition_from_json.py", stdin=json.dumps(skeleton)
+    )
+    assert code == 0, out
+
+    graph_edits = [
+        [{**first, "id": "RENAMED"},
+         {**second, "dependencies": ["RENAMED"]}],
+        [{**second, "dependencies": []},
+         {**first, "dependencies": ["T2"]}],
+        [first, {**second, "dependencies": []}],
+    ]
+    for tasks in graph_edits:
+        code, out = run(
+            repo, "record_decomposition_from_json.py",
+            stdin=json.dumps({**DECOMP, "tasks": tasks}),
+        )
+        assert code != 0 and "task graph is frozen" in out
+
+    appended = {**skeletal_stage_task("T3", "split-out slice"),
+                "dependencies": ["T2"]}
+    detailed_append = {**appended, "write_scope": ["src/split/"]}
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [first, second, detailed_append]}),
+    )
+    assert code != 0 and "appended task must be skeletal" in out
+    empty_detail_append = {**appended, "write_scope": []}
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [first, second, empty_detail_append]}),
+    )
+    assert code != 0 and "appended task must be skeletal" in out
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [first, second, appended]}),
+    )
+    assert code == 0, out
+
+    frontier = {**first, **execution_detail}
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [frontier, second, appended]}),
+    )
+    assert code == 0, out
+    write_stages(repo, {
+        "issue": "ENG-1",
+        "stages": [
+            {"id": "T1", "title": frontier["title"], "status": "active"},
+            {"id": "T2", "title": second["title"], "status": "pending"},
+            {"id": "T3", "title": appended["title"], "status": "pending"},
+        ],
+    })
+    repaired = {**frontier, "write_scope": ["src/", "billing/"]}
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [repaired, second, appended]}),
+    )
+    assert code == 0, out
+
+
+def test_done_contracts_immutable_and_criteria_map_binds_plan_contracts(
+        repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    skeleton = skeletal_stage_task("T1")
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [skeleton]}),
+    )
+    assert code == 0, out
+    task = {
+        **skeleton,
+        "write_scope": ["src/"],
+        **READY_TASK_FIELDS,
+        "plan_contracts": [{
+            "id": "C1",
+            "statement": skeleton["acceptance_criteria"][0],
+            "source": "plans/active/TEST-1-test-plan.md#acceptance-criteria",
+        }],
+    }
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [task]}),
+    )
+    assert code == 0, out
+    write_stages(repo, {
+        "issue": "ENG-1",
+        "stages": [{"id": "T1", "title": task["title"], "status": "done",
+                    "task_sha256": task_digest(task)}],
+    })
+
+    changed_full_contract = {**task, "reviewer_focus": "rewritten after done"}
+    assert task_digest(changed_full_contract) == task_digest(task)
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [changed_full_contract]}),
+    )
+    assert code != 0 and "full contract" in out
+
+    write_stages(repo, {
+        "issue": "ENG-1",
+        "stages": [{"id": "T1", "title": task["title"], "status": "pending"}],
+    })
+    payload = task_grill_payload(task)
+    without_plan_contracts = {
+        key: value for key, value in task.items() if key != "plan_contracts"
+    }
+    seed_task_grill_frontier(repo, without_plan_contracts)
+    code, out = run(
+        repo, "record_grill_from_json.py", "--gate", "task", "--task", "T1",
+        stdin=json.dumps(payload),
+    )
+    assert code != 0 and "requires protected frontier plan_contracts" in out
+
+    seed_task_grill_frontier(repo, task)
+    code, out = run(
+        repo, "record_grill_from_json.py", "--gate", "task", "--task", "T1",
+        stdin=json.dumps(payload),
+    )
+    assert code == 0, out
+
+    mismatched = {**task, "plan_contracts": [{
+        **task["plan_contracts"][0], "statement": "a different plan promise",
+    }]}
+    seed_task_grill_frontier(repo, mismatched)
+    code, out = run(
+        repo, "record_grill_from_json.py", "--gate", "task", "--task", "T1",
+        stdin=json.dumps(payload),
+    )
+    assert code != 0 and "plan_contracts statements" in out
+
+
+def test_decomposition_refuses_future_execution_detail(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    first = task_skeleton(STAGE_TASK)
+    second = skeletal_stage_task("T2")
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [first, second]}),
+    )
+    assert code == 0, out
+    future_detail = {
+        "write_scope": ["src/future/"],
+        "required_tests": [{
+            "id": "test_future",
+            "path": "factory/tests/test_gates.py",
+            "command": "python3 -m pytest {path}::{id} --junitxml={report}",
+        }],
+        "verify_commands": ["true"],
+        "reviewer_focus": "the future bounded slice",
+        "plan_contracts": [{
+            "id": "C2",
+            "statement": "the next slice runs green",
+            "source": "plans/active/TEST-1-test-plan.md#acceptance-criteria",
+        }],
+    }
+
+    for field, detail in future_detail.items():
+        future = {**skeletal_stage_task("T2"), field: detail}
+        payload = {**DECOMP, "tasks": [STAGE_TASK, future]}
+        code, out = run(
+            repo, "record_decomposition_from_json.py", stdin=json.dumps(payload)
+        )
+
+        assert code != 0
+        assert "T2" in out and field in out
+
+
+def test_decomposition_accepts_frontier_detail_and_exempts_done_tasks(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    completed = {
+        **STAGE_TASK,
+        "required_tests": [{
+            "id": "test_completed",
+            "path": "factory/tests/test_gates.py",
+            "command": "python3 -m pytest {path}::{id} --junitxml={report}",
+        }],
+        "verify_commands": ["true"],
+    }
+    initial = {**DECOMP, "tasks": [completed, skeletal_stage_task("T2")]}
+    record_skeleton_then_frontier(repo, initial["tasks"])
+    write_stages(repo, {
+        "issue": "ENG-1",
+        "stages": [
+            {"id": "T1", "title": completed["title"], "status": "done"},
+            {"id": "T2", "title": "future slice", "status": "pending"},
+        ],
+    })
+    frontier = {
+        **skeletal_stage_task("T2"),
+        "write_scope": ["src/frontier/"],
+        "required_tests": [{
+            "id": "test_frontier",
+            "path": "factory/tests/test_gates.py",
+            "command": "python3 -m pytest {path}::{id} --junitxml={report}",
+        }],
+        "verify_commands": ["true"],
+    }
+
+    code, out = run(
+        repo,
+        "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [completed, frontier]}),
+    )
+
+    assert code == 0, out
+    recorded = json.loads((repo / ".factory" / "decomposition.json").read_text())
+    assert recorded["tasks"][0]["write_scope"] == completed["write_scope"]
+    assert recorded["tasks"][0]["required_tests"] == completed["required_tests"]
+    assert recorded["tasks"][0]["verify_commands"] == completed["verify_commands"]
+    assert recorded["tasks"][1]["write_scope"] == ["src/frontier/"]
+    assert recorded["tasks"][1]["required_tests"] == frontier["required_tests"]
+    assert recorded["tasks"][1]["verify_commands"] == ["true"]
 
 
 def test_stage_done_refuses_empty_diff(repo, tmp_path):
@@ -7192,6 +10267,110 @@ def test_stage_done_refuses_empty_diff(repo, tmp_path):
     write_in_scope(repo, "src/core.py")
     code, out = run(repo, "forge.py", "stage", "done", "T1")
     assert code == 0, out
+
+
+def test_review_budget_default_lowered_raised_and_exceeded(
+        repo, tmp_path, capsys):
+    from forge_cli.stages import _measure
+
+    def clone_case(name: str) -> Path:
+        target = tmp_path / name
+        shutil.copytree(repo, target)
+        return target
+
+    def measure_case(
+            name: str, task: dict, files: int, *, commit_after: int = 0,
+            delete_tracked_lines: int = 0, lines_per_file: int = 1) -> None:
+        target = clone_case(name)
+        if delete_tracked_lines:
+            write_in_scope(
+                target, "src/removed.py",
+                "".join(f"line_{index}\n" for index in range(delete_tracked_lines)),
+            )
+            git(target, "add", "src/removed.py")
+            git(target, "commit", "-qm", "tracked removal fixture")
+        stage = {"id": "T1", "base_sha": head(target), "dirty_at_start": {}}
+        if delete_tracked_lines:
+            (target / "src" / "removed.py").unlink()
+        for index in range(files):
+            write_in_scope(
+                target, f"src/part_{index}.py", "changed = True\n" * lines_per_file,
+            )
+            if index + 1 == commit_after:
+                git(target, "add", "src")
+                git(target, "commit", "-qm", "stage work")
+        _measure(target, "T1", stage, task)
+
+    measure_case("budget-default", STAGE_TASK, 1)
+
+    lowered = {**STAGE_TASK, "review_budget": {
+        "max_changed_files": 1,
+        "max_changed_lines": 2,
+    }}
+    measure_case("budget-lowered", lowered, 0, delete_tracked_lines=2)
+
+    raised = {**STAGE_TASK, "review_budget": {
+        "max_changed_files": 9,
+        "max_changed_lines": 401,
+        "reason": "This mechanical split remains one reviewable change.",
+    }}
+    measure_case("budget-raised", raised, 9, commit_after=4)
+
+    exceeded_files = {**STAGE_TASK, "review_budget": {
+        "max_changed_files": 1,
+        "max_changed_lines": 10,
+    }}
+    with pytest.raises(SystemExit) as refusal:
+        measure_case("budget-files-exceeded", exceeded_files, 2)
+    assert refusal.value.code == 1
+    out = capsys.readouterr().out
+    assert "measured files=2, lines=2; budget files=1, lines=10" in out
+    assert "default 8 files / 400 lines is the policy target" in out
+    assert "decision=split" in out and "frozen graph prefix" in out
+    assert "stage done T1 --incomplete" in out
+
+    exceeded_lines = {**STAGE_TASK, "review_budget": {
+        "max_changed_files": 2,
+        "max_changed_lines": 1,
+    }}
+    with pytest.raises(SystemExit) as refusal:
+        measure_case(
+            "budget-lines-exceeded", exceeded_lines, 1, lines_per_file=2,
+        )
+    assert refusal.value.code == 1
+    out = capsys.readouterr().out
+    assert "measured files=1, lines=2; budget files=2, lines=1" in out
+
+    validation = clone_case("budget-validation")
+    sign_off(validation)
+    intake(validation)
+    save_plan(validation, tmp_path)
+    code, out = run(
+        validation,
+        "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [task_skeleton(raised)]}),
+    )
+    assert code == 0, out
+    invalid_budgets = [
+        (None, "must be an object"),
+        ({"max_changed_files": 1}, "needs exactly"),
+        ({"max_changed_files": True, "max_changed_lines": 1},
+         "positive integer"),
+        ({"max_changed_files": 1, "max_changed_lines": 0},
+         "positive integer"),
+        ({"max_changed_files": 1, "max_changed_lines": 1, "reason": 3},
+         "reason must be a string"),
+        ({"max_changed_files": 9, "max_changed_lines": 401},
+         "non-empty reason"),
+    ]
+    for budget, message in invalid_budgets:
+        malformed = {**raised, "review_budget": budget}
+        code, out = run(
+            validation,
+            "record_decomposition_from_json.py",
+            stdin=json.dumps({**DECOMP, "tasks": [malformed]}),
+        )
+        assert code != 0 and message in out, (budget, out)
 
 
 def test_stage_done_refuses_out_of_scope_change(repo, tmp_path):
@@ -7785,39 +10964,6 @@ def test_stage_done_termination_signal_reaps_active_proof(
         os.kill(child_pid, 0)
 
 
-def test_process_identity_matches_the_process_table_on_single_digit_days(
-        repo, monkeypatch):
-    # `ps -o lstart=` pads the day of month to width two ("Aug  4"), while
-    # _process_table rebuilds identity with " ".join(fields) and collapses it.
-    # Every identity comparison in the module pits one form against the other,
-    # so an unnormalized probe matches nothing on days 1-9 — no observed
-    # process is recognized as live, none is signalled, and proof trees
-    # survive. It passed on 2026-07-30 and failed on 2026-08-04 for that
-    # reason alone. Assert the two forms agree for a live process.
-    sys.path.insert(0, str(repo / "factory" / "scripts"))
-    try:
-        import forge_cli.delegate as delegate
-
-        def fake_ps(args, **_kwargs):
-            if args[1:3] == ["-o", "lstart="]:
-                return subprocess.CompletedProcess(
-                    args, 0, stdout="Mon Aug  4 10:11:12 2026\n", stderr="")
-            return subprocess.CompletedProcess(
-                args, 0,
-                stdout="101 1 Mon Aug 4 10:11:12 2026\n", stderr="")
-
-        monkeypatch.setattr(delegate.subprocess, "run", fake_ps)
-        probed = delegate._process_start_identity(101)
-        tabled = delegate._process_table().get(101)
-        assert probed is not None and tabled is not None
-        assert probed == tabled[1], (
-            f"identity forms disagree: probe={probed!r} table={tabled[1]!r}")
-        assert "  " not in probed
-    finally:
-        sys.path.remove(str(repo / "factory" / "scripts"))
-        sys.modules.pop("forge_cli.delegate", None)
-
-
 @pytest.mark.parametrize("proof_kind", ["verify-command", "required-test"])
 def test_proof_reaps_spawn_when_process_identity_probe_fails(
         repo, monkeypatch, proof_kind):
@@ -7843,15 +10989,25 @@ def test_proof_reaps_spawn_when_process_identity_probe_fails(
         fake_process = FakeProcess()
         cleaned = []
         signals = []
-        monkeypatch.setattr(stages.subprocess, "Popen",
-                            lambda *_args, **_kwargs: fake_process)
+        spawned = {}
+        probes = iter([OSError("process identity unavailable"), 4242.0])
+
+        def process_identity(_pid):
+            result = next(probes)
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        def spawn(*_args, **kwargs):
+            spawned.update(kwargs)
+            return fake_process
+
+        monkeypatch.setattr(stages.subprocess, "Popen", spawn)
         monkeypatch.setattr(delegate, "_process_table", lambda: {})
+        monkeypatch.setattr(delegate, "_process_start_identity", process_identity)
         monkeypatch.setattr(
-            delegate, "_process_start_identity",
-            lambda _pid: (_ for _ in ()).throw(OSError("ps unavailable")))
-        monkeypatch.setattr(
-            delegate.os, "killpg",
-            lambda pgid, signum: signals.append((pgid, signum)))
+            delegate, "_signal_verified_process_group",
+            lambda pid, identity: signals.append((pid, identity)) or True)
         monkeypatch.setattr(
             delegate, "_terminate_observed_process_tree",
             lambda proc, *_args: cleaned.append(proc.pid) or True)
@@ -7874,7 +11030,12 @@ def test_proof_reaps_spawn_when_process_identity_probe_fails(
     finally:
         sys.path.pop(0)
     assert cleaned == [fake_process.pid]
-    assert signals == [(fake_process.pid, signal.SIGTERM)]
+    assert signals == [(fake_process.pid, 4242.0)]
+    assert spawned["env"]["PYTHONUTF8"] == "1"
+    assert spawned["stdout"].encoding == "utf-8"
+    assert spawned["stdout"].errors == "replace"
+    assert spawned["stderr"].encoding == "utf-8"
+    assert spawned["stderr"].errors == "replace"
 
 
 def test_stage_done_reloads_launch_after_proof_commands(repo, tmp_path):
@@ -7894,11 +11055,9 @@ def test_stage_tasks_are_sequential_and_parallel_flag_is_refused(repo, tmp_path)
     save_plan(repo, tmp_path)
     decomp = {**DECOMP, "tasks": [
         {**STAGE_TASK, "id": "T1", "write_scope": ["src/api/"]},
-        {**STAGE_TASK, "id": "T2", "write_scope": ["src/ui/"]},
+        skeletal_stage_task("T2"),
     ]}
-    code, out = run(repo, "record_decomposition_from_json.py",
-                    stdin=json.dumps(decomp))
-    assert code == 0, out
+    record_skeleton_then_frontier(repo, decomp["tasks"])
     code, out = run(repo, "forge.py", "stage", "start", "T2", "--parallel")
     assert code != 0
     assert "task stages are sequential" in out
@@ -7951,7 +11110,7 @@ def test_decomposition_refuses_to_remove_an_active_task(repo, tmp_path):
         stdin=json.dumps(replacement),
     )
     assert code != 0
-    assert "active stage cannot be removed or renamed" in out
+    assert "task graph is frozen" in out
 
 
 def test_decomposition_refuses_to_rewrite_a_completed_task_contract(repo, tmp_path):
@@ -7968,12 +11127,15 @@ def test_decomposition_refuses_to_rewrite_a_completed_task_contract(repo, tmp_pa
     }
     code, out = run(
         repo, "record_decomposition_from_json.py", stdin=json.dumps(changed))
-    assert code != 0 and "completed stage's contract" in out
+    assert code != 0 and "full contract" in out
 
 
 def test_decomposition_backfills_unchanged_legacy_completed_contract(
         repo, tmp_path):
-    start_stage(repo, tmp_path, STAGE_TASK)
+    follow_up = skeletal_stage_task("T2", "follow-up")
+    follow_up["objective"] = "Add the next bounded slice."
+    follow_up["acceptance_criteria"] = ["the follow-up is recorded"]
+    start_stage(repo, tmp_path, STAGE_TASK, future_tasks=[follow_up])
     write_in_scope(repo, "src/core.py")
     code, out = run(repo, "forge.py", "stage", "done", "T1")
     assert code == 0, out
@@ -7985,12 +11147,7 @@ def test_decomposition_backfills_unchanged_legacy_completed_contract(
         **DECOMP,
         "tasks": [
             STAGE_TASK,
-            {
-                "id": "T2",
-                "title": "follow-up",
-                "objective": "Add the next bounded slice.",
-                "acceptance_criteria": ["the follow-up is recorded"],
-            },
+            follow_up,
         ],
     }
     code, out = run(
@@ -8018,7 +11175,7 @@ def test_completed_contract_check_uses_protected_stage_digest(repo, tmp_path):
     code, out = run(
         repo, "record_decomposition_from_json.py",
         stdin=json.dumps({**DECOMP, "tasks": [changed_task]}))
-    assert code != 0 and "completed stage's contract" in out
+    assert code != 0 and "full contract" in out
 
 
 def test_stage_start_refuses_to_rebaseline_an_unchanged_active_contract(repo, tmp_path):
@@ -8124,8 +11281,15 @@ def test_jsonl_ledgers_merge_with_a_builtin_driver(repo):
 
 
 def test_stage_done_refuses_a_task_with_no_boundary(repo, tmp_path):
-    start_stage(repo, tmp_path, {k: v for k, v in STAGE_TASK.items()
-                                 if k != "write_scope"})
+    start_stage(repo, tmp_path, STAGE_TASK)
+    unbounded = {**STAGE_TASK, "write_scope": []}
+    protected = delegation_ledger(repo).parent / "decomposition.json"
+    decomposition = json.loads(protected.read_text())
+    decomposition["tasks"] = [unbounded]
+    protected.write_text(json.dumps(decomposition))
+    (repo / ".factory" / "decomposition.json").write_text(
+        json.dumps(decomposition)
+    )
     write_in_scope(repo, "anywhere.py")
     code, out = run(repo, "forge.py", "stage", "done", "T1")
     assert code != 0 and "no write_scope" in out
@@ -8182,9 +11346,7 @@ def test_stage_start_refuses_a_decomposition_whose_plan_moved(repo, tmp_path):
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    code, out = run(repo, "record_decomposition_from_json.py",
-                    stdin=json.dumps({**DECOMP, "tasks": [STAGE_TASK]}))
-    assert code == 0, out
+    record_skeleton_then_frontier(repo, [STAGE_TASK])
     plan = next((repo / "plans" / "active").glob("*.md"))
     plan.write_text(plan.read_text() + "\n<!-- edited after decomposition -->\n")
     code, out = run(repo, "forge.py", "stage", "start", "T1")
@@ -8261,6 +11423,11 @@ def test_decomposition_refuses_prose_verify_commands(repo, tmp_path):
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [task_skeleton(STAGE_TASK)]}),
+    )
+    assert code == 0, out
     prose = {**DECOMP, "tasks": [{**STAGE_TASK,
                                   "verify_commands": ["package test script"]}]}
     code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(prose))
@@ -8294,6 +11461,11 @@ def test_decomposition_provenance_overrides_agent_supplied_fields(repo, tmp_path
         "plan_file": "plans/active/agent.md",
         "plan_sha256": hashlib.sha256(plan.read_bytes()).hexdigest(),
     }
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**payload, "tasks": [task_skeleton(payload["tasks"][0])]}),
+    )
+    assert code == 0, out
 
     code, out = run(repo, "record_decomposition_from_json.py",
                     stdin=json.dumps(payload))
@@ -8329,6 +11501,11 @@ def test_decomposition_accepts_empty_required_tests(repo, tmp_path):
     intake(repo)
     save_plan(repo, tmp_path)
     task = {**STAGE_TASK, "verify_commands": ["true"], "required_tests": []}
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [task_skeleton(task)]}),
+    )
+    assert code == 0, out
 
     code, out = run(repo, "record_decomposition_from_json.py",
                     stdin=json.dumps({**DECOMP, "tasks": [task]}))
@@ -8434,6 +11611,11 @@ def test_decomposition_refuses_required_test_command_without_path_or_id(repo, tm
     task = {**STAGE_TASK, "required_tests": [{
         "id": "test_slice", "path": "tests/test_slice.py", "command": "true",
     }]}
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [task_skeleton(task)]}),
+    )
+    assert code == 0, out
     code, out = run(repo, "record_decomposition_from_json.py",
                     stdin=json.dumps({**DECOMP, "tasks": [task]}))
     assert code != 0 and "{report}" in out
@@ -8579,6 +11761,25 @@ def test_doctor_reports_an_epicless_roadmap_without_blocking(repo, capsys):
     assert "MOD-1" not in out
 
 
+def test_doctor_reports_missing_roadmap_with_discovery(repo, capsys):
+    from forge_cli.doctor import legacy_roadmap_gaps, report_legacy_roadmap_gaps
+
+    (repo / "docs" / "decisions" / "0001-existing-choice.md").write_text(
+        "# Existing choice\n"
+    )
+
+    gaps = legacy_roadmap_gaps(repo)
+    assert len(gaps) == 1 and gaps[0][0] == "roadmap"
+    assert report_legacy_roadmap_gaps(repo) is None
+    out = capsys.readouterr().out
+    assert out.startswith("[opt ] roadmap/roadmap plans/roadmap.json: absent")
+    assert "forge roadmap derive" in out
+
+    (repo / "docs" / "decisions" / "0001-existing-choice.md").unlink()
+    report_legacy_roadmap_gaps(repo)
+    assert capsys.readouterr().out == ""
+
+
 def test_doctor_reports_an_unmarked_outcomeless_done_item(repo, capsys):
     from forge_cli.doctor import report_legacy_roadmap_gaps
     from forge_cli.roadmap import load_roadmap
@@ -8632,6 +11833,103 @@ DELEGATE_TASK = {**STAGE_TASK, "required_tests": [{
                  "verify_commands": ["true"]}
 
 
+def test_stage_start_refuses_unready_or_ungrilled_contract(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    authority = delegation_ledger(repo).parent / "stages.json"
+    mirror = repo / ".factory" / "stages.json"
+    code, out = run(
+        repo,
+        "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [task_skeleton(STAGE_TASK)]}),
+    )
+    assert code == 0, out
+
+    for field, empty in (
+        ("write_scope", []),
+        ("required_tests", []),
+        ("verify_commands", []),
+        ("reviewer_focus", ""),
+    ):
+        unready = {**STAGE_TASK, field: empty}
+        code, out = run(
+            repo,
+            "record_decomposition_from_json.py",
+            stdin=json.dumps({**DECOMP, "tasks": [unready]}),
+        )
+        assert code == 0, out
+        before = (authority.read_bytes(), mirror.read_bytes())
+        code, out = run(repo, "forge.py", "stage", "start", "T1")
+        assert code != 0 and field in out
+        assert "record_decomposition_from_json.py --input <json>" in out
+        assert (authority.read_bytes(), mirror.read_bytes()) == before
+
+    code, out = run(
+        repo,
+        "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [STAGE_TASK]}),
+    )
+    assert code == 0, out
+    before = (authority.read_bytes(), mirror.read_bytes())
+    code, out = run(repo, "forge.py", "stage", "start", "T1")
+    assert code != 0 and "Task grill required" in out
+    assert "record_grill_from_json.py --gate task --task T1" in out
+    assert (authority.read_bytes(), mirror.read_bytes()) == before
+
+    code, out = record_task_grill(repo, STAGE_TASK)
+    assert code == 0, out
+    changed = {**STAGE_TASK, "write_scope": ["src/changed/"]}
+    code, out = run(
+        repo,
+        "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [changed]}),
+    )
+    assert code == 0, out
+    before = (authority.read_bytes(), mirror.read_bytes())
+    code, out = run(repo, "forge.py", "stage", "start", "T1")
+    assert code != 0 and "STALE" in out and "grounding inputs changed" in out
+    assert (authority.read_bytes(), mirror.read_bytes()) == before
+
+
+def test_delegate_refuses_active_empty_scope_and_read_only_passes(repo, tmp_path):
+    start_stage(repo, tmp_path, STAGE_TASK, launch=False)
+    authority = delegation_ledger(repo).parent / "decomposition.json"
+    mirror = repo / ".factory" / "decomposition.json"
+    decomposition = json.loads(authority.read_text())
+    decomposition["tasks"][0]["write_scope"] = []
+    authority.write_text(json.dumps(decomposition))
+    mirror.write_text(json.dumps(decomposition))
+
+    code, out = run(
+        repo, "forge.py", "delegate", "T1", env=fake_companion_env(tmp_path)
+    )
+    assert code != 0 and "write_scope" in out
+    assert "record_decomposition_from_json.py --input <json>" in out
+    assert "forge delegate T1 --read-only" in out
+    assert not delegation_ledger(repo).exists()
+
+    code, out = run(
+        repo,
+        "forge.py",
+        "delegate",
+        "T1",
+        "--read-only",
+        "--print-only",
+        env=fake_companion_env(tmp_path),
+    )
+    assert code == 0, out
+    assert "Write access: NO" in out and "--write" not in out
+    assert not delegation_ledger(repo).exists()
+
+    decomposition["tasks"] = [STAGE_TASK]
+    authority.write_text(json.dumps(decomposition))
+    mirror.write_text(json.dumps(decomposition))
+    write_in_scope(repo, "src/core.py")
+    code, out = run(repo, "forge.py", "stage", "done", "T1")
+    assert code != 0 and "no successful write launch" in out
+
+
 def test_delegate_brief_carries_criteria_and_scope(repo, tmp_path):
     """The executor is told not to inspect the repo, so everything it needs
     has to travel with the brief — including what already exists in scope."""
@@ -8653,20 +11951,41 @@ def test_delegate_brief_carries_criteria_and_scope(repo, tmp_path):
     assert "--prompt-file .factory/diagnostic-briefs/T1.md" in out
 
 
+def test_brief_states_budget_and_narration_line(repo, tmp_path):
+    task = {**DELEGATE_TASK, "review_budget": {
+        "max_changed_files": 3,
+        "max_changed_lines": 120,
+    }}
+    start_stage(repo, tmp_path, task, launch=False)
+    code, out = run(repo, "forge.py", "delegate", "T1", "--print-only",
+                    env={"HOME": str(fake_companion_home(tmp_path))})
+    assert code == 0, out
+    brief = (repo / ".factory" / "diagnostic-briefs" / "T1.md").read_text()
+    assert (
+        "Review budget: 3 files / 120 changed lines (additions + deletions), "
+        "excluding `.factory/` and `plans/`. If the work will exceed it, stop "
+        "and return incomplete so the orchestrator can split the task before "
+        "more work."
+    ) in brief
+    assert (
+        "Narration budget: one line per state change, findings and refusals "
+        "always in full, process chatter never (conduct §8)."
+    ) in brief
+
+
 def test_delegate_derives_write_from_stage_state(repo, tmp_path):
     """Write permission stopped being a per-request opinion: three layers
     disagreed on the default and a read-only sandbox can neither write nor ask."""
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    code, out = run(repo, "record_decomposition_from_json.py",
-                    stdin=json.dumps({**DECOMP, "tasks": [DELEGATE_TASK]}))
-    assert code == 0, out
+    record_skeleton_then_frontier(repo, [DELEGATE_TASK])
     # stage not started -> read only
     home = str(fake_companion_home(tmp_path))
     code, out = run(repo, "forge.py", "delegate", "T1", "--print-only",
                     env={"HOME": home})
-    assert code == 0 and "--write" not in out and "Write access: NO" in out
+    assert (code == 0 and len(out.splitlines()) == 1 and "--write" not in out
+            and "Write access: NO" in out and "not launched" in out)
     code, out = record_task_grill(repo, DELEGATE_TASK)
     assert code == 0, out
     run(repo, "forge.py", "stage", "start", "T1")
@@ -8686,7 +12005,7 @@ def test_delegate_refuses_without_task_grill(repo, tmp_path):
     grill.unlink()
     command = (
         "python3 factory/scripts/record_grill_from_json.py --gate task "
-        f"--task T1 --task-digest {task_digest(STAGE_TASK)}"
+        "--task T1"
     )
 
     code, out = run(repo, "forge.py", "delegate", "T1",
@@ -8705,19 +12024,16 @@ def test_delegate_refuses_without_task_grill(repo, tmp_path):
 @delegate_task_grill_test
 def test_delegate_refuses_stale_task_grill(repo, tmp_path):
     start_stage(repo, tmp_path, STAGE_TASK, launch=False)
-    payload = {"generated_by": "griller", "gate": "task", "verdict": "pass",
-               "gaps": [], "contradictions": [], "resolutions": []}
-    code, out = run(
-        repo, "record_grill_from_json.py", "--gate", "task", "--task", "T1",
-        "--task-digest", "0" * 64, stdin=json.dumps(payload),
-    )
-    assert code == 0, out
+    grill = repo / ".factory" / "grills" / "tasks" / "T1.json"
+    payload = json.loads(grill.read_text())
+    payload["input_sha256"] = "0" * 64
+    grill.write_text(json.dumps(payload))
 
     code, out = run(repo, "forge.py", "delegate", "T1",
                     env=fake_companion_env(tmp_path))
     assert code != 0 and "STALE" in out
-    assert "record_grill_from_json.py --gate task --task T1 --task-digest" in out
-    assert task_digest(STAGE_TASK) in out
+    assert "record_grill_from_json.py --gate task --task T1" in out
+    assert "--task-digest was removed" in out
     assert not delegation_ledger(repo).exists()
 
 
@@ -8899,16 +12215,14 @@ def test_workspace_decomposition_mirror_cannot_forge_task_contract(
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    code, out = run(repo, "record_decomposition_from_json.py",
-                    stdin=json.dumps({**DECOMP, "tasks": [STAGE_TASK]}))
-    assert code == 0, out
+    record_skeleton_then_frontier(repo, [STAGE_TASK])
     mirror = repo / ".factory" / "decomposition.json"
     forged = json.loads(mirror.read_text())
     forged["tasks"][0]["write_scope"] = ["billing/"]
     mirror.write_text(json.dumps(forged))
-    code, out = run(repo, "forge.py", "stage", "start", "T1")
-    assert code == 0, out
     code, out = record_task_grill(repo, STAGE_TASK)
+    assert code == 0, out
+    code, out = run(repo, "forge.py", "stage", "start", "T1")
     assert code == 0, out
     code, out = run(repo, "forge.py", "delegate", "T1", "--print-only",
                     env={"HOME": str(fake_companion_home(tmp_path))})
@@ -8954,9 +12268,7 @@ def test_stage_migrate_requires_confirmation_and_adopts_legacy_state(
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    code, out = run(repo, "record_decomposition_from_json.py",
-                    stdin=json.dumps({**DECOMP, "tasks": [STAGE_TASK]}))
-    assert code == 0, out
+    record_skeleton_then_frontier(repo, [STAGE_TASK])
     protected = delegation_ledger(repo).parent
     shutil.rmtree(protected)
     base = head(repo)
@@ -8968,6 +12280,8 @@ def test_stage_migrate_requires_confirmation_and_adopts_legacy_state(
     assert code == 0, out
     assert (protected / "decomposition.json").is_file()
     assert (protected / "stages.json").is_file()
+    code, out = record_task_grill(repo, STAGE_TASK)
+    assert code == 0, out
     code, out = run(repo, "forge.py", "stage", "start", "T1")
     assert code == 0, out
 
@@ -8978,9 +12292,7 @@ def test_stage_migrate_refuses_partial_protected_authority(
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    code, out = run(repo, "record_decomposition_from_json.py",
-                    stdin=json.dumps({**DECOMP, "tasks": [STAGE_TASK]}))
-    assert code == 0, out
+    record_skeleton_then_frontier(repo, [STAGE_TASK])
     protected = delegation_ledger(repo).parent
     source = (repo / ".factory" / protected_name).read_bytes()
     shutil.rmtree(protected)
@@ -8998,9 +12310,7 @@ def prepare_legacy_stage_migration(repo, tmp_path, tasks=None):
     intake(repo)
     save_plan(repo, tmp_path)
     tasks = tasks or [STAGE_TASK]
-    code, out = run(repo, "record_decomposition_from_json.py",
-                    stdin=json.dumps({**DECOMP, "tasks": tasks}))
-    assert code == 0, out
+    record_skeleton_then_frontier(repo, tasks)
     protected = delegation_ledger(repo).parent
     shutil.rmtree(protected)
     return protected
@@ -9031,8 +12341,8 @@ def test_stage_migrate_refuses_a_base_that_is_not_an_ancestor(repo, tmp_path):
 def test_stage_migrate_records_the_base_on_adopted_stages(repo, tmp_path):
     tasks = [
         {**STAGE_TASK, "id": "T1"},
-        {**STAGE_TASK, "id": "T2"},
-        {**STAGE_TASK, "id": "T3"},
+        skeletal_stage_task("T2"),
+        skeletal_stage_task("T3"),
     ]
     protected = prepare_legacy_stage_migration(repo, tmp_path, tasks)
     stages_path = repo / ".factory" / "stages.json"
@@ -9075,6 +12385,48 @@ def test_delegate_brief_symlink_is_refused(
     )
     assert code != 0 and "cannot safely write" in out
     assert victim.read_text() == "do not touch\n"
+
+
+def test_safe_factory_windows_helper_opens_nested_regular_file(tmp_path):
+    factory_lib = load_factory_lib(HARNESS)
+    target = tmp_path / ".factory"
+    descriptor = factory_lib._safe_factory_nt_open(
+        target, ("briefs", "T1.md"), os.O_WRONLY | os.O_CREAT)
+    assert descriptor is not None
+    try:
+        os.write(descriptor, b"brief\n")
+    finally:
+        os.close(descriptor)
+    assert (target / "briefs" / "T1.md").read_bytes() == b"brief\n"
+
+
+@pytest.mark.parametrize("parts, reparse_relative", [
+    (("T1.md",), "."),
+    (("T1.md",), "T1.md"),
+    (("briefs", "T1.md"), "briefs"),
+])
+def test_safe_factory_windows_helper_refuses_reparse_components(
+        tmp_path, monkeypatch, parts, reparse_relative):
+    factory_lib = load_factory_lib(HARNESS)
+    target = tmp_path / ".factory"
+    reparse_path = target / reparse_relative
+    if reparse_relative == parts[-1]:
+        target.mkdir()
+        reparse_path.touch()
+    real_lstat = factory_lib.os.lstat
+    reparse_flag = 0x400
+    monkeypatch.setattr(
+        factory_lib.stat, "FILE_ATTRIBUTE_REPARSE_POINT", reparse_flag,
+        raising=False)
+
+    def lstat(path):
+        if os.fspath(path) == os.fspath(reparse_path):
+            return types.SimpleNamespace(st_file_attributes=reparse_flag)
+        return real_lstat(path)
+
+    monkeypatch.setattr(factory_lib.os, "lstat", lstat)
+    assert factory_lib._safe_factory_nt_open(
+        target, parts, os.O_WRONLY | os.O_CREAT) is None
 
 
 def test_delegate_mirror_symlink_is_ignored(repo, tmp_path):
@@ -9240,22 +12592,70 @@ def test_process_signal_revalidates_each_pid_identity(repo, monkeypatch):
     sys.path.insert(0, str(repo / "factory" / "scripts"))
     try:
         import forge_cli.delegate as delegate
-        killed = []
+        terminated = []
+
+        class Process:
+            def __init__(self, pid, identity):
+                self.pid = pid
+                self.identity = identity
+
+            def status(self):
+                return "running"
+
+            def create_time(self):
+                return self.identity
+
+            def terminate(self):
+                terminated.append(self.pid)
+
+        replacement = Process(101, 2.0)
+        live = Process(102, 3.0)
         monkeypatch.setattr(
-            delegate, "_process_start_identity",
-            lambda pid: "replacement" if pid == 101 else "live")
-        monkeypatch.setattr(delegate, "_process_is_zombie", lambda _pid: False)
-        monkeypatch.setattr(
-            delegate.os, "kill",
-            lambda pid, signum: killed.append((pid, signum)))
+            delegate, "_psutil", lambda: fake_psutil([replacement, live]))
         signalled = delegate._signal_identified_processes({
-            101: "original",
-            102: "live",
+            101: 1.0,
+            102: 3.0,
         })
     finally:
         sys.path.pop(0)
-    assert signalled == {102: "live"}
-    assert killed == [(102, signal.SIGTERM)]
+    assert signalled == {102: 3.0}
+    assert terminated == [102]
+
+
+def test_process_signal_uses_portable_sigkill(repo, monkeypatch):
+    sys.path.insert(0, str(repo / "factory" / "scripts"))
+    try:
+        import forge_cli.delegate as delegate
+        terminated = []
+        killed = []
+
+        class Process:
+            pid = 101
+
+            def status(self):
+                return "running"
+
+            def create_time(self):
+                return 1.0
+
+            def terminate(self):
+                terminated.append(self.pid)
+
+            def kill(self):
+                killed.append(self.pid)
+
+        monkeypatch.delattr(delegate.signal, "SIGKILL", raising=False)
+        monkeypatch.setattr(delegate, "SIGKILL", None)
+        monkeypatch.setattr(
+            delegate, "_psutil", lambda: fake_psutil([Process()]))
+        assert delegate._signal_identified_processes(
+            {101: 1.0}, signal.SIGTERM) == {101: 1.0}
+        assert delegate._signal_identified_processes(
+            {101: 1.0}, delegate.SIGKILL) == {101: 1.0}
+    finally:
+        sys.path.pop(0)
+    assert terminated == [101]
+    assert killed == [101]
 
 
 def test_process_signal_revalidates_identity_after_zombie_probe(
@@ -9263,86 +12663,112 @@ def test_process_signal_revalidates_identity_after_zombie_probe(
     sys.path.insert(0, str(repo / "factory" / "scripts"))
     try:
         import forge_cli.delegate as delegate
-        state = {"identity": "original"}
-        killed = []
-        monkeypatch.setattr(
-            delegate, "_process_start_identity",
-            lambda _pid: state["identity"])
+        state = {"identity": 1.0}
+        terminated = []
 
-        def probe_zombie(_pid):
-            state["identity"] = "replacement"
-            return False
+        class Process:
+            pid = 101
 
-        monkeypatch.setattr(delegate, "_process_is_zombie", probe_zombie)
+            def status(self):
+                state["identity"] = 2.0
+                return "running"
+
+            def create_time(self):
+                return state["identity"]
+
+            def terminate(self):
+                terminated.append(self.pid)
+
+        process = Process()
         monkeypatch.setattr(
-            delegate.os, "kill",
-            lambda pid, signum: killed.append((pid, signum)))
+            delegate, "_psutil", lambda: fake_psutil([process]))
         signalled = delegate._signal_identified_processes({
-            101: "original",
+            101: 1.0,
         })
     finally:
         sys.path.pop(0)
     assert signalled == {}
-    assert killed == []
+    assert terminated == []
 
 
-def test_process_group_signal_requires_live_leader_identity(
+def test_terminate_reaps_worker_tree_by_create_time_identity(
         repo, monkeypatch):
     sys.path.insert(0, str(repo / "factory" / "scripts"))
     try:
         import forge_cli.delegate as delegate
-        signals = []
-        monkeypatch.setattr(delegate, "_process_is_zombie", lambda _pid: False)
+        terminated = []
+
+        class Process:
+            def __init__(self, pid, identity, children=()):
+                self.pid = pid
+                self.identity = identity
+                self._children = list(children)
+
+            def status(self):
+                return "running"
+
+            def create_time(self):
+                return self.identity
+
+            def children(self, *, recursive):
+                assert recursive is True
+                return self._children
+
+            def terminate(self):
+                terminated.append(self.pid)
+
+        class ReusedChild(Process):
+            def __init__(self):
+                super().__init__(104, 41.0)
+                self.identities = iter((41.0, 42.0))
+
+            def create_time(self):
+                return next(self.identities)
+
+        child = Process(102, 20.0)
+        reused_child = ReusedChild()
+        leader = Process(101, 10.0, [child, reused_child])
+        reused = Process(103, 31.0)
         monkeypatch.setattr(
-            delegate, "_process_start_identity",
-            lambda pid: "leader" if pid == 101 else None)
-        monkeypatch.setattr(
-            delegate.os, "killpg",
-            lambda pgid, signum: signals.append((pgid, signum)))
-        assert delegate._signal_verified_process_group(101, "leader") is True
-        assert delegate._signal_verified_process_group(102, "old") is False
+            delegate, "_psutil",
+            lambda: fake_psutil([leader, child, reused_child, reused]))
+
+        assert delegate._signal_verified_process_group(101, 10.0) is True
+        assert delegate._signal_verified_process_group(103, 30.0) is False
     finally:
         sys.path.pop(0)
-    assert signals == [(101, signal.SIGTERM)]
-
-
-def test_process_table_failure_is_not_treated_as_an_empty_table(
-        repo, monkeypatch):
-    sys.path.insert(0, str(repo / "factory" / "scripts"))
-    try:
-        import forge_cli.delegate as delegate
-
-        class FailedPs:
-            returncode = 1
-            stdout = ""
-
-        monkeypatch.setattr(
-            delegate.subprocess, "run",
-            lambda *_args, **_kwargs: FailedPs())
-        with pytest.raises(delegate.ProcessDiscoveryError):
-            delegate._process_table()
-    finally:
-        sys.path.pop(0)
+    assert terminated == [102, 101]
 
 
 def test_tagged_process_scan_is_limited_to_same_user_processes(
-        repo, tmp_path, monkeypatch):
+        repo, monkeypatch):
     sys.path.insert(0, str(repo / "factory" / "scripts"))
     try:
         import forge_cli.delegate as delegate
-        real_path = Path
-        proc_root = tmp_path / "proc"
-        for pid in ("101", "202"):
-            (proc_root / pid).mkdir(parents=True)
-        (proc_root / "101" / "environ").write_bytes(b"OTHER=value\0")
-        (proc_root / "202" / "environ").write_bytes(
-            b"FORGE_PROCESS_TOKEN=owned\0")
+        class Process:
+            def __init__(self, pid, user, environment):
+                self.pid = pid
+                self.user = user
+                self._environment = environment
+
+            def username(self):
+                return self.user
+
+            def environ(self):
+                return self._environment
+
+            def cmdline(self):
+                return []
+
+            def create_time(self):
+                return float(self.pid)
+
+        mine = Process(101, "owner", {})
+        other = Process(202, "other", {"FORGE_PROCESS_TOKEN": "owned"})
         monkeypatch.setattr(
-            delegate, "Path",
-            lambda value: proc_root if value == "/proc" else real_path(value))
-        monkeypatch.setattr(
-            delegate, "_process_table", lambda: {101: (1, "same-user")})
-        found = delegate._tagged_processes("owned")
+            delegate, "_psutil", lambda: fake_psutil([mine, other]))
+        found = delegate._tagged_processes(
+            "owned", current={101: (1, 101.0), 202: (1, 202.0)})
     finally:
         sys.path.pop(0)
     assert found == {}
@@ -9353,39 +12779,68 @@ def test_tagged_process_scan_skips_permission_denied_candidates(
     sys.path.insert(0, str(repo / "factory" / "scripts"))
     try:
         import forge_cli.delegate as delegate
-        real_path = Path
+        class Process:
+            def __init__(self, pid, environment, denied=False):
+                self.pid = pid
+                self._environment = environment
+                self.denied = denied
 
-        class Candidate:
-            def __init__(self, name):
-                self.name = name
+            def username(self):
+                return "owner"
 
-            def __truediv__(self, _name):
-                return self
+            def environ(self):
+                if self.denied:
+                    raise FakePsutilAccessDenied()
+                return self._environment
 
-            def read_bytes(self):
-                if self.name == "101":
-                    raise PermissionError("hidden process environment")
-                return b"FORGE_PROCESS_" + b"TOKEN=owned\0"
+            def cmdline(self):
+                if self.denied:
+                    raise FakePsutilAccessDenied()
+                return []
 
-        class ProcRoot:
-            def is_dir(self):
-                return True
+            def create_time(self):
+                return float(self.pid)
 
-            def __truediv__(self, pid):
-                return Candidate(str(pid))
-
+        hidden = Process(101, None, denied=True)
+        readable = Process(202, {"FORGE_PROCESS_TOKEN": "owned"})
         monkeypatch.setattr(
-            delegate, "Path",
-            lambda value: ProcRoot() if value == "/proc" else real_path(value))
-        monkeypatch.setattr(
-            delegate, "_process_table",
-            lambda: {101: (1, "hidden"), 202: (1, "readable")})
-        monkeypatch.setattr(
-            delegate, "_process_start_identity", lambda pid: f"identity-{pid}")
-        found = delegate._tagged_processes("owned")
+            delegate, "_psutil", lambda: fake_psutil([hidden, readable]))
+        found = delegate._tagged_processes(
+            "owned", current={101: (1, 101.0), 202: (1, 202.0)})
     finally:
         sys.path.pop(0)
-    assert found == {202: "identity-202"}
+    assert found == {202: 202.0}
+
+
+def test_tagged_process_scan_falls_back_when_cached_environment_is_denied(
+        repo, monkeypatch):
+    sys.path.insert(0, str(repo / "factory" / "scripts"))
+    try:
+        import forge_cli.delegate as delegate
+
+        class Process:
+            pid = 101
+
+            def username(self):
+                return "owner"
+
+            def environ(self):
+                raise FakePsutilAccessDenied()
+
+            def cmdline(self):
+                return ["worker", "FORGE_PROCESS_TOKEN=owned"]
+
+            def create_time(self):
+                return 101.0
+
+        process = Process()
+        monkeypatch.setattr(
+            delegate, "_psutil", lambda: fake_psutil([process]))
+        found = delegate._tagged_processes(
+            "owned", current={101: (1, 101.0)})
+    finally:
+        sys.path.pop(0)
+    assert found == {101: 101.0}
 
 
 def test_live_process_identity_probe_failure_is_not_treated_as_exit(
@@ -9409,7 +12864,8 @@ def test_process_cleanup_fails_when_discovery_is_unavailable(
         import forge_cli.delegate as delegate
 
         def unavailable():
-            raise delegate.ProcessDiscoveryError("ps unavailable")
+            raise delegate.ProcessDiscoveryError(
+                "process discovery unavailable")
 
         stopped = delegate._terminate_processes_until_quiet(
             {}, unavailable)
@@ -9428,7 +12884,8 @@ def test_process_cleanup_reaps_known_process_when_discovery_fails(
         signals = []
 
         def unavailable():
-            raise delegate.ProcessDiscoveryError("ps unavailable")
+            raise delegate.ProcessDiscoveryError(
+                "process discovery unavailable")
 
         def signal_processes(processes, signum=signal.SIGTERM):
             signals.extend((pid, signum) for pid in processes)
@@ -9472,9 +12929,9 @@ def test_immediate_cleanup_signals_owned_group_before_discovery(
 
         def unavailable():
             events.append("discover")
-            raise delegate.ProcessDiscoveryError("ps unavailable")
+            raise delegate.ProcessDiscoveryError("process discovery unavailable")
 
-        monkeypatch.setattr(delegate, "_process_table", unavailable)
+        monkeypatch.setattr(delegate, "_descendants", lambda _pid: unavailable())
         monkeypatch.setattr(
             delegate, "_signal_verified_process_group",
             lambda _pid, _identity: events.append("signal") or True)
@@ -9570,6 +13027,7 @@ def test_wait_reuses_process_table_snapshot_for_tag_discovery(
             return {}
 
         monkeypatch.setattr(delegate, "_process_table", process_table)
+        monkeypatch.setattr(delegate, "_descendants", lambda _pid: {})
         monkeypatch.setattr(delegate, "_tagged_processes", tagged)
         monkeypatch.setattr(
             delegate, "_terminate_tagged_processes",
@@ -9648,6 +13106,56 @@ def test_delegate_reaps_spawn_when_running_registration_fails(
     ]
 
 
+@pytest.mark.parametrize("platform", ("posix", "nt"))
+def test_launch_companion_uses_platform_specific_spawn_options(
+        repo, tmp_path, monkeypatch, platform):
+    sys.path.insert(0, str(repo / "factory" / "scripts"))
+    try:
+        import forge_cli.delegate as delegate
+        captured = {}
+
+        class Process:
+            pid = 101
+            returncode = 0
+
+        def spawn(_argv, **kwargs):
+            captured.update(kwargs)
+            return Process()
+
+        monkeypatch.setattr(delegate.os, "name", platform)
+        monkeypatch.setattr(
+            delegate.subprocess, "CREATE_NEW_PROCESS_GROUP", 1,
+            raising=False)
+        monkeypatch.setattr(delegate, "append_delegation", lambda *_args: None)
+        monkeypatch.setattr(
+            delegate, "safe_factory_write_bytes", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(delegate, "sha256_of", lambda _path: "digest")
+        monkeypatch.setattr(delegate, "companion_script", lambda: tmp_path / "x")
+        monkeypatch.setattr(delegate.shutil, "which", lambda _name: "node")
+        monkeypatch.setattr(delegate, "_process_table", lambda: {})
+        monkeypatch.setattr(delegate, "_capture_spawn_identity", lambda _proc: 1.0)
+        monkeypatch.setattr(delegate, "_wait_and_reap", lambda *_args: True)
+        monkeypatch.setattr(delegate.subprocess, "Popen", spawn)
+        delegate.launch_companion(
+            repo, task_id="T1", text="brief", path=repo / ".factory" / "x.md",
+            task_sha256_value="digest", model="model", effort="effort",
+            write=False,
+        )
+    finally:
+        sys.path.pop(0)
+    if platform == "nt":
+        assert captured["creationflags"] == 1
+        assert "preexec_fn" not in captured
+    else:
+        assert captured["start_new_session"] is True
+        assert captured["preexec_fn"] is delegate.unblock_termination_signals_in_child
+    assert captured["env"]["PYTHONUTF8"] == "1"
+    assert captured["stdout"].encoding == "utf-8"
+    assert captured["stdout"].errors == "replace"
+    assert captured["stderr"].encoding == "utf-8"
+    assert captured["stderr"].errors == "replace"
+
+
 def test_stale_launch_reconciliation_refuses_unverified_process_group(
         repo, monkeypatch, capsys):
     sys.path.insert(0, str(repo / "factory" / "scripts"))
@@ -9659,6 +13167,8 @@ def test_stale_launch_reconciliation_refuses_unverified_process_group(
         }
         monkeypatch.setattr(delegate, "load_delegations", lambda _base: [entry])
         monkeypatch.setattr(delegate, "_pid_alive", lambda _pid: False)
+        monkeypatch.setattr(
+            delegate, "_terminate_tagged_processes", lambda _token: True)
         monkeypatch.setattr(delegate, "_process_group_alive", lambda _pgid: True)
         with pytest.raises(SystemExit):
             delegate._reconcile_stale_launches(repo, "T1")
@@ -9675,15 +13185,17 @@ def test_stale_launch_reconciliation_does_not_signal_a_reused_pid(
         entry = {
             "task": "T1", "write": True, "launch_id": "old",
             "launch_status": "running", "pid": 123, "pgid": 123,
-            "pid_started": "Mon Jul 27 10:00:00 2026",
+            "pid_started": "10.0",
         }
         recorded = []
         monkeypatch.setattr(delegate, "load_delegations", lambda _base: [entry])
         monkeypatch.setattr(delegate, "_pid_alive", lambda _pid: True)
         monkeypatch.setattr(
             delegate, "_process_start_identity",
-            lambda _pid: "Tue Jul 28 10:00:00 2026",
+            lambda _pid: 11.0,
         )
+        monkeypatch.setattr(
+            delegate, "_terminate_tagged_processes", lambda _token: True)
         monkeypatch.setattr(
             delegate, "append_delegation",
             lambda _base, record: recorded.append(record),
@@ -9692,6 +13204,31 @@ def test_stale_launch_reconciliation_does_not_signal_a_reused_pid(
     finally:
         sys.path.pop(0)
     assert recorded[-1]["launch_status"] == "failed"
+
+
+def test_stale_launch_reconciliation_preserves_live_legacy_identity(
+        repo, monkeypatch, capsys):
+    sys.path.insert(0, str(repo / "factory" / "scripts"))
+    try:
+        import forge_cli.delegate as delegate
+        entry = {
+            "task": "T1", "write": True, "launch_id": "old",
+            "launch_status": "running", "pid": 123, "pgid": 123,
+            "pid_started": "Mon Aug 12 10:00:00 2024",
+        }
+        reaped = []
+        monkeypatch.setattr(delegate, "load_delegations", lambda _base: [entry])
+        monkeypatch.setattr(delegate, "_pid_alive", lambda _pid: True)
+        monkeypatch.setattr(delegate, "_process_start_identity", lambda _pid: 10.0)
+        monkeypatch.setattr(
+            delegate, "_terminate_tagged_processes",
+            lambda _token: reaped.append(_token) or True)
+        with pytest.raises(SystemExit):
+            delegate._reconcile_stale_launches(repo, "T1")
+    finally:
+        sys.path.pop(0)
+    assert reaped == []
+    assert "already has a foreground delegation running" in capsys.readouterr().out
 
 
 def test_delegate_ignores_stale_lock_contents_when_no_process_holds_it(repo, tmp_path):
@@ -9730,12 +13267,14 @@ def test_protected_lock_path_rejects_unsafe_task_id(repo):
         sys.path.pop(0)
 
 
-@pytest.mark.parametrize("wrapper_signal", [
-    signal.SIGINT,
-    signal.SIGTERM,
-    signal.SIGHUP,
-    signal.SIGQUIT,
-])
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX only: wrapper termination also exercises HUP/QUIT",
+)
+@pytest.mark.parametrize("wrapper_signal", (
+    [signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT]
+    if os.name != "nt" else []
+))
 def test_termination_signals_reap_companion_before_lock_release(
         repo, tmp_path, wrapper_signal):
     start_stage(repo, tmp_path, STAGE_TASK, launch=False)
@@ -9777,6 +13316,125 @@ def test_termination_signals_reap_companion_before_lock_release(
         sys.path.pop(0)
     terminal = json.loads(delegation_ledger(repo).read_text().splitlines()[-1])
     assert terminal["launch_status"] == "failed"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Windows process-group E2E")
+def test_windows_delegation_launches_and_reaps(repo, tmp_path):
+    import psutil
+
+    start_stage(repo, tmp_path, STAGE_TASK, launch=False)
+    home = fake_companion_home(tmp_path)
+    companion = next(home.glob(
+        ".claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs"))
+    companion.write_text(
+        "import { spawn } from 'node:child_process';\n"
+        "import { writeFileSync } from 'node:fs';\n"
+        "const child = spawn(process.execPath, ['-e', "
+        "'setInterval(() => {}, 1000)'], {stdio: 'ignore'});\n"
+        "writeFileSync('.factory/windows-worker.pid', String(child.pid));\n"
+        "setInterval(() => {}, 1000);\n"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, str(repo / "factory/scripts/forge.py"),
+         "delegate", "T1"],
+        cwd=repo,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env={**os.environ, "HOME": str(home), "USERPROFILE": str(home)},
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+    )
+    child_pid = 0
+    child_started = 0.0
+    try:
+        lock = delegation_lock(repo, "T1")
+        child_pid_path = repo / ".factory" / "windows-worker.pid"
+        latest = {}
+        for _ in range(200):
+            if lock.exists() and delegation_ledger(repo).exists():
+                latest = json.loads(
+                    delegation_ledger(repo).read_text().splitlines()[-1])
+                if (latest.get("launch_status") == "running"
+                        and child_pid_path.exists()):
+                    break
+            threading.Event().wait(0.05)
+        if latest.get("launch_status") != "running":
+            if proc.poll() is None:
+                proc.terminate()
+            out, err = proc.communicate(timeout=10)
+            assert lock.exists() and latest.get("launch_status") == "running", (
+                f"delegate never recorded running; stdout={out!r} stderr={err!r}")
+        assert lock.exists()
+        assert latest["argv"][-1] == "--write"
+        child_pid = int(child_pid_path.read_text())
+        child_started = psutil.Process(child_pid).create_time()
+
+        psutil.Process(latest["pid"]).terminate()
+        proc.communicate(timeout=20)
+        assert proc.returncode != 0
+
+        def child_is_alive() -> bool:
+            try:
+                child = psutil.Process(child_pid)
+                return (child.create_time() == child_started
+                        and child.is_running()
+                        and child.status() != psutil.STATUS_ZOMBIE)
+            except psutil.NoSuchProcess:
+                return False
+
+        for _ in range(100):
+            if not child_is_alive():
+                break
+            threading.Event().wait(0.05)
+        assert not child_is_alive()
+        sys.path.insert(0, str(repo / "factory" / "scripts"))
+        try:
+            from forge_cli.delegate import _lock_is_held
+            assert not _lock_is_held(lock)
+        finally:
+            sys.path.pop(0)
+        terminal = json.loads(
+            delegation_ledger(repo).read_text().splitlines()[-1])
+        assert terminal["launch_status"] == "failed"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate(timeout=10)
+        if child_pid:
+            try:
+                child = psutil.Process(child_pid)
+                if child.create_time() == child_started:
+                    child.kill()
+            except psutil.NoSuchProcess:
+                pass
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Windows encoding E2E")
+def test_windows_delegation_success_round_trips_unicode_handoff(repo, tmp_path):
+    start_stage(repo, tmp_path, STAGE_TASK, launch=False)
+    home = fake_companion_home(tmp_path)
+    companion = next(home.glob(
+        ".claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs"))
+    companion.write_text(
+        "process.stdout.write('worker\\u2192handoff');\n"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, str(repo / "factory/scripts/forge.py"),
+         "delegate", "T1"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env={**os.environ, "HOME": str(home), "USERPROFILE": str(home)},
+    )
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "worker→handoff" in proc.stdout
+    terminal = json.loads(
+        delegation_ledger(repo).read_text().splitlines()[-1])
+    assert terminal["launch_status"] == "succeeded"
+    assert terminal["argv"][-1] == "--write"
 
 
 def test_read_only_diagnostic_does_not_revoke_write_launch(repo, tmp_path):
@@ -9890,13 +13548,213 @@ def test_next_names_delegation_step(repo, tmp_path):
     """Part of why the harness got skipped is that the delegation step was
     never printed anywhere — so "what should I have done" had no answer to
     point at."""
-    start_stage(repo, tmp_path, STAGE_TASK)
+    start_stage(repo, tmp_path, STAGE_TASK, launch=False)
     code, out = run(repo, "forge.py", "next")
     assert code == 0, out
-    assert "forge delegate T1" in out and "forge codex status" in out
-    run(repo, "forge.py", "stage", "done", "T1", "--incomplete", "retry path missing")
-    code, out = run(repo, "forge.py", "next")
-    assert "INCOMPLETE" in out and "retry path missing" in out
+    assert "forge delegate T1" in out and "forge codex status" not in out
+
+
+def test_forge_next_routes_the_jit_frontier_states(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+
+    def next_action() -> str:
+        code, out = run(repo, "forge.py", "next")
+        assert code == 0 and "PHASE: implementing" in out, out
+        actions = [line for line in out.splitlines() if ". [dev]" in line]
+        assert len(actions) == 1, out
+        assert "emil-design-eng" in out
+        return actions[0]
+
+    skeleton = skeletal_stage_task("T1")
+    code, out = run(
+        repo,
+        "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [skeleton]}),
+    )
+    assert code == 0, out
+    action = next_action()
+    assert "Enter plan mode" in action
+    assert "factory/prompts/planner.md" in action
+    assert "record_decomposition_from_json.py" in action
+    assert "stage start" not in action and "forge delegate" not in action
+
+    code, out = run(
+        repo,
+        "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [STAGE_TASK]}),
+    )
+    assert code == 0, out
+    action = next_action()
+    assert "factory/prompts/griller.md --gate task" in action
+    assert "stage start" not in action and "forge delegate" not in action
+
+    code, out = record_task_grill(repo, STAGE_TASK)
+    assert code == 0, out
+    stale = {**STAGE_TASK, "reviewer_focus": "the changed bounded contract",
+             "write_scope": ["src/changed/"]}
+    code, out = run(
+        repo,
+        "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [stale]}),
+    )
+    assert code == 0, out
+    assert "factory/prompts/griller.md --gate task" in next_action()
+
+    code, out = record_task_grill(repo, stale)
+    assert code == 0, out
+    action = next_action()
+    assert f"./forge stage start {stale['id']}" in action
+    assert "forge delegate" not in action
+
+    code, out = run(repo, "forge.py", "stage", "start", stale["id"])
+    assert code == 0, out
+    action = next_action()
+    assert f"./forge delegate {stale['id']}" in action
+    assert "stage start" not in action
+
+    from forge_cli.board import next_actions
+    assert action.split(". ", 1)[1] in next_actions(repo)["steps"]
+
+
+def test_board_task_rows_match_frontier_states(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+
+    def assert_state(action: str | None, state: str) -> None:
+        frontier = task_frontier_state(repo)
+        assert (frontier[0] if frontier else None) == action
+        assert task_rows(repo) == [{
+            "id": "T1", "state": state, "grill_freshness": "missing",
+            "budget": None,
+        }]
+
+    skeleton = skeletal_stage_task("T1")
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [skeleton]}),
+    )
+    assert code == 0, out
+    assert_state("author-contract", "skeleton")
+
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [STAGE_TASK]}),
+    )
+    assert code == 0, out
+    assert_state("grill", "ready")
+
+    code, out = record_task_grill(repo, STAGE_TASK)
+    assert code == 0, out
+    frontier = task_frontier_state(repo)
+    assert frontier and frontier[0] == "stage-start"
+    assert task_rows(repo)[0]["state"] == "grilled"
+    assert task_rows(repo)[0]["grill_freshness"] == "fresh"
+
+    code, out = run(repo, "forge.py", "stage", "start", "T1")
+    assert code == 0, out
+    frontier = task_frontier_state(repo)
+    assert frontier and frontier[0] == "delegate"
+    assert task_rows(repo)[0]["state"] == "active"
+
+    stages = json.loads((repo / ".factory" / "stages.json").read_text())
+    stages["stages"][0]["status"] = "done"
+    write_stages(repo, stages)
+    assert task_frontier_state(repo) is None
+    assert task_rows(repo)[0]["state"] == "done"
+
+
+def test_board_task_rows_show_grill_freshness_and_budget(
+        repo, tmp_path, monkeypatch):
+    task = {**STAGE_TASK, "review_budget": {
+        "max_changed_files": 2, "max_changed_lines": 5,
+    }}
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    record_skeleton_then_frontier(repo, [task])
+    code, out = record_task_grill(repo, task)
+    assert code == 0, out
+    assert task_rows(repo)[0]["grill_freshness"] == "fresh"
+
+    code, out = run(repo, "forge.py", "stage", "start", "T1")
+    assert code == 0, out
+    write_in_scope(repo, "src/core.py", "first\nsecond\n")
+    git(repo, "add", "src/core.py")
+    row = task_rows(repo)[0]
+    assert row["state"] == "active"
+    assert row["grill_freshness"] == "stale"
+    assert row["budget"] == {
+        "used": {"files": 1, "lines": 2},
+        "limit": {"files": 2, "lines": 5},
+    }
+
+    from forge_cli import board
+    real_task_rows = board.task_rows
+    calls = []
+
+    def counted_task_rows(root):
+        calls.append(root)
+        return real_task_rows(root)
+
+    monkeypatch.setattr(board, "task_rows", counted_task_rows)
+    state = board.aggregate_state(repo)
+    story = next(item for item in state["stories"] if item["key"] == "ENG-1")
+    assert story["tasks"][0]["state"] == "active"
+    assert len(calls) == 1
+    calls.clear()
+    detail = board.story_detail(repo, "ENG-1")
+    assert detail["tasks"][0]["budget"] == row["budget"]
+    assert len(calls) == 1
+
+    page = (HARNESS / "factory" / "board" / "index.html").read_text()
+    task_block = page[page.index("function taskBlock(story)"):
+                      page.index("function findingList(")]
+    assert "task-state" in task_block
+    assert "t.grill_freshness" in task_block
+    assert "t.budget.used.files" in task_block
+    assert "<b>Budget</b>" in task_block
+
+
+def test_docs_state_the_enforced_jit_contract():
+    factory_doc = (HARNESS / "docs" / "FACTORY.md").read_text()
+    workflow = (HARNESS / "WORKFLOW.md").read_text()
+    decomposer = (HARNESS / "factory" / "prompts" / "decomposer.md").read_text()
+    forge_skill = (HARNESS / "factory" / "skills" / "forge.md").read_text()
+    agents = (HARNESS / "AGENTS.md").read_text()
+
+    initial_contract = factory_doc.split(
+        "The first decomposition records the ordered task list.", 1
+    )[1].split("Immediately before the next pending leaf", 1)[0]
+    for deferred in ("write scope", "verify commands", "required tests",
+                     "reviewer focus"):
+        assert deferred not in initial_contract.lower()
+
+    for text in (factory_doc, workflow, decomposer):
+        assert "factory/prompts/planner.md" in text
+        lowered = text.lower()
+        assert "re-record" in lowered
+        assert "task grill" in lowered
+        assert "stage start" in lowered
+        assert "delegate" in lowered
+    assert "Do not guess later-task execution detail" in factory_doc
+    assert "later-task detail during the initial decomposition" in workflow
+    assert "later tasks remains deferred" in decomposer
+    for field in ("`write_scope`", "`required_tests`", "`verify_commands`",
+                  "`acceptance_criteria`"):
+        assert field in decomposer.split("freshness digest", 1)[1]
+
+    implementing_route = next(
+        line for line in forge_skill.splitlines()
+        if line.startswith("| implementing |")
+    )
+    assert "one frontier action" in implementing_route
+    assert "author/re-record" in implementing_route
+    assert "task griller" in implementing_route
+    assert "stage start" in implementing_route and "delegate" in implementing_route
+    assert "findings and refusals always in full" in agents
 
 
 def test_plan_save_refuses_a_plan_missing_any_required_section(repo, tmp_path):
@@ -10032,7 +13890,10 @@ def test_precompact_scratchpad_snapshots_facts_and_findings(repo, tmp_path):
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    run(repo, "record_decomposition_from_json.py", stdin=json.dumps(DECOMP))
+    task = task_with_plan_contracts(DECOMP["tasks"][0])
+    record_skeleton_then_frontier(repo, [task])
+    code, out = record_task_grill(repo, task)
+    assert code == 0, out
     run(repo, "forge.py", "stage", "start", "T1")
     run(repo, "forge.py", "plan", "assume", "cache TTL is 60s")
     run(repo, "forge.py", "signal", "raise", "--kind", "blocked",
@@ -10070,6 +13931,14 @@ def test_precompact_scratchpad_snapshots_facts_and_findings(repo, tmp_path):
     # a shipped task wipes the pad — session noise never crosses tasks
     run(repo, "forge.py", "stage", "done", "T1")
     write_passing_artifacts(repo)
+    quality_path = repo / ".factory" / "reviews" / "quality.json"
+    quality = json.loads(quality_path.read_text())
+    quality["contract_verdicts"] = [{
+        "contract_id": "C1",
+        "verdict": "implemented",
+        "evidence": "src/core.py:1",
+    }]
+    quality_path.write_text(json.dumps(quality))
     run(repo, "update_run.py", "--decomposition-status", "recorded")
     run(repo, "forge.py", "assumptions", "resolve", "A-0001",
         "--status", "confirmed", "--notes", "60s confirmed with EM")
@@ -10346,10 +14215,17 @@ def test_scaffold_freezes_gate_surface_and_check_verifies(repo):
     assert manifest.exists()  # forge init armed it from birth
     files = json.loads(manifest.read_text())["files"]
     assert "factory/scripts/verify.py" in files and "forge" in files
+    assert ".codex/hooks.json" in files
     assert not any("__pycache__" in f or f.endswith(".pyc") for f in files)
     code, out = run(repo, "check_vendor_integrity.py")
     assert code == 0 and "OK" in out, out
+    # disarmed vendored hook -> drift
+    hooks = repo / ".codex" / "hooks.json"
+    hooks.write_text(json.dumps({"hooks": {}}) + "\n")
+    code, out = run(repo, "check_vendor_integrity.py")
+    assert code != 0 and "edited: .codex/hooks.json" in out, out
     # edited gate file -> drift
+    git(repo, "checkout", "--", ".codex/hooks.json")
     verify = repo / "factory" / "scripts" / "verify.py"
     verify.write_text(verify.read_text() + "# weakened\n")
     code, out = run(repo, "check_vendor_integrity.py")
@@ -10380,26 +14256,280 @@ def test_pr_ready_refuses_drifted_gate_surface(repo, tmp_path):
     assert code == 0, out
 
 
+def test_decomposition_recorder_validates_plan_contracts(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+
+    task = {**DECOMP["tasks"][0], "id": "T1"}
+    for malformed in (None, False, 0, "", {}):
+        payload = {**DECOMP, "tasks": [{**task, "plan_contracts": malformed}]}
+        code, out = run(repo, "record_decomposition_from_json.py",
+                        stdin=json.dumps(payload))
+        assert code != 0 and "task T1" in out and "plan_contracts must be a list" in out
+
+    malformed_entries = [
+        "not-an-object",
+        {"id": "C1", "statement": "does the thing"},
+        {"id": "C1", "statement": "does the thing", "source": "plan#scope",
+         "extra": "no"},
+        {"id": "", "statement": "does the thing", "source": "plan#scope"},
+    ]
+    for entry in malformed_entries:
+        payload = {**DECOMP, "tasks": [{**task, "plan_contracts": [entry]}]}
+        code, out = run(repo, "record_decomposition_from_json.py",
+                        stdin=json.dumps(payload))
+        assert code != 0 and "task T1" in out and "entry 1" in out
+
+    skeletons = [task_skeleton(task),
+                 {**skeletal_stage_task("T2", "second slice"),
+                  "dependencies": ["T1"]}]
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": skeletons}),
+    )
+    assert code == 0, out
+
+    contract = {"id": "C1", "statement": "does the thing",
+                "source": "plans/active/plan.md#scope"}
+    second = {**skeletal_stage_task("T2", "second slice"),
+              "dependencies": ["T1"], "plan_contracts": [contract]}
+    duplicate = {**DECOMP, "tasks": [
+        {**task, "plan_contracts": [contract]}, second,
+    ]}
+    code, out = run(repo, "record_decomposition_from_json.py",
+                    stdin=json.dumps(duplicate))
+    assert code != 0 and "task T2" in out and "entry 1" in out and "duplicate" in out
+
+    valid = {**DECOMP, "tasks": [
+        {**task, "plan_contracts": [contract]}, skeletons[1],
+    ]}
+    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(valid))
+    assert code == 0, out
+    write_stages(repo, {
+        "issue": "ENG-1",
+        "stages": [
+            {"id": "T1", "title": task["title"], "status": "done"},
+            {"id": "T2", "title": second["title"], "status": "pending"},
+        ],
+    })
+    valid["tasks"][1] = {
+        **second, "plan_contracts": [{**contract, "id": "C2"}],
+    }
+    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(valid))
+    assert code == 0, out
+    recorded = json.loads((repo / ".factory" / "decomposition.json").read_text())
+    assert [item["id"] for item in recorded["tasks"][1]["plan_contracts"]] == ["C2"]
+
+
+def test_review_brief_composes_contract_brief(repo, tmp_path):
+    code, out = run(repo, "forge.py", "review-brief", "T1", "--repo", str(repo))
+    assert code != 0 and "No recorded decomposition" in out
+
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    first = {**DECOMP["tasks"][0], "id": "T1", "reviewer_focus": "focus one",
+             "plan_contracts": [{"id": "C1", "statement": "first statement",
+                                  "source": "plan.md#first"}]}
+    second = {**skeletal_stage_task("T2", "second slice"),
+              "dependencies": ["T1"], "reviewer_focus": "focus two",
+              "plan_contracts": [{"id": "C2", "statement": "second statement",
+                                   "source": "plan.md#second"}]}
+    skeletons = [task_skeleton(first), task_skeleton(second)]
+    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
+        {**DECOMP, "tasks": skeletons}))
+    assert code == 0, out
+    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
+        {**DECOMP, "tasks": [first, skeletons[1]]}))
+    assert code == 0, out
+    write_stages(repo, {
+        "issue": "ENG-1",
+        "stages": [
+            {"id": "T1", "title": first["title"], "status": "done"},
+            {"id": "T2", "title": second["title"], "status": "pending"},
+        ],
+    })
+    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
+        {**DECOMP, "tasks": [first, second]}))
+    assert code == 0, out
+
+    code, out = run(repo, "forge.py", "review-brief", "T1", "--repo", str(repo))
+    assert code == 0 and out.strip() == ".factory/review-briefs/T1.md"
+    per_task = (repo / out.strip()).read_text()
+    assert all(value in per_task for value in (
+        "C1", "plan.md#first", "first statement", "focus one",
+        "implemented | partial | missing", "contract_verdicts", "file:line",
+    ))
+    assert "C2" not in per_task and "focus two" not in per_task
+
+    code, out = run(repo, "forge.py", "review-brief", "--all", "--repo", str(repo))
+    assert code == 0 and out.strip() == ".factory/review-briefs/all.md"
+    branch = (repo / out.strip()).read_text()
+    assert all(value in branch for value in ("C1", "C2", "focus one", "focus two"))
+
+    for args, expected in [
+        (("review-brief",), "exactly one"),
+        (("review-brief", "T1", "--all"), "exactly one"),
+        (("review-brief", "UNKNOWN"), "Unknown decomposition task id"),
+    ]:
+        code, out = run(repo, "forge.py", *args, "--repo", str(repo))
+        assert code != 0 and expected in out
+    module = (repo / "factory" / "scripts" / "forge_cli" / "review_brief.py").read_text()
+    assert "forge_cli.delegate" not in module and "import delegate" not in module
+
+
+def test_quality_review_requires_contract_verdicts(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    contracts = [
+        {"id": "C1", "statement": "first statement", "source": "plan.md#first"},
+        {"id": "C2", "statement": "second statement", "source": "plan.md#second"},
+    ]
+    tasks = [
+        {**DECOMP["tasks"][0], "id": "T1", "plan_contracts": [contracts[0]]},
+        {**skeletal_stage_task("T2", "second slice"),
+         "dependencies": ["T1"], "plan_contracts": [contracts[1]]},
+    ]
+    skeletons = [task_skeleton(task) for task in tasks]
+    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
+        {**DECOMP, "tasks": skeletons}))
+    assert code == 0, out
+    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
+        {**DECOMP, "tasks": [tasks[0], skeletons[1]]}))
+    assert code == 0, out
+    write_stages(repo, {
+        "issue": "ENG-1",
+        "stages": [
+            {"id": "T1", "title": tasks[0]["title"], "status": "done"},
+            {"id": "T2", "title": tasks[1]["title"], "status": "pending"},
+        ],
+    })
+    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
+        {**DECOMP, "tasks": tasks}))
+    assert code == 0, out
+
+    code, out = run(repo, "record_review_from_json.py", "--aspect", "quality",
+                    stdin=json.dumps(review_payload()))
+    assert code != 0 and "contract_verdicts" in out
+
+    def verdict(contract_id, value="implemented", evidence="src/app.py:12"):
+        return {"contract_id": contract_id, "verdict": value, "evidence": evidence}
+
+    refused = [
+        ([verdict("C1")], "C2"),
+        ([verdict("C1"), verdict("UNKNOWN")], "unknown contract id"),
+        ([verdict("C1"), verdict("C1")], "duplicate contract id"),
+        ([verdict("C1", "almost"), verdict("C2")], "implemented, partial, or missing"),
+        ([verdict("C1", evidence=""), verdict("C2")], "evidence"),
+    ]
+    for contract_verdicts, expected in refused:
+        code, out = run(repo, "record_review_from_json.py", "--aspect", "quality",
+                        stdin=json.dumps(review_payload(
+                            contract_verdicts=contract_verdicts)))
+        assert code != 0 and expected in out
+
+    partial = [verdict("C1", "partial"), verdict("C2")]
+    code, out = run(repo, "record_review_from_json.py", "--aspect", "quality",
+                    stdin=json.dumps(review_payload(contract_verdicts=partial)))
+    assert code == 0, out
+    quality = json.loads((repo / ".factory" / "reviews" / "quality.json").read_text())
+    assert quality["blocking_findings"] == [{
+        "category": "plan-contract-partial",
+        "area": "plan.md#first",
+        "summary": "C1: first statement",
+    }]
+
+    code, out = run(repo, "record_review_from_json.py", "--aspect", "performance",
+                    stdin=json.dumps(review_payload()))
+    assert code == 0, out
+
+
+def test_lite_quality_review_ignores_shipped_plan_contracts(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    task = {**DECOMP["tasks"][0], "plan_contracts": [{
+        "id": "C1", "statement": "first statement", "source": "plan.md#first",
+    }]}
+    record_skeleton_then_frontier(repo, [task])
+
+    state = run_state(repo)
+    (repo / ".factory" / "run.json").write_text(json.dumps({
+        "project": state["project"], "phase": "shipped",
+    }))
+    code, out = run(repo, "forge.py", "mode", "lite", "--by", "test",
+                    "--reason", "x")
+    assert code == 0, out
+
+    code, out = run(repo, "record_review_from_json.py", "--aspect", "quality",
+                    stdin=json.dumps(review_payload()))
+    assert code == 0, out
+
+
+def test_pr_ready_blocks_on_unverified_plan_contracts(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    contracts = [
+        {"id": "C1", "statement": "first statement", "source": "plan.md#first"},
+        {"id": "C2", "statement": "second statement", "source": "plan.md#second"},
+    ]
+    task = {**DECOMP["tasks"][0], "plan_contracts": contracts}
+    record_skeleton_then_frontier(repo, [task])
+    write_passing_artifacts(repo)
+
+    code, out = run(repo, "pr_ready.py")
+    assert code != 0 and "C1, C2" in out and "./forge review-brief" in out
+
+    quality_path = repo / ".factory" / "reviews" / "quality.json"
+    quality = json.loads(quality_path.read_text())
+    quality["contract_verdicts"] = [
+        {"contract_id": "C1", "verdict": "implemented", "evidence": "src/a.py:1"},
+        {"contract_id": "C2", "verdict": "partial", "evidence": "src/b.py:2"},
+    ]
+    quality_path.write_text(json.dumps(quality))
+    code, out = run(repo, "pr_ready.py")
+    assert code != 0 and "C2" in out and "review-brief" in out
+
+    quality["contract_verdicts"][1]["verdict"] = "implemented"
+    quality_path.write_text(json.dumps(quality))
+    code, out = run(repo, "pr_ready.py")
+    assert code == 0, out
+
+
 def test_adopt_and_upgrade_refreeze_the_manifest(repo, tmp_path):
-    # adopt arms a migrated repo
+    # adopt repairs a client hook and arms the migrated repo
     legacy = existing_repo(tmp_path)
+    legacy_hooks = legacy / ".codex" / "hooks.json"
+    legacy_hooks.parent.mkdir(parents=True)
+    legacy_hooks.write_text(json.dumps({"hooks": {}}) + "\n")
+    git(legacy, "add", ".codex/hooks.json")
+    git(legacy, "commit", "-q", "-m", "disable vendored hooks")
     code, out = adopt(legacy)
     assert code == 0, out
-    assert (legacy / "constitution" / "VENDOR_MANIFEST.json").exists()
+    legacy_manifest = legacy / "constitution" / "VENDOR_MANIFEST.json"
+    assert legacy_manifest.exists()
+    assert ".codex/hooks.json" in json.loads(legacy_manifest.read_text())["files"]
+    assert json.loads(legacy_hooks.read_text())["hooks"]
     code, out = run(legacy, "check_vendor_integrity.py")
     assert code == 0 and "OK" in out, out
-    # a drifted client repo comes back clean after re-vendoring
-    verify = repo / "factory" / "scripts" / "verify.py"
-    verify.write_text(verify.read_text() + "# local patch\n")
+    # upgrade repairs a drifted hook and re-hashes it clean
+    hooks = repo / ".codex" / "hooks.json"
+    hooks.write_text(json.dumps({"hooks": {}}) + "\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "drift")
     code, out = run(repo, "check_vendor_integrity.py")
-    assert code != 0
+    assert code != 0 and "edited: .codex/hooks.json" in out, out
     proc = subprocess.run(
         [sys.executable, str(HARNESS / "factory" / "scripts" / "forge.py"),
          "upgrade", "--target", str(repo)],
         cwd=HARNESS, capture_output=True, text=True)
     assert proc.returncode == 0, proc.stdout + proc.stderr
+    manifest = json.loads((repo / "constitution" / "VENDOR_MANIFEST.json").read_text())
+    assert ".codex/hooks.json" in manifest["files"]
+    assert json.loads(hooks.read_text())["hooks"]
     code, out = run(repo, "check_vendor_integrity.py")
     assert code == 0 and "OK" in out, out
 
@@ -11321,9 +15451,26 @@ def test_assert_target_file_destination_refuses_a_directory_or_symlink(tmp_path:
 
 # --- companion read-only lane hardening (ported from vendored gate fixes) ---
 def test_hook_denies_file_and_cwd_overrides_in_readonly_lane(repo):
-    """--prompt-file exfiltrates local files; options are default-deny."""
+    """Prompt files stay repo-contained; other options remain default-deny."""
+    (repo / "brief.md").write_text("read only\n")
+    (repo / "brief-dir").mkdir()
+    outside = repo.parent / "outside.md"
+    outside.write_text("outside\n")
+    (repo / "outside-link.md").symlink_to(outside)
+    (repo / "dangling-link.md").symlink_to(repo.parent / "missing.md")
     for cmd in (
-        "node /x/codex-companion.mjs task --prompt-file /etc/passwd go",
+        f"node /x/codex-companion.mjs task --prompt-file {outside} go",
+        "node /x/codex-companion.mjs task --prompt-file nested/../brief.md go",
+        "node /x/codex-companion.mjs task --prompt-file outside-link.md go",
+        "node /x/codex-companion.mjs task --prompt-file dangling-link.md go",
+        "node /x/codex-companion.mjs task --prompt-file brief-dir go",
+        ("node /x/codex-companion.mjs task --prompt-file brief.md "
+         "--prompt-file brief.md go"),
+        "node /x/codex-companion.mjs task --prompt-file",
+        "node /x/codex-companion.mjs status --prompt-file brief.md",
+        ("node /x/codex-companion.mjs task-resume-candidate "
+         "--prompt-file brief.md"),
+        "node /x/codex-companion.mjs task --prompt-file=brief.md go",
         "node /x/codex-companion.mjs task --cwd /other/repo go",
         "node /x/codex-companion.mjs task --unknown-flag go",
     ):
@@ -11361,6 +15508,8 @@ def test_hook_denies_wrapped_or_computed_companion_launch(repo):
     for cmd in (
         "xargs node /x/codex-companion.mjs task go",
         "env FLAG=1 node /x/codex-companion.mjs task go",
+        'node "$COMPANION" task --write go',
+        'bash -c "$COMPANION_CMD"',
         "python3 -c 'import subprocess; subprocess.run([\"node\", "
         "\"/x/codex-companion.mjs\", \"task\", \"--\" + \"write\"])'",
     ):

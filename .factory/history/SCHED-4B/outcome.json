@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Scheduled-job cards are now actionable. When a job pauses for missing access it raises the real permission prompt (Allow for future / Deny) built from the job's stored requirement, settled through the existing durable permission path with a fingerprint fence; setup cards say what failed, at which step, whether the run died or degraded, and list every blocker in plain words; Discord and Teams reach button parity with Slack/Telegram. Durable-grant recovery drains all paused jobs (the 100-cap is gone) with a fail-open 'resumed' receipt per job, and stale 'running' bubbles retire on every terminal exit without blocking execution. Shipped over 11 stages; verify.py caught two full-suite regressions we then fixed. Three bounded, user-revocable residuals are tracked as deferrals (D-0044/45/46).",
+  "issue": "SCHED-4B",
+  "commit": "9353c1cca93a16d2508a08f0f0a082d9ac47ee08",
+  "recorded_at": "2026-08-07T14:05:18+00:00"
+}

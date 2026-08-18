@@ -11,6 +11,15 @@ Exit codes: 0 within budget, 1 violations.
 """
 from __future__ import annotations
 
+# UTF-8 console safety (standalone entrypoint — see factory_lib for rationale):
+# force UTF-8 stdout/stderr so non-Latin-1 glyphs don't crash a cp1252 console.
+import sys as _utf8_sys
+for _stream in (_utf8_sys.stdout, _utf8_sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 import subprocess
 import sys
 from pathlib import Path
@@ -35,6 +44,7 @@ def tracked_cruft(root: Path) -> list[str]:
     proc = subprocess.run(
         ["git", "ls-files", "-z", "--", *TRACKED_CRUFT_GLOBS], cwd=root,
         capture_output=True, text=True, check=True,
+        encoding="utf-8", errors="surrogateescape",
     )
     return [path for path in proc.stdout.split("\0") if path]
 
@@ -42,9 +52,11 @@ def tracked_cruft(root: Path) -> list[str]:
 def main() -> int:
     root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(
         subprocess.run(["git", "rev-parse", "--show-toplevel"],
-                       capture_output=True, text=True, check=True).stdout.strip())
+                       capture_output=True, text=True, check=True,
+                       encoding="utf-8", errors="surrogateescape").stdout.strip())
     proc = subprocess.run(["git", "ls-files", "-z"], cwd=root,
-                          capture_output=True, text=True, check=True)
+                          capture_output=True, text=True, check=True,
+                          encoding="utf-8", errors="surrogateescape")
     tracked = [f for f in proc.stdout.split("\0") if f]
     violations: list[str] = []
     warnings: list[str] = []

@@ -48,7 +48,7 @@ def load_rows(base: Path) -> list[dict]:
     if not path.exists():
         return []
     rows = []
-    for lineno, line in enumerate(path.read_text().splitlines(), 1):
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.startswith("| D-"):
             continue
         match = ROW.match(line)
@@ -72,7 +72,7 @@ def save_rows(base: Path, rows: list[dict]) -> None:
     lines = [f"| {r['id']} | {r['added']} | {r['item']} | {r['why']} "
              f"| {r['trigger']} | {r['status']} |" for r in rows]
     ledger_path(base).parent.mkdir(parents=True, exist_ok=True)
-    ledger_path(base).write_text(HEADER + "\n".join(lines) + ("\n" if lines else ""))
+    ledger_path(base).write_text(HEADER + "\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
 
 def open_count(base: Path) -> int:

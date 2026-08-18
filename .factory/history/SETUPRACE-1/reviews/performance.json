@@ -1,0 +1,24 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "SETUPRACE-1 recoverable atomic claim, whole-branch Codex autoreview looped to convergence. The claim/confirm/clear is correctly fenced by an ownership token (a stale claimant cannot clear a successor's claim); the pending-claim-vs-delivery interaction is handled (delivery view clears notified_fingerprint; the prompt does not gate on it); a prior 'prompt suppression' finding was verified as a false positive and closed with a faithful test. The one standing finding \u2014 a duplicate card is possible across a post-send crash or a delivery that hangs past the TTL \u2014 is an ACCEPTED fundamental limit (exactly-once over a hangable channel needs a durable idempotent outbox; disproportionate for a setup card), ratified by Ravi and documented in 0117 + code.",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "category": "delivery-semantics",
+      "area": "jobs/execution-readiness",
+      "summary": "At-least-once across a post-send crash and a >TTL hung delivery (rare duplicate card, never lost). Accepted fundamental limit; documented."
+    }
+  ],
+  "residual_risks": [
+    "At-least-once delivery across the two abnormal windows above (accepted)."
+  ],
+  "recommendation": "Land; the at-least-once ceiling is documented and accepted.",
+  "reviewed_scope": [
+    "apps/core/src/jobs/execution-readiness.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/canonical-job-coordination.postgres.ts"
+  ],
+  "aspect": "performance",
+  "recorded_at": "2026-08-09T13:16:19+00:00",
+  "commit": "04a07481168bced007156ea0c5ed8f059d79465a"
+}

@@ -1,0 +1,40 @@
+{
+  "issue": "PSCOPE-2",
+  "stages": [
+    {
+      "id": "PSCOPE-2-1",
+      "title": "Shared group-install bootstrap (seed installer, reconcile-safe, DM-established recognition)",
+      "status": "done",
+      "started_at": "2026-08-10T12:23:51+00:00",
+      "base_sha": "9353f72319b80cf7c3d441fbd0b65ecf8fb10932",
+      "dirty_at_start": {},
+      "task_sha256": "4f550871ece4fbde692511faa8eb42e31e8b6bea17875bdc63554cfd119b5d6c",
+      "completed_at": "2026-08-10T13:03:35+00:00"
+    },
+    {
+      "id": "PSCOPE-2-2",
+      "title": "Telegram rewire + delete the DM Yes/No propagation flow",
+      "status": "done",
+      "started_at": "2026-08-10T13:03:42+00:00",
+      "base_sha": "bf418f1d76f0b1f8dbcde709b89008616fdd9288",
+      "dirty_at_start": {},
+      "task_sha256": "123d9571b296fc684e739f99bd73027590760024a6e3b47ff24dd6618e0cfa80",
+      "completed_at": "2026-08-10T15:04:39+00:00"
+    },
+    {
+      "id": "PSCOPE-2-3",
+      "title": "Slack inviter extraction, Discord manual fallback, docs + parity",
+      "status": "done",
+      "started_at": "2026-08-10T15:04:48+00:00",
+      "base_sha": "c372019e6ea3e7b7386c4f32ffe5dbc5e70e35a4",
+      "dirty_at_start": {},
+      "task_sha256": "8b4b7b9242dd88095d20d2148b6756ed6c5da7a6f5cfb55f5d02205a20e33aa4",
+      "completed_at": "2026-08-10T15:53:39+00:00",
+      "contract_changed": {
+        "at": "2026-08-10T15:53:39+00:00",
+        "from": "7d88c676383229175d97cf2f84a8e991e0f398082280d56e1c3f71bacce2cb01",
+        "to": "8b4b7b9242dd88095d20d2148b6756ed6c5da7a6f5cfb55f5d02205a20e33aa4"
+      }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Scheduled (autonomous) jobs no longer silently degrade when the agent reaches a tool it lacks. Every such denial is now terminal: a grantable one raises the one-tap approval card (approving grants the agent and, for an under-declared tool, adds it to the job) and the job retries; a non-grantable one ends with a legible instruction card naming the tool and why. Side effects are fenced after cancellation, the first parallel denial is sticky, grantability is carried authoritatively (spoof-proof), the requirement append runs only after the grant commits, and DeepAgents pre-check denials are terminal too (Ravi's 'fix once for good'). Decision 0115 amended; D-0051 resolved; D-0050 (cross-store atomicity) deferred. 8778 unit tests, verify.py, and a 5-round whole-branch autoreview all green.",
+  "issue": "SCHED-6",
+  "commit": "793ae9fd267ae514129df5b294fb165095b4bd47",
+  "recorded_at": "2026-08-08T08:34:53+00:00"
+}

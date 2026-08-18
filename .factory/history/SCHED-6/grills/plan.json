@@ -1,0 +1,30 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "summary": "Adversarial pass over SCHED-6 (autonomous jobs pause-and-ask on tool denial). Five findings; four resolved in the plan, one parked as an explicit non-goal.",
+  "questions_asked": 8,
+  "gaps": [
+    "The denied-tool terminal failure could enter the normal retry/backoff path and dead-letter a job that merely needs approval, burning attempts while it waits.",
+    "An under-declared grantable denial has no stored access_requirements entry to map, so the SCHED-4B card would fall to instruction-only unless a requirement is synthesized \u2014 the one-tap-approve behavior needs the requirement created.",
+    "Making the deny terminal is broad; a legitimate autonomous flow that relied on soft-deny-and-continue would break silently."
+  ],
+  "contradictions": [
+    "One-tap approve that ADDS a tool to the job's access_requirements looks like a scheduled run mutating its own job, which 0106 forbids.",
+    "Requirement 6 (protocol unchanged) vs the fear that terminal-on-denial requires touching the zero-timeout synchronous permission protocol."
+  ],
+  "resolutions": [
+    "Pinned as criterion 4a + a stated invariant: a denied-tool terminal failure routes to the setup-pause (awaiting-approval) state and must NOT consume a retry/backoff attempt or dead-letter; Codex D2/D4 shows finalization already routes denied-tool -> setup-pause; a verify check asserts the retry budget is untouched.",
+    "SCHED-6-2 explicitly synthesizes the grantable requirement from the denied tool identity and, on the single Allow-for-future approval, both adds it to the job's access_requirements and grants it to the agent via the existing persistRequestPermissionRules + recheck chain.",
+    "Codex D4 verified no documented soft-deny-continue flow exists; the only dependents are two tests asserting non-pausing, deliberately updated; the verify step re-runs the full jobs+runner suites as the blast-radius net.",
+    "Contradiction resolved: the add-to-requirements is HUMAN-initiated (the approver acting on the card), not the autonomous run self-mutating, so it stays within 0106; called out in the approach and criterion 2.",
+    "Contradiction resolved: Codex D6 confirms flipping denyNonPromptableAutonomousRecovery to interrupt:true + terminal telemetry follows the existing terminal diagnostic path and does NOT touch the synchronous zero-timeout protocol."
+  ],
+  "open_items": [
+    "Full 'no autonomous guard ever soft-denies' sweep of the pre-autonomous guards (protected-capability, memory-boundary, model-validation, wait-only, network) is deliberately OUT of SCHED-6 scope and parked as a follow-up; SCHED-6 targets only the confirmed silent-degradation seam."
+  ],
+  "input_sha256": "cf9553b34ff5ce64e2889d26c9743e699bdaa5042109b42bef795402f9418b92",
+  "issue": "SCHED-6",
+  "recorded_at": "2026-08-07T17:35:41+00:00",
+  "commit": "3e5d45eb96d3b593739d7d1223d485d903faf119"
+}

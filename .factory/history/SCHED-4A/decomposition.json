@@ -1,0 +1,41 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "user_facing": false,
+  "project": "SCHED-4A",
+  "tasks": [
+    {
+      "id": "SCHED-4A-1",
+      "title": "Approval/notification UX slice: scope-explicit receipts, folded cards, match diagnosis, repeat escalation",
+      "objective": "Receipt copy keys on repeatableForFutureRuns ('Approved for this run only' + next-run sentence on the jobId branch; legacy mode fallback); completed-but-degraded runs emit ONE 'Completed with limits' card and suppress the standalone setup card (setupNotified threaded from finalization); prompts/denials render Approved-pattern vs Attempted-command through the sanitizer gates and split unmatched vs not-granted wording; the promotion hint becomes 'Asked N times in D days' via firstAskedAt.",
+      "write_scope": [
+        "apps/core/src/channels",
+        "apps/core/src/shared",
+        "apps/core/src/jobs",
+        "apps/core/src/runtime",
+        "apps/core/src/domain",
+        "apps/core/test",
+        "docs",
+        "plans"
+      ],
+      "acceptance_criteria": [
+        "allow-once receipt reads 'Approved for this run only' (+ 'It will ask again next run' only with a jobId); durable receipt unchanged; decisions without provenance fields fall back to mode and keep working",
+        "a completed run with a degraded step yields exactly one card ('Completed with limits' + degraded line) with the standalone setup card suppressed for that fingerprint; a run that died on the blocker yields the setup card only; blocker persistence/readiness events untouched",
+        "a RunCommand miss with rules renders the approved pattern (sanitizePermissionText) and attempted command (sanitizePermissionCommandText, secret-bearing input shows the sanitizer replacement); a tool with no rules renders not-granted wording; the two wordings are distinct in permission-decision-message",
+        "the escalation line 'Asked N times in D days, each approved once only. Approve permanently?' replaces the promotion hint at the existing threshold, with firstAskedAt propagated through the classifier path; per-agent keying documented in code",
+        "the locked approval option set is unchanged (no timed grants, no new options)"
+      ],
+      "required_tests": [
+        {
+          "id": "permission receipts > says approved for this run only and that a scheduled job will ask again next run",
+          "path": "apps/core/test/unit/channels/permission-interaction.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    }
+  ],
+  "commit": "9755df5ae2beff9aaa928e66448c70b67e170451"
+}

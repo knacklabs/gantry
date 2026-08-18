@@ -24,7 +24,7 @@ def load_events(base: Path, story: str | None = None,
     if not path.exists():
         return []
     events = []
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         try:
@@ -63,7 +63,7 @@ def append_event(base: Path, event: str, actor: str, story: str = "",
     try:
         path = events_path(base)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a") as fh:
+        with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(payload) + "\n")
     except OSError:
         return

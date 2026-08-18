@@ -18,5 +18,6 @@
     "epics": "list",
     "build_waves": "list",
     "status": "str"
-  }
+  },
+  "task_plan_contracts_note": "Each task may declare plan_contracts as a list of entries {id, statement, source}, where source names the plan file and section. The recorder requires exactly those three non-empty string keys and contract ids unique across the whole decomposition."
 }

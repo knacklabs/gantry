@@ -126,16 +126,21 @@ Do not decompose by:
 - arbitrary file count
 - implementation agent convenience
 
-Each leaf task must include:
+The first decomposition records the ordered task list. Each leaf initially
+includes:
+- id
 - title
 - objective
-- doc references
-- write scope
-- dependencies
-- acceptance criteria
-- verify commands
-- required tests
-- reviewer focus
+- non-empty acceptance criteria
+- dependencies when needed; every dependency names an earlier task
+
+Immediately before the next pending leaf, enter plan mode per
+`factory/prompts/planner.md` and author its execution contract against the
+state left by completed tasks: write scope, exact acceptance criteria, verify
+commands, required tests, and reviewer focus. Re-record the decomposition,
+pass the digest-bound task grill, run `forge stage start <id>`, then
+`forge delegate <id>`. Do not guess later-task execution detail. `forge next`
+routes this loop one action at a time.
 
 Store the decomposition in `.factory/decomposition.json` — that artifact is
 canonical. Mirroring into a tracker (Linear, GitHub Issues, Jira) is optional.

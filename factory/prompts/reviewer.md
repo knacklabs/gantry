@@ -11,7 +11,12 @@ actual code before reporting; stop after two fix-verify cycles.
 Procedure:
 
 1. In Codex, run the autoreview skill over the current branch diff plus any
-   files called out by the self-check.
+   files called out by the self-check. When the current task declares
+   `plan_contracts`, first compose `.factory/review-briefs/<task-id>.md` with
+   `./forge review-brief <task-id>` and pass that repo-relative path to
+   autoreview as `--prompt-file .factory/review-briefs/<task-id>.md`. The
+   quality artifact must include `contract_verdicts` for every declared
+   contract.
 2. Review through THREE lenses and emit one JSON per lens matching
    `factory/schemas/review.json`, each with `"generated_by": "autoreview"`:
    - **quality** — correctness, regressions, maintainability where it affects

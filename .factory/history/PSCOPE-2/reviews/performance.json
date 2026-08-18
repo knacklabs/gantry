@@ -1,0 +1,15 @@
+{
+  "generated_by": "autoreview",
+  "score": 9,
+  "summary": "Same converged review, performance lens. No hot-path impact: the bootstrap runs only on group-join events (human-paced); recognition adds one identity lookup and one indexed direct-conversation existence query per join; the claim is a single upsert statement. Discord's READY handling adds a Set insert per guild. The deleted DM-prompt flow removes settings loads and a callback route from the hot callback dispatcher.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [],
+  "recommendation": "ship",
+  "reviewed_scope": [
+    "origin/main..HEAD whole branch"
+  ],
+  "aspect": "performance",
+  "recorded_at": "2026-08-10T16:13:50+00:00",
+  "commit": "fc08a2431153595471d63b5e1dbb13bdb872f335"
+}

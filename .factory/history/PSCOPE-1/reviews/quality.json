@@ -1,0 +1,24 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Whole-branch codex autoreview (gpt-5.6-sol high, 2-pass chunked, ~587KB bundle) run 3 times to convergence. Round 1 found a real P1 (worker-forgeable jobId could re-scope a grant) - fixed by host-stamping jobId from the spawn registry alongside personId. Round 2 found the registry-miss residual - fixed by keeping the job fail-closed path on a miss. Round 3 re-litigated the two decided tradeoffs; both rejected with rationale pinned inline and in decision 0118.",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "category": "review-oscillation",
+      "area": "runtime/ipc-interaction-processing",
+      "summary": "Rounds 2 and 3 each demanded the residual the other had rejected on the rare registry-miss edge; converged by pinning the chosen residual (keep jobId, fail closed via job lookup) inline."
+    }
+  ],
+  "residual_risks": [
+    "Registry miss (host restart mid-flight) with a compromised worker forging a group jobId can reach a shared grant - equal to what stripping jobId would produce unconditionally on the same edge; accepted per 0118.",
+    "Identity-less DM (memory-ineligible) durable approval writes a shared grant by design (0118): no eligibility gate, no downgrade-to-allow-once."
+  ],
+  "recommendation": "ship",
+  "reviewed_scope": [
+    "origin/main..HEAD whole branch"
+  ],
+  "aspect": "quality",
+  "recorded_at": "2026-08-10T09:21:35+00:00",
+  "commit": "df60105e53af811cc5435344c299e8b3c7566abf"
+}

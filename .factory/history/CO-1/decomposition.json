@@ -1,0 +1,45 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "user_facing": false,
+  "project": "CO-1",
+  "tasks": [
+    {
+      "id": "CO-1-1",
+      "title": "Delete dead recovery-intent machine; promote live coordination fields to race-safe columns",
+      "objective": "Remove the unwired recovery-intent service/parser/type/guards entirely, add jobs columns for consecutive_failures, max_consecutive_failures, pause_reason and setup_state via a precondition-guarded cutover migration (backfill from target_json, strip the keys), and convert every writer to targeted single-statement updates: in-DB counter arithmetic, fingerprint-guarded jsonb_set for notify-dedup, plain column sets for pause and clears. Decision 0104.",
+      "write_scope": [
+        "apps/core/src/adapters/storage/postgres",
+        "apps/core/src/application",
+        "apps/core/src/domain",
+        "apps/core/src/jobs",
+        "apps/core/src/control",
+        "apps/core/test"
+      ],
+      "acceptance_criteria": [
+        "grep for recoveryIntent|recovery_intent finds nothing in src/ or test/ except the unrelated pending_access_requests column",
+        "cutover migration generated via npm run db:migrations:generate: DO-block RAISEs on any non-null recovery intent, backfills the four columns from both blob key spellings, strips those keys from target_json; db:migrations:check green; postgres-migration-journal.test.ts updated with literal-SQL assertions and passing",
+        "no writer performs read-modify-write on the promoted fields: counter uses consecutive_failures = consecutive_failures + 1 inside the lease-guarded finalization; notify-dedup uses jsonb_set on notified_fingerprint guarded by WHERE setup_state->>'fingerprint' = expected; pause/clears are plain column sets",
+        "concurrent-writers postgres integration test (shape of pattern-candidate-atomic-claim): racing notify-dedup and pause-rewrite lose neither; two parallel failure increments both land; stale-fingerprint notify-dedup is a no-op \u2014 the test MUST live in a describe 'job coordination state (Postgres)' with an it titled 'keeps concurrent coordination writes intact'",
+        "job status/listing payloads drop the recovery metadata field; visibility and lifecycle suites updated, no shims",
+        "rowToJob sources the four fields from columns; toRecordInput/updateJob no longer know them; Job domain shape unchanged for consumers"
+      ],
+      "required_tests": [
+        {
+          "id": "job coordination state (Postgres) > keeps concurrent coordination writes intact",
+          "path": "apps/core/test/integration/job-coordination-state.postgres.integration.test.ts",
+          "command": "GANTRY_TEST_DATABASE_URL=postgres://postgres:test@127.0.0.1:63421/gantry_test LOG_LEVEL=fatal VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.integration.postgres.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "Postgres migration journal > has a SQL file for every journal entry",
+          "path": "apps/core/test/unit/storage/postgres-migration-journal.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run db:migrations:check"
+      ]
+    }
+  ],
+  "commit": "8df9a0948478c0e8366e7f1752a82b2001f1cf09"
+}

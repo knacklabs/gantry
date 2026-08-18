@@ -1,0 +1,101 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": false,
+  "tasks": [
+    {
+      "id": "PREFLIGHT-1-1",
+      "title": "Grantable builtin facade tools on setup cards (Part A, both lanes)",
+      "epic_id": "permission-engine",
+      "objective": "In autonomousGrantRecovery (shared/tool-execution-policy-service.ts): keep the existing projected browser.use branch first, then before the exact-tool-grants fallback canonicalize via publicGantryToolNameForSdkTool and, if isGantryFacadeExactToolRule matches, emit request_access kind:tool with the canonical name so facade tools (WebSearch/WebRead/FileRead/Browser/FileWrite/FileEdit) become one-tap grantable on setup cards. Both lanes. No durable-access-policy change; no new decision.",
+      "write_scope": [
+        "apps/core/src/shared/tool-execution-policy-service.ts",
+        "apps/core/test/unit/shared/tool-execution-policy-service.test.ts",
+        "apps/core/test/unit/application/setup-pause-prompt.test.ts",
+        "docs/specs/preflight-1.md"
+      ],
+      "dependencies": [],
+      "acceptance_criteria": [
+        "A scheduled denial of a canonical facade tool is grantable (request_access kind:tool) and produces a working one-tap grant that persists the canonical selection + appends the canonical job requirement; projected browser.use branch preserved; third-party MCP + locked stay non-grantable."
+      ],
+      "verify_commands": [
+        "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/shared apps/core/test/unit/application"
+      ],
+      "required_tests": [
+        {
+          "id": "autonomousGrantRecovery > canonical facade tool WebSearch is grantable via request_access kind:tool",
+          "path": "apps/core/test/unit/shared/tool-execution-policy-service.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "reviewer_focus": "Neutral (both lanes); button works on tap (durable acceptance already exists); browser branch + non-grantable classes intact."
+    },
+    {
+      "id": "PREFLIGHT-1-2",
+      "title": "Single-event async actionable card at job creation (Part B)",
+      "epic_id": "permission-engine",
+      "objective": "Add a single-event application-owned notification port on the job-management deps that, on a creation readiness blocker, dispatches ONE actionable setup-pause card and publishes exactly one JOB_SETUP_REQUIRED event (do NOT also call the runtime notifier from the application layer). Wire it in runtime composition for BOTH the Control route and jobs/ipc-scheduler-create-handlers.ts. Dispatch async (not awaited) so creation stays fast; rely on notified_fingerprint dedup vs the later run pause.",
+      "write_scope": [
+        "apps/core/src/application/jobs/job-management-service.ts",
+        "apps/core/src/application/jobs/job-management-create.ts",
+        "apps/core/src/application/jobs/job-management-readiness.ts",
+        "apps/core/src/application/jobs/job-management-types.ts",
+        "apps/core/src/control/server/routes/jobs.ts",
+        "apps/core/src/jobs/ipc-scheduler-create-handlers.ts",
+        "apps/core/src/jobs/execution-readiness.ts",
+        "apps/core/src/app/bootstrap/runtime-app.ts",
+        "apps/core/test/unit/application",
+        "apps/core/test/unit/jobs"
+      ],
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Creating a job blocked on a missing declared tool fires exactly one actionable setup card and one JOB_SETUP_REQUIRED event; wired for both Control and IPC creation paths; async (creation not slowed); a later runtime pause for the same blocker produces no second card; no architecture-layer violation."
+      ],
+      "verify_commands": [
+        "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/application apps/core/test/unit/jobs && npm run check:architecture"
+      ],
+      "required_tests": [
+        {
+          "id": "job creation > blocked job fires exactly one actionable setup card and one event",
+          "path": "apps/core/test/unit/application/job-management-create.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "reviewer_focus": "single event (no double-publish); application-owned port (no runtime import); both creation paths wired; async; fingerprint dedup."
+    },
+    {
+      "id": "PREFLIGHT-1-3",
+      "title": "Declare-at-creation guidance so the agent populates access_requirements (Part C)",
+      "epic_id": "permission-engine",
+      "objective": "Strengthen the access_requirements guidance on the scheduler_upsert_job MCP tool (runner/mcp/tools/scheduler.ts) and add an operating-guidance line (prompt-profile-service.ts OPERATING_GUIDANCE_BLOCK) so the creating agent declares the task's tools at creation, preferring semantic-capability IDs (0109). Reuse the existing arg + normalizeAccessRequirements/evaluateJobReadiness pipeline; no new shape. Test the COMPILED prompt for a job-creating agent carries the instruction.",
+      "write_scope": [
+        "apps/core/src/runner/mcp/tools/scheduler.ts",
+        "apps/core/src/application/agents/prompt-profile-service.ts",
+        "apps/core/test/unit/runner",
+        "apps/core/test/unit/application"
+      ],
+      "dependencies": [
+        "PREFLIGHT-1-2"
+      ],
+      "acceptance_criteria": [
+        "scheduler_upsert_job guidance instructs declaring the task's tools (semantic-capability-first); the compiled PromptProfileService output for a job-creating agent contains the instruction; declared requirements flow into the existing readiness pipeline unchanged."
+      ],
+      "verify_commands": [
+        "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runner apps/core/test/unit/application"
+      ],
+      "required_tests": [
+        {
+          "id": "prompt-profile-service > compiled full-access prompt instructs declaring job tool requirements",
+          "path": "apps/core/test/unit/application/prompt-profile-service.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "reviewer_focus": "guidance actually applied (compiled prompt, not dead); neutral; no new requirement shape."
+    }
+  ],
+  "project": "",
+  "story": "PREFLIGHT-1",
+  "epic": "permission-engine",
+  "plan_file": "plans/active/PREFLIGHT-1-scheduled-jobs-provision-tools-upfront-prime-discovery-grantable-setup-cards.md",
+  "plan_sha256": "b989aa11497ec172914d8d22aa751dc27c8eb8ac6bbee78d3a437525a0cf5ae0",
+  "commit": "b3706c14cb56d81592900e9652136cf57ab6825f"
+}

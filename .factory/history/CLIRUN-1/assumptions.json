@@ -1,0 +1,10 @@
+[
+  {
+    "id": "A-0059",
+    "date": "2026-08-11",
+    "issue": "CLIRUN-1",
+    "assumption": "CLIRUN-1-1 caps capability_run argv at 64 arguments, 4096 UTF-8 bytes per argument, and 16384 UTF-8 bytes total; each reviewed wildcard matches exactly one non-flag argument.",
+    "status": "confirmed",
+    "guidance": "Confirmed as implemented: capability_run caps argv at 64 entries / 4096 bytes per arg / 16384 bytes total, and structured authorization is arity-exact with each wildcard matching exactly one non-flag argument (tightened in the whole-branch review)."
+  }
+]

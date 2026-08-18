@@ -4,13 +4,15 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import subprocess
 from pathlib import Path
 
 from factory_lib import (
     client_signoff, load_json, read_hook_input, repo_root, run_state_path,
 )
-from forge_cli.quickfix import claim_files, load_active, record_files
-from forge_cli.repo_kind import is_harness_source_repo
+from forge_cli.context import context_files, context_paths, scan_inbox
+from forge_cli.quickfix import DEGRADED, claim_files, load_active, profile_of
+from forge_cli.repo_kind import is_harness_source_repo, locked_repo_path
 
 payload = read_hook_input()
 tool_name = payload.get("tool_name", "")
@@ -30,15 +32,9 @@ def deny(reason: str) -> None:
     raise SystemExit(0)
 
 
-# Planning lock: product writes are always refused until a plan is approved
-# or a bounded quickfix is open. Planning surfaces stay available.
+# Session lock: product and canon writes are always refused unless a bounded
+# degraded window is open. Orchestration surfaces stay available.
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
-PLANNING_WRITE_OK = (
-    "plans/", "docs/", ".gstack/", ".github/", "prototype/",
-)
-CLIENT_MACHINERY_WRITE_OK = (
-    "factory/", "constitution/", "harness/", ".claude/", ".codex/",
-)
 # .factory/ is deliberately NOT writable by hand: run.json holds plan_status,
 # so a hand-edit disarms this very lock, and AGENTS.md already requires that
 # evidence enter .factory/ only through the record_* scripts. Those scripts
@@ -52,87 +48,39 @@ FACTORY_STATE_MSG = (
     "record_* scripts, `./forge note` for the scratchpad, or `./forge stage` "
     "for stage status."
 )
-PLANNING_WRITE_OK_FILES = {
-    "AGENTS.md", "CLAUDE.md", "WORKFLOW.md", "harness.yaml", "README.md",
-    ".gitignore", ".gitattributes", ".envrc",
-    # session memory, not evidence — gitignored, and `forge note` appends to it
-    ".factory/scratchpad.md",
-}
 # Files under .factory/ the evidence guard lets through — but that is the ONLY
-# guard they skip. The scratchpad is also freely writable (PLANNING_WRITE_OK_FILES
-# above). The repo-kind marker is deliberately NOT there: it is a product path,
-# so the planning lock governs it — creating, editing, or DELETING it needs an
-# approved plan or a quickfix. Disarming the source-repo lock therefore takes the
-# same ceremony as any machinery change, never a silent hand-edit or `rm`.
+# guard they skip. The scratchpad is also exempt in the shared locked-path
+# classifier. The repo-kind marker is deliberately NOT there: it is a product path,
+# so the session lock governs it. Disarming the source-repo lock therefore runs
+# through a delegated worker, never a silent session edit or `rm`.
 FACTORY_STATE_WRITABLE = {
     ".factory/scratchpad.md",
     ".factory/harness-source.json",
 }
 # The repo-kind marker. It decides whether the machinery trees are product at
-# all, so it may be changed ONLY under an approved plan + decomposition, never a
-# quickfix: a quickfix that could `rm` it as its first claimed file would flip
-# the repo to client-mode and let every later machinery write skip the budget
-# entirely (defeating the very bound it exists to enforce). Under an approved
-# plan the machinery is already writable, so removing the marker grants nothing.
+# all, so a session may never change it, including during degraded mode: a
+# window that could `rm` it as its first claim would flip the repo to client-mode
+# and let every later machinery write skip the budget entirely.
 HARNESS_SOURCE_MARKER = ".factory/harness-source.json"
 PLAN_MODE_MSG = (
-    "Planning lock is armed — product writes require an approved plan. "
-    "Either enter plan mode (shift+tab) [PLAN MODE] and save the approved plan per "
-    "factory/prompts/planner.md, or run `./forge quickfix start \"<reason>\"` "
-    "for a bounded five-file fix."
+    "Session write lockout is armed — product and canon writes must run through "
+    "`./forge delegate <task-id>`. If the companion is unavailable, open the sole "
+    "bounded exception with `./forge mode degraded start --reason \"<reason>\"`."
 )
 QUICKFIX_LIMIT_MSG = (
-    "Quickfix scope exceeded — this is not a quickfix, enter plan mode (shift+tab). "
-    "The other planning-lock exit is `./forge quickfix start \"<reason>\"`, but the "
-    "current window must be closed first."
+    "Degraded window scope exceeded — its five-file claim budget is exhausted. "
+    "Close it with `./forge mode done`, restore the companion, and use "
+    "`./forge delegate <task-id>` for the remaining write work."
 )
 MARKER_PLAN_ONLY_MSG = (
     f"{HARNESS_SOURCE_MARKER} is the repo-kind marker: it may be created, edited, "
-    "or deleted ONLY under an approved plan with a recorded decomposition, never a "
-    "quickfix. A quickfix that removed it could flip this repo to client-mode and "
-    "escape its own file budget. Plan the change, or leave the marker alone."
+    "or deleted only through `./forge delegate <task-id>`, never by the session or "
+    "a degraded window. Removing it inside a window could flip this repo to "
+    "client-mode and escape the file budget."
 )
-OPAQUE_WRITE_MSG = (
-    "Opaque delegated writes cannot use a quickfix because its five-file budget "
-    "cannot be tracked. Either enter plan mode (shift+tab) [PLAN MODE] and save an "
-    "approved plan, or use `./forge quickfix start \"<reason>\"` for direct edits "
-    "whose product paths the hook can record."
-)
-
-
 def product_path(raw: str, root: Path, is_harness: bool) -> str | None:
-    """Return a canonical repo-relative product path, otherwise None.
-
-    is_harness is the EFFECTIVE repo kind: while a quickfix is open it is the
-    value pinned at the window's start (not the live marker), so deleting the
-    marker mid-window cannot change what counts as product.
-    """
-    value = raw.strip().strip("\"'")
-    if not value or value in {"-", "/dev/null"}:
-        return None
-    # Unexpanded shell expansions ($HOME, $(pwd), backticks) cannot be
-    # classified — the hook sees the literal, not the destination. Treat as
-    # unknown rather than product: this guard defends drift, and a drifting
-    # worker writes plain paths (decision 0013; artifact gates backstop).
-    if "$" in value or "`" in value:
-        return None
-    candidate = Path(value).expanduser()
-    if not candidate.is_absolute():
-        candidate = root / candidate
-    resolved = candidate.resolve()
-    try:
-        rel = resolved.relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return None
-    if not rel or rel in PLANNING_WRITE_OK_FILES:
-        return None
-    exempt_prefixes = PLANNING_WRITE_OK
-    if not is_harness:
-        exempt_prefixes += CLIENT_MACHINERY_WRITE_OK
-    if any(rel == prefix.rstrip("/") or rel.startswith(prefix)
-           for prefix in exempt_prefixes):
-        return None
-    return rel
+    """Compatibility name for the shared repo-kind-aware lock classifier."""
+    return locked_repo_path(raw, root, harness_source=is_harness)
 
 
 def tokenize(segment: str) -> list[str] | None:
@@ -232,6 +180,26 @@ def git_subcommand(args: list[str]) -> tuple[str | None, list[str]]:
             continue
         return token, args[index + 1:]
     return None, []
+
+
+def has_git_commit(value: str) -> bool:
+    """True when a shell segment directly invokes `git ... commit`."""
+    for segment in re.split(r"[;&|\n]+", strip_heredoc_bodies(value)):
+        tokens = tokenize(segment)
+        if tokens is None:
+            continue
+        command_index = next(
+            (index for index, token in enumerate(tokens)
+             if not re.fullmatch(r"\w+=\S*", token)),
+            None,
+        )
+        if command_index is None:
+            continue
+        if tokens[command_index].rsplit("/", 1)[-1] != "git":
+            continue
+        if git_subcommand(tokens[command_index + 1:])[0] == "commit":
+            return True
+    return False
 
 
 def _copy_operands(operands: list[str], args: list[str],
@@ -351,17 +319,17 @@ def _contains_marker(rel: str) -> bool:
 # Shell metacharacters that expand one literal into an unbounded set of paths:
 # globs (`*?[`) and brace expansion (`{1..6}`, `{a,b}`).
 GLOB_METACHARS = ("*", "?", "[", "{")
-OPAQUE_QUICKFIX_MSG = (
+OPAQUE_DEGRADED_MSG = (
     "This op touches an unbounded set of machinery files — a recursive/globbed "
     "delete, or a recursive/globbed copy or move INTO a machinery path — so a "
-    "quickfix cannot honestly claim it against its budget. Enumerate the exact "
+    "degraded window cannot honestly claim it against its budget. Enumerate the exact "
     "paths, or plan the change where the whole diff is measured."
 )
 
 
 def has_opaque_product_write(command: str, root: Path, is_harness: bool) -> bool:
     """An op whose exact product-file set can't be read from the literal command,
-    so a quickfix cannot claim it: a recursive/globbed/brace DELETE of a product
+    so a degraded window cannot claim it: a recursive/globbed/brace DELETE of a product
     path (`rm`/`unlink`/`git rm`), or a recursive/glob-sourced copy/move whose
     DESTINATION is a product path. Copy/move opacity is keyed on the destination,
     never the source, so a read-OUT backup (`cp -R factory/scripts /tmp/x`) is
@@ -407,60 +375,35 @@ def has_opaque_product_write(command: str, root: Path, is_harness: bool) -> bool
     return False
 
 
-def guard_product_writes(targets: list[str], state: dict, root: Path,
-                         command: str = "") -> None:
-    quickfix = load_active(root)
-    # Effective repo kind: a live marker read, UNLESS a quickfix is open — then
+def guard_product_writes(targets: list[str], root: Path, command: str = "") -> None:
+    window = load_active(root)
+    # Effective repo kind: a live marker read, UNLESS a window is open — then
     # the kind pinned at its start wins, so deleting the marker during the window
     # (by any means) cannot flip classification and let machinery escape the
     # budget. Fail-safe: an old window with no pin falls back to the live marker.
-    if quickfix is not None and "harness_source" in quickfix:
-        is_harness = bool(quickfix["harness_source"])
+    if window is not None and "harness_source" in window:
+        is_harness = bool(window["harness_source"])
     else:
         is_harness = is_harness_source_repo(root)
-    approved_and_decomposed = (state.get("plan_status") == "approved"
-                               and state.get("decomposition_status") == "recorded")
+    degraded = bool(window and profile_of(window) == DEGRADED)
     # Opaque check FIRST: a recursive/globbed op or a `cp -t`/dir copy can affect
     # product files the literal-target extractor never classifies, so `product`
     # may be empty even though the command hits machinery. Deny before any early
     # return, whether the repo is fully locked or a quickfix is open.
-    if (command and not approved_and_decomposed
-            and has_opaque_product_write(command, root, is_harness)):
-        deny(OPAQUE_QUICKFIX_MSG)
+    if command and has_opaque_product_write(command, root, is_harness):
+        deny(OPAQUE_DEGRADED_MSG if degraded else PLAN_MODE_MSG)
     product = list(dict.fromkeys(
         rel for raw in targets if (rel := product_path(raw, root, is_harness)) is not None
     ))
     if not product:
         return
-    if (any(_contains_marker(rel) for rel in product)
-            and not approved_and_decomposed):
-        # A quickfix must never be able to touch the marker (see its definition):
+    if any(_contains_marker(rel) for rel in product):
+        # A session window must never be able to touch the marker:
         # deleting it — directly, or by removing an ANCESTOR like `.factory` via
         # `rm -rf .factory` — would disable classification and the budget with it.
-        # Only an approved, decomposed plan authorizes a marker change.
+        # Only the hook-bypassing delegated worker may change it.
         deny(MARKER_PLAN_ONLY_MSG)
-    if (state.get("plan_status") == "approved"
-            and state.get("decomposition_status") == "recorded"):
-        # The plan already authorizes this write. Recording only observes it:
-        # it neither applies the quickfix budget nor changes the return below.
-        record_files(root, product)
-    if state.get("plan_status") == "approved":
-        # An approved plan is not yet an implementation licence: the bounded
-        # tasks are what implementation is measured against, and a write before
-        # the decomposition exists belongs to no task (AGENTS.md phase 4).
-        if state.get("decomposition_status") == "recorded":
-            return
-        if not quickfix:
-            deny(
-                "Plan approved, but no decomposition is recorded — implementation "
-                "is bounded by tasks, so a product write now belongs to no task. "
-                "Record it: python3 factory/scripts/record_decomposition_from_json.py "
-                "--input /tmp/decomposition.json (or open a bounded window: "
-                "./forge quickfix start \"<reason>\")."
-            )
-    # An open window does not skip this: each product file it touches must be
-    # claimed against the budget, which is what bounds the escape hatch.
-    if not quickfix:
+    if not degraded:
         deny(PLAN_MODE_MSG)
     claimed, _ = claim_files(root, product)
     if not claimed:
@@ -522,6 +465,28 @@ GATED_PHASES = (
     "pr-ready",
 )
 root = repo_root()
+
+if tool_name == "Bash" and has_git_commit(command):
+    context_dir, ledger_path = context_paths(root)
+    # An inbox that was never scanned and holds nothing stays untouched: the
+    # belt must not leave an untracked ledger.json behind on every commit.
+    if ledger_path.exists() or (context_dir.is_dir() and context_files(context_dir)):
+        drift, refused = scan_inbox(root)
+    else:
+        drift, refused = [], []
+    if refused:
+        deny("REFUSED (not registered — fix, then rescan):\n" +
+             "\n".join(f"- {line}" for line in refused))
+    if drift:
+        staged = subprocess.run(
+            ["git", "add", "--", "docs/context/ledger.json"],
+            cwd=root, capture_output=True, text=True,
+            encoding="utf-8", errors="surrogateescape",
+        )
+        if staged.returncode:
+            deny("Context ledger refreshed but could not be staged: " +
+                 (staged.stderr.strip() or staged.stdout.strip() or "git add failed"))
+
 run_state = load_json(run_state_path(root), default={})
 
 edit_target = (tool_input.get("file_path") or tool_input.get("notebook_path") or "")
@@ -534,11 +499,10 @@ for candidate in write_targets:
     if in_factory_state(candidate, root):
         deny(FACTORY_STATE_MSG)
 
-# The lock covers plan mode too: plan mode stops the Edit tools, not a Bash
-# redirect, and writing product code while planning is the thing being stopped.
-if permission_mode != "plan" or tool_name == "Bash":
-    guard_product_writes(write_targets, run_state, root,
-                         command=command if tool_name == "Bash" else "")
+# The session lock covers every permission mode. Planning changes authorization
+# for the plan UI, never for product or canon writes.
+guard_product_writes(write_targets, root,
+                     command=command if tool_name == "Bash" else "")
 literal_command = command.replace("''", "").replace('""', "")
 shell_shape = re.sub(
     r"\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*", "", literal_command)
@@ -560,6 +524,8 @@ except ValueError:
 compact_command = re.sub(r"[^a-z0-9]", "", shell_shape.lower())
 has_companion = (
     re.search(r"\bcodex-companion(?:\.mjs)?\b", shell_shape) is not None
+    or re.search(r"\$(?:\{)?(?=[A-Za-z_])[A-Za-z0-9_]*companion[A-Za-z0-9_]*",
+                 command, re.IGNORECASE) is not None
     or any(re.fullmatch(r"codex-companion(?:\.mjs)?", Path(token).name)
            for token in shell_tokens)
     or "codexcompanion" in compact_command
@@ -571,12 +537,8 @@ has_companion = (
 # the companion is either a safe display command (rg/cat/...) or an
 # unverifiable launch, which is denied: shell text cannot bound a child
 # interpreter's computed argv, so we never try.
-COMPANION_WRITE_FLAGS = {
-    "--write", "--full-auto", "--dangerously-bypass-approvals-and-sandbox",
-}
-READONLY_COMPANION_VERBS = {"task", "task-resume-candidate"}
+READONLY_COMPANION_VERBS = {"status", "task", "task-resume-candidate"}
 READONLY_COMPANION_FLAGS = {"--model", "--effort", "--json"}
-COMPANION_METACHARS = re.compile("[;&|<>$`(){}\n*?~\\=\\[\\]]|\x27\x27|\x22\x22")
 COMPANION_NAME = re.compile(r"codex-companion(?:\.mjs)?")
 # No shell-capable pagers (less/more run "+!cmd" startup commands).
 DISPLAY_SAFE_ARGV0 = {
@@ -591,9 +553,30 @@ def _display_safe(tokens):
     return not any(t.startswith(("-", "+")) for t in tokens[1:])
 
 
+def _has_active_shell_syntax(value: str) -> bool:
+    """Shell syntax outside quotes (plus expansions inside double quotes)."""
+    quote = None
+    escaped = False
+    for char in value:
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote:
+            if char == quote:
+                quote = None
+            elif quote == '"' and char in "$`":
+                return True
+        elif char in "'\"":
+            quote = char
+        elif char in ";&|<>$`(){}\n*?~=[]":
+            return True
+    return False
+
+
 def _companion_readonly_launch_ok():
     """True iff the command is a provably read-only companion launch."""
-    if COMPANION_METACHARS.search(command):
+    if _has_active_shell_syntax(command):
         return False
     if not shell_tokens:
         return False
@@ -611,14 +594,37 @@ def _companion_readonly_launch_ok():
         rest = shell_tokens[comp_idx + 1:]
         # Verb allowlist, not a flag denylist: other subcommands (setup,
         # cancel, task-worker) mutate state without any write flag. Options
-        # are default-deny too: --prompt-file and --cwd can exfiltrate
-        # arbitrary local files / retarget other repos, and future flags
-        # should not be trusted implicitly.
+        # are default-deny too: --cwd can retarget other repos, and future
+        # flags should not be trusted implicitly. The equals-sign form of
+        # --prompt-file stays explicitly unsupported because active shell
+        # syntax above refuses '='.
         if not rest or rest[0] not in READONLY_COMPANION_VERBS:
             return False
+        args = rest[1:]
+        prompt_flags = [idx for idx, token in enumerate(args)
+                        if token == "--prompt-file"]
+        if prompt_flags:
+            if rest[0] != "task" or len(prompt_flags) != 1:
+                return False
+            prompt_idx = prompt_flags[0]
+            if prompt_idx + 1 >= len(args) or args[prompt_idx + 1].startswith("-"):
+                return False
+            prompt_path = Path(args[prompt_idx + 1])
+            if prompt_path.is_absolute() or ".." in prompt_path.parts:
+                return False
+            try:
+                resolved_root = root.resolve()
+                resolved_prompt = (resolved_root / prompt_path).resolve()
+                valid_prompt = (resolved_prompt.is_relative_to(resolved_root)
+                                and resolved_prompt.is_file())
+            except (OSError, RuntimeError):
+                valid_prompt = False
+            if not valid_prompt:
+                return False
+            args = args[:prompt_idx] + args[prompt_idx + 2:]
         return all(
             not token.startswith("-") or token in READONLY_COMPANION_FLAGS
-            for token in rest[1:]
+            for token in args
         )
     # Companion path appears under another executor (xargs, env, sh -c,
     # an interpreter): the final argv cannot be established from text.

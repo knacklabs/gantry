@@ -1,0 +1,46 @@
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-09T08:56:02+00:00", "story": "SETUPRACE-1", "detail": "Atomic claim for setup-pause notifications (close D-0053)"}
+{"event": "roadmap-add", "generated_by": "orchestrator", "at": "2026-08-09T08:57:48+00:00", "story": "SETUPRACE-1", "detail": "docs/specs/setuprace-1.md"}
+{"event": "plan-human-approved", "generated_by": "human", "at": "2026-08-09T08:58:14+00:00", "story": "SETUPRACE-1", "detail": "SETUPRACE-1 approved by Ravi"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-09T08:58:14+00:00", "story": "SETUPRACE-1", "detail": "plans/active/SETUPRACE-1-atomic-claim-for-setup-pause-notifications-close-d-0053.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-09T08:58:53+00:00", "story": "SETUPRACE-1", "detail": "1 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-09T08:59:06+00:00", "story": "SETUPRACE-1", "detail": "SETUPRACE-1-1 Atomic fingerprint claim for setup-pause notifications (CAS + reset + reorder)"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-09T09:21:03+00:00", "story": "SETUPRACE-1"}
+{"event": "plan-human-approved", "generated_by": "human", "at": "2026-08-09T09:43:44+00:00", "story": "SETUPRACE-1", "detail": "SETUPRACE-1 approved by Ravi"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-09T09:43:44+00:00", "story": "SETUPRACE-1", "detail": "plans/active/SETUPRACE-1-atomic-claim-for-setup-pause-notifications-close-d-0053.md"}
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-09T09:45:53+00:00", "story": "SETUPRACE-1", "detail": "Approved SETUPRACE-1 plan requires recoverable notify_claim_at state, stale reclaim, confirmJobSetupNotified, reloaded-session routing, and docs updates, but the recorded SETUPRACE-1-1 decomposition/b"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-09T09:46:02+00:00", "story": "SETUPRACE-1", "detail": "SETUPRACE-1-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-09T09:47:36+00:00", "story": "SETUPRACE-1", "detail": "1 task(s)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-09T09:47:53+00:00", "story": "SETUPRACE-1", "detail": "S-0001-5a2a: Fixed: the decomposition objective now specifies the recoverable design (notify_claim_at, CAS with stale reclaim, confirmJobSetupNotified, clearJobSetupNotified, reloaded-session routing), and write_s"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-09T09:55:08+00:00", "story": "SETUPRACE-1", "detail": "Atomic claim-before-delivery sets notified_fingerprint, but setup-pause prompt revalidation treats that pending claim as already delivered and canonical parsing drops notify_claim_at; correctness requ"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-09T09:55:19+00:00", "story": "SETUPRACE-1", "detail": "SETUPRACE-1-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-09T09:56:29+00:00", "story": "SETUPRACE-1", "detail": "1 task(s)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-09T09:56:30+00:00", "story": "SETUPRACE-1", "detail": "S-0002-6663: Approved scope expansion: added apps/core/src/domain/job-types.ts, apps/core/src/adapters/storage/postgres/services/canonical-job-target-state.ts, and apps/core/src/application/jobs/setup-pause-permis"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-09T10:16:26+00:00", "story": "SETUPRACE-1", "detail": "SETUPRACE-1-1 (write)"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-09T10:30:08+00:00", "story": "SETUPRACE-1"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-09T11:38:34+00:00", "story": "SETUPRACE-1", "detail": "1 task(s)"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-09T11:59:37+00:00", "story": "SETUPRACE-1"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-09T12:38:58+00:00", "story": "SETUPRACE-1", "detail": "SETUPRACE-1-1 requires changing apps/core/src/application/jobs/job-permission-recovery.ts: its fallback sends before markJobSetupNotified and discards the returned token, violating claim-before-send a"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-09T12:39:14+00:00", "story": "SETUPRACE-1", "detail": "SETUPRACE-1-1 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-09T12:45:25+00:00", "story": "SETUPRACE-1", "detail": "SETUPRACE-1-1: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-09T12:45:25+00:00", "story": "SETUPRACE-1", "detail": "SETUPRACE-1-1 Atomic fingerprint claim for setup-pause notifications (CAS + reset + reorder)"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-09T12:46:09+00:00", "story": "SETUPRACE-1", "detail": "passed"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-09T12:46:09+00:00", "story": "SETUPRACE-1"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-09T12:46:09+00:00", "story": "SETUPRACE-1"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-09T12:46:09+00:00", "story": "SETUPRACE-1"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-09T12:47:23+00:00", "story": "SETUPRACE-1", "detail": "S-0003-81b7: Out of SETUPRACE-1 scope; recorded as follow-up. job-permission-recovery.ts (notifyStillBlockedSetupPrompt) is the post-grant recheck path, not the concurrent-creation/run race SETUPRACE-1 targets, an"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-09T12:54:38+00:00", "story": "SETUPRACE-1"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-09T12:54:47+00:00", "story": "SETUPRACE-1", "detail": "passed"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-09T12:54:48+00:00", "story": "SETUPRACE-1"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-09T12:54:48+00:00", "story": "SETUPRACE-1"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-09T12:54:48+00:00", "story": "SETUPRACE-1"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-09T13:05:51+00:00", "story": "SETUPRACE-1"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-09T13:06:01+00:00", "story": "SETUPRACE-1", "detail": "passed"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-09T13:06:02+00:00", "story": "SETUPRACE-1"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-09T13:06:02+00:00", "story": "SETUPRACE-1"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-09T13:06:02+00:00", "story": "SETUPRACE-1"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-09T13:16:10+00:00", "story": "SETUPRACE-1"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-09T13:16:19+00:00", "story": "SETUPRACE-1", "detail": "passed"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-09T13:16:19+00:00", "story": "SETUPRACE-1"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-09T13:16:19+00:00", "story": "SETUPRACE-1"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-09T13:16:19+00:00", "story": "SETUPRACE-1"}
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-09T13:16:19+00:00", "story": "SETUPRACE-1", "detail": "Setup-pause notifications are now race-safe. A recoverable atomic fingerprint claim (claim-before-send, ownership-fenced confirm/clear, self-healing after a TTL) makes concurrent creation/update/run n"}

@@ -1,0 +1,446 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "user_facing": true,
+  "project": "",
+  "story": "JOBFLOW-1",
+  "epic": "permission-engine",
+  "plan_file": "plans/active/JOBFLOW-1-jobflow-seamless-scheduled-job-lifecycle.md",
+  "tasks": [
+    {
+      "id": "JOBFLOW-1-S1",
+      "title": "S1: decision + spec reconciliation (docs + two named non-doc edits)",
+      "objective": "Land the normative record first: amend 0117/0122/0123/0115 per decisions 0124-0128, update the spec echoes, close D-0057, amend the accepted-hang comment contract in execution-readiness.ts, mark CAPFIX-1's agent-raised roadmap claim historical, and carry the transition graph, idempotency key table, and eleven-surface matrix as the appendix.",
+      "dependencies": [],
+      "doc_references": [
+        "plans/JOBFLOW-contract-appendix.md#s1",
+        "docs/decisions/0124-bounded-durable-card-delivery.md",
+        "docs/decisions/0125-host-only-template-amendment.md",
+        "docs/decisions/0126-typed-terminal-denial-event.md",
+        "docs/decisions/0127-tagged-setup-action-model.md",
+        "docs/decisions/0128-permission-approval-result.md"
+      ],
+      "acceptance_criteria": [
+        "Decisions 0124-0128 accepted with Confirmed-by; amended decisions cross-reference them",
+        "preflight-1.md, autonomous-jobs.md, capability-template-amendment.md no longer promise best-effort delivery, agent authorship, or argv identity",
+        "execution-readiness.ts accepted-hang comment replaced with the bounded-delivery contract reference (comment-only edit)",
+        "CAPFIX-1 roadmap agent-raised acceptance claim marked historical in plans/roadmap.json",
+        "D-0057 closed in plans/deferrals.md referencing 0125",
+        "Transition graph + idempotency key table + eleven-surface matrix present in the appendix"
+      ],
+      "write_scope": [
+        "docs/decisions/0115-autonomous-tool-denial-terminal.md",
+        "docs/decisions/0117-scheduled-job-declare-tools-at-creation.md",
+        "docs/decisions/0122-capability-template-amendment.md",
+        "docs/decisions/0123-recovery-proposal-birthright.md",
+        "docs/decisions/0124-bounded-durable-card-delivery.md",
+        "docs/decisions/0125-host-only-template-amendment.md",
+        "docs/decisions/0126-typed-terminal-denial-event.md",
+        "docs/decisions/0127-tagged-setup-action-model.md",
+        "docs/decisions/0128-permission-approval-result.md",
+        "docs/specs/preflight-1.md",
+        "docs/specs/capability-template-amendment.md",
+        "docs/specs/jobflow-lifecycle.md",
+        "docs/architecture/autonomous-jobs.md",
+        "apps/core/src/jobs/execution-readiness.ts",
+        "plans/roadmap.json",
+        "plans/deferrals.md",
+        "plans/JOBFLOW-contract-appendix.md"
+      ],
+      "required_tests": [],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "Faithfulness to the contract appendix; the execution-readiness.ts edit is comment-only (no behavior change); every amended decision names what it supersedes; no contradiction left between decisions, specs, and architecture docs."
+    },
+    {
+      "id": "JOBFLOW-1-S2A",
+      "title": "S2a: typed denial event cutover (producers + append + idempotency + read seams + preflight)",
+      "objective": "One atomic denial-format cutover: extend JOB_TOOL_DENIED with the typed payload, make the append required and pre-finalization with failure routed into the retry branch, add the event idempotency column with conflict-skips-side-effects, convert all producers (incl. the two Anthropic guards entering the sweep), move finalization/status/visibility to typed reads, delete the marker parser, and reroute access preflight through readiness.",
+      "dependencies": [
+        "JOBFLOW-1-S1"
+      ],
+      "doc_references": [
+        "plans/JOBFLOW-contract-appendix.md#s2a",
+        "docs/decisions/0126-typed-terminal-denial-event.md"
+      ],
+      "acceptance_criteria": [
+        "Terminal denial event appended before finalization; lowest event_id authoritative; append failure reaches finalization's error-and-no-toolDenial retry branch",
+        "Idempotency conflict inserts nothing and skips outbox/webhook side effects",
+        "All producers emit the typed payload (anthropic gate + :150/:299/:334 guards, anthropic recovery, deepagents gate + declarative rules terminal)",
+        "Finalization, status formatting, and visibility consume the typed record; marker parser deleted in the same change (isGrantableAutonomousToolRecovery retained); no dual format at any commit",
+        "Missing access requirements pause via pausedForSetupDuringRun; assert helper deleted",
+        "Current blocker/action emission shape unchanged (S2b owns that)"
+      ],
+      "write_scope": [
+        "apps/core/src/jobs",
+        "apps/core/src/domain/events",
+        "apps/core/src/application/jobs",
+        "apps/core/src/application/runtime-events",
+        "apps/core/src/adapters/storage/postgres",
+        "apps/core/src/adapters/llm",
+        "apps/core/src/shared/autonomous-tool-denial.ts",
+        "apps/core/drizzle",
+        "apps/core/test/unit/jobs",
+        "apps/core/test/unit/shared/autonomous-tool-denial.test.ts",
+        "apps/core/test/unit/adapters",
+        "apps/core/test/unit/application",
+        "apps/core/test/integration",
+        "apps/core/src/domain/repositories/ops-repo.ts"
+      ],
+      "required_tests": [],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "Contract appendix S2a: append ordering + failure semantics, idempotency conflict behavior, producer completeness, parser deletion atomic with its consumers, replaced pins (execution-diagnostics/execution/job-lifecycle-integration/deepagents-terminal/anthropic-recovery/status-formatting/execution-notifications/finalization/visibility families). Required tests re-enumerated JIT at stage start."
+    },
+    {
+      "id": "JOBFLOW-1-S2B",
+      "title": "S2b: tagged action cutover - domain, producers, wire, OpenAPI/SDK/CLI/MCP, migration (one atomic task)",
+      "objective": "One atomic action-format cutover: the tagged action union with the narrow PermissionAuthorityAddition, strict storage parser, one shared display formatter, event payload swaps recovery fields for the typed action at all producers incl. runner lanes, one snake_case event schema for both writers, authored OpenAPI setup schema with regeneration, SDK/CLI/MCP cutover, and the total offline migration - so no commit leaves main with a dual shape or a strict reader ahead of migrated rows.",
+      "dependencies": [
+        "JOBFLOW-1-S2A"
+      ],
+      "doc_references": [
+        "plans/JOBFLOW-contract-appendix.md#s2b",
+        "docs/decisions/0127-tagged-setup-action-model.md"
+      ],
+      "acceptance_criteria": [
+        "instruction+grantable unrepresentable; action identities and priority implemented; recovery-string parser and regex label layer deleted",
+        "Strict parser and the data migration land in the same change: malformed state raises the remediation error AND every legacy non-ready row is migrated (fingerprint recomputed, notified_fingerprint set equal)",
+        "Denial-event payload carries the typed action at every producer; no grantable/recovery_* fields remain",
+        "One external event schema for both writers; blocker-level nextAction/grantable gone from the wire; OpenAPI setup schema authored and SDK regenerated typed",
+        "Drizzle migration + snapshot + journal recorded"
+      ],
+      "write_scope": [
+        "apps/core/src/domain",
+        "apps/core/src/application/jobs",
+        "apps/core/src/adapters/storage/postgres",
+        "apps/core/src/adapters/llm",
+        "apps/core/src/shared",
+        "apps/core/src/jobs",
+        "apps/core/src/control",
+        "apps/core/src/cli",
+        "apps/core/src/runner/mcp",
+        "packages/contracts",
+        "packages/sdk",
+        "apps/core/drizzle",
+        "apps/core/test",
+        "apps/core/src/app/bootstrap/setup-pause-permission-wiring.ts"
+      ],
+      "required_tests": [],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "Contract appendix S2b: atomicity (strict reader + producers + wire + migration in one landing), PermissionAuthorityAddition narrowness, parser invariants, formatter as sole display source, inventory completeness. Broad write scope is deliberate: this cutover is atomic by contract. Required tests re-enumerated JIT."
+    },
+    {
+      "id": "JOBFLOW-1-S3-PREP",
+      "title": "S3: schema + atomic preparation + prompt identity (DORMANT until S3-RESULT activates)",
+      "objective": "Add prompt identity columns (job_id plain indexed, NO FK - terminal history survives job deletion as audit; setup_fingerprint; partial unique across non-terminal states), outbound item columns (permission_prompt_id, generation, send_begun_at, cancelled on item and parent), and the one-transaction composite preparation with job lock+revalidate and the generation-aware aggregate key. Nothing enqueues through the new path yet - it stays dormant until S3-RESULT completes the cutover.",
+      "dependencies": [
+        "JOBFLOW-1-S2B"
+      ],
+      "doc_references": [
+        "plans/JOBFLOW-contract-appendix.md#s3",
+        "docs/decisions/0124-bounded-durable-card-delivery.md"
+      ],
+      "acceptance_criteria": [
+        "One open-or-claimed prompt per (job_id, setup_fingerprint); reissue = new row; job_id has no FK and terminal rows survive job deletion",
+        "Aggregate idempotency key setup_permission_prompt:<promptId>:<generation>; same-generation replay returns the same aggregate; items unique (prompt, generation) + one-active partial unique",
+        "Composite preparation is one transaction (interaction + prompt + full outbound aggregate) with job lock+revalidate and same-app enforcement",
+        "Both deterministic-requestId consumers replaced with persisted prompt identity",
+        "New path is dormant: no production caller enqueues a permission-card delivery in this task"
+      ],
+      "write_scope": [
+        "apps/core/src/adapters/storage/postgres",
+        "apps/core/src/domain",
+        "apps/core/src/application/jobs",
+        "apps/core/src/application/interactions",
+        "apps/core/src/app/bootstrap",
+        "apps/core/drizzle",
+        "apps/core/test/unit/application",
+        "apps/core/test/unit/adapters",
+        "apps/core/test/integration",
+        "apps/core/test/unit/channels/telegram.test.ts"
+      ],
+      "required_tests": [],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "Contract appendix S3 identity/preparation/retention: constraint pair, no-FK audit retention, lock+revalidate, wiring:175/237 + recovery:149 replacements, dormancy (no activation). Required tests re-enumerated JIT."
+    },
+    {
+      "id": "JOBFLOW-1-S3-DISPATCH",
+      "title": "S3: dispatch, checkpoint, settlement, bounded card render (still dormant)",
+      "objective": "Teach the recovery loop the permission profile: load by promptId, revalidate, lease-fenced beginSend checkpoint, one non-splitting bounded card send per adapter (prepared-send ports for all four), settlement attaching the provider locator in-transaction. The profile is implemented but not yet fed by any production enqueue - activation stays with S3-RESULT.",
+      "dependencies": [
+        "JOBFLOW-1-S3-PREP"
+      ],
+      "doc_references": [
+        "plans/JOBFLOW-contract-appendix.md#s3",
+        "docs/decisions/0124-bounded-durable-card-delivery.md"
+      ],
+      "acceptance_criteria": [
+        "Expired claim without send_begun_at retryable; with it, ambiguous",
+        "Permission card is exactly one provider message (bounded render, no document/split paths); permission-card view added to MessageSendOptions",
+        "Settlement atomic: receipt + item + prompt locator",
+        "All four adapters expose the non-waiting prepared-send port; existing Slack setup routing untouched and green",
+        "No production enqueue feeds the profile yet (dormant)"
+      ],
+      "write_scope": [
+        "apps/core/src/jobs",
+        "apps/core/src/channels",
+        "apps/core/src/application/outbound-delivery",
+        "apps/core/src/app/bootstrap",
+        "apps/core/src/domain",
+        "apps/core/src/adapters/storage/postgres",
+        "apps/core/test/unit/channels",
+        "apps/core/test/unit/jobs",
+        "apps/core/test/integration"
+      ],
+      "required_tests": [],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "Contract appendix S3 dispatch/lease/settlement + one-message invariant + cancel-vs-send race rules; alias pre-bound at creation; dormancy preserved. Required tests re-enumerated JIT."
+    },
+    {
+      "id": "JOBFLOW-1-S3-RECONCILE",
+      "title": "S3: reconciler, expiry, outcome events, deliveryNotice (still dormant)",
+      "objective": "ALREADY IMPLEMENTED, reviewed (7 rounds) and committed (6b4bfe036, b3b7b00c5); this launch only rebinds the scope after a repair. Make NO edits. Reconciliation deliberately runs as its OWN supervised loop (startSetupPromptReconciliationLoop) - review required failure/lock isolation from delivery claims; do not fold it into the recovery tick. Verify typecheck on the committed state and finish.",
+      "dependencies": [
+        "JOBFLOW-1-S3-DISPATCH"
+      ],
+      "doc_references": [
+        "plans/JOBFLOW-contract-appendix.md#s3",
+        "docs/decisions/0124-bounded-durable-card-delivery.md"
+      ],
+      "acceptance_criteria": [
+        "Terminal delivery events always append even for stale/deleted jobs; job projection skipped on CAS miss after reread-classify",
+        "Ambiguous/exhausted never mutate blocker or fingerprint; an arrived card stays tappable; pending-list approval works; exhausted resume enqueues a new generation",
+        "Expiry produces the defined outcome; resume issues a new prompt row",
+        "gantry jobs show renders the deliveryNotice"
+      ],
+      "write_scope": [
+        "apps/core/src/jobs",
+        "apps/core/src/application/jobs",
+        "apps/core/src/application/runtime-events",
+        "apps/core/src/domain/events",
+        "apps/core/src/app/bootstrap",
+        "apps/core/src/adapters/storage/postgres",
+        "packages/contracts",
+        "packages/sdk",
+        "apps/core/src/cli",
+        "apps/core/src/runner/mcp",
+        "apps/core/test/unit/jobs",
+        "apps/core/test/unit/application",
+        "apps/core/test/integration",
+        "apps/core/src/control",
+        "apps/core/test/unit/control",
+        "apps/core/test/unit/cli",
+        "packages/sdk/src/generated",
+        "apps/core/src/domain/repositories",
+        "apps/core/src/shared/operational-error-counters.ts"
+      ],
+      "required_tests": [],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "No new work expected: confirm the committed reconciler/expiry/deliveryNotice state matches appendix S3. The separate reconciliation loop is the reviewed design - do not fold it into the recovery tick."
+    },
+    {
+      "id": "JOBFLOW-1-S3-RESULT",
+      "title": "S3: PermissionApprovalResult cutover + ACTIVATION (delete the waiting setup call)",
+      "objective": "ALREADY IMPLEMENTED, reviewed (12 plan-aware rounds, clean) and committed through 176359459; verify.py green. This launch only rebinds the write scope after a repair (host review fixes touched consumer test fixtures under test/unit/adapters|runner|shared). Make NO edits: confirm the committed state typechecks and finish.",
+      "dependencies": [
+        "JOBFLOW-1-S3-RECONCILE"
+      ],
+      "doc_references": [
+        "plans/JOBFLOW-contract-appendix.md#s3",
+        "docs/decisions/0128-permission-approval-result.md"
+      ],
+      "acceptance_criteria": [
+        "No adapter or requester path can convert transport failure into approved:false; delivered:'unknown' never retried; durable row stays pending with no decision side effects",
+        "The waiting setup call at setup-pause-permission-wiring.ts:123 is DELETED; setup pause enqueues via the composite preparation; no dual delivery path remains",
+        "Human claims protected: claimed prompts survive blind sweeps; claimed-to-superseded only for authoritative invalidation; recovered cards terminalize after full settlement",
+        "Delivered prompts keep no-response-timeout semantics unchanged"
+      ],
+      "write_scope": [
+        "apps/core/src/channels",
+        "apps/core/src/domain",
+        "apps/core/src/runtime",
+        "apps/core/src/jobs",
+        "apps/core/src/app/bootstrap",
+        "apps/core/src/application",
+        "apps/core/src/adapters/storage/postgres",
+        "apps/core/test/unit/channels",
+        "apps/core/test/unit/runtime",
+        "apps/core/test/unit/application",
+        "apps/core/test/unit/jobs",
+        "apps/core/test/integration",
+        "apps/core/test/unit/bootstrap",
+        "apps/core/test/unit/adapters",
+        "apps/core/test/unit/runner",
+        "apps/core/test/unit/shared"
+      ],
+      "required_tests": [],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "No new work expected: the committed state is the reviewed cutover. Do not re-implement or re-wire anything."
+    },
+    {
+      "id": "JOBFLOW-1-S3-LIFECYCLE",
+      "title": "S3: one-transaction job delete/cancel + promotion-offer lane deletion",
+      "objective": "Make job deletion cancel prompt, interaction, and delivery in the same transaction with structured reasons (replacing delete-then-swallow), and delete the dormant promotion-offer lane narrowly (offer wrappers, offer input, markOffered port, lastOfferedAt column) leaving the classifier counter/read path untouched.",
+      "dependencies": [
+        "JOBFLOW-1-S3-RESULT"
+      ],
+      "doc_references": [
+        "plans/JOBFLOW-contract-appendix.md#s3",
+        "docs/decisions/0128-permission-approval-result.md"
+      ],
+      "acceptance_criteria": [
+        "Job deletion cancels prompt/interaction/delivery in one transaction; cancellation failure surfaces (no swallow); cancelled audit rows survive",
+        "Promotion offer lane removed to the schema; allowCount/createdAt/deniedAt read path untouched"
+      ],
+      "write_scope": [
+        "apps/core/src/application/jobs",
+        "apps/core/src/application/permissions",
+        "apps/core/src/adapters/storage/postgres",
+        "apps/core/src/domain/ports",
+        "apps/core/src/runtime",
+        "apps/core/src/app/bootstrap",
+        "apps/core/drizzle",
+        "apps/core/test/unit/application",
+        "apps/core/test/integration"
+      ],
+      "required_tests": [],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "Delete/cancel transaction boundary (preserve-on-failure pin replaced deliberately); promotion deletion narrow (no counter-path change). Required tests re-enumerated JIT."
+    },
+    {
+      "id": "JOBFLOW-1-S4-COMPILER",
+      "title": "S4: host mismatch flow + compiler + agent-path removal (DORMANT until S4-INTENT)",
+      "objective": "ALREADY IMPLEMENTED, reviewed (5 plan-aware rounds, clean) and committed through 8777793b9; verify.py green. This launch only rebinds the write scope after a repair (the canonical-key migration lives under adapters/storage/postgres). Make NO edits: confirm the committed state typechecks and finish.",
+      "dependencies": [
+        "JOBFLOW-1-S2A",
+        "JOBFLOW-1-S2B"
+      ],
+      "doc_references": [
+        "plans/JOBFLOW-contract-appendix.md#s4",
+        "docs/decisions/0125-host-only-template-amendment.md"
+      ],
+      "acceptance_criteria": [
+        "Recognized mismatch compiles to a recorded host proposal + fix_proposal blocker; everything else falls to instruction; flagged observation proposes both templates (flagged variant classifies expanded)",
+        "capability_template_amendment MCP target, schema, and switch branch removed; one proposal entry",
+        "Host proposal flow is dormant until S4-INTENT (no approvable proposal reachable in production)"
+      ],
+      "write_scope": [
+        "apps/core/src/jobs",
+        "apps/core/src/shared",
+        "apps/core/src/runner/mcp",
+        "apps/core/src/application/jobs",
+        "apps/core/test/unit/jobs",
+        "apps/core/test/unit/shared",
+        "apps/core/test/unit/runner",
+        "apps/core/test/integration",
+        "apps/core/src/adapters/storage/postgres"
+      ],
+      "required_tests": [],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "No new work expected: committed state is the reviewed compiler stage."
+    },
+    {
+      "id": "JOBFLOW-1-S4-INTENT",
+      "title": "S4: durable approval intent + canonical_key migration + ACTIVATION",
+      "objective": "ALREADY IMPLEMENTED, reviewed (13 plan-aware rounds; final finding = confirmed secret-gate redaction artifact) and committed; verify.py green. This launch only rebinds the write scope after a repair (review fixes touched application/storage unit pins). Make NO edits: confirm the committed state typechecks and finish.",
+      "dependencies": [
+        "JOBFLOW-1-S4-COMPILER"
+      ],
+      "doc_references": [
+        "plans/JOBFLOW-contract-appendix.md#s4",
+        "docs/decisions/0125-host-only-template-amendment.md"
+      ],
+      "acceptance_criteria": [
+        "Approve-amend-resume survives a crash at any point; intent recovery is its own service on the shared tick",
+        "canonical_key migration offline with keep-newest via denied/system:superseded",
+        "Argv redaction (--account email, NAME@host) before any persistence",
+        "Host proposal flow activated; D-0057 closure real in code, not just docs"
+      ],
+      "write_scope": [
+        "apps/core/src/jobs",
+        "apps/core/src/adapters/storage/postgres",
+        "apps/core/src/shared",
+        "apps/core/src/app/bootstrap",
+        "apps/core/drizzle",
+        "apps/core/test/unit/jobs",
+        "apps/core/test/unit/shared",
+        "apps/core/test/integration",
+        "apps/core/test/unit/application",
+        "apps/core/test/unit/storage"
+      ],
+      "required_tests": [],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "No new work expected: committed state is the reviewed durable-intent stage."
+    },
+    {
+      "id": "JOBFLOW-1-S4-GUIDANCE",
+      "title": "S4: scheduled-run guidance block",
+      "objective": "Add the one concise scheduled-run guidance block to the shared runner prompt seam (no retrying denied calls, write incrementally, report honestly, the runtime files recognized fixes) with one static snapshot/contract test per rendered runner prompt.",
+      "dependencies": [
+        "JOBFLOW-1-S4-INTENT"
+      ],
+      "doc_references": [
+        "plans/JOBFLOW-contract-appendix.md#s4"
+      ],
+      "acceptance_criteria": [
+        "Guidance renders in every runner prompt with a snapshot test",
+        "No per-job tool rules needed for recovery behavior"
+      ],
+      "write_scope": [
+        "apps/core/src/runner",
+        "apps/core/test/unit/runner"
+      ],
+      "required_tests": [],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "One block in the shared seam only; concise; snapshot coverage per runner."
+    },
+    {
+      "id": "JOBFLOW-1-S5-GATE",
+      "title": "S5: live acceptance gate + fault matrix + prompt sweep (human-gated)",
+      "objective": "Run the epic closeout on the real KnackLabs job: exact flagged argv to fix-proposal card with buttons in the owner's Telegram, owner tap, both templates applied, durable resume, leads written, no duplicate card; execute the three-kill-point crash matrix; finish with the owner-approved prompt sweep to business-only. Live job/prompt mutations are chat-authorized by the owner, not write-scope enforced.",
+      "dependencies": [
+        "JOBFLOW-1-S3-LIFECYCLE",
+        "JOBFLOW-1-S4-GUIDANCE"
+      ],
+      "doc_references": [
+        "plans/JOBFLOW-contract-appendix.md#s5"
+      ],
+      "acceptance_criteria": [
+        "Owner taps a real button and the job resumes and writes leads",
+        "Post-grant repeat allowed (0121); repeat evaluation raises no duplicate card",
+        "All three crash points self-heal (pre-checkpoint exactly-once; post-checkpoint defined ambiguity with any arrived card still live; reconciliation idempotent)",
+        "KnackLabs prompt reduced to business logic with owner-approved text"
+      ],
+      "write_scope": [
+        "docs/memory/jobflow-live-gate-evidence.md"
+      ],
+      "required_tests": [],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "Evidence completeness in the runbook note; no code changes in this task (fixes discovered here go through their owning story)."
+    }
+  ],
+  "plan_sha256": "b641518873cffb30a2e8ab6796cd50e4ff9a789673484df77188696611d14e5d",
+  "commit": "7d11f96c321ed53e530ceb41604e232c405ae06b"
+}

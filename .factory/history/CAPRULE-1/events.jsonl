@@ -1,0 +1,31 @@
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-08T12:58:03+00:00", "story": "CAPRULE-1", "detail": "Scheduled runs drop capability-backed RunCommand rules from the autonomous allowlist"}
+{"event": "roadmap-add", "generated_by": "orchestrator", "at": "2026-08-08T13:52:30+00:00", "story": "CAPRULE-1", "detail": "docs/specs/caprule-1.md"}
+{"event": "plan-human-approved", "generated_by": "human", "at": "2026-08-08T13:55:06+00:00", "story": "CAPRULE-1", "detail": "CAPRULE-1 approved by Ravi"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-08T13:55:06+00:00", "story": "CAPRULE-1", "detail": "plans/active/CAPRULE-1-scheduled-runs-drop-capability-backed-runcommand-rules-from-the-autonomous-allowlist.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-08T13:56:34+00:00", "story": "CAPRULE-1", "detail": "3 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-08T13:56:47+00:00", "story": "CAPRULE-1", "detail": "CAPRULE-1-1 Read-only Codex validation of the scheduled capability-drop root cause"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-08T13:56:56+00:00", "story": "CAPRULE-1", "detail": "CAPRULE-1-1 (read-only)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-08T14:34:37+00:00", "story": "CAPRULE-1", "detail": "CAPRULE-1-1 (read-only)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-08T14:38:24+00:00", "story": "CAPRULE-1", "detail": "3 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-08T14:39:46+00:00", "story": "CAPRULE-1", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-08T14:49:18+00:00", "story": "CAPRULE-1", "detail": "CAPRULE-1-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-08T14:58:57+00:00", "story": "CAPRULE-1", "detail": "2 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-08T15:08:58+00:00", "story": "CAPRULE-1", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-08T15:16:33+00:00", "story": "CAPRULE-1", "detail": "CAPRULE-1-1 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-08T15:23:15+00:00", "story": "CAPRULE-1", "detail": "CAPRULE-1-1: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-08T15:23:15+00:00", "story": "CAPRULE-1", "detail": "CAPRULE-1-1 Part A: scheduled worker-local miss consults the host coordinator before terminal deny"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-08T15:23:40+00:00", "story": "CAPRULE-1", "detail": "CAPRULE-1-2 Part B: one plain-language notification per denied-tool pause"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-08T15:29:40+00:00", "story": "CAPRULE-1", "detail": "CAPRULE-1-2 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-08T16:08:29+00:00", "story": "CAPRULE-1", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-08T16:11:40+00:00", "story": "CAPRULE-1", "detail": "CAPRULE-1-2 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-08T16:12:12+00:00", "story": "CAPRULE-1", "detail": "CAPRULE-1-2: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-08T16:12:12+00:00", "story": "CAPRULE-1", "detail": "CAPRULE-1-2 Part B: one plain-language notification per denied-tool pause"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-08T16:18:53+00:00", "story": "CAPRULE-1"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-08T16:54:23+00:00", "story": "CAPRULE-1"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-08T17:01:49+00:00", "story": "CAPRULE-1"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-08T17:04:10+00:00", "story": "CAPRULE-1", "detail": "2 task(s)"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-08T17:04:23+00:00", "story": "CAPRULE-1", "detail": "passed"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-08T17:04:56+00:00", "story": "CAPRULE-1", "detail": "passed"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-08T17:04:56+00:00", "story": "CAPRULE-1", "detail": "passed"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-08T17:04:56+00:00", "story": "CAPRULE-1", "detail": "passed"}
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-08T17:05:22+00:00", "story": "CAPRULE-1", "detail": "Scheduled jobs can now actually use the tools and capabilities you granted them. A scheduled run that reaches a command its agent is host-granted (like the gog Google Sheets commands) now asks the hos"}

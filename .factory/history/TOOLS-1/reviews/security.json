@@ -1,0 +1,21 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "No security-boundary change by design: canvas enforcement remains the fail-closed IPC boundary + service JID checks; the filter only shrinks surfaces (fail closed on unknown prefix; affinity wins over explicit config so dead tools cannot be re-added).",
+  "blocking_findings": [],
+  "residual_risks": [
+    "affinity map must be extended deliberately for future provider-specific tools (checklist in the classification doc)."
+  ],
+  "reviewed_scope": [
+    "apps/core/src/runner",
+    "apps/core/src/adapters/llm",
+    "apps/core/src/channels",
+    "apps/core/src/application/core-tools",
+    "docs/architecture/tool-provider-affinity.md"
+  ],
+  "recommendation": "ship",
+  "aspect": "security",
+  "non_blocking_findings": [],
+  "recorded_at": "2026-08-04T18:21:49+00:00",
+  "commit": "893e681a82558d0471561ff1cbf26d82a1ff291d"
+}

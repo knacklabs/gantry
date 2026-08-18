@@ -1,0 +1,25 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "task_id": "AUTODET-1-2",
+  "questions_asked": 6,
+  "summary": "AUTODET-1-2 contract interrogated against the approved plan, decision 0121, and the landed stage-1 diff (ec121aa1e). The integration proof must exercise the real finalization/readiness path over Postgres, and the card-grant-resume loop must use the existing SCHED-4B approve-from-card machinery, not a repository shortcut that skips the pause card. Re-grilled after the proof loop: required-test ids corrected to exact JUnit names; the integration command carries GANTRY_TEST_DATABASE_URL inline (worker sandbox cannot reach any Postgres - orchestrator runs the proof). Root cause of 3 failed rounds: test deps lacked getToolRepository so readiness preflight silently saw no bindings - fixed with one dep line; product smell (silent undefined tool repository in readiness) noted for review lens.",
+  "gaps": [
+    "JUnit name-exactness trap (hit in stage 1): required-test ids must equal the vitest JUnit testcase names including describe-chain prefixes, or stage done refuses",
+    "The integration test could fake the grant by writing the binding row directly, which would not prove the card-grant-resume loop",
+    "The no-auto_classifier assertion needs a concrete event source to grep in-test (runtime events for the run), not log scraping"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Implementer verifies the junit testcase names after writing the tests; the orchestrator corrects decomposition ids to the exact names before stage done if prefixed (proven stage-1 procedure)",
+    "Required flow pinned: deny -> paused job with setup card -> grant via the same path the card's request_access recovery invokes -> resume -> reviewed-rule allow -> completion; direct repository writes only for fixture setup, never for the grant under test",
+    "Assert on the run's persisted permission decision events (decidedBy values) captured through the test harness event sink"
+  ],
+  "open_items": [
+    "If the pause-card copy assertion is already covered by an existing execution-finalization test, extending it is preferred over a new file"
+  ],
+  "input_sha256": "ddaf3ea28a70016953f2b8a6aee70b243dac7973af7c96a762127e23a1d471dd",
+  "recorded_at": "2026-08-11T13:20:59+00:00",
+  "commit": "3f9a9faec91e07c589ed723bdf0ffde6187fdcdc"
+}

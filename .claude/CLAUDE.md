@@ -16,7 +16,7 @@ Read `AGENTS.md` first; it is the contract. Standards live in `constitution/`
 
 - `./forge delegate <task-id>` composes the brief and runs the installed companion
   with a fixed shell-free argv, deriving `--write` from stage state.
-  All direct companion Bash calls are routed back to `forge delegate`.
+  Allowlisted direct read-only status/resume/task calls pass; writes route to delegate.
 - WATCH it: `./forge codex status` (still moving?) and Monitor
   `.factory/signals.jsonl` — workers raise contradiction/confusion/blocked/
   scope-change and PAUSE; `./forge signal resolve <id> --notes "<answer>"`, then
@@ -28,7 +28,8 @@ Read `AGENTS.md` first; it is the contract. Standards live in `constitution/`
 - If the plugin is unavailable, follow `docs/degraded-mode.md`.
 
 ## Ground rules
-- Planning lock always armed: plan in PLAN MODE or `./forge quickfix start`, grill
+- Session write lock always armed: PLAN MODE never unlocks product/canon; delegate
+  writes, or during a companion outage use `forge mode degraded start --reason`, grill
   (`/grill-me`), present to the HUMAN; on approval `./forge plan approve --by
   "<name>"` and re-save — only its marker approves.
 - Decisions: `./forge decision new <slug>`; acceptance is HUMAN chat

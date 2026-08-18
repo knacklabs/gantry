@@ -1,0 +1,107 @@
+{
+  "generated_by": "docs-decomposer",
+  "issue": "CAPFIX-1",
+  "user_facing": false,
+  "tasks": [
+    {
+      "id": "CAPFIX-1-1",
+      "title": "Amendment proposal path: target kind, host validation, widening classifier, durable record",
+      "objective": "Add request_access target kind capability_template_amendment (capabilityId, proposedTemplates 1..8, observedArgv) flowing runner->IPC->host. Host branch validates against the CATALOG only: local-cli template validator + single-leaf parseBashCommand, then a pure conservative prefix-based widening classifier. Durable proposal table (migration) with unique canonical key; deny terminal across restarts. capability_run invalid_args text points to the proposal path.",
+      "user_facing": false,
+      "write_scope": [
+        "apps/core/src/runner",
+        "apps/core/src/jobs",
+        "apps/core/src/shared",
+        "apps/core/src/domain",
+        "apps/core/src/adapters/storage",
+        "apps/core/test",
+        "drizzle",
+        "docs/decisions",
+        "docs/specs",
+        "plans"
+      ],
+      "acceptance_criteria": [
+        "Proposal target kind reaches the host with trusted routing; agent-supplied current-template/executable copies are ignored (catalog is authority)",
+        "Invalid proposed templates (shell metachars, redirects, wrong executable prefix, multi-leaf) are rejected before any card",
+        "Widening classifier: same executable + identical literal executable+subcommand prefix + only added trailing positional slots = non-widening; everything else widening; unsure = widening (table-driven unit proof)",
+        "Proposal row is durable with pending/approved/denied; a denied pair is never re-raised (dedup across restarts)",
+        "capability_run mismatch error text names the amendment proposal path"
+      ],
+      "required_tests": [
+        {
+          "id": "admin IPC handlers > records a catalog-derived amendment and ignores agent-authored catalog copies",
+          "path": "apps/core/test/unit/jobs/ipc-admin-handlers.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "capability template widening classification > 'wildcard-as-operation-selector still \u2026' -> 'added_inputs'",
+          "path": "apps/core/test/unit/shared/capability-template-widening.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "agent-runner MCP stdio tools > rejects amendment targets carrying agent-authored catalog metadata (strict contract)",
+          "path": "apps/core/test/unit/runner/ipc-mcp-stdio.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify": [
+        "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/jobs apps/core/test/unit/runner apps/core/test/unit/shared",
+        "npm run typecheck"
+      ],
+      "reviewer_focus": "Trust boundary: everything decision-relevant derives from the catalog; the classifier's conservatism (unsure=widening); dedup key canonicalization; no relaxation of arity-exact matching."
+    },
+    {
+      "id": "CAPFIX-1-2",
+      "title": "Plain-language card, CAS catalog amendment, fix-and-continue, e2e proof",
+      "objective": "Proposal card via the durable permission-interaction transport: ability-terms body from displayName/can/cannot, widening lead sentence, buttons Approve fix/Deny, technical delta in the full-view diff, sanitizer allowlist. New amendSemanticCapabilityCommandTemplates CAS repo op (templates only, precondition on prior schema, history row + audit link). Approval hook amends then runs the paused-job recheck/resume. Decision 0122 cross-refs.",
+      "user_facing": true,
+      "write_scope": [
+        "apps/core/src/channels",
+        "apps/core/src/application",
+        "apps/core/src/domain",
+        "apps/core/src/adapters/storage",
+        "apps/core/src/jobs",
+        "apps/core/test",
+        "docs/decisions",
+        "docs/specs",
+        "docs/architecture",
+        "drizzle"
+      ],
+      "acceptance_criteria": [
+        "Card body contains no template strings, argv, ids, or hashes; composed from displayName/can/cannot; widening leads with one plain sentence; buttons read Approve fix / Deny",
+        "Technical delta renders via the full-view diff payload (provider-native expandable where supported) and survives the durable-send sanitizer",
+        "Approve performs the CAS amendment (commandTemplates only; path/hash/version preserved; concurrent loser gets a clean no-op) with provenance + prior templates in the history row",
+        "Approval flows into the existing paused-job recheck/resume; the rerun invokes the CLI through the amended template without re-asking",
+        "Integration proof: mismatch -> proposal -> card -> approve -> amended -> resume -> structured run succeeds; denied proposal changes nothing with no second card; hash/path amendment attempt rejected"
+      ],
+      "required_tests": [
+        {
+          "id": "job lifecycle (Postgres) > CAPFIX-1-2 mismatch proposal card approval amends resumes and runs structured argv",
+          "path": "apps/core/test/integration/job-lifecycle.postgres.integration.test.ts",
+          "command": "GANTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/gantry_test VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.integration.postgres.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "TelegramChannel > permission approvals > CAPFIX-1-2 card keeps ability copy plain and the technical delta expandable",
+          "path": "apps/core/test/unit/channels/telegram.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "permission recovery > CAPFIX-1-2 approval amends then resumes the paused job without re-asking",
+          "path": "apps/core/test/unit/application/job-permission-recovery.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify": [
+        "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/channels apps/core/test/unit/application apps/core/test/unit/jobs",
+        "npm run check:architecture"
+      ],
+      "reviewer_focus": "The CAS write's field allowlist and precondition (saveTool must not be used); card copy plainness against the spec; sanitizer allowlist; the e2e proof exercising real finalization/recovery paths, not mocks."
+    }
+  ],
+  "project": "",
+  "story": "CAPFIX-1",
+  "epic": "permission-engine",
+  "plan_file": "plans/active/CAPFIX-1-capability-template-amendment-via-grantable-card.md",
+  "plan_sha256": "8705382608bffb5d946629d9bf575c41e740edca06650d610d18d235a623c134",
+  "commit": "843410189a651954f312be65d170c30008b6ca93"
+}

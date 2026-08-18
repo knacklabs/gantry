@@ -1,0 +1,17 @@
+{
+  "issue_key": "PREFLIGHT-1",
+  "title": "Scheduled jobs provision tools upfront (prime discovery) + grantable setup cards",
+  "tracker": "linear",
+  "branch": "feat/PREFLIGHT-1-upfront-job-tool-provisioning",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-08-09T03:45:48+00:00",
+  "updated_at": "2026-08-09T08:22:27+00:00",
+  "plan_file": "plans/completed/PREFLIGHT-1-scheduled-jobs-provision-tools-upfront-prime-discovery-grantable-setup-cards.md",
+  "story": "PREFLIGHT-1"
+}

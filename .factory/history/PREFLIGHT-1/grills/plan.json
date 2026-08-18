@@ -1,0 +1,31 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "issue": "PREFLIGHT-1",
+  "verdict": "pass",
+  "questions_asked": 9,
+  "summary": "PREFLIGHT-1 grilled + read-only Codex critique (stage 1) applied. Part A confirmed complete against existing durable-access policy (no policy change, no new decision, preserve projected-browser branch). Part B reworked to a single-event application-owned notification port wired from Control+IPC, dispatched async (no double event, no layering violation, creation not slowed). Part C tests the compiled prompt. Story marked user_facing; one decision, not two.",
+  "gaps": [
+    "Whether a request_access kind:tool grant for a canonical facade tool is accepted as a durable rule end-to-end (button eligibility + persistent grant application + readiness), or whether Part A also needs a durable-access-policy acceptance change or the button fails on tap.",
+    "Whether calling notifyJobSetupRequired from the application/jobs layer crosses the runtime(jobs) architecture boundary enforced by check_architecture, and the correct seam if so.",
+    "Whether the operating-guidance line for Part C is actually applied to the job-creating agent and not dead (like renderDefaultCapabilityRules)."
+  ],
+  "contradictions": [
+    "Plan originally proposed prime auto-discovery, which contradicts the neutral-across-both-lanes constraint (prime is Anthropic-only; DeepAgents has no record-without-execute mode and would execute tools for real).",
+    "Plan originally proposed swapping recordJobSetupRequired for notifyJobSetupRequired, which would drop the passive JOB_SETUP_REQUIRED event that read-models consume.",
+    "Plan originally proposed a new attemptsToAccessRequirements mapper, duplicating the dead JobPrimingService and the existing normalizeAccessRequirements pipeline (violating single-canonical-shape 0112/0113)."
+  ],
+  "resolutions": [
+    "Prime auto-discovery rejected and recorded as a rejected alternative; upfront declaration is prompt-based (agent populates access_requirements at creation), which is lane-neutral and reuses the existing readiness pipeline. Runtime button/pause remains the fallback.",
+    "Part B changed to ADD notifyJobSetupRequired alongside recordJobSetupRequired (keep the passive event); the existing notified_fingerprint dedup prevents a duplicate card versus the later runtime pause.",
+    "No new mapper: reuse normalizeAccessRequirements -> evaluateJobReadiness and the existing scheduler_upsert_job access_requirements argument; dead JobPrimingService noted as separate cleanup, not a third path.",
+    "Codex critique (PREFLIGHT-1-1) resolved the parked items: Part A durable acceptance already exists (bug reconciliation); Part B uses an application-owned notification port + single event + async dispatch (fixes double-event + illegal application->jobs import + creation latency) and adds ipc-scheduler-create-handlers.ts to scope; Part C asserts the compiled prompt; decomposition marked user_facing; one decision."
+  ],
+  "open_items": [
+    "Full cross-lane prime parity (DeepAgents record-without-execute) is out of scope; revisit only if neutral auto-discovery is later required.",
+    "Confirm the new decision number against origin/main at record time to avoid collision."
+  ],
+  "input_sha256": "a14e6b50b26e752f09bc93188518328b9329166f8fe2f85aa1035ce8d1f1fe74",
+  "recorded_at": "2026-08-09T04:31:43+00:00",
+  "commit": "ed33dd1b40ff6811e69b48517ab7c9236189c62d"
+}

@@ -1,0 +1,23 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Trust roots are host state and typed fields: mutation rejection keys on host-minted (sourceAgentFolder, responseKeyId) with missing-entry=deny; runner stamps are signed audit only; provenance rides the signed response field list; missing permission lane fails closed to autonomous; decision 0058's human-gating restored (mutations ask in auto mode).",
+  "blocking_findings": [],
+  "residual_risks": [
+    "run-restriction map is process-local (single-runtime deployment); durable variant needed if the control plane multi-processes."
+  ],
+  "reviewed_scope": [
+    "apps/core/src/domain",
+    "apps/core/src/runtime",
+    "apps/core/src/jobs",
+    "apps/core/src/runner",
+    "apps/core/src/application/permissions",
+    "apps/core/src/adapters/llm",
+    "apps/core/src/shared"
+  ],
+  "recommendation": "ship",
+  "aspect": "security",
+  "non_blocking_findings": [],
+  "recorded_at": "2026-08-05T05:51:54+00:00",
+  "commit": "5744e58a4158f8f83a7b2f3180fcfb6b24681673"
+}

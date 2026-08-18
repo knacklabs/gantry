@@ -1,0 +1,21 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Attempted commands reach chat only through sanitizePermissionCommandText (secret-bearing input renders the sanitizer replacement \u2014 test-pinned); approved patterns through sanitizePermissionText; the locked approval option set is unchanged (no timed grants).",
+  "blocking_findings": [],
+  "residual_risks": [
+    "none noted."
+  ],
+  "reviewed_scope": [
+    "apps/core/src/channels",
+    "apps/core/src/jobs",
+    "apps/core/src/runtime",
+    "apps/core/src/shared",
+    "apps/core/src/domain"
+  ],
+  "recommendation": "ship",
+  "aspect": "security",
+  "non_blocking_findings": [],
+  "recorded_at": "2026-08-05T16:28:08+00:00",
+  "commit": "42cac0dcedf6a6f69cbd79179ce7d66546139803"
+}

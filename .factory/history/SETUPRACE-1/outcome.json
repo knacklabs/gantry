@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Setup-pause notifications are now race-safe. A recoverable atomic fingerprint claim (claim-before-send, ownership-fenced confirm/clear, self-healing after a TTL) makes concurrent creation/update/run notifiers deliver exactly one setup card and one event under normal operation; a stale or crashed claim self-heals instead of permanently suppressing the card, and a detached creation notify routes by the reloaded job's session. Delivery is at-least-once across two abnormal windows only (a post-send crash before confirm; a delivery hanging past the TTL) - a rare duplicate card, never a lost one - an accepted ceiling since true exactly-once over a hangable channel needs a durable idempotent outbox. Resolves D-0053.",
+  "issue": "SETUPRACE-1",
+  "commit": "3e6cd6eef8a748e8cb99bdc395663c97d8021938",
+  "recorded_at": "2026-08-09T12:46:24+00:00"
+}

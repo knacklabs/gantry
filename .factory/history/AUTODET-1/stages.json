@@ -1,0 +1,43 @@
+{
+  "issue": "AUTODET-1",
+  "stages": [
+    {
+      "id": "AUTODET-1-1",
+      "title": "Host tail guard: no classifier for jobId requests + truthful reason attribution",
+      "status": "done",
+      "started_at": "2026-08-11T11:47:30+00:00",
+      "base_sha": "91d1fd8c05c18e4fcd23ef106aa56f1283734f8b",
+      "dirty_at_start": {
+        "docs/decisions/0121-autodet-no-classifier-autonomous.md": {
+          "digest": "1fd305f03e6dc032551e5123d1a8bf3e97f2e570ab4de636c1821f765593a43e",
+          "git": "? docs/decisions/0121-autodet-no-classifier-autonomous.md\u0000\u0000\u0000"
+        },
+        "docs/specs/autonomous-deterministic-permissions.md": {
+          "digest": "fcd92b5f15ff40380856c336c431487af2238ec147c0fa33abfba53ff98a4dc9",
+          "git": "? docs/specs/autonomous-deterministic-permissions.md\u0000\u0000\u0000"
+        },
+        "plans/roadmap.json": {
+          "digest": "46fa0a26e9f29ceb56f4528e85a401ee18734aee7b3a295fa3034bb23b0a7b88",
+          "git": "1 .M N... 100644 100644 100644 790bbb5e91eff7b53150fe7a64c97a3011886b1b 790bbb5e91eff7b53150fe7a64c97a3011886b1b plans/roadmap.json\u0000\u0000100644 790bbb5e91eff7b53150fe7a64c97a3011886b1b 0\tplans/roadmap.json\u0000\u0000H plans/roadmap.json\u0000"
+        }
+      },
+      "task_sha256": "ec46c505eca6e013f71a89b5d2862757419adf099594f06733ee4798cf3aedb8",
+      "completed_at": "2026-08-11T12:27:41+00:00"
+    },
+    {
+      "id": "AUTODET-1-2",
+      "title": "Fix-and-continue integration proof + decision docs",
+      "status": "done",
+      "started_at": "2026-08-11T12:27:49+00:00",
+      "base_sha": "ec121aa1eaacaa9f96fe03ba2aa9323236e98cd1",
+      "dirty_at_start": {},
+      "task_sha256": "ddaf3ea28a70016953f2b8a6aee70b243dac7973af7c96a762127e23a1d471dd",
+      "completed_at": "2026-08-11T13:25:30+00:00",
+      "contract_changed": {
+        "at": "2026-08-11T13:25:30+00:00",
+        "from": "08691e942012116748e1a695aef30eca6331c35b34e909e3baba14277750b4b2",
+        "to": "ddaf3ea28a70016953f2b8a6aee70b243dac7973af7c96a762127e23a1d471dd"
+      }
+    }
+  ]
+}

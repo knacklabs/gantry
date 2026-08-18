@@ -1,0 +1,25 @@
+{
+  "issue": "SIMP-2",
+  "stages": [
+    {
+      "id": "SIMP-2-1",
+      "title": "Job management service: construct once in the composition root",
+      "status": "done",
+      "started_at": "2026-08-03T03:07:04+00:00",
+      "base_sha": "5f67d49b501c7b92fdaba0efa99ec2c37b0760db",
+      "dirty_at_start": {},
+      "task_sha256": "d30bf47641a3e9ede76de94ff5e470e800b3b766ffc97e9ad562cac739a781da",
+      "completed_at": "2026-08-03T03:11:18+00:00"
+    },
+    {
+      "id": "SIMP-2-2",
+      "title": "Session interaction module: one boot instance; liveAdmissionAppId becomes a method argument",
+      "status": "done",
+      "started_at": "2026-08-03T03:14:53+00:00",
+      "base_sha": "f1864951d280357195fbdbbafc05f315cbaa1dcd",
+      "dirty_at_start": {},
+      "task_sha256": "219af35af75fb65d30184d17e8d3dc7968b1aefa7f9b030349350d0cb9520edf",
+      "completed_at": "2026-08-03T03:29:36+00:00"
+    }
+  ]
+}

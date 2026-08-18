@@ -36,7 +36,7 @@ def _parse_time(value) -> datetime.datetime | None:
 def _registry_jobs(project_root: Path) -> dict[str, dict]:
     """Best-effort job records from the companion's project registry."""
     try:
-        state = json.loads((project_root / "state.json").read_text())
+        state = json.loads((project_root / "state.json").read_text(encoding="utf-8"))
     except Exception:
         return {}
     if not isinstance(state, dict) or not isinstance(state.get("jobs"), list):
@@ -61,7 +61,7 @@ def load_jobs(base: Path, state_root: Path | None = None) -> list[dict]:
     registries: dict[Path, dict[str, dict]] = {}
     for path in sorted(root.glob("*/jobs/*.json")):
         try:
-            job = json.loads(path.read_text())
+            job = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             # Third-party bytes: a partially written or non-UTF-8 record is an
             # unusable job, never a reason for a diagnostic to exit non-zero.

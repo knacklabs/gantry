@@ -1,0 +1,19 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Recovery drains paused jobs via immutable (created_at, id) keyset pagination replacing the hard 100-cap; atomic single-statement claim/refresh predicates; no schema migration and existing repository ordering preserved. Lifecycle card capture is off the job's critical path (heartbeat starts before any provider I/O; capture is bounded/non-blocking and best-effort) so notification latency cannot stall execution or hold a lease.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [
+    "Recovery sweep is bounded per capability update; drains to completion via keyset cursor."
+  ],
+  "recommendation": "Land.",
+  "reviewed_scope": [
+    "apps/core/src/application/jobs",
+    "apps/core/src/jobs",
+    "apps/core/src/adapters/storage/postgres"
+  ],
+  "aspect": "performance",
+  "recorded_at": "2026-08-07T14:04:15+00:00",
+  "commit": "9353c1cca93a16d2508a08f0f0a082d9ac47ee08"
+}

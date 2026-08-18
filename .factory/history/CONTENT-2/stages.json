@@ -1,0 +1,25 @@
+{
+  "issue": "CONTENT-2",
+  "stages": [
+    {
+      "id": "CONTENT-2-1",
+      "title": "attachment_materialize tool end to end (quarantine contract, decision 0105)",
+      "status": "done",
+      "started_at": "2026-08-04T18:58:34+00:00",
+      "base_sha": "e0bd6fbb8675fad354b163d6ac6cd82ad79a7dc5",
+      "dirty_at_start": {},
+      "task_sha256": "f7679495accd19dd96ba53cee463d37752108ce94f08e03781e8f98ca1017da2",
+      "completed_at": "2026-08-04T19:23:16+00:00"
+    },
+    {
+      "id": "CONTENT-2-2",
+      "title": "Quarantine guidance in neutral prompt seams + isolation contract tests",
+      "status": "done",
+      "started_at": "2026-08-04T19:23:29+00:00",
+      "base_sha": "ba71f03818cc8ccb05f655e17c6f31c20423e2e7",
+      "dirty_at_start": {},
+      "task_sha256": "0c065e826aa2604fcb1056a054d0088e4b575146a029075dd613246a7b4a2cfc",
+      "completed_at": "2026-08-04T19:37:39+00:00"
+    }
+  ]
+}

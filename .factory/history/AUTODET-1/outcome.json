@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Scheduled jobs no longer live or die by a model's mood. An autonomous run's tool permissions are now a pure function of what the job was granted: a granted tool always runs, an ungranted one pauses the job once with a single grant card, and tapping Allow resumes the job permanently - the same call gets the same answer every run. The classifier that used to coin-flip these decisions (45 lucky allows, 15 dead jobs in the logs, including the KnackLabs send_message pause) now serves interactive chats only, where a human can actually answer its ask. Decision 0121 pins the contract; the whole loop is proven end to end on live Postgres.",
+  "issue": "AUTODET-1",
+  "commit": "0274a1099d9a9a5ecb99dbe549d1d0883ec7b73a",
+  "recorded_at": "2026-08-11T13:43:39+00:00"
+}

@@ -1,0 +1,29 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "gaps": [
+    "G1: decidedBy cannot become a closed union \u2014 the human path stores an arbitrary approverRef string (interaction-resolution-response.ts:89); a typed field must be ADDED, not narrowed.",
+    "G2: the new source field must join PERMISSION_RESPONSE_FIELDS_AFTER_APPROVED (shared/ipc-signing.ts:11-18) or human-path provenance travels unsigned.",
+    "G3: no GANTRY_RUN_ID env exists \u2014 runId reaches the runner only in spawn input; the audit stamp needs it added at agent-spawn-helpers.ts:156.",
+    "G4: the permissionRunRestriction map is process-local and torn down at spawn exit \u2014 a late-arriving task finds no entry; missing entry must read as untrusted (deny mutations), never as interactive.",
+    "G5: deploy transition \u2014 permission_allowed payloads recorded before the change lack source; the pause predicate needs a legacy fallback so in-flight runs keep today's semantics."
+  ],
+  "contradictions": [
+    "C1: assessment framed the host as unable to distinguish scheduled callers \u2014 the host ALREADY holds an unforgeable per-run binding (permissionRunRestriction keyed sourceAgentFolder+host-minted responseKeyId, registered where isScheduledJob is in scope); host state, not runner claims, is the trust root and the runner stamp is belt-and-braces.",
+    "C2: assessment implied new identity plumbing for the scheduled lane \u2014 permissionLane 'autonomous' already flows end to end (isScheduledJob \u2192 agent-spawn.ts:565 \u2192 GANTRY_PERMISSION_LANE \u2192 runner context); the surface filter reuses TOOLS-1's final-projection seam."
+  ],
+  "resolutions": [
+    "G1: separate typed source + repeatableForFutureRuns derived in decisionForMode (the single choke point) from decidedBy via one map; unknown/free-form values map conservatively to human_once.",
+    "G2: source and repeatableForFutureRuns added to the signed field list with a tamper test.",
+    "G3: GANTRY_RUN_ID added beside GANTRY_JOB_ID; stamp lives in writeIpcFile's shared requestContext under the existing HMAC.",
+    "G4: mutate handlers deny on scheduled OR missing entries; documented as the safe default for the single-runtime deployment.",
+    "G5: predicate falls back to the old reviewed_rule string sniff when source is absent.",
+    "C1: B4 specifies host-side lookup by (sourceAgentFolder, responseKeyId) as the enforcement; the signed runner stamp is audit provenance only.",
+    "C2: B2 adds permissionLane to the selection options and drops the six mutation names in the applyProviderAffinity-style final pass, in both selection paths."
+  ],
+  "input_sha256": "bbca06457c97af7370f14b707b235c091943a615bea00d8cb791f87073327225",
+  "issue": "SCHED-1",
+  "recorded_at": "2026-08-05T03:28:54+00:00",
+  "commit": "6dc5c3483869513f9a47d70d880d050add8c3995"
+}

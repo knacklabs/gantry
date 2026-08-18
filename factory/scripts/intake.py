@@ -107,17 +107,14 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"Abandoned plan moved to plans/debt/{plan.name}")
     dump_json(run_state_path(root), state)
     append_event(root, "intake", actor="orchestrator", story=issue_key, detail=args.title)
-    print(f"Initialized factory state for {issue_key} -> {branch}")
     if outcome == "done":
-        print(f"Roadmap: {issue_key} is already done — status left unchanged; "
-              "reopening a shipped story is a roadmap PR, not an intake side effect.")
+        print(f"Initialized factory state for {issue_key} -> {branch}; "
+              f"Roadmap: {issue_key} is already done")
     elif outcome == "activate" and mark_status(root, issue_key, "active"):
-        print(f"Roadmap: {issue_key} marked active (plans/roadmap.json)")
-    if not signed_off:
-        print(
-            "Phase set to 'discovery': client sign-off not recorded yet. "
-            "Run `python3 factory/scripts/record_signoff.py` before planning."
-        )
+        print(f"Initialized factory state for {issue_key} -> {branch}; "
+              f"Roadmap: {issue_key} marked active (plans/roadmap.json)")
+    else:
+        print(f"Initialized factory state for {issue_key} -> {branch}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,25 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "issue": "AUDIT-2",
+  "verdict": "pass",
+  "questions_asked": 4,
+  "summary": "AUDIT-2-2 (webhook secret encryption + return-once) grilled against the confirmed audit finding and the existing external-ingress encryption pattern it must reuse. No new architecture: the runtime keyring already encrypts ingress secrets; this applies the same to webhook secrets.",
+  "gaps": [
+    "Encryption must not change the delivered HMAC signature (downstream consumers depend on byte-compatibility).",
+    "Ciphertext must be bound to appId+webhookId so a swapped row can't decrypt.",
+    "Existing plaintext rows must migrate or force rotation.",
+    "The generated secret must be returned once at create without leaking on later reads."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Decrypt only at the delivery/signing boundary; the HMAC key is the same bytes, so signatures stay identical - pinned by a byte-compatibility test.",
+    "Ciphertext binds appId+webhookId as authenticated metadata; wrong-identity decryption fails (test).",
+    "Migrate rows via the same path external-ingress used; fail on unencrypted legacy values.",
+    "Create returns the generated secret once; list/get/update projections keep omitting it (test)."
+  ],
+  "task_id": "AUDIT-2-2",
+  "input_sha256": "291f862d64fcc6c1b61cb45b1a3869c70f0485cccbe92b2b4bde1d156de5b3ca",
+  "recorded_at": "2026-08-11T02:49:50+00:00",
+  "commit": "3a780a9ff6903ef7411e1e9b30599381d895f2a4"
+}

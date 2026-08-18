@@ -35,6 +35,7 @@ from .scaffold import (
     check_record_origin_writable,
     ensure_jsonl_attributes,
     ensure_record_origin,
+    remediate_windows_hook_entry,
 )
 from .upgrade import UPGRADE_TREES
 
@@ -99,7 +100,7 @@ def _preflight_adopt(harness: Path, target: Path, name: str) -> None:
     context_dir = target / "docs" / "context"
     for rel in MERGE_FILES:
         dst = target / rel
-        src_text = (harness / rel).read_text()
+        src_text = (harness / rel).read_text(encoding="utf-8")
         if rel == "AGENTS.md":
             src_text = src_text.replace("Symphony Forge", name, 1)
         variant = next(
@@ -123,7 +124,7 @@ def _preflight_adopt(harness: Path, target: Path, name: str) -> None:
             else:
                 file(dst)
                 effective = variant
-        if effective.exists() and effective.read_text() != src_text:
+        if effective.exists() and effective.read_text(encoding="utf-8") != src_text:
             directory(context_dir)
             file(context_dir / f"migrated-{rel}")
         file(dst)
@@ -139,10 +140,10 @@ def _preflight_adopt(harness: Path, target: Path, name: str) -> None:
     ensure("harness.yaml")
     gitignore = target / ".gitignore"
     if (not gitignore.exists()
-            or ".gstack/sessions/" not in gitignore.read_text()):
+            or ".gstack/sessions/" not in gitignore.read_text(encoding="utf-8")):
         file(gitignore)
     envrc = target / ".envrc"
-    if not envrc.exists() or "GSTACK_HOME" not in envrc.read_text():
+    if not envrc.exists() or "GSTACK_HOME" not in envrc.read_text(encoding="utf-8"):
         file(envrc)
     # The helper decides whether content is missing, so treat its destination
     # as a possible append and validate it before any earlier write can occur.
@@ -182,7 +183,8 @@ def cmd_adopt(args: argparse.Namespace) -> None:
     if (target / "factory" / "scripts" / "forge.py").exists():
         fail(f"{target} already carries the harness — use `./forge upgrade --target {target}`")
     status = subprocess.run(
-        ["git", "status", "--porcelain"], cwd=target, capture_output=True, text=True
+        ["git", "status", "--porcelain"], cwd=target, capture_output=True,
+        text=True, encoding="utf-8", errors="surrogateescape",
     )
     if status.returncode != 0:
         fail(f"`git status` failed in {target} ({status.stderr.strip() or 'unknown error'}) — "
@@ -266,22 +268,22 @@ def cmd_adopt(args: argparse.Namespace) -> None:
             else:
                 assert_target_file_destination(target, variant).rename(
                     assert_target_file_destination(target, dst))
-        src_text = (harness / rel).read_text()
+        src_text = (harness / rel).read_text(encoding="utf-8")
         if rel == "AGENTS.md":
             src_text = src_text.replace("Symphony Forge", name, 1)
-        if dst.exists() and dst.read_text() != src_text:
+        if dst.exists() and dst.read_text(encoding="utf-8") != src_text:
             assert_target_destination(target, context_dir).mkdir(
                 parents=True, exist_ok=True)
             keep = assert_target_file_destination(
                 target, context_dir / f"migrated-{rel}")
             shutil.copy2(dst, keep)
             preserved.append(str(keep.relative_to(target)))
-        assert_target_file_destination(target, dst).write_text(src_text)
+        assert_target_file_destination(target, dst).write_text(src_text, encoding="utf-8")
 
     commit = head_sha(harness) or "unknown"
     assert_target_file_destination(
         target, target / "constitution" / "VENDORED_FROM").write_text(
-        f"symphony-forge @ {commit}\nUpdate by re-vendoring from the harness repo; do not edit in place.\n"
+        f"symphony-forge @ {commit}\nUpdate by re-vendoring from the harness repo; do not edit in place.\n", encoding="utf-8"
     )
     # Freeze the gate surface: the manifest is what check_vendor_integrity.py
     # (and the pr_ready gate) compare against until the next vendoring.
@@ -298,7 +300,7 @@ def cmd_adopt(args: argparse.Namespace) -> None:
         if not dst.exists():
             assert_target_destination(target, dst.parent).mkdir(
                 parents=True, exist_ok=True)
-            assert_target_file_destination(target, dst).write_text(text)
+            assert_target_file_destination(target, dst).write_text(text, encoding="utf-8")
             created.append(rel)
 
     if not (target / "harness.yaml").exists():
@@ -306,7 +308,7 @@ def cmd_adopt(args: argparse.Namespace) -> None:
         # and must not inherit the harness repo's own gate.
         assert_target_file_destination(target, target / "harness.yaml").write_text(
             re.sub(r"^signoff_record:.*$", 'signoff_record: ""',
-                   (harness / "harness.yaml").read_text(), count=1, flags=re.MULTILINE)
+                   (harness / "harness.yaml").read_text(encoding="utf-8"), count=1, flags=re.MULTILINE), encoding="utf-8"
         )
         created.append("harness.yaml")
     if not (target / ".gitignore").exists():
@@ -315,9 +317,9 @@ def cmd_adopt(args: argparse.Namespace) -> None:
             assert_target_file_destination(target, target / ".gitignore"),
         )
         created.append(".gitignore")
-    elif ".gstack/sessions/" not in (target / ".gitignore").read_text():
+    elif ".gstack/sessions/" not in (target / ".gitignore").read_text(encoding="utf-8"):
         with assert_target_file_destination(
-                target, target / ".gitignore").open("a") as fh:
+                target, target / ".gitignore").open("a", encoding="utf-8") as fh:
             fh.write("\n# Project-local gstack store: projects/ committed, machine noise not\n"
                      ".gstack/sessions/\n.gstack/analytics/\n.gstack/cdp-profile/\n"
                      ".gstack/tmp/\n.gstack/.*\n.gstack/**/brain-cache/\n"
@@ -327,10 +329,10 @@ def cmd_adopt(args: argparse.Namespace) -> None:
     if not envrc.exists():
         shutil.copy2(harness / ".envrc", assert_target_file_destination(target, envrc))
         created.append(".envrc (run `direnv allow` in the repo)")
-    elif "GSTACK_HOME" not in envrc.read_text():
+    elif "GSTACK_HOME" not in envrc.read_text(encoding="utf-8"):
         # Existing repos commonly carry their own .envrc — append, don't skip,
         # or gstack keeps writing to ~/.gstack despite the documented setup.
-        with assert_target_file_destination(target, envrc).open("a") as fh:
+        with assert_target_file_destination(target, envrc).open("a", encoding="utf-8") as fh:
             fh.write('\n# symphony-forge: project-local gstack store\n'
                      'export GSTACK_HOME="$PWD/.gstack"\n')
         created.append(".envrc (GSTACK_HOME appended; re-run `direnv allow`)")
@@ -349,7 +351,7 @@ def cmd_adopt(args: argparse.Namespace) -> None:
     ensure("docs/product/DISCOVERY.md", DISCOVERY_TEMPLATE.format(name=name))
     ensure("prototype/README.md", PROTOTYPE_README)
     for rel in PROJECT_STARTERS:
-        ensure(rel, (harness / rel).read_text())
+        ensure(rel, (harness / rel).read_text(encoding="utf-8"))
     # Devs land on the README first: tell them the repo is harness-run and
     # that starting is conversational — append, never rewrite (project-owned).
     from .scaffold import ensure_onboarding
@@ -397,4 +399,7 @@ def cmd_adopt(args: argparse.Namespace) -> None:
     print("  2. Sort existing content: prototype work -> prototype/, raw notes -> docs/context/")
     print("  3. ./forge context scan, then harvest into DISCOVERY.md/BRIEF.md and decisions")
     print("  4. REHOME the migrated-* standards (see above) — no rule may end up homeless")
-    print("  5. Linters + gate tests, commit, then: ./forge next")
+    print("  5. Capture capabilities with ./forge spec save + spec confirm, then author "
+          "the roadmap with ./forge roadmap derive or roadmap epic add + roadmap add")
+    print("  6. Linters + gate tests, commit, then: ./forge next")
+    remediate_windows_hook_entry(target)

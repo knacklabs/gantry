@@ -1,0 +1,32 @@
+{
+  "commit": "9353c1cca93a16d2508a08f0f0a082d9ac47ee08",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "pass",
+    "summary": "Full unit suite green (8568 tests, 636 files) across all SCHED-4B stages; verify.py deterministic gate passed at HEAD. Focused suites for setup-pause prompts, provider parity, permission recovery drain, and lifecycle retirement all pass; two full-suite regressions caught by verify (shared durable short-circuit; recovery-caller test contract) were fixed in SCHED-4B-1B and 2B.",
+    "blocking_findings": [],
+    "commands_run": [
+      "python3 factory/scripts/verify.py",
+      "npm run test:unit",
+      "npm run typecheck",
+      "npm run check:architecture"
+    ],
+    "pass_fail_summary": "8568 passed / 0 failed",
+    "reviewed_scope": [
+      "apps/core/src/jobs",
+      "apps/core/src/application/jobs",
+      "apps/core/src/application/interactions",
+      "apps/core/src/channels",
+      "apps/core/src/app/bootstrap",
+      "apps/core/src/adapters/storage/postgres"
+    ],
+    "non_blocking_findings": [],
+    "remaining_gaps": [],
+    "residual_risks": [],
+    "tests_added_or_updated": [],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-08-07T14:04:25+00:00",
+    "commit": "9353c1cca93a16d2508a08f0f0a082d9ac47ee08"
+  },
+  "updated_at": "2026-08-07T14:04:25+00:00"
+}

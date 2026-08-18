@@ -1,0 +1,28 @@
+{
+  "commit": "981b2f7799cfac5b765a95ec69220089f2562581",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "pass",
+    "summary": "attachment_materialize: required tests 'attachment materialize > streams the resolved attachment into the workspace quarantine through the hardened writer' and 'agent system prompt > marks the workspace quarantine directory as untrusted materialized data' pass; runner+jobs+application+shared sweep 2463; symlink-source refusal, stale-local-ref fall-through, store-isolation invariants all pinned; typecheck + architecture green.",
+    "blocking_findings": [],
+    "commands_run": [
+      "npm run typecheck",
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runner apps/core/test/unit/jobs apps/core/test/unit/application apps/core/test/unit/shared",
+      "npm run check:architecture",
+      "python3 factory/scripts/verify.py"
+    ],
+    "tests_added_or_updated": [
+      "ipc-attachment-open-handler.test.ts: quarantine streaming via hardened writer, symlinked CAS source refused, symlinked quarantine dir refused, already_in_workspace path",
+      "attachment-resolver.test.ts: materialize mode skips extraction + returns fileName; workspace-local existence-verified short-circuit; stale ref falls through to provider recovery; store outside-workspace invariants untouched",
+      "gantry-agent-system-prompt.test.ts + prompt-profile.test.ts + deepagents facade: quarantine guidance in both lanes within budget"
+    ],
+    "non_blocking_findings": [],
+    "remaining_gaps": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-08-04T20:18:18+00:00",
+    "commit": "981b2f7799cfac5b765a95ec69220089f2562581"
+  },
+  "updated_at": "2026-08-04T20:18:18+00:00"
+}

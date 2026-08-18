@@ -35,12 +35,26 @@ jobs:
         run: python3 factory/scripts/check_agents_hygiene.py
       - name: Check dual runtime
         run: python3 factory/scripts/check_dual_runtime.py
+      - name: Check encoding hygiene
+        run: python3 factory/scripts/check_encoding_hygiene.py
       - name: Check context ledger freshness
         run: python3 factory/scripts/forge.py context scan --check
       - name: Check repo budget
         run: python3 factory/scripts/check_repo_budget.py
       - name: Compile factory scripts
         run: python3 -m compileall factory/scripts
+      - name: Prove factory flows without a UTF-8 locale
+        if: steps.repo_kind.outputs.is_harness == 'true'
+        env:
+          LC_ALL: C
+          PYTHONUTF8: '0'
+        run: |
+          python3 -c "import codecs, locale, sys; encoding = locale.getpreferredencoding(False); assert sys.flags.utf8_mode == 0, sys.flags; assert codecs.lookup(encoding).name != 'utf-8', encoding"
+          python3 factory/scripts/forge.py next
+          python3 factory/scripts/check_factory_scaffold.py
+          python3 factory/scripts/check_agents_hygiene.py
+          python3 factory/scripts/check_dual_runtime.py
+          python3 factory/scripts/check_repo_budget.py
       # Harness-only from here down. These assert on this repo's OWN story keys
       # (FORGE-INIT-1), its own roadmap, and its own single-skill .claude tree —
       # none of which a client has. They are the harness's regression suite,
@@ -48,7 +62,7 @@ jobs:
       - name: Gate regression tests
         if: steps.repo_kind.outputs.is_harness == 'true'
         run: |
-          python3 -m pip install --quiet pytest
+          python3 -m pip install --quiet pytest psutil
           python3 -m pytest factory/tests -q
       # Scaffolds from THIS repo, so it inherits whatever .claude skills the repo
       # carries. In the harness that is just `forge`, whose canon lives in the
@@ -61,3 +75,55 @@ jobs:
           python3 factory/scripts/forge.py init --name smoke --target "$RUNNER_TEMP/forge-smoke"
           python3 factory/scripts/check_dual_runtime.py "$RUNNER_TEMP/forge-smoke"
           python3 factory/scripts/check_factory_scaffold.py "$RUNNER_TEMP/forge-smoke"
+
+  windows-hook-gates:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Identify harness vs vendored client
+        id: repo_kind
+        shell: pwsh
+        run: |
+          if (Test-Path constitution/VENDORED_FROM) {
+            "is_harness=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            "is_harness=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+      - uses: actions/setup-python@v5
+        if: steps.repo_kind.outputs.is_harness == 'true'
+        with:
+          python-version: '3.11'
+      - name: Install harness test runner
+        if: steps.repo_kind.outputs.is_harness == 'true'
+        run: python -m pip install --quiet pytest psutil
+      - name: Prove native launcher and armed hook gates
+        if: steps.repo_kind.outputs.is_harness == 'true'
+        shell: pwsh
+        run: |
+          Remove-Item Env:PYTHONUTF8 -ErrorAction SilentlyContinue
+          if (Test-Path Env:PYTHONUTF8) { throw "PYTHONUTF8 remained set" }
+          python -c "import codecs, locale, sys; encoding = locale.getpreferredencoding(False); assert sys.flags.utf8_mode == 0, sys.flags; assert codecs.lookup(encoding).name != 'utf-8', encoding"
+          python -m pytest factory/tests/test_gates.py::test_doctor_hook_health_green_on_healthy_repo `
+            factory/tests/test_gates.py::test_hook_resolution_fails_closed_without_interpreter `
+            factory/tests/test_gates.py::test_registered_hook_command_fails_closed_when_cmd_cannot_spawn_sh `
+            factory/tests/test_gates.py::test_registered_hook_path_keeps_recorder_and_lockout_armed `
+            factory/tests/test_gates.py::test_forge_cmd_routes_git_bash_then_python_fallbacks `
+            factory/tests/test_gates.py::test_forge_cmd_probes_python3_as_final_fallback `
+            factory/tests/test_gates.py::test_forge_cmd_bootstrap_runs_once_and_persists_path `
+            factory/tests/test_gates.py::test_forge_cmd_bootstrap_refuses_winget_when_elevated `
+            factory/tests/test_gates.py::test_forge_cmd_bootstrap_converges_on_already_installed `
+            factory/tests/test_gates.py::test_windows_autocrlf_checkout_preserves_forge_launcher `
+            factory/tests/test_gates.py::test_fast_status_python_requires_path_resolvable_interpreter `
+            factory/tests/test_gates.py::test_doctor_fix_refuses_user_alias_when_elevated `
+            factory/tests/test_gates.py::test_doctor_fix_reports_installed_but_not_found `
+            factory/tests/test_gates.py::test_doctor_fix_reports_winget_absent_as_named_red_row `
+            factory/tests/test_gates.py::test_doctor_fix_winget_absent_converges_green_when_tools_present `
+            factory/tests/test_gates.py::test_doctor_fix_nonzero_already_installed_converges_after_refresh `
+            factory/tests/test_gates.py::test_doctor_fix_windows_refreshes_native_git_under_wow64 `
+            factory/tests/test_gates.py::test_doctor_python_row_probes_working_windows_store_alias `
+            factory/tests/test_gates.py::test_doctor_psutil_row_required_and_fix_installs `
+            factory/tests/test_gates.py::test_windows_delegation_launches_and_reaps `
+            factory/tests/test_gates.py::test_windows_delegation_success_round_trips_unicode_handoff `
+            factory/tests/test_gates.py::test_companion_guard_admits_read_only_and_refuses_write_shapes `
+            factory/tests/test_gates.py::test_lockout_denies_product_write_under_approved_plan `
+            factory/tests/test_gates.py::test_degraded_window_allows_and_ledgers_product_write -q

@@ -1,0 +1,30 @@
+{
+  "commit": "139be189a4fad89263bfb340515051daeab723cd",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "CAPFIX-1-1 lanes green: admin handler (40 tests incl. catalog-authority, invalid-template rejection set, terminal-deny dedup across restarts), tiered widening classifier (19 table-driven cases incl. the git-remote wildcard-as-operation-selector warning and redaction units), runner IPC strict-contract rejection + clean forward, structured-invocation mismatch guidance, and the new Postgres repository unit. Six autoreview rounds hardened the boundary: strict zod (identity fields rejected), hash-free canonical identity with definition-scoped terminal dedupe + supersede-on-revision-change (pending and bookkeeping rows), transactional claim with bounded race retry, provider-qualified routing context persisted for the stage-2 card, argv redaction (flags, NAME=VALUE, URL userinfo/query, header-style values). Full jobs/runner/shared slice 142 files green; typecheck + architecture + migration-journal green.",
+    "blocking_findings": [],
+    "commands_run": [
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/jobs/ipc-admin-handlers.test.ts --outputFile /tmp/capfix-junit/ipc-admin-handlers.xml",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/shared/capability-template-widening.test.ts --outputFile /tmp/capfix-junit/capability-template-widening.xml",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runner/ipc-mcp-stdio.test.ts --outputFile /tmp/capfix-junit/ipc-mcp-stdio.xml"
+    ],
+    "tests_added_or_updated": [
+      "apps/core/test/unit/shared/capability-template-widening.test.ts: tiered classifier table + argv redaction units",
+      "apps/core/test/unit/jobs/ipc-admin-handlers.test.ts: amendment branch (catalog authority, rejection set, dedup)",
+      "apps/core/test/unit/runner/ipc-mcp-stdio.test.ts: strict-contract rejection + clean forward",
+      "apps/core/test/unit/adapters/storage/postgres/capability-template-amendment-repository.postgres.test.ts: claim semantics",
+      "apps/core/test/unit/runner/capability-structured-invocation.test.ts: mismatch guidance pointer"
+    ],
+    "pass_fail_summary": "3/3 required JUnit lanes green; 142-file slice green; typecheck/architecture/migration checks green",
+    "non_blocking_findings": [],
+    "remaining_gaps": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-08-11T22:01:52+00:00",
+    "commit": "139be189a4fad89263bfb340515051daeab723cd"
+  },
+  "updated_at": "2026-08-11T22:01:52+00:00"
+}
