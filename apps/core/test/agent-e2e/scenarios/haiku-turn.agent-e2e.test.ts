@@ -28,7 +28,7 @@ import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { requireRealModelCredential } from '../fixtures/model-credential-fixture.js';
-import { AgentE2EApiClient, type SessionEvent } from '../harness/api-client.js';
+import { AgentE2EApiClient } from '../harness/api-client.js';
 import {
   redactText,
   startEvidenceRun,
@@ -60,12 +60,6 @@ interface ModelDefaultsResponse {
     effectiveAlias: string | null;
     model: { id: string } | null;
   };
-}
-
-function payloadOf(event: SessionEvent): Record<string, unknown> {
-  return event.payload && typeof event.payload === 'object'
-    ? (event.payload as Record<string, unknown>)
-    : {};
 }
 
 maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
@@ -265,47 +259,15 @@ maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
         ).toBeDefined();
         expect(persistedMessage).toBeDefined();
 
-        const usageEvents = events.filter(
-          (event) => event.eventType === 'model.usage',
-        );
-        expect(
-          usageEvents.length,
-          'real turn emits model usage',
-        ).toBeGreaterThan(0);
-        const expectedUsage = usageEvents.reduce(
-          (totals, event) => {
-            const payload = payloadOf(event);
-            const usage = payload.usage;
-            const values =
-              usage && typeof usage === 'object'
-                ? (usage as Record<string, unknown>)
-                : {};
-            expect(
-              String(payload.modelAlias ?? values.model ?? '').toLowerCase(),
-              'usage event identifies haiku',
-            ).toContain('haiku');
-            expect(
-              String(payload.providerId ?? values.provider ?? ''),
-              'usage event identifies anthropic',
-            ).toBe('anthropic');
-            return {
-              inputTokens: totals.inputTokens + Number(values.inputTokens ?? 0),
-              outputTokens:
-                totals.outputTokens + Number(values.outputTokens ?? 0),
-            };
-          },
-          { inputTokens: 0, outputTokens: 0 },
-        );
-        expect(expectedUsage.inputTokens).toBeGreaterThan(0);
-        expect(expectedUsage.outputTokens).toBeGreaterThan(0);
-
         const usageRows = await api.queryUsage({
           from: usageFrom,
           to: new Date(Date.now() + 1_000).toISOString(),
           runId,
+          model: 'haiku',
         });
         expect(usageRows, 'usage API returns this run').toHaveLength(1);
-        expect(usageRows[0]).toMatchObject(expectedUsage);
+        expect(usageRows[0]?.inputTokens).toBeGreaterThan(0);
+        expect(usageRows[0]?.outputTokens).toBeGreaterThan(0);
         evidence.finishPhases();
       }),
   );

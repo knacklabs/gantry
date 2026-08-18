@@ -73,6 +73,9 @@ const SAFE_HOST_ENV_KEYS = [
   'FORCE_COLOR',
   'NO_PROXY',
   'no_proxy',
+  // Host-owned E2E seam: lets the packaged runner use the hermetic `claude`
+  // fixture from PATH without exposing HOME or weakening normal selection.
+  'GANTRY_E2E_ALLOW_PATH_CLAUDE',
 ] as const;
 const PREPARED_EXECUTION_ENV_DENYLIST = new Set([
   'PATH',
