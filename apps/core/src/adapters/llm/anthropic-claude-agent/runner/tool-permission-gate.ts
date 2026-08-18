@@ -105,6 +105,12 @@ export function createCanUseToolCallback(
   const toolExecutionPolicy = new ToolExecutionPolicyService();
   const liveApprovedRules = new Set<string>();
   const skillActionCapabilities = readRunnerSkillActionCapabilities();
+  const skillActionCapabilityDefinitions = Object.fromEntries(
+    skillActionCapabilities.map((capability) => [
+      capability.capabilityId,
+      capability,
+    ]),
+  );
   // PERM-2 Task F: the agent's configured allowedTools and the composed
   // capability-profile allowedTools no longer fold into the worker-side policy
   // rules. Folding them let a tool merely present on the SDK allowedTools
@@ -397,6 +403,11 @@ export function createCanUseToolCallback(
       const toolDecision = toolExecutionPolicy.evaluate({
         request: toolExecutionRequest,
         autonomousAllowedToolRules: currentAutonomousAllowedToolRules(),
+        // The runner receives reviewed skill action definitions through its
+        // host-projected environment. Resolve the selected capability rules
+        // here before evaluating an autonomous command; otherwise a valid
+        // capability:skill.* rule never becomes its scoped RunCommand rule.
+        semanticCapabilityDefinitions: skillActionCapabilityDefinitions,
         capabilityRequestToolsHidden,
       });
       if (permissionOpts.signal.aborted) {
