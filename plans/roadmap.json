@@ -1272,7 +1272,7 @@
       "skill": "fullstack",
       "depends_on": [],
       "origin": "adhoc",
-      "spec_debt_reason": "The approved design is being confirmed as docs/specs/authentication-access-web-ui.md."
+      "spec": "docs/specs/authentication-access-web-ui.md"
     }
   ],
   "epics": [
@@ -1369,5 +1369,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-18T10:42:43+00:00"
+  "updated_at": "2026-08-18T10:44:57+00:00"
 }
