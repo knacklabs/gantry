@@ -46,19 +46,24 @@ function makeTool(overrides?: {
   onPermissionDenied?: (input: DeepAgentsPermissionDenial) => never;
   signal?: AbortSignal;
   toolNetworkEnv?: Record<string, string>;
+  cwd?: string;
+  scheduled?: boolean;
 }) {
   return createGantryShellTool({
     workspaceFolder: 'group',
     memoryBlock: '',
     configuredAllowedTools: overrides?.rules ?? [],
-    gateContext: { conversationId: 'tg:group' },
+    gateContext: {
+      conversationId: 'tg:group',
+      ...(overrides?.scheduled ? { isScheduledJob: true, jobId: 'job:ats' } : {}),
+    },
     permissionEnv: PERMISSION_ENV,
     capabilityRequestToolsHidden:
       overrides?.capabilityRequestToolsHidden ?? false,
     ...(overrides?.onPermissionDenied
       ? { onPermissionDenied: overrides.onPermissionDenied }
       : {}),
-    cwd: os.tmpdir(),
+    cwd: overrides?.cwd ?? os.tmpdir(),
     toolNetworkEnv: overrides?.toolNetworkEnv,
     ...(overrides?.signal ? { signal: overrides.signal } : {}),
   });
@@ -87,12 +92,52 @@ describe('Gantry DeepAgents shell tool', () => {
     expect(makeTool().name).toBe('RunCommand');
   });
 
-  it('executes when the host coordinator approves a scoped RunCommand rule', async () => {
+  it('executes an interactively-approved scoped RunCommand rule without IPC', async () => {
     const tool = makeTool({ rules: ['RunCommand(echo *)'] });
     const result = await invoke(tool, 'echo hello-gantry');
-    expect(requestPermissionApprovalViaIpc).toHaveBeenCalledTimes(1);
+    expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
     expect(result).toContain('hello-gantry');
     expect(result).toContain('exited with code 0');
+  });
+
+  it('starts a reviewed ATS Cutshort skill locally for a scheduled job without prompting', async () => {
+    // This is the local deterministic equivalent of the source-sync job: the
+    // exact reviewed command is executed from the agent workspace, rather than
+    // merely being accepted by a matcher. The real worker can then replace this
+    // harmless fixture and connect to Chrome/CDP in Dev.
+    const workspace = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-ats-source-sync-'),
+    );
+    const workerPath = path.join(
+      workspace,
+      'skills/ats-skills/scripts/cutshort-worker.mjs',
+    );
+    try {
+      fs.mkdirSync(path.dirname(workerPath), { recursive: true });
+      fs.writeFileSync(
+        workerPath,
+        '#!/usr/bin/env node\nconsole.log(`scraping started: ${process.argv[2]}`);\n',
+        { mode: 0o755 },
+      );
+
+      const tool = makeTool({
+        cwd: workspace,
+        scheduled: true,
+        rules: [
+          'RunCommand(skills/ats-skills/scripts/cutshort-worker.mjs sync)',
+        ],
+      });
+      const result = await invoke(
+        tool,
+        'skills/ats-skills/scripts/cutshort-worker.mjs sync',
+      );
+
+      expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+      expect(result).toContain('scraping started: sync');
+      expect(result).toContain('exited with code 0');
+    } finally {
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
   });
 
   it('prompts via the durable permission IPC when no rule matches; denied -> NOT executed', async () => {

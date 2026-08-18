@@ -6,6 +6,8 @@ import { z } from 'zod';
 
 import { NEUTRAL_CA_TRUST_ENV_KEYS } from '../../../../shared/neutral-ca-trust-env.js';
 import { evaluateNeutralToolPreChecks } from '../../../../runner/tool-gate-core.js';
+import { evaluateNeutralToolPolicy } from '../../../../runner/tool-gate-core.js';
+import { ToolExecutionClassifier, ToolExecutionPolicyService } from '../../../../shared/tool-execution-policy-service.js';
 import {
   requestPermissionApprovalViaIpc,
   type PermissionIpcRuntimeEnv,
@@ -62,6 +64,8 @@ const MAX_OUTPUT_CHARS = 16_000;
 // budget; the model can re-issue with a narrower command if it needs more.
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 const COMMAND_TERMINATE_GRACE_MS = 1_000;
+const shellPolicy = new ToolExecutionPolicyService();
+const shellClassifier = new ToolExecutionClassifier();
 
 // Network/proxy + CA-trust env keys the child must carry so egress stays on the
 // Gantry egress gateway and TLS trust resolves — for EVERY client type, not just
@@ -172,6 +176,23 @@ export function createGantryShellTool(
     });
     if (preChecks) {
       return preCheckDenialResult(config, GANTRY_SHELL_TOOL_NAME, preChecks);
+    }
+
+    const decision = evaluateNeutralToolPolicy({
+      classifier: shellClassifier,
+      policy: shellPolicy,
+      toolName: SHELL_POLICY_TOOL_NAME,
+      toolInput: policyInput,
+      context: config.gateContext,
+      allowedToolRules: config.configuredAllowedTools,
+      autonomousAllowedToolRules: config.configuredAllowedTools,
+      capabilityRequestToolsHidden: config.capabilityRequestToolsHidden,
+    });
+    if (decision.status === 'allow') return runShellCommand(command, config);
+    if (decision.status === 'deny') {
+      return preCheckDenialResult(config, GANTRY_SHELL_TOOL_NAME, {
+        reason: decision.reason,
+      });
     }
 
     const approval = await requestPermissionApprovalViaIpc(
