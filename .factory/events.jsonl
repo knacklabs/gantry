@@ -1062,3 +1062,6 @@
 {"event": "stage-start", "generated_by": "implementer", "at": "2026-08-14T11:00:53+00:00", "story": "JOBFLOW-1", "detail": "JOBFLOW-1-S5-GATE S5: live acceptance gate + fault matrix + prompt sweep (human-gated)"}
 {"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-14T16:09:18+00:00", "story": "JOBFLOW-1"}
 {"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-15T05:47:38+00:00", "story": "JOBFLOW-1"}
+{"event": "spec-draft", "generated_by": "orchestrator", "at": "2026-08-18T10:42:43+00:00", "detail": "authentication-access-web-ui: Authentication and Access Web UI"}
+{"event": "roadmap-epic-add", "generated_by": "orchestrator", "at": "2026-08-18T10:42:43+00:00", "detail": "web-authentication"}
+{"event": "roadmap-add", "generated_by": "orchestrator", "at": "2026-08-18T10:42:43+00:00", "story": "WEB-AUTH-1", "detail": "no spec (adhoc)"}

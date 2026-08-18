@@ -1256,6 +1256,23 @@
       "kind": "refactor",
       "depends_on": [],
       "spec": "docs/specs/capsafe-1.md"
+    },
+    {
+      "key": "WEB-AUTH-1",
+      "title": "Authentication and Access Web UI",
+      "story": "As a Gantry operator, I can securely authorize a browser locally or sign in through a company OIDC provider so that console access is revocable and role-enforced.",
+      "acceptance_criteria": [
+        "Local browser authorization is loopback-only, single-use, and creates a revocable session.",
+        "Hosted OIDC sessions use issuer plus subject identity and preserve Bearer API authentication.",
+        "Administrators can manage access, invitations, sessions, and OIDC setup without exposing secrets."
+      ],
+      "order": 64,
+      "status": "pending",
+      "epic": "web-authentication",
+      "skill": "fullstack",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec_debt_reason": "The approved design is being confirmed as docs/specs/authentication-access-web-ui.md."
     }
   ],
   "epics": [
@@ -1341,8 +1358,16 @@
       "source_refs": [
         "docs/architecture/artifact-store-s3-goal-prompt.md"
       ]
+    },
+    {
+      "id": "web-authentication",
+      "title": "Web authentication and access",
+      "objective": "Give each Gantry deployment a secure browser authentication and console-access model without changing machine API-key clients.",
+      "source_refs": [
+        "docs/specs/authentication-access-web-ui.md"
+      ]
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-15T14:00:35+00:00"
+  "updated_at": "2026-08-18T10:42:43+00:00"
 }
