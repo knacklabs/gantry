@@ -384,7 +384,11 @@ function evaluateProtectedCapabilityRequest(
     return null;
   }
 
-  if (request.toolName === 'Bash') {
+  // Claude calls this provider-native shell tool Bash while DeepAgents calls
+  // the same reviewed command RunCommand. Both must reach the scoped-command
+  // matcher; otherwise a selected skill path is rejected as protected before
+  // its exact reviewed rule can be evaluated.
+  if (request.toolName === 'Bash' || request.toolName === 'RunCommand') {
     const command = commandText(request.input);
     if (!command) return null;
     if (isProviderMcpMutationCommand(command)) {
