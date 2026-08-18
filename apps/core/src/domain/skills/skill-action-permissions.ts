@@ -284,9 +284,23 @@ function normalizeSkillActionCommandTemplate(
   const stableNormalized = normalized.startsWith('./')
     ? normalized.slice(2)
     : normalized;
+  // Skill artifacts are materialized with non-executable permissions. Permit a
+  // JavaScript skill to use the host's Node runtime, but only when Node's script
+  // argument remains inside the same skill directory. This is deliberately not
+  // a general interpreter escape hatch: node flags, eval mode, and scripts
+  // outside the skill directory still fail the path check below.
+  const leaf = parsed.leaves[0];
+  const executable = leaf.argv[0] ?? '';
+  const executedPath =
+    executable === 'node' || executable === 'nodejs'
+      ? (leaf.argv[1] ?? '')
+      : stableNormalized;
+  const stableExecutedPath = executedPath.startsWith('./')
+    ? executedPath.slice(2)
+    : executedPath;
   if (
-    stableNormalized !== skillDir &&
-    !stableNormalized.startsWith(`${skillDir}/`)
+    stableExecutedPath !== skillDir &&
+    !stableExecutedPath.startsWith(`${skillDir}/`)
   ) {
     throw new Error(
       `Skill action command template must run under ${skillDir}.`,

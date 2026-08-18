@@ -73,6 +73,29 @@ describe('parseSkillActionPermissionsFromAssets durable safety', () => {
     );
   });
 
+  it('accepts Node only when its script stays under the skill dir', () => {
+    const actions = parseSkillActionPermissionsFromAssets({
+      assets: manifestAsset('node ${skillRoot}/scripts/worker.mjs sync'),
+      skillName: 'demo',
+    });
+    expect(actions[0].commandTemplates).toContain(
+      'node skills/demo/scripts/worker.mjs sync',
+    );
+  });
+
+  it.each([
+    'node -e "process.exit(0)"',
+    'node /tmp/worker.mjs',
+    'node ../other-skill/worker.mjs',
+  ])('rejects an unscoped Node command template: %s', (commandTemplate) => {
+    expect(() =>
+      parseSkillActionPermissionsFromAssets({
+        assets: manifestAsset(commandTemplate),
+        skillName: 'demo',
+      }),
+    ).toThrow(/must run under skills\/demo/i);
+  });
+
   it('rejects a command template with a destructive redirect (durable-safety gate)', () => {
     expect(() =>
       parseSkillActionPermissionsFromAssets({
