@@ -1068,3 +1068,5 @@
 {"event": "spec-confirmed", "generated_by": "orchestrator", "at": "2026-08-18T10:44:43+00:00", "detail": "authentication-access-web-ui"}
 {"event": "roadmap-link-spec", "generated_by": "orchestrator", "at": "2026-08-18T10:44:57+00:00", "story": "WEB-AUTH-1", "detail": "docs/specs/authentication-access-web-ui.md"}
 {"event": "intake", "generated_by": "orchestrator", "at": "2026-08-18T10:45:24+00:00", "story": "WEB-AUTH-1", "detail": "Authentication and Access Web UI"}
+{"event": "plan-human-approved", "generated_by": "human", "at": "2026-08-18T10:48:07+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1 approved by Ravi"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-18T10:48:07+00:00", "story": "WEB-AUTH-1", "detail": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md"}
