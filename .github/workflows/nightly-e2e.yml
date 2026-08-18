@@ -112,14 +112,15 @@ jobs:
 
       # Real-model turn: supplementary signal — the hermetic agent-e2e already
       # ran above. Self-skips when bwrap is unavailable (runner can't sandbox
-      # the SDK child) or the key is absent. The key reaches ONLY this step's env.
+      # the SDK child) or the Claude Code setup token is absent. The token
+      # reaches ONLY this step's env.
       - name: Agent E2E turn (real model)
         env:
-          E2E_MODEL_API_KEY: ${{ secrets.E2E_ANTHROPIC_API_KEY }}
+          E2E_MODEL_API_KEY: ${{ secrets.E2E_CLAUDE_CODE_OAUTH_TOKEN }}
           AGENT_E2E_EVIDENCE_DIR: /tmp/gantry-agent-e2e-evidence
         run: |
           if [ -z "$E2E_MODEL_API_KEY" ]; then
-            echo "::notice::E2E_MODEL_API_KEY is unavailable; skipping the real-model turn."
+            echo "::notice::E2E_CLAUDE_CODE_OAUTH_TOKEN is unavailable; skipping the real-model turn."
             exit 0
           fi
           set -o pipefail

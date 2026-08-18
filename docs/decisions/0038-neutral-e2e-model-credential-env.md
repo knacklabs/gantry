@@ -1,6 +1,6 @@
 ---
 status: proposed
-confirmed_by: ""
+confirmed_by: ''
 date: 2026-07-22
 ---
 
@@ -8,18 +8,20 @@ date: 2026-07-22
 
 ## Context
 
-The real-model E2E scenario gates on `E2E_ANTHROPIC_API_KEY`, tripping the
-provider-boundary sentinel in test code (3 tokens in
-`apps/core/test/agent-e2e/scenarios/haiku-turn.agent-e2e.test.ts`). The debt mechanism ratchets exact counts and
-would preserve provider-token leakage rather than fix it. GitHub workflow
-files are outside the sentinel's scan scope.
+The real-model E2E scenario needs a Claude Code subscription token created by
+`claude setup-token`. Provider-named secret configuration belongs in the
+protected workflow, while test code should consume one step-local model
+credential variable. GitHub workflow files are outside the provider-boundary
+sentinel's scan scope.
 
 ## Decision
 
 Tests read a neutral `E2E_MODEL_API_KEY` via a fixture helper
-(`requireRealModelCredential()`); `.github/workflows/ci.yml` maps the existing GitHub secret to
-that neutral name (`E2E_MODEL_API_KEY: ${{ secrets.E2E_ANTHROPIC_API_KEY }}`).
-The GitHub secret itself is not renamed.
+(`requireRealModelCredential()`); `.github/workflows/nightly-e2e.yml` maps the
+GitHub repository secret to that step-local name
+(`E2E_MODEL_API_KEY: ${{ secrets.E2E_CLAUDE_CODE_OAUTH_TOKEN }}`). The scenario
+recognizes the setup token as a `claude_code_oauth` credential and stores it
+through Gantry's public credential API.
 
 ## Consequences
 
@@ -27,3 +29,5 @@ The GitHub secret itself is not renamed.
   path of the scenario is unchanged.
 - Future real-model scenarios use the same helper; local runs export
   `E2E_MODEL_API_KEY` directly.
+- The protected GitHub secret contains the output of `claude setup-token`, not
+  an Anthropic API key.
