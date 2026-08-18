@@ -153,6 +153,10 @@ export function selectedGantryMcpToolNames(
     for (const toolName of SCHEDULER_MUTATION_MCP_TOOL_NAMES) {
       names.delete(toolName);
     }
+    // Scheduled jobs have their own lifecycle reporting. Do not expose the
+    // interactive todo renderer: it can block a short-lived worker before it
+    // reaches its actual approved action.
+    names.delete('todo_update');
   }
   return [...applyProviderAffinity(names, options.chatJid)].sort();
 }
@@ -199,6 +203,7 @@ export function parseEnabledGantryMcpToolNames(
       for (const toolName of SCHEDULER_MUTATION_MCP_TOOL_NAMES) {
         names.delete(toolName);
       }
+      names.delete('todo_update');
     }
     return names;
   };

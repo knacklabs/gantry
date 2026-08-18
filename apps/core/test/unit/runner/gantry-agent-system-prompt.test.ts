@@ -156,6 +156,26 @@ describe('buildGantryAgentSystemPrompt', () => {
     expect(prompt.prompt).not.toContain('Public Gantry catalog:');
   });
 
+  it('does not give scheduled jobs interactive todo lifecycle guidance', () => {
+    const interactive = buildGantryAgentSystemPrompt({
+      runtimeProjection: 'wrapped-tool-projection',
+      promptMode: 'minimal',
+      currentDateTimeIso: '2026-08-18T00:00:00.000Z',
+    });
+    const scheduled = buildGantryAgentSystemPrompt({
+      runtimeProjection: 'wrapped-tool-projection',
+      promptMode: 'minimal',
+      isScheduledJob: true,
+      currentDateTimeIso: '2026-08-18T00:00:00.000Z',
+    });
+
+    expect(interactive.prompt).toContain('use todo_update');
+    expect(scheduled.prompt).toContain(
+      'Do not use send_message or todo_update',
+    );
+    expect(scheduled.prompt).not.toContain('then use todo_update');
+  });
+
   it('includes the date section with timezone in minimal mode dynamic tail', () => {
     const prompt = buildGantryAgentSystemPrompt({
       runtimeProjection: 'native-tool-projection',

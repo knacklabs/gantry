@@ -61,6 +61,7 @@ describe('gantry mcp tool surface', () => {
     ];
     for (const surface of autonomousSurfaces) {
       const names = new Set(surface);
+      expect(names.has('todo_update')).toBe(false);
       for (const toolName of SCHEDULER_MUTATION_MCP_TOOL_NAMES) {
         expect(names.has(toolName)).toBe(false);
       }
