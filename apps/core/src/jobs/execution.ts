@@ -26,6 +26,7 @@ import {
 } from '../runtime/session-resume-runtime.js';
 import {
   loadAgentAccessSnapshot,
+  resolveTurnPromptCapabilityCatalogFromSnapshot,
   resolveTurnSemanticCapabilitiesFromSnapshot,
   resolveTurnSelectedMcpServerIdsFromSnapshot,
   resolveTurnSelectedSkillContextFromSnapshot,
@@ -373,8 +374,33 @@ async function runActiveJob(
             loadAgentAccessSnapshot(schedulerAccessDeps, snapshotOwner),
             deps.getCredentialBroker?.() ?? Promise.resolve(undefined),
           ]);
+          // A scheduler job can begin during desired-state reconciliation. In
+          // that short window a repository snapshot may be empty even though
+          // the agent already has durable, active skill bindings. Rehydrate
+          // only those bindings from the same trusted repository so an empty
+          // snapshot cannot silently strip reviewed skill authority.
+          const durableSchedulerSkills =
+            accessSnapshot &&
+            accessSnapshot.skills.enabledDefinitions.length === 0
+              ? await schedulerAccessDeps
+                  .getSkillRepository()
+                  .listEnabledSkillsForAgent({
+                    appId: executionAppId as never,
+                    agentId: executionAgentId as never,
+                  })
+              : (accessSnapshot?.skills.enabledDefinitions ?? []);
+          const effectiveAccessSnapshot =
+            accessSnapshot && durableSchedulerSkills.length > 0
+              ? {
+                  ...accessSnapshot,
+                  skills: {
+                    ...accessSnapshot.skills,
+                    enabledDefinitions: durableSchedulerSkills,
+                  },
+                }
+              : accessSnapshot;
           const inheritedToolPolicy = resolveTurnToolPolicyFromSnapshot(
-            accessSnapshot,
+            effectiveAccessSnapshot,
             currentJob.execution_context?.personId,
           );
           const configuredAgent =
@@ -407,7 +433,9 @@ async function runActiveJob(
             ],
           };
           const selectedSkillContext =
-            resolveTurnSelectedSkillContextFromSnapshot(accessSnapshot);
+            resolveTurnSelectedSkillContextFromSnapshot(
+              effectiveAccessSnapshot,
+            );
           // Scheduler-only agents are configured from desired state and do not
           // necessarily have durable agent_skill_bindings rows.  Carry the
           // reviewed configured sources into the runner as well as the action
@@ -431,7 +459,9 @@ async function runActiveJob(
             ]),
           ];
           const semanticCapabilities = [
-            ...resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot),
+            ...resolveTurnSemanticCapabilitiesFromSnapshot(
+              effectiveAccessSnapshot,
+            ),
             ...settingsSkillPolicy.semanticCapabilities,
           ];
           const attachedMcpSourceIds =
@@ -439,6 +469,12 @@ async function runActiveJob(
               conversationId: execution.group.conversationId,
               threadId: execution.threadId ?? undefined,
             });
+          const capabilityCatalog = effectiveAccessSnapshot
+            ? await resolveTurnPromptCapabilityCatalogFromSnapshot(
+                effectiveAccessSnapshot,
+                semanticCapabilities,
+              )
+            : undefined;
           const toolAccessRequirementPreflight =
             await assertToolAccessRequirementsReadyForRun({
               toolAccessRequirements: splitAccessRequirements(
@@ -504,7 +540,9 @@ async function runActiveJob(
                 agentId: executionAgentId,
               },
             });
-            if (accessSnapshot) runOptions.accessSnapshot = accessSnapshot;
+            if (effectiveAccessSnapshot) {
+              runOptions.accessSnapshot = effectiveAccessSnapshot;
+            }
             agentRunId = turnContext?.agentSessionId
               ? await deps.opsRepository.createSessionAgentRun?.({
                   agentSessionId: turnContext.agentSessionId,
@@ -572,6 +610,7 @@ async function runActiveJob(
                 selectedSkillDisplays,
                 attachedMcpSourceIds,
                 semanticCapabilities,
+                capabilityCatalog,
               },
               onProcess: (proc, runHandle) => {
                 void updateRunProviderMetadata({ providerRunId: runHandle });
