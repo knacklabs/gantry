@@ -77,6 +77,7 @@ RUN apt-get update \
       ca-certificates \
       curl \
       gnupg \
+      unzip \
       python3 \
       python3-venv \
       libatomic1 \
