@@ -406,6 +406,7 @@ export interface RuntimeSettings {
   credentialBroker: RuntimeCredentialBrokerSettings;
   memory: RuntimeMemorySettings;
   runtime: RuntimeProcessSettings;
+  authentication: RuntimeAuthenticationSettings;
   browser: RuntimeBrowserSettings;
   permissions: RuntimePermissionSettings;
   // Optional in-memory per-provider request rate caps (settings.yaml `limits`).
@@ -421,6 +422,21 @@ export interface RuntimeSettings {
   // Optional settings-owned aliases for models exposed by existing providers.
   // Values are non-secret metadata; provider credentials stay in Model Access.
   modelAliases: Record<string, RuntimeCustomModelAlias>;
+}
+
+export interface RuntimeAuthenticationSettings {
+  mode: 'local' | 'hosted';
+  canonicalOrigin: string;
+  activeOidc?: RuntimeOidcSettings;
+  candidateOidc?: RuntimeOidcSettings;
+}
+
+export interface RuntimeOidcSettings {
+  issuer: string;
+  clientId: string;
+  clientSecretRef: string;
+  companyDomain: string;
+  providerLabel: string;
 }
 
 export interface RuntimeSettingsValidationFailure {

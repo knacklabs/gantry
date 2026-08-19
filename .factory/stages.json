@@ -1,0 +1,60 @@
+{
+  "issue": "WEB-AUTH-1",
+  "stages": [
+    {
+      "id": "WEB-AUTH-1-1",
+      "title": "Auth persistence and settings foundations",
+      "status": "active",
+      "started_at": "2026-08-19T08:52:26+00:00",
+      "base_sha": "332f82dc5cf8dfa068068ca236d379ba22bf8d46",
+      "dirty_at_start": {
+        ".factory/decomposition.json": {
+          "digest": "6a05e9805a947693363f73926e6c4b2b40cb9b926a9bb00a5fab79e4fbdf0fc8",
+          "git": "? .factory/decomposition.json\u0000\u0000\u0000"
+        },
+        ".factory/events.jsonl": {
+          "digest": "d71034ea949f79cd92dcea1185ceefb2f0f624bbe68facfdbfcbc0b914dfb617",
+          "git": "1 .M N... 100644 100644 100644 b3788fd42a1570c3d8e5e0a9807c9b912e1ba3d9 b3788fd42a1570c3d8e5e0a9807c9b912e1ba3d9 .factory/events.jsonl\u0000\u0000100644 b3788fd42a1570c3d8e5e0a9807c9b912e1ba3d9 0\t.factory/events.jsonl\u0000\u0000H .factory/events.jsonl\u0000"
+        },
+        ".factory/grills/tasks/WEB-AUTH-1-1.json": {
+          "digest": "5c0aa2093b4ec79859d058af11fcbd212aad818be0a6a7569cf23e0dec1a8ff1",
+          "git": "? .factory/grills/tasks/WEB-AUTH-1-1.json\u0000\u0000\u0000"
+        },
+        ".factory/run.json": {
+          "digest": "bee70e67eca5434ccbadbd7bb82d011229c0a64a1e45066007579ca38ab635e5",
+          "git": "1 .M N... 100644 100644 100644 34f09a6af53a4d11aff5075dd76dc5cc2496a664 34f09a6af53a4d11aff5075dd76dc5cc2496a664 .factory/run.json\u0000\u0000100644 34f09a6af53a4d11aff5075dd76dc5cc2496a664 0\t.factory/run.json\u0000\u0000H .factory/run.json\u0000"
+        },
+        ".factory/stages.json": {
+          "digest": "bb51e2b03988c9c7c69968ba06ec3850fea08f11a51f614104db3ef72de91e57",
+          "git": "? .factory/stages.json\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "6885b6f8d168cd98f028119a130ecd5b6841ae782e71e6c25e9d3271b13140d2"
+    },
+    {
+      "id": "WEB-AUTH-1-2",
+      "title": "Browser server trust boundary and local authorization",
+      "status": "pending"
+    },
+    {
+      "id": "WEB-AUTH-1-3",
+      "title": "Hosted OIDC, grants, invitations, and reauthentication",
+      "status": "pending"
+    },
+    {
+      "id": "WEB-AUTH-1-4",
+      "title": "Auth operations, audit events, and documentation",
+      "status": "pending"
+    },
+    {
+      "id": "WEB-AUTH-1-5",
+      "title": "Authentication and Access web UI",
+      "status": "pending"
+    },
+    {
+      "id": "WEB-AUTH-1-6",
+      "title": "Integrated auth verification and cleanup proof",
+      "status": "pending"
+    }
+  ]
+}

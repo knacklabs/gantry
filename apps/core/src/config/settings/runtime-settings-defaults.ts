@@ -17,6 +17,7 @@ import { type SenderAllowlistConfig } from './sender-allowlist.js';
 import type {
   RuntimeCredentialBrokerSettings,
   RuntimeAgentSettings,
+  RuntimeAuthenticationSettings,
   RuntimeBrowserSettings,
   RuntimeMemoryBackfillSettings,
   RuntimeMemoryLlmModels,
@@ -200,6 +201,10 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
       overrides: {},
     },
   };
+  const authentication: RuntimeAuthenticationSettings = {
+    mode: 'local',
+    canonicalOrigin: 'http://127.0.0.1:3939',
+  };
   const permissions: RuntimePermissionSettings = {
     yoloMode: {
       enabled: true,
@@ -232,6 +237,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     credentialBroker,
     memory,
     runtime,
+    authentication,
     browser,
     permissions,
     limits: { providers: {} },

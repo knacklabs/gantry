@@ -69,6 +69,7 @@ import {
   parseStringValue,
 } from './runtime-settings-parse-primitives.js';
 import { jidForConfiguredConversation } from './desired-state-provider-conversations.js';
+import { parseAuthenticationSettings } from './runtime-settings-authentication-parser.js';
 
 function parseAgentHarnessValue(
   raw: unknown,
@@ -994,6 +995,7 @@ export function parseRuntimeSettingsObject(
       key !== 'model_access' &&
       key !== 'memory' &&
       key !== 'runtime' &&
+      key !== 'authentication' &&
       key !== 'browser' &&
       key !== 'permissions' &&
       key !== 'limits' &&
@@ -1003,7 +1005,7 @@ export function parseRuntimeSettingsObject(
       key !== 'model_aliases'
     ) {
       throw new Error(
-        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_accounts, conversations, agents, storage, agent, model_access, memory, runtime, browser, permissions, limits, observability, observer, model_families, and model_aliases.`,
+        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_accounts, conversations, agents, storage, agent, model_access, memory, runtime, authentication, browser, permissions, limits, observability, observer, model_families, and model_aliases.`,
       );
     }
   }
@@ -1045,6 +1047,7 @@ export function parseRuntimeSettingsObject(
     const credentialBroker = parseModelAccessSettings(root.model_access);
     const memory = parseMemorySettings(root.memory);
     const runtime = parseRuntimeProcessSettings(root.runtime);
+    const authentication = parseAuthenticationSettings(root.authentication);
     const browser = parseBrowserSettings(root.browser);
     const permissions = parsePermissionSettings(root.permissions);
     const limits = parseLimitsSettings(root.limits);
@@ -1064,6 +1067,7 @@ export function parseRuntimeSettingsObject(
       credentialBroker,
       memory,
       runtime,
+      authentication,
       browser,
       permissions,
       limits,

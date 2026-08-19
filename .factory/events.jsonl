@@ -1070,3 +1070,14 @@
 {"event": "intake", "generated_by": "orchestrator", "at": "2026-08-18T10:45:24+00:00", "story": "WEB-AUTH-1", "detail": "Authentication and Access Web UI"}
 {"event": "plan-human-approved", "generated_by": "human", "at": "2026-08-18T10:48:07+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1 approved by Ravi"}
 {"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-18T10:48:07+00:00", "story": "WEB-AUTH-1", "detail": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-19T08:49:45+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-19T08:50:33+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-19T08:51:39+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-19T08:52:04+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-19T08:52:26+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-1 Auth persistence and settings foundations"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-19T08:52:41+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-19T09:06:15+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-19T09:09:05+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-19T09:16:11+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-19T09:17:48+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-19T09:25:15+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-1 (write)"}

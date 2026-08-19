@@ -1,0 +1,180 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": true,
+  "project": "",
+  "story": "WEB-AUTH-1",
+  "doc_roots": [
+    "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md",
+    "docs/specs/authentication-access-web-ui.md",
+    "docs/decisions/0132-adaptive-browser-authentication-access.md",
+    "docs/decisions/0101-oidc-generic-google-first.md"
+  ],
+  "epics": [
+    {
+      "id": "web-authentication",
+      "title": "Browser authentication and console access",
+      "tasks": [
+        "WEB-AUTH-1-1",
+        "WEB-AUTH-1-2",
+        "WEB-AUTH-1-3",
+        "WEB-AUTH-1-4",
+        "WEB-AUTH-1-5",
+        "WEB-AUTH-1-6"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "WEB-AUTH-1-1",
+      "title": "Auth persistence and settings foundations",
+      "objective": "Add the durable auth data model, settings shape, repository primitives, and trusted identity attestation needed by every later browser-auth path.",
+      "acceptance_criteria": [
+        "Postgres migrations and repositories cover local authorization codes, OIDC transactions, browser sessions, console access grants, and invitations.",
+        "All reusable tokens and references are stored as hashes only, one-use records are consumed atomically, and the final active Administrator invariant is transactionally enforced.",
+        "Authentication settings add local or hosted mode, canonical origin, generic OIDC candidate and active configuration, and client-secret references without changing runtime.deployment_mode.",
+        "OIDC issuer plus subject aliases and verified email aliases reuse the existing Person and user_aliases model; email never selects or silently links a Person."
+      ],
+      "dependencies": [],
+      "write_scope": [
+        "apps/core/src/application/auth/auth-foundations.ts",
+        "apps/core/src/shared/auth-tokens.ts",
+        "apps/core/src/adapters/storage/postgres/schema/authentication.ts",
+        "apps/core/src/adapters/storage/postgres/schema/index.ts",
+        "apps/core/src/adapters/storage/postgres/schema/migrations/20260818105732_authentication_access.sql",
+        "apps/core/src/adapters/storage/postgres/schema/migrations/meta/20260818105732_snapshot.json",
+        "apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json",
+        "apps/core/src/adapters/storage/postgres/repositories/authentication-repository.postgres.ts",
+        "apps/core/src/adapters/storage/postgres/repositories/person-identity-repository.postgres.ts",
+        "apps/core/src/config/index.ts",
+        "apps/core/src/config/settings/browser-auth-settings.ts",
+        "apps/core/src/config/settings/runtime-settings-defaults.ts",
+        "apps/core/src/config/settings/runtime-settings-parser.ts",
+        "apps/core/src/config/settings/runtime-settings-renderer.ts",
+        "apps/core/src/config/settings/runtime-settings-types.ts",
+        "apps/core/src/config/settings/settings-revision-document.ts",
+        "packages/contracts/src/settings/index.ts",
+        "apps/core/test/unit/auth/auth-foundations.test.ts",
+        "apps/core/test/unit/auth/authentication-repository.test.ts",
+        "apps/core/test/unit/auth/authentication-settings.test.ts",
+        "apps/core/test/unit/config/settings-import-app-provider-roundtrip.test.ts",
+        "apps/core/src/config/settings/runtime-settings-authentication-parser.ts",
+        "apps/core/test/unit/storage/postgres-raw-sql-allowlist.test.ts"
+      ],
+      "required_tests": [
+        {
+          "id": "auth foundations > auth persistence policy stores only hashes and enforces expiry",
+          "path": "apps/core/test/unit/auth/auth-foundations.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run db:migrations:check"
+      ],
+      "review_budget": {
+        "max_changed_files": 24,
+        "max_changed_lines": 21000,
+        "reason": "Initial Drizzle snapshot is large; authored work remains one persistence/settings boundary."
+      },
+      "plan_contracts": [
+        {
+          "id": "AUTH-FOUNDATION-0",
+          "statement": "Postgres migrations and repositories cover local authorization codes, OIDC transactions, browser sessions, console access grants, and invitations.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-FOUNDATION-1",
+          "statement": "All reusable tokens and references are stored as hashes only, one-use records are consumed atomically, and the final active Administrator invariant is transactionally enforced.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-FOUNDATION-2",
+          "statement": "Authentication settings add local or hosted mode, canonical origin, generic OIDC candidate and active configuration, and client-secret references without changing runtime.deployment_mode.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-FOUNDATION-3",
+          "statement": "OIDC issuer plus subject aliases and verified email aliases reuse the existing Person and user_aliases model; email never selects or silently links a Person.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        }
+      ],
+      "reviewer_focus": "Hash-only storage, atomic one-use consumption, final-active-Administrator locking, and client-secret references that never project raw values."
+    },
+    {
+      "id": "WEB-AUTH-1-2",
+      "title": "Browser server trust boundary and local authorization",
+      "objective": "Mount browser authentication only in the full Control profile and implement local loopback authorization without changing Bearer-only /v1 API behavior.",
+      "acceptance_criteria": [
+        "Full Control serves /ui, /auth/*, /ui/api/auth/*, and browser events from one origin; operational worker profiles do not mount these routes.",
+        "Browser routes reject Bearer credentials, /v1/* rejects session cookies, browser mutations require exact canonical Origin plus CSRF, and auth/session/cookie responses are no-store.",
+        "Local mode binds only to loopback, validates the canonical loopback host, supports fragment-token /ui/auth/local authorization, and returns the exact approved success, expired, used, and wrong-host copy.",
+        "Local sessions use the approved cookie flags plus 30-day idle and 90-day absolute lifetimes, and session, grant, and role are revalidated on requests and event heartbeats."
+      ],
+      "dependencies": [
+        "WEB-AUTH-1-1"
+      ]
+    },
+    {
+      "id": "WEB-AUTH-1-3",
+      "title": "Hosted OIDC, grants, invitations, and reauthentication",
+      "objective": "Implement hosted sign-in, provider-neutral OIDC validation, invitation binding, access-state handling, reauthentication, and session rotation.",
+      "acceptance_criteria": [
+        "OIDC start/callback/reauth validates discovery issuer, allowlist, state, nonce, PKCE, signature, audience, expiry, and callback replay using DNS-pinned transport and jose.",
+        "Google company-domain identities get Viewer access, other identities require invitation or explicit approval, and disabled or unapproved users receive the exact approved safe copy.",
+        "Invitations are fragment-token, one-use, hash-only, expire after seven days, match only the verified normalized invited email, and bind durable identity by issuer plus subject.",
+        "Hosted sessions use the approved __Host cookie, two-hour idle and 12-hour absolute lifetimes, warn five minutes before absolute expiry, and rotate after login, reauth, and role elevation.",
+        "Reauthentication uses a 10-minute recent-authentication window, returns the exact approved success copy, and never replays the pending mutation automatically."
+      ],
+      "dependencies": [
+        "WEB-AUTH-1-2"
+      ]
+    },
+    {
+      "id": "WEB-AUTH-1-4",
+      "title": "Auth operations, audit events, and documentation",
+      "objective": "Add the required CLI operations, safe audit events, candidate OIDC test and activation behavior, and operator documentation.",
+      "acceptance_criteria": [
+        "gantry ui and gantry ui authorize create local authorization links, and gantry auth access approve <reference> --role administrator|viewer writes the grant and audit event transactionally after confirmation.",
+        "First-admin and lost-admin access references expire after 15 minutes and are stored as hashes on awaiting grants.",
+        "OIDC candidate testing never changes active runtime behavior, failed tests preserve active configuration, and activation promotes the candidate through settings revisions.",
+        "Audit events cover login classification, logout, revocation, invitations, access and role changes, reauthentication, configuration activation, and CLI recovery without tokens, raw claims, secrets, PKCE verifiers, or upstream errors.",
+        "Docs cover local startup, hosted proxy and cache requirements, setup, first-admin approval, lost-admin recovery, and broken-OIDC recovery."
+      ],
+      "dependencies": [
+        "WEB-AUTH-1-3"
+      ]
+    },
+    {
+      "id": "WEB-AUTH-1-5",
+      "title": "Authentication and Access web UI",
+      "objective": "Add public auth pages, protected session-aware shell loading, and the approved Settings to Authentication and Access experience using existing React primitives.",
+      "acceptance_criteria": [
+        "Public local authorization, hosted sign-in, invitation, callback failure, no-access, disabled-access, retry, setup, and reauthentication screens use the exact approved copy.",
+        "The AppShell is protected by session-aware route loading, while public auth routes live outside the shell.",
+        "Settings to Authentication and Access shows the approved adaptive local and hosted tabs, Administrator and Viewer roles only, invitations, access administration, session management, OIDC setup, receipts, and final-admin error behavior.",
+        "The UI preserves existing dialogs, tables, fields, stale-data behavior, focus restoration, keyboard navigation, theme tokens, responsive behavior, and reduced-motion support.",
+        "Viewer restrictions are server-enforced and reflected in the UI without converting unrelated fixture-backed console features to live APIs."
+      ],
+      "dependencies": [
+        "WEB-AUTH-1-4"
+      ]
+    },
+    {
+      "id": "WEB-AUTH-1-6",
+      "title": "Integrated auth verification and cleanup proof",
+      "objective": "Prove the full browser-auth boundary with focused and full verification, security cleanup searches, autoreview, and the required functional check.",
+      "acceptance_criteria": [
+        "Unit, OIDC contract, disposable-Postgres integration, HTTP boundary, CLI, and web tests cover the approved lifetimes, copy, role behavior, replay rejection, cookie flags, CSRF/origin checks, final-admin invariant, safe errors, and Viewer restrictions.",
+        "Cleanup searches prove there is no email-keyed identity, first-user-wins branch, browser Bearer credential, /auth/recover, recovery cookie/session, raw token logging, or mock-only Operator role.",
+        "Core and web format, lint, typecheck, build, architecture checks, migration checks, disposable-Postgres suites, and python3 factory/scripts/verify.py complete or report explicit environment-limited gaps.",
+        "One autoreview pass covers quality, performance, and security, and the required functional-checker flow is completed because the feature is user-facing."
+      ],
+      "dependencies": [
+        "WEB-AUTH-1-5"
+      ]
+    }
+  ],
+  "epic": "web-authentication",
+  "plan_file": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md",
+  "plan_sha256": "8f156263b545bcef9cb566173c0c1367deb2d6bc342a38ab04616562d2f275ec",
+  "commit": "b0fc104d120bff4ccb994d9b8a1a29d3d80c5eb3"
+}
