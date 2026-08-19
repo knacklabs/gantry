@@ -335,6 +335,7 @@ describe('PostgresAgentRepository MCP binding fence', () => {
       agentToolBindingsPostgres.agentId,
       agentToolBindingsPostgres.toolId,
       agentToolBindingsPostgres.configVersionId,
+      agentToolBindingsPostgres.personId,
     ]);
   });
 

@@ -246,6 +246,7 @@ export class PostgresAgentRepository implements AgentRepository {
           appId: binding.appId,
           agentId: binding.agentId,
           toolId: binding.toolId,
+          personId: null,
           configVersionId: binding.configVersionId ?? null,
           status: binding.status,
           createdAt: binding.createdAt,
@@ -260,6 +261,7 @@ export class PostgresAgentRepository implements AgentRepository {
             pgSchema.agentToolBindingsPostgres.agentId,
             pgSchema.agentToolBindingsPostgres.toolId,
             pgSchema.agentToolBindingsPostgres.configVersionId,
+            pgSchema.agentToolBindingsPostgres.personId,
           ],
           set: {
             configVersionId: binding.configVersionId ?? null,
