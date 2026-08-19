@@ -349,7 +349,7 @@ export function prepareSdkQuery(context: QueryLoopContext): Query {
   );
   const claudeCodeExecutable =
     process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
-      ? process.env.GANTRY_E2E_ALLOW_PATH_CLAUDE === '1'
+      ? process.env.GANTRY_E2E_ALLOW_PATH_EXECUTABLE === '1'
         ? pathClaudeExecutable
         : allowedOuterSandboxClaudeExecutable(pathClaudeExecutable)
       : undefined;
