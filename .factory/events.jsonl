@@ -1081,3 +1081,5 @@
 {"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-19T09:16:11+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-1 (write)"}
 {"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-19T09:17:48+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
 {"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-19T09:25:15+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-1 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-19T09:25:57+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-1: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-19T09:25:57+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-1 Auth persistence and settings foundations"}

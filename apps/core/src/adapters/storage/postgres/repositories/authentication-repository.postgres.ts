@@ -653,7 +653,8 @@ export class PostgresAuthenticationRepository {
       const removesFinalAdmin =
         current.status === 'active' &&
         current.role === 'administrator' &&
-        (next.status === 'disabled' || next.role === 'viewer');
+        ((next.status !== undefined && next.status !== 'active') ||
+          next.role === 'viewer');
       if (removesFinalAdmin) {
         const activeAdministrators = await tx
           .select({ id: schema.consoleAccessGrantsPostgres.id })
@@ -679,7 +680,7 @@ export class PostgresAuthenticationRepository {
         );
       if (
         current.userId &&
-        (next.status === 'disabled' ||
+        ((next.status !== undefined && next.status !== 'active') ||
           (next.role === 'administrator' && current.role !== 'administrator'))
       ) {
         await tx

@@ -4,7 +4,7 @@
     {
       "id": "WEB-AUTH-1-1",
       "title": "Auth persistence and settings foundations",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-08-19T08:52:26+00:00",
       "base_sha": "332f82dc5cf8dfa068068ca236d379ba22bf8d46",
       "dirty_at_start": {
@@ -29,7 +29,13 @@
           "git": "? .factory/stages.json\u0000\u0000\u0000"
         }
       },
-      "task_sha256": "6885b6f8d168cd98f028119a130ecd5b6841ae782e71e6c25e9d3271b13140d2"
+      "task_sha256": "cbcda04191426c615da8ec32dd3b22a9eb137f8b0c1ab21afb7c603f79aa2f3a",
+      "completed_at": "2026-08-19T09:25:57+00:00",
+      "contract_changed": {
+        "at": "2026-08-19T09:25:57+00:00",
+        "from": "6885b6f8d168cd98f028119a130ecd5b6841ae782e71e6c25e9d3271b13140d2",
+        "to": "cbcda04191426c615da8ec32dd3b22a9eb137f8b0c1ab21afb7c603f79aa2f3a"
+      }
     },
     {
       "id": "WEB-AUTH-1-2",

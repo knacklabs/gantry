@@ -41,7 +41,11 @@ describe('authentication repository', () => {
     ).toBe(true);
   });
 
-  it('refuses to demote the final active administrator', async () => {
+  it.each([
+    ['demotion', { role: 'viewer' }],
+    ['disablement', { status: 'disabled' }],
+    ['pending reset', { status: 'awaiting_approval' }],
+  ] as const)('refuses final active administrator %s', async (_case, next) => {
     const rows = [
       [
         {
@@ -77,7 +81,7 @@ describe('authentication repository', () => {
       repository.updateGrant(
         'default',
         'grant-1',
-        { role: 'viewer' },
+        next,
         '2026-08-19T00:00:00.000Z',
       ),
     ).resolves.toBe(false);
