@@ -298,7 +298,7 @@ maybeDescribe('agent-e2e job lifecycle (packaged runtime, hermetic)', () => {
           env: {
             GANTRY_HOME: fakeHome,
             HOME: fakeHome,
-            GANTRY_E2E_ALLOW_PATH_CLAUDE: '1',
+            GANTRY_E2E_ALLOW_PATH_EXECUTABLE: '1',
             PATH: `${runnerBin}${path.delimiter}${process.env.PATH ?? '/usr/bin:/bin'}`,
           },
         });

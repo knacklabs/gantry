@@ -72,9 +72,8 @@ the protected model lane without weakening the hermetic E2E result.
 
 The default target is a real Gantry server managed by the existing harness:
 
-- `AGENT_E2E_RUNTIME_ROOT` points to the Gantry checkout/build containing
-  `dist/index.js` and `dist/postgres-migrate.js` (the current checkout is the
-  default);
+- `AGENT_E2E_RUNTIME_ROOT` points to the Gantry checkout containing the built
+  runtime and migration entrypoints (the current checkout is the default);
 - `GANTRY_TEST_DATABASE_URL` points to an admin database on a throwaway
   Postgres server; the harness creates and drops a unique database per run;
 - the harness creates a fresh temporary `GANTRY_HOME`, generated secrets, and

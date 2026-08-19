@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0033-f632",
+  "profile": "quickfix",
+  "reason": "Repair PR 424 duplicate E2E decision number and update its plan references",
+  "started_at": "2026-08-19T07:19:04+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}
