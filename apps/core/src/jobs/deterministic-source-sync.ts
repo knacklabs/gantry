@@ -262,7 +262,9 @@ function managedBrowserSandboxBridgeCommand(input: {
     'gantry_playwright_tmp="$PWD/.gantry-playwright-tmp"',
     'mkdir -p "$gantry_playwright_tmp"',
     'export TMPDIR="$gantry_playwright_tmp"',
-    `gantry_browser_bridge_log=/tmp/gantry-browser-cdp-${input.bridgePort}.log`,
+    // The sandbox makes /tmp read-only. Keep the bridge diagnostics beside the
+    // Playwright artifacts in the writable run workspace.
+    `gantry_browser_bridge_log="$gantry_playwright_tmp/gantry-browser-cdp-${input.bridgePort}.log"`,
     `socat -d -d "TCP-LISTEN:${input.bridgePort},bind=127.0.0.1,reuseaddr,fork" "${target}" 2>"$gantry_browser_bridge_log" &`,
     'gantry_browser_bridge_pid=$!',
     'cleanup_gantry_browser_bridge() {',
