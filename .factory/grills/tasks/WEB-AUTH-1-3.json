@@ -7,46 +7,39 @@
   "contradictions": [],
   "resolutions": [],
   "open_items": [],
-  "summary": "Browser-route restoration requires the owned safe authentication audit event constants. UI copy remains deferred to the dedicated UI stage; its source assertion is therefore deferred with it.",
+  "summary": "The 13-file budget exactly covers the committed OIDC/browser facade, its safe audit event vocabulary, package declaration, and focused tests; no unrelated surface is admitted.",
   "inspected_refs": [
+    "apps/core/src/adapters/auth/oidc-adapter.ts",
     "apps/core/src/control/server/routes/browser-auth.ts",
     "apps/core/src/domain/events/runtime-event-types.ts",
     "docs/decisions/0132-adaptive-browser-authentication-access.md"
   ],
-  "current_flow": "The hosted route implementation now composes the durable repository and Stage 2 boundary. Its only additional dependency is the safe runtime auth-event vocabulary; browser UI remains intentionally outside this backend stage.",
+  "current_flow": "The hosted browser-auth feature is complete at this boundary and requires exactly 13 code/test/package files. UI source remains deferred to its dedicated stage.",
   "criteria_map": {
-    "Generic OIDC validates discovery issuer, state, nonce, PKCE, signature, audience, expiry, replay, and allowlisted outbound transport without exposing provider errors.": "oidc-adapter.ts is the sole discovery/token/JWKS/claim-validation owner using the existing constrained transport.",
-    "Public local and hosted auth routes consume only opaque, hashed browser credentials; local authorization remains loopback-only and one-use, while browser and Bearer routes reject each other.": "browser-auth.ts composes established local and browser-boundary helpers without converting sessions into Bearer credentials.",
-    "Hosted identity is keyed by issuer plus subject, verified email is separate, access grants and invitations enforce role, expiry, email matching, reauthentication, rotation, and revocation semantics.": "browser-auth.ts uses durable repository identity, grant, invitation, session, and transaction methods established in Stage 1.",
-    "Only the full Control profile mounts UI and browser-auth routes; authentication responses are no-store and operational worker profiles do not expose the browser surface.": "index.ts and ui-static.ts restrict UI/browser-auth mounting to the full Control profile."
+    "Generic OIDC validates discovery issuer, state, nonce, PKCE, signature, audience, expiry, replay, and allowlisted outbound transport without exposing provider errors.": "oidc-adapter.ts owns discovery, PKCE/token exchange, JWKS validation, issuer, audience, expiry, and nonce checks using constrained transport.",
+    "Public local and hosted auth routes consume only opaque, hashed browser credentials; local authorization remains loopback-only and one-use, while browser and Bearer routes reject each other.": "browser-auth.ts consumes opaque local and browser credentials through Stage 2 helpers and repository atomic consumption.",
+    "Hosted identity is keyed by issuer plus subject, verified email is separate, access grants and invitations enforce role, expiry, email matching, reauthentication, rotation, and revocation semantics.": "browser-auth.ts uses durable identity, grant, invitation, session, rotation, and reauthentication repository methods.",
+    "Only the full Control profile mounts UI and browser-auth routes; authentication responses are no-store and operational worker profiles do not expose the browser surface.": "index.ts and ui-static.ts mount browser routes and UI only in the full profile."
   },
   "decision": "keep",
   "new_abstractions": [],
   "rounds": [
     {
-      "question": "Should authentication event names be improvised per route?",
+      "question": "Should the event vocabulary be omitted to preserve an arbitrary 12-file limit?",
       "options": [
-        "Use the central runtime event vocabulary",
-        "Log route-local strings"
+        "Set the exact 13-file capability budget",
+        "Drop required safe audit events"
       ],
-      "chosen": "Use the central runtime event vocabulary"
-    },
-    {
-      "question": "Should Stage 3 pull UI pages forward solely for a static source assertion?",
-      "options": [
-        "Keep UI in Stage 5",
-        "Move the UI stage into backend work"
-      ],
-      "chosen": "Keep UI in Stage 5"
+      "chosen": "Set the exact 13-file capability budget"
     }
   ],
   "citations": [
     {
-      "finding": "Authentication audit records must be safe and browser auth remains separate from the UI implementation layer.",
+      "finding": "Browser authentication requires secret-free audit events and profile-bound routing.",
       "source": "docs/decisions/0132-adaptive-browser-authentication-access.md"
     }
   ],
-  "input_sha256": "867a0671f2ca7fbf3b6e44c0e4d34825e796ef7d576d4c94d7fd6c2c67f542d1",
-  "recorded_at": "2026-08-20T09:58:31+00:00",
-  "commit": "933535392aa4a491e1021a6c5eed8a87a92b6080"
+  "input_sha256": "15b1399a3afe21ff9b4cc32730cb07ff1d9db9cd3ee2ccb52d0bcb39a3795a2c",
+  "recorded_at": "2026-08-20T10:03:52+00:00",
+  "commit": "d7640fe97d05f700abf0bfc56f6189e87780ccdf"
 }

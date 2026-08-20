@@ -200,9 +200,9 @@
         "npm run typecheck"
       ],
       "review_budget": {
-        "max_changed_files": 12,
+        "max_changed_files": 13,
         "max_changed_lines": 6500,
-        "reason": "One authenticated browser facade depends on a provider-neutral OIDC adapter and its focused contract tests."
+        "reason": "One authenticated browser facade requires the provider-neutral adapter, safe event vocabulary, full-profile wiring, package declaration, and focused contract tests."
       },
       "plan_contracts": [
         {
@@ -276,5 +276,5 @@
   "epic": "web-authentication",
   "plan_file": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md",
   "plan_sha256": "8f156263b545bcef9cb566173c0c1367deb2d6bc342a38ab04616562d2f275ec",
-  "commit": "933535392aa4a491e1021a6c5eed8a87a92b6080"
+  "commit": "d7640fe97d05f700abf0bfc56f6189e87780ccdf"
 }
