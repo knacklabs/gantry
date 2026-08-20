@@ -88,17 +88,43 @@
         }
       },
       "task_sha256": "920a08bf33440e9406b3539423d9a76a20c4cf5feaee2efc0e022be90e5edc5d",
-      "completed_at": "2026-08-20T11:57:58+00:00",
-      "contract_changed": {
-        "at": "2026-08-20T11:57:58+00:00",
-        "from": "0593aad728b19ffe20b4c4e29188bca2fd14dc45ac1f1419130a065b35b563cc",
-        "to": "920a08bf33440e9406b3539423d9a76a20c4cf5feaee2efc0e022be90e5edc5d"
-      }
+      "completed_at": "2026-08-20T11:57:58+00:00"
     },
     {
       "id": "WEB-AUTH-1-4",
       "title": "Auth operations, audit events, and documentation",
-      "status": "pending"
+      "status": "done",
+      "started_at": "2026-08-20T12:02:16+00:00",
+      "base_sha": "55e25ad92925cec297535576df0feec2322c1ccb",
+      "dirty_at_start": {
+        ".factory/decomposition.json": {
+          "digest": "f66aa41760c79e4ba8e244402b1bb1c206917e8aa4aa68112f5a5f4a1cc1d5f2",
+          "git": "1 .M N... 100644 100644 100644 ac710ccf2f30023495e49d6a007dd1b75d7ed445 ac710ccf2f30023495e49d6a007dd1b75d7ed445 .factory/decomposition.json\u0000\u0000100644 ac710ccf2f30023495e49d6a007dd1b75d7ed445 0\t.factory/decomposition.json\u0000\u0000H .factory/decomposition.json\u0000"
+        },
+        ".factory/events.jsonl": {
+          "digest": "4027f414818c686ebe9417c74f01bcc9be816169ae3ddce9b120a64104cb72b3",
+          "git": "1 .M N... 100644 100644 100644 0cb1ef0fbd3507cebadfc1c3a775ae960f1c08e1 0cb1ef0fbd3507cebadfc1c3a775ae960f1c08e1 .factory/events.jsonl\u0000\u0000100644 0cb1ef0fbd3507cebadfc1c3a775ae960f1c08e1 0\t.factory/events.jsonl\u0000\u0000H .factory/events.jsonl\u0000"
+        },
+        ".factory/grills/tasks/WEB-AUTH-1-4.json": {
+          "digest": "e130106270959d888938f4bb85ab1d81338518ee03e681f1928f9ea84e4fb348",
+          "git": "? .factory/grills/tasks/WEB-AUTH-1-4.json\u0000\u0000\u0000"
+        },
+        ".factory/run.json": {
+          "digest": "52f3822a2f0ec7aa7a5ae8cad2b115d67cc65e67208602e26c0ab3d38db2fc4b",
+          "git": "1 .M N... 100644 100644 100644 52af410c5696d074104eff6ce3e260cd5195e0d5 52af410c5696d074104eff6ce3e260cd5195e0d5 .factory/run.json\u0000\u0000100644 52af410c5696d074104eff6ce3e260cd5195e0d5 0\t.factory/run.json\u0000\u0000H .factory/run.json\u0000"
+        },
+        ".factory/stages.json": {
+          "digest": "ee51db33463b39030b0e077df49352a19e2680c04fd94bccb97947ca762be0e0",
+          "git": "1 .M N... 100644 100644 100644 7b883cbc92e10682205215d8109eaab9208c518e 7b883cbc92e10682205215d8109eaab9208c518e .factory/stages.json\u0000\u0000100644 7b883cbc92e10682205215d8109eaab9208c518e 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
+        }
+      },
+      "task_sha256": "87c2ff7dced697a3fb052ebb35b19f0c577d2c887ddf7dab0e130ad12b5b50af",
+      "completed_at": "2026-08-20T12:31:23+00:00",
+      "contract_changed": {
+        "at": "2026-08-20T12:31:23+00:00",
+        "from": "621d9594ee5903a175300947c896dfd9d1b740a8a5c3093d687cdb8fb06dfa05",
+        "to": "87c2ff7dced697a3fb052ebb35b19f0c577d2c887ddf7dab0e130ad12b5b50af"
+      }
     },
     {
       "id": "WEB-AUTH-1-5",

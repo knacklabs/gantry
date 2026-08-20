@@ -243,6 +243,67 @@
       ],
       "dependencies": [
         "WEB-AUTH-1-3"
+      ],
+      "write_scope": [
+        ".env.example",
+        "apps/core/src/cli/auth.ts",
+        "apps/core/src/cli/auth-access.ts",
+        "apps/core/src/cli/index.ts",
+        "apps/core/test/unit/auth/auth-cli.test.ts",
+        "docs/operations/authentication-access.md",
+        "scripts/architecture-exceptions.json",
+        "scripts/architecture-map.json",
+        "apps/core/src/adapters/storage/postgres/repositories/authentication-repository.postgres.ts",
+        "apps/core/test/unit/auth/authentication-repository.test.ts"
+      ],
+      "required_tests": [
+        {
+          "id": "authentication CLI > uses one-time local authorization and trusted access approval",
+          "path": "apps/core/test/unit/auth/auth-cli.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "authentication repository > records CLI recovery audit in the approval transaction",
+          "path": "apps/core/test/unit/auth/authentication-repository.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ],
+      "review_budget": {
+        "max_changed_files": 10,
+        "max_changed_lines": 550,
+        "reason": "The bounded restore also corrects the existing repository owner so grant approval and the safe CLI-recovery audit event share one transaction, with a focused unit proof."
+      },
+      "reviewer_focus": "Trusted first and lost administrator approval, one-time local authorization output, transactionality, safe operator messaging, no secret/raw-claim output, active-versus-candidate OIDC settings behavior, and CLI architecture boundary declarations. Confirm the CLI recovery audit insert uses the same transaction as grant activation and has only safe fields.",
+      "plan_contracts": [
+        {
+          "id": "AUTH-OPS-0",
+          "statement": "gantry ui and gantry ui authorize create local authorization links, and gantry auth access approve <reference> --role administrator|viewer writes the grant and audit event transactionally after confirmation.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-OPS-1",
+          "statement": "First-admin and lost-admin access references expire after 15 minutes and are stored as hashes on awaiting grants.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-OPS-2",
+          "statement": "OIDC candidate testing never changes active runtime behavior, failed tests preserve active configuration, and activation promotes the candidate through settings revisions.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-OPS-3",
+          "statement": "Audit events cover login classification, logout, revocation, invitations, access and role changes, reauthentication, configuration activation, and CLI recovery without tokens, raw claims, secrets, PKCE verifiers, or upstream errors.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-OPS-4",
+          "statement": "Docs cover local startup, hosted proxy and cache requirements, setup, first-admin approval, lost-admin recovery, and broken-OIDC recovery.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        }
       ]
     },
     {
@@ -278,5 +339,5 @@
   "epic": "web-authentication",
   "plan_file": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md",
   "plan_sha256": "8f156263b545bcef9cb566173c0c1367deb2d6bc342a38ab04616562d2f275ec",
-  "commit": "38a0dcac2f711d4fc4b5aee7c1f6b19ad41e2032"
+  "commit": "55e25ad92925cec297535576df0feec2322c1ccb"
 }
