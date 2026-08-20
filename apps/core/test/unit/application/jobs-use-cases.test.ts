@@ -1643,10 +1643,10 @@ describe('job application use cases', () => {
     ).toBe(true);
   });
 
-  it('shows a job whose route carries no provider account to an account-bearing query', () => {
-    // Regression: the KnackLabs lead job stored a notification route with no
-    // providerAccountId, so it was invisible to the agent's own list even from
-    // its conversation, because the query always carries an account.
+  it('scopes job visibility to the route provider account, fail-closed', () => {
+    // The check stays fail-closed on the account: a route must name the querying
+    // account. The KnackLabs regression (an unbound route hiding the job) is
+    // fixed by STAMPING the account at creation, not by wildcarding this check.
     const access = {
       sourceAgentFolder: 'team',
       originConversationJid: 'tg:team',
@@ -1671,22 +1671,23 @@ describe('job application use cases', () => {
           },
         ] as Job['notification_routes'],
       });
-    // UNBOUND route (no providerAccountId): reachable by any account.
-    expect(canAccessSchedulerJob(withRoute({}), access)).toBe(true);
-    // BOUND to the same account: reachable.
+    // Bound to the querying account: visible.
     expect(
       canAccessSchedulerJob(
         withRoute({ providerAccountId: 'telegram_default' }),
         access,
       ),
     ).toBe(true);
-    // BOUND to a DIFFERENT account: still hidden (fail-closed preserved).
+    // Bound to a DIFFERENT account: hidden (fail-closed).
     expect(
       canAccessSchedulerJob(
         withRoute({ providerAccountId: 'telegram_other' }),
         access,
       ),
     ).toBe(false);
+    // Unbound route (no account): also hidden — an absent account is ambiguous,
+    // not a wildcard; the fix is to stamp the account upstream, at creation.
+    expect(canAccessSchedulerJob(withRoute({}), access)).toBe(false);
   });
 
   it('validates scheduler thread mutations', () => {

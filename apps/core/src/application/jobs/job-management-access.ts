@@ -25,12 +25,10 @@ export function canAccessSchedulerJob(
   if (executionConversationJid) {
     if (executionConversationJid !== originConversationJid) return false;
     if (!originProviderAccountId) return true;
-    return notificationRoutes.some((route) =>
-      routeReachableFromAccount(
-        route,
-        originConversationJid,
-        originProviderAccountId,
-      ),
+    return notificationRoutes.some(
+      (route) =>
+        normalizeOptional(route.conversationJid) === originConversationJid &&
+        normalizeOptional(route.providerAccountId) === originProviderAccountId,
     );
   }
   if (notificationRoutes.length > 0) {
@@ -38,36 +36,11 @@ export function canAccessSchedulerJob(
       (route) =>
         normalizeOptional(route.conversationJid) === originConversationJid &&
         (!originProviderAccountId ||
-          routeReachableFromAccount(
-            route,
-            originConversationJid,
-            originProviderAccountId,
-          )),
+          normalizeOptional(route.providerAccountId) ===
+            originProviderAccountId),
     );
   }
   return true;
-}
-
-// A notification route in the right conversation is reachable from a querying
-// provider account when it is BOUND to that account — or bound to NO account at
-// all. An unbound route (no providerAccountId, e.g. a job created before routes
-// carried the account) is not claiming any installation, so it cannot leak
-// across accounts; hiding it just makes the owner's own job invisible. A route
-// bound to a DIFFERENT account still fails, so the fail-closed guarantee holds
-// for genuinely account-scoped routes.
-function routeReachableFromAccount(
-  route: NonNullable<Job['notification_routes']>[number],
-  originConversationJid: string,
-  originProviderAccountId: string,
-): boolean {
-  if (normalizeOptional(route.conversationJid) !== originConversationJid) {
-    return false;
-  }
-  const routeProviderAccountId = normalizeOptional(route.providerAccountId);
-  return (
-    routeProviderAccountId === undefined ||
-    routeProviderAccountId === originProviderAccountId
-  );
 }
 
 export function assertSchedulerJobAccess(
