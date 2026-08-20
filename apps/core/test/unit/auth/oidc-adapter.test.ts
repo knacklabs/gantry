@@ -13,6 +13,7 @@ it('OIDC adapter > rejects discovery with a mismatched issuer or insecure endpoi
           authorization_endpoint: 'https://issuer.example/auth',
           token_endpoint: 'https://issuer.example/token',
           jwks_uri: 'https://issuer.example/jwks',
+          id_token_signing_alg_values_supported: ['RS256'],
         }),
         { status: 200 },
       ),
@@ -29,12 +30,29 @@ it('OIDC adapter > rejects discovery with a mismatched issuer or insecure endpoi
           authorization_endpoint: 'https://issuer.example/auth',
           token_endpoint: 'http://issuer.example/token',
           jwks_uri: 'https://issuer.example/jwks',
+          id_token_signing_alg_values_supported: ['RS256'],
         }),
         { status: 200 },
       ),
   );
   await expect(
     insecureAdapter.discover('https://issuer.example'),
+  ).rejects.toThrow('OIDC discovery is invalid');
+
+  const unsignedMetadataAdapter = new OidcAdapter(
+    async () =>
+      new Response(
+        JSON.stringify({
+          issuer: 'https://issuer.example',
+          authorization_endpoint: 'https://issuer.example/auth',
+          token_endpoint: 'https://issuer.example/token',
+          jwks_uri: 'https://issuer.example/jwks',
+        }),
+        { status: 200 },
+      ),
+  );
+  await expect(
+    unsignedMetadataAdapter.discover('https://issuer.example'),
   ).rejects.toThrow('OIDC discovery is invalid');
 
   let requested = false;
@@ -60,6 +78,7 @@ it('OIDC adapter > uses authorization-code PKCE and rejects malformed token resp
     authorization_endpoint: 'https://issuer.example/authorize',
     token_endpoint: 'https://issuer.example/token',
     jwks_uri: 'https://issuer.example/jwks',
+    id_token_signing_alg_values_supported: ['RS256'],
   };
   const url = new URL(
     adapter.authorizationUrl({
@@ -99,12 +118,14 @@ it('OIDC adapter > validates signed issuer, audience, expiry, and nonce claims',
     authorization_endpoint: 'https://issuer.example/authorize',
     token_endpoint: 'https://issuer.example/token',
     jwks_uri: 'https://issuer.example/jwks',
+    id_token_signing_alg_values_supported: ['RS256'],
   };
   const signedToken = async (
     claims: Record<string, unknown> = {},
     options: {
       issuer?: string;
-      audience?: string;
+      audience?: string | string[];
+      authorizedParty?: string;
       includeExpiration?: boolean;
     } = {},
   ) => {
@@ -116,6 +137,7 @@ it('OIDC adapter > validates signed issuer, audience, expiry, and nonce claims',
       email_verified: true,
       hd: 'EXAMPLE.COM',
       ...rest,
+      ...(options.authorizedParty ? { azp: options.authorizedParty } : {}),
     })
       .setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
       .setIssuer(options.issuer ?? discovery.issuer)
@@ -164,6 +186,31 @@ it('OIDC adapter > validates signed issuer, audience, expiry, and nonce claims',
       nonceHash: hashAuthToken('expected-nonce'),
     }),
   ).rejects.toThrow();
+  await expect(
+    adapter.validateIdToken({
+      token: await signedToken(),
+      discovery: {
+        ...discovery,
+        id_token_signing_alg_values_supported: ['PS256'],
+      },
+      clientId: 'client',
+      nonceHash: hashAuthToken('expected-nonce'),
+    }),
+  ).rejects.toThrow();
+  await expect(
+    adapter.validateIdToken({
+      token: await signedToken(
+        {},
+        {
+          audience: ['client', 'other-client'],
+          authorizedParty: 'other-client',
+        },
+      ),
+      discovery,
+      clientId: 'client',
+      nonceHash: hashAuthToken('expected-nonce'),
+    }),
+  ).rejects.toThrow('OIDC token claims are invalid');
   await expect(
     adapter.validateIdToken({
       token: await signedToken({ exp: Math.floor(Date.now() / 1000) - 1 }),

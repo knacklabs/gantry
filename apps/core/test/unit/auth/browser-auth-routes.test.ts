@@ -39,6 +39,10 @@ it('browser authentication routes > keeps browser protocol routes separate and r
   );
   expect(source).toContain('repo.revokeSession(');
   expect(source).toContain('transaction.reauthenticateSessionHash');
+  expect(source).toContain(
+    'sessionHash: transaction.reauthenticateSessionHash',
+  );
+  expect(source).toContain('OIDC reauthentication session is invalid');
   expect(source).toContain('RUNTIME_EVENT_TYPES.AUTH_INVITATION_ACCEPTED');
   expect(source).toContain('RUNTIME_EVENT_TYPES.AUTH_INVITATION_REVOKED');
   expect(source).toContain(

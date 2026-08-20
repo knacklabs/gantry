@@ -542,13 +542,31 @@ export async function handleBrowserAuthRoutes(
         verifiedEmail: identity.emailVerified ? identity.email : undefined,
       });
       if (!person.personId) throw new Error('OIDC identity attestation failed');
-      if (
-        transaction.reauthenticateUserId &&
-        transaction.reauthenticateUserId !== person.personId
-      ) {
-        throw new Error('OIDC reauthentication identity mismatch');
-      }
       const repo = repository();
+      if (
+        transaction.reauthenticateUserId ||
+        transaction.reauthenticateSessionHash
+      ) {
+        const now = new Date();
+        const reauthenticationSession =
+          transaction.reauthenticateUserId &&
+          transaction.reauthenticateSessionHash
+            ? await repo.getActiveSession({
+                sessionHash: transaction.reauthenticateSessionHash,
+                now: now.toISOString(),
+                nextIdleExpiresAt: sessionLifetimes('hosted', now)
+                  .idleExpiresAt,
+              })
+            : null;
+        if (
+          !reauthenticationSession ||
+          reauthenticationSession.appId !== transaction.appId ||
+          reauthenticationSession.userId !== person.personId ||
+          transaction.reauthenticateUserId !== person.personId
+        ) {
+          throw new Error('OIDC reauthentication session is invalid');
+        }
+      }
       if (transaction.invitationTokenHash) {
         if (!identity.emailVerified || !identity.email) {
           await recordAuthEvent({

@@ -9,6 +9,7 @@ export type OidcDiscovery = {
   authorization_endpoint: string;
   token_endpoint: string;
   jwks_uri: string;
+  id_token_signing_alg_values_supported: string[];
 };
 
 export type VerifiedOidcIdentity = {
@@ -41,7 +42,12 @@ export class OidcAdapter {
       discovery.issuer !== normalizedIssuer ||
       !isHttpsUrl(discovery.authorization_endpoint) ||
       !isHttpsUrl(discovery.token_endpoint) ||
-      !isHttpsUrl(discovery.jwks_uri)
+      !isHttpsUrl(discovery.jwks_uri) ||
+      !Array.isArray(discovery.id_token_signing_alg_values_supported) ||
+      discovery.id_token_signing_alg_values_supported.length === 0 ||
+      discovery.id_token_signing_alg_values_supported.some(
+        (algorithm) => typeof algorithm !== 'string' || !algorithm,
+      )
     )
       throw new Error('OIDC discovery is invalid');
     return discovery as OidcDiscovery;
@@ -59,9 +65,16 @@ export class OidcAdapter {
     const { payload } = await jwtVerify(input.token, jwks, {
       issuer: input.discovery.issuer,
       audience: input.clientId,
+      algorithms: input.discovery.id_token_signing_alg_values_supported,
       requiredClaims: ['exp'],
     });
+    const hasInvalidAuthorizedParty =
+      (Array.isArray(payload.aud) &&
+        payload.aud.length > 1 &&
+        typeof payload.azp !== 'string') ||
+      (payload.azp !== undefined && payload.azp !== input.clientId);
     if (
+      hasInvalidAuthorizedParty ||
       typeof payload.nonce !== 'string' ||
       hashAuthToken(payload.nonce) !== input.nonceHash ||
       typeof payload.sub !== 'string' ||
