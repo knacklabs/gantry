@@ -156,6 +156,7 @@ export async function sendJobNotification(input: {
   runId?: string | null;
   actionAffordances?: MessageSendOptions['actionAffordances'];
   reviewMessageView?: MessageSendOptions['reviewMessageView'];
+  jobNotificationView?: MessageSendOptions['jobNotificationView'];
   sendMessage?: SchedulerSendMessage;
   enqueueDurableNotification?: EnqueueDurableJobNotification;
 }): Promise<boolean> {
@@ -224,7 +225,8 @@ export async function sendJobNotification(input: {
       route.threadId ||
       route.providerAccountId ||
       input.actionAffordances ||
-      input.reviewMessageView
+      input.reviewMessageView ||
+      input.jobNotificationView
         ? {
             ...(route.threadId ? { threadId: route.threadId } : {}),
             ...(route.providerAccountId
@@ -235,6 +237,9 @@ export async function sendJobNotification(input: {
               : {}),
             ...(input.reviewMessageView
               ? { reviewMessageView: input.reviewMessageView }
+              : {}),
+            ...(input.jobNotificationView
+              ? { jobNotificationView: input.jobNotificationView }
               : {}),
           }
         : undefined;

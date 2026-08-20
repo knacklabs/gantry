@@ -1,4 +1,4 @@
-import type { Job } from '../domain/types.js';
+import type { Job, JobNotificationView } from '../domain/types.js';
 import type { JobToolDenial } from '../domain/events/job-tool-denial.js';
 import type { JobRunDiagnostics } from './execution-diagnostics.js';
 import { formatDuration } from '../shared/human-format.js';
@@ -149,17 +149,31 @@ function terminalRunStats(args: {
   durationMs?: number;
   diagnostics?: JobRunDiagnostics;
 }): string | null {
+  const stats = terminalRunNotificationStats(args);
+  if (!stats || args.durationMs === undefined) return null;
+  return `${formatDuration(args.durationMs)}, ${stats.toolCount} tool${stats.toolCount === 1 ? '' : 's'}, ${stats.browserUsed ? 'browser used' : 'browser not used'}, last ${stats.lastAction}`;
+}
+
+export function terminalRunNotificationStats(args: {
+  runStatus: 'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered';
+  durationMs?: number;
+  diagnostics?: JobRunDiagnostics;
+}): JobNotificationView['stats'] | undefined {
   if (
     (args.runStatus !== 'completed' && args.runStatus !== 'failed') ||
     !args.diagnostics ||
     args.durationMs === undefined
   ) {
-    return null;
+    return undefined;
   }
   const { diagnostics } = args;
   const toolCount = diagnostics.totalToolCalls;
   const lastAction = diagnostics.lastTool ?? diagnostics.currentTool ?? 'none';
-  return `${formatDuration(args.durationMs)}, ${toolCount} tool${toolCount === 1 ? '' : 's'}, ${diagnostics.browserActivityCount > 0 ? 'browser used' : 'browser not used'}, last ${lastAction}`;
+  return {
+    toolCount,
+    browserUsed: diagnostics.browserActivityCount > 0,
+    lastAction,
+  };
 }
 
 function humanizeSummary(summary: string): string {

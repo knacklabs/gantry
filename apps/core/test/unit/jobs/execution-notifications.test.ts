@@ -699,6 +699,53 @@ describe('jobs/execution-notifications', () => {
     expect(message).not.toContain('Now searching');
   });
 
+  it('builds and delivers the terminal job notification view', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+
+    await notifySchedulerTerminalRunState({
+      job: makeJob({ name: 'Fixture Lead Maintenance' }),
+      runId: 'run-1',
+      runStatus: 'completed',
+      summary: 'Added 3 leads.',
+      nextRun: '2026-05-18T02:35:00.000Z',
+      retryCount: 0,
+      pauseReason: null,
+      durationMs: 567_000,
+      diagnostics: {
+        pendingPermissionRequests: 0,
+        pendingPermissionToolNames: [],
+        totalToolCalls: 4,
+        browserActivityCount: 1,
+        lastTool: 'browser_click',
+        transientPermissionApprovals: [],
+        startupDiagnostics: [],
+        latestStreamedOutputChars: 0,
+        totalStreamedOutputChars: 0,
+        terminalToolDenials: [],
+      },
+      sendMessage,
+    });
+
+    const [, , options] = sendMessage.mock.calls[0] ?? [];
+    expect(options).toMatchObject({
+      jobNotificationView: {
+        status: 'completed',
+        jobName: 'Fixture Lead Maintenance',
+        durationMs: 567_000,
+        stats: {
+          toolCount: 4,
+          browserUsed: true,
+          lastAction: 'browser_click',
+        },
+        nextRunAt: '2026-05-18T02:35:00.000Z',
+      },
+    });
+    expect(options?.jobNotificationView?.fallbackText).toBe(
+      sendMessage.mock.calls[0]?.[1],
+    );
+    expect(options?.jobNotificationView?.result).toBeUndefined();
+  });
+
   it('sends the review card + 3 decision affordances instead of a bare count', async () => {
     const sendMessage = vi.fn(async () => undefined);
 
