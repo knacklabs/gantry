@@ -67,6 +67,7 @@
     "apps/core/src/application/sessions/session-interaction-module.ts": 745,
     "apps/core/src/adapters/storage/postgres/repositories/person-identity-repository.postgres.ts": 1230,
     "apps/core/src/control/server/routes/browser-auth.ts": 1400,
+    "apps/core/src/adapters/storage/postgres/repositories/authentication-repository.postgres.ts": 720,
     "apps/core/src/adapters/storage/postgres/repositories/message-attachment-repository.postgres.ts": 730,
     "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts": 705,
     "apps/core/src/application/attachments/attachment-resolver.ts": 710,

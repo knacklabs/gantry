@@ -6,11 +6,17 @@ import type {
   ConsoleAccessStatus,
   ConsoleRole,
 } from '../../../../application/auth/auth-foundations.js';
+import type { AppId } from '../../../../domain/app/app.js';
+import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import * as schema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import { PostgresRuntimeEventRepository } from './runtime-event-repository.postgres.js';
 
 export class PostgresAuthenticationRepository {
-  constructor(private readonly db: CanonicalDb) {}
+  constructor(
+    private readonly db: CanonicalDb,
+    private readonly runtimeEvents = new PostgresRuntimeEventRepository(db),
+  ) {}
 
   async createLocalAuthorizationCode(input: {
     appId: string;
@@ -367,6 +373,7 @@ export class PostgresAuthenticationRepository {
   async approveAccessReference(input: {
     accessReferenceHash: string;
     role: ConsoleRole;
+    actor: string;
     now: string;
   }) {
     return this.db.transaction(async (tx) => {
@@ -399,7 +406,14 @@ export class PostgresAuthenticationRepository {
         })
         .where(eq(schema.consoleAccessGrantsPostgres.id, grant.id))
         .returning();
-      return updated ?? null;
+      if (!updated) return null;
+      await this.runtimeEvents.appendRuntimeEventWithExecutor(tx, {
+        appId: updated.appId as AppId,
+        eventType: RUNTIME_EVENT_TYPES.AUTH_ACCESS_RECOVERED,
+        actor: input.actor,
+        payload: { userId: updated.userId, role: updated.role },
+      });
+      return updated;
     });
   }
 

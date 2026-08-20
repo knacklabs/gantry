@@ -113,3 +113,58 @@ describe('authentication repository', () => {
     expect(source).not.toContain('count(*)::int');
   });
 });
+
+it('authentication repository > records CLI recovery audit in the approval transaction', async () => {
+  const grant = {
+    id: 'grant-1',
+    appId: 'default',
+    userId: 'user-1',
+    role: 'administrator',
+    status: 'active',
+  };
+  const tx = {
+    select: vi.fn(() => ({
+      from: () => ({
+        where: () => ({ for: vi.fn(async () => [grant]) }),
+      }),
+    })),
+    update: vi.fn(() => ({
+      set: () => ({
+        where: () => ({ returning: vi.fn(async () => [grant]) }),
+      }),
+    })),
+  };
+  const db = {
+    transaction: vi.fn(
+      async (operation: (executor: typeof tx) => Promise<unknown>) =>
+        operation(tx),
+    ),
+  };
+  const appendRuntimeEventWithExecutor = vi.fn(async () => undefined);
+  const repository = new PostgresAuthenticationRepository(
+    db as never,
+    {
+      appendRuntimeEventWithExecutor,
+    } as never,
+  );
+
+  await expect(
+    repository.approveAccessReference({
+      accessReferenceHash: 'hash-only-reference',
+      role: 'administrator',
+      actor: 'cli:auth-access',
+      now: '2026-08-20T00:00:00.000Z',
+    }),
+  ).resolves.toEqual(grant);
+  expect(appendRuntimeEventWithExecutor).toHaveBeenCalledWith(
+    tx,
+    expect.objectContaining({
+      eventType: 'auth.access.recovered',
+      actor: 'cli:auth-access',
+      payload: { userId: 'user-1', role: 'administrator' },
+    }),
+  );
+  expect(
+    JSON.stringify(appendRuntimeEventWithExecutor.mock.calls),
+  ).not.toContain('hash-only-reference');
+});
