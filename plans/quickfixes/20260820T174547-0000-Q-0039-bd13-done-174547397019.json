@@ -1,0 +1,13 @@
+{
+  "event": "done",
+  "id": "Q-0039-bd13",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "DIAG-2 autoreview P2: when a summary has no space/sentence boundary before the limit, hard-cut at the limit instead of char 1",
+  "started_at": "2026-08-20T17:21:29+00:00",
+  "completed_at": "2026-08-20T17:45:47+00:00",
+  "files": [
+    "apps/core/src/jobs/status-formatting.ts",
+    "apps/core/test/unit/jobs/status-formatting.test.ts"
+  ]
+}
