@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0038-dd18",
+  "profile": "lite",
+  "reason": "DIAG-1: log bounded capability_run capabilityId+args+stdout/stderr into mcp.tool_activity for run diagnosability",
+  "started_at": "2026-08-20T12:56:09+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi",
+  "base_sha": "655c58a02a16bff783c3e089f3556b9ad07c92b7"
+}
