@@ -17,7 +17,7 @@ function safeOperatorText(
   fallback: string,
 ): string {
   return (
-    value?.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim() || fallback
+    value?.replace(/\p{Cc}/gu, ' ').trim() || fallback
   ).slice(0, 200);
 }
 

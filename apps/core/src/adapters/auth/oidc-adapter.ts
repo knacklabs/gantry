@@ -38,15 +38,15 @@ export class OidcAdapter {
       response = await this.fetcher(
         `${normalizedIssuer}/.well-known/openid-configuration`,
       );
-    } catch {
-      throw new Error('OIDC discovery failed');
+    } catch (error) {
+      throw new Error('OIDC discovery failed', { cause: error });
     }
     if (!response.ok) throw new Error('OIDC discovery failed');
     let discovery: Partial<OidcDiscovery>;
     try {
       discovery = (await response.json()) as Partial<OidcDiscovery>;
-    } catch {
-      throw new Error('OIDC discovery is invalid');
+    } catch (error) {
+      throw new Error('OIDC discovery is invalid', { cause: error });
     }
     if (
       discovery.issuer !== normalizedIssuer ||
@@ -80,8 +80,8 @@ export class OidcAdapter {
         algorithms: input.discovery.id_token_signing_alg_values_supported,
         requiredClaims: ['exp'],
       }));
-    } catch {
-      throw new Error('OIDC token validation failed');
+    } catch (error) {
+      throw new Error('OIDC token validation failed', { cause: error });
     }
     const hasInvalidAuthorizedParty =
       (Array.isArray(payload.aud) &&
@@ -154,15 +154,15 @@ export class OidcAdapter {
         }),
         redirect: 'error',
       });
-    } catch {
-      throw new Error('OIDC token exchange failed');
+    } catch (error) {
+      throw new Error('OIDC token exchange failed', { cause: error });
     }
     if (!response.ok) throw new Error('OIDC token exchange failed');
     let body: { id_token?: unknown };
     try {
       body = (await response.json()) as { id_token?: unknown };
-    } catch {
-      throw new Error('OIDC token response is invalid');
+    } catch (error) {
+      throw new Error('OIDC token response is invalid', { cause: error });
     }
     if (typeof body.id_token !== 'string' || !body.id_token) {
       throw new Error('OIDC token response is invalid');
