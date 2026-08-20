@@ -46,7 +46,9 @@ it('keeps the approved public copy and removes fragment credentials', () => {
   expect(source).toContain('Access is deliberate.');
   expect(source).toContain('Preparing your console');
   expect(source).toContain('Checking your authorized session.');
-  expect(rootRoute).toContain('return <AuthLoadingPage />');
+  expect(rootRoute).toContain('beforeLoad: async');
+  expect(rootRoute).toContain("throw redirect({ to: '/auth/sign-in' })");
+  expect(rootRoute).toContain('pendingComponent: AuthLoadingPage');
   expect(styles).toContain('minmax(min(100%, 30rem), 1fr)');
 });
 

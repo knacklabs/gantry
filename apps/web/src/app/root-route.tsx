@@ -1,9 +1,9 @@
 import {
   createRootRoute,
   Outlet,
+  redirect,
   useRouterState,
 } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
 
 import { NotFoundRoute } from '../routes/not-found-route';
 import { AuthLoadingPage } from '../features/auth/auth-pages';
@@ -13,28 +13,16 @@ type BrowserSession = {
   absoluteExpiresAt: string;
 };
 
-function ProtectedAppShell() {
-  const [session, setSession] = useState<BrowserSession | null | undefined>();
+function isPublicAuthPath(pathname: string) {
+  return (
+    pathname === '/auth' ||
+    pathname.startsWith('/auth/') ||
+    pathname === '/ui/auth' ||
+    pathname.startsWith('/ui/auth/')
+  );
+}
 
-  useEffect(() => {
-    void fetch('/ui/api/auth/session', { credentials: 'same-origin' })
-      .then(async (response) => {
-        if (!response.ok) {
-          window.location.replace('/ui/auth/sign-in');
-          setSession(null);
-          return;
-        }
-        const body = await response.json();
-        setSession({ absoluteExpiresAt: body.absoluteExpiresAt });
-      })
-      .catch(() => {
-        window.location.replace('/ui/auth/sign-in');
-        setSession(null);
-      });
-  }, []);
-
-  if (session === undefined) return <AuthLoadingPage />;
-  if (session === null) return null;
+function ProtectedAppShell({ session }: { session: BrowserSession }) {
   const expiresSoon =
     new Date(session.absoluteExpiresAt).getTime() - Date.now() <= 5 * 60 * 1000;
   return (
@@ -61,17 +49,37 @@ function RootLayout() {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
-  return pathname === '/auth' ||
-    pathname.startsWith('/auth/') ||
-    pathname === '/ui/auth' ||
-    pathname.startsWith('/ui/auth/') ? (
+  const { session } = rootRoute.useRouteContext();
+  return isPublicAuthPath(pathname) || !session ? (
     <Outlet />
   ) : (
-    <ProtectedAppShell />
+    <ProtectedAppShell session={session} />
   );
 }
 
 export const rootRoute = createRootRoute({
+  beforeLoad: async ({ abortController, location }) => {
+    if (isPublicAuthPath(location.pathname)) return { session: null };
+    const session = await fetch('/ui/api/auth/session', {
+      credentials: 'same-origin',
+      signal: abortController.signal,
+    })
+      .then(async (response): Promise<BrowserSession | null> => {
+        if (!response.ok) return null;
+        const body: unknown = await response.json();
+        return typeof body === 'object' &&
+          body !== null &&
+          'absoluteExpiresAt' in body &&
+          typeof body.absoluteExpiresAt === 'string'
+          ? { absoluteExpiresAt: body.absoluteExpiresAt }
+          : null;
+      })
+      .catch(() => null);
+    if (!session) throw redirect({ to: '/auth/sign-in' });
+    return { session };
+  },
   component: RootLayout,
   notFoundComponent: NotFoundRoute,
+  pendingComponent: AuthLoadingPage,
+  pendingMs: 0,
 });
