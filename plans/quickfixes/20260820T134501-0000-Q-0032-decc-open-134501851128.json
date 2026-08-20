@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0032-decc",
+  "profile": "quickfix",
+  "reason": "Fix authentication lint violations exposed by final verification",
+  "started_at": "2026-08-20T13:45:01+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

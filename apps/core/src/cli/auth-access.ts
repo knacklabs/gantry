@@ -16,9 +16,7 @@ function safeOperatorText(
   value: string | null | undefined,
   fallback: string,
 ): string {
-  return (
-    value?.replace(/\p{Cc}/gu, ' ').trim() || fallback
-  ).slice(0, 200);
+  return (value?.replace(/\p{Cc}/gu, ' ').trim() || fallback).slice(0, 200);
 }
 
 export async function runAuthCommand(
