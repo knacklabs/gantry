@@ -415,7 +415,8 @@ export async function startRuntimeServices(
       getToolRepository: resolved.getToolRepository,
       getAsyncTaskRepository: resolved.getAsyncTaskRepository,
       getBrowserStatus,
-      openBrowserSession: (profileName) => ensureBrowserReady({ profileName }),
+      openBrowserSession: (profileName, options) =>
+        ensureBrowserReady({ profileName, ...options }),
       executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
       executionAdapters: resolved.executionAdapters ?? app.executionAdapters,
       runnerSandboxProvider:

@@ -54,6 +54,7 @@ const MANAGED_BROWSER_ACTION_RESOURCE_LIMITS = {
 // Scrape commands usually finish sooner; this is the maximum boundary for the
 // reviewed deterministic browser action, not an unbounded process.
 const MANAGED_BROWSER_ACTION_TIMEOUT_MS = 1_800_000;
+const MANAGED_BROWSER_CLEANUP_GRACE_MS = 60_000;
 
 // This name is only meaningful to the run-scoped egress gateway. It is mapped
 // to the exact loopback CDP port for the managed browser; it has no DNS record
@@ -137,7 +138,12 @@ export async function runDeterministicManagedBrowserActions(input: {
     conversationId: input.conversationId,
     providerAccountId: input.providerAccountId ?? null,
   });
-  const browser = await input.deps.openBrowserSession(profileName);
+  const browser = await input.deps.openBrowserSession(profileName, {
+    // Direct CDP traffic does not pass through Gantry's Browser tool, so it
+    // cannot refresh the generic five-minute idle timer. Keep Chrome alive for
+    // the bounded deterministic action; terminal job cleanup still closes it.
+    keepAliveMs: deterministicBrowserKeepAliveMs(input.timeoutMs),
+  });
   if (!browser.running || !browser.cdpReady || !browser.port) {
     throw new Error(
       'Managed browser did not become ready for deterministic skill execution.',
@@ -232,6 +238,14 @@ export async function runDeterministicManagedBrowserActions(input: {
   } finally {
     await closeEgressGateway(gateway);
   }
+}
+
+export function deterministicBrowserKeepAliveMs(timeoutMs: number): number {
+  const boundedActionMs = Math.max(
+    10_000,
+    Math.min(timeoutMs, MANAGED_BROWSER_ACTION_TIMEOUT_MS),
+  );
+  return boundedActionMs + MANAGED_BROWSER_CLEANUP_GRACE_MS;
 }
 
 function managedBrowserSandboxBridgePort(input: {
