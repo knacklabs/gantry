@@ -10,6 +10,7 @@ import {
 import { operationsRoutes } from './routes/operations-routes';
 import { runtimeRoutes } from './routes/runtime-routes';
 import { workflowRoutes } from './routes/workflow-routes';
+import { authRoutes } from './routes/auth-routes';
 
 const productRoutes = [
   ...foundationRoutes,
@@ -21,8 +22,12 @@ const productRoutes = [
 ];
 
 const routeTree = developmentRoutes.length
-  ? rootRoute.addChildren([...productRoutes, ...developmentRoutes])
-  : rootRoute.addChildren(productRoutes);
+  ? rootRoute.addChildren([
+      ...productRoutes,
+      ...authRoutes,
+      ...developmentRoutes,
+    ])
+  : rootRoute.addChildren([...productRoutes, ...authRoutes]);
 
 export const router = createRouter({
   basepath: '/ui',
