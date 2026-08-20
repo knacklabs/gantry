@@ -20,7 +20,17 @@ export interface RuntimeGroupDb {
   ): Promise<NewMessage[]>;
   setConversationRoute(jid: string, group: ConversationRoute): Promise<void>;
   deleteConversationRoute(jid: string): Promise<void>;
-  deleteSession(workspaceFolder: string): Promise<void>;
+  deleteSession(
+    workspaceFolder: string,
+    threadId?: string | null,
+    scope?: {
+      conversationJid?: string;
+      providerAccountId?: string;
+      conversationKind?: 'dm' | 'channel';
+      agentId?: string;
+    },
+  ): Promise<void>;
+  deleteJob(jobId: string): Promise<void>;
   getFileArtifactStore(): FileArtifactStore;
   getRuntimeSecrets?(): RuntimeSecretProvider;
   close(): Promise<void>;
@@ -84,8 +94,28 @@ function createProviderRuntimeGroupDb(runtime: StorageRuntime): RuntimeGroupDb {
       await runtime.ops.deleteConversationRoute(jid);
     },
 
-    async deleteSession(workspaceFolder: string): Promise<void> {
-      await runtime.ops.deleteSessionsByAgentFolder(workspaceFolder);
+    async deleteSession(
+      workspaceFolder: string,
+      threadId?: string | null,
+      scope?: {
+        conversationJid?: string;
+        providerAccountId?: string;
+        conversationKind?: 'dm' | 'channel';
+        agentId?: string;
+      },
+    ): Promise<void> {
+      // Scope the delete to the route's own conversation so a folder shared by
+      // other live routes is never wiped (no folder-wide deletion to race).
+      await runtime.ops.deleteSession(workspaceFolder, threadId ?? null, {
+        conversationJid: scope?.conversationJid,
+        providerAccountId: scope?.providerAccountId,
+        conversationKind: scope?.conversationKind,
+        agentId: scope?.agentId,
+      });
+    },
+
+    async deleteJob(jobId: string): Promise<void> {
+      await runtime.ops.deleteJob(jobId);
     },
 
     getFileArtifactStore(): FileArtifactStore {
