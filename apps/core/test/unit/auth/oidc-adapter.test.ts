@@ -4,7 +4,7 @@ import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { OidcAdapter } from '@core/adapters/auth/oidc-adapter.js';
 import { hashAuthToken } from '@core/shared/auth-tokens.js';
 
-it('OIDC adapter > rejects discovery with a mismatched issuer', async () => {
+it('OIDC adapter > rejects discovery with a mismatched issuer or insecure endpoints', async () => {
   const adapter = new OidcAdapter(
     async () =>
       new Response(
@@ -20,6 +20,22 @@ it('OIDC adapter > rejects discovery with a mismatched issuer', async () => {
   await expect(adapter.discover('https://issuer.example')).rejects.toThrow(
     'OIDC discovery is invalid',
   );
+
+  const insecureAdapter = new OidcAdapter(
+    async () =>
+      new Response(
+        JSON.stringify({
+          issuer: 'https://issuer.example',
+          authorization_endpoint: 'https://issuer.example/auth',
+          token_endpoint: 'http://issuer.example/token',
+          jwks_uri: 'https://issuer.example/jwks',
+        }),
+        { status: 200 },
+      ),
+  );
+  await expect(
+    insecureAdapter.discover('https://issuer.example'),
+  ).rejects.toThrow('OIDC discovery is invalid');
 });
 
 it('OIDC adapter > uses authorization-code PKCE and rejects malformed token responses', async () => {
@@ -71,9 +87,16 @@ it('OIDC adapter > validates signed issuer, audience, expiry, and nonce claims',
     token_endpoint: 'https://issuer.example/token',
     jwks_uri: 'https://issuer.example/jwks',
   };
-  const signedToken = async (claims: Record<string, unknown> = {}) => {
+  const signedToken = async (
+    claims: Record<string, unknown> = {},
+    options: {
+      issuer?: string;
+      audience?: string;
+      includeExpiration?: boolean;
+    } = {},
+  ) => {
     const { exp, ...rest } = claims;
-    return new SignJWT({
+    let token = new SignJWT({
       sub: 'subject-1',
       nonce: 'expected-nonce',
       email: 'PERSON@EXAMPLE.COM ',
@@ -82,11 +105,13 @@ it('OIDC adapter > validates signed issuer, audience, expiry, and nonce claims',
       ...rest,
     })
       .setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
-      .setIssuer(discovery.issuer)
-      .setAudience('client')
-      .setIssuedAt()
-      .setExpirationTime(typeof exp === 'number' ? exp : '5m')
-      .sign(privateKey);
+      .setIssuer(options.issuer ?? discovery.issuer)
+      .setAudience(options.audience ?? 'client')
+      .setIssuedAt();
+    if (options.includeExpiration !== false) {
+      token = token.setExpirationTime(typeof exp === 'number' ? exp : '5m');
+    }
+    return token.sign(privateKey);
   };
 
   await expect(
@@ -112,7 +137,31 @@ it('OIDC adapter > validates signed issuer, audience, expiry, and nonce claims',
   ).rejects.toThrow('OIDC token claims are invalid');
   await expect(
     adapter.validateIdToken({
+      token: await signedToken({}, { issuer: 'https://other.example' }),
+      discovery,
+      clientId: 'client',
+      nonceHash: hashAuthToken('expected-nonce'),
+    }),
+  ).rejects.toThrow();
+  await expect(
+    adapter.validateIdToken({
+      token: await signedToken({}, { audience: 'other-client' }),
+      discovery,
+      clientId: 'client',
+      nonceHash: hashAuthToken('expected-nonce'),
+    }),
+  ).rejects.toThrow();
+  await expect(
+    adapter.validateIdToken({
       token: await signedToken({ exp: Math.floor(Date.now() / 1000) - 1 }),
+      discovery,
+      clientId: 'client',
+      nonceHash: hashAuthToken('expected-nonce'),
+    }),
+  ).rejects.toThrow();
+  await expect(
+    adapter.validateIdToken({
+      token: await signedToken({}, { includeExpiration: false }),
       discovery,
       clientId: 'client',
       nonceHash: hashAuthToken('expected-nonce'),

@@ -36,9 +36,9 @@ export class OidcAdapter {
     const discovery = (await response.json()) as Partial<OidcDiscovery>;
     if (
       discovery.issuer !== normalizedIssuer ||
-      !discovery.authorization_endpoint ||
-      !discovery.token_endpoint ||
-      !discovery.jwks_uri
+      !isHttpsUrl(discovery.authorization_endpoint) ||
+      !isHttpsUrl(discovery.token_endpoint) ||
+      !isHttpsUrl(discovery.jwks_uri)
     )
       throw new Error('OIDC discovery is invalid');
     return discovery as OidcDiscovery;
@@ -56,6 +56,7 @@ export class OidcAdapter {
     const { payload } = await jwtVerify(input.token, jwks, {
       issuer: input.discovery.issuer,
       audience: input.clientId,
+      requiredClaims: ['exp'],
     });
     if (
       typeof payload.nonce !== 'string' ||
@@ -131,4 +132,14 @@ export class OidcAdapter {
 
 function sha256Base64Url(value: string): string {
   return createHash('sha256').update(value).digest('base64url');
+}
+
+function isHttpsUrl(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password;
+  } catch {
+    return false;
+  }
 }

@@ -37,12 +37,21 @@ it('browser authentication routes > keeps browser protocol routes separate and r
   );
   expect(source).toContain('repo.revokeSession(');
   expect(source).toContain('transaction.reauthenticateSessionHash');
+  expect(source).toContain('RUNTIME_EVENT_TYPES.AUTH_INVITATION_ACCEPTED');
+  expect(source).toContain('RUNTIME_EVENT_TYPES.AUTH_INVITATION_REVOKED');
   expect(source).toContain(
     'This authorization link can only be used on this Gantry host.',
   );
   expect(source).toContain('This invitation has already been used.');
   expect(source).toContain("pathname === '/ui/api/auth/invitations'");
   expect(source).toContain("method !== 'DELETE'");
+  const invitationRoute = source
+    .split("if (pathname === '/ui/api/auth/invitations')")[1]
+    .split('const invitationMatch')[0];
+  expect(invitationRoute).toContain("role === 'administrator'");
+  expect(invitationRoute).toContain(
+    '!isRecentlyReauthenticated(session.reauthenticatedAt)',
+  );
   const candidateRoute = source.split(
     "if (pathname === '/ui/api/auth/config/candidate')",
   )[1];

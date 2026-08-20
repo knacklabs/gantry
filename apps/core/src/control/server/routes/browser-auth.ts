@@ -601,6 +601,12 @@ export async function handleBrowserAuthRoutes(
           redirect(res, target.toString());
           return true;
         }
+        await recordAuthEvent({
+          appId: transaction.appId,
+          eventType: RUNTIME_EVENT_TYPES.AUTH_INVITATION_ACCEPTED,
+          actor: 'auth:oidc',
+          payload: { role: accepted.role },
+        });
       }
       let grant = await repo.getGrant(transaction.appId, person.personId);
       if (!grant && identity.hostedDomain === oidc.companyDomain) {
@@ -934,6 +940,19 @@ export async function handleBrowserAuthRoutes(
       );
       return true;
     }
+    if (
+      role === 'administrator' &&
+      mode === 'hosted' &&
+      !isRecentlyReauthenticated(session.reauthenticatedAt)
+    ) {
+      sendError(
+        res,
+        401,
+        'REAUTHENTICATION_REQUIRED',
+        'Sign in again to continue.',
+      );
+      return true;
+    }
     const token = createOpaqueToken();
     const now = new Date();
     await repository().createInvitation({
@@ -993,6 +1012,12 @@ export async function handleBrowserAuthRoutes(
       sendError(res, 404, 'NOT_FOUND', 'Invitation is no longer available.');
       return true;
     }
+    await recordAuthEvent({
+      appId: session.appId,
+      eventType: RUNTIME_EVENT_TYPES.AUTH_INVITATION_REVOKED,
+      actor: `browser:${session.userId}`,
+      payload: {},
+    });
     sendJson(res, 200, { message: 'Invitation revoked.' });
     return true;
   }
