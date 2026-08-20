@@ -1,0 +1,62 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [],
+  "issue": "WEB-AUTH-1",
+  "task_id": "WEB-AUTH-1-6",
+  "decision": "keep",
+  "summary": "The final stage restores only the missing disposable-Postgres repository proof. Existing test configuration already emits JUnit file attribution under VITEST_JUNIT, so no harness or test-runner changes are needed. Full verification remains evidence work after this bounded source change.",
+  "questions_asked": 3,
+  "inspected_refs": [
+    "vitest.integration.postgres.config.ts",
+    "vitest.shared.ts",
+    "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md",
+    "docs/decisions/0132-adaptive-browser-authentication-access.md"
+  ],
+  "current_flow": "The repository already has migration and authentication repository code. The missing backup test creates an isolated schema, exercises concurrent consume semantics, and removes its schema afterward.",
+  "criteria_map": {
+    "Unit, OIDC contract, disposable-Postgres integration, HTTP boundary, CLI, and web tests cover the approved lifetimes, copy, role behavior, replay rejection, cookie flags, CSRF/origin checks, final-admin invariant, safe errors, and Viewer restrictions.": "The focused integration test is the bounded code change; the remaining criterion is proven by final recorded verification, cleanup, review, and functional evidence.",
+    "Cleanup searches prove there is no email-keyed identity, first-user-wins branch, browser Bearer credential, /auth/recover, recovery cookie/session, raw token logging, or mock-only Operator role.": "The focused integration test is the bounded code change; the remaining criterion is proven by final recorded verification, cleanup, review, and functional evidence.",
+    "Core and web format, lint, typecheck, build, architecture checks, migration checks, disposable-Postgres suites, and python3 factory/scripts/verify.py complete or report explicit environment-limited gaps.": "The focused integration test is the bounded code change; the remaining criterion is proven by final recorded verification, cleanup, review, and functional evidence.",
+    "One autoreview pass covers quality, performance, and security, and the required functional-checker flow is completed because the feature is user-facing.": "The focused integration test is the bounded code change; the remaining criterion is proven by final recorded verification, cleanup, review, and functional evidence."
+  },
+  "new_abstractions": [],
+  "rounds": [
+    {
+      "question": "Does final verification require restoring application code from backup?",
+      "options": [
+        "Restore only the missing integration test",
+        "Re-copy all authentication sources"
+      ],
+      "chosen": "Restore only the missing integration test"
+    },
+    {
+      "question": "May the test use the persistent local Gantry database?",
+      "options": [
+        "Use a uniquely disposable Postgres database and schema",
+        "Reuse the local Gantry database"
+      ],
+      "chosen": "Use a uniquely disposable Postgres database and schema"
+    },
+    {
+      "question": "Does the stage need a second Vitest/JUnit abstraction?",
+      "options": [
+        "Reuse VITEST_JUNIT in vitest.shared.ts",
+        "Add another reporter wrapper"
+      ],
+      "chosen": "Reuse VITEST_JUNIT in vitest.shared.ts"
+    }
+  ],
+  "citations": [
+    {
+      "finding": "The accepted plan requires disposable-Postgres integration for concurrent code/invitation consumption and settings behavior.",
+      "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#test-plan"
+    }
+  ],
+  "input_sha256": "653035babc9fda65526b3283d708ed69c86fa1ddb65bce3a9d7230dd4383aae7",
+  "recorded_at": "2026-08-20T13:26:54+00:00",
+  "commit": "103f151d8916f0f091899388cd48fc6ac6aa638b"
+}

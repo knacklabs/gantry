@@ -150,17 +150,43 @@
         }
       },
       "task_sha256": "c6b0a497b08b570eb65eb1b9bff531456a58d61b1140f221d0ba74295bf8906f",
-      "completed_at": "2026-08-20T13:15:50+00:00",
-      "contract_changed": {
-        "at": "2026-08-20T13:15:50+00:00",
-        "from": "7f9cacd2b304e250c8e1742cedac1cddd80de4a4cac6dc045a5c739ac71449ff",
-        "to": "c6b0a497b08b570eb65eb1b9bff531456a58d61b1140f221d0ba74295bf8906f"
-      }
+      "completed_at": "2026-08-20T13:15:50+00:00"
     },
     {
       "id": "WEB-AUTH-1-6",
       "title": "Integrated auth verification and cleanup proof",
-      "status": "pending"
+      "status": "done",
+      "started_at": "2026-08-20T13:22:57+00:00",
+      "base_sha": "103f151d8916f0f091899388cd48fc6ac6aa638b",
+      "dirty_at_start": {
+        ".factory/decomposition.json": {
+          "digest": "b31dd71294240e0f8c5f6dd3ca75d4c89e2a59a6718df1ecc184acab4dfdb82c",
+          "git": "1 .M N... 100644 100644 100644 eb998fc4966a7db7a789f35c9221f027e9ae9778 eb998fc4966a7db7a789f35c9221f027e9ae9778 .factory/decomposition.json\u0000\u0000100644 eb998fc4966a7db7a789f35c9221f027e9ae9778 0\t.factory/decomposition.json\u0000\u0000H .factory/decomposition.json\u0000"
+        },
+        ".factory/events.jsonl": {
+          "digest": "52be09d8fd0b4a78fbc37428dbba5cb00f862296cf3e77356874ddee84cb99e8",
+          "git": "1 .M N... 100644 100644 100644 ec1be620316652db3c1ef6b8ccd32d11993a6055 ec1be620316652db3c1ef6b8ccd32d11993a6055 .factory/events.jsonl\u0000\u0000100644 ec1be620316652db3c1ef6b8ccd32d11993a6055 0\t.factory/events.jsonl\u0000\u0000H .factory/events.jsonl\u0000"
+        },
+        ".factory/grills/tasks/WEB-AUTH-1-6.json": {
+          "digest": "9c3c54f33cc0e173926ff1be3f050b4e2f6a2c1fee2347d8102eedb16e0c7fc3",
+          "git": "? .factory/grills/tasks/WEB-AUTH-1-6.json\u0000\u0000\u0000"
+        },
+        ".factory/run.json": {
+          "digest": "11aebda3b223631b05837d57e45d948f2e8b3809a7f26032387847e23b24860e",
+          "git": "1 .M N... 100644 100644 100644 2b688f9db64da8848cb9042500523ea009b52385 2b688f9db64da8848cb9042500523ea009b52385 .factory/run.json\u0000\u0000100644 2b688f9db64da8848cb9042500523ea009b52385 0\t.factory/run.json\u0000\u0000H .factory/run.json\u0000"
+        },
+        ".factory/stages.json": {
+          "digest": "ed03ba57231ea7614e8673f299d0ce6a6a4aa1da7f64d6deb26901451f1cac23",
+          "git": "1 .M N... 100644 100644 100644 95a29bfa71e62c28cba30dc9e10ed61415a029f1 95a29bfa71e62c28cba30dc9e10ed61415a029f1 .factory/stages.json\u0000\u0000100644 95a29bfa71e62c28cba30dc9e10ed61415a029f1 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
+        }
+      },
+      "task_sha256": "aebe5b6357f84bbc9aed649080fc1f0c9fb4ac7ae5c7c27482f9fb5ec357f23a",
+      "completed_at": "2026-08-20T13:42:42+00:00",
+      "contract_changed": {
+        "at": "2026-08-20T13:42:42+00:00",
+        "from": "4265fdf109c3f23092fd31b662ff6f1d14896c9728ff3187f11909ad7eccc382",
+        "to": "aebe5b6357f84bbc9aed649080fc1f0c9fb4ac7ae5c7c27482f9fb5ec357f23a"
+      }
     }
   ]
 }

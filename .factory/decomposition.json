@@ -394,11 +394,55 @@
       ],
       "dependencies": [
         "WEB-AUTH-1-5"
-      ]
+      ],
+      "write_scope": [
+        "apps/core/src/adapters/storage/postgres/schema/migrations/20260818105732_authentication_access.sql",
+        "apps/core/test/integration/authentication-repository.postgres.integration.test.ts"
+      ],
+      "required_tests": [
+        {
+          "id": "consumes a local authorization code once under concurrent requests",
+          "path": "apps/core/test/integration/authentication-repository.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run db:migrations:check",
+        "npm run typecheck",
+        "npm run check:architecture"
+      ],
+      "review_budget": {
+        "max_changed_files": 2,
+        "max_changed_lines": 160,
+        "reason": "Restores one missing disposable-Postgres authentication repository regression test and fixes its unshipped tenant-schema foreign keys."
+      },
+      "plan_contracts": [
+        {
+          "id": "AUTH-VERIFY-0",
+          "statement": "Unit, OIDC contract, disposable-Postgres integration, HTTP boundary, CLI, and web tests cover the approved lifetimes, copy, role behavior, replay rejection, cookie flags, CSRF/origin checks, final-admin invariant, safe errors, and Viewer restrictions.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#test-plan"
+        },
+        {
+          "id": "AUTH-VERIFY-1",
+          "statement": "Cleanup searches prove there is no email-keyed identity, first-user-wins branch, browser Bearer credential, /auth/recover, recovery cookie/session, raw token logging, or mock-only Operator role.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#test-plan"
+        },
+        {
+          "id": "AUTH-VERIFY-2",
+          "statement": "Core and web format, lint, typecheck, build, architecture checks, migration checks, disposable-Postgres suites, and python3 factory/scripts/verify.py complete or report explicit environment-limited gaps.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#test-plan"
+        },
+        {
+          "id": "AUTH-VERIFY-3",
+          "statement": "One autoreview pass covers quality, performance, and security, and the required functional-checker flow is completed because the feature is user-facing.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#test-plan"
+        }
+      ],
+      "reviewer_focus": "Disposable database isolation, migration-column coverage, concurrent atomic consume proof, and safe cleanup with no persistent Gantry database access."
     }
   ],
   "epic": "web-authentication",
   "plan_file": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md",
   "plan_sha256": "8f156263b545bcef9cb566173c0c1367deb2d6bc342a38ab04616562d2f275ec",
-  "commit": "6386e702f36c68ab467be433d402d917baaa2d8e"
+  "commit": "103f151d8916f0f091899388cd48fc6ac6aa638b"
 }

@@ -1140,3 +1140,15 @@
 {"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T13:14:52+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-5 (write)"}
 {"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-20T13:15:50+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-5: task contract re-recorded mid-stage"}
 {"event": "stage-done", "generated_by": "implementer", "at": "2026-08-20T13:15:50+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-5 Authentication and Access web UI"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T13:21:00+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T13:22:56+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-20T13:22:57+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-6 Integrated auth verification and cleanup proof"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T13:25:33+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T13:26:54+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-20T13:33:56+00:00", "story": "WEB-AUTH-1", "detail": "Core lint fails with 83 out-of-scope errors, including apps/core/src/adapters/auth/oidc-adapter.ts; WEB-AUTH-1-6 write scope cannot fix them."}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-20T13:34:25+00:00", "story": "WEB-AUTH-1", "detail": "Disposable Postgres proof is environment-blocked: Docker socket access is denied, localhost:5432 is closed, and isolated PostgreSQL 18 initdb fails at shmget with Operation not permitted."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T13:39:04+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-6 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-20T13:40:20+00:00", "story": "WEB-AUTH-1", "detail": "S-0010-88d4: Core lint is outside this final stage's recorded verify_commands. The final gate will run the declared architecture/typecheck checks and report any broader lint result separately; no out-of-scope lint"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-20T13:40:20+00:00", "story": "WEB-AUTH-1", "detail": "S-0011-ee50: Resolved locally: Docker 29.4.3 is available, a disposable pgvector Postgres database was started, vector and pg_trgm extensions were enabled, and all three authentication repository integration tests"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-20T13:42:42+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-6: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-20T13:42:42+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-6 Integrated auth verification and cleanup proof"}
