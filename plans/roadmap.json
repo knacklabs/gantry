@@ -1267,12 +1267,15 @@
         "Administrators can manage access, invitations, sessions, and OIDC setup without exposing secrets."
       ],
       "order": 64,
-      "status": "active",
+      "status": "done",
       "epic": "web-authentication",
       "skill": "fullstack",
       "depends_on": [],
       "origin": "adhoc",
-      "spec": "docs/specs/authentication-access-web-ui.md"
+      "spec": "docs/specs/authentication-access-web-ui.md",
+      "completed_at": "2026-08-20T14:08:42+00:00",
+      "history": ".factory/history/WEB-AUTH-1/",
+      "outcome": "Gantry now provides a local and hosted browser sign-in path with separate opaque sessions, access administration, invitations, safe OIDC configuration, and recovery commands without changing the existing machine Bearer API."
     }
   ],
   "epics": [
@@ -1369,5 +1372,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-18T10:45:24+00:00"
+  "updated_at": "2026-08-20T14:08:42+00:00"
 }

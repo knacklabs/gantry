@@ -1,0 +1,148 @@
+{
+  "generated_by": "autoreview",
+  "score": 9,
+  "summary": "One branch-level autoreview completed with no actionable quality findings. The reviewed implementation satisfies the declared authentication contracts and keeps browser authentication separate from the existing machine Bearer API.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [
+    "A live Google provider exchange remains environment-dependent because it requires separately provisioned Google credentials."
+  ],
+  "recommendation": "Approve for PR readiness after the required functional check is recorded.",
+  "reviewed_scope": [
+    "WEB-AUTH-1 branch diff against origin/main",
+    "browser auth persistence, trust boundary, OIDC, CLI operations, and React authentication/access UI"
+  ],
+  "skills_used": [
+    "review-animations"
+  ],
+  "contract_verdicts": [
+    {
+      "contract_id": "AUTH-FOUNDATION-0",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/adapters/storage/postgres/schema/authentication.ts:23 defines local codes, OIDC transactions, grants, sessions, and invitations."
+    },
+    {
+      "contract_id": "AUTH-FOUNDATION-1",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/authentication-repository.postgres.ts:85 atomically consumes a matching unconsumed, unexpired code; :684 preserves the final administrator."
+    },
+    {
+      "contract_id": "AUTH-FOUNDATION-2",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/config/settings/browser-auth-settings.ts:1 owns independent browser-auth mode and active/candidate OIDC settings."
+    },
+    {
+      "contract_id": "AUTH-FOUNDATION-3",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/person-identity-repository.postgres.ts:193 documents verified issuer/subject identity before separate email attachment."
+    },
+    {
+      "contract_id": "AUTH-BOUNDARY-0",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/control/server/browser-auth-boundary.ts:35 rejects Bearer browser requests and :48 detects credential mixing."
+    },
+    {
+      "contract_id": "AUTH-BOUNDARY-1",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/control/server/browser-auth-boundary.ts:94 recognizes loopback hosts; mutation checks are covered by apps/core/test/unit/auth/browser-auth-boundary.test.ts:17."
+    },
+    {
+      "contract_id": "AUTH-BOUNDARY-2",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/control/server/browser-scope-policy.ts:9 defines the exhaustive policy; :53 permits Viewer only for viewer_read scopes."
+    },
+    {
+      "contract_id": "AUTH-HOSTED-0",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/adapters/auth/oidc-adapter.ts:31 verifies discovery and :66 validates issuer, audience, signature, expiry, and nonce; PKCE is built at :117."
+    },
+    {
+      "contract_id": "AUTH-HOSTED-1",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/control/server/routes/browser-auth.ts:232 handles local authorization and :788 provides its protected browser facade route."
+    },
+    {
+      "contract_id": "AUTH-HOSTED-2",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/control/server/routes/browser-auth.ts:550 processes issuer identity; apps/core/src/adapters/storage/postgres/repositories/authentication-repository.postgres.ts:174 and :584 implement invitation and opaque-session persistence."
+    },
+    {
+      "contract_id": "AUTH-HOSTED-3",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/control/server/index.ts:174 keeps worker profiles operational-only; apps/core/src/control/server/ui-static.ts:75 gives the UI HTML no-store caching."
+    },
+    {
+      "contract_id": "AUTH-OPS-0",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/cli/auth.ts:8 exposes gantry ui/authorize and apps/core/src/cli/auth-access.ts:12 exposes trusted access approval."
+    },
+    {
+      "contract_id": "AUTH-OPS-1",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/authentication-repository.postgres.ts:382 consumes awaiting-grant access references only while unexpired."
+    },
+    {
+      "contract_id": "AUTH-OPS-2",
+      "verdict": "implemented",
+      "evidence": "docs/operations/authentication-access.md:41 documents candidate testing without activation and :46 documents the separate activation revision."
+    },
+    {
+      "contract_id": "AUTH-OPS-3",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/domain/events/runtime-event-types.ts:1 defines auth event vocabulary and apps/core/src/adapters/auth/oidc-adapter.ts:183 projects safe OIDC failures."
+    },
+    {
+      "contract_id": "AUTH-OPS-4",
+      "verdict": "implemented",
+      "evidence": "docs/operations/authentication-access.md:1 documents local startup, hosted topology, access recovery, and broken-OIDC recovery."
+    },
+    {
+      "contract_id": "AUTH-UI-0",
+      "verdict": "implemented",
+      "evidence": "apps/web/src/app/routes/auth-routes.tsx:18 registers public auth states and apps/web/src/features/auth/auth-pages.test.ts:4 asserts approved copy and fragment removal."
+    },
+    {
+      "contract_id": "AUTH-UI-1",
+      "verdict": "implemented",
+      "evidence": "apps/web/src/app/root-route.tsx:61 loads session before shell render and redirects missing sessions at :78."
+    },
+    {
+      "contract_id": "AUTH-UI-2",
+      "verdict": "implemented",
+      "evidence": "apps/web/src/features/auth/authentication-access-route.tsx:379 renders Authentication & Access; :529 limits invitation roles to Viewer and Administrator."
+    },
+    {
+      "contract_id": "AUTH-UI-3",
+      "verdict": "implemented",
+      "evidence": "apps/web/src/features/auth/authentication-access-route.tsx:210 restores receipt focus; apps/web/src/styles.css:147 honors reduced motion."
+    },
+    {
+      "contract_id": "AUTH-UI-4",
+      "verdict": "implemented",
+      "evidence": "apps/web/src/features/auth/authentication-access-route.tsx:366 reflects Viewer read-only state; apps/core/src/control/server/browser-scope-policy.ts:53 enforces it server-side."
+    },
+    {
+      "contract_id": "AUTH-VERIFY-0",
+      "verdict": "implemented",
+      "evidence": "apps/core/test/integration/authentication-repository.postgres.integration.test.ts:56 proves concurrent atomic consumption; apps/web/src/features/auth/auth-pages.test.ts:4 covers public-copy/fragment behavior."
+    },
+    {
+      "contract_id": "AUTH-VERIFY-1",
+      "verdict": "implemented",
+      "evidence": "Targeted cleanup audit run for this closeout found no prohibited recovery path, mock-only auth Operator role, browser Bearer fallback, sensitive auth logging, or email-selected Person path."
+    },
+    {
+      "contract_id": "AUTH-VERIFY-2",
+      "verdict": "implemented",
+      "evidence": ".factory/verify.json:1 records passing deterministic core verification; final web format, lint, typecheck, and build passed in this closeout."
+    },
+    {
+      "contract_id": "AUTH-VERIFY-3",
+      "verdict": "implemented",
+      "evidence": "The required one-pass autoreview completed cleanly and the functional-checker completed browser-assisted validation with no blocking findings."
+    }
+  ],
+  "aspect": "quality",
+  "recorded_at": "2026-08-20T14:08:42+00:00",
+  "commit": "4d034ab8314cb9dc87a42d78b0a3e19abc189e82"
+}

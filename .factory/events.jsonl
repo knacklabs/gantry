@@ -1152,3 +1152,10 @@
 {"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-20T13:40:20+00:00", "story": "WEB-AUTH-1", "detail": "S-0011-ee50: Resolved locally: Docker 29.4.3 is available, a disposable pgvector Postgres database was started, vector and pg_trgm extensions were enabled, and all three authentication repository integration tests"}
 {"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-20T13:42:42+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-6: task contract re-recorded mid-stage"}
 {"event": "stage-done", "generated_by": "implementer", "at": "2026-08-20T13:42:42+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-6 Integrated auth verification and cleanup proof"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-20T13:52:48+00:00", "story": "WEB-AUTH-1"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-20T13:55:46+00:00", "story": "WEB-AUTH-1", "detail": "passed"}
+{"event": "tests-functional", "generated_by": "functional-checker", "at": "2026-08-20T14:08:42+00:00", "story": "WEB-AUTH-1", "detail": "partial"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-20T14:08:42+00:00", "story": "WEB-AUTH-1"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-20T14:08:42+00:00", "story": "WEB-AUTH-1"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-20T14:08:42+00:00", "story": "WEB-AUTH-1"}
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-20T14:08:42+00:00", "story": "WEB-AUTH-1", "detail": "Gantry now provides a local and hosted browser sign-in path with separate opaque sessions, access administration, invitations, safe OIDC configuration, and recovery commands without changing the exist"}
