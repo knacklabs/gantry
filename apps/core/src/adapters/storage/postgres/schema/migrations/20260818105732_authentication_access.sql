@@ -72,14 +72,14 @@ CREATE TABLE "oidc_transactions" (
 	CONSTRAINT "oidc_transactions_state_hash_unique" UNIQUE("state_hash")
 );
 --> statement-breakpoint
-ALTER TABLE "browser_sessions" ADD CONSTRAINT "browser_sessions_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "browser_sessions" ADD CONSTRAINT "browser_sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "console_access_grants" ADD CONSTRAINT "console_access_grants_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "console_access_grants" ADD CONSTRAINT "console_access_grants_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "console_invitations" ADD CONSTRAINT "console_invitations_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "local_authorization_codes" ADD CONSTRAINT "local_authorization_codes_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "local_authorization_codes" ADD CONSTRAINT "local_authorization_codes_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "oidc_transactions" ADD CONSTRAINT "oidc_transactions_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "browser_sessions" ADD CONSTRAINT "browser_sessions_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "browser_sessions" ADD CONSTRAINT "browser_sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "console_access_grants" ADD CONSTRAINT "console_access_grants_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "console_access_grants" ADD CONSTRAINT "console_access_grants_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "console_invitations" ADD CONSTRAINT "console_invitations_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "local_authorization_codes" ADD CONSTRAINT "local_authorization_codes_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "local_authorization_codes" ADD CONSTRAINT "local_authorization_codes_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "oidc_transactions" ADD CONSTRAINT "oidc_transactions_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "console_access_grants_app_user_unique" ON "console_access_grants" USING btree ("app_id","user_id");--> statement-breakpoint
 CREATE INDEX "console_access_grants_active_admin_idx" ON "console_access_grants" USING btree ("app_id","status","role");--> statement-breakpoint
 CREATE UNIQUE INDEX "console_access_grants_access_reference_unique" ON "console_access_grants" USING btree ("access_reference_hash") WHERE "console_access_grants"."access_reference_hash" IS NOT NULL;--> statement-breakpoint
