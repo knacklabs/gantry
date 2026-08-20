@@ -50,10 +50,11 @@ const MANAGED_BROWSER_ACTION_RESOURCE_LIMITS = {
   memoryMb: 0,
 };
 
-// A human login session can remain open for the ATS-issued 29-minute window.
-// Scrape commands usually finish sooner; this is the maximum boundary for the
-// reviewed deterministic browser action, not an unbounded process.
-const MANAGED_BROWSER_ACTION_TIMEOUT_MS = 1_800_000;
+// Reviewed deterministic browser actions can legitimately process large,
+// paginated sources. Keep the lane bounded, while allowing the owning job's
+// configured timeout to cover work that cannot finish inside a normal agent
+// turn. Terminal job cleanup still closes Chrome immediately on completion.
+const MANAGED_BROWSER_ACTION_TIMEOUT_MS = 2 * 60 * 60_000;
 const MANAGED_BROWSER_CLEANUP_GRACE_MS = 60_000;
 
 // This name is only meaningful to the run-scoped egress gateway. It is mapped
