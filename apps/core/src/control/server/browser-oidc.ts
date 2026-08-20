@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { ServerResponse } from 'node:http';
 
 import {
   createOpaqueToken,
@@ -28,11 +29,6 @@ export function oidcStateCookie(
 ): string {
   const secure = new URL(canonicalOrigin).protocol === 'https:';
   return `${oidcStateCookieName(canonicalOrigin)}=${state}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${OIDC_TRANSACTION_TTL_MS / 1000}${secure ? '; Secure' : ''}`;
-}
-
-export function expiredOidcStateCookie(canonicalOrigin: string): string {
-  const secure = new URL(canonicalOrigin).protocol === 'https:';
-  return `${oidcStateCookieName(canonicalOrigin)}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure ? '; Secure' : ''}`;
 }
 
 export function oidcStateMatches(
@@ -123,7 +119,8 @@ export async function beginOidcSignIn(input: {
   reauthenticateUserId?: string;
   reauthenticateSessionHash?: string;
   prompt?: 'login';
-}): Promise<{ authorizationUrl: string; state: string }> {
+  response: ServerResponse;
+}): Promise<string> {
   const discovery = await input.adapter.discover(input.oidc.issuer);
   const id = randomUUID();
   const state = createOpaqueToken();
@@ -161,18 +158,19 @@ export async function beginOidcSignIn(input: {
     expiresAt: expiresAt(now, OIDC_TRANSACTION_TTL_MS).toISOString(),
     now: now.toISOString(),
   });
-  return {
-    authorizationUrl: input.adapter.authorizationUrl({
-      discovery,
-      clientId: input.oidc.clientId,
-      redirectUri: oidcRedirectUri(input.canonicalOrigin),
-      state,
-      nonce,
-      codeVerifier: verifier,
-      ...(input.prompt ? { prompt: input.prompt } : {}),
-    }),
+  input.response.setHeader(
+    'Set-Cookie',
+    oidcStateCookie(input.canonicalOrigin, state),
+  );
+  return input.adapter.authorizationUrl({
+    discovery,
+    clientId: input.oidc.clientId,
+    redirectUri: oidcRedirectUri(input.canonicalOrigin),
     state,
-  };
+    nonce,
+    codeVerifier: verifier,
+    ...(input.prompt ? { prompt: input.prompt } : {}),
+  });
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

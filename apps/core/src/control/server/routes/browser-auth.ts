@@ -39,9 +39,7 @@ import type { ControlRouteContext } from '../handler-context.js';
 import { readJson, sendError, sendJson } from '../http.js';
 import {
   beginOidcSignIn,
-  expiredOidcStateCookie,
   oidcRedirectUri,
-  oidcStateCookie,
   oidcStateMatches,
   parseOidcConfiguration,
   parseTransactionOidcConfig,
@@ -179,26 +177,6 @@ function redirect(res: ServerResponse, location: string): void {
   res.end();
 }
 
-function appendResponseCookie(res: ServerResponse, cookie: string): void {
-  const existing = res.getHeader('Set-Cookie');
-  res.setHeader(
-    'Set-Cookie',
-    Array.isArray(existing)
-      ? [...existing, cookie]
-      : typeof existing === 'string'
-        ? [existing, cookie]
-        : [cookie],
-  );
-}
-
-function bindOidcFlowToBrowser(
-  res: ServerResponse,
-  canonicalOrigin: string,
-  state: string,
-): void {
-  appendResponseCookie(res, oidcStateCookie(canonicalOrigin, state));
-}
-
 function oidcFlowDependencies() {
   return {
     adapter: oidcAdapter(),
@@ -228,14 +206,10 @@ async function issueSession(input: {
     now: now.toISOString(),
   });
   const secure = new URL(input.canonicalOrigin).protocol === 'https:';
-  appendResponseCookie(
-    input.res,
+  input.res.setHeader('Set-Cookie', [
     browserSessionCookie(input.mode, sessionToken, secure),
-  );
-  appendResponseCookie(
-    input.res,
     browserCsrfCookie(input.mode, csrfToken, secure),
-  );
+  ]);
 }
 
 export async function handleBrowserAuthRoutes(
