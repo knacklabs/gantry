@@ -159,17 +159,74 @@
     {
       "id": "WEB-AUTH-1-3",
       "title": "Hosted OIDC, grants, invitations, and reauthentication",
-      "objective": "Implement hosted sign-in, provider-neutral OIDC validation, invitation binding, access-state handling, reauthentication, and session rotation.",
+      "objective": "Restore the provider-neutral OIDC adapter and Control-server browser facade for local and hosted authentication, grants, invitations, reauthentication, and profile-restricted UI delivery.",
       "acceptance_criteria": [
-        "OIDC start/callback/reauth validates discovery issuer, allowlist, state, nonce, PKCE, signature, audience, expiry, and callback replay using DNS-pinned transport and jose.",
-        "Google company-domain identities get Viewer access, other identities require invitation or explicit approval, and disabled or unapproved users receive the exact approved safe copy.",
-        "Invitations are fragment-token, one-use, hash-only, expire after seven days, match only the verified normalized invited email, and bind durable identity by issuer plus subject.",
-        "Hosted sessions use the approved __Host cookie, two-hour idle and 12-hour absolute lifetimes, warn five minutes before absolute expiry, and rotate after login, reauth, and role elevation.",
-        "Reauthentication uses a 10-minute recent-authentication window, returns the exact approved success copy, and never replays the pending mutation automatically."
+        "Generic OIDC validates discovery issuer, state, nonce, PKCE, signature, audience, expiry, replay, and allowlisted outbound transport without exposing provider errors.",
+        "Public local and hosted auth routes consume only opaque, hashed browser credentials; local authorization remains loopback-only and one-use, while browser and Bearer routes reject each other.",
+        "Hosted identity is keyed by issuer plus subject, verified email is separate, access grants and invitations enforce role, expiry, email matching, reauthentication, rotation, and revocation semantics.",
+        "Only the full Control profile mounts UI and browser-auth routes; authentication responses are no-store and operational worker profiles do not expose the browser surface."
       ],
       "dependencies": [
         "WEB-AUTH-1-2"
-      ]
+      ],
+      "write_scope": [
+        "apps/core/src/adapters/auth/oidc-adapter.ts",
+        "apps/core/src/adapters/storage/postgres/repositories/credential-secret-crypto.ts",
+        "apps/core/src/control/server/browser-oidc.ts",
+        "apps/core/src/control/server/index.ts",
+        "apps/core/src/control/server/routes/browser-auth.ts",
+        "apps/core/src/control/server/ui-static.ts",
+        "apps/core/src/domain/events/runtime-event-types.ts",
+        "apps/core/test/harness/control-http-server.ts",
+        "apps/core/test/unit/auth/oidc-adapter.test.ts",
+        "apps/core/test/unit/auth/browser-auth-routes.test.ts",
+        "apps/core/test/unit/control/route-profile.test.ts",
+        "package.json",
+        "package-lock.json"
+      ],
+      "required_tests": [
+        {
+          "id": "OIDC adapter > validates signed issuer, audience, expiry, and nonce claims",
+          "path": "apps/core/test/unit/auth/oidc-adapter.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "browser authentication routes > keeps browser protocol routes separate and replay-safe",
+          "path": "apps/core/test/unit/auth/browser-auth-routes.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck"
+      ],
+      "review_budget": {
+        "max_changed_files": 12,
+        "max_changed_lines": 6500,
+        "reason": "One authenticated browser facade depends on a provider-neutral OIDC adapter and its focused contract tests."
+      },
+      "plan_contracts": [
+        {
+          "id": "AUTH-HOSTED-0",
+          "statement": "Generic OIDC validates discovery issuer, state, nonce, PKCE, signature, audience, expiry, replay, and allowlisted outbound transport without exposing provider errors.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-HOSTED-1",
+          "statement": "Public local and hosted auth routes consume only opaque, hashed browser credentials; local authorization remains loopback-only and one-use, while browser and Bearer routes reject each other.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-HOSTED-2",
+          "statement": "Hosted identity is keyed by issuer plus subject, verified email is separate, access grants and invitations enforce role, expiry, email matching, reauthentication, rotation, and revocation semantics.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-HOSTED-3",
+          "statement": "Only the full Control profile mounts UI and browser-auth routes; authentication responses are no-store and operational worker profiles do not expose the browser surface.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        }
+      ],
+      "reviewer_focus": "OIDC signature and claim validation, pinned outbound transport, opaque session boundaries, loopback enforcement, safe audit event types, token/error hygiene, and full-profile-only route mounting."
     },
     {
       "id": "WEB-AUTH-1-4",
@@ -219,5 +276,5 @@
   "epic": "web-authentication",
   "plan_file": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md",
   "plan_sha256": "8f156263b545bcef9cb566173c0c1367deb2d6bc342a38ab04616562d2f275ec",
-  "commit": "9facfe5f7014546d60113b784a509568a66ba4c9"
+  "commit": "933535392aa4a491e1021a6c5eed8a87a92b6080"
 }

@@ -32,6 +32,7 @@ export async function startTestControlServer(input: {
     appId: string;
   }>;
   runtimeApp?: unknown;
+  uiDistDir?: string;
   routeProfile?: 'full' | 'ops';
   processRole?: 'all' | 'control' | 'live-worker' | 'job-worker';
   liveExecution?: boolean;
@@ -54,6 +55,7 @@ export async function startTestControlServer(input: {
       input.runtimeApp ??
       ({ queue: { enqueueMessageCheck: async () => undefined } } as never),
     routeProfile: input.routeProfile,
+    ...(input.uiDistDir ? { uiDistDir: input.uiDistDir } : {}),
     ...(input.processRole ? { processRole: input.processRole } : {}),
     ...(input.liveExecution !== undefined
       ? { liveExecution: input.liveExecution }

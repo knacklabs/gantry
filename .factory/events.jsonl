@@ -1088,3 +1088,6 @@
 {"event": "stage-start", "generated_by": "implementer", "at": "2026-08-20T09:39:22+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-2 Browser server trust boundary and local authorization"}
 {"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T09:49:09+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-2 (write)"}
 {"event": "stage-done", "generated_by": "implementer", "at": "2026-08-20T09:51:38+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-2 Browser server trust boundary and local authorization"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T09:54:07+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-20T09:54:08+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-3 Hosted OIDC, grants, invitations, and reauthentication"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T09:58:31+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}

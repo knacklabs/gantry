@@ -52,9 +52,16 @@ import type {
   ControlServerState,
 } from './handler-context.js';
 import { sendError } from './http.js';
+import {
+  apiRequestHasSessionCookie,
+  browserRequestHasBearer,
+  isLoopbackHost,
+  setNoStore,
+} from './browser-auth-boundary.js';
 import { createRateLimiter } from './rate-limit.js';
 import { handleAgentRoutes } from './routes/agents.js';
 import { handleBrainRoutes } from './routes/brain.js';
+import { handleBrowserAuthRoutes } from './routes/browser-auth.js';
 import { handleCapabilityCatalogRoutes } from './routes/capability-catalog.js';
 import { handleCredentialRoutes } from './routes/credentials.js';
 import { handleProviderConversationRoutes } from './routes/provider-conversation-routes.js';
@@ -75,6 +82,7 @@ import { handleSkillRoutes } from './routes/skills.js';
 import { handleSystemRoutes } from './routes/system.js';
 import { handleUsageRoutes } from './routes/usage.js';
 import { handleWebhookRoutes } from './routes/webhooks.js';
+import { defaultUiDistDir, handleUiStatic } from './ui-static.js';
 import {
   deliverWebhookDelivery,
   flushWebhookDeliveries,
@@ -145,6 +153,7 @@ function sendControlError(
 function createControlRequestHandler(
   ctx: ControlRouteContext,
   routeProfile: 'full' | 'ops',
+  uiDistDir: string,
 ) {
   return async (req: http.IncomingMessage, res: http.ServerResponse) => {
     const url = new URL(req.url || '/', 'http://localhost');
@@ -153,6 +162,30 @@ function createControlRequestHandler(
     res.on('error', (error) => logControlStreamError(error, pathname));
 
     try {
+      if (pathname.startsWith('/v1/') && apiRequestHasSessionCookie(req)) {
+        sendControlError(
+          res,
+          401,
+          'UNAUTHORIZED',
+          'Browser sessions cannot authenticate this API.',
+        );
+        return;
+      }
+      if (
+        pathname.startsWith('/auth/') ||
+        pathname.startsWith('/ui/api/auth/')
+      ) {
+        setNoStore(res);
+        if (browserRequestHasBearer(req)) {
+          sendControlError(
+            res,
+            401,
+            'UNAUTHORIZED',
+            'Bearer credentials are not accepted for browser authentication.',
+          );
+          return;
+        }
+      }
       // Ops profile (live-worker, job-worker) serves only operational and
       // read-only diagnostic routes; every admin/mutation route is unmounted and
       // falls through to the 404 fallback below.
@@ -165,6 +198,8 @@ function createControlRequestHandler(
         sendControlError(res, 404, 'NOT_FOUND', 'Route not found');
         return;
       }
+      if (await handleBrowserAuthRoutes(req, res, ctx, pathname)) return;
+      if (handleUiStatic(req, res, pathname, uiDistDir)) return;
       if (await handleOpenApiRoutes(req, res, pathname)) return;
       if (await handleSystemRoutes(req, res, ctx, pathname)) return;
       if (await handleGuidedActionRoutes(req, res, ctx, pathname)) return;
@@ -252,6 +287,8 @@ function unavailableControlSettingsImportPort(): ControlRouteContext['settingsIm
 export function startControlServer(input: {
   app: RuntimeApp;
   getBrowserStatus?: JobManagementServiceDeps['getBrowserStatus'];
+  /** Built SPA directory. Defaults to the package's bundled `dist/ui`. */
+  uiDistDir?: string;
   sendConversationIngressProjection?: ControlRouteContext['sendConversationIngressProjection'];
   addMessageReaction?: ControlRouteContext['addMessageReaction'];
   /**
@@ -299,6 +336,16 @@ export function startControlServer(input: {
     path.join(GANTRY_HOME, 'run', 'control.sock');
   const port = Number(getControlEnvValue('GANTRY_CONTROL_PORT') || 0);
   const host = resolveControlHost();
+  if (
+    port > 0 &&
+    (input.routeProfile ?? 'full') === 'full' &&
+    !isLoopbackHost(host) &&
+    getRuntimeSettingsForConfig().authentication.mode === 'local'
+  ) {
+    throw new Error(
+      'Local browser authentication requires a loopback Control host.',
+    );
+  }
   const nodeEnv = getControlEnvValue('NODE_ENV');
   const securityPosture = getControlEnvValue('GANTRY_SECURITY_POSTURE');
   const runtimeEnv = getControlEnvValue('GANTRY_RUNTIME_ENV');
@@ -490,7 +537,11 @@ export function startControlServer(input: {
   };
 
   const server = http.createServer(
-    createControlRequestHandler(ctx, input.routeProfile ?? 'full'),
+    createControlRequestHandler(
+      ctx,
+      input.routeProfile ?? 'full',
+      input.uiDistDir ?? defaultUiDistDir(),
+    ),
   );
   server.on('clientError', (error, socket) => {
     if (isControlClientDisconnectError(error)) {
@@ -595,6 +646,7 @@ export const _testControlServer = {
   isPrivateAddress,
   makeAppGroup,
   resolveControlHost,
+  isLoopbackHost,
   deliverWebhookDelivery,
   flushWebhookDeliveries,
 };
