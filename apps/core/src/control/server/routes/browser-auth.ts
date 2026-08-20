@@ -1327,17 +1327,17 @@ export async function handleBrowserAuthRoutes(
     const revalidate = async () => {
       if (closed) return;
       if (!(await activeSession(req, mode))) {
-        res.write('event: access-revoked\\ndata: {}\\n\\n');
+        res.write('event: access-revoked\ndata: {}\n\n');
         close();
         return;
       }
-      res.write(': heartbeat\\n\\n');
+      res.write(': heartbeat\n\n');
     };
     await revalidate();
-    if (!closed) heartbeat = setInterval(() => void revalidate(), 30_000);
+    if (!closed)
+      heartbeat = setInterval(() => void revalidate().catch(close), 30_000);
     return true;
   }
-
   if (pathname === '/auth/logout') {
     if (req.method !== 'POST') {
       res.setHeader('Allow', 'POST');

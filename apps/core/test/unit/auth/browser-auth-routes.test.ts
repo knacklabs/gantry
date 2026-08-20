@@ -48,6 +48,10 @@ it('browser authentication routes > keeps browser protocol routes separate and r
     'reauthenticateSessionHash: hashAuthToken(sessionToken)',
   );
   expect(source).toContain('repo.revokeSession(');
+  expect(source).toContain(
+    "res.write('event: access-revoked\\ndata: {}\\n\\n')",
+  );
+  expect(source).toContain("res.write(': heartbeat\\n\\n')");
   expect(source).toContain('transaction.reauthenticateSessionHash');
   expect(source).toContain(
     'sessionHash: transaction.reauthenticateSessionHash',

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { createRemoteJWKSet, customFetch, jwtVerify } from 'jose';
 
-import { hashAuthToken } from '../../shared/auth-tokens.js';
+import { matchesAuthToken } from '../../shared/auth-tokens.js';
 
 export type OidcDiscovery = {
   issuer: string;
@@ -33,11 +33,21 @@ export class OidcAdapter {
     if (!isHttpsIssuer(normalizedIssuer)) {
       throw new Error('OIDC discovery is invalid');
     }
-    const response = await this.fetcher(
-      `${normalizedIssuer}/.well-known/openid-configuration`,
-    );
+    let response: Response;
+    try {
+      response = await this.fetcher(
+        `${normalizedIssuer}/.well-known/openid-configuration`,
+      );
+    } catch {
+      throw new Error('OIDC discovery failed');
+    }
     if (!response.ok) throw new Error('OIDC discovery failed');
-    const discovery = (await response.json()) as Partial<OidcDiscovery>;
+    let discovery: Partial<OidcDiscovery>;
+    try {
+      discovery = (await response.json()) as Partial<OidcDiscovery>;
+    } catch {
+      throw new Error('OIDC discovery is invalid');
+    }
     if (
       discovery.issuer !== normalizedIssuer ||
       !isHttpsUrl(discovery.authorization_endpoint) ||
@@ -62,12 +72,17 @@ export class OidcAdapter {
     const jwks = createRemoteJWKSet(new URL(input.discovery.jwks_uri), {
       [customFetch]: this.fetcher,
     });
-    const { payload } = await jwtVerify(input.token, jwks, {
-      issuer: input.discovery.issuer,
-      audience: input.clientId,
-      algorithms: input.discovery.id_token_signing_alg_values_supported,
-      requiredClaims: ['exp'],
-    });
+    let payload: Awaited<ReturnType<typeof jwtVerify>>['payload'];
+    try {
+      ({ payload } = await jwtVerify(input.token, jwks, {
+        issuer: input.discovery.issuer,
+        audience: input.clientId,
+        algorithms: input.discovery.id_token_signing_alg_values_supported,
+        requiredClaims: ['exp'],
+      }));
+    } catch {
+      throw new Error('OIDC token validation failed');
+    }
     const hasInvalidAuthorizedParty =
       (Array.isArray(payload.aud) &&
         payload.aud.length > 1 &&
@@ -76,7 +91,7 @@ export class OidcAdapter {
     if (
       hasInvalidAuthorizedParty ||
       typeof payload.nonce !== 'string' ||
-      hashAuthToken(payload.nonce) !== input.nonceHash ||
+      !matchesAuthToken(payload.nonce, input.nonceHash) ||
       typeof payload.sub !== 'string' ||
       !payload.sub
     )
@@ -124,21 +139,31 @@ export class OidcAdapter {
     code: string;
     codeVerifier: string;
   }): Promise<OidcTokenResponse> {
-    const response = await this.fetcher(input.discovery.token_endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code: input.code,
-        redirect_uri: input.redirectUri,
-        client_id: input.clientId,
-        client_secret: input.clientSecret,
-        code_verifier: input.codeVerifier,
-      }),
-      redirect: 'error',
-    });
+    let response: Response;
+    try {
+      response = await this.fetcher(input.discovery.token_endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'authorization_code',
+          code: input.code,
+          redirect_uri: input.redirectUri,
+          client_id: input.clientId,
+          client_secret: input.clientSecret,
+          code_verifier: input.codeVerifier,
+        }),
+        redirect: 'error',
+      });
+    } catch {
+      throw new Error('OIDC token exchange failed');
+    }
     if (!response.ok) throw new Error('OIDC token exchange failed');
-    const body = (await response.json()) as { id_token?: unknown };
+    let body: { id_token?: unknown };
+    try {
+      body = (await response.json()) as { id_token?: unknown };
+    } catch {
+      throw new Error('OIDC token response is invalid');
+    }
     if (typeof body.id_token !== 'string' || !body.id_token) {
       throw new Error('OIDC token response is invalid');
     }

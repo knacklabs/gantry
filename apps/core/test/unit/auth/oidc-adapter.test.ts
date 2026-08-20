@@ -67,6 +67,13 @@ it('OIDC adapter > rejects discovery with a mismatched issuer or insecure endpoi
     unsafeIssuerAdapter.discover(unsafeIssuer.toString()),
   ).rejects.toThrow('OIDC discovery is invalid');
   expect(requested).toBe(false);
+
+  const providerFailure = new OidcAdapter(async () => {
+    throw new Error('provider implementation detail');
+  });
+  await expect(
+    providerFailure.discover('https://issuer.example'),
+  ).rejects.toThrow('OIDC discovery failed');
 });
 
 it('OIDC adapter > uses authorization-code PKCE and rejects malformed token responses', async () => {
@@ -177,7 +184,7 @@ it('OIDC adapter > validates signed issuer, audience, expiry, and nonce claims',
       clientId: 'client',
       nonceHash: hashAuthToken('expected-nonce'),
     }),
-  ).rejects.toThrow();
+  ).rejects.toThrow('OIDC token validation failed');
   await expect(
     adapter.validateIdToken({
       token: await signedToken({}, { audience: 'other-client' }),
