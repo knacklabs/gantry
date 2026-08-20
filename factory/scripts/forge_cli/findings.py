@@ -13,7 +13,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from factory_lib import load_json, repo_root
+from factory_lib import (
+    evidence_path, factory_dir, load_json, repo_root, run_state_path, story_dir,
+)
+from .roadmap import load_items
 
 RECURRING_AT = 3  # same class a third time = stop patching, consolidate
 WATCH_AT = 2
@@ -42,16 +45,28 @@ def _finding_rows(task: str, aspect: str, data: dict) -> list[dict]:
 def collect(base: Path) -> list[dict]:
     """Every finding ever recorded: shipped tasks (history) + the active task."""
     rows: list[dict] = []
-    history = base / ".factory" / "history"
+    history = factory_dir(base) / "history"
+    task_keys = {
+        str(item["key"])
+        for item in load_items(base)
+        if item.get("key") and story_dir(base, str(item["key"])).is_dir()
+    }
     if history.is_dir():
-        for task_dir in sorted(p for p in history.iterdir() if p.is_dir()):
-            for review in sorted((task_dir / "reviews").glob("*.json")):
-                data = load_json(review, default={})
-                rows += _finding_rows(task_dir.name, review.stem, data)
-    active_issue = load_json(base / ".factory" / "run.json", default={}).get("issue_key", "")
-    for review in sorted((base / ".factory" / "reviews").glob("*.json")):
-        data = load_json(review, default={})
-        rows += _finding_rows(active_issue or "<active>", review.stem, data)
+        task_keys.update(p.name for p in history.iterdir() if p.is_dir())
+    active_issue = load_json(run_state_path(base), default={}).get("issue_key", "")
+    if active_issue:
+        task_keys.add(active_issue)
+    for task in sorted(task_keys):
+        for aspect in ("quality", "performance", "security"):
+            review = evidence_path(base, task, f"reviews/{aspect}.json")
+            if not review.is_file():
+                continue
+            data = load_json(review, default={})
+            rows += _finding_rows(task, aspect, data)
+    if not active_issue:
+        for review in sorted((factory_dir(base) / "reviews").glob("*.json")):
+            data = load_json(review, default={})
+            rows += _finding_rows("<active>", review.stem, data)
     return rows
 
 

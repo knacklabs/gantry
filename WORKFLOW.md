@@ -351,21 +351,24 @@ sequence a JIT contract loop for every pending task:
    state left by completed dependencies
 2. re-record the decomposition with that contract
 3. run `factory/prompts/griller.md` with `--gate task`, resolve its findings,
-   and record the pass for that id and current task-contract digest:
-   `record_grill_from_json.py --gate task --task <id> --task-digest <hash>`
-4. `forge stage start <id>` (strictly order-enforced; task-level `--parallel`
+   and record the pass for that id; the recorder derives the current grounding
+   digest: `record_grill_from_json.py --gate task --task <id>`
+4. save the plan-mode result at
+   `.factory/stories/<KEY>/task-plans/<id>.md`, then record the human task-plan
+   approval; editing that artifact requires approval again
+5. `forge stage start <id>` (strictly order-enforced; task-level `--parallel`
    is refused)
-5. `forge delegate <id>` composes the task brief and launches the installed
+6. `forge delegate <id>` composes the task brief and launches the installed
    companion in the foreground with write access derived from stage state;
    this is the hard gate that refuses a missing, failed, or stale task grill
-6. the orchestrator inspects the diff and rejects overbuilt code
-7. that stage's assumption rows are validated (`forge assumptions list --open`)
-8. smallest relevant checks run
-9. **local autoreview on the UNCOMMITTED diff until clean** (`autoreview
+7. the orchestrator inspects the diff and rejects overbuilt code
+8. that stage's assumption rows are validated (`forge assumptions list --open`)
+9. smallest relevant checks run
+10. **local autoreview on the UNCOMMITTED diff until clean** (`autoreview
    --mode local`, run DIRECTLY by the orchestrator with the autoreview
    skill — never as a Codex handoff, which re-triggers the same skill one
    indirection deeper) — a stage commits only clean
-10. commit, then `forge stage done <id>`
+11. commit, then `forge stage done <id>`
 
 `forge next` derives this frontier from the same readiness gate and reports
 exactly one of author contract, task grill, stage start, or delegate.
@@ -387,7 +390,9 @@ the approved plan, a human-only act, or scope the plan does not cover.
 ## Task Planning
 Per-task planning runs in Claude Code plan mode by default (exploration
 delegated to Codex: `/codex:rescue --model gpt-5.6-terra --effort high` —
-read-only by default, never Claude Code itself, never raw `codex exec`); devs may instead use the
+read-only by default, never Claude Code itself, never raw `codex exec`; plan
+validation, debugging and root-cause runs use `--model gpt-5.6-sol --effort xhigh`,
+still read-only); devs may instead use the
 `planner-high` Codex agent — the contract is identical either way. The plan follows
 `factory/prompts/planner.md`, including the mandatory **Decisions** section: every choice not derivable from BRIEF,
 architecture, or existing records becomes a `docs/decisions/` record
@@ -438,12 +443,14 @@ durable record of what was decided and what was built.
 4. record client sign-off
 5. plan one roadmap story and record its ordered task list
 6. for each leaf task: author its contract, re-record the decomposition, pass
-   the `task` grill, start the stage, then delegate it; the implementer writes,
-   runs, and records the automated tests
-7. run `python3 factory/scripts/verify.py`
-8. run ONE autoreview pass (three lenses) and record the three review artifacts
+   the `task` grill, save and approve its per-task plan artifact, start the
+   stage, then delegate it; the implementer writes, runs, and records the tests
+7. after all stages are done, run ONE branch autoreview pass (three lenses)
+   and record the three review artifacts
+8. run `python3 factory/scripts/verify.py`
 9. run `functional-checker` when the decomposition has `user_facing: true`
-10. run `python3 factory/scripts/pr_ready.py`
+10. record the shipped outcome with `./forge outcome set "<what changed>"`
+11. run `python3 factory/scripts/pr_ready.py`
 
 ## PR Ready Contract
 A branch is PR-ready only when:

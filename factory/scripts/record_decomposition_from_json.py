@@ -9,10 +9,11 @@ import shlex
 from pathlib import Path
 
 from factory_lib import (
-    decomposition_state_path, dump_json, gate, head_sha, load_json, now_iso,
-    plan_digest_without_assumptions, protected_decomposition_state_path,
-    repo_root, run_state_path, read_stdin_utf8, safe_factory_write_json,
-    validate_payload,
+    decomposition_state_path, dump_json, gate, head_sha,
+    load_json, now_iso, plan_digest_without_assumptions,
+    protected_decomposition_state_path, repo_root, require_approved_plan_digest,
+    run_state_path,
+    read_stdin_utf8, validate_payload,
 )
 from forge_cli.doctor import unrunnable_reason
 from forge_cli.stages import review_budget
@@ -66,6 +67,7 @@ if not plan_path.is_file():
         f"decomposition provenance: active plan {plan_file!r} is not readable"
     )
 plan_sha256 = plan_digest_without_assumptions(plan_path)
+approved_sha256 = require_approved_plan_digest(root)
 # The digest the recorder can actually VOUCH for: it reads the active plan
 # itself, so the stamp is true at record time without asking the producer to
 # hash a file. A supplied digest is still compared — a producer that knows
@@ -112,7 +114,7 @@ payload.update({
     "story": story,
     "epic": epic,
     "plan_file": plan_file,
-    "plan_sha256": plan_sha256,
+    "plan_sha256": approved_sha256,
 })
 validate_payload(root, "decomposition", payload)
 tasks = payload.get("tasks") or []
@@ -442,7 +444,7 @@ with delegation_exclusion(
         write_stages(root, stages_data)
     payload["commit"] = head_sha(root)
     dump_json(protected_decomposition_state_path(root), payload)
-    safe_factory_write_json(root, decomposition_state_path(root).name, payload)
+    dump_json(decomposition_state_path(root, for_write=True), payload)
     # The decomposition is immutable evidence; the stage tracker is its mutable
     # execution twin (decision 0007) — pr_ready refuses while stages are open.
     write_skeleton(root, state.get("issue_key", ""), tasks)

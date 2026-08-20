@@ -10,8 +10,9 @@ import subprocess
 from pathlib import Path
 
 from factory_lib import (
-    append_ledger_record, clean_git_env, dump_json, head_sha, load_json, now_iso,
-    load_review_artifacts, read_ledger_records, repo_root,
+    _active_story_key, append_ledger_record, clean_git_env, dump_json,
+    evidence_path, head_sha, load_json, load_review_artifacts, now_iso,
+    read_ledger_records, repo_root,
 )
 
 from .common import fail
@@ -91,6 +92,17 @@ def _open(base: Path, *, profile: str, reason: str, by: str | None = None) -> di
     reason = reason.strip()
     if not reason:
         fail(f"a {profile} window needs a reason")
+    from forge_cli.stages import load_stages
+    active_stages = [
+        stage.get("id") for stage in load_stages(base).get("stages", [])
+        if isinstance(stage, dict) and stage.get("status") == "active"
+    ]
+    if active_stages:
+        fail(
+            f"cannot open a {profile} window while a stage is active: "
+            f"{', '.join(active_stages)} — finish it "
+            "(`./forge stage done <id>`) so no stage is active, then open the window"
+        )
     active_window = load_active(base)
     if active_window:
         active_profile = profile_of(active_window)
@@ -268,7 +280,13 @@ def cmd_mode_done(args: argparse.Namespace) -> None:
         "reviews": reviews,
     }
     _append(base, event)
-    shutil.rmtree(base / ".factory" / "reviews")
+    # Clear the ephemeral gate reviews (story-scoped under CFS-1, legacy
+    # .factory/reviews otherwise) so they cannot pose as the story closeout
+    # reviews; tolerate absence.
+    reviews_dir = evidence_path(
+        base, _active_story_key(base) or None, "reviews", for_write=True,
+    )
+    shutil.rmtree(reviews_dir, ignore_errors=True)
     quickfix_path(base).unlink()
     print(f"Lite mode {active['id']} done ({len(event['files'])} file(s)): "
           f"{active['reason']}")
