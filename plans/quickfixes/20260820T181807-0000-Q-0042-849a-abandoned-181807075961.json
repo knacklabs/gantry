@@ -1,0 +1,18 @@
+{
+  "event": "abandoned",
+  "id": "Q-0042-849a",
+  "profile": "lite",
+  "reason": "NOTIFY-1 T3 (jobNotificationView plumbing) ships within the story branch",
+  "opened_reason": "NOTIFY-1 T3: typed jobNotificationView on MessageSendOptions (mirror reviewMessageView) carrying status/stats/optional structured result/fallback text; thread through sendJobNotification; populate stats+fallback",
+  "started_at": "2026-08-20T18:12:06+00:00",
+  "completed_at": "2026-08-20T18:18:07+00:00",
+  "files": [
+    "apps/core/src/domain/types.ts",
+    "apps/core/src/jobs/delivery.ts",
+    "apps/core/src/jobs/execution-notifications.ts",
+    "apps/core/src/jobs/status-formatting.ts",
+    "apps/core/test/unit/jobs/execution-notifications.test.ts"
+  ],
+  "by": "Ravi",
+  "base_sha": "7031481445371a9db8a63c077cf959b234d728e8"
+}

@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0047-91af",
+  "profile": "degraded",
+  "reason": "NOTIFY-1: raise file-size budgets for 3 files the structured-notification feature legitimately grew (types, execution, telegram-delivery)",
+  "started_at": "2026-08-20T19:02:10+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

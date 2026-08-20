@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0043-b330",
+  "profile": "lite",
+  "reason": "NOTIFY-1 T4: native Telegram renderer for jobNotificationView (HTML expandable card: header, stats, structured result or fallback, next-run), mirroring reviewMessageView; fallback to text when absent",
+  "started_at": "2026-08-20T18:18:50+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi",
+  "base_sha": "13cb7cdffa40cec3b6fd06a188bcada37a15d4bf"
+}

@@ -1,0 +1,13 @@
+{
+  "event": "abandoned",
+  "id": "Q-0045-8a8a",
+  "profile": "degraded",
+  "reason": "NOTIFY-1 T4 (Telegram renderer + neutral view bounding) ships within the story branch",
+  "opened_reason": "NOTIFY-1 T4 fixes: surrogate-safe truncation in boundJobNotificationView + omit an empty structured result so renderers fall back to fallbackText",
+  "started_at": "2026-08-20T18:38:05+00:00",
+  "completed_at": "2026-08-20T18:48:57+00:00",
+  "files": [
+    "apps/core/src/jobs/status-formatting.ts",
+    "apps/core/test/unit/jobs/status-formatting.test.ts"
+  ]
+}

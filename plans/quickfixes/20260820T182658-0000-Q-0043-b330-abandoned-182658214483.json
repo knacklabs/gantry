@@ -1,0 +1,16 @@
+{
+  "event": "abandoned",
+  "id": "Q-0043-b330",
+  "profile": "lite",
+  "reason": "T4 telegram renderer needs a neutral view-bounding fix (fits all providers), applied at view construction; reopening a window for it",
+  "opened_reason": "NOTIFY-1 T4: native Telegram renderer for jobNotificationView (HTML expandable card: header, stats, structured result or fallback, next-run), mirroring reviewMessageView; fallback to text when absent",
+  "started_at": "2026-08-20T18:18:50+00:00",
+  "completed_at": "2026-08-20T18:26:58+00:00",
+  "files": [
+    "apps/core/src/channels/telegram/channel-delivery.ts",
+    "apps/core/src/channels/telegram/message-action-affordances.ts",
+    "apps/core/test/unit/channels/telegram.test.ts"
+  ],
+  "by": "Ravi",
+  "base_sha": "13cb7cdffa40cec3b6fd06a188bcada37a15d4bf"
+}

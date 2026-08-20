@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0044-c5e6",
+  "profile": "lite",
+  "reason": "NOTIFY-1 T4 fix: bound jobNotificationView content at construction (cap items, truncate fields, bound fallbackText) so native cards fit every provider message limit",
+  "started_at": "2026-08-20T18:26:58+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi",
+  "base_sha": "13cb7cdffa40cec3b6fd06a188bcada37a15d4bf"
+}
