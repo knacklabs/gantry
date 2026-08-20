@@ -4,6 +4,7 @@ import {
   createOpaqueToken,
   expiresAt,
   hashAuthToken,
+  matchesAuthToken,
 } from '../../application/auth/auth-foundations.js';
 import {
   normalizeRuntimeSecretRefString,
@@ -14,6 +15,39 @@ import { encryptCredentialSecretValue } from '../../adapters/storage/postgres/re
 import { PostgresAuthenticationRepository } from '../../adapters/storage/postgres/repositories/authentication-repository.postgres.js';
 
 const OIDC_TRANSACTION_TTL_MS = 10 * 60 * 1000;
+
+function oidcStateCookieName(canonicalOrigin: string): string {
+  return new URL(canonicalOrigin).protocol === 'https:'
+    ? '__Host-gantry-oidc-state'
+    : 'gantry_oidc_state';
+}
+
+export function oidcStateCookie(
+  canonicalOrigin: string,
+  state: string,
+): string {
+  const secure = new URL(canonicalOrigin).protocol === 'https:';
+  return `${oidcStateCookieName(canonicalOrigin)}=${state}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${OIDC_TRANSACTION_TTL_MS / 1000}${secure ? '; Secure' : ''}`;
+}
+
+export function expiredOidcStateCookie(canonicalOrigin: string): string {
+  const secure = new URL(canonicalOrigin).protocol === 'https:';
+  return `${oidcStateCookieName(canonicalOrigin)}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure ? '; Secure' : ''}`;
+}
+
+export function oidcStateMatches(
+  cookieHeader: string | undefined,
+  canonicalOrigin: string,
+  state: string,
+): boolean {
+  const name = oidcStateCookieName(canonicalOrigin);
+  const token = (cookieHeader ?? '')
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`))
+    ?.slice(name.length + 1);
+  return Boolean(token && matchesAuthToken(token, hashAuthToken(state)));
+}
 
 export type OidcConfiguration = {
   issuer: string;
@@ -89,7 +123,7 @@ export async function beginOidcSignIn(input: {
   reauthenticateUserId?: string;
   reauthenticateSessionHash?: string;
   prompt?: 'login';
-}): Promise<string> {
+}): Promise<{ authorizationUrl: string; state: string }> {
   const discovery = await input.adapter.discover(input.oidc.issuer);
   const id = randomUUID();
   const state = createOpaqueToken();
@@ -127,15 +161,18 @@ export async function beginOidcSignIn(input: {
     expiresAt: expiresAt(now, OIDC_TRANSACTION_TTL_MS).toISOString(),
     now: now.toISOString(),
   });
-  return input.adapter.authorizationUrl({
-    discovery,
-    clientId: input.oidc.clientId,
-    redirectUri: oidcRedirectUri(input.canonicalOrigin),
+  return {
+    authorizationUrl: input.adapter.authorizationUrl({
+      discovery,
+      clientId: input.oidc.clientId,
+      redirectUri: oidcRedirectUri(input.canonicalOrigin),
+      state,
+      nonce,
+      codeVerifier: verifier,
+      ...(input.prompt ? { prompt: input.prompt } : {}),
+    }),
     state,
-    nonce,
-    codeVerifier: verifier,
-    ...(input.prompt ? { prompt: input.prompt } : {}),
-  });
+  };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

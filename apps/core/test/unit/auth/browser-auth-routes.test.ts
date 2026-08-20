@@ -2,7 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, it } from 'vitest';
 
-import { parseOidcConfiguration } from '@core/control/server/browser-oidc.js';
+import {
+  expiredOidcStateCookie,
+  oidcStateCookie,
+  oidcStateMatches,
+  parseOidcConfiguration,
+} from '@core/control/server/browser-oidc.js';
 
 const repoRoot = path.resolve(
   new URL('../../../../..', import.meta.url).pathname,
@@ -24,6 +29,8 @@ it('browser authentication routes > keeps browser protocol routes separate and r
   expect(source).toContain("pathname === '/ui/api/auth/events'");
   expect(source).toContain('consumeLocalAuthorizationCode');
   expect(source).toContain('consumeOidcTransaction');
+  expect(source).toContain('oidcStateMatches(');
+  expect(source).toContain('expiredOidcStateCookie(');
   expect(oidc).toContain('const nonce = createOpaqueToken()');
   expect(oidc).toContain('nonceHash: hashAuthToken(nonce)');
   expect(oidc).toContain('? { oidcConfigJson: JSON.stringify(input.oidc) }');
@@ -63,7 +70,8 @@ it('browser authentication routes > keeps browser protocol routes separate and r
   )[1];
   expect(candidateRoute).toContain('REAUTHENTICATION_REQUIRED');
   expect(candidateRoute).toContain('configurationTest: true');
-  expect(candidateRoute).toContain('redirectUrl: await beginOidcSignIn');
+  expect(candidateRoute).toContain('const flow = await beginOidcSignIn');
+  expect(candidateRoute).toContain('redirectUrl: flow.authorizationUrl');
 
   expect(
     parseOidcConfiguration({
@@ -101,4 +109,38 @@ it('browser authentication routes > keeps browser protocol routes separate and r
       providerLabel: 'Example',
     }),
   ).toBeNull();
+
+  const hostedStateCookie = oidcStateCookie(
+    'https://console.example',
+    'opaque-state',
+  );
+  expect(hostedStateCookie).toContain('__Host-gantry-oidc-state=opaque-state');
+  expect(hostedStateCookie).toContain('HttpOnly; SameSite=Lax');
+  expect(hostedStateCookie).toContain('Secure');
+  expect(
+    oidcStateMatches(
+      hostedStateCookie,
+      'https://console.example',
+      'opaque-state',
+    ),
+  ).toBe(true);
+  expect(
+    oidcStateMatches(
+      hostedStateCookie,
+      'https://console.example',
+      'other-state',
+    ),
+  ).toBe(false);
+  expect(expiredOidcStateCookie('https://console.example')).toContain(
+    'Max-Age=0; Secure',
+  );
+  const localStateCookie = oidcStateCookie(
+    'http://127.0.0.1:3939',
+    'local-state',
+  );
+  expect(localStateCookie).toContain('gantry_oidc_state=local-state');
+  expect(localStateCookie).not.toContain('Secure');
+  expect(
+    oidcStateMatches(localStateCookie, 'http://127.0.0.1:3939', 'local-state'),
+  ).toBe(true);
 });

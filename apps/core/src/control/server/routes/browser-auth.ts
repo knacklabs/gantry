@@ -39,7 +39,10 @@ import type { ControlRouteContext } from '../handler-context.js';
 import { readJson, sendError, sendJson } from '../http.js';
 import {
   beginOidcSignIn,
+  expiredOidcStateCookie,
   oidcRedirectUri,
+  oidcStateCookie,
+  oidcStateMatches,
   parseOidcConfiguration,
   parseTransactionOidcConfig,
 } from '../browser-oidc.js';
@@ -176,6 +179,26 @@ function redirect(res: ServerResponse, location: string): void {
   res.end();
 }
 
+function appendResponseCookie(res: ServerResponse, cookie: string): void {
+  const existing = res.getHeader('Set-Cookie');
+  res.setHeader(
+    'Set-Cookie',
+    Array.isArray(existing)
+      ? [...existing, cookie]
+      : typeof existing === 'string'
+        ? [existing, cookie]
+        : [cookie],
+  );
+}
+
+function bindOidcFlowToBrowser(
+  res: ServerResponse,
+  canonicalOrigin: string,
+  state: string,
+): void {
+  appendResponseCookie(res, oidcStateCookie(canonicalOrigin, state));
+}
+
 function oidcFlowDependencies() {
   return {
     adapter: oidcAdapter(),
@@ -205,10 +228,14 @@ async function issueSession(input: {
     now: now.toISOString(),
   });
   const secure = new URL(input.canonicalOrigin).protocol === 'https:';
-  input.res.setHeader('Set-Cookie', [
+  appendResponseCookie(
+    input.res,
     browserSessionCookie(input.mode, sessionToken, secure),
+  );
+  appendResponseCookie(
+    input.res,
     browserCsrfCookie(input.mode, csrfToken, secure),
-  ]);
+  );
 }
 
 export async function handleBrowserAuthRoutes(
@@ -342,15 +369,14 @@ export async function handleBrowserAuthRoutes(
     }
     if (!consumeAuthRateLimit(req, res, ctx)) return true;
     try {
-      redirect(
-        res,
-        await beginOidcSignIn({
-          ...oidcFlowDependencies(),
-          appId: APP_ID,
-          canonicalOrigin: authentication.canonicalOrigin,
-          oidc: authentication.activeOidc,
-        }),
-      );
+      const flow = await beginOidcSignIn({
+        ...oidcFlowDependencies(),
+        appId: APP_ID,
+        canonicalOrigin: authentication.canonicalOrigin,
+        oidc: authentication.activeOidc,
+      });
+      bindOidcFlowToBrowser(res, authentication.canonicalOrigin, flow.state);
+      redirect(res, flow.authorizationUrl);
     } catch {
       redirect(
         res,
@@ -396,14 +422,16 @@ export async function handleBrowserAuthRoutes(
       return true;
     }
     try {
+      const flow = await beginOidcSignIn({
+        ...oidcFlowDependencies(),
+        appId: APP_ID,
+        canonicalOrigin: authentication.canonicalOrigin,
+        oidc: authentication.activeOidc,
+        invitationTokenHash,
+      });
+      bindOidcFlowToBrowser(res, authentication.canonicalOrigin, flow.state);
       sendJson(res, 200, {
-        redirectUrl: await beginOidcSignIn({
-          ...oidcFlowDependencies(),
-          appId: APP_ID,
-          canonicalOrigin: authentication.canonicalOrigin,
-          oidc: authentication.activeOidc,
-          invitationTokenHash,
-        }),
+        redirectUrl: flow.authorizationUrl,
       });
     } catch {
       sendError(
@@ -437,18 +465,17 @@ export async function handleBrowserAuthRoutes(
       return true;
     }
     try {
-      redirect(
-        res,
-        await beginOidcSignIn({
-          ...oidcFlowDependencies(),
-          appId: APP_ID,
-          canonicalOrigin: authentication.canonicalOrigin,
-          oidc: authentication.activeOidc,
-          reauthenticateUserId: session.userId,
-          reauthenticateSessionHash: hashAuthToken(sessionToken),
-          prompt: 'login',
-        }),
-      );
+      const flow = await beginOidcSignIn({
+        ...oidcFlowDependencies(),
+        appId: APP_ID,
+        canonicalOrigin: authentication.canonicalOrigin,
+        oidc: authentication.activeOidc,
+        reauthenticateUserId: session.userId,
+        reauthenticateSessionHash: hashAuthToken(sessionToken),
+        prompt: 'login',
+      });
+      bindOidcFlowToBrowser(res, authentication.canonicalOrigin, flow.state);
+      redirect(res, flow.authorizationUrl);
     } catch {
       redirect(
         res,
@@ -470,7 +497,28 @@ export async function handleBrowserAuthRoutes(
     const callback = new URL(req.url || '/', authentication.canonicalOrigin);
     const state = callback.searchParams.get('state');
     const code = callback.searchParams.get('code');
-    if (!state || !code) {
+    if (
+      !state ||
+      !oidcStateMatches(
+        req.headers.cookie,
+        authentication.canonicalOrigin,
+        state,
+      )
+    ) {
+      redirect(
+        res,
+        new URL(
+          '/ui/auth/callback-failed',
+          authentication.canonicalOrigin,
+        ).toString(),
+      );
+      return true;
+    }
+    appendResponseCookie(
+      res,
+      expiredOidcStateCookie(authentication.canonicalOrigin),
+    );
+    if (!code) {
       redirect(
         res,
         new URL(
@@ -1047,15 +1095,15 @@ export async function handleBrowserAuthRoutes(
           ref: candidate.clientSecretRef,
         });
         if (!secret) throw new Error('OIDC client secret is unavailable');
-        sendJson(res, 200, {
-          redirectUrl: await beginOidcSignIn({
-            ...oidcFlowDependencies(),
-            appId: APP_ID,
-            canonicalOrigin: authentication.canonicalOrigin,
-            oidc: candidate,
-            configurationTest: true,
-          }),
+        const flow = await beginOidcSignIn({
+          ...oidcFlowDependencies(),
+          appId: APP_ID,
+          canonicalOrigin: authentication.canonicalOrigin,
+          oidc: candidate,
+          configurationTest: true,
         });
+        bindOidcFlowToBrowser(res, authentication.canonicalOrigin, flow.state);
+        sendJson(res, 200, { redirectUrl: flow.authorizationUrl });
       } catch {
         sendError(
           res,
