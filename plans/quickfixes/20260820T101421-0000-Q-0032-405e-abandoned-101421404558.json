@@ -1,0 +1,18 @@
+{
+  "event": "abandoned",
+  "id": "Q-0032-405e",
+  "profile": "lite",
+  "reason": "bounded CLI fix ships as a standard PR; addressing the autoreview P1 (session-wipe ordering) in a degraded window \u2014 review evidence is the PR autoreview, not factory .factory/reviews",
+  "opened_reason": "bounded CLI fix: folder-safe agent-route removal (deleteSession footgun) + add gantry jobs delete",
+  "started_at": "2026-08-20T09:57:23+00:00",
+  "completed_at": "2026-08-20T10:14:21+00:00",
+  "files": [
+    "apps/core/src/cli/group.ts",
+    "apps/core/src/cli/jobs.ts",
+    "apps/core/src/cli/runtime-group-db.ts",
+    "apps/core/test/unit/cli/group-remove.test.ts",
+    "apps/core/test/unit/cli/jobs.test.ts"
+  ],
+  "by": "Ravi",
+  "base_sha": "5bd36b2e7d6067e20e1061fbda3b95991b631a48"
+}

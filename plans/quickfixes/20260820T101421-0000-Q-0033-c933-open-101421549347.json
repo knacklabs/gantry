@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0033-c933",
+  "profile": "degraded",
+  "reason": "apply autoreview P1: move folder session wipe to after desired-state prune (TOCTOU + delegate-retention)",
+  "started_at": "2026-08-20T10:14:21+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}
