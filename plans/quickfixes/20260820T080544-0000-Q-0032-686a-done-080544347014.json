@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0032-686a",
+  "profile": "quickfix",
+  "reason": "Scheduled jobs whose notification route has no providerAccountId are invisible to the agent's own scheduler_list_jobs even from the job's own conversation: canAccessSchedulerJob requires route.providerAccountId === originProviderAccountId, and the query always carries an account (telegram_default). A route created without a provider account (the KnackLabs lead job) thus vanishes, indistinguishable from deletion. Fix: an UNBOUND route (no providerAccountId) matches any account; a route BOUND to a different account still fails (fail-closed preserved). Independently root-caused by codex sol xhigh.",
+  "started_at": "2026-08-20T08:04:49+00:00",
+  "completed_at": "2026-08-20T08:05:44+00:00",
+  "files": []
+}

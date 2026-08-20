@@ -1643,6 +1643,52 @@ describe('job application use cases', () => {
     ).toBe(true);
   });
 
+  it('shows a job whose route carries no provider account to an account-bearing query', () => {
+    // Regression: the KnackLabs lead job stored a notification route with no
+    // providerAccountId, so it was invisible to the agent's own list even from
+    // its conversation, because the query always carries an account.
+    const access = {
+      sourceAgentFolder: 'team',
+      originConversationJid: 'tg:team',
+      originProviderAccountId: 'telegram_default',
+      conversationBindings: { 'tg:team': { folder: 'team' } },
+      sourceAgentFolderJids: ['tg:team'],
+    };
+    const withRoute = (route: Record<string, unknown>) =>
+      makeJob({
+        workspace_key: 'team',
+        execution_context: {
+          conversationJid: 'tg:team',
+          threadId: '6898',
+          workspaceKey: 'team',
+        },
+        notification_routes: [
+          {
+            conversationJid: 'tg:team',
+            threadId: '6898',
+            label: 'primary',
+            ...route,
+          },
+        ] as Job['notification_routes'],
+      });
+    // UNBOUND route (no providerAccountId): reachable by any account.
+    expect(canAccessSchedulerJob(withRoute({}), access)).toBe(true);
+    // BOUND to the same account: reachable.
+    expect(
+      canAccessSchedulerJob(
+        withRoute({ providerAccountId: 'telegram_default' }),
+        access,
+      ),
+    ).toBe(true);
+    // BOUND to a DIFFERENT account: still hidden (fail-closed preserved).
+    expect(
+      canAccessSchedulerJob(
+        withRoute({ providerAccountId: 'telegram_other' }),
+        access,
+      ),
+    ).toBe(false);
+  });
+
   it('validates scheduler thread mutations', () => {
     const access = {
       sourceAgentFolder: 'team',
