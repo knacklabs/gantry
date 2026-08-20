@@ -1,5 +1,6 @@
 import type { Job } from '../domain/types.js';
 import type { JobToolDenial } from '../domain/events/job-tool-denial.js';
+import type { JobRunDiagnostics } from './execution-diagnostics.js';
 import { formatDuration } from '../shared/human-format.js';
 import { humanizeTechnicalIdentifier } from '../shared/user-visible-messages.js';
 
@@ -13,6 +14,7 @@ export function formatRunStatusMessage(args: {
   retryCount: number;
   pauseReason?: string | null;
   durationMs?: number;
+  diagnostics?: JobRunDiagnostics;
   degradedReason?: string;
   toolDenial?: JobToolDenial | null;
 }): string {
@@ -30,8 +32,10 @@ export function formatRunStatusMessage(args: {
       : ` · ${formatDuration(args.durationMs)}`;
   const summary = notificationOutcome(displaySummary, args.runStatus, denial);
   const action = notificationAction(args.runStatus, displaySummary, denial);
+  const stats = terminalRunStats(args);
   const lines = [
     `**${statusEmoji(statusText)} ${statusText}** · ${args.job.name}${duration}`,
+    ...(stats ? [stats] : []),
     summary,
   ];
   if (args.degradedReason) lines.push(`⚠️ Degraded: ${args.degradedReason}`);
@@ -123,7 +127,39 @@ function statusLabel(
 function compactSummary(summary: string, max = 180): string {
   const normalized = humanizeSummary(summary);
   if (normalized.length <= max) return normalized;
-  return `${normalized.slice(0, max - 3)}...`;
+  const truncated = normalized.slice(0, max - 3);
+  // A sentence boundary is a terminator followed by whitespace. Punctuation
+  // inside a token (2.0, file.txt, a URL) is not a boundary, so fall back to the
+  // last word boundary, then to a hard cut for a single over-long token.
+  const sentenceMatch = truncated.match(/^.*[.!?](?=\s)/s);
+  const wordMatch = truncated.match(/^.*\s/s);
+  const boundary = sentenceMatch
+    ? sentenceMatch[0].length
+    : wordMatch
+      ? wordMatch[0].length
+      : truncated.length;
+  return `${truncated
+    .slice(0, boundary)
+    .trimEnd()
+    .replace(/[.!?]+$/, '')}...`;
+}
+
+function terminalRunStats(args: {
+  runStatus: 'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered';
+  durationMs?: number;
+  diagnostics?: JobRunDiagnostics;
+}): string | null {
+  if (
+    (args.runStatus !== 'completed' && args.runStatus !== 'failed') ||
+    !args.diagnostics ||
+    args.durationMs === undefined
+  ) {
+    return null;
+  }
+  const { diagnostics } = args;
+  const toolCount = diagnostics.totalToolCalls;
+  const lastAction = diagnostics.lastTool ?? diagnostics.currentTool ?? 'none';
+  return `${formatDuration(args.durationMs)}, ${toolCount} tool${toolCount === 1 ? '' : 's'}, ${diagnostics.browserActivityCount > 0 ? 'browser used' : 'browser not used'}, last ${lastAction}`;
 }
 
 function humanizeSummary(summary: string): string {

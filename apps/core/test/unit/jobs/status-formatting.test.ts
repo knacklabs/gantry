@@ -152,6 +152,80 @@ describe('job status formatting', () => {
     expect(message).not.toContain('Needs attention:');
   });
 
+  it('adds terminal run stats and truncates completed reports at a boundary', () => {
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary: `First sentence is complete. Second sentence carries a meaningful result. ${'Long narration continues without another sentence ending '.repeat(12)}`,
+      nextRun: null,
+      retryCount: 0,
+      durationMs: 34_000,
+      diagnostics: {
+        pendingPermissionRequests: 0,
+        pendingPermissionToolNames: [],
+        totalToolCalls: 34,
+        browserActivityCount: 1,
+        transientPermissionApprovals: [],
+        startupDiagnostics: [],
+        latestStreamedOutputChars: 0,
+        totalStreamedOutputChars: 0,
+        terminalToolDenials: [],
+        lastTool: 'capability_run',
+      },
+    });
+
+    expect(message).toContain(
+      '34s, 34 tools, browser used, last capability_run',
+    );
+    expect(message).toContain('Second sentence carries a meaningful result...');
+    expect(message).not.toContain('narratio...');
+  });
+
+  it('hard-cuts a boundary-less summary at the limit, not after one character', () => {
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary: 'a'.repeat(500),
+      nextRun: null,
+      retryCount: 0,
+    });
+
+    // A single long token (URL/hash) has no boundary before the limit, so it
+    // hard-cuts near the limit rather than collapsing to "a...".
+    expect(message).toContain(`${'a'.repeat(150)}`);
+    expect(message).toContain('...');
+    expect(message).not.toMatch(/(?:^|\s)a\.\.\./);
+  });
+
+  it('does not treat punctuation inside a token as a sentence boundary', () => {
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary: `Version 2.0 was deployed successfully to the cluster ${'and traffic shifted over '.repeat(20)}`,
+      nextRun: null,
+      retryCount: 0,
+    });
+
+    expect(message).not.toContain('Version 2...');
+    expect(message).toContain('Version 2.0 was deployed successfully');
+  });
+
+  it('truncates a newline-separated summary at a word boundary', () => {
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary: `firsttoken\n${'x'.repeat(500)}`,
+      nextRun: null,
+      retryCount: 0,
+    });
+
+    expect(message).toContain('firsttoken...');
+  });
+
   it('strips trailing agent-authored all-none receipt lines', () => {
     const message = formatRunStatusMessage({
       job: job(),

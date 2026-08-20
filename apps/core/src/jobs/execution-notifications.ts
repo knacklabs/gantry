@@ -432,6 +432,7 @@ export async function notifySchedulerTerminalRunState(input: {
       retryCount: input.retryCount,
       pauseReason: input.pauseReason,
       durationMs: input.durationMs,
+      diagnostics: input.diagnostics,
       degradedReason: degradedReasonForDiagnostics(
         input.runStatus,
         input.diagnostics,
