@@ -18,6 +18,19 @@ natively per provider. Codex diagnosis anchored each seam (file:line below).
 | T4 | **Telegram native renderer** | `channels/telegram/channel-delivery.ts`: render the view as HTML/expandable card + existing inline keyboard. | ⏳ pending |
 | T5 | **Slack native renderer** | `channels/slack/channel-delivery.ts`: Block Kit card (header/context/section) from the view. | ⏳ pending |
 | T6 | **Discord native renderer** | `channels/discord.ts` / `discord-delivery.ts`: embed from the view + existing buttons. | ⏳ pending |
+| T7 | **Structured job result via a finish tool** | Schema-validated `job_report` tool the agent calls with `{headline, items:[{outcome, label, detail}], nextAction}`; wire its args into the run result → the view's `result`. Card renders structured fields when present; boundary-truncated narration is the fallback. | ⏳ pending |
+
+## View shape (T3, carries the structured result for T7)
+```
+JobNotificationView = {
+  status; jobName; durationMs?;
+  stats?: { toolCount; browserUsed; lastAction? };   // from diagnostics
+  result?: { headline?; items?: [{outcome:'done'|'skipped'|'failed'; label; detail?}]; nextAction? }; // T7
+  fallbackText;   // neutral markdown card body — ALWAYS present
+  nextRunAt?;
+}
+```
+Renderers prefer `result`; fall back to `fallbackText`. Unsupported channels use `fallbackText` verbatim.
 
 ## Invariants
 - The neutral markdown string is always produced (persistence, accessibility, unsupported channels); native views are an enhancement branch inside each provider's `sendMessage`.
