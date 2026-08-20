@@ -49,6 +49,22 @@ export async function ensureAgentToolCatalogItem(input: {
   });
   if (!durableValidation.ok) throw new Error(durableValidation.reason);
   if (isDurableGantryMcpToolFullName(reference)) {
+    const activeTools = await input.repository.listTools({
+      appId: input.appId,
+      statuses: ['active'],
+    });
+    const existingByName = activeTools.find(
+      (tool) => tool.selectable && tool.name === reference,
+    );
+    if (existingByName) {
+      const validated = validateCatalogTool(
+        input.appId,
+        existingByName.id,
+        existingByName,
+      );
+      if (validated.tool) return validated.tool;
+      throw new Error(validated.error);
+    }
     const toolId = durableGantryCatalogToolId(input.appId, reference);
     const existing = await input.repository.getTool(toolId);
     if (existing) {

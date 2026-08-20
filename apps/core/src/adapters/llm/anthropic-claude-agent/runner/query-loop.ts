@@ -2,9 +2,15 @@ import {
   query,
   type EffortLevel,
   type HookInput,
+  type SandboxSettings,
   type ThinkingConfig,
 } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
+import {
+  parseReadableScopedToolRule,
+  RUN_COMMAND_TOOL_NAME,
+} from '../../../../shared/agent-tool-references.js';
+import { parseBashCommand } from '../../../../shared/bash-command-parser.js';
 import { composeAgentCapabilities } from '../agent-capabilities.js';
 import {
   SDK_NATIVE_SKILL_DISABLE_ENV,
@@ -73,6 +79,7 @@ import {
 import { runnerStartupTimingRuntimeEvent } from './runner-startup-diagnostic.js';
 import { startRuntimeSignalPump } from '../../../../runner/runtime-signal-pump.js';
 import { taskRuntimeEvent } from './task-runtime-event.js';
+import { applyBashTrustEnv } from './bash-trust-env.js';
 import {
   evaluateDeclarativeToolRules,
   RunScopedToolSuccessLedger,
@@ -254,9 +261,33 @@ export async function runQuery(
   // (permission engine + classifier + host-side credential/protected-path rail);
   // no inner SDK Seatbelt, so Chromium's Mach-port register (and the whole class)
   // runs. `sandbox_runtime` confinement is the runner OS sandbox
-  // (runner-sandbox-provider), which is applied out-of-band — this SDK-level
-  // filesystem Seatbelt is never the confinement layer, so it is dropped.
-  const sdkFilesystemSandbox = undefined;
+  // (runner-sandbox-provider), which is applied out-of-band. Disable the SDK
+  // sandbox explicitly: omitting this option lets a provider/user setting enable
+  // a nested sandbox whose Linux socat bridge cannot create Unix sockets inside
+  // the outer sandbox's seccomp boundary. `excludedCommands` is the SDK-supported
+  // strict-mode backstop: even if another Claude settings tier re-enables its
+  // sandbox, only executables from selected, reviewed skill actions remain in
+  // Gantry's already-enforcing outer boundary. Claude's `excludedCommands`
+  // matcher is executable-oriented, while Gantry's RunCommand policy continues
+  // to enforce the exact reviewed arguments. Never use a blanket wildcard: it
+  // would let unrelated Bash calls skip the SDK's defense-in-depth layer.
+  const reviewedOuterSandboxCommands =
+    process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
+      ? reviewedSkillActionSandboxExclusions(
+          agentInput,
+          agentInput.toolNetworkEnv ?? {},
+        )
+      : [];
+  const sdkFilesystemSandbox: SandboxSettings =
+    process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
+      ? {
+          enabled: false,
+          allowUnsandboxedCommands: true,
+          ...(reviewedOuterSandboxCommands.length > 0
+            ? { excludedCommands: reviewedOuterSandboxCommands }
+            : {}),
+        }
+      : { enabled: false };
   const workspaceFolder = agentInput.workspaceFolder;
   const enabledSdkSkills = readClaudeSdkSkillNamesFromEnv();
   const isolatedSdkEnv: Record<string, string | undefined> = {
@@ -374,7 +405,7 @@ export async function runQuery(
       ...(claudeCodeExecutable
         ? { pathToClaudeCodeExecutable: claudeCodeExecutable }
         : {}),
-      ...(sdkFilesystemSandbox ? { sandbox: sdkFilesystemSandbox } : {}),
+      sandbox: sdkFilesystemSandbox,
       // Locked agents map to the SDK 'dontAsk' mode (deny if not pre-approved);
       // the canUseTool gate auto-denies the prompt with "capability not
       // provisioned" before any approval is requested.
@@ -389,6 +420,16 @@ export async function runQuery(
               createSafetyPreToolUseHook(
                 memoryBlock,
                 agentInput.toolNetworkEnv ?? {},
+                {
+                  isScheduledJob: agentInput.isScheduledJob,
+                  jobId: agentInput.jobId,
+                  allowedToolRules: agentInput.allowedTools,
+                  selectedCapabilityIds: agentInput.runtimeAccess?.map(
+                    (access) => access.selectedCapabilityId,
+                  ),
+                  toolAccessRequirements: agentInput.toolAccessRequirements,
+                  semanticCapabilities: agentInput.semanticCapabilities,
+                },
               ),
               ...(declarativePreToolUse ? [declarativePreToolUse] : []),
             ],
@@ -688,4 +729,33 @@ export async function runQuery(
     closedDuringQuery,
     primeToolAttempts,
   };
+}
+
+function reviewedSkillActionSandboxExclusions(
+  agentInput: AgentRunnerInput,
+  toolNetworkEnv: Record<string, string | undefined>,
+): string[] {
+  const commands = new Set<string>();
+  for (const access of agentInput.runtimeAccess ?? []) {
+    if (access.sourceType !== 'skill_action') continue;
+    for (const rule of access.commandRules) {
+      const scoped = parseReadableScopedToolRule(rule);
+      if (scoped?.toolName !== RUN_COMMAND_TOOL_NAME || !scoped.scope) continue;
+      commands.add(scoped.scope);
+      const parsed = parseBashCommand(scoped.scope);
+      if (parsed.ok && parsed.leaves.length === 1) {
+        const executable = parsed.leaves[0]?.argv[0]?.trim();
+        if (executable) commands.add(executable);
+      }
+      const trusted = applyBashTrustEnv(
+        'Bash',
+        { command: scoped.scope },
+        toolNetworkEnv,
+      );
+      if (typeof trusted.command === 'string' && trusted.command.trim()) {
+        commands.add(trusted.command.trim());
+      }
+    }
+  }
+  return [...commands].sort();
 }

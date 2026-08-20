@@ -1331,7 +1331,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'does not request a nested SDK filesystem sandbox inside the outer runner sandbox',
+    'excludes only selected reviewed skill commands from the nested SDK sandbox',
     async () => {
       const fixture = createRunnerFixture();
       const protectedSettingsPath = path.join(
@@ -1342,20 +1342,56 @@ describe('agent-runner IPC lifecycle', () => {
       fs.mkdirSync(path.dirname(protectedSettingsPath), { recursive: true });
       fs.writeFileSync(protectedSettingsPath, '{}');
 
-      const result = await runRunner(fixture, baseInput(), {
-        TEST_EXIT_AFTER_QUERY: '1',
-        GANTRY_SANDBOX_RUNTIME_PROXY: '1',
-        GANTRY_PROTECTED_FILESYSTEM_DENY_READ_PATHS_JSON: JSON.stringify([
-          protectedSettingsPath,
-        ]),
-        GANTRY_PROTECTED_FILESYSTEM_DENY_WRITE_PATHS_JSON: JSON.stringify([
-          protectedSettingsPath,
-        ]),
-      });
+      const cutshortCommand =
+        'skills/ATS_Skills/scripts/cutshort-worker.mjs sync';
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          runtimeAccess: [
+            {
+              selectedCapabilityId: 'skill.ats-source-sync.cutshort',
+              sourceType: 'skill_action',
+              auditLabel: 'Cutshort source sync',
+              skillId: 'skill:ats-source-sync',
+              selectedAction: 'cutshort',
+              declaredEnvRefs: [],
+              commandRules: [`RunCommand(${cutshortCommand})`],
+              networkBindings: [],
+              browserAccess: 'managed_browser',
+            },
+            {
+              selectedCapabilityId: 'local-cli.unrelated',
+              sourceType: 'local_cli',
+              auditLabel: 'Unrelated local CLI',
+              commandRules: ['RunCommand(unrelated-cli *)'],
+              credentialDirs: [],
+              networkBindings: [],
+            },
+          ],
+        }),
+        {
+          TEST_EXIT_AFTER_QUERY: '1',
+          GANTRY_SANDBOX_RUNTIME_PROXY: '1',
+          GANTRY_PROTECTED_FILESYSTEM_DENY_READ_PATHS_JSON: JSON.stringify([
+            protectedSettingsPath,
+          ]),
+          GANTRY_PROTECTED_FILESYSTEM_DENY_WRITE_PATHS_JSON: JSON.stringify([
+            protectedSettingsPath,
+          ]),
+        },
+      );
 
       expect(result.exitCode, result.stderr).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
-      expect(call?.sandbox).toBeUndefined();
+      expect(call?.sandbox).toEqual({
+        enabled: false,
+        allowUnsandboxedCommands: true,
+        excludedCommands: [
+          `GODEBUG=netdns=go ${cutshortCommand}`,
+          'skills/ATS_Skills/scripts/cutshort-worker.mjs',
+          cutshortCommand,
+        ],
+      });
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
@@ -2397,6 +2433,37 @@ describe('agent-runner IPC lifecycle', () => {
         behavior: 'allow',
         updatedInput: {
           cmd: `GODEBUG=netdns=go ${command}`,
+          apiToken: 'secret-token',
+          dangerouslyDisableSandbox: true,
+        },
+      });
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'skips the redundant SDK Bash sandbox only inside the enforcing outer sandbox',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_PERMISSION_DECISION: 'approve',
+        TEST_EXIT_AFTER_QUERY: '1',
+        GANTRY_SANDBOX_RUNTIME_PROXY: '1',
+      });
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionRequest?.toolInput).toEqual(
+        expect.objectContaining({
+          cmd: 'GODEBUG=netdns=go npm test',
+          dangerouslyDisableSandbox: true,
+        }),
+      );
+      expect(call?.permissionDecision).toEqual({
+        behavior: 'allow',
+        updatedInput: {
+          cmd: 'GODEBUG=netdns=go npm test',
           apiToken: 'secret-token',
           dangerouslyDisableSandbox: true,
         },

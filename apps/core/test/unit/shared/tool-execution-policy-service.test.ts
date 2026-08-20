@@ -38,6 +38,29 @@ const classifier = new ToolExecutionClassifier();
 const policy = new ToolExecutionPolicyService();
 const tempRoots: string[] = [];
 
+function materializedAtsSkillScriptPath(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-skill-action-'));
+  tempRoots.push(root);
+  const protectedSkills = path.join(root, 'agents', 'ats', 'skills');
+  const scriptPath = path.join(
+    protectedSkills,
+    'ATS_Skills',
+    'scripts',
+    'cutshort-worker.mjs',
+  );
+  fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+  fs.writeFileSync(scriptPath, '#!/usr/bin/env node\n');
+  const runtimeSkills = path.join(root, '.llm-runtime', 'claude', 'skills');
+  fs.mkdirSync(path.dirname(runtimeSkills), { recursive: true });
+  fs.symlinkSync(protectedSkills, runtimeSkills, 'dir');
+  return path.join(
+    runtimeSkills,
+    'ATS_Skills',
+    'scripts',
+    'cutshort-worker.mjs',
+  );
+}
+
 afterEach(() => {
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
@@ -723,6 +746,110 @@ describe('ToolExecutionPolicyService', () => {
     ).toMatchObject({
       status: 'allow',
       matchedRule: 'RunCommand(/opt/homebrew/bin/acme records get *)',
+    });
+  });
+
+  it('allows an exact selected skill action command at its protected runtime path', () => {
+    const runtimeScriptPath = materializedAtsSkillScriptPath();
+    const skillCapability = capability({
+      capabilityId: 'skill.ats-source-sync.cutshort',
+      credentialSource: 'skill_secret',
+      implementationBindings: [
+        {
+          kind: 'tool_rule',
+          rule: 'RunCommand(skills/ATS_Skills/scripts/cutshort-worker.mjs sync)',
+        },
+      ],
+      source: {
+        kind: 'skill_action',
+        skillId: 'skill-ats',
+        skillName: 'ATS_Skills',
+        actionId: 'cutshort-sync',
+      },
+    });
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: {
+        command: `${runtimeScriptPath} sync`,
+      },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-ats-source-sync' },
+    });
+
+    expect(
+      policy.evaluate({
+        request,
+        autonomousAllowedToolRules: [
+          'capability:skill.ats-source-sync.cutshort',
+        ],
+        semanticCapabilityDefinitions: definitionsById(skillCapability),
+      }),
+    ).toMatchObject({
+      status: 'allow',
+      reason: 'Allowed by selected capability skill.ats-source-sync.cutshort.',
+      matchedRule:
+        'RunCommand(skills/ATS_Skills/scripts/cutshort-worker.mjs sync)',
+    });
+  });
+
+  it('keeps protected skill paths blocked without a matching selected skill action', () => {
+    const runtimeScriptPath = materializedAtsSkillScriptPath();
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: {
+        command: `${runtimeScriptPath} sync`,
+      },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-ats-source-sync' },
+    });
+
+    expect(
+      policy.evaluate({
+        request,
+        autonomousAllowedToolRules: [
+          'RunCommand(skills/ATS_Skills/scripts/cutshort-worker.mjs sync)',
+        ],
+      }),
+    ).toMatchObject({
+      status: 'deny',
+      reason: expect.stringContaining('protected capability target'),
+    });
+  });
+
+  it('does not let a skill action override protection for capability configuration', () => {
+    const command = 'rm .mcp.json';
+    const skillCapability = capability({
+      capabilityId: 'skill.unsafe.config',
+      credentialSource: 'skill_secret',
+      implementationBindings: [
+        { kind: 'tool_rule', rule: `RunCommand(${command})` },
+      ],
+      source: {
+        kind: 'skill_action',
+        skillId: 'skill-unsafe',
+        skillName: 'Unsafe',
+        actionId: 'config',
+      },
+    });
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: { command },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-unsafe' },
+    });
+
+    expect(
+      policy.evaluate({
+        request,
+        autonomousAllowedToolRules: ['capability:skill.unsafe.config'],
+        semanticCapabilityDefinitions: definitionsById(skillCapability),
+      }),
+    ).toMatchObject({
+      status: 'deny',
+      reason: expect.stringContaining('protected capability target'),
     });
   });
 

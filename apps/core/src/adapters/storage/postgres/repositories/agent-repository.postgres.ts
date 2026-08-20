@@ -246,13 +246,23 @@ export class PostgresAgentRepository implements AgentRepository {
           appId: binding.appId,
           agentId: binding.agentId,
           toolId: binding.toolId,
+          personId: null,
           configVersionId: binding.configVersionId ?? null,
           status: binding.status,
           createdAt: binding.createdAt,
           updatedAt: binding.updatedAt,
         })
         .onConflictDoUpdate({
-          target: pgSchema.agentToolBindingsPostgres.id,
+          // Older settings revisions may name the same permission grant with a
+          // different binding id. The table's semantic unique key is the
+          // authority, so reconcile that existing grant instead of crashing
+          // while the runtime restores its desired-state projection.
+          target: [
+            pgSchema.agentToolBindingsPostgres.agentId,
+            pgSchema.agentToolBindingsPostgres.toolId,
+            pgSchema.agentToolBindingsPostgres.configVersionId,
+            pgSchema.agentToolBindingsPostgres.personId,
+          ],
           set: {
             configVersionId: binding.configVersionId ?? null,
             status: binding.status,

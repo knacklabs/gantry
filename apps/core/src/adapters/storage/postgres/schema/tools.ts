@@ -60,6 +60,9 @@ export const agentToolBindingsPostgres = pgTable(
     toolId: text('tool_id')
       .notNull()
       .references(() => toolCatalogPostgres.id, { onDelete: 'cascade' }),
+    // The deployed database already supports person-scoped grants. This
+    // runtime creates only agent-scoped grants, so legacy rows remain null.
+    personId: text('person_id'),
     configVersionId: text('config_version_id'),
     status: text('status').notNull().default('active'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
@@ -74,6 +77,7 @@ export const agentToolBindingsPostgres = pgTable(
       table.agentId,
       table.toolId,
       table.configVersionId,
+      table.personId,
     ),
   }),
 );

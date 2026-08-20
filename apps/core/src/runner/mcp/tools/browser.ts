@@ -43,6 +43,7 @@ type BrowserActAction =
   | 'fill_form'
   | 'file_upload'
   | 'file_attach'
+  | 'download'
   | 'handle_dialog'
   | 'resize';
 
@@ -61,6 +62,7 @@ const FULL_ACT_ACTIONS = new Set<BrowserActAction>([
   'fill_form',
   'file_upload',
   'file_attach',
+  'download',
   'handle_dialog',
   'resize',
 ]);
@@ -201,6 +203,7 @@ const actAction = z.enum([
   'fill_form',
   'file_upload',
   'file_attach',
+  'download',
   'handle_dialog',
   'resize',
 ]);
@@ -395,6 +398,8 @@ function actBackendAction(action: BrowserActAction): BrowserBackendAction {
       return 'file_upload';
     case 'file_attach':
       return 'file_attach';
+    case 'download':
+      return 'download';
     case 'handle_dialog':
       return 'handle_dialog';
     case 'resize':

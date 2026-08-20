@@ -194,11 +194,30 @@ export class ToolExecutionPolicyService {
     capabilityRequestToolsHidden?: boolean;
   }): ToolPolicyDecision {
     const requestToolsHidden = input.capabilityRequestToolsHidden === true;
+    const autonomousResolution =
+      input.request.executionMode === 'autonomous'
+        ? resolveAutonomousCapabilityToolUse(input)
+        : undefined;
     const protectedDecision = evaluateProtectedCapabilityRequest(
       input.request,
       requestToolsHidden,
     );
-    if (protectedDecision) return protectedDecision;
+    if (protectedDecision) {
+      if (
+        autonomousResolution?.toolPolicy.allowed &&
+        selectedSkillActionExecution(
+          input.request,
+          autonomousResolution.capabilityId,
+          input.semanticCapabilityDefinitions,
+        )
+      ) {
+        return decision(input.request, 'allow', {
+          reason: `Allowed by selected capability ${autonomousResolution.capabilityId}.`,
+          matchedRule: autonomousResolution.toolPolicy.matchedRule,
+        });
+      }
+      return protectedDecision;
+    }
 
     if (input.request.executionMode === 'autonomous') {
       const runtimeToolResultRead = evaluateGeneratedRuntimeToolResultRead(
@@ -206,19 +225,9 @@ export class ToolExecutionPolicyService {
       );
       if (runtimeToolResultRead) return runtimeToolResultRead;
 
-      const resolved = resolveCapabilityRules(
-        input.autonomousAllowedToolRules ?? input.allowedToolRules ?? [],
-        input.semanticCapabilityDefinitions,
-      );
-      const toolPolicy = evaluateAutonomousToolUse({
-        rules: resolved.rules,
-        toolName: input.request.toolName,
-        toolInput: input.request.input,
-      });
+      const { resolved, toolPolicy, capabilityId } =
+        autonomousResolution ?? resolveAutonomousCapabilityToolUse(input);
       if (toolPolicy.allowed) {
-        const capabilityId = resolved.capabilityByRule.get(
-          toolPolicy.matchedRule ?? '',
-        );
         return decision(input.request, 'allow', {
           reason: capabilityId
             ? `Allowed by selected capability ${capabilityId}.`
@@ -267,6 +276,50 @@ export class ToolExecutionPolicyService {
       reason: 'No canonical tool execution policy matched.',
     });
   }
+}
+
+function resolveAutonomousCapabilityToolUse(input: {
+  request: ToolExecutionRequest;
+  allowedToolRules?: readonly string[];
+  autonomousAllowedToolRules?: readonly string[];
+  semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
+}) {
+  const resolved = resolveCapabilityRules(
+    input.autonomousAllowedToolRules ?? input.allowedToolRules ?? [],
+    input.semanticCapabilityDefinitions,
+  );
+  const toolPolicy = evaluateAutonomousToolUse({
+    rules: resolved.rules,
+    toolName: input.request.toolName,
+    toolInput: input.request.input,
+  });
+  return {
+    resolved,
+    toolPolicy,
+    capabilityId: resolved.capabilityByRule.get(toolPolicy.matchedRule ?? ''),
+  };
+}
+
+function selectedSkillActionExecution(
+  request: ToolExecutionRequest,
+  capabilityId: string | undefined,
+  definitions: Record<string, SemanticCapabilityDefinition> | undefined,
+): capabilityId is string {
+  if (!capabilityId) return false;
+  if (request.toolName !== 'Bash' || request.mutationIntent !== 'execute') {
+    return false;
+  }
+  const protectedTarget = request.targetResource
+    ? protectedCapabilityPathMatch(request.targetResource)
+    : undefined;
+  if (!protectedTarget || !isSkillCapabilityPath(protectedTarget)) return false;
+  const source = definitions?.[capabilityId]?.source;
+  return Boolean(
+    source &&
+    typeof source === 'object' &&
+    !Array.isArray(source) &&
+    (source as Record<string, unknown>).kind === 'skill_action',
+  );
 }
 
 export function evaluateProtectedCapabilityToolUse(

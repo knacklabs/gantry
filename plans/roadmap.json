@@ -863,6 +863,21 @@
         "docs/architecture/scheduler-incident-assessment-2026-08-05.md"
       ],
       "order": 7
+    },
+    {
+      "key": "GANTRY-BROWSER-RUNTIME",
+      "title": "Shared deterministic browser automation runtime",
+      "story": "As an application team, I can run hosted browser jobs through Gantry so that ATS and ITOps do not need separate browser services.",
+      "acceptance_criteria": [
+        "The official Gantry image launches headed Chromium on an opt-in virtual display.",
+        "Canonical Browser captures bounded target-initiated downloads into the run artifact boundary.",
+        "Application workflows use isolated profiles and scoped API capabilities without database credentials."
+      ],
+      "order": 47,
+      "status": "pending",
+      "epic": "artifact-store",
+      "skill": "backend",
+      "spec": "docs/specs/shared-hosted-browser-automation.md"
     }
   ],
   "epics": [
@@ -951,5 +966,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-05T07:20:00+00:00"
+  "updated_at": "2026-08-05T11:13:45+00:00"
 }

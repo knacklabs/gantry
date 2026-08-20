@@ -228,6 +228,9 @@ function projectCapabilityRuntimeAccess(
         commandRules,
         networkBindings:
           commandRules.length > 0 ? [{ commandRules, hosts }] : [],
+        ...(source.browserAccess
+          ? { browserAccess: source.browserAccess }
+          : {}),
       },
     ];
   }

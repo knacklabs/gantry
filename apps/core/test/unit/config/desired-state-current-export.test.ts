@@ -21,7 +21,26 @@ describe('exportCurrentDesiredState', () => {
       status: 'active',
     }));
     const deps = {
-      ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
+      ops: {
+        getAllConversationRoutes: vi.fn(async () => ({
+          'app:default:source-sync': {
+            folder: 'source_sync',
+            name: 'Source Sync',
+            providerAccountId: 'control:app-one',
+            trigger: '@source_sync',
+            added_at: '2026-06-01T00:00:00.000Z',
+            requiresTrigger: false,
+          },
+          'app:default:main': {
+            folder: 'main_agent',
+            name: 'Main',
+            providerAccountId: 'control:app-one',
+            trigger: '@main_agent',
+            added_at: '2026-06-01T00:00:00.000Z',
+            requiresTrigger: false,
+          },
+        })),
+      },
       repositories: {
         agents: { listAgents: vi.fn(async () => []) },
         tools: {
@@ -87,6 +106,13 @@ describe('exportCurrentDesiredState', () => {
               createdAt: '2026-06-01T00:00:00.000Z',
               updatedAt: '2026-06-01T00:00:00.000Z',
             },
+            {
+              id: 'agent:source_sync',
+              name: 'Source Sync',
+              status: 'active',
+              createdAt: '2026-06-01T00:00:00.000Z',
+              updatedAt: '2026-06-01T00:00:00.000Z',
+            },
           ]),
         },
         tools: {
@@ -111,7 +137,7 @@ describe('exportCurrentDesiredState', () => {
               runtimeSecretRefs: {},
             },
             {
-              id: 'app-default',
+              id: 'control:app-one',
               agentId: 'main_agent',
               providerId: 'app',
               label: 'App',

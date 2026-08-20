@@ -320,7 +320,7 @@ function allowedAttachRoots(
   ];
 }
 
-function resolveBrowserOutputPath(
+export function resolveBrowserOutputPath(
   value: unknown,
   fileAccessRoot: string,
 ): string {

@@ -65,6 +65,10 @@ const getConfiguredModelProvidersForAppMock = vi.mocked(
   runtimeStore.getConfiguredModelProvidersForApp,
 );
 const { runJob } = await import('@core/jobs/execution.js');
+const { jobRequiresManagedBrowser } =
+  await import('@core/jobs/execution-browser-prelaunch.js');
+const { resolveDeterministicManagedBrowserActions } =
+  await import('@core/jobs/deterministic-source-sync.js');
 const { evaluateJobReadiness } =
   await import('@core/application/jobs/job-readiness-service.js');
 const { RUNTIME_RESULT_SUMMARY_MAX_CHARS } =
@@ -228,6 +232,151 @@ function makeToolRepository(toolNames: string[]) {
 }
 
 describe('jobs/execution', () => {
+  it('uses only the reviewed ATS source actions for deterministic source sync', () => {
+    const job = makeJob({
+      access_requirements: [
+        {
+          target: {
+            kind: 'capability',
+            capabilityId: 'skill.ats-source-sync.cutshort',
+          },
+        },
+        {
+          target: {
+            kind: 'capability',
+            capabilityId: 'skill.ats-source-sync.instahyre',
+          },
+        },
+      ],
+    });
+    const capability = (id: string, command: string, actionId: string) => ({
+      capabilityId: id,
+      displayName: id,
+      category: 'ats-skills',
+      risk: 'write' as const,
+      can: 'sync',
+      cannot: 'run arbitrary commands',
+      credentialSource: 'skill_secret' as const,
+      implementationBindings: [
+        { kind: 'tool_rule' as const, rule: `RunCommand(${command})` },
+      ],
+      networkHosts: ['scout-dev.knacklabs.ai:443'],
+      source: {
+        kind: 'skill_action' as const,
+        skillId: 'skill:ats',
+        skillName: 'ats-skills',
+        actionId,
+        browserAccess: 'managed_browser' as const,
+        executionMode: 'deterministic' as const,
+      },
+    });
+
+    expect(
+      resolveDeterministicManagedBrowserActions(job, [
+        capability(
+          'skill.ats-source-sync.cutshort',
+          'skills/ats-skills/scripts/cutshort-worker.mjs sync',
+          'cutshort',
+        ),
+        capability(
+          'skill.ats-source-sync.instahyre',
+          'skills/ats-skills/scripts/instahyre-worker.mjs sync',
+          'instahyre',
+        ),
+      ]),
+    ).toEqual([
+      expect.objectContaining({
+        capabilityId: 'skill.ats-source-sync.cutshort',
+      }),
+      expect.objectContaining({
+        capabilityId: 'skill.ats-source-sync.instahyre',
+      }),
+    ]);
+  });
+
+  it('does not activate deterministic source sync for an unreviewed command', () => {
+    const job = makeJob({
+      access_requirements: [
+        {
+          target: {
+            kind: 'capability',
+            capabilityId: 'skill.ats-source-sync.cutshort',
+          },
+        },
+        {
+          target: {
+            kind: 'capability',
+            capabilityId: 'skill.ats-source-sync.instahyre',
+          },
+        },
+      ],
+    });
+    const unsafe = (id: string) => ({
+      capabilityId: id,
+      displayName: id,
+      category: 'ats-skills',
+      risk: 'write' as const,
+      can: 'sync',
+      cannot: 'run arbitrary commands',
+      credentialSource: 'skill_secret' as const,
+      implementationBindings: [
+        {
+          kind: 'tool_rule' as const,
+          rule: 'RunCommand(curl https://example.com)',
+        },
+      ],
+      source: {
+        kind: 'skill_action' as const,
+        skillId: 'skill:ats',
+        skillName: 'ats-skills',
+        actionId: 'source',
+        browserAccess: 'managed_browser' as const,
+        executionMode: 'deterministic' as const,
+      },
+    });
+    expect(
+      resolveDeterministicManagedBrowserActions(job, [
+        unsafe('skill.ats-source-sync.cutshort'),
+        unsafe('skill.ats-source-sync.instahyre'),
+      ]),
+    ).toBeNull();
+  });
+
+  it('prelaunches a managed profile for a reviewed browser skill without exposing Browser', () => {
+    const job = makeJob({
+      access_requirements: [
+        {
+          target: {
+            kind: 'capability',
+            capabilityId: 'skill.ats-source-sync.cutshort',
+          },
+        },
+      ],
+    });
+
+    expect(
+      jobRequiresManagedBrowser(job, [
+        {
+          capabilityId: 'skill.ats-source-sync.cutshort',
+          displayName: 'Synchronize Cutshort candidates',
+          category: 'ats-skills',
+          risk: 'write',
+          can: 'Synchronize Cutshort candidates.',
+          cannot: 'Use an arbitrary browser.',
+          credentialSource: 'skill_secret',
+          implementationBindings: [],
+          source: {
+            kind: 'skill_action',
+            skillId: 'skill:ats',
+            skillName: 'ats-skills',
+            actionId: 'cutshort',
+            browserAccess: 'managed_browser',
+          },
+        },
+      ]),
+    ).toBe(true);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     runtimeStoreMock.appendRunnerControlEvent.mockResolvedValue('persisted');
@@ -1479,6 +1628,26 @@ describe('jobs/execution', () => {
         attachedSkillSourceIds: ['skill:release'],
         selectedSkillDisplays: ['release (skill:release)'],
         attachedMcpSourceIds: ['mcp:github'],
+        capabilityCatalog: expect.objectContaining({
+          installedSkills: [
+            expect.objectContaining({
+              stableRef: 'skill:release',
+              displayName: 'release',
+            }),
+          ],
+          readyActions: [
+            expect.objectContaining({
+              stableRef: 'repo.search.repositories',
+              displayName: 'Repo search repositories',
+            }),
+          ],
+          connectedMcpSources: [
+            expect.objectContaining({
+              stableRef: 'mcp:github',
+              displayName: 'github',
+            }),
+          ],
+        }),
       }),
       expect.any(Function),
       expect.any(Function),
@@ -1959,35 +2128,18 @@ describe('jobs/execution', () => {
         agentId: 'agent:scheduler_agent',
       },
     );
-    expect(toolRepository.listAgentToolBindings).toHaveBeenCalledTimes(1);
-    expect(toolRepository.getTool).toHaveBeenCalledTimes(1);
+    expect(toolRepository.listAgentToolBindings).not.toHaveBeenCalled();
+    expect(toolRepository.getTool).not.toHaveBeenCalled();
     expect(toolRepository.listTools).not.toHaveBeenCalled();
-    expect(skillRepository.listEnabledSkillsForAgent).toHaveBeenCalledTimes(1);
+    expect(skillRepository.listEnabledSkillsForAgent).not.toHaveBeenCalled();
     expect(skillRepository.listAgentSkillBindings).not.toHaveBeenCalled();
     expect(skillRepository.getSkill).not.toHaveBeenCalled();
     expect(
       mcpServerRepository.listMaterializedServersForAgent,
-    ).toHaveBeenCalledTimes(1);
+    ).not.toHaveBeenCalled();
     expect(mcpServerRepository.listAgentBindings).not.toHaveBeenCalled();
     expect(mcpServerRepository.getServer).not.toHaveBeenCalled();
     expect(mcpServerRepository.getServerByName).not.toHaveBeenCalled();
-    expect(
-      toolRepository.listAgentToolBindings.mock.invocationCallOrder[0],
-    ).toBeLessThan(
-      toolRepository.listAgentToolAccessSnapshot.mock.invocationCallOrder[0]!,
-    );
-    expect(
-      skillRepository.listEnabledSkillsForAgent.mock.invocationCallOrder[0],
-    ).toBeLessThan(
-      skillRepository.listAgentSkillAccessSnapshot.mock.invocationCallOrder[0]!,
-    );
-    expect(
-      mcpServerRepository.listMaterializedServersForAgent.mock
-        .invocationCallOrder[0],
-    ).toBeLessThan(
-      mcpServerRepository.listAgentMcpAccessSnapshot.mock
-        .invocationCallOrder[0]!,
-    );
     expect(runAgent).toHaveBeenCalledOnce();
     expect(opsRepository.updateJob).not.toHaveBeenCalledWith(
       job.id,

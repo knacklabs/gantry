@@ -30,7 +30,10 @@ import {
 import { sandboxBlockedRuntimeEvents } from './sandbox-events.js';
 import { decideSdkSandboxNetworkAccess } from './sdk-sandbox-network-gate.js';
 import { readExternalMcpAllowedTools } from './external-mcp-tool-rules.js';
-import { applyBashTrustEnvWithProvenance } from './bash-trust-env.js';
+import {
+  applyBashTrustEnvWithProvenance,
+  normalizeReviewedScheduledSkillActionInput,
+} from './bash-trust-env.js';
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
@@ -45,6 +48,9 @@ import { denyNonPromptableAutonomousRecovery } from './autonomous-permission-rec
 import { evaluateYoloModeDenylist } from '../../../../shared/yolo-mode-policy.js';
 import { formatPermissionDeniedMessage } from '../../../../shared/permission-decision-message.js';
 import { isHostAuthorizedMcpProxyDispatcherFullName } from '../../../../shared/admin-mcp-tools.js';
+import { attributedSkillActionRules } from './protected-capability-hook.js';
+import { semanticCapabilityRule } from '../../../../shared/semantic-capability-ids.js';
+import { semanticCapabilityRuntimeRules } from '../../../../shared/semantic-capabilities.js';
 type ApprovalInput = Parameters<typeof requestPermissionApproval>[0];
 const WORKSPACE_FOLDER_KEY = WORKSPACE_FOLDER_OPTION_KEY as keyof ApprovalInput;
 const RAW_REQ = /^(Agent|AskUserQuestion|TodoWrite)$/;
@@ -129,6 +135,34 @@ export function createCanUseToolCallback(
     }),
     ...liveApprovedRules,
   ];
+  const configuredAllowedToolRuleSet = new Set(
+    input.agentInput.allowedTools ?? [],
+  );
+  const selectedReviewedSkillActionRules = skillActionCapabilities.flatMap(
+    (capability) => {
+      const alias = semanticCapabilityRule(capability.capabilityId);
+      const runtimeRules = semanticCapabilityRuntimeRules(capability);
+      const selectedByAlias = configuredAllowedToolRuleSet.has(alias);
+      const selectedByConcreteRule =
+        runtimeRules.length > 0 &&
+        runtimeRules.every((rule) => configuredAllowedToolRuleSet.has(rule));
+      return selectedByAlias || selectedByConcreteRule
+        ? [alias, ...runtimeRules]
+        : [];
+    },
+  );
+  const currentAttributedAutonomousToolRules = (): string[] => {
+    // A configured tool rule is not normally standing worker authority. The
+    // narrow exception here requires both halves of the reviewed skill-action
+    // boundary: the host-selected semantic alias on this runner input and the
+    // adapter-exported, validated action definition. This cannot authorize an
+    // arbitrary configured command or an unselected action.
+    const liveRules = [
+      ...currentAutonomousAllowedToolRules(),
+      ...selectedReviewedSkillActionRules,
+    ];
+    return attributedSkillActionRules(liveRules, skillActionCapabilities);
+  };
   const lockedAccessPreset = input.capabilities.permissionMode === 'deny';
   // Locked-preset and fixed-image agents run without the capability request
   // tools; recovery guidance must say "provision before the run" instead of
@@ -229,24 +263,6 @@ export function createCanUseToolCallback(
         interrupt: false,
       };
     }
-    const trustedInput = applyBashTrustEnvWithProvenance(
-      toolName,
-      toolInput,
-      input.agentInput.toolNetworkEnv ?? {},
-    );
-    const trustInput = () => trustedInput.toolInput;
-    const requestPermissionApprovalWithTrustProvenance = (
-      approvalInput: ApprovalInput,
-    ) =>
-      requestPermissionApproval({
-        ...approvalInput,
-        toolInput: trustedInput.toolInput,
-        ...(trustedInput.hostInjectedCommandPrefix
-          ? {
-              hostInjectedCommandPrefix: trustedInput.hostInjectedCommandPrefix,
-            }
-          : {}),
-      });
     const sdkApprovalPrincipal =
       permissionOpts.agentID?.trim() ||
       input.agentInput.agentId ||
@@ -296,12 +312,71 @@ export function createCanUseToolCallback(
         };
       }
     }
+    const toolExecutionRequest = buildAgentToolExecutionRequest(
+      toolExecutionClassifier,
+      toolName,
+      toolInput,
+      {
+        isScheduledJob: input.agentInput.isScheduledJob,
+        jobId: input.agentInput.jobId,
+        threadId: input.agentInput.threadId,
+        conversationId: input.agentInput.chatJid,
+      },
+    );
+    const reviewedScheduledSkillAction =
+      input.agentInput.isScheduledJob &&
+      toolExecutionPolicy.evaluate({
+        request: toolExecutionRequest,
+        autonomousAllowedToolRules: currentAttributedAutonomousToolRules(),
+        semanticCapabilityDefinitions: Object.fromEntries(
+          skillActionCapabilities.map((capability) => [
+            capability.capabilityId,
+            capability,
+          ]),
+        ),
+        capabilityRequestToolsHidden,
+      }).status === 'allow';
+    const approvalToolInput = reviewedScheduledSkillAction
+      ? normalizeReviewedScheduledSkillActionInput(toolName, toolInput)
+      : toolInput;
+    const trustedInput = applyBashTrustEnvWithProvenance(
+      toolName,
+      approvalToolInput,
+      input.agentInput.toolNetworkEnv ?? {},
+    );
+    // The reviewed skill action already runs inside Gantry's enforcing outer
+    // sandbox. Claude's nested Bash sandbox starts a socat/bwrap bridge and
+    // fails under that outer seccomp boundary. Disable only this redundant
+    // inner layer for an exact, reviewed scheduled skill action; ordinary Bash
+    // and interactive commands retain the SDK sandbox.
+    if (
+      reviewedScheduledSkillAction &&
+      (toolName === 'Bash' || toolName === 'RunCommand')
+    ) {
+      trustedInput.toolInput = {
+        ...trustedInput.toolInput,
+        dangerouslyDisableSandbox: true,
+      };
+    }
+    const trustInput = () => trustedInput.toolInput;
+    const requestPermissionApprovalWithTrustProvenance = (
+      approvalInput: ApprovalInput,
+    ) =>
+      requestPermissionApproval({
+        ...approvalInput,
+        toolInput: trustedInput.toolInput,
+        ...(trustedInput.hostInjectedCommandPrefix
+          ? {
+              hostInjectedCommandPrefix: trustedInput.hostInjectedCommandPrefix,
+            }
+          : {}),
+      });
     const protectedCapabilityDenial = denyProtectedCapabilityToolUse(
       toolName,
       toolInput,
       permissionOpts,
     );
-    if (protectedCapabilityDenial) {
+    if (protectedCapabilityDenial && !reviewedScheduledSkillAction) {
       log(
         `Permission denied by protected capability guard: ${protectedCapabilityDenial}`,
       );
@@ -382,22 +457,16 @@ export function createCanUseToolCallback(
       return allowToolUse('host resolves and authorizes the MCP target');
     }
 
-    const toolExecutionRequest = buildAgentToolExecutionRequest(
-      toolExecutionClassifier,
-      toolName,
-      toolInput,
-      {
-        isScheduledJob: input.agentInput.isScheduledJob,
-        jobId: input.agentInput.jobId,
-        threadId: input.agentInput.threadId,
-        conversationId: input.agentInput.chatJid,
-      },
-    );
-
     if (input.agentInput.isScheduledJob) {
       const toolDecision = toolExecutionPolicy.evaluate({
         request: toolExecutionRequest,
-        autonomousAllowedToolRules: currentAutonomousAllowedToolRules(),
+        autonomousAllowedToolRules: currentAttributedAutonomousToolRules(),
+        semanticCapabilityDefinitions: Object.fromEntries(
+          skillActionCapabilities.map((capability) => [
+            capability.capabilityId,
+            capability,
+          ]),
+        ),
         capabilityRequestToolsHidden,
       });
       if (permissionOpts.signal.aborted) {

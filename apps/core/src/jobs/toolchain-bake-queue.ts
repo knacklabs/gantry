@@ -1,5 +1,6 @@
 import { PgBoss, type Job as PgBossJob } from 'pg-boss';
 
+import { resolvePgBossPostgresPoolMax } from '../adapters/storage/postgres/storage-service.js';
 import type { ToolchainBakeQueuePort } from './toolchain-bake-enqueue.js';
 import {
   executeToolchainBake,
@@ -30,6 +31,7 @@ export class ToolchainBakeSender implements ToolchainBakeQueuePort {
     if (this.boss) return;
     const boss = new PgBoss({
       connectionString: this.options.connectionString,
+      max: resolvePgBossPostgresPoolMax(),
       schema: this.options.schema ?? 'pgboss',
       createSchema: true,
       migrate: true,
@@ -105,6 +107,7 @@ export class ToolchainBakeQueue implements ToolchainBakeQueuePort {
     if (this.boss) return;
     const boss = new PgBoss({
       connectionString: this.options.connectionString,
+      max: resolvePgBossPostgresPoolMax(),
       schema: this.options.schema ?? 'pgboss',
       createSchema: true,
       migrate: true,
