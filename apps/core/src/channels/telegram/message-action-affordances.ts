@@ -1,11 +1,13 @@
 import type {
   BrainDreamReviewActionDecision,
+  JobNotificationView,
   MemoryReviewActionDecision,
   MessageActionAffordance,
   MessageDeliveryResult,
   MessageSendOptions,
 } from '../../domain/types.js';
 import type { BrainReviewCardView } from '../../domain/brain-review-card.js';
+import { formatDuration } from '../../shared/human-format.js';
 import {
   morePendingReviewsLabel,
   type ReviewMessageSide,
@@ -286,6 +288,68 @@ export function telegramReviewMessage(view: ReviewMessageView): {
   };
 }
 
+const TELEGRAM_JOB_STATUS: Record<
+  JobNotificationView['status'],
+  { emoji: string; label: string }
+> = {
+  completed: { emoji: '✅', label: 'Completed' },
+  failed: { emoji: '❌', label: 'Failed' },
+  paused: { emoji: '⏸️', label: 'Paused' },
+  timeout: { emoji: '⏱️', label: 'Timed out' },
+  dead_lettered: { emoji: '⏸️', label: 'Paused after failures' },
+};
+
+const TELEGRAM_JOB_OUTCOME_MARKER: Record<
+  NonNullable<JobNotificationView['result']>['items'][number]['outcome'],
+  string
+> = {
+  done: '✅',
+  skipped: '⏭️',
+  failed: '❌',
+};
+
+export function telegramJobNotificationMessage(view: JobNotificationView): {
+  text: string;
+} {
+  const status = TELEGRAM_JOB_STATUS[view.status];
+  const duration =
+    view.durationMs === undefined ? '' : ` · ${formatDuration(view.durationMs)}`;
+  const lines = [
+    `<b>${status.emoji} ${status.label}</b> · ${escapeTelegramHtml(view.jobName)}${duration}`,
+  ];
+  if (view.stats) {
+    lines.push(
+      `${view.stats.toolCount} tool${view.stats.toolCount === 1 ? '' : 's'}, ${view.stats.browserUsed ? 'browser used' : 'browser not used'}, last ${escapeTelegramHtml(view.stats.lastAction ?? 'none')}`,
+    );
+  }
+  const body = view.result
+    ? [
+        ...(view.result.headline
+          ? [escapeTelegramHtml(view.result.headline)]
+          : []),
+        ...view.result.items.map((item) =>
+          [
+            TELEGRAM_JOB_OUTCOME_MARKER[item.outcome],
+            escapeTelegramHtml(item.label),
+            item.detail ? `— ${escapeTelegramHtml(item.detail)}` : '',
+          ]
+            .filter(Boolean)
+            .join(' '),
+        ),
+        ...(view.result.nextAction
+          ? [`Next: ${escapeTelegramHtml(view.result.nextAction)}`]
+          : []),
+      ]
+    : [escapeTelegramHtml(view.fallbackText)];
+  if (body.length > 0) {
+    lines.push(`<blockquote expandable>${body.join('\n')}</blockquote>`);
+  }
+  if (view.nextRunAt) {
+    lines.push(`<i>Next run: ${escapeTelegramHtml(view.nextRunAt)}</i>`);
+  }
+  return { text: lines.join('\n') };
+}
+
 /**
  * Memory-review card: sent as native Telegram HTML with an inline keyboard of
  * Approve/Reject/Edit buttons (parse_mode HTML, not the MarkdownV2 pipeline the
@@ -327,6 +391,46 @@ export async function sendTelegramReviewMessage(input: {
     logger.error(
       { jid, error: sanitizeErrorMessage(err) },
       'Failed to send Telegram memory-review message',
+    );
+    throw err;
+  }
+}
+
+export async function sendTelegramJobNotificationMessage(input: {
+  bot: any;
+  jid: string;
+  options: MessageSendOptions;
+  sanitizeErrorMessage: (err: unknown) => string;
+}): Promise<MessageDeliveryResult> {
+  const { bot, jid, options, sanitizeErrorMessage } = input;
+  const view = options.jobNotificationView;
+  if (!view || !bot) return {};
+  const numericId = jid.replace(/^tg:/, '');
+  const rendered = telegramJobNotificationMessage(view);
+  const threadOpts = telegramThreadOptionsFromString(options.threadId);
+  const replyMarkup = telegramActionReplyMarkup(options.actionAffordances);
+  try {
+    const sent = await bot.api.sendMessage(numericId, rendered.text, {
+      parse_mode: 'HTML',
+      link_preview_options: { is_disabled: true },
+      ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+      ...threadOpts,
+    });
+    const messageId = sent?.message_id;
+    return {
+      ...(messageId !== undefined
+        ? {
+            externalMessageId: String(messageId),
+            externalMessageIds: [String(messageId)],
+          }
+        : {}),
+      deliveredParts: 1,
+      totalParts: 1,
+    };
+  } catch (err) {
+    logger.error(
+      { jid, error: sanitizeErrorMessage(err) },
+      'Failed to send Telegram job notification message',
     );
     throw err;
   }

@@ -20,6 +20,7 @@ import {
 } from './channel-shared.js';
 import {
   telegramActionReplyMarkup,
+  sendTelegramJobNotificationMessage,
   sendTelegramReviewMessage,
   sendTelegramBrainReviewMessage,
 } from './message-action-affordances.js';
@@ -76,6 +77,15 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
 
     if (options.reviewMessageView) {
       return sendTelegramReviewMessage({
+        bot: this.bot,
+        jid,
+        options,
+        sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
+      });
+    }
+
+    if (options.jobNotificationView) {
+      return sendTelegramJobNotificationMessage({
         bot: this.bot,
         jid,
         options,

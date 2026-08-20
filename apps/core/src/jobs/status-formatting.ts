@@ -4,6 +4,137 @@ import type { JobRunDiagnostics } from './execution-diagnostics.js';
 import { formatDuration } from '../shared/human-format.js';
 import { humanizeTechnicalIdentifier } from '../shared/user-visible-messages.js';
 
+const JOB_NOTIFICATION_VIEW_LIMITS = {
+  jobName: 120,
+  lastAction: 80,
+  nextRunAt: 80,
+  headline: 160,
+  itemLabel: 50,
+  itemDetail: 70,
+  nextAction: 160,
+  fallbackText: 500,
+  items: 10,
+} as const;
+
+export const JOB_NOTIFICATION_VIEW_MAX_TEXT_LENGTH = 2_300;
+
+// An empty structured result (no headline and no items) carries no meaning, so
+// it is dropped and renderers fall back to fallbackText instead of a blank card.
+function hasStructuredResultContent(
+  result: JobNotificationView['result'],
+): result is NonNullable<JobNotificationView['result']> {
+  return Boolean(
+    result &&
+      (result.headline?.trim() ||
+        result.items.length > 0 ||
+        result.nextAction?.trim()),
+  );
+}
+
+/**
+ * Keeps provider-native job notification cards within their shared message
+ * budget before channel renderers add provider-specific markup.
+ */
+export function boundJobNotificationView(
+  view: JobNotificationView,
+): JobNotificationView {
+  return {
+    ...view,
+    jobName: truncateJobNotificationText(
+      view.jobName,
+      JOB_NOTIFICATION_VIEW_LIMITS.jobName,
+    ),
+    ...(view.stats
+      ? {
+          stats: {
+            ...view.stats,
+            ...(view.stats.lastAction
+              ? {
+                  lastAction: truncateJobNotificationText(
+                    view.stats.lastAction,
+                    JOB_NOTIFICATION_VIEW_LIMITS.lastAction,
+                  ),
+                }
+              : {}),
+          },
+        }
+      : {}),
+    result: hasStructuredResultContent(view.result)
+      ? {
+          ...view.result,
+            ...(view.result.headline
+              ? {
+                  headline: truncateJobNotificationText(
+                    view.result.headline,
+                    JOB_NOTIFICATION_VIEW_LIMITS.headline,
+                  ),
+                }
+              : {}),
+            items: view.result.items
+              .slice(0, JOB_NOTIFICATION_VIEW_LIMITS.items)
+              .map((item) => ({
+                ...item,
+                label: truncateJobNotificationText(
+                  item.label,
+                  JOB_NOTIFICATION_VIEW_LIMITS.itemLabel,
+                ),
+                ...(item.detail
+                  ? {
+                      detail: truncateJobNotificationText(
+                        item.detail,
+                        JOB_NOTIFICATION_VIEW_LIMITS.itemDetail,
+                      ),
+                    }
+                  : {}),
+              })),
+            ...(view.result.nextAction
+              ? {
+                  nextAction: truncateJobNotificationText(
+                    view.result.nextAction,
+                    JOB_NOTIFICATION_VIEW_LIMITS.nextAction,
+                  ),
+                }
+              : {}),
+        }
+      : undefined,
+    fallbackText: truncateJobNotificationText(
+      view.fallbackText,
+      JOB_NOTIFICATION_VIEW_LIMITS.fallbackText,
+    ),
+    ...(view.nextRunAt
+      ? {
+          nextRunAt: truncateJobNotificationText(
+            view.nextRunAt,
+            JOB_NOTIFICATION_VIEW_LIMITS.nextRunAt,
+          ),
+        }
+      : {}),
+  };
+}
+
+function truncateJobNotificationText(value: string, max: number): string {
+  if (value.length <= max) return value;
+  // Budget in UTF-16 code units (what providers count) but only cut on whole
+  // code points, so a surrogate pair (emoji, supplementary chars) is never
+  // split into an invalid half that a provider request would reject.
+  let truncated = '';
+  for (const codePoint of value) {
+    if (truncated.length + codePoint.length > max - 3) break;
+    truncated += codePoint;
+  }
+  const sentenceMatch = truncated.match(/^.*[.!?](?=\s)/s);
+  const wordMatch = truncated.match(/^.*\s/s);
+  const boundary = sentenceMatch
+    ? sentenceMatch[0].length
+    : wordMatch
+      ? wordMatch[0].length
+      : truncated.length;
+  return `${truncated
+    .slice(0, boundary)
+    .trimEnd()
+    .replace(/[.!?]+$/, '')}...`;
+}
+
 export function formatRunStatusMessage(args: {
   job: Job;
   runId: string;

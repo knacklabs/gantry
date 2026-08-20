@@ -1,6 +1,5 @@
 import type {
   Job,
-  JobNotificationView,
   JobSetupState,
   JobRunStatus,
   MessageActionAffordance,
@@ -13,6 +12,7 @@ import {
   type ReviewMessageView,
 } from '../memory/review-message-view.js';
 import {
+  boundJobNotificationView,
   formatRunStatusMessage,
   terminalRunNotificationStats,
 } from './status-formatting.js';
@@ -445,14 +445,14 @@ export async function notifySchedulerTerminalRunState(input: {
       toolDenial: input.toolDenial,
     });
   const stats = terminalRunNotificationStats(input);
-  const jobNotificationView: JobNotificationView = {
+  const jobNotificationView = boundJobNotificationView({
     status: input.runStatus,
     jobName: input.job.name,
     ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
     ...(stats ? { stats } : {}),
     fallbackText: summaryMessage,
     ...(input.nextRun === null ? {} : { nextRunAt: input.nextRun }),
-  };
+  });
   const updateOutcomes =
     input.updateLifecycleNotification === undefined
       ? undefined
