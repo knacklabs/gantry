@@ -313,7 +313,9 @@ export function telegramJobNotificationMessage(view: JobNotificationView): {
 } {
   const status = TELEGRAM_JOB_STATUS[view.status];
   const duration =
-    view.durationMs === undefined ? '' : ` · ${formatDuration(view.durationMs)}`;
+    view.durationMs === undefined
+      ? ''
+      : ` · ${formatDuration(view.durationMs)}`;
   const lines = [
     `<b>${status.emoji} ${status.label}</b> · ${escapeTelegramHtml(view.jobName)}${duration}`,
   ];

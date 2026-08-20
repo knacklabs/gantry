@@ -25,9 +25,9 @@ function hasStructuredResultContent(
 ): result is NonNullable<JobNotificationView['result']> {
   return Boolean(
     result &&
-      (result.headline?.trim() ||
-        result.items.length > 0 ||
-        result.nextAction?.trim()),
+    (result.headline?.trim() ||
+      result.items.length > 0 ||
+      result.nextAction?.trim()),
   );
 }
 
@@ -62,39 +62,39 @@ export function boundJobNotificationView(
     result: hasStructuredResultContent(view.result)
       ? {
           ...view.result,
-            ...(view.result.headline
-              ? {
-                  headline: truncateJobNotificationText(
-                    view.result.headline,
-                    JOB_NOTIFICATION_VIEW_LIMITS.headline,
-                  ),
-                }
-              : {}),
-            items: view.result.items
-              .slice(0, JOB_NOTIFICATION_VIEW_LIMITS.items)
-              .map((item) => ({
-                ...item,
-                label: truncateJobNotificationText(
-                  item.label,
-                  JOB_NOTIFICATION_VIEW_LIMITS.itemLabel,
+          ...(view.result.headline
+            ? {
+                headline: truncateJobNotificationText(
+                  view.result.headline,
+                  JOB_NOTIFICATION_VIEW_LIMITS.headline,
                 ),
-                ...(item.detail
-                  ? {
-                      detail: truncateJobNotificationText(
-                        item.detail,
-                        JOB_NOTIFICATION_VIEW_LIMITS.itemDetail,
-                      ),
-                    }
-                  : {}),
-              })),
-            ...(view.result.nextAction
-              ? {
-                  nextAction: truncateJobNotificationText(
-                    view.result.nextAction,
-                    JOB_NOTIFICATION_VIEW_LIMITS.nextAction,
-                  ),
-                }
-              : {}),
+              }
+            : {}),
+          items: view.result.items
+            .slice(0, JOB_NOTIFICATION_VIEW_LIMITS.items)
+            .map((item) => ({
+              ...item,
+              label: truncateJobNotificationText(
+                item.label,
+                JOB_NOTIFICATION_VIEW_LIMITS.itemLabel,
+              ),
+              ...(item.detail
+                ? {
+                    detail: truncateJobNotificationText(
+                      item.detail,
+                      JOB_NOTIFICATION_VIEW_LIMITS.itemDetail,
+                    ),
+                  }
+                : {}),
+            })),
+          ...(view.result.nextAction
+            ? {
+                nextAction: truncateJobNotificationText(
+                  view.result.nextAction,
+                  JOB_NOTIFICATION_VIEW_LIMITS.nextAction,
+                ),
+              }
+            : {}),
         }
       : undefined,
     fallbackText: truncateJobNotificationText(

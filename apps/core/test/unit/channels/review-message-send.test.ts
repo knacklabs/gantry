@@ -30,6 +30,85 @@ function makeReviewView(
 }
 
 describe('memory-review native send', () => {
+  it('Slack renders a job notification as Block Kit and otherwise sends plain text', async () => {
+    const postMessage = vi.fn(async () => ({ ok: true, ts: '111.222' }));
+    const app = { client: { chat: { postMessage } } } as never;
+
+    await sendSlackMessage({
+      app,
+      jid: 'sl:C123',
+      channelId: 'C123',
+      formattedText: 'plain fallback text',
+      options: {
+        jobNotificationView: {
+          status: 'completed',
+          jobName: 'Lead enrichment',
+          durationMs: 65_000,
+          stats: {
+            toolCount: 2,
+            browserUsed: true,
+            lastAction: 'browser_click',
+          },
+          result: {
+            headline: "Enriched this morning's leads",
+            items: [
+              { outcome: 'done', label: 'Added Acme', detail: 'owner found' },
+              { outcome: 'skipped', label: 'Skipped Globex' },
+            ],
+            nextAction: 'Review the new leads',
+          },
+          fallbackText: 'plain fallback text',
+          nextRunAt: '2026-08-21T09:00:00.000Z',
+        },
+      },
+      log: { warn: () => undefined },
+      sendSnippetFallback: async () => null,
+    });
+
+    const nativePayload = postMessage.mock.calls[0]?.[0] as {
+      blocks: Array<Record<string, unknown>>;
+    };
+    expect(nativePayload.text).toBe('plain fallback text');
+    expect(nativePayload.blocks[0]).toMatchObject({
+      type: 'header',
+      text: { text: '✅ Completed · Lead enrichment' },
+    });
+    const statsBlock = nativePayload.blocks.find(
+      (block) =>
+        block.type === 'context' && JSON.stringify(block).includes('2 tools'),
+    );
+    expect(statsBlock).toMatchObject({ type: 'context' });
+    expect(JSON.stringify(statsBlock)).toContain(
+      '1m 05s · 2 tools · browser used · last browser_click',
+    );
+    const bodyBlock = nativePayload.blocks.find(
+      (block) =>
+        block.type === 'section' &&
+        JSON.stringify(block).includes('Added Acme'),
+    );
+    expect(bodyBlock).toMatchObject({ type: 'section' });
+    expect(JSON.stringify(bodyBlock)).toContain('✅ Added Acme — owner found');
+    expect(JSON.stringify(bodyBlock)).toContain('⏭️ Skipped Globex');
+    expect(JSON.stringify(nativePayload.blocks)).toContain(
+      'Next run: 2026-08-21T09:00:00.000Z',
+    );
+
+    await sendSlackMessage({
+      app,
+      jid: 'sl:C123',
+      channelId: 'C123',
+      formattedText: 'plain fallback text',
+      options: {},
+      log: { warn: () => undefined },
+      sendSnippetFallback: async () => null,
+    });
+
+    expect(postMessage.mock.calls[1]?.[0]).toMatchObject({
+      text: 'plain fallback text',
+    });
+    expect(postMessage.mock.calls[1]?.[0]).not.toHaveProperty('blocks');
+  });
+
   it('Slack renders the review as Block Kit with three decision buttons', async () => {
     const postMessage = vi.fn(async () => ({ ok: true, ts: '111.222' }));
     const app = { client: { chat: { postMessage } } } as never;

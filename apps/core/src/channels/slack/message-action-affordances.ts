@@ -1,11 +1,16 @@
-import type { MessageActionAffordance } from '../../domain/types.js';
+import type {
+  JobNotificationView,
+  MessageActionAffordance,
+} from '../../domain/types.js';
 import {
   morePendingReviewsLabel,
   type ReviewMessageSide,
   type ReviewMessageView,
 } from '../../domain/review-message-view.js';
+import { formatDuration } from '../../shared/human-format.js';
 
 const SLACK_ACTION_VALUE_MAX_BYTES = 2000;
+const SLACK_SECTION_TEXT_MAX_LENGTH = 3000;
 const SCHEDULER_ACTION_KINDS = new Set<MessageActionAffordance['kind']>([
   'scheduler_run_now',
   'scheduler_pause_job',
@@ -102,6 +107,21 @@ function escapeSlackMrkdwn(value: string): string {
     .replaceAll('>', '&gt;');
 }
 
+function truncateSlackSectionText(value: string): string {
+  if (value.length <= SLACK_SECTION_TEXT_MAX_LENGTH) return value;
+  let truncated = '';
+  for (const codePoint of value) {
+    if (
+      truncated.length + codePoint.length >
+      SLACK_SECTION_TEXT_MAX_LENGTH - 3
+    ) {
+      break;
+    }
+    truncated += codePoint;
+  }
+  return `${truncated}...`;
+}
+
 function slackSideLine(side: ReviewMessageSide): string {
   const meta = [side.source, side.date]
     .filter(Boolean)
@@ -180,5 +200,104 @@ export function slackReviewMessageBlocks(
     }),
   }));
   blocks.push({ type: 'actions', elements });
+  return blocks;
+}
+
+const SLACK_JOB_STATUS: Record<
+  JobNotificationView['status'],
+  { emoji: string; label: string }
+> = {
+  completed: { emoji: '✅', label: 'Completed' },
+  failed: { emoji: '❌', label: 'Failed' },
+  paused: { emoji: '⏸️', label: 'Paused' },
+  timeout: { emoji: '⏱️', label: 'Timed out' },
+  dead_lettered: { emoji: '⏸️', label: 'Paused after failures' },
+};
+
+const SLACK_JOB_OUTCOME_MARKER: Record<
+  NonNullable<JobNotificationView['result']>['items'][number]['outcome'],
+  string
+> = {
+  done: '✅',
+  skipped: '⏭️',
+  failed: '❌',
+};
+
+export function slackJobNotificationBlocks(
+  view: JobNotificationView,
+  actions?: MessageActionAffordance[],
+  options: { providerAccountId?: string } = {},
+): Array<Record<string, unknown>> {
+  const status = SLACK_JOB_STATUS[view.status];
+  const blocks: Array<Record<string, unknown>> = [
+    {
+      type: 'header',
+      text: {
+        type: 'plain_text',
+        text: `${status.emoji} ${status.label} · ${view.jobName}`,
+        emoji: true,
+      },
+    },
+  ];
+  if (view.stats) {
+    blocks.push({
+      type: 'context',
+      elements: [
+        {
+          type: 'mrkdwn',
+          text: [
+            ...(view.durationMs === undefined
+              ? []
+              : [formatDuration(view.durationMs)]),
+            `${view.stats.toolCount} tool${view.stats.toolCount === 1 ? '' : 's'}`,
+            view.stats.browserUsed ? 'browser used' : 'browser not used',
+            `last ${escapeSlackMrkdwn(view.stats.lastAction ?? 'none')}`,
+          ].join(' · '),
+        },
+      ],
+    });
+  }
+  const body = view.result
+    ? [
+        ...(view.result.headline
+          ? [`*${escapeSlackMrkdwn(view.result.headline)}*`]
+          : []),
+        ...view.result.items.map((item) =>
+          [
+            SLACK_JOB_OUTCOME_MARKER[item.outcome],
+            escapeSlackMrkdwn(item.label),
+            item.detail ? `— ${escapeSlackMrkdwn(item.detail)}` : '',
+          ]
+            .filter(Boolean)
+            .join(' '),
+        ),
+        ...(view.result.nextAction
+          ? [`*Next:* ${escapeSlackMrkdwn(view.result.nextAction)}`]
+          : []),
+      ]
+    : [escapeSlackMrkdwn(view.fallbackText)];
+  blocks.push({
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text: truncateSlackSectionText(body.join('\n')),
+    },
+  });
+  if (view.nextRunAt) {
+    blocks.push({
+      type: 'context',
+      elements: [
+        {
+          type: 'mrkdwn',
+          text: `Next run: ${escapeSlackMrkdwn(view.nextRunAt)}`,
+        },
+      ],
+    });
+  }
+  const actionBlocks = slackMessageActionBlocks('', actions, {
+    actionOnly: true,
+    providerAccountId: options.providerAccountId,
+  });
+  if (actionBlocks) blocks.push(...actionBlocks);
   return blocks;
 }

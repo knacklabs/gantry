@@ -1109,7 +1109,7 @@ describe('TelegramChannel', () => {
           lastAction: 'browser_click',
         },
         result: {
-          headline: 'Enriched this morning\'s leads',
+          headline: "Enriched this morning's leads",
           items: [
             { outcome: 'done', label: 'Added Acme', detail: 'owner found' },
             { outcome: 'skipped', label: 'Skipped Globex' },
