@@ -13,12 +13,13 @@ natively per provider. Codex diagnosis anchored each seam (file:line below).
 |---|------|--------------|--------|
 | T1 | **Base structured card** | `status-formatting.ts`: stats line from diagnostics + sentence/word-boundary truncation (never mid-word). Card only; durable summary keeps raw narration. | ✅ done (committed, autoreview clean) |
 | T2a | **Heartbeat final flush (both runtimes)** | `anthropic-claude-agent/runner/job-heartbeat.ts` + `deepagents-langchain/runner/job-heartbeat.ts`: emit a final, idempotent snapshot on `stop()` so sub-15s runs report real tool counts. | ✅ done (committed, autoreview clean) |
-| T2b | **Browser-action routing** | Route confirmed browser `JOB_TOOL_ACTIVITY` (`ipc-browser-handler.ts:493`, `browser-activity-events.ts:61`) into the diagnostics reducer (`execution-diagnostics.ts:149/177/274/490`) with dedup, so `browserActivityCount` reflects a real action, not just prelaunch. One neutral reducer; no engine branching. | ⏳ pending |
-| T3 | **`jobNotificationView` plumbing** | Add a typed view to `MessageSendOptions` (`domain/types.ts:532`, mirror `reviewMessageView`); thread it through `sendJobNotification` (`delivery.ts:220`) / `execution-notifications.ts` alongside the neutral fallback string. | ⏳ pending |
-| T4 | **Telegram native renderer** | `channels/telegram/channel-delivery.ts`: render the view as HTML/expandable card + existing inline keyboard. | ⏳ pending |
-| T5 | **Slack native renderer** | `channels/slack/channel-delivery.ts`: Block Kit card (header/context/section) from the view. | ⏳ pending |
-| T6 | **Discord native renderer** | `channels/discord.ts` / `discord-delivery.ts`: embed from the view + existing buttons. | ⏳ pending |
-| T7 | **Structured job result via a finish tool** | Schema-validated `job_report` tool the agent calls with `{headline, items:[{outcome, label, detail}], nextAction}`; wire its args into the run result → the view's `result`. Card renders structured fields when present; boundary-truncated narration is the fallback. | ⏳ pending |
+| T2b | **Browser-action routing** | Confirmed browser events tagged `phase:browser_action`, counted in the reducer, routed from the exchange. `browserActivityCount` = real action, not prelaunch. | ✅ done |
+| T3 | **`jobNotificationView` plumbing** | `JobNotificationView` + `StructuredJobResult` on `MessageSendOptions`; built + threaded through delivery; channels still send fallback. | ✅ done |
+| T4 | **Telegram native renderer** | HTML card + neutral `boundJobNotificationView` (cap items, code-unit-budget/code-point-boundary truncation, drop empty result). | ✅ done |
+| T5 | **Slack native renderer** | Block Kit card (header/context/section) + fallback. | ✅ done |
+| T6 | **Discord native renderer** | Rich embed (title/color/description/footer) + buttons + fallback. | ✅ done |
+| — | **File-size budget bumps** | types.ts/execution.ts/telegram-delivery grew; budgets raised. | ✅ done |
+| T7 | **Structured job result via a finish tool** | Schema-validated `job_report` tool the agent calls with `{headline, items:[{outcome, label, detail}], nextAction}`; capture its args on the run → the view's `result`. Renderers already render `result` when present. **Bigger — runtime tool integration.** | ⏳ pending |
 
 ## View shape (T3, carries the structured result for T7)
 ```
