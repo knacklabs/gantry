@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0028-69c8",
+  "profile": "quickfix",
+  "reason": "Prevent Gantry database pool exhaustion from pausing deterministic source-sync jobs",
+  "started_at": "2026-08-20T11:55:17+00:00",
+  "completed_at": "2026-08-20T12:12:41+00:00",
+  "files": []
+}

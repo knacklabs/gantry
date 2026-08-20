@@ -43,6 +43,24 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
     heartbeatRunLease: runtimeStoreMock.heartbeatRunLease,
   }),
   getConfiguredModelProvidersForApp: vi.fn(async () => new Set<string>()),
+  getRuntimeStorage: () => ({
+    repositories: {
+      skills: {
+        listAgentSkillAccessSnapshot: vi.fn(async () => ({
+          activeBindings: [],
+          enabledDefinitions: [],
+        })),
+        listEnabledSkillsForAgent: vi.fn(async () => []),
+      },
+      mcpServers: {
+        listAgentMcpAccessSnapshot: vi.fn(async () => ({
+          activeBindings: [],
+          materializedServers: [],
+        })),
+      },
+    },
+    skillArtifacts: {},
+  }),
 }));
 
 vi.mock('@core/jobs/worker-identity.js', () => ({
@@ -1997,7 +2015,7 @@ describe('jobs/execution', () => {
     expect(toolRepository.listAgentToolBindings).toHaveBeenCalledTimes(1);
     expect(toolRepository.getTool).toHaveBeenCalledTimes(1);
     expect(toolRepository.listTools).not.toHaveBeenCalled();
-    expect(skillRepository.listEnabledSkillsForAgent).toHaveBeenCalledTimes(1);
+    expect(skillRepository.listEnabledSkillsForAgent).toHaveBeenCalledTimes(2);
     expect(skillRepository.listAgentSkillBindings).not.toHaveBeenCalled();
     expect(skillRepository.getSkill).not.toHaveBeenCalled();
     expect(
@@ -2721,6 +2739,59 @@ describe('jobs/execution', () => {
           ]),
         }),
       }),
+    );
+  });
+
+  it('keeps a Browser job retryable when prelaunch fails from database capacity', async () => {
+    const job = makeJob({
+      access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
+    });
+    const opsRepository = makeOpsRepository(job);
+    const toolRepository = makeToolRepository(['Browser']);
+    const openBrowserSession = vi.fn(async () => {
+      throw new Error('Failed query', {
+        cause: Object.assign(
+          new Error(
+            '(EMAXCONNSESSION) max clients reached in session mode - pool_size: 15',
+          ),
+          { code: 'XX000' },
+        ),
+      });
+    });
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        getToolRepository: () => toolRepository as never,
+        getBrowserStatus: vi.fn(async () => ({ hasState: true })),
+        openBrowserSession,
+        runAgent: vi.fn(async () => ({
+          status: 'success',
+          result: 'should not run',
+        })) as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(opsRepository.updateJob).not.toHaveBeenCalledWith(
+      job.id,
+      expect.objectContaining({
+        status: 'paused',
+        setup_state: expect.objectContaining({
+          state: 'browser_login_may_be_required',
+        }),
+      }),
+    );
+    expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
+      expect.any(String),
+      'failed',
+      null,
+      expect.stringContaining('Failed query'),
     );
   });
 

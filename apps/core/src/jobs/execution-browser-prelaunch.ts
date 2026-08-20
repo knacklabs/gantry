@@ -13,6 +13,7 @@ import {
 } from './execution-diagnostics.js';
 import type { SchedulerDependencies } from './types.js';
 import { resolveConversationBrowserProfile } from '../shared/browser-profile-scope.js';
+import { isRetryablePostgresReadError } from '../adapters/storage/postgres/postgres-read-retry.js';
 
 export async function prelaunchBrowserForJobRun(input: {
   currentJob: Job;
@@ -98,6 +99,11 @@ export async function prelaunchBrowserForJobRun(input: {
       elapsed_ms: Math.max(0, nowMs() - startedAt),
     };
     await input.emitJobEvent(RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY, payload);
+    // A database/pool outage is infrastructure failure, not evidence that the
+    // browser login is missing. Let normal scheduler retry/backoff handle it;
+    // pausing here strands otherwise valid source-sync jobs until an operator
+    // manually resumes them after the database has recovered.
+    if (isRetryablePostgresReadError(err)) throw err;
     return {
       error: `Setup required: Browser launch failed: ${error}`,
       setupState: setupStateForBrowserPrelaunchFailure({

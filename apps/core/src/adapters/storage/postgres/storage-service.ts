@@ -32,6 +32,7 @@ export const postgresMigrationsFolder = path.join(
 const PGCRYPTO_EXTENSION_LOCK_NAMESPACE = 1_340_193_180;
 const PGCRYPTO_EXTENSION_LOCK_KEY = 1;
 const DEFAULT_RUNTIME_POSTGRES_POOL_MAX = 20;
+const DEFAULT_POSTGRES_CONNECTION_TIMEOUT_MS = 10_000;
 const PGBOSS_POOL_SHARE_DIVISOR = 4;
 // Cross-instance "run gantry migrations" lock. One identity serializes every
 // explicit migrator using PostgresStorageService.migrate().
@@ -160,6 +161,7 @@ export function resolvePostgresPoolConfig(
       connectionString,
       options: searchPathOptions,
       max: resolveRuntimePostgresPoolMax(),
+      connectionTimeoutMillis: DEFAULT_POSTGRES_CONNECTION_TIMEOUT_MS,
       ssl: { rejectUnauthorized: true },
     };
   }
@@ -167,6 +169,7 @@ export function resolvePostgresPoolConfig(
     connectionString,
     options: searchPathOptions,
     max: resolveRuntimePostgresPoolMax(),
+    connectionTimeoutMillis: DEFAULT_POSTGRES_CONNECTION_TIMEOUT_MS,
   };
 }
 

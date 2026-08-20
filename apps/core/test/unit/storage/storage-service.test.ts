@@ -47,6 +47,7 @@ describe('storage-service', () => {
     );
 
     expect(config.max).toBeGreaterThanOrEqual(20);
+    expect(config.connectionTimeoutMillis).toBe(10_000);
   });
 
   it('uses the default runtime postgres pool size when unset', () => {

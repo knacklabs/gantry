@@ -35,6 +35,8 @@ const RETRYABLE_POSTGRES_CODES = new Set([
 ]);
 
 const RETRYABLE_POSTGRES_MESSAGE_PATTERNS = [
+  /\bEMAXCONNSESSION\b/i,
+  /max clients reached in session mode/i,
   /cached plan must not change result type/i,
   /prepared statement .* (?:does not exist|already exists)/i,
   /connection terminated/i,
