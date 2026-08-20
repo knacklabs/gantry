@@ -274,7 +274,7 @@ export function updateDiagnosticsFromRuntimeEvent(
 export async function forwardRunnerRuntimeEvents(input: {
   events?: readonly { eventType: unknown; payload?: unknown }[];
   diagnostics: JobRunDiagnostics;
-  emitJobEvent: (
+  emitJobEvent?: (
     eventType: RuntimeEventType,
     payload: Record<string, unknown>,
   ) => Promise<void>;
@@ -293,7 +293,7 @@ export async function forwardRunnerRuntimeEvents(input: {
       event.eventType,
       payload,
     );
-    await input.emitJobEvent(event.eventType, payload);
+    await input.emitJobEvent?.(event.eventType, payload);
   }
 }
 
@@ -490,16 +490,7 @@ function summarizeStartupDiagnosticValue(
 function isBrowserToolActivity(payload: Record<string, unknown>): boolean {
   if (payload.ok !== true) return false;
   const phase = stringValue(payload.phase);
-  if (
-    phase === 'sdk_tool_request' ||
-    phase === 'permission_wait' ||
-    phase === 'permission_allowed' ||
-    phase === 'allow' ||
-    phase === 'tool_access_preflight' ||
-    phase === 'tool_access_missing'
-  ) {
-    return false;
-  }
+  if (phase !== 'browser_action') return false;
   const publicTool = stringValue(payload.public_tool);
   const action = stringValue(payload.action);
   return isBrowserGatewayActivity(publicTool, action);
