@@ -35,7 +35,7 @@
     {
       "id": "WEB-AUTH-1-2",
       "title": "Browser server trust boundary and local authorization",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-08-20T09:39:22+00:00",
       "base_sha": "9facfe5f7014546d60113b784a509568a66ba4c9",
       "dirty_at_start": {
@@ -60,7 +60,8 @@
           "git": "1 .M N... 100644 100644 100644 cfcaa6b1a651cd19934d8641c2aea0db91a72abc cfcaa6b1a651cd19934d8641c2aea0db91a72abc .factory/stages.json\u0000\u0000100644 cfcaa6b1a651cd19934d8641c2aea0db91a72abc 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
         }
       },
-      "task_sha256": "820f9225a3c5aa7f2d91ada7bbd952402ec563131d8e306617ab5f2736b335ab"
+      "task_sha256": "820f9225a3c5aa7f2d91ada7bbd952402ec563131d8e306617ab5f2736b335ab",
+      "completed_at": "2026-08-20T09:51:38+00:00"
     },
     {
       "id": "WEB-AUTH-1-3",
