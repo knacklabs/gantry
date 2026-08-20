@@ -1,5 +1,12 @@
 [
   {
+    "file": "apps/core/src/control/server/routes/browser-auth.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "The browser auth adapter needs the active revisioned authentication settings and desired-settings activation write path. Capped pending extraction of the control auth application service.",
+    "removeByPhase": "browser-auth-application-service-extraction",
+    "maxViolations": 2
+  },
+  {
     "file": "apps/core/src/adapters/credentials/agent-credential-broker-factory.ts",
     "rule": "provider_specific_path",
     "reason": "The credential factory composes the Gantry Model Gateway implementation from the approved Anthropic-compatible LLM adapter boundary; capped to this one import path.",

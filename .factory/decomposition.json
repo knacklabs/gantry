@@ -182,7 +182,9 @@
         "apps/core/test/unit/auth/browser-auth-routes.test.ts",
         "apps/core/test/unit/control/route-profile.test.ts",
         "package.json",
-        "package-lock.json"
+        "package-lock.json",
+        "scripts/architecture-exceptions.json",
+        "scripts/architecture-map.json"
       ],
       "required_tests": [
         {
@@ -200,9 +202,9 @@
         "npm run typecheck"
       ],
       "review_budget": {
-        "max_changed_files": 13,
+        "max_changed_files": 15,
         "max_changed_lines": 6500,
-        "reason": "One authenticated browser facade requires the provider-neutral adapter, safe event vocabulary, full-profile wiring, package declaration, and focused contract tests."
+        "reason": "One authenticated browser facade requires the provider-neutral adapter, safe event vocabulary, full-profile wiring, package declaration, focused contract tests, and the two existing architecture-policy entries that cap this documented composition seam."
       },
       "plan_contracts": [
         {
@@ -276,5 +278,5 @@
   "epic": "web-authentication",
   "plan_file": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md",
   "plan_sha256": "8f156263b545bcef9cb566173c0c1367deb2d6bc342a38ab04616562d2f275ec",
-  "commit": "d7640fe97d05f700abf0bfc56f6189e87780ccdf"
+  "commit": "38a0dcac2f711d4fc4b5aee7c1f6b19ad41e2032"
 }
