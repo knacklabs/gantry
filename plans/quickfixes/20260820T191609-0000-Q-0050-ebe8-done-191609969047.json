@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0050-ebe8",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "NOTIFY-1: raise discord.ts file-size budget for the T6 native embed renderer",
+  "started_at": "2026-08-20T19:15:40+00:00",
+  "completed_at": "2026-08-20T19:16:09+00:00",
+  "files": [
+    "scripts/architecture-map.json"
+  ]
+}
