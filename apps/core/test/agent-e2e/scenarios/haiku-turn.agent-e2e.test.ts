@@ -28,7 +28,7 @@ import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { requireRealModelCredential } from '../fixtures/model-credential-fixture.js';
-import { AgentE2EApiClient, type SessionEvent } from '../harness/api-client.js';
+import { AgentE2EApiClient } from '../harness/api-client.js';
 import {
   redactText,
   startEvidenceRun,
@@ -60,12 +60,6 @@ interface ModelDefaultsResponse {
     effectiveAlias: string | null;
     model: { id: string } | null;
   };
-}
-
-function payloadOf(event: SessionEvent): Record<string, unknown> {
-  return event.payload && typeof event.payload === 'object'
-    ? (event.payload as Record<string, unknown>)
-    : {};
 }
 
 maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
@@ -135,6 +129,7 @@ maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
             'sessions:write',
             'agents:admin',
             'credentials:admin',
+            'usage:read',
           ],
         });
         api = new AgentE2EApiClient(harness.baseUrl, harness.apiKey);
@@ -221,6 +216,7 @@ maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
         evidence.evidence.sessionId = sessionId;
 
         evidence.phase('turn');
+        const usageFrom = new Date(Date.now() - 1_000).toISOString();
         const accepted = await api.postMessage(
           sessionId,
           'Reply with a single short sentence confirming you are operational.',
@@ -245,6 +241,9 @@ maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
         );
         const runs = await api.listRuns(sessionId);
         expect(runs.length, 'session run is visible').toBeGreaterThan(0);
+        const runId = String(runs[0]?.id ?? runs[0]?.runId ?? '');
+        expect(runId, 'session run has a public id').toBeTruthy();
+        evidence.evidence.runId = runId;
         expect(runs[0]).not.toHaveProperty('executionProviderId');
         expect(runs[0]).not.toHaveProperty('providerSessionId');
         expect(runs[0]).not.toHaveProperty('workerId');
@@ -260,15 +259,15 @@ maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
         ).toBeDefined();
         expect(persistedMessage).toBeDefined();
 
-        // Usage evidence when surfaced: alias/provider consistent with haiku
-        // on anthropic (covers alias or full runner model id).
-        const usage = events.find((e) => e.eventType === 'model.usage');
-        if (usage) {
-          const usagePayload = payloadOf(usage);
-          expect(String(usagePayload.modelAlias ?? '').toLowerCase()).toContain(
-            'haiku',
-          );
-        }
+        const usageRows = await api.queryUsage({
+          from: usageFrom,
+          to: new Date(Date.now() + 1_000).toISOString(),
+          runId,
+          model: 'haiku',
+        });
+        expect(usageRows, 'usage API returns this run').toHaveLength(1);
+        expect(usageRows[0]?.inputTokens).toBeGreaterThan(0);
+        expect(usageRows[0]?.outputTokens).toBeGreaterThan(0);
         evidence.finishPhases();
       }),
   );

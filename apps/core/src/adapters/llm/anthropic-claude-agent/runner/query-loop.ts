@@ -265,11 +265,14 @@ export async function runQuery(
     CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
     ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
   };
+  const pathClaudeExecutable = resolveClaudeCodeExecutableFromPath(
+    isolatedSdkEnv.PATH,
+  );
   const claudeCodeExecutable =
     process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
-      ? allowedOuterSandboxClaudeExecutable(
-          resolveClaudeCodeExecutableFromPath(isolatedSdkEnv.PATH),
-        )
+      ? process.env.GANTRY_E2E_ALLOW_PATH_EXECUTABLE === '1'
+        ? pathClaudeExecutable
+        : allowedOuterSandboxClaudeExecutable(pathClaudeExecutable)
       : undefined;
   const capabilities = composeAgentCapabilities({
     mcpServerPath,

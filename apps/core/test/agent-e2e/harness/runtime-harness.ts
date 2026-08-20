@@ -41,6 +41,14 @@ export type RuntimeHarnessMode = 'local-process' | 'docker';
 export interface RuntimeHarnessOptions {
   /** Scopes carried by the run's generated control API key. */
   scopes?: string[];
+  /** Extra generated keys for scenarios that prove scope or app isolation. */
+  additionalControlKeys?: Array<{
+    kid: string;
+    appId?: string;
+    scopes: string[];
+  }>;
+  /** Gantry checkout/build root. Defaults to AGENT_E2E_RUNTIME_ROOT or this repo. */
+  runtimeRoot?: string;
   /** Optional fresh, non-existent home path; the harness creates/removes it. */
   runtimeHome?: string;
   /** Selected via AGENT_E2E_RUNTIME_MODE by default; local-process otherwise. */
@@ -57,8 +65,11 @@ export interface RuntimeHarnessOptions {
 
 export interface RuntimeHarness {
   readonly mode: RuntimeHarnessMode;
+  readonly runtimeRoot: string;
   readonly baseUrl: string;
   readonly apiKey: string;
+  /** Generated tokens by key id, including `agent-e2e`. */
+  readonly controlApiKeys: Readonly<Record<string, string>>;
   readonly home: string;
   /** Per-run database URL the runtime uses (never the admin URL). */
   readonly databaseUrl: string;
@@ -81,6 +92,28 @@ export interface RuntimeHarness {
 /** The user's real workstation runtime home (launchd service target). */
 export function realRuntimeHome(): string {
   return path.resolve(os.homedir(), 'gantry');
+}
+
+export function resolveRuntimeRoot(explicit?: string): string {
+  const configured =
+    explicit?.trim() || process.env.AGENT_E2E_RUNTIME_ROOT?.trim();
+  return configured
+    ? path.resolve(configured)
+    : path.resolve(import.meta.dirname, '../../../../..');
+}
+
+function validateAdditionalControlKeys(
+  keys: RuntimeHarnessOptions['additionalControlKeys'],
+): void {
+  const seen = new Set(['agent-e2e']);
+  for (const key of keys ?? []) {
+    if (!key.kid.trim() || seen.has(key.kid)) {
+      throw new Error(
+        `Invalid or duplicate agent E2E control key id: ${key.kid}`,
+      );
+    }
+    seen.add(key.kid);
+  }
 }
 
 function databaseNameOf(databaseUrl: string): string {
@@ -236,12 +269,14 @@ const DEFAULT_SCOPES = ['sessions:read', 'sessions:write', 'agents:admin'];
 export async function startRuntimeHarness(
   options: RuntimeHarnessOptions = {},
 ): Promise<RuntimeHarness> {
+  validateAdditionalControlKeys(options.additionalControlKeys);
   const mode: RuntimeHarnessMode =
     options.mode ??
     (process.env.AGENT_E2E_RUNTIME_MODE === 'docker'
       ? 'docker'
       : 'local-process');
   const adminUrl = requireAdminDatabaseUrl();
+  const runtimeRoot = resolveRuntimeRoot(options.runtimeRoot);
   const requestedHome = options.runtimeHome?.trim();
   const guardedHome = requestedHome
     ? path.resolve(requestedHome)
@@ -278,6 +313,19 @@ export async function startRuntimeHarness(
   }
 
   const apiKey = randomBytes(32).toString('hex');
+  const controlApiKeys: Record<string, string> = { 'agent-e2e': apiKey };
+  const additionalControlKeys = (options.additionalControlKeys ?? []).map(
+    (key) => {
+      const token = randomBytes(32).toString('hex');
+      controlApiKeys[key.kid] = token;
+      return {
+        kid: key.kid,
+        token,
+        appId: key.appId ?? 'default',
+        scopes: key.scopes,
+      };
+    },
+  );
   const secretEncryptionKey = randomBytes(32).toString('base64');
   const ipcAuthSecret = randomBytes(32).toString('hex');
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -288,9 +336,10 @@ export async function startRuntimeHarness(
       appId: 'default',
       scopes: options.scopes ?? DEFAULT_SCOPES,
     },
+    ...additionalControlKeys,
   ]);
   const secrets = [
-    apiKey,
+    ...Object.values(controlApiKeys),
     secretEncryptionKey,
     ipcAuthSecret,
     ...Object.values(options.env ?? {}),
@@ -334,14 +383,13 @@ export async function startRuntimeHarness(
   let childExit: string | undefined;
   const containerName = `gantry-agent-e2e-${randomBytes(4).toString('hex')}`;
 
-  const repoRoot = path.resolve(import.meta.dirname, '../../../../..');
-  const distEntry = path.join(repoRoot, 'dist', 'index.js');
-  const distMigrate = path.join(repoRoot, 'dist', 'postgres-migrate.js');
+  const distEntry = path.join(runtimeRoot, 'dist', 'index.js');
+  const distMigrate = path.join(runtimeRoot, 'dist', 'postgres-migrate.js');
 
   async function runLocalMigrations(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const migrate = spawn(process.execPath, [distMigrate], {
-        cwd: repoRoot,
+        cwd: runtimeRoot,
         env: runtimeEnv,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -366,7 +414,7 @@ export async function startRuntimeHarness(
     childExit = undefined;
     const logStream = fs.createWriteStream(logPath, { flags: 'a' });
     const proc = spawn(process.execPath, [distEntry], {
-      cwd: repoRoot,
+      cwd: runtimeRoot,
       env: runtimeEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -489,8 +537,10 @@ export async function startRuntimeHarness(
 
   return {
     mode,
+    runtimeRoot,
     baseUrl,
     apiKey,
+    controlApiKeys,
     home,
     databaseUrl,
     databaseName,
