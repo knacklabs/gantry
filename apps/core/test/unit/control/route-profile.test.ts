@@ -107,6 +107,7 @@ describe('control server route profile', () => {
     expect(
       (await send(server, 'PUT', '/v1/settings/desired-state')).status,
     ).not.toBe(404);
+    expect((await get(server, '/ui/api/auth/not-a-route')).status).toBe(404);
     // Operational endpoints still work in full profile.
     expect((await get(server, '/healthz')).status).toBe(200);
   });
@@ -164,5 +165,7 @@ describe('control server route profile', () => {
       uiDistDir,
     });
     expect((await get(server, '/ui/')).status).toBe(404);
+    expect((await get(server, '/auth/oidc/start')).status).toBe(404);
+    expect((await get(server, '/ui/api/auth/session')).status).toBe(404);
   });
 });

@@ -199,6 +199,10 @@ function createControlRequestHandler(
         return;
       }
       if (await handleBrowserAuthRoutes(req, res, ctx, pathname)) return;
+      if (pathname.startsWith('/ui/api/auth/')) {
+        sendControlError(res, 404, 'NOT_FOUND', 'Route not found');
+        return;
+      }
       if (handleUiStatic(req, res, pathname, uiDistDir)) return;
       if (await handleOpenApiRoutes(req, res, pathname)) return;
       if (await handleSystemRoutes(req, res, ctx, pathname)) return;

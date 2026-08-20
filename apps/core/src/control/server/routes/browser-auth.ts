@@ -40,6 +40,7 @@ import { readJson, sendError, sendJson } from '../http.js';
 import {
   beginOidcSignIn,
   oidcRedirectUri,
+  parseOidcConfiguration,
   parseTransactionOidcConfig,
 } from '../browser-oidc.js';
 
@@ -826,43 +827,13 @@ export async function handleBrowserAuthRoutes(
       );
       return true;
     }
-    const body = await readJson(req);
-    const candidate = isObject(body)
-      ? {
-          issuer: typeof body.issuer === 'string' ? body.issuer : '',
-          clientId: typeof body.clientId === 'string' ? body.clientId : '',
-          clientSecretRef:
-            typeof body.clientSecretRef === 'string'
-              ? body.clientSecretRef
-              : '',
-          companyDomain:
-            typeof body.companyDomain === 'string'
-              ? body.companyDomain.toLowerCase()
-              : '',
-          providerLabel:
-            typeof body.providerLabel === 'string' ? body.providerLabel : '',
-        }
-      : undefined;
-    if (!candidate || Object.values(candidate).some((value) => !value.trim())) {
+    const candidate = parseOidcConfiguration(await readJson(req));
+    if (!candidate) {
       sendError(
         res,
         400,
         'INVALID_REQUEST',
         'Complete every sign-in configuration field.',
-      );
-      return true;
-    }
-    try {
-      const issuer = new URL(candidate.issuer);
-      if (issuer.protocol !== 'https:') throw new Error();
-      if (!/^[a-z0-9.-]+$/i.test(candidate.companyDomain)) throw new Error();
-      candidate.issuer = issuer.toString().replace(/\/$/, '');
-    } catch {
-      sendError(
-        res,
-        400,
-        'INVALID_REQUEST',
-        'Enter a valid HTTPS issuer and company domain.',
       );
       return true;
     }

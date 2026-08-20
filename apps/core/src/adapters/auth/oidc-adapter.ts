@@ -29,6 +29,9 @@ export class OidcAdapter {
 
   async discover(issuer: string): Promise<OidcDiscovery> {
     const normalizedIssuer = issuer.replace(/\/$/, '');
+    if (!isHttpsIssuer(normalizedIssuer)) {
+      throw new Error('OIDC discovery is invalid');
+    }
     const response = await this.fetcher(
       `${normalizedIssuer}/.well-known/openid-configuration`,
     );
@@ -142,4 +145,10 @@ function isHttpsUrl(value: unknown): value is string {
   } catch {
     return false;
   }
+}
+
+function isHttpsIssuer(value: unknown): value is string {
+  if (!isHttpsUrl(value)) return false;
+  const url = new URL(value);
+  return !url.search && !url.hash;
 }

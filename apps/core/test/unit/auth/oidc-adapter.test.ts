@@ -36,6 +36,19 @@ it('OIDC adapter > rejects discovery with a mismatched issuer or insecure endpoi
   await expect(
     insecureAdapter.discover('https://issuer.example'),
   ).rejects.toThrow('OIDC discovery is invalid');
+
+  let requested = false;
+  const unsafeIssuerAdapter = new OidcAdapter(async () => {
+    requested = true;
+    throw new Error('unexpected OIDC request');
+  });
+  const unsafeIssuer = new URL('https://issuer.example');
+  unsafeIssuer.username = 'fixture-user';
+  unsafeIssuer.password = 'fixture-password';
+  await expect(
+    unsafeIssuerAdapter.discover(unsafeIssuer.toString()),
+  ).rejects.toThrow('OIDC discovery is invalid');
+  expect(requested).toBe(false);
 });
 
 it('OIDC adapter > uses authorization-code PKCE and rejects malformed token responses', async () => {

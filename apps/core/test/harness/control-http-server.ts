@@ -6,7 +6,10 @@ import type { ControlRouteContext } from '@core/control/server/handler-context.j
 export async function reserveControlPort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {
     const server = net.createServer();
+    const onError = (error: Error) => reject(error);
+    server.once('error', onError);
     server.listen(0, '127.0.0.1', () => {
+      server.off('error', onError);
       const address = server.address();
       if (!address || typeof address === 'string') {
         reject(new Error('Could not reserve test port'));

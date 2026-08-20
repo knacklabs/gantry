@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, it } from 'vitest';
 
+import { parseOidcConfiguration } from '@core/control/server/browser-oidc.js';
+
 const repoRoot = path.resolve(
   new URL('../../../../..', import.meta.url).pathname,
 );
@@ -58,4 +60,41 @@ it('browser authentication routes > keeps browser protocol routes separate and r
   expect(candidateRoute).toContain('REAUTHENTICATION_REQUIRED');
   expect(candidateRoute).toContain('configurationTest: true');
   expect(candidateRoute).toContain('redirectUrl: await beginOidcSignIn');
+
+  expect(
+    parseOidcConfiguration({
+      issuer: ' https://issuer.example/ ',
+      clientId: ' client ',
+      clientSecretRef: 'env:GOOGLE_OIDC_CLIENT_SECRET',
+      companyDomain: ' Example.COM ',
+      providerLabel: ' Example ',
+    }),
+  ).toEqual({
+    issuer: 'https://issuer.example',
+    clientId: 'client',
+    clientSecretRef: 'env:GOOGLE_OIDC_CLIENT_SECRET',
+    companyDomain: 'example.com',
+    providerLabel: 'Example',
+  });
+  const unsafeIssuer = new URL('https://issuer.example');
+  unsafeIssuer.username = 'fixture-user';
+  unsafeIssuer.password = 'fixture-password';
+  expect(
+    parseOidcConfiguration({
+      issuer: unsafeIssuer.toString(),
+      clientId: 'client',
+      clientSecretRef: 'env:GOOGLE_OIDC_CLIENT_SECRET',
+      companyDomain: 'example.com',
+      providerLabel: 'Example',
+    }),
+  ).toBeNull();
+  expect(
+    parseOidcConfiguration({
+      issuer: 'https://issuer.example',
+      clientId: 'client',
+      clientSecretRef: 'not-a-secret-ref',
+      companyDomain: 'example.com',
+      providerLabel: 'Example',
+    }),
+  ).toBeNull();
 });

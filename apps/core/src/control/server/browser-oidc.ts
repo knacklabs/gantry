@@ -5,7 +5,10 @@ import {
   expiresAt,
   hashAuthToken,
 } from '../../application/auth/auth-foundations.js';
-import type { RuntimeSecretProvider } from '../../domain/ports/runtime-secret-provider.js';
+import {
+  normalizeRuntimeSecretRefString,
+  type RuntimeSecretProvider,
+} from '../../domain/ports/runtime-secret-provider.js';
 import { OidcAdapter } from '../../adapters/auth/oidc-adapter.js';
 import { encryptCredentialSecretValue } from '../../adapters/storage/postgres/repositories/credential-secret-crypto.js';
 import { PostgresAuthenticationRepository } from '../../adapters/storage/postgres/repositories/authentication-repository.postgres.js';
@@ -28,26 +31,46 @@ export function parseTransactionOidcConfig(
   raw: string | null,
 ): OidcConfiguration | null {
   try {
-    const value = JSON.parse(raw ?? 'null');
-    if (!isObject(value)) return null;
-    const keys = [
-      'issuer',
-      'clientId',
-      'clientSecretRef',
-      'companyDomain',
-      'providerLabel',
-    ] as const;
+    return parseOidcConfiguration(JSON.parse(raw ?? 'null'));
+  } catch {
+    return null;
+  }
+}
+
+export function parseOidcConfiguration(
+  value: unknown,
+): OidcConfiguration | null {
+  if (!isObject(value)) return null;
+  const keys = [
+    'issuer',
+    'clientId',
+    'clientSecretRef',
+    'companyDomain',
+    'providerLabel',
+  ] as const;
+  if (keys.some((key) => typeof value[key] !== 'string' || !value[key].trim()))
+    return null;
+  try {
+    const issuer = new URL((value.issuer as string).trim());
+    const companyDomain = (value.companyDomain as string).trim().toLowerCase();
     if (
-      keys.some((key) => typeof value[key] !== 'string' || !value[key].trim())
-    ) {
+      issuer.protocol !== 'https:' ||
+      issuer.username ||
+      issuer.password ||
+      issuer.search ||
+      issuer.hash ||
+      !/^[a-z0-9.-]+$/i.test(companyDomain)
+    )
       return null;
-    }
     return {
-      issuer: value.issuer as string,
-      clientId: value.clientId as string,
-      clientSecretRef: value.clientSecretRef as string,
-      companyDomain: value.companyDomain as string,
-      providerLabel: value.providerLabel as string,
+      issuer: issuer.toString().replace(/\/$/, ''),
+      clientId: (value.clientId as string).trim(),
+      clientSecretRef: normalizeRuntimeSecretRefString(
+        value.clientSecretRef as string,
+        'OIDC client secret ref',
+      ),
+      companyDomain,
+      providerLabel: (value.providerLabel as string).trim(),
     };
   } catch {
     return null;
