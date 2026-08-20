@@ -324,7 +324,6 @@ export async function handleBrowserAuthRoutes(
     sendJson(res, 200, { message: 'This browser is authorized.' });
     return true;
   }
-
   if (pathname === '/auth/oidc/start') {
     if (req.method !== 'GET') {
       res.setHeader('Allow', 'GET');
@@ -343,14 +342,16 @@ export async function handleBrowserAuthRoutes(
     }
     if (!consumeAuthRateLimit(req, res, ctx)) return true;
     try {
-      const flow = await beginOidcSignIn({
-        ...oidcFlowDependencies(),
-        appId: APP_ID,
-        canonicalOrigin: authentication.canonicalOrigin,
-        oidc: authentication.activeOidc,
-      });
-      bindOidcFlowToBrowser(res, authentication.canonicalOrigin, flow.state);
-      redirect(res, flow.authorizationUrl);
+      redirect(
+        res,
+        await beginOidcSignIn({
+          ...oidcFlowDependencies(),
+          appId: APP_ID,
+          canonicalOrigin: authentication.canonicalOrigin,
+          oidc: authentication.activeOidc,
+          response: res,
+        }),
+      );
     } catch {
       redirect(
         res,
@@ -362,7 +363,6 @@ export async function handleBrowserAuthRoutes(
     }
     return true;
   }
-
   if (pathname === '/auth/invitations/start') {
     if (req.method !== 'POST') {
       res.setHeader('Allow', 'POST');
@@ -396,16 +396,15 @@ export async function handleBrowserAuthRoutes(
       return true;
     }
     try {
-      const flow = await beginOidcSignIn({
-        ...oidcFlowDependencies(),
-        appId: APP_ID,
-        canonicalOrigin: authentication.canonicalOrigin,
-        oidc: authentication.activeOidc,
-        invitationTokenHash,
-      });
-      bindOidcFlowToBrowser(res, authentication.canonicalOrigin, flow.state);
       sendJson(res, 200, {
-        redirectUrl: flow.authorizationUrl,
+        redirectUrl: await beginOidcSignIn({
+          ...oidcFlowDependencies(),
+          appId: APP_ID,
+          canonicalOrigin: authentication.canonicalOrigin,
+          oidc: authentication.activeOidc,
+          invitationTokenHash,
+          response: res,
+        }),
       });
     } catch {
       sendError(
@@ -439,17 +438,19 @@ export async function handleBrowserAuthRoutes(
       return true;
     }
     try {
-      const flow = await beginOidcSignIn({
-        ...oidcFlowDependencies(),
-        appId: APP_ID,
-        canonicalOrigin: authentication.canonicalOrigin,
-        oidc: authentication.activeOidc,
-        reauthenticateUserId: session.userId,
-        reauthenticateSessionHash: hashAuthToken(sessionToken),
-        prompt: 'login',
-      });
-      bindOidcFlowToBrowser(res, authentication.canonicalOrigin, flow.state);
-      redirect(res, flow.authorizationUrl);
+      redirect(
+        res,
+        await beginOidcSignIn({
+          ...oidcFlowDependencies(),
+          appId: APP_ID,
+          canonicalOrigin: authentication.canonicalOrigin,
+          oidc: authentication.activeOidc,
+          reauthenticateUserId: session.userId,
+          reauthenticateSessionHash: hashAuthToken(sessionToken),
+          prompt: 'login',
+          response: res,
+        }),
+      );
     } catch {
       redirect(
         res,
@@ -472,6 +473,7 @@ export async function handleBrowserAuthRoutes(
     const state = callback.searchParams.get('state');
     const code = callback.searchParams.get('code');
     if (
+      !code ||
       !state ||
       !oidcStateMatches(
         req.headers.cookie,
@@ -479,20 +481,6 @@ export async function handleBrowserAuthRoutes(
         state,
       )
     ) {
-      redirect(
-        res,
-        new URL(
-          '/ui/auth/callback-failed',
-          authentication.canonicalOrigin,
-        ).toString(),
-      );
-      return true;
-    }
-    appendResponseCookie(
-      res,
-      expiredOidcStateCookie(authentication.canonicalOrigin),
-    );
-    if (!code) {
       redirect(
         res,
         new URL(
@@ -1069,15 +1057,16 @@ export async function handleBrowserAuthRoutes(
           ref: candidate.clientSecretRef,
         });
         if (!secret) throw new Error('OIDC client secret is unavailable');
-        const flow = await beginOidcSignIn({
-          ...oidcFlowDependencies(),
-          appId: APP_ID,
-          canonicalOrigin: authentication.canonicalOrigin,
-          oidc: candidate,
-          configurationTest: true,
+        sendJson(res, 200, {
+          redirectUrl: await beginOidcSignIn({
+            ...oidcFlowDependencies(),
+            appId: APP_ID,
+            canonicalOrigin: authentication.canonicalOrigin,
+            oidc: candidate,
+            configurationTest: true,
+            response: res,
+          }),
         });
-        bindOidcFlowToBrowser(res, authentication.canonicalOrigin, flow.state);
-        sendJson(res, 200, { redirectUrl: flow.authorizationUrl });
       } catch {
         sendError(
           res,

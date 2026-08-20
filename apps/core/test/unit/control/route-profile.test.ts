@@ -166,6 +166,7 @@ describe('control server route profile', () => {
     });
     expect((await get(server, '/ui/')).status).toBe(404);
     expect((await get(server, '/auth/oidc/start')).status).toBe(404);
+    expect((await get(server, '/auth/oidc/start', true)).status).toBe(404);
     expect((await get(server, '/ui/api/auth/session')).status).toBe(404);
   });
 });

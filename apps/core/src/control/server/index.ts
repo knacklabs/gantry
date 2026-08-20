@@ -171,6 +171,18 @@ function createControlRequestHandler(
         );
         return;
       }
+      // Ops profile (live-worker, job-worker) serves only operational and
+      // read-only diagnostic routes; every admin/mutation route is unmounted and
+      // falls through to the 404 fallback below.
+      if (routeProfile === 'ops') {
+        if (await handleSystemRoutes(req, res, ctx, pathname)) return;
+        if (isLiveIngressRoute(pathname)) {
+          if (await handleExternalIngressRoutes(req, res, ctx, pathname))
+            return;
+        }
+        sendControlError(res, 404, 'NOT_FOUND', 'Route not found');
+        return;
+      }
       if (
         pathname.startsWith('/auth/') ||
         pathname.startsWith('/ui/api/auth/')
@@ -185,18 +197,6 @@ function createControlRequestHandler(
           );
           return;
         }
-      }
-      // Ops profile (live-worker, job-worker) serves only operational and
-      // read-only diagnostic routes; every admin/mutation route is unmounted and
-      // falls through to the 404 fallback below.
-      if (routeProfile === 'ops') {
-        if (await handleSystemRoutes(req, res, ctx, pathname)) return;
-        if (isLiveIngressRoute(pathname)) {
-          if (await handleExternalIngressRoutes(req, res, ctx, pathname))
-            return;
-        }
-        sendControlError(res, 404, 'NOT_FOUND', 'Route not found');
-        return;
       }
       if (await handleBrowserAuthRoutes(req, res, ctx, pathname)) return;
       if (pathname.startsWith('/ui/api/auth/')) {

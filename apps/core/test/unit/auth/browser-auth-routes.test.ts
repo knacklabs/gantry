@@ -3,7 +3,6 @@ import path from 'node:path';
 import { expect, it } from 'vitest';
 
 import {
-  expiredOidcStateCookie,
   oidcStateCookie,
   oidcStateMatches,
   parseOidcConfiguration,
@@ -22,6 +21,10 @@ it('browser authentication routes > keeps browser protocol routes separate and r
     path.join(repoRoot, 'apps/core/src/control/server/browser-oidc.ts'),
     'utf8',
   );
+  const server = fs.readFileSync(
+    path.join(repoRoot, 'apps/core/src/control/server/index.ts'),
+    'utf8',
+  );
 
   expect(source).toContain("pathname === '/auth/local/authorize'");
   expect(source).toContain("pathname === '/auth/oidc/callback'");
@@ -30,9 +33,9 @@ it('browser authentication routes > keeps browser protocol routes separate and r
   expect(source).toContain('consumeLocalAuthorizationCode');
   expect(source).toContain('consumeOidcTransaction');
   expect(source).toContain('oidcStateMatches(');
-  expect(source).toContain('expiredOidcStateCookie(');
   expect(oidc).toContain('const nonce = createOpaqueToken()');
   expect(oidc).toContain('nonceHash: hashAuthToken(nonce)');
+  expect(oidc).toContain('input.response.setHeader(');
   expect(oidc).toContain('? { oidcConfigJson: JSON.stringify(input.oidc) }');
   expect(oidc).toContain('configurationTest: input.configurationTest ?? false');
   expect(source).toContain(
@@ -52,6 +55,9 @@ it('browser authentication routes > keeps browser protocol routes separate and r
   expect(source).toContain('OIDC reauthentication session is invalid');
   expect(source).toContain('RUNTIME_EVENT_TYPES.AUTH_INVITATION_ACCEPTED');
   expect(source).toContain('RUNTIME_EVENT_TYPES.AUTH_INVITATION_REVOKED');
+  expect(server.indexOf("if (routeProfile === 'ops')")).toBeLessThan(
+    server.indexOf('browserRequestHasBearer(req)'),
+  );
   expect(source).toContain(
     'This authorization link can only be used on this Gantry host.',
   );
@@ -70,8 +76,7 @@ it('browser authentication routes > keeps browser protocol routes separate and r
   )[1];
   expect(candidateRoute).toContain('REAUTHENTICATION_REQUIRED');
   expect(candidateRoute).toContain('configurationTest: true');
-  expect(candidateRoute).toContain('const flow = await beginOidcSignIn');
-  expect(candidateRoute).toContain('redirectUrl: flow.authorizationUrl');
+  expect(candidateRoute).toContain('redirectUrl: await beginOidcSignIn');
 
   expect(
     parseOidcConfiguration({
@@ -131,9 +136,6 @@ it('browser authentication routes > keeps browser protocol routes separate and r
       'other-state',
     ),
   ).toBe(false);
-  expect(expiredOidcStateCookie('https://console.example')).toContain(
-    'Max-Age=0; Secure',
-  );
   const localStateCookie = oidcStateCookie(
     'http://127.0.0.1:3939',
     'local-state',
