@@ -26,6 +26,7 @@ import { discordActionComponents } from './discord-components.js';
 import { noticeManualGroupInstall } from './group-install-bootstrap.js';
 import {
   formatDiscordAgentTodo,
+  discordJobNotificationEmbed,
   postDiscordMessageParts,
   splitDiscordText,
 } from './discord-delivery.js';
@@ -193,8 +194,11 @@ export class DiscordChannel implements ChannelAdapter {
     if (!channelId) throw new Error(`Invalid Discord conversation id: ${jid}`);
     return postDiscordMessageParts({
       channelId,
-      parts: splitDiscordText(text),
+      parts: options.jobNotificationView ? [''] : splitDiscordText(text),
       components: discordActionComponents(options),
+      ...(options.jobNotificationView
+        ? { embeds: [discordJobNotificationEmbed(options.jobNotificationView)] }
+        : {}),
       files: options.files,
       apiRoot: DISCORD_API_ROOT,
       botToken: this.botToken,

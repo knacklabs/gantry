@@ -1,10 +1,12 @@
 import { discordChannelIdFromJid } from './discord-interaction-helpers.js';
 import type {
+  JobNotificationView,
   MessageDeliveryResult,
   MessageFileAttachment,
 } from '../domain/types.js';
 import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 import { PartialMessageDeliveryError } from '../domain/messages/partial-delivery.js';
+import { formatDuration } from '../shared/human-format.js';
 import {
   agentTodoLines,
   formatAgentProgressLine,
@@ -17,6 +19,33 @@ import {
 } from './discord-limits.js';
 
 const DISCORD_TODO_MAX_LENGTH = 1900;
+const DISCORD_EMBED_TITLE_MAX_LENGTH = 256;
+const DISCORD_EMBED_DESCRIPTION_MAX_LENGTH = 4096;
+const DISCORD_EMBED_FOOTER_MAX_LENGTH = 2048;
+
+const DISCORD_JOB_STATUS: Record<
+  JobNotificationView['status'],
+  { emoji: string; label: string; color: number }
+> = {
+  completed: { emoji: '✅', label: 'Completed', color: 0x57f287 },
+  failed: { emoji: '❌', label: 'Failed', color: 0xed4245 },
+  paused: { emoji: '⏸️', label: 'Paused', color: 0xfee75c },
+  timeout: { emoji: '⏱️', label: 'Timed out', color: 0xed4245 },
+  dead_lettered: {
+    emoji: '⏸️',
+    label: 'Paused after failures',
+    color: 0xed4245,
+  },
+};
+
+const DISCORD_JOB_OUTCOME_MARKER: Record<
+  NonNullable<JobNotificationView['result']>['items'][number]['outcome'],
+  string
+> = {
+  done: '✅',
+  skipped: '⏭️',
+  failed: '❌',
+};
 
 export type DiscordMessagePoster = (
   channelId: string,
@@ -57,10 +86,76 @@ export function formatDiscordAgentTodo(render: AgentTodoRender): string {
   return lines.join('\n');
 }
 
+export function discordJobNotificationEmbed(
+  view: JobNotificationView,
+): Record<string, unknown> {
+  const status = DISCORD_JOB_STATUS[view.status];
+  const stats = view.stats
+    ? [
+        ...(view.durationMs === undefined
+          ? []
+          : [formatDuration(view.durationMs)]),
+        `${view.stats.toolCount} tool${view.stats.toolCount === 1 ? '' : 's'}`,
+        view.stats.browserUsed ? 'browser used' : 'browser not used',
+        `last ${view.stats.lastAction ?? 'none'}`,
+      ].join(' · ')
+    : '';
+  const body = view.result
+    ? [
+        ...(view.result.headline ? [view.result.headline] : []),
+        ...view.result.items.map((item) =>
+          [
+            DISCORD_JOB_OUTCOME_MARKER[item.outcome],
+            item.label,
+            item.detail ? `— ${item.detail}` : '',
+          ]
+            .filter(Boolean)
+            .join(' '),
+        ),
+        ...(view.result.nextAction ? [`Next: ${view.result.nextAction}`] : []),
+      ]
+    : [view.fallbackText];
+  return {
+    title: truncateDiscordEmbedText(
+      `${status.emoji} ${status.label} · ${view.jobName}`,
+      DISCORD_EMBED_TITLE_MAX_LENGTH,
+    ),
+    color: status.color,
+    // The view is pre-bounded by boundJobNotificationView (total content well
+    // under 2300 code units), so this description cap is defense-in-depth and
+    // never actually drops content for a job notification.
+    description: truncateDiscordEmbedText(
+      [stats, ...body].filter(Boolean).join('\n') || ' ',
+      DISCORD_EMBED_DESCRIPTION_MAX_LENGTH,
+    ),
+    ...(view.nextRunAt
+      ? {
+          footer: {
+            text: truncateDiscordEmbedText(
+              `Next run: ${view.nextRunAt}`,
+              DISCORD_EMBED_FOOTER_MAX_LENGTH,
+            ),
+          },
+        }
+      : {}),
+  };
+}
+
+function truncateDiscordEmbedText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  let truncated = '';
+  for (const codePoint of value) {
+    if (truncated.length + codePoint.length > maxLength - 1) break;
+    truncated += codePoint;
+  }
+  return `${truncated}…`;
+}
+
 export async function postDiscordMessageParts(input: {
   channelId: string;
   parts: string[];
   components?: unknown[];
+  embeds?: unknown[];
   files?: MessageFileAttachment[];
   apiRoot?: string;
   botToken?: string;
@@ -77,8 +172,9 @@ export async function postDiscordMessageParts(input: {
     if (input.shouldContinue && !input.shouldContinue()) break;
     try {
       const body = {
-        content: parts[index],
+        ...(input.embeds ? {} : { content: parts[index] }),
         allowed_mentions: { parse: [] },
+        ...(index === 0 && input.embeds ? { embeds: input.embeds } : {}),
         components: index === parts.length - 1 ? input.components : undefined,
       };
       const canUploadFiles =

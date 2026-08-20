@@ -238,6 +238,71 @@ describe('DiscordChannel', () => {
     fetchMock.mockRestore();
   });
 
+  it('renders structured job notifications as Discord embeds and otherwise keeps plain text', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await channel.sendMessage('dc:channel-1', 'plain fallback text', {
+      jobNotificationView: {
+        status: 'completed',
+        jobName: 'Lead enrichment',
+        durationMs: 65_000,
+        stats: {
+          toolCount: 2,
+          browserUsed: true,
+          lastAction: 'browser_click',
+        },
+        result: {
+          headline: "Enriched this morning's leads",
+          items: [
+            { outcome: 'done', label: 'Added Acme', detail: 'owner found' },
+            { outcome: 'skipped', label: 'Skipped Globex' },
+          ],
+          nextAction: 'Review the new leads',
+        },
+        fallbackText: 'plain fallback text',
+        nextRunAt: '2026-08-21T09:00:00.000Z',
+      },
+      actionAffordances: [
+        { kind: 'scheduler_run_now', label: 'Retry now', jobId: 'job-1' },
+      ],
+    });
+
+    const nativePayload = JSON.parse(
+      String(fetchMock.mock.calls[0]?.[1]?.body),
+    ) as Record<string, unknown>;
+    expect(nativePayload).not.toHaveProperty('content');
+    expect(nativePayload.embeds).toEqual([
+      expect.objectContaining({
+        title: '✅ Completed · Lead enrichment',
+        color: 0x57f287,
+        description: expect.stringContaining(
+          '1m 05s · 2 tools · browser used · last browser_click',
+        ),
+        footer: { text: 'Next run: 2026-08-21T09:00:00.000Z' },
+      }),
+    ]);
+    const description = (
+      nativePayload.embeds as Array<{ description: string }>
+    )[0].description;
+    expect(description).toContain('✅ Added Acme — owner found');
+    expect(description).toContain('⏭️ Skipped Globex');
+    expect(nativePayload.components).toMatchObject([
+      { components: [{ label: 'Retry now' }] },
+    ]);
+
+    await channel.sendMessage('dc:channel-1', 'plain fallback text');
+
+    const plainPayload = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    ) as Record<string, unknown>;
+    expect(plainPayload.content).toBe('plain fallback text');
+    expect(plainPayload).not.toHaveProperty('embeds');
+    fetchMock.mockRestore();
+  });
+
   it('sends messages through Discord REST with scheduler retry buttons', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
