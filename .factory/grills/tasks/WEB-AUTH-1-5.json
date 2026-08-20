@@ -1,0 +1,65 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [],
+  "issue": "WEB-AUTH-1",
+  "task_id": "WEB-AUTH-1-5",
+  "decision": "keep",
+  "summary": "The approved eight-file UI slice remains intact. The focused source-contract tests are intentionally top-level Vitest tests, so each leaf identifier is both selectable and exactly represented in workspace-relative JUnit output.",
+  "questions_asked": 4,
+  "inspected_refs": [
+    "apps/web/src/app/root-route.tsx",
+    "apps/web/src/app/router.tsx",
+    "apps/web/src/app/app-shell.tsx",
+    "apps/web/src/styles.css",
+    "apps/core/src/control/server/routes/browser-auth.ts",
+    "docs/decisions/0132-adaptive-browser-authentication-access.md"
+  ],
+  "current_flow": "Approved UI restored from backup; the web workspace runs top-level focused source-contract tests with exact JUnit leaf names.",
+  "criteria_map": {
+    "Public local authorization, hosted sign-in, invitation, callback failure, no-access, disabled-access, retry, setup, and reauthentication screens use the exact approved copy.": "auth-pages.tsx contains the approved public, loading, local authorizer, access-required, invitation, callback, and reauthentication states, including fragment removal before POST.",
+    "The AppShell is protected by session-aware route loading, while public auth routes live outside the shell.": "auth-routes.tsx, router.tsx, and root-route.tsx register public routes separately and use the session-aware root loader for shell routes.",
+    "Settings to Authentication and Access shows the approved adaptive local and hosted tabs, Administrator and Viewer roles only, invitations, access administration, session management, OIDC setup, receipts, and final-admin error behavior.": "authentication-access-route.tsx implements Administrator/Viewer administration, invitations, sessions, setup testing and activation with existing dialogs/tables/receipts.",
+    "The UI preserves existing dialogs, tables, fields, stale-data behavior, focus restoration, keyboard navigation, theme tokens, responsive behavior, and reduced-motion support.": "styles.css and existing primitives provide the fixed auth palette, focus-visible states, keyboard controls, stale-data behavior, and reduced-motion rules.",
+    "Viewer restrictions are server-enforced and reflected in the UI without converting unrelated fixture-backed console features to live APIs.": "authentication-access-route.tsx reflects the server-projected Viewer restrictions without adding unrelated live data surfaces."
+  },
+  "new_abstractions": [],
+  "rounds": [
+    {
+      "question": "Should the approved auth pages adapt to the ambient console theme?",
+      "options": [
+        "Keep their approved fixed palette in both themes",
+        "Add theme-specific visual variants"
+      ],
+      "chosen": "Keep their approved fixed palette in both themes"
+    },
+    {
+      "question": "Should the UI convert existing fixture-backed pages to browser APIs?",
+      "options": [
+        "Keep non-auth pages default-deny and out of scope",
+        "Convert console fixtures during auth work"
+      ],
+      "chosen": "Keep non-auth pages default-deny and out of scope"
+    },
+    {
+      "question": "Should local authorization keep the fragment token after the handoff?",
+      "options": [
+        "Remove it before the one-use POST",
+        "Leave it in URL/history"
+      ],
+      "chosen": "Remove it before the one-use POST"
+    }
+  ],
+  "citations": [
+    {
+      "finding": "Public authentication routes, browser-only facade, fixed approved copy and separate console roles are required.",
+      "source": "docs/decisions/0132-adaptive-browser-authentication-access.md"
+    }
+  ],
+  "input_sha256": "7eeed767795b749de230861880e53b6c085ad87ddae4c5484f5291815072ec6c",
+  "recorded_at": "2026-08-20T13:08:11+00:00",
+  "commit": "6386e702f36c68ab467be433d402d917baaa2d8e"
+}

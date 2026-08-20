@@ -319,7 +319,68 @@
       ],
       "dependencies": [
         "WEB-AUTH-1-4"
-      ]
+      ],
+      "write_scope": [
+        "apps/web/src/app/app-navigation.tsx",
+        "apps/web/src/app/root-route.tsx",
+        "apps/web/src/app/router.tsx",
+        "apps/web/src/app/routes/auth-routes.tsx",
+        "apps/web/src/features/auth/auth-pages.tsx",
+        "apps/web/src/features/auth/auth-pages.test.ts",
+        "apps/web/src/features/auth/authentication-access-route.tsx",
+        "apps/web/src/styles.css",
+        "apps/web/vitest.config.ts"
+      ],
+      "required_tests": [
+        {
+          "id": "keeps the approved public copy and removes fragment credentials",
+          "path": "apps/web/src/features/auth/auth-pages.test.ts",
+          "command": "FORGE_JUNIT=1 npm --workspace @gantry/web run test -- --run ../../{path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "keeps access changes explicit and restores focus to receipts",
+          "path": "apps/web/src/features/auth/auth-pages.test.ts",
+          "command": "FORGE_JUNIT=1 npm --workspace @gantry/web run test -- --run ../../{path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck --workspace @gantry/web",
+        "npm run build --workspace @gantry/web",
+        "npm run lint --workspace @gantry/web"
+      ],
+      "review_budget": {
+        "max_changed_files": 9,
+        "max_changed_lines": 1820,
+        "reason": "The existing approved UI is a single public/protected routing and access-management slice: route registration, app-shell protection, auth screens, settings screen, styles, navigation and focused source contract tests. The Vitest configuration emits path-attributed JUnit only for Forge proof commands."
+      },
+      "plan_contracts": [
+        {
+          "id": "AUTH-UI-0",
+          "statement": "Public local authorization, hosted sign-in, invitation, callback failure, no-access, disabled-access, retry, setup, and reauthentication screens use the exact approved copy.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-UI-1",
+          "statement": "The AppShell is protected by session-aware route loading, while public auth routes live outside the shell.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-UI-2",
+          "statement": "Settings to Authentication and Access shows the approved adaptive local and hosted tabs, Administrator and Viewer roles only, invitations, access administration, session management, OIDC setup, receipts, and final-admin error behavior.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-UI-3",
+          "statement": "The UI preserves existing dialogs, tables, fields, stale-data behavior, focus restoration, keyboard navigation, theme tokens, responsive behavior, and reduced-motion support.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-UI-4",
+          "statement": "Viewer restrictions are server-enforced and reflected in the UI without converting unrelated fixture-backed console features to live APIs.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        }
+      ],
+      "reviewer_focus": "Public versus protected routing, fragment removal before local authorization, exact approved copy, Google-brand button geometry, light/dark-independent auth surfaces, keyboard/focus and reduced-motion behavior, receipt focus restoration, client-safe browser facade calls, and Viewer UI restrictions."
     },
     {
       "id": "WEB-AUTH-1-6",
@@ -339,5 +400,5 @@
   "epic": "web-authentication",
   "plan_file": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md",
   "plan_sha256": "8f156263b545bcef9cb566173c0c1367deb2d6bc342a38ab04616562d2f275ec",
-  "commit": "55e25ad92925cec297535576df0feec2322c1ccb"
+  "commit": "6386e702f36c68ab467be433d402d917baaa2d8e"
 }
