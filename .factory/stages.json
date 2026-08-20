@@ -66,7 +66,7 @@
     {
       "id": "WEB-AUTH-1-3",
       "title": "Hosted OIDC, grants, invitations, and reauthentication",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-08-20T09:54:07+00:00",
       "base_sha": "933535392aa4a491e1021a6c5eed8a87a92b6080",
       "dirty_at_start": {
@@ -87,7 +87,13 @@
           "git": "1 .M N... 100644 100644 100644 e39ae5444191b3cc4abbaac3fee5d91f81069dc6 e39ae5444191b3cc4abbaac3fee5d91f81069dc6 .factory/run.json\u0000\u0000100644 e39ae5444191b3cc4abbaac3fee5d91f81069dc6 0\t.factory/run.json\u0000\u0000H .factory/run.json\u0000"
         }
       },
-      "task_sha256": "0593aad728b19ffe20b4c4e29188bca2fd14dc45ac1f1419130a065b35b563cc"
+      "task_sha256": "920a08bf33440e9406b3539423d9a76a20c4cf5feaee2efc0e022be90e5edc5d",
+      "completed_at": "2026-08-20T11:57:58+00:00",
+      "contract_changed": {
+        "at": "2026-08-20T11:57:58+00:00",
+        "from": "0593aad728b19ffe20b4c4e29188bca2fd14dc45ac1f1419130a065b35b563cc",
+        "to": "920a08bf33440e9406b3539423d9a76a20c4cf5feaee2efc0e022be90e5edc5d"
+      }
     },
     {
       "id": "WEB-AUTH-1-4",

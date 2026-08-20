@@ -14,7 +14,7 @@
     "apps/core/src/domain/events/runtime-event-types.ts",
     "docs/decisions/0132-adaptive-browser-authentication-access.md"
   ],
-  "current_flow": "The hosted browser-auth backend is complete within the exact 13-file boundary. Literal JUnit leaf names now make the OIDC and browser-route contract proof selectable; public UI remains deferred to its dedicated stage.",
+  "current_flow": "Hosted OIDC and browser-auth trust boundaries are implemented and validated. Browser callbacks use a state cookie, operations workers reject browser auth routes before authentication parsing, and public UI remains deferred to its dedicated stage.",
   "criteria_map": {
     "Generic OIDC validates discovery issuer, state, nonce, PKCE, signature, audience, expiry, replay, and allowlisted outbound transport without exposing provider errors.": "oidc-adapter.ts owns discovery, PKCE/token exchange, JWKS validation, issuer, audience, expiry, and nonce checks using constrained transport.",
     "Public local and hosted auth routes consume only opaque, hashed browser credentials; local authorization remains loopback-only and one-use, while browser and Bearer routes reject each other.": "browser-auth.ts consumes opaque local and browser credentials through Stage 2 helpers and repository atomic consumption.",
@@ -39,7 +39,7 @@
       "source": "docs/decisions/0132-adaptive-browser-authentication-access.md"
     }
   ],
-  "input_sha256": "ffde086eb17d9d2433469d905c960155199396e5863dbf32295d24a73bfd0d12",
-  "recorded_at": "2026-08-20T10:13:05+00:00",
-  "commit": "9ea4642b985e830ef0b3ae7db9467be3db4af81a"
+  "input_sha256": "3fdd021a87d3a9d28fe9007f6d4a65d8ee01b593f0eb94e7f06cd965e251515f",
+  "recorded_at": "2026-08-20T11:57:34+00:00",
+  "commit": "508c4e77e23cfb814048bb892194b8fb6efa81c1"
 }
