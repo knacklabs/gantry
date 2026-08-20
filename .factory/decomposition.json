@@ -102,16 +102,59 @@
     {
       "id": "WEB-AUTH-1-2",
       "title": "Browser server trust boundary and local authorization",
-      "objective": "Mount browser authentication only in the full Control profile and implement local loopback authorization without changing Bearer-only /v1 API behavior.",
+      "objective": "Add the reusable browser trust-boundary policy for local authorization: cookie semantics, CSRF and canonical-origin checks, loopback recognition, and an exhaustive browser-role scope map.",
       "acceptance_criteria": [
-        "Full Control serves /ui, /auth/*, /ui/api/auth/*, and browser events from one origin; operational worker profiles do not mount these routes.",
-        "Browser routes reject Bearer credentials, /v1/* rejects session cookies, browser mutations require exact canonical Origin plus CSRF, and auth/session/cookie responses are no-store.",
-        "Local mode binds only to loopback, validates the canonical loopback host, supports fragment-token /ui/auth/local authorization, and returns the exact approved success, expired, used, and wrong-host copy.",
-        "Local sessions use the approved cookie flags plus 30-day idle and 90-day absolute lifetimes, and session, grant, and role are revalidated on requests and event heartbeats."
+        "Browser and Bearer credentials are mutually exclusive; browser session and CSRF cookies use the required local and hosted attributes, and authentication responses are no-store capable.",
+        "Browser mutations can require exact canonical Origin plus a synchronizer CSRF token, while local browser authorization recognizes only loopback hosts.",
+        "Every Control scope is classified as Administrator, Viewer-safe read, or browser-ineligible, with Viewer access read-only by policy."
       ],
       "dependencies": [
         "WEB-AUTH-1-1"
-      ]
+      ],
+      "write_scope": [
+        "apps/core/src/control/server/browser-auth-boundary.ts",
+        "apps/core/src/control/server/browser-scope-policy.ts",
+        "apps/core/test/unit/auth/browser-auth-boundary.test.ts",
+        "apps/core/test/unit/auth/browser-scope-policy.test.ts"
+      ],
+      "required_tests": [
+        {
+          "id": "browser auth boundary > keeps browser cookie and Bearer authentication mutually exclusive",
+          "path": "apps/core/test/unit/auth/browser-auth-boundary.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "browser scope policy > classifies every Control scope and keeps Viewer read-only",
+          "path": "apps/core/test/unit/auth/browser-scope-policy.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck"
+      ],
+      "review_budget": {
+        "max_changed_files": 4,
+        "max_changed_lines": 350,
+        "reason": "Pure shared policy boundary with direct unit proof."
+      },
+      "plan_contracts": [
+        {
+          "id": "AUTH-BOUNDARY-0",
+          "statement": "Browser and Bearer credentials are mutually exclusive; browser session and CSRF cookies use the required local and hosted attributes, and authentication responses are no-store capable.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-BOUNDARY-1",
+          "statement": "Browser mutations can require exact canonical Origin plus a synchronizer CSRF token, while local browser authorization recognizes only loopback hosts.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-BOUNDARY-2",
+          "statement": "Every Control scope is classified as Administrator, Viewer-safe read, or browser-ineligible, with Viewer access read-only by policy.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        }
+      ],
+      "reviewer_focus": "Cookie flags, exact-origin and CSRF policy, loopback-only recognition, Bearer/session mutual exclusion, and exhaustive Viewer scope classification."
     },
     {
       "id": "WEB-AUTH-1-3",
@@ -176,5 +219,5 @@
   "epic": "web-authentication",
   "plan_file": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md",
   "plan_sha256": "8f156263b545bcef9cb566173c0c1367deb2d6bc342a38ab04616562d2f275ec",
-  "commit": "b0fc104d120bff4ccb994d9b8a1a29d3d80c5eb3"
+  "commit": "9facfe5f7014546d60113b784a509568a66ba4c9"
 }

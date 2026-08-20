@@ -1,0 +1,55 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "WEB-AUTH-1-2",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [],
+  "open_items": [],
+  "summary": "The restored boundary is now present and has focused unit proof. It remains a pure reusable policy layer; route, session, and OIDC behavior stay in later stages.",
+  "inspected_refs": [
+    "apps/core/src/control/server/browser-auth-boundary.ts",
+    "apps/core/src/control/server/browser-scope-policy.ts",
+    "docs/decisions/0132-adaptive-browser-authentication-access.md"
+  ],
+  "current_flow": "Browser requests now have cookie, credential, origin, CSRF, loopback, and exhaustive role policy helpers. No route can turn a browser session into a Bearer credential.",
+  "criteria_map": {
+    "Browser and Bearer credentials are mutually exclusive; browser session and CSRF cookies use the required local and hosted attributes, and authentication responses are no-store capable.": "browser-auth-boundary.ts supplies cookie, credential-detection, and no-store helpers, proven by its focused test.",
+    "Browser mutations can require exact canonical Origin plus a synchronizer CSRF token, while local browser authorization recognizes only loopback hosts.": "browser-auth-boundary.ts supplies exact Origin, CSRF hash comparison, and loopback checks without accepting host aliases.",
+    "Every Control scope is classified as Administrator, Viewer-safe read, or browser-ineligible, with Viewer access read-only by policy.": "browser-scope-policy.ts uses satisfies Record<Scope,...>; focused tests cover map completeness and Viewer write denial."
+  },
+  "decision": "keep",
+  "new_abstractions": [],
+  "rounds": [
+    {
+      "question": "Should browser pages exchange a session for a machine Bearer key?",
+      "options": [
+        "Keep separate cookie and Bearer policies",
+        "Reuse machine Bearer credentials"
+      ],
+      "chosen": "Keep separate cookie and Bearer policies"
+    },
+    {
+      "question": "Should new Control scopes default to browser-readable?",
+      "options": [
+        "Require an exhaustive classification",
+        "Default unknown scopes to Viewer"
+      ],
+      "chosen": "Require an exhaustive classification"
+    }
+  ],
+  "citations": [
+    {
+      "finding": "Browser and Bearer credentials remain separate and browser mutations require canonical Origin and CSRF.",
+      "source": "docs/decisions/0132-adaptive-browser-authentication-access.md"
+    },
+    {
+      "finding": "Viewer access is server-enforced and every Control scope is classified.",
+      "source": "docs/decisions/0132-adaptive-browser-authentication-access.md"
+    }
+  ],
+  "input_sha256": "351ec2425c462d996821e53053dc8ff2e486c74a6316133b832fb6060686474d",
+  "recorded_at": "2026-08-20T09:41:40+00:00",
+  "commit": "a2a8aafc112143f353534071a69a0661769117f3"
+}
