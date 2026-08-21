@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0051-6458",
+  "profile": "degraded",
+  "reason": "NOTIFY-1 CI fix: replace legacy browser_click with browser_act in 4 test fixtures (browser-legacy-cleanup guard)",
+  "started_at": "2026-08-21T01:37:40+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}
