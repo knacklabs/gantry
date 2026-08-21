@@ -21,25 +21,10 @@ import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
-from unittest import mock
 
 import pytest
 
-from factory.scripts import factory_lib
-
 HARNESS = Path(__file__).resolve().parents[2]
-
-
-def test_safe_factory_fd_degrades_when_dir_fd_is_unavailable(tmp_path: Path):
-    real_open = os.open
-
-    def unavailable(path, flags, mode=0o777, *, dir_fd=None):
-        if dir_fd is not None:
-            raise NotImplementedError("dir_fd unavailable on this platform")
-        return real_open(path, flags, mode)
-
-    with mock.patch.object(factory_lib.os, "open", side_effect=unavailable):
-        assert factory_lib.safe_factory_write_json(tmp_path, "run.json", {}) is False
 
 
 def run(repo: Path, script: str, *args: str, stdin: str | None = None,

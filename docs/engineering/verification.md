@@ -16,7 +16,7 @@ environment limits separate from passing proof.
 | 6. Contributor and repository entry points are authoritative.                 | `CONTRIBUTING.md` contains environment setup, workflow, a risk-based validation matrix, contracts, migrations, generated-file rules, and PR readiness; root and docs indexes link the canonical standards.                                           | Prettier, documentation links, and `git diff --check` pass.                                                                                                               |
 | 7. Every governed record is classified.                                       | `docs/documentation-inventory.json` records category, lifecycle, authority, and intended action for all governed architecture, implementation, feature, decision, and plan paths.                                                                    | Exact-set audit reports 251 actual and 251 listed files, with no missing, extra, duplicate, or incomplete records.                                                        |
 | 8. DOCS-001 remains intact, discoverable, reproducible, and completed.        | Existing explorer/atlas links remain in the root and docs indexes; the completed plan now has `status: completed`.                                                                                                                                   | `git diff --quiet d1e6dd06..HEAD -- index.html docs/index.html docs/architecture/atlas` passes; `docs:check` verifies all five Archify pairs and their delivery evidence. |
-| 9. Runtime and product behavior is unaffected.                                | The branch changes documentation, repository checks/CI metadata, and one portable factory-write fallback test only; no runtime, API, schema, migration, CLI, provider, channel, permission, or product implementation file changes.                  | Architecture checks, formatting, documentation checks, focused checker tests, the factory regression test, and whitespace checks pass.                                    |
+| 9. Runtime and product behavior is unaffected.                                | The branch changes documentation and repository checks/CI metadata only; no runtime, API, schema, migration, CLI, provider, channel, permission, or product implementation file changes.                                                             | Architecture checks, formatting, documentation checks, focused checker tests, and whitespace checks pass.                                                                 |
 
 ## Final surface review
 
@@ -32,7 +32,7 @@ environment limits separate from passing proof.
 | Channel/provider adapters          | Unchanged by design | No channel, provider, credential, browser, or delivery adapter changes.                                                                                                   |
 | Docs/prompts                       | Changed             | Engineering policy, contributor entry points, lifecycle metadata, and the governed-document inventory are the intended branch output; factory prompt files are unchanged. |
 | Audit/events                       | Unchanged by design | No runtime audit schema, event contract, outbox, or event handling changes.                                                                                               |
-| Tests/verification                 | Changed             | Documentation-governance tests and deterministic checks prove the new repository contract; one factory test covers the portable write fallback used by verification.      |
+| Tests/verification                 | Changed             | Documentation-governance tests and deterministic checks prove the new repository contract.                                                                                |
 | DOCS-001 static explorer and atlas | Unchanged by design | `index.html`, `docs/index.html`, and `docs/architecture/atlas` have no diff from baseline `d1e6dd06`; only the completed plan lifecycle marker changed.                   |
 
 ## Verification snapshot
@@ -43,7 +43,6 @@ Passed on 2026-08-21:
 - `npm run check:architecture`.
 - `npm run format:check`.
 - `python3 -m unittest scripts.test_check_documentation` — 63 tests.
-- `python3 -m pytest -q factory/tests/test_gates.py::test_safe_factory_fd_degrades_when_dir_fd_is_unavailable` — one test.
 - exact documentation-inventory set audit — 251/251 paths.
 - `git diff --check`.
 - DOCS-001 explorer and atlas unchanged check against `d1e6dd06`.

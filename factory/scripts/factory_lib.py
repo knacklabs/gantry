@@ -288,7 +288,7 @@ def _safe_factory_fd(root: Path, name: str, flags: int) -> int | None:
             0o600,
             dir_fd=directory_fd,
         )
-    except (OSError, NotImplementedError):
+    except OSError:
         os.close(directory_fd)
         return None
     os.close(directory_fd)
