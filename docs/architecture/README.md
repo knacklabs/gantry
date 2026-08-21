@@ -5,6 +5,11 @@ decomposition. Current source and accepted decisions outrank explanatory docs;
 historical goal prompts, plans, audits, and handoffs preserve context but do not
 become current runtime truth by proximity.
 
+Repository changes must also follow the canonical
+[architecture rules](../engineering/architecture-rules.md), which define
+dependency direction, boundary ownership, and the required proof for structural
+changes.
+
 ## Current architecture path
 
 Read these in order for a source-derived view of the running system:

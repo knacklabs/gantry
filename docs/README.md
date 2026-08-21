@@ -32,3 +32,12 @@ boundaries, decisions, security model, and operations.
 
 - [Quality and validation](QUALITY.md) - deterministic validation flow.
 - [Debug checklist](DEBUG_CHECKLIST.md) - operational troubleshooting.
+
+## Contributing And Engineering
+
+- [Engineering standards](engineering/README.md) - canonical, tool-agnostic
+  rules for source, architecture, testing, contracts, operations, and docs.
+- [Contributor guide](../CONTRIBUTING.md) - environment setup, workflow,
+  validation matrix, migrations, and pull-request readiness.
+- [Factory workflow](FACTORY.md) - optional maintainer automation that helps
+  apply the engineering contract; contributors do not need it.
