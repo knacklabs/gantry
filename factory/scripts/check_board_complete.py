@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from factory_lib import repo_root
+from factory_lib import factory_dir, repo_root, story_dir
 from forge_cli.events import load_events
 from forge_cli.roadmap import load_items
 
@@ -28,7 +28,9 @@ def board_problems(root: Path) -> list[str]:
             problems.append(f"{key}: missing pr-linked event")
         if not predates_contract and not item.get("outcome"):
             problems.append(f"{key}: missing outcome")
-        if not (root / ".factory" / "history" / str(key)).is_dir():
+        key = str(key)
+        legacy_archive = factory_dir(root) / "history" / key
+        if not story_dir(root, key).is_dir() and not legacy_archive.is_dir():
             problems.append(f"{key}: missing .factory/history/{key}/ directory")
 
     return problems

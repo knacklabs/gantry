@@ -17,9 +17,12 @@ import sys
 from pathlib import Path
 
 from factory_lib import (
-    dump_json, grounding_digest, head_sha, load_json, now_iso, read_stdin_utf8,
-    repo_root, run_state_path, sha256_of, task_frontier_state, validate_payload,
+    plan_digest_without_assumptions,
+    dump_json, evidence_path, grounding_digest, head_sha, load_json, now_iso,
+    read_stdin_utf8, repo_root, requirements_digest, run_state_path, sha256_of,
+    task_frontier_state, validate_payload,
 )
+from forge_cli.specs import resolve_spec_reference
 
 VERDICTS = {"pass", "blocked"}
 TASK_DECISIONS = {"keep", "split", "block"}
@@ -176,7 +179,7 @@ if any(
 
 parser = argparse.ArgumentParser(description="Record a handover/plan grill from structured JSON")
 parser.add_argument("--gate", required=True,
-                    choices=["signoff", "spec", "epics", "plan", "task"])
+                    choices=["signoff", "spec", "epics", "requirements", "plan", "task"])
 parser.add_argument("--input", help="Path to grill JSON. If omitted, read from stdin.")
 parser.add_argument("--input-digest", dest="input_digest",
                     help="Path to the artifact this grill interrogated (roadmap input for "
@@ -219,7 +222,30 @@ if args.gate in ("spec", "epics", "plan"):
     digest_target = Path(args.input_digest).expanduser()
     if not digest_target.is_file():
         raise SystemExit(f"--input-digest {digest_target} not found")
-    payload["input_sha256"] = sha256_of(digest_target)
+    payload["input_sha256"] = (
+        plan_digest_without_assumptions(digest_target)
+        if args.gate == "plan" else sha256_of(digest_target)
+    )
+if args.gate == "requirements":
+    if args.input_digest:
+        raise SystemExit(
+            "--gate requirements self-derives its digest; do not pass --input-digest"
+        )
+    issue = load_json(run_state_path(root), default={}).get("issue_key", "")
+    if not issue:
+        raise SystemExit("no active story — run intake before the requirements grill")
+    items = load_json(root / "plans" / "roadmap.json", default={}).get("items", [])
+    item = next((entry for entry in items if entry.get("key") == issue), None)
+    spec_ref = item.get("spec") if isinstance(item, dict) else None
+    if not isinstance(spec_ref, str) or not spec_ref.strip():
+        raise SystemExit(f"active story {issue!r} has no confirmed spec")
+    spec = resolve_spec_reference(root, spec_ref, confirmed=True)
+    if payload.get("issue") and payload["issue"] != issue:
+        raise SystemExit(
+            f"payload issue {payload['issue']!r} does not match the active story {issue!r}"
+        )
+    payload["issue"] = issue
+    payload["input_sha256"] = requirements_digest(root, spec)
 if args.gate == "task":
     if not args.task:
         raise SystemExit("--gate task requires --task <id>")
@@ -230,6 +256,8 @@ if args.gate == "task":
             f"payload task_id {payload['task_id']!r} does not match --task {args.task!r}"
         )
     task = _validate_task_grill(root, payload, args.task)
+    for field in ("approved_task_plan_sha256", "approved_by", "approved_at"):
+        payload.pop(field, None)
     payload["task_id"] = args.task
     payload["input_sha256"] = grounding_digest(root, task)
 if args.gate == "plan":
@@ -245,10 +273,13 @@ if args.gate == "plan":
     payload["issue"] = issue
 payload["recorded_at"] = now_iso()
 payload["commit"] = head_sha(root)
+story = load_json(run_state_path(root), default={}).get("issue_key", "") \
+    if args.gate in ("requirements", "plan", "task") else ""
 if args.gate == "task":
-    dest = root / ".factory" / "grills" / "tasks" / f"{args.task}.json"
+    name = f"grills/tasks/{args.task}.json"
 else:
-    dest = root / ".factory" / "grills" / f"{args.gate}.json"
+    name = f"grills/{args.gate}.json"
+dest = evidence_path(root, story, name, for_write=True)
 dump_json(dest, payload)
 print(f"Recorded {args.gate} grill: {payload['verdict']} "
       f"({len(payload['gaps'])} gap(s), {len(payload['contradictions'])} contradiction(s), "

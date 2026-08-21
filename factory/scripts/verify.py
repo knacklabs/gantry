@@ -61,7 +61,7 @@ verify = {
     "commit": head_sha(root),
     "results": results,
 }
-dump_json(verify_state_path(root), verify)
+dump_json(verify_state_path(root, for_write=True), verify)
 if state:
     state["verify_status"] = "passed" if all_ok else "failed"
     state["updated_at"] = now_iso()

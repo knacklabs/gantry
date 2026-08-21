@@ -5,21 +5,8 @@ import json
 import re
 import shlex
 import subprocess
+import sys
 from pathlib import Path
-
-from factory_lib import (
-    client_signoff, load_json, read_hook_input, repo_root, run_state_path,
-)
-from forge_cli.context import context_files, context_paths, scan_inbox
-from forge_cli.quickfix import DEGRADED, claim_files, load_active, profile_of
-from forge_cli.repo_kind import is_harness_source_repo, locked_repo_path
-
-payload = read_hook_input()
-tool_name = payload.get("tool_name", "")
-tool_input = payload.get("tool_input") or {}
-command = (tool_input.get("command") or "").strip()
-permission_mode = payload.get("permission_mode", "")
-
 
 def deny(reason: str) -> None:
     print(json.dumps({
@@ -32,9 +19,176 @@ def deny(reason: str) -> None:
     raise SystemExit(0)
 
 
+EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+
+
+def _raw_payload() -> dict:
+    try:
+        stream = getattr(sys.stdin, "buffer", sys.stdin)
+        raw = stream.read()
+        value = json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _repo_from_cwd() -> Path:
+    current = Path.cwd().resolve()
+    return next((path for path in (current, *current.parents)
+                 if (path / ".git").exists()), current)
+
+
+def _unmerged_paths(root: Path) -> set[str]:
+    result = subprocess.run(
+        ["git", "ls-files", "-u", "-z"], cwd=root, capture_output=True,
+        text=True, encoding="utf-8", errors="surrogateescape",
+    )
+    if result.returncode:
+        return set()
+    return {
+        record.split("\t", 1)[1]
+        for record in result.stdout.split("\0")
+        if "\t" in record
+    }
+
+
+def _git_recovery(command: str, root: Path, unmerged: set[str]) -> bool | None:
+    """Allow/deny a single git-native recovery command; None means unrelated."""
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None
+    if not tokens or tokens[0].rsplit("/", 1)[-1] != "git":
+        return None
+    index = 1
+    while index < len(tokens) and tokens[index].startswith("-"):
+        if tokens[index] in {"-C", "--git-dir", "--work-tree"}:
+            return False
+        if tokens[index] in {"-C", "-c", "--git-dir", "--work-tree"}:
+            index += 2
+        else:
+            index += 1
+    if index >= len(tokens):
+        return None
+    verb, args = tokens[index], tokens[index + 1:]
+    if verb in {"merge", "rebase", "cherry-pick"}:
+        return args == ["--abort"]
+    if verb not in {"checkout", "rm", "add", "reset"}:
+        return None
+    if verb == "checkout":
+        modes = [arg for arg in args if arg in {"--ours", "--theirs"}]
+        if len(modes) != 1:
+            return None
+    paths: list[str] = []
+    skip_value = False
+    for arg in args:
+        if skip_value:
+            skip_value = False
+            continue
+        if arg in {"--pathspec-from-file"}:
+            return False
+        if arg in {"--source"}:
+            skip_value = True
+            continue
+        if arg == "--" or arg.startswith("-"):
+            continue
+        paths.append(arg)
+    if verb == "reset" and "--hard" in args:
+        return False
+    if verb == "reset" and not paths:
+        return True
+    normalized: set[str] = set()
+    for raw in paths:
+        candidate = Path(raw)
+        try:
+            normalized.add((candidate if candidate.is_absolute() else root / candidate)
+                           .resolve().relative_to(root.resolve()).as_posix())
+        except ValueError:
+            return False
+    return bool(normalized) and normalized <= unmerged
+
+
+STATIC_WRITE_EXEMPT_PREFIXES = ("plans/", "docs/", ".gstack/", "prototype/")
+STATIC_WRITE_EXEMPT_FILES = {"README.md", ".gitignore", ".gitattributes", ".envrc"}
+
+def _static_locked(raw: str, root: Path) -> bool:
+    value = raw.strip().strip("\"'")
+    if not value or "$" in value or "`" in value:
+        return True
+    candidate = Path(value)
+    try:
+        rel = (candidate if candidate.is_absolute() else root / candidate) \
+            .resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return False
+    return rel not in STATIC_WRITE_EXEMPT_FILES and not any(
+        rel == prefix.rstrip("/") or rel.startswith(prefix)
+        for prefix in STATIC_WRITE_EXEMPT_PREFIXES)
+
+
+def _fallback_readonly(command: str) -> bool:
+    if "$" in command or "`" in command or re.search(r"[<>]", command):
+        return False
+    for segment in re.split(r"&&|\|\||[;|\n]", command):
+        try:
+            tokens = shlex.split(segment)
+        except ValueError:
+            return False
+        while tokens and re.fullmatch(r"\w+=\S*", tokens[0]):
+            tokens.pop(0)
+        if not tokens:
+            continue
+        name = tokens[0].rsplit("/", 1)[-1]
+        if name == "git":
+            verb = next((token for token in tokens[1:] if not token.startswith("-")), "")
+            if any(token.startswith("--output") for token in tokens[1:]) or verb not in {
+                "status", "diff", "show", "log", "ls-files", "rev-parse"}:
+                return False
+        elif name not in {"pwd", "ls", "rg", "grep", "cat", "head", "tail", "wc", "diff", "stat", "file"}:
+            return False
+    return True
+
+
+def denylist_fallback(payload: dict, reason: str) -> None:
+    root = _repo_from_cwd()
+    command = ((payload.get("tool_input") or {}).get("command") or "").strip()
+    unmerged = _unmerged_paths(root)
+    recovery = _git_recovery(command, root, unmerged)
+    if recovery is True:
+        print(json.dumps({}))
+        raise SystemExit(0)
+    if recovery is False:
+        deny("Merge recovery is limited to the paths currently reported by git ls-files -u.")
+    tool = payload.get("tool_name", "")
+    target = ((payload.get("tool_input") or {}).get("file_path") or
+              (payload.get("tool_input") or {}).get("notebook_path") or "")
+    if (tool in EDIT_TOOLS and _static_locked(target, root)) or (
+        tool == "Bash" and not _fallback_readonly(command)
+    ):
+        deny(f"Forge emergency deny-list engaged ({reason}); product and canon writes stay locked.")
+    print(json.dumps({}))
+    raise SystemExit(0)
+
+
+payload = _raw_payload()
+try:
+    from factory_lib import (
+        client_signoff, load_json, repo_root, run_state_path,
+    )
+    from forge_cli.context import context_files, context_paths, scan_inbox
+    from forge_cli.quickfix import DEGRADED, claim_files, load_active, profile_of
+    from forge_cli.repo_kind import is_harness_source_repo, locked_repo_path
+except (ImportError, SyntaxError) as exc:
+    denylist_fallback(payload, type(exc).__name__)
+
+tool_name = payload.get("tool_name", "")
+tool_input = payload.get("tool_input") or {}
+command = (tool_input.get("command") or "").strip()
+permission_mode = payload.get("permission_mode", "")
+
+
 # Session lock: product and canon writes are always refused unless a bounded
 # degraded window is open. Orchestration surfaces stay available.
-EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 # .factory/ is deliberately NOT writable by hand: run.json holds plan_status,
 # so a hand-edit disarms this very lock, and AGENTS.md already requires that
 # evidence enter .factory/ only through the record_* scripts. Those scripts
@@ -465,6 +619,29 @@ GATED_PHASES = (
     "pr-ready",
 )
 root = repo_root()
+unmerged = _unmerged_paths(root)
+recovery = _git_recovery(command, root, unmerged) if unmerged else None
+if recovery is True:
+    print(json.dumps({}))
+    raise SystemExit(0)
+if recovery is False:
+    deny("Merge recovery is limited to the paths currently reported by git ls-files -u.")
+if tool_name in EDIT_TOOLS and unmerged:
+    edit_path = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
+    if edit_path:
+        candidate = Path(edit_path)
+        try:
+            rel = (candidate if candidate.is_absolute() else root / candidate).resolve() \
+                .relative_to(root.resolve()).as_posix()
+        except ValueError:
+            rel = ""
+        if rel in unmerged:
+            deny("Conflicted files must be resolved with git-native recovery, not content hand-writes.")
+
+try:
+    run_state = load_json(run_state_path(root), default={})
+except (json.JSONDecodeError, OSError, TypeError, ValueError) as exc:
+    denylist_fallback(payload, type(exc).__name__)
 
 if tool_name == "Bash" and has_git_commit(command):
     context_dir, ledger_path = context_paths(root)
@@ -486,8 +663,6 @@ if tool_name == "Bash" and has_git_commit(command):
         if staged.returncode:
             deny("Context ledger refreshed but could not be staged: " +
                  (staged.stderr.strip() or staged.stdout.strip() or "git add failed"))
-
-run_state = load_json(run_state_path(root), default={})
 
 edit_target = (tool_input.get("file_path") or tool_input.get("notebook_path") or "")
 write_targets = [edit_target] if tool_name in EDIT_TOOLS and edit_target else []

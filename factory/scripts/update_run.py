@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import argparse
 from factory_lib import (
-    client_signoff, dump_json, load_json, now_iso, repo_root, review_dir, run_state_path,
-    tests_state_path, verify_state_path,
+    client_signoff, decomposition_state_path, dump_json, load_json, now_iso, repo_root,
+    review_dir, run_state_path, tests_state_path, verify_state_path,
 )
 
 parser = argparse.ArgumentParser(description="Update factory run state")
@@ -81,7 +81,7 @@ if args.phase in IMPL_PHASES:
             "Implementation never starts before plan approval."
         )
     effective_decomp = args.decomposition_status or state.get("decomposition_status")
-    if effective_decomp != "recorded" or not (root / ".factory" / "decomposition.json").exists():
+    if effective_decomp != "recorded" or not decomposition_state_path(root).exists():
         raise SystemExit(
             f"Phase '{args.phase}' requires recorded decomposition "
             "(record_decomposition_from_json.py after plan approval). "
