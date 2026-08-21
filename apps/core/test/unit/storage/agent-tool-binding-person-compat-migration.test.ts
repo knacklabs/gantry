@@ -15,6 +15,11 @@ describe('agent tool binding person compatibility migration', () => {
     expect(migration).toContain(
       "conname = 'agent_tool_bindings_app_person_fk'",
     );
+    expect(migration).toContain('ranked_agent_tool_bindings');
+    expect(migration).toContain(
+      'CASE WHEN "status" = \'active\' THEN 0 ELSE 1 END',
+    );
+    expect(migration).toContain('WHERE binding_rank > 1');
     expect(migration).toContain("conname = 'idx_agent_tool_bindings_unique'");
     expect(migration).toContain('UNIQUE NULLS NOT DISTINCT');
   });
