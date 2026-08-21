@@ -25,14 +25,6 @@ export const JOB_NOTIFICATION_VIEW_MAX_TEXT_LENGTH = 2_300;
 
 type RecordedJobAction = Pick<RuntimeEvent, 'eventType' | 'payload'>;
 
-const GOOGLE_SHEETS_ACTION_LABELS: Record<string, string> = {
-  'google.sheets.read': 'Read Google Sheets',
-  'google.sheets.values.get': 'Read Google Sheets values',
-  'google.sheets.values.append': 'Added rows to Google Sheets',
-  'google.sheets.values.update': 'Updated Google Sheets values',
-  'google.sheets.values.write': 'Wrote Google Sheets values',
-};
-
 /** Projects durable run actions without consulting runtime state. */
 export function structuredJobResultFromRecordedActions(
   actions: readonly RecordedJobAction[],
@@ -54,9 +46,7 @@ export function structuredJobResultFromRecordedActions(
       return [
         {
           outcome: payload.ok ? ('done' as const) : ('failed' as const),
-          label:
-            GOOGLE_SHEETS_ACTION_LABELS[capabilityId] ??
-            humanizeTechnicalIdentifier(capabilityId),
+          label: humanizeTechnicalIdentifier(capabilityId),
           ...(detail ? { detail } : {}),
         },
       ];

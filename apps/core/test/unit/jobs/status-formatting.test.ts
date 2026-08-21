@@ -87,7 +87,7 @@ describe('job status formatting', () => {
     expect(result?.items).toEqual([
       {
         outcome: 'done',
-        label: 'Added rows to Google Sheets',
+        label: 'Google Sheets Values Append',
         detail: 'Added 3 rows.',
       },
       {
